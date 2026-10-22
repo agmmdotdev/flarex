@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./cart/find-or-create-customer": "./src/cart/steps/find-or-create-customer.ts",
     "./cart/confirm-inventory-step": "./src/cart/steps/confirm-inventory.ts",
     "./cart/prepare-confirm-inventory-input": "./src/cart/utils/prepare-confirm-inventory-input.ts",
     "./cart/confirm-variant-inventory": "./src/cart/workflows/confirm-variant-inventory.ts",

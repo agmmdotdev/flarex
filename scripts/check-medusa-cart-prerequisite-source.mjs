@@ -6,6 +6,15 @@ import ts from "@typescript/typescript6";
 const failure = "Changed native Cart prerequisite source";
 const nativePrefix = "third_party/medusa/upstream/";
 
+export const customerSelectionSourcePairs = Object.freeze([
+  { source: nativePrefix + "packages/core/core-flows/src/cart/steps/find-or-create-customer.ts",
+    target: "packages/medusa-core-flows/src/cart/steps/find-or-create-customer.ts", classification: "customerSelectionFork" },
+  { source: nativePrefix + "packages/core/utils/src/common/is-email.ts",
+    target: "packages/medusa-utils/src/common/is-email.ts", classification: "unchanged" },
+  { source: nativePrefix + "packages/core/utils/src/common/__tests__/is-email.spec.ts",
+    target: "packages/medusa-utils/src/common/__tests__/is-email.spec.ts", classification: "testPort" },
+].map(pair => Object.freeze(pair)));
+
 export const workflowCacheSourcePairs = Object.freeze([
   { source: nativePrefix + "packages/core/utils/src/caching/index.ts", target: "packages/medusa-utils/src/caching/index.ts", classification: "workflowCacheFork" },
   { source: nativePrefix + "packages/core/utils/src/feature-flags/flag-router.ts", target: "packages/medusa-utils/src/feature-flags/flag-router.ts", classification: "workflowCacheFork" },
@@ -16,6 +25,7 @@ export const workflowCacheSourcePairs = Object.freeze([
 /** Exact source preparation closure. Promotion admits models and pure calculators;
  * its ORM service, prefilter and service metadata are deliberately absent. */
 export const cartPrerequisiteSourcePairs = Object.freeze([
+  ...customerSelectionSourcePairs,
   ...workflowCacheSourcePairs,
   {
     "source": "third_party/medusa/upstream/LICENSE",
@@ -680,4 +690,33 @@ export function verifyWorkflowCacheFork(source, target, destination) {
     replace('import { FeatureFlagTypes } from "@medusajs/types"', 'import type * as FeatureFlagTypes from "@medusajs/types/feature-flag/index"');
   } else throw new Error(failure + ": unknown workflow cache source");
   if (authorityProgram(expected) !== authorityProgram(target)) throw new Error(failure + ": workflow cache program");
+}
+
+/** The native selection, cache helpers, email validation and scalar inverse
+ * remain complete. Only the existing transaction-covered host declaration,
+ * precise imports and erased contracts are adapted.
+ * @param {string} source @param {string} target @param {string} destination */
+export function verifyCustomerSelectionFork(source, target, destination) {
+  let expected = source.replaceAll("\r\n", "\n");
+  /** @param {string} before @param {string} after @param {number} [count] */
+  const replace = (before, after, count = 1) => {
+    if (expected.split(before).length !== count + 1) throw new Error(failure + ": Customer selection adaptation anchor");
+    expected = expected.split(before).join(after);
+  };
+  if (destination === "packages/medusa-core-flows/src/cart/steps/find-or-create-customer.ts") {
+    replace("  MedusaContainer,\n", "");
+    replace('} from "@medusajs/framework/types"', '} from "@medusajs/types"\nimport type { WorkflowContainer as MedusaContainer } from "@medusajs/workflows-sdk"');
+    replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"');
+    replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+    replace("customerId?: string | null", "customerId?: string | null | undefined");
+    replace("email?: string | null", "email?: string | null | undefined", 2);
+    replace("customer?: CustomerDTO | null", "customer?: CustomerDTO | null | undefined");
+    replace("  customer?: CustomerDTO\n", "  customer?: CustomerDTO | null | undefined\n");
+    replace("export const findOrCreateCustomerStep = createStep(", "export const findOrCreateCustomerStep = createStep<\n" +
+      "  FindOrCreateCustomerStepInput,\n  FindOrCreateCustomerOutputStepOutput,\n  StepCompensateInput\n>(");
+    replace("  findOrCreateCustomerStepId,", '  { name: findOrCreateCustomerStepId, compensation: "transactionCovered" },');
+  } else if (destination !== "packages/medusa-utils/src/common/is-email.ts") {
+    throw new Error(failure + ": unknown Customer selection source");
+  }
+  if (authorityProgram(expected) !== authorityProgram(target)) throw new Error(failure + ": Customer selection program");
 }

@@ -7,7 +7,7 @@ import { verifyNativeJsonAssignment } from "./check-medusa-json-assignment-sourc
 import { pricingRepositoryNormalizationSource, verifyNativePriceListPriceNormalization, verifyPriceListPriceCreationCallbacks, verifyPriceListPriceCreationSelection, verifyPriceListPriceRemovalCallbacks, verifyPriceListPriceRemovalSelection, priceListPriceBatchSourcePair, verifyPriceListPriceBatchCallbacks, verifyPriceListPriceBatchSelection, verifyPriceListPriceBatchService } from "./check-medusa-price-list-prices-source.mjs";
 import { verifyNativePriceListPriceUpdate, stripNativePriceListPriceUpdatePricingExtension } from "./check-medusa-price-list-price-update-source.mjs";
 import { variantItemPricingSourcePairs, verifyVariantItemPricingSource } from "./check-medusa-variant-item-pricing-source.mjs";
-import { cartPrerequisiteSourcePairs, workflowCacheSourcePairs, verifyWorkflowCacheFork, verifyCartPrerequisiteSourceSelection, verifyPaymentJoinerFork } from "./check-medusa-cart-prerequisite-source.mjs";
+import { cartPrerequisiteSourcePairs, workflowCacheSourcePairs, customerSelectionSourcePairs, verifyCustomerSelectionFork, verifyWorkflowCacheFork, verifyCartPrerequisiteSourceSelection, verifyPaymentJoinerFork } from "./check-medusa-cart-prerequisite-source.mjs";
 import { inventoryConfirmationSourcePairs, inventoryAvailabilitySourcePair, verifyInventoryConfirmationSourceSelection,
   verifyInventoryConfirmationFork, verifyNativeInventoryAvailabilityExtraction, verifyInventoryConfirmationPreparationTest } from "./check-medusa-inventory-confirmation-source.mjs";
 import { createHash } from "node:crypto";
@@ -777,9 +777,11 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       throw new Error("Payment joiner adaptation outside its selected native source pair");
     if (file.classification === "workflowCacheFork" && !workflowCacheSourcePairs.some(pair => pair.target === file.target && pair.source === file.source && pair.classification === file.classification))
       throw new Error("Workflow cache adaptation outside its selected native source pair");
+    if (file.classification === "customerSelectionFork" && !customerSelectionSourcePairs.some(pair => pair.target === file.target && pair.source === file.source && pair.classification === file.classification))
+      throw new Error("Customer selection adaptation outside its selected native source pair");
     if (file.classification === "inventoryConfirmationFork" && !inventoryConfirmationSourcePairs.some(pair => pair.target === file.target && pair.source === file.source && pair.classification === file.classification))
       throw new Error("Inventory confirmation adaptation outside its selected native source pair");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "inventoryConfirmationFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "inventoryConfirmationFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.target === "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification === "pricingServiceFork") {
@@ -894,6 +896,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
         verifyPaymentJoinerFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
       if (file.classification === "workflowCacheFork")
         verifyWorkflowCacheFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
+      if (customerSelectionSourcePairs.some(pair => pair.target === file.target && pair.classification !== "testPort"))
+        verifyCustomerSelectionFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       const inventoryConfirmationPair = inventoryConfirmationSourcePairs.find(pair => pair.target === file.target);
       if (inventoryConfirmationPair?.classification === "inventoryConfirmationFork" || inventoryConfirmationPair?.target === "packages/medusa-utils/src/common/deep-flat-map.ts")
         verifyInventoryConfirmationFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);

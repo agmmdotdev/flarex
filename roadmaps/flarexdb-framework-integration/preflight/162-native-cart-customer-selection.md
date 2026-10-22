@@ -2,10 +2,11 @@
 
 ## Status and authority
 
-Status: native contract characterized; shared prerequisites implemented;
-Customer adapter admission remains pending.
-The original Customer branch is the next
-independent Cart child after the implemented Inventory confirmation branch.
+Status: implemented private bounded Customer selection profile; shared
+prerequisites implemented. This independent Cart child retains the genuine
+selection step, scalar guest creation and its physical inverse. It does not
+admit the complete Cart root.
+
 The shared [Boolean partial-index prerequisite](../../shared-logical-storage/70-boolean-partial-unique-indexes.md)
 is implemented independently. Shared [requested optional-resource resolution](../../workflow-foundations/11-workflow-host-composition.md#requested-optional-resources)
 and the unchanged native cache utility export closure are implemented separately
@@ -77,22 +78,41 @@ The native compiler and ordinary-role PostgreSQL catalog agree on active-only
 membership. Physical inverse descendants and retained history still require
 bounded complete selection or an explicit refusal.
 
-## Admission plan and remaining gates
+## Bounded persistence profile
 
-1. Use the shared predicate support, preserving old identities, selectors,
-   unique claims and supported consumer regressions.
-2. Retain the genuine Customer characterization with original repositories, SDK
-   child container and local EventBus. Preserve null/empty branches, ID and email ordering, mixed
-   account/guest cohorts, actual DTOs, empty Address calls, context identities,
-   native failures, cancellation, late failure and retained inverse closure.
-3. Use shared optional-resource resolution and its native utility exports,
-   then promote the exact native step and email helper with precise exports and
-   provenance. Implement the narrow Customer adapter and genuine wrapper using
-   existing construction owners; retain unsupported-method refusal.
-4. Measure complete forward and retained-inverse calls/events before selecting
-   resources. No larger allowance is selected by this plan.
-5. Validate both adapter database lanes, affected types/builds/source/portable
-   checks and lint, obtain both required reviews, then commit the complete slice.
+The private profile exposes only `retrieveCustomer`, `listCustomers`, scalar
+`createCustomers` and scalar `deleteCustomers` to the genuine selection step.
+Reads retain complete scalar Customer DTOs and at most two native ID-ordered
+email matches. One invocation can create at most one guest. It installs all
+four genuine models and retains both active Boolean Address unique indexes;
+the genuine empty `createCustomerAddresses([])` call and
+`serialize([], { populate: true })` remain inside the same borrowed context.
+
+The retained inverse selects one Customer and complete history of at most one
+Address, including a deleted Address. Larger Address cohorts refuse before
+mutation. Any active or deleted Customer–Group membership also refuses before
+writes. The original native deletion witness leaves explicit membership rows
+orphaned; the adapter does not introduce a cascade to repair that business
+behavior. The original witness remains authoritative, and membership-bearing
+native deletion requires a separate business decision and native inverse proof.
+Independent Groups remain unchanged.
+
+This profile keeps the default call, event and other resource limits. It
+selects the existing queued root and borrowed-operation scheduling without a
+new allowance. The native ID-only inverse still does not prove generation-safe
+ownership or arbitrary descendant support.
+
+## Admission boundary
+
+1. The original native characterization remains separate from the adapter
+   candidate, including the membership-orphan witness and explicit refusal.
+2. Private admission covers connected scalar selection, guest creation, complete
+   DTOs, empty Address calls, native failures/events and retained
+   inverse on PGlite and ordinary-role PostgreSQL. Active and deleted Address
+   history, excessive descendants and active/deleted membership refusal before
+   writes remain explicit boundaries.
+3. Complete Cart composition, broader Customer methods and membership-bearing
+   physical deletion require their own connected admission.
 
 Original failing witnesses and corrected candidates remain separate. A harness
 observer must preserve native Proxy targets, receivers, contexts and Promise

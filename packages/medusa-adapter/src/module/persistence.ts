@@ -1,4 +1,4 @@
-import type { DAL, ModulePersistenceAdapter, ModulePersistenceModel } from "@medusajs/framework/types";
+import type { DAL, InferEntityType, ModulesSdkTypes, ModulePersistenceAdapter, ModulePersistenceModel } from "@medusajs/framework/types";
 import { Result } from "effect";
 import { lowerCaseFirst } from "@medusajs/utils/common/lower-case-first";
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils/portable";
@@ -63,14 +63,22 @@ class AdmittedRepository implements DAL.RepositoryService {
 export function prepareCommerceInternalService<Model extends ModulePersistenceModel>(model: Model) {
   const Service = MedusaInternalService(model);
   const repositoryKey = lowerCaseFirst(model.name) + "Repository";
-  return (repository: DAL.RepositoryService, persistence: ModulePersistenceAdapter) => new Service<object, Model>({
+  // Native module constructors require the inferred entity contract, while
+  // the DML object remains the factory's runtime model and repository identity.
+  return (repository: DAL.RepositoryService, persistence: ModulePersistenceAdapter): CommerceInternalService<Model> => new Service<object, InferEntityType<Model>>({
     [repositoryKey]: repository,
     [ContainerRegistrationKeys.MODULE_PERSISTENCE_ADAPTER]: persistence,
   });
 }
 
-export type CommerceInternalService<Model extends ModulePersistenceModel> =
-  ReturnType<ReturnType<typeof prepareCommerceInternalService<Model>>>;
+/** Native constructors spell their entity generic as either DML or inferred
+ * entity. Every native member already normalizes through InferEntityType.
+ * Project the complete interface so compatibility is checked by those member
+ * contracts rather than by the differently spelled generic arguments. */
+export type CommerceInternalService<Model extends ModulePersistenceModel> = {
+  [Member in keyof ModulesSdkTypes.IMedusaInternalService<InferEntityType<Model>>]:
+    ModulesSdkTypes.IMedusaInternalService<InferEntityType<Model>>[Member];
+};
 
 /** Capture native model layout once with the module definition. No repository,
  * manager, event subscriber, Promise owner or live service is retained here.

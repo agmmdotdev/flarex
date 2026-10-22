@@ -1,8 +1,9 @@
 // @ts-check
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { cartPrerequisiteSourcePairs, workflowCacheSourcePairs, verifyWorkflowCacheFork, verifyCartPrerequisiteSourceSelection, verifyPaymentJoinerFork } from "./check-medusa-cart-prerequisite-source.mjs";
+import { cartPrerequisiteSourcePairs, workflowCacheSourcePairs, customerSelectionSourcePairs, verifyCustomerSelectionFork, verifyWorkflowCacheFork, verifyCartPrerequisiteSourceSelection, verifyPaymentJoinerFork } from "./check-medusa-cart-prerequisite-source.mjs";
 import { verifyModuleTypeFork } from "./check-medusa-currency-promotion.mjs";
+import { verifyTestPort } from "./check-medusa-test-port.mjs";
 
 const failure = "Changed native Cart prerequisite source";
 /** @param {string} target */
@@ -18,6 +19,75 @@ function rejectPaymentMutation(before, after) {
   expect(changed).not.toBe(payment.actual);
   expect(() => verifyPaymentJoinerFork(payment.native, changed)).toThrow(failure);
 }
+
+describe("native Customer selection source contracts", () => {
+  it("selects only the genuine step, email validator and original email tests", () => {
+    expect(customerSelectionSourcePairs.map(pair => [pair.target, pair.classification])).toEqual([
+      ["packages/medusa-core-flows/src/cart/steps/find-or-create-customer.ts", "customerSelectionFork"],
+      ["packages/medusa-utils/src/common/is-email.ts", "unchanged"],
+      ["packages/medusa-utils/src/common/__tests__/is-email.spec.ts", "testPort"],
+    ]);
+  });
+  it.each(customerSelectionSourcePairs.filter(pair => pair.classification !== "testPort"))("preserves complete typed and emitted $target", pair => {
+    const selected = entry(pair.target);
+    expect(() => verifyCustomerSelectionFork(selected.native, selected.actual, selected.target)).not.toThrow();
+  });
+  it.each([
+    ["if (!isDefined(data.customerId) && !isDefined(data.email))", "if (false)"],
+    ["          customer: undefined,\n", ""],
+    ["service.retrieveCustomer(customerId)", 'service.retrieveCustomer("other")'],
+    ["return await useCache<CustomerDTO>(", "return await Promise.resolve<CustomerDTO>("],
+    ["service.listCustomers(filters)", "service.listCustomers({ email })"],
+    ['key: ["find-or-create-customer-by-id", customerId]', 'key: ["other", customerId]'],
+    ["if (data.customerId)", "if (false)"],
+    ["validateEmail(data.email)", "data.email"],
+    [": await fetchCustomersByEmail(validatedEmail, container)", ": (await fetchCustomersByEmail(validatedEmail, container)).reverse()"],
+    ["if (customer?.has_account)", "if (customer)"],
+    ["          container,\n          false", "          container,\n          true"],
+    ["service.createCustomers({ email: validatedEmail })", "service.createCustomers([{ email: validatedEmail }])"],
+    ["customerWasCreated = true", "customerWasCreated = false"],
+    ["if (!customerWasCreated || !customer?.id)", "if (!customer?.id)"],
+    ["service.deleteCustomers(customer.id)", "service.deleteCustomers([customer.id])"],
+    ["service.deleteCustomers(customer.id)", 'service.deleteCustomers("other")'],
+    ['compensation: "transactionCovered"', 'compensation: "other"'],
+    ["  StepCompensateInput\n>(", "  unknown\n>("],
+    ["  customer?: CustomerDTO | null | undefined\n", "  customer?: CustomerDTO\n"],
+  ])("refuses changed selection, cache, retained shape or compensation: %s", (before, after) => {
+    const selected = entry("packages/medusa-core-flows/src/cart/steps/find-or-create-customer.ts");
+    const changed = selected.actual.replace(before, after);
+    expect(changed).not.toBe(selected.actual);
+    expect(() => verifyCustomerSelectionFork(selected.native, changed, selected.target)).toThrow(failure);
+  });
+  it("refuses moving validation after the native account return", () => {
+    const selected = entry("packages/medusa-core-flows/src/cart/steps/find-or-create-customer.ts");
+    const validation = "      const validatedEmail = (data.email && validateEmail(data.email)) as string\n\n";
+    const changed = selected.actual.replace(validation, "").replace("      if (customer && customer.email !== validatedEmail)",
+      validation + "      if (customer && customer.email !== validatedEmail)");
+    expect(changed).not.toBe(selected.actual);
+    expect(() => verifyCustomerSelectionFork(selected.native, changed, selected.target)).toThrow(failure);
+  });
+  it.each([
+    ["email.toLowerCase().match(EMAIL_REGEX)", "email.trim().toLowerCase().match(EMAIL_REGEX)"],
+    ["return email.toLowerCase()", "return email"],
+    ["if (!validatedEmail)", "if (false)"],
+    ['"The email is not valid"', '"Other error"'],
+    ["email: string", "email: unknown"],
+  ])("refuses changed native email runtime or erased contract: %s", (before, after) => {
+    const selected = entry("packages/medusa-utils/src/common/is-email.ts"), changed = selected.actual.replace(before, after);
+    expect(changed).not.toBe(selected.actual);
+    expect(() => verifyCustomerSelectionFork(selected.native, changed, selected.target)).toThrow(failure);
+  });
+  it("retains every original email test through the existing test-port owner", () => {
+    const selected = entry("packages/medusa-utils/src/common/__tests__/is-email.spec.ts");
+    expect(() => verifyTestPort(selected.native, selected.actual)).not.toThrow();
+    expect(() => verifyTestPort(selected.native, selected.actual.replace('"The email is not valid"', '"Other error"'))).toThrow();
+    expect(() => verifyTestPort(selected.native, selected.actual.replace("expect.assertions(1)", "expect.assertions(0)"))).toThrow();
+  });
+  it("refuses redirecting the Customer fork to an unrelated owner", () => {
+    const selected = entry("packages/medusa-core-flows/src/cart/steps/find-or-create-customer.ts");
+    expect(() => verifyCustomerSelectionFork(selected.native, selected.actual, "packages/medusa-core-flows/src/cart/steps/find-sales-channel.ts")).toThrow(failure);
+  });
+});
 
 describe("native shared workflow cache source contracts", () => {
   it.each(workflowCacheSourcePairs.filter(pair => pair.classification === "workflowCacheFork"))("preserves complete typed and emitted $target", pair => {

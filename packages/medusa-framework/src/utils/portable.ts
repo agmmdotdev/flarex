@@ -87,3 +87,4 @@ export { ApplicationMethodAllocation, ApplicationMethodTargetType, ApplicationMe
 export { CartWorkflowEvents } from "@medusajs/utils/core-flows/events";
 export { FloatProperty } from "@medusajs/utils/dml/properties/float";
 export { useCache } from "@medusajs/utils/caching/index";
+export { validateEmail } from "@medusajs/utils/common/is-email";

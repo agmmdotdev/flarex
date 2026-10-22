@@ -1,8 +1,9 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { mockRelationalRead } from "./mock-relational-read";
 import { Effect, Result } from "effect";
-import type { DAL, ModulePersistenceAdapter } from "@medusajs/framework/types";
+import type { DAL, InferEntityType, ModulesSdkTypes, ModulePersistenceAdapter } from "@medusajs/framework/types";
 import { model } from "@medusajs/utils/dml/model";
+import { Currency } from "@medusajs/currency/models";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, commerceLimits, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
@@ -51,6 +52,21 @@ function libraryProfile() {
 }
 
 describe("prepared commerce module definitions", () => {
+  it("preserves every native internal-service member for raw DML and inferred entity contracts", () => {
+    expectTypeOf<CommerceInternalService<typeof Volume>>()
+      .toEqualTypeOf<ModulesSdkTypes.IMedusaInternalService<InferEntityType<typeof Volume>>>();
+    expectTypeOf<CommerceInternalService<typeof Volume>>()
+      .toMatchTypeOf<ModulesSdkTypes.IMedusaInternalService<typeof Volume>>();
+    expectTypeOf<ModulesSdkTypes.IMedusaInternalService<typeof Volume>>()
+      .toMatchTypeOf<CommerceInternalService<typeof Volume>>();
+    expectTypeOf<CommerceInternalService<typeof Currency>>()
+      .toEqualTypeOf<ModulesSdkTypes.IMedusaInternalService<InferEntityType<typeof Currency>>>();
+    expectTypeOf<CommerceInternalService<typeof Currency>>()
+      .toMatchTypeOf<ModulesSdkTypes.IMedusaInternalService<typeof Currency>>();
+    expectTypeOf<ModulesSdkTypes.IMedusaInternalService<typeof Currency>>()
+      .toMatchTypeOf<CommerceInternalService<typeof Currency>>();
+  });
+
   it("connects native module mutation subscribers during shared composition", async () => {
     const source = libraryProfile();
     let subscribers = 0;
@@ -129,6 +145,7 @@ describe("prepared commerce module definitions", () => {
       const root = yield* fixture;
       const rows = yield* module.use(root, ({ dependencies: services, context }) => {
         expectTypeOf(services.volumeService).toEqualTypeOf<CommerceInternalService<typeof Volume>>();
+        expectTypeOf(services.volumeService).toEqualTypeOf<ModulesSdkTypes.IMedusaInternalService<InferEntityType<typeof Volume>>>();
         expectTypeOf(services.editionService).toEqualTypeOf<CommerceInternalService<typeof Edition>>();
         // @ts-expect-error No service exists for an unregistered model.
         void services.currencyService;

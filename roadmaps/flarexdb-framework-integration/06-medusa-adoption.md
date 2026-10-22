@@ -811,14 +811,19 @@ identity diagnostic gap and complete Cart gates remain explicit in the preflight
 This capability admits no Cart writes, Country-ordering decision or resource
 allowance for the complete Cart root.
 
-The next independent [Customer selection child](./preflight/162-native-cart-customer-selection.md)
-is in native preflight. Its genuine four-model compiler closure requires the
-implemented shared Boolean-and-active partial unique-index support before adapter
-admission. The native DML and PostgreSQL index definitions agree. Shared
-identity-bound requested optional absence and the unchanged native cache utility
-closure are implemented independently. Customer selection, guest creation and
-retained physical compensation remain separate
-from complete Cart admission and its pending business decisions.
+The bounded [Customer selection child](./preflight/162-native-cart-customer-selection.md)
+implements the genuine native selection step, scalar guest creation and retained
+physical compensation over all four Customer models. It reuses implemented
+Boolean-and-active partial unique indexes, identity-bound requested Caching
+absence and the unchanged native cache utility. Reads return complete scalar
+Customer DTOs; creation preserves native empty Address calls and creation-only
+empty relation initialization. Its inverse admits one Customer and complete
+history of at most one Address. Any active or deleted Group membership refuses
+before writes because the original native inverse leaves explicit membership
+rows orphaned; a native business correction remains a separate decision. The
+profile retains default resource limits and existing queued scheduling. This
+private bounded child is admitted; complete Cart admission and its other
+business decisions remain separate.
 
 The [native Cart creation preflight](./preflight/160-native-cart-creation-workflow.md)
 records the next connected objective. Its selected original-native cohort is
