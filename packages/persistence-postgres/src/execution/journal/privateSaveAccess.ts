@@ -31,6 +31,7 @@ interface SaveState {
   readonly principal: typeof PrivateReadPrincipal.Type;
   readonly collection: string; readonly tableName: string; readonly field: string;
   readonly participant: string;
+  readonly nativeProfileRevision: string;
   readonly configSha256: string; readonly provenanceSha256: string;
   readonly profileRevision: string;
   readonly admission: LogicalParticipantBorrowBase["bundle"];
@@ -95,7 +96,8 @@ export function makePrivateReferenceSaveOperations(owner: JournalAttemptOwner) {
           // SAFETY: only this genuine attempt/permission/source issuer registers the inert token.
           const access = Object.freeze({}) as PrivateReferenceSaveAccess;
           saves.set(access, { attempt, evidence: evidence.value, principal, collection: selection.collection, tableName: table.logicalTableName,
-            field: selection.relation, participant: selection.participant, ...document.contentIdentity, profileRevision: identity.sha256Hex, admission: selected, methods,
+            field: selection.relation, participant: selection.participant, nativeProfileRevision: selection.nativeProfileRevision,
+            ...document.contentIdentity, profileRevision: identity.sha256Hex, admission: selected, methods,
             isLive: () => finite.status === "open" && Result.isSuccess(requireFiniteAttemptPreparationOpen(finite.metadata, attempt)) });
           return access;
         }).pipe(Effect.ensuring(Effect.sync(() => { finite.inFlightOperations--; })));
@@ -108,6 +110,7 @@ export function makePrivateReferenceSaveOperations(owner: JournalAttemptOwner) {
 export function inspectPrivateReferenceSaveAccess(access: PrivateReferenceSaveAccess, attempt: SessionJournalAttempt) {
   const selected = inspect(access, attempt);
   return selected === undefined ? undefined : Object.freeze({ collection: selected.state.collection, tableName: selected.state.tableName,
+    participant: selected.state.participant, nativeProfileRevision: selected.state.nativeProfileRevision,
     field: selected.state.field, configSha256: selected.state.configSha256, provenanceSha256: selected.state.provenanceSha256,
     profileRevision: selected.state.profileRevision, admission: selected.state.admission,
     source: selected.fact.permissions.source });

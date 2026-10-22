@@ -645,8 +645,9 @@ export class FlarexPointMutationExactRuntimeV1 extends WorkerEntrypoint {
   runPrivateMixed(
     input: unknown,
     journal: unknown,
+    initialSyscallSequence: bigint = 0n,
   ): Promise<PointMutationExactRuntimeHostResponseV2> {
-    return runExactRuntime(input, journal, true);
+    return runExactRuntime(input, journal, true, initialSyscallSequence);
   }
 }
 
@@ -654,6 +655,7 @@ async function runExactRuntime(
   input: unknown,
   journal: unknown,
   privateMixed: boolean,
+  initialSyscallSequence: bigint = 0n,
 ): Promise<PointMutationExactRuntimeHostResponseV2> {
     let journalRuntime: ExactRuntimeJournal | undefined;
     let capability: JournalCapability | undefined;
@@ -665,6 +667,8 @@ async function runExactRuntime(
         throw new Error("Exact point-mutation runtime admits one invocation.");
       }
       runAdmitted = true;
+      if (typeof initialSyscallSequence !== "bigint" || initialSyscallSequence < 0n || initialSyscallSequence > MAX_INT64)
+        throw new Error("Invalid private journal operation cursor.");
       const request = decodeRequest(input);
       const admittedCapability = decodeJournalCapability(journal);
       if (
@@ -689,6 +693,7 @@ async function runExactRuntime(
               request.tables,
               admittedCapability,
               privateMixed,
+              initialSyscallSequence,
             );
             return Object.freeze({
               context: executionContext(
@@ -1504,6 +1509,7 @@ function databaseForJournal(
   tables: ReadonlyArray<DecodedExactRuntimeTable>,
   journal: JournalCapability,
   admitPrivateMixed: boolean,
+  initialSyscallSequence: bigint,
 ): ExactRuntimeJournal {
   const namesById = new Map<string, string>(
     tables.map((table) => [String(table.tableId), table.logicalName]),
@@ -1518,7 +1524,7 @@ function databaseForJournal(
   const receivedTableStubs = new Set<TableJournalCapability>();
   const indexCapabilities = new Map<string, Promise<IndexJournalCapability>>();
   const receivedIndexStubs = new Set<IndexJournalCapability>();
-  let syscallSequence = 0n;
+  let syscallSequence = initialSyscallSequence;
   let operationTail: Promise<void> = Promise.resolve();
   let admittedOperationPending = false;
   let firstOperationFailure:

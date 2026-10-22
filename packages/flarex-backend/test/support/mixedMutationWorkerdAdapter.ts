@@ -30,7 +30,8 @@ import {
 } from "../../src/artifactRuntime/ApplicationErrorExactRuntimeWorkerSource";
 
 
-export const runMixedMutationWorkerd: MixedMutationExecutionHost = async input => {
+export const runMixedMutationWorkerd = async (input: Parameters<MixedMutationExecutionHost>[0] &
+  Readonly<{ initialSyscallSequence?: bigint; signal?: AbortSignal; onDisposed?: () => void }>): ReturnType<MixedMutationExecutionHost> => {
   const applicationSource = input.source;
     const workerPhase = <T>(name: string, run: () => Promise<T>): Promise<T> =>
       input.trace === undefined ? run() : input.trace.withPhase(name, run);
@@ -80,7 +81,7 @@ export default { async fetch(_request, env) {
   input.context.randomSeed = new Uint8Array(input.context.randomSeed);
   try {
     const result = await Reflect.apply(FlarexPointMutationExactRuntimeV1.prototype.runPrivateMixed,
-      {}, [input, journal]);
+      {}, [input, journal, BigInt(${JSON.stringify((input.initialSyscallSequence ?? 0n).toString())})]);
     return Response.json({ kind: "result", result });
   } catch (cause) {
     return Response.json({ kind: "error", name: cause?.name, message: cause?.message,
@@ -112,14 +113,21 @@ export default { async fetch(_request, env) {
       }
     });
     input.onReady?.(globalThis.performance.now() - workerStarted);
+    let disposal: Promise<void> | undefined;
+    const dispose = () => disposal ??= workerPhase("Worker disposal", () => worker.dispose()).then(() => { input.onDisposed?.(); });
+    // The final owner below awaits this same promise and reports any failure.
+    // This callback only observes rejection to avoid an unhandled Promise.
+    const abort = () => { void dispose().then(() => undefined, () => undefined); };
+    input.signal?.addEventListener("abort", abort, { once: true });
     let workerd: unknown;
     try {
+      if (input.signal?.aborted) throw input.signal.reason;
       const response = await workerPhase("Worker dispatch", () => {
         dispatchBridge = input.trace === undefined ? input.bridge : input.trace.bindCurrent(input.bridge);
         return worker.dispatchFetch("https://mixed-product.test/");
       });
       workerd = await response.json();
-    } finally { await workerPhase("Worker disposal", () => worker.dispose()); }
+    } finally { input.signal?.removeEventListener("abort", abort); await dispose(); }
 
   return workerd;
 };

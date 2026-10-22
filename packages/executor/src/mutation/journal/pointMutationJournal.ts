@@ -43,6 +43,8 @@ import {
   SessionJournalSealV1Error,
   SessionJournalStorageCorruptionV1Error,
   SessionJournalTargetUnavailableV1Error,
+  inspectPrivateReferenceSaveAccess,
+  type PrivateReferenceSaveAccess,
 } from "@flarex/persistence-postgres/internal/session-journal";
 import {
   type RecoveredRunningRelationConflictEvidence,
@@ -187,6 +189,12 @@ export type PointMutationJournalBoundaryV1Error =
   | ApplicationTableWriteDeniedError;
 
 export interface PointMutationJournalV1 {
+  /** Trusted finite composition only. The opaque save access never enters RPC. */
+  readonly bindPrivateReferenceSave?: (attempt: PointMutationJournalAttemptV1, participant: string,
+    access: PrivateReferenceSaveAccess, borrow: AdmittedOperationInvoke) => Effect.Effect<
+      Readonly<{ profileRevision: string; runAdmittedOperation: (input: PointMutationJournalAdmittedOperationInputV1) =>
+        Effect.Effect<Json, PointMutationJournalBoundaryV1Error> }>,
+      PointMutationJournalBoundaryV1Error>;
   readonly inspectFiniteExecutionEntry?: (capture: ConfirmedFiniteRootEntryCapture, preparation: PreparedFiniteSessionJournalEntry) =>
     Result.Result<Result.Result.Success<ReturnType<SessionJournalStorePersistence["confirmedFiniteEntryAttempt"]>>, PointMutationJournalBoundaryV1Error>;
   readonly freezeFiniteAttempt?: (attempt: PointMutationJournalAttemptV1, successfulResult: unknown) =>
@@ -587,31 +595,54 @@ export function createPointMutationJournalV1(
     return persistence.confirmedFiniteEntryAttempt(capture, preparation).pipe(Result.mapError(mapAdmittedFailure));
   };
 
+  const requireLiveExecution = Effect.fn("PointMutationJournal.requireLiveExecution")((state: JournalAttemptStateV1) => Effect.fromResult(
+    executionClaims.inspect(state.executionClaim, "execute").pipe(Result.mapError(() =>
+      new PointMutationJournalAttemptUnavailableV1Error({ issue: { reason: "executionClaimUnavailable" } })))));
+  const invokeSelected = Effect.fn("PointMutationJournal.invokeSelected")(function* (
+    state: JournalAttemptStateV1, admission: NonNullable<ReturnType<JournalAttemptStateV1["participantAdmissions"]["get"]>>,
+    profileRevision: string, borrow: AdmittedOperationInvoke, input: PointMutationJournalAdmittedOperationInputV1,
+  ) {
+    return yield* state.coordinator.semaphore.withPermit(
+      persistence.runAdmittedOperationEffect(state.persistenceAttempt, admission, {
+        syscallSequence: input.syscallSequence, requestBytes: input.requestBytes,
+        requestSha256: input.requestSha256, participant: input.operation.participant,
+        method: input.operation.operation, profileRevision,
+      }, borrow).pipe(
+        Effect.flatMap(result => result.kind === "completed" ? Effect.succeed(result.result)
+          : Effect.fail(new PointMutationJournalAdmittedOperationRejectedV1Error({ result }))),
+        Effect.mapError(mapAdmittedFailure),
+      ),
+    );
+  });
   const runAdmittedOperation: NonNullable<PointMutationJournalV1["runAdmittedOperation"]> =
     Effect.fn("PointMutationJournal.runAdmittedOperation")(function* (attempt, input) {
       const state = yield* Effect.try({ try: () => requireAttempt(attempt),
         catch: mapPersistenceFailure });
-      yield* Effect.fromResult(executionClaims.inspect(state.executionClaim, "execute").pipe(
-        Result.mapError(() => new PointMutationJournalAttemptUnavailableV1Error({ issue: { reason: "executionClaimUnavailable" } })),
-      ));
+      yield* requireLiveExecution(state);
       const selected = state.participants.get(input.operation.participant);
       const admission = state.participantAdmissions.get(input.operation.participant);
       if (selected === undefined || admission === undefined)
         return yield* Effect.fail(new PointMutationJournalParticipantSelectionV1Error({
           participant: input.operation.participant,
         }));
-      return yield* state.coordinator.semaphore.withPermit(
-        persistence.runAdmittedOperationEffect(state.persistenceAttempt, admission, {
-          syscallSequence: input.syscallSequence, requestBytes: input.requestBytes,
-          requestSha256: input.requestSha256, participant: input.operation.participant,
-          method: input.operation.operation,
-          profileRevision: selected.admission.profileRevision,
-        }, selected.borrow).pipe(
-          Effect.flatMap(result => result.kind === "completed" ? Effect.succeed(result.result)
-            : Effect.fail(new PointMutationJournalAdmittedOperationRejectedV1Error({ result }))),
-          Effect.mapError(mapAdmittedFailure),
-        ),
-      );
+      return yield* invokeSelected(state, admission, selected.admission.profileRevision, selected.borrow, input);
+    });
+  const bindPrivateReferenceSave: NonNullable<PointMutationJournalV1["bindPrivateReferenceSave"]> =
+    Effect.fn("PointMutationJournal.bindPrivateReferenceSave")(function* (attempt, participant, access, borrow) {
+      const state = yield* Effect.try({ try: () => requireAttempt(attempt), catch: mapPersistenceFailure });
+      const grant = inspectPrivateReferenceSaveAccess(access, state.persistenceAttempt);
+      const selected = state.participants.get(participant);
+      if (executionProfile !== "finiteRoot" || grant === undefined || selected === undefined ||
+        grant.participant !== participant || grant.nativeProfileRevision !== selected.admission.profileRevision)
+        return yield* Effect.fail(new PointMutationJournalParticipantSelectionV1Error({ participant }));
+      return Object.freeze({ profileRevision: grant.profileRevision,
+        runAdmittedOperation: Effect.fn("PointMutationJournal.runPrivateReferenceSave")(function* (input) {
+          yield* requireLiveExecution(state);
+          if (input.operation.participant !== participant ||
+            !selected.admission.operationMethods.includes(input.operation.operation))
+            return yield* Effect.fail(new PointMutationJournalParticipantSelectionV1Error({ participant: input.operation.participant }));
+          return yield* invokeSelected(state, grant.admission, grant.profileRevision, borrow, input);
+        }) });
     });
 
   const resolvePointTable: PointMutationJournalV1["resolvePointTable"] =
@@ -898,7 +929,7 @@ export function createPointMutationJournalV1(
 
   const journal = Object.freeze({
     openAttempt,
-    ...(executionProfile === "finiteRoot" ? { prepareInitialFiniteEntry, prepareFiniteEntry, openConfirmedFiniteEntry, inspectFiniteExecutionEntry, freezeFiniteAttempt } : {}),
+    ...(executionProfile === "finiteRoot" ? { prepareInitialFiniteEntry, prepareFiniteEntry, openConfirmedFiniteEntry, inspectFiniteExecutionEntry, freezeFiniteAttempt, bindPrivateReferenceSave } : {}),
     ...(selectedParticipants.size === 0 ? {} : { runAdmittedOperation }),
     resolvePointTable,
     runPointOperation,

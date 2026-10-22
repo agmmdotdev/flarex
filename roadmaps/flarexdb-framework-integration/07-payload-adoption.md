@@ -57,8 +57,10 @@ The bounded private save-time assignment/retention profile is implemented; the
 records protected permission evidence, genuine V3 joint-source composition,
 native source access and effective pending-write decisions. The bounded backend
 concurrent freshness/recovery proof now uses the real publication and executor
-retry owners. Serving-consumer cutover remains pending. Neither profile establishes
-general CMS authorization or a public operation surface.
+retry owners. The selected private Worker save consumer now uses protected
+construction, the actual journal/RPC boundary and fresh retry, with its displaced
+allow-all joint-save assembly removed. Neither profile establishes general CMS
+authorization, production dispatch or a public operation surface.
 
 The [early cross-framework proof](../shared-logical-storage/README.md#early-cross-framework-proof)
 is a required shared-storage integration gate: use real Payload Local API calls

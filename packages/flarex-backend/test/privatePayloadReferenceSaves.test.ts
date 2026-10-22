@@ -1,20 +1,19 @@
 import { createHash } from "node:crypto";
-import { Effect, Exit, Option, Result, Scope } from "effect";
+import { Effect, Result } from "effect";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { privatePayloadSaveFixture } from "./support/privatePayloadSaveFixture";
 import { createMigratedPGlitePersistence } from "../../persistence-postgres/test/support/pgliteTestFixture";
 import { createRelationalPGliteFixture } from "../../persistence-postgres/test/database/relationalPGliteWorkerTestSupport";
 import { createFileScopedPostgresFixture, postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
 import { makePostgresRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { makePayloadRuntime } from "../../payload-adapter/src/runtime";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
-import { encodeAdmittedFrameworkOperationV1Result } from "flarex-protocol/internal/admitted-framework-operation-v1";
 import { captureLogicalSchemaSource, prepareLogicalSchemaCandidate } from "../../analysis/src/logicalSchemaCandidate";
 import { decodeCatalogSchemaVersion, decodeCatalogSchemaVersionId, SchemaManifestAppTableNameSchema } from "flarex-protocol/schema-manifest";
 import { prepareFiniteActiveApplication } from "../../persistence-postgres/src/application/activation/repositoryIdentity";
 import { retainPreparedHost } from "../../persistence-postgres/src/execution/preparation/preparedHostRuntime";
 import { preparedHostTestRuntime } from "../../persistence-postgres/test/execution/preparation/preparedHostRuntimeTestSupport";
 import { privatePayloadReferenceSaveScenario } from "./support/privatePayloadReferenceSaveScenario";
+import { bindPrivatePayloadSave } from "./support/privatePayloadSaveCommands";
 
 const sequence = (value: bigint) => CommitSyscallSequenceV1Schema.make(value);
 async function witness(fixture: Awaited<ReturnType<typeof privatePayloadSaveFixture>>) {
@@ -53,23 +52,13 @@ async function witness(fixture: Awaited<ReturnType<typeof privatePayloadSaveFixt
   const documentId = inserted.outcome.documentId;
   expect(await policyWriter.publish()).toMatchObject({ kind: "published" });
   const root = await fixture.open();
-  const policy = await Effect.runPromise(fixture.fixture.store.readPrivateReferencePermissionsEffect(root.attempt,
-    { tableName: "audit", documentId, syscallSequence: sequence(1n), principal: root.principal }, root.validator));
-  expect(Option.isSome(policy)).toBe(true);
-  const scope = await Effect.runPromise(Scope.make());
+  const saving = await bindPrivatePayloadSave(fixture, root, documentId);
   try {
-    const runtime = await Effect.runPromise(Scope.provide(scope)(makePayloadRuntime(fixture.compiled)));
-    const native = await Effect.runPromise(Scope.provide(scope)(runtime.makeAttempt(root.attempt)));
-    const admission = root.admissions.get("payload");
-    if (admission === undefined || !root.admissions.has("medusa.product")) throw new Error("Missing real joint admissions");
-    const frame = Result.getOrThrow(encodeAdmittedFrameworkOperationV1Result({ format: "flarex.admitted-framework-operation", version: 1,
-      participant: "payload", operation: "payload-create", args: { collection: "posts", data: { title: "Joint foundation" } } }));
-    const created = await Effect.runPromise(fixture.fixture.store.runAdmittedOperationEffect(root.attempt, admission,
-      { syscallSequence: sequence(2n), requestBytes: frame.bytes, requestSha256: createHash("sha256").update(frame.bytes).digest(),
-        participant: "payload", method: "payload-create", profileRevision: "1".repeat(64) }, native.borrowParticipant));
+    if (!root.admissions.has("payload") || !root.admissions.has("medusa.product")) throw new Error("Missing real joint admissions");
+    const created = await Effect.runPromise(saving.invoke("create", { collection: "posts", data: { title: "Joint foundation" } }));
     expect(created).toMatchObject({ kind: "completed", result: { title: "Joint foundation", featuredProduct: null } });
-    expect(await root.publish()).toMatchObject({ kind: "published" });
-  } finally { await Effect.runPromise(Scope.close(scope, Exit.void)); }
+    expect(await root.publish(null, [root.payloadProfile(saving.selected.profileRevision)])).toMatchObject({ kind: "published" });
+  } finally { await saving.close(); }
   const ordinary = await fixture.open();
   const audit = await Effect.runPromise(fixture.fixture.store.resolvePointTableEffect(ordinary.attempt, "audit"));
   await expect(Effect.runPromise(fixture.fixture.store.runPointOperationEffect(audit,

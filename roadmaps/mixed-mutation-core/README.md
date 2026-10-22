@@ -51,9 +51,10 @@ ownership and borrowed finite generation. Its private native saves enforce
 source permissions and effective assignment/retention decisions, with exact
 receipt replay and denied-root rollback. SA3 now proves bounded backend concurrent
 revocation, changed-capability replay refusal, one-shot whole-root retry,
-cancellation and durable outcome recovery. Selected serving-consumer cutover
-remains the SA4 gate. No public API syntax
-is selected.
+cancellation and durable outcome recovery. SA4 connects the selected private
+Worker consumer to normal protected-save construction and the real journal/RPC
+boundary, removing its displaced allow-all joint-save assembly. General serving
+authorization and production dispatch remain gated. No public API syntax is selected.
 
 Status: the Application, Product, selected Payload Local API, and finite
 Medusa workflow slices are implemented as a private, isolated-scope execution

@@ -242,8 +242,10 @@ SA1 implements protected Application command-only policy writes and tracked
 private permission evidence. SA2 connects protected V3 joint-source composition,
 native source access and effective assignment/retention checks. SA3 adds the
 bounded backend concurrent revocation, replay, retry and outcome-recovery proof.
-Serving-consumer cutover and its opaque Worker refusals remain the SA4 gate;
-fixed read grants do not satisfy those gates.
+SA4 connects the selected private Worker consumer with protected-save journal
+binding and opaque caught-refusal rollback, and removes its allow-all joint-save
+assembly. General serving/production activation remains gated; fixed read grants
+do not authorize saves.
 
 ### Remaining Read And Composition Contract
 

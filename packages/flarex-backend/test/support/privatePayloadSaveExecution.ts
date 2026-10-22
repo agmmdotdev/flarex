@@ -17,6 +17,9 @@ import { deriveApplicationSyscallValidator } from "../../../persistence-postgres
 import { readPreparedFiniteApplicationMutationInputs } from "../../../persistence-postgres/src/application/applicationMutationAdmission";
 import { TEST_GRANT_RETENTION_POLICY_V1 } from "../../../persistence-postgres/test/execution/session/support/activationEvidence";
 import type { PrivatePayloadSaveFixture, PrivateSavePreparation, PrivatePayloadSaveRoot } from "./privatePayloadSaveFixture";
+import { makePrivatePayloadSaveConsumer } from "../../src/privatePayloadSaveConsumer";
+import type { PointMutationOccBoundJournalV1 } from "../../../executor/src/mutation/authentication/storedAttemptAuthentication";
+import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 
 type PolicyFixture = PrivatePayloadSaveFixture["fixture"];
 type Confirmed = Result.Result.Success<ReturnType<PolicyFixture["store"]["confirmedFiniteEntryAttempt"]>>;
@@ -25,6 +28,7 @@ export interface PrivateSaveExecution {
   readonly prepared: PreparedFiniteApplicationMutationSessionActivation;
   readonly currentRoot: () => Pick<PrivatePayloadSaveRoot, "attempt" | "validator" | "principal"> & { readonly context: Confirmed["context"] };
   readonly selectProfile: (revision: string) => void;
+  readonly bindServing: (policyId: AppDocumentIdV1, bound: PointMutationOccBoundJournalV1) => ReturnType<typeof makePrivatePayloadSaveConsumer>;
 }
 type ConstructionFailure = Effect.Error<ReturnType<PolicyFixture["prepareEvidence"]>> |
   Effect.Error<ReturnType<typeof deriveApplicationSyscallValidator>> |
@@ -33,8 +37,8 @@ type ConstructionFailure = Effect.Error<ReturnType<PolicyFixture["prepareEvidenc
 /** Composition only. The real executor owns entry, liveness, retry tickets,
  * replacement, terminalization and recovery. The test supplies native work. */
 export const makePrivateSaveExecution: (fixture: PrivatePayloadSaveFixture, preparation: PrivateSavePreparation,
-  runner: PointMutationOccRuntimeNeutralRunnerV1) => Effect.Effect<PrivateSaveExecution, ConstructionFailure> =
-  Effect.fn("PrivatePayloadSaveFixture.execution")(function* (fixture, preparation, runner) {
+  runner: PointMutationOccRuntimeNeutralRunnerV1, onNative?: (method: string) => void) => Effect.Effect<PrivateSaveExecution, ConstructionFailure> =
+  Effect.fn("PrivatePayloadSaveFixture.execution")(function* (fixture, preparation, runner, onNative) {
     const policy = fixture.fixture;
     const authority = policy.application.pointCommitAuthority;
     const inputs = yield* Effect.fromResult(readPreparedFiniteApplicationMutationInputs(preparation.preparedAdmission, policy.context));
@@ -48,16 +52,25 @@ export const makePrivateSaveExecution: (fixture: PrivatePayloadSaveFixture, prep
         // The ordinary facade is deliberately unavailable. Only the private
         // capability selected after the protected read lends a native writer.
         borrow: () => Effect.fail(new LogicalParticipantInvocationError({ kind: "rejection", cause: cmsError("unsupportedProfile") })) }));
-    const base = createPointMutationJournalV1(policy.store, claims.admission, validator, participants(preparation), "finiteRoot");
+    const observed = onNative === undefined ? policy.store : { ...policy.store,
+      runAdmittedOperationEffect: (...args: Parameters<PolicyFixture["store"]["runAdmittedOperationEffect"]>) => {
+        const borrow = args[3];
+        return policy.store.runAdmittedOperationEffect(args[0], args[1], args[2], input => borrow(input).pipe(
+          Effect.map(borrowed => ({ ...borrowed, invoke: (method, value) =>
+            Effect.sync(() => onNative(method)).pipe(Effect.andThen(borrowed.invoke(method, value))) }))));
+      } };
+    const base = createPointMutationJournalV1(observed, claims.admission, validator, participants(preparation), "finiteRoot");
     const open = base.openConfirmedFiniteEntry;
     const prepareEntry = base.prepareFiniteEntry;
     const inspect = base.inspectFiniteExecutionEntry;
     if (open === undefined || prepareEntry === undefined || inspect === undefined) return yield* Effect.die(new Error("Missing genuine finite journal owner"));
     let current: Confirmed | undefined;
+    let currentHandle: Effect.Success<ReturnType<typeof open>> | undefined;
     const journal: PointMutationJournalV1 = { ...base,
       openConfirmedFiniteEntry: Effect.fn("PrivatePayloadSaveFixture.observeEntry")(function* (capture, prepared, scope, original) {
         const handle = yield* open(capture, prepared, scope, original);
         current = yield* Effect.fromResult(inspect(capture, prepared));
+        currentHandle = handle;
         return handle;
       }) };
     let profileFactory = preparation.payloadProfile;
@@ -99,5 +112,15 @@ export const makePrivateSaveExecution: (fixture: PrivatePayloadSaveFixture, prep
         return { attempt: current.attempt, context: current.context, validator,
           principal: { scopeId: current.context.anchor.scopeId, principalDigest: current.context.principalDigest } };
       },
-      selectProfile: revision => { profiles = [profileFactory(revision)]; } };
+      selectProfile: revision => { profiles = [profileFactory(revision)]; },
+      bindServing: (policyId, bound) => Effect.suspend(() => {
+        if (current === undefined || currentHandle === undefined) return Effect.die(new Error("Missing genuine serving entry"));
+        const root = current;
+        return makePrivatePayloadSaveConsumer(fixture.compiled, { store: policy.store, attempt: root.attempt, validator,
+          principal: { scopeId: root.context.anchor.scopeId, principalDigest: root.context.principalDigest },
+          owner: journal, journalAttempt: currentHandle, journal: bound,
+          policy: { tableName: "audit", documentId: policyId },
+          selection: { participant: "payload", collection: "posts", relation: "featuredProduct", nativeProfileRevision: "1".repeat(64) },
+        }).pipe(Effect.tap(consumer => Effect.sync(() => { profiles = [profileFactory(consumer.profileRevision)]; })));
+      }) };
   });

@@ -95,7 +95,7 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
     } as const;
     const basis = pointMutationExactRuntimeWorkerGraphBasisV1(input);
     expect(createHash("sha256").update(basis).digest("hex")).toBe(
-      "c4b5b079fed89afb66fa9efeafc3439ddce3f58502c57e60f2a5558102cfe298",
+      "d72605f8333977a65bdc45a6906d84a8955a5797bcb3189b5257cf6e1c551d5e",
     );
     expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1);
     expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1);
@@ -121,7 +121,7 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
     expect(source).toContain(
       `export class ${POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1} extends WorkerEntrypoint`,
     );
-    expect(source).toContain("async run(input, journal)");
+    expect(source).toContain("run(input, journal)");
     expect(source).toContain("journal.resolvePointTable(name)");
     expect(source).toContain("table.runPointOperation");
     expect(source).not.toContain("globalOutbound");
