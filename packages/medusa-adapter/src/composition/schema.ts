@@ -4,6 +4,7 @@ import {
   prepareLogicalSchemaCandidate,
 } from "@flarex/analysis/internal/logical-schema-candidate";
 import { compilePayloadCollections } from "@flarex/payload-adapter/internal/collections";
+import { prepareApplicationLogicalSource } from "@flarex/analysis/internal/logical-application-source";
 import { compileInventoryDefinition } from "../modules/inventory/schema";
 import { compileStockLocationDefinition } from "../modules/stock-location/schema";
 import { compileVariantLinksDefinition } from "../links/variant-definition";
@@ -29,10 +30,6 @@ import {
   QualifiedLogicalTableSchema,
   type LogicalSchemaSource,
 } from "flarex-protocol/internal/logical-schema-candidate";
-import {
-  decodeSchemaManifestAppTableDeclarationsV1Result,
-  decodeSchemaManifestAppIndexDeclarationsV1Result,
-} from "flarex-protocol/schema-manifest";
 
 const strict = { parseOptions: { onExcessProperty: "error" } } as const;
 const MedusaModule = Schema.Literals(["product", "currency", "pricing", "variantPricingLink", "salesChannel", "store", "productSalesChannelLink", "shippingProfile", "shippingProfileDeletion", "serviceZoneCreation", "fulfillmentCreation", "productShippingProfileLink", "inventory", "stockLocation", "variantLinks", "salesChannelLocationLink", "locationFulfillmentSetLink", "locationFulfillmentProviderLink", "shippingOptionPriceSetLink", "region"]);
@@ -105,31 +102,6 @@ export function makeSchemaComposer(configuration: {
     const application = yield* inspect.call(repository, authority, config.applicationCandidateId);
     if (application.status !== "analyzed") return yield* Effect.fail(new SchemaCompositionError({ reason: "unanalyzedApplication" }));
     const manifest = application.manifest;
-    // The shared path takes independently compiled Payload sources. The old V3
-    // embedded policy bundle remains with its existing active runtime consumers.
-    if (manifest.version === 3) return yield* Effect.fail(new SchemaCompositionError({ reason: "mixedApplicationPolicy" }));
-    // Placement must not disappear when projecting a native schema. This first
-    // candidate profile has no partition/colocation contract yet.
-    if (manifest.schema.tables.some(table => table.placement.kind !== "global")) {
-      return yield* Effect.fail(new SchemaCompositionError({ reason: "unsupportedPlacement" }));
-    }
-    const tables = yield* Effect.fromResult(decodeSchemaManifestAppTableDeclarationsV1Result(manifest.schema.tables.map(table => ({
-      logicalName: table.name,
-      definition: { kind: "appDocument", definitionVersion: 1, documentType: table.validator },
-    }))));
-    const indexes = yield* Effect.fromResult(decodeSchemaManifestAppIndexDeclarationsV1Result(manifest.schema.indexes.map(index => ({
-      tableLogicalName: manifest.schema.tables.find(table => table.tableId === index.tableId)?.name,
-      descriptor: index.name,
-      fields: index.fields,
-      ...(index.decimalFields === undefined ? {} : { decimalFields: [...index.decimalFields] }),
-    }))));
-    const applicationSource = yield* captureLogicalSchemaSource({
-      key: "application", owner: "application", writeProfile: "application.occ",
-      evidence: { sourceArtifact: manifest.sourceArtifact, manifestSha256: application.manifestSha256 },
-      definition: { kind: "documents", tables, indexes, uniqueConstraints: [], relations: manifest.version === 2 ? manifest.schema.relations.map(relation => relation.declaration) : [] },
-      bindings: tables.map(table => ({ kind: "definition", localName: table.logicalName,
-        table: { namespace: "app", logicalName: table.logicalName } })),
-    });
     const payload = yield* compilePayloadCollections(config.payloadCollections);
     const payloadSource = yield* captureLogicalSchemaSource({
       key: payload.sourceContract.sourceKey, owner: "payload", writeProfile: payload.sourceContract.writeProfile,
@@ -138,6 +110,9 @@ export function makeSchemaComposer(configuration: {
       bindings: payload.sourceContract.definition.tables.map(table => ({ kind: "definition", localName: table.logicalName,
         table: { namespace: "app", logicalName: table.logicalName } })),
     });
+    const applicationSource = yield* prepareApplicationLogicalSource(manifest, application.manifestSha256, payloadSource).pipe(
+      Effect.catchTag("LogicalSchemaCandidateError", cause => Effect.fail(new SchemaCompositionError({
+        reason: cause.reason === "unsupportedPlacement" ? "unsupportedPlacement" : "mixedApplicationPolicy", cause }))));
     const medusaSources: LogicalSchemaSource[] = [];
     if (modules.includes("product")) {
       const product = yield* compileProductDefinition();

@@ -15,6 +15,7 @@ import type { PayloadHost, PayloadReadHost } from "./api";
 export type { PayloadHost, PayloadReadHost, PayloadCreateArgs, PayloadUpdateArgs, PayloadDeleteArgs,
   PayloadFindArgs, PayloadFindByIdArgs, PayloadCountArgs, PayloadDocument, PayloadPageResult, PayloadCountResult } from "./api";
 export { makePayloadReferenceReadRuntime } from "./runtime/referenceRead";
+export { makePayloadReferenceSaveRuntime } from "./runtime/referenceSave";
 export interface PayloadAttemptRuntime {
   readonly borrowParticipant: LogicalParticipantBorrow;
 }

@@ -461,12 +461,12 @@ async function witness(
   }
 
   // Authenticate the current V3 binding through its real publisher. The new
-  // candidate path refuses this baseline until a connected ownership cutover.
+  // candidate must preserve V3 policy evidence and source ownership exactly.
   await Effect.runPromise(publishApplicationRelationBindingEffect({ db: persistence.drizzle,
     runTransaction: run => persistence.drizzle.transaction(run) }, { ...await policyManifestFixture(), deploymentId, decisions: [] }));
   expect(await Effect.runPromise(Effect.result(admission.admit(prepared,
     { schemaVersionId: decodeCatalogSchemaVersionId("after-v3"), version: decodeCatalogSchemaVersion(100) }, await budget())))).toMatchObject({
-    _tag: "Failure", failure: { reason: "unsupportedOwnershipBaseline" },
+    _tag: "Failure", failure: { reason: "ownershipChanged" },
   });
   expect((await admit()).status).toBe("existing");
 

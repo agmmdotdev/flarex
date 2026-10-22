@@ -207,6 +207,12 @@ export type LogicalDocumentWorkingSetInput<Failure> = Readonly<{
    * remain owned by the selected execution profile. */
   readonly writeMechanics?: PreparedLogicalDocumentWriteMechanics;
   readonly validateDocument: (write: LogicalDocumentWrite) => Effect.Effect<void, Failure>;
+  /** Trusted source authorization at the effective pending transition. */
+  readonly authorizeTransition?: (transition: Readonly<{
+    tableName: string; operation: "insert" | "patch" | "replace" | "delete";
+    original: CanonicalFlarexValueV1 | null; before: CanonicalFlarexValueV1 | null; after: CanonicalFlarexValueV1 | null;
+    previous: readonly Readonly<{ before: CanonicalFlarexValueV1 | null; after: CanonicalFlarexValueV1 | null }>[];
+  }>) => import("effect").Result.Result<void, Failure>;
   readonly error: LogicalDocumentFailure<Failure>;
   readonly uniqueConflict: (constraint: Readonly<{ tableName: string; orderedFields: readonly string[] }>) => Failure;
   readonly limits: Readonly<{ pageRows: number; identities: number; documentBytes: number }>;

@@ -15,6 +15,8 @@ import { defineCommerceEventContract } from "../../../persistence-postgres/src/f
 import { commerceError } from "../../../persistence-postgres/src/frameworks/commerceTransaction/model";
 import { isJsonObject } from "flarex-protocol/json";
 import { createHash } from "node:crypto";
+import type { FlarexMetadataDatabase } from "../../../persistence-postgres/src/application/deployments";
+import type { ScopeId } from "flarex-protocol/storage-authority";
 import { createMixedMutationProductFixture } from "./mixedMutationWorkerdFixture";
 
 export type Fixture = Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
@@ -98,8 +100,10 @@ export async function prepareProductTransition(fixture: Fixture, operation: "del
 }
 
 export async function publishedCounts(fixture: Fixture) {
-  const scopeUuid = projectScopeIdUuidV1(fixture.activation.anchor.scopeId).scopeUuid;
-  const db = fixture.currency.persistence.drizzle;
+  return publishedScopeCounts(fixture.currency.persistence.drizzle, fixture.activation.anchor.scopeId);
+}
+export async function publishedScopeCounts(db: FlarexMetadataDatabase, scopeId: ScopeId) {
+  const scopeUuid = projectScopeIdUuidV1(scopeId).scopeUuid;
   return {
     rows: (await db.select().from(fxAppRowCurrent).where(eq(fxAppRowCurrent.scopeUuid, scopeUuid))).length,
     revisions: (await db.select().from(fxAppRowRevisions).where(eq(fxAppRowRevisions.scopeUuid, scopeUuid))).length,

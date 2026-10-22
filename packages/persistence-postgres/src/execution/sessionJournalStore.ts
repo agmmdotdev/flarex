@@ -10,6 +10,7 @@ import {
 import { inspectAppDeveloperIndexQueryPortV1 } from "./journal/indexQueryPort";
 import type { AppDeveloperIndexQueryPortV1 } from "./journal/indexQueryPort";
 import type { StoredCommitAuthorityEvidenceLoaderPortsV1 } from "../commit/authority/postgresLoader";
+import { makePrivateReferenceSaveOperations } from "./journal/privateSaveAccess";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
@@ -363,6 +364,7 @@ export function createSessionJournalStorePersistence(
       },
     );
   return Object.freeze({
+    ...makePrivateReferenceSaveOperations(owner),
     prepareFiniteEntryEffect,
     confirmedFiniteEntryAttempt,
     admitLogicalParticipantsEffect,

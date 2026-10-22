@@ -11,7 +11,7 @@ import { encodeCanonicalJson, isJson, measureCanonicalJsonUtf8Bytes } from "flar
 import { makeLivePrivateSha256V1 } from "./privateSha256V1";
 
 export class LogicalSchemaCandidateError extends Data.TaggedError("LogicalSchemaCandidateError")<{
-  readonly reason: "invalidInput" | "digestMismatch" | "limitExceeded" | "digestUnavailable" | "unpreparedCandidate";
+  readonly reason: "invalidInput" | "unsupportedPlacement" | "digestMismatch" | "limitExceeded" | "digestUnavailable" | "unpreparedCandidate";
   readonly cause?: unknown;
 }> {}
 const maximumBytes = MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES;

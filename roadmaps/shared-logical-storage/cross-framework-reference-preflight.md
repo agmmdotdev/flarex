@@ -234,14 +234,15 @@ access predicate trees, drafts/versions, pending new-Product construction,
 authorized reverse traversal and general query/reactive composition remain gated.
 No public API syntax is selected here.
 
-The next proposed foundation slice is the
+The save authorization foundation is tracked in the
 [private save-time authorization preflight](./reference-save-authorization-preflight.md).
 It separates native article write access from target assignment/retention and
 requires protected permission dependencies to survive through publication.
 SA1 implements protected Application command-only policy writes and tracked
-private permission evidence. Native authorized saves and their effective-edge,
-revocation/replay and cutover proof remain SA2-SA4 gates; fixed read grants do
-not satisfy those gates.
+private permission evidence. SA2 connects protected V3 joint-source composition,
+native source access and effective assignment/retention checks. Complete
+concurrent revocation/recovery and serving-consumer cutover remain SA3-SA4 gates;
+fixed read grants do not satisfy those gates.
 
 ### Remaining Read And Composition Contract
 

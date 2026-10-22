@@ -1491,6 +1491,11 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
   }));
   const recordAttempt = (pending: PendingDocument, operation: LogicalDocumentAttempt["operation"],
     after: CanonicalFlarexValueV1 | null, deletedReference?: Readonly<{ cause: LogicalDeletedReferenceCause; deleted: LogicalDocumentAttempt }>) => Result.gen(function* () {
+    if (state.authorizeTransition !== undefined) yield* state.authorizeTransition({
+      tableName: localTableName(pending.tableId) ?? pending.tableName, operation,
+      original: pending.base?.kind === "live" ? pending.base.document : null, before: pending.current, after,
+      previous: pending.attempts.map(ordinal => attempts[ordinal]!),
+    });
     yield* consumeTableMetadataResult(pending.tableId, "writeClosure");
     yield* chargeResult(128);
     yield* markRowUse(pending.documentId);

@@ -52,10 +52,11 @@ It does not design public APIs or expand the other session's Medusa scope.
 
 The [private authorized point-read profile](../shared-logical-storage/cross-framework-reference-preflight.md#implemented-private-point-read-profile)
 adds bounded native source access and separately granted Product retrieval.
-Save-time assignment/retention permissions remain unimplemented; the
+The bounded private save-time assignment/retention profile is implemented; the
 [save authorization preflight](../shared-logical-storage/reference-save-authorization-preflight.md)
-proposes the next private slice, beginning with protected permission evidence
-and its existing finite dependency/publication owner. Neither profile establishes
+records protected permission evidence, genuine V3 joint-source composition,
+native source access and effective pending-write decisions. Complete concurrent
+freshness/recovery and serving-consumer cutover remain pending. Neither profile establishes
 general CMS authorization or a public operation surface.
 
 The [early cross-framework proof](../shared-logical-storage/README.md#early-cross-framework-proof)

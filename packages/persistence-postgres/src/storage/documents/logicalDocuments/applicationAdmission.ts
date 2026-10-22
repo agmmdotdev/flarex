@@ -35,7 +35,7 @@ import {
 } from "./sourceAdmission";
 
 export class LogicalApplicationSourceAdmissionError extends Data.TaggedError("LogicalApplicationSourceAdmissionError")<{
-  readonly reason: "invalidInput" | "sourceMismatch" | "notReady" | "bindingMissing" | "invalidAuthority" | "documentInvalid" | "unsupportedProfile";
+  readonly reason: LogicalSourceAdmissionError["reason"] | "invalidAuthority" | "documentInvalid";
   readonly cause?: unknown;
 }> {}
 const SourceContract = Schema.Struct({ sourceKey: Schema.Literal("application"),

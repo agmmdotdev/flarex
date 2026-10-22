@@ -2,6 +2,8 @@
 export { preparePrivateParticipantReadAccess, PrivateReadPrincipal, PrivateReadIds, PrivateReadAccessError } from "./privateReadAccess";
 export { PrivateReferencePermissions, PrivatePermissionEvidenceError, inspectPrivateReferencePermissionEvidence } from "./privatePermissionEvidence";
 export type { PrivateReferencePermissionEvidence } from "./privatePermissionEvidence";
+export { inspectPrivateReferenceSaveAccess, bindPrivateReferenceSaveAccess, PrivateSaveAccessError } from "./privateSaveAccess";
+export type { PrivateReferenceSaveAccess, PrivateReferenceSaveSelection } from "./privateSaveAccess";
 export type {
   SessionJournalPointOperationKindV1,
   SessionJournalIndexedQueryOperationV1,

@@ -430,6 +430,16 @@ export const attachLogicalDocumentRootEvaluator = (evaluator: LogicalDocumentRoo
     state.pins.attemptFence === pins.attemptFence ? state : null;
 };
 
+/** Retained private capability data consumes the same root memory budget. */
+export function reserveLogicalDocumentRootBytes(evaluator: LogicalDocumentRootEvaluator, pins: LogicalDocumentRootPins, bytes: number) {
+  const state = attachLogicalDocumentRootEvaluator(evaluator, pins);
+  if (state === null) return Result.fail("closed" as const);
+  if (!Number.isSafeInteger(bytes) || bytes < 0 || state.workingBytes + bytes > state.limits.workingBytes)
+    return Result.fail("limitExceeded" as const);
+  state.workingBytes += bytes;
+  return Result.succeed(undefined);
+}
+
 /** A finite local step checks the exact root's mutable closure state without
  * borrowing SQL authority. Checked database boundaries still authenticate live. */
 export const requireLogicalDocumentRootEvaluatorOpen = <Failure>(evaluator: LogicalDocumentRootEvaluator,

@@ -36,6 +36,7 @@ export const makePayloadReferenceReadRuntime = Effect.fn("PayloadReferenceRead.m
   let live = true;
   yield* Scope.addFinalizer(yield* Effect.scope, Effect.sync(() => { live = false; }));
   const native = yield* makePayloadNative(compiled, undefined, {
+    create: () => false, update: () => false, delete: () => false,
     read: ({ id, req }) => live && req.context[contextKey] === token && typeof id === "string" && ids.has(id),
   });
   const makeAttempt = Effect.fn("PayloadReferenceRead.makeAttempt")(function* (attempt: SessionJournalAttempt) {

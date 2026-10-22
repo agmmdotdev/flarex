@@ -38,7 +38,7 @@ import {
   readAppSchemaCandidateWriteGuardPlanningHeadIdentity,
 } from "../../storage/catalog/appSchemaCandidateValidation";
 import type { AppRowTransaction } from "../../storage/documents/appRows";
-import type { CheckedApplicationActiveHead } from "../activeHead/contracts";
+import type { CheckedApplicationActiveHead, DecodedApplicationActiveHead } from "../activeHead/contracts";
 import {
   readCheckedApplicationActiveHead,
   releaseCheckedApplicationActiveHead,
@@ -79,6 +79,10 @@ import {
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { sql } from "drizzle-orm";
 import { Cause, Effect, Result, Semaphore } from "effect";
+
+const headIdentity = (head: DecodedApplicationActiveHead) => JSON.stringify([head.scopeId, head.activationSequence.toString(),
+  head.revisionId, head.readinessKind, encodeBytesToLowercaseHex(head.readinessSha256),
+  encodeBytesToLowercaseHex(head.activationSha256), encodeBytesToLowercaseHex(head.headSha256)]);
 
 export const protectedMetadataEpochKey = (evidence: ProtectedTargetMetadataEvidence) => [evidence.epoch.databaseName,
   evidence.epoch.namespaceOid.toString(), evidence.epoch.incarnation, evidence.epoch.generation.toString(), evidence.epoch.login];
@@ -162,7 +166,7 @@ export const prepareCurrentApplicationBinding = Effect.fnUntraced(
         Effect.ensuring(Effect.sync(() => { releaseCheckedApplicationActiveHead(checked); closeInstallationAdmission(tx); }))));
     };
     type Observation = Effect.Success<ReturnType<typeof probe>>;
-    type Graph = Readonly<{ binding: ApplicationBindingInput; payload: Payload; key: string; candidateKey: string | undefined }>;
+    type Graph = Readonly<{ binding: ApplicationBindingInput; payload: Payload; key: string; headKey: string; candidateKey: string | undefined }>;
     let current: Readonly<{ key: string; generation: PreparedHostGeneration<Graph> }> | undefined;
     let fixedSchema: string | undefined;
     const schemaIdentity = (binding: ApplicationBindingInput) => observeExecution("ApplicationActivation.currentBindingSchema", Effect.gen(function* () {
@@ -195,7 +199,7 @@ export const prepareCurrentApplicationBinding = Effect.fnUntraced(
       const after = yield* observe(fullProofAuthority);
       if (before.key !== after.key) return yield* activationFailure("read", "concurrentHead");
       fixedSchema ??= schema;
-      return Object.freeze({ binding, payload, key: after.key, candidateKey: after.candidateKey });
+      return Object.freeze({ binding, payload, key: after.key, headKey: headIdentity(after.head), candidateKey: after.candidateKey });
     })).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, error => error instanceof PreparedHostRuntimeError
       ? activationError("read", "resourceFailure", undefined, false, error) : error))));
     const replace = (observation: Observation, fullProofAuthority: TrustedScopeAuthority) => Effect.uninterruptibleMask(restore => restore(stage(observation, fullProofAuthority)).pipe(
@@ -252,17 +256,19 @@ export const prepareCurrentApplicationBinding = Effect.fnUntraced(
               entered = true;
               yield* requireOpen();
               const selected = readLegacyApplicationBindingPreparation(graph.binding);
-              if (selected === undefined || !clockMatches(selected.basis.authority, clock))
+              const relation = readRelationApplicationBindingPreparation(graph.binding);
+              const selectedAuthority = selected?.basis.authority ?? relation?.authority;
+              if (selectedAuthority === undefined || !clockMatches(selectedAuthority, clock))
                 return yield* activationFailure("validateSelection", "scopeAuthority");
               const active = yield* Effect.fromResult(readCheckedApplicationActiveHead(checked, tx, clock));
               if (active === "refresh") return yield* activationFailure("validateSelection", "invalidComposition");
               const planningHead = options.candidateIssuer === undefined ? undefined :
                 yield* captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect(tx,
-                  { ...selected.basis.authority, ...clock }, options.candidateIssuer, observation);
+                  { ...selectedAuthority, ...clock }, options.candidateIssuer, observation);
               const candidateKey = planningHead === undefined || options.candidateIssuer === undefined ? undefined :
                 yield* readAppSchemaCandidateWriteGuardPlanningHeadIdentity(planningHead, options.candidateIssuer);
-              if (changedEpoch || !headMatchesBasis(active.head, selected.basis) || candidateKey !== graph.candidateKey) {
-                nativeRefresh = activationError("validateSelection", "concurrentHead", selected.basis.revisionId);
+              if (changedEpoch || (selected === undefined ? headIdentity(active.head) !== graph.headKey : !headMatchesBasis(active.head, selected.basis)) || candidateKey !== graph.candidateKey) {
+                nativeRefresh = activationError("validateSelection", "concurrentHead", selected?.basis.revisionId ?? relation?.revisionId);
                 return yield* Effect.fail(nativeRefresh);
               }
             }));

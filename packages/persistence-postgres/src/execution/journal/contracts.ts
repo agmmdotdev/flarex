@@ -400,6 +400,7 @@ export type LogicalParticipantBorrowBase = Readonly<{
   admissions: readonly LogicalParticipantAttemptAdmission[];
   bundle: LogicalParticipantAdmissionBundle;
   method: string;
+  privateReferenceSave?: import("./privateSaveAccess").PrivateReferenceSaveAccess;
 }>;
 
 export type LogicalParticipantBorrow = (input: LogicalParticipantBorrowBase &
@@ -407,6 +408,11 @@ export type LogicalParticipantBorrow = (input: LogicalParticipantBorrowBase &
     LogicalParticipantInvocationError>;
 
 export interface SessionJournalStorePersistence {
+  /** Backend-only derivation from protected, tracked facts and real entry admission. */
+  readonly preparePrivateReferenceSaveEffect: (attempt: SessionJournalAttempt,
+    evidence: import("effect").Option.Option<import("./privatePermissionEvidence").PrivateReferencePermissionEvidence>,
+    selection: import("./privateSaveAccess").PrivateReferenceSaveSelection) => Effect.Effect<
+      import("./privateSaveAccess").PrivateReferenceSaveAccess, import("./privateSaveAccess").PrivateSaveAccessError>;
   readonly readPrivateReferencePermissionsEffect: (attempt: SessionJournalAttempt, input: Readonly<{
     tableName: string; documentId: AppDocumentIdV1; syscallSequence: import("flarex-protocol/commit-protocol").CommitSyscallSequenceV1;
     principal: import("./privateReadAccess").PrivateReadPrincipal;

@@ -74,6 +74,7 @@ import {
 } from "./sourceAdmission";
 import {
   issueLogicalParticipantAttemptAdmission,
+  inspectLogicalParticipantAttemptAdmission,
   issueLogicalParticipantCommitAuthority,
   withLogicalParticipantAttemptAdmissionEffect,
   type LogicalParticipantAttemptAdmission,
@@ -173,6 +174,16 @@ export interface LogicalDocumentAttemptAdmissionState extends Omit<LogicalDocume
   readonly requirePreparedSource: Effect.Effect<void, LogicalParticipantAdmissionError>;
 }
 const attemptStates = new WeakMap<object, LogicalDocumentAttemptAdmissionState>();
+
+/** Narrow source-private configuration projection; no database or settlement. */
+export function inspectLogicalDocumentAttemptConfiguration(admission: LogicalParticipantAttemptAdmission,
+  attempt: SessionJournalAttempt, method: string) {
+  const state = attemptStates.get(admission);
+  return state?.root.executionProfile === "finiteRoot" &&
+    inspectLogicalParticipantAttemptAdmission(admission, attempt, method) !== null ? Object.freeze({
+      configuration: state.configuration, contentIdentity: state.contentIdentity, sourceKey: state.sourceKey,
+    }) : undefined;
+}
 
 export const withLogicalDocumentAttemptAdmissionEffect = Effect.fn("LogicalDocumentAttemptAdmission.with")(
   function* <Prepared, Value, PreparationFailure, Failure, Requirements>(admission: LogicalParticipantAttemptAdmission,

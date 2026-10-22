@@ -27,17 +27,28 @@ import { policyFixture, policyManifestFixture, hashPolicyFixture } from "./appli
 import { snapshotApplicationExecutionAuthorityJson } from "../../../src/application/applicationExecutionAuthoritySnapshot";
 import { prepareFiniteAppSchemaCandidateWriteGuardPortEffect } from "../../../src/storage/catalog/appSchemaCandidateValidation";
 import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
+import type { CompiledPayloadCollections } from "../../../../payload-adapter/src/collections";
+import type { SessionJournalStorePersistence } from "../../../src/execution/journal/contracts";
+import type { PreparedFiniteApplicationMutationAdmission } from "../../../src/application/applicationMutationAdmission";
+import type { CurrentApplicationFiniteEntry } from "../../../src/application/activation/contracts";
 
 /** Only data/setup/observation: production owners issue all authority and settle. */
-export async function privatePermissionFixture(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence) {
+export async function privatePermissionFixture(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
+  payload?: CompiledPayloadCollections, controlPersistence?: PGliteFlarexPersistence) {
   const schemaName = (await persistence.query<{ name: string }>("select current_schema() as name")).rows[0]?.name;
   if (schemaName === undefined) throw new Error("Missing private permission namespace");
   const scope = await Effect.runPromise(Scope.make());
   const loader = new MiniflareApplicationAnalysisWorkerLoader();
-  const initial = policyFixture();
+  const initial = payload?.schemaDefinition.writePolicies ?? policyFixture();
+  const payloadPolicy = initial.tables.find(table => table.owner === "payload" && table.logicalTableName === "posts");
+  const payloadTable = payload?.logicalDefinition.tables.find(table => table.logicalName === "posts");
+  if (payloadPolicy === undefined || payload !== undefined && (payloadTable === undefined || payload.configuration.tables.length !== 1))
+    throw new Error("Permission fixture requires one native posts collection");
+  const posts = payloadTable?.definition ?? { kind: "appDocument" as const, definitionVersion: 1 as const,
+    documentType: { type: "object" as const, value: { title: { fieldType: { type: "string" as const }, optional: false } } } };
   const policies = { ...initial, tables: [
     { logicalTableName: "audit", owner: "application-command" as const, policyId: "application.reference-permissions" as const },
-    initial.tables[1]!, { logicalTableName: "users", owner: "application" as const },
+    payloadPolicy, { logicalTableName: "users", owner: "application" as const },
   ] };
   const definition = Result.getOrThrow(prepareStandardApplicationDefinitionV1({
     programBudgetInput: { maximumModules: 1, maximumFunctions: 1, maximumIdentifierUtf8Bytes: 1024,
@@ -45,11 +56,10 @@ export async function privatePermissionFixture(persistence: PGliteFlarexPersiste
     programInput: { format: "flarex.declarative-program/v1", version: 1, schema: { tables: [
       { logicalName: "audit", definition: { kind: "appDocument", definitionVersion: 1, documentType: { type: "object",
         value: { policy: { fieldType: { type: "any" }, optional: false } } } } },
-      { logicalName: "posts", definition: { kind: "appDocument", definitionVersion: 1, documentType: { type: "object",
-        value: { title: { fieldType: { type: "string" }, optional: false } } } } },
+      { logicalName: "posts", definition: posts },
       { logicalName: "users", definition: { kind: "appDocument", definitionVersion: 1, documentType: { type: "object",
         value: { name: { fieldType: { type: "string" }, optional: false } } } } },
-    ], indexes: [] }, modules: [{ modulePath: "functions", functions: [{ exportName: "write", kind: "mutation",
+    ], indexes: payload?.logicalDefinition.indexes ?? [] }, modules: [{ modulePath: "functions", functions: [{ exportName: "write", kind: "mutation",
       visibility: "public", argsValidator: { type: "any" }, returnsValidator: null }] }] },
     materializationBudgetInput: { maximumModules: 1, maximumEntryBindings: 1, maximumSourceBytes: 4096,
       maximumSourceMapBytes: 0, maximumBytesMaterialized: 16384, maximumSemanticRecords: 32,
@@ -61,7 +71,7 @@ export async function privatePermissionFixture(persistence: PGliteFlarexPersiste
   }));
   const source = await sourceBundleFromProduced(Result.getOrThrow(
     produceInternalStandardApplicationSourceWithWritePolicies(definition, policies)));
-  const control = await createMigratedPGlitePersistence();
+  const control = controlPersistence ?? await createMigratedPGlitePersistence();
   try {
     const initialManifest = await policyManifestFixture();
     const expected = await Effect.runPromise(verifyApplicationManifestV3({ ...initialManifest.manifest,
@@ -69,9 +79,10 @@ export async function privatePermissionFixture(persistence: PGliteFlarexPersiste
         writePolicySetSha256: hashPolicyFixture(policies),
         tables: [
           { ...initialManifest.manifest.schema.tables[0]!, placement: { kind: "partitionBy", field: "_id" }, validator: { type: "object", value: { policy: { fieldType: { type: "any" }, optional: false } } } },
-          { ...initialManifest.manifest.schema.tables[1]!, placement: { kind: "partitionBy", field: "_id" } },
+          { ...initialManifest.manifest.schema.tables[1]!, validator: posts.documentType, placement: { kind: "partitionBy", field: "_id" } },
           { tableId: 3, name: "users", validator: { type: "object", value: { name: { fieldType: { type: "string" }, optional: false } } }, placement: { kind: "partitionBy", field: "_id" } },
-        ],
+        ], indexes: (payload?.logicalDefinition.indexes ?? []).map((index, position) => ({ indexId: position + 1,
+          tableId: 2, name: index.descriptor, fields: index.fields })),
       },
     }));
     const application = await relationReadinessFixture({ persistence, controlPersistence: control, writePolicy: true, bindingAdmission: true,
@@ -105,25 +116,30 @@ export async function privatePermissionFixture(persistence: PGliteFlarexPersiste
       ...application.servingOwners.materialization, uniqueConstraints, candidateSchemaWriteGuard,
       uniqueConstraintEligibility: application.servingOwners.uniqueConstraintEligibility,
     });
-    const open = async () => {
-      const entry = await Effect.runPromise(Scope.provide(store.prepareFiniteEntryEffect([]), scope));
-      const evidence = await applicationMutationActivationEvidenceFixture({
+    const openEffect = Effect.fn("PrivatePermissionFixture.open")(function* (options: Readonly<{
+      participants?: Parameters<SessionJournalStorePersistence["prepareFiniteEntryEffect"]>[0];
+      preparedAdmission?: PreparedFiniteApplicationMutationAdmission;
+      currentEntry?: CurrentApplicationFiniteEntry;
+    }> = {}) {
+      const entry = yield* Scope.provide(store.prepareFiniteEntryEffect(options.participants ?? []), scope);
+      const evidence = yield* Effect.tryPromise({ try: () => applicationMutationActivationEvidenceFixture({
         deploymentId: TransactionGrantDeploymentIdV1Schema.make(application.deploymentId), executionAuthority: prepared.executionAuthority,
         requestKey: randomUUID(), grantId: randomUUID(),
-      });
-      const activated = await Effect.runPromise(retained.use(host =>
+      }), catch: cause => new Error("Permission fixture grant construction failed", { cause }) });
+      const activated = yield* retained.use(host =>
         createApplicationMutationSessionActivationPersistenceV1(application.pointCommitAuthority,
           { leaseDurationMilliseconds: 240_000, randomUuid: randomUUID }).activateFiniteEffect({
-          deploymentId: TransactionGrantDeploymentIdV1Schema.make(application.deploymentId), scopeId: evidence.scopeId, preparedAdmission: host.preparation,
+          deploymentId: TransactionGrantDeploymentIdV1Schema.make(application.deploymentId), scopeId: evidence.scopeId, preparedAdmission: options.preparedAdmission ?? host.preparation,
           admissionContext: context, evidence: evidence.evidence,
-        }, entry)));
+          ...(options.currentEntry === undefined ? {} : { currentEntry: options.currentEntry }),
+        }, entry));
       if (activated.activation.status !== "created" || activated.entry === undefined) throw new Error("Missing finite permission entry");
       const activation = activated.activation;
       const confirmed = Result.getOrThrow(store.confirmedFiniteEntryAttempt(activated.entry, entry));
-      const validator = await Effect.runPromise(Scope.provide(deriveApplicationSyscallValidator({
+      const validator = yield* Scope.provide(deriveApplicationSyscallValidator({
         scopeId: application.authority.scopeId, schemaVersionId: confirmed.context.executionPin.schemaVersionId,
         schemaManifest: confirmed.schemaManifest,
-      }), scope));
+      }), scope);
       const principal = Object.freeze({ scopeId: application.authority.scopeId, principalDigest: confirmed.context.principalDigest });
       const row = confirmed.context.session;
       if (row.lifecycle !== "running" || row.validatedArgsCanonicalBytes === null || row.authorizationGrantCanonicalBytes === null ||
@@ -146,17 +162,24 @@ export async function privatePermissionFixture(persistence: PGliteFlarexPersiste
         requestKey: row.requestKey, requestSha256: row.requestSha256, protocolVersion: row.protocolVersion,
         hardExpiresAtMilliseconds: row.hardExpiresAt.getTime(), createdAtMilliseconds: row.createdAt.getTime(), updatedAtMilliseconds: row.updatedAt.getTime(),
       };
-      const publish = async (value: unknown = null) => {
+      const publish = async (value: unknown = null,
+        logicalOperationProfiles?: NonNullable<Parameters<typeof createPointCommitPublisherPortV1>[1]>["logicalOperationProfiles"]) => {
         const frozenAttempt = await Effect.runPromise(store.freezeFiniteRootEffect(confirmed.attempt,
           await Effect.runPromise(canonicalizeSuccessfulResultV1Effect(value))));
         const authority = relationAuthorityFromAnchor(activation.anchor,
           confirmed.context.executionPin.schemaVersionId, activation.executionClaim);
-        return Effect.runPromise(publisher.publishFinite({ authorityPins: pointCommitAuthorityPinsFromStoredSessionV1(authority, session),
+        const selectedPublisher = logicalOperationProfiles === undefined ? publisher : createPointCommitPublisherPortV1(application.pointCommitAuthority, {
+          ...application.servingOwners.materialization, uniqueConstraints, candidateSchemaWriteGuard,
+          uniqueConstraintEligibility: application.servingOwners.uniqueConstraintEligibility, logicalOperationProfiles,
+        });
+        return Effect.runPromise(selectedPublisher.publishFinite({ authorityPins: pointCommitAuthorityPinsFromStoredSessionV1(authority, session),
           session: pointCommitSessionFromStoredSessionV1(session, "running"), executionClaim: activation.executionClaim, frozenAttempt }));
       };
-      return { attempt: confirmed.attempt, validator, principal, publish };
-    };
-    return { store, open, application, closePreparation: () => Effect.runPromise(retained.close), close: async () => {
+      return { attempt: confirmed.attempt, validator, principal, publish, admissions: confirmed.admissions,
+        applicationSelection: confirmed.applicationSelection };
+    });
+    const open = (options?: Parameters<typeof openEffect>[0]) => Effect.runPromise(openEffect(options));
+    return { store, open, openEffect, application, control, context, closePreparation: () => Effect.runPromise(retained.close), close: async () => {
       try { await Effect.runPromise(Scope.close(scope, Exit.void)); } finally { await loader.dispose(); }
     } };
   } catch (cause) {

@@ -45,12 +45,13 @@ The private reference authorization foundation is tracked in
 native article write access, explicit target assignment/retention decisions and
 permission freshness through existing dependency/publication owners. SA1 now
 implements protected Application command-only policy writes and tracked private
-permission evidence in a bounded V3 finite profile. Native authorized saves,
-effective-edge decisions and their connected revocation/replay proof remain
-SA2-SA4 gates. SA2 first needs the recorded shared V3/joint-source composition
-correction: the joint composer, retained ownership baseline and borrowed finite
-generation do not yet admit SA1's protected source together with the existing
-mixed consumer. No public API syntax is selected.
+permission evidence in a bounded V3 finite profile. SA2 now connects genuine
+protected V3 and Payload/Product sources through the joint composer, retained
+ownership and borrowed finite generation. Its private native saves enforce
+source permissions and effective assignment/retention decisions, with exact
+receipt replay and denied-root rollback. Complete concurrent freshness/recovery
+and selected serving-consumer cutover remain SA3-SA4 gates. No public API syntax
+is selected.
 
 Status: the Application, Product, selected Payload Local API, and finite
 Medusa workflow slices are implemented as a private, isolated-scope execution

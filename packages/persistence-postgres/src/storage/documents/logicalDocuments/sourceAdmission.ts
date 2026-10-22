@@ -1,8 +1,11 @@
 import { Data, Effect, Exit, Option, Result, Schema } from "effect";
 import { observeExecution } from "../../../execution/diagnostics/operation";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { encodeCanonicalJson, type Json, type JsonObject } from "flarex-protocol/json";
-import { compileLogicalDocumentReferences } from "flarex-protocol/internal/logical-storage-requirements";
+import { encodeCanonicalJson, isJson, isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
+import type { ApplicationManifest } from "@flarex/analysis/application-analysis";
+import { ApplicationLogicalV3Evidence } from "@flarex/analysis/internal/logical-application-source";
+import { compileLogicalDocumentReferences, compileLogicalReferenceIndexes, compileLogicalStrongReferences } from "flarex-protocol/internal/logical-storage-requirements";
+import { canonicalizeAppIndexPhysicalSpecV1 } from "flarex-protocol/index-definition";
 import { MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES, logicalTableKey,
   type LogicalSchemaSource } from "flarex-protocol/internal/logical-schema-candidate";
 import { CatalogSchemaVersionIdSchema, type CatalogSchemaVersionId,
@@ -135,7 +138,7 @@ import {
 } from "../../../installation/installationLifecycle";
 
 export class LogicalSourceAdmissionError extends Data.TaggedError("LogicalSourceAdmissionError")<{
-  readonly reason: "invalidInput" | "sourceMismatch" | "notReady" | "bindingMissing" | "unsupportedProfile";
+  readonly reason: "invalidInput" | "sourceMismatch" | "notReady" | "bindingMissing" | "unsupportedProfile" | "resourceFailure";
   readonly cause?: unknown;
 }> {}
 
@@ -186,6 +189,28 @@ type FiniteAttemptMetadataState = Readonly<{
   applicationCatalogOpen?: Effect.Effect<void, Effect.Error<ReturnType<typeof requirePreparedLogicalStorageCatalog>>>;
 }>;
 const finiteAttemptMetadata = new WeakMap<FiniteAttemptMetadata, FiniteAttemptMetadataState>();
+
+/** Bounded private Product-reference selection from the actual bound catalog. */
+export function requireFiniteProductReference(metadata: FiniteAttemptMetadata, root: SessionJournalAttempt,
+  sourceKey: string, tableName: string, field: string) {
+  return Result.gen(function* () {
+    const state = finiteAttemptMetadata.get(metadata);
+    const catalog = state?.root === root ? state.applicationCatalog?.logicalRequirements : undefined;
+    if (catalog === undefined) return yield* Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    const references = yield* compileLogicalStrongReferences(catalog.evidence.candidate).pipe(
+      Result.mapError(cause => new LogicalSourceAdmissionError({ reason: "sourceMismatch", cause })));
+    const selected = references.filter(reference => reference.sourceKey === sourceKey && reference.source.table.namespace === "app" &&
+      reference.source.table.logicalName === tableName && reference.source.field === field);
+    const reference = selected[0];
+    if (selected.length !== 1 || reference === undefined || reference.target.table.namespace !== "medusa" ||
+      reference.target.table.logicalName !== "commerce.product/product" || reference.target.field !== "id" ||
+      reference.onTargetSoftDelete !== "retain" || reference.onTargetDelete !== "restrict" ||
+      reference.liveness.source.kind !== "current" || reference.liveness.target.kind !== "softDeleteNull" ||
+      reference.liveness.target.field !== "deleted_at")
+      return yield* Result.fail(new LogicalSourceAdmissionError({ reason: "unsupportedProfile" }));
+    return reference;
+  });
+}
 const finiteAttemptProjections = new WeakMap<FiniteAttemptMetadata, PreparedFiniteMetadataProjection>();
 
 /** Permission evidence may be inspected only while its original metadata and
@@ -221,11 +246,19 @@ function applicationTables(snapshot: PublishedPhysicalRequirementSnapshotV1): re
   if (snapshot.manifest.kind === "appSchema") return snapshot.manifest.tableDefinitions.tables;
   const requirements = snapshot.logicalRequirements;
   if (requirements === undefined) return null;
+  const nativeNames = new Set<string>();
+  for (const source of requirements.evidence.candidate.sources) {
+    if (source.owner !== "application" || !isJsonObject(source.evidence) || source.evidence.manifest === undefined) continue;
+    const decoded = Result.getOrNull(Schema.decodeUnknownResult(ApplicationLogicalV3Evidence)(source.evidence));
+    if (decoded === null) return null;
+    for (const table of decoded.manifest.schema.tables) nativeNames.add(table.name);
+  }
   const tables: { tableId: CatalogTableId; logicalName: string; definition: SchemaManifestAppDocumentDefinitionV1 }[] = [];
   for (const source of requirements.evidence.candidate.sources) {
-    if (source.owner !== "application") continue;
+    if (source.owner !== "application" && source.owner !== "payload") continue;
     if (source.definition.kind !== "documents") return null;
     for (const table of source.definition.tables) {
+      if (source.owner !== "application" && !nativeNames.has(table.logicalName)) continue;
       const binding = source.bindings.find(member => member.kind === "definition" && member.localName === table.logicalName);
       const located = binding === undefined ? undefined : requirements.evidence.tableBindings.find(member =>
         logicalTableKey(member.table) === logicalTableKey(binding.table));
@@ -236,22 +269,54 @@ function applicationTables(snapshot: PublishedPhysicalRequirementSnapshotV1): re
   return tables;
 }
 
-function applicationCatalogMatches(original: PublishedPhysicalRequirementSnapshotV1,
-  bound: PublishedPhysicalRequirementSnapshotV1): boolean {
+const applicationCatalogMatches = Effect.fn("LogicalSourceAdmission.matchApplicationCatalog")(function* (
+  original: PublishedPhysicalRequirementSnapshotV1, bound: PublishedPhysicalRequirementSnapshotV1, manifest: ApplicationManifest,
+) {
+  if (manifest.version === 3) {
+    const app = bound.logicalRequirements?.evidence.candidate.sources.filter(source => source.owner === "application");
+    if (app?.length !== 1 || app[0] === undefined) return false;
+    const evidence = Schema.decodeUnknownResult(ApplicationLogicalV3Evidence)(app[0].evidence);
+    const expected: unknown = manifest.schema;
+    const actual: unknown = Result.isSuccess(evidence) ? evidence.success.manifest.schema : undefined;
+    if (!isJson(expected) || !isJson(actual) || canonical(expected) !== canonical(actual)) return false;
+  }
   const originalTables = applicationTables(original);
   const boundTables = applicationTables(bound);
   if (originalTables === null || boundTables === null || originalTables.length !== boundTables.length) return false;
   const owned = new Set(originalTables.map(table => table.tableId));
   const originalDefinitions = original.definitions.filter(member => owned.has(member.tableId));
   const boundDefinitions = bound.definitions.filter(member => owned.has(member.tableId));
+  const derivedDefinitions = [];
+  if (manifest.version === 3 && bound.logicalRequirements !== undefined) {
+    const requirements = bound.logicalRequirements;
+    const references = yield* Effect.fromResult(compileLogicalReferenceIndexes(requirements.evidence.candidate)).pipe(
+      Effect.mapError(cause => new LogicalSourceAdmissionError({ reason: "sourceMismatch", cause })));
+    for (const reference of references) {
+      const table = requirements.evidence.tableBindings.find(member => logicalTableKey(member.table) === logicalTableKey(reference.table));
+      if (table === undefined) return false;
+      if (!owned.has(table.tableId)) continue;
+      const spec = yield* Effect.tryPromise({ try: () => canonicalizeAppIndexPhysicalSpecV1(reference.physicalSpec),
+        catch: cause => cause }).pipe(
+          // oxlint-disable-next-line flarex/prefer-tagged-effect-recovery -- REVIEW: protocol - native index hashing rejects with DOMException; invalid compiled specs remain defects.
+          Effect.catch(cause => typeof DOMException !== "undefined" && cause instanceof DOMException
+            ? Effect.fail(new LogicalSourceAdmissionError({ reason: "resourceFailure", cause })) : Effect.die(cause)));
+      const matches = boundDefinitions.filter(definition => definition.tableId === table.tableId &&
+        definition.access.kind === "developer" && definition.physicalSpecCodecVersion === spec.codecVersion &&
+        definition.physicalSpecBytesHex === spec.canonicalBytesHex && definition.physicalSpecSha256Hex === spec.sha256Hex);
+      if (matches.length !== 1 || matches[0] === undefined || originalDefinitions.some(definition =>
+        publishedPhysicalDefinitionMatchesLocated(definition, matches[0]!))) return false;
+      derivedDefinitions.push(matches[0]);
+    }
+  }
+  const expectedDefinitions = [...originalDefinitions, ...derivedDefinitions];
   return originalTables.every(table => boundTables.some(member => member.tableId === table.tableId &&
     member.logicalName === table.logicalName && canonical(member.definition) === canonical(table.definition))) &&
-    originalDefinitions.length === boundDefinitions.length &&
-    originalDefinitions.every(definition =>
+    expectedDefinitions.length === boundDefinitions.length &&
+    expectedDefinitions.every(definition =>
       boundDefinitions.some(member => publishedPhysicalDefinitionMatchesLocated(definition, member))) &&
     boundDefinitions.every(definition =>
-      originalDefinitions.some(member => publishedPhysicalDefinitionMatchesLocated(definition, member)));
-}
+      expectedDefinitions.some(member => publishedPhysicalDefinitionMatchesLocated(definition, member)));
+});
 
 /** Compile the exact ordered source graph under its original generation. The
  * existing projection and Application selection issuers own the pairing. */
@@ -284,7 +349,7 @@ export const prepareFiniteApplicationSourceComposition = Effect.fn("LogicalSourc
     if (original.schemaVersionId !== selected.basis.schemaVersionId && original.boundApplicationProjection === undefined)
       return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
     if (original.boundApplicationProjection !== undefined && !checkedCatalogs.has(original.applicationCatalog)) {
-      if (!applicationCatalogMatches(selected.basis.physicalRequirements, original.applicationCatalog))
+      if (!(yield* applicationCatalogMatches(selected.basis.physicalRequirements, original.applicationCatalog, selected.basis.manifest)))
         return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
       checkedCatalogs.add(original.applicationCatalog);
     }
@@ -344,7 +409,7 @@ export const prepareFiniteAttemptMetadataProjection = Effect.fn("LogicalSourceAd
   const basis = validated.basis;
   const inputs = [prepared.execution];
   if (state.boundApplicationProjection !== undefined) {
-    if (state.applicationCatalog === undefined || !applicationCatalogMatches(basis.physicalRequirements, state.applicationCatalog))
+    if (state.applicationCatalog === undefined || !(yield* applicationCatalogMatches(basis.physicalRequirements, state.applicationCatalog, basis.manifest)))
       return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
     inputs.push(state.boundApplicationProjection);
   }

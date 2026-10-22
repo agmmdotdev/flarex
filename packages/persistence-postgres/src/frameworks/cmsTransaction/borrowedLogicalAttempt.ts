@@ -6,7 +6,9 @@ import type {
   AdmittedCompletion,
   LogicalBorrowedParticipantOperation,
   SessionJournalAttempt,
+  LogicalParticipantBorrowBase,
 } from "../../execution/journal/contracts";
+import { requirePrivateReferenceSaveTransition, type PrivateReferenceSaveAccess } from "../../execution/journal/privateSaveAccess";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
 import { makeBoundedRequestLifetime } from "../../execution/preparation/boundedRequestLifetime";
 import { LogicalDocumentSourceAdmissionError, withLogicalDocumentAttemptAdmissionEffect } from
@@ -45,6 +47,9 @@ export type BorrowedCmsAttemptInput = Readonly<{
   readonly admission: LogicalParticipantAttemptAdmission;
   readonly attempt: SessionJournalAttempt;
   readonly method: string;
+  readonly privateReferenceSave?: PrivateReferenceSaveAccess;
+  readonly bundle?: LogicalParticipantBorrowBase["bundle"];
+  readonly admissions?: LogicalParticipantBorrowBase["admissions"];
 }> & LogicalDocumentBorrowView;
 
 /** One Payload Local API invocation borrows the root's historical view. All
@@ -64,6 +69,11 @@ const makeBorrowedCmsAttempt = Effect.fnUntraced(function* (
           snapshotCommitSeq: state.root.snapshotCommitSeq, attemptFence: input.rootAttemptFence,
         }, () => cmsError("closed"));
       yield* localRootGate;
+      const authorizeTransition = input.privateReferenceSave === undefined ? undefined : yield* Effect.fromResult(
+        input.bundle === undefined || input.admissions === undefined ? Result.fail(cmsError("invalidAuthority")) :
+          requirePrivateReferenceSaveTransition(input.privateReferenceSave,
+            { attempt: input.attempt, method: input.method, bundle: input.bundle, admissions: input.admissions }, state.contentIdentity).pipe(
+              Result.mapError(cause => cmsError(cause.reason === "storedCorruption" ? "storedCorruption" : "invalidAuthority", cause))));
       if (state.configuration.profile !== "payload.scalar" && state.configuration.profile !== "payload.content-relations")
         return yield* Effect.fail(cmsError("unsupportedProfile"));
       if (input.method === "payload-delete" && (state.preferenceCleanup === undefined || state.root.executionProfile !== "finiteRoot"))
@@ -90,6 +100,8 @@ const makeBorrowedCmsAttempt = Effect.fnUntraced(function* (
             { rootEvaluator: input.rootEvaluator, rootAttempt: input.attempt,
               rootAttemptFence: input.rootAttemptFence }),
           lifetime, requireAdmission,
+          ...(authorizeTransition === undefined ? {} : { authorizeTransition: transition => authorizeTransition(transition).pipe(
+            Result.mapError(cause => cmsError(cause.reason === "storedCorruption" ? "storedCorruption" : "invalidAuthority", cause))) }),
           writeMechanics: state.writeMechanics,
           tables: state.writeMechanics.tables, searchDefinitions: state.writeMechanics.searchDefinitions,
           limits: { pageRows: cmsLimits.pageRows, identities: cmsLimits.identities,

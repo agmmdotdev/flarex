@@ -40,6 +40,7 @@ import { prepareFiniteApplicationMetadataProjections, prepareCompositeFiniteAppl
 import { captureHostPreparationLifetime, chargeHostPreparation } from "../../execution/preparation/preparedHostRuntime";
 import { readApplicationReadinessControlDatabase } from "../readiness/identity";
 import { lendResolvedApplicationRelationManifestBinding } from "../relations/applicationRelationSchemaAuthority";
+import { hasPreparedApplicationRelationReadRepository } from "../relations/applicationRelationReadinessFold";
 import { getSchemaVersionArtifactWithOriginalByIdEffect } from "../../storage/catalog/schemaVersionArtifacts";
 import { MAX_STORED_COMMIT_AUTHORITY_MATERIALIZATION_BYTES_V1 } from "../../commit/authority/model";
 import {
@@ -49,7 +50,10 @@ import {
   clockMatches,
   issueLegacyActiveSelection,
   readApplicationBindingHeadPreparation,
+  readApplicationBindingTargetProtection,
   readLegacyApplicationBindingPreparation,
+  readRelationApplicationBindingPreparation,
+  sameTrustedAuthority,
   readOriginalCurrentApplicationGenerationProtection,
 } from "./selectionIdentity";
 import { bytesEqualFullScan, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
@@ -73,9 +77,11 @@ export const withPreparedFiniteActiveApplicationOwned = Effect.fnUntraced(functi
     const entry = yield* Effect.fromResult(authenticateCurrentApplicationFiniteEntry(currentEntry,
       state.originalGenerationBinding));
     const original = readLegacyApplicationBindingPreparation(state.originalGenerationBinding);
-    if (original === undefined || !clockMatches(original.basis.authority, clock))
+    const relation = readRelationApplicationBindingPreparation(state.originalGenerationBinding);
+    const authority = original?.basis.authority ?? relation?.authority;
+    if (authority === undefined || !clockMatches(authority, clock))
       return yield* activationFailure("validateSelection", "scopeAuthority");
-    const retained = original.currentPreparation;
+    const retained = original?.currentPreparation ?? relation?.currentPreparation;
     const pair = retained === undefined ? Result.succeed(undefined) :
       authenticateProtectedReadinessMetadataPair(tx, retained.target, retained.control);
     const changedEpoch = yield* Result.match(pair, {
@@ -86,10 +92,10 @@ export const withPreparedFiniteActiveApplicationOwned = Effect.fnUntraced(functi
     // requires a genuine coherent native head before discarding this graph.
     const observed = yield* readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect(tx, clock,
       issued => { checked = issued; }, changedEpoch ? undefined : readApplicationBindingHeadPreparation(state.selection), finiteEntry);
-    if (observed === null) return yield* activationFailure("validateSelection", "concurrentHead", original.basis.revisionId);
+    if (observed === null) return yield* activationFailure("validateSelection", "concurrentHead", original?.basis.revisionId ?? relation?.revisionId);
     return yield* entry.check(tx, clock, observed.checked, finiteEntry, changedEpoch).pipe(Effect.andThen(
       withValidatedApplicationBindingBasisInTransaction(state.selection, tx, clock,
-        (validated, _checked, binding): Effect.Effect<Value, Failure | ApplicationActivationError, Requirements> => validated.kind !== "legacy"
+        (validated, _checked, binding): Effect.Effect<Value, Failure | ApplicationActivationError, Requirements> => validated.kind !== state.kind
           ? activationFailure("validateSelection", "invalidComposition")
           : work(Object.freeze({ selection: state.selection, basis: validated.basis }), binding), observed.checked)));
     }).pipe(Effect.ensuring(Effect.sync(() => releaseCheckedApplicationActiveHead(checked))));
@@ -165,11 +171,15 @@ export function makeCompositeFiniteActivePreparationReader<SchemaFailure, ColdFa
   prepare: ReturnType<typeof makeActivePreparationReader>,
 ) {
   return Effect.fn("ApplicationActivation.prepareCompositeFinite")(function* (originalGenerationBinding?: ApplicationBindingInput) {
-    if (originalGenerationBinding !== undefined) return yield* activationFailure("read", "invalidComposition");
     const lifetime = yield* captureHostPreparationLifetime();
     if (lifetime === undefined) return yield* activationFailure("read", "invalidComposition");
+    const borrowed = originalGenerationBinding === undefined ? undefined : readRelationApplicationBindingPreparation(originalGenerationBinding);
+    if (originalGenerationBinding !== undefined && (borrowed === undefined || borrowed.lifetime?.checkOpen !== lifetime.checkOpen ||
+      !hasPreparedApplicationRelationReadRepository(borrowed.readiness, captured.relationReadiness) || borrowed.currentPreparation !== undefined))
+      return yield* activationFailure("read", "invalidComposition");
+    if (originalGenerationBinding !== undefined) yield* Effect.fromResult(readApplicationBindingTargetProtection(originalGenerationBinding));
     const database = yield* Effect.fromResult(readApplicationReadinessControlDatabase(captured.readiness));
-    const bindingPreparation = yield* makeCompositeBindingPreparationReader(captured, prepare)("retained");
+    const bindingPreparation = originalGenerationBinding ?? (yield* makeCompositeBindingPreparationReader(captured, prepare)("retained"));
     const inputs = yield* lendApplicationBindingPreparationInputs(bindingPreparation, database);
     if (inputs.manifest.version !== 3 || inputs.manifest.schema.relations.length !== 0 ||
       inputs.schema.relations.length !== 0 || inputs.schema.edgeDefinitions.length !== 0)
@@ -177,7 +187,9 @@ export function makeCompositeFiniteActivePreparationReader<SchemaFailure, ColdFa
     const active = yield* repository.readActive();
     const selected = readApplicationSelectionState(active.selection);
     if (selected?.kind !== "relation" || selected.basis.schemaVersionId !== inputs.schema.schemaVersionId ||
-      encodeBytesToLowercaseHex(selected.basis.manifestSha256) !== inputs.schema.applicationManifestSha256)
+      encodeBytesToLowercaseHex(selected.basis.manifestSha256) !== inputs.schema.applicationManifestSha256 ||
+      borrowed !== undefined && (borrowed.revisionId !== selected.basis.revisionId ||
+        !sameTrustedAuthority(borrowed.authority, selected.basis.authority)))
       return yield* activationFailure("read", "concurrentHead");
     yield* Effect.fromResult(attachRelationFiniteLifetime(active.selection, lifetime));
     const binding = yield* lendResolvedApplicationRelationManifestBinding(inputs.schema, database, {
@@ -200,6 +212,6 @@ export function makeCompositeFiniteActivePreparationReader<SchemaFailure, ColdFa
           Effect.mapError(cause => activationError("read", "resourceFailure", undefined, false, { stage, cause })));
     return yield* issueFiniteActiveApplicationPreparation(Object.freeze({ kind: "relation", repository,
       selection: active.selection, schema: inputs.schema, database, artifact: original.original, binding,
-      lifetime, originalGenerationBinding: undefined }));
+      lifetime, originalGenerationBinding }));
   });
 }

@@ -11,7 +11,7 @@ import {
 import { SchemaManifestJsonSchema, CatalogSchemaVersionIdSchema, CatalogSchemaVersionSchema,
   decodeSchemaManifestAppSchemaV1Result, type CatalogSchemaVersionId, type CatalogSchemaVersion } from "flarex-protocol/schema-manifest";
 import type { ScopeId } from "flarex-protocol/storage-authority";
-import { encodeCanonicalJson } from "flarex-protocol/json";
+import { encodeCanonicalJson, isJson, isJsonObject } from "flarex-protocol/json";
 import type { FlarexMetadataDatabase } from "../../application/deployments";
 import {
   hasCatalogControlSessionComposition,
@@ -24,6 +24,11 @@ import {
 } from "../../database/catalogControlSession";
 import { fxControlScopes, fxControlSchemaVersions } from "../../database/schema";
 import { locateApplicationRelationBindingForCommitEffect } from "../../application/relations/binding";
+import { verifyApplicationManifestV3 } from "@flarex/analysis/application-analysis";
+import { ApplicationLogicalV3Evidence, prepareApplicationLogicalSource } from "@flarex/analysis/internal/logical-application-source";
+import { capturePrivateCanonicalValue } from "../../installation/frameworkSchema/privateCanonicalValue";
+import { prepareApplicationWritePolicyBinding } from "../../application/ownership/applicationWritePolicyBinding";
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { readLogicalSchemaAdmissionEvidence, isLogicalSchemaAdmissionManifest,
   MAX_LOGICAL_SCHEMA_HISTORY_RECORDS, MAX_LOGICAL_SCHEMA_HISTORY_BYTES,
   type LogicalSchemaAdmissionBinding as Binding } from "./logicalSchemaAdmissionEvidence";
@@ -203,7 +208,42 @@ const requireRetainedOwners = Effect.fn("LogicalSchemaAdmission.requireRetainedO
     const bound = yield* locateApplicationRelationBindingForCommitEffect(db, { deploymentId, schemaVersionId: row.id }).pipe(
       Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "storedCorruption", cause })));
     if (bound?.binding.version === 3) {
-      return yield* Effect.fail(new LogicalSchemaAdmissionError({ reason: "unsupportedOwnershipBaseline" }));
+      const app = candidate.sources.filter(source => source.owner === "application");
+      const payload = candidate.sources.filter(source => source.owner === "payload" && source.writeProfile !== "payload.readOnlyView");
+      if (app.length !== 1 || payload.length !== 1 || app[0] === undefined || payload[0] === undefined)
+        return yield* Effect.fail(new LogicalSchemaAdmissionError({ reason: "ownershipChanged" }));
+      const evidence = yield* Schema.decodeUnknownEffect(ApplicationLogicalV3Evidence)(app[0].evidence).pipe(
+        Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "ownershipChanged", cause })));
+      const verified = yield* verifyApplicationManifestV3(evidence.manifest).pipe(
+        Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "ownershipChanged", cause })));
+      const manifestData: unknown = verified.manifest;
+      if (!isJson(manifestData) || !isJsonObject(manifestData)) return yield* Effect.die(new Error("Decoded V3 manifest lost JSON"));
+      const digestPolicy = { invalidInput: () => new LogicalSchemaAdmissionError({ reason: "ownershipChanged" }),
+        hashFailure: (cause: unknown) => new LogicalSchemaAdmissionError({ reason: "resourceFailure", cause }) };
+      const manifest = yield* capturePrivateCanonicalValue(manifestData, 1_048_576, digestPolicy);
+      const schema = yield* capturePrivateCanonicalValue({ format: "flarex.application-schema-publication", version: 3,
+        schema: manifestData.schema! }, 1_048_576, digestPolicy);
+      const policies = yield* prepareApplicationWritePolicyBinding(verified.manifest, bound.binding.tables).pipe(
+        Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "ownershipChanged", cause })));
+      const expected = yield* prepareApplicationLogicalSource(verified.manifest, evidence.manifestSha256, payload[0]).pipe(
+        Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "ownershipChanged", cause })));
+      if (manifest.sha256Hex !== evidence.manifestSha256 || candidate.applicationAnalysis.manifestSha256 !== evidence.manifestSha256 ||
+        schema.sha256Hex !== encodeBytesToLowercaseHex(bound.applicationSchemaSha256) ||
+        policies === null || canonical(policies.writePolicies) !== canonical(bound.binding.writePolicies) ||
+        canonical(expected) !== canonical(app[0]))
+        return yield* Effect.fail(new LogicalSchemaAdmissionError({ reason: "ownershipChanged" }));
+      // Qualified names reuse the existing stable catalog. No removed,
+      // reclassified or renamed retained native table may enter this profile.
+      for (const table of bound.binding.tables) {
+        const identity = yield* getStableTableIdentityByNameEffect(db, { deploymentId, namespace: "app", logicalName: table.logicalName });
+        const next = proposed.get(logicalTableKey({ namespace: "app", logicalName: table.logicalName }));
+        const policy = bound.binding.writePolicies.find(member => member.tableId === table.tableId);
+        if (identity?.tableId !== table.tableId || policy === undefined || next === undefined ||
+          next.owner !== (policy.owner === "payload" ? "payload" : "application") ||
+          next.profile !== (policy.owner === "payload" ? verified.manifest.schema.writePolicies.configuration.profile : "application.occ"))
+          return yield* Effect.fail(new LogicalSchemaAdmissionError({ reason: "ownershipChanged" }));
+      }
+      continue;
     }
     const previous = yield* Effect.fromResult(decodeSchemaManifestAppSchemaV1Result(artifact.manifestJson)).pipe(
       Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "unsupportedOwnershipBaseline", cause })));
@@ -225,3 +265,7 @@ const query = <A>(run: () => PromiseLike<A>) => Effect.tryPromise({
 function candidateText(candidate: LogicalSchemaCandidate): string {
   return encodeCanonicalJson(candidate, issue => { throw new Error(`Candidate JSON invariant: ${issue.reason}`); });
 }
+
+const canonical = (value: Parameters<typeof encodeCanonicalJson>[0]) => encodeCanonicalJson(value, issue => {
+  throw new Error(`Retained ownership JSON invariant: ${issue.reason}`);
+});
