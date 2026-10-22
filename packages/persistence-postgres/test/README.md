@@ -47,10 +47,36 @@ assets fail visibly. A force-killed builder can leave a per-key `.lock` director
 waits are bounded and the error identifies it. Remove that exact cache claim only
 after confirming its builder has stopped; no age-based lock stealing occurs.
 
-The pilot retains the existing PostgreSQL schema creation and broad reset policy.
-Cross-rerun native schema leasing and narrower resets require their own isolation
-proofs; this pilot does not claim to have implemented them. Framework fixtures
-and the application-facing `flarex-test` SDK remain outside the pilot migration.
+PostgreSQL storage fixtures lease exclusive schemas from one Vitest runner owner,
+including watch/rerun iterations. A private authenticated loopback endpoint passes
+schema identifiers; test SQL still uses the real driver directly. The owner is
+lazy and opens no PostgreSQL connection for an unused selection. Prepared schemas
+are bounded to twice the configured worker count, with a minimum of two for
+concurrent isolation witnesses. They are dropped at normal runner shutdown and
+are not retained across separate CLI invocations.
+
+The storage reset deletes only the explicit row/index/relation/catalog/scope
+families in `support/postgresStorageReset.ts`. It keeps constraints and triggers
+enabled and retains exact migration seeds. After committing the deletes, native
+`VACUUM FULL` reclaims only those profile tables and their indexes; PostgreSQL 18
+statistics-clear APIs restore their initial planner state. Empty `ANALYZE` does
+not clear old column distributions. Servers without the native statistics APIs
+keep the existing fresh-file fixture and broad reset owner. Opaque catalog and outside-profile row
+inventories refuse persistent DDL or unrelated data changes; this fixture guard
+does not replace the installation verifier. The prepared-metadata epoch keeps its
+identity and a nondecreasing generation. Driver pools and prepared host runtimes
+are replaced after each reset, clearing session settings, temp objects, statements,
+advisory locks and database-keyed caches. A fresh lease must be empty and match its
+recorded baseline before reuse. Bootstrap/runtime source changes invalidate it
+through the same source-closure fingerprint owner used by PGlite images.
+
+Failed callbacks, resets and test results quarantine their lease after drainage.
+Uncertain retirement prevents replacement; an unreturned lease fails shutdown
+visibly rather than being reclaimed while its worker may still be running. A
+retained schema may be removed only after that runner and its SQL work have ended.
+Existing broad PostgreSQL fixtures remain for their scheduler, protected-role,
+historical migration and independent DDL/fault consumers. Framework fixtures and
+the application-facing `flarex-test` SDK remain outside the pilot migration.
 
 Owner-specific `*Scenario`, `*Fixture` and `*TestSupport` files stay with that
 owner. Import them when needed; do not copy their algorithms into another test

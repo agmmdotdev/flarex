@@ -5,6 +5,7 @@ import { configDefaults, defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     fsModuleCache: true,
+    globalSetup: ["./test/support/postgresStorageSession.ts"],
     exclude: [...configDefaults.exclude, "test/performance/relations/**"],
   },
   resolve: {

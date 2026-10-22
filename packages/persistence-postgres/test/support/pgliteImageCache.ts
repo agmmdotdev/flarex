@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { Data, Schema } from "effect";
+import { persistenceFixtureSourceKey } from "./persistenceFixtureFingerprint";
 
 const packageRoot = fileURLToPath(new URL("../..", import.meta.url));
 const repositoryRoot = fileURLToPath(new URL("../../../..", import.meta.url));
@@ -12,11 +13,7 @@ const manifestDecoder = Schema.decodeUnknownSync(Schema.Struct({
   format: Schema.Literal(1), key: Schema.String,
   byteLength: Schema.Int, sha256: Schema.String,
 }));
-const packageDecoder = Schema.decodeUnknownSync(Schema.Struct({ name: Schema.String,
-  dependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-  optionalDependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-  peerDependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-}));
+
 
 export class PGliteImageCacheError extends Data.TaggedError("PGliteImageCacheError")<{
   readonly reason: "corrupt" | "busy" | "sourceChanged";
@@ -76,63 +73,12 @@ async function readImage(directory: string, key: string): Promise<Blob | undefin
   return new Blob([new Uint8Array(bytes)]);
 }
 
-async function sourceFiles(directory: string): Promise<string[]> {
-  let entries;
-  try { entries = await readdir(directory, { withFileTypes: true }); }
-  catch (cause: unknown) {
-    if (hasCode(cause, "ENOENT")) return [];
-    throw cause;
-  }
-  const nested = await Promise.all(entries.map(entry => entry.isDirectory()
-    ? sourceFiles(join(directory, entry.name))
-    : /\.(?:ts|js|mjs|json|sql|wasm)$/.test(entry.name) ? [join(directory, entry.name)] : []));
-  return nested.flat();
-}
-
-/** Conservative source closure: include runtime dependency-package sources as well as
- * SQL/journal, lockfile and image construction. Test-only edits don't invalidate
- * an image, but any bootstrap/runtime input change does. Narrowing this closure
- * needs an independently verified migration dependency graph. */
-export async function pgliteImageKey(inputs = { packageRoot, repositoryRoot }): Promise<string> {
-  const { packageRoot, repositoryRoot } = inputs;
-  const packages = await readdir(join(repositoryRoot, "packages"), { withFileTypes: true });
-  const manifests = await Promise.all(packages.filter(entry => entry.isDirectory()).map(async entry => {
-    const directory = join(repositoryRoot, "packages", entry.name);
-    return { directory, manifest: packageDecoder(JSON.parse(await readFile(join(directory, "package.json"), "utf8"))) };
-  }));
-  const byName = new Map(manifests.map(entry => [entry.manifest.name, entry]));
-  const pending = ["@flarex/persistence-postgres"];
-  const visited = new Set<string>();
-  const sources: string[] = [];
-  while (pending.length > 0) {
-    const name = pending.pop();
-    if (name === undefined || visited.has(name)) continue;
-    visited.add(name);
-    const entry = byName.get(name);
-    if (entry === undefined) throw new Error(`Missing workspace image input ${name}`);
-    sources.push(join(entry.directory, "package.json"), ...await sourceFiles(join(entry.directory, "src")));
-    for (const [dependency, version] of Object.entries({ ...entry.manifest.dependencies,
-      ...entry.manifest.optionalDependencies, ...entry.manifest.peerDependencies })) {
-      if (version.startsWith("workspace:")) pending.push(dependency);
-    }
-  }
-  const migrations = (await readdir(join(packageRoot, "drizzle"))).filter(name => name.endsWith(".sql"))
-    .map(name => join(packageRoot, "drizzle", name));
-  const files = [...sources, ...migrations, join(packageRoot, "drizzle/meta/_journal.json"),
-    join(repositoryRoot, "pnpm-lock.yaml"), join(packageRoot, "package.json"),
-    fileURLToPath(import.meta.url), join(packageRoot, "test/support/pgliteMigrationBaseline.ts"),
-    join(packageRoot, "test/support/pgliteSearchExtensions.ts")].sort();
-  const hash = createHash("sha256").update(`pglite-schema-image:1:${process.platform}:${process.arch}\0`);
-  for (let start = 0; start < files.length; start += 32) {
-    const batch = files.slice(start, start + 32);
-    const contents = await Promise.all(batch.map(path => readFile(path)));
-    for (const [index, bytes] of contents.entries()) {
-      const path = batch[index];
-      if (path === undefined) throw new Error("Missing image fingerprint input");
-      hash.update(relative(repositoryRoot, path)).update("\0").update(bytes).update("\0");
-    }
-  }
-  return hash.digest("hex");
+/** The image and native schema lanes share one bootstrap-input owner. */
+export function pgliteImageKey(inputs = { packageRoot, repositoryRoot }): Promise<string> {
+  return persistenceFixtureSourceKey("pglite-schema-image", [
+    "test/support/pgliteImageCache.ts", "test/support/pgliteMigrationBaseline.ts",
+    "test/support/pgliteSearchExtensions.ts",
+  ], inputs);
 }
 
 export interface PGliteImageCacheOptions {

@@ -137,7 +137,7 @@ describe("PGlite schema image cache", () => {
     const inputs = [join(packageRoot, "src/bootstrap.ts"), join(packageRoot, "drizzle/0000.sql"),
       join(packageRoot, "drizzle/meta/_journal.json"), join(dependencyRoot, "src/value.ts"),
       join(repositoryRoot, "pnpm-lock.yaml"), join(packageRoot, "test/support/pgliteMigrationBaseline.ts"),
-      join(packageRoot, "test/support/pgliteSearchExtensions.ts")];
+      join(packageRoot, "test/support/pgliteSearchExtensions.ts"), join(packageRoot, "test/support/pgliteImageCache.ts")];
     for (const input of inputs) await writeFile(input, "initial");
     let previous = await pgliteImageKey({ repositoryRoot, packageRoot });
     await writeFile(join(unrelatedRoot, "src/other.ts"), "unrelated edit");

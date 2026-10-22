@@ -24,10 +24,10 @@ describe("framework test worker budget", () => {
     const { default: shared } = await import("../../vitest.framework.pglite.config");
     const { default: raw } = await import("../../vitest.framework.config");
     const { default: native } = await import("../../vitest.framework.postgres.config");
-    expect(shared.test?.globalSetup).toBeUndefined();
+    expect(shared.test?.globalSetup).toEqual(["./test/support/postgresStorageSession.ts"]);
     expect(shared.test?.maxWorkers).toBe(raw.test?.maxWorkers);
     expect(shared.test?.fileParallelism).toBe(raw.test?.fileParallelism);
-    expect(raw.test?.globalSetup).toBeUndefined();
-    expect(native.test?.globalSetup).toBeUndefined();
+    expect(raw.test?.globalSetup).toEqual(shared.test?.globalSetup);
+    expect(native.test?.globalSetup).toEqual(shared.test?.globalSetup);
   });
 });

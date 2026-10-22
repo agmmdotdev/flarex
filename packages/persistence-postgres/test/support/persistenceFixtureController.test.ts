@@ -2,6 +2,21 @@ import { describe, expect, it } from "vitest";
 import { createPersistenceFixtureController, useLazyFileScopedPersistence } from "./fileScopedPersistenceFixture";
 
 describe("persistence fixture ownership", () => {
+  it.each(["callback", "reset", "failed test result"] as const)("retires a %s failure instead of publishing a clean resource", async stage => {
+    const disposedStates: boolean[] = [];
+    let invalidated = false;
+    const failure = new Error(stage);
+    const controller = createPersistenceFixtureController(async () => ({ persistence: {},
+      reset: async () => { if (stage === "reset") throw failure; },
+      invalidate: () => { invalidated = true; },
+      dispose: async () => { disposedStates.push(invalidated); } }));
+    const borrow = controller.borrow(async () => { if (stage === "callback") throw failure; });
+    if (stage === "failed test result") { await borrow; controller.invalidate(); }
+    else await expect(borrow).rejects.toBe(failure);
+    await controller.dispose();
+    expect(disposedStates).toEqual([true]);
+  });
+
   it("acquires only on preparation, reuses clean resources and rebuilds after callback or reset failure", async () => {
     let creates = 0;
     let resets = 0;

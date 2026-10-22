@@ -4,6 +4,7 @@ export interface FileScopedPersistenceFixture<Persistence> {
   readonly persistence: Persistence;
   readonly reset: () => Promise<void>;
   readonly dispose: () => Promise<void>;
+  readonly invalidate?: () => void;
 }
 
 export type WithFileScopedPersistence<Persistence> = (
@@ -23,6 +24,10 @@ export function createPersistenceFixtureController<Persistence>(
     const current = settled.then(operation);
     settled = current.then(() => undefined, () => undefined);
     return current;
+  };
+  const invalidate = () => {
+    rebuildRequired = true;
+    fixture?.invalidate?.();
   };
 
   const prepare = async () => {
@@ -45,14 +50,14 @@ export function createPersistenceFixtureController<Persistence>(
     try {
       await fn(activeFixture.persistence);
     } catch (error: unknown) {
-      rebuildRequired = true;
+      invalidate();
       throw error;
     }
 
     try {
       await activeFixture.reset();
     } catch (error: unknown) {
-      rebuildRequired = true;
+      invalidate();
       throw error;
     }
   };
@@ -67,6 +72,7 @@ export function createPersistenceFixtureController<Persistence>(
       : Promise.reject(new Error("Persistence fixture is closing")),
     borrow,
     drain: () => settled,
+    invalidate,
     dispose() {
       disposal ??= enqueue(async () => {
         const current = fixture;
@@ -85,7 +91,10 @@ export function useFileScopedPersistence<Persistence>(
 ): WithFileScopedPersistence<Persistence> {
   const controller = createPersistenceFixtureController(create);
   beforeAll(async () => { if (enabled) await controller.prepare(); }, 120_000);
-  afterEach(controller.drain, 120_000);
+  afterEach(async ({ task }) => {
+    await controller.drain();
+    if (task.result?.state === "fail") controller.invalidate();
+  }, 120_000);
   afterAll(controller.dispose, 120_000);
   return controller.borrow;
 }
@@ -107,7 +116,10 @@ export function useLazyFileScopedPersistence<Persistence>(
     const context = task.context;
     if ("persistenceFixture" in context && context.persistenceFixture === fixtureId) await controller.prepare();
   }, 120_000);
-  afterEach(controller.drain, 120_000);
+  afterEach(async ({ task }) => {
+    await controller.drain();
+    if (task.result?.state === "fail") controller.invalidate();
+  }, 120_000);
   afterAll(controller.dispose, 120_000);
   return {
     withPersistence: controller.borrow,

@@ -36,5 +36,5 @@ export function usePGliteStorageTests(profile: "rows" | "indexes" = "rows") {
 
 export function usePostgresStorageTests() {
   return useLazyFileScopedPersistence<PostgresFlarexPersistence>(async () =>
-    (await import("./postgresHelpers")).createFileScopedPostgresFixture());
+    (await import("./postgresStorageFixture")).createPostgresStorageFixture());
 }
