@@ -90,11 +90,35 @@ export function medusaLifecycle(ctx: CommerceCommandContext, catalog: Catalog, o
         if (table === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
         ordered.push(table);
       }
+      // Table topology cannot order a same-table FK. Discover the complete
+      // closure first, then seal every self-table order before any mutation.
+      // Other table profiles and soft lifecycle ordering retain their existing
+      // order. A cycle cannot be satisfied by sequential scalar deletions.
+      const deletionRows = new Map<string, readonly JsonObject[]>();
+      if (operation === "delete") for (const table of ordered) {
+        const selfKeys = table.foreignKeys.filter(key => key.referencedTable === table.name);
+        if (!selfKeys.length) continue;
+        if (selfKeys.some(key => key.columns.length !== 1 || key.referencedColumns.length !== 1))
+          return yield* Effect.fail(commerceError("unsupportedProfile"));
+        const remaining = [...rows(table)], changed: JsonObject[] = [];
+        while (remaining.length) {
+          const index = remaining.findIndex(row => selfKeys.every(key => {
+            const column = key.columns[0], referenced = key.referencedColumns[0];
+            return column !== undefined && referenced !== undefined && !remaining.some(child =>
+              child[column] !== null && child[column] !== undefined && child[column] === row[referenced]);
+          }));
+          if (index < 0) return yield* Effect.fail(commerceError("unsupportedProfile"));
+          const [row] = remaining.splice(index, 1);
+          if (row === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
+          changed.push(row);
+        }
+        deletionRows.set(table.name, changed);
+      }
       const cascades: Record<string, JsonObject[]> = {};
       let changedRoots: JsonObject[] = [];
       for (const table of operation === "delete" ? ordered.reverse() : ordered) {
         const store = yield* getStore(table);
-        const inputKeys = rows(table).map(row => Object.fromEntries(keys(table).map(key => [key, row[key]])));
+        const inputKeys = (deletionRows.get(table.name) ?? rows(table)).map(row => Object.fromEntries(keys(table).map(key => [key, row[key]])));
         const changed = operation === "delete" ? yield* store.delete(ctx.manager, inputKeys) : yield* store.lifecycle(ctx.manager, operation, inputKeys);
         if (operation === "delete") for (const edge of catalog.referenceDetachments ?? []) if (edge.targetTable === table.name) {
           if (ctx.detachDeletedReference === undefined) return yield* ctx.refuse(commerceError("invalidAuthority"));

@@ -58,9 +58,17 @@ export function correlatePhysicalGraphReceipt(input: {
       .map(key => ({ child: child.name, parent: key.referencedTable, columns: key.columns, referenced: key.referencedColumns })));
     if (edges.some(edge => !byTable.has(edge.child) || edge.columns.length !== 1 || edge.referenced.length !== 1 || edge.referenced[0] !== "id"))
       return yield* Result.fail(mismatch());
-    let roots = orderNativeIdRows([...observed.get(root.name)?.values() ?? []], {});
-    if (roots.some(row => !requestedIds.includes(row.id))) return yield* Result.fail(mismatch());
-    const expectedReads: JsonObject[] = [], selected = new Set<string>();
+    // Same-table descendants are part of the complete graph, but only rows
+    // selected by the original root query are requested roots.
+    let roots = orderNativeIdRows([...observed.get(root.name)?.values() ?? []].filter(row => requestedIds.includes(row.id)), {});
+    const expectedReads: JsonObject[] = [], selected = new Set<string>(), visiting = new Set<string>(), readSelections = new Set<string>();
+    const expectRead = (table: string, column: string, values: readonly string[], total: number) => {
+      const selection = JSON.stringify([table, column, values]);
+      if (readSelections.has(selection)) return;
+      readSelections.add(selection);
+      expectedReads.push({ table, query: commerceRelationReadQuery(defaultCommerceResources,
+        { kind: "in", column, values }), total, returned: total });
+    };
     if (requestedIds.length) {
       if (input.rootOrder === "storageInsertion") {
         const identities = yield* commerceDecoder(Schema.Array(Schema.Struct({ id: Schema.String.check(Schema.isLengthBetween(1, 256)) }))
@@ -77,24 +85,27 @@ export function correlatePhysicalGraphReceipt(input: {
         expectedReads.push({ table: root.name, query: commerceRelationReadQuery(defaultCommerceResources,
           { kind: "in", column: "id", values: requestedIds }, { kind: "storageInsertion", direction: "asc" }, { includeIdentities: true }),
           total: roots.length, returned: roots.length, orderedIdentities: identities });
-      } else expectedReads.push({ table: root.name,
-        query: commerceRelationReadQuery(defaultCommerceResources, { kind: "in", column: "id", values: requestedIds }), total: roots.length, returned: roots.length });
+      } else expectRead(root.name, "id", requestedIds, roots.length);
     }
     // Checked metadata supplies the same finite scalar-FK edge order as the
     // lifecycle owner. Correlate every required query, including empty children.
-    const correlateChildren = (table: string, row: JsonObject & { readonly id: string }, depth: number): Result.Result<void, CommerceTransactionError> => Result.gen(function* () {
-      if (depth > entities.length || selected.has(table + ":" + row.id)) return yield* Result.fail(mismatch());
-      selected.add(table + ":" + row.id);
+    const correlateChildren = (table: string, row: JsonObject & { readonly id: string }): Result.Result<void, CommerceTransactionError> => Result.gen(function* () {
+      const identity = table + ":" + row.id;
+      if (visiting.has(identity)) return yield* Result.fail(mismatch());
+      // Overlapping explicit roots and repeated FK reachability share the
+      // lifecycle owner's completed node and indexed-selection caches.
+      if (selected.has(identity)) return;
+      selected.add(identity); visiting.add(identity);
       for (const edge of edges.filter(edge => edge.parent === table)) {
         const column = edge.columns[0];
         if (column === undefined) return yield* Result.fail(mismatch());
         const members = orderNativeIdRows([...observed.get(edge.child)?.values() ?? []].filter(member => member[column] === row.id), {});
-        expectedReads.push({ table: edge.child, query: commerceRelationReadQuery(defaultCommerceResources,
-          { kind: "in", column, values: [row.id] }), total: members.length, returned: members.length });
-        for (const member of members) yield* correlateChildren(edge.child, member, depth + 1);
+        expectRead(edge.child, column, [row.id], members.length);
+        for (const member of members) yield* correlateChildren(edge.child, member);
       }
+      visiting.delete(identity);
     });
-    for (const row of roots) yield* correlateChildren(root.name, row, 0);
+    for (const row of roots) yield* correlateChildren(root.name, row);
     const pending = new Set([...observed].flatMap(([table, rows]) => [...rows.keys()].map(id => table + ":" + id)));
     if ([...pending].some(identity => !selected.has(identity) && ![...sources].some(table => identity.startsWith(table + ":"))))
       return yield* Result.fail(mismatch());
@@ -132,7 +143,7 @@ export function correlatePhysicalGraphReceipt(input: {
           expectedDetached.set(key, { edge, targetKey: row.id, ordinal });
         }
       }
-      if (mutation.table === root.name) rootIds.push(row.id);
+      if (mutation.table === root.name && requestedIds.includes(row.id)) rootIds.push(row.id);
     }
     if (pending.size || expectedDetached.size || !jsonEqual(expectedReads, activity.relationalReads)) return yield* Result.fail(mismatch());
     for (const source of sources) {

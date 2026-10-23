@@ -6379,7 +6379,7 @@
     {
       "target": "packages/medusa-adapter/src/repository/lifecycle.ts",
       "classification": "authored",
-      "targetSha256": "7fcfa1c41e5bbae3338dc4d10ec4fce58a66a254b3a4e9ada741b7be3214381e"
+      "targetSha256": "efa518a043017f8a955bae215ac70ab6add74538d9a958d12befa0460e2ea125"
     },
     {
       "target": "packages/medusa-adapter/src/workflows/product/update.ts",
@@ -10093,7 +10093,7 @@
     {
       "target": "packages/medusa-adapter/src/repository/physical-graph-receipt.ts",
       "classification": "authored",
-      "targetSha256": "4749b011eecd9c4b7444a4f69ea0dc7607d3d7c23226c1b42cbfeee39fc49e04"
+      "targetSha256": "6cbed512490f93313135f3f24330b494a96fc0b4ba80acefab3dccf092903628"
     },
     {
       "target": "packages/medusa-adapter/src/workflows/stock-location/create-location-fulfillment-set.ts",
@@ -14596,6 +14596,21 @@
       "target": "packages/medusa-adapter/test/order-generated-serial-contracts.test.ts",
       "classification": "authored",
       "targetSha256": "2f9c6d4965b9cc450130d82417c8a90d44e0c397deb9bd8c65d7e4a11590207a"
+    },
+    {
+      "target": "packages/medusa-adapter/test/lifecycle-self-cascade.test.ts",
+      "classification": "authored",
+      "targetSha256": "f9c4fead2e71deb087453d5d7a79caac626296fe4f4c7311dfaec4a591098e50"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-self-cascade.test.ts",
+      "classification": "authored",
+      "targetSha256": "ae8703827da895cc5173a5ad43648df6e148666ecfd48bf9cb50e425dbb27cd8"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-self-cascade-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "0578cb86a956edd3bd36dee733e793ec95b14658046bb5324e8da1cf94725855"
     }
   ],
   "dependencies": {

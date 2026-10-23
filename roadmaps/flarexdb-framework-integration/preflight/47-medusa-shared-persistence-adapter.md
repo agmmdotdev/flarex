@@ -779,6 +779,33 @@ An isolated proposed-commit snapshot independently verifies all 392 exact source
 files across the ten packages. Browser portability passes across 654 inputs;
 core and diff lint pass. Receipts are `work/module-assembly-*.log`.
 
+## Bounded self-referential physical deletion
+
+Status: implemented for bounded indexed logical-storage graphs. This changes no
+native workflow admission or resource allowance.
+
+`repository/lifecycle.ts` owns complete indexed physical-cascade discovery and
+execution. A scalar self-reference can put multiple hierarchy levels in one
+table. Physical execution therefore orders those selected rows child first,
+sealing the complete order before any mutation. Cyclic row dependencies and
+unsupported composite self-reference recipes fail closed before writes.
+Non-self table ordering and soft-delete/restore ordering retain their existing
+contracts. The module profile still bounds the complete selected row closure.
+
+`repository/physical-graph-receipt.ts` distinguishes explicitly selected roots
+from same-table descendants, authenticates every complete indexed read including
+empty selections, and correlates the actual child-first mutation preimages.
+Overlapping roots share completed traversal and query caches; active traversal
+cycles remain refused. Complete-row decoders and per-entity maxima bound the
+graph rather than the number of model tables. Only explicitly requested roots
+contribute returned native root/event IDs. Historical descendants participate in
+physical deletion, while ancestors and unrelated rows remain outside its closure.
+
+Neutral executed-evidence and actual logical-storage proofs own the shared
+mechanic. Tax Region creation and other native workflows retain their own input,
+output, current-graph bounds, event policy and separate admission gates; this
+shared correction grants none of those module capabilities.
+
 ## Following capabilities and module proof
 
 ### Native mutation subscriber construction contract
