@@ -5,6 +5,9 @@ import type {
   PortableRelationshipMetadata,
   PortableSchemaMember,
 } from "./dml-types"
+import { camelToSnakeCase } from "@medusajs/utils/common/camel-to-snake-case"
+import { toCamelCase } from "@medusajs/utils/common/to-camel-case"
+import { upperCaseFirst } from "@medusajs/utils/common/upper-case-first"
 
 export interface DatabaseColumn {
   name: string
@@ -74,7 +77,7 @@ export interface DatabaseSchema {
 export function compileDmlSchema(entities: PortableEntity[]): DatabaseSchema {
   const compiled = entities.map(compileEntity)
   const tables = compiled.map((entry) => entry.table)
-  applyRelationshipForeignKeys(tables)
+  applyRelationshipForeignKeys(compiled)
   applyManyToManyPivotTables(tables)
   for (const entry of compiled) {
     applyCheckConstraints(entry.table, entry.checks)
@@ -86,6 +89,7 @@ export function compileDmlSchema(entities: PortableEntity[]): DatabaseSchema {
 }
 
 function compileEntity(entity: PortableEntity): {
+  modelName: string
   table: DatabaseTable
   checks: unknown[]
 } {
@@ -146,6 +150,8 @@ function compileEntity(entity: PortableEntity): {
   )
 
   return {
+    // Native parseEntityName normalizes the parsed model name again.
+    modelName: upperCaseFirst(toCamelCase(parsed.name)),
     table: {
       name: toSnakeCase(parsed.tableName),
       columns,
@@ -193,8 +199,11 @@ function isCheckObject(
   return Boolean(value && typeof value === "object" && !Array.isArray(value))
 }
 
-function applyRelationshipForeignKeys(tables: DatabaseTable[]): void {
-  for (const table of tables) {
+function applyRelationshipForeignKeys(
+  compiled: readonly { modelName: string; table: DatabaseTable }[]
+): void {
+  const tables = compiled.map((entry) => entry.table)
+  for (const { modelName, table } of compiled) {
     for (const relationship of table.relationships) {
       if (!ownsForeignKey(relationship)) {
         continue
@@ -229,6 +238,15 @@ function applyRelationshipForeignKeys(tables: DatabaseTable[]): void {
               toSnakeCase(`${relationship.name}_${column}`)
             )
       relationship.foreignKeyNames = columnNames
+      const inverse = targetTable.relationships.find(
+        (candidate) => candidate.name ===
+          (relationship.mappedBy || camelToSnakeCase(modelName))
+      )
+      // Native belongsTo chooses OneToOne from the inverse DML declaration.
+      // Its uniqueness covers active owners only, with ordinary distinct NULLs.
+      // Owning hasOneWithFK explicitly disables uniqueness in the native ORM.
+      const uniqueActiveReference = relationship.type === "belongsTo" &&
+        (inverse?.type === "hasOne" || inverse?.type === "hasOneWithFK")
 
       for (const [index, columnName] of columnNames.entries()) {
         const referencedColumn = targetTable.columns.find(
@@ -254,6 +272,8 @@ function applyRelationshipForeignKeys(tables: DatabaseTable[]): void {
       if (
         !table.indexes.some(
           (index) =>
+            (!uniqueActiveReference ||
+              (index.unique && index.where === "deleted_at IS NULL")) &&
             index.columns.length === columnNames.length &&
             index.columns.every(
               (column, columnIndex) => column === columnNames[columnIndex]
@@ -261,9 +281,10 @@ function applyRelationshipForeignKeys(tables: DatabaseTable[]): void {
         )
       ) {
         table.indexes.push({
-          name: `${table.name}_${columnNames.join("_")}_index`,
+          name: `${table.name}_${columnNames.join("_")}_${uniqueActiveReference ? "unique" : "index"}`,
           columns: columnNames,
-          unique: false,
+          unique: uniqueActiveReference,
+          ...(uniqueActiveReference ? { where: "deleted_at IS NULL" } : {}),
         })
       }
 

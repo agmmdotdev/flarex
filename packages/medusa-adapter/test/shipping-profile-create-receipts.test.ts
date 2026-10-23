@@ -40,6 +40,22 @@ beforeAll(async () => { policy = shippingProfileCreationPolicy(Result.getOrThrow
   (await Effect.runPromise(captureShippingProfileDeletionMetadata())).frame))); });
 
 describe("native ShippingProfile command receipt correlation", () => {
+  it("authenticates interleaved aliases with nullish metadata hydration and one physical event per identity", async () => {
+    const ids = ["sp-a", "sp-b"], rows = ids.map(id => scalar(id, id === "sp-a" ? { metadata: { filled: true } } : {}));
+    const activity: Activity = { ...created(ids), mutations: rows.map((after, ordinal) => ({ ordinal, table: "shipping_profile", operation: "insert", before: null, after })),
+      observedRows: rows.map(row => ({ table: "shipping_profile", row })) };
+    const call: Call = { ...createCall(ids), input: [
+      { id: "sp-a", name: " Native Name ", type: " Mixed TYPE ", metadata: null },
+      { id: "sp-b", name: " Native Name ", type: " Mixed TYPE " },
+      { id: "sp-a", name: "ignored", type: "ignored", metadata: { filled: true } },
+    ], result: [output("sp-a", { metadata: { filled: true } }), output("sp-b"), output("sp-a", { metadata: { filled: true } })] };
+    await Effect.runPromise(policy.validateLogicalCall(call, activity));
+    await refused({ ...call, result: [output("sp-a"), output("sp-b"), output("sp-a")] }, activity);
+    await refused({ ...call, events: [...call.events, event("sp-a")] }, activity);
+    await refused(call, { ...activity, mutations: activity.mutations.slice(1) });
+    await refused({ ...call, input: [{ name: " Native Name ", type: " Mixed TYPE " }, { name: " Native Name ", type: " Mixed TYPE " }],
+      result: [output("sp-a"), output("sp-a")] }, created(["sp-a"]));
+  });
   // Fixed transcripts test correlation. Connected workflows prove the actual
   // shared-storage activity and native event issuer in each database lane.
   it("correlates all four complete rows, scalar defaults and actual insert/event order", async () => {

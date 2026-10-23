@@ -7,6 +7,7 @@ import { compileInventoryItemContracts } from "../src/modules/inventory/item-con
 import { compileInventoryLevelContracts } from "../src/modules/inventory/level-contracts";
 import { compileInventoryDeletionContracts } from "../src/modules/inventory/deletion-contracts";
 import { inventoryItemCreationEventPolicy } from "../src/modules/inventory/create-item-events";
+import { inventoryCreateEventPolicy } from "../src/modules/inventory/events";
 import { decodeInventoryItemCreates, decodeInventoryItemPhysicalDeletionIds } from "../src/modules/inventory/create-item-input";
 import { captureExactNumericRow } from "../src/value/exact-numeric";
 
@@ -47,6 +48,30 @@ beforeAll(async () => {
 });
 
 describe("native standalone Inventory Item creation receipts", () => {
+  it.each([false, true])("binds basic Item alias values to their input with Level admission %s", async levels => {
+    const base = inventoryCreateEventPolicy(levels), inputs = [{ id: "basic-alias", sku: "First", title: null },
+      { id: "basic-alias", sku: "Ignored", title: "Filled" }];
+    const valid = itemRow("basic-alias", { sku: "First", title: "Filled" });
+    await Effect.runPromise(base.validateLogicalCall(call(inputs, [valid, valid], [event("basic-alias")]), created([valid])));
+    const forged = { ...valid, sku: "Forged" };
+    expect(await Effect.runPromise(Effect.result(base.validateLogicalCall(call(inputs, [forged, forged], [event("basic-alias")]), created([forged])))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+  });
+
+  it("authenticates repeated supplied Item identities and refuses unjustified aliases", async () => {
+    const input = [{ id: "shared", sku: null, title: "First", metadata: null },
+      { id: "other", title: "Other" }, { id: "shared", sku: "Filled", title: "Ignored", metadata: { kept: true } }];
+    const shared = itemRow("shared", { sku: "Filled", title: "First", metadata: { kept: true } }), other = itemRow("other", { title: "Other" });
+    const receipt = call(input, [shared, other, shared], [event("shared"), event("other")]), activity = created([shared, other]);
+    await Effect.runPromise(policy.validateLogicalCall(receipt, activity));
+    await refuse({ ...receipt, result: [shared, other, { ...shared, sku: "Forged" }] }, activity);
+    await refuse({ ...receipt, input: [{}, { id: "other" }, {}] }, activity);
+    await refuse({ ...receipt, events: [...receipt.events, event("shared")] }, activity);
+    await refuse(receipt, created([shared]));
+    const forged = { ...shared, title: "Ignored" };
+    await refuse(call(input, [forged, other, forged], receipt.events), created([forged, other]));
+  });
+
   it("authenticates complete ordered Item DTOs, metadata, signed dimensions and actual DML defaults", async () => {
     const input: JsonObject[] = [{ id: "explicit-a", sku: "A", weight: -1.25, height: 1e100, requires_shipping: false, metadata: { nested: [true, "kept"] } },
       { sku: "B", title: "Second", length: 2.5, metadata: null }, {}, { description: "Fourth", width: -0.125 }];

@@ -61,6 +61,7 @@ describe("native ShippingOptionRule structural and DML boundaries", () => {
     for (const row of [{ ...scalar, foreign: 1 }, { ...scalar, operator: "invented" }, { ...scalar, shipping_option_id: null },
       { ...scalar, deleted_at: stamp }]) expect(Result.isFailure(contracts.decodeRows([row]))).toBe(true);
     expect(Result.isFailure(contracts.decodeRows([scalar, scalar]))).toBe(true);
+    expect(Result.getOrThrow(contracts.decodeCreatedRows([scalar, scalar]))).toEqual([scalar, scalar]);
     const decodeOutput = Schema.decodeUnknownSync(contracts.Output), marker = { __type: "Symbol(WorkflowWorkflowData)" };
     expect(decodeOutput({ created: [], deleted: marker, updated: marker })).toEqual({ created: [], deleted: marker, updated: marker });
     for (const output of [{ created: [] }, { created: [], updated: null, deleted: null },

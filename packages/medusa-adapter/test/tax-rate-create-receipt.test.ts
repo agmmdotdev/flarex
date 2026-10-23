@@ -12,9 +12,9 @@ type Activity = Parameters<LogicalCallReceiptValidation>[1];
 let contracts: Result.Result.Success<ReturnType<typeof compileTaxRateCreationContracts>>;
 let policy: ReturnType<typeof taxRateCreationPolicy>;
 const managed = { created_at: "2026-10-22T00:00:00.000Z", updated_at: "2026-10-22T00:00:00.000Z", deleted_at: null };
-const rate: JsonObject = { id: "txr164-receipt", tax_region_id: "txreg164-receipt", name: "receipt", code: "receipt", rate: 0.1,
+const rate = { id: "txr164-receipt", tax_region_id: "txreg164-receipt", name: "receipt", code: "receipt", rate: 0.1,
   is_default: false, is_combinable: false, metadata: null, created_by: "parent", ...managed };
-const rule: JsonObject = { id: "txrule164-receipt", tax_rate_id: "txr164-receipt", reference: "product", reference_id: "prod-one",
+const rule = { id: "txrule164-receipt", tax_rate_id: "txr164-receipt", reference: "product", reference_id: "prod-one",
   metadata: { retained: true }, created_by: "parent", ...managed };
 const input = [{ tax_region_id: "txreg164-receipt", name: "receipt", code: "receipt", rate: 0.1, created_by: "parent",
   rules: [{ reference: "product", reference_id: "prod-one", metadata: { retained: true }, created_by: "overwritten" }] }];
@@ -49,6 +49,28 @@ describe("native Tax Rate creation complete receipts", () => {
     const { call, activity } = transcript();
     await Effect.runPromise(policy.validateLogicalCall({ ...call, input: [], result: [], events: [], toAttempt: 0 },
       { ...activity, mutations: [], observedRows: [] }));
+  });
+
+  it("binds aliased Rates and nested Rule IDs to canonical writes while retaining every parent position", async () => {
+    const { call, activity } = transcript();
+    const parent = { ...rate, metadata: { filled: true }, rules: [] };
+    const inputs = [
+      { id: rate.id, tax_region_id: rate.tax_region_id, name: rate.name, code: rate.code, rate: 0.1, created_by: null,
+        rules: [{ id: rule.id, reference: rule.reference, reference_id: rule.reference_id, metadata: null }] },
+      { id: rate.id, tax_region_id: "ignored-region", name: "ignored", code: "ignored", rate: 7, created_by: "parent", metadata: { filled: true },
+        rules: [{ id: rule.id, reference: "ignored", reference_id: "ignored", metadata: { retained: true } }] },
+    ];
+    const canonical: Activity = { ...activity, mutations: activity.mutations.map(mutation => mutation.table === "tax_rate"
+      ? { ...mutation, after: { ...rate, metadata: { filled: true } } } : mutation),
+      observedRows: activity.observedRows.map(observation => observation.table === "tax_rate"
+        ? { ...observation, row: { ...rate, metadata: { filled: true } } } : observation) };
+    const aliased: Call = { ...call, input: inputs, result: [parent, parent] };
+    await Effect.runPromise(policy.validateLogicalCall(aliased, canonical));
+    await refused({ ...aliased, result: [parent, { ...parent, created_by: "ignored" }] }, canonical);
+    await refused({ ...aliased, events: [...call.events, event("tax_rate_rule", String(rule.id))] }, canonical);
+    await refused(aliased, { ...canonical, mutations: canonical.mutations.slice(0, 1) });
+    await refused(aliased, { ...canonical, mutations: canonical.mutations.map(mutation => mutation.table === "tax_rate_rule"
+      ? { ...mutation, after: { ...rule, tax_rate_id: "ignored-region" } } : mutation) });
   });
 
   it("refuses partial, additional, altered and nonempty-Rules immediate DTOs", async () => {

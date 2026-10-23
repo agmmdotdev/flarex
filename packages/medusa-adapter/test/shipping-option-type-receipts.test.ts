@@ -35,6 +35,19 @@ beforeAll(async () => { policy = shippingOptionTypeCreationPolicy(Result.getOrTh
   (await Effect.runPromise(captureShippingProfileDeletionMetadata())).frame))); });
 
 describe("native ShippingOptionType command receipt correlation", () => {
+  it("authenticates repeated supplied IDs and later description hydration without duplicate writes or events", async () => {
+    const row = scalar("sotype-a", { description: "filled" });
+    const call: Call = { ...createCall(), input: [
+      { id: "sotype-a", label: " Native Label ", code: " Same Code ", description: null },
+      { id: "sotype-a", label: "ignored", code: "ignored", description: "filled" },
+    ], result: [output("sotype-a", { description: "filled" }), output("sotype-a", { description: "filled" })] };
+    const activity: Activity = { ...created(), mutations: [{ ordinal: 0, table: "shipping_option_type", operation: "insert", before: null, after: row }] };
+    await Effect.runPromise(policy.validateLogicalCall(call, activity));
+    await refused({ ...call, result: [output("sotype-a"), output("sotype-a")] }, activity);
+    await refused({ ...call, events: [...call.events, event("sotype-a")] }, activity);
+    await refused(call, empty());
+    await refused({ ...call, input: [{ label: " Native Label ", code: " Same Code " }, { label: " Native Label ", code: " Same Code " }] }, activity);
+  });
   // Fixed transcripts test correlation. Connected workflows prove the actual
   // shared-storage activity and native event issuer in each database lane.
   it("correlates all four complete rows, scalar defaults and actual insert/event order", async () => {

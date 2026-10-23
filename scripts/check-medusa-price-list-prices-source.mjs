@@ -9,8 +9,10 @@ const failure = "Changed approved native PriceList Price normalization";
 
 /** The immutable island remains original. Only the approved snapshot and
  * redundant temporary-create scalar alias seams may differ in the promoted DAL.
- * @param {string} source @param {string} target @param {string} helper */
-export function verifyNativePriceListPriceNormalization(source, target, helper) {
+ * The create seam delegates every raw position to the unchanged native manager.
+ * @param {string} source @param {string} target @param {string} helper
+ * @param {string} createHelper */
+export function verifyNativePriceListPriceNormalization(source, target, helper, createHelper) {
   const replacements = [
     ["const normalizedData = dataForRelation.map((item: any) => {", "const normalizedData = Array.from(dataForRelation).map((item: any) => {"],
     ["      const created = manager.create(\n        entityName,\n        { ...data, id: undefined },",
@@ -75,7 +77,10 @@ const reconstructedResponse: any[] = reconstructedRows`);
   for (const statement of partitionDeclarations) replace(statement, "");
   const partitionEach = each(batch, "orderedUniqueEntries");
   replace(partitionEach, "const { orderedEntities, toInsert, toUpdate, insertOrderMap, updateOrderMap } = planUpsertManyEntries(orderedUniqueEntries, existingEntitiesMap, skipUpdate)");
-  replace('import { transactionWrapper } from "../utils"', 'import { transactionWrapper } from "../utils"\nimport { applyUpsertRelationResults, planUpsertManyEntries, planUpsertRelationEntries, prepareUpsertWithReplaceEntries, uniqueUpsertEntries } from "../upsert-planning"');
+  replace('import { transactionWrapper } from "../utils"', 'import { transactionWrapper } from "../utils"\nimport { planCreateBatch } from "../create-planning"\nimport { applyUpsertRelationResults, planUpsertManyEntries, planUpsertRelationEntries, prepareUpsertWithReplaceEntries, uniqueUpsertEntries } from "../upsert-planning"');
+  const create = method("create");
+  const createEntities = variable(create, "entities");
+  replace(createEntities.text, createEntities.text.replace("const entities = data.map(", "const { created: entities } = planCreateBatch(data, "));
   const relationExpression = relation.declaration.initializer?.getText(parsed).replace("upsertedTopLevelEntities", "orderedEntities")
     .replaceAll("(entityEntry as any).id", "entityEntry.id").replace("relationName as string", "relationName");
   if (!relationExpression) throw new Error(failure);
@@ -109,7 +114,8 @@ export function applyUpsertRelationResults(reconstructedResponse: Record<string,
   ${apply.replace("reconstructedResponse[index][relationName]", "reconstructedResponse[index]![relationName]")}
 }`;
   /** @type {readonly (readonly [string, string, string])[]} */
-  const comparisons = [["repository", target, expected], ["helper", helper, expectedHelper]];
+  const comparisons = [["repository", target, expected], ["helper", helper, expectedHelper],
+    ["create helper", createHelper, expectedCreateHelper]];
   for (const [owner, actual, expectedSource] of comparisons) {
     const actualLines = program(actual).split("\n"), expectedLines = program(expectedSource).split("\n");
     const mismatch = expectedLines.findIndex((line, index) => line !== actualLines[index]);
@@ -117,6 +123,42 @@ export function applyUpsertRelationResults(reconstructedResponse: Record<string,
       throw new Error(failure + ": " + owner + " line " + (mismatch + 1) + "; expected " + expectedLines[mismatch]?.slice(0, 160) + "; actual " + actualLines[mismatch]?.slice(0, 160));
   }
 }
+
+// Reference planning is extracted at the native create seam. Flat scalar
+// hydration is an explicitly characterized subset, not extracted mergeData.
+const expectedCreateHelper = `
+export function planCreateBatch<Source, Entity extends object>(sources: readonly Source[], create: (source: Source, index: number) => Entity) {
+  const entities: Entity[] = []
+  const positions: number[] = []
+  const indexes = new Map<Entity, number>()
+  const created = sources.map((source, index) => {
+    const entity = create(source, index)
+    let position = indexes.get(entity)
+    if (position === undefined) {
+      position = entities.length
+      indexes.set(entity, position)
+      entities.push(entity)
+    }
+    positions.push(position)
+    return entity
+  })
+  return { entities, positions, created }
+}
+export function planScalarCreateBatch<Entity extends Record<string, unknown> & { id: string }>(sources: readonly Entity[]) {
+  const identities = new Map<string, Entity>()
+  return planCreateBatch(sources, source => {
+    const canonical = identities.get(source.id)
+    if (canonical === undefined) {
+      const entity = { ...source }
+      identities.set(source.id, entity)
+      return entity
+    }
+    Object.assign(canonical, Object.fromEntries(Object.entries(source).filter(
+      ([name, value]) => canonical[name] == null && value != null,
+    )))
+    return canonical
+  })
+}`;
 
 /** @param {string} text */
 function program(text) {

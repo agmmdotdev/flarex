@@ -48,10 +48,11 @@ describe("bounded genuine standalone Tax Rule creation contracts", () => {
       expect(Result.getOrThrow(contracts.decodeOutput([{ ...output, metadata }]))).toEqual([{ ...output, metadata }]);
     }
   });
-  it("requires complete distinct native Rule output with no parent relation", () => {
+  it("requires complete positional native Rule output with no parent relation", () => {
     expect(Result.getOrThrow(contracts.decodeOutput([output]))).toEqual([output]);
+    expect(Result.getOrThrow(contracts.decodeOutput([output, output]))).toEqual([output, output]);
     const { metadata: _metadata, ...incomplete } = output;
-    for (const value of [[incomplete], [{ ...output, unknown: true }], [output, output],
+    for (const value of [[incomplete], [{ ...output, unknown: true }],
       [{ ...output, tax_rate: { id: input.tax_rate_id } }], [{ ...output, created_at: false }]])
       expect(Result.isFailure(contracts.decodeOutput(value))).toBe(true);
   });

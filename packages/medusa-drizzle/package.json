@@ -34,10 +34,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "devDependencies": {
-    "@medusajs/utils": "workspace:*"
-  },
   "dependencies": {
+    "@medusajs/utils": "workspace:*",
     "@medusajs/types": "workspace:*"
   }
 }

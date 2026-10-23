@@ -29,6 +29,23 @@ describe("genuine Shipping Option Type creation on existing shared logical stora
   afterEach(async () => { for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
+  it("preserves native supplied-ID aliases with final description and distinct module/workflow event cohorts", async () => {
+    const host = await connected.prepare(), before = await connected.snapshot();
+    const value = { shipping_option_types: [
+      { id: "sotype-identity-alias", label: "first", code: "first", description: null },
+      { id: "sotype-identity-alias", label: "ignored", code: "ignored", description: "filled" },
+    ] }, original = structuredClone(value);
+    const output = rows(await Effect.runPromise(host.run(host.newRequestKey(), value)));
+    expect(value).toEqual(original); expect(output).toHaveLength(2); expect(output[1]).toEqual(output[0]);
+    expect(output[0]).toMatchObject({ id: "sotype-identity-alias", label: "first", code: "first", description: "filled", shipping_options: [] });
+    expect(await connected.read(["sotype-identity-alias"])).toHaveLength(1);
+    const events = (await connected.snapshot()).events.slice(before.events.length);
+    expect(events.map(event => event.envelope.contract)).toEqual(["fulfillment.shipping-option-type.created", "shipping-option-type.created", "shipping-option-type.created"]);
+    const inverse = await connected.prepareInverse();
+    await Effect.runPromise(inverse.run(inverse.newRequestKey(), output.map(row => text(row.id))));
+    expect(await connected.read(["sotype-identity-alias"])).toEqual([]);
+  }, 240_000);
+
   it("creates the complete four-Type result in order, executes its hook, emits both event families and replays once", async () => {
     const value = { ...input("sotype-max"), additional_data: { native: true, nested: { value: "kept" } } }, originalInput = structuredClone(value);
     const trace: string[] = [], native = vi.spyOn(FulfillmentModuleService.prototype, "createShippingOptionTypes"), provider = vi.spyOn(FulfillmentProviderService.prototype, "getFulfillmentOptions");
@@ -118,11 +135,11 @@ describe("genuine Shipping Option Type creation on existing shared logical stora
     expect(missing.mock.calls).toEqual([["event_bus"]]); expect(emit).not.toHaveBeenCalled();
   });
 
-  it("keeps ordinary insert semantics for existing, tombstoned and duplicate IDs with no prefix publication", async () => {
+  it("keeps ordinary insert semantics for existing and tombstoned IDs with no prefix publication", async () => {
     const host = await connected.prepare();
-    for (const conflicting of [shippingOptionTypeSeedIds.existing, shippingOptionTypeSeedIds.deleted, "sotype-duplicate-batch"]) {
+    for (const conflicting of [shippingOptionTypeSeedIds.existing, shippingOptionTypeSeedIds.deleted]) {
       const before = await connected.snapshot();
-      const value = { shipping_option_types: [{ id: conflicting === "sotype-duplicate-batch" ? conflicting : "sotype-prefix-" + conflicting, label: "First", code: "same" },
+      const value = { shipping_option_types: [{ id: "sotype-prefix-" + conflicting, label: "First", code: "same" },
         { id: conflicting, label: "Conflict", code: "same" }] };
       const outcome = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), value)));
       expect(Result.isFailure(outcome)).toBe(true); expect(await connected.snapshot()).toEqual(before);

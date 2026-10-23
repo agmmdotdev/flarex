@@ -4,6 +4,7 @@ import { jsonEqual } from "flarex-protocol/json";
 import { commerceError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
 import { correlatePhysicalGraphReceipt } from "../../repository/physical-graph-receipt";
+import { correlateScalarCreateReceipt, correlateScalarCreateWrites } from "../../repository/scalar-create-receipt";
 import { projectNativeRow } from "../../repository/result";
 import { moduleEventDecoder } from "../../module/events";
 import { TaxId } from "./query";
@@ -35,9 +36,17 @@ export function taxRateCreationPolicy(contracts: Contracts) {
     if (creating) {
       const inputs = yield* Effect.fromResult(decodeTaxRateCreates(call.input)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
       const results = yield* Effect.fromResult(contracts.decodeOutput(call.result)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-      const ruleCount = inputs.reduce((count, input) => count + (input.rules?.length ?? 0), 0);
-      if (results.length !== inputs.length || activity.mutations.length !== inputs.length + ruleCount || activity.relationalReads.length)
+      const cohort = yield* Effect.fromResult(correlateScalarCreateReceipt(inputs.map(({ rules: _rules, ...scalar }) => scalar), results));
+      if (activity.relationalReads.length)
         return yield* Effect.fail(commerceError("receiptMismatch"));
+      const decoded: Array<JsonObject & { readonly id: string }> = [];
+      for (const mutation of activity.mutations) {
+        const decode = mutation.table === contracts.rate.name ? contracts.decodeRateRow
+          : mutation.table === contracts.rule.name ? contracts.decodeRuleRow : undefined;
+        if (decode === undefined || mutation.after === null) return yield* Effect.fail(commerceError("receiptMismatch"));
+        decoded.push(yield* Effect.fromResult(decode(projectNativeRow(mutation.after)))
+          .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause))));
+      }
       const inserted = new Map<string, JsonObject>();
       const check = Effect.fn("TaxRate.authenticateInsert")(function* (
         ordinal: number, table: string, expected: JsonObject, object: "tax_rate" | "tax_rate_rule", result?: JsonObject,
@@ -46,8 +55,8 @@ export function taxRateCreationPolicy(contracts: Contracts) {
         if (mutation === undefined || row === undefined || row === null || mutation.ordinal !== ordinal ||
           mutation.operation !== "insert" || mutation.table !== table || mutation.before !== null)
           return yield* Effect.fail(commerceError("receiptMismatch"));
-        const decode = table === contracts.rate.name ? contracts.decodeRateRow : contracts.decodeRuleRow;
-        const stored = yield* Effect.fromResult(decode(projectNativeRow(row))).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+        const stored = decoded[ordinal];
+        if (stored === undefined) return yield* Effect.fail(commerceError("receiptMismatch"));
         const identity = table + ":" + stored.id;
         if (inserted.has(identity)) return yield* Effect.fail(commerceError("receiptMismatch"));
         const presented: JsonObject = { ...stored, ...mutation.realNormalization };
@@ -59,20 +68,22 @@ export function taxRateCreationPolicy(contracts: Contracts) {
         inserted.set(identity, row); expectedEvents.push({ object, id: stored.id });
         return stored;
       });
-      for (const [ordinal, input] of inputs.entries()) {
-        const result = results[ordinal];
+      for (const [ordinal, input] of cohort.inputs.entries()) {
+        const result = cohort.results[ordinal];
         if (result === undefined) return yield* Effect.fail(commerceError("receiptMismatch"));
-        const { rules: inputRules, ...scalar } = input, { rules: outputRules, ...output } = result;
-        if (outputRules.length || inputRules !== undefined && inputRules.length > 2) return yield* Effect.fail(commerceError("receiptMismatch"));
-        yield* check(ordinal, contracts.rate.name, { ...contracts.rateDefaults, deleted_at: null, ...scalar }, "tax_rate", output);
+        const { rules: outputRules, ...output } = result;
+        if (outputRules.length) return yield* Effect.fail(commerceError("receiptMismatch"));
+        yield* check(ordinal, contracts.rate.name, { ...contracts.rateDefaults, deleted_at: null, ...input }, "tax_rate", output);
       }
-      let ordinal = inputs.length;
+      const ruleInputs: JsonObject[] = [];
       for (const [index, input] of inputs.entries()) {
         const parent = results[index];
         if (parent === undefined) return yield* Effect.fail(commerceError("receiptMismatch"));
-        for (const rule of input.rules ?? []) yield* check(ordinal++, contracts.rule.name,
-          { ...contracts.ruleDefaults, deleted_at: null, ...rule, tax_rate_id: parent.id, created_by: parent.created_by }, "tax_rate_rule");
+        for (const rule of input.rules ?? []) ruleInputs.push({ ...rule, tax_rate_id: parent.id, created_by: parent.created_by });
       }
+      const rules = yield* Effect.fromResult(correlateScalarCreateWrites(ruleInputs, decoded.slice(cohort.inputs.length)));
+      for (const [index, input] of rules.inputs.entries()) yield* check(cohort.inputs.length + index, contracts.rule.name,
+        { ...contracts.ruleDefaults, deleted_at: null, ...input }, "tax_rate_rule");
       const seen = new Set<string>();
       for (const observation of activity.observedRows) {
         const identity = observation.table + ":" + observation.row.id, row = inserted.get(identity);

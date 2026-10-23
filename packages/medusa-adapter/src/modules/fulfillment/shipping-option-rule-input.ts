@@ -48,27 +48,31 @@ export function compileShippingOptionRuleContracts(metadata: Effect.Success<Retu
     });
     const decodeRow = (input: unknown) => identified(input, true);
     const decodeSelectedRows = maximum === 4 ? decodeRowsShape : commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(maximum)), "storedCorruption");
-    const decode = (input: unknown, full: boolean, active: boolean) => Result.gen(function* () {
+    const decode = (input: unknown, full: boolean, active: boolean, aliases = false) => Result.gen(function* () {
       const rows = yield* decodeSelectedRows(input), seen = new Set<string>();
       const result: Array<JsonObject & { readonly id: string }> = [];
       for (const value of rows) {
         const row = yield* identified(value, full);
-        if (seen.has(row.id) || active && row.deleted_at !== undefined && row.deleted_at !== null)
+        if (!aliases && seen.has(row.id) || active && row.deleted_at !== undefined && row.deleted_at !== null)
           return yield* Result.fail(commerceError("storedCorruption"));
         seen.add(row.id); result.push(row);
       }
       return result;
     });
     const decodeRows = (input: unknown) => decode(input, true, true);
+    const decodeCreatedRows = (input: unknown) => decode(input, true, true, true);
     const decodePreimages = (input: unknown) => decode(input, false, true);
     const decodeSerializedRows = (input: unknown) => decode(input, false, false);
+    const decodeCreatedSerializedRows = (input: unknown) => decode(input, false, false, true);
     const Rows = Schema.Array(Schema.JsonObject).check(Schema.makeFilter(rows =>
       Result.isSuccess(decodeRows(rows)) || "Expected complete native ShippingOptionRule rows"));
+    const CreatedRows = Schema.Array(Schema.JsonObject).check(Schema.makeFilter(rows =>
+      Result.isSuccess(decodeCreatedRows(rows)) || "Expected complete native ShippingOptionRule creation rows"));
     // The SDK owns raw void callback reference representation. This decoder
     // admits only that authenticated native shape, without replacing it.
     const EmptyReference = Schema.Struct({ __type: Schema.Literal("Symbol(WorkflowWorkflowData)") });
-    const Output = Schema.Struct({ created: Rows, deleted: Schema.Union([ShippingOptionRuleIds, EmptyReference]),
+    const Output = Schema.Struct({ created: CreatedRows, deleted: Schema.Union([ShippingOptionRuleIds, EmptyReference]),
       updated: Schema.Union([Rows, EmptyReference]) });
-    return { table, decodeRow, decodeRows, decodePreimages, decodeSerializedRows, Rows, Output };
+    return { table, decodeRow, decodeRows, decodeCreatedRows, decodePreimages, decodeSerializedRows, decodeCreatedSerializedRows, Rows, CreatedRows, Output };
   });
 }

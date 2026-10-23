@@ -55,13 +55,13 @@ export function compileShippingOptionTypeCreationContracts(metadata: Metadata) {
     });
     const descriptors = new Map(table.relationships.map(relationship => [relationship.name, { relationship }]));
     const decodeRows = (input: unknown) => Result.gen(function* () {
-      const rows = yield* decodeRowsShape(input), identities = new Set<string>();
+      const rows = yield* decodeRowsShape(input);
       const result: Array<JsonObject & { readonly id: string; readonly shipping_options: readonly never[] }> = [];
       for (const value of rows) {
         const { shipping_options, ...scalar } = value;
         const row = yield* decodeRow(scalar), options = yield* decodeEmptyOptions(shipping_options);
-        if (identities.has(row.id) || row.deleted_at !== null) return yield* Result.fail(commerceError("storedCorruption"));
-        identities.add(row.id); result.push({ ...row, shipping_options: options });
+        if (row.deleted_at !== null) return yield* Result.fail(commerceError("storedCorruption"));
+        result.push({ ...row, shipping_options: options });
       }
       return result;
     });

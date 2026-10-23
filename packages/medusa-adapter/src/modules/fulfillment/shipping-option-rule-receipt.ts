@@ -6,6 +6,7 @@ import { jsonEqual } from "flarex-protocol/json";
 import { commerceError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
+import { correlateScalarCreateReceipt } from "../../repository/scalar-create-receipt";
 import { scalarLogicalEventPolicy } from "../../repository/scalar-events";
 import { orderNativeIdRows, projectNativeRow } from "../../repository/result";
 import { commerceRelationReadQuery } from "../../query/relations";
@@ -86,13 +87,14 @@ export function shippingOptionRulePolicy(prepared: Prepared) {
       // opaque JSON values. These are captured JSON and native validation owns
       // their acceptance; the cast does not bypass that executing validator.
       yield* Effect.try({ try: () => validateAndNormalizeRules(inputs as Parameters<typeof validateAndNormalizeRules>[0]), catch: cause => commerceError("receiptMismatch", cause) });
-      const output = yield* Effect.fromResult(prepared.contracts.decodeRows(call.result));
-      if (initial.size || activity.relationalReads.length || inputs.length !== mutations.length || output.length !== inputs.length)
+      const output = yield* Effect.fromResult(prepared.contracts.decodeCreatedRows(call.result));
+      const cohort = yield* Effect.fromResult(correlateScalarCreateReceipt(inputs, output));
+      if (initial.size || activity.relationalReads.length || cohort.inputs.length !== mutations.length)
         return yield* Effect.fail(mismatch());
-      for (const [index, input] of inputs.entries()) {
+      for (const [index, input] of cohort.inputs.entries()) {
         const mutation = mutations[index], after = mutation?.after;
         if (mutation?.operation !== "insert" || after === null || after === undefined || after.deleted_at !== null ||
-          !jsonEqual(output[index] ?? null, after)) return yield* Effect.fail(mismatch());
+          !jsonEqual(cohort.results[index] ?? null, after)) return yield* Effect.fail(mismatch());
         const createdAt = after.created_at, updatedAt = after.updated_at;
         if (typeof createdAt !== "string" || typeof updatedAt !== "string" ||
           ("created_at" in input ? createdAt !== input.created_at : createdAt !== updatedAt)) return yield* Effect.fail(mismatch());

@@ -109,6 +109,30 @@ describe("native Sales Channel creation on shared logical storage", { concurrent
     } finally { native.mockRestore(); }
   }, 120_000);
 
+  it("returns final canonical DTOs at every repeated supplied-ID position", async () => {
+    const host = await connected.prepare(), before = await snapshot();
+    const input = { salesChannelsData: [
+      { id: "sales-create-alias", name: "First", description: null, metadata: null },
+      { id: "sales-create-between", name: "Between" },
+      { id: "sales-create-alias", name: "Ignored", description: "Filled", is_disabled: true, metadata: { retained: true } },
+    ] };
+    const key = host.newRequestKey(), result = await Effect.runPromise(host.run(key, input));
+    expect(result.map(row => row.id)).toEqual(["sales-create-alias", "sales-create-between", "sales-create-alias"]);
+    expect(result[0]).toEqual(result[2]);
+    expect(result[0]).toMatchObject({ name: "First", description: "Filled", is_disabled: true, metadata: { retained: true } });
+    const after = await snapshot();
+    expect(after.rows.length - before.rows.length).toBe(2);
+    for (const contract of ["sales_channel.sales-channel.created", "sales-channel.created"])
+      expect(after.events.slice(before.events.length).filter(event => event.envelope.contract === contract).map(event => event.envelope.message))
+        .toEqual((contract === "sales-channel.created" ? result.map(row => row.id) : ["sales-create-alias", "sales-create-between"])
+          .map(id => expect.objectContaining({ data: { id } })));
+    expect(await Effect.runPromise(connected.list(["sales-create-alias"]))).toEqual([result[0]]);
+    expect(await Effect.runPromise(host.run(key, input))).toEqual(result);
+    expect(await snapshot()).toEqual(after);
+    await expect(Effect.runPromise(host.run(host.newRequestKey(), input))).rejects.toBeDefined();
+    expect(await snapshot()).toEqual(after);
+  }, 120_000);
+
   it("rolls back a real native write and captured internal event on a late service failure", async () => {
     const original = SalesChannelModuleService.prototype.createSalesChannels;
     const failure = new Error("Late native Sales Channel failure");

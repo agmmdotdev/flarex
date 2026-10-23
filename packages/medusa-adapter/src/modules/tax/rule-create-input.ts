@@ -1,5 +1,4 @@
 import { Result, Schema, type Effect } from "effect";
-import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../../value/decoder";
 import type { captureTaxMetadata } from "./schema";
 import { TaxId } from "./query";
@@ -28,11 +27,9 @@ export function compileTaxRuleCreationContracts(metadata: Metadata) {
   return Result.gen(function* () {
     const { rule, tables, ruleDefaults, decodeRuleRow } = yield* compileTaxCreationRows(metadata);
     const decodeOutput = (input: unknown) => Result.gen(function* () {
-      const rows = yield* decodeStoredTaxRuleOutputs(input), ids = new Set<string>();
+      const rows = yield* decodeStoredTaxRuleOutputs(input);
       for (const row of rows) {
         yield* decodeRuleRow(row);
-        if (ids.has(row.id)) return yield* Result.fail(commerceError("storedCorruption"));
-        ids.add(row.id);
       }
       return rows;
     });

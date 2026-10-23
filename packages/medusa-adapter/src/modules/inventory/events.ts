@@ -1,9 +1,12 @@
 import { InventoryItemRows } from "./item-contracts";
 import { commerceDecoder } from "../../value/decoder";
+import { correlateScalarCreateReceipt } from "../../repository/scalar-create-receipt";
+import { decodeInventoryItemCreates } from "./create-item-input";
+import { jsonEqual } from "flarex-protocol/json";
 import { matchesPublicRow, projectNativeRow } from "../../repository/result";
 import { Effect, Schema } from "effect";
 import { Modules, CommonEvents, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
-import { commerceError, defaultCommerceResources, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, defaultCommerceResources, isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { moduleEventDecoder } from "../../module/events";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
 
@@ -22,7 +25,9 @@ export function inventoryCreateEventPolicy(levels = false) {
       return yield* Effect.fail(commerceError("unadmittedEvent"));
     return message;
   });
-  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("InventoryEvents.validateCall")(function* (call, activity) {
+  const validateCreationCall = Effect.fn("InventoryEvents.validateCall")(function* (
+    call: Parameters<LogicalCallReceiptValidation>[0], activity: Parameters<LogicalCallReceiptValidation>[1],
+  ) {
     if (activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length)
       return yield* Effect.fail(commerceError("receiptMismatch"));
     if (call.mode === "read") {
@@ -40,8 +45,14 @@ export function inventoryCreateEventPolicy(levels = false) {
     const results = Array.isArray(call.result) ? call.result : [call.result];
     const table = call.commandName === "inventoryCreate" ? "inventory_item"
       : levels && call.commandName === "inventoryCreateLevels" ? "inventory_level" : undefined;
-    if (table === undefined || inputs.length > (table === "inventory_level" ? 8 : 4) || results.length !== inputs.length ||
-      activity.mutations.length !== inputs.length) return yield* Effect.fail(commerceError("receiptMismatch"));
+    if (table === undefined || inputs.length > (table === "inventory_level" ? 8 : 4) || results.length !== inputs.length)
+      return yield* Effect.fail(commerceError("receiptMismatch"));
+    const itemCohort = table === "inventory_item" ? yield* Effect.fromResult(correlateScalarCreateReceipt(
+      yield* Effect.fromResult(decodeInventoryItemCreates(inputs)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause))),
+      yield* Effect.fromResult(decodeItems(results)),
+    )) : undefined;
+    const canonicalResults = itemCohort?.results ?? results;
+    if (activity.mutations.length !== canonicalResults.length) return yield* Effect.fail(commerceError("receiptMismatch"));
     const expected = new Set<string>();
     for (const [index, mutation] of activity.mutations.entries()) {
       const id = mutation.after?.id;
@@ -51,15 +62,18 @@ export function inventoryCreateEventPolicy(levels = false) {
       expected.add(id);
     }
     if (table === "inventory_item") {
-      const decoded = yield* Effect.fromResult(decodeItems(results));
+      const decoded = itemCohort?.results;
       for (const [index, mutation] of activity.mutations.entries()) {
-        const returned = decoded[index];
-        if (mutation.after === null || returned === undefined || !matchesPublicRow(projectNativeRow(mutation.after), returned))
+        const returned: JsonObject | undefined = decoded?.[index];
+        const input = itemCohort?.inputs[index];
+        if (mutation.after === null || returned === undefined || input === undefined || !matchesPublicRow(projectNativeRow(mutation.after), returned))
           return yield* Effect.fail(commerceError("receiptMismatch"));
+        for (const [field, value] of Object.entries(input))
+          if (returned[field] === undefined || !jsonEqual(returned[field], value)) return yield* Effect.fail(commerceError("receiptMismatch"));
       }
     }
     const returned = new Set<string>();
-    for (const row of results) {
+    for (const row of canonicalResults) {
       if (!isJsonObject(row) || typeof row.id !== "string" || !expected.has(row.id) || returned.has(row.id))
         return yield* Effect.fail(commerceError("receiptMismatch"));
       returned.add(row.id);
@@ -71,6 +85,8 @@ export function inventoryCreateEventPolicy(levels = false) {
         if (!expected.delete(id)) return yield* Effect.fail(commerceError("receiptMismatch"));
     }
     if (expected.size) return yield* Effect.fail(commerceError("receiptMismatch"));
+    return itemCohort;
   });
-  return { capture, validateLogicalCall };
+  const validateLogicalCall: LogicalCallReceiptValidation = (call, activity) => validateCreationCall(call, activity).pipe(Effect.asVoid);
+  return { capture, validateLogicalCall, validateCreationCall };
 }

@@ -184,6 +184,30 @@ describe(`genuine native Tax Rate creation - ${driver}`, { concurrent: false }, 
       created_at: stamp, updated_at: stamp, deleted_at: null }]);
   }, 180_000);
 
+  it("retains aliased Rate positions, REAL presentation and raw-position nested Rules with canonical creators", async () => {
+    const local = await scenario("identity-alias"), before = await local.snapshot();
+    const input = Schema.decodeUnknownSync(local.contracts.Input)([
+      { id: "txr164-alias", tax_region_id: taxCreationCountry, name: "first", code: "first", rate: null, created_by: null,
+        rules: [{ id: "txrule164-alias", reference: "product", reference_id: "first", metadata: null }] },
+      { id: "txr164-alias", tax_region_id: "ignored-missing-region", name: "ignored", code: "ignored", rate: 0.1, created_by: "later", metadata: { filled: true },
+        rules: [{ id: "txrule164-alias", reference: "ignored", reference_id: "ignored", metadata: { child: true } },
+          { reference: "product", reference_id: "second" }] },
+    ]);
+    const original = structuredClone(input), output = await run(local, input);
+    expect(input).toEqual(original); expect(output).toHaveLength(2); expect(output[1]).toEqual(output[0]);
+    expect(output[0]).toMatchObject({ id: "txr164-alias", tax_region_id: taxCreationCountry, name: "first", rate: 0.1,
+      created_by: "later", metadata: { filled: true }, rules: [] });
+    const writtenRules = (await local.read()).filter(row => row.tax_rate_id === "txr164-alias");
+    expect(writtenRules).toHaveLength(2);
+    expect(writtenRules.find(row => row.id === "txrule164-alias")).toMatchObject({ reference: "product", reference_id: "first", metadata: { child: true }, created_by: "later" });
+    expect(writtenRules.every(row => row.created_by === "later")).toBe(true);
+    expect(eventVector(eventsSince(before, await local.snapshot())).map(row => row[0])).toEqual([
+      "tax.tax-rate.created", "tax.tax-rate-rule.created", "tax.tax-rate-rule.created",
+    ]);
+    const inverse = await local.prepareInverse(); await Effect.runPromise(inverse.run(inverse.newRequestKey(), output.map(row => row.id)));
+    expect((await local.read()).some(row => row.id === "txr164-alias" || row.tax_rate_id === "txr164-alias")).toBe(false);
+  }, 240_000);
+
   it.each(["duplicate-default", "duplicate-rule", "different-reference-same-id", "missing-region", "later-missing-region", "underflow", "overflow"] as const)
     ("keeps native %s refusal atomic across all durable families", async branch => {
       const local = await scenario(branch), first = { tax_region_id: taxCreationCountry, name: branch, code: branch };

@@ -25,12 +25,11 @@ export function compileShippingProfileCreationOutput(table: Effect.Success<Retur
     });
     const decodeRows = (input: unknown) => Result.gen(function* () {
       const output: Array<JsonObject & { readonly id: string; readonly shipping_options: readonly never[] }> = [];
-      const identities = new Set<string>();
       for (const value of yield* decodeShape(input)) {
         const { shipping_options, ...scalar } = value;
         const row = yield* decodeRow(scalar), options = yield* decodeEmpty(shipping_options);
-        if (identities.has(row.id) || row.deleted_at !== null) return yield* Result.fail(commerceError("storedCorruption"));
-        identities.add(row.id); output.push({ ...row, shipping_options: options });
+        if (row.deleted_at !== null) return yield* Result.fail(commerceError("storedCorruption"));
+        output.push({ ...row, shipping_options: options });
       }
       return output;
     });

@@ -55,6 +55,22 @@ describe("genuine ShippingOptionRule batch and all retained inverses", { concurr
   afterEach(async () => { for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
+  it("retains native supplied-ID aliases after Rule normalization with one canonical create and physical inverse", async () => {
+    const local = await scenario("identity-alias"), host = await local.prepare(), before = await local.snapshot();
+    const input = { create: [
+      { ...create("sorul-identity-alias"), value: true },
+      { ...create("sorul-identity-alias", "ignored-missing-option"), attribute: "ignored", value: "ignored" },
+    ] }, original = structuredClone(input);
+    const output = record(await Effect.runPromise(host.run(host.newRequestKey(), input))), created = rows(output.created);
+    expect(input).toEqual(original); expect(created).toHaveLength(2); expect(created[1]).toEqual(created[0]);
+    expect(created[0]).toMatchObject({ id: "sorul-identity-alias", attribute: "native.attribute", value: "true", shipping_option_id: ruleGraph.optionIds[0] });
+    expect(await local.read(["sorul-identity-alias"])).toHaveLength(1);
+    expect(newEvents(before, await local.snapshot()).map(event => event.envelope.contract)).toEqual(["fulfillment.shipping-option-rule.created"]);
+    const inverse = await local.prepareInverse("create");
+    await Effect.runPromise(inverse.run(inverse.newRequestKey(), created.map(row => text(row.id))));
+    expect(await local.read(["sorul-identity-alias"])).toEqual([]);
+  }, 240_000);
+
   it("runs complete four-create/four-update/four-delete native branches, events and exact replay", async () => {
     const host = await connected.prepare(), changed = await connected.prepare("e".repeat(64));
     const input = maximumShippingOptionRuleBatch("rule-forward"), original = structuredClone(input);
@@ -193,7 +209,6 @@ describe("genuine ShippingOptionRule batch and all retained inverses", { concurr
       { update: [update(ruleGraph.ruleIds[0]!, "valid"), update("missing", "invalid")] },
       { update: [update(ruleGraph.historicalId, "historical")] },
       { create: [create("missing-parent-rule", "missing-option")] },
-      { create: [create("duplicate-rule"), create("duplicate-rule")] },
       { create: [create(ruleGraph.ruleIds[0]!)] }]) {
       const before = await fixture.snapshot(); expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), input))))).toBe(true);
       expect(await fixture.snapshot()).toEqual(before);

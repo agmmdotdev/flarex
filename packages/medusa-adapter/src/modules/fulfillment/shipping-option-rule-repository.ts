@@ -65,8 +65,9 @@ export function prepareShippingOptionRuleRepository(metadata: Effect.Success<Ret
       decodeReference: () => Result.fail(commerceError("unsupportedProfile")), decodeAssociation: () => Result.fail(commerceError("unsupportedProfile")) };
     const scalar = yield* prepareScalarRepository(table, "ShippingOptionRule", selectedWhere,
       Effect.fn("ShippingOptionRule.serialize")(function* (value: Json) {
-        if (Array.isArray(value)) return yield* Effect.fromResult(contracts.decodeSerializedRows(value));
-        const rows = yield* Effect.fromResult(contracts.decodeSerializedRows([value]));
+        const decode = profile === "batch" ? contracts.decodeCreatedSerializedRows : contracts.decodeSerializedRows;
+        if (Array.isArray(value)) return yield* Effect.fromResult(decode(value));
+        const rows = yield* Effect.fromResult(decode([value]));
         if (rows[0] === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
         return rows[0];
       }));

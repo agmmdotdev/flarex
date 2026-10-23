@@ -67,12 +67,11 @@ export function compileTaxRateCreationContracts(metadata: Metadata) {
   return Result.gen(function* () {
     const rows = yield* compileTaxCreationRows(metadata), { rate, rule, decodeRateRow, decodeRuleRow } = rows;
     const decodeOutput = (input: unknown) => Result.gen(function* () {
-      const rows = yield* decodeStoredTaxRateOutputs(input), ids = new Set<string>();
+      const rows = yield* decodeStoredTaxRateOutputs(input);
       for (const row of rows) {
         const { rules, ...scalar } = row;
         yield* decodeRateRow(scalar);
-        if (rules.length || ids.has(row.id)) return yield* Result.fail(commerceError("storedCorruption"));
-        ids.add(row.id);
+        if (rules.length) return yield* Result.fail(commerceError("storedCorruption"));
       }
       return rows;
     });

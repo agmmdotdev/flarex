@@ -35,6 +35,21 @@ beforeAll(async () => {
 });
 
 describe("native ShippingOptionRule receipt correlation", () => {
+  it("retains native normalized positional aliases and authenticates only their canonical insert/event cohort", async () => {
+    const call: Call = { ...createCall(), input: [
+      { id: "rule-a", attribute: "a", operator: "eq", value: true, shipping_option_id: "option-a" },
+      { id: "rule-a", attribute: "ignored", operator: "eq", value: "ignored", shipping_option_id: "ignored-option" },
+    ], result: [scalar("rule-a", { value: "true" }), scalar("rule-a", { value: "true" })] };
+    const row = scalar("rule-a", { value: "true" });
+    const activity: Activity = { ...creation(), observedRows: [{ table: "shipping_option_rule", row }],
+      mutations: [{ ordinal: 0, table: "shipping_option_rule", operation: "insert", before: null, after: row }] };
+    await Effect.runPromise(policy.validateLogicalCall(call, activity));
+    await refused({ ...call, result: [row, scalar("rule-a", { value: "false" })] }, activity);
+    await refused({ ...call, events: [...call.events, event("rule-a")] }, activity);
+    await refused(call, empty());
+    await refused({ ...call, input: [{ attribute: "a", operator: "eq", value: true, shipping_option_id: "option-a" },
+      { attribute: "a", operator: "eq", value: true, shipping_option_id: "option-a" }] }, activity);
+  });
   it("binds complete creation scalars, native boolean normalization and ordered actual events", async () => {
     await Effect.runPromise(policy.validateLogicalCall(createCall(), creation()));
     const call = { ...createCall(), input: [{ attribute: "a", operator: "eq", value: true, shipping_option_id: "option-a" }],

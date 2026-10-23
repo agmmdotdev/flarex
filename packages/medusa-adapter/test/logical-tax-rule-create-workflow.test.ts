@@ -167,12 +167,31 @@ describe(`genuine native standalone Tax Rule creation - ${driver}`, { concurrent
     expect(await local.read(output.map(row => row.id))).toEqual([]);
   }, 240_000);
 
-  it.each(["duplicate-rule", "different-reference-same-id", "missing-parent", "later-missing-parent", "duplicate-id"] as const)
+  it("preserves native repeated supplied IDs as final positional aliases with one write/event and retained inverse", async () => {
+    const local = await scenario("identity-alias"), before = await local.snapshot();
+    const rules = Schema.decodeUnknownSync(local.contracts.Input)([
+      { id: "txrule165-alias", tax_rate_id: taxRuleParents[0], reference: "product", reference_id: "first", metadata: null, created_by: null },
+      { id: "txrule165-alias-b", tax_rate_id: taxRuleParents[1], reference: "product", reference_id: "second" },
+      { id: "txrule165-alias", tax_rate_id: "ignored-missing-parent", reference: "ignored", reference_id: "ignored", metadata: { filled: true }, created_by: "later" },
+    ]);
+    const original = structuredClone(rules), forward = await local.prepareForward();
+    const created = await Effect.runPromise(forward.run(forward.newRequestKey(), rules)), output = created.output;
+    expect(created.compensation).toEqual(["txrule165-alias", "txrule165-alias-b", "txrule165-alias"]);
+    expect(rules).toEqual(original); expect(output.map(row => row.id)).toEqual(["txrule165-alias", "txrule165-alias-b", "txrule165-alias"]);
+    expect(output[2]).toEqual(output[0]); expect(output[0]).toMatchObject({ tax_rate_id: taxRuleParents[0], reference_id: "first", metadata: { filled: true }, created_by: "later" });
+    expect(eventVector(eventsSince(before, await local.snapshot()))).toEqual([
+      ["tax.tax-rate-rule.created", "txrule165-alias"], ["tax.tax-rate-rule.created", "txrule165-alias-b"],
+    ]);
+    expect(await local.read(output.map(row => row.id))).toHaveLength(2);
+    const inverse = await local.prepareInverse(); await Effect.runPromise(inverse.run(inverse.newRequestKey(), created.compensation));
+    expect(await local.read(output.map(row => row.id))).toEqual([]);
+  }, 240_000);
+
+  it.each(["duplicate-rule", "different-reference-same-id", "missing-parent", "later-missing-parent"] as const)
     ("keeps native %s refusal atomic across all durable families", async branch => {
       const local = await scenario(branch), base = { tax_rate_id: taxRuleParents[0], reference: "product", reference_id: "same" };
       const rules = Schema.decodeUnknownSync(local.contracts.Input)(branch === "missing-parent" ? [{ ...base, tax_rate_id: "txr165-missing" }]
         : branch === "later-missing-parent" ? [base, { ...base, tax_rate_id: "txr165-missing" }]
-        : branch === "duplicate-id" ? [{ ...base, id: "txrule165-duplicate" }, { ...base, reference_id: "other", id: "txrule165-duplicate" }]
         : [base, { ...base, reference: branch === "duplicate-rule" ? "product" : "product_type" }]);
       const host = await local.prepare(), before = await local.snapshot();
       expect(Exit.isFailure(await Effect.runPromiseExit(host.run(host.newRequestKey(), { rules })))).toBe(true);

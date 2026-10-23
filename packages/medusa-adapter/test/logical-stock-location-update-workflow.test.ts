@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { Cause, Effect, Result, Schema } from "effect";
+import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { StockLocationModuleService } from "@medusajs/stock-location/services";
 import { CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { fxAppRowCurrent, fxSystemCommits, fxSystemCommitAppRowChanges } from "../../persistence-postgres/src/database/schema";
@@ -199,21 +199,27 @@ describe("native Stock Location selector and Address update on shared logical st
     const ids = await connected.seed("stock-update-late"), host = await connected.prepare();
     for (const mode of ["throw", "malformed"] as const) {
       const original = StockLocationModuleService.prototype.updateStockLocations;
+      const nativeFailure = new Error("Late native Stock Location update failure");
       let completed = false;
       const native = vi.spyOn(StockLocationModuleService.prototype, "updateStockLocations")
         .mockImplementation(async function (this: StockLocationModuleService, ...args) {
           const result = await Reflect.apply(original, this, args); completed = true;
-          if (mode === "throw") throw new Error("Late native Stock Location update failure");
+          if (mode === "throw") throw nativeFailure;
           if (!Schema.is(Schema.JsonObject)(result)) throw new Error("Missing scalar native result");
           Object.defineProperty(result, "name", { value: 42, enumerable: true, writable: true, configurable: true });
           return result;
         });
       try {
-        const before = await snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), {
+        const before = await snapshot(), result = await Effect.runPromiseExit(host.run(host.newRequestKey(), {
           selector: { id: ids }, update: { name: "Rollback", address: { city: "Rollback" } },
-        })));
-        if (Result.isSuccess(result)) throw new Error("Late failure committed");
-        expect(completed).toBe(true); expect(failurePath(result.failure)).toContain(mode === "throw" ? "adapterFailure" : "receiptMismatch");
+        }));
+        if (Exit.isSuccess(result)) throw new Error("Late failure committed");
+        expect(completed).toBe(true);
+        if (mode === "throw") {
+          expect(result.cause.reasons.filter(reason => Cause.isDieReason(reason) && reason.defect === nativeFailure)).toHaveLength(1);
+          expect(result.cause.reasons.some(reason => Cause.isFailReason(reason) && reason.error.reason === "adapterFailure")).toBe(false);
+        } else expect(failurePath(result.cause)).toContain("receiptMismatch");
+        expect(failurePath(result.cause)).toContain("rollbackOnly");
         expect(await snapshot()).toEqual(before);
       } finally { native.mockRestore(); }
     }

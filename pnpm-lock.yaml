@@ -1061,7 +1061,6 @@ importers:
       '@medusajs/types':
         specifier: workspace:*
         version: link:../medusa-types
-    devDependencies:
       '@medusajs/utils':
         specifier: workspace:*
         version: link:../medusa-utils

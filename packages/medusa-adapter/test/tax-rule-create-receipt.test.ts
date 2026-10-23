@@ -13,8 +13,9 @@ type Activity = Parameters<LogicalCallReceiptValidation>[1];
 let policy: ReturnType<typeof taxRuleCreationPolicy>;
 const managed = { created_at: "2026-10-22T00:00:00.000Z", updated_at: "2026-10-22T00:00:00.000Z", deleted_at: null };
 const input = [{ tax_rate_id: "txr165-receipt", reference: "product", reference_id: "prod-one", metadata: { retained: true }, created_by: "rule-creator" }];
-const first: JsonObject = { ...input[0], id: "txrule165-z-first", ...managed };
-const second: JsonObject = { ...first, id: "txrule165-a-second", reference_id: "prod-two" };
+const first = { tax_rate_id: "txr165-receipt", reference: "product", reference_id: "prod-one", metadata: { retained: true },
+  created_by: "rule-creator", id: "txrule165-z-first", ...managed };
+const second = { ...first, id: "txrule165-a-second", reference_id: "prod-two" };
 const event = (id: string, action: "created" | "deleted" = "created"): JsonObject => ({
   name: `tax.tax-rate-rule.${action}`, metadata: { source: "tax", object: "tax_rate_rule", action }, data: { id },
 });
@@ -47,6 +48,26 @@ describe("standalone native Tax Rule creation receipts", () => {
   });
   it("accepts genuine empty create", async () => {
     const { call } = creation(); await Effect.runPromise(policy.validateLogicalCall({ ...call, input: [], result: [], events: [], toAttempt: 0 }, empty()));
+  });
+  it("binds interleaved positional aliases to one final canonical write and event", async () => {
+    const { call, activity } = creation();
+    const a = { ...first, metadata: { second: 2 }, created_by: "second" };
+    const b = { ...second, metadata: null, created_by: null };
+    const inputs = [
+      { id: a.id, tax_rate_id: a.tax_rate_id, reference: a.reference, reference_id: a.reference_id, metadata: null, created_by: null },
+      { id: b.id, tax_rate_id: b.tax_rate_id, reference: b.reference, reference_id: b.reference_id },
+      { id: a.id, tax_rate_id: "later-parent", reference: "later", reference_id: "later", metadata: { second: 2 }, created_by: "second" },
+      { id: a.id, tax_rate_id: "third-parent", reference: "third", reference_id: "third", metadata: { third: 3 }, created_by: "third" },
+    ];
+    const aliased: Call = { ...call, input: inputs, result: [a, b, a, a], events: [event(String(a.id)), event(String(b.id))] };
+    const canonical: Activity = { ...activity,
+      mutations: [a, b].map((after, ordinal) => ({ ordinal, table: "tax_rate_rule", operation: "insert", before: null, after })),
+      observedRows: [a, b].map(row => ({ table: "tax_rate_rule", row })) };
+    await Effect.runPromise(policy.validateLogicalCall(aliased, canonical));
+    await refused({ ...aliased, result: [a, b, { ...a, created_by: "third" }, a] }, canonical);
+    await refused({ ...aliased, input: inputs.map(({ id: _id, ...row }) => row) }, canonical);
+    await refused({ ...aliased, events: [...aliased.events, event(String(a.id))] }, canonical);
+    await refused(aliased, { ...canonical, mutations: [...canonical.mutations, { ordinal: 2, table: "tax_rate_rule", operation: "insert", before: null, after: a }] });
   });
   it("refuses incomplete, extra, altered or duplicate immediate DTOs", async () => {
     const { call, activity } = creation();

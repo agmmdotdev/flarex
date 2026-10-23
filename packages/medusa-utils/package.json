@@ -133,6 +133,11 @@
       "source": "./src/dal/upsert-planning.ts",
       "default": "./dist/dal/upsert-planning.js"
     },
+    "./dal/create-planning": {
+      "types": "./dist/dal/create-planning.d.ts",
+      "source": "./src/dal/create-planning.ts",
+      "default": "./dist/dal/create-planning.js"
+    },
     "./dml/helpers/create-mikro-orm-entity": {
       "types": "./dist/dml/helpers/create-mikro-orm-entity.d.ts",
       "source": "./src/dml/helpers/create-mikro-orm-entity.ts",
@@ -322,6 +327,11 @@
       "types": "./dist/common/camel-to-snake-case.d.ts",
       "source": "./src/common/camel-to-snake-case.ts",
       "default": "./dist/common/camel-to-snake-case.js"
+    },
+    "./common/to-camel-case": {
+      "types": "./dist/common/to-camel-case.d.ts",
+      "source": "./src/common/to-camel-case.ts",
+      "default": "./dist/common/to-camel-case.js"
     },
     "./common/lower-case-first": {
       "types": "./dist/common/lower-case-first.d.ts",

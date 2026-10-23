@@ -55,8 +55,9 @@ describe("bounded genuine Tax Rate creation contracts", () => {
 
   it("requires complete native immediate output and exactly empty Rule DTO relations", () => {
     expect(Result.getOrThrow(contracts.decodeOutput([output]))).toEqual([output]);
+    expect(Result.getOrThrow(contracts.decodeOutput([output, output]))).toEqual([output, output]);
     const { metadata: _metadata, ...incomplete } = output;
-    for (const value of [[incomplete], [{ ...output, unknown: true }], [output, output],
+    for (const value of [[incomplete], [{ ...output, unknown: true }],
       [{ ...output, rules: [{ id: "txrule-unexpected" }] }], [{ ...output, rate: Infinity }],
       [{ ...output, created_at: false }]]) expect(Result.isFailure(contracts.decodeOutput(value))).toBe(true);
   });

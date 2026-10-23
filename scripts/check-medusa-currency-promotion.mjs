@@ -309,7 +309,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   verifyNativePriceListPriceNormalization(
     readFileSync(path.join(root, pricingRepositoryNormalizationSource[1]), "utf8"),
     readFileSync(path.join(root, pricingRepositoryNormalizationSource[0]), "utf8"),
-    readFileSync(path.join(root, "packages/medusa-utils/src/dal/upsert-planning.ts"), "utf8"));
+    readFileSync(path.join(root, "packages/medusa-utils/src/dal/upsert-planning.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-utils/src/dal/create-planning.ts"), "utf8"));
   verifyPriceListPriceCreationCallbacks(
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/price-list/workflows/create-price-list-prices.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/price-list/workflows/create-price-list-prices.ts"), "utf8"),

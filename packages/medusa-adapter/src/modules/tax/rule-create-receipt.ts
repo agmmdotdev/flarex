@@ -4,6 +4,7 @@ import { jsonEqual } from "flarex-protocol/json";
 import { commerceError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
 import { correlatePhysicalGraphReceipt } from "../../repository/physical-graph-receipt";
+import { correlateScalarCreateReceipt } from "../../repository/scalar-create-receipt";
 import { projectNativeRow } from "../../repository/result";
 import { moduleEventDecoder } from "../../module/events";
 import { TaxId } from "./query";
@@ -34,11 +35,12 @@ export function taxRuleCreationPolicy(contracts: Contracts) {
     if (creating) {
       const inputs = yield* Effect.fromResult(decodeTaxRuleCreates(call.input)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
       const results = yield* Effect.fromResult(contracts.decodeOutput(call.result)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-      if (results.length !== inputs.length || activity.mutations.length !== inputs.length || activity.relationalReads.length)
+      const cohort = yield* Effect.fromResult(correlateScalarCreateReceipt(inputs, results));
+      if (activity.mutations.length !== cohort.inputs.length || activity.relationalReads.length)
         return yield* Effect.fail(commerceError("receiptMismatch"));
       const inserted = new Map<string, JsonObject>();
-      for (const [ordinal, input] of inputs.entries()) {
-        const mutation = activity.mutations[ordinal], result = results[ordinal], row = mutation?.after;
+      for (const [ordinal, input] of cohort.inputs.entries()) {
+        const mutation = activity.mutations[ordinal], result = cohort.results[ordinal], row = mutation?.after;
         if (mutation === undefined || result === undefined || row === undefined || row === null || mutation.ordinal !== ordinal ||
           mutation.operation !== "insert" || mutation.table !== contracts.rule.name || mutation.before !== null || mutation.realNormalization !== undefined)
           return yield* Effect.fail(commerceError("receiptMismatch"));

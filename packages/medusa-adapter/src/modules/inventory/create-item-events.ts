@@ -11,7 +11,7 @@ import type { compileInventoryDeletionContracts } from "./deletion-contracts";
 import { inventoryCreateEventPolicy } from "./events";
 import { inventoryLevelCreationEventPolicy } from "./level-creation-events";
 import { validateInventoryItemLifecycleClosure } from "./deletion-lifecycle";
-import { decodeInventoryItemCreates, decodeInventoryItemPhysicalDeletionIds } from "./create-item-input";
+import { decodeInventoryItemPhysicalDeletionIds } from "./create-item-input";
 
 type ItemContracts = Result.Result.Success<ReturnType<typeof compileInventoryItemContracts>>;
 type LevelContracts = Result.Result.Success<ReturnType<typeof compileInventoryLevelContracts>>;
@@ -38,10 +38,10 @@ export function inventoryItemCreationEventPolicy(item: ItemContracts, level: Lev
     if (call.commandName === "inventoryCreateLevels" || call.commandName === "inventoryLevelPhysicalDeleteForWorkflow")
       return yield* levels.validateLogicalCall(call, activity);
     if (call.commandName === "inventoryCreate") {
-      yield* creation.validateLogicalCall(call, activity);
-      const inputs = yield* Effect.fromResult(decodeInventoryItemCreates(call.input)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+      const cohort = yield* creation.validateCreationCall(call, activity);
+      if (cohort === undefined) return yield* Effect.fail(mismatch());
       for (const [index, mutation] of activity.mutations.entries()) {
-        const input = inputs[index];
+        const input = cohort.inputs[index];
         if (input === undefined || mutation.after === null) return yield* Effect.fail(mismatch());
         const row: JsonObject = yield* Effect.fromResult(item.decodeRow(projectNativeRow(mutation.after))).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
         const expected: JsonObject = { ...item.creationDefaults, ...input };

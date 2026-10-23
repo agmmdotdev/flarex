@@ -45,7 +45,7 @@ describe("native ShippingProfile creation metadata and presentation", () => {
     for (const value of [scalar, { ...output, shipping_options: null }, { ...output, shipping_options: [{ id: "invented" }] },
       { ...output, foreign: true }, { ...output, metadata: undefined }, { ...output, deleted_at: stamp }])
       expect(Result.isFailure(contracts.decodeRows([value]))).toBe(true);
-    expect(Result.isFailure(contracts.decodeRows([output, output]))).toBe(true);
+    expect(Result.getOrThrow(contracts.decodeRows([output, output]))).toEqual([output, output]);
     expect(Result.isFailure(contracts.initializeRows([output]))).toBe(true);
   });
 

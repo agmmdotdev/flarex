@@ -87,5 +87,5 @@ export async function prepareLogicalStockLocationUpdate(
     .pipe(Effect.flatMap(decodeRows));
   const addresses = (ids?: readonly string[]) => reader.read(stock.listAddresses,
     { filters: ids === undefined ? {} : { id: [...ids] }, config: { order: { id: "ASC" } } }).pipe(Effect.flatMap(decodeRows));
-  return { fixture, definition, stock, execution, options, prepare, seed, list, addresses };
+  return { fixture, definition, stock, execution, options, prepare, creator, seed, list, addresses };
 }

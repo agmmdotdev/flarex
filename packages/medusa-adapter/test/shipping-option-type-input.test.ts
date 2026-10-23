@@ -44,8 +44,9 @@ describe("metadata-derived native ShippingOptionType creation admission", () => 
     const original = structuredClone(scalar), output = { ...scalar, shipping_options: [] };
     expect(Result.getOrThrow(contracts.initializeRows([scalar]))).toEqual([output]); expect(scalar).toEqual(original);
     expect(Result.getOrThrow(contracts.decodeRows([output]))).toEqual([output]);
+    expect(Result.getOrThrow(contracts.decodeRows([output, output]))).toEqual([output, output]);
     for (const invalid of [[scalar], [{ ...output, shipping_options: null }], [{ ...output, shipping_options: [{ id: "fake" }] }],
-      [{ ...output, foreign: true }], [{ ...output, deleted_at: stamp }], [output, output]])
+      [{ ...output, foreign: true }], [{ ...output, deleted_at: stamp }]])
       expect(Result.isFailure(contracts.decodeRows(invalid))).toBe(true);
     expect(Result.isFailure(contracts.initializeRows([{ ...scalar, shipping_options: [] }]))).toBe(true);
   });

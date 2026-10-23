@@ -9,6 +9,16 @@ genuine `createTaxRateRulesStep`, and the retained physical Rule deletion invers
 The reference remains Medusa 2.13.4 at
 `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`.
 
+The bounded Rule creation profile also admits repeated supplied IDs within one
+fresh batch. Shared scalar planning preserves every native response position
+while writing and publishing each canonical Rule once. First-non-nullish
+hydration precedes defaults; complete alias DTOs authenticate against the final
+canonical entity. Physical compensation removes each created entity once even
+when retained response IDs repeat. This supplies the creation dependency of
+[replacement](./167-native-tax-rate-rule-replacement-workflow.md), whose root
+remains unadmitted. No cross-call identity cache is introduced; creation with an
+already persisted ID still fails.
+
 Accepted shared logical storage, framework ownership and workflow lifetime
 boundaries apply. Necessary shared-owner corrections use standing approval.
 The approved Rate inverse ordering in
@@ -83,8 +93,10 @@ unrelated rows intact, including Rules created after the original run.
 Tax construction, shared scalar insertion, checked managed values, event capture,
 authenticated receipts and physical lifecycle owners are reused. Complete row
 and default compilation derives from the same checked Tax DML for both creation
-profiles. Full output authentication binds every Rule field to the canonical SQL
-write, observed row and event; inverse authentication binds complete selected
+profiles. Full output authentication binds every Rule field and response
+position to the canonical SQL write, observed row and event. Repeated positions
+require explicit supplied identity sharing and equal complete DTOs; generated
+identities remain distinct. Inverse authentication binds complete selected
 identities, writes and events without re-executing native business calls.
 
 Late foreign defects retain their complete Cause and original identity under the

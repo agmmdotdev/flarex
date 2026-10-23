@@ -61,7 +61,7 @@ export const makeShippingOptionRuleCommands = Effect.fn("ShippingOptionRuleAdapt
     const event = (action: "created" | "updated" | "deleted") =>
       [buildModuleResourceEventName({ prefix: Modules.FULFILLMENT, objectName: "shipping_option_rule", action })];
     const createShippingOptionRules = yield* defineWorkflowMethod({ command: create, arguments: decodeCreateArguments,
-      encode: ([input]) => input, output: prepared.contracts.decodeRows, moduleEvents: event("created") });
+      encode: ([input]) => input, output: prepared.contracts.decodeCreatedRows, moduleEvents: event("created") });
     const updateShippingOptionRules = yield* defineWorkflowMethod({ command: update, arguments: decodeUpdateArguments,
       encode: ([input]) => input, output: prepared.contracts.decodeRows, moduleEvents: event("updated") });
     const deleteShippingOptionRules = yield* defineWorkflowMethod({ command: remove, arguments: decodeDeleteArguments,

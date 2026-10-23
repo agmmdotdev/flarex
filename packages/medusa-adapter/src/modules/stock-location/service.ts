@@ -67,7 +67,7 @@ const makeBasicStockLocationCommands = Effect.fn("StockLocationAdapter.commands"
     if (!joiner) return yield* Result.fail(commerceError("unsupportedProfile"));
     const graph = yield* scalarGraphDefinition(yield* moduleAliases({ ...joiner, alias: (Array.isArray(joiner.alias) ? joiner.alias : []).filter(alias => alias.entity === "StockLocation") }), "StockLocation", count, prepared.table);
     const validateLogicalCall = yield* compileStockLocationReadReceipt(table, prepared.query);
-    const policy = stockLocationCreateEventPolicy(validateLogicalCall);
+    const policy = yield* stockLocationCreateEventPolicy(table, address, validateLogicalCall);
     const createStockLocations = yield* defineWorkflowMethod({ command: create,
       arguments: decodeCreateArguments, encode: ([rows]) => [...rows],
       output: commerceDecoder(StockLocationsOutput, "storedCorruption"),

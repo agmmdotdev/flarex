@@ -52,6 +52,24 @@ describe("genuine ShippingProfile creation and physical retained inverse", { con
   afterEach(async () => { for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
+  it("preserves native interleaved supplied-ID aliases, final metadata and one entity/event per identity", async () => {
+    const local = await scenario("identity-alias"), host = await local.prepare(), before = await local.snapshot();
+    const value = { data: [
+      { id: "sp-identity-a", name: "first", type: "default", metadata: null },
+      { id: "sp-identity-b", name: "second", type: "default" },
+      { id: "sp-identity-a", name: "ignored", type: "ignored", metadata: { filled: true } },
+    ] }, original = structuredClone(value);
+    const output = rows(await Effect.runPromise(host.run(host.newRequestKey(), value)));
+    expect(value).toEqual(original); expect(output.map(row => row.id)).toEqual(["sp-identity-a", "sp-identity-b", "sp-identity-a"]);
+    expect(output[2]).toEqual(output[0]); expect(output[0]).toMatchObject({ name: "first", type: "default", metadata: { filled: true }, shipping_options: [] });
+    expect(await local.read(["sp-identity-a", "sp-identity-b"])).toHaveLength(2);
+    const events = newEvents(before, await local.snapshot()); expect(events).toHaveLength(2);
+    const inverse = await local.prepareInverse();
+    await Effect.runPromise(inverse.run(inverse.newRequestKey(), output.map(row => text(row.id))));
+    expect(await local.read(["sp-identity-a", "sp-identity-b"])).toEqual([]);
+    expect(events.map(event => event.envelope.message)).toEqual(["sp-identity-a", "sp-identity-b"].map(id => expect.objectContaining({ data: { id } })));
+  }, 240_000);
+
   it("creates the complete four-Profile native result, preserves metadata/defaults and replays exactly once", async () => {
     const value = input("sp-create-full"), original = structuredClone(value), host = await connected.prepare(), changed = await connected.prepare("e".repeat(64));
     const native = vi.spyOn(FulfillmentModuleService.prototype, "createShippingProfiles"), provider = vi.spyOn(FulfillmentProviderService.prototype, "getFulfillmentOptions");
@@ -119,8 +137,8 @@ describe("genuine ShippingProfile creation and physical retained inverse", { con
 
   it("preserves ordinary insert semantics for active/historical IDs and active-name conflicts with atomic prefix rollback", async () => {
     const host = await connected.prepare();
-    for (const id of [graph.existing.profiles[0]!, graph.historyProfile.profiles[0]!, "sp-create-batch-duplicate"]) {
-      const before = await connected.snapshot(), value = { data: [{ id: id === "sp-create-batch-duplicate" ? id : "prefix-" + id, name: "prefix-" + id, type: "default" },
+    for (const id of [graph.existing.profiles[0]!, graph.historyProfile.profiles[0]!]) {
+      const before = await connected.snapshot(), value = { data: [{ id: "prefix-" + id, name: "prefix-" + id, type: "default" },
         { id, name: "second-" + id, type: "default" }] };
       expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), value))))).toBe(true); expect(await connected.snapshot()).toEqual(before);
     }
@@ -195,8 +213,11 @@ describe("genuine ShippingProfile creation and physical retained inverse", { con
     const tap = retainedTap();
     try {
       const host = await connected.prepareRoundtrip(tap.get, true), before = await connected.snapshot();
-      const outcome = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), input("sp-create-late"))));
-      expect(Result.isFailure(outcome)).toBe(true); if (Result.isFailure(outcome)) expect(reasons(outcome.failure)).toContain("Late genuine Profile retained inverse failure");
+      const outcome = await Effect.runPromiseExit(host.run(host.newRequestKey(), input("sp-create-late")));
+      if (Exit.isSuccess(outcome)) throw new Error("Late genuine Profile retained inverse failure committed");
+      expect(outcome.cause.reasons.filter(reason => Cause.isDieReason(reason) && reason.defect instanceof Error &&
+        reason.defect.message === "Late genuine Profile retained inverse failure")).toHaveLength(1);
+      expect(reasons(outcome.cause)).toContain("rollbackOnly");
       expect(await connected.snapshot()).toEqual(before);
     } finally { tap.restore(); }
     const selected = shippingProfileDeletionGraph("sp-create-late-detach", 1, { optionsPerProfile: 2, deletedOptions: true }), fixture = await scenario("late-detach", [selected]);

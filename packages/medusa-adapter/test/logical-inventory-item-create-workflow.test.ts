@@ -40,6 +40,27 @@ function changedTombstones(before: Awaited<ReturnType<typeof snapshot>>, after: 
 }
 
 describe("native standalone Inventory Item creation on shared logical storage", { concurrent: false }, () => {
+  it("preserves repeated Item identities through native creation and retained physical inverse", async () => {
+    const probes = await connected.prepareProbes(), before = await snapshot();
+    const input = [{ id: "item-create-shared", sku: null, title: "First", metadata: null },
+      { id: "item-create-between", sku: "item-create-between" },
+      { id: "item-create-shared", sku: "item-create-filled", title: "Ignored", metadata: { retained: true } }];
+    const key = probes.create.newRequestKey(), result = await Effect.runPromise(probes.create.run(key, input));
+    expect(result.compensation).toEqual(["item-create-shared", "item-create-between", "item-create-shared"]);
+    expect(result.output[0]).toEqual(result.output[2]);
+    expect(result.output[0]).toMatchObject({ title: "First", sku: "item-create-filled", metadata: { retained: true } });
+    expect(await Effect.runPromise(connected.probeItems(["item-create-shared"]))).toEqual([result.output[0]]);
+    const after = await snapshot();
+    expect(after.rows.length - before.rows.length).toBe(2);
+    expect(eventIds(after.events.slice(before.events.length), "item", "created")).toEqual(["item-create-shared", "item-create-between"]);
+    expect(await Effect.runPromise(probes.create.run(key, input))).toEqual(result);
+    expect(await snapshot()).toEqual(after);
+    await expect(Effect.runPromise(probes.create.run(probes.create.newRequestKey(), input))).rejects.toBeDefined();
+    expect(await snapshot()).toEqual(after);
+    expect(await Effect.runPromise(probes.undo.run(probes.undo.newRequestKey(), result.compensation))).toBeNull();
+    expect(await Effect.runPromise(connected.probeItems(result.compensation))).toEqual([]);
+  }, 180_000);
+
   beforeAll(async () => {
     connected = await prepareLogicalInventoryItemCreation(driver, close => cleanup.push(close));
     sharedCleanupCount = cleanup.length;

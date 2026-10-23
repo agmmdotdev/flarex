@@ -32,6 +32,7 @@ import {
 import { toMikroORMEntity } from "../../dml"
 import { buildQuery } from "../../modules-sdk/build-query"
 import { transactionWrapper } from "../utils"
+import { planCreateBatch } from "../create-planning"
 import { applyUpsertRelationResults, planUpsertManyEntries, planUpsertRelationEntries, prepareUpsertWithReplaceEntries, uniqueUpsertEntries } from "../upsert-planning"
 import { dbErrorMapper } from "./db-error-mapper"
 import { mikroOrmSerializer } from "./mikro-orm-serializer"
@@ -328,7 +329,7 @@ export function mikroOrmBaseRepositoryFactory<const T extends object>(
     ): Promise<InferRepositoryReturnType<T>[]> {
       const manager = this.getActiveManager<EntityManager>(context)
 
-      const entities = data.map((data_) => {
+      const { created: entities } = planCreateBatch(data, (data_) => {
         return manager.create(this.entity, data_)
       })
 

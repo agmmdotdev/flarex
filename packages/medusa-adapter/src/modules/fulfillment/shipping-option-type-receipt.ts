@@ -3,6 +3,7 @@ import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils
 import { jsonEqual } from "flarex-protocol/json";
 import { commerceError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
+import { correlateScalarCreateReceipt } from "../../repository/scalar-create-receipt";
 import { matchesPublicRow, projectNativeRow } from "../../repository/result";
 import { commerceRelationReadQuery } from "../../query/relations";
 import { moduleEventDecoder } from "../../module/events";
@@ -40,11 +41,12 @@ export function shippingOptionTypeCreationPolicy(contracts: Contracts) {
         .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
       const results = yield* Effect.fromResult(contracts.decodeRows(call.result))
         .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-      if (inputs.length !== results.length || inputs.length !== activity.mutations.length || activity.relationalReads.length)
+      const cohort = yield* Effect.fromResult(correlateScalarCreateReceipt(inputs, results));
+      if (cohort.inputs.length !== activity.mutations.length || activity.relationalReads.length)
         return yield* Effect.fail(commerceError("receiptMismatch"));
       const inserted = new Map<string, JsonObject>();
-      for (const [ordinal, input] of inputs.entries()) {
-        const mutation = activity.mutations[ordinal], result = results[ordinal], row = mutation?.after;
+      for (const [ordinal, input] of cohort.inputs.entries()) {
+        const mutation = activity.mutations[ordinal], result = cohort.results[ordinal], row = mutation?.after;
         if (mutation === undefined || result === undefined || row === null || row === undefined ||
           mutation.ordinal !== ordinal || mutation.operation !== "insert" || mutation.table !== contracts.table.name ||
           mutation.before !== null || typeof row.id !== "string" || inserted.has(row.id))

@@ -1,6 +1,7 @@
 import { Effect, Result, Schema } from "effect";
 import type { DAL } from "@medusajs/framework/types";
 import { generateEntityId } from "@medusajs/framework/utils/portable";
+import { planScalarCreateBatch } from "@medusajs/utils/dal/create-planning";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type Json, type JsonObject, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder, commerceRowDecoder } from "../value/decoder";
@@ -90,24 +91,27 @@ export function prepareScalarRepository(table: SchemaTable, modelName: string, w
         ctx: CommerceCommandContext, input: unknown, shared: Parameters<DAL.RepositoryService["create"]>[1],
       ) {
         const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
-        const rows: JsonObject[] = [];
+        const rows: (JsonObject & { id: string })[] = [];
         for (const item of yield* Effect.fromResult(decodeRows(captured))) {
           const row = yield* Effect.fromResult(decodeCreate(item));
           const id = row.id === undefined ? undefined : yield* Effect.fromResult(decodeId(row.id));
           rows.push({ ...row, id: generateEntityId(id, prefix) });
         }
+        const plan = planScalarCreateBatch(rows);
         const store = yield* ctx.table(table.name);
-        const inserted = yield* store.write(ctx.manager, "insert", rows);
+        const inserted = yield* store.write(ctx.manager, "insert", plan.entities);
         // Native entities retain submitted REAL values until a cold read. SQL
         // conversion must succeed first; canonical storage remains untouched.
         const presented = inserted.map((entity, index) => {
-          const result = { ...entity }, submitted = rows[index];
+          const result = { ...entity }, submitted = plan.entities[index];
           for (const name of realColumns) if (submitted?.[name] !== undefined) result[name] = submitted[name];
           return result;
         });
         if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
         yield* events.created(presented.map(entity => ({ modelName, entity: { ...entity } })), shared);
-        return presented;
+        // All aliases serialize the final canonical entity after every input
+        // has hydrated it and storage has supplied defaults and timestamps.
+        return plan.positions.map(position => ({ ...presented[position]! }));
       });
       const repository: DAL.RepositoryService = {
         getFreshManager: bridge.getFreshManager, getActiveManager: bridge.getActiveManager, transaction: bridge.transaction,
