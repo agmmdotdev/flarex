@@ -13,6 +13,7 @@ type Hooks = Readonly<{
   beforeEntry?: () => Promise<void>;
   beforeWorker?: () => Promise<void>;
   afterWorker?: () => Promise<void>;
+  beforePublication?: Parameters<typeof makePrivateSaveExecution>[4];
   observations?: Parameters<typeof runPrivatePayloadSaveWorkerd>[4];
   onResponse?: (value: unknown) => void;
   onNative?: (method: string) => void;
@@ -45,7 +46,7 @@ export const runPrivatePayloadSaveServing: (
         return value;
       }));
     }, Effect.mapError(cause => new ApplicationPointMutationRunnerHostV1Error({ reason: "terminalFailed", cause })));
-    const selected = yield* makePrivateSaveExecution(fixture, preparation, { run }, hooks.onNative);
+    const selected = yield* makePrivateSaveExecution(fixture, preparation, { run }, hooks.onNative, hooks.beforePublication);
     execution = selected;
     yield* callback(hooks.beforeEntry);
     const result = yield* selected.owner.executePreparedFiniteAttempt(selected.prepared).pipe(Effect.result);

@@ -70,7 +70,11 @@ refuses removal/replacement of enforced references and proves unchanged-candidat
 rebinding and preference-profile withdrawal. LB2 now connects these transitions
 to actual private Worker/RPC serving: fresh construction, expired preparation,
 stale grants/capabilities/receipts, consumed metadata ABA and selective reuse
-are proven at their real refusal frontiers. LB3-LB4 remain pending. This does not enable populated-data conversion,
+are proven at their real refusal frontiers. LB3 now proves both real PostgreSQL
+activation/save orders for preference withdrawal and selected consumed-metadata
+repair after native/Application work is frozen, including genuine whole-root
+replacement. PGlite covers their serial outcomes. LB4 recovery remains pending.
+This does not enable populated-data conversion,
 write-owner transfer, Medusa changes or public API syntax.
 
 The [early cross-framework proof](../shared-logical-storage/README.md#early-cross-framework-proof)

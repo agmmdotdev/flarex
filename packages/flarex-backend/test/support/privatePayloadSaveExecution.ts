@@ -37,8 +37,10 @@ type ConstructionFailure = Effect.Error<ReturnType<PolicyFixture["prepareEvidenc
 /** Composition only. The real executor owns entry, liveness, retry tickets,
  * replacement, terminalization and recovery. The test supplies native work. */
 export const makePrivateSaveExecution: (fixture: PrivatePayloadSaveFixture, preparation: PrivateSavePreparation,
-  runner: PointMutationOccRuntimeNeutralRunnerV1, onNative?: (method: string) => void) => Effect.Effect<PrivateSaveExecution, ConstructionFailure> =
-  Effect.fn("PrivatePayloadSaveFixture.execution")(function* (fixture, preparation, runner, onNative) {
+  runner: PointMutationOccRuntimeNeutralRunnerV1, onNative?: (method: string) => void,
+  beforePublication?: (command: Parameters<ReturnType<PolicyFixture["makePublisher"]>["publishFinite"]>[0]) => Promise<void>,
+) => Effect.Effect<PrivateSaveExecution, ConstructionFailure> =
+  Effect.fn("PrivatePayloadSaveFixture.execution")(function* (fixture, preparation, runner, onNative, beforePublication) {
     const policy = fixture.fixture;
     const authority = policy.application.pointCommitAuthority;
     const inputs = yield* Effect.fromResult(readPreparedFiniteApplicationMutationInputs(preparation.preparedAdmission, policy.context));
@@ -77,7 +79,12 @@ export const makePrivateSaveExecution: (fixture: PrivatePayloadSaveFixture, prep
     let profiles = preparation.profiles;
     const publisher = {
       publishFinite: (command: Parameters<ReturnType<PolicyFixture["makePublisher"]>["publishFinite"]>[0]) =>
-        Effect.suspend(() => policy.makePublisher({ logicalOperationProfiles: profiles }).publishFinite(command)),
+        Effect.gen(function* () {
+          // Test observation/barrier over the authentic frozen command. A
+          // rejected observer is a test defect, never publication policy.
+          if (beforePublication !== undefined) yield* Effect.promise(() => beforePublication(command));
+          return yield* policy.makePublisher({ logicalOperationProfiles: profiles }).publishFinite(command);
+        }),
       resolveFinite: (command: Parameters<ReturnType<PolicyFixture["makePublisher"]>["resolveFinite"]>[0]) =>
         policy.makePublisher().resolveFinite(command),
     };
