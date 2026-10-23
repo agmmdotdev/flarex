@@ -6,6 +6,7 @@ import type { PostgresFlarexPersistence } from "../../../persistence-postgres/sr
 import { postgresBackendPid } from "../../../persistence-postgres/test/commit/point/support/postgresFaults";
 import { waitForTransactionEntryOrFailure } from "../../../persistence-postgres/test/execution/session/support/postgresLocks";
 import type { PrivateBindingSaveCoordinator } from "./privatePayloadBindingOrderingScenario";
+import type { PrivateReverseReadCoordinator } from "./privatePayloadReverseFreshnessScenario";
 
 const backendPid = Schema.Int.check(Schema.isGreaterThan(0));
 const decodeWaiter = Schema.decodeUnknownSync(Schema.Struct({ pid: backendPid, blockers: Schema.Array(backendPid) }));
@@ -106,5 +107,52 @@ export const postgresPrivateBindingSaveOrder = (persistence: PostgresFlarexPersi
     await persistence.query("drop function if exists lb3_activation_probe()");
     await persistence.query("drop function if exists lb3_save_probe()");
     await persistence.query("drop table if exists lb3_order_probe");
+  }
+};
+
+/** RR3 pauses real publication/activation after scope ownership and observes
+ * the second owner's server lock edge before allowing either to settle. */
+export const postgresPrivateReverseReadOrder = (persistence: PostgresFlarexPersistence): PrivateReverseReadCoordinator => async input => {
+  const barrier = await persistence.pool.connect();
+  const key = randomInt(1, 1_000_000_000);
+  const pending: Promise<unknown>[] = [];
+  try {
+    await persistence.query(`create function rr3_clock_probe() returns trigger language plpgsql set search_path from current as $$
+      begin
+        if new.scope_id='${input.scopeId}' and new.last_commit_seq > old.last_commit_seq then
+          perform pg_advisory_xact_lock(${key});
+        end if;
+        return new;
+      end $$`);
+    await persistence.query(`create trigger rr3_clock_probe after update on fx_system_scope_clock for each row execute function rr3_clock_probe()`);
+    await persistence.query(`create function rr3_activation_probe() returns trigger language plpgsql set search_path from current as $$
+      begin
+        if new.scope_id='${input.scopeId}' then perform pg_advisory_xact_lock(${key}); end if;
+        return new;
+      end $$`);
+    await persistence.query(`create trigger rr3_activation_probe after insert on fx_system_data_binding_activation for each row execute function rr3_activation_probe()`);
+    await barrier.query("select pg_advisory_lock($1::bigint)", [key]);
+    const controller = await postgresBackendPid(barrier);
+    const first = input.first === "read" ? input.read() : input.change();
+    pending.push(Promise.allSettled([first]));
+    const observed = blockedBy(persistence, controller, input.first === "change" && input.activation ? "fx_system_data_binding_activation" : "advanced.last_commit_seq");
+    pending.push(observed);
+    const winner = await waitForTransactionEntryOrFailure(observed, first, "first RR3 publication owner");
+    const second = input.first === "read" ? input.change() : input.read();
+    pending.push(Promise.allSettled([second]));
+    const waiting = blockedBy(persistence, winner, "fx_system_scope_");
+    pending.push(waiting);
+    const loser = await waitForTransactionEntryOrFailure(waiting, second, "second RR3 publication owner");
+    expect(new Set([controller, winner, loser]).size).toBe(3);
+    await barrier.query("select pg_advisory_unlock($1::bigint)", [key]);
+    await Promise.all([first, second]);
+  } finally {
+    await barrier.query("select pg_advisory_unlock($1::bigint)", [key]);
+    barrier.release();
+    await Promise.allSettled(pending);
+    await persistence.query("drop trigger if exists rr3_clock_probe on fx_system_scope_clock");
+    await persistence.query("drop trigger if exists rr3_activation_probe on fx_system_data_binding_activation");
+    await persistence.query("drop function if exists rr3_clock_probe()");
+    await persistence.query("drop function if exists rr3_activation_probe()");
   }
 };

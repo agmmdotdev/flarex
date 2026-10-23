@@ -254,8 +254,10 @@ owns the next bounded CXR2 work after LB4. RR1 implements separate protected
 read-policy evidence and a backend-only complete indexed-membership probe through
 real finite capture and final validation. RR2 adds backend-only authorized finite
 pages with native Product/Payload visibility, pending membership and opaque
-attempt-local continuation. RR3-RR4 retain concurrent freshness/recovery and
-private serving cutover. Worker/hosted and public APIs remain disabled.
+attempt-local continuation. RR3 adds selected concurrent freshness, actual
+whole-root replacement and committed-consumption recovery without native
+re-execution. RR4 private serving cutover remains pending. Worker/hosted and
+public APIs remain disabled.
 
 Use bounded explicit point reads for forward resolution and the installed
 leading-reference index for reverse membership. Reverse reads have deterministic
@@ -293,7 +295,7 @@ outcome. No SQL transaction spans untrusted execution or remote work.
 | Gate | Connected outcome and exit criteria |
 | --- | --- |
 | CXR1: policy and authenticated endpoints | Retention/hard-delete policy and exact nullable identity admission are implemented for the selected private profile. The bounded private point-read grant checks real scope/principal/source/method admission and opaque read refusals. General principal permissions and the full supported/refused profile matrix remain gated. Missing, wrong-owner, wrong-table and unsupported definitions must refuse before capability issuance. No Medusa edit occurs before the ownership checkpoint. |
-| CXR2: article-to-product mutation and reads | The private native mutation and authorized explicit point-read verticals use one finite root and shared lifecycle/dependency owners. Selected distinct-connection scope-lock races, protected permission/binding-change races and record-mutation failure/retry/recovery are covered by their private SA/LB inventories. Authorized reverse reads, general principal policies and pending new-Product construction remain pending. Preserve standalone endpoint-write safety and existing Payload-to-Payload/delete-preference behavior. This vertical does not close the broader gate. |
+| CXR2: article-to-product mutation and reads | The private native mutation and authorized explicit point-read verticals use one finite root and shared lifecycle/dependency owners. Selected distinct-connection scope-lock races, protected permission/binding-change races and record-mutation failure/retry/recovery are covered by their private SA/LB inventories. RR1-RR3 cover private reverse-page backend, freshness and recovery; selected reverse-page serving, general principal policies and pending new-Product construction remain pending. Preserve standalone endpoint-write safety and existing Payload-to-Payload/delete-preference behavior. This vertical does not close the broader gate. |
 | CXR3: three-owner and opposite-direction proof | Add a real compiler-admitted Medusa-owned extension referencing Payload or Application, through its owner's native operation path. Choose the extension with the Medusa owner; no fixture-only field or direct generic patch of commerce rows. Prove Application-owned references/consumption and all relevant target transitions with explicitly selected source-lifecycle rules. Native rich Link behavior remains separately characterized. |
 | CXR4: dependency activation and recovery | LB1-LB4 prove the selected reference admission/refusal, fresh/stale serving, metadata/withdrawal versus save ordering, historical activation recovery and already-committed save replay after later withdrawal. PostgreSQL acknowledgement loss follows independently observed real COMMIT; reconstructed target pools retain the available control catalog. Broader readiness/build transitions, framework/installation profiles and database/control-plane restart are not established by that inventory. General populated-data conversions and ownership transfers remain deferred. |
 

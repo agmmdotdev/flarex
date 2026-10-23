@@ -194,7 +194,7 @@ export async function privatePayloadSaveFixture(resources: Readonly<{
       logicalStorage: { ports, unique: application.servingOwners.uniqueConstraintEligibility, schemaVersionId: location.schemaVersionId,
         source: { sourceKey: productSource.key, writeProfile: productSource.writeProfile, schema: productSource.definition.schema, evidence: productSource.evidence },
         initialization: { stepId: "private-save-product-empty", datasetSha256: initialization.sha256Hex, expectedRowCount: 0 } },
-      commands: [productRuntime.commands.internalProductCreate, productRuntime.commands.internalProductRetrieve,
+      commands: [productRuntime.commands.internalProductCreate, productRuntime.commands.internalProductRetrieve, productRuntime.commands.internalProductUpdate,
         productRuntime.commands.internalProductSoftDelete, productRuntime.commands.internalProductRestore] }));
     await Effect.runPromise(Scope.addFinalizer(scope, productHost.close));
     await Effect.runPromise(productHost.initialize([]));

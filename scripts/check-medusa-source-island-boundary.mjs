@@ -79,6 +79,9 @@ const preparedTargetMetadataTestImports = new Map([
 // and capture normalization to prove the real core gate runs first.
 // These edges grant no permission to adjacent tests or production consumers.
 const finiteContractTestImports = new Map([
+  ["packages/flarex-backend/test/support/privatePayloadReverseReadCommands.ts", [{
+    specifier: "@flarex/medusa-adapter/internal/product-attempt", target: "packages/medusa-adapter/src/modules/product/attempt.ts",
+  }]],
   ["packages/persistence-postgres/test/execution/finiteIndexedBodyPermission.test.ts", [{
     specifier: "../../../medusa-adapter/test/support/native-product-attempt-seed", target: "packages/medusa-adapter/test/support/native-product-attempt-seed.ts",
   }]],

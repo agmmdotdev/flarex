@@ -1,19 +1,12 @@
-import { createHash } from "node:crypto";
-import { Cause, Effect, Exit, Schema, Scope } from "effect";
+import { Cause, Effect, Exit, Schema } from "effect";
 import { expect } from "vitest";
 import { CommitSyscallSequenceV1Schema, MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 } from "flarex-protocol/commit-protocol";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
-import { encodeAdmittedFrameworkOperationV1Result } from "flarex-protocol/internal/admitted-framework-operation-v1";
 import { AppDocumentIdV1Schema, decodeAppDocumentIdentityV1, type AppDocumentIdV1 } from "flarex-protocol/app-document-id";
-import type { Json } from "flarex-protocol/json";
-import { preparePrivateParticipantReadAccess } from "../../../persistence-postgres/src/execution/journal/privateReadAccess";
-import { PrivateReverseReadPermissions } from "../../../persistence-postgres/src/execution/journal/privateReverseReadEvidence";
 import { inspectPrivateReverseReadAccess, PRIVATE_REFERENCE_PAGE } from "../../../persistence-postgres/src/execution/journal/privateReverseReadAccess";
-import { LogicalParticipantInvocationError } from "../../../persistence-postgres/src/storage/documents/logicalDocuments/participantErrors";
-import { makeBorrowedLogicalAttempt } from "../../../persistence-postgres/src/frameworks/commerceTransaction/borrowedLogicalAttempt";
-import { bindPrivateProductAttempt, executePrivateProductAttemptOperation, preparePrivateProductAttemptEventPolicy } from "../../../medusa-adapter/src/modules/product/attempt";
-import { makePayloadReferencePages, type PayloadReferencePagesInstrumentation } from "../../../payload-adapter/src/runtime/referencePages";
+import type { PayloadReferencePagesInstrumentation } from "../../../payload-adapter/src/runtime/referencePages";
 import { readFrozenFiniteAttempt } from "../../../persistence-postgres/src/execution/journal/frozenAttempt";
+import { openPrivateReverseRead, preparePrivateReverseReadPolicy } from "./privatePayloadReverseReadCommands";
 import { bindPrivatePayloadSave, preparePrivateSavePolicy } from "./privatePayloadSaveCommands";
 import { publishedScopeCounts } from "./payloadCommerceReferenceFixture";
 import type { PrivatePayloadSaveFixture, PrivatePayloadSaveRoot } from "./privatePayloadSaveFixture";
@@ -23,7 +16,6 @@ const article = Schema.decodeUnknownSync(Schema.Struct({ id: AppDocumentIdV1Sche
 const product = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String }));
 const page = Schema.decodeUnknownSync(Schema.Struct({ docs: Schema.Array(Schema.Struct({ id: AppDocumentIdV1Schema, title: Schema.String })),
   hasMore: Schema.Boolean, cursor: Schema.NullOr(Schema.String) }));
-type Policy = typeof PrivateReverseReadPermissions.Type;
 
 /** Setup invokes real owners. No permission evaluator, query merge or retry lives here. */
 export async function privatePayloadReversePagesScenario(fixture: PrivatePayloadSaveFixture) {
@@ -52,78 +44,15 @@ export async function privatePayloadReversePagesScenario(fixture: PrivatePayload
   const visible = [ids[1]!, ids[3]!, ids[6]!];
   let policyPrincipal: PrivatePayloadSaveRoot["principal"];
   const writePolicy = async (articles: readonly AppDocumentIdV1[], existing?: AppDocumentIdV1) => {
-    const root = await fixture.fixture.open(); policyPrincipal = root.principal;
-    const writer = await Effect.runPromise(store.preparePrivateApplicationCommandEffect(root.attempt, "audit"));
-    const policy: Policy = { format: "flarex.private-reference-read-permissions", version: 1, principal: root.principal,
-      collection: "posts", relation: "featuredProduct", enumerate: [first.id, second.id], articles };
-    const result = await Effect.runPromise(writer.run(existing === undefined ? { kind: "insert", fields: { policy }, syscallSequence: seq(1n) } :
-      { kind: "replace", documentId: existing, fields: { policy }, syscallSequence: seq(1n) }, root.validator));
-    if (result.kind !== "completed") throw new Error("Protected read policy refused");
-    const id = result.outcome.kind === "inserted" ? result.outcome.documentId : existing;
-    if (id === undefined) throw new Error("Missing policy identity");
-    expect(await root.publish()).toMatchObject({ kind: "published" }); return id;
+    const prepared = await preparePrivateReverseReadPolicy(fixture, { enumerate: [first.id, second.id], articles }, existing);
+    policyPrincipal = prepared.root.principal;
+    expect(await prepared.root.publish()).toMatchObject({ kind: "published" });
+    return prepared.documentId;
   };
   const policyId = await writePolicy(visible);
-  const productBinding = bindPrivateProductAttempt(fixture.productRuntime);
-  const events = await Effect.runPromise(preparePrivateProductAttemptEventPolicy(productBinding,
-    { producerRevision: "2".repeat(64), contractRevision: "2".repeat(64), subscribers: [{ id: "rr2-proof", revision: "2".repeat(64) }] }));
-  const frame = (participant: string, operation: string, args: Json) => Effect.fromResult(encodeAdmittedFrameworkOperationV1Result(
-    { format: "flarex.admitted-framework-operation", version: 1, participant, operation, args }));
-  const open = async (options: { productId?: string; targetIds?: readonly string[]; instrumentation?: PayloadReferencePagesInstrumentation;
-    principal?: PrivatePayloadSaveRoot["principal"] } = {}) => {
-    const productId = options.productId ?? first.id;
-    const target = await Effect.runPromise(preparePrivateParticipantReadAccess({ principal: options.principal ?? policyPrincipal,
-      participant: "medusa.product", sourceKey: "medusa.product", nativeProfileRevision: "2".repeat(64), method: "retrieve", ids: options.targetIds ?? [productId] }));
-    const prepared = await Effect.runPromise(fixture.withPreparation(preparation => Effect.gen(function* () {
-      const participants = preparation.participants.map(selected => selected.participant === "medusa.product" ? { ...selected, profileRevision: target.profileRevision } : selected);
-      const root = yield* fixture.fixture.openEffect({ preparedAdmission: preparation.preparedAdmission, currentEntry: preparation.currentEntry, participants });
-      const profiles = preparation.profiles.map(selected => selected.participant === "medusa.product" ? { ...selected, profileRevision: target.profileRevision } : selected);
-      return { root: { ...root, payloadProfile: preparation.payloadProfile }, profiles };
-    })));
-    const { root, profiles } = prepared;
-    const evidence = await Effect.runPromise(store.readPrivateReverseReferencePermissionsEffect(root.attempt,
-      { tableName: "audit", documentId: policyId, syscallSequence: seq(1n), principal: root.principal }, root.validator));
-    const selectedTarget = root.admissions.get("medusa.product");
-    if (selectedTarget === undefined) throw new Error("Missing native Product admission");
-    const nativeBorrow = target.bind(input => Effect.gen(function* () {
-      const admission = input.admissions[0];
-      if (admission === undefined) return yield* Effect.fail(new LogicalParticipantInvocationError({ kind: "rejection", cause: "Missing source" }));
-      const borrowed = yield* makeBorrowedLogicalAttempt({ ...input, admission });
-      return { abort: borrowed.abort, currentUsage: borrowed.currentUsage,
-        invoke: (method: string, args: Json) => executePrivateProductAttemptOperation(productBinding, borrowed, method, args, events).pipe(
-          Effect.map(completed => ({ ...completed, eventIntents: completed.eventIntents.map(intent => ({ sourceKey: "medusa.product", intent })) })),
-          Effect.catchCause(cause => Effect.failCause(Cause.map(cause, error => new LogicalParticipantInvocationError({ kind: "rejection", cause: error }))))) };
-    }).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, error => error instanceof LogicalParticipantInvocationError ? error :
-      new LogicalParticipantInvocationError({ kind: "rejection", cause: error }))))));
-    const retrieve = () => Effect.gen(function* () {
-      const request = yield* frame("medusa.product", "retrieve", { id: productId });
-      return yield* store.runAdmittedOperationEffect(root.attempt, selectedTarget, { syscallSequence: seq(2n), requestBytes: request.bytes,
-        requestSha256: createHash("sha256").update(request.bytes).digest(), participant: "medusa.product", method: "retrieve", profileRevision: target.profileRevision }, nativeBorrow);
-    });
-    const derive = () => store.preparePrivateReverseReferencePagesEffect(root.attempt, evidence,
-      { participant: "payload", collection: "posts", relation: "featuredProduct", productId, nativeProfileRevision: "1".repeat(64) }, { access: target, syscallSequence: 2n });
-    const bind = async () => {
-      const access = await Effect.runPromise(derive());
-      const selection = inspectPrivateReverseReadAccess(access, root.attempt);
-      if (selection === undefined) throw new Error("Missing issued reverse selection");
-      const scope = await Effect.runPromise(Scope.make());
-      const close = () => Effect.runPromise(Scope.close(scope, Exit.void));
-      const runtime = await Effect.runPromise(Scope.provide(scope)(makePayloadReferencePages(fixture.compiled, root.attempt, access, options.instrumentation)));
-      let ordinal = 3n;
-      const invoke = (args: Json, at = ordinal++) => Effect.gen(function* () {
-        const request = yield* frame("payload", PRIVATE_REFERENCE_PAGE, args);
-        return yield* store.runAdmittedOperationEffect(root.attempt, selection.admission, { syscallSequence: seq(at), requestBytes: request.bytes,
-          requestSha256: createHash("sha256").update(request.bytes).digest(), participant: "payload", method: PRIVATE_REFERENCE_PAGE, profileRevision: selection.profileRevision }, runtime.borrowParticipant);
-      });
-      const read = async (limit: number, cursor?: string) => {
-        const result = await Effect.runPromise(invoke({ limit, ...(cursor === undefined ? {} : { cursor }) }));
-        if (result.kind !== "completed") throw new Error("Page refused"); return page(result.result);
-      };
-      const prepare = () => root.preparePublication(null, { logicalOperationProfiles: [...profiles.filter(p => p.participant !== "payload"), root.payloadProfile(selection.profileRevision)] });
-      return { access, selection, scope, close, invoke, read, prepare };
-    };
-    return { root, target, retrieve, derive, bind, profiles };
-  };
+  const open = (options: { productId?: string; targetIds?: readonly string[]; instrumentation?: PayloadReferencePagesInstrumentation;
+    principal?: PrivatePayloadSaveRoot["principal"] } = {}) => openPrivateReverseRead(fixture, policyId,
+      options.principal ?? policyPrincipal, options.productId ?? first.id, options);
 
   // Hidden candidates surround visible rows. Native hooks execute for the
   // returned document and the visible successor, never for hidden identities.

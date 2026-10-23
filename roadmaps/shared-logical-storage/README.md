@@ -373,7 +373,9 @@ activation/recovery proof; broader profiles remain gated. The
 [private authorized reverse-read preflight](./reference-reverse-read-preflight.md)
 implements RR1 protected evidence/complete-membership feasibility and RR2 private
 finite pages with native Product/Payload visibility and pending membership.
-RR3-RR4 concurrent freshness/recovery and serving remain pending. General
+RR3 adds selected concurrent publication ordering, whole-root replacement,
+bounded cancellation and committed-consumption recovery without re-enumeration.
+RR4 private serving cutover remains pending. General
 traversal and the Medusa-originating extension retain their
 gates. Public API design and
 the other session's Medusa implementation remain outside this slice.

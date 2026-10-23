@@ -26,8 +26,9 @@ type Confirmed = Result.Result.Success<ReturnType<PolicyFixture["store"]["confir
 export interface PrivateSaveExecution {
   readonly owner: FinitePointMutationExecution;
   readonly prepared: PreparedFiniteApplicationMutationSessionActivation;
-  readonly currentRoot: () => Pick<PrivatePayloadSaveRoot, "attempt" | "validator" | "principal"> & { readonly context: Confirmed["context"] };
+  readonly currentRoot: () => Pick<PrivatePayloadSaveRoot, "attempt" | "validator" | "principal" | "admissions"> & { readonly context: Confirmed["context"] };
   readonly selectProfile: (revision: string) => void;
+  readonly selectReadProfile: (revision: string) => void;
   readonly bindServing: (policyId: AppDocumentIdV1, bound: PointMutationOccBoundJournalV1) => ReturnType<typeof makePrivatePayloadSaveConsumer>;
 }
 type ConstructionFailure = Effect.Error<ReturnType<PolicyFixture["prepareEvidence"]>> |
@@ -39,8 +40,9 @@ type ConstructionFailure = Effect.Error<ReturnType<PolicyFixture["prepareEvidenc
 export const makePrivateSaveExecution: (fixture: PrivatePayloadSaveFixture, preparation: PrivateSavePreparation,
   runner: PointMutationOccRuntimeNeutralRunnerV1, onNative?: (method: string) => void,
   beforePublication?: (command: Parameters<ReturnType<PolicyFixture["makePublisher"]>["publishFinite"]>[0]) => Promise<void>,
+  replacementPreparation?: PrivatePayloadSaveFixture["withPreparation"],
 ) => Effect.Effect<PrivateSaveExecution, ConstructionFailure> =
-  Effect.fn("PrivatePayloadSaveFixture.execution")(function* (fixture, preparation, runner, onNative, beforePublication) {
+  Effect.fn("PrivatePayloadSaveFixture.execution")(function* (fixture, preparation, runner, onNative, beforePublication, replacementPreparation) {
     const policy = fixture.fixture;
     const authority = policy.application.pointCommitAuthority;
     const inputs = yield* Effect.fromResult(readPreparedFiniteApplicationMutationInputs(preparation.preparedAdmission, policy.context));
@@ -77,6 +79,7 @@ export const makePrivateSaveExecution: (fixture: PrivatePayloadSaveFixture, prep
       }) };
     let profileFactory = preparation.payloadProfile;
     let profiles = preparation.profiles;
+    let readProfiles = preparation.profiles.filter(profile => profile.participant !== "payload");
     const publisher = {
       publishFinite: (command: Parameters<ReturnType<PolicyFixture["makePublisher"]>["publishFinite"]>[0]) =>
         Effect.gen(function* () {
@@ -89,9 +92,10 @@ export const makePrivateSaveExecution: (fixture: PrivatePayloadSaveFixture, prep
         policy.makePublisher().resolveFinite(command),
     };
     const finiteEntry = Effect.fn("PrivatePayloadSaveFixture.prepareReplacement")(function* () {
-      return yield* fixture.withPreparation(fresh => Effect.gen(function* () {
+      return yield* (replacementPreparation ?? fixture.withPreparation)(fresh => Effect.gen(function* () {
         const selected = yield* Effect.fromResult(readPreparedFiniteApplicationMutationInputs(fresh.preparedAdmission, policy.context));
         profileFactory = fresh.payloadProfile;
+        readProfiles = fresh.profiles.filter(profile => profile.participant !== "payload");
         return { application: selected.application, prepareEntry: () => prepareEntry(participants(fresh)).pipe(
           Effect.mapError(cause => new PointMutationAttemptReplacementFiniteEntryError({ cause }))) };
       }));
@@ -116,10 +120,11 @@ export const makePrivateSaveExecution: (fixture: PrivatePayloadSaveFixture, prep
       preparedAdmission: preparation.preparedAdmission, admissionContext: policy.context, currentEntry: preparation.currentEntry },
       currentRoot: () => {
         if (current === undefined) throw new Error("No genuine executor entry has opened");
-        return { attempt: current.attempt, context: current.context, validator,
+        return { attempt: current.attempt, context: current.context, validator, admissions: current.admissions,
           principal: { scopeId: current.context.anchor.scopeId, principalDigest: current.context.principalDigest } };
       },
       selectProfile: revision => { profiles = [profileFactory(revision)]; },
+      selectReadProfile: revision => { profiles = [...readProfiles, profileFactory(revision)]; },
       bindServing: (policyId, bound) => Effect.suspend(() => {
         if (current === undefined || currentHandle === undefined) return Effect.die(new Error("Missing genuine serving entry"));
         const root = current;

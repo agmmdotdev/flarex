@@ -373,6 +373,8 @@ describe("Medusa source-island boundary checker", () => {
 
   it("admits only the named connected proof edges and exact authored targets", () => {
     const edges = [
+      { importer: "packages/flarex-backend/test/support/privatePayloadReverseReadCommands.ts",
+        specifier: "@flarex/medusa-adapter/internal/product-attempt", target: "packages/medusa-adapter/src/modules/product/attempt.ts" },
       { importer: "packages/persistence-postgres/test/execution/finiteIndexedBodyPermission.test.ts",
         specifier: "../../../medusa-adapter/test/support/native-product-attempt-seed", target: "packages/medusa-adapter/test/support/native-product-attempt-seed.ts" },
       { importer: "packages/persistence-postgres/test/execution/finitePreparedSourceComposition.test.ts",
@@ -425,6 +427,12 @@ describe("Medusa source-island boundary checker", () => {
         rootSources: [{ relativePath: edge.importer, text: `import ${JSON.stringify(nativeSpecifier)};` }] }).errors
         .some(error => error.includes("must not cross Currency package ownership"))).toBe(true);
     }
+    for (const [relativePath, specifier] of [
+      ["packages/flarex-backend/test/support/privatePayloadReverseReadCommands.ts", "../../../medusa-adapter/src/modules/product/attempt"],
+      ["packages/flarex-backend/test/support/adjacent.ts", "@flarex/medusa-adapter/internal/product-attempt"],
+      ["packages/flarex-backend/src/runtime.ts", "@flarex/medusa-adapter/internal/product-attempt"],
+    ]) expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: promotion,
+      rootSources: [{ relativePath, text: `import { operation } from ${JSON.stringify(specifier)};` }] }).errors.length).toBeGreaterThan(0);
     const importer = "packages/executor/test/performance/support/productFlows.ts";
     for (const specifier of [
       "../../../../medusa-adapter/test/support/logical-pricing-fixture",

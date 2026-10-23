@@ -88,7 +88,9 @@ The next bounded backend slice is specified by the
 RR1 implements protected read evidence and shared admission with a backend-only
 complete indexed-membership probe. RR2 adds private finite pages with native
 Product/Payload visibility, pending membership and attempt-local continuation.
-RR3-RR4 remain pending: concurrent freshness/recovery, then private serving cutover.
+RR3 adds selected concurrent publication ordering, whole-root replacement,
+bounded cancellation and committed-consumption recovery without re-enumeration.
+RR4 private serving cutover remains pending.
 Existing point-ID grants and save permissions do
 not authorize reverse discovery; native Payload joins retain their separate
 profile. Worker/hosted reverse-page serving and public syntax remain disabled.

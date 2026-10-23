@@ -2,12 +2,12 @@
 
 ## Status And Scope
 
-Status: RR1-RR2 are implemented for protected read evidence, complete bounded
-indexed-membership feasibility and private authorized finite pages. RR3-RR4
-remain pending. The private RR1 probe
+Status: RR1-RR3 are implemented for protected read evidence, complete bounded
+indexed-membership feasibility, private authorized finite pages and selected
+concurrent freshness/recovery. RR4 private serving cutover remains pending. The private RR1 probe
 returns no article, identity, count or cursor, and has no Worker/public entry
-point. RR2 has backend construction only; Worker/public serving, overlapping
-freshness/recovery, production capacity and workload-specific plan claims remain
+point. Reverse pages have backend construction only; Worker/public serving,
+production capacity and workload-specific plan claims remain
 outside this implemented inventory.
 
 The selected outcome is an authorized, bounded enumeration of Payload articles
@@ -49,6 +49,11 @@ session's Medusa implementation and promotion/workflow roadmaps are untouched.
 - [Private native page runtime](../../packages/payload-adapter/src/runtime/referencePages.ts)
   and [connected RR2 scenarios](../../packages/flarex-backend/test/privatePayloadReversePages.test.ts)
   connect authorized pages to native Product receipts and Payload point hydration.
+- [Concurrent freshness](../../packages/flarex-backend/test/privatePayloadReverseFreshness.test.ts),
+  [replacement/frontier/failure semantics](../../packages/flarex-backend/test/privatePayloadReverseRecovery.test.ts)
+  and [committed recovery](../../packages/flarex-backend/test/privatePayloadReverseRestart.test.ts)
+  connect native pages and Application consumption to existing publication,
+  whole-root replacement and durable outcome owners.
 - [Reference selection](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts),
   [activation projection](../../packages/persistence-postgres/src/installation/frameworkSchema/binding/strongReferenceProjection.ts)
   and [publication validation](../../packages/persistence-postgres/src/commit/publication/strongReferenceValidation.ts)
@@ -250,7 +255,7 @@ the pending article identity and one execution across replay; this observation
 is not operation input or caller output. Sequential later publication of a new reference or read-policy change
 invalidates the frozen reader before its publication; creating a previously
 missing policy also conflicts. These prove dependency delivery to existing
-final validation. Actual concurrent overlap/order barriers remain RR3.
+final validation. RR3 adds actual concurrent publication-order barriers below.
 
 RR2's backend-only `private-reference-page` requires the separate protected read
 evidence and a completed native Product retrieve receipt from this same root,
@@ -286,8 +291,42 @@ relevant edits, pending creation, soft-delete/restore and native/capacity failur
 rollback. The explicit-ID policy cannot authorize an unknown future generated
 article identity: the pending-create scenario verifies its real membership is
 examined and remains hidden, using a trusted query observer rather than an
-output-only empty assertion. These are bounded cross-driver semantics; actual
-overlapping freshness, restart/lost-COMMIT and Worker serving remain RR3-RR4.
+output-only empty assertion. RR3 extends these bounded cross-driver semantics;
+Worker serving remains RR4.
+
+RR3 connects the existing page path to real Application writes and finite
+executor replacement. Ordinary-role PostgreSQL observes distinct backend PIDs
+and real scope-lock wait edges for both publication orders of enumeration and
+article-selection revocation, insertion into an empty range, membership removal,
+consumed article/Product changes, Product soft deletion and binding withdrawal.
+The empty-range witness has no source point dependency: its installed index
+dependency prevents the phantom. A reader ordered first may commit; a relevant
+change ordered first prevents stale Application consumption from publishing.
+PGlite establishes the corresponding serial semantics, not concurrent overlap.
+
+The examined physical prefix, EOF and consumed points define the freshness
+frontier. A new tail membership outside the non-exhausted captured prefix can
+coexist with publication; inserting an earlier membership into that prefix or
+changing a captured source point conflicts. This is neither collection-wide
+phantom protection nor a promise that only returned documents are observed.
+Actual whole-root replacement advances fence/snapshot, re-reads protected
+policy and native data, discards the losing Application insertion, and refuses
+the abandoned root's access and continuation. A newly denied enumeration cannot
+hydrate articles. Receipt replay preserves the earlier observation without
+native hooks; it does not refresh policy or permit stale publication.
+
+Catching an admitted native failure cannot revive the root. Interruption after
+native hydration and before receipt acknowledgement aborts it, revokes its
+access, drains the owned operation and closes the native scope. This bounded
+cancellation point does not establish arbitrary foreign-Promise cancellation.
+Committed Application consumption survives permission/binding withdrawal,
+producer host/native-scope closure and reconstruction from durable configuration
+and selector alone. PostgreSQL additionally forwards real COMMIT, independently
+observes durability, then loses its response. Resolution and repeated fresh-pool
+recovery return the stored outcome without re-enumeration, native hooks or
+duplicate rows/facts/outcomes. PGlite covers reconstruction semantics only;
+database/control-plane crash recovery remains outside this inventory. RR3 uses
+the existing owners without a second validation, retry or recovery algorithm.
 
 Existing point-read, save-authorization, integrity/delete, preference-cleanup and
 LB1-LB4 proofs retain their exact scopes. Payload-to-Payload bounded joins remain
@@ -304,13 +343,12 @@ Later support must have its own admission and lifecycle evidence.
 | --- | --- |
 | RR1: protected read evidence and shared admission feasibility | Implemented for the separate protected record and backend-only complete-membership probe above. Genuine command writes, positive/missing reads, issuer/principal/attempt/source selection, empty/nonempty indexed capture and native pending creation reach real final validation. Sequential late reference/policy commits refuse stale publication. Paged visibility, Product native access and actual overlap remain later gates; no new shared index/settlement algorithm was required |
 | RR2: authorized finite reverse pages | Implemented for the selected private profile above: protected policy, separate native Product grant/receipt, authorized native Payload hydration, visible lookahead, deterministic attempt-local continuation, pending membership, exact examined dependencies and atomic capacity refusal. No broad borrowed find/count admission, Worker/public operation or raw scanner exposure |
-| RR3: concurrent freshness and recovery | Prove both relevant ordinary-role PostgreSQL orders for permission revocation, reference insertion/removal (including empty-page phantoms), consumed row/target changes and binding withdrawal. Assert exact dependency-frontier behavior, real whole-root replacement, caught-error rollback, cancellation/drain, duplicate receipt/outcome replay and real lost-COMMIT resolution for Application consumption. Recover an already committed outcome without re-enumeration or native hooks; PGlite establishes semantics, not actual overlap/acknowledgement loss |
+| RR3: concurrent freshness and recovery | Implemented for the selected private page/Application-consumption profile above: both observed PostgreSQL publication orders, exact prefix/negative dependencies, genuine whole-root replacement, caught native failure, bounded pre-ack cancellation/drain, receipt/outcome replay and real lost-COMMIT resolution after permission/binding withdrawal. Closed-producer reconstruction uses durable configuration/selector only and does not re-enumerate. PGlite proves serial/reconstruction semantics, not overlap or acknowledgement loss |
 | RR4: selected private serving cutover and cleanup | Connect the real Worker/RPC consumer to normal protected read construction. Keep denied/foreign/forged input opaque, native failure poisoning and current source identity intact. Migrate only the selected consumer and remove displaced assembly after parity. Reconcile supported/refused profiles and retain named fixed point-read, standalone join, save and lifecycle consumers. Public and hosted entry points remain disabled |
 
-The next implementation is RR3, preserving RR1-RR2's actual authority, complete
-membership and native-page witnesses while proving overlapping freshness and
-recovery through the existing root owner. RR3-RR4 remain pending until their
-connected owner proof exists.
+The next implementation is RR4's selected private Worker/RPC consumer and
+cleanup. Preserve RR1-RR3's authority, complete-membership, native-page,
+freshness and recovery witnesses. Public API design remains separate.
 
 ## Validation, Cutover And Cleanup
 
