@@ -38,13 +38,22 @@ function options(value: string | StepOptions): StepOptions {
 }
 function stage<Output>(context: Composer, node: WorkflowNode & { name: string }): StepOutput<Output> {
   context.nodes.push(node);
+  let staged: WorkflowNode = node;
   const result = proxify<Output>({ kind: "step", owner: context.owner, step: node.id }, value => {
     if (current !== context) throw definitionError("outsideComposer", "Configure a step in its own active composer");
     const captured = captureDefinition(value, context.owner);
-    if (typeof captured !== "object" || captured === null || Reflect.ownKeys(captured).length !== 1 || !("name" in captured) || typeof captured.name !== "string") {
-      throw definitionError("unsupportedProfile", "Only an explicit step name can be configured");
+    if (typeof captured !== "object" || captured === null || Reflect.ownKeys(captured).length === 0 ||
+      Reflect.ownKeys(captured).some(key => key !== "name" && key !== "noCompensation") ||
+      ("name" in captured && typeof captured.name !== "string") ||
+      ("noCompensation" in captured && (captured.noCompensation !== true || staged.kind !== "step"))) {
+      throw definitionError("unsupportedProfile", "Only a step name and explicit noCompensation:true can be configured");
     }
-    node.name = options(captured.name).name;
+    const name = "name" in captured && typeof captured.name === "string" ? options(captured.name).name : staged.name;
+    const index = context.nodes.indexOf(staged);
+    if (index < 0) throw definitionError("invalidReference", "Missing staged step configuration");
+    staged = staged.kind === "step" && "noCompensation" in captured
+      ? { ...staged, name, compensate: undefined, compensation: undefined } : { ...staged, name };
+    context.nodes[index] = staged;
   });
   // SAFETY: this root reference alone carries the authenticated configuration callback.
   return result as StepOutput<Output>;
@@ -130,8 +139,11 @@ export function parallelize<const Values extends readonly (WorkflowData<unknown>
 }
 /** A finite construction-time region. Its predicate belongs to each invocation,
  * while both its steps and deferred transforms inherit the enclosing guards. */
+type ConditionalData<Value> = WorkflowData<Value | undefined> & (Value extends object ? {
+  readonly [Key in keyof Value]: Value[Key] | undefined;
+} : unknown);
 interface ConditionalRegion {
-  readonly then: <Output>(build: () => Output & ([Extract<Output, PromiseLike<unknown>>] extends [never] ? unknown : never)) => WorkflowData<Resolved<Output> | undefined>;
+  readonly then: <Output>(build: () => Output, ...synchronous: [Extract<Output, PromiseLike<unknown>>] extends [never] ? [] : [never]) => ConditionalData<Resolved<Output>>;
 }
 export function when<Input>(input: Input, predicate: (input: Resolved<Input>) => boolean): ConditionalRegion;
 export function when<Input>(name: string, input: Input, predicate: (input: Resolved<Input>) => boolean): ConditionalRegion;
@@ -150,7 +162,8 @@ export function when<Input>(nameOrInput: string | Input, inputOrPredicate: Input
     // SAFETY: the authoring signature binds the captured input before graph erasure.
     invoke: predicate as Invoke<unknown, unknown>, compensate: undefined, compensation: undefined, hook: false });
   context.pending.add(id);
-  const region: ConditionalRegion = { then(build) {
+  function then<Output>(build: () => Output, ...synchronous: [Extract<Output, PromiseLike<unknown>>] extends [never] ? [] : [never]): ConditionalData<Resolved<Output>>;
+  function then(build: () => unknown, ..._synchronous: readonly never[]): unknown {
     if (current !== context || context.guards !== parents || !context.pending.delete(id) || typeof build !== "function") {
       throw definitionError("invalidDefinition", "Complete each condition once in its own composer region");
     }
@@ -164,9 +177,11 @@ export function when<Input>(nameOrInput: string | Input, inputOrPredicate: Input
       context.nodes.push({ id: resultId, kind: "branchResult", guards, name: `$${name}`, input: result,
         invoke: value => value, compensate: undefined, compensation: undefined, hook: false });
     } finally { context.guards = parents; }
+    // The overload retains whole-value absence while authoring member access
+    // remains valid on the staged proxy even when the branch will be skipped.
     return proxify({ kind: "step", owner: context.owner, step: resultId });
-  } };
-  return Object.freeze(region);
+  }
+  return Object.freeze({ then });
 }
 export interface PreparedWorkflow {
   readonly name: string;

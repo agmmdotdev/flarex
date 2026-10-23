@@ -39,7 +39,7 @@ export type PaymentCustomerDTO = {
   /**
    * The customer's billing address.
    */
-  billing_address?: PaymentAddressDTO | null
+  billing_address?: PaymentAddressDTO | null | undefined
 }
 
 export type PaymentAccountHolderDTO = {
@@ -70,12 +70,12 @@ export type PaymentProviderContext = {
   /**
    * The account holder information, if available for the payment provider.
    */
-  account_holder?: PaymentAccountHolderDTO
+  account_holder?: PaymentAccountHolderDTO | undefined
 
   /**
    * The customer information from Medusa.
    */
-  customer?: PaymentCustomerDTO
+  customer?: PaymentCustomerDTO | undefined
 
   /**
    * Idempotency key for the request, if the payment provider supports it. It will be ignored otherwise.

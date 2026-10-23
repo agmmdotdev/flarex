@@ -22,10 +22,13 @@ const decodeRemote = commerceDecoder(Schema.Union([
     fields: Schema.Tuple([Schema.Literal("variant_id"), Schema.Literal("price_set_id")]),
     variables: Schema.Struct({ variant_id: VariantPriceSetIds }) }),
 ]), "unsupportedProfile");
-const decodeSingleton = commerceDecoder(Schema.Tuple([
+const decodeSingleton = commerceDecoder(Schema.Union([Schema.Tuple([
   Schema.Struct({ entryPoint: Schema.Literals(["stock_location", "fulfillment"]), fields: Fields, variables: Schema.Struct({ id: Schema.String }) }),
   Schema.Struct({ throwIfKeyNotFound: Schema.Literal(true), throwIfRelationNotFound: Schema.optionalKey(Schema.Undefined) }),
-]), "unsupportedProfile");
+]), Schema.Tuple([
+  Schema.Struct({ entryPoint: Schema.Literal("payment_collection"), fields: Fields, variables: Schema.Struct({ id: Schema.String }) }),
+  Schema.Struct({ throwIfKeyNotFound: Schema.Literal(false), throwIfRelationNotFound: Schema.optionalKey(Schema.Undefined) }),
+])]), "unsupportedProfile");
 const decodeGraphArguments = commerceDecoder(Schema.Union([
   Schema.Tuple([WorkflowGraphQuery]), Schema.Tuple([WorkflowGraphQuery, WorkflowGraphCacheOptions]),
 ]), "unsupportedProfile");
@@ -36,7 +39,7 @@ export function bindWorkflowQuery(graph: PreparedLocalGraph, context: AtomicComm
   const query = graph.bind(context);
   const remote = (...args: unknown[]) => owner.run(Effect.gen(function* () {
     if (args.length === 2) {
-      const [input] = yield* checkedCommerceValue(context, () => captureWorkflowInput(args).pipe(Result.flatMap(decodeSingleton)));
+      const [input, options] = yield* checkedCommerceValue(context, () => captureWorkflowInput(args).pipe(Result.flatMap(decodeSingleton)));
       // The pinned singleton RemoteQuery and graph both remove hydration-only
       // join columns. Existing array-ID and service callers retain their native
       // projection, including their admitted Link join fields.
@@ -52,7 +55,7 @@ export function bindWorkflowQuery(graph: PreparedLocalGraph, context: AtomicComm
       if (data.length > 1) return yield* context.refuse(commerceError("storedCorruption"));
       // This is the native business failure, not an ABI or authority refusal.
       // The workflow's existing invoke owner latches an unhandled rejection.
-      if (data.length === 0) return yield* Effect.fail(commerceError("adapterFailure",
+      if (data.length === 0 && options.throwIfKeyNotFound) return yield* Effect.fail(commerceError("adapterFailure",
         new MedusaError(MedusaError.Types.NOT_FOUND, (input.entryPoint === "fulfillment" ? "Fulfillment" : "StockLocation") + " id not found: " + input.variables.id)));
       return data;
     }

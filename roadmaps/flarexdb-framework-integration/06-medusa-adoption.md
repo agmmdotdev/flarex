@@ -911,6 +911,14 @@ Payment's genuine System provider and service have portable entrypoints; its
 native provider-registration loader remains host-specific. Source promotion
 alone does not admit additional persistence operations or the Cart root.
 
+The [native Payment session slice](./preflight/payment-session-workflows.md)
+implements the bounded System-provider creation root and deletion child over an
+existing collection, using the complete nine-table Payment metadata and shared
+logical persistence. Retained native inverses, replacement and atomic rollback
+remain distinct obligations. Supporting collection creation is a native module
+operation. Customer, Cart/Order Links, remote providers and authorization/capture/
+refund roots retain separate admission gates.
+
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.
 The genuine creation step remains unchanged and returns complete native rows,

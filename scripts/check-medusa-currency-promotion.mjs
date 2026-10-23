@@ -1,4 +1,6 @@
 // @ts-check
+import { paymentSessionSourcePairs, paymentSessionTypeSourcePairs, verifyPaymentSessionSelection,
+  verifyPaymentSessionSource, verifyPaymentSessionTypeSource } from "./check-medusa-payment-session-source.mjs";
 import { orderArchiveSourcePairs, verifyOrderArchiveSourceSelection, verifyOrderArchiveSource } from "./check-medusa-order-archive-source.mjs";
 import { taxRuleReplacementSourcePairs, verifyTaxRuleReplacementCallbacks,
   verifyTaxRuleReplacementSelection } from "./check-medusa-tax-rule-replacement-source.mjs";
@@ -392,6 +394,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, "packages/medusa-core-flows/src/sales-channel/steps/detach-products-from-sales-channels.ts"), "utf8"));
   const promotion = supplied;
   verifyCartPrerequisiteSourceSelection(promotion.files);
+  verifyPaymentSessionSelection(promotion.files);
   verifyOrderArchiveSourceSelection(promotion.files);
   verifyTaxRuleReplacementSelection(promotion.files);
   verifyInventoryConfirmationSourceSelection(promotion.files);
@@ -832,7 +835,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       throw new Error("Customer selection adaptation outside its selected native source pair");
     if (file.classification === "inventoryConfirmationFork" && !inventoryConfirmationSourcePairs.some(pair => pair.target === file.target && pair.source === file.source && pair.classification === file.classification))
       throw new Error("Inventory confirmation adaptation outside its selected native source pair");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRuleReplacementFork", "orderArchiveFork", "orderArchiveCompensationFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRuleReplacementFork", "orderArchiveFork", "orderArchiveCompensationFork", "paymentSessionTypeFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.target === "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification === "pricingServiceFork") {
@@ -945,6 +948,10 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
         verifyModuleTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
       if (orderArchiveSourcePairs.some(pair => pair.target === file.target))
         verifyOrderArchiveSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
+      if (paymentSessionSourcePairs.some(pair => pair.target === file.target))
+        verifyPaymentSessionSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
+      if (paymentSessionTypeSourcePairs.some(pair => pair.target === file.target))
+        verifyPaymentSessionTypeSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (file.classification === "taxLinesFork")
         verifyTaxLinesFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (file.classification === "paymentJoinerFork")

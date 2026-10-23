@@ -23,6 +23,20 @@ const execute = (query: WorkflowGraphResource, input: EntryStepInput) => {
 };
 
 describe("native Product remote query seam", () => {
+  it("retains the native nonthrowing Payment singleton ABI and selected typed projection", async () => {
+    const fields = ["id", "amount", "currency_code", "payment_sessions.*"] as const;
+    const input = { entry_point: "payment_collection" as const, fields, variables: { id: "pay_col" }, list: false as const };
+    const calls: unknown[][] = [], row = { id: "pay_col", amount: 12.5, currency_code: "usd",
+      payment_sessions: [{ id: "payses_old", provider_id: "pp_system_default" }] };
+    const graph = async () => { throw new Error("Payment singleton must use callable Query"); };
+    const query = Object.assign(async (...args: unknown[]) => { calls.push(args); return [row]; }, { maxPageSize: 4, graph });
+    expect(await execute(query, input)).toEqual(row);
+    expect(calls).toEqual([[{ entryPoint: "payment_collection", fields, variables: { id: "pay_col" } },
+      { throwIfKeyNotFound: false, throwIfRelationNotFound: undefined }]]);
+    expect(await execute(Object.assign(async () => [], { maxPageSize: 4, graph }), input)).toBeUndefined();
+    await expect(execute(Object.assign(async () => [{ ...row, amount: "12.5" }], { maxPageSize: 4, graph }), input)).rejects.toThrow();
+    await expect(execute(Object.assign(async () => [{ ...row, payment_sessions: [{}] }], { maxPageSize: 4, graph }), input)).rejects.toThrow();
+  });
   it("maps native filters to a complete bounded graph list without mutating arguments", async () => {
     const supplied = { entry_point: "product", fields: ["variants.id"], variables: { filters: { id: ["p"] } } };
     const calls: unknown[] = [];

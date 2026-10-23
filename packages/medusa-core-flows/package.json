@@ -183,7 +183,10 @@
     "./cart/get-variants-and-items-with-prices": "./src/cart/workflows/get-variants-and-items-with-prices.ts",
     "./cart/get-variant-price-sets-step": "./src/cart/steps/get-variant-price-sets.ts",
     "./order/archive-orders": "./src/order/workflows/archive-orders.ts",
-    "./order/archive-orders-step": "./src/order/steps/archive-orders.ts"
+    "./order/archive-orders-step": "./src/order/steps/archive-orders.ts",
+    "./payment-collection/create-payment-session": "./src/payment-collection/workflows/create-payment-session.ts",
+    "./payment-collection/delete-payment-sessions": "./src/payment-collection/workflows/delete-payment-sessions.ts",
+    "./payment-collection/create-payment-session-step": "./src/payment-collection/steps/create-payment-session.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

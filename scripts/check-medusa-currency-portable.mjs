@@ -9,6 +9,12 @@ const promotion = verifyCurrencyPromotion(root);
 const admitted = new Set(promotion.files.map((file) => path.resolve(root, file.target).replaceAll("\\", "/")));
 const inputs = new Set();
 for (const entry of [
+  "packages/medusa-core-flows/src/payment-collection/workflows/create-payment-session.ts",
+  "packages/medusa-core-flows/src/payment-collection/workflows/delete-payment-sessions.ts",
+  "packages/medusa-adapter/src/workflows/payment/create-session.ts",
+  "packages/medusa-adapter/src/workflows/payment/delete-sessions.ts",
+  "packages/medusa-adapter/src/modules/payment/service.ts",
+  "packages/medusa-adapter/src/modules/payment/schema.ts",
   "packages/medusa-order/src/static-manifest.ts",
   "packages/medusa-order/src/services/index.ts",
   "packages/medusa-core-flows/src/order/workflows/archive-orders.ts",

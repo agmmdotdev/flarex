@@ -133,3 +133,4 @@ export type { ITaxModuleService } from "./tax/service";
 export type { BigNumberValue } from "./totals/big-number";
 export type { CartLikeWithTotals } from "./totals/index";
 export type { LoaderOptions } from "./modules-sdk/index";
+export type { PaymentProviderContext } from "./payment/provider";

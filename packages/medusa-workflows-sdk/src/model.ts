@@ -7,7 +7,7 @@ export declare const dataBrand: unique symbol;
 export type WorkflowData<T> = [T] extends [never] ? { readonly [dataBrand]: T }
   : T extends null | void ? { readonly [dataBrand]: T } : T & { readonly [dataBrand]: T };
 export type StepOutput<Output> = WorkflowData<Output> & {
-  readonly config: (options: { readonly name: string }) => StepOutput<Output>;
+  readonly config: (options: { readonly name: string; readonly noCompensation?: true } | { readonly noCompensation: true; readonly name?: string }) => StepOutput<Output>;
 };
 /** Definition inputs may place typed references at any resolved data member.
  * Branded references must match that member's value type; they cannot enter
