@@ -375,7 +375,9 @@ implements RR1 protected evidence/complete-membership feasibility and RR2 privat
 finite pages with native Product/Payload visibility and pending membership.
 RR3 adds selected concurrent publication ordering, whole-root replacement,
 bounded cancellation and committed-consumption recovery without re-enumeration.
-RR4 private serving cutover remains pending. General
+RR4 connects the selected protected consumer to real Worker/RPC serving and
+committed recovery, with opaque refusal and cross-scope/principal confinement.
+Public and hosted entry points remain disabled. General
 traversal and the Medusa-originating extension retain their
 gates. Public API design and
 the other session's Medusa implementation remain outside this slice.

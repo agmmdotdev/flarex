@@ -35,7 +35,8 @@ import { requireScopeAuthorizationRevocationEpochInTransactionEffect } from "../
 
 /** Only data/setup/observation: production owners issue all authority and settle. */
 export async function privatePermissionFixture(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
-  payload?: CompiledPayloadCollections, controlPersistence?: PGliteFlarexPersistence) {
+  payload?: CompiledPayloadCollections, controlPersistence?: PGliteFlarexPersistence,
+  auth?: Parameters<typeof applicationMutationActivationEvidenceFixture>[0]["auth"]) {
   const schemaName = (await persistence.query<{ name: string }>("select current_schema() as name")).rows[0]?.name;
   if (schemaName === undefined) throw new Error("Missing private permission namespace");
   const scope = await Effect.runPromise(Scope.make());
@@ -127,6 +128,7 @@ export async function privatePermissionFixture(persistence: PGliteFlarexPersiste
       deploymentId: TransactionGrantDeploymentIdV1Schema.make(application.deploymentId), executionAuthority: prepared.executionAuthority,
       authorizationRevocationEpoch,
       requestKey: randomUUID(), grantId: randomUUID(),
+      ...(auth === undefined ? {} : { auth }),
     }); }, catch: cause => new Error("Permission fixture grant construction failed", { cause }) });
     const openEffect = Effect.fn("PrivatePermissionFixture.open")(function* (options: Readonly<{
       participants?: Parameters<SessionJournalStorePersistence["prepareFiniteEntryEffect"]>[0];

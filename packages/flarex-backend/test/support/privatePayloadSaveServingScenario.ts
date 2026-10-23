@@ -4,7 +4,7 @@ import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
 import { PointCommitConflictV1Error } from "../../../persistence-postgres/src/commit/point/errors";
 import { preparePrivateSavePolicy } from "./privatePayloadSaveCommands";
 import { runPrivatePayloadSaveServing } from "./privatePayloadSaveServing";
-import { runPrivatePayloadSaveWorkerd } from "./privatePayloadSaveWorkerd";
+import { runPrivateMixedWorkerd } from "./privateMixedWorkerd";
 import { publishedScopeCounts } from "./payloadCommerceReferenceFixture";
 import type { PrivatePayloadSaveFixture } from "./privatePayloadSaveFixture";
 import { withTimeout } from "../../../persistence-postgres/test/commit/point/support/postgresFaults";
@@ -26,7 +26,7 @@ export async function privatePayloadSaveServingScenario(fixture: PrivatePayloadS
   const counts = () => publishedScopeCounts(fixture.fixture.application.persistence.drizzle, fixture.fixture.application.authority.scopeId);
   const responses: unknown[] = [];
   const invocations: string[] = [];
-  const prepare = (body: string, after?: () => Promise<void>, observations?: Parameters<typeof runPrivatePayloadSaveWorkerd>[4]) =>
+  const prepare = (body: string, after?: () => Promise<void>, observations?: Parameters<typeof runPrivateMixedWorkerd>[4]) =>
     runPrivatePayloadSaveServing(fixture, policy.documentId, body, { ...(after === undefined ? {} : { afterWorker: after }),
       ...(observations === undefined ? {} : { observations }), onResponse: value => { responses.push(value); },
       onNative: method => { invocations.push(method); } });

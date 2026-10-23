@@ -18,6 +18,8 @@ import { readPreparedFiniteApplicationMutationInputs } from "../../../persistenc
 import { TEST_GRANT_RETENTION_POLICY_V1 } from "../../../persistence-postgres/test/execution/session/support/activationEvidence";
 import type { PrivatePayloadSaveFixture, PrivateSavePreparation, PrivatePayloadSaveRoot } from "./privatePayloadSaveFixture";
 import { makePrivatePayloadSaveConsumer } from "../../src/privatePayloadSaveConsumer";
+import { makePrivatePayloadReverseReadConsumer, makePrivatePayloadReverseReadConsumerWithRuntime } from "../../src/privatePayloadReverseReadConsumer";
+import type { PrivateReverseReadProfile } from "./privatePayloadReverseReadCommands";
 import type { PointMutationOccBoundJournalV1 } from "../../../executor/src/mutation/authentication/storedAttemptAuthentication";
 import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 
@@ -30,6 +32,8 @@ export interface PrivateSaveExecution {
   readonly selectProfile: (revision: string) => void;
   readonly selectReadProfile: (revision: string) => void;
   readonly bindServing: (policyId: AppDocumentIdV1, bound: PointMutationOccBoundJournalV1) => ReturnType<typeof makePrivatePayloadSaveConsumer>;
+  readonly bindReverseServing: (policyId: AppDocumentIdV1, bound: PointMutationOccBoundJournalV1, profile: PrivateReverseReadProfile,
+    makeNative?: Parameters<typeof makePrivatePayloadReverseReadConsumerWithRuntime>[2]) => ReturnType<typeof makePrivatePayloadReverseReadConsumer>;
 }
 type ConstructionFailure = Effect.Error<ReturnType<PolicyFixture["prepareEvidence"]>> |
   Effect.Error<ReturnType<typeof deriveApplicationSyscallValidator>> |
@@ -41,8 +45,9 @@ export const makePrivateSaveExecution: (fixture: PrivatePayloadSaveFixture, prep
   runner: PointMutationOccRuntimeNeutralRunnerV1, onNative?: (method: string) => void,
   beforePublication?: (command: Parameters<ReturnType<PolicyFixture["makePublisher"]>["publishFinite"]>[0]) => Promise<void>,
   replacementPreparation?: PrivatePayloadSaveFixture["withPreparation"],
+  admittedBorrows?: ReadonlyMap<string, PointMutationJournalAdmittedParticipantV1["borrow"]>,
 ) => Effect.Effect<PrivateSaveExecution, ConstructionFailure> =
-  Effect.fn("PrivatePayloadSaveFixture.execution")(function* (fixture, preparation, runner, onNative, beforePublication, replacementPreparation) {
+  Effect.fn("PrivatePayloadSaveFixture.execution")(function* (fixture, preparation, runner, onNative, beforePublication, replacementPreparation, admittedBorrows) {
     const policy = fixture.fixture;
     const authority = policy.application.pointCommitAuthority;
     const inputs = yield* Effect.fromResult(readPreparedFiniteApplicationMutationInputs(preparation.preparedAdmission, policy.context));
@@ -55,7 +60,7 @@ export const makePrivateSaveExecution: (fixture: PrivatePayloadSaveFixture, prep
       fresh.participants.map(selection => ({ participant: selection.participant, admission: selection,
         // The ordinary facade is deliberately unavailable. Only the private
         // capability selected after the protected read lends a native writer.
-        borrow: () => Effect.fail(new LogicalParticipantInvocationError({ kind: "rejection", cause: cmsError("unsupportedProfile") })) }));
+        borrow: admittedBorrows?.get(selection.participant) ?? (() => Effect.fail(new LogicalParticipantInvocationError({ kind: "rejection", cause: cmsError("unsupportedProfile") }))) }));
     const observed = onNative === undefined ? policy.store : { ...policy.store,
       runAdmittedOperationEffect: (...args: Parameters<PolicyFixture["store"]["runAdmittedOperationEffect"]>) => {
         const borrow = args[3];
@@ -125,6 +130,20 @@ export const makePrivateSaveExecution: (fixture: PrivatePayloadSaveFixture, prep
       },
       selectProfile: revision => { profiles = [profileFactory(revision)]; },
       selectReadProfile: revision => { profiles = [...readProfiles, profileFactory(revision)]; },
+      bindReverseServing: Effect.fn("PrivatePayloadSaveFixture.bindReverseServing")(function* (policyId: AppDocumentIdV1,
+        bound: PointMutationOccBoundJournalV1, profile: PrivateReverseReadProfile,
+        makeNative?: Parameters<typeof makePrivatePayloadReverseReadConsumerWithRuntime>[2]) {
+        if (current === undefined || currentHandle === undefined) return yield* Effect.die(new Error("Missing genuine serving entry"));
+        const root = current;
+        const input: Parameters<typeof makePrivatePayloadReverseReadConsumer>[1] = { store: policy.store, attempt: root.attempt, validator,
+          principal: { scopeId: root.context.anchor.scopeId, principalDigest: root.context.principalDigest },
+          owner: journal, journalAttempt: currentHandle, journal: bound, policy: { tableName: "audit", documentId: policyId },
+          selection: { participant: "payload", collection: "posts", relation: "featuredProduct", productId: profile.productId, nativeProfileRevision: "1".repeat(64) },
+          target: { participant: "medusa.product", access: profile.target } };
+        const consumer = makeNative === undefined ? makePrivatePayloadReverseReadConsumer(fixture.compiled, input) :
+          makePrivatePayloadReverseReadConsumerWithRuntime(fixture.compiled, input, makeNative);
+        return yield* consumer.pipe(Effect.tap(selected => Effect.sync(() => { profiles = [...readProfiles, profileFactory(selected.profileRevision)]; })));
+      }),
       bindServing: (policyId, bound) => Effect.suspend(() => {
         if (current === undefined || currentHandle === undefined) return Effect.die(new Error("Missing genuine serving entry"));
         const root = current;

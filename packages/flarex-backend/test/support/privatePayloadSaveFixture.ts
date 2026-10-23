@@ -84,6 +84,7 @@ export interface PrivatePayloadSaveFixture {
   readonly session: RelationalSession;
   readonly productRuntime: Effect.Success<ReturnType<typeof makeLocalProductCommands>>;
   readonly productHost: Effect.Success<ReturnType<typeof makeCommerceHost>>;
+  readonly productHostInput: Parameters<typeof makeCommerceHost>[0];
   readonly preferences: Awaited<ReturnType<typeof installPayloadPreferenceFixture>>;
   readonly schemaBinding: PrivateSaveSchemaBinding;
   readonly prepareSchemaBinding: (schemaVersionId: CatalogSchemaVersionId) => Promise<PrivateSaveSchemaBinding>;
@@ -99,10 +100,11 @@ export const privateSaveCollections = [{ slug: "posts", fields: [
 export async function privatePayloadSaveFixture(resources: Readonly<{
   persistence: PGliteFlarexPersistence | PostgresFlarexPersistence; session: RelationalSession; control?: PGliteFlarexPersistence;
   payloadMethods?: readonly string[];
+  auth?: Parameters<typeof privatePermissionFixture>[3];
 }>): Promise<PrivatePayloadSaveFixture> {
   const payloadMethods = resources.payloadMethods ?? ["payload-create", "payload-update", "payload-delete"];
   const compiled = await Effect.runPromise(compilePayloadCollections(privateSaveCollections));
-  const fixture = await privatePermissionFixture(resources.persistence, compiled, resources.control);
+  const fixture = await privatePermissionFixture(resources.persistence, compiled, resources.control, resources.auth);
   const scope = await Effect.runPromise(Scope.make());
   try {
     const { application } = fixture;
@@ -188,14 +190,15 @@ export async function privatePayloadSaveFixture(resources: Readonly<{
     const productRuntime = await Effect.runPromise(makeLocalProductCommands());
     const initialization = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows: [] },
       1_048_576, { invalidInput: () => new Error("Invalid Product setup dataset"), hashFailure: cause => new Error("Product setup hash", { cause }) }));
-    const productHost = await Effect.runPromise(makeCommerceHost({ hostRuntime: preparedHostTestRuntime(resources.persistence.drizzle),
+    const productHostInput = { hostRuntime: preparedHostTestRuntime(resources.persistence.drizzle),
       database: resources.persistence.drizzle, session: resources.session, target, deploymentId, scopeId: authority.scopeId,
       authority: authorityPorts, application: application.relationActivation, identityAndAccessPolicy: { profile: "private-save-product-setup" },
       logicalStorage: { ports, unique: application.servingOwners.uniqueConstraintEligibility, schemaVersionId: location.schemaVersionId,
         source: { sourceKey: productSource.key, writeProfile: productSource.writeProfile, schema: productSource.definition.schema, evidence: productSource.evidence },
         initialization: { stepId: "private-save-product-empty", datasetSha256: initialization.sha256Hex, expectedRowCount: 0 } },
       commands: [productRuntime.commands.internalProductCreate, productRuntime.commands.internalProductRetrieve, productRuntime.commands.internalProductUpdate,
-        productRuntime.commands.internalProductSoftDelete, productRuntime.commands.internalProductRestore] }));
+        productRuntime.commands.internalProductSoftDelete, productRuntime.commands.internalProductRestore] } satisfies Parameters<typeof makeCommerceHost>[0];
+    const productHost = await Effect.runPromise(makeCommerceHost(productHostInput));
     await Effect.runPromise(Scope.addFinalizer(scope, productHost.close));
     await Effect.runPromise(productHost.initialize([]));
     const construction = retainPreparedHost(preparedHostTestRuntime(resources.persistence.drizzle),
@@ -249,7 +252,7 @@ export async function privatePayloadSaveFixture(resources: Readonly<{
       return result;
     };
     return { fixture, compiled, candidate, authored, admit, target, open, withPreparation, withFreshPreparation,
-      session: resources.session, productHost, productRuntime, preferences,
+      session: resources.session, productHost, productHostInput, productRuntime, preferences,
       schemaBinding, prepareSchemaBinding,
       close: async () => { try { await Effect.runPromise(Scope.close(scope, Exit.void)); } finally { await fixture.close(); } } };
   } catch (cause) {

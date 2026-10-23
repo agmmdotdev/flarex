@@ -1,11 +1,12 @@
 import { Cause, Effect, Exit, Schema } from "effect";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
-import type { PrivatePayloadSaveConsumer } from "../../src/privatePayloadSaveConsumer";
+import type { PointMutationOccBoundJournalV1 } from "../../../executor/src/mutation/authentication/storedAttemptAuthentication";
 import { makePointMutationJournalRpcSessionV1 } from "../../../executor/src/mutation/journal/pointMutationJournalRpc";
 import { ApplicationPointMutationRunnerHostV1Error,
   type PointMutationOccRuntimeNeutralRunnerInputV1 } from "../../../executor/src/mutation/authentication/storedAttemptAuthentication";
 import { runMixedMutationWorkerd } from "./mixedMutationWorkerdAdapter";
 import { successfulValue } from "./payloadCommerceReferenceFixture";
+import { projectApplicationAuth } from "../../src/artifactRuntime/ApplicationPointMutationRunner";
 
 const decodeMessage = Schema.decodeUnknownSync(Schema.Union([
   Schema.Struct({ kind: Schema.Literal("point"), tableName: Schema.String,
@@ -14,9 +15,9 @@ const decodeMessage = Schema.decodeUnknownSync(Schema.Union([
 ]));
 
 /** Transport only: actual RPC owns decoding, failure latching and drain.
- * Application modules see neither the confirmed root nor the save capability. */
-export const runPrivatePayloadSaveWorkerd = Effect.fn("PrivatePayloadSaveFixture.workerd")(function* (
-  input: PointMutationOccRuntimeNeutralRunnerInputV1, consumer: PrivatePayloadSaveConsumer,
+ * Application modules see neither the confirmed root nor native read/write capabilities. */
+export const runPrivateMixedWorkerd = Effect.fn("PrivateMixedFixture.workerd")(function* (
+  input: PointMutationOccRuntimeNeutralRunnerInputV1, consumer: Readonly<{ journal: PointMutationOccBoundJournalV1; initialSyscallSequence: bigint }>,
   source: string, onResponse: (response: unknown) => void,
   observations: Readonly<{ onReceipt?: () => void; afterReceipt?: () => Promise<void>; onDisposed?: () => void }> = {},
 ) {
@@ -30,7 +31,7 @@ export const runPrivatePayloadSaveWorkerd = Effect.fn("PrivatePayloadSaveFixture
       sourcePackageHash: "a".repeat(64), executionModule: target.executionModulePath },
     function: { path: target.function.path, executionModule: target.executionModulePath, kind: target.function.kind,
       visibility: target.function.visibility, argsValidator: target.function.args, returnsValidator: target.function.returns },
-    auth: { kind: "anonymous" }, arguments: input.argumentsJson, argumentArraySemanticBytes: input.argumentArraySemanticBytes,
+    auth: projectApplicationAuth(input.verifiedGrant.evidence.payload.auth), arguments: input.argumentsJson, argumentArraySemanticBytes: input.argumentArraySemanticBytes,
     tables: input.stableBindings.map(binding => ({ tableId: binding.tableId, logicalName: binding.logicalName })),
     context: { executionId: input.context.executionId, logScopeId: input.context.logScopeId,
       randomSeed: [...input.context.randomSeed], executionTime: input.context.executionTime,

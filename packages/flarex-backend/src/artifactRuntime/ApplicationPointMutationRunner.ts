@@ -193,7 +193,7 @@ const projectApplicationMutationRequest = Effect.fn(
   ));
 });
 
-function projectApplicationAuth(
+export function projectApplicationAuth(
   auth: TransactionGrantInertAuthV1,
 ): ApplicationWorkerAuthV1 | TransactionGrantInertAuthV1 {
   switch (auth.kind) {

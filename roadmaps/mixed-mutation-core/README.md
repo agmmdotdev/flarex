@@ -58,15 +58,16 @@ authorization and production dispatch remain gated. No public API syntax is sele
 
 The [private reference schema/binding lifecycle preflight](../shared-logical-storage/reference-schema-binding-lifecycle-preflight.md)
 completes LB1-LB4 for the selected admission, fresh/stale entry, activation/save
-ordering and committed-recovery profile. The next bounded foundation is the
+ordering and committed-recovery profile. The
 [private authorized reverse-read preflight](../shared-logical-storage/reference-reverse-read-preflight.md).
 RR1 implements protected read evidence and a backend-only complete indexed
 membership probe through genuine source admission, finite capture and final
 validation. RR2 adds private authorized finite pages with native Product/Payload
 visibility, pending membership, attempt-local cursors and atomic capacity
 refusal. RR3 adds selected concurrent freshness, genuine whole-root replacement
-and committed-consumption recovery without native re-execution. RR4 private
-serving cutover remains pending. Advanced evolution
+and committed-consumption recovery without native re-execution. RR4 connects
+the selected protected consumer and recovery producer to private Worker/RPC
+serving, retaining separate-profile consumers and conformance obligations. Advanced evolution
 and public APIs remain separate.
 
 Status: the Application, Product, selected Payload Local API, and finite

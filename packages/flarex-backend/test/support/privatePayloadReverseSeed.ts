@@ -8,9 +8,9 @@ import type { PrivatePayloadSaveFixture } from "./privatePayloadSaveFixture";
 const productResult = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String }));
 const articleResult = Schema.decodeUnknownSync(Schema.Struct({ id: AppDocumentIdV1Schema }));
 
-export async function privatePayloadReverseSeed(fixture: PrivatePayloadSaveFixture, name: string, size = 3) {
+export async function privatePayloadReverseSeed(fixture: PrivatePayloadSaveFixture, name: string, size = 3, productId?: string) {
   const product = productResult(await Effect.runPromise(fixture.productHost.run(fixture.productHost.newRequestKey(),
-    fixture.productRuntime.commands.internalProductCreate, { title: name, handle: name })));
+    fixture.productRuntime.commands.internalProductCreate, { title: name, handle: name, ...(productId === undefined ? {} : { id: productId }) })));
   const savePolicy = await preparePrivateSavePolicy(fixture, { source: { create: true, update: true, delete: true }, assign: [product.id], retain: [product.id] });
   await savePolicy.root.publish();
   const root = await fixture.open(), save = await bindPrivatePayloadSave(fixture, root, savePolicy.documentId);

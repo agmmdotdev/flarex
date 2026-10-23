@@ -22,6 +22,7 @@ import {
   TransactionGrantKeyIdV1Schema,
   TransactionGrantTimestampV1Schema,
   canonicalizeTransactionGrantIdentityAccessPolicyV1,
+  type TransactionGrantInertAuthV1,
   transactionGrantIdentityAccessPolicySha256BytesV1FromHex,
 } from "flarex-protocol/transaction-grant";
 import {
@@ -57,6 +58,7 @@ export async function applicationMutationActivationFixture(input: Readonly<{
   requestKey: string;
   grantId: string;
   validatedArgsJson?: Readonly<{ body: string }>;
+  auth?: TransactionGrantInertAuthV1;
   grantLifetimeMilliseconds?: number;
   authorizationRevocationEpoch?: TransactionAuthorizationRevocationEpoch;
 }>): Promise<PreparedApplicationMutationSessionActivationV1 & Readonly<{
@@ -72,6 +74,7 @@ export async function applicationMutationActivationEvidenceFixture(input: Readon
   requestKey: string;
   grantId: string;
   validatedArgsJson?: Readonly<{ body: string }>;
+  auth?: TransactionGrantInertAuthV1;
   grantLifetimeMilliseconds?: number;
   authorizationRevocationEpoch?: TransactionAuthorizationRevocationEpoch;
 }>, runPreparedEffect: typeof runEffect = runEffect): Promise<Omit<PreparedApplicationMutationSessionActivationV1, "activeSelection"> & Readonly<{
@@ -83,7 +86,7 @@ export async function applicationMutationActivationEvidenceFixture(input: Readon
     throw new RangeError("Grant fixture lifetime must be between one millisecond and five minutes");
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(input.deploymentId);
   const policyVersion = TransactionPolicyVersionV1Schema.make("policy_point_mutation_v1");
-  const policy = await canonicalizeTransactionGrantIdentityAccessPolicyV1({ policyVersion, auth: { kind: "anonymous" },
+  const policy = await canonicalizeTransactionGrantIdentityAccessPolicyV1({ policyVersion, auth: input.auth ?? { kind: "anonymous" },
     capabilities: ["db:get", "db:insert", "db:patch", "db:replace", "db:delete"] });
   const validatedArgsJson = Object.freeze(input.validatedArgsJson ?? { body: "hello" });
   const args = await canonicalizeFlarexValueJsonV1(validatedArgsJson);

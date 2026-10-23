@@ -1,12 +1,12 @@
 import { Effect, Result } from "effect";
 import { expect } from "vitest";
-import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
-import { ApplicationPointMutationRunnerHostV1Error, type PointMutationOccRuntimeNeutralRunnerV1 } from "../../../executor/src/mutation/authentication/storedAttemptAuthentication";
 import { dataBindingActivationRequest } from "../../../persistence-postgres/src/installation/frameworkSchema/binding/host";
 import { readAdmittedDataBinding } from "../../../persistence-postgres/src/installation/frameworkSchema/binding/selection";
-import { preparePrivateReverseReadCommands, preparePrivateReverseReadPolicy, preparePrivateReverseReadProfile } from "./privatePayloadReverseReadCommands";
+import { preparePrivateReverseReadPolicy, preparePrivateReverseReadProfile } from "./privatePayloadReverseReadCommands";
 import { privatePayloadReverseSeed } from "./privatePayloadReverseSeed";
-import { makePrivateSaveExecution, type PrivateSaveExecution } from "./privatePayloadSaveExecution";
+import type { PrivateSaveExecution } from "./privatePayloadSaveExecution";
+import { runPrivatePayloadReverseServing } from "./privatePayloadReverseServing";
+import { makePayloadReferencePages } from "../../../payload-adapter/src/runtime/referencePages";
 import type { PrivateBindingRecoveryConfiguration, PrivateBindingRecoveryOwners } from "./privatePayloadBindingRecoveryOwners";
 import type { PrivateBindingCommitLossTarget } from "./privatePayloadBindingCommitLoss";
 import type { PrivatePayloadSaveFixture } from "./privatePayloadSaveFixture";
@@ -29,33 +29,20 @@ export async function privatePayloadReverseRestartScenario(fixture: PrivatePaylo
   const profile = await Effect.runPromise(preparePrivateReverseReadProfile(fixture, seed.principal, seed.productId));
   let execution: PrivateSaveExecution | undefined;
   let hooks = 0, enumerations = 0;
-  const run: PointMutationOccRuntimeNeutralRunnerV1["run"] = Effect.fn("PrivateReverseReadRestart.nativeWork")(function* () {
-    if (execution === undefined) return yield* Effect.die(new Error("Missing genuine execution owner"));
-    const active = execution, root = active.currentRoot();
-    const commands = yield* preparePrivateReverseReadCommands(fixture, root, profile, seed.policyId, {
-      instrumentation: { hooks: { afterRead: [({ doc }) => { hooks++; return doc; }] },
-        documentReads: { afterReferencePage: () => { enumerations++; } } },
-    });
-    yield* commands.retrieve();
-    const bound = yield* commands.bind();
-    return yield* Effect.gen(function* () {
-      active.selectReadProfile(bound.selection.profileRevision);
-      const page = yield* bound.invoke({ limit: 1 });
-      if (page.kind !== "completed") return yield* Effect.die(new Error("Native page refused"));
-      const users = yield* fixture.fixture.store.resolvePointTableEffect(root.attempt, "users");
-      const user = yield* fixture.fixture.store.runPointOperationEffect(users, { kind: "insert", syscallSequence: CommitSyscallSequenceV1Schema.make(4n),
-        fields: { name: JSON.stringify(page.result) } }, root.validator);
-      if (user.kind !== "completed" || user.outcome.kind !== "inserted") return yield* Effect.die(new Error("Application consumption refused"));
-      return { userId: user.outcome.documentId, page: page.result };
-    }).pipe(Effect.ensuring(bound.closeEffect));
-  }, Effect.mapError(cause => new ApplicationPointMutationRunnerHostV1Error({ reason: "terminalFailed", cause })));
   let settled: Effect.Success<ReturnType<PrivateSaveExecution["owner"]["executePreparedFiniteAttempt"]>> | undefined;
   const publish = async () => {
-    settled = await Effect.runPromise(profile.withPreparation(preparation => Effect.gen(function* () {
-      const owned = yield* makePrivateSaveExecution(fixture, preparation, { run }, undefined, undefined, profile.withPreparation);
-      execution = owned;
-      return yield* owned.owner.executePreparedFiniteAttempt(owned.prepared);
-    })));
+    const served = await Effect.runPromise(runPrivatePayloadReverseServing(fixture, profile, seed.policyId,
+      'const page = await ctx.privateMixed.call("payload", "private-reference-page", { limit: 1 });' +
+      'const userId = await ctx.db.insert("users", { name: JSON.stringify(page) }); return { userId, page };', {
+        makeNative: Effect.fn("PrivateReverseReadRestart.native")(function* (compiled, attempt, access) {
+          return yield* makePayloadReferencePages(compiled, attempt, access, {
+            hooks: { afterRead: [({ doc }) => { hooks++; return doc; }] },
+            documentReads: { afterReferencePage: () => { enumerations++; } },
+          });
+        }),
+      }));
+    execution = served.execution;
+    settled = Result.getOrThrow(served.result);
   };
   const withdraw = async () => {
     const durable = await observer.snapshot();

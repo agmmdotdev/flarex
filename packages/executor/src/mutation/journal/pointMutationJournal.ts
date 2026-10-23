@@ -45,6 +45,9 @@ import {
   SessionJournalTargetUnavailableV1Error,
   inspectPrivateReferenceSaveAccess,
   type PrivateReferenceSaveAccess,
+  inspectPrivateReverseReadAccess,
+  PRIVATE_REFERENCE_PAGE,
+  type PrivateReverseReadAccess,
 } from "@flarex/persistence-postgres/internal/session-journal";
 import {
   type RecoveredRunningRelationConflictEvidence,
@@ -159,6 +162,12 @@ export interface PointMutationJournalAdmittedOperationInputV1 {
   readonly requestSha256: Uint8Array;
 }
 
+interface BoundPrivateParticipant {
+  readonly profileRevision: string;
+  readonly runAdmittedOperation: (input: PointMutationJournalAdmittedOperationInputV1) =>
+    Effect.Effect<Json, PointMutationJournalBoundaryV1Error>;
+}
+
 export type PointMutationJournalBoundaryV1Error =
   | InvalidPointMutationJournalCapabilityV1Error
   | InvalidPointMutationExecutionClaimV1Error
@@ -192,8 +201,12 @@ export interface PointMutationJournalV1 {
   /** Trusted finite composition only. The opaque save access never enters RPC. */
   readonly bindPrivateReferenceSave?: (attempt: PointMutationJournalAttemptV1, participant: string,
     access: PrivateReferenceSaveAccess, borrow: AdmittedOperationInvoke) => Effect.Effect<
-      Readonly<{ profileRevision: string; runAdmittedOperation: (input: PointMutationJournalAdmittedOperationInputV1) =>
-        Effect.Effect<Json, PointMutationJournalBoundaryV1Error> }>,
+      BoundPrivateParticipant,
+      PointMutationJournalBoundaryV1Error>;
+  /** Trusted finite composition only. Read evidence and cursors remain root-bound. */
+  readonly bindPrivateReverseReferenceRead?: (attempt: PointMutationJournalAttemptV1, participant: string,
+    access: PrivateReverseReadAccess, borrow: AdmittedOperationInvoke) => Effect.Effect<
+      BoundPrivateParticipant,
       PointMutationJournalBoundaryV1Error>;
   readonly inspectFiniteExecutionEntry?: (capture: ConfirmedFiniteRootEntryCapture, preparation: PreparedFiniteSessionJournalEntry) =>
     Result.Result<Result.Result.Success<ReturnType<SessionJournalStorePersistence["confirmedFiniteEntryAttempt"]>>, PointMutationJournalBoundaryV1Error>;
@@ -645,6 +658,25 @@ export function createPointMutationJournalV1(
         }) });
     });
 
+  const bindPrivateReverseReferenceRead: NonNullable<PointMutationJournalV1["bindPrivateReverseReferenceRead"]> =
+    Effect.fn("PointMutationJournal.bindPrivateReverseReferenceRead")(function* (attempt, participant, access, borrow) {
+      const state = yield* Effect.try({ try: () => requireAttempt(attempt), catch: mapPersistenceFailure });
+      const grant = inspectPrivateReverseReadAccess(access, state.persistenceAttempt);
+      const selected = state.participants.get(participant);
+      if (executionProfile !== "finiteRoot" || grant === undefined || selected === undefined ||
+        grant.participant !== participant || grant.method !== PRIVATE_REFERENCE_PAGE ||
+        grant.nativeProfileRevision !== selected.admission.profileRevision ||
+        !selected.admission.operationMethods.includes(grant.method))
+        return yield* Effect.fail(new PointMutationJournalParticipantSelectionV1Error({ participant }));
+      return Object.freeze({ profileRevision: grant.profileRevision,
+        runAdmittedOperation: Effect.fn("PointMutationJournal.runPrivateReverseReferenceRead")(function* (input) {
+          yield* requireLiveExecution(state);
+          if (input.operation.participant !== participant || input.operation.operation !== grant.method)
+            return yield* Effect.fail(new PointMutationJournalParticipantSelectionV1Error({ participant: input.operation.participant }));
+          return yield* invokeSelected(state, grant.admission, grant.profileRevision, borrow, input);
+        }) });
+    });
+
   const resolvePointTable: PointMutationJournalV1["resolvePointTable"] =
     Effect.fn("PointMutationJournal.resolvePointTable")(
       function* (attempt, tableName) {
@@ -929,7 +961,7 @@ export function createPointMutationJournalV1(
 
   const journal = Object.freeze({
     openAttempt,
-    ...(executionProfile === "finiteRoot" ? { prepareInitialFiniteEntry, prepareFiniteEntry, openConfirmedFiniteEntry, inspectFiniteExecutionEntry, freezeFiniteAttempt, bindPrivateReferenceSave } : {}),
+    ...(executionProfile === "finiteRoot" ? { prepareInitialFiniteEntry, prepareFiniteEntry, openConfirmedFiniteEntry, inspectFiniteExecutionEntry, freezeFiniteAttempt, bindPrivateReferenceSave, bindPrivateReverseReferenceRead } : {}),
     ...(selectedParticipants.size === 0 ? {} : { runAdmittedOperation }),
     resolvePointTable,
     runPointOperation,

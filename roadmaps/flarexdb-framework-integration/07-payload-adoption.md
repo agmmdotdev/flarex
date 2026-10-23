@@ -83,17 +83,19 @@ are not claimed.
 This does not enable populated-data conversion,
 write-owner transfer, Medusa changes or public API syntax.
 
-The next bounded backend slice is specified by the
+The selected private reverse-read profile is specified by the
 [private authorized reverse-read preflight](../shared-logical-storage/reference-reverse-read-preflight.md).
 RR1 implements protected read evidence and shared admission with a backend-only
 complete indexed-membership probe. RR2 adds private finite pages with native
 Product/Payload visibility, pending membership and attempt-local continuation.
 RR3 adds selected concurrent publication ordering, whole-root replacement,
 bounded cancellation and committed-consumption recovery without re-enumeration.
-RR4 private serving cutover remains pending.
+RR4 connects protected preflight, native Product/Payload reads and exact page
+admission to private Worker/RPC consumption and committed recovery. Two genuine
+scopes and distinct signed principals remain confined even with equal Product keys.
 Existing point-ID grants and save permissions do
 not authorize reverse discovery; native Payload joins retain their separate
-profile. Worker/hosted reverse-page serving and public syntax remain disabled.
+profile. Public/hosted reverse-page entry points and public syntax remain disabled.
 
 The [early cross-framework proof](../shared-logical-storage/README.md#early-cross-framework-proof)
 is a required shared-storage integration gate: use real Payload Local API calls

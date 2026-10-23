@@ -3,7 +3,7 @@ import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import { ApplicationPointMutationRunnerHostV1Error,
   type PointMutationOccRuntimeNeutralRunnerV1 } from "../../../executor/src/mutation/authentication/storedAttemptAuthentication";
 import { makePrivateSaveExecution, type PrivateSaveExecution } from "./privatePayloadSaveExecution";
-import { runPrivatePayloadSaveWorkerd } from "./privatePayloadSaveWorkerd";
+import { runPrivateMixedWorkerd } from "./privateMixedWorkerd";
 import type { PrivatePayloadSaveFixture, PrivateSavePreparationFailure } from "./privatePayloadSaveFixture";
 
 const source = (body: string) => `export default { functions: { write: { isMutation: true, isPublic: true,
@@ -14,7 +14,7 @@ type Hooks = Readonly<{
   beforeWorker?: () => Promise<void>;
   afterWorker?: () => Promise<void>;
   beforePublication?: Parameters<typeof makePrivateSaveExecution>[4];
-  observations?: Parameters<typeof runPrivatePayloadSaveWorkerd>[4];
+  observations?: Parameters<typeof runPrivateMixedWorkerd>[4];
   onResponse?: (value: unknown) => void;
   onNative?: (method: string) => void;
 }>;
@@ -41,7 +41,7 @@ export const runPrivatePayloadSaveServing: (
       return yield* Effect.scoped(Effect.gen(function* () {
         const consumer = yield* active.bindServing(policyId, input.journal);
         yield* callback(hooks.beforeWorker);
-        const value = yield* runPrivatePayloadSaveWorkerd(input, consumer, source(body), hooks.onResponse ?? (() => {}), hooks.observations);
+        const value = yield* runPrivateMixedWorkerd(input, consumer, source(body), hooks.onResponse ?? (() => {}), hooks.observations);
         yield* callback(hooks.afterWorker);
         return value;
       }));

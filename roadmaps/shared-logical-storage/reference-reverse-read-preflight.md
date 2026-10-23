@@ -2,12 +2,12 @@
 
 ## Status And Scope
 
-Status: RR1-RR3 are implemented for protected read evidence, complete bounded
-indexed-membership feasibility, private authorized finite pages and selected
-concurrent freshness/recovery. RR4 private serving cutover remains pending. The private RR1 probe
+Status: RR1-RR4 are implemented for protected read evidence, complete bounded
+indexed-membership feasibility, private authorized finite pages, selected
+concurrent freshness/recovery and private Worker/RPC consumption. The private RR1 probe
 returns no article, identity, count or cursor, and has no Worker/public entry
-point. Reverse pages have backend construction only; Worker/public serving,
-production capacity and workload-specific plan claims remain
+point. Selected reverse pages have private Worker/RPC construction; public and
+hosted entry points, production capacity and workload-specific plan claims remain
 outside this implemented inventory.
 
 The selected outcome is an authorized, bounded enumeration of Payload articles
@@ -54,6 +54,11 @@ session's Medusa implementation and promotion/workflow roadmaps are untouched.
   and [committed recovery](../../packages/flarex-backend/test/privatePayloadReverseRestart.test.ts)
   connect native pages and Application consumption to existing publication,
   whole-root replacement and durable outcome owners.
+- [Private serving consumer](../../packages/flarex-backend/src/privatePayloadReverseReadConsumer.ts),
+  [journal binding](../../packages/executor/src/mutation/journal/pointMutationJournal.ts),
+  [Worker/RPC scenarios](../../packages/flarex-backend/test/privatePayloadReverseServing.workerd.test.ts)
+  and [two-scope scenarios](../../packages/flarex-backend/test/privatePayloadReverseScopes.workerd.test.ts)
+  own the selected serving cutover. They add no public operation or hosted route.
 - [Reference selection](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts),
   [activation projection](../../packages/persistence-postgres/src/installation/frameworkSchema/binding/strongReferenceProjection.ts)
   and [publication validation](../../packages/persistence-postgres/src/commit/publication/strongReferenceValidation.ts)
@@ -171,7 +176,8 @@ supply user/context/overrideAccess or a more permissive runtime.
 Filtering and failure are different operations. A candidate hidden by the closed
 policy is omitted by trusted selection. An admitted native read that fails must
 still poison the root; do not catch its rejection and continue with a partial
-successful page. Denied source identities and documents are never serialized.
+successful page. Denied source identities and documents are never serialized
+in page outputs.
 Read hooks that change projected fields do not become reference authority;
 membership comes from the checked effective stored source transition.
 
@@ -292,7 +298,7 @@ rollback. The explicit-ID policy cannot authorize an unknown future generated
 article identity: the pending-create scenario verifies its real membership is
 examined and remains hidden, using a trusted query observer rather than an
 output-only empty assertion. RR3 extends these bounded cross-driver semantics;
-Worker serving remains RR4.
+RR4 connects the selected private Worker consumer below.
 
 RR3 connects the existing page path to real Application writes and finite
 executor replacement. Ordinary-role PostgreSQL observes distinct backend PIDs
@@ -328,6 +334,54 @@ duplicate rows/facts/outcomes. PGlite covers reconstruction semantics only;
 database/control-plane crash recovery remains outside this inventory. RR3 uses
 the existing owners without a second validation, retry or recovery algorithm.
 
+RR4's normal backend consumer reads the protected policy and completes the
+issuer-authorized native Product retrieval in the same pristine finite root
+before constructing Payload or entering the Worker. The journal authenticates
+the issued reverse-read capability against this exact attempt, participant,
+native revision and page method. Trusted preparation consumes the first two
+operation sequences; the Worker receives the ordinary Application facade and
+the selected page method with its continuation cursor. Issued policy evidence,
+the read grant, native target invocation, raw root, admission and finalizer never
+enter RPC. Framework operation requests cannot select another target/collection,
+native access context, mutation, native point-read, broad find/count or
+feasibility probe through that facade.
+
+The page policy does not revoke independently admitted Application reads.
+Application-declared tables, including Payload overlays and the command-owned
+permission table, retain ordinary tracked reads through `ctx.db`. A known row
+ID can therefore be read under that separate authority; command-only ownership
+protects permission writes, not the secrecy of stored policy data. This profile
+proves restricted native page discovery and hydration, not sandbox-wide row
+secrecy or a general Application read-authorization policy.
+
+Actual Worker/RPC scenarios consume visible pages into Application writes,
+return deterministic continuations, and exercise hidden-only results, forged
+input, caught refusal, native lookahead defect, target soft-delete/restore,
+policy conflict/replacement, late binding withdrawal and Worker interruption.
+RPC preserves opaque failures while the trusted owner retains full Causes;
+catching a failure cannot publish partial Application work. Hiding every article
+does not weaken native Product hard-delete restriction. Two genuine scopes with
+equal Product keys and distinct signed principals return only their own native
+documents; foreign permission points/grants cannot enter Worker enumeration.
+The fixture uses the existing authenticated Application auth projection rather
+than inventing a parallel identity mapping.
+
+The committed-recovery producer now uses this same selected Worker/RPC consumer,
+including the real PostgreSQL lost-COMMIT witness. Closing the producer and
+reconstructing recovery never re-enters native hooks or page enumeration.
+The native factory belongs to the attempt Scope. Ordinary construction selects
+the real runtime with no fixture options; a source-private dependency seam
+supplies real native hooks/counters only for lifecycle witnesses. The former
+save-specific test transport is replaced by one transport shared by the save
+and reverse-read consumers. No schema/data reset or durable format changes occur.
+
+| Consumer | Disposition and retained obligation |
+| --- | --- |
+| Selected reverse serving and committed-recovery producer | Uses the normal protected consumer and real Worker/RPC transport; displaced inline producer assembly is removed |
+| RR1 complete-membership probe | Retained as a no-disclosure, complete bounded membership/final-validation witness; it is refused by serving and is not a page fallback |
+| RR2/RR3 source-private conformance assembly | Retained for direct issuer, cursor, pending membership, exact frontier and pre-ack failure proofs that require inspecting genuine owner evidence; it is not an alternative serving path |
+| Fixed point-read, native standalone/Payload-to-Payload joins, protected save and lifecycle consumers | Retain their existing distinct grants, native profiles, integrity/delete and preference obligations; no compatibility removal is authorized |
+
 Existing point-read, save-authorization, integrity/delete, preference-cleanup and
 LB1-LB4 proofs retain their exact scopes. Payload-to-Payload bounded joins remain
 a separate implemented profile. No public or hosted capability is enabled.
@@ -344,11 +398,12 @@ Later support must have its own admission and lifecycle evidence.
 | RR1: protected read evidence and shared admission feasibility | Implemented for the separate protected record and backend-only complete-membership probe above. Genuine command writes, positive/missing reads, issuer/principal/attempt/source selection, empty/nonempty indexed capture and native pending creation reach real final validation. Sequential late reference/policy commits refuse stale publication. Paged visibility, Product native access and actual overlap remain later gates; no new shared index/settlement algorithm was required |
 | RR2: authorized finite reverse pages | Implemented for the selected private profile above: protected policy, separate native Product grant/receipt, authorized native Payload hydration, visible lookahead, deterministic attempt-local continuation, pending membership, exact examined dependencies and atomic capacity refusal. No broad borrowed find/count admission, Worker/public operation or raw scanner exposure |
 | RR3: concurrent freshness and recovery | Implemented for the selected private page/Application-consumption profile above: both observed PostgreSQL publication orders, exact prefix/negative dependencies, genuine whole-root replacement, caught native failure, bounded pre-ack cancellation/drain, receipt/outcome replay and real lost-COMMIT resolution after permission/binding withdrawal. Closed-producer reconstruction uses durable configuration/selector only and does not re-enumerate. PGlite proves serial/reconstruction semantics, not overlap or acknowledgement loss |
-| RR4: selected private serving cutover and cleanup | Connect the real Worker/RPC consumer to normal protected read construction. Keep denied/foreign/forged input opaque, native failure poisoning and current source identity intact. Migrate only the selected consumer and remove displaced assembly after parity. Reconcile supported/refused profiles and retain named fixed point-read, standalone join, save and lifecycle consumers. Public and hosted entry points remain disabled |
+| RR4: selected private serving cutover and cleanup | Implemented for the selected protected consumer and real Worker/RPC path above. Trusted native target preflight and exact journal binding restrict framework operations to authorized pages while retaining separately admitted Application reads; opaque refusal, native defect, target visibility, fresh retry, binding withdrawal, cancellation and cross-scope/principal confinement reach real owners. The committed-recovery producer is migrated and the test transport is shared with saves. Named conformance and separate-profile consumers retain the obligations above. Public and hosted entry points remain disabled |
 
-The next implementation is RR4's selected private Worker/RPC consumer and
-cleanup. Preserve RR1-RR3's authority, complete-membership, native-page,
-freshness and recovery witnesses. Public API design remains separate.
+The selected RR1-RR4 profile is complete. Preserve its authority,
+complete-membership, native-page, serving, freshness and recovery witnesses.
+Broader query serving, principal policies, framework profiles and public API
+design remain separate work; this inventory does not close the wider CXR2 gate.
 
 ## Validation, Cutover And Cleanup
 
