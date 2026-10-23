@@ -877,12 +877,12 @@
     {
       "target": "packages/medusa-adapter/src/schema/lower.ts",
       "classification": "authored",
-      "targetSha256": "c08be0e276c8ba90e20b214e084e46995d35adeab03e178a5a3b35dee3ba9a54"
+      "targetSha256": "060d4fe94a817b5b7c365109097eaf68e3b59b1b249f3c092eb0d7abfb269d41"
     },
     {
       "target": "packages/medusa-adapter/src/schema/model.ts",
       "classification": "authored",
-      "targetSha256": "33018d4ca09596fd71a6882c67e49dc1d5b0d3c7596417cb3f3acd8b4e65d997"
+      "targetSha256": "ef672465c1eefd94fe85a0065de1326a9aa3674ad75472edda0f498c9dfafb8e"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/runtime.ts",
@@ -13594,7 +13594,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/order/schema.ts",
       "classification": "authored",
-      "targetSha256": "2b70deb4f661ada90ab9bc5e0ef6bc18dfcb22ea10e1db72ef693004a96965a4"
+      "targetSha256": "fa43e2624674da55270cb6c23cc5ded98c7bc6f344cdfd37ad9633ed19556210"
     },
     {
       "target": "packages/medusa-adapter/src/modules/order/service.ts",
@@ -14512,7 +14512,7 @@
     {
       "target": "packages/medusa-adapter/test/support/logical-order-fixture.ts",
       "classification": "authored",
-      "targetSha256": "d77969d0c3a2477011809d75d1920de9f85edd5d2352ff3fb55566255e3b2460"
+      "targetSha256": "20db7958f17fbdc28f14ace1ae0742c9f4fe22bacfbe524215802d668fbd53b2"
     },
     {
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/order/steps/complete-orders.ts",
@@ -14581,6 +14581,21 @@
       "classification": "orderChangeUpdateFork",
       "sourceSha256": "33be1de2c06cbd2a6d64d50c6ed4ba1e279a29ef8248d08edf8222d4a27bd374",
       "targetSha256": "46270b6dd4ab9262e9a20a8e01ed1e29243681bf0874a7ac82f3df51307e29c7"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-order-serial-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "3a97d277ebb722eeae0660564d093e73a194698eca0760382e69298cee92640f"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-order-generated-serial.test.ts",
+      "classification": "authored",
+      "targetSha256": "477fc1b716e03daddbbe29da497d29c124f9536f17e8109b0376334333d950f4"
+    },
+    {
+      "target": "packages/medusa-adapter/test/order-generated-serial-contracts.test.ts",
+      "classification": "authored",
+      "targetSha256": "2f9c6d4965b9cc450130d82417c8a90d44e0c397deb9bd8c65d7e4a11590207a"
     }
   ],
   "dependencies": {

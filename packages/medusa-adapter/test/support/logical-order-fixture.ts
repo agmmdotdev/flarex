@@ -23,8 +23,9 @@ export type OrderFixtureShared = Readonly<{ resource: LogicalCurrencyFixture["re
 
 /** Shared Order model install, initialization and inventory mechanics only. */
 export async function prepareLogicalOrderFixture(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  commands: LogicalCommerceHostInput<unknown>["commands"], profile: string, rows: readonly OrderInitialRow[], shared?: OrderFixtureShared) {
-  const definition = await Effect.runPromise(compileOrderDefinition());
+  commands: LogicalCommerceHostInput<unknown>["commands"], profile: string, rows: readonly OrderInitialRow[], shared?: OrderFixtureShared,
+  serialDefaults: "preserve" | "generate" = "preserve") {
+  const definition = await Effect.runPromise(compileOrderDefinition(serialDefaults));
   const source = await Effect.runPromise(captureLogicalSchemaSource({ key: "medusa.order", owner: "medusa", writeProfile: "medusa.order",
     evidence: definition.provenance, definition: { kind: "relational", schema: definition.schema },
     bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,

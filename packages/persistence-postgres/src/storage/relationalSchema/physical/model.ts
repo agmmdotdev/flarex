@@ -119,7 +119,9 @@ export type RelationalPhysicalColumnType =
   | "jsonb"
   | "timestamp with time zone";
 
-export type RelationalPhysicalDefault = RelationalColumnDefault;
+/** Generated max-plus-one defaults belong to shared logical storage. Physical
+ * PostgreSQL sequences have different rollback and explicit-value semantics. */
+export type RelationalPhysicalDefault = Exclude<RelationalColumnDefault, { readonly kind: "serialNext" }>;
 
 export type RelationalPhysicalColumn = Readonly<{
   readonly identity: RelationalColumnIdentity;

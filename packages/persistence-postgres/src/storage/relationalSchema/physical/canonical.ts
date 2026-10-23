@@ -709,7 +709,7 @@ function lowerTable(
         name: yield* required(columnNames, columnIdentityKey(column.identity)),
         type: yield* physicalColumnType(column.type),
         nullable: column.nullable,
-        default: copyPhysicalDefault(column.default),
+        default: yield* copyPhysicalDefault(column.default),
       }));
     }
     const keys: RelationalPhysicalKey[] = [];
@@ -932,8 +932,8 @@ function lowerCapability(
             columnNames,
           ),
           matchingNullability: numeric.nullable === raw.nullable,
-          numericDefault: copyPhysicalDefault(numeric.default),
-          rawDefault: copyPhysicalDefault(raw.default),
+          numericDefault: yield* copyPhysicalDefault(numeric.default),
+          rawDefault: yield* copyPhysicalDefault(raw.default),
           residualRequirement: "exactNumericCompanionWriteBehavior",
         });
       });
@@ -1038,7 +1038,12 @@ function physicalColumnType(
 
 function copyPhysicalDefault(
   value: RelationalColumnDefault,
-): RelationalPhysicalDefault {
+): Result.Result<RelationalPhysicalDefault, RelationalPhysicalValueError> {
+  if (value.kind === "serialNext") return Result.fail(RelationalPhysicalValueError.unsupportedArtifact());
+  return Result.succeed(copySupportedPhysicalDefault(value));
+}
+
+function copySupportedPhysicalDefault(value: RelationalPhysicalDefault): RelationalPhysicalDefault {
   switch (value.kind) {
     case "none":
     case "currentTimestamp":
@@ -1295,6 +1300,8 @@ function defaultCapabilityId(
       return "relational-schema.default.textLiteral";
     case "integerLiteral":
       return "relational-schema.default.integerLiteral";
+    case "serialNext":
+      return "relational-schema.default.serialNext";
     case "doublePrecisionLiteral":
       return "relational-schema.default.doublePrecisionLiteral";
     case "exactNumericLiteral":

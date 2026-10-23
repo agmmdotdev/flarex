@@ -31,7 +31,8 @@ function columnType(column: SchemaColumn): LoweredColumn["type"] {
   }
 }
 
-function columnDefault(column: SchemaColumn): ColumnDefault {
+function columnDefault(column: SchemaColumn, serialDefaults: "preserve" | "generate"): ColumnDefault {
+  if (column.type === "serial" && serialDefaults === "generate") return { kind: "serialNext" };
   if (column.type === "array") return { kind: column.defaultValue === undefined ? "none" : "emptyJsonArray" };
   const value = column.defaultValue;
   if (value === undefined) return { kind: ["created_at", "updated_at"].includes(column.name) ? "currentTimestamp" : "none" };
@@ -49,7 +50,8 @@ function columnDefault(column: SchemaColumn): ColumnDefault {
 /** Pure lowering of already-checked DML. The module still owns source admission;
  * Flarex normalization owns relational validity and artifact authority. No
  * metadata is retained, mutated, or used to acquire a persistence capability. */
-export function lowerDmlSchema(input: readonly SchemaTable[], lineageId: string, origins: SchemaOrigins = dmlSchemaOrigins) {
+export function lowerDmlSchema(input: readonly SchemaTable[], lineageId: string, origins: SchemaOrigins = dmlSchemaOrigins,
+  serialDefaults: "preserve" | "generate" = "preserve") {
   const tables = input.map((table) => {
     const primary = table.columns.filter((column) => column.primaryKey);
     const origin = primary.length === 0 ? implicit : authored;
@@ -61,7 +63,7 @@ export function lowerDmlSchema(input: readonly SchemaTable[], lineageId: string,
       columnId: column.name,
       type: columnType(column),
       nullable: column.nullable,
-      default: columnDefault(column),
+      default: columnDefault(column, serialDefaults),
       origin: origins.column(table, column),
     }));
     const keys = [

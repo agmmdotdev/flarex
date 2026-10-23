@@ -44,11 +44,11 @@ interface NeutralLogicalFixture {
   };
 }
 
-/** Two neutral conformance consumers share only actual fixture setup and the
+/** Neutral conformance consumers share only actual fixture setup and the
  * existing production admission/build/binding owners. No framework adapter or
  * replacement storage, validation or publication implementation is involved. */
 export async function prepareNeutralLogicalFixture(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  input: Readonly<{ name: "neutral-null-implication" | "neutral-real" | "neutral-non-null"; sources: readonly LogicalSchemaSource[]; finiteCapture?: true;
+  input: Readonly<{ name: "neutral-null-implication" | "neutral-real" | "neutral-non-null" | "neutral-serial"; sources: readonly LogicalSchemaSource[]; finiteCapture?: true;
     /** Test-only row-revision arrangement. The normal owners still reconcile,
      * backfill, validate and bind every index after this callback finishes. */
     beforeIndexBuild?: (fixture: Pick<NeutralLogicalFixture, "application" | "persistence" | "schemaVersionId" | "catalog">) => Promise<void>;

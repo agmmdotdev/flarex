@@ -1228,6 +1228,7 @@ function validateColumnDefault(
     (defaultValue.kind === "booleanLiteral" && column.type === "boolean") ||
     (defaultValue.kind === "textLiteral" && column.type === "text") ||
     (defaultValue.kind === "integerLiteral" && column.type === "integer") ||
+    (defaultValue.kind === "serialNext" && column.type === "integer" && !column.nullable) ||
     (defaultValue.kind === "doublePrecisionLiteral" && column.type === "doublePrecision") ||
     (defaultValue.kind === "exactNumericLiteral" && column.type === "numeric") ||
     (defaultValue.kind === "exactNumericRawLiteral" && column.type === "jsonb") ||
@@ -1252,7 +1253,7 @@ function decodeColumnDefault(
 ): Result.Result<RelationalColumnDefault, RelationalSchemaError> {
   return Result.gen(function* () {
     const kind = yield* discriminant(input, path);
-    if (kind === "none" || kind === "currentTimestamp" || kind === "emptyJsonArray" || kind === "emptyJsonObject") {
+    if (kind === "none" || kind === "currentTimestamp" || kind === "emptyJsonArray" || kind === "emptyJsonObject" || kind === "serialNext") {
       yield* exactRecord(input, ["kind"], path);
       return Object.freeze({ kind });
     }

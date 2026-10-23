@@ -4,7 +4,7 @@ import { compileDmlSchema } from "@medusajs/drizzle/schema";
 import { capturePrivateCanonicalValue, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
 import { decodeCompiledDml } from "../../schema/compiled";
-import { lowerDmlSchema } from "../../schema/lower";
+import { dmlSchemaOrigins, lowerDmlSchema } from "../../schema/lower";
 
 /** Preserve the complete native model closure and serial identity metadata.
  * Capturing it grants no Order, Return, Claim or Exchange operation authority. */
@@ -44,8 +44,8 @@ export const orderSourceProvenance = Object.freeze({ kind: "sourceSnapshot", rep
   ]) } as const);
 
 /** Fresh installation definition; no populated Order schema upgrade. */
-export const compileOrderDefinition = Effect.fn("Order.compileDefinition")(function* () {
+export const compileOrderDefinition = Effect.fn("Order.compileDefinition")(function* (serialDefaults: "preserve" | "generate" = "preserve") {
   const metadata = yield* captureOrderMetadata();
-  const schema = yield* Effect.fromResult(normalizeRelationalSchema(lowerDmlSchema(metadata.frame.tables, "commerce.order")));
+  const schema = yield* Effect.fromResult(normalizeRelationalSchema(lowerDmlSchema(metadata.frame.tables, "commerce.order", dmlSchemaOrigins, serialDefaults)));
   return Object.freeze({ schema, provenance: orderSourceProvenance });
 });

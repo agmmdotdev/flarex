@@ -36,6 +36,10 @@ PostgreSQL; native Tax workflow admission remains separate.
 bounded private normalization and stored-verification prerequisite, validated
 through ordinary execution and finite capture on both database lanes. Its
 explicit capability gates and native Tax workflow admission remain separate.
+[Generated serial defaults](./generated-serial-defaults.md) owns the approved
+fresh-definition int32 allocation contract and its native Order consumer gate.
+Existing preservation-only schemas and populated-schema evolution retain their
+separate boundaries.
 Selected scalar and Product-tag commands now validate at the shared outer-call
 boundary, supporting repeated calls and native child workflows with one
 settlement. [Native command composition](./44-native-command-composition.md)

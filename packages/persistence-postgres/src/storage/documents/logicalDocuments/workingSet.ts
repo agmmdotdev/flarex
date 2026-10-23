@@ -2524,6 +2524,38 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
               if (policy.deletedAt === undefined || previous === null) return yield* Effect.fail(error("invalidInput"));
               supplied = { ...inputRow, [policy.deletedAt]: operation === "restore" ? null : yield* transactionTime };
             }
+            const generated = previous === null ? relationalDefinition.columns.filter(column => column.default.kind === "serialNext" &&
+              (supplied[column.identity.columnId] === undefined || supplied[column.identity.columnId] === null)) : [];
+            if (generated.length > 0) {
+              const key = policy.keyColumns[0];
+              if (key === undefined) return yield* Effect.fail(error("invalidAuthority"));
+              // Native max-plus-one includes soft-deleted rows and this root's
+              // pending inserts/updates/deletes. Reuse the complete bounded
+              // identity-index range: its existing negative interval and row
+              // dependencies protect allocation at trusted settlement.
+              supplied = yield* withAccessCandidates(tableName, logicalWhereValues({ [key]: { gte: "" } }), true, undefined,
+                serialCandidates => Effect.gen(function* () {
+                  const maxima = new Map<string, number>();
+                  for (const candidate of serialCandidates) {
+                    if (candidate.tableId !== table.tableId || candidate.current === null) continue;
+                    const native = yield* Effect.fromResult(nativeLogicalRelationalCanonicalRow(relationalMechanics, candidate.current, limits.documentBytes, error));
+                    for (const column of generated) {
+                      const name = column.identity.columnId, value = native[name];
+                      if (typeof value !== "number" || !Number.isInteger(value) || value < -2147483648 || value > 2147483647)
+                        return yield* Effect.fail(error("storedCorruption"));
+                      const maximum = maxima.get(name);
+                      if (maximum === undefined || value > maximum) maxima.set(name, value);
+                    }
+                  }
+                  const allocated = { ...supplied };
+                  for (const column of generated) {
+                    const name = column.identity.columnId, maximum = maxima.get(name), next = maximum === undefined ? 1 : maximum + 1;
+                    if (next > 2147483647) return yield* Effect.fail(error("limitExceeded"));
+                    allocated[name] = next;
+                  }
+                  return allocated;
+                }));
+            }
             // The existing upsert contract reactivates without advancing time.
             // The explicitly admitted preserving-deletion merge instead keeps
             // omitted deletion fields and selects its managed-time policy.

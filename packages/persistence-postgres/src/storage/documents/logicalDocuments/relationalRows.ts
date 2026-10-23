@@ -95,7 +95,7 @@ function compileLogicalRelationalRows<Failure>(table: RelationalTableDefinition,
       // outside its source. Complete rows are validated again after defaults.
       for (const [name, value] of Object.entries(input)) {
         const column = columnsByName.get(name);
-        if (column === undefined || !isRelationalColumnValue(column.type, column.nullable, value))
+        if (column === undefined || !(column.default.kind === "serialNext" && value === null) && !isRelationalColumnValue(column.type, column.nullable, value))
           return yield* Result.fail(error("documentInvalid"));
       }
       // Only the capture owner's exact detached immutable tree can retain this
@@ -112,6 +112,9 @@ function compileLogicalRelationalRows<Failure>(table: RelationalTableDefinition,
         const value = column.default;
         switch (value.kind) {
           case "none": if (column.nullable) row[name] = null; break;
+          // Allocation needs complete indexed membership and its dependencies;
+          // the working-set owner supplies it before row-local normalization.
+          case "serialNext": break;
           case "currentTimestamp": row[name] = timestamp; break;
           case "emptyJsonArray": row[name] = []; break;
           case "emptyJsonObject": row[name] = {}; break;

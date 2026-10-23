@@ -30,6 +30,15 @@ type PublicPhysicalExport = Extract<
 >;
 
 describe("private relational physical values", () => {
+  it("refuses logical max-plus-one serial defaults instead of substituting PostgreSQL sequences", async () => {
+    const schema = currencySchemaInput();
+    schema.tables[0]?.columns.push({ columnId: "ordinal", type: "integer", nullable: false,
+      default: { kind: "serialNext" }, origin: { kind: "synthetic", sourceId: "fixture.logical-serial" } });
+    const artifact = await runEffect(captureRelationalSchemaArtifact({ deploymentId: "deployment-a", schema,
+      provenance: { kind: "synthetic", fixtureId: "serial-default-physical-refusal" } }));
+    expect(await runEffectFailure(captureRelationalPhysicalLayout({ artifact: artifact.artifact,
+      physicalLocator: FRAMEWORK_VALUE_LOCATOR, targetNamespace: await frameworkTargetNamespace() }))).toMatchObject({ reason: "unsupportedArtifact" });
+  });
   it("round-trips a named JSON object default and rejects recomputed malformed physical defaults", async () => {
     const schema = currencySchemaInput();
     schema.tables[0]?.columns.push({ columnId: "data", type: "jsonb", nullable: false,
