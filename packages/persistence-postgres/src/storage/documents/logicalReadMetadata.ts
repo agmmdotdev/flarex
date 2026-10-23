@@ -6,7 +6,7 @@ import { CatalogTableIdSchema, CatalogIndexIdSchema, CatalogIndexDefinitionIdSch
 import { encodeCanonicalJson, isJson, isJsonObject, type JsonObject } from "flarex-protocol/json";
 import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
 import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
-import { AppIndexAllNullPredicateV1Schema } from "flarex-protocol/ordered-index";
+import { AppIndexAllNullPredicateV1Schema, AppIndexNullAndNotNullPredicateV1Schema } from "flarex-protocol/ordered-index";
 import { decodeRelationalSchemaMetadata, relationalSchemaSourceFromDefinition, relationalReverseIndexes, type RelationalSchema,
   type RelationalPersistenceCapability, type RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
 import { CatalogSchemaVersionIdSchema, SchemaManifestAppTableDeclarationV1Schema,
@@ -22,7 +22,7 @@ import { captureHostPreparationLifetime } from "../../execution/preparation/prep
 import { locateAppIndexDefinitionByIdEffect, type AppIndexDefinitionRecord } from "../indexes/appIndexDefinitions";
 import { locateAppUniqueConstraintDefinitionByIdEffect, type AppUniqueConstraintDefinitionRecordV1, type LocatedAppUniqueConstraintDefinitionV1 } from "../unique/appUniqueConstraintDefinitions";
 import { runEffectTransaction } from "../../database/effectTransaction";
-import type { LogicalWhere } from "./logicalDocuments/query";
+import { logicalValueRequiresNotNull, type LogicalWhere } from "./logicalDocuments/query";
 import { type PreparedInstallation } from "../../installation/installationLifecycle";
 import { prepareProtectedMetadata, captureProtectedMetadataEpoch, guardProtectedMetadataEpoch,
   authenticateProtectedTargetMetadataSnapshot, registerProtectedMetadataFinalGuard } from "../../execution/preparation/preparedMetadataEpoch";
@@ -36,7 +36,7 @@ const strict = { parseOptions: { onExcessProperty: "error" } } as const;
 const signature = (fields: readonly string[]) => JSON.stringify([...new Set(fields)].toSorted());
 const structuralWhere = (where: LogicalWhere, textFields: readonly string[]) => Object.keys(where).toSorted().map(field => {
   const value = where[field];
-  return [field, value === null ? "null" : typeof value === "object" ? ["range", Object.keys(value).toSorted()] :
+  return [field, value === null ? "null" : typeof value === "object" ? ["range", Object.keys(value).toSorted(), logicalValueRequiresNotNull(value)] :
     textFields.includes(field) ? [typeof value, value] : typeof value];
 });
 const issuedReadMetadata = new WeakSet<object>();
@@ -88,7 +88,9 @@ const acquireMetadata = <Value, Failure>(db: FlarexMetadataDatabase,
   "Logical read metadata acquisition rolled back", work, cause => failure("resourceFailure", cause), { token: installation, database: db });
 const Predicate = Schema.NullOr(Schema.Union([
   AppIndexAllNullPredicateV1Schema,
+  AppIndexNullAndNotNullPredicateV1Schema,
   Schema.Struct({ kind: Schema.Literal("fieldIsNull"), field: Schema.NonEmptyString }).annotate(strict),
+  Schema.Struct({ kind: Schema.Literal("fieldIsNotNull"), field: Schema.NonEmptyString }).annotate(strict),
   Schema.Struct({ kind: Schema.Literal("fieldIsNullAndTextEquals"), nullField: Schema.NonEmptyString,
     textField: Schema.NonEmptyString, value: Schema.String }).annotate(strict),
   Schema.Struct({ kind: Schema.Literal("fieldIsNullAndBooleanEquals"), nullField: Schema.NonEmptyString,
@@ -264,6 +266,7 @@ const publishTableAccess = Effect.fn("LogicalReadMetadata.publishAccess")(functi
     // The current native compiler does not select text-equality membership
     // indexes as scalar anchors. Preserve that existing refusal/order.
     if (index.predicate?.kind === "isNullAndTextEquals" || index.predicate?.kind === "isNullAndBooleanEquals" ||
+      index.predicate?.kind === "isNotNull" || index.predicate?.kind === "isNullAndNotNull" ||
       index.predicate?.kind === "allNull") continue;
     const fields = index.columns.map(column => column.columnId);
     const predicate = index.predicate?.kind === "isNull" ? { kind: "fieldIsNull", field: index.predicate.column.columnId } : null;

@@ -91,7 +91,9 @@ function referencePageRows(admission: LogicalReferenceAdmission, tableId: Catalo
     if (predicate === undefined) return false;
     switch (predicate.kind) {
       case "fieldsAreNull": return predicate.fields.some(affected);
-      case "fieldIsNull": return affected(predicate.field);
+      case "fieldIsNull":
+      case "fieldIsNotNull": return affected(predicate.field);
+      case "fieldIsNullAndNotNull": return affected(predicate.nullField) || affected(predicate.notNullField);
       case "fieldIsNullAndTextEquals": return affected(predicate.nullField) || affected(predicate.textField);
       case "fieldIsNullAndBooleanEquals": return affected(predicate.nullField) || affected(predicate.booleanField);
       default: return true;

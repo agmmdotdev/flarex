@@ -642,6 +642,36 @@
       "types": "./dist/dml/properties/float.d.ts",
       "source": "./src/dml/properties/float.ts",
       "default": "./dist/dml/properties/float.js"
+    },
+    "./dml/properties/autoincrement": {
+      "types": "./dist/dml/properties/autoincrement.d.ts",
+      "source": "./src/dml/properties/autoincrement.ts",
+      "default": "./dist/dml/properties/autoincrement.js"
+    },
+    "./totals/shipping-method/index": {
+      "types": "./dist/totals/shipping-method/index.d.ts",
+      "source": "./src/totals/shipping-method/index.ts",
+      "default": "./dist/totals/shipping-method/index.js"
+    },
+    "./order/status": {
+      "types": "./dist/order/status.d.ts",
+      "source": "./src/order/status.ts",
+      "default": "./dist/order/status.js"
+    },
+    "./order/order-change": {
+      "types": "./dist/order/order-change.d.ts",
+      "source": "./src/order/order-change.ts",
+      "default": "./dist/order/order-change.js"
+    },
+    "./order/order-change-action": {
+      "types": "./dist/order/order-change-action.d.ts",
+      "source": "./src/order/order-change-action.ts",
+      "default": "./dist/order/order-change-action.js"
+    },
+    "./order/index": {
+      "types": "./dist/order/index.d.ts",
+      "source": "./src/order/index.ts",
+      "default": "./dist/order/index.js"
     }
   },
   "license": "MIT",

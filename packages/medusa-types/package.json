@@ -192,6 +192,11 @@
       "types": "./dist/totals/index.d.ts",
       "source": "./src/totals/index.ts",
       "default": "./dist/totals/index.js"
+    },
+    "./order/index": {
+      "types": "./dist/order/index.d.ts",
+      "source": "./src/order/index.ts",
+      "default": "./dist/order/index.js"
     }
   },
   "license": "MIT",

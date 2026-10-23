@@ -198,9 +198,17 @@ export const fxControlIndexDefinitions = pgTable(
             and jsonb_typeof(${table.physicalSpecJson} -> 'predicate') = 'object'
             and (
               (((${table.physicalSpecJson} -> 'predicate') - 'kind' - 'field') = '{}'::jsonb
-                and ${table.physicalSpecJson} -> 'predicate' ->> 'kind' = 'fieldIsNull'
+                and ${table.physicalSpecJson} -> 'predicate' ->> 'kind' in ('fieldIsNull', 'fieldIsNotNull')
                 and jsonb_typeof(${table.physicalSpecJson} -> 'predicate' -> 'field') = 'string'
                 and length(${table.physicalSpecJson} -> 'predicate' ->> 'field') > 0)
+              or
+              (((${table.physicalSpecJson} -> 'predicate') - 'kind' - 'nullField' - 'notNullField') = '{}'::jsonb
+                and ${table.physicalSpecJson} -> 'predicate' ->> 'kind' = 'fieldIsNullAndNotNull'
+                and jsonb_typeof(${table.physicalSpecJson} -> 'predicate' -> 'nullField') = 'string'
+                and length(${table.physicalSpecJson} -> 'predicate' ->> 'nullField') > 0
+                and jsonb_typeof(${table.physicalSpecJson} -> 'predicate' -> 'notNullField') = 'string'
+                and length(${table.physicalSpecJson} -> 'predicate' ->> 'notNullField') > 0
+                and ${table.physicalSpecJson} -> 'predicate' ->> 'nullField' <> ${table.physicalSpecJson} -> 'predicate' ->> 'notNullField')
               or
               (((${table.physicalSpecJson} -> 'predicate') - 'kind' - 'fields') = '{}'::jsonb
                 and ${table.physicalSpecJson} -> 'predicate' ->> 'kind' = 'fieldsAreNull'

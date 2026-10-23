@@ -105,6 +105,13 @@ export const AppIndexNullAndBooleanEqualsPredicateV1Schema = Schema.Struct({
 }).check(Schema.makeFilter(predicate => predicate.nullField !== predicate.booleanField
   ? undefined : "Expected distinct predicate fields")).annotate(StrictStructOptions);
 
+export const AppIndexNullAndNotNullPredicateV1Schema = Schema.Struct({
+  kind: Schema.Literal("fieldIsNullAndNotNull"),
+  nullField: SchemaManifestAppIndexFieldPathSchema,
+  notNullField: SchemaManifestAppIndexFieldPathSchema,
+}).check(Schema.makeFilter(predicate => predicate.nullField !== predicate.notNullField
+  ? undefined : "Expected distinct predicate fields")).annotate(StrictStructOptions);
+
 export const AppOrderedIndexPhysicalSpecV1Schema = Schema.Struct({
   kind: Schema.Literal("appOrdered"),
   specVersion: Schema.Literal(1),
@@ -117,6 +124,8 @@ export const AppOrderedIndexPhysicalSpecV1Schema = Schema.Struct({
   predicate: Schema.optionalKey(Schema.Union([
     AppIndexAllNullPredicateV1Schema,
     Schema.Struct({ kind: Schema.Literal("fieldIsNull"), field: SchemaManifestAppIndexFieldPathSchema }),
+    Schema.Struct({ kind: Schema.Literal("fieldIsNotNull"), field: SchemaManifestAppIndexFieldPathSchema }),
+    AppIndexNullAndNotNullPredicateV1Schema,
     AppIndexNullAndBooleanEqualsPredicateV1Schema,
     Schema.Struct({ kind: Schema.Literal("fieldIsNullAndTextEquals"),
       nullField: SchemaManifestAppIndexFieldPathSchema,
@@ -970,6 +979,8 @@ function validateAppOrderedIndexPhysicalSpecV1(
     readonly accessPath: "developer" | "by_creation_time" | "by_id";
     readonly orderedFields: ReadonlyArray<AppOrderedIndexPhysicalFieldV1>;
     readonly predicate?: Readonly<{ kind: "fieldIsNull"; field: string } |
+      { kind: "fieldIsNotNull"; field: string } |
+      { kind: "fieldIsNullAndNotNull"; nullField: string; notNullField: string } |
       { kind: "fieldsAreNull"; fields: readonly [string, string] } |
       { kind: "fieldIsNullAndBooleanEquals"; nullField: string; booleanField: string; value: boolean } |
       { kind: "fieldIsNullAndTextEquals"; nullField: string; textField: string; value: string }>;

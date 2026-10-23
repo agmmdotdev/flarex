@@ -36,6 +36,15 @@ and [active case inventory](./preflight/product-upstream-test-cases.json) own th
 current suite boundary and retained skips; earlier partial-suite counts are
 historical checkpoints.
 
+The [native Order foundation and archive profile](./preflight/order-archive-foundation.md)
+preserves the complete 23-model schema and genuine Order service while admitting
+only zero to four raw existing Order IDs through `archiveOrderWorkflow` and its
+retained inverse. Complete immediate/replayed DTOs preserve serial display IDs
+and owning Address references. The approved native step correction captures
+primitive prior statuses before archive mutates its returned Orders. The profile
+uses shared serial-value preservation, empty-object defaults and ordered non-null
+partial indexes, with the existing atomic event-capture/settlement owner.
+
 The [shared persistence adapter](./preflight/47-medusa-shared-persistence-adapter.md)
 now centralizes checked runtime metadata, schema lowering, JSON-field decoding,
 repository reads/projections, keyed updates, graph writes, mutation dispatch and

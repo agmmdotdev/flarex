@@ -103,6 +103,8 @@ export type { CreateCartCreateLineItemDTO } from "./cart/workflows";
 export type { UpdateLineItemDTO, UpdateLineItemWithSelectorDTO } from "./cart/mutations";
 export type { CustomerDTO } from "./customer/common";
 export type { CreateOrderAdjustmentDTO, CreateOrderLineItemTaxLineDTO } from "./order/mutations";
+export type * as OrderTypes from "./order/index";
+export type * from "./order/index";
 export type { ProductDTO, ProductVariantDTO } from "./product/index";
 export type * as OrderWorkflow from "./workflow/order/items";
 export type { QueryGraphFunction } from "./modules-sdk/remote-query";

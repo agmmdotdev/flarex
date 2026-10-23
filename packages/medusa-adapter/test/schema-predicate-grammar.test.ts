@@ -66,6 +66,14 @@ describe("checked native DML null and Boolean spellings", () => {
     expect(lowerCompiledIndexWhere(undefined)).toBeNull();
   });
 
+  it("preserves native not-null spellings and canonicalizes both mixed operand orders", () => {
+    for (const where of ["parent_id IS NOT NULL AND deleted_at IS NULL", "deleted_at IS NULL AND parent_id IS NOT NULL"])
+      expect(lowerCompiledIndexWhere(Result.getOrThrow(decodeWhere(where))))
+        .toEqual({ kind: "isNullAndNotNull", nullColumnId: "deleted_at", notNullColumnId: "parent_id" });
+    expect(lowerCompiledIndexWhere(Result.getOrThrow(decodeWhere("deleted_at IS NOT NULL"))))
+      .toEqual({ kind: "isNotNull", columnId: "deleted_at" });
+  });
+
   it.each([
     "enabled = TRUE AND deleted_at IS NULL",
     "enabled = true OR deleted_at IS NULL",
@@ -73,7 +81,11 @@ describe("checked native DML null and Boolean spellings", () => {
     "owner.enabled = true AND deleted_at IS NULL",
     "enabled-name = true AND deleted_at IS NULL",
     "enabled = true AND deleted_at IS NULL; SELECT 1",
-    "area_code IS NOT NULL AND deleted_at IS NULL",
+    "area_code IS NOT NULL OR deleted_at IS NULL",
+    "deleted_at IS NOT NULL\n",
+    "deleted_at IS NOT NULL; SELECT 1",
+    '"deleted_at" IS NOT NULL',
+    "deleted_at IS NULL AND area_code IS NOT NULL AND other_id IS NULL",
     "area_code IS NULL OR deleted_at IS NULL",
     "area.code IS NULL AND deleted_at IS NULL",
     '"area_code" IS NULL AND deleted_at IS NULL',

@@ -444,7 +444,14 @@ function decodeIndexPredicate(
       return Object.freeze({ kind, nullColumn: columnIdentity(coordinate, tableId, nullColumnId),
         textColumn: columnIdentity(coordinate, tableId, textColumnId), value });
     }
-    if (kind !== "isNull") return yield* unsupported(`${path}.kind`, kind);
+    if (kind === "isNullAndNotNull") {
+      const fields = yield* exactRecord(input, ["kind", "nullColumnId", "notNullColumnId"], path);
+      const nullColumnId = yield* decodeIdentityString(fields.at(1), `${path}.nullColumnId`, brandColumnId);
+      const notNullColumnId = yield* decodeIdentityString(fields.at(2), `${path}.notNullColumnId`, brandColumnId);
+      return Object.freeze({ kind, nullColumn: columnIdentity(coordinate, tableId, nullColumnId),
+        notNullColumn: columnIdentity(coordinate, tableId, notNullColumnId) });
+    }
+    if (kind !== "isNull" && kind !== "isNotNull") return yield* unsupported(`${path}.kind`, kind);
     const fields = yield* exactRecord(input, ["kind", "columnId"], path);
     const columnId = yield* decodeIdentityString(
       fields.at(1),
@@ -452,7 +459,7 @@ function decodeIndexPredicate(
       brandColumnId,
     );
     return Object.freeze({
-      kind: "isNull",
+      kind,
       column: columnIdentity(coordinate, tableId, columnId),
     });
   });
@@ -868,6 +875,18 @@ function validateRelationalSchema(
           return yield* Result.fail(RelationalSchemaError.invalidInput(`${tablePath}.indexes[${index.identity.indexId}]`));
         }
         if (index.predicate !== null) {
+          if (index.predicate.kind === "isNotNull") {
+            yield* requireColumn(columns, index.predicate.column, `${tablePath}.indexes[${index.identity.indexId}].predicate`);
+            continue;
+          }
+          if (index.predicate.kind === "isNullAndNotNull") {
+            const predicate = index.predicate;
+            const nullColumn = yield* requireColumn(columns, predicate.nullColumn, `${tablePath}.indexes[${index.identity.indexId}].predicate`);
+            yield* requireColumn(columns, predicate.notNullColumn, `${tablePath}.indexes[${index.identity.indexId}].predicate`);
+            if (!nullColumn.nullable || predicate.nullColumn.columnId === predicate.notNullColumn.columnId)
+              return yield* Result.fail(RelationalSchemaError.invalidInput(`${tablePath}.indexes[${index.identity.indexId}].predicate`));
+            continue;
+          }
           if (index.predicate.kind === "allNull") {
             for (const reference of index.predicate.columns) {
               const column = yield* requireColumn(columns, reference, `${tablePath}.indexes[${index.identity.indexId}].predicate`);

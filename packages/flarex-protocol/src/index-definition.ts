@@ -295,6 +295,10 @@ function encodeCanonicalPhysicalPredicate(predicate: NonNullable<AppOrderedIndex
       return `{"fields":[${predicate.fields.map(encodeJsonString).join(",")}],"kind":"fieldsAreNull"}`;
     case "fieldIsNull":
       return `{"field":${encodeJsonString(predicate.field)},"kind":"fieldIsNull"}`;
+    case "fieldIsNotNull":
+      return `{"field":${encodeJsonString(predicate.field)},"kind":"fieldIsNotNull"}`;
+    case "fieldIsNullAndNotNull":
+      return `{"kind":"fieldIsNullAndNotNull","notNullField":${encodeJsonString(predicate.notNullField)},"nullField":${encodeJsonString(predicate.nullField)}}`;
     case "fieldIsNullAndTextEquals":
       return `{"kind":"fieldIsNullAndTextEquals","nullField":${encodeJsonString(predicate.nullField)},"textField":${encodeJsonString(predicate.textField)},"value":${encodeJsonString(predicate.value)}}`;
     case "fieldIsNullAndBooleanEquals":

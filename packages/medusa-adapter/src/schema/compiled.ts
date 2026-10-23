@@ -33,6 +33,12 @@ const Column = Schema.Union([
   Schema.Struct({ ...columnFields, type: Schema.Literal("float"),
     defaultValue: Schema.optionalKey(Schema.Never),
   }),
+  // Serial values may be preserved by an admitted module profile. Allocation
+  // needs a separate capability; accepting metadata does not supply a default.
+  Schema.Struct({ ...columnFields, type: Schema.Literal("serial"),
+    generated: Schema.optionalKey(Schema.Literal(false)),
+    defaultValue: Schema.optionalKey(Schema.Never),
+  }),
   Schema.Struct({ ...columnFields, type: Schema.Literal("json"),
     defaultValue: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number, Schema.Boolean, Schema.Null, RawDefault, Schema.Record(Schema.String, Schema.Never)])),
   }),

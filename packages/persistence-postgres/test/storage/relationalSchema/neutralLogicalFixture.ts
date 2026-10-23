@@ -48,7 +48,11 @@ interface NeutralLogicalFixture {
  * existing production admission/build/binding owners. No framework adapter or
  * replacement storage, validation or publication implementation is involved. */
 export async function prepareNeutralLogicalFixture(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  input: Readonly<{ name: "neutral-null-implication" | "neutral-real"; sources: readonly LogicalSchemaSource[]; finiteCapture?: true }>): Promise<NeutralLogicalFixture> {
+  input: Readonly<{ name: "neutral-null-implication" | "neutral-real" | "neutral-non-null"; sources: readonly LogicalSchemaSource[]; finiteCapture?: true;
+    /** Test-only row-revision arrangement. The normal owners still reconcile,
+     * backfill, validate and bind every index after this callback finishes. */
+    beforeIndexBuild?: (fixture: Pick<NeutralLogicalFixture, "application" | "persistence" | "schemaVersionId" | "catalog">) => Promise<void>;
+  }>): Promise<NeutralLogicalFixture> {
   const pair = driver === "postgres" ? await (async () => {
     const control = await createFileScopedPostgresFixture(); close(control.dispose);
     const target = await createFileScopedPostgresFixture({}, { immutableCatalog: control.persistence.drizzle }, input.finiteCapture === true ? "finiteCapture" : "ordinary"); close(target.dispose);
@@ -97,6 +101,11 @@ export async function prepareNeutralLogicalFixture(driver: "pglite" | "postgres"
     const catalog = yield* runEffectTransaction<Effect.Success<ReturnType<typeof arrangeCatalog>>,
       Effect.Error<ReturnType<typeof arrangeCatalog>>, Error, FlarexMetadataTransaction>(callback => control.drizzle.transaction(callback),
       "Arrange neutral null catalog", arrangeCatalog, cause => new Error("Neutral null catalog transaction", { cause }));
+    if (input.beforeIndexBuild !== undefined) {
+      const beforeIndexBuild = input.beforeIndexBuild;
+      yield* Effect.tryPromise({ try: () => beforeIndexBuild({ application, persistence: target, schemaVersionId, catalog }),
+        catch: cause => new Error("Arrange neutral pre-build row revisions", { cause }) });
+    }
     const ports = { controlDb: control.drizzle, authority: application.authorityPorts }, buildInput = { deploymentId: application.deploymentId,
       scopeId: application.authority.scopeId, schemaVersionId };
     const reconciled = yield* reconcilePublishedIndexBuildsV1Effect(ports, buildInput);

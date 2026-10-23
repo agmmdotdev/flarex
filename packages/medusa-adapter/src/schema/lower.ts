@@ -21,6 +21,7 @@ export const dmlSchemaOrigins: SchemaOrigins = {
 function columnType(column: SchemaColumn): LoweredColumn["type"] {
   switch (column.type) {
     case "id": case "enum": return "text";
+    case "serial": return "integer";
     case "number": return "doublePrecision";
     case "float": return "real";
     case "dateTime": return "timestamptz";

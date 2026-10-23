@@ -40,7 +40,8 @@
     "@medusajs/notification": "workspace:*",
     "@medusajs/notification-local": "workspace:*",
     "@medusajs/region": "workspace:*",
-    "@medusajs/fulfillment-manual": "workspace:*"
+    "@medusajs/fulfillment-manual": "workspace:*",
+    "@medusajs/order": "workspace:*"
   },
   "devDependencies": {
     "@flarex/application-schema-definition": "workspace:*",

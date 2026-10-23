@@ -2,7 +2,7 @@ import { and, asc, desc, eq, getTableName, sql, type SQL } from "drizzle-orm";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { encodeCanonicalJson, type JsonObject } from "flarex-protocol/json";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
-import type { LogicalWhere } from "./logicalDocuments/query";
+import { logicalValueRequiresNotNull, type LogicalWhere } from "./logicalDocuments/query";
 import type { LogicalRelationalReadDemand } from "./logicalDocuments/relationalQuery";
 import { fxControlLogicalReadAccess } from "../../database/schema";
 
@@ -69,6 +69,10 @@ const selectedRows = (tx: FlarexMetadataTransaction, input: SelectionInput, keys
 const predicatesFor = (where: LogicalWhere) => {
   const nulls = Object.keys(where).filter(field => where[field] === null), predicates: (JsonObject | null)[] = [null];
   for (const field of nulls) predicates.push({ kind: "fieldIsNull", field });
+  const notNulls = Object.keys(where).filter(field => logicalValueRequiresNotNull(where[field]));
+  for (const field of notNulls) predicates.push({ kind: "fieldIsNotNull", field });
+  for (const nullField of nulls) for (const notNullField of notNulls)
+    predicates.push({ kind: "fieldIsNullAndNotNull", nullField, notNullField });
   predicates.push(...allNullPredicates(nulls));
   for (const nullField of nulls) for (const textField of Object.keys(where)) {
     const value = where[textField];
@@ -109,9 +113,12 @@ export function logicalNativeReadAccessQuery(tx: FlarexMetadataTransaction, inpu
 export function logicalPageReadAccessQuery(tx: FlarexMetadataTransaction, input: SelectionInput, fields: readonly string[],
   equality: Readonly<{ column: string; value: string | boolean }> | undefined, requiredNulls: readonly string[]) {
   const predicates: (JsonObject | null)[] = [null];
+  if (equality !== undefined) predicates.push({ kind: "fieldIsNotNull", field: equality.column });
   predicates.push(...allNullPredicates(requiredNulls));
   for (const field of new Set(requiredNulls)) {
     predicates.push({ kind: "fieldIsNull", field });
+    if (equality !== undefined && field !== equality.column)
+      predicates.push({ kind: "fieldIsNullAndNotNull", nullField: field, notNullField: equality.column });
     if (equality !== undefined && typeof equality.value === "string")
       predicates.push({ kind: "fieldIsNullAndTextEquals", nullField: field, textField: equality.column, value: equality.value });
     if (equality !== undefined && typeof equality.value === "boolean")

@@ -84,8 +84,11 @@ export function compileLogicalSourceIndexes(source: LogicalSchemaSource) {
         }) || (predicate !== null && (predicate.kind === "allNull"
           ? predicate.columns.some(reference => reference.columnId.includes(".") ||
             table.columns.find(column => column.identity.columnId === reference.columnId)?.nullable !== true)
-          : predicate.kind === "isNull"
+          : predicate.kind === "isNull" || predicate.kind === "isNotNull"
           ? predicate.column.columnId.includes(".")
+          : predicate.kind === "isNullAndNotNull"
+            ? predicate.nullColumn.columnId.includes(".") || predicate.notNullColumn.columnId.includes(".") ||
+              table.columns.find(column => column.identity.columnId === predicate.nullColumn.columnId)?.nullable !== true
           : predicate.kind === "isNullAndTextEquals"
             ? predicate.nullColumn.columnId.includes(".") || predicate.textColumn.columnId.includes(".") ||
               table.columns.find(column => column.identity.columnId === predicate.nullColumn.columnId)?.nullable !== true ||
@@ -112,6 +115,11 @@ export function compileLogicalSourceIndexes(source: LogicalSchemaSource) {
               fields: [predicate.columns[0].columnId, predicate.columns[1].columnId] } }
             : predicate.kind === "isNull"
             ? { predicate: { kind: "fieldIsNull" as const, field: predicate.column.columnId } }
+            : predicate.kind === "isNotNull"
+            ? { predicate: { kind: "fieldIsNotNull" as const, field: predicate.column.columnId } }
+            : predicate.kind === "isNullAndNotNull"
+            ? { predicate: { kind: "fieldIsNullAndNotNull" as const,
+              nullField: predicate.nullColumn.columnId, notNullField: predicate.notNullColumn.columnId } }
             : predicate.kind === "isNullAndTextEquals"
               ? { predicate: { kind: "fieldIsNullAndTextEquals" as const,
                 nullField: predicate.nullColumn.columnId, textField: predicate.textColumn.columnId, value: predicate.value } }
@@ -260,7 +268,8 @@ export function compileLogicalSourceUniqueConstraints(source: LogicalSchemaSourc
         // Native decimal equality still needs a canonical value contract.
         // Int32 and finite binary64 values use canonical zero; canonical UTC
         // instants have unambiguous equality in the shared key codec.
-        if (predicate?.kind === "isNullAndTextEquals") return yield* Result.fail(failure(source));
+        if (predicate?.kind === "isNullAndTextEquals" || predicate?.kind === "isNotNull" ||
+          predicate?.kind === "isNullAndNotNull") return yield* Result.fail(failure(source));
         if (declaration.columns.some(column => {
           const type = table.columns.find(field => field.identity.columnId === column.columnId)?.type;
           return column.columnId.includes(".") || (type !== "text" && type !== "boolean" &&

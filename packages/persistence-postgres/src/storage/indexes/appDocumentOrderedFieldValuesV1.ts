@@ -42,6 +42,16 @@ export function appDocumentPathIsNull(document: CanonicalFlarexValueV1, path: st
   return readCanonicalDocumentPath(document.value, path) === null;
 }
 
+/** Missing paths are not SQL non-null values. In particular this cannot be the
+ * negation of appDocumentPathIsNull, which also excludes missing paths. */
+export function appDocumentPathIsNotNull(document: CanonicalFlarexValueV1, path: string): boolean {
+  if (!isCanonicalFlarexRuntimeObjectV1(document.value)) {
+    throw new TypeError("Expected a canonical application document object.");
+  }
+  const value = readCanonicalDocumentPath(document.value, path);
+  return value !== MISSING_DOCUMENT_PATH && value !== null;
+}
+
 export function appDocumentPathEqualsText(document: CanonicalFlarexValueV1, path: string, value: string): boolean {
   if (!isCanonicalFlarexRuntimeObjectV1(document.value)) {
     throw new TypeError("Expected a canonical application document object.");

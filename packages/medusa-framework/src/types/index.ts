@@ -1,5 +1,8 @@
 export { BaseFilterable } from "@medusajs/types/dal/index";
 export { BigNumberInput } from "@medusajs/types/totals/big-number";
+export type * as OrderTypes from "@medusajs/types/order/index";
+export type * from "@medusajs/types/order/index";
+export type { LineItemAdjustmentDTO, LineItemTaxLineDTO } from "@medusajs/types/cart/common";
 export { CalculatedPriceSetDTO } from "@medusajs/types/pricing/common/price-set";
 export { Constructor } from "@medusajs/types/modules-sdk/index";
 export { Context } from "@medusajs/types/shared-context";

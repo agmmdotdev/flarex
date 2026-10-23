@@ -39,6 +39,15 @@ export function logicalSelectionWhere(values: LogicalSelectionValues): LogicalWh
 }
 export const isLogicalRange = (value: LogicalWhere[string] | undefined): value is typeof Range.Type => value !== null && typeof value === "object";
 
+/** Equality to a present scalar excludes null. An ordered lower bound does so
+ * only when strict at null, or inclusive at a non-null value. Upper bounds alone
+ * can include null and never justify a non-null partial index. */
+export function logicalValueRequiresNotNull(value: LogicalWhere[string] | undefined): boolean {
+  if (value === undefined || value === null) return false;
+  if (!isLogicalRange(value)) return true;
+  return value.gt !== undefined || value.gte !== undefined && value.gte !== null;
+}
+
 /** The working set's existing first eligible complete unique-key selection. */
 export function selectLogicalUniqueConstraint(definitions: readonly LocatedAppUniqueConstraintDefinitionV1[], tableId: CatalogTableId,
   where: LogicalWhere) {
@@ -62,6 +71,8 @@ export function selectLogicalPageIndex<Failure>(definitions: readonly LocatedApp
       if (definition.access.kind !== "developer" || definition.access.tableId !== tableId) continue;
       const predicate = definition.physicalSpec.predicate;
       if (predicate !== undefined && !(predicate.kind === "fieldIsNull" ? requiredNulls.includes(predicate.field)
+        : predicate.kind === "fieldIsNotNull" ? equality?.column === predicate.field
+        : predicate.kind === "fieldIsNullAndNotNull" ? requiredNulls.includes(predicate.nullField) && equality?.column === predicate.notNullField
         : predicate.kind === "fieldsAreNull" ? predicate.fields.every(field => requiredNulls.includes(field))
         : requiredNulls.includes(predicate.nullField) && equality?.column ===
           (predicate.kind === "fieldIsNullAndTextEquals" ? predicate.textField : predicate.booleanField) && equality.value === predicate.value)) continue;
@@ -111,6 +122,9 @@ export function selectLogicalIndexValues<Failure>(definitions: readonly LocatedA
           membership?.kind !== "fieldIsNull" || membership.field !== exactPoint.nullColumn))) continue;
       if (membership !== undefined && !(membership.kind === "fieldIsNull"
         ? values.value(membership.field) === null
+        : membership.kind === "fieldIsNotNull" ? logicalValueRequiresNotNull(values.value(membership.field))
+        : membership.kind === "fieldIsNullAndNotNull" ? values.value(membership.nullField) === null &&
+          logicalValueRequiresNotNull(values.value(membership.notNullField))
         : membership.kind === "fieldsAreNull" ? membership.fields.every(field => values.value(field) === null)
         : values.value(membership.nullField) === null && values.value(
           membership.kind === "fieldIsNullAndTextEquals" ? membership.textField : membership.booleanField) === membership.value)) continue;

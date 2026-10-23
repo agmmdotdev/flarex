@@ -83,6 +83,10 @@ function sourcePredicateInputFromStoredPredicate(input: unknown) {
   if (input.kind === "allNull") return {
     kind: input.kind, columnIds: mapStoredArray(input.columns, storedColumnId),
   };
+  if (input.kind === "isNullAndNotNull") return {
+    kind: input.kind, nullColumnId: storedColumnId(input.nullColumn),
+    notNullColumnId: storedColumnId(input.notNullColumn),
+  };
   if (input.kind === "isNullAndBooleanEquals") return {
     kind: input.kind, nullColumnId: storedColumnId(input.nullColumn),
     booleanColumnId: storedColumnId(input.booleanColumn), value: input.value,

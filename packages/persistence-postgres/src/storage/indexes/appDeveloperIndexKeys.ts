@@ -15,6 +15,7 @@ import {
   appDocumentPathEqualsText,
   appDocumentPathEqualsBoolean,
   appDocumentPathIsNull,
+  appDocumentPathIsNotNull,
   lowerAppDocumentOrderedFieldValuesV1,
 } from "./appDocumentOrderedFieldValuesV1";
 
@@ -42,6 +43,9 @@ export function lowerAppOrderedIndexPhysicalKeyV1(
     const predicate = physicalSpec.predicate;
     if (predicate !== undefined && !(predicate.kind === "fieldIsNull"
       ? appDocumentPathIsNull(document, predicate.field)
+      : predicate.kind === "fieldIsNotNull" ? appDocumentPathIsNotNull(document, predicate.field)
+      : predicate.kind === "fieldIsNullAndNotNull" ? appDocumentPathIsNull(document, predicate.nullField) &&
+        appDocumentPathIsNotNull(document, predicate.notNullField)
       : predicate.kind === "fieldsAreNull" ? predicate.fields.every(field => appDocumentPathIsNull(document, field))
       : appDocumentPathIsNull(document, predicate.nullField) &&
         (predicate.kind === "fieldIsNullAndTextEquals"

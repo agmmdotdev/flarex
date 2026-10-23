@@ -19,6 +19,8 @@ type ColumnBase = Readonly<Pick<DatabaseColumn, "name" | "nullable" | "primaryKe
 export type SchemaColumn = ColumnBase & (
   | { readonly type: "array"; readonly defaultValue?: readonly [] }
   | { readonly type: "float"; readonly defaultValue?: never }
+  /** Preservation of an existing native serial value; no allocation/default. */
+  | { readonly type: "serial"; readonly defaultValue?: never; readonly generated?: false }
   | { readonly type: "id" | "text" | "number" | "boolean" | "dateTime" | "json" | "enum";
       readonly defaultValue?: string | number | boolean }
   | { readonly type: "bigNumber"; readonly defaultValue?: string | number | null }

@@ -3,6 +3,9 @@ import { commerceError, type CommerceTransactionError, type JsonObject } from "@
 import type { SchemaTable } from "../schema/model";
 import { commerceDecoder, commerceRowDecoder } from "./decoder";
 
+const storedSerial = Schema.Number.check(Schema.isInt(),
+  Schema.isBetween({ minimum: -2147483648, maximum: 2147483647 }));
+
 /** Compile checked DML scalar representations once for complete rows and native
  * selected preimages. Storage retains defaults, writes and constraints. */
 function compileColumnValues(table: SchemaTable) {
@@ -11,6 +14,7 @@ function compileColumnValues(table: SchemaTable) {
     for (const column of table.columns) {
       const scalar = column.type === "id" || column.type === "text" || column.type === "dateTime" ? Schema.String :
         column.type === "boolean" ? Schema.Boolean : column.type === "json" ? Schema.Json :
+          column.type === "serial" ? storedSerial :
           column.type === "number" || column.type === "float" ? Schema.Number.check(Schema.isFinite()) :
           column.type === "bigNumber" ? Schema.Union([Schema.String, Schema.Number.check(Schema.isFinite())]) :
           column.type === "array" ? Schema.Array(Schema.String) :

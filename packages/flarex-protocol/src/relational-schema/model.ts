@@ -155,6 +155,15 @@ export type RelationalKeyDefinition = Readonly<{
 export type RelationalIndexPredicate =
   | null
   | (Readonly<{
+      readonly kind: "isNotNull";
+      readonly column: RelationalColumnIdentity;
+    }> & JsonObject)
+  | (Readonly<{
+      readonly kind: "isNullAndNotNull";
+      readonly nullColumn: RelationalColumnIdentity;
+      readonly notNullColumn: RelationalColumnIdentity;
+    }> & JsonObject)
+  | (Readonly<{
       readonly kind: "allNull";
       readonly columns: readonly [RelationalColumnIdentity, RelationalColumnIdentity];
     }> & JsonObject)

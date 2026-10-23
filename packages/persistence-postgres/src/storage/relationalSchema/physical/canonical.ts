@@ -1123,6 +1123,8 @@ function physicalIndexPredicate(
 > {
   switch (predicate.kind) {
     case "allNull":
+    case "isNotNull":
+    case "isNullAndNotNull":
     case "isNullAndBooleanEquals":
       return Result.fail(RelationalPhysicalValueError.unsupportedArtifact());
     case "isNullAndTextEquals":
@@ -1345,6 +1347,8 @@ function indexPredicateCapabilityId(
 ): Result.Result<string, RelationalPhysicalValueError> {
   switch (predicate.kind) {
     case "allNull":
+    case "isNotNull":
+    case "isNullAndNotNull":
     case "isNullAndBooleanEquals":
       return Result.fail(RelationalPhysicalValueError.unsupportedArtifact());
     case "isNullAndTextEquals":
