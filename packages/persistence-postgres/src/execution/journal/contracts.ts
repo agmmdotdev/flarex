@@ -408,6 +408,15 @@ export type LogicalParticipantBorrow = (input: LogicalParticipantBorrowBase &
     LogicalParticipantInvocationError>;
 
 export interface SessionJournalStorePersistence {
+  readonly preparePrivateReverseReferenceReadEffect: (attempt: SessionJournalAttempt,
+    evidence: import("effect").Option.Option<import("./privateReverseReadEvidence").PrivateReverseReadEvidence>,
+    selection: import("./privateReverseReadAccess").PrivateReverseReadSelection) => Effect.Effect<
+      import("./privateReverseReadAccess").PrivateReverseReadAccess, import("./privateReverseReadAccess").PrivateReverseReadAccessError>;
+  /** Private RR1 evidence; no enumeration or Worker operation is granted by this read. */
+  readonly readPrivateReverseReferencePermissionsEffect: (
+    ...input: Parameters<SessionJournalStorePersistence["readPrivateReferencePermissionsEffect"]>
+  ) => Effect.Effect<import("effect").Option.Option<import("./privateReverseReadEvidence").PrivateReverseReadEvidence>,
+    Effect.Error<ReturnType<SessionJournalStorePersistence["readPrivateReferencePermissionsEffect"]>>>;
   /** Backend-only derivation from protected, tracked facts and real entry admission. */
   readonly preparePrivateReferenceSaveEffect: (attempt: SessionJournalAttempt,
     evidence: import("effect").Option.Option<import("./privatePermissionEvidence").PrivateReferencePermissionEvidence>,

@@ -11,7 +11,8 @@ import type { LogicalParticipantBorrow } from "./contracts";
 export const PrivateReadPrincipal = Schema.Struct({ scopeId: ScopeIdSchema,
   principalDigest: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)) });
 export type PrivateReadPrincipal = typeof PrivateReadPrincipal.Type;
-export const PrivateReadIds = Schema.Array(Schema.NonEmptyString).check(Schema.isMaxLength(256));
+export const MAX_PRIVATE_READ_IDS = 256;
+export const PrivateReadIds = Schema.Array(Schema.NonEmptyString).check(Schema.isMaxLength(MAX_PRIVATE_READ_IDS));
 const Selection = Schema.Struct({ principal: PrivateReadPrincipal, sourceKey: Schema.NonEmptyString,
   participant: Schema.NonEmptyString, nativeProfileRevision: PrivateReadPrincipal.fields.principalDigest,
   method: Schema.NonEmptyString, ids: Schema.Union([Schema.Literal("native"), PrivateReadIds]),

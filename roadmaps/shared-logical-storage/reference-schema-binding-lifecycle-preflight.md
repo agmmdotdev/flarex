@@ -401,8 +401,9 @@ and restart of the database/control plane retain their owning gates.
 
 The selected LB1-LB4 sequence is complete. The
 [private authorized reverse-read preflight](./reference-reverse-read-preflight.md)
-selects the next bounded outstanding CXR2 profile; its proposed RR1-RR4 gates
-remain pending.
+owns the next bounded CXR2 profile: RR1 protected evidence and shared admission
+feasibility is implemented; RR2-RR4 pages, freshness/recovery and serving remain
+pending.
 These bounded gates refine CXR4 only for this
 profile; CXR3's opposite-direction/three-owner extension, general authorized
 traversal, pending new Products and broader evolution retain their own gates.

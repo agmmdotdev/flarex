@@ -11,6 +11,7 @@ import { inspectAppDeveloperIndexQueryPortV1 } from "./journal/indexQueryPort";
 import type { AppDeveloperIndexQueryPortV1 } from "./journal/indexQueryPort";
 import type { StoredCommitAuthorityEvidenceLoaderPortsV1 } from "../commit/authority/postgresLoader";
 import { makePrivateReferenceSaveOperations } from "./journal/privateSaveAccess";
+import { makePrivateReverseReadOperations } from "./journal/privateReverseReadAccess";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
@@ -123,7 +124,7 @@ export function createSessionJournalStorePersistence(
     resolveJournalTargetEffect,
   );
   const { resolvePointTableEffect, runPointOperationEffect, preparePrivateApplicationCommandEffect,
-    readPrivateReferencePermissionsEffect } =
+    readPrivateReferencePermissionsEffect, readPrivateReverseReferencePermissionsEffect } =
     makePointOperations(owner, resolveJournalTargetEffect, randomUuid);
   const { resolveDeveloperIndexEffect, runIndexedQueryEffect } =
     makeIndexedQueries(
@@ -365,6 +366,7 @@ export function createSessionJournalStorePersistence(
     );
   return Object.freeze({
     ...makePrivateReferenceSaveOperations(owner),
+    ...makePrivateReverseReadOperations(owner),
     prepareFiniteEntryEffect,
     confirmedFiniteEntryAttempt,
     admitLogicalParticipantsEffect,
@@ -374,6 +376,7 @@ export function createSessionJournalStorePersistence(
     runPointOperationEffect,
     preparePrivateApplicationCommandEffect,
     readPrivateReferencePermissionsEffect,
+    readPrivateReverseReferencePermissionsEffect,
     resolveDeveloperIndexEffect,
     runIndexedQueryEffect,
     resolveApplicationRelationReadEffect,

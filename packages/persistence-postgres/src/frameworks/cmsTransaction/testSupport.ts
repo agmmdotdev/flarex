@@ -1,9 +1,13 @@
 import type { Effect } from "effect";
 import type { applyPayloadPreferenceCleanup } from "../payloadPreferences/cleanup";
 import type { CmsTransactionError } from "./model";
-import type { CmsClosedDocuments, CmsDocumentReadTestHooks } from "./documents";
+import type { CmsClosedDocuments, CmsDocumentReadTestHooks, CmsDocuments } from "./documents";
 import type { AppRelationEdgeQueryObservation } from "../../storage/relations";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
+/** RR1 query observation only; never operation input or permission authority. */
+export interface CmsReferenceProbeTestHooks {
+  readonly afterMembership?: (result: Effect.Success<ReturnType<CmsDocuments["find"]>>) => void;
+}
 /** Fault injection only; no admission, preparation or receipt issuer is exposed. */
 export interface CmsMaterializationTestHooks {
   readonly afterDocumentClosure?: (evidence: Pick<CmsClosedDocuments,

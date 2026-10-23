@@ -5,6 +5,7 @@ import type { PinnedPointTableV1, SessionJournalPointOperationV1 } from "./contr
 import { issueApplicationCommandWriteAuthority, applicationCommandWriteTable,
   matchesApplicationCommandWriteAuthority, type ApplicationCommandWriteAuthority } from "../../application/ownership/Command";
 import { PrivatePermissionEvidenceError, capturePrivateReferencePermissionEvidence } from "./privatePermissionEvidence";
+import { capturePrivateReverseReadEvidence } from "./privateReverseReadEvidence";
 import {
   InvalidSessionJournalCapabilityV1Error,
   InvalidSessionJournalInputV1Error,
@@ -1866,8 +1867,13 @@ export function makePointOperations(
           runPointOperation(table, operation, validator, authority) });
       }).pipe(Effect.ensuring(Effect.sync(() => { finite.inFlightOperations--; })));
     });
-  const readPrivateReferencePermissionsEffect: SessionJournalStorePersistence["readPrivateReferencePermissionsEffect"] =
-    Effect.fn("SessionJournalStore.readPrivateReferencePermissions")(function* (attempt, input, validator) {
+  const readProtectedPermission = Effect.fn("SessionJournalStore.readProtectedPermission")(function* <Evidence>(
+    attempt: Parameters<SessionJournalStorePersistence["readPrivateReferencePermissionsEffect"]>[0],
+    input: Parameters<SessionJournalStorePersistence["readPrivateReferencePermissionsEffect"]>[1],
+    validator: Parameters<SessionJournalStorePersistence["readPrivateReferencePermissionsEffect"]>[2],
+    capture: (...args: Parameters<typeof capturePrivateReferencePermissionEvidence>) =>
+      Effect.Effect<Option.Option<Evidence>, PrivatePermissionEvidenceError>,
+  ) {
       const table = yield* resolvePointTableEffect(attempt, input.tableName);
       const state = owner.readPointTable(table);
       const finite = state === undefined ? undefined : owner.readFiniteRoot(state.attempt);
@@ -1888,12 +1894,16 @@ export function makePointOperations(
           syscallSequence: input.syscallSequence }, validator);
         if (read.kind !== "completed" || (read.outcome.kind !== "present" && read.outcome.kind !== "missing"))
           return yield* Effect.fail(new PrivatePermissionEvidenceError({ reason: "invalidAuthority" }));
-        return yield* capturePrivateReferencePermissionEvidence(attempt, input.principal, captured.commandPolicy.writePolicySha256,
+        return yield* capture(attempt, input.principal, captured.commandPolicy.writePolicySha256,
           input.documentId, read.outcome.document, () => finite.status === "open" &&
             Result.isSuccess(requireFiniteAttemptPreparationOpen(finite.metadata, attempt)));
       }).pipe(Effect.onError(() => Effect.sync(() => { finite.status = "aborted"; discardFiniteRootEvidence(finite); })),
         Effect.ensuring(Effect.sync(() => { finite.inFlightOperations--; })));
     });
+  const readPrivateReferencePermissionsEffect: SessionJournalStorePersistence["readPrivateReferencePermissionsEffect"] =
+    (attempt, input, validator) => readProtectedPermission(attempt, input, validator, capturePrivateReferencePermissionEvidence);
+  const readPrivateReverseReferencePermissionsEffect: SessionJournalStorePersistence["readPrivateReverseReferencePermissionsEffect"] =
+    (attempt, input, validator) => readProtectedPermission(attempt, input, validator, capturePrivateReverseReadEvidence);
   return Object.freeze({ resolvePointTableEffect, runPointOperationEffect, preparePrivateApplicationCommandEffect,
-    readPrivateReferencePermissionsEffect });
+    readPrivateReferencePermissionsEffect, readPrivateReverseReferencePermissionsEffect });
 }

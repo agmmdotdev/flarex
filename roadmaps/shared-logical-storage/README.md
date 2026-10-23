@@ -365,8 +365,10 @@ through soft deletion and restricts hard deletion through the shared publisher.
 SA1-SA4 and LB1-LB4 provide selected save authorization and binding/dependency
 activation/recovery proof; broader profiles remain gated. The
 [private authorized reverse-read preflight](./reference-reverse-read-preflight.md)
-selects proposed RR1-RR4 work next, with implementation pending. General traversal
-and the Medusa-originating extension retain their gates. Public API design and
+implements RR1 protected read evidence and a backend-only complete indexed
+membership probe; RR2-RR4 pages, concurrent freshness/recovery and serving remain
+pending. General traversal and the Medusa-originating extension retain their
+gates. Public API design and
 the other session's Medusa implementation remain outside this slice.
 
 The [unified developer-contract proposal](../flarexdb-framework-integration/preflight/unified-application-cms-commerce-developer-contract.md)

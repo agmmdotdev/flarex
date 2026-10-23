@@ -60,9 +60,11 @@ The [private reference schema/binding lifecycle preflight](../shared-logical-sto
 completes LB1-LB4 for the selected admission, fresh/stale entry, activation/save
 ordering and committed-recovery profile. The next bounded foundation is the
 [private authorized reverse-read preflight](../shared-logical-storage/reference-reverse-read-preflight.md).
-Its proposed RR1-RR4 gates remain pending: protected read evidence and shared
-admission, authorized indexed pages with pending membership, concurrency/recovery
-and private serving cutover. Advanced evolution and public APIs remain separate.
+RR1 implements protected read evidence and a backend-only complete indexed
+membership probe through genuine source admission, finite capture and final
+validation. RR2-RR4 retain authorized pages with native visibility and pending
+membership, concurrency/recovery and private serving cutover. Advanced evolution
+and public APIs remain separate.
 
 Status: the Application, Product, selected Payload Local API, and finite
 Medusa workflow slices are implemented as a private, isolated-scope execution

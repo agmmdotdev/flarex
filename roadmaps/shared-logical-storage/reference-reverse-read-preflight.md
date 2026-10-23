@@ -2,9 +2,11 @@
 
 ## Status And Scope
 
-Status: source-grounded preflight with a proposed private backend contract.
-RR1-RR4 below are pending. This document enables no operation, changes no schema
-or runtime behavior, and makes no new transaction or query-plan proof claim.
+Status: RR1 is implemented for protected read evidence and complete bounded
+indexed-membership feasibility. RR2-RR4 remain pending. The private RR1 probe
+returns no article, identity, count or cursor, and has no Worker/public entry
+point. Authorized reverse-page serving and query-plan/capacity claims remain
+outside this implemented inventory.
 
 The selected outcome is an authorized, bounded enumeration of Payload articles
 whose optional scalar reference points to one existing, active Medusa Product,
@@ -16,7 +18,8 @@ fixture names are not a public schema contract.
 The [SA1-SA4 save authorization](./reference-save-authorization-preflight.md) and
 [LB1-LB4 binding lifecycle](./reference-schema-binding-lifecycle-preflight.md)
 inventories are implemented for their selected profiles. They do not establish
-reverse discovery or live read-policy evidence. This work extends CXR2 in the
+reverse discovery. RR1 adds tracked read-policy evidence; it does not enable
+reverse discovery. This work extends CXR2 in the
 [cross-framework preflight](./cross-framework-reference-preflight.md).
 
 Public declarations, generated handles, SDK signatures, dashboards, general
@@ -36,6 +39,11 @@ session's Medusa implementation and promotion/workflow roadmaps are untouched.
 - [Protected permission evidence](../../packages/persistence-postgres/src/execution/journal/privatePermissionEvidence.ts)
   and [private save consumer](../../packages/flarex-backend/src/privatePayloadSaveConsumer.ts)
   establish tracked, attempt-bound save evidence and trusted serving composition.
+- [Reverse-read evidence](../../packages/persistence-postgres/src/execution/journal/privateReverseReadEvidence.ts),
+  [private admission](../../packages/persistence-postgres/src/execution/journal/privateReverseReadAccess.ts),
+  [CMS feasibility probe](../../packages/persistence-postgres/src/frameworks/cmsTransaction/privateReferenceProbe.ts)
+  and [connected RR1 scenarios](../../packages/flarex-backend/test/privatePayloadReverseReadEvidence.test.ts)
+  establish the selected protected read and shared indexed-membership foundation.
 - [Reference selection](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts),
   [activation projection](../../packages/persistence-postgres/src/installation/frameworkSchema/binding/strongReferenceProjection.ts)
   and [publication validation](../../packages/persistence-postgres/src/commit/publication/strongReferenceValidation.ts)
@@ -65,9 +73,9 @@ not prove the native lifecycle.
 | Existing owner | Implemented behavior | Missing selected proof |
 | --- | --- | --- |
 | Private point-read issuer/runtime | Fixed source/target ID selections bind scope, principal, method, source and native revision to the genuine attempt. Payload access uses a private request token. Admitted denial poisons the root | Reverse-discovery authority and protected read-policy freshness; possession of a point ID grants neither |
-| Protected save permissions | Command-only Application policy storage, tracked point reads and attempt-bound evidence; explicit source create/update/delete and target assign/retain decisions | Read/discovery policy semantics. The strict existing save-policy format contains no source-read or reverse-enumeration permission |
+| Protected permission reader | Command-only Application storage and one tracked-point acquisition path for separate strict save and read policy records. RR1 read evidence binds allowed Product enumeration and source article identities to the real principal/attempt | Native read/discovery serving. Existing save-policy fields retain only create/update/delete and assign/retain semantics |
 | Strong-reference projection/publication | Authenticated source field, target key and reverse ordered index; retained soft-delete membership and complete indexed hard-delete restriction | Read-side selection/issuance and finite snapshot/pending enumeration under principal authorization |
-| Logical document/index owners | Snapshot index capture, pending working set, bounded membership and examined-page evidence at their admitted entry points | Connected keyset pages for this document-source reference. The finite document indexed-find route currently requires complete bounded membership through `readFiniteIndexRows`; this is not arbitrary multi-page serving |
+| Logical document/index owners | Snapshot index capture, pending working set, bounded membership and examined-page evidence. RR1 connects empty/nonempty complete indexed membership and native pending creation through actual finite capture/freeze/publication | Keyset pages for this document-source reference. The finite document indexed-find route requires complete bounded membership through `readFiniteIndexRows`; RR1 does not establish arbitrary multi-page serving |
 | Journal Application index/relation reads | Developer-index resolution and native Application relation dependency handling | Developer-index resolution selects `access.kind === "developer"`; native incoming relations use edge definitions. Neither can be relabeled as a strong-reference index capability |
 | Payload native participant binding | Borrowed create/update/delete/findByID; standalone indexed find/count and bounded native joins have separate proof | Borrowed find/count and cross-framework reverse discovery remain unadmitted. Adding a method name to the allowlist cannot establish the missing authority, paging or dependencies |
 
@@ -78,9 +86,10 @@ Payload join declarations to name an unregistered commerce collection, copy
 commerce records into CMS, scan every article, or expose the publisher's current
 index scanner as an application read.
 
-These are source-observed admission boundaries and unproved extensions, not
-reproduced defects in a supported reverse-read capability. RR1 must preserve a
-decisive executable witness before extending a shared owner. If it finds a
+These are admission boundaries and unproved extensions, not reproduced defects
+in a supported reverse-page capability. RR1 connects the existing complete
+bounded indexed-read path without changing shared index/settlement semantics.
+Keep its executable witnesses before extending that owner for RR2. If work finds a
 shared defect, record expected/actual behavior and ownership here, preserve the
 failure, and stop dependent work for the AGENTS.md correction checkpoint.
 Fixtures and adapters must not substitute direct SQL or duplicate validation.
@@ -102,7 +111,13 @@ read-policy changes. Reuse its analysis, ownership, admission and publication
 mechanics; do not create an adapter permission store. The proposed read policy
 is a separate private record contract, not a reinterpretation of save-policy
 create/update/delete, assign or retain fields. No existing durable record is
-silently rewritten. Its concrete schema/compatibility disposition belongs to RR1.
+silently rewritten. RR1 stores the separately tagged
+`flarex.private-reference-read-permissions` record in the existing registered
+command-only Application policy table. Its strict decoder owns principal,
+collection/reference, bounded Product text keys and article document IDs.
+The selected private fixture uses `audit` under
+`application.reference-permissions`; no physical table, migration, reset or
+reinterpretation of an existing save record is introduced.
 
 Read evidence must come from a real tracked protected point read, including a
 missing-policy observation, and remain bound to that attempt and principal.
@@ -207,6 +222,31 @@ inside a page read. General read-only query serving remains separately gated.
 
 ## Implemented Capabilities And Known Limits
 
+RR1 uses the existing protected command writer, tracked point/ownership capture
+and real finite source admission. One shared protected acquisition path selects
+the save or read decoder; no second permission store or query snapshot is added.
+Missing policy returns tracked absence, while wrong contract/corrupt data remains
+a typed corruption failure. Derivation denies missing policy or an unselected
+Product and refuses foreign principal/attempt, non-command storage, wrong source
+article table and unsupported reference selection.
+
+The backend-only `private-reference-membership-probe` requires a genuine
+reference/index selection and an issued read-evidence capability. It borrows
+the existing CMS/document working set and records complete bounded equality
+membership through finite storage capture. It discards all source values and
+returns null. It is not a native Payload read, an authorization-filtered page or
+a Product visibility check. The ordinary Payload borrowed method allowlist and
+Worker construction remain unchanged.
+
+The connected scenarios preserve exact index identity and a scan-free graph for
+empty/nonempty membership, receipt replay and native pending creation in one
+evaluator. A CMS test-support observer checks the actual query result, including
+the pending article identity and one execution across replay; this observation
+is not operation input or caller output. Sequential later publication of a new reference or read-policy change
+invalidates the frozen reader before its publication; creating a previously
+missing policy also conflicts. These prove dependency delivery to existing
+final validation. Actual concurrent overlap/order barriers remain RR3.
+
 Existing point-read, save-authorization, integrity/delete, preference-cleanup and
 LB1-LB4 proofs retain their exact scopes. Payload-to-Payload bounded joins remain
 a separate implemented profile. No authorized cross-framework reverse page is
@@ -221,14 +261,14 @@ Later support must have its own admission and lifecycle evidence.
 
 | Gate | Connected outcome and exit criteria |
 | --- | --- |
-| RR1: protected read evidence and shared admission feasibility | Select the concrete protected read-policy record contract and its durable disposition. Prove command-only writes, tracked positive/missing policy reads, principal/attempt/source binding and genuine reference/index selection. Retain a connected empty/nonempty indexed-read witness through finite capture before committing to a page seam. Establish where examined-range and pending evidence reaches final validation; list unsupported paths explicitly. A missing shared mechanism is corrected only at its owner, with the AGENTS.md defect checkpoint when applicable |
+| RR1: protected read evidence and shared admission feasibility | Implemented for the separate protected record and backend-only complete-membership probe above. Genuine command writes, positive/missing reads, issuer/principal/attempt/source selection, empty/nonempty indexed capture and native pending creation reach real final validation. Sequential late reference/policy commits refuse stale publication. Paged visibility, Product native access and actual overlap remain later gates; no new shared index/settlement algorithm was required |
 | RR2: authorized finite reverse pages | Implement the selected private read capability through existing document/index/capture owners and actual native point hydration. Prove hidden-candidate filtering, visible lookahead, deterministic continuation, identity isolation, pending create/reassign/clear/delete, all-hidden and empty results, forgery/stale/pending-state cursor refusal, and atomic capacity refusal. No broad borrowed find/count admission or raw scanner exposure |
 | RR3: concurrent freshness and recovery | Prove both relevant ordinary-role PostgreSQL orders for permission revocation, reference insertion/removal (including empty-page phantoms), consumed row/target changes and binding withdrawal. Assert exact dependency-frontier behavior, real whole-root replacement, caught-error rollback, cancellation/drain, duplicate receipt/outcome replay and real lost-COMMIT resolution for Application consumption. Recover an already committed outcome without re-enumeration or native hooks; PGlite establishes semantics, not actual overlap/acknowledgement loss |
 | RR4: selected private serving cutover and cleanup | Connect the real Worker/RPC consumer to normal protected read construction. Keep denied/foreign/forged input opaque, native failure poisoning and current source identity intact. Migrate only the selected consumer and remove displaced assembly after parity. Reconcile supported/refused profiles and retain named fixed point-read, standalone join, save and lifecycle consumers. Public and hosted entry points remain disabled |
 
-The first implementation is RR1. Do not begin with a reverse facade in the
-adapter or Worker: authentication, tracked permission evidence and the actual
-shared index-read/dependency seam must be reviewable first. RR2-RR4 remain
+The next implementation is RR2, using RR1's actual authority and complete-read
+witness as the baseline. Preserve its refusal/absence/publication behavior while
+extending the actual shared owner for pages and native visibility. RR2-RR4 remain
 pending until their connected owner proof exists.
 
 ## Validation, Cutover And Cleanup

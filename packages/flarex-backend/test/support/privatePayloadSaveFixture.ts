@@ -98,7 +98,9 @@ export const privateSaveCollections = [{ slug: "posts", fields: [
  * current-generation issuer perform composition; no authority is fabricated. */
 export async function privatePayloadSaveFixture(resources: Readonly<{
   persistence: PGliteFlarexPersistence | PostgresFlarexPersistence; session: RelationalSession; control?: PGliteFlarexPersistence;
+  payloadMethods?: readonly string[];
 }>): Promise<PrivatePayloadSaveFixture> {
+  const payloadMethods = resources.payloadMethods ?? ["payload-create", "payload-update", "payload-delete"];
   const compiled = await Effect.runPromise(compilePayloadCollections(privateSaveCollections));
   const fixture = await privatePermissionFixture(resources.persistence, compiled, resources.control);
   const scope = await Effect.runPromise(Scope.make());
@@ -218,14 +220,14 @@ export async function privatePayloadSaveFixture(resources: Readonly<{
     const usePreparation = <A, E, R>(selected: typeof retained,
       work: (preparation: PrivateSavePreparation) => Effect.Effect<A, E, R>) => selected.use(current => current.withFiniteEntry((graph, currentEntry) => {
       const payloadProfile = (profileRevision: string): OperationProfile => ({ participant: "payload",
-        operationMethods: ["payload-create", "payload-update", "payload-delete"], profileRevision,
-        sources: [graph.payload.payload.createCommitAuthority(graph.binding, "payload", ["payload-create", "payload-update", "payload-delete"])] });
+        operationMethods: payloadMethods, profileRevision,
+        sources: [graph.payload.payload.createCommitAuthority(graph.binding, "payload", payloadMethods)] });
       const profiles = [payloadProfile("1".repeat(64)),
         { participant: "medusa.product", operationMethods: ["retrieve"], profileRevision: "2".repeat(64),
           sources: [graph.payload.product.createCommitAuthority(graph.binding, "medusa.product", ["retrieve"])] }];
       return work({ preparedAdmission: graph.payload.preparedAdmission, currentEntry, payloadProfile, profiles,
-        participants: [{ participant: "payload", operationMethods: ["payload-create", "payload-update", "payload-delete"], profileRevision: "1".repeat(64),
-          sources: [{ selection: graph.payload.payload, methods: ["payload-create", "payload-update", "payload-delete"] }] },
+        participants: [{ participant: "payload", operationMethods: payloadMethods, profileRevision: "1".repeat(64),
+          sources: [{ selection: graph.payload.payload, methods: payloadMethods }] },
         { participant: "medusa.product", operationMethods: ["retrieve"], profileRevision: "2".repeat(64),
           sources: [{ selection: graph.payload.product, methods: ["retrieve"] }] }] });
     }));
