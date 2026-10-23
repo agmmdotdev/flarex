@@ -153,7 +153,8 @@ export class MikroOrmBaseRepository<const T extends object = object>
 
   update(
     data: { entity; update }[],
-    context?: Context
+    context?: Context,
+    options?: DAL.UpdateOptions
   ): Promise<InferRepositoryReturnType<T>[]> {
     throw new Error("Method not implemented.")
   }
@@ -410,16 +411,28 @@ export function mikroOrmBaseRepositoryFactory<const T extends object>(
 
     async update(
       data: { entity: any; update: any }[],
-      context?: Context
+      context?: Context,
+      options?: DAL.UpdateOptions
     ): Promise<InferRepositoryReturnType<T>[]> {
       const manager = this.getActiveManager<EntityManager>(context)
 
       await this.initManyToManyToDetachAllItemsIfNeeded(data, context)
 
       data.forEach(({ entity, update }) => {
-        manager.assign(entity, update, {
+        const replaceMetadata = options?.metadata === "replace" &&
+          Object.prototype.hasOwnProperty.call(update, "metadata")
+        const updateFields = replaceMetadata ? { ...update } : update
+        if (replaceMetadata) {
+          delete updateFields.metadata
+        }
+        manager.assign(entity, updateFields, {
           mergeObjectProperties: true,
         })
+        if (replaceMetadata) {
+          manager.assign(entity, { metadata: update.metadata }, {
+            mergeObjectProperties: false,
+          })
+        }
         manager.persist(entity)
       })
 

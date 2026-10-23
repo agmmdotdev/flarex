@@ -2,11 +2,10 @@ import { Effect, Result, Schema } from "effect";
 import { OrderChangeStatus } from "@medusajs/framework/utils/portable";
 import { commerceError, isJsonObject, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../../value/decoder";
-import { compileCompleteRow, compileRowProjection } from "../../value/complete-row";
-import { compileOrderStatusContracts } from "./input";
+import { OrderChangeId, compileOrderChangeContracts } from "./change-contracts";
 import type { captureOrderMetadata } from "./schema";
 
-export const OrderChangeUpdateId = Schema.String.check(Schema.isLengthBetween(1, 256));
+export const OrderChangeUpdateId = OrderChangeId;
 export const OrderChangeUpdateIds = Schema.Array(OrderChangeUpdateId).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 const Text = Schema.optionalKey(Schema.NullOr(Schema.String));
 /** Finite scalar assignments only. Dates, metadata and relationships require
@@ -23,7 +22,6 @@ export const OrderChangeUpdateRead = Schema.Struct({ filters: Schema.Struct({ id
     .check(Schema.isLengthBetween(1, OrderChangeUpdateFields.length)), relations: Schema.Array(Schema.Never).pipe(Schema.mutable) }) });
 const Objects = Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(4));
 const decodeObjects = commerceDecoder(Objects, "storedCorruption");
-const decodeReference = commerceDecoder(Schema.Struct({ id: OrderChangeUpdateId }), "storedCorruption");
 const decodePreimageShape = commerceDecoder(OrderChangeUpdateData, "storedCorruption");
 export const decodeOrderChangeUpdateInput = commerceDecoder(OrderChangeUpdateInput, "invalidInput");
 export const decodeOrderChangeUpdateRead = commerceDecoder(OrderChangeUpdateRead, "invalidInput");
@@ -34,18 +32,7 @@ type Metadata = Effect.Success<ReturnType<typeof captureOrderMetadata>>["frame"]
  * Full mutation DTOs and selected scalar preimages have distinct contracts. */
 export function compileOrderChangeUpdateContracts(metadata: Metadata) {
   return Result.gen(function* () {
-    const table = metadata.tables.find(table => table.name === "order_change");
-    const relation = table?.relationships.find(relation => relation.name === "order");
-    if (table === undefined || relation?.type !== "belongsTo" || relation.targetTable !== "order" ||
-      relation.foreignKeyNames?.length !== 1 || relation.foreignKeyNames[0] !== "order_id" ||
-      !table.foreignKeys.some(key => key.columns.length === 1 && key.columns[0] === "order_id" &&
-        key.referencedTable === "order" && key.referencedColumns.length === 1 && key.referencedColumns[0] === "id"))
-      return yield* Result.fail(commerceError("unsupportedProfile"));
-    const orderContracts = yield* compileOrderStatusContracts(metadata);
-    const complete = yield* compileCompleteRow(table), projection = yield* compileRowProjection(table);
-    const identify = commerceDecoder(Schema.StructWithRest(Schema.Struct({ id: OrderChangeUpdateId, order_id: OrderChangeUpdateId }),
-      [Schema.Record(Schema.String, Schema.Json)]), "storedCorruption");
-    const decodeRow = (input: unknown) => complete(input).pipe(Result.flatMap(identify));
+    const common = yield* compileOrderChangeContracts(metadata), { projection, present, decodeOutputRow } = common;
     const decodePreimages = (input: unknown) => Result.gen(function* () {
       const rows: Array<typeof OrderChangeUpdateData.Type> = [], seen = new Set<string>();
       for (const value of yield* decodeObjects(input)) {
@@ -55,12 +42,6 @@ export function compileOrderChangeUpdateContracts(metadata: Metadata) {
         seen.add(row.id); rows.push(row);
       }
       return rows;
-    });
-    const present = (input: unknown) => decodeRow(input).pipe(Result.map(row => ({ ...row, order: { id: row.order_id } })));
-    const decodeOutputRow = (input: JsonObject) => Result.gen(function* () {
-      const { order, ...scalar } = input, row = yield* decodeRow(scalar), reference = yield* decodeReference(order);
-      if (reference.id !== row.order_id) return yield* Result.fail(commerceError("storedCorruption"));
-      return { ...row, order: reference };
     });
     const decodeRows = (input: unknown) => Result.gen(function* () {
       const rows: Array<Result.Result.Success<ReturnType<typeof decodeOutputRow>>> = [], seen = new Set<string>();
@@ -82,7 +63,6 @@ export function compileOrderChangeUpdateContracts(metadata: Metadata) {
       return Array.isArray(input) ? output : output[0]!;
     });
     const Output = Objects.check(Schema.makeFilter(rows => Result.isSuccess(decodeRows(rows)) || "Expected complete native Order Change DTOs"));
-    return { table, order: orderContracts.table, decodeOrderRow: orderContracts.decodeRow,
-      decodeRow, decodePreimages, decodeRows, present, serialize, Output };
+    return { ...common, decodePreimages, decodeRows, serialize, Output };
   });
 }

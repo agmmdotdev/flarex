@@ -5,6 +5,7 @@ import { orderArchiveSourcePairs, orderArchiveAuthoredTargets, verifyOrderArchiv
   verifyOrderArchiveSource, verifyOrderArchiveFiles } from "./check-medusa-order-archive-source.mjs";
 import { orderCompleteSourcePairs } from "./check-medusa-order-complete-source.mjs";
 import { orderChangeUpdateSourcePairs } from "./check-medusa-order-change-update-source.mjs";
+import { orderChangeCancellationSourcePairs } from "./check-medusa-order-change-cancellation-source.mjs";
 
 const failure = "Changed native Order archive source";
 /** @param {string} target */
@@ -18,6 +19,13 @@ const workflow = entry("packages/medusa-core-flows/src/order/workflows/archive-o
 const joiner = entry("packages/medusa-order/src/joiner-config.ts");
 
 describe("bounded native Order source preparation", () => {
+  it("recognizes only the separately guarded cancellation correction pairs", () => {
+    const additional = orderChangeCancellationSourcePairs.filter(pair => !orderArchiveSourcePairs.some(existing => existing.target === pair.target));
+    expect(() => verifyOrderArchiveSourceSelection([...orderArchiveSourcePairs, ...additional])).not.toThrow();
+    for (const pair of additional.filter(pair => pair.target.includes("/order/"))) {
+      expect(() => verifyOrderArchiveSourceSelection([...orderArchiveSourcePairs, { ...pair, target: pair.target + ".other" }])).toThrow(failure);
+    }
+  });
   it("recognizes only the separately guarded exact Order Change update pair", () => {
     expect(() => verifyOrderArchiveSourceSelection([...orderArchiveSourcePairs, ...orderChangeUpdateSourcePairs])).not.toThrow();
     for (const pair of orderChangeUpdateSourcePairs) {

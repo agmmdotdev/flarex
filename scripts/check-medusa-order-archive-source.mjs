@@ -5,6 +5,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { orderCompleteSourcePairs } from "./check-medusa-order-complete-source.mjs";
 import { orderChangeUpdateSourcePairs } from "./check-medusa-order-change-update-source.mjs";
+import { orderChangeCancellationSourcePairs, verifyOrderChangeCancellationSource } from "./check-medusa-order-change-cancellation-source.mjs";
 
 const failure = "Changed native Order archive source";
 const nativePrefix = "third_party/medusa/upstream/";
@@ -59,14 +60,16 @@ const relocated = [
 export const orderArchiveSourcePairs = Object.freeze([
   { source: nativePrefix + "LICENSE", target: "packages/medusa-order/LICENSE", classification: "unchanged" },
   ...unchanged.map(file => ({ source: moduleSource + file, target: moduleTarget + file, classification: "unchanged" })),
-  ...relocated.map(file => ({ source: moduleSource + file, target: moduleTarget + file, classification: "importRelocation" })),
+  ...relocated.map(file => ({ source: moduleSource + file, target: moduleTarget + file,
+    classification: file === "services/order-module-service.ts" ? "orderChangeCancellationRestoreFork" : "importRelocation" })),
   { source: moduleSource + "joiner-config.ts", target: moduleTarget + "joiner-config.ts", classification: "orderArchiveFork" },
   ...["index.ts", "order-change-action.ts", "order-change.ts", "status.ts"].map(file => ({
     source: helperSource + file, target: helperTarget + file, classification: "unchanged",
   })),
   ...["index.ts", "service.ts"].map(file => ({
     source: nativePrefix + "packages/core/types/src/order/" + file,
-    target: "packages/medusa-types/src/order/" + file, classification: "unchanged",
+    target: "packages/medusa-types/src/order/" + file,
+    classification: file === "service.ts" ? "orderChangeCancellationRestoreFork" : "unchanged",
   })),
   ...["steps/archive-orders.ts", "workflows/archive-orders.ts"].map(file => ({
     source: workflowSource + file, target: workflowTarget + file,
@@ -95,7 +98,9 @@ export function verifyOrderArchiveSourceSelection(files) {
       pair.classification === file.classification)) continue;
     if (orderChangeUpdateSourcePairs.some(pair => pair.source === file.source && pair.target === file.target &&
       pair.classification === file.classification)) continue;
-    const relevant = ["orderArchiveFork", "orderArchiveCompensationFork"].includes(file.classification) || file.target.startsWith("packages/medusa-order/") ||
+    if (orderChangeCancellationSourcePairs.some(pair => pair.source === file.source && pair.target === file.target &&
+      pair.classification === file.classification)) continue;
+    const relevant = ["orderArchiveFork", "orderArchiveCompensationFork", "orderChangeCancellationFork", "orderChangeCancellationRestoreFork"].includes(file.classification) || file.target.startsWith("packages/medusa-order/") ||
       file.target.startsWith(workflowTarget) || file.target.startsWith(helperTarget) ||
       file.source?.startsWith(moduleSource) || file.source?.startsWith(workflowSource) || file.source?.startsWith(helperSource) ||
       orderArchiveSourcePairs.some(pair => pair.source !== nativePrefix + "LICENSE" && pair.source === file.source);
@@ -118,6 +123,11 @@ function replace(text, before, after) {
 export function verifyOrderArchiveSource(source, target, destination) {
   const pair = orderArchiveSourcePairs.find(pair => pair.target === destination);
   if (pair === undefined) throw new Error(failure + ": unknown source " + destination);
+  if (pair.classification === "orderChangeCancellationRestoreFork") {
+    try { verifyOrderChangeCancellationSource(source, target, destination); }
+    catch (error) { throw new Error(failure + ": cancellation restoration source " + destination, { cause: error }); }
+    return;
+  }
   let expected = source.replaceAll("\r\n", "\n");
   if (pair.classification === "importRelocation") {
     if (!expected.includes('"@medusajs/framework/utils"')) throw new Error(failure + ": portable import anchor");

@@ -11,6 +11,7 @@ import type {
   PerformedActions,
   PropertyType,
   UpsertWithReplaceConfig,
+  DAL,
 } from "@medusajs/types"
 import type { EntityClass, EntitySchema } from "@medusajs/deps/mikro-orm/core"
 import { isDefined } from "../common/is-defined"
@@ -280,25 +281,30 @@ export function MedusaInternalService<
 
     update(
       data: any[],
-      sharedContext?: Context
+      sharedContext?: Context,
+      options?: DAL.UpdateOptions
     ): Promise<InferEntityType<TEntity>[]>
     update(
       data: any,
-      sharedContext?: Context
+      sharedContext?: Context,
+      options?: DAL.UpdateOptions
     ): Promise<InferEntityType<TEntity>>
     update(
       selectorAndData: SelectorAndData,
-      sharedContext?: Context
+      sharedContext?: Context,
+      options?: DAL.UpdateOptions
     ): Promise<InferEntityType<TEntity>[]>
     update(
       selectorAndData: SelectorAndData[],
-      sharedContext?: Context
+      sharedContext?: Context,
+      options?: DAL.UpdateOptions
     ): Promise<InferEntityType<TEntity>[]>
 
     @InjectTransactionManager(propertyRepositoryName)
     async update(
       input: any | any[] | SelectorAndData | SelectorAndData[],
-      @MedusaContext() sharedContext: Context = {}
+      @MedusaContext() sharedContext: Context = {},
+      options?: DAL.UpdateOptions
     ): Promise<InferEntityType<TEntity> | InferEntityType<TEntity>[]> {
       if (!isDefined(input) || (Array.isArray(input) && input.length === 0)) {
         return (Array.isArray(input) ? [] : void 0) as
@@ -417,11 +423,14 @@ export function MedusaInternalService<
       }
 
       // Manage metadata if needed
-      prepareUpdateMetadata(toUpdateData)
+      if (options?.metadata !== "replace") {
+        prepareUpdateMetadata(toUpdateData)
+      }
 
       const entities = await this[propertyRepositoryName].update(
         toUpdateData,
-        sharedContext
+        sharedContext,
+        options
       )
 
       return shouldReturnArray ? entities : entities[0]

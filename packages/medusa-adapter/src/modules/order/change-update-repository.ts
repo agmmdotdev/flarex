@@ -39,26 +39,7 @@ export function prepareOrderChangeUpdateRepository(metadata: Metadata) {
       const envelope = yield* decodeQuery(input), plan = yield* scalar.query(envelope);
       return { ...plan, orderFilter: envelope.options.fields === undefined };
     });
-    const orderPredicate = (rows: readonly JsonObject[]) => Result.gen(function* () {
-      const ids = new Set<string>();
-      for (const value of rows) ids.add((yield* contracts.decodeRow(value)).order_id);
-      return { kind: "and", children: [{ kind: "in", column: "id", values: [...ids] },
-        { kind: "isNull", column: "deleted_at" }] } satisfies JsonObject;
-    });
-    const filterActiveOrderChanges = (rows: readonly JsonObject[], orders: readonly JsonObject[]) => Result.gen(function* () {
-      const active = new Map<string, Result.Result.Success<ReturnType<typeof contracts.decodeOrderRow>>>();
-      for (const value of orders) {
-        const row = yield* contracts.decodeOrderRow(projectNativeRow(value)), previous = active.get(row.id);
-        if (previous !== undefined && !jsonEqual(previous, row)) return yield* Result.fail(commerceError("storedCorruption"));
-        active.set(row.id, row);
-      }
-      const selected: Array<Result.Result.Success<ReturnType<typeof contracts.decodeRow>>> = [];
-      for (const value of rows) {
-        const row = yield* contracts.decodeRow(value);
-        if (active.get(row.order_id)?.deleted_at === null) selected.push(row);
-      }
-      return selected;
-    });
+    const { orderPredicate, filterActiveOrderChanges } = contracts;
     const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
       const bound = scalar.bind(root, owner), { bridge, events } = bound;
       const denied = deniedCommerceRepository(bound.repository, bound.refuse);

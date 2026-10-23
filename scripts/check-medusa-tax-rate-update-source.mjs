@@ -1,5 +1,6 @@
 // @ts-check
 import ts from "@typescript/typescript6";
+import { adaptInternalMetadataReplacement } from "./check-medusa-order-change-cancellation-source.mjs";
 
 const failure = "Changed native Tax Rate update source";
 export const taxRateUpdateSourcePairs = Object.freeze([
@@ -74,8 +75,8 @@ export function verifyUpdateMetadataExtraction(nativeInternal, internal, helper)
     throw new Error(failure + ": metadata extraction body");
   const beforeImport = 'import { mergeMetadata } from "../common/merge-metadata"';
   if (source.split(beforeImport).length !== 2) throw new Error(failure + ": metadata extraction import");
-  const expectedInternal = source.replace(beforeImport, 'import { prepareUpdateMetadata } from "./prepare-update-metadata"')
-    .replace(original, start + '      prepareUpdateMetadata(toUpdateData)');
+  const expectedInternal = adaptInternalMetadataReplacement(source.replace(beforeImport, 'import { prepareUpdateMetadata } from "./prepare-update-metadata"')
+    .replace(original, start + '      prepareUpdateMetadata(toUpdateData)'));
   const expectedHelper = 'import { isPresent } from "../common/is-present"\n' +
     'import { mergeMetadata } from "../common/merge-metadata"\n\n' +
     'export function prepareUpdateMetadata<TEntity, TUpdate>(\n' +

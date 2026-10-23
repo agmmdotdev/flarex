@@ -43,6 +43,7 @@ import {
 } from "./common"
 import {
   CancelOrderChangeDTO,
+  RestoreOrderChangeCancellationDTO,
   CancelOrderClaimDTO,
   CancelOrderExchangeDTO,
   CancelOrderFulfillmentDTO,
@@ -2765,6 +2766,12 @@ export interface IOrderModuleService extends IModuleService {
    *
    */
   cancelOrderChange(orderId: string, sharedContext?: Context): Promise<void>
+
+  /** Restore only the retained fields changed by an order change cancellation. */
+  restoreOrderChangeCancellation(
+    data: RestoreOrderChangeCancellationDTO,
+    sharedContext?: Context
+  ): Promise<OrderChangeDTO>
 
   /**
    * This method cancels orders' changes.

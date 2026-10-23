@@ -4,6 +4,7 @@ import { BigNumber as NativeBigNumber, MathBN } from "@medusajs/framework/utils/
 import { commerceError, isJsonObject, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "./decoder";
 import { captureCommerceInput } from "./input";
+import { captureNativeRecord } from "./native-record";
 
 const Numeric = Schema.Union([Schema.String, Schema.Number]);
 const Raw = Schema.Struct({
@@ -59,7 +60,7 @@ export const encodeExactNumeric = Effect.fn("MedusaAdapter.encodeExactNumeric")(
 export const captureExactNumericRow = Effect.fn("MedusaAdapter.captureExactNumericRow")(function* (
   input: unknown, columns: readonly { readonly name: string; readonly defaultValue?: unknown; readonly nullable?: boolean }[], defaults = false,
 ) {
-  const row = yield* captureNumericRecord(input);
+  const row = yield* captureNativeRecord(input);
   for (const column of columns) {
     if (Object.hasOwn(row, "raw_" + column.name)) return yield* Effect.fail(commerceError("unsupportedProfile"));
     if (row[column.name] === undefined && !defaults) continue;
@@ -73,27 +74,11 @@ export const captureExactNumericRow = Effect.fn("MedusaAdapter.captureExactNumer
     isJsonObject(value) ? Effect.succeed(value) : Effect.fail(commerceError("invalidInput"))));
 });
 
-const captureNumericRecord = Effect.fn("MedusaAdapter.captureNumericRecord")(function* (input: unknown) {
-  const reflected = yield* Effect.try({ try: () => {
-    if (input === null || typeof input !== "object" || Array.isArray(input)) throw commerceError("invalidInput");
-    return { prototype: Object.getPrototypeOf(input), properties: Object.getOwnPropertyDescriptors(input) };
-  }, catch: cause => commerceError("invalidInput", cause) });
-  if (reflected.prototype !== Object.prototype && reflected.prototype !== null) return yield* Effect.fail(commerceError("invalidInput"));
-  const row: Record<string, unknown> = {};
-  for (const key of Reflect.ownKeys(reflected.properties)) {
-    const property = typeof key === "string" ? reflected.properties[key] : undefined;
-    if (typeof key !== "string" || property === undefined || !("value" in property) || !property.enumerable)
-      return yield* Effect.fail(commerceError("invalidInput"));
-    row[key] = property.value;
-  }
-  return row;
-});
-
 const decodeNativePair = Schema.decodeUnknownEffect(Schema.Struct({ entity: Schema.Unknown, update: Schema.Unknown }), { onExcessProperty: "error" });
 export const captureExactNumericUpdatePair = Effect.fn("MedusaAdapter.captureExactNumericUpdatePair")(function* (
   input: unknown, columns: readonly { readonly name: string; readonly defaultValue?: unknown; readonly nullable?: boolean }[],
 ) {
-  const pair = yield* decodeNativePair(yield* captureNumericRecord(input)).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  const pair = yield* decodeNativePair(yield* captureNativeRecord(input)).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   return { entity: yield* Effect.fromResult(captureCommerceInput(pair.entity)), update: yield* captureExactNumericRow(pair.update, columns) };
 });
 

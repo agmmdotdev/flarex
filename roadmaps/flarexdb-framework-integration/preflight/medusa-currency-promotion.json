@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "8e45ae734a3c98da3e1ab660d7776a161a2bbd8e27438c52896657c0c8786e20"
+      "targetSha256": "babb3a40a6be602b7c19894466d5412c87c34efe091eaacee171b73e65b2ac17"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -2167,8 +2167,8 @@
       "source": "third_party/medusa/upstream/packages/core/types/src/dal/repository-service.ts",
       "target": "packages/medusa-types/src/dal/repository-service.ts",
       "sourceSha256": "c6b6c1c7e5a61be867c924d8b1d88366330b71ade9170662ef88a7c23d781e00",
-      "classification": "unchanged",
-      "targetSha256": "c6b6c1c7e5a61be867c924d8b1d88366330b71ade9170662ef88a7c23d781e00"
+      "classification": "orderChangeCancellationRestoreFork",
+      "targetSha256": "839c9cb33cba0afd9b9e9e590531a5d59ee748be94bea967001636429f4ce4d2"
     },
     {
       "source": "third_party/medusa/upstream/packages/core/types/src/dal/utils.ts",
@@ -2300,8 +2300,8 @@
       "source": "third_party/medusa/upstream/packages/core/types/src/modules-sdk/medusa-internal-service.ts",
       "target": "packages/medusa-types/src/modules-sdk/medusa-internal-service.ts",
       "sourceSha256": "be01d7757bd9a167196626bdaa2fa2b4652ec4af9b5a51a14fa5526cc747f6b0",
-      "classification": "unchanged",
-      "targetSha256": "be01d7757bd9a167196626bdaa2fa2b4652ec4af9b5a51a14fa5526cc747f6b0"
+      "classification": "orderChangeCancellationRestoreFork",
+      "targetSha256": "eb95fd0d35cc3f4bdc897edb28ebd9c0e7bfca31a7ea0163285b4dbcd1dd16c6"
     },
     {
       "source": "third_party/medusa/upstream/packages/core/types/src/modules-sdk/module-provider.ts",
@@ -2745,7 +2745,7 @@
       "target": "packages/medusa-utils/src/dal/mikro-orm/mikro-orm-repository.ts",
       "sourceSha256": "7efb5c40aac138afa15c9f55b09e85ea307fe4bf1130b826a6d4a6df0b73906a",
       "classification": "nativeRepositoryFork",
-      "targetSha256": "0c7d0055c3c680d682362433d438fc681ad82ae97cfe18afa91ee8728cd0761d"
+      "targetSha256": "439acef666f24141a4dcaafadde9bb377424593940d13c56900e9932248a655e"
     },
     {
       "source": "third_party/medusa/upstream/packages/core/utils/src/dal/mikro-orm/mikro-orm-serializer.ts",
@@ -3221,7 +3221,7 @@
       "target": "packages/medusa-utils/src/modules-sdk/medusa-internal-service.ts",
       "sourceSha256": "d6bff4df9e3adc56ef8317dface9206710a81523bcbd1536186c291c18662e47",
       "classification": "updateMetadataFork",
-      "targetSha256": "02c39e4abe83a44f8595d621ce6c45b1ce5a21cf712df6a852361e56d5a7f391"
+      "targetSha256": "10c51a494a93dae02ebb8ba2e2c263eecffec13fe54f2ac6178b6e11d620441d"
     },
     {
       "source": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/medusa-service.ts",
@@ -3909,8 +3909,8 @@
     },
     {
       "target": "packages/medusa-types/src/order/mutations.ts",
-      "classification": "unchanged",
-      "targetSha256": "a32eecaa77981203778415fb888c15d54780f037ac1547f03eaa932e5cbe2169",
+      "classification": "orderChangeCancellationRestoreFork",
+      "targetSha256": "152b7f4c5d08fcdc95585d40b3237f6378074d8e9fb795d08f36ec3874249d76",
       "source": "third_party/medusa/upstream/packages/core/types/src/order/mutations.ts",
       "sourceSha256": "a32eecaa77981203778415fb888c15d54780f037ac1547f03eaa932e5cbe2169"
     },
@@ -4001,7 +4001,7 @@
     {
       "target": "packages/medusa-adapter/src/value/exact-numeric.ts",
       "classification": "authored",
-      "targetSha256": "8d5f1241ac22bc781058195fa5dac68fe175dbc1b1a98fbcce476d45ee172a71"
+      "targetSha256": "e86cbab3358a6a9a0f8c3a850e644d70c8d524cb9689ca2f0866049d437f6a48"
     },
     {
       "target": "packages/medusa-adapter/test/exact-numeric.test.ts",
@@ -13928,8 +13928,8 @@
     {
       "source": "third_party/medusa/upstream/packages/modules/order/src/services/order-module-service.ts",
       "target": "packages/medusa-order/src/services/order-module-service.ts",
-      "classification": "importRelocation",
-      "targetSha256": "17de194a528d6f157f8cb5b4e80ccf8e3c1500a7835059ac58f0fb3fd7d8c924",
+      "classification": "orderChangeCancellationRestoreFork",
+      "targetSha256": "86086d8df3199c149ef1a45bac6e45c549062e53f1cccf448299c9348a3ae77c",
       "sourceSha256": "5197d2d16048fb92efb7d30fea8442b0f5a1b766f8cd8d114b40d0cfb7495002"
     },
     {
@@ -14269,8 +14269,8 @@
     {
       "source": "third_party/medusa/upstream/packages/core/types/src/order/service.ts",
       "target": "packages/medusa-types/src/order/service.ts",
-      "classification": "unchanged",
-      "targetSha256": "c082344253079989cefc678c852ac25581f20c84b34a19cd583059ef8e4e1ee1",
+      "classification": "orderChangeCancellationRestoreFork",
+      "targetSha256": "9e0ba4ade997ad2db561eb3db96504e2a14066ab3e1de7429402ae7c99e4bb4b",
       "sourceSha256": "c082344253079989cefc678c852ac25581f20c84b34a19cd583059ef8e4e1ee1"
     },
     {
@@ -14531,12 +14531,12 @@
     {
       "target": "packages/medusa-adapter/src/modules/order/change-update-input.ts",
       "classification": "authored",
-      "targetSha256": "e3c3ec7607ee1f31190db81a3158457182aa6630a54aa479ba6362fbad2920c0"
+      "targetSha256": "4c0c3749bfea9528cc52dabb378be24614e5fcd677265596faf3d42eb1d45fef"
     },
     {
       "target": "packages/medusa-adapter/src/modules/order/change-update-repository.ts",
       "classification": "authored",
-      "targetSha256": "0b5900366492ed887ad7e4efef6385d4ac0b116464a406a11de95a130f7c662a"
+      "targetSha256": "8df15b43cdb4f7f3994da1b0279a905a2a9e47da50c3afb2dab71f79f454a6cc"
     },
     {
       "target": "packages/medusa-adapter/src/modules/order/change-update-receipt.ts",
@@ -14685,6 +14685,80 @@
       "targetSha256": "9228c991c75efa8cb3e4c332806d5c049f23a5422446e264cf001732fab7bdff",
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/tax/steps/delete-tax-rates.ts",
       "sourceSha256": "b8b6a9143c77fdaf10c9a230b491795266d0a01942ae7f27dffedefd7ec8533a"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/order/change-cancellation-input.ts",
+      "classification": "authored",
+      "targetSha256": "b9bfff2f94af6c3a430b16c9a682db14bcda80d6004bd069f496973705e3ed03"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/order/change-cancellation-repository.ts",
+      "classification": "authored",
+      "targetSha256": "911f241e298f36557a113380b70b93cba352335f99a02d9041ba01e881ff5cc7"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/order/change-cancellation-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "acf85b93bf30f1d43bc14c1719eb6976653d41c6105ff00b4dd00034dd6e7658"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/order/change-cancellation-service.ts",
+      "classification": "authored",
+      "targetSha256": "23f4ad622d95dd3b72c9e4505ff64d594b945a255174f53e96c0dde876a12780"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/order/change-contracts.ts",
+      "classification": "authored",
+      "targetSha256": "264302ed551a4041f689af032a85aca063948e7623a57281966a652bd84ac499"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/order/cancel-order-change.ts",
+      "classification": "authored",
+      "targetSha256": "e4535bd6d465fabb81668bc50cd5ebd3e54a2b959effb5f29415bedbedf5bc83"
+    },
+    {
+      "target": "packages/medusa-adapter/test/order-change-cancellation-receipts.test.ts",
+      "classification": "authored",
+      "targetSha256": "5a644df97174a4b157096b411195b01746a699e7257ef1da32a4c9b11c691d0d"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-order-change-cancellation-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "bc601b9f30f47f3c89d9c65e29092f118e7e38a2065e2298032516f02ac99e27"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-order-change-cancellation-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "4f3921b2eade55ec4c533980d32d172076d59663f0f1be484af51e4a491d5755"
+    },
+    {
+      "target": "packages/medusa-adapter/src/value/native-record.ts",
+      "classification": "authored",
+      "targetSha256": "12c4dd3a0bba85991c9541d2e9e473c6e8906e4bbb0bfdf1d246f3651ff179ce"
+    },
+    {
+      "target": "packages/medusa-adapter/test/native-record.test.ts",
+      "classification": "authored",
+      "targetSha256": "2272bfb9cc0f2f955b65b251702341bb642c89b3a984a75a9268711c4172eb83"
+    },
+    {
+      "target": "packages/medusa-utils/src/modules-sdk/__tests__/metadata-update-options.spec.ts",
+      "classification": "authored",
+      "targetSha256": "f2bd47ff97e49d09d2e3d6b2347714c3027f17337d3997ff9eb63a003f6cd981"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/order/steps/cancel-order-change.ts",
+      "target": "packages/medusa-core-flows/src/order/steps/cancel-order-change.ts",
+      "classification": "orderChangeCancellationFork",
+      "sourceSha256": "9ef7c3cff9403e768687a4883bdf89a93b49f3dbf3c03c515d6b9908f21ee3f5",
+      "targetSha256": "0e8a810d2623977ba139392f1d1c257528bb16c25185d6fce68ff4a1620f5e80"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/order/workflows/cancel-order-change.ts",
+      "target": "packages/medusa-core-flows/src/order/workflows/cancel-order-change.ts",
+      "classification": "orderChangeCancellationFork",
+      "sourceSha256": "11c57c79cee2bb98a143cbc7a610f690c691be3db33cdb9369dc9b182569ed5b",
+      "targetSha256": "a776296713cc9286d187e855fa045b2496770fbd1aea11ed1e70a3ea7fd7aa2e"
     }
   ],
   "dependencies": {
@@ -15315,7 +15389,9 @@
         "./tax/delete-tax-rates",
         "./tax/delete-tax-rates-step",
         "./order/update-order-changes",
-        "./order/update-order-changes-step"
+        "./order/update-order-changes-step",
+        "./order/cancel-order-change",
+        "./order/cancel-order-change-step"
       ]
     },
     {
@@ -17327,12 +17403,12 @@
     },
     {
       "target": "packages/medusa-types/dist/dal/repository-service.d.ts",
-      "targetSha256": "a7ebed15c0a79cf839e2cd05678c6ece7ee7a48dadfb38dd2aec410ba223c9ef",
+      "targetSha256": "76792c9964cc5d794b66df6f414e17f647c3d9bf303dd2b0986b86acf56e0115",
       "input": "packages/medusa-types/src/dal/repository-service.ts"
     },
     {
       "target": "packages/medusa-types/dist/dal/repository-service.d.ts.map",
-      "targetSha256": "0eade9a386386b60a5960e8b4ca86e83456f539dd3460f36191a0077553b3760",
+      "targetSha256": "3d1b0cb498374190b6aaf8f895be483365f544c232a3e47600f18913fcca0e27",
       "input": "packages/medusa-types/src/dal/repository-service.ts"
     },
     {
@@ -17707,12 +17783,12 @@
     },
     {
       "target": "packages/medusa-types/dist/modules-sdk/medusa-internal-service.d.ts",
-      "targetSha256": "35cd3fdfb7190dc330811ef37d96944456f77d15138fe73531d6d019e67055e3",
+      "targetSha256": "8b0d9e651a3c1ef02856f1f76033f6d92011832d10dc112285dd0d9501732fce",
       "input": "packages/medusa-types/src/modules-sdk/medusa-internal-service.ts"
     },
     {
       "target": "packages/medusa-types/dist/modules-sdk/medusa-internal-service.d.ts.map",
-      "targetSha256": "726d456cd7333254669b7c1595e80c1a4dbbd4b0ade9a9384b5c46de9f6adade",
+      "targetSha256": "ecfa49f9c873aed66bbfc9eb1dd85c8e0b9a951e48a08127795383f358222089",
       "input": "packages/medusa-types/src/modules-sdk/medusa-internal-service.ts"
     },
     {
@@ -18927,22 +19003,22 @@
     },
     {
       "target": "packages/medusa-utils/dist/dal/mikro-orm/mikro-orm-repository.d.ts",
-      "targetSha256": "67bbb04fb1330be2c8e494594cd446a88c37a8a011bc915b5d1ff57b6e062117",
+      "targetSha256": "8ec35c6655718112e7e236b3451cb5e9945074fbc7d37a28e7a2dedf7695bdff",
       "input": "packages/medusa-utils/src/dal/mikro-orm/mikro-orm-repository.ts"
     },
     {
       "target": "packages/medusa-utils/dist/dal/mikro-orm/mikro-orm-repository.d.ts.map",
-      "targetSha256": "95ff261daef8b0b978cf1a77d7aabf8b5486e1cc7bb4cdaf5a8fb676c7d13f4b",
+      "targetSha256": "9e56aa9ca30e17d9aa6da6c20ab6192dfd119333871bd2a55e448602d7797374",
       "input": "packages/medusa-utils/src/dal/mikro-orm/mikro-orm-repository.ts"
     },
     {
       "target": "packages/medusa-utils/dist/dal/mikro-orm/mikro-orm-repository.js",
-      "targetSha256": "3ccb220f63eef65526d05818ac4147c2867a3000b18b0efdbf5781a8e2534404",
+      "targetSha256": "c2522c15716d51220149be0ae19b41a4c3d96e05f59113ad39b08c09fdca9f1e",
       "input": "packages/medusa-utils/src/dal/mikro-orm/mikro-orm-repository.ts"
     },
     {
       "target": "packages/medusa-utils/dist/dal/mikro-orm/mikro-orm-repository.js.map",
-      "targetSha256": "c298208a5677fa685cfa59567eb543af8faef576c92112fccb270cddf99e5711",
+      "targetSha256": "a98a06ec71c053d2a07cf76acde8b1b668f96cfc6b21bc7cdf788b0b7c4ff842",
       "input": "packages/medusa-utils/src/dal/mikro-orm/mikro-orm-repository.ts"
     },
     {
@@ -20292,17 +20368,17 @@
     },
     {
       "target": "packages/medusa-utils/dist/modules-sdk/medusa-internal-service.d.ts.map",
-      "targetSha256": "11595e495bc2212f369b7b9b2abeb3d485cd593a5b52e25acbae01bea3724304",
+      "targetSha256": "a430c0d1a9beb0dbd60f010bdd6e28835ef25479c0283f82a6758783f387aded",
       "input": "packages/medusa-utils/src/modules-sdk/medusa-internal-service.ts"
     },
     {
       "target": "packages/medusa-utils/dist/modules-sdk/medusa-internal-service.js",
-      "targetSha256": "9b40cd7e611051da74535394ec34b4a6d8b91d70d873106504ac38c9fe6ebde3",
+      "targetSha256": "2282f266146a810f85c5e020d11062ac5e71f6b71926bc1edbe814c3257d2416",
       "input": "packages/medusa-utils/src/modules-sdk/medusa-internal-service.ts"
     },
     {
       "target": "packages/medusa-utils/dist/modules-sdk/medusa-internal-service.js.map",
-      "targetSha256": "cfb1ebd865273d57e8bd5e6a2ee28e39c607b2ffb75cc711ee146f51faf02536",
+      "targetSha256": "1486e209623472afe749d7c273583d82085b8a024080bb4969a411f037f0ca92",
       "input": "packages/medusa-utils/src/modules-sdk/medusa-internal-service.ts"
     },
     {
@@ -21707,12 +21783,12 @@
     },
     {
       "target": "packages/medusa-types/dist/order/mutations.d.ts",
-      "targetSha256": "c029797eb581d75257befcc8798b084e197db9e3258385c077c93735b83ded16",
+      "targetSha256": "e21a20876f9f0da814c46eb6cc48909f0e99ad6b4633c2bd4ebf3ac0e94244e3",
       "input": "packages/medusa-types/src/order/mutations.ts"
     },
     {
       "target": "packages/medusa-types/dist/order/mutations.d.ts.map",
-      "targetSha256": "1614d7281ef9bf96bdf042ceb2ea5413e4f002ac9517885a6431f7664f689000",
+      "targetSha256": "1c0d6f930d8fbd5382cd28bb08c4163ab91b60cd49f3c93194795db74c0915cf",
       "input": "packages/medusa-types/src/order/mutations.ts"
     },
     {
@@ -29847,22 +29923,22 @@
     },
     {
       "target": "packages/medusa-order/dist/services/order-module-service.d.ts",
-      "targetSha256": "2cbb271a5f4187e1e941ebc29c361e7c20b5b28ec3bd67307ea784d991da3311",
+      "targetSha256": "710c6880ad4ac092e7214de4452a3a9d4f93f783c0e98c81328081b1a602bc08",
       "input": "packages/medusa-order/src/services/order-module-service.ts"
     },
     {
       "target": "packages/medusa-order/dist/services/order-module-service.d.ts.map",
-      "targetSha256": "b4d4bab660584f4344a8383d1a66f20592eabd93b8376dccba33f1c5271670d8",
+      "targetSha256": "474b94aeb5d7bb4805417b63f639eee267b57fb3a063b27140df2a3c1c294a01",
       "input": "packages/medusa-order/src/services/order-module-service.ts"
     },
     {
       "target": "packages/medusa-order/dist/services/order-module-service.js",
-      "targetSha256": "bfaf40eca41e31f9dbf2fe9edc10702876b6b27476b05522bf6e095a4a24fb43",
+      "targetSha256": "236191eb5b9e58be5333a21b356805b109d68d9de299f5a8b2c9797fa4058f9f",
       "input": "packages/medusa-order/src/services/order-module-service.ts"
     },
     {
       "target": "packages/medusa-order/dist/services/order-module-service.js.map",
-      "targetSha256": "7432244c3b337a221bc6b7c6a224add3af02ead261cc0edc87e8e234916bcdb4",
+      "targetSha256": "81fb62c71d0fe1fe4d8559fc429920b6ff3ca2e277d582f6e902127f8608dbdf",
       "input": "packages/medusa-order/src/services/order-module-service.ts"
     },
     {
@@ -30807,12 +30883,12 @@
     },
     {
       "target": "packages/medusa-types/dist/order/service.d.ts",
-      "targetSha256": "7d9ec17c8f61b79c1e7391b78791e967efcf68fa3505212552dc6b745211179e",
+      "targetSha256": "8d6cc32b151a5c2f66ff88b103a37640926b4e801bc2008ef72fa1ef57040a14",
       "input": "packages/medusa-types/src/order/service.ts"
     },
     {
       "target": "packages/medusa-types/dist/order/service.d.ts.map",
-      "targetSha256": "62a10fd9b226698a3fb96ba98cd501e793eddac53ee4ad51c5c43af0944e8696",
+      "targetSha256": "3fff66d9e90347e4c1ceea4b3b346ec228c723bb07c945c4e654c50c78a959e1",
       "input": "packages/medusa-types/src/order/service.ts"
     },
     {
@@ -30822,7 +30898,7 @@
     },
     {
       "target": "packages/medusa-types/dist/order/service.js.map",
-      "targetSha256": "7a095ffe27d4b435dfc40feb048e77fb55934c1ed37a603e989b7540c9a5786f",
+      "targetSha256": "ee79dc3651a8c14739e70a555250921aa35213f9827ab39b1ef0e093303c25b2",
       "input": "packages/medusa-types/src/order/service.ts"
     },
     {

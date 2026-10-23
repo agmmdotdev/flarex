@@ -30,6 +30,11 @@ describe("approved native PriceList Price normalization source", () => {
     ["input mutation", "delete dataToCreate[key]", "delete data[key]"],
     ["original response", "...data,\n        ...(created", "...dataToCreate,\n        ...(created"],
     ["retained existing ID", "id: data.id ?? (created as any).id", "id: (created as any).id"],
+    ["explicit replacement mode", 'options?.metadata === "replace"', 'options?.metadata !== "replace"'],
+    ["own metadata only", 'Object.prototype.hasOwnProperty.call(update, "metadata")', '"metadata" in update'],
+    ["ordinary field assignment", 'manager.assign(entity, updateFields, {\n          mergeObjectProperties: true', 'manager.assign(entity, updateFields, {\n          mergeObjectProperties: false'],
+    ["exact metadata assignment", 'manager.assign(entity, { metadata: update.metadata }, {\n            mergeObjectProperties: false', 'manager.assign(entity, { metadata: update.metadata }, {\n            mergeObjectProperties: true'],
+    ["preserved input", 'delete updateFields.metadata', 'delete update.metadata'],
   ])("rejects changed %s", (_label, before, after) => {
     const changed = dal.replace(before, after); expect(changed).not.toBe(dal);
     expect(() => verifyNativePriceListPriceNormalization(nativeDal, changed, planning, createPlanning)).toThrow("Changed approved native PriceList Price normalization");

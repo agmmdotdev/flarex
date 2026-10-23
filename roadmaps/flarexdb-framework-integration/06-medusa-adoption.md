@@ -52,9 +52,11 @@ extra status writes or workflow messages refuse and roll back.
 The [native Order Change scalar update profile](./preflight/order-change-update-workflow.md)
 adds `updateOrderChangesWorkflow` for zero to four existing Change patches,
 with genuine selected preimages and repeated compensation. Metadata, dates,
-creation and Action mutations remain outside this profile. Native Change
-cancellation compensation has known status and metadata restoration gaps
-and remains unadmitted pending an explicit native correction decision.
+creation and Action mutations remain outside this profile. The
+[native Order Change cancellation profile](./preflight/order-change-cancellation-workflow.md)
+adds single existing pending/requested Change cancellation and an approved native
+exact inverse for status, cancellation fields and submitted metadata. General
+metadata updates retain their separate undo gate.
 Creation/display-ID allocation, line-item mutations, returns/claims/exchanges,
 general Order composition and public/hosted activation remain separate gates.
 

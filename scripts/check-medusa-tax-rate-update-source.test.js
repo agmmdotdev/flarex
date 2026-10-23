@@ -99,6 +99,10 @@ describe("native Tax Rate selector update source", () => {
     ["metadata", "entity as TEntity", "entity as unknown"],
     ["internal", "prepareUpdateMetadata(toUpdateData)", "prepareUpdateMetadata([...toUpdateData].reverse())"],
     ["internal", "prepareUpdateMetadata(toUpdateData)", ""],
+    ["internal", 'options?.metadata !== "replace"', 'options?.metadata === "replace"'],
+    ["internal", 'sharedContext,\n        options', 'sharedContext'],
+    ["internal", 'selectorAndData: SelectorAndData[],\n      sharedContext?: Context,\n      options?: DAL.UpdateOptions',
+      'selectorAndData: SelectorAndData[],\n      sharedContext?: Context,\n      options: DAL.UpdateOptions'],
   ])("refuses changed native metadata %s source: %s", (key, before, after) => {
     const original = (key === "metadata" ? metadata : internal).replaceAll("\r\n", "\n");
     expect(original.split(before)).toHaveLength(2);

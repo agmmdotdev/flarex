@@ -63,12 +63,12 @@ granted to the module.
 General metadata updates are unadmitted because the native inverse's metadata
 merge retains newly added keys and mutates its retained object. A tombstone
 patch cannot restore every prior object because a legitimate stored empty-string
-value is interpreted as deletion by the native merge. Native Change cancellation
-also omits prior status from its retained projection, so undo leaves the Change
-canceled. Genuine original SQLite and ordinary-role PostgreSQL executions
-preserve both failures; no adapter workaround or business correction is applied.
-Admitting cancellation or general metadata updates requires an explicit native
-correction decision and exact restoration/retry witnesses at the native owner.
+value is interpreted as deletion by the native merge. Genuine original SQLite
+and ordinary-role PostgreSQL executions preserve these failures. The separately
+admitted [Change cancellation profile](./order-change-cancellation-workflow.md)
+corrects cancellation status retention and uses an explicit native metadata
+replacement option for its named inverse. General Change metadata updates do
+not use that inverse and remain unadmitted pending their own exact undo contract.
 
 The scalar profile's both-driver witnesses cover maximum cohorts,
 selected preimages, complete results, genuine and repeated compensation, duplicate

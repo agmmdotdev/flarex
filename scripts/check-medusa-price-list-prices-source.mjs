@@ -1,5 +1,6 @@
 // @ts-check
 import ts from "@typescript/typescript6";
+import { adaptRepositoryMetadataReplacement } from "./check-medusa-order-change-cancellation-source.mjs";
 
 export const pricingRepositoryNormalizationSource = [
   "packages/medusa-utils/src/dal/mikro-orm/mikro-orm-repository.ts",
@@ -114,7 +115,7 @@ export function applyUpsertRelationResults(reconstructedResponse: Record<string,
   ${apply.replace("reconstructedResponse[index][relationName]", "reconstructedResponse[index]![relationName]")}
 }`;
   /** @type {readonly (readonly [string, string, string])[]} */
-  const comparisons = [["repository", target, expected], ["helper", helper, expectedHelper],
+  const comparisons = [["repository", target, adaptRepositoryMetadataReplacement(expected)], ["helper", helper, expectedHelper],
     ["create helper", createHelper, expectedCreateHelper]];
   for (const [owner, actual, expectedSource] of comparisons) {
     const actualLines = program(actual).split("\n"), expectedLines = program(expectedSource).split("\n");

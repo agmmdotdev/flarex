@@ -24,6 +24,11 @@ export type PerformedActions = {
   deleted: Record<EntityClassName, EntityValues>
 }
 
+/** Metadata assignment policy for an existing-entity update. */
+export interface UpdateOptions {
+  metadata?: "merge" | "replace"
+}
+
 /**
  * Data access layer (DAL) interface to implements for any repository service.
  * This layer helps to separate the business logic (service layer) from accessing the
@@ -67,7 +72,8 @@ export interface RepositoryService<T = any> extends BaseRepositoryService {
 
   update(
     data: { entity; update }[],
-    context?: Context
+    context?: Context,
+    options?: UpdateOptions
   ): Promise<InferRepositoryReturnType<T>[]>
 
   delete(

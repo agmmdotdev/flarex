@@ -6,6 +6,7 @@ import {
   FilterQuery,
   PerformedActions,
   UpsertWithReplaceConfig,
+  UpdateOptions,
 } from "../dal"
 import { InferEntityType } from "../dml"
 
@@ -46,22 +47,25 @@ export interface IMedusaInternalService<
 
   update(
     data: any[],
-    sharedContext?: Context
+    sharedContext?: Context,
+    options?: UpdateOptions
   ): Promise<InferEntityType<TEntity>[]>
-  update(data: any, sharedContext?: Context): Promise<InferEntityType<TEntity>>
+  update(data: any, sharedContext?: Context, options?: UpdateOptions): Promise<InferEntityType<TEntity>>
   update(
     selectorAndData: {
       selector: FilterQuery<any> | BaseFilterable<FilterQuery<any>>
       data: any
     },
-    sharedContext?: Context
+    sharedContext?: Context,
+    options?: UpdateOptions
   ): Promise<InferEntityType<TEntity>[]>
   update(
     selectorAndData: {
       selector: FilterQuery<any> | BaseFilterable<FilterQuery<any>>
       data: any
     }[],
-    sharedContext?: Context
+    sharedContext?: Context,
+    options?: UpdateOptions
   ): Promise<InferEntityType<TEntity>[]>
 
   delete(idOrSelector: string, sharedContext?: Context): Promise<string[]>

@@ -2737,6 +2737,30 @@ export default class OrderModuleService
     await this.orderChangeService_.update(updates as any, sharedContext)
   }
 
+  /** Restore a cancellation preimage without metadata merge or entity creation. */
+  @InjectTransactionManager()
+  @EmitEvents()
+  async restoreOrderChangeCancellation(
+    data: OrderTypes.RestoreOrderChangeCancellationDTO,
+    @MedusaContext() sharedContext: Context = {}
+  ): Promise<OrderChangeDTO> {
+    const update: OrderTypes.RestoreOrderChangeCancellationDTO = {
+      id: data.id,
+      status: data.status,
+      canceled_at: data.canceled_at,
+      canceled_by: data.canceled_by,
+    }
+    if (Object.prototype.hasOwnProperty.call(data, "metadata")) {
+      update.metadata = data.metadata
+    }
+    const restored = await this.orderChangeService_.update(
+      update,
+      sharedContext,
+      { metadata: "replace" }
+    )
+    return await this.baseRepository_.serialize<OrderChangeDTO>(restored)
+  }
+
   async confirmOrderChange(orderChangeId: string, sharedContext?: Context)
   async confirmOrderChange(orderChangeId: string[], sharedContext?: Context)
   async confirmOrderChange(
