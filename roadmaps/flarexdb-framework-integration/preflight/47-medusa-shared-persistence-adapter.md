@@ -69,6 +69,18 @@ existing find/count call ceilings; a real-store test pins the internal Product
 60/61-selector filter-node boundary. The test constructs DAL dollar-prefixed
 selectors inside its command, after host request admission, as Medusa does.
 
+## Native scalar creation presentation
+
+The scalar repository has an explicit checked-DML option for immediate nullable
+belongs-to field presence. It correlates complete returned rows and prepared
+inputs by canonical ID, retains explicit NULL and supplied reference IDs, and
+omits absent or undefined reference fields only from detached creation results.
+Storage and mutation-event rows remain complete. Native batch planning owns
+canonical aliases; each returned alias receives its own deep clone. Existing
+profiles keep their current behavior. The neutral presentation tests establish
+these mechanics without admitting Tax Region creation or proving its database
+defaults, flush ordering, constraints or retained inverse.
+
 ## Implemented schema ownership
 
 This capability starts from `aaba75d4`. Currency and Product now call

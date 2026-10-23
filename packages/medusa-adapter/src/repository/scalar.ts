@@ -16,6 +16,7 @@ import { compileProjection } from "../query/projection";
 import { compileWhere, type WherePolicy } from "../query/predicate";
 import { executeRead, orderedCatalog, type ReadPlan } from "../query/read";
 import type { SchemaTable } from "../schema/model";
+import type { decodeCompiledDml } from "../schema/compiled";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 const decodeId = commerceDecoder(Id, "invalidInput");
@@ -34,7 +35,8 @@ const decodeOptions = commerceDecoder(Schema.Struct({
  * filters and explicit extensions; this factory grants no table or settlement. */
 export function prepareScalarRepository(table: SchemaTable, modelName: string, wherePolicy: WherePolicy,
   normalizeProjection?: (value: Json) => Effect.Effect<Json, CommerceTransactionError>,
-  createPolicy?: { readonly managedTimestamps?: true; readonly nativeRealPresentation?: true }) {
+  createPolicy?: { readonly managedTimestamps?: true; readonly nativeRealPresentation?: true;
+    readonly nativeToOneCreationPresence?: Effect.Success<ReturnType<typeof decodeCompiledDml>>["tables"][number]["relationships"] }) {
   return Result.gen(function* () {
     const primary = table.columns.filter(column => column.primaryKey);
     if (primary.length !== 1 || primary[0]?.name !== "id" || primary[0].type !== "id") {
@@ -44,6 +46,17 @@ export function prepareScalarRepository(table: SchemaTable, modelName: string, w
     const columns = table.columns.map(column => column.name);
     const scalarNames = createPolicy?.managedTimestamps ? columns : columns.filter(name => !["created_at", "updated_at", "deleted_at"].includes(name));
     const realColumns = createPolicy?.nativeRealPresentation ? table.columns.filter(column => column.type === "float").map(column => column.name) : [];
+    const optionalNativeReferences: string[] = [];
+    for (const relation of createPolicy?.nativeToOneCreationPresence ?? []) {
+      if (relation.type !== "belongsTo" || !relation.nullable) continue;
+      const name = relation.foreignKeyNames?.[0];
+      const column = table.columns.find(candidate => candidate.name === name);
+      const keys = table.foreignKeys.filter(key => key.columns.length === 1 && key.columns[0] === name && key.referencedTable === relation.targetTable);
+      if (relation.foreignKeyNames?.length !== 1 || name === undefined || column?.nullable !== true ||
+        keys.length !== 1 || keys[0]?.referencedColumns.length !== 1)
+        return yield* Result.fail(commerceError("unsupportedProfile"));
+      optionalNativeReferences.push(name);
+    }
     const decodeCreate = commerceRowDecoder(scalarNames, "unsupportedProfile");
     const companions = Object.fromEntries(table.columns.filter(column => column.type === "bigNumber")
       .map(column => [column.name, "raw_" + column.name]));
@@ -102,16 +115,32 @@ export function prepareScalarRepository(table: SchemaTable, modelName: string, w
         const inserted = yield* store.write(ctx.manager, "insert", plan.entities);
         // Native entities retain submitted REAL values until a cold read. SQL
         // conversion must succeed first; canonical storage remains untouched.
+        const suppliedById = new Map(plan.entities.map(entity => [entity.id, entity]));
         const presented = inserted.map((entity, index) => {
-          const result = { ...entity }, submitted = plan.entities[index];
+          const result = { ...entity }, submitted = createPolicy?.nativeToOneCreationPresence === undefined
+            ? plan.entities[index] : typeof entity.id === "string" ? suppliedById.get(entity.id) : undefined;
           for (const name of realColumns) if (submitted?.[name] !== undefined) result[name] = submitted[name];
           return result;
         });
         if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
         yield* events.created(presented.map(entity => ({ modelName, entity: { ...entity } })), shared);
-        // All aliases serialize the final canonical entity after every input
-        // has hydrated it and storage has supplied defaults and timestamps.
-        return plan.positions.map(position => ({ ...presented[position]! }));
+        // Existing profiles serialize the final canonical entity after every
+        // input has hydrated it and storage supplied defaults and timestamps.
+        if (createPolicy?.nativeToOneCreationPresence === undefined)
+          return plan.positions.map(position => ({ ...presented[position]! }));
+        // Native nullable belongsTo fields have no scalar default setter. An
+        // omitted reference remains absent on the immediate entity even when
+        // its complete stored row contains NULL. Keep mutation evidence full;
+        // only detached return presentation follows canonical input presence.
+        const returned = new Map<string, JsonObject>();
+        for (const entity of presented) {
+          const result = { ...entity }, submitted = typeof entity.id === "string" ? suppliedById.get(entity.id) : undefined;
+          if (submitted === undefined || returned.has(submitted.id)) return yield* ctx.refuse(commerceError("storedCorruption"));
+          for (const name of optionalNativeReferences) if (submitted[name] === undefined) delete result[name];
+          returned.set(submitted.id, result);
+        }
+        if (returned.size !== plan.entities.length) return yield* ctx.refuse(commerceError("storedCorruption"));
+        return plan.created.map(entity => structuredClone(returned.get(entity.id)!));
       });
       const repository: DAL.RepositoryService = {
         getFreshManager: bridge.getFreshManager, getActiveManager: bridge.getActiveManager, transaction: bridge.transaction,
