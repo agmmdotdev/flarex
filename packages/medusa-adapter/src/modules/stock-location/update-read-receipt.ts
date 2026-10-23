@@ -70,7 +70,7 @@ export function compileStockLocationUpdateReadReceipt(table: SchemaTable, addres
         } else if (childCandidates.length) return yield* Effect.fail(commerceError("receiptMismatch"));
       } else if (addresses ? groups.get(table.name)?.size : childCandidates.length) return yield* Effect.fail(commerceError("receiptMismatch"));
       const state = new Map([[selectedTable, selection.rows], ...(!addresses ? [[address.name, children] as const] : [])]);
-      const assembled = assembleCommerceRelations(selectedTable, state, plan.paths, prepared.relations);
+      const assembled = (yield* Effect.fromResult(assembleCommerceRelations(selectedTable, state, plan.paths, prepared.relations)));
       const expected = yield* Effect.fromResult(projectRows(assembled, plan.projection.node));
       if (!jsonEqual(reads, activity.relationalReads)) return yield* Effect.fail(commerceError("receiptMismatch"));
       if (counted) {

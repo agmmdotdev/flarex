@@ -8,11 +8,12 @@ import { commerceError, type CommerceTransactionError, type Json, type JsonObjec
 import { isSelectedPopulationPath, type PopulationFilter } from "./population";
 import type { Predicate } from "./predicate";
 
-export type CommerceRelation = ToManyRelation | {
+type ToOneRelation<Kind extends "belongsTo" | "hasOne"> = {
   readonly name: string; readonly sourcePrimaryKeys: readonly string[];
   readonly targetTable: string; readonly targetPrimaryKeys: readonly string[];
-  readonly join: { readonly type: "belongsTo"; readonly foreignKeys: readonly string[] };
+  readonly join: { readonly type: Kind; readonly foreignKeys: readonly string[] };
 };
+export type CommerceRelation = ToManyRelation | ToOneRelation<"belongsTo"> | ToOneRelation<"hasOne">;
 export type CommerceRelations = ReadonlyMap<string, ReadonlyMap<string, CommerceRelation>>;
 export type CommerceRelationLookup = Pick<ReadonlyMap<string, Pick<ReadonlyMap<string, CommerceRelation>, "get">>, "get">;
 export type CommerceRelationOrder = string | StorageInsertionOrder;
@@ -81,6 +82,25 @@ function attachToOne(rows: Array<Record<string, Json>>, name: string, related: r
   for (const row of rows) row[name] = byKey.get(tupleKey(row, foreignKeys)) ?? null;
 }
 
+/** An inverse singleton is keyed by the target's foreign key. A complete
+ * selection must prove cardinality before attachment, including for receipts. */
+function attachHasOne(rows: Array<Record<string, Json>>, name: string, related: readonly JsonObject[], sourceKeys: readonly string[], foreignKeys: readonly string[]): Result.Result<void, CommerceTransactionError> {
+  if (sourceKeys.length === 0 || sourceKeys.length !== foreignKeys.length) return Result.fail(commerceError("unsupportedProfile"));
+  const selected = new Set(rows.map(row => tupleKey(row, sourceKeys)));
+  const byKey = new Map<string, JsonObject>();
+  for (const row of related) {
+    // Nullable references do not belong to a parent.
+    if (foreignKeys.some(key => row[key] === null)) continue;
+    if (foreignKeys.some(key => typeof row[key] !== "string")) return Result.fail(commerceError("storedCorruption"));
+    const key = tupleKey(row, foreignKeys);
+    if (!selected.has(key)) continue;
+    if (byKey.has(key)) return Result.fail(commerceError("storedCorruption"));
+    byKey.set(key, row);
+  }
+  for (const row of rows) row[name] = byKey.get(tupleKey(row, sourceKeys)) ?? null;
+  return Result.succeed(undefined);
+}
+
 interface RelationPopulation {
   readonly ctx: Parameters<typeof readCommerceRelationRows>[0];
   readonly relations: CommerceRelationLookup;
@@ -130,6 +150,11 @@ const populateRelationTree = Effect.fn("MedusaAdapter.populateTree")(function* (
       attachToOne(result, name, yield* populateRelationTree(population, descriptor.targetTable, related, nested, path), descriptor.targetPrimaryKeys, join.foreignKeys);
       continue;
     }
+    if (join.type === "hasOne") {
+      const related = yield* readPopulationRelation(population, descriptor.targetTable, join.foreignKeys, rows, descriptor.sourcePrimaryKeys, true, order, false, predicate);
+      yield* Effect.fromResult(attachHasOne(result, name, yield* populateRelationTree(population, descriptor.targetTable, related, nested, path), descriptor.sourcePrimaryKeys, join.foreignKeys));
+      continue;
+    }
     const pivotRows = join.type === "manyToMany"
       ? yield* readPopulationRelation(population, join.pivotTable, join.sourceColumns, rows, descriptor.sourcePrimaryKeys, false, join.targetColumns[0] ?? "id")
       : [];
@@ -171,18 +196,23 @@ export const populateCommerceRelations = Effect.fn("MedusaAdapter.populateRelati
 
 /** The same Medusa grouping for already inserted rows; creation does no re-read. */
 export function assembleCommerceRelations(
-  table: string, rows: ReadonlyMap<string, readonly JsonObject[]>, paths: readonly string[], relations: CommerceRelations,
-): JsonObject[] {
-  function assemble(source: string, tree: PopulateTree): JsonObject[] {
+  table: string, rows: ReadonlyMap<string, readonly JsonObject[]>, paths: readonly string[], relations: CommerceRelationLookup,
+): Result.Result<JsonObject[], CommerceTransactionError> {
+  function assemble(source: string, tree: PopulateTree): Result.Result<JsonObject[], CommerceTransactionError> {
+    return Result.gen(function* () {
     const result = (rows.get(source) ?? []).map(row => ({ ...row }));
     for (const [name, nested] of tree) {
       const descriptor = relations.get(source)?.get(name);
       // Only metadata-validated, admitted paths reach this internal projection.
       if (descriptor === undefined) throw new Error("Missing admitted Medusa relation");
-      const related = assemble(descriptor.targetTable, nested);
+      const related = yield* assemble(descriptor.targetTable, nested);
       const join = descriptor.join;
       if (join.type === "belongsTo") {
         attachToOne(result, name, related, descriptor.targetPrimaryKeys, join.foreignKeys);
+        continue;
+      }
+      if (join.type === "hasOne") {
+        yield* attachHasOne(result, name, related, descriptor.sourcePrimaryKeys, join.foreignKeys);
         continue;
       }
       const grouped = join.type === "hasMany"
@@ -191,6 +221,7 @@ export function assembleCommerceRelations(
       for (const row of result) row[name] = grouped.get(tupleKey(row, descriptor.sourcePrimaryKeys)) ?? [];
     }
     return result;
+    });
   }
   return assemble(table, toPopulateTree(paths));
 }

@@ -86,7 +86,7 @@ export function shippingOptionCreationPolicy(prepared: Prepared) {
       }
       const allowedTables = new Set([read.table.name, ...(plan.paths.length ? [contracts.set.name] : [])]);
       if ([...observed.keys()].some(table => !allowedTables.has(table)) || !jsonEqual(reads, activity.relationalReads)) return yield* Effect.fail(mismatch());
-      const expected = yield* Effect.fromResult(projectRows(assembleCommerceRelations(read.table.name, rows, plan.paths, contracts.relations), plan.projection.node));
+      const expected = yield* Effect.fromResult(projectRows((yield* Effect.fromResult(assembleCommerceRelations(read.table.name, rows, plan.paths, contracts.relations))), plan.projection.node));
       if (read.count) {
         const [actual, count] = yield* Effect.fromResult(decodeGraphCount(call.result));
         if (count !== active.length || !jsonEqual(actual, expected)) return yield* Effect.fail(mismatch());

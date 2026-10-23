@@ -41,7 +41,7 @@ export function relationPaths(catalog: ReadCatalog, root: string, paths: readonl
           onNone: () => Result.fail(commerceError("unsupportedProfile")), onSome: Result.succeed,
         }));
         table = relation.targetTable;
-        many = relation.join.type !== "belongsTo";
+        many = relation.join.type === "hasMany" || relation.join.type === "manyToMany";
         sourceFields = relation.join.type === "belongsTo" ? relation.join.foreignKeys : relation.sourcePrimaryKeys;
       }
       output.push({ path, table: yield* catalog.table(table), many,

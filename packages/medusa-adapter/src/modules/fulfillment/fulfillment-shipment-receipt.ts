@@ -109,7 +109,7 @@ export function fulfillmentShipmentPolicy(prepared: Prepared) {
         const selected = yield* readRows(relation.targetTable, predicate, group(relation.targetTable).filter(row => typeof row[column] === "string" && values.includes(row[column])), true);
         rows.set(relation.targetTable, selected);
       }
-      const assembled = assembleCommerceRelations(contracts.fulfillment.table.name, rows, plan.paths, contracts.queryRelations);
+      const assembled = (yield* assembleCommerceRelations(contracts.fulfillment.table.name, rows, plan.paths, contracts.queryRelations));
       return { plan, rows: yield* plan.project(assembled), hydration: yield* shipment.reads.hydration(assembled) };
     });
     if (call.commandName === "fulfillmentListForDelivery") {

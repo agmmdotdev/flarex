@@ -3,12 +3,13 @@ import { commerceError, type Json, type JsonObject } from "@flarex/persistence-p
 import { readCommerceRelationRows, type CommerceRelationLookup, type CommerceRelation, type CommerceRelationReadContext } from "./relations";
 import type { Predicate } from "./predicate";
 
-const identities = Effect.fn("MedusaAdapter.relationIdentities")(function* (rows: readonly JsonObject[], columns: readonly string[]) {
+const identities = Effect.fn("MedusaAdapter.relationIdentities")(function* (rows: readonly JsonObject[], columns: readonly string[], nullable = false) {
   const column = columns[0];
   if (columns.length !== 1 || column === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const values = new Set<string>();
   for (const row of rows) {
     const value = row[column];
+    if (nullable && value === null) continue;
     if (typeof value !== "string") return yield* Effect.fail(commerceError("storedCorruption"));
     values.add(value);
   }
@@ -50,7 +51,7 @@ export const resolveCommerceRelationFilter = Effect.fn("MedusaAdapter.resolveRel
       const foreignKey = join.foreignKeys[0];
       if (join.foreignKeys.length !== 1 || foreignKey === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
       selected = { kind: "in", column: foreignKey, values: yield* identities(rows, relation.targetPrimaryKeys) };
-    } else if (join.type === "hasMany") selected = { kind: "in", column: rootKey, values: yield* identities(rows, join.foreignKeys) };
+    } else if (join.type === "hasMany" || join.type === "hasOne") selected = { kind: "in", column: rootKey, values: yield* identities(rows, join.foreignKeys, true) };
     else if (join.type === "manyToMany") {
       const target = join.targetColumns[0];
       if (join.targetColumns.length !== 1 || target === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));

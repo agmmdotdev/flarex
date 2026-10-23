@@ -135,7 +135,7 @@ export function serviceZoneUpdatePolicy(prepared: Prepared) {
         ...(input.config?.relations === undefined ? {} : { relations: [...input.config.relations] }) };
       const selected = yield* Effect.fromResult(activeRead(buildQuery(input.filters, config)));
       const state = new Map([[contracts.zone.name, selected.selected], [contracts.geo.name, selected.children]]);
-      const assembled = assembleCommerceRelations(contracts.zone.name, state, selected.plan.paths, graph.catalog.queryRelations);
+      const assembled = (yield* Effect.fromResult(assembleCommerceRelations(contracts.zone.name, state, selected.plan.paths, graph.catalog.queryRelations)));
       const expected = yield* Effect.fromResult(projectRows(assembled, selected.plan.fields.node).pipe(Result.mapError(cause => commerceError("receiptMismatch", cause))));
       const actual = yield* Effect.fromResult(contracts.decodePreimages(call.result).pipe(Result.mapError(cause => commerceError("receiptMismatch", cause))));
       if (geos.some(row => !selectedGeos.has(row.id)) || !jsonEqual(expected, actual) || !jsonEqual(reads, activity.relationalReads)) return yield* Effect.fail(mismatch());

@@ -113,9 +113,9 @@ export function taxLinesReadPolicy(prepared: Prepared) {
       }
     }
     if (!jsonEqual(reads, activity.relationalReads)) return yield* Effect.fail(mismatch());
-    const populated = assembleCommerceRelations(prepared.rate.name, new Map([
+    const populated = (yield* Effect.fromResult(assembleCommerceRelations(prepared.rate.name, new Map([
       [prepared.rate.name, candidates], [prepared.region.name, selectedRegions], [prepared.rule.name, completeRules],
-    ]), ["tax_region", "rules"], prepared.relations);
+    ]), ["tax_region", "rules"], prepared.relations)));
     // Native authoring aliases omit nullable custom-line IDs and DML Rate
     // values. Decode the exact pure helper output at this foreign type seam.
     const selected: unknown = Reflect.apply(selectTaxRatesForItems, undefined, [[...input.items], populated, regionIds]);

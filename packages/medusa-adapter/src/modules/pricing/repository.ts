@@ -317,11 +317,11 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
         if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
         yield* events.created(profile.catalog.entities.flatMap(entity => (inserted.get(entity.table.name) ?? [])
           .map(row => ({ modelName: entity.model, entity: { ...row } }))), shared);
-        if (profile.root.entity === price) return assembleCommerceRelations(price.table.name, inserted, ["price_rules"],
-          catalog.queryRelations).map(row => ({ ...row, ...(row.price_list_id === null ? { price_list: null } : {}) }));
-        if (profile.root.entity === list) return assembleCommerceRelations(list.table.name,
+        if (profile.root.entity === price) return (yield* Effect.fromResult(assembleCommerceRelations(price.table.name, inserted, ["price_rules"],
+          catalog.queryRelations))).map(row => ({ ...row, ...(row.price_list_id === null ? { price_list: null } : {}) }));
+        if (profile.root.entity === list) return (yield* Effect.fromResult(assembleCommerceRelations(list.table.name,
           new Map([...inserted].map(([table, rows]) => [table, rows.map(projectNativeRow)])),
-          ["prices", "prices.price_rules", "price_list_rules"], listCatalog.queryRelations);
+          ["prices", "prices.price_rules", "price_list_rules"], listCatalog.queryRelations)));
         return [...inserted.get(profile.root.entity.table.name) ?? []];
       });
       const repository: DAL.RepositoryService = {

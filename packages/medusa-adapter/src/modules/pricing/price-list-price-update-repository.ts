@@ -94,8 +94,8 @@ export const readPriceListPriceUpdateRows = Effect.fn("PricingLists.readPriceUpd
         children.push(row);
       }
     }
-    graph = assembleCommerceRelations(contracts.tables.price.name,
-      new Map([[contracts.tables.price.name, roots], [contracts.tables.rule.name, children]]), ["price_rules"], contracts.relations);
+    graph = (yield* Effect.fromResult(assembleCommerceRelations(contracts.tables.price.name,
+      new Map([[contracts.tables.price.name, roots], [contracts.tables.rule.name, children]]), ["price_rules"], contracts.relations)));
   }
   const projected = yield* projectExactNumericColumns(graph, numeric);
   if (!Array.isArray(projected)) return yield* ctx.refuse(commerceError("storedCorruption"));

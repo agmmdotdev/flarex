@@ -122,8 +122,8 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
       if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
       const mutations = metadata.entities.flatMap(entity => (rows.get(entity.table.name) ?? []).map(row => ({ modelName: entity.model, entity: { ...row } })));
       yield* events.created(mutations, shared);
-      return yield* populateCommerceRelations(ctx, metadata.product.table.name, assembleProducts(metadata, rows,
-        productRelations.filter(name => !["tags", "categories", "collection", "type"].includes(name))),
+      return yield* populateCommerceRelations(ctx, metadata.product.table.name, yield* Effect.fromResult(assembleProducts(metadata, rows,
+        productRelations.filter(name => !["tags", "categories", "collection", "type"].includes(name)))),
       ["tags", "categories", "collection", "type"], metadata.queryRelations, new Map());
     }))),
     update: collectionMembership || internalProduct ? (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {

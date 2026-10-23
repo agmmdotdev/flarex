@@ -93,7 +93,7 @@ export function compileShippingOptionCreationContracts(metadata: Metadata, profi
       return rows;
     });
     const initializeRows = (rows: ReadonlyMap<string, readonly JsonObject[]>, includeType: boolean) => Result.gen(function* () {
-      const result = assembleCommerceRelations(option.name, rows, [...(includeType ? ["type"] : []), "rules"], relations);
+      const result = (yield* assembleCommerceRelations(option.name, rows, [...(includeType ? ["type"] : []), "rules"], relations));
       fillNullToOneRelations(result, descriptors); fillEmptyToManyRelations(result, descriptors);
       return yield* decodeRows(result);
     });

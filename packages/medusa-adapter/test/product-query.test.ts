@@ -225,7 +225,7 @@ describe("Medusa relation query extraction", () => {
       [catalog.value.table.name, [Object.freeze({ id: "value1", value: "red" }), Object.freeze({ id: "value2", value: "blue" })]],
       [catalog.pivot.table.name, [Object.freeze({ [catalog.pivot.variantColumn]: "v1", [catalog.pivot.valueColumn]: "value1" })]],
     ]);
-    expect(assembleCommerceRelations(catalog.product.table.name, rows, ["variants.options"], catalog.queryRelations)).toEqual([
+    expect(Result.getOrThrow(assembleCommerceRelations(catalog.product.table.name, rows, ["variants.options"], catalog.queryRelations))).toEqual([
       { id: "p1", variants: [{ id: "v1", [catalog.foreignKeys.variant]: "p1", options: [{ id: "value1", value: "red" }] }] },
       { id: "p2", variants: [] },
     ]);

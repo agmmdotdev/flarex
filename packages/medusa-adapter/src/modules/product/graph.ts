@@ -25,6 +25,6 @@ export const insertProductGraph = Effect.fn("ProductAdapter.insertGraph")((
 ) => insertGraphRows(ctx, productGraphCatalog(catalog), graph.rows));
 
 /** Reuse Medusa's relation grouping for the newly inserted, acyclic graph. */
-export function assembleProducts(catalog: ProductRuntimeMetadata, rows: ReadonlyMap<ProductTable, readonly JsonObject[]>, relations: readonly string[]): JsonObject[] {
+export function assembleProducts(catalog: ProductRuntimeMetadata, rows: ReadonlyMap<ProductTable, readonly JsonObject[]>, relations: readonly string[]) {
   return assembleCommerceRelations(catalog.product.table.name, rows, relations, catalog.queryRelations);
 }

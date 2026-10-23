@@ -73,7 +73,7 @@ export const validatePriceListReadReceipt = Effect.fn("PricingLists.validateRead
       return yield* Effect.fail(mismatch());
   }
   if (activity.relationalReads.length !== (ruleQuery === undefined ? 1 : 2)) return yield* Effect.fail(mismatch());
-  const graph = assembleCommerceRelations("price_list", new Map([["price_list", roots], ["price_list_rule", children]]), plan.paths, contracts.relations);
+  const graph = (yield* Effect.fromResult(assembleCommerceRelations("price_list", new Map([["price_list", roots], ["price_list_rule", children]]), plan.paths, contracts.relations)));
   const expected = yield* Effect.fromResult(projectRows(graph, plan.projection.node));
   const output = yield* Effect.fromResult(contracts.decodeReadOutput(call.result));
   if (!jsonEqual(expected, output)) return yield* Effect.fail(mismatch());

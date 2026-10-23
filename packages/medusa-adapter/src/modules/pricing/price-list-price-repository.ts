@@ -90,8 +90,8 @@ export const readPriceListPriceCandidates = Effect.fn("PricingLists.readPriceCan
       children.push(row);
     }
   }
-  const graph = assembleCommerceRelations(contracts.tables.price.name,
-    new Map([[contracts.tables.price.name, roots], [contracts.tables.rule.name, children]]), plan.paths, contracts.relations);
+  const graph = (yield* Effect.fromResult(assembleCommerceRelations(contracts.tables.price.name,
+    new Map([[contracts.tables.price.name, roots], [contracts.tables.rule.name, children]]), plan.paths, contracts.relations)));
   const projected = yield* Effect.fromResult(projectRows(graph, plan.projection.node));
   const numeric = contracts.tables.price.columns.filter(column => column.type === "bigNumber");
   const output: JsonObject[] = [];

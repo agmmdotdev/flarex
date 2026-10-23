@@ -128,7 +128,7 @@ export function storeUpdatePolicy(prepared: Prepared) {
         // population instead requests ascending public id before grouping.
         state.set(child.name, orderNativeIdRows(identified, {}));
       }
-      const assembled = assembleCommerceRelations(lifecycle.store.name, state, plan.paths, graph.catalog.queryRelations);
+      const assembled = (yield* Effect.fromResult(assembleCommerceRelations(lifecycle.store.name, state, plan.paths, graph.catalog.queryRelations)));
       const expected = yield* Effect.fromResult(projectRows(assembled, plan.fields.node)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
       const output = yield* Effect.fromResult(contracts.decodePreimages(call.result)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
       if (!jsonEqual(expected, output)) return yield* Effect.fail(mismatch());
@@ -241,7 +241,7 @@ export function storeUpdatePolicy(prepared: Prepared) {
       finalRoots.push(root);
     }
     state.set(lifecycle.store.name, finalRoots);
-    const expected = assembleCommerceRelations(lifecycle.store.name, state, ["supported_currencies", "supported_locales"], graph.catalog.queryRelations);
+    const expected = (yield* Effect.fromResult(assembleCommerceRelations(lifecycle.store.name, state, ["supported_currencies", "supported_locales"], graph.catalog.queryRelations)));
     if (!jsonEqual(expected, output)) return yield* Effect.fail(mismatch());
     const expectedEvents = (["insert", "patch", "delete"] as const).flatMap(operation => activity.mutations.filter(mutation => mutation.operation === operation).map(mutation => ({
       object: mutation.table, action: operation === "insert" ? "created" : operation === "patch" ? "updated" : "deleted", id: (mutation.after ?? mutation.before)?.id,

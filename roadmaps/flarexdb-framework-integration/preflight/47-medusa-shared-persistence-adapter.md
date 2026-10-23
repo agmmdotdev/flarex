@@ -48,6 +48,13 @@ serialization stay with their domain adapters. The shared algorithms contain
 no Product/Currency name branches. Renamed-table/key/relation tests exercise
 all three join kinds and non-`id` relation-filter ordering.
 
+The same query owner also represents inverse `hasOne` relations. Population
+retains complete bounded reads on the borrowed manager and returns an object or
+null; duplicate matching children are stored corruption. Pure authenticated
+assembly is consequently fallible and returns Result, including through nested
+relations. Existing assembly consumers propagate that failure. This relation
+capability does not grant module operations or change owning `belongsTo` joins.
+
 The old `product-parent-query.ts` and `product-inverse-query.ts` planners are
 removed; their assertions now exercise the shared projection compiler.
 Schema artifacts, graph writes, lifecycle/event policy, command admission and

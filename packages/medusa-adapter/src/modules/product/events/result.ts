@@ -34,6 +34,12 @@ export function productResultGraphMatcher(catalog: ProductRuntimeMetadata, rootT
         } else if (targets.length !== 1 || !matches(relation.targetTable, targets[0]!, selected, depth + 1)) return false;
         continue;
       }
+      if (relation.join.type === "hasOne") {
+        const keys = relation.join.foreignKeys;
+        const targets = targetRows.filter(row => tuple(row, keys) === tuple(current, relation.sourcePrimaryKeys));
+        if (targets.length === 0 ? selected !== null : targets.length !== 1 || !matches(relation.targetTable, targets[0]!, selected, depth + 1)) return false;
+        continue;
+      }
       if (!Array.isArray(selected)) return false;
       const join = relation.join;
       const matching = join.type === "hasMany"

@@ -96,8 +96,8 @@ export function compileProjection(
       if (childPolicy !== undefined) {
         const childPaths = paths.filter(path => path.startsWith(name + ".")).map(path => path.slice(name.length + 1));
         const projection = yield* compileProjection(catalog, relation.targetTable, nestedFields.get(name), childPaths, childPolicy,
-          relation.join.type === "hasMany" ? relation.join.foreignKeys : []);
-        children.push({ name, many: relation.join.type !== "belongsTo", node: projection.node });
+          relation.join.type === "hasMany" || relation.join.type === "hasOne" ? relation.join.foreignKeys : []);
+        children.push({ name, many: relation.join.type === "hasMany" || relation.join.type === "manyToMany", node: projection.node });
       }
     }
     const nested = nestedFields.size > 0;

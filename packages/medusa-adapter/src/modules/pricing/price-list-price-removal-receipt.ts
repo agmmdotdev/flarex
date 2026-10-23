@@ -92,7 +92,7 @@ const validateRead = Effect.fn("PricingPriceRemoval.validateRead")(function* (
   if (readPosition !== activity.relationalReads.length || [...rows].some(([table, group]) =>
     [...group.keys()].some(id => !consumed.has(JSON.stringify([table, id]))))) return yield* Effect.fail(mismatch());
   related.set(contracts.tables.price.name, roots);
-  const graph = assembleCommerceRelations(contracts.tables.price.name, related, ["price_set", "price_list"], contracts.relations);
+  const graph = (yield* Effect.fromResult(assembleCommerceRelations(contracts.tables.price.name, related, ["price_set", "price_list"], contracts.relations)));
   const expected: JsonObject[] = [];
   for (const row of graph) {
     if (row.price_set === undefined || !isJsonObject(row.price_set) || typeof row.price_set.id !== "string")

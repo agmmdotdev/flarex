@@ -62,7 +62,7 @@ export function paymentSessionPolicy({ contracts, query, relations }: Prepared) 
           query: commerceRelationReadQuery(defaultCommerceResources, population.value.predicate), total: target.length, returned: target.length });
       }
       if (!jsonEqual(activity.relationalReads, expectedReads)) return yield* Effect.fail(mismatch());
-      const projected = yield* Effect.fromResult(projectRows(assembleCommerceRelations(root.name, rows, plan.paths, relations), plan.projection.node));
+      const projected = yield* Effect.fromResult(projectRows((yield* Effect.fromResult(assembleCommerceRelations(root.name, rows, plan.paths, relations))), plan.projection.node));
       const output = yield* contracts.present(projected);
       if (!jsonEqual(call.result, collectionRead ? [output, roots.length] : output)) return yield* Effect.fail(mismatch());
       return;

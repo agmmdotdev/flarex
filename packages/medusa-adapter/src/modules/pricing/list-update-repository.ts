@@ -40,9 +40,9 @@ export const readPriceListUpdateRows = Effect.fn("PricingLists.readForUpdate")(f
       rules.push(row);
     }
   }
-  const graph = assembleCommerceRelations(contracts.tables.list.name, new Map([
+  const graph = (yield* Effect.fromResult(assembleCommerceRelations(contracts.tables.list.name, new Map([
     [contracts.tables.list.name, roots], [contracts.tables.listRule.name, rules],
-  ]), plan.paths, contracts.relations);
+  ]), plan.paths, contracts.relations)));
   const projected = yield* Effect.fromResult(projectRows(graph, plan.projection.node));
   const output = yield* Effect.fromResult(contracts.decodeReadOutput(projected));
   // The native update method later mutates supplied objects. Its detached

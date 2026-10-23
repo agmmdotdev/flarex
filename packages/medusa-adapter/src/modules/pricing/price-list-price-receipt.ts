@@ -167,7 +167,7 @@ export const validatePriceListPriceWriteReceipt = Effect.fn("PricingLists.valida
         return yield* Effect.fail(mismatch());
     }
   }
-  const graph = assembleCommerceRelations("price", new Map([["price", candidates], ["price_rule", rules]]), ["price_rules"], contracts.relations);
+  const graph = (yield* Effect.fromResult(assembleCommerceRelations("price", new Map([["price", candidates], ["price_rule", rules]]), ["price_rules"], contracts.relations)));
   const candidateDTOs = yield* projectExactNumericColumns(graph, contracts.tables.price.columns.filter(column => column.type === "bigNumber"));
   const normalized: unknown[] = [];
   for (const entry of input) {

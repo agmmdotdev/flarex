@@ -43,6 +43,7 @@ export function makeReadCatalog(tables: readonly ReadTable[], relations: Commerc
         sourceColumns: Object.freeze([...join.sourceColumns]), targetColumns: Object.freeze([...join.targetColumns]),
       }) }));
       else if (join.type === "belongsTo") selected.set(key, Object.freeze({ ...base, join: Object.freeze({ ...join, foreignKeys: Object.freeze([...join.foreignKeys]) }) }));
+      else if (join.type === "hasOne") selected.set(key, Object.freeze({ ...base, join: Object.freeze({ ...join, foreignKeys: Object.freeze([...join.foreignKeys]) }) }));
       else selected.set(key, Object.freeze({ ...base, join: Object.freeze({ ...join, foreignKeys: Object.freeze([...join.foreignKeys]) }) }));
     }
     joins.set(name, Object.freeze({ get: (key: string) => selected.get(key) }));

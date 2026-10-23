@@ -230,6 +230,7 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
     if (reusable && existing !== undefined) repeatedReferences.set(token, { owner, row: next });
     for (const [name, descriptor] of catalog.queryRelations.get(target.table.name) ?? []) {
       if (row[name] === undefined || descriptor.join.type === "belongsTo") continue;
+      if (descriptor.join.type === "hasOne") return yield* Effect.fail(commerceError("unsupportedProfile"));
       if (root && !relations.includes(name)) return yield* Effect.fail(commerceError("unsupportedProfile"));
       const child = catalog.entities.find(value => value.table.name === descriptor.targetTable);
       if (child === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -465,7 +466,7 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
         const links = yield* load(pivot, pivotSource, yield* selectValues(parents, sourceKey));
         if (links.length === 0) break;
         parents = yield* load(table, targetKey, yield* selectValues(links, pivotTarget), refresh);
-      } else if (join.type === "hasMany") {
+      } else if (join.type === "hasMany" || join.type === "hasOne") {
         const sourceKey = descriptor.sourcePrimaryKeys[0], targetKey = join.foreignKeys[0];
         if (descriptor.sourcePrimaryKeys.length !== 1 || join.foreignKeys.length !== 1 ||
           sourceKey === undefined || targetKey === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -481,5 +482,5 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
   }
   const projection = new Map(yield* Effect.fromResult(profile.project(state)));
   projection.set(entity.table.name, roots.map(root => freshRoots.find(row => row[entity.keyColumn] === root[entity.keyColumn]) ?? root));
-  return { entities: assembleCommerceRelations(entity.table.name, projection, paths, catalog.queryRelations), performedActions };
+  return { entities: yield* Effect.fromResult(assembleCommerceRelations(entity.table.name, projection, paths, catalog.queryRelations)), performedActions };
 }, work => observeExecution("MedusaGraph.replaceRows", work));

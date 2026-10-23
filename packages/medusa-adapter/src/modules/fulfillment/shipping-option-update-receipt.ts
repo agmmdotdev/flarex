@@ -141,7 +141,7 @@ export function shippingOptionUpdatePolicy(prepared: Prepared, rulePrepared: Rul
       if (call.mode !== "read" || activity.mutations.length || call.events.length) return yield* Effect.fail(mismatch());
       const input = yield* Effect.fromResult((read.table === contracts.provider ? providerRead : decodeShippingOptionUpdateRead)(call.input));
       const selected = yield* Effect.fromResult(selectPlan(read.table.name, buildQuery(input.filters, input.config)));
-      const expected = yield* Effect.fromResult(projectRows(assembleCommerceRelations(read.table.name, selected.rows, selected.plan.paths, contracts.relations), selected.plan.projection.node));
+      const expected = yield* Effect.fromResult(projectRows((yield* Effect.fromResult(assembleCommerceRelations(read.table.name, selected.rows, selected.plan.paths, contracts.relations))), selected.plan.projection.node));
       if (read.count) {
         const [rows, count] = yield* Effect.fromResult(decodeGraphCount(call.result));
         if (count !== selected.selected.count || !jsonEqual(rows, expected)) return yield* Effect.fail(mismatch());
@@ -303,7 +303,7 @@ export function shippingOptionUpdatePolicy(prepared: Prepared, rulePrepared: Rul
         populated.set(relation.targetTable, yield* Effect.fromResult(readRows(relation.targetTable, predicate,
           candidates.filter(row => row.deleted_at === null), relation.targetTable === contracts.rule.name)));
       }
-      const expected = assembleCommerceRelations(contracts.option.name, populated, paths, contracts.relations);
+      const expected = (yield* Effect.fromResult(assembleCommerceRelations(contracts.option.name, populated, paths, contracts.relations)));
       for (const [index, returned] of output.entries()) {
         const final = expected[index];
         if (final === undefined) return yield* Effect.fail(mismatch());
