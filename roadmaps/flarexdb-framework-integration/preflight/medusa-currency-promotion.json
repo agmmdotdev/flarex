@@ -447,7 +447,7 @@
     {
       "target": "packages/medusa-adapter/src/schema/compiled.ts",
       "classification": "authored",
-      "targetSha256": "5b2ae39effc5d5689cc4ee4f8028cd9313d27a782b50a9f1ed07df6a6afaec8b"
+      "targetSha256": "34618ec5cd87f41eac2eeaeaa9c83071f8d52bad31ca6d8ba11ca0fc0dde7e45"
     },
     {
       "target": "packages/medusa-adapter/test/support/sales-channel-runner.ts",
@@ -877,12 +877,12 @@
     {
       "target": "packages/medusa-adapter/src/schema/lower.ts",
       "classification": "authored",
-      "targetSha256": "b200c0b8446f11b2b306e1b165a218bd18702a218f40cf70d4dadf53e4055185"
+      "targetSha256": "9f419d2067ca208d8c392cae12957a64f096666922ea02906c890699ab375e85"
     },
     {
       "target": "packages/medusa-adapter/src/schema/model.ts",
       "classification": "authored",
-      "targetSha256": "d0d7df75a575785ad8d3804774544f9a701e6d9b1232be7beea8aa5abeff59bb"
+      "targetSha256": "c24a57f856d69d3920b9c4cd4b04fa44fc6b1d7eba9b625534f350ec038737b4"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/runtime.ts",
@@ -1107,7 +1107,7 @@
     {
       "target": "packages/medusa-adapter/test/shared-schema.test.ts",
       "classification": "authored",
-      "targetSha256": "f1e23865a5f9f89a54c288713dcb15fd500fe4092c1b965cf544cbc86fba79fb"
+      "targetSha256": "ffd40a45de8c36a2582729859c7a5718e3b94d2526fba2b3355de9f0a0e54831"
     },
     {
       "target": "packages/medusa-adapter/test/shared-write.test.ts",

@@ -65,6 +65,12 @@ into core. Runtime optimization follows this storage decision.
 retains source-scoped canonical bootstrap for multi-table framework sources,
 with digest-bound table targets and the existing first-data and settlement owners.
 
+The shared relational default contract admits `emptyJsonObject` for JSON columns.
+Canonical validation, physical SQL/catalog replay and logical insert defaults own
+the behavior. Each omitted insert receives a fresh object; explicit null retains
+its ordinary nullability check. This preserves native framework metadata without
+adding a populated-schema conversion path.
+
 ## Current Sources Of Truth
 
 [Payload optional-one mixed relationships](../mixed-mutation-core/payload-relationships-attempt-preflight.md)

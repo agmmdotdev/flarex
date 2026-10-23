@@ -62,6 +62,35 @@ afterEach(() => {
 });
 
 describe("private relational schema values", () => {
+  it("admits only a named JSONB empty-object default and allocates independent immutable values", async () => {
+    const input = minimalInput();
+    input.tables[0]?.columns.push({ columnId: "data", type: "jsonb", nullable: false,
+      default: { kind: "emptyJsonObject" }, origin: synthetic("fixture.data") });
+    const schema = Result.getOrThrow(normalizeRelationalSchema(input)), table = schema.tables[0];
+    if (table === undefined) throw new Error("Missing object-default table");
+    const rows = Result.getOrThrow(prepareLogicalRelationalRows(table, schema.capabilities, rowFailure));
+    const first = Result.getOrThrow(rows.normalize({ id: "first" }, null, "2026-10-23T00:00:00.000Z"));
+    const second = Result.getOrThrow(rows.normalize({ id: "second" }, null, "2026-10-23T00:00:00.000Z"));
+    expect(first.data).toEqual({}); expect(second.data).toEqual({}); expect(first.data).not.toBe(second.data);
+    expect(Object.isFrozen(first.data)).toBe(true);
+    const supplied = { nested: { value: 1 } };
+    const explicit = Result.getOrThrow(rows.normalize({ id: "explicit", data: supplied }, null, "2026-10-23T00:00:00.000Z"));
+    supplied.nested.value = 2;
+    expect(explicit.data).toEqual({ nested: { value: 1 } });
+    expect(Result.getOrThrow(rows.normalize({ id: "explicit" }, explicit, "2026-10-24T00:00:00.000Z")).data).toEqual(explicit.data);
+    expect(Result.isFailure(rows.normalize({ id: "null", data: null }, null, "2026-10-23T00:00:00.000Z"))).toBe(true);
+    const captured = await runEffect(captureRelationalSchemaArtifact({ deploymentId: "deployment-a", schema: input,
+      provenance: { kind: "synthetic", fixtureId: "object-default" } }));
+    expect(captured.artifact.capabilities).toContain("relational-schema.default.emptyJsonObject");
+    for (const invalid of [{ kind: "emptyJsonObject", value: {} }, { kind: "emptyJsonObject", extra: true }, { kind: "jsonLiteral", value: {} }]) {
+      const altered = structuredClone(input);
+      Reflect.set(altered.tables[0]?.columns[1] ?? {}, "default", invalid);
+      expect(Result.isFailure(normalizeRelationalSchema(altered))).toBe(true);
+    }
+    const wrongType = minimalInput();
+    Reflect.set(wrongType.tables[0]?.columns[0] ?? {}, "default", { kind: "emptyJsonObject" });
+    expectInvalid(wrongType, "$.tables[only].columns[id].default");
+  });
   it("admits only the named empty JSON array default on JSONB columns", () => {
     const input = minimalInput();
     input.tables[0]?.columns.push({ columnId: "messages", type: "jsonb", nullable: false,

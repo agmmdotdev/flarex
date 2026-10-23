@@ -21,7 +21,10 @@ const policy = { leaseDurationMilliseconds: 120_000, lockTimeoutMilliseconds: 5_
   statementTimeoutMilliseconds: 30_000, runTimeoutMilliseconds: 120_000, maximumStepsPerCall: 16 };
 
 /** One neutral profile using the existing installer, artifact and scope fixtures. */
-export async function installJsonArrayDefaultFixture(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence) {
+export async function installJsonDefaultFixture(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
+  kind: "emptyJsonArray" | "emptyJsonObject" = "emptyJsonArray") {
+  const defaultValue = kind === "emptyJsonArray" ? [] : {};
+  const explicitValue = kind === "emptyJsonArray" ? ["preserved"] : { preserved: true };
   const schemaName = (await persistence.query<{ name: string }>("select current_schema() as name")).rows[0]?.name;
   if (schemaName === undefined) throw new Error("Missing array-default fixture namespace");
   const deploymentId = "array-default-test";
@@ -32,7 +35,7 @@ export async function installJsonArrayDefaultFixture(persistence: PGliteFlarexPe
         tableId: "messages", origin: origin("array-default.table"),
         columns: [
           { columnId: "id", type: "text", nullable: false, default: { kind: "none" }, origin: origin("array-default.id") },
-          { columnId: "messages", type: "jsonb", nullable: false, default: { kind: "emptyJsonArray" }, origin: origin("array-default.messages") },
+          { columnId: "messages", type: "jsonb", nullable: false, default: { kind }, origin: origin("array-default.messages") },
         ], keys: [{ keyId: "messages.primary", kind: "primary", columns: ["id"], origin: origin("array-default.primary") }],
         indexes: [], constraints: [], relationships: [],
       }],
@@ -79,20 +82,20 @@ export async function installJsonArrayDefaultFixture(persistence: PGliteFlarexPe
   await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId: `scope_${scopeUuid}`,
     epoch: "epoch_10900000-0000-0000-0000-000000000002" });
   const insertDefault = `insert into ${relation} (scope_uuid, ${quote(id)}) values ($1, $2) returning ${quote(messages)} as messages`;
-  expect((await persistence.query(insertDefault, [scopeUuid, "omitted-first"])).rows).toEqual([{ messages: [] }]);
-  expect((await persistence.query(insertDefault, [scopeUuid, "omitted-second"])).rows).toEqual([{ messages: [] }]);
+  expect((await persistence.query(insertDefault, [scopeUuid, "omitted-first"])).rows).toEqual([{ messages: defaultValue }]);
+  expect((await persistence.query(insertDefault, [scopeUuid, "omitted-second"])).rows).toEqual([{ messages: defaultValue }]);
   expect((await persistence.query(`insert into ${relation} (scope_uuid, ${quote(id)}, ${quote(messages)})
-    values ($1, 'explicit', $2::jsonb) returning ${quote(messages)} as messages`, [scopeUuid, '["preserved"]'])).rows)
-    .toEqual([{ messages: ["preserved"] }]);
+    values ($1, 'explicit', $2::jsonb) returning ${quote(messages)} as messages`, [scopeUuid, JSON.stringify(explicitValue)])).rows)
+    .toEqual([{ messages: explicitValue }]);
   await install();
-  return { relation, id, messages, insertDefault, scopeUuid, schemaName, install, verify,
-    alterDefault: `alter table ${relation} alter column ${quote(messages)} set default '{}'::jsonb` };
+  return { relation, id, messages, insertDefault, scopeUuid, schemaName, install, verify, explicitValue,
+    alterDefault: `alter table ${relation} alter column ${quote(messages)} set default '${kind === "emptyJsonArray" ? "{}" : "[]"}'::jsonb` };
 }
 
-export async function assertJsonArrayDefaultDriftRefused(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
-  fixture: Awaited<ReturnType<typeof installJsonArrayDefaultFixture>>) {
+export async function assertJsonDefaultDriftRefused(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
+  fixture: Awaited<ReturnType<typeof installJsonDefaultFixture>>) {
   await persistence.query(fixture.alterDefault);
   await expect(fixture.verify()).rejects.toMatchObject({ _tag: "RelationalStructuralRunnerError", reason: "catalogMismatch" });
   expect((await persistence.query(`select ${quote(fixture.messages)} as messages from ${fixture.relation}
-    where ${quote(fixture.id)}='explicit'`)).rows).toEqual([{ messages: ["preserved"] }]);
+    where ${quote(fixture.id)}='explicit'`)).rows).toEqual([{ messages: fixture.explicitValue }]);
 }

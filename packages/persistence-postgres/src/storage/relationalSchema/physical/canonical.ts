@@ -1043,6 +1043,7 @@ function copyPhysicalDefault(
     case "none":
     case "currentTimestamp":
     case "emptyJsonArray":
+    case "emptyJsonObject":
       return Object.freeze({ kind: value.kind });
     case "booleanLiteral":
       return Object.freeze({ kind: value.kind, value: value.value });
@@ -1300,6 +1301,8 @@ function defaultCapabilityId(
       return "relational-schema.default.exactNumericRawLiteral";
     case "emptyJsonArray":
       return "relational-schema.default.emptyJsonArray";
+    case "emptyJsonObject":
+      return "relational-schema.default.emptyJsonObject";
     case "currentTimestamp":
       return "relational-schema.default.currentTimestamp";
     default:

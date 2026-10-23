@@ -30,6 +30,25 @@ type PublicPhysicalExport = Extract<
 >;
 
 describe("private relational physical values", () => {
+  it("round-trips a named JSON object default and rejects recomputed malformed physical defaults", async () => {
+    const schema = currencySchemaInput();
+    schema.tables[0]?.columns.push({ columnId: "data", type: "jsonb", nullable: false,
+      default: { kind: "emptyJsonObject" }, origin: { kind: "synthetic", sourceId: "fixture.data" } });
+    const artifact = await runEffect(captureRelationalSchemaArtifact({ deploymentId: "deployment-a", schema,
+      provenance: { kind: "synthetic", fixtureId: "object-default-physical" } }));
+    const layout = await runEffect(captureRelationalPhysicalLayout({ artifact: artifact.artifact,
+      physicalLocator: FRAMEWORK_VALUE_LOCATOR, targetNamespace: await frameworkTargetNamespace() }));
+    expect(layout.frame.tables[0]?.columns.find(value => value.identity.columnId === "data"))
+      .toMatchObject({ type: "jsonb", default: { kind: "emptyJsonObject" } });
+    expect(await runEffect(verifyStoredRelationalPhysicalValue({ kind: "physicalLayout",
+      canonicalBytes: new TextEncoder().encode(layout.canonicalJson), sha256Hex: layout.layoutSha256 }))).toEqual(layout.frame);
+    for (const replacement of [
+      { type: "text", default: { kind: "emptyJsonObject" } }, { type: "jsonb", default: { kind: "emptyJsonObject", value: {} } },
+      { type: "jsonb", default: { kind: "emptyJsonObject", extra: true } },
+    ]) await expectStoredLayoutCorruption({ ...layout.frame, tables: layout.frame.tables.map(table => ({
+      ...table, columns: table.columns.map(value => value.identity.columnId === "data" ? { ...value, ...replacement } : value),
+    })) });
+  });
   it("round-trips the named JSON array default and refuses recomputed malformed physical defaults", async () => {
     const schema = currencySchemaInput();
     schema.tables[0]?.columns.push({ columnId: "messages", type: "jsonb", nullable: false,

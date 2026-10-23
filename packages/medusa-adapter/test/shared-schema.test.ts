@@ -59,6 +59,24 @@ const pivot = {
 } as const satisfies SchemaTable;
 
 describe("shared checked DML lowering", () => {
+  it("preserves only empty ordinary JSON object defaults without weakening numeric raw companions", async () => {
+    const native = compileDmlSchema([model.define("object_default", { id: model.id().primaryKey(), data: model.json().default({}) })]);
+    const checked = await Effect.runPromise(decodeCompiledDml(JSON.parse(JSON.stringify(native))));
+    const schema = Result.getOrThrow(normalizeRelationalSchema(lowerDmlSchema(checked.tables, "object-default")));
+    expect(schema.tables[0]?.columns.find(column => column.identity.columnId === "data"))
+      .toMatchObject({ type: "jsonb", nullable: false, default: { kind: "emptyJsonObject" } });
+    for (const defaultValue of [{ nonempty: true }, ["value"], []]) {
+      const altered = structuredClone(native), column = altered.tables[0]?.columns.find(column => column.name === "data");
+      if (column === undefined) throw new Error("Missing native JSON column");
+      column.defaultValue = defaultValue;
+      expect(await Effect.runPromise(Effect.result(decodeCompiledDml(JSON.parse(JSON.stringify(altered)))))).toMatchObject({ _tag: "Failure" });
+    }
+    const numeric = compileDmlSchema([model.define("numeric_default", { id: model.id().primaryKey(), amount: model.bigNumber().default(0) })]);
+    const raw = numeric.tables[0]?.columns.find(column => column.name === "raw_amount");
+    if (raw === undefined) throw new Error("Missing native numeric companion");
+    raw.defaultValue = {};
+    expect(await Effect.runPromise(Effect.result(decodeCompiledDml(JSON.parse(JSON.stringify(numeric)))))).toMatchObject({ _tag: "Failure" });
+  });
   it("retains the native owning hasOne variant and its lowered reference", async () => {
     const target = model.define("owned_reference_target", { id: model.id().primaryKey() });
     const owner = model.define("owned_reference_owner", { id: model.id().primaryKey(),

@@ -36,7 +36,10 @@ function columnDefault(column: SchemaColumn): ColumnDefault {
   if (value === undefined) return { kind: ["created_at", "updated_at"].includes(column.name) ? "currentTimestamp" : "none" };
   if (value === null) return { kind: "none" };
   if (column.type === "bigNumber") return { kind: "exactNumericLiteral", value: String(value) };
-  if (typeof value === "object") return { kind: "exactNumericRawLiteral", ...value };
+  if (typeof value === "object") {
+    if ("value" in value && "precision" in value) return { kind: "exactNumericRawLiteral", value: value.value, precision: value.precision };
+    return { kind: "emptyJsonObject" };
+  }
   if (typeof value === "boolean") return { kind: "booleanLiteral", value };
   if (typeof value === "number") return { kind: "doublePrecisionLiteral", value };
   return { kind: "textLiteral", value };

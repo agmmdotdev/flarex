@@ -34,7 +34,7 @@ const Column = Schema.Union([
     defaultValue: Schema.optionalKey(Schema.Never),
   }),
   Schema.Struct({ ...columnFields, type: Schema.Literal("json"),
-    defaultValue: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number, Schema.Boolean, Schema.Null, RawDefault])),
+    defaultValue: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number, Schema.Boolean, Schema.Null, RawDefault, Schema.Record(Schema.String, Schema.Never)])),
   }),
   Schema.Struct({ ...columnFields, type: Schema.Literal("bigNumber"),
     defaultValue: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number, Schema.Null])),
@@ -90,6 +90,8 @@ const CompiledSchema = Schema.Struct({
       }
       if (typeof column.defaultValue === "object" && column.defaultValue !== null) {
         if (column.type === "array") return true;
+        if (column.type === "json" && Object.keys(column.defaultValue).length === 0) return !table.columns.some(candidate =>
+          candidate.type === "bigNumber" && column.name === "raw_" + candidate.name);
         return table.columns.some(candidate =>
           candidate.type === "bigNumber" && column.name === "raw_" + candidate.name);
       }

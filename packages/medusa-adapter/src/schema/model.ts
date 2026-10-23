@@ -22,7 +22,7 @@ export type SchemaColumn = ColumnBase & (
   | { readonly type: "id" | "text" | "number" | "boolean" | "dateTime" | "json" | "enum";
       readonly defaultValue?: string | number | boolean }
   | { readonly type: "bigNumber"; readonly defaultValue?: string | number | null }
-  | { readonly type: "json"; readonly defaultValue?: string | number | boolean | null | { readonly value: string; readonly precision: number } }
+  | { readonly type: "json"; readonly defaultValue?: string | number | boolean | null | Readonly<Record<string, never>> | { readonly value: string; readonly precision: number } }
 );
 
 export type SchemaTable = Readonly<Pick<DatabaseTable, "name">> & {
