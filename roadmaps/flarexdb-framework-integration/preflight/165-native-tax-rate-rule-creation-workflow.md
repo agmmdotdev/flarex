@@ -14,10 +14,10 @@ fresh batch. Shared scalar planning preserves every native response position
 while writing and publishing each canonical Rule once. First-non-nullish
 hydration precedes defaults; complete alias DTOs authenticate against the final
 canonical entity. Physical compensation removes each created entity once even
-when retained response IDs repeat. This supplies the creation dependency of
-[replacement](./167-native-tax-rate-rule-replacement-workflow.md), whose root
-remains unadmitted. No cross-call identity cache is introduced; creation with an
-already persisted ID still fails.
+when retained response IDs repeat. This supplies the creation dependency used by
+[admitted bounded replacement](./167-native-tax-rate-rule-replacement-workflow.md).
+No cross-call identity cache is introduced; creation with an already persisted ID
+still fails.
 
 Accepted shared logical storage, framework ownership and workflow lifetime
 boundaries apply. Necessary shared-owner corrections use standing approval.

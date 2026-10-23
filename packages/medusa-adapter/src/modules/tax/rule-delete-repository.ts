@@ -21,8 +21,10 @@ export function prepareTaxRuleDeletionRepository(metadata: Metadata) {
   return Result.gen(function* () {
     const contracts = yield* compileTaxRuleDeletionContracts(metadata);
     const rule = yield* prepareScalarRepository(contracts.rule, "TaxRateRule", scalarIdWhere);
-    const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
-      const rules = rule.bind(root, owner), { bridge, events } = rules;
+    // Borrowed bindings share the trusted caller's bridge and mutation events;
+    // standalone construction below retains its original scalar profile.
+    const bindBorrowed = (rules: ReturnType<typeof rule.bind>) => {
+      const { bridge, events } = rules;
       const denied = deniedCommerceRepository(rules.repository, rules.refuse);
       const lifecycleMethod = (operation: "softDelete" | "restore"): DAL.RepositoryService["softDelete"] => (input, shared) =>
         bridge.executeInput(shared, input, (ctx, value) => bridge.checked(ctx, Effect.gen(function* () {
@@ -53,6 +55,7 @@ export function prepareTaxRuleDeletionRepository(metadata: Metadata) {
         softDelete: lifecycleMethod("softDelete"), restore: lifecycleMethod("restore") };
       return { ...rules, repository, ruleRepository: repository, denied };
     };
-    return { bind, contracts };
+    const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => bindBorrowed(rule.bind(root, owner));
+    return { bind, bindBorrowed, contracts };
   });
 }

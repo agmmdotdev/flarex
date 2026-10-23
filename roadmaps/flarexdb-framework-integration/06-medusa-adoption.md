@@ -864,13 +864,19 @@ default resource limits remain unchanged. Shared scalar receipts correlate
 unchanged operation rows with independent observations and retain established
 decoded preimages. Rule replacement and other Tax administration remain separate.
 
-The next selected branch is
-[native Tax Rate Rule replacement](./preflight/167-native-tax-rate-rule-replacement-workflow.md).
-Its original list/delete/create composition is characterized; replacement remains
-prepared and unadmitted. Shared fresh-batch scalar identity and positional results
-are admitted across connected consumers. The compiler now preserves native
-one-to-one constraints for fresh schemas; persisted-ID creation still fails.
-No cross-call identity cache or populated-schema conversion is admitted.
+The private bounded
+[native Tax Rate Rule replacement](./preflight/167-native-tax-rate-rule-replacement-workflow.md)
+profile is admitted on PGlite and ordinary-role PostgreSQL. One confined Tax
+participant runs the genuine list/delete/create root and both retained inverses,
+with at most four raw Rate positions, two templates, eight active old Rules and
+eight new Rule positions under unchanged 64-call/64-event limits. Support bodies
+are decoded before authenticating the complete active selected cohort. Existing
+Rule inverse and lifecycle ordering remain explicit portable policies, separate
+from original SQL observations. Empty Rate IDs are admitted only without templates; the original
+nonempty-template ORM `RangeError` stays outside the profile. Shared fresh-batch
+identity sharing and fresh-schema one-to-one constraints remain admitted; no
+cross-call identity cache or populated-schema conversion is introduced. The next
+selected Tax branch is Rate updates and retained upsert compensation.
 
 The [native Cart creation preflight](./preflight/160-native-cart-creation-workflow.md)
 records the next connected objective. Its selected original-native cohort is

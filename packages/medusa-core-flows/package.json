@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./tax/set-tax-rate-rules": "./src/tax/workflows/set-tax-rate-rules.ts",
+    "./tax/list-tax-rate-rule-ids-step": "./src/tax/steps/list-tax-rate-rule-ids.ts",
     "./tax/delete-tax-rate-rules": "./src/tax/workflows/delete-tax-rate-rules.ts",
     "./tax/delete-tax-rate-rules-step": "./src/tax/steps/delete-tax-rate-rules.ts",
     "./tax/create-tax-rate-rules": "./src/tax/workflows/create-tax-rate-rules.ts",

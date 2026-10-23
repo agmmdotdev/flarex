@@ -21,8 +21,10 @@ export function prepareTaxRuleCreationRepository(metadata: Metadata) {
   return Result.gen(function* () {
     const contracts = yield* compileTaxRuleCreationContracts(metadata);
     const rule = yield* prepareScalarRepository(contracts.rule, "TaxRateRule", scalarIdWhere, undefined, { managedTimestamps: true });
-    const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
-      const rules = rule.bind(root, owner), { bridge } = rules;
+    // Trusted combined profiles borrow an already bound scalar owner rather
+    // than constructing another repository context or event subscriber state.
+    const bindBorrowed = (rules: ReturnType<typeof rule.bind>) => {
+      const { bridge } = rules;
       const denied = deniedCommerceRepository(rules.repository, rules.refuse);
       const repository: DAL.RepositoryService = { ...denied, serialize: rules.repository.serialize,
         create: (input, shared) => bridge.executeInput(shared, input, (ctx, value) => bridge.checked(ctx, Effect.gen(function* () {
@@ -46,6 +48,7 @@ export function prepareTaxRuleCreationRepository(metadata: Metadata) {
       };
       return { ...rules, repository, ruleRepository: repository, denied };
     };
-    return { bind, contracts };
+    const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => bindBorrowed(rule.bind(root, owner));
+    return { bind, bindBorrowed, contracts };
   });
 }

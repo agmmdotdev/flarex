@@ -100,3 +100,5 @@ export const fulfillmentSetDeletionCommandMs = 30_000;
 export const productLaunchResources = Object.freeze({ ...defaultCommerceResources, calls: 256 });
 /** The finite launch workflow shares one bounded logical lifetime across both native children. */
 export const productLaunchCommandMs = 30_000;
+/** Native Tax Rule replacement retains the ordinary limits for both directions. */
+export const taxRuleReplacementResources = Object.freeze({ ...defaultCommerceResources });

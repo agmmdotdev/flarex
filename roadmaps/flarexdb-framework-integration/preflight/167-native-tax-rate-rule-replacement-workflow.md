@@ -2,13 +2,13 @@
 
 ## Status and authority
 
-Status: the original-native replacement root is characterized; the portable
-replacement profile is prepared and remains unadmitted as the next selected
-branch. The shared fresh-batch scalar identity/receipt correction and native
-one-to-one compiler correction are admitted for the connected private profiles.
-The compiler correction covers fresh schemas only. Necessary shared-owner
-corrections use standing approval; no native business correction has been
-selected.
+Status: admitted for the private bounded profile on PGlite and ordinary-role
+PostgreSQL. The genuine replacement root and list step run through one confined
+Tax participant, reusing the admitted Rule creation and deletion lifecycle
+owners. The shared fresh-batch scalar identity/receipt and native one-to-one
+compiler corrections remain admitted for their connected private profiles;
+the compiler correction covers fresh schemas only. No native business
+correction has been selected.
 
 The reference remains Medusa 2.13.4 at
 `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`. The selected root is
@@ -59,6 +59,11 @@ atomic publication remain separate from those native step transactions. Native
 transaction-ID repetition executes replacement again; trusted durable replay
 must retain its existing authenticated owner rather than reproduce that behavior.
 Independent native calculation observes replacement and retained restoration.
+
+An empty Rate ID with nonempty Rule templates reaches an original ORM
+`RangeError`. That original witness remains outside the bounded profile, which
+refuses the shape before native execution. This establishes neither error parity
+for that shape nor a correction to the original ORM behavior.
 
 ## Shared scalar identity and one-to-one correction
 
@@ -112,30 +117,71 @@ Owning `hasOneWithFK` and many-to-one references retain their native nonunique
 behavior. This connected correction covers fresh schema construction; it does
 not admit populated-schema conversion or production activation.
 
-## Remaining replacement admission
+## Bounded admission
 
-The original-native witnesses above remain separate from the prepared portable
-replacement profile. Admission of its shared creation/compiler dependencies does
-not admit the replacement root, its lifecycle ordering or its complete graph.
+The private `tax.ruleReplacement` / `flarex-tax-rule-replacement` profile admits
+zero to four raw Rate ID positions and zero to two Rule templates, expanding to
+at most eight new Rule positions. The complete active old Rule cohort must also
+contain at most eight Rules. Raw duplicate selectors and templates retain their
+native consequences; complete old-cohort admission occurs before mutation and
+does not substitute a truncated page for the native list.
 
-1. Keep the prepared Tax participant confined to list, Rule creation, physical
-   inverse, soft-delete and restore. Reuse one bound scalar owner and the
-   Tax-owned `tax_rate_id` predicate; authenticate complete projected ID
-   selection without constructing two separate Tax registrations.
-2. The prepared profile proposes zero to four supplied Rate IDs, zero to two
-   templates, at most eight expanded new Rules and at most eight complete active
-   old Rules. Preserve raw duplicate inputs and native failures; refuse oversized
-   old cohorts before mutation. Keep default 64-call/64-event and other resource
-   limits; complete graph measurements and explicit ordering disposition remain
-   admission gates.
-3. Promote only the genuine root and list step through existing private exports,
-   source-pair/callback guards and the atomic host, reusing genuine creation and
-   deletion steps. Preserve empty dependencies and both retained inverses.
-4. Establish complete forward/inverse and failure behavior, cold calculation,
-   constraints, replay, scope refusal and both database lanes before admission.
-   Source provenance, portable execution and the connected resource bounds remain
-   part of that gate.
+Empty Rate ID strings are admitted only with an empty template array, retaining
+the genuine no-match list and `createTaxRateRules([])` dependencies. With any
+nonempty template array, an empty Rate ID is outside this profile and is refused
+before native execution. An empty Rate ID array may accompany nonempty templates;
+its Cartesian expansion is empty. The original ORM `RangeError` witness remains
+distinct, with no error-parity claim or native correction.
 
-Rate selector updates/upsert compensation, Rate deletion cascades, Tax Region
-administration, complete Cart admission, File import/export, performance
-acceptance and production/hosted activation remain separate.
+The promoted root and list step change only import locations. Existing genuine
+creation and deletion steps retain both inverses, sequential evaluation and
+empty resolution behavior. One Tax module exposes exactly
+`listTaxRateRules`, `createTaxRateRules`, `deleteTaxRateRules`,
+`softDeleteTaxRateRules` and `restoreTaxRateRules`; these methods borrow one
+scalar repository bridge and event owner. Parent CRUD, calculation and graph
+capabilities remain denied in this participant. The trusted outer owner alone
+settles rows, facts and publication.
+
+The root list retains ascending ID order. Expansion preserves template order
+first and every raw supplied Rate position second, with the parent ID overriding
+the template. Complete output preserves Rule-local creators, general JSON
+metadata, managed values and fresh-batch identity sharing. Canonical writes and
+creation events occur once per entity while complete aliased DTOs retain every
+native response position. Persisted-ID creation still fails; no cross-call
+identity map or upsert substitution is introduced.
+
+The list receipt decodes every complete raw owned-table support body and rejects
+contradictory observations of one identity before residual selection. Valid
+deleted or other-Rate support bodies do not become selected candidates. The
+receipt reconstructs the complete active selected-Rate cohort, then authenticates
+its projected IDs, ascending order, exact read recipe and counts. The bound of
+eight old Rules applies to that selected cohort rather than the raw support set.
+Malformed bodies, foreign tables, unexpected mutations or events, and forged
+results or read evidence remain refusals; validation does not rerun native Tax.
+
+Physical cancellation of created Rules reuses the
+[creation inverse's approved storage insertion order](./165-native-tax-rate-rule-creation-workflow.md).
+Old Rule soft-deletion and retained restore reuse the
+[historical lifecycle's approved storage insertion order](./166-native-tax-rate-rule-deletion-workflow.md).
+The original SQL witness remains separate from these explicit portable policies.
+The retained inverse physically removes the new cohort before restoring exactly
+the captured old identities. Predeleted and later unrelated Rules stay intact;
+missing retained rows remain absent, active restores are no-ops and restore emits
+no events. A restore constraint conflict rolls back the complete inverse graph.
+
+Default limits remain 64 calls, 64 events and the existing ordinary resource
+bounds for both the complete root and retained inverse. Caller-selected resource
+or publication overrides are refused. Genuine constraint failures, forged
+outputs/events and late defects cannot publish a partial graph. A caught refusal
+remains sticky under the existing request owner. Interruption reuses the existing
+bounded Promise cleanup and fences late calls. Foreign defects retain their full
+Cause.
+Trusted durable replay returns the committed result without repeating native
+replacement and refuses conflicting replay input. Independent cold Tax
+calculation observes committed replacement and retained restoration.
+
+The next selected Tax branch is Rate updates and retained upsert compensation.
+Rate deletion cascades, Tax Region administration, complete Cart admission,
+File import/export, performance acceptance and production/hosted activation
+remain separate. The shared one-to-one compiler correction remains confined to
+fresh schemas and does not admit populated-schema conversion.
