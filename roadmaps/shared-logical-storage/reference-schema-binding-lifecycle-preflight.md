@@ -399,8 +399,10 @@ and restart of the database/control plane retain their owning gates.
 | LB3: concurrent activation and save | Implemented for the selected consumed-metadata repair and preference-withdrawal inventory above. Actual PostgreSQL blocking/backend identities prove both orders after native/Application work is frozen; PGlite retains serial semantics. Existing owners decide publication/refusal and genuine whole-root replacement. Broader evolution and concurrent build retirement remain outside this claim. |
 | LB4: restart, uncertain outcome and consumer cleanup | Implemented for the selected reconstruction and already-committed outcome inventory above. Fresh binding/outcome owners recover after writer closure and later withdrawal; PostgreSQL uses new target pools and real independently observed COMMIT response loss. No duplicate publication/native invocation or restored authority is introduced. Database/control-plane restart and other recovery profiles remain outside this claim. |
 
-The selected LB1-LB4 sequence is complete. Choose the next bounded outstanding
-profile in the cross-framework preflight before extending this scope.
+The selected LB1-LB4 sequence is complete. The
+[private authorized reverse-read preflight](./reference-reverse-read-preflight.md)
+selects the next bounded outstanding CXR2 profile; its proposed RR1-RR4 gates
+remain pending.
 These bounded gates refine CXR4 only for this
 profile; CXR3's opposite-direction/three-owner extension, general authorized
 traversal, pending new Products and broader evolution retain their own gates.

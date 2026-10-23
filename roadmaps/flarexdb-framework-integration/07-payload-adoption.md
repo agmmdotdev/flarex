@@ -63,7 +63,7 @@ allow-all joint-save assembly removed. Neither profile establishes general CMS
 authorization, production dispatch or a public operation surface.
 
 The [private reference schema/binding lifecycle preflight](../shared-logical-storage/reference-schema-binding-lifecycle-preflight.md)
-selects the next bounded backend proof after SA4: actual admission/refusal,
+owns the implemented selected backend proof after SA4: actual admission/refusal,
 fresh preparation and stale-use, concurrent activation/save and recovery. Its
 LB1 is implemented for its selected transition inventory: the shared owner now
 refuses removal/replacement of enforced references and proves unchanged-candidate
@@ -82,6 +82,14 @@ remains available; database/control-plane restart and broader recovery profiles
 are not claimed.
 This does not enable populated-data conversion,
 write-owner transfer, Medusa changes or public API syntax.
+
+The next bounded backend slice is specified by the
+[private authorized reverse-read preflight](../shared-logical-storage/reference-reverse-read-preflight.md).
+RR1-RR4 are proposed and pending: protected read evidence and shared admission,
+indexed finite pages with native source visibility, concurrent freshness/recovery,
+then private serving cutover. Existing point-ID grants and save permissions do
+not authorize reverse discovery; native Payload joins retain their separate
+profile. No new operation or public syntax is enabled by this preflight.
 
 The [early cross-framework proof](../shared-logical-storage/README.md#early-cross-framework-proof)
 is a required shared-storage integration gate: use real Payload Local API calls

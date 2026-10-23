@@ -362,17 +362,21 @@ The [private reference preflight](./cross-framework-reference-preflight.md)
 owns the first private optional Payload article-to-Product integrity/lifecycle
 slice with Application participation. The selected policy retains references
 through soft deletion and restricts hard deletion through the shared publisher.
-General authorized traversal, the Medusa-originating extension and dependency
-activation/recovery proof remain pending. Public API design and the other
-session's Medusa implementation remain outside this slice.
+SA1-SA4 and LB1-LB4 provide selected save authorization and binding/dependency
+activation/recovery proof; broader profiles remain gated. The
+[private authorized reverse-read preflight](./reference-reverse-read-preflight.md)
+selects proposed RR1-RR4 work next, with implementation pending. General traversal
+and the Medusa-originating extension retain their gates. Public API design and
+the other session's Medusa implementation remain outside this slice.
 
 The [unified developer-contract proposal](../flarexdb-framework-integration/preflight/unified-application-cms-commerce-developer-contract.md)
 uses an editorial article, commerce product and Application campaign to explain
 the desired connected backend experience. Explicit CMS/commerce operations do
 not remove the need for core reference integrity or confer target write rights.
-Selected native/Payload relation checks already exist; cross-framework strong
-references remain pending and unsupported sources fail closed. Proposed public
-syntax and lifecycle defaults do not advance the proof below.
+Selected native/Payload and cross-framework strong-reference checks exist;
+the complete three-owner/both-direction proof remains pending and unsupported
+sources fail closed. Proposed public syntax and lifecycle defaults do not advance
+the proof below.
 
 GLS1 defines this contract, GLS2 supplies indexed endpoint access, and GLS3
 executes the connected relation proof. GLS4 proves admitted activation/recovery

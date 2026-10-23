@@ -249,6 +249,12 @@ do not authorize saves.
 
 ### Remaining Read And Composition Contract
 
+The [private authorized reverse-read preflight](./reference-reverse-read-preflight.md)
+selects the next bounded CXR2 work after LB4. Its proposed RR1-RR4 sequence covers
+protected read-policy evidence, authenticated indexed pages, native visibility,
+pending membership, freshness and private serving cutover. It enables no reverse
+operation or public API; all four gates remain pending.
+
 Use bounded explicit point reads for forward resolution and the installed
 leading-reference index for reverse membership. Reverse reads have deterministic
 keyset continuation, scope/schema-bound cursors and separate per-page and total

@@ -56,11 +56,13 @@ Worker consumer to normal protected-save construction and the real journal/RPC
 boundary, removing its displaced allow-all joint-save assembly. General serving
 authorization and production dispatch remain gated. No public API syntax is selected.
 
-The next bounded foundation is the
-[private reference schema/binding lifecycle preflight](../shared-logical-storage/reference-schema-binding-lifecycle-preflight.md).
-Its pending gates prove admission/refusal preservation, fresh/stale entry,
-activation/save concurrency and recovery through existing owners. Advanced
-framework evolution and public APIs remain separate.
+The [private reference schema/binding lifecycle preflight](../shared-logical-storage/reference-schema-binding-lifecycle-preflight.md)
+completes LB1-LB4 for the selected admission, fresh/stale entry, activation/save
+ordering and committed-recovery profile. The next bounded foundation is the
+[private authorized reverse-read preflight](../shared-logical-storage/reference-reverse-read-preflight.md).
+Its proposed RR1-RR4 gates remain pending: protected read evidence and shared
+admission, authorized indexed pages with pending membership, concurrency/recovery
+and private serving cutover. Advanced evolution and public APIs remain separate.
 
 Status: the Application, Product, selected Payload Local API, and finite
 Medusa workflow slices are implemented as a private, isolated-scope execution
