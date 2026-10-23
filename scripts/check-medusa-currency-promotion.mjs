@@ -2,6 +2,8 @@
 import { paymentSessionSourcePairs, paymentSessionTypeSourcePairs, verifyPaymentSessionSelection,
   verifyPaymentSessionSource, verifyPaymentSessionTypeSource } from "./check-medusa-payment-session-source.mjs";
 import { orderArchiveSourcePairs, verifyOrderArchiveSourceSelection, verifyOrderArchiveSource } from "./check-medusa-order-archive-source.mjs";
+import { taxRateUpdateSourcePairs, updateMetadataSourcePairs, taxRuleCreatorTypeSourcePair, verifyTaxRuleCreatorType, verifyTaxRateUpdateCallbacks,
+  verifyTaxRateUpdateSelection, verifyUpdateMetadataExtraction } from "./check-medusa-tax-rate-update-source.mjs";
 import { taxRuleReplacementSourcePairs, verifyTaxRuleReplacementCallbacks,
   verifyTaxRuleReplacementSelection } from "./check-medusa-tax-rule-replacement-source.mjs";
 import { taxLinesSourcePairs, verifyTaxLinesFork } from "./check-medusa-cart-prerequisite-source.mjs";
@@ -294,6 +296,18 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   const awilixErrors = verifyPortableAwilixSource(pathToFileURL(path.resolve(root) + path.sep));
   if (awilixErrors.length) throw new Error(awilixErrors.join("\n"));
   verifyNativeJsonAssignment(root);
+  verifyTaxRuleCreatorType(
+    readFileSync(path.join(root, taxRuleCreatorTypeSourcePair.source), "utf8"),
+    readFileSync(path.join(root, taxRuleCreatorTypeSourcePair.target), "utf8"));
+  verifyTaxRateUpdateCallbacks(
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/tax/workflows/update-tax-rates.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/tax/workflows/update-tax-rates.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/tax/steps/update-tax-rates.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/tax/steps/update-tax-rates.ts"), "utf8"));
+  verifyUpdateMetadataExtraction(
+    readFileSync(path.join(root, sourcePrefix + "packages/core/utils/src/modules-sdk/medusa-internal-service.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-utils/src/modules-sdk/medusa-internal-service.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-utils/src/modules-sdk/prepare-update-metadata.ts"), "utf8"));
   verifyTaxRuleReplacementCallbacks(
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/tax/workflows/set-tax-rate-rules.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/tax/workflows/set-tax-rate-rules.ts"), "utf8"),
@@ -808,6 +822,15 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     ]) if (file.target === target && (file.classification !== "selectedExportFacade" || file.source !== sourcePrefix + source))
       throw new Error("Shipping Option extraction outside its exact pinned source pair");
     const taxRuleDeleteTargets = ["packages/medusa-core-flows/src/tax/workflows/delete-tax-rate-rules.ts", "packages/medusa-core-flows/src/tax/steps/delete-tax-rate-rules.ts"];
+    if (file.classification === "taxRateUpdateFork" && !taxRateUpdateSourcePairs.some(pair =>
+      pair.target === file.target && pair.source === file.source && pair.classification === file.classification))
+      throw new Error("Tax Rate update outside its exact pinned source pairs");
+    if (file.classification === "updateMetadataFork" && !updateMetadataSourcePairs.some(pair =>
+      pair.target === file.target && pair.source === file.source && pair.classification === file.classification))
+      throw new Error("Native update metadata extraction outside its exact pinned source pairs");
+    if (file.classification === "taxRuleCreatorTypeFork" && (file.target !== taxRuleCreatorTypeSourcePair.target ||
+      file.source !== taxRuleCreatorTypeSourcePair.source))
+      throw new Error("Tax Rule creator type outside its exact pinned source pair");
     if (file.classification === "taxRuleReplacementFork" && !taxRuleReplacementSourcePairs.some(pair =>
       pair.target === file.target && pair.source === file.source && pair.classification === file.classification))
       throw new Error("Tax Rate Rule replacement outside its exact pinned source pairs");
@@ -835,7 +858,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       throw new Error("Customer selection adaptation outside its selected native source pair");
     if (file.classification === "inventoryConfirmationFork" && !inventoryConfirmationSourcePairs.some(pair => pair.target === file.target && pair.source === file.source && pair.classification === file.classification))
       throw new Error("Inventory confirmation adaptation outside its selected native source pair");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRuleReplacementFork", "orderArchiveFork", "orderArchiveCompensationFork", "paymentSessionTypeFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRuleReplacementFork", "orderArchiveFork", "orderArchiveCompensationFork", "paymentSessionTypeFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.target === "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification === "pricingServiceFork") {
@@ -1000,6 +1023,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       }
     } else if (file.classification !== "authored") throw new Error(`Missing source provenance: ${file.target}`);
   }
+  // Existing per-file source/class owners retain their first failure before
+  // the new Tax selection closes the complete validated file cohort.
+  verifyTaxRateUpdateSelection(promotion.files);
   for (const pkg of promotion.packages) {
     if (owners.get(pkg.path) !== pkg.name) throw new Error(`Unadmitted promotion package: ${pkg.path}`);
     const manifest = JSON.parse(readFileSync(path.join(root, pkg.path, "package.json"), "utf8"));

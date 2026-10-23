@@ -304,5 +304,5 @@ export interface CreateTaxRateRuleDTO {
    * Who created the tax rate rule. For example, the ID of the
    * user that created it.
    */
-  created_by?: string | null
+  created_by?: string | null | undefined
 }

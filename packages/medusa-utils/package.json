@@ -672,6 +672,11 @@
       "types": "./dist/order/index.d.ts",
       "source": "./src/order/index.ts",
       "default": "./dist/order/index.js"
+    },
+    "./modules-sdk/prepare-update-metadata": {
+      "types": "./dist/modules-sdk/prepare-update-metadata.d.ts",
+      "source": "./src/modules-sdk/prepare-update-metadata.ts",
+      "default": "./dist/modules-sdk/prepare-update-metadata.js"
     }
   },
   "license": "MIT",

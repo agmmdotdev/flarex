@@ -19,7 +19,7 @@ import { isPresent } from "../common/is-present"
 import { isString } from "../common/is-string"
 import { lowerCaseFirst } from "../common/lower-case-first"
 import { MedusaError } from "../common/errors"
-import { mergeMetadata } from "../common/merge-metadata"
+import { prepareUpdateMetadata } from "./prepare-update-metadata"
 import { FreeTextSearchFilterKeyPrefix } from "../dal/filter-keys"
 import { DmlEntity } from "../dml/entity"
 import { buildQuery } from "./build-query"
@@ -417,21 +417,7 @@ export function MedusaInternalService<
       }
 
       // Manage metadata if needed
-      toUpdateData.forEach(({ entity, update }) => {
-        const update_ = update as (typeof toUpdateData)[number]["update"] & {
-          metadata: Record<string, unknown>
-        }
-        const entity_ = entity as InferEntityType<TEntity> & {
-          metadata?: Record<string, unknown>
-        }
-
-        if (isPresent(update_.metadata)) {
-          entity_.metadata = update_.metadata = mergeMetadata(
-            entity_.metadata ?? {},
-            update_.metadata
-          )
-        }
-      })
+      prepareUpdateMetadata(toUpdateData)
 
       const entities = await this[propertyRepositoryName].update(
         toUpdateData,

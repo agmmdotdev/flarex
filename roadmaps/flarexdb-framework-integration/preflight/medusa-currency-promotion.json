@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "3089bd893e29234855b8c16f92a79cb81eb573bde74ead45faa9562b87d86f5f"
+      "targetSha256": "17ba901782d42bb84848a90d75489fd6564fedef7dbb6a75b33338471d5f7929"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -2458,7 +2458,7 @@
     {
       "target": "packages/medusa-utils/package.json",
       "classification": "authored",
-      "targetSha256": "9f1064bddc61170888b0ad5fc31661410169d7e8561afd4f6f8edb6bbc2e7dbb"
+      "targetSha256": "6e7a24a289aa378d5f45eee768fceba640b7d94a17c3b79aaa378fd925c93e77"
     },
     {
       "target": "packages/medusa-utils/src/common/__tests__/get-selects-and-relations-from-object-array.spec.ts",
@@ -3220,8 +3220,8 @@
       "source": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/medusa-internal-service.ts",
       "target": "packages/medusa-utils/src/modules-sdk/medusa-internal-service.ts",
       "sourceSha256": "d6bff4df9e3adc56ef8317dface9206710a81523bcbd1536186c291c18662e47",
-      "classification": "unchanged",
-      "targetSha256": "d6bff4df9e3adc56ef8317dface9206710a81523bcbd1536186c291c18662e47"
+      "classification": "updateMetadataFork",
+      "targetSha256": "02c39e4abe83a44f8595d621ce6c45b1ce5a21cf712df6a852361e56d5a7f391"
     },
     {
       "source": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/medusa-service.ts",
@@ -12750,8 +12750,8 @@
     {
       "target": "packages/medusa-types/src/tax/mutations.ts",
       "source": "third_party/medusa/upstream/packages/core/types/src/tax/mutations.ts",
-      "classification": "unchanged",
-      "targetSha256": "c3651350dd3339f2ab22918006096de34eca11d38c7603f6bd1eae3d52096154",
+      "classification": "taxRuleCreatorTypeFork",
+      "targetSha256": "5607e92ee971039495348ca48b067c45b67b54ca491b23c44ddf3c08d8aa5219",
       "sourceSha256": "c3651350dd3339f2ab22918006096de34eca11d38c7603f6bd1eae3d52096154"
     },
     {
@@ -13534,7 +13534,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/tax/rule-replacement-repository.ts",
       "classification": "authored",
-      "targetSha256": "9db72c0b9e72976fc674c33cdb18c9875dd172e1bca87d1a3963da6fbab2cff1"
+      "targetSha256": "6e4b10462c94bb7496a6ba90b72ac991415b8112c26c265e491d4aa589095699"
     },
     {
       "target": "packages/medusa-adapter/src/modules/tax/rule-replacement-service.ts",
@@ -14412,6 +14412,82 @@
       "classification": "workflowFork",
       "sourceSha256": "c7ed1fb4716e0d644e22aa0b7fb48fe0249890d54008479e10ff89afc6261226",
       "targetSha256": "d5959b82f108b1234e95ee3b66e346c83e96bcb36a20b0cd568a7426e761f6a9"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/tax/workflows/update-tax-rates.ts",
+      "target": "packages/medusa-core-flows/src/tax/workflows/update-tax-rates.ts",
+      "classification": "taxRateUpdateFork",
+      "sourceSha256": "d860fc8f34a0b0e2d3f9a67c1e9886197bd1b8332035e26815f91b2c508f18f6",
+      "targetSha256": "7c9a5616ed5ee0de875677c919125f27a62d1e9eb1bb06d49622177b328c444c"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/tax/steps/update-tax-rates.ts",
+      "target": "packages/medusa-core-flows/src/tax/steps/update-tax-rates.ts",
+      "classification": "taxRateUpdateFork",
+      "sourceSha256": "6fcba60594d114a965d5b2051b82dd683cadb2c1f0399ddb429d6e8c37d51c38",
+      "targetSha256": "edc3865c7660ceab40bda02383dc27932b9442e8b99c5ca0017e61ec24cd2a6a"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/medusa-internal-service.ts",
+      "target": "packages/medusa-utils/src/modules-sdk/prepare-update-metadata.ts",
+      "classification": "updateMetadataFork",
+      "sourceSha256": "d6bff4df9e3adc56ef8317dface9206710a81523bcbd1536186c291c18662e47",
+      "targetSha256": "ccec5d3a1e323fcee73a35a7b14320d28277f35e8e0c58a34087f6ed2a3aed7b"
+    },
+    {
+      "target": "packages/medusa-utils/src/modules-sdk/__tests__/prepare-update-metadata.spec.ts",
+      "classification": "authored",
+      "targetSha256": "0bf9ac8333dbb75bf8973d7bbe40fb0304d0f96e5bcc787154ce3cb057b7af54"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/tax/rate-update-input.ts",
+      "classification": "authored",
+      "targetSha256": "90d401261f342580d11bd49bc2b9050691aa80640f5fc851b5bc679d2b763e2e"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/tax/rate-update-query.ts",
+      "classification": "authored",
+      "targetSha256": "b7077018cb2148b245e7266f7af4c0216f4c9e3d31a402eec620f519b80ab4a5"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/tax/rate-update-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "7912051ceeeb27f2a9b6bd6a7d284e38dc1f9bfbce7624cbbc512af6abc76489"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/tax/rate-update-repository.ts",
+      "classification": "authored",
+      "targetSha256": "4a296e9b422ce09fbbd466799a33580807b42bf014b981ada9ca7330b661270d"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/tax/rate-update-service.ts",
+      "classification": "authored",
+      "targetSha256": "3682ec3c978aa48ef1540d2d42786c619cc77ce758853f214c96ce7d7d3e498b"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/tax/update-rates.ts",
+      "classification": "authored",
+      "targetSha256": "89a1d319266ed21f133ed78c39dec73ef2fa2b84910d02d6cc1f6fadf227fc48"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-tax-rate-update-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "249d41093256ee3e7e19ba7b754d7668701faf4ae385ffdf81d6fde9d6bacd27"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-tax-rate-update-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "2446fc21af49205ce17daf0b7103152aa96224f80bf22a15846c91cf08af159a"
+    },
+    {
+      "target": "packages/medusa-adapter/test/tax-rate-update-contracts.test.ts",
+      "classification": "authored",
+      "targetSha256": "1f664e366f4331c2867233c4227b9d39254848ed7d18805382560fbcf936f902"
+    },
+    {
+      "target": "packages/medusa-adapter/test/tax-rate-update-receipts.test.ts",
+      "classification": "authored",
+      "targetSha256": "8e3242deba06035d9c99b9aad1bf8aa95ad89b9d305816ce6bb75ad7d6420ba5"
     }
   ],
   "dependencies": {
@@ -14756,7 +14832,8 @@
         "./order/status",
         "./order/order-change",
         "./order/order-change-action",
-        "./order/index"
+        "./order/index",
+        "./modules-sdk/prepare-update-metadata"
       ]
     },
     {
@@ -15033,7 +15110,9 @@
         "./order/archive-orders-step",
         "./payment-collection/create-payment-session",
         "./payment-collection/delete-payment-sessions",
-        "./payment-collection/create-payment-session-step"
+        "./payment-collection/create-payment-session-step",
+        "./tax/update-tax-rates",
+        "./tax/update-tax-rates-step"
       ]
     },
     {
@@ -20010,17 +20089,17 @@
     },
     {
       "target": "packages/medusa-utils/dist/modules-sdk/medusa-internal-service.d.ts.map",
-      "targetSha256": "36cd6ea76fcef26c56a615e3bbd651e06ffb6fb9968a931fa319a182e48ec0c8",
+      "targetSha256": "11595e495bc2212f369b7b9b2abeb3d485cd593a5b52e25acbae01bea3724304",
       "input": "packages/medusa-utils/src/modules-sdk/medusa-internal-service.ts"
     },
     {
       "target": "packages/medusa-utils/dist/modules-sdk/medusa-internal-service.js",
-      "targetSha256": "f6d72dca703487aad3e5bca301e02f9e29213bfae42d4dee2049056a1ef0b132",
+      "targetSha256": "9b40cd7e611051da74535394ec34b4a6d8b91d70d873106504ac38c9fe6ebde3",
       "input": "packages/medusa-utils/src/modules-sdk/medusa-internal-service.ts"
     },
     {
       "target": "packages/medusa-utils/dist/modules-sdk/medusa-internal-service.js.map",
-      "targetSha256": "4491dd6e205f08e8083696d751a551f361f5c12f222926e4b5890d402f69d375",
+      "targetSha256": "cfb1ebd865273d57e8bd5e6a2ee28e39c607b2ffb75cc711ee146f51faf02536",
       "input": "packages/medusa-utils/src/modules-sdk/medusa-internal-service.ts"
     },
     {
@@ -26585,12 +26664,12 @@
     },
     {
       "target": "packages/medusa-types/dist/tax/mutations.d.ts",
-      "targetSha256": "41cf44849a6a7804bcddcf7e02309725c65c67feaa0dcd979e4c22a452a449eb",
+      "targetSha256": "a6eb33eeb392dbae7bb5fb2b0865d99507844476ebff47bff97c1e7b69dbdc4e",
       "input": "packages/medusa-types/src/tax/mutations.ts"
     },
     {
       "target": "packages/medusa-types/dist/tax/mutations.d.ts.map",
-      "targetSha256": "cb75748e9b4295ee766f1d65370cf4ff86d147dd38f003bdca8940c54a7b328f",
+      "targetSha256": "6f07a7162f33d32be7dbb451dde6e4b278b4664627cf6c05f1274d531d6d8c7b",
       "input": "packages/medusa-types/src/tax/mutations.ts"
     },
     {
@@ -30622,6 +30701,26 @@
       "target": "packages/medusa-utils/dist/order/status.js.map",
       "targetSha256": "63a2c113d77c25fcd357e11848907048751c739c6cc0d8e99efc4c48123395e0",
       "input": "packages/medusa-utils/src/order/status.ts"
+    },
+    {
+      "target": "packages/medusa-utils/dist/modules-sdk/prepare-update-metadata.js",
+      "targetSha256": "c701d7b25f3975f382401266934f29fd6a8ee69e23dd5817c13de3df519ecaf3",
+      "input": "packages/medusa-utils/src/modules-sdk/prepare-update-metadata.ts"
+    },
+    {
+      "target": "packages/medusa-utils/dist/modules-sdk/prepare-update-metadata.js.map",
+      "targetSha256": "4bbe03cb77043d4df2d94e850ca3e33e48fe6ddc37a1227de6e0d056954d14e3",
+      "input": "packages/medusa-utils/src/modules-sdk/prepare-update-metadata.ts"
+    },
+    {
+      "target": "packages/medusa-utils/dist/modules-sdk/prepare-update-metadata.d.ts",
+      "targetSha256": "650375e0cd36ea48dec52d7f3a3231337bbe765940767628c3e18dc56a74890f",
+      "input": "packages/medusa-utils/src/modules-sdk/prepare-update-metadata.ts"
+    },
+    {
+      "target": "packages/medusa-utils/dist/modules-sdk/prepare-update-metadata.d.ts.map",
+      "targetSha256": "a34ed957309643b600a5d3fa3bb28aa83a1261bf92c5b7ea39ef8ae97ae313ca",
+      "input": "packages/medusa-utils/src/modules-sdk/prepare-update-metadata.ts"
     }
   ],
   "testAliases": [

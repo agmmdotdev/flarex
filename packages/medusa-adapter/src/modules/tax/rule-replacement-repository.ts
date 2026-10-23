@@ -25,8 +25,9 @@ export function prepareTaxRuleReplacementRepository(metadata: Effect.Success<Ret
     const contracts = creation.contracts;
     const scalar = yield* prepareScalarRepository(contracts.rule, "TaxRateRule", where, undefined, { managedTimestamps: true });
     const query = (input: unknown) => decodeTaxRuleReplacementSelection(input).pipe(Result.flatMap(() => scalar.query(input)));
-    const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
-      const rules = scalar.bind(root, owner), { bridge } = rules;
+    const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner,
+      sharedEvents?: Parameters<typeof scalar.bind>[2], sharedBridge?: Parameters<typeof scalar.bind>[3]) => {
+      const rules = scalar.bind(root, owner, sharedEvents, sharedBridge), { bridge } = rules;
       const create = creation.bindBorrowed(rules), lifecycle = deletion.bindBorrowed(rules);
       const denied = deniedCommerceRepository(rules.repository, rules.refuse);
       const repository: DAL.RepositoryService = { ...denied, serialize: rules.repository.serialize,

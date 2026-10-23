@@ -884,8 +884,21 @@ Rule inverse and lifecycle ordering remain explicit portable policies, separate
 from original SQL observations. Empty Rate IDs are admitted only without templates; the original
 nonempty-template ORM `RangeError` stays outside the profile. Shared fresh-batch
 identity sharing and fresh-schema one-to-one constraints remain admitted; no
-cross-call identity cache or populated-schema conversion is introduced. The next
-selected Tax branch is Rate updates and retained upsert compensation.
+cross-call identity cache or populated-schema conversion is introduced.
+
+The private bounded
+[native Tax Rate selector update](./preflight/168-native-tax-rate-update-workflow.md)
+profile is admitted on PGlite and ordinary-role PostgreSQL. One confined Tax
+instance handles up to four Rate preimages and actual updates across two Regions,
+eight active old Rules, two templates and eight expanded new Rules. Forward and
+separately committed retained inverse roots keep default 64-call/64-event limits.
+Region visibility follows the native projection; sparse retained upserts preserve
+required-field failures. Exact extracted native metadata preparation retains
+shared mutable update aliases, and checked receipts distinguish immediate REAL
+presentation from cold stored values. Synthetic forward-plus-manual-undo work in
+one request is outside the root allowance and is atomically refused. No native
+business correction or additional allowance is introduced. The next selected Tax
+branch is Rate deletion with cascade and restore compensation (169).
 
 The [native Cart creation preflight](./preflight/160-native-cart-creation-workflow.md)
 records the next connected objective. Its selected original-native cohort is
