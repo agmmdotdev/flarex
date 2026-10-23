@@ -285,16 +285,17 @@ outcome. No SQL transaction spans untrusted execution or remote work.
 | Gate | Connected outcome and exit criteria |
 | --- | --- |
 | CXR1: policy and authenticated endpoints | Retention/hard-delete policy and exact nullable identity admission are implemented for the selected private profile. The bounded private point-read grant checks real scope/principal/source/method admission and opaque read refusals. General principal permissions and the full supported/refused profile matrix remain gated. Missing, wrong-owner, wrong-table and unsupported definitions must refuse before capability issuance. No Medusa edit occurs before the ownership checkpoint. |
-| CXR2: article-to-product mutation and reads | The private native mutation and authorized explicit point-read verticals use one finite root and shared lifecycle/dependency owners. Selected distinct-connection scope-lock races and record-mutation failure/retry/recovery are covered. Authorized reverse reads, general assignment/retention permissions, pending new-Product construction and permission/binding-change races remain pending. Preserve standalone endpoint-write safety and existing Payload-to-Payload/delete-preference behavior. This vertical does not close the broader gate. |
+| CXR2: article-to-product mutation and reads | The private native mutation and authorized explicit point-read verticals use one finite root and shared lifecycle/dependency owners. Selected distinct-connection scope-lock races, protected permission/binding-change races and record-mutation failure/retry/recovery are covered by their private SA/LB inventories. Authorized reverse reads, general principal policies and pending new-Product construction remain pending. Preserve standalone endpoint-write safety and existing Payload-to-Payload/delete-preference behavior. This vertical does not close the broader gate. |
 | CXR3: three-owner and opposite-direction proof | Add a real compiler-admitted Medusa-owned extension referencing Payload or Application, through its owner's native operation path. Choose the extension with the Medusa owner; no fixture-only field or direct generic patch of commerce rows. Prove Application-owned references/consumption and all relevant target transitions with explicitly selected source-lifecycle rules. Native rich Link behavior remains separately characterized. |
-| CXR4: dependency activation and recovery | Refuse incompatible endpoint/policy candidates without changing active authority/data. Prove fresh binding/build/readiness, stale capability refusal, admitted rebinding, recovery and concurrent-write safeguards. General populated-data conversions and ownership transfers remain deferred. |
+| CXR4: dependency activation and recovery | LB1-LB4 prove the selected reference admission/refusal, fresh/stale serving, metadata/withdrawal versus save ordering, historical activation recovery and already-committed save replay after later withdrawal. PostgreSQL acknowledgement loss follows independently observed real COMMIT; reconstructed target pools retain the available control catalog. Broader readiness/build transitions, framework/installation profiles and database/control-plane restart are not established by that inventory. General populated-data conversions and ownership transfers remain deferred. |
 
-The next bounded CXR4 work is specified by the
+The implemented bounded CXR4 inventory and its remaining limits are specified by the
 [private schema and binding lifecycle preflight](./reference-schema-binding-lifecycle-preflight.md).
-Its LB1-LB4 gates are pending: establish actual admission/refusal and supported
-transition stimuli first, then stale-use, concurrency and recovery proof through
-the protected save consumer. Existing generic checks do not close these gates;
-this selects no public API, Medusa implementation change or advanced evolution.
+Its LB1-LB4 gates are implemented for the selected protected save consumer:
+admission/refusal, supported transitions, stale-use, concurrency and committed
+recovery have bounded witnesses. Broader profiles, database/control-plane restart
+and uncommitted redispatch remain outside that proof. This selects no public API,
+Medusa implementation change or advanced evolution.
 
 Protocol/schema evidence belongs to `flarex-protocol` and producer analysis;
 installation/readiness, reference indexes and integrity belong to

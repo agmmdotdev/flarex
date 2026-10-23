@@ -2,7 +2,7 @@
 
 ## Status And Scope
 
-Status: LB1-LB3 implemented for the selected private profile. LB4 remains pending.
+Status: LB1-LB4 implemented for the selected private profile.
 It narrows CXR4 in the [cross-framework preflight](./cross-framework-reference-preflight.md)
 after the implemented [SA1-SA4 authorization foundation](./reference-save-authorization-preflight.md).
 It does not mark CXR4 or the wider cross-framework proof complete.
@@ -38,14 +38,15 @@ owns only their selected lifecycle proof and implementation order.
 | --- | --- | --- |
 | [Logical candidate contract](../../packages/flarex-protocol/src/logical-schema-candidate.ts), producer analysis and [catalog admission](../../packages/persistence-postgres/src/storage/catalog/logicalSchemaAdmission.ts) | Qualified identities, canonical candidate/provenance evidence and retained Application/Payload write ownership; V3 policy ownership cannot be renamed, removed or reclassified through the selected admission path | LB1 proves selected endpoint/source/ownership/profile refusal and preservation; LB2 proves serving across its unchanged-candidate rebind and preference withdrawal/restoration |
 | [Logical readiness](../../packages/persistence-postgres/src/storage/catalog/logicalStorageReadiness.ts) and [source admission](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts) | Exact source definition/evidence/profile matching; required table, index, unique and dependency preparation; authenticated preparation lifetimes | LB1 proves binding preparation/activation readiness refusal; LB2 distinguishes preference entry refusal from the final reverse-index build guard. LB3 covers selected metadata/withdrawal ordering; concurrent build retirement and wider evolution remain outside this inventory |
-| [Binding host](../../packages/persistence-postgres/src/installation/frameworkSchema/binding/host.ts) and [reference projection](../../packages/persistence-postgres/src/installation/frameworkSchema/binding/strongReferenceProjection.ts) | Preparation and activation revalidation, scope-lock serialization, expected-head comparison, preservation of existing enforced contracts and an existence probe refusing new strong-reference projections on populated source tables | LB1-LB3 connect selected refusal, unchanged rebinding, preference withdrawal, fresh/stale serving and both activation/save orders; recovery remains LB4 |
+| [Binding host](../../packages/persistence-postgres/src/installation/frameworkSchema/binding/host.ts) and [reference projection](../../packages/persistence-postgres/src/installation/frameworkSchema/binding/strongReferenceProjection.ts) | Preparation and activation revalidation, scope-lock serialization, expected-head comparison, preservation of existing enforced contracts and an existence probe refusing new strong-reference projections on populated source tables | LB1-LB4 connect selected refusal, unchanged rebinding, preference withdrawal, fresh/stale serving, both activation/save orders and recovery of historical receipts separately from current usability |
 | [Binding repository](../../packages/persistence-postgres/src/installation/frameworkSchema/binding/repository.ts) | Atomic activation/head, reference projection, maintenance replacement and finite metadata publication; selected permission withdrawal advances the existing revocation epoch | LB3 connects accepted activation/head, retained maintenance openings/new generation, metadata repair and revocation with both save orders. No shared production correction was needed for this inventory |
 | [Current Application binding](../../packages/persistence-postgres/src/application/activation/currentBinding.ts), [finite preparation](../../packages/persistence-postgres/src/application/activation/finitePreparation.ts) and [metadata dependencies](../../packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts) | Genuine original-generation lending, exact prepared entry and consumed semantic metadata dependencies, including absent keys and change sequence | LB2 proves closed-preparation refusal, selected unchanged reuse, exact consumed metadata failure/ABA and unconsumed-key preservation; broader evolution remains separate |
-| [Protected serving consumer](../../packages/flarex-backend/src/privatePayloadSaveConsumer.ts), [private save issuer](../../packages/persistence-postgres/src/execution/journal/privateSaveAccess.ts) and [Payload save runtime](../../packages/payload-adapter/src/runtime/referenceSave.ts) | Tracked permission read, attempt-bound grant, exact native/content identity, protected native access and effective-edge authorization; no ordinary writer fallback | LB2-LB3 reconstruct fresh authority after restoration, refuse stale publication and rerun the protected consumer/native work after a genuine metadata-conflict replacement; recovery remains LB4 |
-| [Finite publication](../../packages/persistence-postgres/src/commit/point/finitePublication.ts) and [execution/recovery](../../packages/executor/src/mutation/execution/finitePointMutationExecution.ts) | One trusted settlement owner, consumed metadata comparison, current write/source acceptance, nonacceptance-bound retry and committed-outcome lookup | LB3 proves both selected activation/save orders and genuine whole-root retry eligibility; recovery of an already committed save after later binding movement without repeating native work remains LB4 |
+| [Protected serving consumer](../../packages/flarex-backend/src/privatePayloadSaveConsumer.ts), [private save issuer](../../packages/persistence-postgres/src/execution/journal/privateSaveAccess.ts) and [Payload save runtime](../../packages/payload-adapter/src/runtime/referenceSave.ts) | Tracked permission read, attempt-bound grant, exact native/content identity, protected native access and effective-edge authorization; no ordinary writer fallback | LB2-LB4 reconstruct fresh authority after restoration, refuse stale publication, rerun native work only after genuine metadata-conflict replacement, and recover a committed save after withdrawal without another native invocation |
+| [Finite publication](../../packages/persistence-postgres/src/commit/point/finitePublication.ts) and [execution/recovery](../../packages/executor/src/mutation/execution/finitePointMutationExecution.ts) | One trusted settlement owner, consumed metadata comparison, current write/source acceptance, nonacceptance-bound retry and committed-outcome lookup | LB3 proves both selected activation/save orders and genuine whole-root retry eligibility. LB4 proves real lost-COMMIT-acknowledgement resolution and fresh committed-outcome acquisition after withdrawal, without native work or a copied frozen graph |
 
-The selected LB1-LB3 inventories below have connected proof; restart and
-uncertain-outcome recovery remain pending through LB4. Existing generic evidence includes
+The selected LB1-LB4 inventories below have connected proof. Reconstruction and
+acknowledgement-loss evidence remains bounded to the LB4 topology below; broader
+evolution and cross-framework profiles remain separate. Existing generic evidence includes
 [binding lifecycle](../../packages/persistence-postgres/test/installation/frameworkSchema/frameworkDataBindingTestSupport.ts),
 [logical binding/readiness recovery](../../packages/persistence-postgres/test/storage/catalog/logicalSchemaBindingScenario.ts)
 and [finite metadata semantics](../../packages/persistence-postgres/test/execution/finiteMetadataDependenciesScenario.ts).
@@ -288,7 +289,7 @@ proofs remain with that scenario. No fresh authority is reconstructed from an
 old native receipt, and no automatic retry/fallback is added here.
 
 LB2 alone does not establish concurrent activation/save ordering. LB3 below
-adds that selected proof. Restart and lost-acknowledgement recovery retain LB4;
+adds that selected proof. LB4 adds bounded reconstruction and acknowledgement recovery;
 different logical-schema support retains the existing evolution boundary.
 
 ## LB3 Concurrent Binding Activation And Save Ordering
@@ -334,8 +335,60 @@ a genuinely new grant/preparation/save. No retry loop or serving fallback is
 added by the fixture.
 
 LB3 adds no production enforcement change or public API. General schema
-evolution, concurrent index-build retirement, restart and uncertain-outcome
-recovery are outside this bounded ordering inventory. LB4 remains the next gate.
+evolution and concurrent index-build retirement remain outside this bounded
+ordering inventory. LB4 below adds the selected recovery proof.
+
+## LB4 Reconstruction And Uncertain Commit Recovery
+
+The [connected recovery witness](../../packages/flarex-backend/test/privatePayloadBindingRecovery.workerd.test.ts)
+uses the actual protected Worker/RPC save consumer, native Payload create and
+ordinary Application work. The Worker/native scope is disposed before final
+publication. Preference withdrawal then changes current authority while the
+committed content/Application result and activation history remain durable.
+
+The [fresh owner composition](../../packages/flarex-backend/test/support/privatePayloadBindingRecoveryOwners.ts)
+reuses existing Application/readiness, binding and execution-claim acquisition
+factories over persisted data. Its input is deployment/scope/physical/schema
+configuration, never the producer's preparation, grant, execution object, native
+receipt or frozen graph. The original retained writer must refuse `closed`.
+PostgreSQL additionally closes the producer's real pool and opens a new pool
+for each reconstruction. PGlite proves fresh-owner semantics on its still-live
+database worker. The immutable control catalog remains available in both lanes.
+This is not an OS-process/database-server restart or control-plane restart proof.
+
+| Boundary | Selected evidence |
+| --- | --- |
+| Historical activation recovery after later withdrawal | Identical request returns its original durable receipt with `selected: false`; recovering the current withdrawal returns its own receipt with `selected: true`. A different candidate under the retained request ID refuses `requestConflict`. Neither recovery restores old authority or changes the selected head |
+| Lost activation COMMIT acknowledgement | The fault forwards actual driver COMMIT. A separate ordinary-role pool observes exactly one target activation on a distinct backend before performing a real withdrawal and losing the first response. The original owner reports `decisionUncertain`; fresh binding hosts recover the historical receipt without another activation |
+| Lost mixed-save COMMIT acknowledgement | Independent observation proves one committed native/Application result before withdrawal and response loss. The existing publisher resolves the committed outcome and returns `replayed`, preserving the actual result/token without rerunning the Worker or native operation |
+| Committed-save recovery after host/pool closure | The existing execution-claim acquisition owner, freshly constructed for each lookup, returns the durable available outcome before live writer admission. Repeated reconstruction preserves the exact successful result and token while the preference binding remains withdrawn |
+
+The [driver response-loss arrangement](../../packages/flarex-backend/test/support/privatePayloadBindingCommitLoss.ts)
+uses the existing shared pool/client fault owner. It observes the real COMMIT
+through another pool and checks distinct backend identities; it does not call
+COMMIT, publish, retry or reconstruct an outcome itself. Authority changes only
+after this independent durable observation. The original native invocation,
+Worker reply and disposal counters each stay at one through recovery. No
+recovery-triggered native write hooks can run through another invocation.
+
+Recovery compares exact binding/head/history, metadata/revocation, maintenance/build,
+committed rows/revisions and session/claim state. Publication-family counts cover
+indexes, facts, events and outcomes; their full row contents are not compared.
+Both returned document identities remain present and no publication or
+activation is duplicated. A valid historical receipt is not a live save grant;
+current selection and outcome identity checks retain their existing owners.
+General public outcome access or serving authorization is not established here.
+
+No shared production enforcement correction or second recovery/settlement path
+was required. Recovery reuses the existing construction, snapshot and driver
+fault owners. The selected consumer retains protected construction and its
+existing interruption/drain proof; no allow-all or ordinary-writer fallback is
+introduced. Existing direct-root/default/read fixtures retain their separate
+schema, authorization and compatibility obligations.
+
+LB4 closes this selected lifecycle sequence only. Uncommitted-attempt recovery,
+general schema evolution, broader framework/installation profiles, deployment
+and restart of the database/control plane retain their owning gates.
 
 ## Target Direction And Next Correctness Gates
 
@@ -344,10 +397,11 @@ recovery are outside this bounded ordering inventory. LB4 remains the next gate.
 | LB1: admission and refusal preservation | Implemented for the selected inventory above, using genuine protected Application, compiled Payload and unchanged native Product sources. The shared removal/replacement refusal is corrected; unchanged-candidate rebinding and preference-profile withdrawal are the real stimuli for later gates. |
 | LB2: fresh entry and stale capability boundary | Implemented for the selected inventory above through actual SA4 Worker/RPC, real fresh/retained generations and protected native saves. Consumed metadata drift/ABA and selective unconsumed repair use genuine frozen dependencies and activation-owned sequence changes; initial missing-observation semantics retain their generic owner coverage. No new refusal frontier or retry policy is introduced. |
 | LB3: concurrent activation and save | Implemented for the selected consumed-metadata repair and preference-withdrawal inventory above. Actual PostgreSQL blocking/backend identities prove both orders after native/Application work is frozen; PGlite retains serial semantics. Existing owners decide publication/refusal and genuine whole-root replacement. Broader evolution and concurrent build retirement remain outside this claim. |
-| LB4: restart, uncertain outcome and consumer cleanup | Recover identical activation requests with historical receipt distinct from current usability. Lose a real activation or save COMMIT acknowledgement and observe durability independently before changing authority; resolve/replay through the existing owner. Prove no duplicate writes/hooks/outcomes or serving fallback, preserve interruption/drain, and remove only displaced selected-consumer assembly after parity. |
+| LB4: restart, uncertain outcome and consumer cleanup | Implemented for the selected reconstruction and already-committed outcome inventory above. Fresh binding/outcome owners recover after writer closure and later withdrawal; PostgreSQL uses new target pools and real independently observed COMMIT response loss. No duplicate publication/native invocation or restored authority is introduced. Database/control-plane restart and other recovery profiles remain outside this claim. |
 
-Implement LB4 next using LB1-LB3's real transition inventory and refusal evidence.
-Completing these bounded gates refines CXR4 only for this
+The selected LB1-LB4 sequence is complete. Choose the next bounded outstanding
+profile in the cross-framework preflight before extending this scope.
+These bounded gates refine CXR4 only for this
 profile; CXR3's opposite-direction/three-owner extension, general authorized
 traversal, pending new Products and broader evolution retain their own gates.
 

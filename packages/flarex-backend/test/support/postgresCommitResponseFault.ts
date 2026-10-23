@@ -1,12 +1,9 @@
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
-import type { PostgresLocatedReadCommittedRunnerOptionsV1 } from
-  "../../../persistence-postgres/src/database/postgresLocatedReadCommitted";
+import type { Pool, PoolClient } from "pg";
 import type { createMixedMutationProductFixture } from "./mixedMutationWorkerdFixture";
 import type { MixedMutationFinalEntryTestContext } from "./mixedMutationWorkerdFixture";
 
 type MixedFixture = Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
-type PostgresFixtureResource = Extract<MixedFixture["currency"]["resource"], { readonly kind: "postgres" }>;
-type PoolClient = Parameters<NonNullable<PostgresLocatedReadCommittedRunnerOptionsV1["afterAcquire"]>>[0];
 
 function isPoolClient(value: unknown): value is PoolClient {
   return typeof value === "object" && value !== null && "query" in value &&
@@ -121,15 +118,15 @@ export function installOneFiniteFenceCommitResponseFault(fixture: MixedFixture):
   }, () => didFire);
 }
 
-export function installPoolCommitResponseFault(pool: PostgresFixtureResource["target"]["pool"],
-  makeFault: () => Readonly<{ commit: (forward: () => unknown) => unknown; observe?: (text: string) => void }>,
+export function installPoolCommitResponseFault(pool: Pool,
+  makeFault: (client: PoolClient) => Readonly<{ commit: (forward: () => unknown) => unknown; observe?: (text: string) => void }>,
   fired: () => boolean): Readonly<{ restore: () => void; fired: () => boolean }> {
   const originalDescriptor = Object.getOwnPropertyDescriptor(pool, "connect");
   const connect = pool.connect;
   const restoreQueries: Array<() => void> = [];
   const decorate = (candidate: unknown): void => {
     if (!isPoolClient(candidate)) return;
-    const fault = makeFault();
+    const fault = makeFault(candidate);
     restoreQueries.push(installCommitResponseFault(candidate, fault.commit, fault.observe));
   };
   const installed = Reflect.set(pool, "connect", (...args: ReadonlyArray<unknown>): unknown => {

@@ -73,7 +73,13 @@ stale grants/capabilities/receipts, consumed metadata ABA and selective reuse
 are proven at their real refusal frontiers. LB3 now proves both real PostgreSQL
 activation/save orders for preference withdrawal and selected consumed-metadata
 repair after native/Application work is frozen, including genuine whole-root
-replacement. PGlite covers their serial outcomes. LB4 recovery remains pending.
+replacement. PGlite covers their serial outcomes. LB4 now reconstructs real
+binding/outcome owners after writer closure, separates historical receipts from
+current usability and resolves actual PostgreSQL COMMIT acknowledgement loss
+after independently observed durability and later withdrawal. Committed results
+replay without another native invocation or publication. Its control catalog
+remains available; database/control-plane restart and broader recovery profiles
+are not claimed.
 This does not enable populated-data conversion,
 write-owner transfer, Medusa changes or public API syntax.
 

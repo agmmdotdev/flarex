@@ -25,7 +25,17 @@ interface BindingSnapshot {
   readonly published: Awaited<ReturnType<typeof publishedScopeCounts>>;
 }
 
-export async function privatePayloadBindingSnapshot(fixture: PrivatePayloadSaveFixture): Promise<BindingSnapshot> {
+type Application = PrivatePayloadSaveFixture["fixture"]["application"];
+export interface PrivateBindingSnapshotSource {
+  readonly fixture: {
+    readonly application: Pick<Application, "persistence" | "deploymentId" | "relationActivation"> & {
+      readonly authority: Pick<Application["authority"], "scopeId">;
+    };
+    readonly control: PrivatePayloadSaveFixture["fixture"]["control"];
+  };
+}
+
+export async function privatePayloadBindingSnapshot(fixture: PrivateBindingSnapshotSource): Promise<BindingSnapshot> {
   const db = fixture.fixture.application.persistence.drizzle;
   const control = fixture.fixture.control.drizzle;
   const deploymentId = fixture.fixture.application.deploymentId;
