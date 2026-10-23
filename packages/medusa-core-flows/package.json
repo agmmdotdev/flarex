@@ -191,6 +191,8 @@
     "./payment-collection/create-payment-session-step": "./src/payment-collection/steps/create-payment-session.ts",
     "./tax/update-tax-rates": "./src/tax/workflows/update-tax-rates.ts",
     "./tax/update-tax-rates-step": "./src/tax/steps/update-tax-rates.ts",
+    "./tax/delete-tax-rates": "./src/tax/workflows/delete-tax-rates.ts",
+    "./tax/delete-tax-rates-step": "./src/tax/steps/delete-tax-rates.ts",
     "./order/update-order-changes": "./src/order/workflows/update-order-changes.ts",
     "./order/update-order-changes-step": "./src/order/steps/update-order-changes.ts"
   },

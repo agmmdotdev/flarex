@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "cc98a2b3596b1851a26425c2c8194b01efe2eccae7c995e33e2a8ed1db1fe9d1"
+      "targetSha256": "8e45ae734a3c98da3e1ab660d7776a161a2bbd8e27438c52896657c0c8786e20"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -14626,6 +14626,65 @@
       "target": "packages/medusa-adapter/test/support/inverse-one-query.ts",
       "classification": "authored",
       "targetSha256": "ab01d133aa05f640acf1dada3a26b4be9438e2be80214953931e60088d0267d7"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/tax/rate-delete-input.ts",
+      "classification": "authored",
+      "targetSha256": "c9dd398a67752600db21b40348995972f28bae45c1dc62ec067468e424579f75"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/tax/rate-delete-repository.ts",
+      "classification": "authored",
+      "targetSha256": "cc2a98a9c2f42ee23da67343c52a64b7c798b35baf8f280debf8063952120610"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/tax/rate-delete-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "087b298c009fb585f3e943137650f5af4bd618590b5f58194e19168b14152fe6"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/tax/rate-delete-service.ts",
+      "classification": "authored",
+      "targetSha256": "d4718c50189c1d51be876a6568226a5d9e1830f3fba33fe294cbc4baa635bde8"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/tax/delete-rates.ts",
+      "classification": "authored",
+      "targetSha256": "048de1b7b1437bbe22f8197e12b89c1488ff6bdb67e43ba98766d7df55ae9c6a"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-tax-rate-deletion-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "17568ddbef437b8827d33182fb5fbee6cec9b45947e2170706df9cec0ad412b3"
+    },
+    {
+      "target": "packages/medusa-adapter/test/tax-rate-deletion-contracts.test.ts",
+      "classification": "authored",
+      "targetSha256": "0df9e25208176b5b0cd6bbeea2c64f7fd556bf3903295b9650a7b89898a4e1e4"
+    },
+    {
+      "target": "packages/medusa-adapter/test/tax-rate-deletion-receipts.test.ts",
+      "classification": "authored",
+      "targetSha256": "5d180ed2628ab23e81fb262e318a36c0943b78e9aea075f5f072c648621b167f"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-tax-rate-deletion-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "e88efa0feb01199a8597babf0ecc9120decfbaf7d4b5814bb8429fb1c860827b"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/tax/workflows/delete-tax-rates.ts",
+      "classification": "taxRateDeletionFork",
+      "targetSha256": "a2e0f26d8dcf0cf97a47ace8404f686138c99e77e587b63b6d6f18ddbd3608d3",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/tax/workflows/delete-tax-rates.ts",
+      "sourceSha256": "1de579b0ef8131a4c091902e81da341d4295ac84f9c1a690832c5a56ba3d184b"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/tax/steps/delete-tax-rates.ts",
+      "classification": "taxRateDeletionFork",
+      "targetSha256": "9228c991c75efa8cb3e4c332806d5c049f23a5422446e264cf001732fab7bdff",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/tax/steps/delete-tax-rates.ts",
+      "sourceSha256": "b8b6a9143c77fdaf10c9a230b491795266d0a01942ae7f27dffedefd7ec8533a"
     }
   ],
   "dependencies": {
@@ -15253,6 +15312,8 @@
         "./payment-collection/create-payment-session-step",
         "./tax/update-tax-rates",
         "./tax/update-tax-rates-step",
+        "./tax/delete-tax-rates",
+        "./tax/delete-tax-rates-step",
         "./order/update-order-changes",
         "./order/update-order-changes-step"
       ]

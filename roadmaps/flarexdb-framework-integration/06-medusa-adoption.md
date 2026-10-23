@@ -910,8 +910,20 @@ required-field failures. Exact extracted native metadata preparation retains
 shared mutable update aliases, and checked receipts distinguish immediate REAL
 presentation from cold stored values. Synthetic forward-plus-manual-undo work in
 one request is outside the root allowance and is atomically refused. No native
-business correction or additional allowance is introduced. The next selected Tax
-branch is Rate deletion with cascade and restore compensation (169).
+business correction or additional allowance is introduced.
+
+The private bounded
+[native Tax Rate deletion and retained restore](./preflight/169-native-tax-rate-deletion-workflow.md)
+profile is admitted on PGlite and ordinary-role PostgreSQL. One confined Tax
+instance admits four raw ID positions, four selected Rates across two Regions
+and eight complete Rule descendants, including history. The genuine empty
+forward call and raw retained IDs are preserved. Retained restoration reselects
+current history, including later descendants; restoration emits no module events.
+The approved order is Rate IDs first, then Rule IDs by parent Rate ID and Rule
+ID. Historical children retain native updated-versus-deleted action classification.
+Forward and separately committed inverse roots each retain default
+64-call/64-event limits. Region/provider administration and Cart admission remain
+separate.
 
 The [native Cart creation preflight](./preflight/160-native-cart-creation-workflow.md)
 records the next connected objective. Its selected original-native cohort is
