@@ -3,7 +3,7 @@ import { OrderWorkflowEvents } from "@medusajs/framework/utils/portable";
 import { archiveOrderWorkflow } from "@medusajs/core-flows/order/archive-orders";
 import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { OrderArchiveInput, compileOrderArchiveContracts, decodeOrderArchiveIds } from "../../modules/order/input";
+import { OrderArchiveInput, compileOrderStatusContracts, decodeOrderArchiveIds } from "../../modules/order/input";
 import { captureOrderMetadata } from "../../modules/order/schema";
 import type { makeOrderArchiveCommands } from "../../modules/order/service";
 import { captureWorkflowRecord } from "../../workflow/configuration";
@@ -35,7 +35,7 @@ export const prepareOrderArchiveWorkflow = Effect.fn("Order.prepareArchive")(fun
   if (modules.order.logicalResources !== undefined || modules.order.logicalPublication !== undefined)
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   const metadata = yield* captureOrderMetadata();
-  const contracts = yield* Effect.fromResult(compileOrderArchiveContracts(metadata.frame));
+  const contracts = yield* Effect.fromResult(compileOrderStatusContracts(metadata.frame));
   const resources = yield* Effect.fromResult(prepareWorkflowResources({ order: { module: modules.order.module,
     methods: ["listOrders", "archive", "updateOrders"], graph: false } }, true));
   const prepared = yield* Effect.fromResult(archiveOrderWorkflow.prepare())

@@ -1,30 +1,15 @@
-import { createHash } from "node:crypto";
-import { and, eq } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import { createStep, createWorkflow, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { archiveOrderWorkflow } from "@medusajs/core-flows/order/archive-orders";
-import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
-import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
-import { TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
-import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { makeCommerceHost, type LogicalCommerceHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
-import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
-import { canonicalizeJsonOutcome } from "../../../persistence-postgres/src/values/jsonOutcome";
-import { fxSystemIdempotency } from "../../../persistence-postgres/src/database/schema";
-import { compileOrderDefinition } from "../../src/modules/order/schema";
 import { makeOrderArchiveCommands } from "../../src/modules/order/service";
 import { OrderArchiveInput, OrderArchiveStatuses, decodeOrderArchiveIds, decodeOrderArchiveStatuses } from "../../src/modules/order/input";
 import { prepareOrderArchiveWorkflow } from "../../src/workflows/order/archive-orders";
-import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution } from "../../src/workflow/host";
+import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents, orderedWorkflowIdEvents } from "../../src/workflow/events";
-import { projectNativeRow } from "../../src/repository/result";
-import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./logical-currency-fixture";
-import { logicalCurrencyInventory } from "./logical-currency-inventory";
+import { prepareLogicalOrderFixture, type OrderFixtureShared, type OrderInitialRow } from "./logical-order-fixture";
+export type { OrderInitialRow } from "./logical-order-fixture";
 
-export type OrderInitialRow = Readonly<{ table: string; row: JsonObject }>;
 export const orderArchiveStamp = "2020-02-03T04:05:06.000Z";
 export const orderArchiveIds = ["order173-d", "order173-b", "order173-c", "order173-a"] as const;
 export type OrderArchiveWorkflowInput = typeof OrderArchiveInput.Type;
@@ -49,28 +34,11 @@ export function orderArchiveRows(): readonly OrderInitialRow[] {
 
 export async function prepareLogicalOrderArchive(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
   rows: readonly OrderInitialRow[] = orderArchiveRows(),
-  shared?: Readonly<{ resource: LogicalCurrencyFixture["resource"];
-    fixtureIdentity: Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }> }>) {
-  const definition = await Effect.runPromise(compileOrderDefinition());
-  const source = await Effect.runPromise(captureLogicalSchemaSource({ key: "medusa.order", owner: "medusa", writeProfile: "medusa.order",
-    evidence: definition.provenance, definition: { kind: "relational", schema: definition.schema },
-    bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-      table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })) }));
-  const configuration = { additionalSources: [source] };
-  const fixture = await logicalCurrencyFixture(driver, close, shared === undefined ? configuration : { ...configuration, ...shared });
+  shared?: OrderFixtureShared) {
   const order = await Effect.runPromise(makeOrderArchiveCommands());
-  const dataset = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows },
-    1_048_576, { invalidInput: () => new Error("Invalid existing Order seed"), hashFailure: cause => new Error("Order seed hash", { cause }) }));
-  const input = { ...fixture.hostInput, commands: order.commands, identityAndAccessPolicy: { profile: "logical-order-archive-initialization" },
-    logicalStorage: { ...fixture.hostInput.logicalStorage,
-      source: { sourceKey: source.key, writeProfile: source.writeProfile, schema: definition.schema, evidence: definition.provenance },
-      initialization: { stepId: "order-archive-existing-initial", datasetSha256: dataset.sha256Hex, expectedRowCount: rows.length } },
-  } satisfies LogicalCommerceHostInput<unknown>;
-  const initializer = await Effect.runPromise(makeCommerceHost(input));
-  try { await Effect.runPromise(initializer.initialize(rows)); } finally { await Effect.runPromise(initializer.close); }
-  const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-    prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, ...composition }) };
-  const modules = { order: { module: order.workflow, logicalStorage: input.logicalStorage } }, revision = "3".repeat(64);
+  const base = await prepareLogicalOrderFixture(driver, close, order.commands, "order-archive", rows, shared);
+  const { fixture, definition, execution, snapshot, read, withStoredOrderResult } = base;
+  const modules = { order: { module: order.workflow, logicalStorage: base.logicalStorage } }, revision = "3".repeat(64);
   const options: Parameters<typeof prepareOrderArchiveWorkflow>[0] = { execution, modules, revision,
     subscribers: [{ id: "native-order-archive-173", revision }] };
   const resources = Result.getOrThrow(prepareWorkflowResources({ order: { module: order.workflow,
@@ -115,38 +83,6 @@ export async function prepareLogicalOrderArchive(driver: "pglite" | "postgres", 
     return own(await Effect.runPromise(prepareAtomicWorkflowHost({ ...options, operationScheduling: "queued", borrowedOperationScheduling: "queued",
       workflow: { name: "probeOrderArchiveLateParent", resources, prepared: Result.getOrThrow(flow.prepare()), input: OrderArchiveInput,
         output: order.contracts.Output, events } })));
-  };
-  const snapshot = () => logicalCurrencyInventory(fixture);
-  const read = async (selected?: readonly string[]) => {
-    const inventory = await snapshot(), output: JsonObject[] = [];
-    const scopeUuid = projectScopeIdUuidV1(fixture.application.authority.scopeId).scopeUuid;
-    for (const row of inventory.rows) {
-      if (row.scopeUuid !== scopeUuid) continue;
-      const version = inventory.revisions.find(value => value.scopeUuid === row.scopeUuid && value.tableId === row.tableId &&
-        value.commitSeq === row.commitSeq && Buffer.from(value.rowId).equals(Buffer.from(row.rowId)));
-      if (version === undefined || version.isTombstone) continue;
-      const decoded = await decodeCanonicalFlarexValueEvidenceV1({ canonicalBytes: version.valueBytes, sha256: version.valueSha256, profile: "appDocument" });
-      const value = projectNativeRow(Schema.decodeUnknownSync(Schema.JsonObject)(decoded.valueJson));
-      if (typeof value.id === "string" && (selected === undefined ? value.id.startsWith("order173-") : selected.includes(value.id))) output.push(value);
-    }
-    return output.sort((left, right) => String(left.id).localeCompare(String(right.id)));
-  };
-  /** Fault only one genuine committed JSON result using its canonical owner.
-   * Request identity, commit linkage, rows and events remain untouched. Restore
-   * the original evidence even when the replay assertion fails. */
-  const withStoredOrderResult = async (key: string, value: unknown, work: () => Promise<void>) => {
-    const db = fixture.persistence.drizzle, scopeUuid = projectScopeIdUuidV1(fixture.application.authority.scopeId).scopeUuid;
-    const requestKey = Schema.decodeUnknownSync(TransactionRequestKeyV1Schema)(key);
-    const match = and(eq(fxSystemIdempotency.scopeUuid, scopeUuid), eq(fxSystemIdempotency.requestKey, requestKey));
-    const [original] = await db.select().from(fxSystemIdempotency).where(match);
-    if (original?.resultState !== "available" || original.resultEncoding !== "json" || original.resultBytes === null
-      || original.resultSha256 === null || original.resultSemanticBytes === null) throw new Error("Missing genuine committed Order JSON result");
-    const canonical = Result.getOrThrow(canonicalizeJsonOutcome(value)), bytes = canonical.canonicalBytes;
-    await db.update(fxSystemIdempotency).set({ resultBytes: bytes, resultSha256: createHash("sha256").update(bytes).digest(),
-      resultSemanticBytes: canonical.semanticSizeBytes }).where(match);
-    try { await work(); }
-    finally { await db.update(fxSystemIdempotency).set({ resultBytes: original.resultBytes,
-      resultSha256: original.resultSha256, resultSemanticBytes: original.resultSemanticBytes }).where(match); }
   };
   return { fixture, definition, order, options, modules, execution, resources, lateFailure, prepare, prepareForward, prepareInverse,
     prepareLateFailure, closeCaseHosts, snapshot, read, withStoredOrderResult };

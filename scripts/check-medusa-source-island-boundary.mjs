@@ -774,6 +774,8 @@ export function discoverRootToolSources(repoRoot) {
     "scripts/check-medusa-payment-session-source.test.js",
     "scripts/check-medusa-order-archive-source.mjs",
     "scripts/check-medusa-order-archive-source.test.js",
+    "scripts/check-medusa-order-complete-source.mjs",
+    "scripts/check-medusa-order-complete-source.test.js",
     "scripts/check-medusa-tax-rate-update-source.mjs",
     "scripts/check-medusa-tax-rate-update-source.test.js",
     "scripts/check-medusa-currency-portable.mjs",

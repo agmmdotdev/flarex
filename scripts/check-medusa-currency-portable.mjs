@@ -18,6 +18,8 @@ for (const entry of [
   "packages/medusa-order/src/static-manifest.ts",
   "packages/medusa-order/src/services/index.ts",
   "packages/medusa-core-flows/src/order/workflows/archive-orders.ts",
+  "packages/medusa-core-flows/src/order/workflows/complete-orders.ts",
+  "packages/medusa-adapter/src/workflows/order/complete-orders.ts",
   "packages/medusa-adapter/src/workflows/order/archive-orders.ts",
   "packages/medusa-adapter/src/modules/order/service.ts",
   "packages/medusa-core-flows/src/tax/workflows/update-tax-rates.ts",

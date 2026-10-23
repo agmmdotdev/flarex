@@ -44,6 +44,13 @@ and owning Address references. The approved native step correction captures
 primitive prior statuses before archive mutates its returned Orders. The profile
 uses shared serial-value preservation, empty-object defaults and ordered non-null
 partial indexes, with the existing atomic event-capture/settlement owner.
+The [native Order completion profile](./preflight/order-completion-workflow.md)
+adds `completeOrderWorkflow` over the same bounded existing Orders, genuine
+status inverse, complete DTO and atomic settlement owners. Its finite trusted
+`ordersCompleted` hook admits selected reads and optional JSON additional data;
+extra status writes or workflow messages refuse and roll back.
+Creation/display-ID allocation, line-item mutations, returns/claims/exchanges,
+general Order composition and public/hosted activation remain separate gates.
 
 The [shared persistence adapter](./preflight/47-medusa-shared-persistence-adapter.md)
 now centralizes checked runtime metadata, schema lowering, JSON-field decoding,

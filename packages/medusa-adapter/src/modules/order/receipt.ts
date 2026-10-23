@@ -2,7 +2,7 @@ import { Effect, Result, Schema } from "effect";
 import { buildQuery } from "@medusajs/utils/modules-sdk/build-query";
 import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import { jsonEqual } from "flarex-protocol/json";
-import { commerceError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, defaultCommerceResources, type CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
 import { orderNativeIdRows, projectNativeRow } from "../../repository/result";
 import { commerceRelationReadQuery } from "../../query/relations";
@@ -10,7 +10,8 @@ import { projectRows } from "../../query/projection";
 import { moduleEventDecoder } from "../../module/events";
 import { commerceDecoder } from "../../value/decoder";
 import { captureCommerceInput } from "../../value/input";
-import { OrderArchiveId, decodeOrderArchiveIds, decodeOrderArchiveRead, decodeOrderArchiveStatuses } from "./input";
+import { OrderArchiveId, decodeOrderArchiveIds, decodeOrderArchiveRead, decodeOrderArchiveStatuses,
+  decodeOrderCompletionStatuses, type OrderRetainedStatuses, type OrderStatusProfile } from "./input";
 import type { prepareOrderArchiveRepository } from "./repository";
 
 type Prepared = Result.Result.Success<ReturnType<typeof prepareOrderArchiveRepository>>;
@@ -25,14 +26,24 @@ const stable = (row: JsonObject) => Object.fromEntries(Object.entries(row).filte
  * mutations and module events. The original archive return retains pre-write
  * updated_at; the inverse returns the freshly updated rows. */
 export function orderArchivePolicy(prepared: Prepared) {
+  return orderStatusPolicy(prepared, "archive");
+}
+
+export function orderCompletionPolicy(prepared: Prepared) {
+  return orderStatusPolicy(prepared, "complete");
+}
+
+function orderStatusPolicy(prepared: Prepared, profile: OrderStatusProfile) {
   const { contracts } = prepared;
-  const capture = Effect.fn("OrderArchive.captureEvent")(function* (input: unknown) {
+  const decodeStatuses: (input: unknown) => Result.Result<OrderRetainedStatuses, CommerceTransactionError> =
+    profile === "archive" ? decodeOrderArchiveStatuses : decodeOrderCompletionStatuses;
+  const capture = Effect.fn("OrderStatus.captureEvent")(function* (input: unknown) {
     const message = yield* decodeEvent(input);
     if (message.name !== buildModuleResourceEventName({ prefix: Modules.ORDER, objectName: "order", action: "updated" }))
       return yield* Effect.fail(commerceError("unadmittedEvent"));
     return message;
   });
-  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("OrderArchive.validateCall")(function* (call, activity) {
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("OrderStatus.validateCall")(function* (call, activity) {
     const mismatch = () => commerceError("receiptMismatch");
     if (activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length)
       return yield* Effect.fail(mismatch());
@@ -75,26 +86,27 @@ export function orderArchivePolicy(prepared: Prepared) {
       return;
     }
     if (call.mode !== "write") return yield* Effect.fail(mismatch());
-    const archive = call.commandName === "orderArchive";
-    if (!archive && call.commandName !== "orderRestoreStatuses") return yield* Effect.fail(mismatch());
-    const ids = archive ? yield* Effect.fromResult(decodeOrderArchiveIds(call.input))
-      : (yield* Effect.fromResult(decodeOrderArchiveStatuses(call.input))).map(row => row.id);
+    const transition = call.commandName === (profile === "archive" ? "orderArchive" : "orderComplete");
+    if (!transition && call.commandName !== "orderRestoreStatuses") return yield* Effect.fail(mismatch());
+    const ids = transition ? yield* Effect.fromResult(decodeOrderArchiveIds(call.input))
+      : (yield* Effect.fromResult(decodeStatuses(call.input))).map(row => row.id);
     const selected = new Set(ids);
     if (ordered.length !== selected.size || ordered.some(row => !selected.has(row.id))) return yield* Effect.fail(mismatch());
     const lookup = yield* Effect.fromResult(read({ $or: ids.map(id => ({ id })) }));
-    const reads = archive ? [receipt(yield* Effect.fromResult(read({ id: ids }))), ...(ids.length ? [receipt(lookup)] : [])]
+    const reads = transition ? [receipt(yield* Effect.fromResult(read({ id: ids }))), ...(ids.length ? [receipt(lookup)] : [])]
       : ids.length ? [receipt(lookup)] : [];
     if (!jsonEqual(activity.relationalReads, reads)) return yield* Effect.fail(mismatch());
-    const inverse = archive ? [] : yield* Effect.fromResult(decodeOrderArchiveStatuses(call.input));
+    const inverse = transition ? [] : yield* Effect.fromResult(decodeStatuses(call.input));
     const expected: JsonObject[] = [], changed: string[] = [];
     for (const row of ordered) {
-      if (archive && !["completed", "canceled", "draft"].includes(row.status)) return yield* Effect.fail(mismatch());
-      const status = archive ? "archived" : inverse.find(value => value.id === row.id)?.status;
+      if (transition && (profile === "archive" ? !["completed", "canceled", "draft"].includes(row.status) : row.status === "canceled"))
+        return yield* Effect.fail(mismatch());
+      const status = transition ? profile === "archive" ? "archived" : "completed" : inverse.find(value => value.id === row.id)?.status;
       if (status === undefined) return yield* Effect.fail(mismatch());
       const after = mutations.get(row.id);
       if (after?.status !== status) return yield* Effect.fail(mismatch());
       changed.push(row.id);
-      expected.push(yield* Effect.fromResult(contracts.present(archive ? { ...row, status } : after)));
+      expected.push(yield* Effect.fromResult(contracts.present(transition ? { ...row, status } : after)));
     }
     if (mutations.size !== changed.length || !jsonEqual(call.result, expected)) return yield* Effect.fail(mismatch());
     const emitted: string[] = [];

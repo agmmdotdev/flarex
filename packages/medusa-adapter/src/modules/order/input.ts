@@ -8,8 +8,16 @@ import type { captureOrderMetadata } from "./schema";
 export const OrderArchiveId = Schema.String.check(Schema.isLengthBetween(1, 256));
 export const OrderArchiveIds = Schema.Array(OrderArchiveId).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 export const OrderArchiveInput = Schema.Struct({ orderIds: OrderArchiveIds });
+export const OrderCompletionInput = Schema.Struct({ orderIds: OrderArchiveIds,
+  additional_data: Schema.optionalKey(Schema.JsonObject) });
+export const OrderCompletionIds = OrderArchiveIds;
 export const OrderArchiveStatuses = Schema.Array(Schema.Struct({ id: OrderArchiveId,
   status: Schema.Literals([OrderStatus.COMPLETED, OrderStatus.CANCELED, OrderStatus.DRAFT]),
+})).pipe(Schema.mutable).check(Schema.isMaxLength(4), Schema.makeFilter(rows =>
+  new Set(rows.map(row => row.id)).size === rows.length || "Expected distinct retained Orders"));
+export const OrderCompletionStatuses = Schema.Array(Schema.Struct({ id: OrderArchiveId,
+  status: Schema.Literals([OrderStatus.PENDING, OrderStatus.COMPLETED, OrderStatus.DRAFT,
+    OrderStatus.ARCHIVED, OrderStatus.REQUIRES_ACTION]),
 })).pipe(Schema.mutable).check(Schema.isMaxLength(4), Schema.makeFilter(rows =>
   new Set(rows.map(row => row.id)).size === rows.length || "Expected distinct retained Orders"));
 export const OrderArchiveRead = Schema.Struct({ filters: Schema.Struct({ id: OrderArchiveIds }),
@@ -22,12 +30,17 @@ const decodeReference = commerceDecoder(Schema.NullOr(Schema.Struct({ id: OrderA
 export const decodeOrderArchiveIds = commerceDecoder(OrderArchiveIds, "invalidInput");
 export const decodeOrderArchiveStatuses = commerceDecoder(OrderArchiveStatuses, "invalidInput");
 export const decodeOrderArchiveRead = commerceDecoder(OrderArchiveRead, "invalidInput");
+export const decodeOrderCompletionIds = commerceDecoder(OrderCompletionIds, "invalidInput");
+export const decodeOrderCompletionStatuses = commerceDecoder(OrderCompletionStatuses, "invalidInput");
+
+export type OrderStatusProfile = "archive" | "complete";
+export type OrderRetainedStatuses = typeof OrderArchiveStatuses.Type | typeof OrderCompletionStatuses.Type;
 
 type Metadata = Effect.Success<ReturnType<typeof captureOrderMetadata>>["frame"];
 
 /** Native DML owns the complete stored scalar shape, including preserved serial
  * values. This profile grants no creation, serial assignment or relation write. */
-export function compileOrderArchiveContracts(metadata: Metadata) {
+export function compileOrderStatusContracts(metadata: Metadata) {
   return Result.gen(function* () {
     const table = metadata.tables.find(table => table.name === "order");
     if (table === undefined || table.columns.find(column => column.name === "display_id")?.type !== "serial")
@@ -47,7 +60,7 @@ export function compileOrderArchiveContracts(metadata: Metadata) {
     const decodePreimages = commerceDecoder(OrderStatusPreimages, "storedCorruption");
     /** Native owning to-one references retain non-null scalar keys, including
      * historical Address IDs; null keys are omitted while relation slots remain.
-     * No population or Address read belongs to this default archive projection. */
+     * No population or Address read belongs to these default status projections. */
     const present = (input: unknown) => decodeRow(input).pipe(Result.flatMap(row => Result.gen(function* () {
       const result: Record<string, Json> = { ...row };
       for (const name of ["shipping_address", "billing_address"]) {
@@ -73,7 +86,7 @@ export function compileOrderArchiveContracts(metadata: Metadata) {
       for (const row of rows) yield* decodeOutputRow(row);
       return rows;
     })));
-    const serialize = Effect.fn("OrderArchive.serialize")(function* (input: Json) {
+    const serialize = Effect.fn("OrderStatus.serialize")(function* (input: Json) {
       const rows = Array.isArray(input) ? input : [input], output: JsonObject[] = [];
       for (const row of rows) {
         if (!isJsonObject(row)) return yield* Effect.fail(commerceError("storedCorruption"));

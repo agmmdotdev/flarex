@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { orderArchiveSourcePairs, orderArchiveAuthoredTargets, verifyOrderArchiveSourceSelection,
   verifyOrderArchiveSource, verifyOrderArchiveFiles } from "./check-medusa-order-archive-source.mjs";
+import { orderCompleteSourcePairs } from "./check-medusa-order-complete-source.mjs";
 
 const failure = "Changed native Order archive source";
 /** @param {string} target */
@@ -16,6 +17,13 @@ const workflow = entry("packages/medusa-core-flows/src/order/workflows/archive-o
 const joiner = entry("packages/medusa-order/src/joiner-config.ts");
 
 describe("bounded native Order source preparation", () => {
+  it("recognizes only the separately guarded exact completion pair", () => {
+    expect(() => verifyOrderArchiveSourceSelection([...orderArchiveSourcePairs, ...orderCompleteSourcePairs])).not.toThrow();
+    for (const pair of orderCompleteSourcePairs) {
+      expect(() => verifyOrderArchiveSourceSelection([...orderArchiveSourcePairs, { ...pair, classification: "orderArchiveFork" }])).toThrow(failure);
+      expect(() => verifyOrderArchiveSourceSelection([...orderArchiveSourcePairs, { ...pair, target: pair.target + ".other" }])).toThrow(failure);
+    }
+  });
   it("authenticates all original source hashes before standalone source verification", () => {
     expect(verifyOrderArchiveFiles(process.cwd())).toEqual({ sourcePairs: 95 });
   });
