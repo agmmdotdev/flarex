@@ -131,11 +131,29 @@ The finite numeric-column `numericIn` contract and existing pure predicates
 remain unchanged. This scalar mechanism does not admit joins or Promotion
 business policy, and does not repair native malformed SQL generation.
 
+## Positive text and Boolean NULL membership
+
+Positive `in` accepts SQL NULL query operands against checked TEXT and Boolean
+columns, including nonnullable columns. NULL contributes no equality match; it
+does not mean that a stored value is null. Literal text `"null"` remains distinct.
+Use the existing explicit-null predicate to select null values.
+
+The raw query retains every duplicate and NULL operand for identity and resource
+accounting. Logical selection derives equality points only from nonnull values;
+existing column and index authority still applies to NULL-only and empty
+cohorts. Pure matching and complete PostgreSQL Boolean-tree evaluation preserve
+the same positive WHERE result. Physical compatibility parameterizes a typed SQL
+NULL without passing it through the stored-value validator.
+
+This query contract does not relax nonnullable writes, numeric membership,
+negative recipes or indexed-point NULL operands. Malformed siblings, wrong
+column types, undeclared fields and operand limits keep their existing owners.
+
 ## Exact numeric membership
 
 Native Price List Price creation requires numeric equality for finite quantity
 selectors under [preflight 155](../flarexdb-framework-integration/preflight/155-native-price-list-price-creation.md).
-The earlier `in` grammar accepts only text and Boolean operands and refuses a
+The `in` grammar accepts text, Boolean and SQL NULL query operands and refuses a
 numeric column; converting numbers to strings does not satisfy that column
 contract. The separate private `numericIn` leaf now accepts checked exact-decimal
 strings and finite numbers only against a numeric column. Existing `in` and

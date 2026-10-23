@@ -278,7 +278,12 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
       const parts: SQL[] = [];
       for (const member of supplied.values) {
         const data = yield* capturePrivateJsonData(member, commerceLimits.rowBytes, commerceError);
-        parts.push(yield* parameter(field, data.value));
+        // Positive text/Boolean membership admits a SQL NULL query literal
+        // even for a nonnullable column. Writes keep the parameter owner's
+        // stored-value validation, and other membership types stay unchanged.
+        if (data.value === null && (field.type === "text" || field.type === "boolean"))
+          parts.push(sql`cast(${null} as ${sql.raw(field.type)})`);
+        else parts.push(yield* parameter(field, data.value));
       }
       return parts.length === 0 ? sql`false` : sql`${sql.identifier(field.name)} in (${sql.join(parts, sql`, `)})`;
     });

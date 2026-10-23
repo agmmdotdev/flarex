@@ -11,7 +11,7 @@ import { MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES } from "../appRows";
  * grammar. PostgreSQL-dependent leaves require evaluation of the whole tree. */
 export type NormalizedRelationalPredicate =
   | Readonly<{ kind: "and" | "or"; children: readonly NormalizedRelationalPredicate[] }>
-  | Readonly<{ kind: "in"; column: string; values: readonly (string | boolean)[] }>
+  | Readonly<{ kind: "in"; column: string; values: readonly (string | boolean | null)[] }>
   | Readonly<{ kind: "numericIn"; column: string; values: readonly string[] }>
   | Readonly<{ kind: "postgresNumericCast"; column: string; operator: "gt" | "gte" | "lt" | "lte"; value: number }>
   | Readonly<{ kind: "indexedPoints"; columns: readonly string[]; values: readonly (readonly (string | boolean)[])[] }>
@@ -92,10 +92,10 @@ const json = (column: string) => sql`(candidate.row -> ${column})`;
 const join = (parts: readonly SQL[], operator: "and" | "or"): SQL => parts.length === 0
   ? operator === "and" ? sql`true` : sql`false`
   : sql`(${sql.join([...parts], operator === "and" ? sql` and ` : sql` or `)})`;
-const membership = (column: string, values: readonly (string | boolean)[], negative = false): SQL => values.length === 0
+const membership = (column: string, values: readonly (string | boolean | null)[], negative = false): SQL => values.length === 0
   ? negative ? sql`true` : sql`false`
-  : negative ? sql`${text(column)} not in (${sql.join(values.map(value => sql`${String(value)}`), sql`, `)})`
-    : sql`${text(column)} in (${sql.join(values.map(value => sql`${String(value)}`), sql`, `)})`;
+  : negative ? sql`${text(column)} not in (${sql.join(values.map(value => sql`${value === null ? null : String(value)}`), sql`, `)})`
+    : sql`${text(column)} in (${sql.join(values.map(value => sql`${value === null ? null : String(value)}`), sql`, `)})`;
 
 function expression(node: NormalizedRelationalPredicate): SQL {
   switch (node.kind) {

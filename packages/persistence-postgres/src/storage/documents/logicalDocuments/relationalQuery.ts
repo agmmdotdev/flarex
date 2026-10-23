@@ -31,7 +31,7 @@ const Envelope = Schema.Struct({
 const Node = Schema.Union([
   Schema.Struct({ kind: Schema.Literals(["and", "or"]), children: Schema.Array(Schema.Unknown) }),
   Schema.Struct({ kind: Schema.Literal("in"), column: Schema.String,
-    values: Schema.Array(Schema.Union([Schema.String, Schema.Boolean])) }),
+    values: Schema.Array(Schema.NullOr(Schema.Union([Schema.String, Schema.Boolean]))) }),
   Schema.Struct({ kind: Schema.Literal("numericIn"), column: Schema.String,
     values: Schema.Array(Schema.Union([Schema.String, Schema.Number])) }),
   Schema.Struct({ kind: Schema.Literal("postgresNumericCast"), column: Schema.String,
@@ -205,10 +205,13 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
         if (operands > relationalReadLimits.filterOperands) return yield* Result.fail(error("limitExceeded"));
         const column = columnForName(node.column);
         if (column === undefined || (column.type !== "text" && column.type !== "boolean") ||
-            node.values.some(value => !isRelationalColumnValue(column.type, false, value)))
+            node.values.some(value => value !== null && !isRelationalColumnValue(column.type, false, value)))
           return yield* Result.fail(error("invalidInput"));
         demandedFields.add(node.column);
-        const keys = new Set(node.values);
+        // SQL NULL is a query literal, independent of stored-row nullability.
+        // Retain and charge the raw predicate, but it contributes no equality
+        // point and never matches a nullable left-hand value in positive WHERE.
+        const keys = new Set(node.values.filter((value): value is string | boolean => value !== null));
         return { predicate: node, postgres: false, select: (requiredNulls: ReadonlySet<string>, access?: LogicalRelationalReadAccess) => {
           const indexes = access?.indexes ?? table.indexes, tableKeys = access?.keys ?? table.keys;
           const declaredUnconditional = tableKeys.some(tableKey => tableKey.columns[0]?.columnId === node.column) ||
