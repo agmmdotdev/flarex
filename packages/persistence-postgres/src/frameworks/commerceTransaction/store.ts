@@ -267,10 +267,11 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
         return sql`translate(${sql.identifier(field.name)}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') collate "C" like translate(${supplied.pattern}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') collate "C" escape ''`;
       }
       if (supplied.kind === "isNull" && Object.keys(supplied).every(name => ["kind", "column"].includes(name))) return sql`${sql.identifier(field.name)} is null`;
-      if (supplied.kind === "greaterThan" && field.type === "timestamp with time zone" && Object.keys(supplied).every(name => ["kind", "column", "value"].includes(name))) {
+      if ((supplied.kind === "greaterThan" || supplied.kind === "lessThan") && field.type === "timestamp with time zone" && Object.keys(supplied).every(name => ["kind", "column", "value"].includes(name))) {
         if (typeof supplied.value !== "string") return yield* Result.fail(invalid());
         if (++operands > commerceLimits.filterOperands) return yield* Result.fail(commerceError("limitExceeded"));
-        return sql`${sql.identifier(field.name)} > ${yield* parameter(field, supplied.value)}`;
+        const bound = yield* parameter(field, supplied.value);
+        return supplied.kind === "lessThan" ? sql`${sql.identifier(field.name)} < ${bound}` : sql`${sql.identifier(field.name)} > ${bound}`;
       }
       if (supplied.kind !== "in" || Object.keys(supplied).some(name => !["kind", "column", "values"].includes(name)) || !Array.isArray(supplied.values)) return yield* Result.fail(invalid());
       operands += supplied.values.length;

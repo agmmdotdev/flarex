@@ -42,6 +42,7 @@ const Node = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("isNull"), column: Schema.String }),
   Schema.Struct({ kind: Schema.Literal("textNotEqual"), column: Schema.String, value: Schema.String }),
   Schema.Struct({ kind: Schema.Literal("greaterThan"), column: Schema.String, value: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("lessThan"), column: Schema.String, value: Schema.String }),
   Schema.Struct({ kind: Schema.Literal("textLikeAscii"), column: Schema.String, pattern: Schema.String }),
   Schema.Struct({ kind: Schema.Literal("jsonContains"), column: Schema.String, value: Schema.Json }),
   Schema.Struct({ kind: Schema.Literal("postgresText"), column: Schema.String,
@@ -56,7 +57,7 @@ const decodeNode = Schema.decodeUnknownResult(Node, { onExcessProperty: "error" 
 interface ScalarSelection {
   readonly kind?: never;
   readonly column: string;
-  readonly value: string | boolean | Readonly<{ gt: string }>;
+  readonly value: string | boolean | Readonly<{ gt: string }> | Readonly<{ gt: null; lt: string }>;
   readonly nullColumn?: string;
 }
 interface PointSelection {
@@ -291,9 +292,9 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
         return { predicate: node, postgres: false, select: () => Result.succeed({ selections: null, unindexedText: false }), requiredNulls: new Set<string>(), search: null,
           matches: row => typeof row[node.column] === "string" && row[node.column] !== node.value };
       }
-      if (node.kind === "greaterThan") {
+      if (node.kind === "greaterThan" || node.kind === "lessThan") {
         const column = columnForName(node.column);
-        if ((column?.type !== "text" && column?.type !== "timestamptz") ||
+        if ((column?.type !== "timestamptz" && (node.kind !== "greaterThan" || column?.type !== "text")) ||
           !isRelationalColumnValue(column.type, false, node.value))
           return yield* Result.fail(error("invalidInput"));
         demandedFields.add(node.column);
@@ -302,13 +303,17 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
           const indexed = (access?.indexes ?? table.indexes).some(index => index.predicate === null &&
             index.kind !== "textEquality" && index.kind !== "jsonContainment" &&
             index.columns[0]?.columnId === node.column);
+          // NULL sorts before timestamp strings. Exclude it in the index
+          // bounds before candidate limits, not only in the residual below.
           return Result.succeed({ selections: indexed
-            ? [{ column: node.column, value: { gt: node.value } }] : null, unindexedText: !indexed });
+            ? [{ column: node.column, value: node.kind === "lessThan" ? { gt: null, lt: node.value } : { gt: node.value } }] : null, unindexedText: !indexed });
         },
           requiredNulls: new Set<string>(),
           search: null,
-          matches: row => { const value = row[node.column]; return typeof value === "string" &&
-            compareBytesLexicographically(new TextEncoder().encode(value), bound) > 0; } };
+          matches: row => { const value = row[node.column];
+            if (typeof value !== "string") return false;
+            const compared = compareBytesLexicographically(new TextEncoder().encode(value), bound);
+            return node.kind === "lessThan" ? compared < 0 : compared > 0; } };
       }
       if (node.kind === "textLikeAscii") {
         const column = columnForName(node.column);

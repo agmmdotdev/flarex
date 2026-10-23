@@ -16,7 +16,7 @@ export type NormalizedRelationalPredicate =
   | Readonly<{ kind: "postgresNumericCast"; column: string; operator: "gt" | "gte" | "lt" | "lte"; value: number }>
   | Readonly<{ kind: "indexedPoints"; columns: readonly string[]; values: readonly (readonly (string | boolean)[])[] }>
   | Readonly<{ kind: "isNull"; column: string }>
-  | Readonly<{ kind: "textNotEqual" | "greaterThan"; column: string; value: string }>
+  | Readonly<{ kind: "textNotEqual" | "greaterThan" | "lessThan"; column: string; value: string }>
   | Readonly<{ kind: "textLikeAscii"; column: string; pattern: string }>
   | Readonly<{ kind: "jsonContains"; column: string; value: Json }>
   | Readonly<{ kind: "postgresText"; column: string; operator: "gt" | "gte" | "lt" | "lte" | "like" | "ilike" | "regex" | "fulltext"; value: string }>
@@ -119,6 +119,7 @@ function expression(node: NormalizedRelationalPredicate): SQL {
     case "isNull": return sql`${text(node.column)} is null`;
     case "textNotEqual": return sql`${text(node.column)} <> ${node.value}`;
     case "greaterThan": return sql`convert_to(${text(node.column)}, 'UTF8') > convert_to(${node.value}, 'UTF8')`;
+    case "lessThan": return sql`convert_to(${text(node.column)}, 'UTF8') < convert_to(${node.value}, 'UTF8')`;
     case "textLikeAscii": return sql`translate(${text(node.column)}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') collate "C" like translate(${node.pattern}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') collate "C" escape ''`;
     case "jsonContains": return sql`(${text(node.column)} is not null and ${json(node.column)} @> ${JSON.stringify(node.value)}::jsonb)`;
     case "postgresText": switch (node.operator) {
