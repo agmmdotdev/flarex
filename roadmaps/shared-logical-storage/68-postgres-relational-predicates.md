@@ -204,6 +204,26 @@ malformed rows refuse; only true includes a candidate. Native PostgreSQL errors
 stay failures under the existing first-refusal and rollback-only owner. Catching
 a body or tail failure in native code cannot make the root durable.
 
+## Finite integer and binary64 membership candidate
+
+The approved private `numberIn` leaf admits finite JavaScript numbers against
+checked `integer` and `doublePrecision` columns. Integer operands retain signed
+int32 bounds; binary64 equality preserves exponent values, extrema and signed
+zero equality. It remains distinct from exact-decimal `numericIn`, REAL
+normalization and ordinary text/Boolean `in`. Null never matches this leaf.
+
+The complete raw operand list is charged before deduplication. Numeric residual
+filtering grants no indexed access path and cannot shrink a selected candidate
+cohort before the existing resource checks. Mixed PostgreSQL predicate trees
+use typed binary64 expressions over those same captured candidates, under the
+same manager, dependency tracking, pending writes and rollback owner.
+
+The native Order version selector is the connected consumer. Its original
+indexed-parent success and rejected numeric conjunct remain preserved. The
+candidate requires neutral storage validation on both database drivers and the
+native consumer proof before admission; full Payment finance roots retain their
+separate workflow gates.
+
 ## Convex compatibility and limits
 
 This is a private framework-compatible PostgreSQL query extension. It does not

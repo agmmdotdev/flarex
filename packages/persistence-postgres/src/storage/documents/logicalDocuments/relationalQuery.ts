@@ -34,6 +34,8 @@ const Node = Schema.Union([
     values: Schema.Array(Schema.NullOr(Schema.Union([Schema.String, Schema.Boolean]))) }),
   Schema.Struct({ kind: Schema.Literal("numericIn"), column: Schema.String,
     values: Schema.Array(Schema.Union([Schema.String, Schema.Number])) }),
+  Schema.Struct({ kind: Schema.Literal("numberIn"), column: Schema.String,
+    values: Schema.Array(Schema.Finite) }),
   Schema.Struct({ kind: Schema.Literal("postgresNumericCast"), column: Schema.String,
     operator: Schema.Literals(["gt", "gte", "lt", "lte"]), value: Schema.Finite }),
   Schema.Struct({ kind: Schema.Literal("indexedPoints"),
@@ -231,6 +233,22 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
             ...(nullColumn === undefined ? {} : { nullColumn }) })), unindexedText: false });
         }, requiredNulls: new Set<string>(), search: null, equalities: new Map([[node.column, [...keys]]]),
           matches: row => { const value = row[node.column]; return (typeof value === "string" || typeof value === "boolean") && keys.has(value); } };
+      }
+      if (node.kind === "numberIn") {
+        operands += node.values.length;
+        if (operands > relationalReadLimits.filterOperands) return yield* Result.fail(error("limitExceeded"));
+        const column = columnForName(node.column);
+        if ((column?.type !== "integer" && column?.type !== "doublePrecision") ||
+            node.values.some(value => !isRelationalColumnValue(column.type, false, value)))
+          return yield* Result.fail(error("invalidInput"));
+        const keys = new Set(node.values);
+        // Binary numeric equality is a residual over the existing bounded
+        // candidate cohort. It creates no numeric index or selection authority.
+        // REAL conversion and exact-decimal numeric retain separate owners.
+        return { predicate: { kind: "numberIn", column: node.column, values: [...keys] }, postgres: false,
+          select: () => Result.succeed({ selections: keys.size === 0 ? [] : null, unindexedText: false }),
+          requiredNulls: new Set<string>(), search: null,
+          matches: row => { const value = row[node.column]; return typeof value === "number" && keys.has(value); } };
       }
       if (node.kind === "numericIn") {
         operands += node.values.length;

@@ -13,6 +13,7 @@ export type NormalizedRelationalPredicate =
   | Readonly<{ kind: "and" | "or"; children: readonly NormalizedRelationalPredicate[] }>
   | Readonly<{ kind: "in"; column: string; values: readonly (string | boolean | null)[] }>
   | Readonly<{ kind: "numericIn"; column: string; values: readonly string[] }>
+  | Readonly<{ kind: "numberIn"; column: string; values: readonly number[] }>
   | Readonly<{ kind: "postgresNumericCast"; column: string; operator: "gt" | "gte" | "lt" | "lte"; value: number }>
   | Readonly<{ kind: "indexedPoints"; columns: readonly string[]; values: readonly (readonly (string | boolean)[])[] }>
   | Readonly<{ kind: "isNull"; column: string }>
@@ -101,6 +102,8 @@ function expression(node: NormalizedRelationalPredicate): SQL {
   switch (node.kind) {
     case "and": case "or": return join(node.children.map(expression), node.kind);
     case "in": return membership(node.column, node.values);
+    case "numberIn": return node.values.length === 0 ? sql`false`
+      : sql`(${text(node.column)})::double precision in (${sql.join(node.values.map(value => sql`${String(value)}::double precision`), sql`, `)})`;
     case "numericIn": return node.values.length === 0 ? sql`false`
       : sql`(${text(node.column)})::numeric in (${sql.join(node.values.map(value => sql`${value}::numeric`), sql`, `)})`;
     case "postgresNumericCast": {
