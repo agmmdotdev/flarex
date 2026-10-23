@@ -7,7 +7,7 @@ import type { CmsRequestContext, CmsTransactionError } from "./model";
 /** Request-owned adapter view; only the trusted outer owner holds seal/close authority. */
 export function makeCmsCommandContext(
   lifetime: CmsRequestLifetime, transactionId: string, context: CmsRequestContext,
-  ports: Pick<CmsCommandContext, "documents" | "relations" | "preferences">, standaloneRead: boolean,
+  ports: Pick<CmsCommandContext, "documents" | "relations" | "preferences" | "privateReferencePage">, standaloneRead: boolean,
   invoke: (context: CmsRequestContext, child: CmsCommand, args: Json) => Effect.Effect<Json, CmsTransactionError>,
   populationRead = standaloneRead,
 ): CmsCommandContext {

@@ -16,6 +16,7 @@ export type { PayloadHost, PayloadReadHost, PayloadCreateArgs, PayloadUpdateArgs
   PayloadFindArgs, PayloadFindByIdArgs, PayloadCountArgs, PayloadDocument, PayloadPageResult, PayloadCountResult } from "./api";
 export { makePayloadReferenceReadRuntime } from "./runtime/referenceRead";
 export { makePayloadReferenceSaveRuntime } from "./runtime/referenceSave";
+export { makePayloadReferencePagesRuntime } from "./runtime/referencePages";
 export interface PayloadAttemptRuntime {
   readonly borrowParticipant: LogicalParticipantBorrow;
 }

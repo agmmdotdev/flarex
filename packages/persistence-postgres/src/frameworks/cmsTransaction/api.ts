@@ -3,4 +3,4 @@ export { bindCmsCommand, bindCmsRead,
 export { makeBorrowedCmsInvocation, type BorrowedCmsInvocation, type BorrowedCmsAttemptInput } from "./borrowedLogicalAttempt";
 export type { CmsHost } from "./host";
 export type { CmsReadHost } from "./read/host";
-export { defineCmsCommand, type CmsCommand, type CmsCommandContext } from "./commands";
+export { defineCmsCommand, runCmsReadCommand, type CmsCommand, type CmsCommandContext } from "./commands";

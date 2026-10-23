@@ -12,7 +12,7 @@ import { appDocumentIdV1FromRowIdentity, appRowIdHexV1FromBytesResult, decodeApp
   type AppDocumentIdV1, type AppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import { type LogicalMetadataKey, type LogicalMetadataReadDependency, type MetadataSequence } from "flarex-protocol/commit-protocol";
-import { compileAppOrderedIndexBoundsV1, InvalidOrderedIndexRangeV1Error,
+import { compileAppOrderedIndexBoundsV1, InvalidOrderedIndexRangeV1Error, type OrderedIndexKeyBytesHexV1,
   OrderedIndexCodecV1InputError, OrderedIndexKeyTooLargeError,
   type OrderedIndexRangeExpressionV1 } from
   "flarex-protocol/ordered-index";
@@ -70,7 +70,8 @@ import { hasProtectedScopeTransactionTimestampIssuer, protectedScopeTransactionT
 import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
 import type { BoundedRequestContext, PresentedTransactionId, BoundedRequestLifetime } from "../../../execution/preparation/boundedRequestLifetime";
 import type { LogicalDocumentWorkingSetInput, LogicalRelationalStore, LogicalRelationalReadProgram, LogicalStorageReadDemand, LogicalSetNullPolicy } from "./model";
-import { attachLogicalDocumentRootEvaluator, consumeLogicalDocumentRootMetadataDependency } from "./rootEvaluator";
+import { attachLogicalDocumentRootEvaluator, consumeLogicalDocumentRootMetadataDependency, type LogicalDocumentRootState } from "./rootEvaluator";
+import type { LogicalParticipantAdmissionBundle } from "./participantAdmission";
 import { finiteMetadataTableKey, finiteMetadataAccessKey,
   finiteMetadataDefinitionKey, type PreparedFiniteMetadataProjection } from "../../../execution/finiteMetadataDependencies";
 import { detachLogicalDocumentChanges } from "./detachChanges";
@@ -86,6 +87,25 @@ const uniqueReadKey = (definition: LocatedAppUniqueConstraintDefinitionV1, proje
 const indexKeyWithinBounds = (key: string, bounds: LogicalIndexRead["bounds"]) =>
   (bounds.startInclusive === undefined || key >= String(bounds.startInclusive)) &&
   (bounds.endExclusive === undefined || key < String(bounds.endExclusive));
+
+/** Private finite document pages. Tokens retain positions inside the real root;
+ * no hidden key or identity is serialized into the continuation. */
+export interface PrivateLogicalReferencePageInput {
+  readonly binding: LogicalParticipantAdmissionBundle;
+  readonly tableName: string;
+  readonly field: string;
+  readonly value: string;
+  readonly indexDefinitionId: import("flarex-protocol/catalog").CatalogIndexDefinitionId;
+  readonly allowedIds: readonly AppDocumentIdV1[];
+  readonly limit: number;
+  readonly cursor?: string;
+}
+interface PrivateReferencePosition {
+  readonly binding: LogicalParticipantAdmissionBundle;
+  readonly generation: number;
+  readonly after: Readonly<{ key: OrderedIndexKeyBytesHexV1; rowId: AppRowIdHexV1 }>;
+}
+const privateReferencePages = new WeakMap<LogicalDocumentRootState, { inspected: number; cursors: Map<string, PrivateReferencePosition> }>();
 
 export interface PendingDocument {
   readonly tableId: CatalogTableId;
@@ -220,6 +240,8 @@ export interface LogicalDocuments<Failure> {
 }
 
 export interface LogicalDocumentReadTestHooks<Failure> {
+  /** Trusted test observation after actual pending selection and page capture. */
+  readonly afterReferencePage?: (observation: Readonly<{ pendingIds: readonly AppDocumentIdV1[]; inspected: number; hasMore: boolean }>) => void;
   /** Fault injection owned by tests; production frontiers invoke no foreign hook. */
   readonly beforeRead?: (selection: "point" | "batch" | "scan" | "index") => Effect.Effect<void, Failure>;
   readonly observeQuery?: (query: Readonly<{ readonly name: "currentCapture" | "snapshotRevision";
@@ -1786,6 +1808,91 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
   const selectCandidates = (tableName: string, where: LogicalWhere, indexedOnly = false, exactPoint?: Readonly<{ columns: readonly string[]; nullColumn?: string }>) => observeExecution("LogicalDocuments.selectCandidates", Effect.gen(function* () {
     return yield* withAccessCandidates(tableName, logicalWhereValues(where), indexedOnly, exactPoint, Effect.succeed);
   }));
+  const privateReferencePage = Effect.fn("LogicalDocuments.privateReferencePage")(function* (context: BoundedRequestContext, id: PresentedTransactionId,
+    input: PrivateLogicalReferencePageInput) { return yield* runOperation(context, id, "read", Effect.gen(function* () {
+    if (root === undefined || finiteProfile === undefined || !Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > limits.pageRows)
+      return yield* Effect.fail(error("invalidAuthority"));
+    const table = yield* tableForName(input.tableName);
+    yield* consumeAccessMetadata(table.tableId, ["ordered"], [input.field]);
+    const selected = yield* Effect.fromResult(selectLogicalIndex(indexesForTable(table.tableId), table.tableId,
+      { [input.field]: input.value }, error));
+    if (Option.isNone(selected) || selected.value.definition.indexDefinitionId !== input.indexDefinitionId)
+      return yield* Effect.fail(error("invalidAuthority"));
+    const selection = selected.value;
+    const allowed = new Set(input.allowedIds);
+    const relevant = (value: CanonicalFlarexValueV1 | null) => value !== null && isJsonObject(value.valueJson) && value.valueJson[input.field] === input.value;
+    const generation = attempts.reduce((last, attempt) => attempt.tableId === table.tableId &&
+      (relevant(attempt.before) || relevant(attempt.after)) ? attempt.ordinal + 1 : last, 0);
+    let paging = privateReferencePages.get(root);
+    if (paging === undefined) { paging = { inspected: 0, cursors: new Map() }; privateReferencePages.set(root, paging); }
+    const continuation = input.cursor === undefined ? undefined : paging.cursors.get(input.cursor);
+    if (input.cursor !== undefined && (continuation === undefined || continuation.binding !== input.binding || continuation.generation !== generation))
+      return yield* Effect.fail(error("invalidAuthority"));
+    const start = continuation?.after;
+    type Member = { id: AppDocumentIdV1; key: OrderedIndexKeyBytesHexV1; rowId: AppRowIdHexV1 };
+    const matched = new Map<AppDocumentIdV1, Member>();
+    let examined = 0;
+    const inspect = (count: number) => Effect.gen(function* () {
+      examined += count; paging.inspected += count;
+      if (examined > callIdentityLimit || paging.inspected > root.limits.identities)
+        return yield* Effect.fail(error("limitExceeded"));
+      yield* charge(64 * count);
+    });
+    const add = (row: PendingDocument) => Effect.gen(function* () {
+      if (!relevant(row.current) || !allowed.has(row.documentId) || row.current === null) return;
+      const key = yield* Effect.fromResult(lowerIndex(selection.definition, row.current, row.creationTime, "storedCorruption"));
+      if (key === null || !indexKeyWithinBounds(key, selection.bounds)) return yield* Effect.fail(error("storedCorruption"));
+      const member = { id: row.documentId, key, rowId: row.rowId };
+      if (start !== undefined && comparePagePosition(member, start) <= 0) return;
+      yield* Effect.fromResult(markPendingUse(row));
+      matched.set(row.documentId, member);
+    });
+    // The original root holds both Application and native pending transitions.
+    // Hydration alone never changes continuation generation.
+    const pendingIds: AppDocumentIdV1[] = [];
+    for (const row of rows.values()) if (row.tableId === table.tableId && row.attempts.length > 0) {
+      yield* inspect(1);
+      if (relevant(row.current)) pendingIds.push(row.documentId);
+      yield* add(row);
+    }
+    let after: AppIndexRangeCursorV1 | undefined = start === undefined ? undefined : { encodedKey: start.key, rowId: start.rowId };
+    let result: Member[] = [];
+    while (true) {
+      const remaining = callIdentityLimit - examined;
+      if (remaining < 1) return yield* Effect.fail(error("limitExceeded"));
+      const window = yield* readFiniteIndexPage({ ...selection, ...(after === undefined ? {} : { after }) }, Math.min(limits.pageRows, remaining));
+      yield* inspect(window.entries.length + (window.isDone ? 0 : 1));
+      yield* charge(128 + window.entries.reduce((bytes, entry) => bytes + 128 + entry.encodedKey.length / 2, 0));
+      pageReads.push(Object.freeze({ ...selection, ...(after === undefined ? {} : { after: Object.freeze({ ...after }) }), entries: window.entries, isDone: window.isDone }));
+      if (window.entries.some(entry => entry.tableId !== table.tableId)) return yield* Effect.fail(error("storedCorruption"));
+      // Hidden rows require membership evidence, not native document disclosure.
+      const visible = window.entries.filter(entry => allowed.has(appDocumentIdV1FromRowIdentity(entry)));
+      const missing = visible.filter(entry => !dependencies.has(appDocumentIdV1FromRowIdentity(entry)));
+      if (missing.length > 0) yield* readFiniteBase(table.tableId, missing.map(entry => entry.rowId));
+      for (const entry of visible) {
+        const row = rows.get(appDocumentIdV1FromRowIdentity(entry));
+        if (row?.base?.kind !== "live" || row.base.commitSeq < entry.commitSeq) return yield* Effect.fail(error("writeConflict"));
+        const key = yield* Effect.fromResult(lowerIndex(selection.definition, row.base.document, row.base.creationTime, "storedCorruption"));
+        if (key !== entry.encodedKey) return yield* Effect.fail(error("writeConflict"));
+        if (row.attempts.length === 0) yield* add(row);
+      }
+      result = [...matched.values()].toSorted(comparePagePosition);
+      const frontier = result[input.limit], witness = window.entries.at(-1);
+      if (window.isDone || frontier !== undefined && witness !== undefined && comparePagePosition(frontier, { key: witness.encodedKey, rowId: witness.rowId }) <= 0) break;
+      if (window.continueCursor === null) return yield* Effect.fail(error("storedCorruption"));
+      after = window.continueCursor;
+    }
+    const members = result.slice(0, input.limit), last = members.at(-1);
+    const hasMore = result.length > input.limit;
+    let cursor: string | null = null;
+    if (hasMore && last !== undefined) {
+      yield* charge(256 + last.key.length * 2);
+      cursor = crypto.randomUUID();
+      paging.cursors.set(cursor, Object.freeze({ binding: input.binding, generation, after: Object.freeze({ key: last.key, rowId: last.rowId }) }));
+    }
+    testHooks?.afterReferencePage?.(Object.freeze({ pendingIds: Object.freeze(pendingIds), inspected: examined, hasMore }));
+    return Object.freeze({ ids: Object.freeze(members.map(member => member.id)), lookahead: result[input.limit]?.id ?? null, hasMore, cursor });
+  })); });
   const find: LogicalDocuments<Failure>["find"] = (context, id, tableName, input) => observeExecution("LogicalDocuments.find", Effect.suspend(() => runOperation(context, id, "read", Effect.gen(function* () {
       const captured = yield* Effect.fromResult(useCapturedPrivateJsonData(input, lifetime.remainingBytes(), error));
       yield* charge(captured.bytes);
@@ -2876,7 +2983,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         }),
       } satisfies LogicalRelationalStore<Failure>);
     }))));
-  return Object.freeze({ documents,
+  return Object.freeze({ documents, privateReferencePage,
     relationalFind: (context: BoundedRequestContext, id: PresentedTransactionId, tableName: string, input: unknown) =>
       executeRelationalFind(context, id, tableName, input),
     relationalPage: (context: BoundedRequestContext, id: PresentedTransactionId, tableName: string, input: unknown) =>

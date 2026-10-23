@@ -4,8 +4,8 @@ export { PrivateReferencePermissions, PrivatePermissionEvidenceError, inspectPri
 export type { PrivateReferencePermissionEvidence } from "./privatePermissionEvidence";
 export { PrivateReverseReadPermissions, inspectPrivateReverseReadEvidence } from "./privateReverseReadEvidence";
 export type { PrivateReverseReadEvidence } from "./privateReverseReadEvidence";
-export { inspectPrivateReverseReadAccess, PRIVATE_REFERENCE_MEMBERSHIP_PROBE, PrivateReverseReadAccessError } from "./privateReverseReadAccess";
-export type { PrivateReverseReadAccess, PrivateReverseReadSelection } from "./privateReverseReadAccess";
+export { inspectPrivateReverseReadAccess, PRIVATE_REFERENCE_MEMBERSHIP_PROBE, PRIVATE_REFERENCE_PAGE, PrivateReverseReadAccessError } from "./privateReverseReadAccess";
+export type { PrivateReverseReadAccess, PrivateReverseReadSelection, PrivateReverseReadTarget } from "./privateReverseReadAccess";
 export { inspectPrivateReferenceSaveAccess, bindPrivateReferenceSaveAccess, PrivateSaveAccessError } from "./privateSaveAccess";
 export type { PrivateReferenceSaveAccess, PrivateReferenceSaveSelection } from "./privateSaveAccess";
 export type {

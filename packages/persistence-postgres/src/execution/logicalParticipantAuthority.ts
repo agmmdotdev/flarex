@@ -3,6 +3,7 @@
 export {
   hasLogicalParticipantAttemptAdmission,
   inspectLogicalParticipantAttemptAdmission,
+  inspectLogicalParticipantAdmissionBundle,
   hasLogicalParticipantCommitAuthority,
   inspectLogicalParticipantCommitAuthority,
   inspectLogicalParticipantCommitAuthoritySource,

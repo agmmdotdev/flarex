@@ -96,7 +96,8 @@ export async function privatePayloadSaveServingScenario(fixture: PrivatePayloadS
     await revoke.root.publish();
   }));
   const failed = stale.result;
-  if (Result.isSuccess(failed) || !(failed.failure instanceof PointCommitConflictV1Error)) throw new Error("Expected real serving permission conflict");
+  if (Result.isSuccess(failed) || !(failed.failure instanceof PointCommitConflictV1Error))
+    throw new Error("Expected real serving permission conflict", { cause: Result.isSuccess(failed) ? failed.success : failed.failure });
   const afterRevoke = await counts();
   expect(afterRevoke).toMatchObject({ rows: beforeStale.rows, revisions: beforeStale.revisions + 1,
     commits: beforeStale.commits + 1, outcomes: beforeStale.outcomes + 1 });

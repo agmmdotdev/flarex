@@ -62,8 +62,9 @@ ordering and committed-recovery profile. The next bounded foundation is the
 [private authorized reverse-read preflight](../shared-logical-storage/reference-reverse-read-preflight.md).
 RR1 implements protected read evidence and a backend-only complete indexed
 membership probe through genuine source admission, finite capture and final
-validation. RR2-RR4 retain authorized pages with native visibility and pending
-membership, concurrency/recovery and private serving cutover. Advanced evolution
+validation. RR2 adds private authorized finite pages with native Product/Payload
+visibility, pending membership, attempt-local cursors and atomic capacity
+refusal. RR3-RR4 retain concurrency/recovery and private serving cutover. Advanced evolution
 and public APIs remain separate.
 
 Status: the Application, Product, selected Payload Local API, and finite

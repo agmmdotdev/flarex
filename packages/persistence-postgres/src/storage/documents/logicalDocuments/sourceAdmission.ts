@@ -208,7 +208,12 @@ export function requireFiniteProductReference(metadata: FiniteAttemptMetadata, r
       reference.liveness.source.kind !== "current" || reference.liveness.target.kind !== "softDeleteNull" ||
       reference.liveness.target.field !== "deleted_at")
       return yield* Result.fail(new LogicalSourceAdmissionError({ reason: "unsupportedProfile" }));
-    return reference;
+    const targetBinding = catalog.evidence.tableBindings.find(binding => logicalTableKey(binding.table) === logicalTableKey(reference.target.table));
+    const targetSource = catalog.evidence.candidate.sources.find(source => source.bindings.some(binding =>
+      binding.kind === "definition" && logicalTableKey(binding.table) === logicalTableKey(reference.target.table)));
+    if (targetBinding === undefined || targetSource === undefined)
+      return yield* Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    return Object.freeze({ ...reference, targetTableId: targetBinding.tableId, targetSourceKey: targetSource.key });
   });
 }
 const finiteAttemptProjections = new WeakMap<FiniteAttemptMetadata, PreparedFiniteMetadataProjection>();

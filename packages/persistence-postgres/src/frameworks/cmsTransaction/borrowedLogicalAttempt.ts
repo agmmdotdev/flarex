@@ -9,6 +9,7 @@ import type {
   LogicalParticipantBorrowBase,
 } from "../../execution/journal/contracts";
 import { requirePrivateReferenceSaveTransition, type PrivateReferenceSaveAccess } from "../../execution/journal/privateSaveAccess";
+import { inspectPrivateReverseReadAccess, PRIVATE_REFERENCE_PAGE, type PrivateReverseReadAccess } from "../../execution/journal/privateReverseReadAccess";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
 import { makeBoundedRequestLifetime } from "../../execution/preparation/boundedRequestLifetime";
 import { LogicalDocumentSourceAdmissionError, withLogicalDocumentAttemptAdmissionEffect } from
@@ -25,7 +26,7 @@ import type {
   LogicalDocumentReadTransaction,
   LogicalStorageReadDemand,
 } from "../../storage/documents/logicalDocuments/model";
-import { makeLogicalDocumentWorkingSet } from "../../storage/documents/logicalDocuments/workingSet";
+import { makeLogicalDocumentWorkingSet, type LogicalDocumentReadTestHooks } from "../../storage/documents/logicalDocuments/workingSet";
 import {
   requireLogicalDocumentRootEvaluatorOpen,
 } from "../../storage/documents/logicalDocuments/rootEvaluator";
@@ -48,6 +49,8 @@ export type BorrowedCmsAttemptInput = Readonly<{
   readonly attempt: SessionJournalAttempt;
   readonly method: string;
   readonly privateReferenceSave?: PrivateReferenceSaveAccess;
+  readonly privateReverseRead?: PrivateReverseReadAccess;
+  readonly documentReadTestHooks?: LogicalDocumentReadTestHooks<CmsTransactionError>;
   readonly bundle?: LogicalParticipantBorrowBase["bundle"];
   readonly admissions?: LogicalParticipantBorrowBase["admissions"];
 }> & LogicalDocumentBorrowView;
@@ -111,7 +114,7 @@ const makeBorrowedCmsAttempt = Effect.fnUntraced(function* (
           validateDocument: write => Effect.fromResult(state.validate(write).pipe(Result.mapError(cause =>
             cmsError(cause.reason === "documentInvalid" ? "documentInvalid" : "invalidAuthority", cause)))),
         }, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis), state.writeMechanics.unique,
-          state.writeMechanics.indexes, undefined, constructionTx);
+          state.writeMechanics.indexes, input.documentReadTestHooks, constructionTx);
         const preferences = makePayloadPreferenceCleanupRecorder(lifetime, {
           available: state.preferenceCleanup !== undefined,
           collections: state.configuration.tables.map(table => table.collectionSlug), requireOpen: requireAdmission,
@@ -123,8 +126,15 @@ const makeBorrowedCmsAttempt = Effect.fnUntraced(function* (
         });
         return Object.freeze({ lifetime, id, working, preferences });
       });
-    }), (state, _checkedRead, { lifetime, id, working, preferences }) => Effect.sync(() => {
-        const ports: Pick<CmsCommandContext, "documents" | "relations" | "preferences"> = {
+    }), (state, _checkedRead, { lifetime, id, working, preferences }) => Effect.gen(function* () {
+        const reverseAccess = input.privateReverseRead;
+        const reverse = input.privateReverseRead === undefined ? undefined : inspectPrivateReverseReadAccess(input.privateReverseRead, input.attempt);
+        if (input.privateReverseRead !== undefined && (reverse === undefined || reverse.method !== PRIVATE_REFERENCE_PAGE || input.method !== reverse.method || input.bundle !== reverse.admission))
+          return yield* Effect.fail(cmsError("invalidAuthority"));
+        const ports: Pick<CmsCommandContext, "documents" | "relations" | "preferences" | "privateReferencePage"> = {
+          ...(reverse === undefined || reverseAccess === undefined ? {} : { privateReferencePage: (page: Readonly<{ limit: number; cursor?: string }>) => working.privateReferencePage(lifetime.context, id,
+            { ...page, binding: reverse.admission, tableName: reverse.tableName, field: reverse.relation, value: reverse.productId,
+              indexDefinitionId: reverse.indexDefinitionId, allowedIds: reverse.articleIds }) }),
           documents: working.documents,
           relations: Object.freeze({ incoming: (request: CmsRequestContext, presented: CmsPresentedTransactionId) => lifetime.operation(request, presented,
             "read", Effect.fail(cmsError("unsupportedProfile"))) }),

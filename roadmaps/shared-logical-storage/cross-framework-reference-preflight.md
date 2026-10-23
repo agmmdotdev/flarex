@@ -252,9 +252,10 @@ do not authorize saves.
 The [private authorized reverse-read preflight](./reference-reverse-read-preflight.md)
 owns the next bounded CXR2 work after LB4. RR1 implements separate protected
 read-policy evidence and a backend-only complete indexed-membership probe through
-real finite capture and final validation. RR2-RR4 retain authorized pages, native
-visibility, broader pending membership, concurrent freshness and private serving
-cutover. No authorized reverse-page operation or public API is enabled.
+real finite capture and final validation. RR2 adds backend-only authorized finite
+pages with native Product/Payload visibility, pending membership and opaque
+attempt-local continuation. RR3-RR4 retain concurrent freshness/recovery and
+private serving cutover. Worker/hosted and public APIs remain disabled.
 
 Use bounded explicit point reads for forward resolution and the installed
 leading-reference index for reverse membership. Reverse reads have deterministic

@@ -1,4 +1,5 @@
 import { Data, Effect, Option, Result, Schema } from "effect";
+import { isJsonObject } from "flarex-protocol/json";
 import { decodeAppDocumentIdentityV1 } from "flarex-protocol/app-document-id";
 import { capturePrivateCanonicalValue } from "../../installation/frameworkSchema/privateCanonicalValue";
 import { inspectLogicalParticipantAdmissionBundle, inspectLogicalParticipantAttemptAdmission,
@@ -9,13 +10,18 @@ import { selectLogicalIndex } from "../../storage/documents/logicalDocuments/que
 import { reserveLogicalDocumentRootBytes } from "../../storage/documents/logicalDocuments/rootEvaluator";
 import { cmsError } from "../../frameworks/cmsTransaction/model";
 import { inspectPrivateReverseReadEvidence, type PrivateReverseReadEvidence } from "./privateReverseReadEvidence";
-import { PrivateReadPrincipal } from "./privateReadAccess";
+import { PrivateReadPrincipal, inspectPrivateParticipantReadAccess, type PrivateParticipantReadAccess } from "./privateReadAccess";
 import type { LogicalParticipantBorrowBase, SessionJournalAttempt, SessionJournalStorePersistence } from "./contracts";
 import type { JournalAttemptOwner } from "./attemptOwner";
 import { discardFiniteRootEvidence } from "./finiteRoot";
 
 /** RR1 feasibility only: no documents, counts or cursors leave the probe. */
 export const PRIVATE_REFERENCE_MEMBERSHIP_PROBE = "private-reference-membership-probe";
+export const PRIVATE_REFERENCE_PAGE = "private-reference-page";
+export interface PrivateReverseReadTarget {
+  readonly access: PrivateParticipantReadAccess;
+  readonly syscallSequence: bigint;
+}
 const Selection = Schema.Struct({ participant: Schema.NonEmptyString, collection: Schema.NonEmptyString,
   relation: Schema.NonEmptyString, productId: Schema.NonEmptyString,
   nativeProfileRevision: PrivateReadPrincipal.fields.principalDigest });
@@ -32,6 +38,8 @@ type IssuedSelection = PrivateReverseReadSelection & Readonly<{
   tableName: string; tableId: import("flarex-protocol/catalog").CatalogTableId;
   indexDefinitionId: import("flarex-protocol/catalog").CatalogIndexDefinitionId;
   profileRevision: string; admission: LogicalParticipantBorrowBase["bundle"];
+  method: string; articleIds: readonly import("flarex-protocol/app-document-id").AppDocumentIdV1[];
+  configSha256: string; provenanceSha256: string;
 }>;
 const accesses = new WeakMap<object, Readonly<{ attempt: SessionJournalAttempt; evidence: PrivateReverseReadEvidence;
   principal: PrivateReadPrincipal; selection: IssuedSelection; isLive: () => boolean }>>();
@@ -42,8 +50,10 @@ export function inspectPrivateReverseReadAccess(access: PrivateReverseReadAccess
 }
 
 export function makePrivateReverseReadOperations(owner: JournalAttemptOwner) {
-  const preparePrivateReverseReferenceReadEffect: SessionJournalStorePersistence["preparePrivateReverseReferenceReadEffect"] =
-    Effect.fn("PrivateReverseRead.prepare")(function* (attempt, evidence, input) {
+  const prepare = Effect.fn("PrivateReverseRead.prepare")(function* (
+    attempt: SessionJournalAttempt, evidence: Option.Option<PrivateReverseReadEvidence>, input: PrivateReverseReadSelection,
+    target?: PrivateReverseReadTarget,
+  ) {
       const attempted = owner.readAttempt(attempt);
       const finite = attempted === undefined ? undefined : owner.readFiniteRoot(attempted);
       if (attempted === undefined || finite === undefined || finite.status !== "open") return yield* Effect.fail(refused("invalidAuthority"));
@@ -63,7 +73,22 @@ export function makePrivateReverseReadOperations(owner: JournalAttemptOwner) {
             return yield* Effect.fail(refused("invalidAuthority"));
           if (!fact.permissions.enumerate.includes(selection.productId)) return yield* Effect.fail(refused("denied"));
           const entry = finite.admissions.get(selection.participant);
-          const method = PRIVATE_REFERENCE_MEMBERSHIP_PROBE;
+          const method = target === undefined ? PRIVATE_REFERENCE_MEMBERSHIP_PROBE : PRIVATE_REFERENCE_PAGE;
+          if (target !== undefined) {
+            const grant = inspectPrivateParticipantReadAccess(target.access);
+            const receipt = finite.receipts.get(target.syscallSequence);
+            const frame = receipt?.kind === "admitted" ? receipt.request.frame : null;
+            const result = receipt?.kind === "admitted" ? receipt.completed.result : null;
+            if (grant === undefined || grant.ids === "native" || !grant.ids.includes(selection.productId) ||
+              grant.principal.scopeId !== principal.scopeId || grant.principal.principalDigest !== principal.principalDigest ||
+              grant.method !== "retrieve" || receipt?.kind !== "admitted" ||
+              receipt.request.participant !== grant.participant || receipt.request.method !== grant.method ||
+              receipt.request.profileRevision !== target.access.profileRevision ||
+              inspectLogicalParticipantAdmissionBundle(receipt.admission, attempt, grant.participant, grant.method, target.access.profileRevision) === null ||
+              !isJsonObject(frame) || frame.args === undefined || !isJsonObject(frame.args) || frame.args.id !== selection.productId ||
+              !isJsonObject(result) || result.id !== selection.productId)
+              return yield* Effect.fail(refused("denied"));
+          }
           const parent = entry?.selection.profileRevision !== selection.nativeProfileRevision ? null :
             inspectLogicalParticipantAdmissionBundle(entry.bundle, attempt, selection.participant, method, selection.nativeProfileRevision);
           const admission = parent?.admissions[0];
@@ -77,17 +102,25 @@ export function makePrivateReverseReadOperations(owner: JournalAttemptOwner) {
               field.name === selection.relation && field.kind === "text" && field.nullable === true) ||
               fact.permissions.articles.some(id => decodeAppDocumentIdentityV1(id).tableId !== table.tableId))
               return yield* Effect.fail(refused("invalidAuthority"));
-            yield* Effect.fromResult(requireFiniteProductReference(finite.metadata, attempt, source.sourceKey,
+            const reference = yield* Effect.fromResult(requireFiniteProductReference(finite.metadata, attempt, source.sourceKey,
               table.localName, selection.relation)).pipe(Effect.mapError(cause => refused("invalidAuthority", cause)));
             const index = yield* Effect.fromResult(selectLogicalIndex(state.indexes,
               table.tableId, { [selection.relation]: selection.productId }, cmsError));
             if (Option.isNone(index)) return yield* Effect.fail(refused("invalidAuthority"));
             return { tableName: table.localName, tableId: table.tableId, indexDefinitionId: index.value.definition.indexDefinitionId,
-              contentIdentity: state.contentIdentity };
+              contentIdentity: state.contentIdentity, targetTableId: reference.targetTableId, targetSourceKey: reference.targetSourceKey };
           }), (_state, _read, prepared) => Effect.succeed(prepared)).pipe(Effect.mapError(cause =>
             cause instanceof PrivateReverseReadAccessError ? cause : refused(cause.reason === "resourceFailure" ? "resourceFailure" : "invalidAuthority", cause)));
+          const targetIsLive = () => {
+            if (target === undefined) return true;
+            const points = finite.evaluator.points(selected.targetTableId).filter(point => point.document !== null &&
+              isJsonObject(point.document.valueJson) && point.document.valueJson.id === selection.productId && point.document.valueJson.deleted_at === null);
+            return points.length === 1 && inspectPrivateParticipantReadAccess(target.access)?.sourceKey === selected.targetSourceKey;
+          };
+          if (!targetIsLive()) return yield* Effect.fail(refused("denied"));
           const identity = yield* capturePrivateCanonicalValue({ format: "flarex.private-reverse-read-access", version: 1,
-            ...selection, ...selected.contentIdentity, sourceKey: source.sourceKey, sourceSha256: source.sourceSha256,
+            ...selection, method, ...(target === undefined ? {} : { targetReadProfileRevision: target.access.profileRevision }),
+            ...selected.contentIdentity, sourceKey: source.sourceKey, sourceSha256: source.sourceSha256,
             tableId: selected.tableId, indexDefinitionId: selected.indexDefinitionId,
             policyDocumentId: fact.documentId, policySha256: fact.policySha256, permissions: fact.permissions }, 1_048_576,
             { invalidInput: () => refused("invalidAuthority"), hashFailure: cause => refused("resourceFailure", cause) });
@@ -104,11 +137,16 @@ export function makePrivateReverseReadOperations(owner: JournalAttemptOwner) {
           const access = Object.freeze({}) as PrivateReverseReadAccess;
           accesses.set(access, { attempt, evidence: evidence.value, principal,
             selection: Object.freeze({ ...selection, tableName: selected.tableName, tableId: selected.tableId,
-              indexDefinitionId: selected.indexDefinitionId, profileRevision: identity.sha256Hex, admission: bundle }),
-            isLive: () => finite.status === "open" && Result.isSuccess(requireFiniteAttemptPreparationOpen(finite.metadata, attempt)) });
+              indexDefinitionId: selected.indexDefinitionId, profileRevision: identity.sha256Hex, admission: bundle,
+              method, articleIds: fact.permissions.articles, ...selected.contentIdentity }),
+            isLive: () => finite.status === "open" && targetIsLive() && Result.isSuccess(requireFiniteAttemptPreparationOpen(finite.metadata, attempt)) });
           return access;
         }).pipe(Effect.ensuring(Effect.sync(() => { finite.inFlightOperations--; })));
       }).pipe(Effect.onError(() => Effect.sync(() => { finite.status = "aborted"; discardFiniteRootEvidence(finite); })));
     });
-  return { preparePrivateReverseReferenceReadEffect };
+  const preparePrivateReverseReferenceReadEffect: SessionJournalStorePersistence["preparePrivateReverseReferenceReadEffect"] =
+    (attempt, evidence, input) => prepare(attempt, evidence, input);
+  const preparePrivateReverseReferencePagesEffect: SessionJournalStorePersistence["preparePrivateReverseReferencePagesEffect"] =
+    (attempt, evidence, input, target) => prepare(attempt, evidence, input, target);
+  return { preparePrivateReverseReferenceReadEffect, preparePrivateReverseReferencePagesEffect };
 }

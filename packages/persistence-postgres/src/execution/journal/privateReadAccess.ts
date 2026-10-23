@@ -18,6 +18,13 @@ const Selection = Schema.Struct({ principal: PrivateReadPrincipal, sourceKey: Sc
   method: Schema.NonEmptyString, ids: Schema.Union([Schema.Literal("native"), PrivateReadIds]),
   nativeAccess: Schema.optionalKey(JsonValue) });
 const decodeSelection = Schema.decodeUnknownEffect(Selection, { onExcessProperty: "error" });
+export interface PrivateParticipantReadAccess {
+  readonly profileRevision: string;
+  readonly bind: (borrow: LogicalParticipantBorrow) => LogicalParticipantBorrow;
+}
+const issued = new WeakMap<PrivateParticipantReadAccess, typeof Selection.Type>();
+/** Source-private proof inspection. A structural copy is never a read grant. */
+export function inspectPrivateParticipantReadAccess(access: PrivateParticipantReadAccess) { return issued.get(access); }
 
 export class PrivateReadAccessError extends Data.TaggedError("PrivateReadAccessError")<{
   readonly reason: "invalidAuthority" | "unavailable";
@@ -59,5 +66,7 @@ export const preparePrivateParticipantReadAccess = Effect.fn("PrivateReadAccess.
       return yield* borrowed.invoke(selected, args);
     }) });
   });
-  return Object.freeze({ profileRevision: identity.sha256Hex, bind });
+  const access = Object.freeze({ profileRevision: identity.sha256Hex, bind });
+  issued.set(access, captured);
+  return access;
 });

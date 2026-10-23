@@ -408,6 +408,9 @@ export type LogicalParticipantBorrow = (input: LogicalParticipantBorrowBase &
     LogicalParticipantInvocationError>;
 
 export interface SessionJournalStorePersistence {
+  readonly preparePrivateReverseReferencePagesEffect: (
+    ...input: [...Parameters<SessionJournalStorePersistence["preparePrivateReverseReferenceReadEffect"]>, import("./privateReverseReadAccess").PrivateReverseReadTarget]
+  ) => ReturnType<SessionJournalStorePersistence["preparePrivateReverseReferenceReadEffect"]>;
   readonly preparePrivateReverseReferenceReadEffect: (attempt: SessionJournalAttempt,
     evidence: import("effect").Option.Option<import("./privateReverseReadEvidence").PrivateReverseReadEvidence>,
     selection: import("./privateReverseReadAccess").PrivateReverseReadSelection) => Effect.Effect<
