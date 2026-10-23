@@ -49,6 +49,12 @@ adds `completeOrderWorkflow` over the same bounded existing Orders, genuine
 status inverse, complete DTO and atomic settlement owners. Its finite trusted
 `ordersCompleted` hook admits selected reads and optional JSON additional data;
 extra status writes or workflow messages refuse and roll back.
+The [native Order Change scalar update profile](./preflight/order-change-update-workflow.md)
+adds `updateOrderChangesWorkflow` for zero to four existing Change patches,
+with genuine selected preimages and repeated compensation. Metadata, dates,
+creation and Action mutations remain outside this profile. Native Change
+cancellation compensation has known status and metadata restoration gaps
+and remains unadmitted pending an explicit native correction decision.
 Creation/display-ID allocation, line-item mutations, returns/claims/exchanges,
 general Order composition and public/hosted activation remain separate gates.
 

@@ -3,6 +3,7 @@ import { paymentSessionSourcePairs, paymentSessionTypeSourcePairs, verifyPayment
   verifyPaymentSessionSource, verifyPaymentSessionTypeSource } from "./check-medusa-payment-session-source.mjs";
 import { orderArchiveSourcePairs, verifyOrderArchiveSourceSelection, verifyOrderArchiveSource } from "./check-medusa-order-archive-source.mjs";
 import { orderCompleteSourcePairs, verifyOrderCompleteSourceSelection, verifyOrderCompleteSource } from "./check-medusa-order-complete-source.mjs";
+import { orderChangeUpdateSourcePairs, verifyOrderChangeUpdateSourceSelection, verifyOrderChangeUpdateSource } from "./check-medusa-order-change-update-source.mjs";
 import { taxRateUpdateSourcePairs, updateMetadataSourcePairs, taxRuleCreatorTypeSourcePair, verifyTaxRuleCreatorType, verifyTaxRateUpdateCallbacks,
   verifyTaxRateUpdateSelection, verifyUpdateMetadataExtraction } from "./check-medusa-tax-rate-update-source.mjs";
 import { taxRuleReplacementSourcePairs, verifyTaxRuleReplacementCallbacks,
@@ -412,6 +413,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   verifyPaymentSessionSelection(promotion.files);
   verifyOrderArchiveSourceSelection(promotion.files);
   verifyOrderCompleteSourceSelection(promotion.files);
+  verifyOrderChangeUpdateSourceSelection(promotion.files);
   verifyTaxRuleReplacementSelection(promotion.files);
   verifyInventoryConfirmationSourceSelection(promotion.files);
   const sums = readFileSync(path.join(root, "third_party/medusa/SOURCE_SHA256SUMS"));
@@ -860,7 +862,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       throw new Error("Customer selection adaptation outside its selected native source pair");
     if (file.classification === "inventoryConfirmationFork" && !inventoryConfirmationSourcePairs.some(pair => pair.target === file.target && pair.source === file.source && pair.classification === file.classification))
       throw new Error("Inventory confirmation adaptation outside its selected native source pair");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRuleReplacementFork", "orderArchiveFork", "orderArchiveCompensationFork", "orderCompleteFork", "paymentSessionTypeFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRuleReplacementFork", "orderArchiveFork", "orderArchiveCompensationFork", "orderCompleteFork", "orderChangeUpdateFork", "paymentSessionTypeFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.target === "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification === "pricingServiceFork") {
@@ -975,6 +977,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
         verifyOrderArchiveSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (orderCompleteSourcePairs.some(pair => pair.target === file.target))
         verifyOrderCompleteSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
+      if (orderChangeUpdateSourcePairs.some(pair => pair.target === file.target))
+        verifyOrderChangeUpdateSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (paymentSessionSourcePairs.some(pair => pair.target === file.target))
         verifyPaymentSessionSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (paymentSessionTypeSourcePairs.some(pair => pair.target === file.target))

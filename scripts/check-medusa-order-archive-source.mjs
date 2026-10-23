@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { orderCompleteSourcePairs } from "./check-medusa-order-complete-source.mjs";
+import { orderChangeUpdateSourcePairs } from "./check-medusa-order-change-update-source.mjs";
 
 const failure = "Changed native Order archive source";
 const nativePrefix = "third_party/medusa/upstream/";
@@ -91,6 +92,8 @@ export function verifyOrderArchiveSourceSelection(files) {
     if (orderArchiveAuthoredTargets.includes(file.target) && file.source === undefined && file.classification === "authored") continue;
     // Completion has its own exact source proof and grants no wider Order closure.
     if (orderCompleteSourcePairs.some(pair => pair.source === file.source && pair.target === file.target &&
+      pair.classification === file.classification)) continue;
+    if (orderChangeUpdateSourcePairs.some(pair => pair.source === file.source && pair.target === file.target &&
       pair.classification === file.classification)) continue;
     const relevant = ["orderArchiveFork", "orderArchiveCompensationFork"].includes(file.classification) || file.target.startsWith("packages/medusa-order/") ||
       file.target.startsWith(workflowTarget) || file.target.startsWith(helperTarget) ||

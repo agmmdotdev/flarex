@@ -190,7 +190,9 @@
     "./payment-collection/delete-payment-sessions": "./src/payment-collection/workflows/delete-payment-sessions.ts",
     "./payment-collection/create-payment-session-step": "./src/payment-collection/steps/create-payment-session.ts",
     "./tax/update-tax-rates": "./src/tax/workflows/update-tax-rates.ts",
-    "./tax/update-tax-rates-step": "./src/tax/steps/update-tax-rates.ts"
+    "./tax/update-tax-rates-step": "./src/tax/steps/update-tax-rates.ts",
+    "./order/update-order-changes": "./src/order/workflows/update-order-changes.ts",
+    "./order/update-order-changes-step": "./src/order/steps/update-order-changes.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "915a2a361f97261984c477e5c75eb5affa9f89cb7f21d698b63719c47fcf583f"
+      "targetSha256": "cc98a2b3596b1851a26425c2c8194b01efe2eccae7c995e33e2a8ed1db1fe9d1"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -14527,6 +14527,60 @@
       "classification": "orderCompleteFork",
       "sourceSha256": "3d3bbf3583b4bff6f7844b4782bdbf2d04888bf0d64dfef2e1376f39dac96bfe",
       "targetSha256": "4d16321912f0951530a38aaaf6c3a26988fc4963f302867306ecbc98a495910a"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/order/change-update-input.ts",
+      "classification": "authored",
+      "targetSha256": "e3c3ec7607ee1f31190db81a3158457182aa6630a54aa479ba6362fbad2920c0"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/order/change-update-repository.ts",
+      "classification": "authored",
+      "targetSha256": "0b5900366492ed887ad7e4efef6385d4ac0b116464a406a11de95a130f7c662a"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/order/change-update-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "1f2aac1683a0e8e381e64e7da2c9cb9c1788fb59f420109f3046a3d55493029c"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/order/change-update-service.ts",
+      "classification": "authored",
+      "targetSha256": "298cb98e9b5ef0d883b2d1398b580e3dc2d031091a57f97b3aa6edad99fd48c1"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/order/update-order-changes.ts",
+      "classification": "authored",
+      "targetSha256": "37ecd96cd5da50319429edc79a399deb17455d0fe06929c08320a746bae1ea24"
+    },
+    {
+      "target": "packages/medusa-adapter/test/order-change-update-receipts.test.ts",
+      "classification": "authored",
+      "targetSha256": "5b0b380d4d0daf1874991d4c50b0389106469702ae31ead3fcef6adf17ede07a"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-order-change-update-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "badaf579e0137d39e72ebaca76123166e4258f77669cfba23ba79e3852b95094"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-order-change-update-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "9d7085c01255e1bfd508754ff668f548c0acdaf96cc270402c80b2a340b781b3"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/order/steps/update-order-changes.ts",
+      "target": "packages/medusa-core-flows/src/order/steps/update-order-changes.ts",
+      "classification": "orderChangeUpdateFork",
+      "sourceSha256": "ef6fe0937e76563f842cd9614a5be0c11384918b846f5460a3b3a96440e90e45",
+      "targetSha256": "66b5f1bf8605d17e6bc66d0c32ea9c58eeee2e97321c0f2b12a4009a46f7c0cc"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/order/workflows/update-order-changes.ts",
+      "target": "packages/medusa-core-flows/src/order/workflows/update-order-changes.ts",
+      "classification": "orderChangeUpdateFork",
+      "sourceSha256": "33be1de2c06cbd2a6d64d50c6ed4ba1e279a29ef8248d08edf8222d4a27bd374",
+      "targetSha256": "46270b6dd4ab9262e9a20a8e01ed1e29243681bf0874a7ac82f3df51307e29c7"
     }
   ],
   "dependencies": {
@@ -15153,7 +15207,9 @@
         "./payment-collection/delete-payment-sessions",
         "./payment-collection/create-payment-session-step",
         "./tax/update-tax-rates",
-        "./tax/update-tax-rates-step"
+        "./tax/update-tax-rates-step",
+        "./order/update-order-changes",
+        "./order/update-order-changes-step"
       ]
     },
     {

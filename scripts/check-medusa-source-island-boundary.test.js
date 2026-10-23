@@ -47,6 +47,7 @@ describe("Medusa source-island boundary checker", () => {
       "scripts/check-medusa-tax-rule-replacement-source.mjs", "scripts/check-medusa-tax-rule-replacement-source.test.js",
       "scripts/check-medusa-payment-session-source.mjs", "scripts/check-medusa-payment-session-source.test.js",
       "scripts/check-medusa-order-complete-source.mjs", "scripts/check-medusa-order-complete-source.test.js",
+      "scripts/check-medusa-order-change-update-source.mjs", "scripts/check-medusa-order-change-update-source.test.js",
       "scripts/check-medusa-order-archive-source.mjs", "scripts/check-medusa-order-archive-source.test.js",
       "scripts/check-medusa-tax-rate-update-source.mjs", "scripts/check-medusa-tax-rate-update-source.test.js"];
     const adjacentPaths = verifierPaths.flatMap(relativePath => [
