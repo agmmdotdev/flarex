@@ -5,6 +5,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { orderCompleteSourcePairs } from "./check-medusa-order-complete-source.mjs";
 import { orderChangeUpdateSourcePairs } from "./check-medusa-order-change-update-source.mjs";
+import { orderFinanceHelperTargets, verifyOrderFinanceSelection } from "./check-medusa-order-finance-source.mjs";
 import { orderChangeCancellationSourcePairs, verifyOrderChangeCancellationSource } from "./check-medusa-order-change-cancellation-source.mjs";
 
 const failure = "Changed native Order archive source";
@@ -91,7 +92,9 @@ export function verifyOrderArchiveSourceSelection(files) {
     if (selected.length !== 1 || selected[0]?.source !== pair.source || selected[0]?.classification !== pair.classification)
       throw new Error(failure + ": exact source pair " + pair.target);
   }
+  if (files.some(file => orderFinanceHelperTargets.includes(file.target))) verifyOrderFinanceSelection(files);
   for (const file of files) {
+    if (orderFinanceHelperTargets.includes(file.target) && file.source === undefined && file.classification === "authored") continue;
     if (orderArchiveAuthoredTargets.includes(file.target) && file.source === undefined && file.classification === "authored") continue;
     // Completion has its own exact source proof and grants no wider Order closure.
     if (orderCompleteSourcePairs.some(pair => pair.source === file.source && pair.target === file.target &&

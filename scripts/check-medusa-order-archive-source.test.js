@@ -1,4 +1,5 @@
 // @ts-check
+import { orderFinanceHelperTargets, verifyOrderFinanceSelection } from "./check-medusa-order-finance-source.mjs";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { orderArchiveSourcePairs, orderArchiveAuthoredTargets, verifyOrderArchiveSourceSelection,
@@ -157,5 +158,25 @@ describe("bounded native Order source preparation", () => {
   it("permits newline normalization without broad source normalization", () => {
     expect(() => verifyOrderArchiveSource(step.native.replaceAll("\r\n", "\n"),
       step.actual.replaceAll("\r\n", "\n").replaceAll("\n", "\r\n"), step.target)).not.toThrow();
+  });
+});
+
+
+describe("Order archive guard composes only the exact finance helper closure", () => {
+  const base = [...orderArchiveSourcePairs, ...orderArchiveAuthoredTargets.map(target => ({ target, classification: "authored" }))];
+  const helpers = orderFinanceHelperTargets.map(target => ({ target, classification: "authored" }));
+  it("admits the complete independently guarded helper set", () => {
+    expect(() => verifyOrderArchiveSourceSelection([...base, ...helpers])).not.toThrow();
+    expect(() => verifyOrderFinanceSelection([...base, ...helpers])).not.toThrow();
+  });
+  it("rejects omitted, duplicated, redirected, relabeled and adjacent helpers", () => {
+    for (const helper of helpers) {
+      for (const selected of [helpers.filter(row => row !== helper), [...helpers, helper],
+        helpers.map(row => row === helper ? { ...row, source: "third_party/medusa/upstream/packages/modules/order/src/services/order-module-service.ts" } : row),
+        helpers.map(row => row === helper ? { ...row, classification: "unchanged" } : row)])
+        expect(() => verifyOrderArchiveSourceSelection([...base, ...selected])).toThrow("Changed native Order finance extraction: native helper ownership");
+    }
+    expect(() => verifyOrderArchiveSourceSelection([...base, ...helpers,
+      { target: "packages/medusa-order/src/utils/payment-accounting-extra.ts", classification: "authored" }])).toThrow(failure);
   });
 });

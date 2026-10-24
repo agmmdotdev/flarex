@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { adaptOrderFinanceSource, verifyOrderFinanceHelpers } from "./check-medusa-order-finance-source.mjs";
 
 const failure = "Changed approved native Order Change cancellation source";
 const prefix = "third_party/medusa/upstream/";
@@ -201,7 +202,10 @@ export function adaptOrderChangeCancellationSource(source, destination) {
 /** @param {string} source @param {string} target @param {string} destination */
 export function verifyOrderChangeCancellationSource(source, target, destination) {
   if (!orderChangeCancellationSourcePairs.some(pair => pair.target === destination)) throw new Error(failure + ": unknown pair");
-  if (adaptOrderChangeCancellationSource(source, destination) !== target.replaceAll("\r\n", "\n"))
+  const corrected = adaptOrderChangeCancellationSource(source, destination);
+  const expected = destination === "packages/medusa-order/src/services/order-module-service.ts"
+    ? adaptOrderFinanceSource(corrected) : corrected;
+  if (expected !== target.replaceAll("\r\n", "\n"))
     throw new Error(failure + ": complete source " + destination);
 }
 
@@ -233,6 +237,11 @@ export function verifyOrderChangeCancellationFiles(root) {
     const source = readFileSync(path.join(root, pair.source));
     if (hash(source) !== hashes.get(pair.source.slice("third_party/medusa/".length))) throw new Error(failure + ": pinned source");
     verifyOrderChangeCancellationSource(source.toString("utf8"), readFileSync(path.join(root, pair.target), "utf8"), pair.target);
+    if (pair.target === "packages/medusa-order/src/services/order-module-service.ts")
+      verifyOrderFinanceHelpers(source.toString("utf8"),
+        readFileSync(path.join(root, "packages/medusa-order/src/utils/payment-accounting.ts"), "utf8"),
+        readFileSync(path.join(root, "packages/medusa-order/src/utils/totals-selection.ts"), "utf8"),
+        readFileSync(path.join(root, "packages/medusa-order/src/utils/preview-details.ts"), "utf8"));
   }
   return { sourcePairs: orderChangeCancellationSourcePairs.length };
 }

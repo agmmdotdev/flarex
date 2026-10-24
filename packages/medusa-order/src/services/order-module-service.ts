@@ -29,7 +29,6 @@ import {
   EmitEvents,
   InjectManager,
   InjectTransactionManager,
-  isDefined,
   isObject,
   isString,
   MathBN,
@@ -39,7 +38,6 @@ import {
   OrderChangeStatus,
   OrderStatus,
   promiseAll,
-  transformPropertiesToBigNumber,
 } from "@medusajs/framework/utils/portable"
 import {
   Order,
@@ -87,6 +85,9 @@ import {
   formatOrder,
 } from "../utils"
 import { applyEntityHooks } from "../utils/apply-decorators"
+import { updateOrderPaymentSummaries } from "../utils/payment-accounting"
+import { includeOrderTotals } from "../utils/totals-selection"
+import { includeOrderPreviewDetails } from "../utils/preview-details"
 import * as BundledActions from "./actions"
 import OrderService from "./order-service"
 
@@ -317,76 +318,6 @@ export default class OrderModuleService
     return joinerConfig
   }
 
-  private shouldIncludeTotals(config: FindConfig<any>): boolean {
-    const totalFields = [
-      "total",
-      "subtotal",
-      "tax_total",
-      "discount_total",
-      "discount_tax_total",
-      "original_total",
-      "original_tax_total",
-      "pending_difference",
-      "item_total",
-      "item_subtotal",
-      "item_tax_total",
-      "original_item_total",
-      "original_item_subtotal",
-      "original_item_tax_total",
-      "shipping_total",
-      "shipping_subtotal",
-      "shipping_tax_total",
-      "original_shipping_tax_total",
-      "original_shipping_subtotal",
-      "original_shipping_total",
-      "original_total",
-      "original_subtotal",
-      "original_tax_total",
-      "credit_line_total",
-      "credit_line_tax_total",
-      "credit_line_subtotal",
-      "refundable_amount",
-    ]
-
-    const includeTotals = (config?.select ?? []).some((field) =>
-      totalFields.includes(field as string)
-    )
-
-    if (includeTotals) {
-      this.addRelationsToCalculateTotals(config, totalFields)
-    }
-
-    return includeTotals
-  }
-
-  private addRelationsToCalculateTotals(config: FindConfig<any>, totalFields) {
-    config.relations ??= []
-    config.select ??= []
-
-    const requiredRelationsForTotals = [
-      "credit_lines",
-      "items",
-      "items.tax_lines",
-      "items.adjustments",
-      "shipping_methods",
-      "shipping_methods.tax_lines",
-      "shipping_methods.adjustments",
-    ]
-
-    config.relations = deduplicate([
-      ...config.relations,
-      ...requiredRelationsForTotals,
-    ])
-
-    config.select = config.select.filter((field) => {
-      return (
-        !requiredRelationsForTotals.some((val) =>
-          val.startsWith(field as string)
-        ) && !totalFields.includes(field)
-      )
-    })
-  }
-
   // @ts-expect-error
   async retrieveOrder(
     id: string,
@@ -394,7 +325,7 @@ export default class OrderModuleService
     sharedContext?: Context
   ): Promise<OrderTypes.OrderDTO> {
     config ??= {}
-    const includeTotals = this.shouldIncludeTotals(config)
+    const includeTotals = includeOrderTotals(config)
 
     const order = await super.retrieveOrder(id, config, sharedContext)
 
@@ -429,7 +360,7 @@ export default class OrderModuleService
     @MedusaContext() sharedContext?: Context | undefined
   ): Promise<OrderTypes.OrderDTO[]> {
     config ??= {}
-    const includeTotals = this.shouldIncludeTotals(config)
+    const includeTotals = includeOrderTotals(config)
 
     const orders = await super.listOrders(filters, config, sharedContext)
 
@@ -446,7 +377,7 @@ export default class OrderModuleService
     sharedContext?: Context
   ): Promise<[OrderTypes.OrderDTO[], number]> {
     config ??= {}
-    const includeTotals = this.shouldIncludeTotals(config)
+    const includeTotals = includeOrderTotals(config)
 
     const [orders, count] = await super.listAndCountOrders(
       filters,
@@ -470,7 +401,7 @@ export default class OrderModuleService
     sharedContext?: Context
   ): Promise<OrderTypes.ReturnDTO> {
     config ??= {}
-    const includeTotals = this.shouldIncludeTotals(config)
+    const includeTotals = includeOrderTotals(config)
 
     const returnOrder = await super.retrieveReturn(id, config, sharedContext)
 
@@ -487,7 +418,7 @@ export default class OrderModuleService
     sharedContext?: Context
   ): Promise<OrderTypes.ReturnDTO[]> {
     config ??= {}
-    const includeTotals = this.shouldIncludeTotals(config)
+    const includeTotals = includeOrderTotals(config)
 
     const returnOrders = await super.listReturns(filters, config, sharedContext)
 
@@ -504,7 +435,7 @@ export default class OrderModuleService
     sharedContext?: Context
   ): Promise<[OrderTypes.ReturnDTO[], number]> {
     config ??= {}
-    const includeTotals = this.shouldIncludeTotals(config)
+    const includeTotals = includeOrderTotals(config)
 
     const [returnOrders, count] = await super.listAndCountReturns(
       filters,
@@ -528,7 +459,7 @@ export default class OrderModuleService
     sharedContext?: Context
   ): Promise<OrderTypes.OrderClaimDTO> {
     config ??= {}
-    const includeTotals = this.shouldIncludeTotals(config)
+    const includeTotals = includeOrderTotals(config)
 
     const returnOrder = await super.retrieveOrderClaim(
       id,
@@ -549,7 +480,7 @@ export default class OrderModuleService
     sharedContext?: Context
   ): Promise<OrderTypes.OrderClaimDTO[]> {
     config ??= {}
-    const includeTotals = this.shouldIncludeTotals(config)
+    const includeTotals = includeOrderTotals(config)
 
     const returnOrders = await super.listOrderClaims(
       filters,
@@ -570,7 +501,7 @@ export default class OrderModuleService
     sharedContext?: Context
   ): Promise<[OrderTypes.OrderClaimDTO[], number]> {
     config ??= {}
-    const includeTotals = this.shouldIncludeTotals(config)
+    const includeTotals = includeOrderTotals(config)
 
     const [returnOrders, count] = await super.listAndCountOrderClaims(
       filters,
@@ -594,7 +525,7 @@ export default class OrderModuleService
     sharedContext?: Context
   ): Promise<OrderTypes.OrderExchangeDTO> {
     config ??= {}
-    const includeTotals = this.shouldIncludeTotals(config)
+    const includeTotals = includeOrderTotals(config)
 
     const returnOrder = await super.retrieveOrderExchange(
       id,
@@ -615,7 +546,7 @@ export default class OrderModuleService
     sharedContext?: Context
   ): Promise<OrderTypes.OrderExchangeDTO[]> {
     config ??= {}
-    const includeTotals = this.shouldIncludeTotals(config)
+    const includeTotals = includeOrderTotals(config)
 
     const returnOrders = await super.listOrderExchanges(
       filters,
@@ -636,7 +567,7 @@ export default class OrderModuleService
     sharedContext?: Context
   ): Promise<[OrderTypes.OrderExchangeDTO[], number]> {
     config ??= {}
-    const includeTotals = this.shouldIncludeTotals(config)
+    const includeTotals = includeOrderTotals(config)
 
     const [returnOrders, count] = await super.listAndCountOrderExchanges(
       filters,
@@ -2575,116 +2506,7 @@ export default class OrderModuleService
     shippingMethodsToUpsert,
     lineItemAdjustmentsToCreate,
     sharedContext: Context = {}
-  ) {
-    const addedItems = {}
-    const addedShippingMethods = {}
-
-    for (const item of order.items) {
-      const isExistingItem = item.id === item.detail?.item_id
-      if (!isExistingItem) {
-        addedItems[item.id] = {
-          ...item,
-          quantity: item.detail?.quantity ?? item.quantity,
-          unit_price: item.detail?.unit_price || item.unit_price,
-          compare_at_unit_price:
-            item.detail?.compare_at_unit_price ||
-            item.compare_at_unit_price ||
-            null,
-        }
-      }
-    }
-
-    for (const sm of order.shipping_methods) {
-      if (!isDefined(sm.shipping_option_id)) {
-        addedShippingMethods[sm.id] = sm
-      }
-    }
-
-    if (Object.keys(addedItems).length > 0) {
-      const addedItemDetails = await this.listOrderLineItems(
-        { id: Object.keys(addedItems) },
-        {
-          relations: ["adjustments", "tax_lines"],
-        },
-        sharedContext
-      )
-
-      order.items.forEach((item, idx) => {
-        if (!addedItems[item.id]) {
-          return
-        }
-
-        const lineItem = addedItemDetails.find((d) => d.id === item.id) as any
-
-        const actions = item.actions
-        delete item.actions
-
-        //@ts-ignore
-        const newItem = itemsToUpsert.find((d) => d.item_id === item.id)!
-
-        const adjustments = lineItemAdjustmentsToCreate.filter(
-          (d) => d.item_id === newItem.item_id
-        )
-
-        const unitPrice = newItem?.unit_price ?? item.unit_price
-        const compareAtUnitPrice =
-          newItem?.compare_at_unit_price ?? item.compare_at_unit_price
-
-        delete lineItem.raw_unit_price
-        delete lineItem.raw_compare_at_unit_price
-
-        order.items[idx] = {
-          ...lineItem,
-          actions,
-          quantity: newItem.quantity,
-          unit_price: unitPrice,
-          compare_at_unit_price: compareAtUnitPrice || null,
-          adjustments: adjustments,
-          detail: {
-            ...newItem,
-            ...item,
-          },
-        }
-      })
-    }
-
-    if (Object.keys(addedShippingMethods).length > 0) {
-      const addedShippingDetails = await this.listOrderShippingMethods(
-        { id: Object.keys(addedShippingMethods) },
-        {
-          relations: ["adjustments", "tax_lines"],
-        },
-        sharedContext
-      )
-
-      order.shipping_methods.forEach((sm, idx) => {
-        if (!addedShippingMethods[sm.id]) {
-          return
-        }
-
-        const shippingMethod = addedShippingDetails.find(
-          (d) => d.id === sm.id
-        ) as any
-
-        const actions = sm.actions
-        delete sm.actions
-
-        const newItem = shippingMethodsToUpsert.find((d) => d.id === sm.id)!
-
-        sm.shipping_method_id = sm.id
-        delete sm.id
-
-        order.shipping_methods[idx] = {
-          ...shippingMethod,
-          actions,
-          detail: {
-            ...sm,
-            ...newItem,
-          },
-        }
-      })
-    }
-  }
+  ) { return includeOrderPreviewDetails(this, order, itemsToUpsert, shippingMethodsToUpsert, lineItemAdjustmentsToCreate, sharedContext) }
 
   async cancelOrderChange(
     orderId: string,
@@ -3864,46 +3686,7 @@ export default class OrderModuleService
       sharedContext
     )
 
-    summaries.forEach((summary) => {
-      let trxs = transactionData.filter(
-        (trx) => trx.order_id === summary.order_id
-      )
-
-      if (!trxs.length) {
-        return
-      }
-      transformPropertiesToBigNumber(trxs)
-
-      const op = isRemoved ? MathBN.sub : MathBN.add
-
-      const initialTrxTotal = summary.totals.transaction_total
-
-      for (const trx of trxs) {
-        if (MathBN.gt(trx.amount, 0)) {
-          summary.totals.paid_total = new BigNumber(
-            op(summary.totals.paid_total, trx.amount)
-          )
-        } else {
-          summary.totals.refunded_total = new BigNumber(
-            op(summary.totals.refunded_total, MathBN.abs(trx.amount))
-          )
-        }
-
-        summary.totals.transaction_total = new BigNumber(
-          op(summary.totals.transaction_total, trx.amount)
-        )
-      }
-
-      const initialDiff = MathBN.sub(
-        summary.totals.transaction_total,
-        initialTrxTotal
-      )
-      summary.totals.pending_difference = new BigNumber(
-        MathBN.sub(summary.totals.pending_difference, initialDiff)
-      )
-    })
-
-    createRawPropertiesFromBigNumber(summaries)
+    updateOrderPaymentSummaries(summaries, transactionData, isRemoved)
 
     await this.orderSummaryService_.update(summaries, sharedContext)
   }

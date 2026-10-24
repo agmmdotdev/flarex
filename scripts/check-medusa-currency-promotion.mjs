@@ -5,6 +5,7 @@ import { orderArchiveSourcePairs, verifyOrderArchiveSourceSelection, verifyOrder
 import { orderCompleteSourcePairs, verifyOrderCompleteSourceSelection, verifyOrderCompleteSource } from "./check-medusa-order-complete-source.mjs";
 import { orderChangeUpdateSourcePairs, verifyOrderChangeUpdateSourceSelection, verifyOrderChangeUpdateSource } from "./check-medusa-order-change-update-source.mjs";
 import { orderChangeCancellationSourcePairs, verifyOrderChangeCancellationSourceSelection, verifyOrderChangeCancellationSource } from "./check-medusa-order-change-cancellation-source.mjs";
+import { verifyOrderFinanceSelection, verifyOrderFinanceHelpers } from "./check-medusa-order-finance-source.mjs";
 import { taxRateUpdateSourcePairs, updateMetadataSourcePairs, taxRuleCreatorTypeSourcePair, verifyTaxRuleCreatorType, verifyTaxRateUpdateCallbacks,
   verifyTaxRateUpdateSelection, verifyUpdateMetadataExtraction } from "./check-medusa-tax-rate-update-source.mjs";
 import { taxRateDeletionSourcePairs, verifyTaxRateDeletionCallbacks,
@@ -423,6 +424,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   verifyOrderCompleteSourceSelection(promotion.files);
   verifyOrderChangeUpdateSourceSelection(promotion.files);
   verifyOrderChangeCancellationSourceSelection(promotion.files);
+  verifyOrderFinanceSelection(promotion.files);
   verifyTaxRuleReplacementSelection(promotion.files);
   verifyInventoryConfirmationSourceSelection(promotion.files);
   const sums = readFileSync(path.join(root, "third_party/medusa/SOURCE_SHA256SUMS"));
@@ -993,6 +995,11 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
         verifyOrderChangeUpdateSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (orderChangeCancellationSourcePairs.some(pair => pair.target === file.target))
         verifyOrderChangeCancellationSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
+      if (file.target === "packages/medusa-order/src/services/order-module-service.ts")
+        verifyOrderFinanceHelpers(readFileSync(path.join(root, file.source), "utf8"),
+          readFileSync(path.join(root, "packages/medusa-order/src/utils/payment-accounting.ts"), "utf8"),
+          readFileSync(path.join(root, "packages/medusa-order/src/utils/totals-selection.ts"), "utf8"),
+          readFileSync(path.join(root, "packages/medusa-order/src/utils/preview-details.ts"), "utf8"));
       if (paymentSessionSourcePairs.some(pair => pair.target === file.target))
         verifyPaymentSessionSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (paymentSessionTypeSourcePairs.some(pair => pair.target === file.target))
