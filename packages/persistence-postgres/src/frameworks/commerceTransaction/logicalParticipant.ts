@@ -9,7 +9,7 @@ import type { BoundedRequestContext, BoundedRequestLifetime } from "../../execut
 import { requireLogicalRelationalAdmission, type LogicalRelationalAdmission } from "../../storage/documents/logicalDocuments/relationalAdmission";
 import { requireLogicalRelationalReadAdmission, type LogicalRelationalReadAdmission } from "../../storage/documents/logicalDocuments/relationalAdmission";
 import { makeLogicalDocumentWorkingSet, type LogicalDocumentChanges, type LogicalDocumentActivity } from "../../storage/documents/logicalDocuments/workingSet";
-import { LogicalReconstitutionPolicy, type LogicalPreservingDeletionUpsertPolicy, LogicalSetNullPolicy, type LogicalStorageReadReadiness } from "../../storage/documents/logicalDocuments/model";
+import { LogicalInsertValidation, LogicalReconstitutionPolicy, type LogicalPreservingDeletionUpsertPolicy, LogicalSetNullPolicy, type LogicalStorageReadReadiness } from "../../storage/documents/logicalDocuments/model";
 import type { CommerceSetNullSelection, CommerceReferenceReplacement, CommerceDeletedReferenceSelection } from "./commands";
 import { bindPreparedLogicalRelationalRows, detachLogicalRelationalActivityJson } from "../../storage/documents/logicalDocuments/relationalRows";
 import { commerceError, logicalCommerceError, type CommerceTransactionError } from "./model";
@@ -107,6 +107,7 @@ interface ClosureState {
 }
 const closures = new WeakMap<object, ClosureState>();
 const decodeSetNullPolicy = Schema.decodeUnknownEffect(Schema.UndefinedOr(LogicalSetNullPolicy), { onExcessProperty: "error" });
+const decodeInsertValidation = Schema.decodeUnknownEffect(Schema.UndefinedOr(LogicalInsertValidation));
 const decodeReconstitution = Schema.decodeUnknownEffect(Schema.UndefinedOr(LogicalReconstitutionPolicy));
 
 /** A native participant borrows its root's transaction and lifetime. It owns no
@@ -117,7 +118,10 @@ export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
   allowReferenceReplacement = false, selectedResources?: CommerceResources, logicalPublication?: "mixed",
   reconstitution: LogicalReconstitutionPolicy | undefined = undefined, allowPreservingDeletionUpsert: LogicalPreservingDeletionUpsertPolicy | undefined = undefined, allowActiveRestoreUpdate = false, allowStorageInsertionOrder = false,
   setNullPolicy?: LogicalSetNullPolicy, detachDeletedReferences = false, allowRecordedRowReplay = false, allowReferenceCheckpoints = false,
+  insertValidation: LogicalInsertValidation | undefined = undefined,
 ) {
+  const selectedInsertValidation = yield* decodeInsertValidation(insertValidation)
+    .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   const selectedReconstitution = yield* decodeReconstitution(reconstitution)
     .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   const decodedSetNullPolicy = yield* decodeSetNullPolicy(setNullPolicy)
@@ -139,6 +143,7 @@ export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
   const working = yield* makeLogicalDocumentWorkingSet({ tx, scopeId: state.authority.scopeId, clock: state.clock, lifetime,
     ...(detachDeletedReferences ? { detachDeletedReferences: true as const } : {}),
     ...(allowReferenceCheckpoints ? { allowReferenceCheckpoints: true as const } : {}),
+    ...(selectedInsertValidation === undefined ? {} : { insertValidation: selectedInsertValidation }),
     ...(selectedReconstitution === undefined ? {} : { reconstitution: selectedReconstitution }),
     ...(allowPreservingDeletionUpsert === undefined ? {} : { allowPreservingDeletionUpsert }),
     ...(allowActiveRestoreUpdate ? { allowActiveRestoreUpdate: true as const } : {}),

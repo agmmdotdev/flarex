@@ -17,6 +17,7 @@ export function correlatePhysicalGraphReceipt(input: {
     readonly decodeRow: (value: unknown) => Result.Result<JsonObject, CommerceTransactionError> }[];
   readonly root: SchemaTable;
   readonly rootOrder?: "storageInsertion";
+  readonly rootMutationOrder?: "dependencies";
   readonly referenceDetachments?: readonly PhysicalReferenceDetachment[];
   readonly requestedIds: readonly string[];
   readonly activity: Parameters<LogicalCallReceiptValidation>[1];
@@ -57,6 +58,12 @@ export function correlatePhysicalGraphReceipt(input: {
     const edges = tables.flatMap(child => child.foreignKeys.filter(key => key.onDelete === "cascade" && byTable.has(key.referencedTable) && !sources.has(key.referencedTable))
       .map(key => ({ child: child.name, parent: key.referencedTable, columns: key.columns, referenced: key.referencedColumns })));
     if (edges.some(edge => !byTable.has(edge.child) || edge.columns.length !== 1 || edge.referenced.length !== 1 || edge.referenced[0] !== "id"))
+      return yield* Result.fail(mismatch());
+    // This trusted presentation policy is admitted only for a checked scalar
+    // cascading self-FK root and its authenticated storage-insertion selection.
+    if (input.rootMutationOrder !== undefined && (input.rootMutationOrder !== "dependencies" ||
+      input.rootOrder !== "storageInsertion" || !tables.some(table => table === root) ||
+      byTable.get(root.name)?.table !== root || !edges.some(edge => edge.child === root.name && edge.parent === root.name)))
       return yield* Result.fail(mismatch());
     // Same-table descendants are part of the complete graph, but only rows
     // selected by the original root query are requested roots.
@@ -153,6 +160,15 @@ export function correlatePhysicalGraphReceipt(input: {
         return observed === undefined || !jsonEqual(row, observed);
       }))
         return yield* Result.fail(mismatch());
+    }
+    if (input.rootOrder === "storageInsertion" && input.rootMutationOrder === "dependencies") {
+      const selectedRootIds = roots.map(row => row.id), removedRootIds = new Set(rootIds);
+      // Existing pending/dependency guards authenticate physical mutation order.
+      // This selected policy presents the same complete explicit cohort in its
+      // independently authenticated selection order.
+      if (removedRootIds.size !== rootIds.length || removedRootIds.size !== selectedRootIds.length ||
+        selectedRootIds.some(id => !removedRootIds.has(id))) return yield* Result.fail(mismatch());
+      return selectedRootIds;
     }
     if (input.rootOrder === "storageInsertion" && !jsonEqual(rootIds, roots.map(row => row.id))) return yield* Result.fail(mismatch());
     return rootIds;

@@ -31,6 +31,8 @@ const decodeOptions = commerceDecoder(Schema.Struct({
   orderBy: Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])) })),
   filters: Schema.optionalKey(Schema.Struct({ softDeletable: Schema.Struct({ withDeleted: Schema.Boolean }) })),
 }), "unsupportedProfile");
+export type ScalarCreationPlan = ReturnType<typeof planScalarCreateBatch<JsonObject & { id: string }>>;
+
 /** Shared scalar create/read mechanics. Module owners select checked metadata,
  * filters and explicit extensions; this factory grants no table or settlement. */
 export function prepareScalarRepository(table: SchemaTable, modelName: string, wherePolicy: WherePolicy,
@@ -84,7 +86,10 @@ export function prepareScalarRepository(table: SchemaTable, modelName: string, w
       } satisfies ReadPlan;
     });
     const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner,
-      sharedEvents = commerceMutationEvents(owner), sharedBridge?: ReturnType<typeof commerceRepositoryContext>) => {
+      sharedEvents = commerceMutationEvents(owner), sharedBridge?: ReturnType<typeof commerceRepositoryContext>,
+      creation?: { readonly stage: (ctx: CommerceCommandContext, plan: ScalarCreationPlan,
+        accept: (beforeCreatedEvents?: Effect.Effect<void, CommerceTransactionError>) => Effect.Effect<JsonObject[], CommerceTransactionError>)
+        => Effect.Effect<JsonObject[], CommerceTransactionError> }) => {
       const bridge = sharedBridge ?? commerceRepositoryContext(root, owner);
       const events = sharedEvents;
       const refuse = () => owner.run(root.refuse(commerceError("unsupportedProfile")));
@@ -111,36 +116,46 @@ export function prepareScalarRepository(table: SchemaTable, modelName: string, w
           rows.push({ ...row, id: generateEntityId(id, prefix) });
         }
         const plan = planScalarCreateBatch(rows);
-        const store = yield* ctx.table(table.name);
-        const inserted = yield* store.write(ctx.manager, "insert", plan.entities);
-        // Native entities retain submitted REAL values until a cold read. SQL
-        // conversion must succeed first; canonical storage remains untouched.
-        const suppliedById = new Map(plan.entities.map(entity => [entity.id, entity]));
-        const presented = inserted.map((entity, index) => {
-          const result = { ...entity }, submitted = createPolicy?.nativeToOneCreationPresence === undefined
-            ? plan.entities[index] : typeof entity.id === "string" ? suppliedById.get(entity.id) : undefined;
-          for (const name of realColumns) if (submitted?.[name] !== undefined) result[name] = submitted[name];
-          return result;
+        let accepted = false;
+        const accept = Effect.fn("ScalarRepository.acceptCreated")(function* (beforeCreatedEvents?: Effect.Effect<void, CommerceTransactionError>) {
+          if (creation !== undefined) {
+            if (accepted) return yield* ctx.refuse(commerceError("invalidAuthority"));
+            accepted = true;
+          }
+          const store = yield* ctx.table(table.name);
+          const inserted = yield* store.write(ctx.manager, "insert", plan.entities);
+          // Native entities retain submitted REAL values until a cold read. SQL
+          // conversion must succeed first; canonical storage remains untouched.
+          const suppliedById = new Map(plan.entities.map(entity => [entity.id, entity]));
+          const presented = inserted.map((entity, index) => {
+            const result = { ...entity }, submitted = createPolicy?.nativeToOneCreationPresence === undefined
+              ? plan.entities[index] : typeof entity.id === "string" ? suppliedById.get(entity.id) : undefined;
+            for (const name of realColumns) if (submitted?.[name] !== undefined) result[name] = submitted[name];
+            return result;
+          });
+          if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+          if (beforeCreatedEvents !== undefined) yield* beforeCreatedEvents;
+          yield* events.created(presented.map(entity => ({ modelName, entity: { ...entity } })), shared);
+          // Existing profiles serialize the final canonical entity after every
+          // input has hydrated it and storage supplied defaults and timestamps.
+          if (createPolicy?.nativeToOneCreationPresence === undefined)
+            return plan.positions.map(position => ({ ...presented[position]! }));
+          // Native nullable belongsTo fields have no scalar default setter. An
+          // omitted reference remains absent on the immediate entity even when
+          // its complete stored row contains NULL. Keep mutation evidence full;
+          // only detached return presentation follows canonical input presence.
+          const returned = new Map<string, JsonObject>();
+          for (const entity of presented) {
+            const result = { ...entity }, submitted = typeof entity.id === "string" ? suppliedById.get(entity.id) : undefined;
+            if (submitted === undefined || returned.has(submitted.id)) return yield* ctx.refuse(commerceError("storedCorruption"));
+            for (const name of optionalNativeReferences) if (submitted[name] === undefined) delete result[name];
+            returned.set(submitted.id, result);
+          }
+          if (returned.size !== plan.entities.length) return yield* ctx.refuse(commerceError("storedCorruption"));
+          return plan.created.map(entity => structuredClone(returned.get(entity.id)!));
         });
-        if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
-        yield* events.created(presented.map(entity => ({ modelName, entity: { ...entity } })), shared);
-        // Existing profiles serialize the final canonical entity after every
-        // input has hydrated it and storage supplied defaults and timestamps.
-        if (createPolicy?.nativeToOneCreationPresence === undefined)
-          return plan.positions.map(position => ({ ...presented[position]! }));
-        // Native nullable belongsTo fields have no scalar default setter. An
-        // omitted reference remains absent on the immediate entity even when
-        // its complete stored row contains NULL. Keep mutation evidence full;
-        // only detached return presentation follows canonical input presence.
-        const returned = new Map<string, JsonObject>();
-        for (const entity of presented) {
-          const result = { ...entity }, submitted = typeof entity.id === "string" ? suppliedById.get(entity.id) : undefined;
-          if (submitted === undefined || returned.has(submitted.id)) return yield* ctx.refuse(commerceError("storedCorruption"));
-          for (const name of optionalNativeReferences) if (submitted[name] === undefined) delete result[name];
-          returned.set(submitted.id, result);
-        }
-        if (returned.size !== plan.entities.length) return yield* ctx.refuse(commerceError("storedCorruption"));
-        return plan.created.map(entity => structuredClone(returned.get(entity.id)!));
+        return creation === undefined ? yield* accept()
+          : yield* creation.stage(ctx, plan, accept);
       });
       const repository: DAL.RepositoryService = {
         getFreshManager: bridge.getFreshManager, getActiveManager: bridge.getActiveManager, transaction: bridge.transaction,

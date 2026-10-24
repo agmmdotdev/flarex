@@ -1,5 +1,5 @@
 import { Effect, Result, Schema } from "effect";
-import { commerceCommandIdentity, type CommerceCommand, type LogicalCommerceCallValidation, type LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { commerceCommandIdentity, type CommerceCommand, type AtomicCommerceParticipantInput, type LogicalCommerceCallValidation, type LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, LogicalReconstitutionPolicy, type LogicalPreservingDeletionUpsertPolicy, LogicalSetNullPolicy, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommerceModuleDescription } from "../module/definition";
 import type { GraphModuleDefinition } from "../local-graph/model";
@@ -71,6 +71,8 @@ export interface WorkflowLogicalPolicy {
   readonly allowPreservingDeletionUpsert?: LogicalPreservingDeletionUpsertPolicy;
   readonly allowActiveRestoreUpdate?: true;
   readonly allowStorageInsertionOrder?: true;
+  readonly allowReferenceCheckpoints?: true;
+  readonly insertValidation?: AtomicCommerceParticipantInput["insertValidation"];
   readonly allowRecordedRowReplay?: true;
   readonly referenceReplacement?: Readonly<{
     commands: readonly CommerceCommand[];
@@ -124,6 +126,8 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
       supplied.allowPreservingDeletionUpsert !== undefined && supplied.allowPreservingDeletionUpsert !== true && supplied.allowPreservingDeletionUpsert !== "preserveTimestamps" ||
       supplied.allowActiveRestoreUpdate !== undefined && supplied.allowActiveRestoreUpdate !== true ||
       supplied.allowStorageInsertionOrder !== undefined && supplied.allowStorageInsertionOrder !== true ||
+      supplied.allowReferenceCheckpoints !== undefined && supplied.allowReferenceCheckpoints !== true ||
+      supplied.insertValidation !== undefined && supplied.insertValidation !== "entityBatch" ||
       supplied.allowRecordedRowReplay !== undefined && supplied.allowRecordedRowReplay !== true)) return yield* Result.fail(commerceError("unsupportedProfile"));
     const setNullPolicy = supplied?.setNullPolicy === undefined ? undefined : yield* captureCommerceInput(supplied.setNullPolicy)
       .pipe(Result.flatMap(commerceDecoder(LogicalSetNullPolicy, "unsupportedProfile")));
@@ -155,6 +159,8 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
       ...(supplied.allowPreservingDeletionUpsert === undefined ? {} : { allowPreservingDeletionUpsert: supplied.allowPreservingDeletionUpsert }),
       ...(supplied.allowActiveRestoreUpdate === undefined ? {} : { allowActiveRestoreUpdate: supplied.allowActiveRestoreUpdate }),
       ...(supplied.allowStorageInsertionOrder === undefined ? {} : { allowStorageInsertionOrder: supplied.allowStorageInsertionOrder }),
+      ...(supplied.allowReferenceCheckpoints === undefined ? {} : { allowReferenceCheckpoints: supplied.allowReferenceCheckpoints }),
+      ...(supplied.insertValidation === undefined ? {} : { insertValidation: supplied.insertValidation }),
       ...(supplied.allowRecordedRowReplay === undefined ? {} : { allowRecordedRowReplay: supplied.allowRecordedRowReplay }),
       ...(replacement === undefined ? {} : { referenceReplacement: Object.freeze({
         commands: Object.freeze([...replacement.commands]), eventName: replacement.eventName, eventLimit: replacement.eventLimit,

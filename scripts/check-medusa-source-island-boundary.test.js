@@ -39,6 +39,11 @@ describe("Medusa source-island boundary checker", () => {
     const verifierPaths = ["scripts/check-medusa-shipping-option-source.mjs", "scripts/check-medusa-shipping-option-source.test.js",
       "scripts/check-medusa-awilix-portable-source.mjs", "scripts/check-medusa-awilix-portable-source.test.js",
       "scripts/check-medusa-delivery-source.mjs", "scripts/check-medusa-json-assignment-source.mjs", "scripts/medusa-json-assignment.test.js",
+      "scripts/check-medusa-db-error-source.mjs",
+      "scripts/check-medusa-db-error-source.test.js",
+      "scripts/check-medusa-required-validation-source.mjs",
+      "scripts/check-medusa-required-validation-source.test.js",
+      "scripts/check-medusa-tax-region-create-source.test.js",
       "scripts/check-medusa-price-list-prices-source.mjs", "scripts/check-medusa-price-list-prices-source.test.js",
       "scripts/check-medusa-price-list-price-removal-source.test.js", "scripts/check-medusa-price-list-price-batch-source.test.js",
       "scripts/check-medusa-variant-item-pricing-source.mjs", "scripts/check-medusa-variant-item-pricing-source.test.js",
@@ -397,7 +402,8 @@ describe("Medusa source-island boundary checker", () => {
         specifier: "../../medusa-adapter/src/modules/currency/service", target: "packages/medusa-adapter/src/modules/currency/service.ts" },
       ...["application/applicationFiniteBindingCorrelation.test.ts", "application/bindingMetadataBackfillScenario.ts", "execution/finiteSourceCommitClosure.test.ts",
         "storage/catalog/appSchemaCandidateValidation.postgres.test.ts", "execution/journal/sessionJournalMultiSource.test.ts",
-        "frameworks/commerceTransaction/commerceLogicalInitialization.test.ts"]
+        "frameworks/commerceTransaction/commerceLogicalInitialization.test.ts",
+        "frameworks/atomicCommerce/participantInsertValidationScenario.ts"]
         .map(file => ({ importer: `packages/persistence-postgres/test/${file}`,
           specifier: posix.relative(posix.dirname(`packages/persistence-postgres/test/${file}`),
             "packages/medusa-adapter/test/support/logical-currency-fixture.ts").replace(/\.ts$/u, ""),
@@ -437,6 +443,14 @@ describe("Medusa source-island boundary checker", () => {
       ["packages/flarex-backend/test/support/privatePayloadReverseReadCommands.ts", "../../../medusa-adapter/src/modules/product/attempt"],
       ["packages/flarex-backend/test/support/adjacent.ts", "@flarex/medusa-adapter/internal/product-attempt"],
       ["packages/flarex-backend/src/runtime.ts", "@flarex/medusa-adapter/internal/product-attempt"],
+      ["packages/persistence-postgres/test/frameworks/atomicCommerce/adjacent.test.ts",
+        "../../../../medusa-adapter/test/support/logical-currency-fixture"],
+      ["packages/persistence-postgres/src/frameworks/atomicCommerce/participantInsertValidationScenario.ts",
+        "../../../../medusa-adapter/test/support/logical-currency-fixture"],
+      ["packages/persistence-postgres/test/frameworks/atomicCommerce/participantInsertValidationScenario.ts",
+        "../../../../medusa-adapter/test/support/logical-currency-fixture.ts"],
+      ["packages/persistence-postgres/test/frameworks/atomicCommerce/participantInsertValidationScenario.ts",
+        "../../../../medusa-adapter/test/support/./logical-currency-fixture"],
     ]) expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: promotion,
       rootSources: [{ relativePath, text: `import { operation } from ${JSON.stringify(specifier)};` }] }).errors.length).toBeGreaterThan(0);
     const importer = "packages/executor/test/performance/support/productFlows.ts";

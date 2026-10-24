@@ -79,6 +79,9 @@ const preparedTargetMetadataTestImports = new Map([
 // and capture normalization to prove the real core gate runs first.
 // These edges grant no permission to adjacent tests or production consumers.
 const finiteContractTestImports = new Map([
+  ["packages/persistence-postgres/test/frameworks/atomicCommerce/participantInsertValidationScenario.ts", [{
+    specifier: "../../../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+  }]],
   ["packages/flarex-backend/test/support/privatePayloadReverseReadCommands.ts", [{
     specifier: "@flarex/medusa-adapter/internal/product-attempt", target: "packages/medusa-adapter/src/modules/product/attempt.ts",
   }]],
@@ -753,6 +756,11 @@ export function discoverRootToolSources(repoRoot) {
     "scripts/check-medusa-shipping-option-source.test.js",
     "scripts/check-medusa-delivery-source.mjs",
     "scripts/check-medusa-json-assignment-source.mjs",
+    "scripts/check-medusa-db-error-source.mjs",
+    "scripts/check-medusa-db-error-source.test.js",
+    "scripts/check-medusa-required-validation-source.mjs",
+    "scripts/check-medusa-required-validation-source.test.js",
+    "scripts/check-medusa-tax-region-create-source.test.js",
     "scripts/medusa-json-assignment.test.js",
       "scripts/check-medusa-pricing-normalization.mjs",
       "scripts/check-medusa-pricing-normalization.test.js",

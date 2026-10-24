@@ -677,6 +677,16 @@
       "types": "./dist/modules-sdk/prepare-update-metadata.d.ts",
       "source": "./src/modules-sdk/prepare-update-metadata.ts",
       "default": "./dist/modules-sdk/prepare-update-metadata.js"
+    },
+    "./dal/database-constraint": {
+      "types": "./dist/dal/database-constraint.d.ts",
+      "source": "./src/dal/database-constraint.ts",
+      "default": "./dist/dal/database-constraint.js"
+    },
+    "./dal/required-validation": {
+      "types": "./dist/dal/required-validation.d.ts",
+      "source": "./src/dal/required-validation.ts",
+      "default": "./dist/dal/required-validation.js"
     }
   },
   "license": "MIT",

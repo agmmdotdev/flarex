@@ -215,6 +215,8 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
       ...(moduleEvents?.allowPreservingDeletionUpsert === undefined ? {} : { allowPreservingDeletionUpsert: moduleEvents.allowPreservingDeletionUpsert }),
       ...(moduleEvents?.allowActiveRestoreUpdate === true ? { allowActiveRestoreUpdate: true as const } : {}),
       ...(moduleEvents?.allowStorageInsertionOrder === true ? { allowStorageInsertionOrder: true as const } : {}),
+      ...(moduleEvents?.allowReferenceCheckpoints === true ? { allowReferenceCheckpoints: true as const } : {}),
+      ...(moduleEvents?.insertValidation === undefined ? {} : { insertValidation: moduleEvents.insertValidation }),
       ...(moduleEvents?.allowRecordedRowReplay === true ? { allowRecordedRowReplay: true as const } : {}),
       ...(moduleEvents === undefined ? {} : { validateLogicalCall: moduleEvents.validateLogicalCall }),
       ...(moduleEvents?.validateLogical === undefined ? {} : { validateLogical: moduleEvents.validateLogical }),

@@ -15,6 +15,9 @@ export function makeCommercePromiseOwner(recordFailure?: FailureObserver) {
     const runners = new Map<Promise<unknown>, Promise<Exit.Exit<unknown, CommerceTransactionError>>>();
     const callbacks = new Set<Promise<unknown>>();
     const receipts = new WeakMap<object, Cause.Cause<CommerceTransactionError>>();
+    // Only actual native classification issues this presentation provenance.
+    // It changes the Promise view, never the registered typed failure.
+    const nativePresentations = new WeakMap<CommerceTransactionError, MedusaError>();
     // Pending transport outcomes, not a competing first-failure latch. The
     // existing bounded lifetime remains the only sticky request authority.
     const unobserved = new Set<Cause.Cause<CommerceTransactionError>>();
@@ -28,12 +31,14 @@ export function makeCommercePromiseOwner(recordFailure?: FailureObserver) {
       });
     };
     const register = (cause: Cause.Cause<CommerceTransactionError>) => closed ? cause : observeCompletion(cause);
-    const issue = (cause: Cause.Cause<CommerceTransactionError>): object => {
+    const issue = (cause: Cause.Cause<CommerceTransactionError>, presentation?: Error): object => {
       // Preserve native single-error identity. Compound/primitive/interruption
       // transport has an inert private identity, never a structural Cause tag.
       const reason = cause.reasons.length === 1 ? cause.reasons[0] : undefined;
       const single = reason && (Cause.isFailReason(reason) ? reason.error : Cause.isDieReason(reason) ? reason.defect : undefined);
-      const candidate = single !== null && (typeof single === "object" || typeof single === "function") ? single : undefined;
+      const nativePresentation = reason !== undefined && Cause.isFailReason(reason)
+        ? presentation ?? nativePresentations.get(reason.error) : undefined;
+      const candidate = nativePresentation ?? (single !== null && (typeof single === "object" || typeof single === "function") ? single : undefined);
       // A reused error may complete distinct annotated failures concurrently.
       // Never overwrite an issued identity with a different complete Cause.
       const receipt = candidate !== undefined && (receipts.get(candidate) === undefined || receipts.get(candidate) === cause)
@@ -52,8 +57,13 @@ export function makeCommercePromiseOwner(recordFailure?: FailureObserver) {
       // Foreign thrown proxies can refuse prototype inspection. That refusal
       // does not make the original rejection an expected domain error.
       try {
-        const expected = error instanceof CommerceTransactionError ? error
-          : error instanceof MedusaError ? commerceError("adapterFailure", error) : domain?.(error);
+        if (error instanceof CommerceTransactionError) return Cause.fail(error);
+        if (error instanceof MedusaError) {
+          const expected = commerceError("adapterFailure", error);
+          nativePresentations.set(expected, error);
+          return Cause.fail(expected);
+        }
+        const expected = domain?.(error);
         return expected === undefined ? Cause.die(error) : Cause.fail(expected);
       } catch { return Cause.die(error); }
     };
@@ -63,12 +73,28 @@ export function makeCommercePromiseOwner(recordFailure?: FailureObserver) {
     };
     const assertOpen = (): void => { if (!open) reject(commerceError("closed")); };
     const stop = () => { open = false; controller.abort(); };
-    const run = <Value>(work: Effect.Effect<Value, CommerceTransactionError>): Promise<Value> => {
+    const run = <Value>(work: Effect.Effect<Value, CommerceTransactionError>,
+      projectExpectedFailure?: (failure: CommerceTransactionError) => Error | undefined): Promise<Value> => {
       if (!open) return Promise.reject(commerceError("closed"));
       const exit = Effect.runPromiseExitWith(tracingContext)(work, { signal: controller.signal });
       const pending = exit.then(result => {
         if (Exit.isSuccess(result)) return result.value;
-        throw issue(register(result.cause));
+        const cause = register(result.cause);
+        const reason = cause.reasons.length === 1 ? cause.reasons[0] : undefined;
+        if (projectExpectedFailure !== undefined && reason !== undefined && Cause.isFailReason(reason)) {
+          let presentation: Error | undefined;
+          try {
+            presentation = projectExpectedFailure(reason.error);
+          } catch (defect) {
+            // Presentation is a trusted native boundary. A broken formatter
+            // adds its defect to the original chain; it cannot replace it.
+            throw issue(register(Cause.combine(cause, Cause.die(defect))));
+          }
+          // Only the Promise rejection changes. Re-entry and cleanup retain
+          // the original registered Cause, including its originating Reasons.
+          throw issue(cause, presentation);
+        }
+        throw issue(cause);
       });
       runners.set(pending, exit);
       void pending.then(() => runners.delete(pending), () => runners.delete(pending));

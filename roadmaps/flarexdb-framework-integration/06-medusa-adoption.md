@@ -932,6 +932,17 @@ Forward and separately committed inverse roots each retain default
 64-call/64-event limits. Region/provider administration and Cart admission remain
 separate.
 
+The private bounded
+[native Tax Region creation](./preflight/170-native-tax-region-creation-workflow.md)
+profile is admitted on PGlite and ordinary-role PostgreSQL. It creates up to four
+Regions, four default Rates and eight nested Rules through the genuine native
+root. Its retained physical inverse includes current and historical descendants,
+with complete bounds of eight Regions, eight Rates and sixteen Rules. Native
+parent/provider behavior, approved portable required-field and CHECK diagnostics,
+and scoped explicit-Region inverse ordering are preserved. Forward and separately
+committed inverse roots retain default 64-call/64-event limits. General Region
+lifecycle, remote providers, Cart admission and hosted activation remain separate.
+
 The [native Cart creation preflight](./preflight/160-native-cart-creation-workflow.md)
 records the next connected objective. Its selected original-native cohort is
 characterized, including genuine local SystemTax, the fresh Cart's empty

@@ -198,7 +198,9 @@
     "./order/cancel-order-change": "./src/order/workflows/cancel-order-change.ts",
     "./order/cancel-order-change-step": "./src/order/steps/cancel-order-change.ts",
     "./order/decline-order-change": "./src/order/workflows/decline-order-change.ts",
-    "./order/decline-order-change-step": "./src/order/steps/decline-order-change.ts"
+    "./order/decline-order-change-step": "./src/order/steps/decline-order-change.ts",
+    "./tax/create-tax-regions": "./src/tax/workflows/create-tax-regions.ts",
+    "./tax/create-tax-regions-step": "./src/tax/steps/create-tax-regions.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

@@ -181,19 +181,15 @@ describe(`genuine native standalone Tax Rule deletion - ${driver}`, { concurrent
     const local = await scenario("late"), host = await local.prepareLateFailure(), remove = vi.spyOn(TaxModuleService.prototype, "softDeleteTaxRateRules"), before = await local.snapshot();
     const failed = await Effect.runPromiseExit(host.run(host.newRequestKey(), { ids: [...taxRuleDeleteIds] }));
     if (Exit.isSuccess(failed)) throw new Error("Expected genuine late parent defect");
-    expect(failed.cause.reasons.map(reason => reason._tag)).toEqual(["Die", "Fail", "Fail"]);
-    const nested: Cause.Cause<unknown>[] = [];
-    for (const reason of failed.cause.reasons) {
-      if (reason._tag === "Die") expect(reason.defect).toBe(local.lateFailure);
-      else if (reason._tag === "Fail") {
-        if (!(reason.error instanceof CommerceTransactionError)) throw new Error("Unexpected late-parent typed failure");
-        expect(reason.error.reason).toBe("rollbackOnly");
-        if (reason.error.cause !== undefined) { if (!Cause.isCause(reason.error.cause)) throw new Error("Missing complete rollback-only Cause"); nested.push(reason.error.cause); }
-      } else throw new Error("Unexpected late-parent interruption");
-    }
-    expect(nested).toHaveLength(1);
-    for (const cause of nested) { expect(cause.reasons.map(reason => reason._tag)).toEqual(["Die"]);
-      for (const reason of cause.reasons) if (reason._tag === "Die") expect(reason.defect).toBe(local.lateFailure); }
+    // Failed completion retains the defect without a second checkpoint refusal.
+    expect(failed.cause.reasons.map(reason => reason._tag)).toEqual(["Die", "Fail"]);
+    const [defect, refusal] = failed.cause.reasons;
+    if (defect === undefined || !Cause.isDieReason(defect) || refusal === undefined || !Cause.isFailReason(refusal))
+      throw new Error("Missing exact late-parent completion reasons");
+    expect(defect.defect).toBe(local.lateFailure);
+    if (!(refusal.error instanceof CommerceTransactionError)) throw new Error("Unexpected late-parent refusal type");
+    expect(refusal.error.reason).toBe("rollbackOnly");
+    expect(refusal.error.cause).toBeUndefined();
     expect(remove).toHaveBeenCalledTimes(1); expect(await local.snapshot()).toEqual(before);
   }, 240_000);
 

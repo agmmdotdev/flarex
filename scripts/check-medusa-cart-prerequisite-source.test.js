@@ -31,6 +31,12 @@ describe("native Tax line source contracts", () => {
     [2, "rule.reference_id === ruleQuery.reference_id", "true"],
     [2, "selectTaxRatesForItems(items, allCandidateRates, regionIds)", "selectTaxRatesForItems([], allCandidateRates, regionIds)"],
     [2, "rates: applicableRates", "rates: []"],
+    [2, "normalizeRegionCodes(rest.country_code)", "rest.country_code"],
+    [2, "is_default: true", "is_default: false"],
+    [2, "created_by: region.created_by", "created_by: null"],
+    [2, "return code.toLowerCase()", "return code.trim().toLowerCase()"],
+    [2, "prepareTaxRegionInputForCreate(data, (code) => this.normalizeRegionCodes(code))", "prepareTaxRegionInputForCreate(data)"],
+    [3, "prepareTaxRegionInputForCreate", "anotherPreparation"],
     [3, "selectTaxRatesForItems", "anotherSelector"],
     [4, "province_code?: string | null | undefined", "province_code?: string"],
     [4, "amount: BigNumberValue", "amount: number"],
@@ -48,6 +54,47 @@ describe("native Tax line source contracts", () => {
     expect(() => verifyTaxLinesFork(original, target + "\nthrow new Error('extra');", pair.target)).toThrow(failure);
   });
 });
+
+describe("native Tax rule callback contextual inference source contract", () => {
+  const pair = taxLinesSourcePairs[2];
+  if (pair === undefined || pair.target !== "packages/medusa-tax/src/services/tax-module-service.ts")
+    throw new Error("Missing exact Tax service source pair");
+  const native = readFileSync(pair.source, "utf8").replaceAll("\r\n", "\n");
+  const target = readFileSync(pair.target, "utf8").replaceAll("\r\n", "\n");
+  const inferredCallback = "(rule) =>\n              rule.reference === ruleQuery.reference &&";
+
+  it("permits only the original predicate with its contextual array-element type", () => {
+    expect(target.split(inferredCallback)).toHaveLength(2);
+    expect(() => verifyTaxLinesFork(native, target, pair.target)).not.toThrow();
+  });
+  it.each([
+    ["restore the non-contextual native alias", inferredCallback,
+      "(rule: InferEntityType<typeof TaxRateRule>) =>\n              rule.reference === ruleQuery.reference &&"],
+    ["widen the callback to any", inferredCallback,
+      "(rule: any) =>\n              rule.reference === ruleQuery.reference &&"],
+    ["widen the callback to unknown", inferredCallback,
+      "(rule: unknown) =>\n              rule.reference === ruleQuery.reference &&"],
+    ["substitute another model alias", inferredCallback,
+      "(rule: InferEntityType<typeof TaxRate>) =>\n              rule.reference === ruleQuery.reference &&"],
+    ["change the reference predicate", "rule.reference === ruleQuery.reference &&", "true &&"],
+    ["change the reference identity predicate", "rule.reference_id === ruleQuery.reference_id", "rule.reference_id !== ruleQuery.reference_id"],
+    ["widen an unrelated callback annotation", "rate.rules.filter((rule) => {", "rate.rules.filter((rule: any) => {"],
+    ["erase an unrelated parameter annotation", "function rateMatchesQuery(\n  rate: InferEntityType<typeof TaxRate>,",
+      "function rateMatchesQuery(\n  rate,"],
+  ])("refuses to %s", (_label, before, after) => {
+    expect(target.split(before)).toHaveLength(2);
+    const changed = target.replace(before, after);
+    expect(changed).not.toBe(target);
+    expect(() => verifyTaxLinesFork(native, changed, pair.target)).toThrow(failure);
+  });
+  it("fails closed when the pinned native callback annotation anchor is missing or repeated", () => {
+    const annotation = "(rule: InferEntityType<typeof TaxRateRule>) =>";
+    expect(native.split(annotation)).toHaveLength(2);
+    for (const replacement of ["(rule) =>", annotation + " ((rule: InferEntityType<typeof TaxRateRule>) => rule)(rule) &&"])
+      expect(() => verifyTaxLinesFork(native.replace(annotation, replacement), target, pair.target)).toThrow(failure);
+  });
+});
+
 /** @param {string} target */
 function entry(target) {
   const pair = cartPrerequisiteSourcePairs.find(item => item.target === target);

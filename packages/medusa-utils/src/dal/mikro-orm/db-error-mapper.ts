@@ -6,17 +6,11 @@ import {
   UniqueConstraintViolationException,
 } from "@medusajs/deps/mikro-orm/core"
 import { MedusaError, upperCaseFirst } from "../../common"
-
-function parseValue(value: string) {
-  switch (value) {
-    case "t":
-      return "true"
-    case "f":
-      return "false"
-    default:
-      return value
-  }
-}
+import {
+  formatForeignKeyConstraintMessage,
+  formatUniqueConstraintMessage,
+  parseDatabaseConstraintInfo,
+} from "../database-constraint"
 
 export const dbErrorMapper = (err: Error) => {
   if (err instanceof NotFoundError) {
@@ -34,9 +28,7 @@ export const dbErrorMapper = (err: Error) => {
 
     throw new MedusaError(
       MedusaError.Types.INVALID_DATA,
-      `${upperCaseFirst(info.table.split("_").join(" "))} with ${info.keys
-        .map((key, i) => `${key}: ${parseValue(info.values[i])}`)
-        .join(", ")}, already exists.`
+      formatUniqueConstraintMessage(info)
     )
   }
 
@@ -70,9 +62,7 @@ export const dbErrorMapper = (err: Error) => {
     const info = getConstraintInfo(err)
     throw new MedusaError(
       MedusaError.Types.NOT_FOUND,
-      `You tried to set relationship ${info?.keys.map(
-        (key, i) => `${key}: ${info.values[i]}`
-      )}, but such entity does not exist`
+      formatForeignKeyConstraintMessage(info)
     )
   }
 
@@ -80,26 +70,5 @@ export const dbErrorMapper = (err: Error) => {
 }
 
 const getConstraintInfo = (err: any) => {
-  const detail = err.detail as string
-  if (!detail) {
-    return null
-  }
-
-  const [keys, values] = detail.match(/\([^\(]*\)/g) || []
-
-  if (!keys || !values) {
-    return null
-  }
-
-  return {
-    table: err.table.split("_").join(" "),
-    keys: keys
-      .substring(1, keys.length - 1)
-      .split(",")
-      .map((k) => k.trim()),
-    values: values
-      .substring(1, values.length - 1)
-      .split(",")
-      .map((v) => v.trim()),
-  }
+  return parseDatabaseConstraintInfo(err)
 }

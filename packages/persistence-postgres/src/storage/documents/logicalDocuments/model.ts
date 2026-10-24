@@ -39,6 +39,10 @@ import type { PreparedLogicalRelationalTableMechanics } from "./relationalRows";
 import type { LocatedAppIndexDefinitionV1 } from "../../indexes/appIndexDefinitions";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../../unique/appUniqueConstraintDefinitions";
 
+/** Trusted logical insert ordering; default callers retain row-by-row behavior. */
+export const LogicalInsertValidation = Schema.Literal("entityBatch");
+export type LogicalInsertValidation = typeof LogicalInsertValidation.Type;
+
 /** Trusted terminal reference maintenance; native profiles choose timestamp semantics. */
 export const LogicalSetNullPolicy = Schema.Struct({ managedUpdate: Schema.Literals(["advance", "preserve"]) });
 /** Exact same-root deleted-row reuse selects its managed update-time behavior. */
@@ -190,6 +194,7 @@ export type LogicalDocumentWorkingSetInput<Failure> = Readonly<{
   readonly tables: readonly LogicalDocumentTable[];
   readonly relationalCapabilities?: readonly RelationalPersistenceCapability[];
   readonly reconstitution?: LogicalReconstitutionPolicy;
+  readonly insertValidation?: LogicalInsertValidation;
   readonly allowPreservingDeletionUpsert?: LogicalPreservingDeletionUpsertPolicy;
   readonly allowActiveRestoreUpdate?: true;
   readonly allowStorageInsertionOrder?: true;

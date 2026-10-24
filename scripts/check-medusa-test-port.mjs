@@ -1521,6 +1521,17 @@ export function verifyShippingOptionTypeCreateCallbacks(nativeWorkflow, workflow
     throw new Error("Changed native ShippingOptionType creation public input type");
 }
 
+/** Preserve the complete native Region root and both callbacks. The first
+ * native Step import is explicitly type-only in the portable target; the
+ * existing Tax comparator owns every other import/type/runtime comparison.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyTaxRegionCreateCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  if (!nativeStep.startsWith("import {")) throw new Error("Changed native Tax Region creation source: first type import");
+  verifyTaxWorkflowCallbacks({ label: "Tax Region creation", stem: "create-tax-regions", stepId: "createTaxRegionsStepId", workflowTypes: true },
+    nativeWorkflow, workflow, nativeStep.replace(/^import \{/, "import type {"), step);
+}
+
 /** Keep the complete native Tax Rate creation root, both step callbacks and
  * erased public contracts. Only exact type/portable/direct import relocations
  * and covered host metadata are admitted. The physical inverse stays native.

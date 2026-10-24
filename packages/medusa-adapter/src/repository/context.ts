@@ -4,7 +4,9 @@ import { commerceError, CommerceTransactionError } from "@flarex/persistence-pos
 import type { CommercePromiseOwner } from "../module/promise-owner";
 import { captureCommerceInput } from "../value/input";
 import type { Json } from "@flarex/persistence-postgres/internal/commerce-values";
-export function commerceRepositoryContext(root: CommerceCommandContext, owner: CommercePromiseOwner) {
+export function commerceRepositoryContext(root: CommerceCommandContext, owner: CommercePromiseOwner,
+  transaction?: { readonly flush?: (child: CommerceCommandContext) => Effect.Effect<void, CommerceTransactionError>;
+    readonly presentExpectedFailure?: (error: CommerceTransactionError) => Error | undefined }) {
   const contexts = new Map<unknown, CommerceCommandContext>([[root.manager, root]]);
   let active = root;
   const select = Effect.fn("CommerceRepository.select")(function* (shared: unknown): Effect.fn.Return<CommerceCommandContext, CommerceTransactionError> {
@@ -59,10 +61,13 @@ export function commerceRepositoryContext(root: CommerceCommandContext, owner: C
           contexts.set(child.manager, child);
           // SAFETY: the framework's generic manager contract is opaque at this
           // seam. Only this request's child token is supplied to the callback.
-          return yield* owner.invoke(() => task(child.manager as Manager))
-            .pipe(Effect.ensuring(Effect.sync(() => { contexts.delete(child.manager); active = parent; })));
+          return yield* Effect.gen(function* () {
+            const result = yield* owner.invoke(() => task(child.manager as Manager));
+            if (transaction?.flush !== undefined) yield* transaction.flush(child);
+            return result;
+          }).pipe(Effect.ensuring(Effect.sync(() => { contexts.delete(child.manager); active = parent; })));
         }));
-      }));
+      }), transaction?.presentExpectedFailure);
     },
   };
 }

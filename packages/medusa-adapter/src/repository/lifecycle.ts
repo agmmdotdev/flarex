@@ -9,13 +9,14 @@ type Table = Effect.Success<ReturnType<typeof decodeCompiledDml>>["tables"][numb
 type Catalog = Readonly<{ tables: readonly Table[]; entities: readonly Readonly<{ table: Table; model: string }>[];
   referenceDetachments?: readonly PhysicalReferenceDetachment[] }>;
 type LifecycleResult = { roots: JsonObject[]; cascades: Record<string, JsonObject[]> };
+type LifecyclePlanOptions = Readonly<{ rootOrder: "selection" }>;
 type LifecyclePlan = { rows: (table: Table) => readonly JsonObject[]; apply: () => Effect.Effect<LifecycleResult, CommerceTransactionError> };
 
 /** Operation-local Medusa DML traversal. Module owners admit roots and complete
  * closure bounds; core owns indexed reads, transitions, timestamps and facts. */
 export function medusaLifecycle(ctx: CommerceCommandContext, catalog: Catalog, operation: "delete" | "softDelete" | "restore"): {
   roots: (table: Table, ids: readonly string[]) => Effect.Effect<JsonObject[], CommerceTransactionError>;
-  plan: (rootTable: Table, roots: readonly JsonObject[]) => Effect.Effect<LifecyclePlan, CommerceTransactionError>;
+  plan: (rootTable: Table, roots: readonly JsonObject[], options?: LifecyclePlanOptions) => Effect.Effect<LifecyclePlan, CommerceTransactionError>;
   getStore: (table: Table) => ReturnType<CommerceCommandContext["table"]>;
   loadReferencing: (table: Table, columns: readonly string[], row: JsonObject, referencedColumns: readonly string[]) => Effect.Effect<readonly JsonObject[], CommerceTransactionError>;
 } {
@@ -56,7 +57,7 @@ export function medusaLifecycle(ctx: CommerceCommandContext, catalog: Catalog, o
     return (ids.length === 0 ? [] : yield* load(table, { column: "id", values: ids }))
       .filter(row => typeof row.id === "string" && ids.includes(row.id) && (operation !== "softDelete" || row.deleted_at === null));
   });
-  const plan = Effect.fn("MedusaLifecycle.plan")(function* (rootTable: Table, roots: readonly JsonObject[]) {
+  const plan = Effect.fn("MedusaLifecycle.plan")(function* (rootTable: Table, roots: readonly JsonObject[], options?: LifecyclePlanOptions) {
     const rootIdentities = new Set(roots.map(row => tupleKey(row, keys(rootTable))));
     const planned = new Map<string, Map<string, JsonObject>>();
     const visit = Effect.fn("MedusaLifecycle.visit")(function* (table: Table, row: JsonObject): Effect.fn.Return<void, CommerceTransactionError> {
@@ -135,6 +136,20 @@ export function medusaLifecycle(ctx: CommerceCommandContext, catalog: Catalog, o
         if (model !== undefined) cascades[model.model] = changed.map(row => ({ ...row }));
         if (table === rootTable) changedRoots = changed.filter(row => rootIdentities.has(tupleKey(row, keys(rootTable))))
           .map(row => ({ ...row }));
+      }
+      // Physical deletes retain dependency order. A selected profile may present
+      // its explicit roots in the original complete selection order instead.
+      if (options?.rootOrder === "selection") {
+        const changedByIdentity = new Map(changedRoots.map(row => [tupleKey(row, keys(rootTable)), row]));
+        if (changedByIdentity.size !== changedRoots.length || changedByIdentity.size !== rootIdentities.size)
+          return yield* Effect.fail(commerceError("storedCorruption"));
+        const selectedRoots: JsonObject[] = [];
+        for (const identity of rootIdentities) {
+          const row = changedByIdentity.get(identity);
+          if (row === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
+          selectedRoots.push(row);
+        }
+        changedRoots = selectedRoots;
       }
       return { roots: changedRoots, cascades };
     });

@@ -30,6 +30,234 @@ function reasons<Value>(exit: Exit.Exit<Value, CommerceTransactionError>) {
 }
 
 describe("native Promise complete Cause ownership", () => {
+  it("presents a native error while restoring the original registered failure on re-entry", async () => {
+    const original = commerceError("invalidInput");
+    const native = new MedusaError(MedusaError.Types.NOT_FOUND, "native relationship missing");
+    let presented: unknown;
+    const cause = reasons(await throughBridge(async owner => {
+      try {
+        return await owner.run(Effect.fail(original), failure => {
+          expect(failure).toBe(original);
+          return native;
+        });
+      } catch (error) {
+        presented = error;
+        throw error;
+      }
+    }));
+    expect(presented).toBe(native);
+    expect(native.type).toBe(MedusaError.Types.NOT_FOUND);
+    expect(cause).toHaveLength(1);
+    const reason = cause[0];
+    if (reason === undefined || !Cause.isFailReason(reason)) throw new Error("Missing original failure");
+    expect(reason.error).toBe(original);
+  });
+
+  it("retains a caught presentation at cleanup and refuses subsequent borrowed work", async () => {
+    const original = commerceError("invalidInput");
+    const native = new MedusaError(MedusaError.Types.NOT_FOUND, "native relationship missing");
+    let lateStarts = 0;
+    const cause = reasons(await throughBridge(async (owner, ctx) => {
+      try { await owner.run(Effect.fail(original), () => native); }
+      catch (error) { expect(error).toBe(native); }
+      try { await owner.run(ctx.borrow(() => Effect.sync(() => { lateStarts++; return null; }))); }
+      catch { /* Catching the native view does not rescue this request. */ }
+      return null;
+    }));
+    expect(lateStarts).toBe(0);
+    expect(cause.filter(reason => Cause.isFailReason(reason) && reason.error === original)).toHaveLength(1);
+    expect(cause.some(reason => Cause.isFailReason(reason) && reason.error.reason === "adapterFailure")).toBe(false);
+  });
+
+  it.each(["defect", "interruption", "compound"] as const)("does not project a registered %s Cause", async kind => {
+    const original = commerceError("invalidInput"), defect = new TypeError("native finalizer defect");
+    let projections = 0;
+    const work = kind === "defect" ? Effect.die(defect) : kind === "interruption" ? Effect.interrupt
+      : Effect.fail(original).pipe(Effect.ensuring(Effect.die(defect)));
+    const cause = reasons(await throughBridge(owner => owner.run(work, () => {
+      projections++;
+      return new MedusaError(MedusaError.Types.NOT_FOUND, "must not replace Cause");
+    })));
+    expect(projections).toBe(0);
+    if (kind === "interruption") expect(cause.some(Cause.isInterruptReason)).toBe(true);
+    else expect(cause.some(reason => Cause.isDieReason(reason) && reason.defect === defect)).toBe(true);
+    if (kind === "compound") expect(cause.some(reason => Cause.isFailReason(reason) && reason.error === original)).toBe(true);
+  });
+
+  it("preserves a throwing presenter as a defect beside the original failure", async () => {
+    const original = commerceError("invalidInput"), defect = new TypeError("native formatter defect");
+    const cause = reasons(await throughBridge(owner => owner.run(Effect.fail(original), () => { throw defect; })));
+    expect(cause.filter(reason => Cause.isFailReason(reason) && reason.error === original)).toHaveLength(1);
+    expect(cause.filter(reason => Cause.isDieReason(reason) && reason.defect === defect)).toHaveLength(1);
+    expect(cause).toHaveLength(2);
+  });
+
+  it("does not hide a revoked observer refusal behind a native presentation", async () => {
+    const lifetime = await Effect.runPromise(makeBoundedRequestLifetime(commerceError,
+      commerceLimits, {}, {}, "native-projection-closed", "read"));
+    const owner = await Effect.runPromise(makeCommercePromiseOwner(cause => lifetime.recordFailure(lifetime.context, cause)));
+    await Effect.runPromise(lifetime.close);
+    const original = commerceError("invalidInput");
+    let projections = 0;
+    const cause = reasons(await Effect.runPromiseExit(owner.withClose(owner.invoke(() => owner.run(Effect.fail(original), () => {
+      projections++;
+      return new MedusaError(MedusaError.Types.NOT_FOUND, "must not hide observer refusal");
+    })))));
+    expect(projections).toBe(0);
+    expect(cause.some(reason => Cause.isFailReason(reason) && reason.error === original)).toBe(true);
+    expect(cause.some(reason => Cause.isFailReason(reason) && reason.error.reason === "invalidAuthority")).toBe(true);
+  });
+
+  it.each([MedusaError.Types.NOT_FOUND, MedusaError.Types.INVALID_DATA])("presents a preflush native %s failure through a repository transaction", async type => {
+    const original = new MedusaError(type, "native relationship validation");
+    let presented: unknown;
+    let flushes = 0;
+    const cause = reasons(await throughBridge(async (owner, ctx) => {
+      const repository = commerceRepositoryContext(ctx, owner, {
+        flush: () => Effect.sync(() => { flushes++; }),
+        presentExpectedFailure: () => undefined,
+      });
+      try { return await repository.transaction(async () => { throw original; }); }
+      catch (error) { presented = error; throw error; }
+    }));
+    expect(presented).toBe(original);
+    expect(flushes).toBe(0);
+    expect(cause).toHaveLength(1);
+    const failure = cause[0];
+    if (!failure || !Cause.isFailReason(failure)) throw new Error("Expected classified native failure");
+    expect(failure.error.reason).toBe("adapterFailure");
+    expect(failure.error.cause).toBe(original);
+  });
+
+  it("presents a native failure without a method-specific presenter", async () => {
+    const original = new MedusaError(MedusaError.Types.NOT_FOUND, "another native method");
+    let presented: unknown;
+    const cause = reasons(await throughBridge(async (owner, ctx) => {
+      try { return await commerceRepositoryContext(ctx, owner).transaction(async () => { throw original; }); }
+      catch (error) { presented = error; throw error; }
+    }));
+    expect(presented).toBe(original);
+    expect(cause).toHaveLength(1);
+    const failure = cause[0];
+    if (!failure || !Cause.isFailReason(failure)) throw new Error("Expected classified native failure");
+    expect(failure.error.reason).toBe("adapterFailure");
+    expect(failure.error.cause).toBe(original);
+  });
+
+  it("keeps an explicit trusted presentation ahead of the classified native view", async () => {
+    const original = new MedusaError(MedusaError.Types.INVALID_DATA, "native input failure");
+    const presentation = new MedusaError(MedusaError.Types.NOT_FOUND, "trusted method presentation");
+    let presented: unknown;
+    const cause = reasons(await throughBridge(async (owner, ctx) => {
+      const repository = commerceRepositoryContext(ctx, owner, { presentExpectedFailure: failure => {
+        expect(failure.reason).toBe("adapterFailure");
+        expect(failure.cause).toBe(original);
+        return presentation;
+      } });
+      try { return await repository.transaction(async () => { throw original; }); }
+      catch (error) { presented = error; throw error; }
+    }));
+    expect(presented).toBe(presentation);
+    expect(cause).toHaveLength(1);
+    const failure = cause[0];
+    if (!failure || !Cause.isFailReason(failure)) throw new Error("Expected classified native failure");
+    expect(failure.error.cause).toBe(original);
+  });
+
+  it("retains a caught preflush native failure and refuses subsequent borrowed work", async () => {
+    const original = new MedusaError(MedusaError.Types.INVALID_DATA, "native validation before flush");
+    let lateStarts = 0;
+    const cause = reasons(await throughBridge(async (owner, ctx) => {
+      try { await commerceRepositoryContext(ctx, owner).transaction(async () => { throw original; }); }
+      catch (error) { expect(error).toBe(original); }
+      try { await owner.run(ctx.borrow(() => Effect.sync(() => { lateStarts++; return null; }))); }
+      catch { /* A caught native view cannot discharge the registered failure. */ }
+      return null;
+    }));
+    expect(lateStarts).toBe(0);
+    expect(cause.filter(reason => Cause.isFailReason(reason) && reason.error.reason === "adapterFailure" && reason.error.cause === original)).toHaveLength(1);
+  });
+
+  it("does not unwrap an arbitrary adapter failure carrying a native cause", async () => {
+    const native = new MedusaError(MedusaError.Types.INVALID_DATA, "not classified by this owner");
+    const original = commerceError("adapterFailure", native);
+    let presented: unknown;
+    const cause = reasons(await throughBridge(async owner => {
+      try { return await owner.run(Effect.fail(original)); }
+      catch (error) { presented = error; throw error; }
+    }));
+    expect(presented).toBe(original);
+    expect(cause).toHaveLength(1);
+    const failure = cause[0];
+    if (!failure || !Cause.isFailReason(failure)) throw new Error("Expected original typed failure");
+    expect(failure.error).toBe(original);
+  });
+
+  it.each(["defect", "interruption", "refusal"] as const)("does not project a classified native failure beside a %s", async kind => {
+    const native = new MedusaError(MedusaError.Types.INVALID_DATA, "native classified failure");
+    const owner = await Effect.runPromise(makeCommercePromiseOwner());
+    const classified = reasons(await Effect.runPromiseExit(owner.invoke(async () => { throw native; })));
+    const original = classified[0];
+    if (!original || !Cause.isFailReason(original)) throw new Error("Expected classified native failure");
+    const defect = new TypeError("native finalizer defect");
+    const refusal = commerceError("invalidAuthority");
+    const extra = kind === "defect" ? Cause.die(defect) : kind === "interruption" ? Cause.interrupt() : Cause.fail(refusal);
+    const complete = Cause.combine(Cause.fromReasons(classified), extra);
+    let presented: unknown;
+    let projections = 0;
+    const cause = reasons(await Effect.runPromiseExit(owner.withClose(owner.invoke(async () => {
+      try { return await owner.run(Effect.failCause(complete), () => { projections++; return native; }); }
+      catch (error) { presented = error; throw error; }
+    }))));
+    expect(presented).not.toBe(native);
+    expect(projections).toBe(0);
+    expect(cause.filter(reason => Cause.isFailReason(reason) && reason.error === original.error)).toHaveLength(1);
+    expect(cause).toHaveLength(2);
+    if (kind === "defect") expect(cause.some(reason => Cause.isDieReason(reason) && reason.defect === defect)).toBe(true);
+    if (kind === "interruption") expect(cause.some(Cause.isInterruptReason)).toBe(true);
+    if (kind === "refusal") expect(cause.some(reason => Cause.isFailReason(reason) && reason.error === refusal)).toBe(true);
+  });
+
+  it("does not hide an observer-added refusal behind a classified native view", async () => {
+    const refusal = commerceError("invalidAuthority");
+    const owner = await Effect.runPromise(makeCommercePromiseOwner(() => Result.fail(refusal)));
+    const native = new MedusaError(MedusaError.Types.INVALID_DATA, "native validation failure");
+    let presented: unknown;
+    const cause = reasons(await Effect.runPromiseExit(owner.withClose(owner.invoke(async () => {
+      try { return await owner.run(owner.invoke(async () => { throw native; })); }
+      catch (error) { presented = error; throw error; }
+    }))));
+    expect(presented).not.toBe(native);
+    expect(cause.some(reason => Cause.isFailReason(reason) && reason.error.reason === "adapterFailure" && reason.error.cause === native)).toBe(true);
+    expect(cause.some(reason => Cause.isFailReason(reason) && reason.error === refusal)).toBe(true);
+  });
+
+  it("keeps concurrent annotated Causes distinct when reusing a classified native presentation", async () => {
+    const native = new MedusaError(MedusaError.Types.INVALID_DATA, "shared native presentation");
+    const owner = await Effect.runPromise(makeCommercePromiseOwner());
+    const classified = reasons(await Effect.runPromiseExit(owner.invoke(async () => { throw native; })));
+    const original = classified[0];
+    if (!original || !Cause.isFailReason(original)) throw new Error("Expected classified native failure");
+    const ReceiptAnnotation = Context.Service<string>("native-receipt");
+    const causes = ["left", "right"].map(label => Cause.fromReasons([
+      Cause.makeFailReason(original.error).annotate(Context.make(ReceiptAnnotation, label)),
+    ]));
+    const presentations: unknown[] = [];
+    const results = await Effect.runPromise(owner.withClose(Effect.all(causes.map(cause =>
+      Effect.exit(owner.invoke(async () => {
+        try { return await owner.run(Effect.failCause(cause)); }
+        catch (error) { presentations.push(error); throw error; }
+      }))), { concurrency: "unbounded" })));
+    expect(presentations.filter(error => error === native)).toHaveLength(1);
+    expect(results.map(exit => {
+      const reason = reasons(exit)[0];
+      if (!reason || !Cause.isFailReason(reason)) throw new Error("Expected restored native failure");
+      expect(reason.error).toBe(original.error);
+      expect(reason.error.cause).toBe(native);
+      return reason.annotations.get("native-receipt");
+    })).toEqual(["left", "right"]);
+  });
+
   it("keeps native domain error identity, type and message in its typed failure", async () => {
     const original = new MedusaError(MedusaError.Types.INVALID_DATA, "native required currency");
     const cause = reasons(await throughBridge(async () => { throw original; }));
@@ -72,14 +300,15 @@ describe("native Promise complete Cause ownership", () => {
     expect(cause).toHaveLength(2);
   });
 
-  it("keeps concurrent annotated Causes distinct when both reuse one error object", async () => {
+  it.each([false, true])("keeps concurrent annotated Causes distinct when reusing one error, projected=%s", async projected => {
     const original = commerceError("invalidInput");
     const ReceiptAnnotation = Context.Service<string>("receipt");
     const left = Cause.fromReasons([Cause.makeFailReason(original).annotate(Context.make(ReceiptAnnotation, "left"))]);
     const right = Cause.fromReasons([Cause.makeFailReason(original).annotate(Context.make(ReceiptAnnotation, "right"))]);
+    const presentation = new MedusaError(MedusaError.Types.NOT_FOUND, "shared presentation identity");
     const owner = await Effect.runPromise(makeCommercePromiseOwner());
     const results = await Effect.runPromise(owner.withClose(Effect.all([left, right].map(cause =>
-      Effect.exit(owner.invoke(() => owner.run(Effect.failCause(cause))))), { concurrency: "unbounded" })));
+      Effect.exit(owner.invoke(() => owner.run(Effect.failCause(cause), projected ? () => presentation : undefined)))), { concurrency: "unbounded" })));
     expect(results.map(exit => {
       const reason = reasons(exit)[0];
       if (!reason || !Cause.isFailReason(reason)) throw new Error("Expected restored annotated failure");

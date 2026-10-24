@@ -2400,6 +2400,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       const policy = yield* Effect.fromResult(bindPreparedLogicalRelationalRows(relationalMechanics, error));
       const captured = yield* Effect.fromResult(useCapturedPrivateJsonData(input, lifetime.remainingBytes(), error));
       yield* charge(captured.bytes);
+      const entityBatchInsert = operation === "insert" && state.insertValidation === "entityBatch";
       const capturedRows = yield* Effect.fromResult(Result.gen(function* () {
         if (!Array.isArray(captured.value)) return yield* Result.fail(error("invalidInput"));
         if (captured.value.length > callIdentityLimit) return yield* Result.fail(error("limitExceeded"));
@@ -2409,7 +2410,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
           const row = operation === "delete" || operation === "softDelete" || operation === "restore" ?
             typeof item === "string" && singleKey !== undefined ? { [singleKey]: item } : item : item;
           if (!isJsonObject(row)) return yield* Result.fail(error("invalidInput"));
-          yield* policy.validateInput(row);
+          yield* policy.validateInput(row, entityBatchInsert ? "defer" : undefined);
           if (operation === "replay") {
             if (Object.keys(row).length !== relationalDefinition.columns.length)
               return yield* Result.fail(error("invalidInput"));
@@ -2491,7 +2492,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
               return yield* Effect.fail(error("invalidInput"));
           }
           if (pending === undefined && (operation === "update" || operation === "delete" || operation === "softDelete" || operation === "restore")) return yield* changeRows(position + 1);
-          if (pending !== undefined && operation === "insert") {
+          const rejectPrimaryConflict = () => {
             const failure = error("uniqueConflict");
             const primary = relationalDefinition.keys.find(key => key.kind === "primary");
             if (primary !== undefined) {
@@ -2504,13 +2505,15 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
                 retainLogicalRelationalFailure(failure, { origin: "input", kind: "unique", table: relationalDefinition.identity,
                   key: { kind: "primary", identity: primary.identity }, columns, values, candidate: inputRow });
             }
-            return yield* Effect.fail(failure);
-          }
+            return failure;
+          };
+          if (pending !== undefined && operation === "insert" && !entityBatchInsert)
+            return yield* Effect.fail(rejectPrimaryConflict());
           // Unchanged lifecycle operations still use their selected row, even
           // when a complete scan supplied it without a keyed storage probe.
-          yield* lifetime.fromResult(markPendingUse(pending));
-          if (pending?.current != null) yield* checkRealDocuments(table, [pending.current]);
-          const previous = deletedPreimage ?? (pending?.current == null ? null : yield* Effect.fromResult(
+          if (!entityBatchInsert) yield* lifetime.fromResult(markPendingUse(pending));
+          if (!entityBatchInsert && pending?.current != null) yield* checkRealDocuments(table, [pending.current]);
+          const previous = entityBatchInsert ? null : deletedPreimage ?? (pending?.current == null ? null : yield* Effect.fromResult(
             nativeLogicalRelationalCanonicalRow(relationalMechanics, pending.current, limits.documentBytes, error)));
           if (operation === "delete") {
             if (pending === undefined || previous === null || pending.current === null) return yield* Effect.fail(error("storedCorruption"));
@@ -2586,6 +2589,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
             const converted = yield* convertRealRows(table, { mode: "normalize", rows: [candidateFields] });
             const fields = converted[0];
             if (fields === undefined) return yield* Effect.fail(error("storedCorruption"));
+            if (entityBatchInsert && pending !== undefined) return yield* Effect.fail(rejectPrimaryConflict());
             const afterWrite = (written: JsonObject) => Effect.gen(function* () {
               const { _id: _internalId, _creationTime: _internalTime, ...native } = written;
               const capturedNative = yield* Effect.fromResult(useCapturedPrivateJsonData(native, Number.MAX_SAFE_INTEGER, error));
@@ -2604,7 +2608,15 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
             { tableId: table.tableId }, applyChange));
         }), identityPreparation, false);
       }));
-      yield* changeRows(0);
+      const changeBatch = entityBatchInsert && capturedRows.length > 0 ? Effect.gen(function* () {
+        const timestamp = yield* transactionTime;
+        for (const selected of capturedRows) yield* Effect.fromResult(policy.validateInsertRequired(selected.row, timestamp));
+        yield* changeRows(0);
+      }) : changeRows(0);
+      // Keep the original row frontier alive across the selected required sweep
+      // and every recursive row continuation, including its timestamp issuer.
+      yield* entityBatchInsert && capturedRows.length > 0 && !transactionTimeLoaded
+        ? withStorageFrontier({ kind: "rows", tableId: table.tableId }, { tableId: table.tableId }, changeBatch) : changeBatch;
       const returned = yield* Effect.fromResult(useCapturedPrivateJsonData(result, lifetime.remainingBytes(), error));
       yield* charge(returned.bytes);
       if (!isJsonArray(returned.value) || !returned.value.every(isJsonObject))

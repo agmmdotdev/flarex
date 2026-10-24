@@ -41,7 +41,7 @@ const refused = (evidence: Activity, requestedIds: readonly string[], maximum = 
 // A scripted store records selections and scalar key application only. The
 // independent logical-store fixture owns real constraint and rollback proof.
 function executePlanner(rows: readonly JsonObject[], ids: readonly string[], operation: "delete" | "softDelete" | "restore" = "delete",
-  checked = table) {
+  checked = table, rootOrder?: "selection") {
   const deleted: string[] = [], lifecycleKeys: string[] = [], reads: Activity["relationalReads"][number][] = [];
   const work = Effect.scoped(Effect.gen(function* () {
     const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError,
@@ -80,7 +80,7 @@ function executePlanner(rows: readonly JsonObject[], ids: readonly string[], ope
       table: () => Effect.succeed(store) }, "neutralSelfCascade", lifetime.context, unused, unused);
     const lifecycle = medusaLifecycle(ctx, { tables: [checked], entities: [{ table: checked, model: "Node" }] }, operation);
     const roots = yield* lifecycle.roots(checked, ids);
-    const plan = yield* lifecycle.plan(checked, roots);
+    const plan = yield* lifecycle.plan(checked, roots, rootOrder === undefined ? undefined : { rootOrder });
     const planned = plan.rows(checked).map(row => row.id);
     const changed = yield* plan.apply();
     return { ...changed, planned };
@@ -195,4 +195,83 @@ describe("bounded self-referencing physical lifecycle", () => {
     expect(proof.lifecycleKeys).toEqual(["a", "b"]);
     expect(proof.deleted).toEqual([]);
   });
+  it("presents selected roots independently of physical and cascade dependency order", async () => {
+    const proof = executePlanner([parent, child], ["b", "a", "missing", "a"], "delete", table, "selection");
+    const result = await Effect.runPromise(proof.work);
+    expect(proof.deleted).toEqual(["b", "a"]);
+    expect(result.roots.map(row => row.id)).toEqual(["a", "b"]);
+    expect(result.cascades.Node?.map(row => row.id)).toEqual(["b", "a"]);
+  });
+
+  it("authenticates dependency-mode empty, missing, single, independent and historical root cohorts", () => {
+    const orderedRead = (raw: readonly string[], ids: readonly string[]) => ({ table: "node",
+      query: commerceRelationReadQuery(defaultCommerceResources, { kind: "in", column: "id", values: raw },
+        { kind: "storageInsertion", direction: "asc" }, { includeIdentities: true }),
+      total: ids.length, returned: ids.length, orderedIdentities: ids.map(id => ({ id })) });
+    const unrelated = node("z", null, true);
+    const cases = [
+      { name: "empty", raw: [], ids: [], evidence: activity([], []) },
+      { name: "missing duplicates", raw: ["missing", "missing"], ids: [],
+        evidence: activity([], [orderedRead(["missing", "missing"], [])]) },
+      { name: "single", raw: ["a"], ids: ["a"],
+        evidence: activity([parent], [orderedRead(["a"], ["a"]), read("parent_id", ["a"], 0)]) },
+      { name: "independent historical duplicate selectors", raw: ["a", "z", "missing", "a"], ids: ["z", "a"],
+        evidence: activity([parent, unrelated], [orderedRead(["a", "z", "missing", "a"], ["z", "a"]),
+          read("parent_id", ["z"], 0), read("parent_id", ["a"], 0)], [parent, unrelated]) },
+      { name: "overlapping historical descendant", raw: ["b", "a", "missing", "a"], ids: ["a", "b"],
+        evidence: activity([parent, child], [orderedRead(["b", "a", "missing", "a"], ["a", "b"]),
+          read("parent_id", ["a"], 1), read("parent_id", ["b"], 0)], [child, parent]) },
+    ];
+    for (const selected of cases) expect(Result.getOrThrow(correlatePhysicalGraphReceipt({
+      tables: [table], entities: [{ table, maximum: 8, decodeRow }], root: table,
+      rootOrder: "storageInsertion", rootMutationOrder: "dependencies", requestedIds: selected.raw, activity: selected.evidence,
+    })), selected.name).toEqual(selected.ids);
+  });
+
+  it("refuses dependency presentation without exact checked scalar self-cascade metadata and storage selection", () => {
+    const empty = activity([], []);
+    const selected = (checked: Table): Parameters<typeof correlatePhysicalGraphReceipt>[0] => ({ tables: [checked],
+      entities: [{ table: checked, maximum: 8, decodeRow }], root: checked, rootOrder: "storageInsertion",
+      rootMutationOrder: "dependencies", requestedIds: [], activity: empty });
+    const invalidTables: Table[] = [
+      { ...table, foreignKeys: [] },
+      { ...table, foreignKeys: [{ name: "no_cascade", columns: ["parent_id"], referencedTable: "node", referencedColumns: ["id"] }] },
+      { ...table, foreignKeys: [{ name: "other_table", columns: ["parent_id"], referencedTable: "other", referencedColumns: ["id"], onDelete: "cascade" }] },
+      { ...table, foreignKeys: [{ name: "composite", columns: ["parent_id", "id"], referencedTable: "node", referencedColumns: ["id", "parent_id"], onDelete: "cascade" }] },
+      { ...table, foreignKeys: [{ name: "not_id", columns: ["parent_id"], referencedTable: "node", referencedColumns: ["parent_id"], onDelete: "cascade" }] },
+    ];
+    const rejected = (input: Parameters<typeof correlatePhysicalGraphReceipt>[0]) =>
+      expect(correlatePhysicalGraphReceipt(input)).toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+    for (const checked of invalidTables) rejected(selected(checked));
+    rejected({ tables: [table], entities: [{ table, maximum: 8, decodeRow }], root: table,
+      rootMutationOrder: "dependencies", requestedIds: [], activity: empty });
+    rejected({ ...selected(table), tables: [] });
+    rejected({ ...selected(table), root: { ...table } });
+    rejected({ ...selected(table), entities: [{ table: { ...table }, maximum: 8, decodeRow }] });
+  });
+
+  it("keeps complete physical dependency and identity refusals in the selected presentation policy", () => {
+    const raw = ["a", "b", "a"], rootRead = { table: "node",
+      query: commerceRelationReadQuery(defaultCommerceResources, { kind: "in", column: "id", values: raw },
+        { kind: "storageInsertion", direction: "asc" }, { includeIdentities: true }),
+      total: 2, returned: 2, orderedIdentities: [{ id: "a" }, { id: "b" }] };
+    const original = activity([parent, child], [rootRead, read("parent_id", ["a"], 1), read("parent_id", ["b"], 0)], [child, parent]);
+    const rejected = (evidence: Activity) => expect(correlatePhysicalGraphReceipt({ tables: [table],
+      entities: [{ table, maximum: 8, decodeRow }], root: table, rootOrder: "storageInsertion",
+      rootMutationOrder: "dependencies", requestedIds: raw, activity: evidence,
+    })).toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+    rejected({ ...original, mutations: [remove(parent, 0), remove(child, 1)] });
+    rejected({ ...original, mutations: [remove(child, 0)] });
+    rejected({ ...original, mutations: [remove(child, 0), remove(child, 1), remove(parent, 2)] });
+    rejected({ ...original, mutations: [remove(child, 1), remove(parent, 2)] });
+    for (let omitted = 0; omitted < original.relationalReads.length; omitted++)
+      rejected({ ...original, relationalReads: original.relationalReads.filter((_value, index) => index !== omitted) });
+    for (const orderedIdentities of [[{ id: "a" }], [{ id: "a" }, { id: "a" }], [{ id: "outside" }, { id: "b" }]])
+      rejected({ ...original, relationalReads: [{ ...rootRead, orderedIdentities }, ...original.relationalReads.slice(1)] });
+    rejected({ ...original, observedRows: [...original.observedRows, { table: "node", row: node("outside", null) }] });
+    const self = node("a", "a"), independent = node("b");
+    rejected(activity([self, independent], [rootRead, read("parent_id", ["a"], 1), read("parent_id", ["b"], 0)], [independent, self]));
+    rejected(activity([node("a", "b"), child], [rootRead, read("parent_id", ["a"], 1), read("parent_id", ["b"], 1)], [child, node("a", "b")]));
+  });
+
 });

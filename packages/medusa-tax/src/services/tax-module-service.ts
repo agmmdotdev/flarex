@@ -556,36 +556,7 @@ export default class TaxModuleService
   private prepareTaxRegionInputForCreate(
     data: TaxTypes.CreateTaxRegionDTO | TaxTypes.CreateTaxRegionDTO[]
   ) {
-    const regionsWithDefaultRate = Array.isArray(data) ? data : [data]
-
-    const defaultRates: (Omit<
-      TaxTypes.CreateTaxRateDTO,
-      "tax_region_id"
-    > | null)[] = []
-    const regionData: TaxTypes.CreateTaxRegionDTO[] = []
-
-    for (const region of regionsWithDefaultRate) {
-      const { default_tax_rate, ...rest } = region
-      if (!default_tax_rate) {
-        defaultRates.push(null)
-      } else {
-        defaultRates.push({
-          ...default_tax_rate,
-          is_default: true,
-          created_by: region.created_by,
-        })
-      }
-
-      regionData.push({
-        ...rest,
-        province_code: rest.province_code
-          ? this.normalizeRegionCodes(rest.province_code)
-          : null,
-        country_code: this.normalizeRegionCodes(rest.country_code),
-      })
-    }
-
-    return { defaultRates, regionData }
+    return prepareTaxRegionInputForCreate(data, (code) => this.normalizeRegionCodes(code))
   }
 
   private async verifyProvinceToCountryMatch(
@@ -624,7 +595,7 @@ export default class TaxModuleService
   }
 
   private normalizeRegionCodes(code: string) {
-    return code.toLowerCase()
+    return normalizeTaxRegionCodes(code)
   }
 }
 
@@ -759,7 +730,7 @@ function rateMatchesQuery(
       for (const ruleQuery of ruleQueries) {
         if (
           [...(rate.rules ?? [])]?.some(
-            (rule: InferEntityType<typeof TaxRateRule>) =>
+            (rule) =>
               rule.reference === ruleQuery.reference &&
               rule.reference_id === ruleQuery.reference_id
           )
@@ -852,3 +823,43 @@ function prioritizeRates(
     (a, b) => (a as any).priority_score - (b as any).priority_score
   )
 }
+
+export function prepareTaxRegionInputForCreate(
+    data: TaxTypes.CreateTaxRegionDTO | TaxTypes.CreateTaxRegionDTO[],
+    normalizeRegionCodes: (code: string) => string = normalizeTaxRegionCodes
+  ) {
+    const regionsWithDefaultRate = Array.isArray(data) ? data : [data]
+
+    const defaultRates: (Omit<
+      TaxTypes.CreateTaxRateDTO,
+      "tax_region_id"
+    > | null)[] = []
+    const regionData: TaxTypes.CreateTaxRegionDTO[] = []
+
+    for (const region of regionsWithDefaultRate) {
+      const { default_tax_rate, ...rest } = region
+      if (!default_tax_rate) {
+        defaultRates.push(null)
+      } else {
+        defaultRates.push({
+          ...default_tax_rate,
+          is_default: true,
+          created_by: region.created_by,
+        })
+      }
+
+      regionData.push({
+        ...rest,
+        province_code: rest.province_code
+          ? normalizeRegionCodes(rest.province_code)
+          : null,
+        country_code: normalizeRegionCodes(rest.country_code),
+      })
+    }
+
+    return { defaultRates, regionData }
+  }
+
+export function normalizeTaxRegionCodes(code: string) {
+    return code.toLowerCase()
+  }

@@ -194,7 +194,7 @@ function makeAtomicCommerceExecution(
     const created = yield* makeLogicalCommerceParticipant(admission.admission, tx, lifetime, manager, id,
       member.allowReferenceReplacement === true, member.selectedResources, member.logicalPublication,
       member.reconstitution, member.allowPreservingDeletionUpsert, member.allowActiveRestoreUpdate === true, member.allowStorageInsertionOrder === true,
-      member.setNullPolicy, member.detachDeletedReferences === true, member.allowRecordedRowReplay === true, member.allowReferenceCheckpoints === true);
+      member.setNullPolicy, member.detachDeletedReferences === true, member.allowRecordedRowReplay === true, member.allowReferenceCheckpoints === true, member.insertValidation);
     logicalWork.set(admission, created);
     contributions.push({ kind: "logical", token: admission, working: created });
     return created;

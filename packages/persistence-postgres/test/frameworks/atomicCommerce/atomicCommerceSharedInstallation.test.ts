@@ -102,6 +102,17 @@ describe("atomic participants sharing physical installation", () => {
       expect(prepare).not.toHaveBeenCalled();
     } finally { prepare.mockRestore(); }
   });
+  it("refuses entity-batch insert validation on genuine physical participants before installation preparation", () => {
+    const member = input.participants[0];
+    if (member === undefined) throw new Error("Missing real physical participant");
+    const prepare = vi.spyOn(installationRuntime, "prepareInstallationRuntime");
+    try {
+      expect(Result.isSuccess(captureAtomicCommerceParticipants([member]))).toBe(true);
+      expect(captureAtomicCommerceParticipants([{ ...member, insertValidation: "entityBatch" }]))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+      expect(prepare).not.toHaveBeenCalled();
+    } finally { prepare.mockRestore(); }
+  });
   it("refuses foreign workflow reflection on genuinely exhausted and closed atomic roots", async () => {
     const inspect = vi.fn();
     const getter = vi.fn(() => "unsafe");

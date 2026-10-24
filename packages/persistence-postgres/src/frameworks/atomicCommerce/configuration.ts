@@ -225,6 +225,7 @@ export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.capt
       ...(member.allowActiveRestoreUpdate === true ? { allowActiveRestoreUpdate: true } : {}),
       ...(member.allowStorageInsertionOrder === true ? { allowStorageInsertionOrder: true } : {}),
       ...(member.allowReferenceCheckpoints === true ? { allowReferenceCheckpoints: true } : {}),
+      ...(member.insertValidation === undefined ? {} : { insertValidation: member.insertValidation }),
       ...(member.allowRecordedRowReplay === true ? { allowRecordedRowReplay: true } : {}),
       events: Result.isSuccess(member.events) ? { contracts: member.events.success?.contracts.length ?? 0 } : null,
       ...(member.kind === "logical" ? {
@@ -318,6 +319,10 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     } : {}),
     ...(members.some(member => member.allowStorageInsertionOrder === true) ? {
       storageInsertionOrder: members.filter(member => member.allowStorageInsertionOrder === true).map(member => member.name),
+    } : {}),
+    ...(members.some(member => member.insertValidation !== undefined) ? {
+      insertValidation: members.flatMap(member => member.insertValidation === undefined ? [] :
+        [{ participant: member.name, policy: member.insertValidation }]),
     } : {}),
     ...(members.some(member => member.allowReferenceCheckpoints === true) ? {
       referenceCheckpoints: members.filter(member => member.allowReferenceCheckpoints === true).map(member => member.name),

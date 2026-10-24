@@ -7,7 +7,7 @@ import { runDrizzleStatementEffect } from "../../../database/drizzleStatementEff
 import { rowsFromDriverExecuteResult } from "../../../database/driverExecuteResult";
 import { compareBytesLexicographically, copyBytes } from "@flarex/utils/bytes";
 import { decodeExactDecimal } from "flarex-protocol/internal/exact-decimal";
-import { isRelationalColumnValue, validateRelationalRowColumns, validateRelationalRowValues, type RelationalColumnIdentity, type RelationalPersistenceCapability, type RelationalTableDefinition, type RelationalRowValueError } from "flarex-protocol/internal/relational-schema";
+import { isRelationalColumnValue, validateRelationalRowColumns, validateRelationalRowValues, type RelationalColumnIdentity, type RelationalPersistenceCapability, type RelationalTableDefinition, RelationalRowValueError } from "flarex-protocol/internal/relational-schema";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import type { LogicalDocumentFailure, LogicalDocumentFailureReason } from "./model";
 import { canonicalizeFlarexValueV1Effect, copyCanonicalFlarexValueBytesV1, copyFlarexValueSha256V1, type CanonicalFlarexValueV1 } from "flarex-protocol/value";
@@ -105,12 +105,15 @@ function compileLogicalRelationalRows<Failure>(table: RelationalTableDefinition,
         : capability.kind === "softDelete" && belongsTo(table, capability.deletedAtColumn) ? [capability.deletedAtColumn.columnId] : []);
     const columnsByName = new Map<string, typeof table.columns[number]>(table.columns.map(column => [column.identity.columnId, column]));
     const suppliedRows = new WeakSet<JsonObject>();
-    const validateInput = (input: JsonObject) => Result.gen(function* () {
+    const validateInput = (input: JsonObject, required: "defer" | undefined = undefined) => Result.gen(function* () {
       // A native write cannot smuggle internal Flarex identity fields or columns
-      // outside its source. Complete rows are validated again after defaults.
+      // outside its source. Selected entity batches retain these identity and
+      // column guards, then check non-key scalars after the required sweep.
       for (const [name, value] of Object.entries(input)) {
         const column = columnsByName.get(name);
-        if (column === undefined || !(column.default.kind === "serialNext" && value === null) && !isRelationalColumnValue(column.type, column.nullable, value)) {
+        const deferredScalar = required === "defer" && !keyColumns.some(key => key === name);
+        if (column === undefined || !deferredScalar && !(column.default.kind === "serialNext" && value === null) &&
+          !(required === "defer" && !column.nullable && value === null) && !isRelationalColumnValue(column.type, column.nullable, value)) {
           const failure = error("documentInvalid");
           if (column !== undefined && !column.nullable && value === null)
             retainLogicalRelationalFailure(failure, { origin: "input", kind: "null", table: table.identity, column: name, candidate: input });
@@ -119,11 +122,10 @@ function compileLogicalRelationalRows<Failure>(table: RelationalTableDefinition,
       }
       // Only the capture owner's exact detached immutable tree can retain this
       // supplied-input verdict. A frozen foreign wrapper is insufficient.
-      if (inspectCapturedPrivateJsonData(input)?.value === input) suppliedRows.add(input);
+      if (required === undefined && inspectCapturedPrivateJsonData(input)?.value === input) suppliedRows.add(input);
     });
-    const normalize = (input: JsonObject, previous: JsonObject | null, timestamp: string,
-      managedUpdate: "advance" | "preserve" = "advance") => Result.gen(function* () {
-      if (!suppliedRows.has(input)) yield* validateInput(input);
+    const applyDefaults = (input: JsonObject, previous: JsonObject | null, timestamp: string,
+      managedUpdate: "advance" | "preserve") => {
       const row = { ...previous, ...input };
       if (previous === null) for (const column of table.columns) {
         const name = column.identity.columnId;
@@ -146,6 +148,32 @@ function compileLogicalRelationalRows<Failure>(table: RelationalTableDefinition,
         if ((column.type === "integer" || column.type === "doublePrecision") && Object.is(row[column.identity.columnId], -0))
           row[column.identity.columnId] = 0;
       }
+      return row;
+    };
+    // This selected phase checks only required values after ordinary pure
+    // defaults, including omitted transaction-time fields. Explicit null is
+    // still required; serial allocation stays with its accepting row owner.
+    // No scalar validation, REAL conversion or CHECK runs here.
+    const validateInsertRequired = (input: JsonObject, timestamp: string) => Result.gen(function* () {
+      const row = applyDefaults(input, null, timestamp, "advance");
+      for (const column of table.columns) {
+        if (column.nullable || column.default.kind === "serialNext") continue;
+        const name = column.identity.columnId;
+        const missing = !Object.hasOwn(row, name);
+        if (!missing && row[name] !== null) continue;
+        const captured = yield* useCapturedPrivateJsonData(row, Number.MAX_SAFE_INTEGER, error);
+        if (!isJsonObject(captured.value)) return yield* Result.fail(error("documentInvalid"));
+        if (missing) return yield* Result.fail(rowValueFailure(table, captured.value, "documentInvalid", error,
+          new RelationalRowValueError({ reason: "missingColumn", column: name })));
+        const failure = error("documentInvalid");
+        retainLogicalRelationalFailure(failure, { origin: "input", kind: "null", table: table.identity, column: name, candidate: captured.value });
+        return yield* Result.fail(failure);
+      }
+    });
+    const normalize = (input: JsonObject, previous: JsonObject | null, timestamp: string,
+      managedUpdate: "advance" | "preserve" = "advance") => Result.gen(function* () {
+      if (!suppliedRows.has(input)) yield* validateInput(input);
+      const row = applyDefaults(input, previous, timestamp, managedUpdate);
       // Row semantics do not own a request/document allowance. Keep capture's
       // ceiling finite without moving the accepting working set's later bounds
       // or independent ordered charges into this immutable-table helper.
@@ -163,7 +191,7 @@ function compileLogicalRelationalRows<Failure>(table: RelationalTableDefinition,
     const validateCanonical = (row: JsonObject, reason: "documentInvalid" | "storedCorruption") =>
       table.columns.some(column => column.type === "real") && normalizedRows.get(row) !== normalize
         ? Result.fail(error(reason)) : validate(row, reason);
-    return Object.freeze({ keyColumns, managedColumns: Object.freeze(managedColumns), normalize, validate: validateCanonical, validateInput,
+    return Object.freeze({ keyColumns, managedColumns: Object.freeze(managedColumns), normalize, validate: validateCanonical, validateInput, validateInsertRequired,
       deletedAt: deletions.length === 1 ? deletions[0] : undefined });
   });
 }
@@ -601,6 +629,7 @@ export function bindPreparedLogicalRelationalRows<Failure>(mechanics: PreparedLo
     normalize: (...args: Parameters<typeof rows.normalize>) => rows.normalize(...args).pipe(Result.mapError(project)),
     validate: (...args: Parameters<typeof rows.validate>) => rows.validate(...args).pipe(Result.mapError(project)),
     validateInput: (...args: Parameters<typeof rows.validateInput>) => rows.validateInput(...args).pipe(Result.mapError(project)),
+    validateInsertRequired: (...args: Parameters<typeof rows.validateInsertRequired>) => rows.validateInsertRequired(...args).pipe(Result.mapError(project)),
   })));
 }
 

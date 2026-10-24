@@ -15,11 +15,13 @@ import { taxRuleReplacementSourcePairs, verifyTaxRuleReplacementCallbacks,
   verifyTaxRuleReplacementSelection } from "./check-medusa-tax-rule-replacement-source.mjs";
 import { taxLinesSourcePairs, verifyTaxLinesFork } from "./check-medusa-cart-prerequisite-source.mjs";
 import { verifyPortableAwilixSource } from "./check-medusa-awilix-portable-source.mjs";
-import { verifyTaxRuleDeleteCallbacks, verifyTaxRuleCreateCallbacks, verifyTaxRateCreateCallbacks, verifyPriceListPriceUpdatePolicySelection, verifyPriceListPriceUpdateSelection, verifyPriceListDeleteSelection, verifyPriceListDeleteCallbacks, verifyPriceListUpdateCallbacks, verifyNativePriceListRuleBuilder, verifyPriceListCreateCallbacks, verifyPricePreferenceDeleteCallbacks, verifyPricePreferenceUpdateCallbacks, verifyPricePreferenceCreateCallbacks, verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields, verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
+import { verifyTaxRegionCreateCallbacks, verifyTaxRuleDeleteCallbacks, verifyTaxRuleCreateCallbacks, verifyTaxRateCreateCallbacks, verifyPriceListPriceUpdatePolicySelection, verifyPriceListPriceUpdateSelection, verifyPriceListDeleteSelection, verifyPriceListDeleteCallbacks, verifyPriceListUpdateCallbacks, verifyNativePriceListRuleBuilder, verifyPriceListCreateCallbacks, verifyPricePreferenceDeleteCallbacks, verifyPricePreferenceUpdateCallbacks, verifyPricePreferenceCreateCallbacks, verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields, verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
 import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyFulfillmentCreationCallbacks, verifyReturnFulfillmentCreationCallbacks, verifyFulfillmentCancellationCallbacks, verifyFulfillmentShipmentCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
 import { deliverySourcePairs, verifyFulfillmentDeliveryCallbacks, verifyNativeSkipStepResponseType } from "./check-medusa-delivery-source.mjs";
 import { verifyPricingNormalizationExtraction, verifyPricingCandidateConstraintExport } from "./check-medusa-pricing-normalization.mjs";
 import { verifyNativeJsonAssignment } from "./check-medusa-json-assignment-source.mjs";
+import { verifyNativeDatabaseConstraintSource } from "./check-medusa-db-error-source.mjs";
+import { verifyNativeRequiredValidationSource } from "./check-medusa-required-validation-source.mjs";
 import { pricingRepositoryNormalizationSource, verifyNativePriceListPriceNormalization, verifyPriceListPriceCreationCallbacks, verifyPriceListPriceCreationSelection, verifyPriceListPriceRemovalCallbacks, verifyPriceListPriceRemovalSelection, priceListPriceBatchSourcePair, verifyPriceListPriceBatchCallbacks, verifyPriceListPriceBatchSelection, verifyPriceListPriceBatchService } from "./check-medusa-price-list-prices-source.mjs";
 import { verifyNativePriceListPriceUpdate, stripNativePriceListPriceUpdatePricingExtension } from "./check-medusa-price-list-price-update-source.mjs";
 import { variantItemPricingSourcePairs, verifyVariantItemPricingSource } from "./check-medusa-variant-item-pricing-source.mjs";
@@ -34,6 +36,41 @@ import ts from "@typescript/typescript6";
 
 const manifestPath = "roadmaps/flarexdb-framework-integration/preflight/medusa-currency-promotion.json";
 const sourcePrefix = "third_party/medusa/upstream/";
+export const tax170SourcePairs = Object.freeze([
+  {
+    "source": "third_party/medusa/upstream/packages/core/utils/src/dal/mikro-orm/db-error-mapper.ts",
+    "target": "packages/medusa-utils/src/dal/mikro-orm/db-error-mapper.ts",
+    "classification": "nativeDatabaseConstraintFork"
+  },
+  {
+    "source": "third_party/medusa/upstream/packages/core/core-flows/src/tax/workflows/create-tax-regions.ts",
+    "target": "packages/medusa-core-flows/src/tax/workflows/create-tax-regions.ts",
+    "classification": "taxRegionCreationFork"
+  },
+  {
+    "source": "third_party/medusa/upstream/packages/core/core-flows/src/tax/steps/create-tax-regions.ts",
+    "target": "packages/medusa-core-flows/src/tax/steps/create-tax-regions.ts",
+    "classification": "taxRegionCreationFork"
+  }
+].map(pair => Object.freeze(pair)));
+
+/** Every selected source/target/classification is mandatory exactly once.
+ * These classifications grant no permission to adjacent files or aliases.
+ * @param {readonly {source?:string,target:string,classification:string}[]} files */
+export function verifyTax170SourceSelection(files) {
+  const failure = "Tax170 outside its exact pinned source pairs";
+  for (const pair of tax170SourcePairs) {
+    if (files.filter(file => file.source === pair.source && file.target === pair.target &&
+      file.classification === pair.classification).length !== 1) throw new Error(failure);
+  }
+  for (const file of files) {
+    if (!tax170SourcePairs.some(pair => pair.classification === file.classification ||
+      pair.source === file.source || pair.target === file.target)) continue;
+    if (!tax170SourcePairs.some(pair => pair.source === file.source && pair.target === file.target &&
+      pair.classification === file.classification)) throw new Error(failure);
+  }
+}
+
 const revision = "48d5cc675e4e8bc821e22c20c88a751acc66fb5f";
 
 /** Only the existing portable utility import and erased declarations may differ.
@@ -300,6 +337,14 @@ function inventory(root, relative) {
 /** @param {string} root @param {unknown} supplied @returns {Promotion} */
 export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync(path.join(root, manifestPath), "utf8"))) {
   assertPromotion(supplied);
+  verifyTax170SourceSelection(supplied.files);
+  verifyNativeDatabaseConstraintSource(root);
+  verifyNativeRequiredValidationSource(root);
+  verifyTaxRegionCreateCallbacks(
+    readFileSync(path.join(root, "third_party/medusa/upstream/packages/core/core-flows/src/tax/workflows/create-tax-regions.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/tax/workflows/create-tax-regions.ts"), "utf8"),
+    readFileSync(path.join(root, "third_party/medusa/upstream/packages/core/core-flows/src/tax/steps/create-tax-regions.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/tax/steps/create-tax-regions.ts"), "utf8"));
   verifyTaxRateDeletionCallbacks(
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/tax/workflows/delete-tax-rates.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/tax/workflows/delete-tax-rates.ts"), "utf8"),
@@ -878,7 +923,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       throw new Error("Customer selection adaptation outside its selected native source pair");
     if (file.classification === "inventoryConfirmationFork" && !inventoryConfirmationSourcePairs.some(pair => pair.target === file.target && pair.source === file.source && pair.classification === file.classification))
       throw new Error("Inventory confirmation adaptation outside its selected native source pair");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRateDeletionFork", "taxRuleReplacementFork", "orderArchiveFork", "orderArchiveCompensationFork", "orderCompleteFork", "orderChangeUpdateFork", "orderChangeCancellationFork", "orderChangeDeclineFork", "orderChangeCancellationRestoreFork", "paymentSessionTypeFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRegionCreationFork", "nativeDatabaseConstraintFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRateDeletionFork", "taxRuleReplacementFork", "orderArchiveFork", "orderArchiveCompensationFork", "orderCompleteFork", "orderChangeUpdateFork", "orderChangeCancellationFork", "orderChangeDeclineFork", "orderChangeCancellationRestoreFork", "paymentSessionTypeFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.target === "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification === "pricingServiceFork") {

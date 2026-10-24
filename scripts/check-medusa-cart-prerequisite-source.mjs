@@ -685,8 +685,10 @@ export function verifyTaxLinesFork(source, target, destination) {
       items: (TaxTypes.TaxableItemDTO | TaxTypes.TaxableShippingDTO)[],
       allCandidateRates: InferEntityType<typeof TaxRate>[], regionIds: string[]
     ): ItemWithRates[] { ${mapBody} }\n` + helpers.join("\n");
+    expected = adaptTaxRegionCreationNormalization(expected);
+    expected = replaceChecked(expected, "(rule: InferEntityType<typeof TaxRateRule>) =>", "(rule) =>");
   } else if (destination === taxLinesSourcePairs[3]?.target) {
-    expected = replaceChecked(expected, "export { default as TaxModuleService }", "export { default as TaxModuleService, selectTaxRatesForItems }");
+    expected = replaceChecked(expected, "export { default as TaxModuleService }", "export { default as TaxModuleService, selectTaxRatesForItems, prepareTaxRegionInputForCreate, normalizeTaxRegionCodes }");
   } else if (destination === taxLinesSourcePairs[4]?.target) {
     const parsed = ts.createSourceFile("native-tax-types.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
     const declarations = parsed.statements.filter(ts.isInterfaceDeclaration).filter(node => node.name.text === "TaxCalculationContext");
@@ -804,4 +806,33 @@ export function verifyCustomerSelectionFork(source, target, destination) {
     throw new Error(failure + ": unknown Customer selection source");
   }
   if (authorityProgram(expected) !== authorityProgram(target)) throw new Error(failure + ": Customer selection program");
+}
+
+/** Extract only the exact original pure Region creation preparation and code
+ * normalization. Instance calls still pass their own normalizer callback.
+ * @param {string} source */
+export function adaptTaxRegionCreationNormalization(source) {
+  const normalized = source.replaceAll("\r\n", "\n");
+  const parsed = ts.createSourceFile("tax-region-normalization.ts", normalized, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const methods = parsed.statements.filter(ts.isClassDeclaration).flatMap(node => [...node.members]).filter(ts.isMethodDeclaration);
+  /** @param {string} name */
+  const method = name => {
+    const selected = methods.filter(node => ts.isIdentifier(node.name) && node.name.text === name);
+    if (selected.length !== 1 || selected[0] === undefined) throw new Error(failure + ": Region normalization method");
+    return selected[0];
+  };
+  const prepare = method("prepareTaxRegionInputForCreate"), normalize = method("normalizeRegionCodes");
+  const signature = "    data: TaxTypes.CreateTaxRegionDTO | TaxTypes.CreateTaxRegionDTO[]\n  )";
+  const purePrepare = replaceChecked(prepare.getText(parsed), "private prepareTaxRegionInputForCreate(", "export function prepareTaxRegionInputForCreate(")
+    .replace(signature, "    data: TaxTypes.CreateTaxRegionDTO | TaxTypes.CreateTaxRegionDTO[],\n    normalizeRegionCodes: (code: string) => string = normalizeTaxRegionCodes\n  )")
+    .replaceAll("this.normalizeRegionCodes(", "normalizeRegionCodes(");
+  if (!prepare.getText(parsed).includes(signature)) throw new Error(failure + ": Region normalization signature");
+  const pureNormalize = replaceChecked(normalize.getText(parsed), "private normalizeRegionCodes(", "export function normalizeTaxRegionCodes(");
+  const replacement = "private prepareTaxRegionInputForCreate(\n" + signature + " {\n    return prepareTaxRegionInputForCreate(data, (code) => this.normalizeRegionCodes(code))\n  }";
+  let expected = normalized;
+  for (const change of [
+    { start: prepare.getStart(parsed), end: prepare.end, value: replacement },
+    { start: normalize.getStart(parsed), end: normalize.end, value: replaceChecked(normalize.getText(parsed), "return code.toLowerCase()", "return normalizeTaxRegionCodes(code)") },
+  ].sort((a, b) => b.start - a.start)) expected = expected.slice(0, change.start) + change.value + expected.slice(change.end);
+  return expected + "\n" + purePrepare + "\n\n" + pureNormalize + "\n";
 }
