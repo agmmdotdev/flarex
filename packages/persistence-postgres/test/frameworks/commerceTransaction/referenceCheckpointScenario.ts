@@ -12,13 +12,7 @@ import { readRelationalSessionCoLocatedInstallation } from "../../../src/databas
 import { retainPreparedHost } from "../../../src/execution/preparation/preparedHostRuntime";
 import { inspectLogicalReferenceFailure } from "../../../src/frameworks/commerceTransaction/commerceAdapter";
 import { capturePrivateCanonicalValue } from "../../../src/installation/frameworkSchema/privateCanonicalValue";
-import { runDrizzleStatementEffect } from "../../../src/database/drizzleStatementEffect";
-import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryCurrent, fxAppIndexEntryRevisions, fxAppUniqueKeys,
-  fxAppEdgeCurrent, fxAppEdgeAdjacencyVersions, fxSystemCommits, fxSystemCommitAppRowChanges, fxSystemIdempotency,
-  fxSystemCommitWakes, fxSystemScopeClocks, outbox } from "../../../src/database/schema";
-import { fxSystemCommitRelationalChanges } from "../../../src/commit/publication/relationalFactsSchema";
-import { fxSystemCommitEvents } from "../../../src/commit/events/schema";
-import { fxSystemFrameworkInitializations } from "../../../src/installation/frameworkSchema/installation/initializationSchema";
+import { logicalCommerceInventory } from "./logicalCommerceInventory";
 import { prepareNeutralLogicalFixture } from "../../storage/relationalSchema/neutralLogicalFixture";
 import { referenceCheckpointSchema as schema, referenceCheckpointOrigin as evidence } from "../../storage/relationalSchema/referenceCheckpointSchema";
 
@@ -123,26 +117,7 @@ export async function referenceCheckpointScenario(driver: "pglite" | "postgres")
     const member = { participant, logicalStorage, commands: [change], validateLogicalCall };
     const hostInput = { ...input, commands: [root], participants: [member] };
     const selectedInput = { ...hostInput, participants: [{ ...member, allowReferenceCheckpoints: true as const }] };
-    const query = <Value>(statement: PromiseLike<Value>) => runDrizzleStatementEffect(statement,
-      cause => commerceError("statementFailure", cause));
-    const db = fixture.persistence.drizzle;
-    const inventory = Effect.fn("ReferenceCheckpoint.inventory")(function* () {
-      return {
-        rows: yield* query(db.select().from(fxAppRowCurrent).orderBy(fxAppRowCurrent.tableId, fxAppRowCurrent.rowId)),
-        revisions: yield* query(db.select().from(fxAppRowRevisions).orderBy(fxAppRowRevisions.tableId, fxAppRowRevisions.rowId, fxAppRowRevisions.commitSeq)),
-        indexes: yield* query(db.select().from(fxAppIndexEntryCurrent).orderBy(fxAppIndexEntryCurrent.indexDefinitionId, fxAppIndexEntryCurrent.encodedKey, fxAppIndexEntryCurrent.rowId)),
-        indexRevisions: yield* query(db.select().from(fxAppIndexEntryRevisions).orderBy(fxAppIndexEntryRevisions.indexDefinitionId, fxAppIndexEntryRevisions.encodedKey, fxAppIndexEntryRevisions.rowId, fxAppIndexEntryRevisions.commitSeq)),
-        unique: yield* query(db.select().from(fxAppUniqueKeys).orderBy(fxAppUniqueKeys.constraintId, fxAppUniqueKeys.canonicalKeySha256)),
-        edges: yield* query(db.select().from(fxAppEdgeCurrent)), adjacency: yield* query(db.select().from(fxAppEdgeAdjacencyVersions)),
-        commits: yield* query(db.select().from(fxSystemCommits).orderBy(fxSystemCommits.commitSeq)),
-        appFacts: yield* query(db.select().from(fxSystemCommitAppRowChanges).orderBy(fxSystemCommitAppRowChanges.commitSeq, fxSystemCommitAppRowChanges.changeOrdinal)),
-        relationalFacts: yield* query(db.select().from(fxSystemCommitRelationalChanges).orderBy(fxSystemCommitRelationalChanges.commitSeq, fxSystemCommitRelationalChanges.changeOrdinal)),
-        outcomes: yield* query(db.select().from(fxSystemIdempotency).orderBy(fxSystemIdempotency.requestKey)),
-        wakes: yield* query(db.select().from(fxSystemCommitWakes).orderBy(fxSystemCommitWakes.commitSeq)),
-        clocks: yield* query(db.select().from(fxSystemScopeClocks)), events: yield* query(db.select().from(fxSystemCommitEvents)),
-        initializations: yield* query(db.select().from(fxSystemFrameworkInitializations)), outbox: yield* query(db.select().from(outbox)),
-      };
-    });
+    const inventory = () => logicalCommerceInventory(fixture.persistence.drizzle);
     await Effect.runPromise(Effect.gen(function* () {
       const omitted = yield* preparedIdentity(hostInput);
       const ownUndefined = { ...member };

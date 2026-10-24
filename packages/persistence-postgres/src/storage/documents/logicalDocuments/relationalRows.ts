@@ -1,4 +1,5 @@
 import { Data, Effect, Result, Schema } from "effect";
+import { inspectLogicalRelationalFailure, retainLogicalRelationalFailure } from "./relationalFailure";
 import { sql } from "drizzle-orm";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
@@ -6,7 +7,7 @@ import { runDrizzleStatementEffect } from "../../../database/drizzleStatementEff
 import { rowsFromDriverExecuteResult } from "../../../database/driverExecuteResult";
 import { compareBytesLexicographically, copyBytes } from "@flarex/utils/bytes";
 import { decodeExactDecimal } from "flarex-protocol/internal/exact-decimal";
-import { isRelationalColumnValue, validateRelationalRowColumns, validateRelationalRowValues, type RelationalColumnIdentity, type RelationalPersistenceCapability, type RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
+import { isRelationalColumnValue, validateRelationalRowColumns, validateRelationalRowValues, type RelationalColumnIdentity, type RelationalPersistenceCapability, type RelationalTableDefinition, type RelationalRowValueError } from "flarex-protocol/internal/relational-schema";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import type { LogicalDocumentFailure, LogicalDocumentFailureReason } from "./model";
 import { canonicalizeFlarexValueV1Effect, copyCanonicalFlarexValueBytesV1, copyFlarexValueSha256V1, type CanonicalFlarexValueV1 } from "flarex-protocol/value";
@@ -48,6 +49,17 @@ export const logicalManagedUpdatedColumns = (table: RelationalTableDefinition,
   capability.kind === "managedTimestamps" && belongsTo(table, capability.createdAtColumn)
     ? [capability.updatedAtColumn.columnId] : []);
 
+/** The existing row validator has already selected this issue. Retain only
+ * required-column diagnostics; no additional acceptance or validation occurs. */
+function rowValueFailure<Failure>(table: RelationalTableDefinition, row: JsonObject,
+  reason: "documentInvalid" | "storedCorruption", error: LogicalDocumentFailure<Failure>, cause: RelationalRowValueError): Failure {
+  const failure = error(reason, cause);
+  if (reason === "documentInvalid" && cause.reason === "missingColumn" &&
+    table.columns.some(column => column.identity.columnId === cause.column && !column.nullable))
+    retainLogicalRelationalFailure(failure, { origin: "row", kind: "missing", table: table.identity, column: cause.column, candidate: row });
+  return failure;
+}
+
 /** Complete native values are checked before projection or mutation. Relation
  * enforcement is a separate execution capability, not a row-value rule. */
 export function prepareLogicalRelationalRowValues<Failure>(table: RelationalTableDefinition,
@@ -55,7 +67,7 @@ export function prepareLogicalRelationalRowValues<Failure>(table: RelationalTabl
   const companions = capabilities.flatMap(capability => capability.kind === "exactNumericCompanion" && belongsTo(table, capability.numericColumn)
     ? [{ numeric: capability.numericColumn.columnId, raw: capability.rawColumn.columnId }] : []);
   return (row: JsonObject, reason: "documentInvalid" | "storedCorruption") => Result.gen(function* () {
-    yield* validateRelationalRowValues(table, row).pipe(Result.mapError(cause => error(reason, cause)));
+    yield* validateRelationalRowValues(table, row).pipe(Result.mapError(cause => rowValueFailure(table, row, reason, error, cause)));
     for (const companion of companions) {
       const value = row[companion.numeric];
       const rawValue = row[companion.raw];
@@ -95,8 +107,12 @@ function compileLogicalRelationalRows<Failure>(table: RelationalTableDefinition,
       // outside its source. Complete rows are validated again after defaults.
       for (const [name, value] of Object.entries(input)) {
         const column = columnsByName.get(name);
-        if (column === undefined || !(column.default.kind === "serialNext" && value === null) && !isRelationalColumnValue(column.type, column.nullable, value))
-          return yield* Result.fail(error("documentInvalid"));
+        if (column === undefined || !(column.default.kind === "serialNext" && value === null) && !isRelationalColumnValue(column.type, column.nullable, value)) {
+          const failure = error("documentInvalid");
+          if (column !== undefined && !column.nullable && value === null)
+            retainLogicalRelationalFailure(failure, { origin: "input", kind: "null", table: table.identity, column: name, candidate: input });
+          return yield* Result.fail(failure);
+        }
       }
       // Only the capture owner's exact detached immutable tree can retain this
       // supplied-input verdict. A frozen foreign wrapper is insufficient.
@@ -132,13 +148,14 @@ function compileLogicalRelationalRows<Failure>(table: RelationalTableDefinition,
       // or independent ordered charges into this immutable-table helper.
       const captured = yield* useCapturedPrivateJsonData(row, Number.MAX_SAFE_INTEGER, error);
       if (!isJsonObject(captured.value)) return yield* Result.fail(error("documentInvalid"));
+      const normalizedRow = captured.value;
       yield* table.columns.some(column => column.type === "real")
-        ? validateRelationalRowColumns(table, captured.value).pipe(Result.mapError(cause => error("documentInvalid", cause)))
-        : validate(captured.value, "documentInvalid");
+        ? validateRelationalRowColumns(table, normalizedRow).pipe(Result.mapError(cause => rowValueFailure(table, normalizedRow, "documentInvalid", error, cause)))
+        : validate(normalizedRow, "documentInvalid");
       // A REAL candidate has only pure input/merge semantics here. Its actual
       // borrowed SQL conversion must precede the canonical row verdict.
-      (table.columns.some(column => column.type === "real") ? realCandidates : normalizedRows).set(captured.value, normalize);
-      return captured.value;
+      (table.columns.some(column => column.type === "real") ? realCandidates : normalizedRows).set(normalizedRow, normalize);
+      return normalizedRow;
     });
     const validateCanonical = (row: JsonObject, reason: "documentInvalid" | "storedCorruption") =>
       table.columns.some(column => column.type === "real") && normalizedRows.get(row) !== normalize
@@ -551,7 +568,12 @@ export const hasPreparedLogicalRelationalTableMechanics = (mechanics: PreparedLo
 export function bindPreparedLogicalRelationalRows<Failure>(mechanics: PreparedLogicalRelationalTableMechanics,
   error: LogicalDocumentFailure<Failure>) {
   if (!issuedTableMechanics.has(mechanics)) return Result.fail(error("invalidAuthority"));
-  const project = (cause: LogicalRelationalMechanicsError) => error(cause.reason, cause.cause);
+  const project = (cause: LogicalRelationalMechanicsError) => {
+    const failure = error(cause.reason, cause.cause);
+    const evidence = inspectLogicalRelationalFailure(cause);
+    if (evidence !== undefined) retainLogicalRelationalFailure(failure, evidence);
+    return failure;
+  };
   return mechanics.rows.pipe(Result.mapError(project), Result.map(rows => Object.freeze({
     keyColumns: rows.keyColumns, deletedAt: rows.deletedAt, managedColumns: rows.managedColumns,
     normalize: (...args: Parameters<typeof rows.normalize>) => rows.normalize(...args).pipe(Result.mapError(project)),
