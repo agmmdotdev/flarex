@@ -825,6 +825,20 @@ mechanic. Tax Region creation and other native workflows retain their own input,
 output, current-graph bounds, event policy and separate admission gates; this
 shared correction grants none of those module capabilities.
 
+## Explicit roots in soft lifecycle receipts
+
+`repository/lifecycle-graph-receipt.ts` requires the module's authenticated
+explicit root IDs separately from the complete selected closure. Each explicit
+root belongs to the root-table closure and its complete-row evidence; a nonempty
+closure requires at least one explicit root. Soft deletion requires each explicit
+root to be active, while historical descendants in the same table remain valid
+cascade members. Raw requested IDs do not substitute for actual selected roots.
+
+Module policy still authenticates complete indexed reads, graph membership,
+affected-ID presentation and events. Shared correlation retains complete
+transitions, mutation preimages and existing restore policy. This distinction
+changes no native workflow admission, event ordering or resource allowance.
+
 ## Following capabilities and module proof
 
 ### Native mutation subscriber construction contract

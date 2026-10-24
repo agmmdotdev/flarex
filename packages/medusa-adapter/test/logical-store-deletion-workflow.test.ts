@@ -204,15 +204,20 @@ describe("native Store deletion on shared logical storage", { concurrent: false 
     const store = vi.spyOn(StoreModuleService.prototype, "restoreStores"), link = vi.spyOn(Link.prototype, "restore");
     try {
       let restoredBeforeFailure = false;
+      const lateError = new Error("Late native Store Link restore failure");
       link.mockImplementationOnce(async function (this: Link, ...args) {
         await Reflect.apply(originalRestore, this, args);
         restoredBeforeFailure = true;
-        throw new Error("Late native Store Link restore failure");
+        throw lateError;
       });
       const beforeFailure = await connected.snapshot();
-      const failed = await Effect.runPromise(Effect.result(restore.run(restore.newRequestKey(), { ids: selected.stores })));
-      expect(Result.isFailure(failed)).toBe(true); expect(restoredBeforeFailure).toBe(true);
-      if (Result.isFailure(failed)) expect(failurePath(failed.failure)).toContain("Late native Store Link restore failure");
+      const failed = await Effect.runPromiseExit(restore.run(restore.newRequestKey(), { ids: selected.stores }));
+      expect(Exit.isFailure(failed)).toBe(true); expect(restoredBeforeFailure).toBe(true);
+      if (Exit.isFailure(failed)) {
+        expect(failurePath(failed.cause)).toContain("rollbackOnly");
+        expect(failurePath(failed.cause)).toContain(lateError.message);
+        expect(failed.cause.reasons.some(reason => Cause.isDieReason(reason) && reason.defect === lateError)).toBe(true);
+      }
       expect(await connected.snapshot()).toEqual(beforeFailure);
       for (const alreadyActive of [false, true]) {
         const before = await connected.snapshot(), ids = [...selected.stores].reverse(); let calls = 0;

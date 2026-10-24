@@ -62,8 +62,8 @@ export function storeDeletionPolicy(contracts: Contracts) {
         preimages.add(identity); yield* record(mutation.table, mutation.before);
       }
     }
-    const selected = new Set([...(evidence.get(contracts.store.name)?.values() ?? [])]
-      .filter(row => operation === "restore" || row.deleted_at === null).map(row => row.id));
+    const selected = new Set([...(evidence.get(contracts.store.name)?.entries() ?? [])]
+      .filter(([, row]) => operation === "restore" || row.deleted_at === null).map(([id]) => id));
     const pending = new Map<string, Set<string>>();
     for (const entity of contracts.entities) {
       const ids = new Set<string>();
@@ -75,7 +75,7 @@ export function storeDeletionPolicy(contracts: Contracts) {
       pending.set(entity.table.name, ids);
     }
     const { events: expectedEvents } = yield* Effect.fromResult(correlateLifecycleGraphReceipt({ entities: contracts.entities,
-      rootTable: contracts.store.name, operation, activity, evidence, selected: pending, result }));
+      rootTable: contracts.store.name, selectedRootIds: selected, operation, activity, evidence, selected: pending, result }));
     const action = operation === "restore" ? CommonEvents.RESTORED : CommonEvents.DELETED;
     let emitted = 0;
     for (const input of call.events) {

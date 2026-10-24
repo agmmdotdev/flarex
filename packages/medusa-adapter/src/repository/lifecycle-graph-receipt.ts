@@ -13,10 +13,12 @@ interface LifecycleReceiptEntity {
 
 /** Correlate already selected graph identities with managed transitions,
  * complete row changes and native map output. Module owners authenticate graph
- * membership, complete reads, operation admission and native event families. */
+ * membership, complete reads, operation admission and native event families.
+ * Explicit selected roots are distinct from same-table cascade descendants. */
 export function correlateLifecycleGraphReceipt(input: {
   readonly entities: readonly LifecycleReceiptEntity[];
   readonly rootTable: string;
+  readonly selectedRootIds: ReadonlySet<string>;
   readonly operation: "softDelete" | "restore";
   readonly activeRestoreUpdates?: true;
   readonly activity: Parameters<LogicalCallReceiptValidation>[1];
@@ -25,9 +27,13 @@ export function correlateLifecycleGraphReceipt(input: {
   readonly result: Readonly<Record<string, readonly string[] | undefined>>;
 }) {
   return Result.gen(function* () {
-    const { entities, rootTable, operation, activity, evidence, selected, result } = input;
+    const { entities, rootTable, selectedRootIds, operation, activity, evidence, selected, result } = input;
     const mismatch = () => commerceError("receiptMismatch");
     const byTable = new Map(entities.map(entity => [entity.table.name, entity]));
+    if (!byTable.has(rootTable)) return yield* Result.fail(mismatch());
+    if (selectedRootIds.size === 0 && [...selected.values()].some(ids => ids.size !== 0)) return yield* Result.fail(mismatch());
+    for (const id of selectedRootIds) if (!selected.get(rootTable)?.has(id) || evidence.get(rootTable)?.get(id)?.id !== id)
+      return yield* Result.fail(mismatch());
     const pending = new Map<string, Set<string>>();
     for (const entity of entities) {
       const ids = new Set(selected.get(entity.table.name) ?? []);
@@ -43,7 +49,7 @@ export function correlateLifecycleGraphReceipt(input: {
         typeof id !== "string" || before === undefined || !pending.get(transition.table)?.delete(id) ||
         before.deleted_at !== transition.beforeDeletedAt ||
         (operation === "softDelete" ? typeof transition.afterDeletedAt !== "string" ||
-          transition.table === rootTable && transition.beforeDeletedAt !== null : transition.afterDeletedAt !== null))
+          transition.table === rootTable && selectedRootIds.has(id) && transition.beforeDeletedAt !== null : transition.afterDeletedAt !== null))
         return yield* Result.fail(mismatch());
       const ids = ordered.get(transition.table) ?? [];
       ids.push(id); ordered.set(transition.table, ids);

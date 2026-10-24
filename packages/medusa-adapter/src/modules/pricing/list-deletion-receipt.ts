@@ -74,7 +74,7 @@ export function pricingListDeletionPolicy(contracts: PriceListDeletionContracts)
     const allRoots: Array<JsonObject & Readonly<{ id: string }>> =
       [...evidence.get(contracts.tables.list.name)?.entries() ?? []].map(([id, row]) => ({ ...row, id }));
     const roots = orderNativeIdRows(allRoots.filter(row => operation === "restore" || row.deleted_at === null), {});
-    const selected = new Map<string, Set<string>>([[contracts.tables.list.name, new Set(roots.map(row => row.id))]]);
+    const rootIds = new Set(roots.map(row => row.id)), selected = new Map<string, Set<string>>([[contracts.tables.list.name, rootIds]]);
     const ordered = new Map<string, string[]>([[contracts.tables.list.name, roots.map(row => row.id)]]);
     const reads: JsonObject[] = [];
     if (ids.length) reads.push({ table: contracts.tables.list.name,
@@ -120,7 +120,7 @@ export function pricingListDeletionPolicy(contracts: PriceListDeletionContracts)
       ...(result.price_rule_id === undefined ? {} : { price_rule_id: result.price_rule_id }),
     };
     yield* Effect.fromResult(correlateLifecycleGraphReceipt({ entities: contracts.families, rootTable: contracts.tables.list.name,
-      operation, activity, evidence, selected, result: projected }));
+      operation, selectedRootIds: rootIds, activity, evidence, selected, result: projected }));
     if (operation === "restore") {
       if (call.events.length) return yield* Effect.fail(mismatch());
       return;

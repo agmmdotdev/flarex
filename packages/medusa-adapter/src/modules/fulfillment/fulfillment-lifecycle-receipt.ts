@@ -115,7 +115,7 @@ export function fulfillmentLifecyclePolicy(contracts: LifecycleGraph & { readonl
     }
     if (!jsonEqual(activity.relationalReads, expectedReads)) return yield* Effect.fail(commerceError("receiptMismatch"));
     const { ordered } = yield* Effect.fromResult(correlateLifecycleGraphReceipt({ entities: contracts.entities, rootTable: contracts.root.name,
-      operation, activeRestoreUpdates: true, activity, evidence, selected, result }));
+      operation, selectedRootIds: rootIds, activeRestoreUpdates: true, activity, evidence, selected, result }));
     const expectedEvents = contracts.entities.flatMap(entity => (ordered.get(entity.table.name) ?? []).map(id => ({ object: entity.table.name, id })));
     let emitted = 0;
     for (const event of call.events) {

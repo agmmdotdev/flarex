@@ -95,7 +95,7 @@ export function taxRateDeletionPolicy(contracts: Contracts) {
     for (const id of regions.keys()) if (!regionIds.has(id)) return yield* Effect.fail(mismatch());
     const visibleRegionIds = new Set([...regions].filter(([, row]) => operation === "restore" || row.deleted_at === null).map(([id]) => id));
     const roots = candidates.filter(row => typeof row.tax_region_id === "string" && visibleRegionIds.has(row.tax_region_id));
-    const selected = new Map<string, Set<string>>([[contracts.rate.name, new Set(roots.map(row => row.id))]]);
+    const rootIds = new Set(roots.map(row => row.id)), selected = new Map<string, Set<string>>([[contracts.rate.name, rootIds]]);
     const ordered = new Map<string, string[]>([[contracts.rate.name, roots.map(row => row.id)]]), reads: JsonObject[] = [];
     const ratePredicate: JsonObject = { kind: "in", column: "id", values: ids };
     if (ids.length) reads.push({ table: contracts.rate.name,
@@ -127,7 +127,7 @@ export function taxRateDeletionPolicy(contracts: Contracts) {
     }
     if (!jsonEqual(actualLifecycle, expectedLifecycle)) return yield* Effect.fail(mismatch());
     yield* Effect.fromResult(correlateLifecycleGraphReceipt({ entities: contracts.entities, rootTable: contracts.rate.name,
-      operation, activity, evidence, selected, result }));
+      operation, selectedRootIds: rootIds, activity, evidence, selected, result }));
     if (operation === "restore") {
       if (call.events.length) return yield* Effect.fail(mismatch());
       return;
