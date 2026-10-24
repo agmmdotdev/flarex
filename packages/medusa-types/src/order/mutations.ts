@@ -1067,6 +1067,15 @@ export interface RestoreOrderChangeCancellationDTO {
   metadata?: Record<string, unknown> | null
 }
 
+/** The retained fields restored when an order change decline is undone. */
+export interface RestoreOrderChangeDeclineDTO {
+  id: string
+  status: string | null
+  declined_at: Date | string | null
+  declined_by: string | null
+  metadata?: Record<string, unknown> | null
+}
+
 /**
  * The details of declining the order change.
  */

@@ -2654,6 +2654,31 @@ export default class OrderModuleService
     return await this.applyOrderChanges_(orderChanges.flat(), sharedContext)
   }
 
+  /** Restore a decline preimage without metadata merge or entity creation. */
+  @InjectManager()
+  @EmitEvents()
+  @InjectTransactionManager()
+  async restoreOrderChangeDecline(
+    data: OrderTypes.RestoreOrderChangeDeclineDTO,
+    @MedusaContext() sharedContext: Context = {}
+  ): Promise<OrderChangeDTO> {
+    const update: OrderTypes.RestoreOrderChangeDeclineDTO = {
+      id: data.id,
+      status: data.status,
+      declined_at: data.declined_at,
+      declined_by: data.declined_by,
+    }
+    if (Object.prototype.hasOwnProperty.call(data, "metadata")) {
+      update.metadata = data.metadata
+    }
+    const restored = await this.orderChangeService_.update(
+      update,
+      sharedContext,
+      { metadata: "replace" }
+    )
+    return await this.baseRepository_.serialize<OrderChangeDTO>(restored)
+  }
+
   async declineOrderChange(orderChangeId: string, sharedContext?: Context)
   async declineOrderChange(orderChangeId: string[], sharedContext?: Context)
   async declineOrderChange(

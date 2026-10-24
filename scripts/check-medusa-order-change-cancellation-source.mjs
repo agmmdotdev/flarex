@@ -5,6 +5,8 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { adaptOrderFinanceSource, verifyOrderFinanceHelpers } from "./check-medusa-order-finance-source.mjs";
 
+import { adaptOrderChangeDeclineSource } from "./check-medusa-order-change-decline-source.mjs";
+
 const failure = "Changed approved native Order Change cancellation source";
 const prefix = "third_party/medusa/upstream/";
 export const orderChangeCancellationSourcePairs = Object.freeze([
@@ -203,8 +205,11 @@ export function adaptOrderChangeCancellationSource(source, destination) {
 export function verifyOrderChangeCancellationSource(source, target, destination) {
   if (!orderChangeCancellationSourcePairs.some(pair => pair.target === destination)) throw new Error(failure + ": unknown pair");
   const corrected = adaptOrderChangeCancellationSource(source, destination);
-  const expected = destination === "packages/medusa-order/src/services/order-module-service.ts"
+  const prefix = destination === "packages/medusa-order/src/services/order-module-service.ts"
     ? adaptOrderFinanceSource(corrected) : corrected;
+  const expected = ["packages/medusa-order/src/services/order-module-service.ts",
+    "packages/medusa-types/src/order/mutations.ts", "packages/medusa-types/src/order/service.ts"].includes(destination)
+    ? adaptOrderChangeDeclineSource(prefix, destination) : prefix;
   if (expected !== target.replaceAll("\r\n", "\n"))
     throw new Error(failure + ": complete source " + destination);
 }

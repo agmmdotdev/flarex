@@ -8,6 +8,8 @@ import { orderChangeUpdateSourcePairs } from "./check-medusa-order-change-update
 import { orderFinanceHelperTargets, verifyOrderFinanceSelection } from "./check-medusa-order-finance-source.mjs";
 import { orderChangeCancellationSourcePairs, verifyOrderChangeCancellationSource } from "./check-medusa-order-change-cancellation-source.mjs";
 
+import { orderChangeDeclineSourcePairs } from "./check-medusa-order-change-decline-source.mjs";
+
 const failure = "Changed native Order archive source";
 const nativePrefix = "third_party/medusa/upstream/";
 const moduleSource = nativePrefix + "packages/modules/order/src/";
@@ -102,6 +104,8 @@ export function verifyOrderArchiveSourceSelection(files) {
     if (orderChangeUpdateSourcePairs.some(pair => pair.source === file.source && pair.target === file.target &&
       pair.classification === file.classification)) continue;
     if (orderChangeCancellationSourcePairs.some(pair => pair.source === file.source && pair.target === file.target &&
+      pair.classification === file.classification)) continue;
+    if (orderChangeDeclineSourcePairs.some(pair => pair.source === file.source && pair.target === file.target &&
       pair.classification === file.classification)) continue;
     const relevant = ["orderArchiveFork", "orderArchiveCompensationFork", "orderChangeCancellationFork", "orderChangeCancellationRestoreFork"].includes(file.classification) || file.target.startsWith("packages/medusa-order/") ||
       file.target.startsWith(workflowTarget) || file.target.startsWith(helperTarget) ||

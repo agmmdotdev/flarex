@@ -52,9 +52,9 @@ The portable DTO includes the required owning Order reference, following the
 existing PostgreSQL presentation profile. It does not claim identical raw
 SQLite/Drizzle presentation or Mikro dirty checking.
 
-The native cancel command and inverse each emit `order.order-change.updated`
-for their actual Change write; the root returns null and emits no workflow
-messages or hooks. Repeated inverses retain exact business fields while managed
+The logical profile captures `order.order-change.updated` for each actual Change
+write; the root returns null and emits no workflow messages or hooks. Repeated
+inverses retain exact business fields while managed
 `updated_at` advances under ordinary write semantics. Replay returns the
 checked committed result without repeating writes or events. The existing
 queued workflow command owner serializes admitted methods through receipt
@@ -62,6 +62,14 @@ validation. No new SQL lifetime, queue, finalizer or raw database capability is
 introduced; the trusted outer owner alone settles.
 
 ## Remaining gates
+
+The native physical Mikro PostgreSQL witness restores the persisted Change but
+records no update event for either cancellation or its inverse. Both native
+methods place the event wrapper inside the transaction wrapper, before the
+owning transaction flush. Their event ordering needs a separate native owner
+correction and both-driver validation. Logical-profile event coverage does not
+establish native physical event parity; the Decline correction does not change
+these cancellation methods.
 
 General Change metadata updates still use their ordinary native merge inverse
 and remain unadmitted. This named cancellation restoration does not fix or

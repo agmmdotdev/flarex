@@ -57,6 +57,11 @@ creation and Action mutations remain outside this profile. The
 adds single existing pending/requested Change cancellation and an approved native
 exact inverse for status, cancellation fields and submitted metadata. General
 metadata updates retain their separate undo gate.
+The [native Decline Order Change profile](./preflight/order-change-decline-workflow.md)
+adds one existing pending/requested Change decline, native forward metadata
+assignment and exact retained status, decline fields and submitted metadata
+restoration. The shared native step also retains this inverse for transfer;
+transfer workflow activation remains a separate gate.
 Creation/display-ID allocation, line-item mutations, returns/claims/exchanges,
 general Order composition and public/hosted activation remain separate gates.
 
