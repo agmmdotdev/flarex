@@ -1,4 +1,4 @@
-import { Cause, Effect, Exit, Result } from "effect";
+import { Effect, Result } from "effect";
 import type { Json } from "flarex-protocol/json";
 import type { BoundedRequestContext, BoundedRequestLifetime } from "../../execution/preparation/boundedRequestLifetime";
 import { getCommerceCommand, type CommerceCommand, type CommerceCommandContext } from "./commands";
@@ -10,6 +10,7 @@ import { captureCommerceJsonData } from "./request";
 import type { CommerceSetNullSelection, CommerceReferenceReplacement, CommerceDeletedReferenceSelection } from "./commands";
 
 type CommerceContextWorking = Readonly<{ store: CommerceStore; resources: CommerceResources;
+    registerScopeExclusion?: (context: CommerceCommandContext) => void;
     table: (context: BoundedRequestContext, tableId: string) => Effect.Effect<CommerceStore, CommerceTransactionError>;
     transactionTime?: (context: BoundedRequestContext) => Effect.Effect<string, CommerceTransactionError>;
     detachDeletedReference?: (context: BoundedRequestContext, selection: CommerceDeletedReferenceSelection) => Effect.Effect<void, CommerceTransactionError>;
@@ -31,7 +32,7 @@ export function makeCommerceCommandContext(
   const planSetNull = working.planSetNull;
   const planReferenceReplacement = working.planReferenceReplacement;
   const transactionTime = working.transactionTime;
-  return Object.freeze({ manager, resources: working.resources, store: working.store,
+  const issued = Object.freeze({ manager, resources: working.resources, store: working.store,
     table: tableId => working.table(manager, tableId),
     ...(transactionTime === undefined ? {} : { transactionTime: transactionTime(manager) }),
     ...(detachDeletedReference === undefined ? {} : { detachDeletedReference: (selection: CommerceDeletedReferenceSelection) => detachDeletedReference(manager, selection) }),
@@ -56,6 +57,8 @@ export function makeCommerceCommandContext(
       ? work(makeCommerceCommandContext(lifetime, working, id, child, invoke, captureEvent))
       : withCommerceCommandContext(lifetime, working, id, child, invoke, captureEvent, callLimit, work)),
   } satisfies CommerceCommandContext);
+  working.registerScopeExclusion?.(issued);
+  return issued;
 }
 
 /** A command and every nested borrow close their own FIFO before the manager is
@@ -71,12 +74,9 @@ export const withCommerceCommandContext = Effect.fn("Commerce.withCommandContext
     work(makeCommerceCommandContext(lifetime, working, id, manager, invoke, captureEvent)));
   return yield* Effect.acquireUseRelease(
     makeCommerceOperations(lifetime, callLimit, manager, true),
-    operations => Effect.suspend(() => work(makeCommerceCommandContext(
-      lifetime, working, id, manager, invoke, captureEvent, operations, callLimit,
-    ))).pipe(Effect.tap(() => operations.seal), Effect.catchCause(cause =>
-      Effect.exit(operations.seal).pipe(Effect.flatMap(sealed => Effect.failCause(
-        Exit.isFailure(sealed) ? Cause.combine(cause, sealed.cause) : cause,
-      ))))),
+    operations => Effect.uninterruptibleMask(restore => Effect.exit(restore(Effect.suspend(() =>
+      work(makeCommerceCommandContext(lifetime, working, id, manager, invoke, captureEvent, operations, callLimit)),
+    ))).pipe(Effect.flatMap(operations.finalize))),
     operations => operations.close,
   );
 });

@@ -7,8 +7,9 @@ export interface CommerceOperations {
    * including its participant lifetime and receipt, holds one FIFO position. */
   readonly submit: <Prepared, Value>(prepare: () => Result.Result<Prepared, CommerceTransactionError>,
     work: (prepared: Prepared) => Effect.Effect<Value, CommerceTransactionError>) => Effect.Effect<Value, CommerceTransactionError>;
-  /** An escaped active or queued job is a failure, never implicit draining. */
-  readonly seal: Effect.Effect<void, CommerceTransactionError>;
+  /** Complete the callback once, retaining its full Exit and any independent
+   * queue failure. Failed completion is not a new admission checkpoint. */
+  readonly finalize: <Value>(body: Exit.Exit<Value, CommerceTransactionError>) => Effect.Effect<Value, CommerceTransactionError>;
   /** Revoke first, interrupt and join the owned worker before the database exits. */
   readonly close: Effect.Effect<void>;
 }
@@ -94,20 +95,39 @@ export const makeCommerceOperations = Effect.fn("Commerce.makeOperations")(funct
     return admit.pipe(Effect.flatMap(reply => restore(Deferred.await(reply))),
       Effect.onExit(exit => Exit.isFailure(exit) && !finished && phase !== "closed" ? abort(exit.cause) : Effect.void));
   });
-  const seal = Effect.suspend(() => {
-    if (phase === "closed" || phase === "sealed") return Effect.fail(commerceError("closed"));
-    if (pending.size !== 0) latch(Cause.fail(commerceError("overlappingOperation")));
-    if (firstCause !== undefined) return Effect.failCause(firstCause);
+  const finalize: CommerceOperations["finalize"] = body => Effect.suspend(() => {
+    let complete = firstCause;
+    if (Exit.isFailure(body)) complete = complete === undefined ? body.cause : Cause.combine(complete, body.cause);
+    const refusal = phase === "closed" || phase === "sealed" ? "closed"
+      : pending.size !== 0 ? "overlappingOperation" : undefined;
+    if (refusal !== undefined) {
+      const cause = Cause.fail(commerceError(refusal));
+      complete = complete === undefined ? cause : Cause.combine(complete, cause);
+    }
+    if (complete !== undefined) {
+      const terminal = complete;
+      if (phase !== "closed") {
+        firstCause = terminal;
+        phase = "failed";
+      }
+      // Flush and native callback failures can occur outside queued jobs. Keep
+      // their authentic complete Cause before child revocation, without
+      // manufacturing rollbackOnly by checking an already-failed lifetime.
+      return Exit.isFailure(body) ? Result.match(lifetime.recordFailure(context, terminal), {
+        onSuccess: owned => Effect.failCause(owned),
+        onFailure: error => Effect.failCause(Cause.combine(terminal, Cause.fail(error))),
+      }) : Effect.failCause(terminal);
+    }
     phase = "sealed";
     return lifetime.checkpoint(context).pipe(Effect.onExit(exit => {
       if (Exit.isFailure(exit)) latch(exit.cause);
       return Effect.void;
-    }));
+    }), Effect.andThen(body));
   });
   const close = Effect.uninterruptible(Effect.gen(function* () {
     phase = "closed";
     yield* rejectPending(firstCause ?? Cause.fail(commerceError("closed")));
     yield* Scope.close(scope, Exit.void);
   }));
-  return Object.freeze({ submit, seal, close });
+  return Object.freeze({ submit, finalize, close });
 }, Effect.uninterruptible);

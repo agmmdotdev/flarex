@@ -56,7 +56,7 @@ it("serializes complete same-context calls in FIFO order and snapshots/charges b
   expect(yield* Fiber.join(second)).toEqual({ value: "before" });
   yield* Fiber.join(third);
   expect(trace).toEqual(["first native", "first receipt", "second", "third"]);
-  yield* operations.seal; yield* lifetime.seal;
+  yield* operations.finalize(Exit.void); yield* lifetime.seal;
 }))));
 
 it("latches a caught prequeue refusal before aborting active work and refuses later preparation", () => runEffect(withOperations((lifetime, operations) => Effect.gen(function* () {
@@ -75,7 +75,7 @@ it("latches a caught prequeue refusal before aborting active work and refuses la
   const later = yield* Effect.exit(operations.submit(() => { preparedAgain = true; return Result.succeed(undefined); }, () => Effect.void));
   expect(preparedAgain).toBe(false);
   expect(failure(later)).toEqual(originalCause);
-  expect(failure(yield* Effect.exit(operations.seal))).toEqual(originalCause);
+  expect(failure(yield* Effect.exit(operations.finalize(Exit.void)))).toEqual(originalCause);
 }))));
 
 it("preserves the first complete queued failure cause after callers catch all failures", () => runEffect(withOperations((_lifetime, operations) => Effect.gen(function* () {
@@ -106,7 +106,7 @@ it("preserves the first complete queued failure cause after callers catch all fa
   assertOriginal(failure(yield* Fiber.await(second)));
   assertOriginal(failure(yield* Fiber.await(third)));
   expect(lastRan).toBe(false);
-  assertOriginal(failure(yield* Effect.exit(operations.seal)));
+  assertOriginal(failure(yield* Effect.exit(operations.finalize(Exit.void))));
   yield* operations.close;
   assertOriginal(failure(yield* Effect.exit(operations.submit(() => Result.succeed(undefined), () => Effect.void))));
 }))));
@@ -116,7 +116,7 @@ it("retains a preparation defect without converting it to a typed error", () => 
   const exit = yield* Effect.exit(operations.submit(() => { throw defect; }, () => Effect.void));
   const cause = failure(exit);
   expect(cause.reasons.some(reason => Cause.isDieReason(reason) && reason.defect === defect)).toBe(true);
-  expect(failure(yield* Effect.exit(operations.seal))).toEqual(cause);
+  expect(failure(yield* Effect.exit(operations.finalize(Exit.void)))).toEqual(cause);
 }))));
 
 it("uses the original deadline for queued work and never starts the waiting job", () => runEffect(withOperations((_lifetime, operations) => Effect.gen(function* () {
@@ -133,7 +133,7 @@ it("uses the original deadline for queued work and never starts the waiting job"
   expect(hasReason(failure(yield* Fiber.await(first)), "deadlineExceeded")).toBe(true);
   expect(hasReason(failure(yield* Fiber.await(second)), "deadlineExceeded")).toBe(true);
   expect(waitingRan).toBe(false);
-  expect(hasReason(failure(yield* Effect.exit(operations.seal)), "deadlineExceeded")).toBe(true);
+  expect(hasReason(failure(yield* Effect.exit(operations.finalize(Exit.void))), "deadlineExceeded")).toBe(true);
 }), { commandMs: 10 }).pipe(Effect.provide(TestClock.layer()))));
 
 it("checks deadline and lifetime phase before running preparation", () => runEffect(withOperations((lifetime, operations) => Effect.gen(function* () {
@@ -158,7 +158,7 @@ it("accounts for a canceled waiter, drains active work and rejects late queued w
   expect(drained).toBe(true);
   expect(Cause.hasInterrupts(failure(yield* Fiber.await(first)))).toBe(true);
   expect(waitingRan).toBe(false);
-  expect(Cause.hasInterrupts(failure(yield* Effect.exit(operations.seal)))).toBe(true);
+  expect(Cause.hasInterrupts(failure(yield* Effect.exit(operations.finalize(Exit.void))))).toBe(true);
 }))));
 
 it("refuses preparation when the underlying lifetime is already rollback-only", () => runEffect(withOperations((lifetime, operations) => Effect.gen(function* () {
@@ -196,7 +196,7 @@ it("fails seal when active or pending jobs escape and keeps the refusal sticky",
   const first = yield* Effect.forkChild(operations.submit(() => Result.succeed(undefined), () =>
     Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never))));
   yield* Deferred.await(started);
-  const sealed = failure(yield* Effect.exit(operations.seal));
+  const sealed = failure(yield* Effect.exit(operations.finalize(Exit.void)));
   expect(hasReason(sealed, "overlappingOperation")).toBe(true);
   yield* operations.close;
   expect(failure(yield* Fiber.await(first))).toEqual(sealed);
@@ -241,7 +241,7 @@ it("rejects an exhausted underlying call budget before another capture hook runs
   const refused = failure(yield* Effect.exit(operations.submit(() => { captured = true; return Result.succeed(undefined); }, () => Effect.void)));
   expect(captured).toBe(false); expect(hasReason(refused, "limitExceeded")).toBe(true);
   expect(lifetime.remainingBytes()).toBe(4096);
-  expect(failure(yield* Effect.exit(operations.seal))).toEqual(refused);
+  expect(failure(yield* Effect.exit(operations.finalize(Exit.void)))).toEqual(refused);
 }), { calls: 3 }, 3)));
 
 
@@ -260,7 +260,7 @@ it("binds a FIFO to a live borrowed manager without weakening overlapping operat
       }, () => lifetime.operation(child, "request", "write", Effect.sync(() => { trace.push("second"); }))));
       yield* Deferred.await(queued); expect(trace).toEqual([]);
       yield* Deferred.succeed(release, undefined); yield* Fiber.join(first); yield* Fiber.join(second);
-      expect(trace).toEqual(["first", "second"]); yield* operations.seal;
+      expect(trace).toEqual(["first", "second"]); yield* operations.finalize(Exit.void);
     }),
     operations => operations.close,
   )).pipe(Effect.andThen(lifetime.seal)),
@@ -273,7 +273,7 @@ it("refuses a foreign borrowed queue context before running its capture callback
     let prepared = false;
     const refused = failure(yield* Effect.exit(operations.submit(() => { prepared = true; return Result.succeed(undefined); }, () => Effect.void)));
     expect(hasReason(refused, "invalidAuthority")).toBe(true); expect(prepared).toBe(false);
-    expect(failure(yield* Effect.exit(operations.seal))).toEqual(refused);
+    expect(failure(yield* Effect.exit(operations.finalize(Exit.void)))).toEqual(refused);
     // A foreign handle cannot poison the unrelated request that issued it.
     yield* foreign.seal;
   }), operations => operations.close.pipe(Effect.andThen(foreign.close)));

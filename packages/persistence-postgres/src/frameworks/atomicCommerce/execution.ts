@@ -22,7 +22,7 @@ import {
 } from "../../storage/documents/logicalDocuments/relationalAdmission";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
 import { withCommerceCommandContext } from "../commerceTransaction/context";
-import { getCommerceCommand, type CommerceCommand } from "../commerceTransaction/commands";
+import { getCommerceCommand, type CommerceCommand, type CommerceCommandContext } from "../commerceTransaction/commands";
 import { finalizeCommerceCommit } from "../commerceTransaction/publication";
 import type { AtomicCommerceContext } from "./commands";
 import {
@@ -53,10 +53,11 @@ type ExecutionConfiguration = Pick<
   "members" | "eventPolicy" | "limits" | "eventLimit" | "factLimit" | "owner" | "executionIsolation" | "operationScheduling" | "borrowedOperationScheduling" | "scopeId"
 >;
 
-const scopeExclusions = new WeakMap<AtomicCommerceContext, Effect.Effect<void, CommerceTransactionError>>();
+const scopeExclusions = new WeakMap<AtomicCommerceContext | CommerceCommandContext, Effect.Effect<void, CommerceTransactionError>>();
 /** Authenticate live outer exclusion without lending a clock or transaction. */
-export const requireAtomicCommerceScopeExclusion = (context: AtomicCommerceContext): Effect.Effect<void, CommerceTransactionError> =>
-  Effect.suspend(() => scopeExclusions.get(context) ?? Effect.fail(commerceError("invalidAuthority")));
+export const requireAtomicCommerceScopeExclusion = Effect.fn("AtomicCommerce.requireScopeExclusion")(
+  (context: AtomicCommerceContext | CommerceCommandContext): Effect.Effect<void, CommerceTransactionError> =>
+    Effect.suspend(() => scopeExclusions.get(context) ?? Effect.fail(commerceError("invalidAuthority"))));
 type CommerceContribution = Readonly<{ kind: "physical"; admission: CommerceAdmission; closure: CommerceRowClosure }> |
   Readonly<{ kind: "logical"; closure: LogicalCommerceClosure }>;
 type PhysicalWorking = Effect.Success<ReturnType<typeof makeCommerceStore>>;
@@ -85,12 +86,17 @@ function makeParticipantInvocation(
   id: string,
   eventCapture: ReturnType<typeof makeAtomicEventCapture> | undefined,
   borrowedCallLimit: number | undefined,
+  scopeExclusion: Effect.Effect<void, CommerceTransactionError>,
 ) {
   const events: Json[] = [];
   const detach = "detachDeletedReference" in working ? working.detachDeletedReference : undefined;
   const cursor = detach === undefined || !("activityCursor" in working) ? undefined : working.activityCursor();
-  const commandWorking = detach === undefined ? working : { ...working,
-    detachDeletedReference: (manager: BoundedRequestContext, selection: Parameters<typeof detach>[1]) => detach(manager, selection, cursor),
+  const commandWorking = { ...working,
+    registerScopeExclusion: (context: CommerceCommandContext): void => {
+      scopeExclusions.set(context, lifetime.operation(context.manager, id, "read", scopeExclusion));
+    },
+    ...(detach === undefined ? {} : { detachDeletedReference:
+      (manager: BoundedRequestContext, selection: Parameters<typeof detach>[1]) => detach(manager, selection, cursor) }),
   };
   const invoke = Effect.fnUntraced(function* (
     manager: BoundedRequestContext,
@@ -154,6 +160,11 @@ function makeAtomicCommerceExecution(
   operations: CommerceOperations | undefined,
 ): AtomicCommerceExecution {
   const { members, eventPolicy, factLimit } = configuration;
+  // This proof runs under the issuing context's lifetime operation. It must not
+  // enter the root FIFO while a participant call is already occupying it.
+  const scopeExclusion = Effect.suspend(() => configuration.executionIsolation === "scopeExclusive" &&
+    readExactScopeWriteClockObservation(tx, configuration.scopeId) !== undefined
+    ? Effect.void : Effect.fail(commerceError("unsupportedProfile")));
   const eventCapture =
     eventPolicy === undefined
       ? undefined
@@ -218,7 +229,7 @@ function makeAtomicCommerceExecution(
             const cursor = member.kind === "logical" && (member.validateLogicalCall !== undefined || member.allowReferenceReplacement === true) && "activityCursor" in working
               ? working.activityCursor() : undefined;
             const { invoke, events } = makeParticipantInvocation(member, working, lifetime, id, eventCapture,
-              configuration.borrowedOperationScheduling === "queued" ? configuration.limits.calls : undefined);
+              configuration.borrowedOperationScheduling === "queued" ? configuration.limits.calls : undefined, scopeExclusion);
             const call: Pick<AtomicCommerceCallObservation, "input" | "result"> = yield* invoke(child, command, inputArgs, capturedInput);
             if (cursor !== undefined && "callActivity" in working) {
               const activity = yield* working.callActivity(cursor);
@@ -334,9 +345,7 @@ function makeAtomicCommerceExecution(
         ? Effect.fail(commerceError("unadmittedEvent")) : eventCapture.clearPending(contract))),
     call: callParticipant,
   });
-  scopeExclusions.set(context, rootOperation(lifetime.operation(lifetime.context, id, "read", Effect.suspend(() =>
-    configuration.executionIsolation === "scopeExclusive" && readExactScopeWriteClockObservation(tx, configuration.scopeId) !== undefined
-      ? Effect.void : Effect.fail(commerceError("unsupportedProfile"))))));
+  scopeExclusions.set(context, rootOperation(lifetime.operation(lifetime.context, id, "read", scopeExclusion)));
   const openMissingContributions = Effect.fnUntraced(function* () {
     // Opening a logical table is a bounded request operation, so admitted but
     // unused participants must be constructed while the lifetime is still open.
@@ -427,9 +436,13 @@ export const executeAtomicCommerceRequest = Effect.fnUntraced(function* (
     );
     yield* lifetime.fromResult(lifetime.charge(evidence.bytes));
     const value = yield* Effect.gen(function* () {
-      const output = yield* request.definition.run(execution.context, request.args);
-      // Escaped calls must fail closed before unused stores can be opened.
-      if (operations !== undefined) yield* operations.seal;
+      // Capture and finalize once: callback/flush failure is not a fresh
+      // admission attempt against its already-poisoned request lifetime.
+      const output = yield* Effect.uninterruptibleMask(restore =>
+        Effect.exit(restore(Effect.suspend(() => request.definition.run(execution.context, request.args)))).pipe(
+          Effect.flatMap(body => operations === undefined ? body : operations.finalize(body)),
+        ));
+      // Escaped calls fail closed before unused stores can be opened.
       // An unused logical member still needs a closure. Open it before seal,
       // inside the same Cause boundary as participant command execution.
       yield* execution.openMissingContributions();
@@ -439,11 +452,8 @@ export const executeAtomicCommerceRequest = Effect.fnUntraced(function* (
         Effect.gen(function* () {
           // Preserve any earlier participant refusal alongside a later
           // failure, including failures swallowed by trusted command code.
-          const scheduled = operations === undefined ? undefined : yield* Effect.exit(operations.seal);
           const sealed = yield* Effect.exit(lifetime.seal);
-          const schedulingCause = scheduled !== undefined && Exit.isFailure(scheduled)
-            ? Cause.combine(cause, scheduled.cause) : cause;
-          const complete = Exit.isFailure(sealed) ? Cause.combine(schedulingCause, sealed.cause) : schedulingCause;
+          const complete = Exit.isFailure(sealed) ? Cause.combine(cause, sealed.cause) : cause;
           return yield* Result.match(lifetime.recordFailure(lifetime.context, complete), {
             onSuccess: owned => Effect.failCause(owned),
             onFailure: error => Effect.failCause(Cause.combine(complete, Cause.fail(error))),
