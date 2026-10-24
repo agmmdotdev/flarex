@@ -77,7 +77,7 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
           const member = yield* Effect.fromResult(requirePreparedAtomicCommerceLogicalParticipant(memberInput, undefined));
           // This borrowed view validates individual calls but owns no complete
           // participant closure on which an aggregate policy could be enforced.
-          if (member.validateLogical !== undefined || member.detachDeletedReferences === true && input.rootEvaluator === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+          if (member.validateLogical !== undefined || member.allowReferenceCheckpoints === true || member.detachDeletedReferences === true && input.rootEvaluator === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
           const firstCommand = member.commands.values().next().value;
           const name = firstCommand === undefined ? undefined : getCommerceCommand(firstCommand)?.name;
           if (member === undefined || name === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));

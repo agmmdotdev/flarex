@@ -48,7 +48,7 @@ interface NeutralLogicalFixture {
  * existing production admission/build/binding owners. No framework adapter or
  * replacement storage, validation or publication implementation is involved. */
 export async function prepareNeutralLogicalFixture(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  input: Readonly<{ name: "neutral-null-implication" | "neutral-real" | "neutral-non-null" | "neutral-serial" | "neutral-timestamp" | "neutral-number-membership"; sources: readonly LogicalSchemaSource[]; finiteCapture?: true;
+  input: Readonly<{ name: "neutral-null-implication" | "neutral-real" | "neutral-non-null" | "neutral-serial" | "neutral-timestamp" | "neutral-number-membership" | "neutral-reference-checkpoint"; sources: readonly LogicalSchemaSource[]; finiteCapture?: true;
     /** Test-only row-revision arrangement. The normal owners still reconcile,
      * backfill, validate and bind every index after this callback finishes. */
     beforeIndexBuild?: (fixture: Pick<NeutralLogicalFixture, "application" | "persistence" | "schemaVersionId" | "catalog">) => Promise<void>;

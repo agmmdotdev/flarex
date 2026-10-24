@@ -1,4 +1,7 @@
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
+import { TestClock } from "effect/testing";
+import { inspectLogicalReferenceFailure } from "../../../src/storage/documents/logicalDocuments/referenceFailure";
+import { fxSystemCommitRelationalChanges } from "../../../src/commit/publication/relationalFactsSchema";
 import { expect, vi } from "vitest";
 import { and, eq, inArray } from "drizzle-orm";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
@@ -29,7 +32,7 @@ import { makeBoundedRequestLifetime } from "../../../src/execution/preparation/b
 import { runEffectTransaction } from "../../../src/database/effectTransaction";
 import { runDrizzleStatementEffect } from "../../../src/database/drizzleStatementEffect";
 import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryCurrent, fxAppIndexEntryRevisions, fxAppUniqueKeys,
-  fxSystemScopeClocks, fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds } from "../../../src/database/schema";
+  fxSystemScopeClocks, fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds, outbox } from "../../../src/database/schema";
 import { validateLogicalDocumentChanges } from "../../../src/storage/documents/logicalDocuments/contribution";
 import { enterLogicalDocumentMaterialization } from "../../../src/storage/documents/logicalDocuments/materialization";
 import { forEachLogicalReferencePage, forEachLogicalReferenceReplacementPage,
@@ -46,11 +49,11 @@ export type SetNullPreflightCase = "observedSource" | "bornDeletedTarget" | "pre
 export const productForeignKeyScenario: (
   db: FlarexMetadataDatabase, deploymentId: string, scopeId: ScopeId, schemaVersionId: CatalogSchemaVersionId,
   schema: RelationalSchema, bindings: readonly Readonly<{ localName: string; tableId: CatalogTableId }>[],
-  setNullPreflight?: SetNullPreflightCase,
+  setNullPreflight?: SetNullPreflightCase, referenceCheckpointPreflight?: boolean,
 ) => Effect.Effect<void, unknown> = Effect.fn("ProductForeignKey.scenario")(function* (
   db: FlarexMetadataDatabase, deploymentId: string, scopeId: ScopeId, schemaVersionId: CatalogSchemaVersionId,
   schema: RelationalSchema, bindings: readonly Readonly<{ localName: string; tableId: CatalogTableId }>[],
-  setNullPreflight?: SetNullPreflightCase,
+  setNullPreflight?: SetNullPreflightCase, referenceCheckpointPreflight?: boolean,
 ) {
   const target = createLocatedIndexBuildReconciliationTargetV1(db,
     { kind: "shared_database", databaseKey: "test", schemaName: "public" });
@@ -140,6 +143,129 @@ export const productForeignKeyScenario: (
   const transact = <Value, Failure>(work: (tx: FlarexMetadataTransaction) => Effect.Effect<Value, Failure>) =>
     runEffectTransaction(callback => db.transaction(callback), "Product FK working set fixture", work,
       cause => new Error("Product FK fixture transaction", { cause }));
+  if (referenceCheckpointPreflight === true) {
+    const inventory = Effect.gen(function* () {
+      return {
+        rows: yield* runDrizzleStatementEffect(db.select().from(fxAppRowCurrent), cause => failure("statementFailure", cause)),
+        revisions: yield* runDrizzleStatementEffect(db.select().from(fxAppRowRevisions), cause => failure("statementFailure", cause)),
+        indexes: yield* runDrizzleStatementEffect(db.select().from(fxAppIndexEntryCurrent), cause => failure("statementFailure", cause)),
+        indexRevisions: yield* runDrizzleStatementEffect(db.select().from(fxAppIndexEntryRevisions), cause => failure("statementFailure", cause)),
+        unique: yield* runDrizzleStatementEffect(db.select().from(fxAppUniqueKeys), cause => failure("statementFailure", cause)),
+        clocks: yield* runDrizzleStatementEffect(db.select().from(fxSystemScopeClocks), cause => failure("statementFailure", cause)),
+        facts: yield* runDrizzleStatementEffect(db.select().from(fxSystemCommitRelationalChanges), cause => failure("statementFailure", cause)),
+        outbox: yield* runDrizzleStatementEffect(db.select().from(outbox), cause => failure("statementFailure", cause)),
+      };
+    });
+    const before = yield* inventory;
+    for (const scenario of ["missing", "childFirst", "cannotRescue", "laterDelete", "nullable", "required", "wrongTable",
+      "defaultProfile", "readManager", "staleBorrow", "wrongId", "expired", "calls", "closeEvidence", "noCascade"] as const) {
+      const execute = transact(tx => {
+        // The foreign transaction bridge carries diagnostics only. Install
+        // the test clock inside its callback, where the lifetime executes.
+        const work = Effect.scoped(Effect.gen(function* () {
+        const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId);
+        const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(failure,
+          { calls: scenario === "calls" ? 2 : 64, commandBytes: 1_048_576, commandMs: 60_000 }, {}, {}, "checkpoint-" + scenario, "write"), owner => owner.close);
+        const working = yield* makeLogicalDocumentWorkingSet({ tx, scopeId, clock, lifetime,
+          ...(scenario === "defaultProfile" ? {} : { allowReferenceCheckpoints: true as const }),
+          tables: nativeTables, relationalCapabilities: schema.capabilities, requireAdmission: Effect.void,
+          validateDocument: write => Effect.fromResult(values.validate(write.tableId, write.document)).pipe(
+            Effect.mapError(cause => failure("documentInvalid", cause))), error: failure, uniqueConflict: () => failure("uniqueConflict"),
+          limits: { pageRows: 32, identities: 64, documentBytes: 65_536 },
+        }, AppCreationTimeV1Schema.make(170), constraints, selectedIndexes);
+        const id = yield* lifetime.begin(lifetime.context);
+        const checkpoint = (name = "product") => working.checkpointRelationalReferences(lifetime.context, id, name);
+        const refuse = (work: Effect.Effect<unknown, Error>, reason: string) => Effect.gen(function* () {
+          const rejected = yield* Effect.result(work);
+          expect(rejected).toMatchObject({ _tag: "Failure", failure: { message: reason } });
+          expect(Exit.isFailure(yield* Effect.exit(lifetime.seal))).toBe(true);
+          return rejected;
+        });
+        if (scenario === "calls") { yield* refuse(checkpoint(), "limitExceeded"); return; }
+        if (scenario === "wrongTable") { yield* refuse(checkpoint("unadmitted-table"), "invalidAuthority"); return; }
+        if (scenario === "defaultProfile") { yield* refuse(checkpoint(), "invalidAuthority"); return; }
+        if (scenario === "wrongId") {
+          yield* refuse(working.checkpointRelationalReferences(lifetime.context, "other-id", "product"), "invalidAuthority"); return;
+        }
+        if (scenario === "expired") {
+          yield* TestClock.adjust("60 seconds"); yield* refuse(checkpoint(), "deadlineExceeded"); return;
+        }
+        if (scenario === "readManager") {
+          const rejected = yield* Effect.result(lifetime.nested(lifetime.context, id,
+            child => working.checkpointRelationalReferences(child, id, "product"), "read"));
+          expect(rejected).toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+          expect(Exit.isFailure(yield* Effect.exit(lifetime.seal))).toBe(true);
+          return;
+        }
+        if (scenario === "staleBorrow") {
+          const child = yield* lifetime.nested(lifetime.context, id, child => Effect.succeed(child));
+          yield* refuse(working.checkpointRelationalReferences(child, id, "product"), "invalidAuthority"); return;
+        }
+        const products = yield* working.relationalTable(lifetime.context, id, "product");
+        const types = yield* working.relationalTable(lifetime.context, id, "product_type");
+        const product = { id: "checkpoint-" + scenario, handle: "checkpoint-" + scenario, title: "Reference checkpoint",
+          type_id: scenario === "nullable" ? null : "checkpoint-parent" };
+        if (scenario === "required") {
+          const options = yield* working.relationalTable(lifetime.context, id, "product_option");
+          yield* refuse(options.write(lifetime.context, "insert", [{ id: "checkpoint-option", title: "Required" }]), "documentInvalid"); return;
+        }
+        yield* products.write(lifetime.context, "insert", [product]);
+        if (scenario === "childFirst" || scenario === "laterDelete" || scenario === "noCascade")
+          yield* types.write(lifetime.context, "insert", [{ id: "checkpoint-parent", value: "Checkpoint parent" }]);
+        if (scenario === "closeEvidence") {
+          yield* lifetime.seal;
+          const closed = yield* Effect.result(working.close());
+          expect(closed).toMatchObject({ _tag: "Failure", failure: { message: "documentInvalid" } });
+          if (closed._tag === "Failure") expect(inspectLogicalReferenceFailure(closed.failure)?.origin).toBe("close");
+          return;
+        }
+        if (scenario === "missing" || scenario === "cannotRescue") {
+          const rejected = yield* refuse(checkpoint(), "documentInvalid");
+          if (rejected._tag === "Failure") {
+            const evidence = inspectLogicalReferenceFailure(rejected.failure);
+            expect(evidence).toEqual({ origin: "checkpoint", child: { tableId: nativeTables.find(table => table.logicalName === "product")?.tableId,
+              tableName: "product", documentId: expect.any(String) }, sourceColumn: "type_id",
+              target: { tableId: nativeTables.find(table => table.logicalName === "product_type")?.tableId,
+                tableName: "product_type", column: "id", key: "checkpoint-parent" } });
+            expect(Object.isFrozen(evidence)).toBe(true); expect(Object.isFrozen(evidence?.target)).toBe(true);
+            expect(inspectLogicalReferenceFailure({ ...rejected.failure })).toBeUndefined();
+            expect(inspectLogicalReferenceFailure({ cause: rejected.failure })).toBeUndefined();
+            expect(inspectLogicalReferenceFailure(JSON.parse(JSON.stringify(rejected.failure)))).toBeUndefined();
+          }
+          if (scenario === "cannotRescue") {
+            const rescue = yield* Effect.result(types.write(lifetime.context, "insert", [{ id: "checkpoint-parent", value: "Too late" }]));
+            expect(rescue).toMatchObject({ _tag: "Failure", failure: { message: "rollbackOnly" } });
+          }
+          return;
+        }
+        const calls = lifetime.usedCalls();
+        yield* checkpoint();
+        expect(lifetime.usedCalls()).toBe(calls + 1);
+        const activity = yield* working.activitySnapshot();
+        expect(activity.attempts.every(attempt => attempt.operation === "insert")).toBe(true);
+        expect(activity.lifecycle).toEqual([]); expect(activity.setNull).toEqual([]); expect(activity.referenceReplacements).toEqual([]);
+        if (scenario === "noCascade") {
+          // A checkpoint must never execute the close-time cascade phase.
+          const variants = yield* working.relationalTable(lifetime.context, id, "product_variant");
+          yield* variants.write(lifetime.context, "insert", [{ id: "checkpoint-variant", product_id: product.id, title: "Child" }]);
+          yield* products.delete(lifetime.context, [product.id]);
+          yield* working.checkpointRelationalReferences(lifetime.context, id, "product_type");
+          expect((yield* variants.find(lifetime.context, { take: 2, order: { column: "id", direction: "asc" }, predicate: { kind: "in", column: "id", values: ["checkpoint-variant"] } }))).toHaveLength(1);
+          expect((yield* working.activitySnapshot()).attempts.filter(attempt => attempt.operation === "delete")).toHaveLength(1);
+          return;
+        }
+        if (scenario === "laterDelete") yield* types.delete(lifetime.context, ["checkpoint-parent"]);
+        yield* lifetime.seal;
+        const closed = yield* Effect.result(working.close());
+        expect(closed._tag).toBe(scenario === "laterDelete" ? "Failure" : "Success");
+        }));
+        return scenario === "expired" ? work.pipe(Effect.provide(TestClock.layer())) : work;
+      });
+      yield* execute;
+      expect(yield* inventory).toEqual(before);
+    }
+    return;
+  }
   if (setNullPreflight !== undefined) {
     const productTableId = nativeTables.find(table => table.logicalName === "product")?.tableId;
     const typeTableId = nativeTables.find(table => table.logicalName === "product_type")?.tableId;

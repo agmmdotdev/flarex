@@ -65,6 +65,12 @@ index/constraint/relation replacement, connected migration and retirement. It
 does not create a universal transaction API or move framework business semantics
 into core. Runtime optimization follows this storage decision.
 
+[Logical reference validation checkpoints](./reference-validation-checkpoints.md)
+owns the implemented explicit, identity-bound logical participant capability
+for native flush boundaries. It retains default close behavior. Native Tax Region
+workflow staging, error presentation and connected admission remain separate
+open gates.
+
 [Explicit logical Commerce initialization](./58-logical-commerce-initialization.md)
 retains source-scoped canonical bootstrap for multi-table framework sources,
 with digest-bound table targets and the existing first-data and settlement owners.

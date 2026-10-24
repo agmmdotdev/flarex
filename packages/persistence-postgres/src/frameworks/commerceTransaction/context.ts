@@ -13,6 +13,7 @@ type CommerceContextWorking = Readonly<{ store: CommerceStore; resources: Commer
     table: (context: BoundedRequestContext, tableId: string) => Effect.Effect<CommerceStore, CommerceTransactionError>;
     transactionTime?: (context: BoundedRequestContext) => Effect.Effect<string, CommerceTransactionError>;
     detachDeletedReference?: (context: BoundedRequestContext, selection: CommerceDeletedReferenceSelection) => Effect.Effect<void, CommerceTransactionError>;
+    checkpointRelationalReferences?: (context: BoundedRequestContext, tableName: string) => Effect.Effect<void, CommerceTransactionError>;
     planSetNull?: (context: BoundedRequestContext, selection: CommerceSetNullSelection) => Effect.Effect<void, CommerceTransactionError>;
     planReferenceReplacement?: (context: BoundedRequestContext, selection: CommerceReferenceReplacement) => Effect.Effect<void, CommerceTransactionError> }>;
 type CommerceContextInvocation = (context: BoundedRequestContext, command: CommerceCommand, args: Json) => Effect.Effect<Json, CommerceTransactionError>;
@@ -26,6 +27,7 @@ export function makeCommerceCommandContext(
   operations?: CommerceOperations, callLimit?: number,
 ): CommerceCommandContext {
   const detachDeletedReference = working.detachDeletedReference;
+  const checkpointRelationalReferences = working.checkpointRelationalReferences;
   const planSetNull = working.planSetNull;
   const planReferenceReplacement = working.planReferenceReplacement;
   const transactionTime = working.transactionTime;
@@ -35,6 +37,7 @@ export function makeCommerceCommandContext(
     ...(detachDeletedReference === undefined ? {} : { detachDeletedReference: (selection: CommerceDeletedReferenceSelection) => detachDeletedReference(manager, selection) }),
     ...(planSetNull === undefined ? {} : { planSetNull: (selection: CommerceSetNullSelection) => planSetNull(manager, selection) }),
     ...(planReferenceReplacement === undefined ? {} : { planReferenceReplacement: (selection: CommerceReferenceReplacement) => planReferenceReplacement(manager, selection) }),
+    ...(checkpointRelationalReferences === undefined ? {} : { checkpointRelationalReferences: (tableName: string) => checkpointRelationalReferences(manager, tableName) }),
     captureLocalEvent: event => captureEvent(manager, event),
     nested: (child, args) => lifetime.nested(manager, id, context => invoke(context, child, args), getCommerceCommand(child)?.mode),
     rejectEvent: lifetime.operation(manager, id, "write", Effect.fail(commerceError("unadmittedEvent"))),

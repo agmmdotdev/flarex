@@ -1,3 +1,4 @@
+import { retainLogicalReferenceFailure } from "./referenceFailure";
 import { captureLogicalInsertionGraph, bindLogicalInsertionRoot, issueLogicalInsertionAttempt, type LogicalInsertionEvidence, type LogicalInsertionRoot, committedLogicalInsertionOrder, compareLogicalInsertionOrder, type LogicalInsertionOrder, issueLogicalDeletedReferenceEvidence, type LogicalDeletedReferenceCause, type LogicalDeletedReferenceEvidence, rebaseLogicalDeletedReferenceEvidence } from "./insertionOrder";
 import type { LogicalDocumentPointEvidence } from "./pointEvidence";
 import { observeExecution } from "../../../execution/diagnostics/operation";
@@ -2592,6 +2593,44 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         return yield* Effect.fail(error("storedCorruption"));
       return returned.value;
     }))));
+  const validateLiveRelationalTargets = (origin: "checkpoint" | "close", tableId?: CatalogTableId) => Effect.gen(function* () {
+    // Resolve against final pending rows, so parent and child inserts may be
+    // issued in either order. A unique-slot or indexed observation is retained
+    // for revalidation under the publication exclusion.
+    for (const child of rows.values()) {
+      if (ownedTable(child.tableId) === undefined || tableId !== undefined && child.tableId !== tableId) continue;
+      if (child.attempts.length === 0 || child.current === null) continue;
+      const value = child.current.value;
+      if (!isNonArrayRecord(value)) return yield* Effect.fail(error("storedCorruption"));
+      for (const foreignKey of foreignKeys) {
+        if (foreignKey.source.tableId !== child.tableId) continue;
+        const reference = value[foreignKey.source.column];
+        if (reference === null) continue;
+        if (typeof reference !== "string") return yield* Effect.fail(error("storedCorruption"));
+        let found = false;
+        for (const target of yield* selectCandidates(foreignKey.target.name, { [foreignKey.target.column]: reference }, true)) {
+          if (target.tableId !== foreignKey.target.tableId || target.current === null) continue;
+          const targetValue = target.current.value;
+          if (!isNonArrayRecord(targetValue)) return yield* Effect.fail(error("storedCorruption"));
+          if (targetValue[foreignKey.target.column] === reference) found = true;
+        }
+        if (!found) {
+          const failure = error("documentInvalid");
+          retainLogicalReferenceFailure(failure, { origin, child: { tableId: child.tableId, tableName: child.tableName, documentId: child.documentId },
+            sourceColumn: foreignKey.source.column, target: { tableId: foreignKey.target.tableId, tableName: foreignKey.target.name, column: foreignKey.target.column, key: reference } });
+          return yield* Effect.fail(failure);
+        }
+      }
+    }
+  });
+  const checkpointRelationalReferences = (context: BoundedRequestContext, id: PresentedTransactionId, tableName: string) =>
+    observeExecution("LogicalDocuments.checkpointRelationalReferences", Effect.suspend(() => runOperation(context, id, "write", Effect.gen(function* () {
+      if (state.allowReferenceCheckpoints !== true || state.pendingRows !== undefined || root !== undefined || state.tx === undefined)
+        return yield* Effect.fail(error("invalidAuthority"));
+      const table = yield* tableForName(tableName);
+      if (table.relational === undefined || state.relationalCapabilities === undefined) return yield* Effect.fail(error("invalidAuthority"));
+      yield* validateLiveRelationalTargets("checkpoint", table.tableId);
+    }))));
   const validateRelationalReferences = () => observeExecution("LogicalDocuments.validateRelationalReferences", Effect.gen(function* () {
     if (foreignKeys.length === 0) return;
     // A deleted or rekeyed parent may expose untouched children. A replacement
@@ -2669,29 +2708,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       }
     }
     yield* checkRemoved(false);
-    // Resolve against final pending rows, so parent and child inserts may be
-    // issued in either order. A unique-slot or indexed observation is retained
-    // for revalidation under the publication exclusion.
-    for (const child of rows.values()) {
-      if (ownedTable(child.tableId) === undefined) continue;
-      if (child.attempts.length === 0 || child.current === null) continue;
-      const value = child.current.value;
-      if (!isNonArrayRecord(value)) return yield* Effect.fail(error("storedCorruption"));
-      for (const foreignKey of foreignKeys) {
-        if (foreignKey.source.tableId !== child.tableId) continue;
-        const reference = value[foreignKey.source.column];
-        if (reference === null) continue;
-        if (typeof reference !== "string") return yield* Effect.fail(error("storedCorruption"));
-        let found = false;
-        for (const target of yield* selectCandidates(foreignKey.target.name, { [foreignKey.target.column]: reference }, true)) {
-          if (target.tableId !== foreignKey.target.tableId || target.current === null) continue;
-          const targetValue = target.current.value;
-          if (!isNonArrayRecord(targetValue)) return yield* Effect.fail(error("storedCorruption"));
-          if (targetValue[foreignKey.target.column] === reference) found = true;
-        }
-        if (!found) return yield* Effect.fail(error("documentInvalid"));
-      }
-    }
+    yield* validateLiveRelationalTargets("close");
   }));
   const detachDeletedReference = (context: BoundedRequestContext, id: PresentedTransactionId,
     intent: LogicalReferenceSelection, cursor?: LogicalDocumentActivityCursor) => observeExecution("LogicalDocuments.detachDeletedReference", Effect.suspend(() =>
@@ -3020,7 +3037,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       executeRelationalFind(context, id, tableName, input),
     relationalPage: (context: BoundedRequestContext, id: PresentedTransactionId, tableName: string, input: unknown) =>
       executeRelationalPage(context, id, tableName, input),
-    relationalAggregate, relationalChange, relationalTable, detachDeletedReference, planSetNull, planReferenceReplacement, close, requirePendingDeletion, activitySnapshot,
+    relationalAggregate, relationalChange, relationalTable, checkpointRelationalReferences, detachDeletedReference, planSetNull, planReferenceReplacement, close, requirePendingDeletion, activitySnapshot,
     activityContribution, closedActivityContribution, readActivityContribution,
     readTransactionTime: (context: BoundedRequestContext, id: PresentedTransactionId) =>
       runOperation(context, id, "read", transactionTime),

@@ -40,6 +40,8 @@ export interface CommerceCommandContext {
   readonly transactionTime?: Effect.Effect<string, CommerceTransactionError>;
   /** Available only to admitted logical relational participants. Physical
    * compatibility commands keep their existing bounded row operations. */
+  /** Validate this authenticated table's pending live references without settling. */
+  readonly checkpointRelationalReferences?: (tableName: string) => Effect.Effect<void, CommerceTransactionError>;
   readonly planSetNull?: (selection: CommerceSetNullSelection) => Effect.Effect<void, CommerceTransactionError>;
   /** Eager FK-only cleanup after an actual deletion in the same outer call.
    * Trusted logical participants only; managed timestamps are preserved. */

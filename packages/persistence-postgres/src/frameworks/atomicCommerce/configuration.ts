@@ -224,6 +224,7 @@ export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.capt
       ...(member.allowPreservingDeletionUpsert === undefined ? {} : { allowPreservingDeletionUpsert: member.allowPreservingDeletionUpsert }),
       ...(member.allowActiveRestoreUpdate === true ? { allowActiveRestoreUpdate: true } : {}),
       ...(member.allowStorageInsertionOrder === true ? { allowStorageInsertionOrder: true } : {}),
+      ...(member.allowReferenceCheckpoints === true ? { allowReferenceCheckpoints: true } : {}),
       ...(member.allowRecordedRowReplay === true ? { allowRecordedRowReplay: true } : {}),
       events: Result.isSuccess(member.events) ? { contracts: member.events.success?.contracts.length ?? 0 } : null,
       ...(member.kind === "logical" ? {
@@ -317,6 +318,9 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     } : {}),
     ...(members.some(member => member.allowStorageInsertionOrder === true) ? {
       storageInsertionOrder: members.filter(member => member.allowStorageInsertionOrder === true).map(member => member.name),
+    } : {}),
+    ...(members.some(member => member.allowReferenceCheckpoints === true) ? {
+      referenceCheckpoints: members.filter(member => member.allowReferenceCheckpoints === true).map(member => member.name),
     } : {}),
     ...(members.some(member => member.allowRecordedRowReplay === true) ? {
       recordedRowReplay: members.filter(member => member.allowRecordedRowReplay === true).map(member => member.name),

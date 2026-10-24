@@ -195,6 +195,8 @@ export type LogicalDocumentWorkingSetInput<Failure> = Readonly<{
   readonly allowStorageInsertionOrder?: true;
   readonly recordedRowReplay?: Readonly<{ schemaVersionId: CatalogSchemaVersionId }>;
   readonly detachDeletedReferences?: true;
+  /** Trusted ordinary logical roots only; no durable borrowed closure. */
+  readonly allowReferenceCheckpoints?: true;
   readonly searchDefinitions?: readonly LogicalSearchDefinition[];
   readonly lifetime: BoundedRequestLifetime<Failure>;
   /** Durable operations check live admission here. A finite root supplies a

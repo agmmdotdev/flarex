@@ -60,6 +60,25 @@ const sourceArtifact = {
 };
 
 describe("shared schema composition and catalog admission", () => {
+  it("validates scoped reference checkpoints without settlement on PGlite", async () => {
+    const cleanup: Array<() => Promise<void>> = [];
+    const persistence = await createMigratedPGlitePersistence(close => cleanup.push(close));
+    try {
+      const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(persistence);
+      await witness(persistence, fixture.controlSessionStarter, false, "created", null, false, undefined, true);
+      expect(fixture.isTransactionActive()).toBe(false);
+    } finally { for (const close of cleanup.reverse()) await close(); }
+  });
+  it.skipIf(postgresUrl === null)("validates scoped reference checkpoints without settlement on ordinary-role PostgreSQL", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      const role = await persistence.query<{ rolsuper: boolean; rolcreatedb: boolean; rolcreaterole: boolean }>(
+        "select rolsuper, rolcreatedb, rolcreaterole from pg_roles where rolname = current_user");
+      expect(role.rows).toEqual([{ rolsuper: false, rolcreatedb: false, rolcreaterole: false }]);
+      const session = makeCatalogControlSessionStarter({ controlDb: persistence.drizzle,
+        driver: makePostgresCatalogControlSessionDriver(persistence.pool) });
+      await witness(persistence, session, false, "created", null, false, undefined, true);
+    });
+  });
   for (const setNullPreflight of ["observedSource", "bornDeletedTarget", "preserveManagedTimestamp", "negativeBoundaries"] satisfies readonly SetNullPreflightCase[]) {
     it(`135 requested terminal set-null profile ${setNullPreflight} on PGlite`, async () => {
       const persistence = await createMigratedPGlitePersistence();
@@ -149,7 +168,7 @@ async function witness(
   initialStatus: "created" | "existing" = "created",
   historyLimits: "records" | "bytes" | null = null,
   proveForeignKeys = false,
-  setNullPreflight?: SetNullPreflightCase,
+  setNullPreflight?: SetNullPreflightCase, referenceCheckpointPreflight = false,
 ) {
   await persistence.drizzle.insert(deployments).values({ deploymentId, projectId: "project" });
   await persistence.drizzle.insert(fxControlScopes).values({ scopeId: authority.scopeId, deploymentId,
@@ -327,14 +346,14 @@ async function witness(
     expect(productIndexes).toHaveLength(61);
     expect(productIndexes.filter(index => index.descriptor === "strong-reference/handle")).toHaveLength(1);
     expect(definitions.requirements.unique.filter(unique => productTableIds.has(unique.tableId))).toHaveLength(24);
-    if (proveForeignKeys || setNullPreflight !== undefined) {
+    if (proveForeignKeys || setNullPreflight !== undefined || referenceCheckpointPreflight) {
       const productBindings = stored.tableBindings.filter(binding => binding.table.namespace === "medusa" &&
         binding.table.logicalName.startsWith("commerce.product/")).map(binding => ({
         localName: binding.table.logicalName.slice("commerce.product/".length), tableId: binding.tableId,
       }));
       await Effect.runPromise(productForeignKeyScenario(persistence.drizzle, deploymentId,
-        authority.scopeId, identity.schemaVersionId, productDefinition.schema, productBindings, setNullPreflight));
-      if (setNullPreflight !== undefined) return;
+        authority.scopeId, identity.schemaVersionId, productDefinition.schema, productBindings, setNullPreflight, referenceCheckpointPreflight));
+      if (setNullPreflight !== undefined || referenceCheckpointPreflight) return;
       await Effect.runPromise(productHistoricalWorkingSetScenario(persistence.drizzle, deploymentId,
         authority.scopeId, identity.schemaVersionId, productDefinition.schema, productBindings));
     }

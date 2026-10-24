@@ -116,7 +116,7 @@ export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
   lifetime: BoundedRequestLifetime<CommerceTransactionError>, initialContext: BoundedRequestContext, id: string,
   allowReferenceReplacement = false, selectedResources?: CommerceResources, logicalPublication?: "mixed",
   reconstitution: LogicalReconstitutionPolicy | undefined = undefined, allowPreservingDeletionUpsert: LogicalPreservingDeletionUpsertPolicy | undefined = undefined, allowActiveRestoreUpdate = false, allowStorageInsertionOrder = false,
-  setNullPolicy?: LogicalSetNullPolicy, detachDeletedReferences = false, allowRecordedRowReplay = false,
+  setNullPolicy?: LogicalSetNullPolicy, detachDeletedReferences = false, allowRecordedRowReplay = false, allowReferenceCheckpoints = false,
 ) {
   const selectedReconstitution = yield* decodeReconstitution(reconstitution)
     .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
@@ -138,6 +138,7 @@ export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
     for (const table of state.tables) yield* Effect.fromResult(bindPreparedLogicalRelationalRows(table.mechanics, logicalCommerceError));
   const working = yield* makeLogicalDocumentWorkingSet({ tx, scopeId: state.authority.scopeId, clock: state.clock, lifetime,
     ...(detachDeletedReferences ? { detachDeletedReferences: true as const } : {}),
+    ...(allowReferenceCheckpoints ? { allowReferenceCheckpoints: true as const } : {}),
     ...(selectedReconstitution === undefined ? {} : { reconstitution: selectedReconstitution }),
     ...(allowPreservingDeletionUpsert === undefined ? {} : { allowPreservingDeletionUpsert }),
     ...(allowActiveRestoreUpdate ? { allowActiveRestoreUpdate: true as const } : {}),
@@ -187,6 +188,8 @@ export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
   return Object.freeze({ store, resources, close,
     transactionTime: (context: BoundedRequestContext) => working.readTransactionTime(context, id),
     activityCursor: working.activityCursor, callActivity,
+    ...(allowReferenceCheckpoints ? { checkpointRelationalReferences: (context: BoundedRequestContext, tableName: string) =>
+      working.checkpointRelationalReferences(context, id, tableName) } : {}),
     attemptCount: working.attemptCount, lifecycleCount: working.lifecycleCount,
     ...(detachDeletedReferences ? { detachDeletedReference: (context: BoundedRequestContext,
       selection: CommerceDeletedReferenceSelection, cursor?: ReturnType<typeof working.activityCursor>) => Effect.gen(function* () {

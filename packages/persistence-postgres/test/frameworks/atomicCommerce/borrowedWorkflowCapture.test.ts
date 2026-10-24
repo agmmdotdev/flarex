@@ -119,6 +119,20 @@ it.each(["aggregate-only", "conjunction"] as const)("refuses borrowed %s validat
   } finally { evaluator.close(); }
 });
 
+it.each(["finite", "durable"] as const)("refuses reference checkpoints in %s borrowed workflows before source admission", async profile => {
+  const { input, evaluator } = fixture(), member = input.members[0];
+  if (member === undefined) throw new Error("Missing capture fixture member");
+  const perCall = vi.fn(() => Effect.void);
+  const selected = { ...input, members: [{ ...member, allowReferenceCheckpoints: true as const, validateLogicalCall: perCall }] };
+  const { rootEvaluator: _rootEvaluator, rootAttemptFence: _rootAttemptFence, captureStorage: _captureStorage, ...durable } = selected;
+  try {
+    const result = await Effect.runPromise(Effect.result(makeBorrowedWorkflowAttempt(profile === "finite" ? selected : { ...durable, pendingRows: [] })));
+    expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    expect(construction.admissionEntries).toBe(0); expect(construction.storageReads).toBe(0); expect(construction.workingConstructions).toBe(0);
+    expect(perCall).not.toHaveBeenCalled();
+  } finally { evaluator.close(); }
+});
+
 it("retains borrowed per-call-only admission and the existing local lifetime", async () => {
   const { input, evaluator } = fixture(), member = input.members[0];
   if (member === undefined) throw new Error("Missing capture fixture member");

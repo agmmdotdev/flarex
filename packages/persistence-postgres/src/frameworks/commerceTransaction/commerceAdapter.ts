@@ -1,4 +1,5 @@
 /** Framework-facing private contract; implementation and database owners stay in core. */
+export { inspectLogicalReferenceFailure, type LogicalReferenceFailureEvidence } from "../../storage/documents/logicalDocuments/referenceFailure";
 export { makePreparedHostRuntime, type PreparedHostRuntime, PreparedHostRuntimeError } from "../../execution/preparation/preparedHostRuntime";
 import { getCommerceCommand } from "./commands";
 import type { CommerceCommand, CommerceCommandContext } from "./commands";
