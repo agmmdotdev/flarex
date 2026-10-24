@@ -71,10 +71,11 @@ for native flush boundaries. It retains default close behavior. Native Tax Regio
 workflow staging, error presentation and connected admission remain separate
 open gates.
 
-[Required column failure evidence](./required-column-failure-evidence.md) owns
-exact, immutable facts at existing logical required-field rejections. This bounded
-private capability retains existing row validation; native presentation and
-workflow admission remain separate.
+[Required column and constraint failure evidence](./required-column-failure-evidence.md)
+owns implemented, exact-error diagnostic facts for existing logical required
+column, CHECK and unique rejections. The bounded private capability preserves
+existing validation and conflict semantics; native presentation and workflow
+admission remain separate.
 
 [Explicit logical Commerce initialization](./58-logical-commerce-initialization.md)
 retains source-scoped canonical bootstrap for multi-table framework sources,

@@ -1,7 +1,7 @@
 import { Data, Result } from "effect";
 import { isCanonicalIsoInstant } from "@flarex/time/iso-instant";
 import type { Json, JsonObject } from "../json";
-import type { RelationalColumnType, RelationalTableDefinition } from "./model";
+import type { RelationalColumnType, RelationalConstraintIdentity, RelationalTableDefinition } from "./model";
 import { decodeExactDecimal } from "../exact-decimal";
 
 /** Values have already passed bounded JSON capture. Preserve their strings and
@@ -40,6 +40,7 @@ export function isRelationalColumnValue(type: RelationalColumnType, nullable: bo
 export class RelationalRowValueError extends Data.TaggedError("RelationalRowValueError")<{
   readonly reason: "unknownColumn" | "missingColumn" | "invalidValue" | "constraintViolation";
   readonly column: string;
+  readonly constraint?: RelationalConstraintIdentity;
 }> {}
 
 /** Complete row-local contract for an authenticated, normalized table. Defaults
@@ -71,7 +72,7 @@ export function validateRelationalRowValues(table: RelationalTableDefinition, ro
       if (constraint.kind === "nullImplication") {
         if (row[constraint.nonNullColumn.columnId] !== null &&
           (row[constraint.requiredColumn.columnId] === null) !== (constraint.required === "null"))
-          return Result.fail(new RelationalRowValueError({ reason: "constraintViolation", column: constraint.requiredColumn.columnId }));
+          return Result.fail(new RelationalRowValueError({ reason: "constraintViolation", column: constraint.requiredColumn.columnId, constraint: constraint.identity }));
         continue;
       }
       const value = row[constraint.column.columnId];
@@ -81,7 +82,7 @@ export function validateRelationalRowValues(table: RelationalTableDefinition, ro
         ? typeof value === "string" && constraint.values.includes(value)
         : typeof value === "number" && (constraint.minimum === null || value >= constraint.minimum) &&
           (constraint.maximum === null || value <= constraint.maximum);
-      if (!valid) return Result.fail(new RelationalRowValueError({ reason: "constraintViolation", column: constraint.column.columnId }));
+      if (!valid) return Result.fail(new RelationalRowValueError({ reason: "constraintViolation", column: constraint.column.columnId, constraint: constraint.identity }));
     }
     return Result.succeed(undefined);
   }));

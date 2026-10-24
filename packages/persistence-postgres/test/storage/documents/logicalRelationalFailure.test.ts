@@ -10,7 +10,7 @@ import { projectCommerceRequestFailure } from "../../../src/frameworks/commerceT
 const origin = { kind: "synthetic", sourceId: "relational-failure-registry" };
 const schema = Result.getOrThrow(normalizeRelationalSchema({ owner: "system", lineageId: origin.sourceId, capabilities: [], tables: [
   { tableId: "entry", origin, columns: [{ columnId: "id", type: "text", nullable: false, default: { kind: "none" }, origin }],
-    keys: [{ keyId: "primary", kind: "primary", columns: ["id"], origin }], indexes: [], constraints: [], relationships: [] },
+    keys: [{ keyId: "primary", kind: "primary", columns: ["id"], origin }], indexes: [], constraints: [{ constraintId: "check", kind: "textSet", columnId: "id", values: ["row"], origin }], relationships: [] },
 ] }));
 const table = schema.tables[0];
 if (table === undefined) throw new Error("Missing registry table identity");
@@ -56,4 +56,46 @@ it("does not issue provenance for primitive errors", () => {
     expect(() => retainLogicalRelationalFailure(failure, evidence)).not.toThrow();
     expect(inspectLogicalRelationalFailure(failure)).toBeUndefined();
   }
+});
+
+
+it("copies CHECK identities and unique ordered fields/values while preserving exact first issuance", () => {
+  const sourceConstraint = table.constraints[0];
+  if (sourceConstraint === undefined) throw new Error("Missing CHECK identity");
+  const constraint = { ...sourceConstraint.identity };
+  const check = new Error("check");
+  retainLogicalRelationalFailure(check, { origin: "row", kind: "check", table: table.identity, column: "id", constraint });
+  const checked = inspectLogicalRelationalFailure(check);
+  Object.defineProperty(constraint, "constraintId", { value: "changed" });
+  expect(checked).toMatchObject({ kind: "check", constraint: { constraintId: "check" } });
+  if (checked?.kind !== "check") throw new Error("Missing CHECK evidence");
+  expect(Object.isFrozen(checked.constraint)).toBe(true);
+  const primary = table.keys[0];
+  if (primary === undefined) throw new Error("Missing primary key");
+  const columns = ["id"], values = ["row"], key = { ...primary.identity };
+  const unique = Object.freeze(new Error("unique"));
+  let touched = false;
+  const foreign = Object.freeze({ get id() { touched = true; return "row"; } });
+  retainLogicalRelationalFailure(unique, { origin: "input", kind: "unique", table: table.identity,
+    key: { kind: "primary", identity: key }, columns, values, candidate: foreign });
+  const retained = inspectLogicalRelationalFailure(unique);
+  columns[0] = "changed"; values[0] = "changed";
+  expect(retained).toEqual({ origin: "input", kind: "unique", table: table.identity,
+    key: { kind: "primary", identity: primary.identity }, columns: ["id"], values: ["row"] });
+  expect(touched).toBe(false);
+  if (retained?.kind !== "unique") throw new Error("Missing unique evidence");
+  expect(Object.isFrozen(retained.key)).toBe(true);
+  expect(Object.isFrozen(retained.columns)).toBe(true); expect(Object.isFrozen(retained.values)).toBe(true);
+  retainLogicalRelationalFailure(unique, evidence);
+  expect(inspectLogicalRelationalFailure(unique)).toBe(retained);
+  for (const copy of [{ ...unique }, { cause: unique }, JSON.parse(JSON.stringify(unique))])
+    expect(inspectLogicalRelationalFailure(copy)).toBeUndefined();
+});
+
+
+it("does not inspect public cause getters on unissued errors", () => {
+  let touched = false;
+  const foreign = Object.freeze({ get cause() { touched = true; throw new Error("not inspected"); } });
+  expect(inspectLogicalRelationalFailure(foreign)).toBeUndefined();
+  expect(touched).toBe(false);
 });

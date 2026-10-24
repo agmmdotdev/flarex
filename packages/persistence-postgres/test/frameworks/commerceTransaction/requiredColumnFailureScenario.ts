@@ -127,7 +127,9 @@ export async function requiredColumnFailureScenario(driver: "pglite" | "postgres
         const original = issued.get(mode);
         if (original === undefined) return yield* Effect.die(new Error("Missing storage-issued failure"));
         if (Exit.isFailure(exit)) expect(exit.cause.reasons.some(reason => Cause.isFailReason(reason) && reason.error === original)).toBe(true);
-        expect(inspectLogicalRelationalFailure(original)?.column).toBe("code");
+        const required = inspectLogicalRelationalFailure(original);
+        if (required?.kind !== "missing" && required?.kind !== "null") return yield* Effect.die(new Error("Expected required-column evidence"));
+        expect(required.column).toBe("code");
         expect(yield* logicalCommerceInventory(fixture.persistence.drizzle)).toEqual(initial);
         expect(yield* coldRead()).toEqual([]);
       }

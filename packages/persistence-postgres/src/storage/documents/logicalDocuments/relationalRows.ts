@@ -1,5 +1,5 @@
 import { Data, Effect, Result, Schema } from "effect";
-import { inspectLogicalRelationalFailure, retainLogicalRelationalFailure } from "./relationalFailure";
+import { inspectLogicalRelationalFailure, retainLogicalRelationalFailure, type LogicalRelationalUniqueValue } from "./relationalFailure";
 import { sql } from "drizzle-orm";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
@@ -50,13 +50,16 @@ export const logicalManagedUpdatedColumns = (table: RelationalTableDefinition,
     ? [capability.updatedAtColumn.columnId] : []);
 
 /** The existing row validator has already selected this issue. Retain only
- * required-column diagnostics; no additional acceptance or validation occurs. */
+ * exact required-column and CHECK diagnostics; no validation is repeated. */
 function rowValueFailure<Failure>(table: RelationalTableDefinition, row: JsonObject,
   reason: "documentInvalid" | "storedCorruption", error: LogicalDocumentFailure<Failure>, cause: RelationalRowValueError): Failure {
   const failure = error(reason, cause);
   if (reason === "documentInvalid" && cause.reason === "missingColumn" &&
     table.columns.some(column => column.identity.columnId === cause.column && !column.nullable))
     retainLogicalRelationalFailure(failure, { origin: "row", kind: "missing", table: table.identity, column: cause.column, candidate: row });
+  else if (reason === "documentInvalid" && cause.reason === "constraintViolation" && cause.constraint !== undefined)
+    retainLogicalRelationalFailure(failure, { origin: "row", kind: "check", table: table.identity, column: cause.column,
+      constraint: cause.constraint, candidate: row });
   return failure;
 }
 
@@ -199,6 +202,25 @@ interface CanonicalDocumentVerdict {
 type PreparedLogicalCanonicalDocumentSemantics = ReturnType<typeof prepareLogicalCanonicalDocumentSemantics>;
 const canonicalRows = new WeakMap<CanonicalFlarexValueV1, CanonicalRowVerdict | CanonicalDocumentVerdict>();
 const canonicalJsonRows = new WeakMap<JsonObject, CanonicalFlarexValueV1>();
+
+/** Called only after the unique owner selects a real conflict. Borrow its exact
+ * canonical relational candidate; this diagnostic never revalidates the row. */
+export function retainLogicalRelationalUniqueFailure(failure: unknown,
+  definition: LocatedAppUniqueConstraintDefinitionV1, document: CanonicalFlarexValueV1) {
+  const verdict = canonicalRows.get(document);
+  if (!isLocatedAppUniqueConstraintDefinitionV1(definition) || verdict?.kind !== "relational" || verdict.mechanics === undefined) return;
+  const columns = definition.physicalSpec.orderedFields;
+  const values: LogicalRelationalUniqueValue[] = [];
+  for (const column of columns) {
+    const value = verdict.native[column];
+    // Relational unique lowering supports scalar columns. A document-profile
+    // projection or unavailable native field cannot acquire this evidence.
+    if (value !== null && typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") return;
+    values.push(value);
+  }
+  retainLogicalRelationalFailure(failure, { origin: "row", kind: "unique", table: verdict.mechanics.table.identity,
+    key: { kind: "unique", definitionId: definition.uniqueConstraintDefinitionId }, columns, values, candidate: verdict.native });
+}
 const detachedActivityJson = new WeakMap<object, Json>();
 const canonicalBytesMatch = (document: CanonicalFlarexValueV1, verdict: CanonicalRowVerdict | CanonicalDocumentVerdict) =>
   compareBytesLexicographically(document.canonicalBytes, verdict.bytes) === 0 &&

@@ -1,4 +1,5 @@
 import { retainLogicalReferenceFailure } from "./referenceFailure";
+import { retainLogicalRelationalFailure } from "./relationalFailure";
 import { captureLogicalInsertionGraph, bindLogicalInsertionRoot, issueLogicalInsertionAttempt, type LogicalInsertionEvidence, type LogicalInsertionRoot, committedLogicalInsertionOrder, compareLogicalInsertionOrder, type LogicalInsertionOrder, issueLogicalDeletedReferenceEvidence, type LogicalDeletedReferenceCause, type LogicalDeletedReferenceEvidence, rebaseLogicalDeletedReferenceEvidence } from "./insertionOrder";
 import type { LogicalDocumentPointEvidence } from "./pointEvidence";
 import { observeExecution } from "../../../execution/diagnostics/operation";
@@ -62,7 +63,7 @@ import { prepareLogicalRelationalTableMechanics, hasPreparedLogicalRelationalTab
   bindPreparedLogicalRelationalRows, prepareLogicalRelationalRowValues, canonicalizeLogicalRelationalRow, captureLogicalRelationalCanonicalRow,
   prepareLogicalRelationalRealBatch, inspectLogicalRelationalRealBatch, executeLogicalRelationalRealBatch, hasLogicalRelationalRealVerdict,
   nativeLogicalRelationalCanonicalRow, captureLogicalRelationalActivityJson, lowerLogicalCanonicalUniqueKey, lowerLogicalCanonicalIndexKey,
-  forgetLogicalCanonicalDerivedKeys, logicalUniqueKeyRetentionBytes } from "./relationalRows";
+  forgetLogicalCanonicalDerivedKeys, logicalUniqueKeyRetentionBytes, retainLogicalRelationalUniqueFailure } from "./relationalRows";
 import { prepareLogicalRelationalForeignKeys, type LogicalRelationalForeignKey } from "./relationalForeignKeys";
 import { runDrizzleStatementEffect } from "../../../database/drizzleStatementEffect";
 import { databaseTimestampFromUnknown } from "../../../database/databaseTimestamp";
@@ -1496,9 +1497,12 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
           for (const other of rows.values()) {
             if (other.tableId !== pending.tableId || other.documentId === pending.documentId || other.current === null) continue;
             const existing = yield* lowerUnique(definition, other.current, "storedCorruption");
-            if (existing.kind === "claim" && existing.localeKey === projected.localeKey && existing.encodedKey === projected.encodedKey)
-              return yield* Result.fail(state.uniqueConflict(Object.freeze({ tableName: localTableName(pending.tableId) ?? pending.tableName,
-              orderedFields: Object.freeze([...definition.physicalSpec.orderedFields]) })));
+            if (existing.kind === "claim" && existing.localeKey === projected.localeKey && existing.encodedKey === projected.encodedKey) {
+              const failure = state.uniqueConflict(Object.freeze({ tableName: localTableName(pending.tableId) ?? pending.tableName,
+                orderedFields: Object.freeze([...definition.physicalSpec.orderedFields]) }));
+              retainLogicalRelationalUniqueFailure(failure, definition, document);
+              return yield* Result.fail(failure);
+            }
           }
         }));
         return yield* validateNext(position + 1);
@@ -2487,7 +2491,21 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
               return yield* Effect.fail(error("invalidInput"));
           }
           if (pending === undefined && (operation === "update" || operation === "delete" || operation === "softDelete" || operation === "restore")) return yield* changeRows(position + 1);
-          if (pending !== undefined && operation === "insert") return yield* Effect.fail(error("uniqueConflict"));
+          if (pending !== undefined && operation === "insert") {
+            const failure = error("uniqueConflict");
+            const primary = relationalDefinition.keys.find(key => key.kind === "primary");
+            if (primary !== undefined) {
+              const columns = primary.columns.map(column => column.columnId);
+              const values = columns.flatMap(column => {
+                const value = identity[column];
+                return value === undefined ? [] : [value];
+              });
+              if (values.length === columns.length)
+                retainLogicalRelationalFailure(failure, { origin: "input", kind: "unique", table: relationalDefinition.identity,
+                  key: { kind: "primary", identity: primary.identity }, columns, values, candidate: inputRow });
+            }
+            return yield* Effect.fail(failure);
+          }
           // Unchanged lifecycle operations still use their selected row, even
           // when a complete scan supplied it without a keyed storage probe.
           yield* lifetime.fromResult(markPendingUse(pending));

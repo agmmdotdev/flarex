@@ -1,17 +1,25 @@
-import type { RelationalTableIdentity } from "flarex-protocol/internal/relational-schema";
+import type { RelationalTableIdentity, RelationalConstraintIdentity, RelationalKeyIdentity } from "flarex-protocol/internal/relational-schema";
+import type { CatalogUniqueConstraintDefinitionId } from "flarex-protocol/catalog";
 import type { JsonObject } from "flarex-protocol/json";
 import { inspectCapturedPrivateJsonData } from "../../../values/privateJsonData";
 
 /** Diagnostic provenance for an actual rejected logical row. The candidate,
  * when present, is the exact captured input at that validation boundary; it is
  * not a completed framework entity, SQL exception or storage capability. */
-export interface LogicalRelationalFailureEvidence {
-  readonly origin: "input" | "row";
-  readonly kind: "missing" | "null";
+interface LogicalRelationalFailureCandidate {
   readonly table: RelationalTableIdentity;
-  readonly column: string;
   readonly candidate?: JsonObject;
 }
+export type LogicalRelationalUniqueValue = string | number | boolean | null;
+export type LogicalRelationalUniqueIdentity =
+  | Readonly<{ kind: "primary"; identity: RelationalKeyIdentity }>
+  | Readonly<{ kind: "unique"; definitionId: CatalogUniqueConstraintDefinitionId }>;
+export type LogicalRelationalFailureEvidence = LogicalRelationalFailureCandidate & (
+  | Readonly<{ origin: "input" | "row"; kind: "missing" | "null"; column: string }>
+  | Readonly<{ origin: "row"; kind: "check"; column: string; constraint: RelationalConstraintIdentity }>
+  | Readonly<{ origin: "input" | "row"; kind: "unique"; key: LogicalRelationalUniqueIdentity;
+      columns: readonly string[]; values: readonly LogicalRelationalUniqueValue[] }>
+);
 const failures = new WeakMap<object, LogicalRelationalFailureEvidence>();
 
 /** Storage-owner issuance only. Foreign candidates cannot acquire captured
@@ -20,10 +28,26 @@ export function retainLogicalRelationalFailure(failure: unknown, evidence: Logic
   if ((typeof failure !== "object" || failure === null) && typeof failure !== "function") return;
   if (failures.has(failure)) return;
   const candidate = evidence.candidate;
-  failures.set(failure, Object.freeze({ origin: evidence.origin, kind: evidence.kind,
-    table: Object.freeze({ ...evidence.table }), column: evidence.column,
+  const captured = { table: Object.freeze({ ...evidence.table }),
     ...(candidate !== undefined && inspectCapturedPrivateJsonData(candidate)?.value === candidate ? { candidate } : {}),
-  }));
+  };
+  switch (evidence.kind) {
+    case "missing": case "null":
+      failures.set(failure, Object.freeze({ ...captured, origin: evidence.origin, kind: evidence.kind, column: evidence.column }));
+      break;
+    case "check":
+      failures.set(failure, Object.freeze({ ...captured, origin: evidence.origin, kind: evidence.kind, column: evidence.column,
+        constraint: Object.freeze({ ...evidence.constraint }) }));
+      break;
+    case "unique": {
+      const key: LogicalRelationalUniqueIdentity = evidence.key.kind === "primary"
+        ? Object.freeze({ kind: "primary", identity: Object.freeze({ ...evidence.key.identity }) })
+        : Object.freeze({ kind: "unique", definitionId: evidence.key.definitionId });
+      failures.set(failure, Object.freeze({ ...captured, origin: evidence.origin, kind: evidence.kind, key,
+        columns: Object.freeze([...evidence.columns]), values: Object.freeze([...evidence.values]) }));
+      break;
+    }
+  }
 }
 
 /** Exact-error inspection only. Public fields, causes and serialized copies
