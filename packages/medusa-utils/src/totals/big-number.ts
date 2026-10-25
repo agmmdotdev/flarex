@@ -9,7 +9,7 @@ import { isDefined } from "../common/is-defined"
 import { isString } from "../common/is-string"
 
 type BigNumberJS = InstanceType<typeof BigNumberConstructor>
-const BigNumberJS = BigNumberConstructor
+const BigNumberJS: typeof BigNumberConstructor = BigNumberConstructor
 export class BigNumber implements IBigNumber {
   static DEFAULT_PRECISION = 20
 

@@ -3276,8 +3276,8 @@
       "source": "third_party/medusa/upstream/packages/core/utils/src/totals/big-number.ts",
       "target": "packages/medusa-utils/src/totals/big-number.ts",
       "sourceSha256": "c40689a8319984d790dba9b10e7630e9cf7cd9d0d4590753cb68f79f1a4433fb",
-      "classification": "unchanged",
-      "targetSha256": "c40689a8319984d790dba9b10e7630e9cf7cd9d0d4590753cb68f79f1a4433fb"
+      "classification": "nativeBigNumberTypeFork",
+      "targetSha256": "7e8e13ad53cdf2d113751db11caedca9067b0a3bcb3c2d569b22bd6cb2b8707f"
     },
     {
       "source": "third_party/medusa/upstream/packages/core/utils/src/totals/math.ts",
@@ -21250,12 +21250,12 @@
     },
     {
       "target": "packages/medusa-utils/dist/totals/big-number.d.ts",
-      "targetSha256": "7d6a6ac053d57c9da033fc00f53a38c398073c99834e3e24416db1cb5d0b5f67",
+      "targetSha256": "12cb26d9806a286d348c4a54f2ad22a4f5d5b74901d31aea6ae99e54c2d5fd3e",
       "input": "packages/medusa-utils/src/totals/big-number.ts"
     },
     {
       "target": "packages/medusa-utils/dist/totals/big-number.d.ts.map",
-      "targetSha256": "35aa2b94c953967db4f45abb8a4848452bc727d758fee6288dbbf9b1978dfa54",
+      "targetSha256": "5495d7c437f42a14f2d34e7f1df48e6208aa041566e91c4f544bcd89433acaff",
       "input": "packages/medusa-utils/src/totals/big-number.ts"
     },
     {
@@ -21265,7 +21265,7 @@
     },
     {
       "target": "packages/medusa-utils/dist/totals/big-number.js.map",
-      "targetSha256": "2e6affa1ddf6680a7ff5e70de04073630bf919254931195a16de8864bad0e88b",
+      "targetSha256": "db3e96814ae598ad40122afdd29719619799d8ca5ce6b4d9bf6d63de9ea207c1",
       "input": "packages/medusa-utils/src/totals/big-number.ts"
     },
     {

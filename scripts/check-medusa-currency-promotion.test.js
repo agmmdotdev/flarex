@@ -2,13 +2,58 @@
 import { verifyPriceListDeleteSelection, verifyPriceListDeleteCallbacks, verifyPriceListUpdateCallbacks, verifyNativePriceListRuleBuilder, verifyPriceListCreateCallbacks, verifyPricePreferenceDeleteCallbacks, verifyPricePreferenceUpdateCallbacks, verifyPricePreferenceCreateCallbacks, verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyPriceListCreationTypeFork, verifyShippingProfileWorkflowTypeFork, verifyLinkCascadeReturnMapFork } from "./check-medusa-currency-promotion.mjs";
+import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyNativeBigNumberTypeSource, nativeBigNumberSourcePair, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyPriceListCreationTypeFork, verifyShippingProfileWorkflowTypeFork, verifyLinkCascadeReturnMapFork } from "./check-medusa-currency-promotion.mjs";
 import { analyzeMedusaSourceIslandBoundary } from "./check-medusa-source-island-boundary.mjs";
 import { verifyInventoryConfirmationPreparationTest } from "./check-medusa-inventory-confirmation-source.mjs";
 
 const root = process.cwd();
 const promotion = verifyCurrencyPromotion(root);
 const source = "packages/medusa-currency/src/models/currency.ts";
+
+describe("native BigNumber constructor alias declaration provenance", () => {
+  const pair = nativeBigNumberSourcePair;
+  const original = readFileSync(pair.source, "utf8");
+  const adapted = readFileSync(pair.target, "utf8");
+  it("admits exactly the native constructor alias annotation with identical runtime", () => {
+    expect(() => verifyNativeBigNumberTypeSource(original, adapted, pair.target)).not.toThrow();
+  });
+  it.each([
+    ["removed annotation", "const BigNumberJS: typeof BigNumberConstructor =", "const BigNumberJS ="],
+    ["widened alias", "const BigNumberJS: typeof BigNumberConstructor =", "const BigNumberJS: typeof BigNumberConstructor | undefined ="],
+    ["different alias type", "const BigNumberJS: typeof BigNumberConstructor =", "const BigNumberJS: typeof BigNumber ="],
+    ["changed initializer", "const BigNumberJS: typeof BigNumberConstructor = BigNumberConstructor", "const BigNumberJS: typeof BigNumberConstructor = BigNumber"],
+    ["changed import", 'from "bignumber.js"', 'from "another-library"'],
+    ["changed binding kind", "const BigNumberJS:", "let BigNumberJS:"],
+    ["changed class visibility", "export class BigNumber", "class BigNumber"],
+  ])("refuses %s", (_label, before, after) => {
+    const changed = adapted.replace(before, after);
+    expect(changed).not.toBe(adapted);
+    expect(() => verifyNativeBigNumberTypeSource(original, changed, pair.target)).toThrow();
+  });
+  it("refuses additional erased declarations and missing or duplicate native anchors", () => {
+    expect(() => verifyNativeBigNumberTypeSource(original, adapted + "\ntype Additional = number;\n", pair.target)).toThrow();
+    const anchor = "const BigNumberJS = BigNumberConstructor";
+    expect(() => verifyNativeBigNumberTypeSource(original.replace(anchor, "const Other = BigNumberConstructor"), adapted, pair.target)).toThrow();
+    expect(() => verifyNativeBigNumberTypeSource(original + "\n" + anchor, adapted, pair.target)).toThrow();
+  });
+  it("refuses another target even with otherwise identical source", () => {
+    expect(() => verifyNativeBigNumberTypeSource(original, adapted, pair.target + ".adjacent")).toThrow("unselected target");
+  });
+  it.each([
+    ["classification", { classification: "unchanged" }],
+    ["source", { source: "third_party/medusa/upstream/packages/core/utils/src/totals/math.ts" }],
+    ["target", { target: "packages/medusa-utils/src/totals/big-number-adjacent.ts" }],
+  ])("refuses displaced promotion %s", (_label, mutation) => {
+    expect(() => verifyCurrencyPromotion(root, { ...promotion, files: promotion.files.map(file =>
+      file.target === pair.target ? { ...file, ...mutation } : file) }))
+      .toThrow("Native BigNumber type adaptation outside its exact pinned source pair");
+  });
+  it("refuses applying the classification to an unrelated native file", () => {
+    expect(() => verifyCurrencyPromotion(root, { ...promotion, files: promotion.files.map(file =>
+      file.target === source ? { ...file, classification: pair.classification } : file) }))
+      .toThrow("Native BigNumber type adaptation outside its exact pinned source pair");
+  });
+});
 
 describe("Tax Rate Rule deletion source selection", () => {
   const paths = ["tax/workflows/delete-tax-rate-rules.ts", "tax/steps/delete-tax-rate-rules.ts"];

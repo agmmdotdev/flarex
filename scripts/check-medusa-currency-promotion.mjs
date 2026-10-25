@@ -39,6 +39,11 @@ import ts from "@typescript/typescript6";
 
 const manifestPath = "roadmaps/flarexdb-framework-integration/preflight/medusa-currency-promotion.json";
 const sourcePrefix = "third_party/medusa/upstream/";
+export const nativeBigNumberSourcePair = Object.freeze({
+  source: sourcePrefix + "packages/core/utils/src/totals/big-number.ts",
+  target: "packages/medusa-utils/src/totals/big-number.ts",
+  classification: "nativeBigNumberTypeFork",
+});
 export const tax170SourcePairs = Object.freeze([
   {
     "source": "third_party/medusa/upstream/packages/core/utils/src/dal/mikro-orm/db-error-mapper.ts",
@@ -90,6 +95,20 @@ export function verifyModuleTypeFork(source, target) {
   };
   const portableSource = source.replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"');
   if (emit(portableSource) !== emit(target)) throw new Error("Module type adaptation changes runtime behavior");
+}
+/** Preserve the complete native program, admitting only its constructor alias
+ * annotation needed for concrete declaration emission.
+ * @param {string} source @param {string} target @param {string} file */
+export function verifyNativeBigNumberTypeSource(source, target, file) {
+  const failure = "Changed native BigNumber constructor alias type seam";
+  if (file !== nativeBigNumberSourcePair.target) throw new Error(failure + ": unselected target");
+  verifyModuleTypeFork(source, target);
+  const normalized = source.replaceAll("\r\n", "\n");
+  const anchor = "const BigNumberJS = BigNumberConstructor";
+  if (normalized.split(anchor).length !== 2) throw new Error(failure + ": missing native alias anchor");
+  const expected = normalized.replace(anchor,
+    "const BigNumberJS: typeof BigNumberConstructor = BigNumberConstructor");
+  if (expected !== target.replaceAll("\r\n", "\n")) throw new Error(failure);
 }
 /** @param {string} text */
 function emitForkRuntime(text) {
@@ -774,6 +793,11 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   const priceListPriceUpdateSources = ["price-list/workflows/update-price-list-prices.ts", "price-list/steps/update-price-list-prices.ts"];
   const priceListPriceRemovalSources = ["price-list/workflows/remove-price-list-prices.ts", "price-list/steps/remove-price-list-prices.ts"];
   for (const file of promotion.files) {
+    if ((file.source === nativeBigNumberSourcePair.source || file.target === nativeBigNumberSourcePair.target ||
+      file.classification === nativeBigNumberSourcePair.classification) &&
+      (file.source !== nativeBigNumberSourcePair.source || file.target !== nativeBigNumberSourcePair.target ||
+        file.classification !== nativeBigNumberSourcePair.classification))
+      throw new Error("Native BigNumber type adaptation outside its exact pinned source pair");
     const variantPricingPair = variantItemPricingSourcePairs.find(pair => file.target === pair.target || file.source === pair.source);
     if (variantPricingPair !== undefined && (file.target !== variantPricingPair.target || file.source !== variantPricingPair.source ||
       file.classification !== (file.target.endsWith("/cart/utils/fields.ts") || file.target.endsWith("/common/filter-object-by-keys.ts")
@@ -930,7 +954,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       throw new Error("Customer selection adaptation outside its selected native source pair");
     if (file.classification === "inventoryConfirmationFork" && !inventoryConfirmationSourcePairs.some(pair => pair.target === file.target && pair.source === file.source && pair.classification === file.classification))
       throw new Error("Inventory confirmation adaptation outside its selected native source pair");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRegionCreationFork", "nativeDatabaseConstraintFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRateDeletionFork", "taxRuleReplacementFork", "orderArchiveFork", "orderArchiveCompensationFork", "orderCompleteFork", "orderChangeUpdateFork", "orderChangeCancellationFork", "orderChangeDeclineFork", "orderChangeDeletionFork", "orderChangeCancellationRestoreFork", "paymentSessionTypeFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "apiKeyFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRegionCreationFork", "nativeDatabaseConstraintFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRateDeletionFork", "taxRuleReplacementFork", "orderArchiveFork", "orderArchiveCompensationFork", "orderCompleteFork", "orderChangeUpdateFork", "orderChangeCancellationFork", "orderChangeDeclineFork", "orderChangeDeletionFork", "orderChangeCancellationRestoreFork", "paymentSessionTypeFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "apiKeyFork", "nativeBigNumberTypeFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.target === "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification === "pricingServiceFork") {
@@ -1040,6 +1064,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       noSymlinks(root, file.source);
       const hash = sha256(readFileSync(path.join(root, file.source)));
       if (hash !== file.sourceSha256) throw new Error(`Changed promotion source: ${file.source}`);
+      if (file.classification === nativeBigNumberSourcePair.classification)
+        verifyNativeBigNumberTypeSource(readFileSync(path.join(root, file.source), "utf8"),
+          readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (shippingNativeSources.has(file.target))
         verifyModuleTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
       if (cartPrerequisiteSourcePairs.some(pair => pair.target === file.target && pair.classification === "importRelocation"))
