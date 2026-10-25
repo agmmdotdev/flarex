@@ -27,7 +27,13 @@ export interface WorkflowContainer {
   resolve<T>(name: string): T;
   resolve<T>(name: string, options: { readonly allowUnregistered: true }): T | undefined;
 }
-export interface StepExecutionContext { readonly container: WorkflowContainer; readonly eventGroupId: string }
+export interface StepExecutionContext {
+  readonly container: WorkflowContainer;
+  readonly eventGroupId: string;
+  /** Trusted root and complete prepared-node occurrence identity. Identifies
+   * an invocation; it grants no resource, storage or compensation authority. */
+  readonly idempotencyKey?: string;
+}
 export type Invoke<Input, Output, Compensation = Output> = (input: Input, context: StepExecutionContext) =>
   Output | StepResponse<Output, Compensation> | Promise<Output | StepResponse<Output, Compensation>>;
 export type Compensate<Input> = (input: Input | undefined, context: StepExecutionContext) => void | Promise<void>;

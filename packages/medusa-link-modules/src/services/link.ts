@@ -5,16 +5,28 @@ import {
   InjectTransactionManager,
   MedusaContext,
 } from "@medusajs/framework/utils/portable"
+import type { LinkOperationStore } from "../operations/store"
 
 type InjectedDependencies = {
   linkRepository: DAL.RepositoryService
+  linkOperationStore?: LinkOperationStore
 }
 
 export default class LinkService<TEntity> {
   protected readonly linkRepository_: any
+  readonly linkOperationStore: LinkOperationStore | undefined
 
-  constructor({ linkRepository }: InjectedDependencies) {
+  constructor({ linkRepository, linkOperationStore }: InjectedDependencies) {
     this.linkRepository_ = linkRepository
+    this.linkOperationStore = linkOperationStore
+  }
+
+  private async rotateSelected(filters: unknown, context: Context): Promise<void> {
+    const store = this.linkOperationStore
+    if (store === undefined) return
+    const rows = await this.list(filters, { take: null, withDeleted: true }, context)
+    const serialized: unknown[] = await this.linkRepository_.serialize(rows)
+    await store.rotate(store.pairs(serialized), context)
   }
 
   @InjectManager("linkRepository_")
@@ -45,6 +57,9 @@ export default class LinkService<TEntity> {
     data: unknown[],
     @MedusaContext() sharedContext: Context = {}
   ): Promise<TEntity[]> {
+    if (this.linkOperationStore !== undefined) {
+      await this.linkOperationStore.rotate(this.linkOperationStore.pairs(data), sharedContext)
+    }
     return await this.linkRepository_.create(data, {
       transactionManager: sharedContext.transactionManager,
     })
@@ -55,6 +70,9 @@ export default class LinkService<TEntity> {
     data: unknown[],
     @MedusaContext() sharedContext: Context = {}
   ): Promise<TEntity[]> {
+    if (this.linkOperationStore !== undefined) {
+      await this.linkOperationStore.rotate(this.linkOperationStore.pairs(data), sharedContext)
+    }
     const filter: any = []
     for (const pair of data) {
       filter.push({
@@ -79,6 +97,7 @@ export default class LinkService<TEntity> {
     data: unknown,
     @MedusaContext() sharedContext: Context = {}
   ): Promise<void> {
+    await this.rotateSelected({ $or: Array.isArray(data) ? data : [data] }, sharedContext)
     await this.linkRepository_.delete(data, {
       transactionManager: sharedContext.transactionManager,
     })
@@ -103,6 +122,7 @@ export default class LinkService<TEntity> {
       }),
     }
 
+    await this.rotateSelected(deleteFilters, sharedContext)
     return await this.linkRepository_.softDelete(deleteFilters, {
       transactionManager: sharedContext.transactionManager,
     })
@@ -127,6 +147,7 @@ export default class LinkService<TEntity> {
       }),
     }
 
+    await this.rotateSelected(restoreFilters, sharedContext)
     return await this.linkRepository_.restore(restoreFilters, {
       transactionManager: sharedContext.transactionManager,
     })

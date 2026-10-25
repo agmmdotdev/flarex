@@ -1,4 +1,6 @@
 // @ts-check
+import { apiKeySourcePairs, verifyApiKeySelection, verifyApiKeySource } from "./check-medusa-api-key-source.mjs";
+import { nativeLinkOperationSourcePairs, verifyNativeLinkOperationSelection } from "./check-medusa-link-operation-source.mjs";
 import { paymentSessionSourcePairs, paymentSessionTypeSourcePairs, verifyPaymentSessionSelection,
   verifyPaymentSessionSource, verifyPaymentSessionTypeSource } from "./check-medusa-payment-session-source.mjs";
 import { orderArchiveSourcePairs, verifyOrderArchiveSourceSelection, verifyOrderArchiveSource } from "./check-medusa-order-archive-source.mjs";
@@ -255,6 +257,7 @@ export function verifyInventoryReservationArithmeticExtraction(source, target, h
 }
 
 const owners = new Map([
+  ["packages/medusa-api-key", "@medusajs/api-key"],
   ["packages/medusa-order", "@medusajs/order"],
   ["packages/medusa-cart", "@medusajs/cart"],
   ["packages/medusa-customer", "@medusajs/customer"],
@@ -465,6 +468,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/sales-channel/steps/detach-products-from-sales-channels.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/sales-channel/steps/detach-products-from-sales-channels.ts"), "utf8"));
   const promotion = supplied;
+  verifyApiKeySelection(promotion.files);
+  verifyNativeLinkOperationSelection(promotion.files);
   verifyCartPrerequisiteSourceSelection(promotion.files);
   verifyPaymentSessionSelection(promotion.files);
   verifyOrderArchiveSourceSelection(promotion.files);
@@ -925,7 +930,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       throw new Error("Customer selection adaptation outside its selected native source pair");
     if (file.classification === "inventoryConfirmationFork" && !inventoryConfirmationSourcePairs.some(pair => pair.target === file.target && pair.source === file.source && pair.classification === file.classification))
       throw new Error("Inventory confirmation adaptation outside its selected native source pair");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRegionCreationFork", "nativeDatabaseConstraintFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRateDeletionFork", "taxRuleReplacementFork", "orderArchiveFork", "orderArchiveCompensationFork", "orderCompleteFork", "orderChangeUpdateFork", "orderChangeCancellationFork", "orderChangeDeclineFork", "orderChangeDeletionFork", "orderChangeCancellationRestoreFork", "paymentSessionTypeFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRegionCreationFork", "nativeDatabaseConstraintFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRateDeletionFork", "taxRuleReplacementFork", "orderArchiveFork", "orderArchiveCompensationFork", "orderCompleteFork", "orderChangeUpdateFork", "orderChangeCancellationFork", "orderChangeDeclineFork", "orderChangeDeletionFork", "orderChangeCancellationRestoreFork", "paymentSessionTypeFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "apiKeyFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.target === "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification === "pricingServiceFork") {
@@ -970,6 +975,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       && (file.classification !== "linkFork" || file.source !== sourcePrefix + "packages/core/modules-sdk/src/link.ts"))
       throw new Error("Link cascade adaptation outside its exact pinned source pair");
     if (file.classification === "linkFork" && ![
+      ...nativeLinkOperationSourcePairs.map(pair => pair.target),
       "packages/medusa-modules-sdk/src/link.ts",
       "packages/medusa-link-modules/src/utils/generate-entity.ts",
       "packages/medusa-link-modules/src/services/dynamic-service-class.ts",
@@ -1027,6 +1033,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     noSymlinks(root, file.target);
     if (sha256(readFileSync(path.join(root, file.target))) !== file.targetSha256) throw new Error(`Changed promotion target: ${file.target}`);
     if (file.source !== undefined) {
+      if (apiKeySourcePairs.some(pair => pair.target === file.target))
+        verifyApiKeySource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (!validPath(file.source) || !file.source.startsWith(sourcePrefix)
         || sourceHashes.get(file.source) !== file.sourceSha256) throw new Error(`Unpinned promotion source: ${file.source}`);
       noSymlinks(root, file.source);

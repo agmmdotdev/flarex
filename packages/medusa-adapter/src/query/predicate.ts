@@ -8,6 +8,7 @@ export type Predicate =
   | { readonly kind: "isNull"; readonly column: string }
   | { readonly kind: "and" | "or"; readonly children: readonly Predicate[] }
   | { readonly kind: "greaterThan"; readonly column: string; readonly value: string }
+  | { readonly kind: "lessThan"; readonly column: string; readonly value: string }
   | { readonly kind: "textNotEqual"; readonly column: string; readonly value: string }
   | { readonly kind: "postgresText"; readonly column: string; readonly operator: "gt" | "gte" | "lt" | "lte" | "like" | "ilike" | "regex" | "fulltext"; readonly value: string }
   | { readonly kind: "postgresText"; readonly column: string; readonly operator: "notIn"; readonly values: readonly string[] }

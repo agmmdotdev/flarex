@@ -134,3 +134,6 @@ export type { BigNumberValue } from "./totals/big-number";
 export type { CartLikeWithTotals } from "./totals/index";
 export type { LoaderOptions } from "./modules-sdk/index";
 export type { PaymentProviderContext } from "./payment/provider";
+export type * as ApiKeyTypes from "./api-key/index";
+export type * from "./api-key/index";
+export type { LinkOperationPair, LinkOperationRequest, LinkOperationHandle, LinkOperationResult, LinkOperationCompensation } from "./link-modules/operations";

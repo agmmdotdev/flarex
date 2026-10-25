@@ -126,6 +126,6 @@ export function prepareSalesChannelRepository(metadata: Metadata) {
       };
       return { ...bound, repository };
     };
-    return { table: base.table, bind };
+    return { table: base.table, query: base.query, bind };
   });
 }

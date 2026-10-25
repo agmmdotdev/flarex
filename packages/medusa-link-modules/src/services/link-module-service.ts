@@ -6,6 +6,11 @@ import type {
   IEventBusModuleService,
   ILinkModule,
   InternalModuleDeclaration,
+  LinkOperationCompensation,
+  LinkOperationHandle,
+  LinkOperationRequest,
+  LinkOperationResult,
+  Message,
   ModuleJoinerConfig,
   RestoreReturn,
   SoftDeleteReturn,
@@ -24,6 +29,8 @@ import {
   Modules,
 } from "@medusajs/framework/utils/portable"
 import LinkService from "./link"
+import { LinkOperationService } from "../operations/service"
+import { decodeLinkOperationRows, type LinkOperationEventIntent } from "../operations/contracts"
 
 type InjectedDependencies = {
   baseRepository: DAL.RepositoryService
@@ -45,6 +52,7 @@ export default class LinkModuleService implements ILinkModule {
   protected primaryKey_: string[]
   protected foreignKey_: string
   protected extraFields_: string[]
+  protected readonly linkOperationService_?: LinkOperationService
 
   constructor(
     {
@@ -67,6 +75,49 @@ export default class LinkModuleService implements ILinkModule {
     this.extraFields_ = extraFields
     this.entityName_ = entityName
     this.serviceName_ = serviceName
+    const store = linkService.linkOperationStore
+    if (store !== undefined) {
+      const serialize = async (rows: unknown) => decodeLinkOperationRows(await baseRepository.serialize(rows))
+      this.linkOperationService_ = new LinkOperationService(store, {
+        active: async (pairs, context) => {
+          const rows = await baseRepository.serialize<object[]>(await linkService.list(
+            { $or: pairs.map(pair => this.buildData(pair.primary, pair.foreign)) }, { take: pairs.length + 1 }, context))
+          decodeLinkOperationRows(rows)
+          return store.pairs(rows)
+        },
+        create: async (pairs, context) => serialize(await linkService.create(pairs.map(pair => this.buildData(pair.primary, pair.foreign)), context)),
+        dismiss: async (pairs, context) => serialize(await linkService.dismiss(pairs.map(pair => this.buildData(pair.primary, pair.foreign)), context)),
+        restore: async (pairs, context) => {
+          const [rows] = await linkService.restore(pairs.map(pair => this.buildData(pair.primary, pair.foreign)), context)
+          return await serialize(rows)
+        },
+      })
+    }
+  }
+
+  private operationEvents(events: readonly (typeof LinkOperationEventIntent.Type)[], context: Context): void {
+    if (events.length === 0) return
+    if (context.messageAggregator === undefined) throw new MedusaError(MedusaError.Types.UNEXPECTED_STATE, "Missing native Link event owner")
+    for (const event of events) context.messageAggregator.saveRawMessageData({
+      source: this.serviceName_, object: this.entityName_, action: event.action,
+      eventName: this.entityName_ + "." + event.action, data: { id: event.id }, context,
+    }, { options: { event_id: event.event_id } })
+  }
+
+  @EmitEvents()
+  async applyOperation(request: LinkOperationRequest, @MedusaContext() sharedContext: Context = {}): Promise<LinkOperationResult> {
+    if (this.linkOperationService_ === undefined) throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Native durable Link operations are not enabled")
+    const outcome = await this.linkOperationService_.apply(request, sharedContext)
+    this.operationEvents(outcome.events, sharedContext)
+    return outcome.result
+  }
+
+  @EmitEvents()
+  async compensateOperation(handle: LinkOperationHandle, @MedusaContext() sharedContext: Context = {}): Promise<LinkOperationCompensation> {
+    if (this.linkOperationService_ === undefined) throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Native durable Link operations are not enabled")
+    const outcome = await this.linkOperationService_.compensate(handle, sharedContext)
+    this.operationEvents(outcome.events, sharedContext)
+    return outcome.result
   }
 
   __joinerConfig(): ModuleJoinerConfig {
@@ -402,10 +453,19 @@ export default class LinkModuleService implements ILinkModule {
     return await this.linkService_.restore(data, sharedContext)
   }
 
-  protected async emitEvents_(groupedEvents) {
+  protected async emitEvents_(groupedEvents: Record<string, Message[]> | undefined, context?: Context): Promise<void> {
     if (!this.eventBusModuleService_ || !groupedEvents) {
       return
     }
+
+    const store = this.linkService_.linkOperationStore
+    if (store !== undefined && context !== undefined &&
+      store.deferPublication(context, () => this.publishEvents_(groupedEvents))) return
+    await this.publishEvents_(groupedEvents)
+  }
+
+  private async publishEvents_(groupedEvents: Record<string, Message[]>): Promise<void> {
+    if (!this.eventBusModuleService_) return
 
     const promises: Promise<void>[] = []
     for (const group of Object.keys(groupedEvents)) {

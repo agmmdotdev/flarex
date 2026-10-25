@@ -12,7 +12,7 @@ const decodeRows = commerceDecoder(Rows, "storedCorruption");
 const decodeRead = commerceDecoder(Schema.Struct({ filters: Schema.JsonObject, config: Schema.JsonObject }), "invalidInput");
 const decodeReadArguments = commerceDecoder(Schema.Tuple([Schema.JsonObject, Schema.JsonObject]), "invalidInput");
 interface LinkWorkflowServiceDefinition {
-  readonly admission: "create" | "dismiss" | "cascade" | "product-deletions" | "inventory-deletions" | "inventory-item-deletions" | "sales-channel-deletions" | "stock-location-deletions" | "shipping-profile-deletions" | "fulfillment-set-deletions" | "shipping-option-links";
+  readonly admission: "create" | "dismiss" | "cascade" | "product-deletions" | "inventory-deletions" | "inventory-item-deletions" | "sales-channel-deletions" | "stock-location-deletions" | "shipping-profile-deletions" | "fulfillment-set-deletions" | "shipping-option-links" | "api-key-deletions";
   readonly routing: Effect.Success<ReturnType<typeof prepareLinkService>>["routing"];
   readonly lifecycle: Effect.Success<ReturnType<typeof prepareLinkService>>["lifecycle"];
   readonly createMethod: WorkflowMethod<readonly unknown[], readonly JsonObject[]>;
@@ -35,7 +35,7 @@ export function prepareLinkWorkflowService(prepared: Effect.Success<ReturnType<t
   return Result.gen(function* () {
     const lifecycle = linkServiceLifecycleDefinition(prepared);
     if (lifecycle === undefined) return yield* Result.fail(commerceError("invalidAuthority"));
-    if ((admission === "inventory-item-deletions" || admission === "shipping-profile-deletions" || admission === "fulfillment-set-deletions" || admission === "shipping-option-links" || admission === "stock-location-deletions" && prepared.serviceName === LocationFulfillmentSet.serviceName) && (lifecycle.maximumRows !== 8 || lifecycle.completeHistory !== true))
+    if ((admission === "inventory-item-deletions" || admission === "shipping-profile-deletions" || admission === "fulfillment-set-deletions" || admission === "shipping-option-links" || admission === "api-key-deletions" || admission === "stock-location-deletions" && prepared.serviceName === LocationFulfillmentSet.serviceName) && (lifecycle.maximumRows !== 8 || lifecycle.completeHistory !== true))
       return yield* Result.fail(commerceError("unsupportedProfile"));
     const extras = Schema.Struct({ id: Schema.optionalKey(Id),
       ...Object.fromEntries(Object.keys(prepared.joiner.databaseConfig?.extraFields ?? {}).map(name =>
@@ -90,7 +90,7 @@ export function prepareLinkWorkflowService(prepared: Effect.Success<ReturnType<t
         moduleEvents: [prepared.entityName + ".attached"] });
       return { restore, restoreName, restoreMethod };
     }) : undefined;
-    const deletes = admission === "cascade" || admission === "product-deletions" || admission === "inventory-deletions" || admission === "inventory-item-deletions" || admission === "sales-channel-deletions" || admission === "stock-location-deletions" || admission === "shipping-profile-deletions" || admission === "fulfillment-set-deletions" || admission === "shipping-option-links";
+    const deletes = admission === "cascade" || admission === "product-deletions" || admission === "inventory-deletions" || admission === "inventory-item-deletions" || admission === "sales-channel-deletions" || admission === "stock-location-deletions" || admission === "shipping-profile-deletions" || admission === "fulfillment-set-deletions" || admission === "shipping-option-links" || admission === "api-key-deletions";
     const result = Object.freeze({ create, list, createName, createMethod, listMethod, routing: structuredClone(prepared.routing),
       ...(admission === "create" ? {} : { dismiss, dismissName, dismissMethod }),
       ...(deletes ? { softDelete, softDeleteName, softDeleteMethod } : {}), ...restoration });

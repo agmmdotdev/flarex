@@ -95,3 +95,4 @@ export { ChangeActionType } from "@medusajs/utils/order/order-change-action";
 export type { DecorateCartLikeInputDTO } from "@medusajs/utils/totals/cart/index";
 export { getShippingMethodsTotals, type GetShippingMethodTotalInput } from "@medusajs/utils/totals/shipping-method/index";
 export { OrderWorkflowEvents } from "@medusajs/utils/core-flows/events";
+export { ApiKeyType } from "@medusajs/utils/api-key/api-key-type";

@@ -687,6 +687,11 @@
       "types": "./dist/dal/required-validation.d.ts",
       "source": "./src/dal/required-validation.ts",
       "default": "./dist/dal/required-validation.js"
+    },
+    "./api-key/api-key-type": {
+      "types": "./dist/api-key/api-key-type.d.ts",
+      "source": "./src/api-key/api-key-type.ts",
+      "default": "./dist/api-key/api-key-type.js"
     }
   },
   "license": "MIT",

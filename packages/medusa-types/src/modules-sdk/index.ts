@@ -244,6 +244,8 @@ export type ModuleJoinerConfig = Omit<
    */
   extraDataFields?: string[]
   databaseConfig?: {
+    /** Native durable Link operations require their selected receipt store. */
+    workflowOperations?: true
     /**
      * Name of the pivot table. If not provided it is auto generated
      */

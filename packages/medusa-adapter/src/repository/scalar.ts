@@ -6,6 +6,7 @@ import type { CommerceCommandContext } from "@flarex/persistence-postgres/intern
 import { commerceError, type Json, type JsonObject, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder, commerceRowDecoder } from "../value/decoder";
 import { captureCommerceInput } from "../value/input";
+import { compileRowProjection } from "../value/complete-row";
 import { commerceRepositoryContext } from "./context";
 import { commerceMutationEvents } from "./mutation-events";
 import type { CommerceModuleEvents } from "../module/persistence";
@@ -22,6 +23,7 @@ const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 const decodeId = commerceDecoder(Id, "invalidInput");
 const decodeRows = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(256)), "invalidInput");
 const decodeProjection = commerceDecoder(Schema.Union([Schema.JsonObject, Schema.Array(Schema.JsonObject)]), "storedCorruption");
+const decodeNativePopulate = commerceDecoder(Schema.Struct({ populate: Schema.Literal(true) }), "unsupportedProfile");
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
 const decodeWhere = commerceDecoder(Schema.JsonObject, "unsupportedProfile");
 const decodeOptions = commerceDecoder(Schema.Struct({
@@ -38,7 +40,8 @@ export type ScalarCreationPlan = ReturnType<typeof planScalarCreateBatch<JsonObj
 export function prepareScalarRepository(table: SchemaTable, modelName: string, wherePolicy: WherePolicy,
   normalizeProjection?: (value: Json) => Effect.Effect<Json, CommerceTransactionError>,
   createPolicy?: { readonly managedTimestamps?: true; readonly nativeRealPresentation?: true;
-    readonly nativeToOneCreationPresence?: Effect.Success<ReturnType<typeof decodeCompiledDml>>["tables"][number]["relationships"] }) {
+    readonly nativeToOneCreationPresence?: Effect.Success<ReturnType<typeof decodeCompiledDml>>["tables"][number]["relationships"] },
+  nativePopulate?: { readonly relationships: Effect.Success<ReturnType<typeof decodeCompiledDml>>["tables"][number]["relationships"] }) {
   return Result.gen(function* () {
     const primary = table.columns.filter(column => column.primaryKey);
     if (primary.length !== 1 || primary[0]?.name !== "id" || primary[0].type !== "id") {
@@ -46,6 +49,8 @@ export function prepareScalarRepository(table: SchemaTable, modelName: string, w
     }
     const prefix = primary[0].options?.prefix;
     const columns = table.columns.map(column => column.name);
+    const populatedProjection = nativePopulate !== undefined && nativePopulate.relationships.length === 0 && table.foreignKeys.length === 0
+      ? compileRowProjection(table) : Result.fail(commerceError("unsupportedProfile"));
     const scalarNames = createPolicy?.managedTimestamps ? columns : columns.filter(name => !["created_at", "updated_at", "deleted_at"].includes(name));
     const realColumns = createPolicy?.nativeRealPresentation ? table.columns.filter(column => column.type === "float").map(column => column.name) : [];
     const optionalNativeReferences: string[] = [];
@@ -160,14 +165,25 @@ export function prepareScalarRepository(table: SchemaTable, modelName: string, w
       const repository: DAL.RepositoryService = {
         getFreshManager: bridge.getFreshManager, getActiveManager: bridge.getActiveManager, transaction: bridge.transaction,
         serialize: <Output extends object | object[]>(input: unknown, options?: unknown): Promise<Output> => owner.run(bridge.checked(root, Effect.gen(function* () {
-          if (options !== undefined) return yield* root.refuse(commerceError("unsupportedProfile"));
+          const projection = options === undefined ? undefined : yield* Effect.fromResult(Result.gen(function* () {
+            let omitted = false;
+            const captured = yield* captureCommerceInput(options, root.resources, () => { omitted = true; });
+            if (omitted) return yield* Result.fail(commerceError("unsupportedProfile"));
+            yield* decodeNativePopulate(captured);
+            return yield* populatedProjection;
+          }));
           const decoded = input === undefined ? undefined : yield* Effect.fromResult(
             captureCommerceInput(input, root.resources).pipe(Result.flatMap(decodeProjection)));
+          if (projection !== undefined && decoded !== undefined)
+            for (const row of Array.isArray(decoded) ? decoded : [decoded]) yield* Effect.fromResult(projection(row));
           // SAFETY: the native serializer is an identity operation and can
           // receive undefined after a zero-match scalar update. Its DAL generic
           // still declares a DTO, including for selected scalar projections.
-          return (decoded === undefined || normalizeProjection === undefined
-            ? decoded : yield* normalizeProjection(decoded)) as Output;
+          const output = decoded === undefined || normalizeProjection === undefined
+            ? decoded : yield* normalizeProjection(decoded);
+          // Native populate serializers hand mutable DTOs to module formatters.
+          // Keep the bounded private capture separate from those mutations.
+          return (projection === undefined || output === undefined ? output : structuredClone(output)) as Output;
         }))),
         // Native internal services mutate entity metadata before writing. Keep
         // captured storage/projection evidence private and give DAL callers

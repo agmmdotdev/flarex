@@ -102,3 +102,7 @@ export const productLaunchResources = Object.freeze({ ...defaultCommerceResource
 export const productLaunchCommandMs = 30_000;
 /** Native Tax Rule replacement retains the ordinary limits for both directions. */
 export const taxRuleReplacementResources = Object.freeze({ ...defaultCommerceResources });
+
+/** Four additions and four removals retain durable native Link fencing,
+ * receipts and genuine compensation within one trusted root lifetime. */
+export const apiKeyAssociationResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });

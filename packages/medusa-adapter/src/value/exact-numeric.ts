@@ -21,7 +21,7 @@ export { Raw as ExactNumericRaw };
 
 const nativeNumericInput = (input: unknown, representation: "storage" | "comparison") => Result.try({
   try: () => {
-    if (input instanceof ArithmeticNumber) return input.toString();
+    if (input !== null && typeof input === "object" && input instanceof ArithmeticNumber) return input.toString();
     if (representation === "comparison") return input instanceof NativeBigNumber ? input.bigNumber?.toString() : input;
     if (input instanceof BigNumber) return input.raw?.value;
     return input;

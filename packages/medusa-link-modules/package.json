@@ -13,7 +13,8 @@
   "dependencies": {
     "@medusajs/framework": "workspace:*",
     "@medusajs/types": "workspace:*",
-    "@medusajs/utils": "workspace:*"
+    "@medusajs/utils": "workspace:*",
+    "effect": "catalog:"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

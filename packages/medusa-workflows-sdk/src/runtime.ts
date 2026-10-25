@@ -22,7 +22,7 @@ export const executeWorkflow = Effect.fn("MedusaWorkflow.execute")(function <Fai
 });
 /** Child frames borrow the root port; only their evaluation caches are local. */
 const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
-  definition: PreparedWorkflow, input: unknown, port: WorkflowExecutionPort<Failure>, root = false,
+  definition: PreparedWorkflow, input: unknown, port: WorkflowExecutionPort<Failure>, root = false, framePath: readonly number[] = [],
 ): Effect.fn.Return<unknown, Failure | ReturnType<typeof definitionError>> {
   const outputs = new Map<object, unknown>();
   const undefinedStepOutputs = new Set<object>();
@@ -90,14 +90,16 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
     }
     const input = yield* port.capture((yield* resolve(resolution)).value);
     if (node.kind === "workflow") {
-      const output = yield* executeFrame(node.workflow, input, port);
+      const output = yield* executeFrame(node.workflow, input, port, false, [...framePath, index]);
       outputs.set(node.id, yield* port.capture(output));
       // Native runAsStep wraps a child's result in StepResponse, including void.
       if (output === undefined) undefinedStepOutputs.add(node.id);
       return;
     }
+    const context: StepExecutionContext = Object.freeze({ ...port.context,
+      idempotencyKey: JSON.stringify([port.context.eventGroupId, ...framePath, index]) });
     const returned = yield* port.invoke(() => {
-      const value = node.invoke(input, port.context);
+      const value = node.invoke(input, context);
       if (node.kind !== "condition" || typeof value === "boolean") return value;
       const refuse = () => { throw definitionError("unsupportedProfile", "Conditions must synchronously return a Boolean"); };
       // Observe an invalid Promise through the same bounded callback owner;

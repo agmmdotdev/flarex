@@ -202,7 +202,12 @@
     "./tax/create-tax-regions": "./src/tax/workflows/create-tax-regions.ts",
     "./tax/create-tax-regions-step": "./src/tax/steps/create-tax-regions.ts",
     "./order/delete-order-change": "./src/order/workflows/delete-order-change.ts",
-    "./order/delete-order-changes-step": "./src/order/steps/delete-order-changes.ts"
+    "./order/delete-order-changes-step": "./src/order/steps/delete-order-changes.ts",
+    "./api-key/create-api-keys": "./src/api-key/workflows/create-api-keys.ts",
+    "./api-key/update-api-keys": "./src/api-key/workflows/update-api-keys.ts",
+    "./api-key/revoke-api-keys": "./src/api-key/workflows/revoke-api-keys.ts",
+    "./api-key/delete-api-keys": "./src/api-key/workflows/delete-api-keys.ts",
+    "./api-key/link-sales-channels-to-publishable-key": "./src/api-key/workflows/link-sales-channels-to-publishable-key.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",
@@ -212,13 +217,11 @@
     "@medusajs/workflows-sdk": "workspace:*",
     "effect": "catalog:",
     "@medusajs/framework": "workspace:*",
-    "json-2-csv": "5.5.10"
+    "json-2-csv": "5.5.10",
+    "@medusajs/orchestration": "workspace:*"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.durable.json --noEmit",
     "build": "tsc -p tsconfig.durable.json"
-  },
-  "devDependencies": {
-    "@medusajs/orchestration": "workspace:*"
   }
 }

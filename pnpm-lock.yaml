@@ -852,6 +852,9 @@ importers:
 
   packages/medusa-adapter:
     dependencies:
+      '@medusajs/api-key':
+        specifier: workspace:*
+        version: link:../medusa-api-key
       '@flarex/analysis':
         specifier: workspace:*
         version: link:../analysis
@@ -986,8 +989,26 @@ importers:
         specifier: workspace:*
         version: link:../medusa-utils
 
+  packages/medusa-api-key:
+    dependencies:
+      '@medusajs/framework':
+        specifier: workspace:*
+        version: link:../medusa-framework
+      '@medusajs/modules-sdk':
+        specifier: workspace:*
+        version: link:../medusa-modules-sdk
+      '@medusajs/types':
+        specifier: workspace:*
+        version: link:../medusa-types
+      '@medusajs/utils':
+        specifier: workspace:*
+        version: link:../medusa-utils
+
   packages/medusa-core-flows:
     dependencies:
+      '@medusajs/orchestration':
+        specifier: workspace:*
+        version: link:../medusa-orchestration
       '@medusajs/deps':
         specifier: workspace:*
         version: link:../medusa-deps
@@ -1012,10 +1033,6 @@ importers:
       json-2-csv:
         specifier: 5.5.10
         version: 5.5.10
-    devDependencies:
-      '@medusajs/orchestration':
-        specifier: workspace:*
-        version: link:../medusa-orchestration
 
   packages/medusa-currency:
     dependencies:
@@ -1136,6 +1153,9 @@ importers:
       '@medusajs/utils':
         specifier: workspace:*
         version: link:../medusa-utils
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-rc.112
 
   packages/medusa-locking:
     dependencies:

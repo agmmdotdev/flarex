@@ -2,6 +2,10 @@ import type {
   Context,
   ILinkModule,
   LinkDefinition,
+  LinkOperationCompensation,
+  LinkOperationHandle,
+  LinkOperationRequest,
+  LinkOperationResult,
   LoadedModule,
   ModuleJoinerRelationship,
 } from "@medusajs/types"
@@ -156,6 +160,28 @@ export class Link {
 
   getRelationships(): Map<string, Map<string, RemoteRelationship[]>> {
     return this.relations
+  }
+
+  /** A durable operation always belongs to one explicit native Link family.
+   * Ordinary router create/dismiss calls cannot stand in for this capability. */
+  async applyOperation(serviceName: string, request: LinkOperationRequest,
+    @MedusaContext() sharedContext: Context = {}): Promise<LinkOperationResult> {
+    const selected = this.modulesMap.get(serviceName)
+    if (selected?.__joinerConfig.isLink !== true || selected.__joinerConfig.serviceName !== serviceName ||
+      typeof selected.applyOperation !== "function") {
+      throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Selected native Link family does not support durable operations")
+    }
+    return await selected.applyOperation(request, sharedContext)
+  }
+
+  async compensateOperation(handle: LinkOperationHandle,
+    @MedusaContext() sharedContext: Context = {}): Promise<LinkOperationCompensation> {
+    const selected = this.modulesMap.get(handle.serviceName)
+    if (selected?.__joinerConfig.isLink !== true || selected.__joinerConfig.serviceName !== handle.serviceName ||
+      typeof selected.compensateOperation !== "function") {
+      throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Selected native Link family does not support durable compensation")
+    }
+    return await selected.compensateOperation(handle, sharedContext)
   }
 
   private getLinkableKeys(mod: LoadedLinkModule) {

@@ -24,6 +24,7 @@ const Relationship = Schema.Struct({ serviceName: Name, foreignKey: Name, primar
 const decodeDefinition = Schema.decodeUnknownEffect(Schema.Struct({
   serviceName: Name, relationships: Schema.Tuple([Relationship, Relationship]),
   databaseConfig: Schema.Struct({ tableName: Name, idPrefix: Name,
+    workflowOperations: Schema.optionalKey(Schema.Literal(true)),
     extraFields: Schema.optionalKey(Schema.Record(Name, Schema.Struct({ type: Schema.Literal("integer"),
       defaultValue: Schema.optionalKey(Schema.String) }))) }),
 }));

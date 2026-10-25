@@ -36,11 +36,13 @@ export function commerceRepositoryContext(root: CommerceCommandContext, owner: C
    * omission stays at this value boundary; core captures and charges the
    * resulting JSON before any queued waiting. Default profiles stay immediate. */
   const executeInput = <Value>(shared: unknown, input: unknown,
-    work: (ctx: CommerceCommandContext, captured: unknown) => Effect.Effect<Value, CommerceTransactionError>): Promise<Value> =>
+    work: (ctx: CommerceCommandContext, captured: unknown) => Effect.Effect<Value, CommerceTransactionError>,
+    normalize?: (ctx: CommerceCommandContext, input: unknown) => Effect.Effect<unknown, CommerceTransactionError>): Promise<Value> =>
     owner.run(Effect.gen(function* () {
       const ctx = yield* select(shared);
-      return yield* (ctx.enqueue === undefined ? work(ctx, input)
-        : ctx.enqueue(() => captureCommerceInput(input, ctx.resources), (captured: Json) => work(ctx, captured)));
+      const normalized = normalize === undefined ? input : yield* checked(ctx, normalize(ctx, input));
+      return yield* (ctx.enqueue === undefined ? work(ctx, normalized)
+        : ctx.enqueue(() => captureCommerceInput(normalized, ctx.resources), (captured: Json) => work(ctx, captured)));
     }));
   const checked = <Value>(ctx: CommerceCommandContext, value: Effect.Effect<Value, CommerceTransactionError>) =>
     value.pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));

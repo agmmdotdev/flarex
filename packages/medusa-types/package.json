@@ -197,6 +197,36 @@
       "types": "./dist/order/index.d.ts",
       "source": "./src/order/index.ts",
       "default": "./dist/order/index.js"
+    },
+    "./api-key/index": {
+      "types": "./dist/api-key/index.d.ts",
+      "source": "./src/api-key/index.ts",
+      "default": "./dist/api-key/index.js"
+    },
+    "./api-key/service": {
+      "types": "./dist/api-key/service.d.ts",
+      "source": "./src/api-key/service.ts",
+      "default": "./dist/api-key/service.js"
+    },
+    "./api-key/common/index": {
+      "types": "./dist/api-key/common/index.d.ts",
+      "source": "./src/api-key/common/index.ts",
+      "default": "./dist/api-key/common/index.js"
+    },
+    "./api-key/common/api-key": {
+      "types": "./dist/api-key/common/api-key.d.ts",
+      "source": "./src/api-key/common/api-key.ts",
+      "default": "./dist/api-key/common/api-key.js"
+    },
+    "./api-key/mutations/index": {
+      "types": "./dist/api-key/mutations/index.d.ts",
+      "source": "./src/api-key/mutations/index.ts",
+      "default": "./dist/api-key/mutations/index.js"
+    },
+    "./api-key/mutations/api-key": {
+      "types": "./dist/api-key/mutations/api-key.d.ts",
+      "source": "./src/api-key/mutations/api-key.ts",
+      "default": "./dist/api-key/mutations/api-key.js"
     }
   },
   "license": "MIT",

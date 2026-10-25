@@ -9,6 +9,20 @@ const promotion = verifyCurrencyPromotion(root);
 const admitted = new Set(promotion.files.map((file) => path.resolve(root, file.target).replaceAll("\\", "/")));
 const inputs = new Set();
 for (const entry of [
+  "packages/medusa-api-key/src/static-manifest.ts",
+  "packages/medusa-adapter/src/modules/api-key/service.ts",
+  "packages/medusa-adapter/src/modules/api-key/lifecycle-service.ts",
+  "packages/medusa-adapter/src/modules/api-key/schema.ts",
+  "packages/medusa-adapter/src/workflows/api-key/create.ts",
+  "packages/medusa-adapter/src/workflows/api-key/update.ts",
+  "packages/medusa-adapter/src/workflows/api-key/revoke.ts",
+  "packages/medusa-adapter/src/workflows/api-key/delete.ts",
+  "packages/medusa-adapter/src/workflows/api-key/associate-sales-channels.ts",
+  "packages/medusa-core-flows/src/api-key/workflows/create-api-keys.ts",
+  "packages/medusa-core-flows/src/api-key/workflows/update-api-keys.ts",
+  "packages/medusa-core-flows/src/api-key/workflows/revoke-api-keys.ts",
+  "packages/medusa-core-flows/src/api-key/workflows/delete-api-keys.ts",
+  "packages/medusa-core-flows/src/api-key/workflows/link-sales-channels-to-publishable-key.ts",
   "packages/medusa-core-flows/src/payment-collection/workflows/create-payment-session.ts",
   "packages/medusa-core-flows/src/payment-collection/workflows/delete-payment-sessions.ts",
   "packages/medusa-adapter/src/workflows/payment/create-session.ts",

@@ -8,7 +8,18 @@
     "./internal/currency": "./src/modules/currency/service.ts",
     "./internal/product-schema": "./src/modules/product/schema.ts",
     "./internal/product-definition": "./src/modules/product/definition.ts",
-    "./internal/product-attempt": "./src/modules/product/attempt.ts"
+    "./internal/product-attempt": "./src/modules/product/attempt.ts",
+    "./internal/api-key": "./src/modules/api-key/service.ts",
+    "./internal/api-key-schema": "./src/modules/api-key/schema.ts",
+    "./internal/api-key/create-workflow": "./src/workflows/api-key/create.ts",
+    "./internal/api-key/lifecycle": "./src/modules/api-key/lifecycle-service.ts",
+    "./internal/api-key/update-workflow": "./src/workflows/api-key/update.ts",
+    "./internal/api-key/revoke-workflow": "./src/workflows/api-key/revoke.ts",
+    "./internal/api-key/delete-workflow": "./src/workflows/api-key/delete.ts",
+    "./internal/api-key/deletion-links": "./src/links/api-key-deletion.ts",
+    "./internal/api-key/association-workflow": "./src/workflows/api-key/associate-sales-channels.ts",
+    "./internal/api-key/association-links": "./src/links/api-key-associations.ts",
+    "./internal/api-key/sales-channel-read": "./src/modules/sales-channel/api-key-read.ts"
   },
   "dependencies": {
     "@flarex/durable-task": "workspace:*",
@@ -42,7 +53,8 @@
     "@medusajs/region": "workspace:*",
     "@medusajs/fulfillment-manual": "workspace:*",
     "@medusajs/order": "workspace:*",
-    "@medusajs/payment": "workspace:*"
+    "@medusajs/payment": "workspace:*",
+    "@medusajs/api-key": "workspace:*"
   },
   "devDependencies": {
     "@flarex/application-schema-definition": "workspace:*",

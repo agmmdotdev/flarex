@@ -1,11 +1,12 @@
 import { commerceModuleEventBus } from "../module/events";
 import { Effect, Schema } from "effect";
-import { LinkService, getModuleService } from "@medusajs/link-modules";
+import { LinkService, LinkOperationStore, getModuleService } from "@medusajs/link-modules";
 import { Link, type DeleteEntityInput } from "@medusajs/modules-sdk/link";
 import { Modules } from "@medusajs/framework/utils/portable";
 import { toPascalCase } from "@medusajs/utils/common/to-pascal-case";
 import type { Context, ILinkModule, LoadedModule } from "@medusajs/types";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { requireAtomicCommerceScopeExclusion } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { captureLinkMetadata } from "./schema";
 import { prepareLinkRepository } from "./repository";
@@ -13,17 +14,19 @@ import { withCommerceService } from "../module/service-bridge";
 import type { CommercePromiseOwner } from "../module/promise-owner";
 import { commerceDecoder } from "../value/decoder";
 import { captureCommerceInput } from "../value/input";
+import type { captureLinkOperationMetadata } from "./operation-schema";
+import { prepareLinkOperationRepository } from "./operation-repository";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 const Ids = Schema.Union([Id, Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(256))]);
 const decodeCascade = commerceDecoder(Schema.Tuple([Schema.Null,
   Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.Array(Id)))]), "adapterFailure");
 
-export interface BoundLink { readonly link: Readonly<Pick<Link, "create" | "dismiss" | "delete" | "restore" | "list">>;
-  readonly service: Readonly<Pick<ILinkModule, "list" | "listAndCount" | "create" | "dismiss" | "softDelete" | "restore">>; readonly context: Context;
+export interface BoundLink { readonly link: Readonly<Pick<Link, "create" | "dismiss" | "delete" | "restore" | "list" | "applyOperation" | "compensateOperation">>;
+  readonly service: Readonly<Pick<ILinkModule, "list" | "listAndCount" | "create" | "dismiss" | "softDelete" | "restore" | "applyOperation" | "compensateOperation">>; readonly context: Context;
   readonly cascade: (result: unknown) => Promise<Json> }
 
-const preparedLinkLifecycles = new WeakMap<object, Readonly<{ maximumRows: 8 | null; completeHistory: boolean }>>();
+const preparedLinkLifecycles = new WeakMap<object, Readonly<{ maximumRows: 8 | null; completeHistory: boolean; durableOperations?: true }>>();
 export function linkServiceLifecycleDefinition(input: unknown) {
   const lifecycle = typeof input === "object" && input !== null ? preparedLinkLifecycles.get(input) : undefined;
   return lifecycle === undefined ? undefined : Object.freeze({ ...lifecycle });
@@ -35,13 +38,15 @@ export const prepareLinkService = Effect.fn("LinkAdapter.prepareService")(functi
   metadata: Effect.Success<ReturnType<typeof captureLinkMetadata>>,
   maximumLifecycleRows?: 8,
   completeLifecycleHistory?: true,
+  operationMetadata?: Effect.Success<ReturnType<typeof captureLinkOperationMetadata>>["frame"],
 ) {
   const joiner = structuredClone(metadata.joiner);
   const [primary, foreign] = joiner.relationships ?? [];
   const idPrefix = joiner.databaseConfig?.idPrefix;
   if (primary === undefined || foreign === undefined || idPrefix === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const prepared = yield* Effect.fromResult(prepareLinkRepository(metadata.frame, idPrefix, maximumLifecycleRows, completeLifecycleHistory));
-  const lifecycle = Object.freeze({ maximumRows: maximumLifecycleRows ?? null, completeHistory: completeLifecycleHistory === true });
+  const lifecycle = Object.freeze({ maximumRows: maximumLifecycleRows ?? null, completeHistory: completeLifecycleHistory === true,
+    ...(operationMetadata === undefined ? {} : { durableOperations: true as const }) });
   const decodeEndpoint = commerceDecoder(Schema.Union([
     Schema.Struct({ [primary.serviceName]: Schema.Struct({ [primary.foreignKey]: Ids }) }),
     Schema.Struct({ [foreign.serviceName]: Schema.Struct({ [foreign.foreignKey]: Ids }) }),
@@ -49,6 +54,16 @@ export const prepareLinkService = Effect.fn("LinkAdapter.prepareService")(functi
   const serviceName = joiner.serviceName;
   const entityName = "Link" + toPascalCase(metadata.frame.name);
   if (serviceName === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const operationsEnabled = joiner.databaseConfig?.workflowOperations === true;
+  if (operationsEnabled !== (operationMetadata !== undefined)) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const operationTable = operationMetadata?.tables.find(table => table.name === "link_workflow_operation");
+  const revisionTable = operationMetadata?.tables.find(table => table.name === "link_pair_revision");
+  if (operationMetadata !== undefined && (operationMetadata.tables.length !== 2 || operationTable === undefined || revisionTable === undefined))
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const operationRepository = operationTable === undefined ? undefined
+    : yield* Effect.fromResult(prepareLinkOperationRepository(operationTable, "LinkWorkflowOperation"));
+  const revisionRepository = revisionTable === undefined ? undefined
+    : yield* Effect.fromResult(prepareLinkOperationRepository(revisionTable, "LinkPairRevision"));
   const Service = getModuleService(joiner);
   const routing = { __joinerConfig: Service.prototype.__joinerConfig(), __definition: {
     key: serviceName, defaultPackage: "@medusajs/link-modules", label: entityName, isQueryable: true,
@@ -56,12 +71,25 @@ export const prepareLinkService = Effect.fn("LinkAdapter.prepareService")(functi
   } };
   const bind = (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => {
     const bound = prepared.bind(ctx, owner);
+    const operationStore = operationRepository === undefined || revisionRepository === undefined ? undefined : new LinkOperationStore({
+      serviceName, primaryKey: primary.foreignKey, foreignKey: foreign.foreignKey,
+      operations: operationRepository.bind(ctx, owner), revisions: revisionRepository.bind(ctx, owner),
+      transactionRepository: bound.repository,
+      borrowedOwner: { run: async <T>(shared: Context, work: (context: Context) => Promise<T>): Promise<T> => {
+        await owner.run(Effect.gen(function* () {
+          const selected = yield* bound.bridge.select(shared);
+          yield* bound.bridge.checked(selected, requireAtomicCommerceScopeExclusion(selected));
+        }));
+        return await work(shared);
+      } },
+    });
     const eventBus = commerceModuleEventBus({ owner, resources: ctx.resources,
       capture: message => bound.bridge.current().captureLocalEvent(message),
       check: work => bound.bridge.checked(bound.bridge.current(), work), refuse: bound.refuse,
     });
     const service = new Service({
-      baseRepository: bound.repository, linkService: new LinkService({ linkRepository: bound.repository }),
+      baseRepository: bound.repository, linkService: new LinkService({ linkRepository: bound.repository,
+        ...(operationStore === undefined ? {} : { linkOperationStore: operationStore }) }),
       primaryKey: primary.foreignKey, foreignKey: foreign.foreignKey,
       extraFields: Object.keys(joiner.databaseConfig?.extraFields ?? {}), entityName, serviceName,
       [Modules.EVENT_BUS]: eventBus,
@@ -70,10 +98,12 @@ export const prepareLinkService = Effect.fn("LinkAdapter.prepareService")(functi
     // Do not overwrite the service's __joinerConfig method with a data property.
     const loaded = { ...routing, create: service.create.bind(service), dismiss: service.dismiss.bind(service), list: service.list.bind(service),
       softDelete: service.softDelete.bind(service), restore: service.restore.bind(service),
-    } satisfies LoadedModule & Pick<ILinkModule, "create" | "dismiss" | "list" | "softDelete" | "restore">;
+      applyOperation: service.applyOperation.bind(service), compensateOperation: service.compensateOperation.bind(service),
+    } satisfies LoadedModule & Pick<ILinkModule, "create" | "dismiss" | "list" | "softDelete" | "restore" | "applyOperation" | "compensateOperation">;
     return { bound, service: {
       list: service.list.bind(service), listAndCount: service.listAndCount.bind(service),
       create: service.create.bind(service), dismiss: service.dismiss.bind(service), softDelete: service.softDelete.bind(service), restore: service.restore.bind(service),
+      applyOperation: service.applyOperation.bind(service), compensateOperation: service.compensateOperation.bind(service),
     } satisfies BoundLink["service"], loaded };
   };
   const use = (ctx: CommerceCommandContext, work: (service: BoundLink) => Promise<unknown>) => withCommerceService(ctx, owner => {
@@ -87,11 +117,13 @@ export const prepareLinkService = Effect.fn("LinkAdapter.prepareService")(functi
       // Actual bound native methods, without mutable registration or routing
       // metadata capabilities escaping into command code.
       link: Object.freeze({ create: router.create.bind(router), dismiss: router.dismiss.bind(router),
+        applyOperation: router.applyOperation.bind(router), compensateOperation: router.compensateOperation.bind(router),
         // Admission precedes native traversal even for a borrowed service call.
         delete: async (input: DeleteEntityInput, context?: Context) => router.delete(await endpoint(input), context),
         restore: async (input: DeleteEntityInput, context?: Context) => router.restore(await endpoint(input), context), list: router.list.bind(router) }),
       service: Object.freeze({ list: service.list.bind(service), listAndCount: service.listAndCount.bind(service),
-        create: service.create.bind(service), dismiss: service.dismiss.bind(service), softDelete: service.softDelete.bind(service), restore: service.restore.bind(service) }),
+        create: service.create.bind(service), dismiss: service.dismiss.bind(service), softDelete: service.softDelete.bind(service), restore: service.restore.bind(service),
+        applyOperation: service.applyOperation.bind(service), compensateOperation: service.compensateOperation.bind(service) }),
       context: { manager: ctx.manager, transactionManager: ctx.manager },
       cascade: result => owner.run(bound.bridge.checked(ctx, Effect.gen(function* () {
         const captured = yield* Effect.fromResult(captureCommerceInput(result, ctx.resources));
