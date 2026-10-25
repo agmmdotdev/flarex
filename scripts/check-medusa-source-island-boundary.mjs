@@ -790,6 +790,8 @@ export function discoverRootToolSources(repoRoot) {
     "scripts/check-medusa-order-change-cancellation-source.test.js",
     "scripts/check-medusa-order-change-decline-source.mjs",
     "scripts/check-medusa-order-change-decline-source.test.js",
+    "scripts/check-medusa-order-change-deletion-source.mjs",
+    "scripts/check-medusa-order-change-deletion-source.test.js",
     "scripts/check-medusa-order-finance-source.mjs",
     "scripts/check-medusa-order-finance-source.test.js",
     "scripts/check-medusa-tax-rate-update-source.mjs",

@@ -5,6 +5,7 @@ import { orderArchiveSourcePairs, verifyOrderArchiveSourceSelection, verifyOrder
 import { orderCompleteSourcePairs, verifyOrderCompleteSourceSelection, verifyOrderCompleteSource } from "./check-medusa-order-complete-source.mjs";
 import { orderChangeUpdateSourcePairs, verifyOrderChangeUpdateSourceSelection, verifyOrderChangeUpdateSource } from "./check-medusa-order-change-update-source.mjs";
 import { orderChangeDeclineSourcePairs, verifyOrderChangeDeclineSourceSelection, verifyOrderChangeDeclineSource } from "./check-medusa-order-change-decline-source.mjs";
+import { orderChangeDeletionSourcePairs, verifyOrderChangeDeletionSourceSelection, verifyOrderChangeDeletionSource } from "./check-medusa-order-change-deletion-source.mjs";
 import { orderChangeCancellationSourcePairs, verifyOrderChangeCancellationSourceSelection, verifyOrderChangeCancellationSource } from "./check-medusa-order-change-cancellation-source.mjs";
 import { verifyOrderFinanceSelection, verifyOrderFinanceHelpers } from "./check-medusa-order-finance-source.mjs";
 import { taxRateUpdateSourcePairs, updateMetadataSourcePairs, taxRuleCreatorTypeSourcePair, verifyTaxRuleCreatorType, verifyTaxRateUpdateCallbacks,
@@ -471,6 +472,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   verifyOrderChangeUpdateSourceSelection(promotion.files);
   verifyOrderChangeCancellationSourceSelection(promotion.files);
   verifyOrderChangeDeclineSourceSelection(promotion.files);
+  verifyOrderChangeDeletionSourceSelection(promotion.files);
   verifyOrderFinanceSelection(promotion.files);
   verifyTaxRuleReplacementSelection(promotion.files);
   verifyInventoryConfirmationSourceSelection(promotion.files);
@@ -923,7 +925,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       throw new Error("Customer selection adaptation outside its selected native source pair");
     if (file.classification === "inventoryConfirmationFork" && !inventoryConfirmationSourcePairs.some(pair => pair.target === file.target && pair.source === file.source && pair.classification === file.classification))
       throw new Error("Inventory confirmation adaptation outside its selected native source pair");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRegionCreationFork", "nativeDatabaseConstraintFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRateDeletionFork", "taxRuleReplacementFork", "orderArchiveFork", "orderArchiveCompensationFork", "orderCompleteFork", "orderChangeUpdateFork", "orderChangeCancellationFork", "orderChangeDeclineFork", "orderChangeCancellationRestoreFork", "paymentSessionTypeFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRegionCreationFork", "nativeDatabaseConstraintFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRateDeletionFork", "taxRuleReplacementFork", "orderArchiveFork", "orderArchiveCompensationFork", "orderCompleteFork", "orderChangeUpdateFork", "orderChangeCancellationFork", "orderChangeDeclineFork", "orderChangeDeletionFork", "orderChangeCancellationRestoreFork", "paymentSessionTypeFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.target === "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification === "pricingServiceFork") {
@@ -1042,6 +1044,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
         verifyOrderChangeUpdateSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (orderChangeDeclineSourcePairs.some(pair => pair.target === file.target && pair.classification === "orderChangeDeclineFork"))
         verifyOrderChangeDeclineSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
+      if (orderChangeDeletionSourcePairs.some(pair => pair.target === file.target && pair.classification === "orderChangeDeletionFork"))
+        verifyOrderChangeDeletionSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (orderChangeCancellationSourcePairs.some(pair => pair.target === file.target))
         verifyOrderChangeCancellationSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (file.target === "packages/medusa-order/src/services/order-module-service.ts")

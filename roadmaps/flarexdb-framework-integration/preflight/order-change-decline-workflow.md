@@ -2,8 +2,8 @@
 
 ## Status and scope
 
-Implementation in progress; validation and admission remain pending. The
-proposed private `flarex-order-change-decline` / `order.changeDecline` profile
+Implemented and privately admitted for the bounded native-compatible profile.
+The private `flarex-order-change-decline` / `order.changeDecline` profile
 covers one existing pending or requested Change. The complete Order definition,
 shared Change contracts and trusted queued workflow owner remain authoritative.
 Creation, confirmation, Actions, finance, transfer-workflow activation, delayed

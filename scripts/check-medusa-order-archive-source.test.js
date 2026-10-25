@@ -7,6 +7,7 @@ import { orderArchiveSourcePairs, orderArchiveAuthoredTargets, verifyOrderArchiv
 import { orderCompleteSourcePairs } from "./check-medusa-order-complete-source.mjs";
 import { orderChangeUpdateSourcePairs } from "./check-medusa-order-change-update-source.mjs";
 import { orderChangeCancellationSourcePairs } from "./check-medusa-order-change-cancellation-source.mjs";
+import { orderChangeDeletionSourcePairs } from "./check-medusa-order-change-deletion-source.mjs";
 
 const failure = "Changed native Order archive source";
 /** @param {string} target */
@@ -20,6 +21,22 @@ const workflow = entry("packages/medusa-core-flows/src/order/workflows/archive-o
 const joiner = entry("packages/medusa-order/src/joiner-config.ts");
 
 describe("bounded native Order source preparation", () => {
+  it("recognizes only the separately guarded exact Order Change deletion pairs", () => {
+    expect(orderChangeDeletionSourcePairs).toHaveLength(2);
+    expect(() => verifyOrderArchiveSourceSelection([...orderArchiveSourcePairs, ...orderChangeDeletionSourcePairs])).not.toThrow();
+    for (const pair of orderChangeDeletionSourcePairs) {
+      for (const changed of [{ ...pair, source: pair.source + ".other" },
+        { ...pair, target: pair.target + ".other" }, { ...pair, classification: "authored" }])
+        expect(() => verifyOrderArchiveSourceSelection([...orderArchiveSourcePairs, changed])).toThrow(failure);
+    }
+  });
+  it.each(["steps/delete-order-change-actions.ts", "workflows/delete-order-change-unknown.ts"])(
+    "refuses adjacent unselected deletion closure %s", file => {
+      expect(() => verifyOrderArchiveSourceSelection([...orderArchiveSourcePairs, ...orderChangeDeletionSourcePairs, {
+        source: "third_party/medusa/upstream/packages/core/core-flows/src/order/" + file,
+        target: "packages/medusa-core-flows/src/order/" + file, classification: "orderChangeDeletionFork",
+      }])).toThrow(failure);
+    });
   it("recognizes only the separately guarded cancellation correction pairs", () => {
     const additional = orderChangeCancellationSourcePairs.filter(pair => !orderArchiveSourcePairs.some(existing => existing.target === pair.target));
     expect(() => verifyOrderArchiveSourceSelection([...orderArchiveSourcePairs, ...additional])).not.toThrow();

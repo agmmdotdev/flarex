@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "7cd0a8bd3af8119ccdfb24929c92cce55d5bc405052cb0c382066b5d049a1d40"
+      "targetSha256": "4083e1b01fbc6e58169b6b32391efe7773379b85ec99ac93a880889f816459f8"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -14942,6 +14942,60 @@
       "target": "packages/medusa-adapter/test/repository-deferred-creation.test.ts",
       "classification": "authored",
       "targetSha256": "148d5b454efb21df2dfd1dce5e44e6840aeec32388df0e0fd5aab2aa4faa770c"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/order/change-deletion-input.ts",
+      "classification": "authored",
+      "targetSha256": "fa3d3aa5a64b36ab7e5fd8b16822c2ff33df823c7967fee1a22877d9b155f0bb"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/order/change-deletion-repository.ts",
+      "classification": "authored",
+      "targetSha256": "6e7b20da375b324d93769ba35ad6c13d5e56b9aca348b3ce2cbf432901089d27"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/order/change-deletion-service.ts",
+      "classification": "authored",
+      "targetSha256": "2299b7f4c1abe3ea13c7cb2e29ac2e03f2e8b01b1fc0cb6bebb73592f9d971b8"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/order/change-deletion-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "bfa407028cab379c0d51ba743e1b0b0dc8844f479ef650384bc16ff7b98db71e"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/order/delete-order-change.ts",
+      "classification": "authored",
+      "targetSha256": "94d21df32ddaa687609124b7409095dca3c03f1531eba155fb0c226e5d82551b"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-order-change-deletion-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "57b5f187548e31d937ca6afb9a7b5d4ac8d7d978fb5d196871b3ff208449075f"
+    },
+    {
+      "target": "packages/medusa-adapter/test/order-change-deletion-receipts.test.ts",
+      "classification": "authored",
+      "targetSha256": "32a0312ebc0787141c6dfe8a37575b9e4411bc680b3f7306a63217e8fe6115f1"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-order-change-deletion-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "3a18c5db8b1164feaa1f5dea1dd3019a1c0b8507dc43351e09c3952ed607decb"
+    },
+    {
+      "sourceSha256": "12f8292237cccf19087470d00152ee7d23f7bf518146746e522cb5c28f690de3",
+      "classification": "orderChangeDeletionFork",
+      "target": "packages/medusa-core-flows/src/order/steps/delete-order-changes.ts",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/order/steps/delete-order-changes.ts",
+      "targetSha256": "7fcba9cbafb910d36c53f2a4a7a804ca8c6e3b9c035f7e0ad29b4ce90c18af98"
+    },
+    {
+      "sourceSha256": "3991edf718ee64a501c1b6f6082f90f9bcb4b0288d66299475af269b942a2344",
+      "classification": "orderChangeDeletionFork",
+      "target": "packages/medusa-core-flows/src/order/workflows/delete-order-change.ts",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/order/workflows/delete-order-change.ts",
+      "targetSha256": "5e6fa02b47054a381d85a6d115c14252da79f6b2050b24f3f3296c6503ccc8ae"
     }
   ],
   "dependencies": {
@@ -15580,7 +15634,9 @@
         "./order/decline-order-change",
         "./order/decline-order-change-step",
         "./tax/create-tax-regions",
-        "./tax/create-tax-regions-step"
+        "./tax/create-tax-regions-step",
+        "./order/delete-order-change",
+        "./order/delete-order-changes-step"
       ]
     },
     {
