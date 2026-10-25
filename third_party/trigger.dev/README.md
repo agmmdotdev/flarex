@@ -4,6 +4,13 @@ This directory preserves the Trigger.dev run engine and supervisor boundary as
 an inert, independently installable source island. It is a migration input for
 Flarex durable execution, not an active Flarex runtime or public API.
 
+The accepted [Task System design](../../design-notes/task-system/README.md)
+selects this pin for one-time adoption into an independently maintained private
+fork. Upstream synchronization is not a requirement. Keep this reference island
+frozen; adapted code belongs in the separately admitted root-owned package.
+The [Task roadmap](../../roadmaps/task-system/README.md) owns pending gates;
+older DTE documents are legacy evidence. No executable fork is activated here.
+
 ## Boundary
 
 - `upstream/` is an unmodified selective import pinned by `SOURCE.json` and
@@ -21,10 +28,11 @@ Flarex durable execution, not an active Flarex runtime or public API.
 - Trigger's web application, dashboard, SDK, CLI, bundler, and user runtime
   entrypoints are not imported.
 
-Future integration must happen through Flarex-owned adapters. In particular,
-Flarex identity and artifact projections must be verified before the engine can
-schedule work, and AgentOS must implement a Flarex-owned workload provider
-without exposing infrastructure capabilities to user code.
+Future integration retains and changes actual engine methods in the fork,
+with Flarex-owned logical storage, coordination and injected host capabilities.
+Trusted identity and artifact projections must be verified before execution.
+Compute providers keep infrastructure capabilities out of user code; no
+specific external compute product is required by the new Task direction.
 
 ## Commands
 

@@ -1,9 +1,18 @@
 # Shared Task System From The Trigger.dev Fork
 
+> **Legacy replacement proposal - superseded.**
+> [Task System: Independent Trigger Fork](./task-system/README.md) is the current
+> design; the [new roadmap](../roadmaps/task-system/README.md) owns its gates.
+> The body below is historical source/planning evidence, not current direction.
+> In particular, upstream synchronization is not a goal and all Task-owned
+> scheduler/routing/repair state must be logical; no Task-specific physical
+> infrastructure exception survives the final cutover. Its description of
+> pending native workflow work must be refreshed against current code.
+
 ## Status And Authority
 
-Status: accepted replacement direction and admission decisions; implementation
-not authorized.
+Historical status: previously accepted replacement direction and admission
+decisions; superseded by the design linked above. No implementation is activated.
 The [focused replacement preflight](../roadmaps/durable-task-engine/preflight/72-shared-trigger-engine-replacement.md)
 records the accepted source scope, store contract, trusted-workflow cutover and
 remaining proof gates. Design acceptance is documentation-only; neither document

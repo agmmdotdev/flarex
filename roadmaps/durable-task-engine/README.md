@@ -1,18 +1,26 @@
 # Flarex Durable Task Engine Roadmaps
 
+> **Legacy Task record - superseded direction.**
+> The [Task System design](../../design-notes/task-system/README.md) and
+> [current roadmap](../task-system/README.md) own replacement work.
+> This body is historical baseline/source evidence; its statuses, approvals and
+> next steps apply to the former initiative. Preserve applicable behavior and
+> tests until consumer cutover. Do not use this record to extend the custom
+> engine or retain Task-specific physical tables.
+
 ## Status And Scope
 
-The [shared Trigger-engine replacement design](../../design-notes/flarexdb-shared-task-system.md)
-and [focused replacement preflight](./preflight/72-shared-trigger-engine-replacement.md)
-own the accepted transition design from the custom lifecycle to retained Trigger
-implementations over logical storage, including trusted-workflow consumers.
-Its admission decisions are accepted; proof gates remain open. The preflight is
-documentation-only and does not authorize implementation.
-Existing admission records below describe the implemented baseline, not proof
-that this replacement has happened. Current package/source guards remain in force
-until an approved cutover reconciles them.
+The [new Task design](../../design-notes/task-system/README.md) and
+[new roadmap](../task-system/README.md) own current direction and implementation
+gates. This entire folder, including the earlier replacement preflights 72/73,
+is legacy baseline/source evidence. Upstream synchronization is not required;
+all Task-owned database state, including scheduler/discovery/repair metadata,
+must move to logical storage, followed by complete physical Task retirement.
+Existing package/source guards stay effective until implementation reconciles
+their exact admitted scope. Historical completion claims below are not current
+replacement proof or an active backlog; verify current code and consumer owners.
 
-**Status:** Vision authority. DTE01 source reuse/package admission, DTE02 task
+**Historical status:** Former vision authority. DTE01 source reuse/package admission, DTE02 task
 identity/scope admission, and Roadmap 03 lifecycle admission are complete.
 DTE03-A's
 Trigger-to-Flarex lifecycle inventory, DTE03-B's exact five-phase aggregate,

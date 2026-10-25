@@ -1,5 +1,13 @@
 # DTE07 Clean Task Admission Errors
 
+> **Legacy Task record - superseded direction.**
+> The [Task System design](../../../design-notes/task-system/README.md) and
+> [current roadmap](../../task-system/README.md) own replacement work.
+> This body is historical baseline/source evidence; its statuses, approvals and
+> next steps apply to the former initiative. Preserve applicable behavior and
+> tests until consumer cutover. Do not use this record to extend the custom
+> engine or retain Task-specific physical tables.
+
 Status: bounded implementation checkpoint completed privately on 2026-08-30.
 The user approved cleaning the remaining `startTask()` owner failures after
 the Task read-error checkpoints. Cancellation-command failures remain a

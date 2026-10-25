@@ -48,7 +48,7 @@ This record refines, but does not replace:
 - the current candidate publication, cold-materialization, readiness,
   activation, active-selection, SAP04, SAP05, C07, R2, and Worker Loader owners;
   and
-- [`durable-task-engine/README.md`](./durable-task-engine/README.md) for the
+- [Task System](./task-system/README.md) for the
   separately owned task definition, run/attempt, lease, retry, and orchestration
   lifecycle.
 

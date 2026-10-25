@@ -350,8 +350,8 @@ workflow involving a provider call, suspension or independent recovery needs
 committed steps. Select the execution mode at trusted definition/admission
 time; exceeding a limit must never silently change its atomicity.
 
-Reuse the [workflow foundations](../workflow-foundations/README.md), existing
-[Durable Task Engine](../durable-task-engine/README.md),
+Reuse the [workflow foundations](../workflow-foundations/README.md), Task
+integration guarantees under the [current replacement direction](../task-system/README.md),
 [durable event owner](../workflow-foundations/07-durable-workflow-events.md),
 and [publication participant](../../packages/persistence-postgres/src/frameworks/commerceTransaction/publication.ts).
 Do not introduce a second generic scheduler, result ledger or commit authority

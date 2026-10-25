@@ -53,6 +53,20 @@ replacement does not change those guarantees. The new service is not yet
 implemented or activated. Exact breaks and implementation gates are recorded in
 [the redesign preflight](../roadmaps/query-sync-engine/preflight/15-live-query-service-redesign.md).
 
+## Task System Replacement Authority
+
+For Task engine, storage, scheduling, compute and migration work, start with
+[Task System: Independent Trigger Fork](./task-system/README.md) and the
+[current roadmap](../roadmaps/task-system/README.md). The accepted target adopts
+actual Trigger methods once, maintains the fork independently, stores all
+Task-owned state in private logical schemas (including platform scheduler and
+repair data), and injects host adapters. Full Task-specific physical retirement
+is required after cutover. Runtime implementation remains pending.
+
+The two earlier Task design notes and the entire `durable-task-engine` roadmap
+folder are legacy/superseded direction. Preserve applicable baseline behavior
+and source evidence, but do not resume their old next-step instructions.
+
 ## Notes
 
 - [Shared framework integration direction](./flarexdb-framework-integration-direction.md)
@@ -87,22 +101,19 @@ implemented or activated. Exact breaks and implementation gates are recorded in
     `@flarex/persistence-postgres`. It authorizes no migration and must be
     revalidated against the working tree before becoming a roadmap.
 
-- [Shared task system from the Trigger.dev fork](./flarexdb-shared-task-system.md)
-  - Accepted replacement direction and admission decisions: retain actual Trigger engine implementations
-    as a shared primitive for Application, Payload and Medusa. Adapt its store
-    to reserved Flarex logical schemas, remove active Prisma/Redis dependencies,
-    and retire the displaced task engine. Defines source reuse, transaction,
-    enqueue, migration and connected validation gates, including trusted-workflow
-    identity and continuation cutover. The [focused replacement preflight](../roadmaps/durable-task-engine/preflight/72-shared-trigger-engine-replacement.md)
-    records accepted choices and remaining proof gates; implementation remains
-    unapproved.
+- [Task System: Independent Trigger Fork](./task-system/README.md)
+  - Current accepted Task architecture. Focused documents own engine adoption,
+    all-logical storage, injected host adapters and complete cutover/retirement.
+    The [Task roadmap](../roadmaps/task-system/README.md) owns pending gates.
 
-- [Existing durable task engine](./flarex-durable-task-engine.md)
-  - Implemented-baseline architecture for the private Flarex lifecycle, Task
-    System Postgres, scheduling, Worker Loader and recovery vertical. The
-    Trigger source island remains inactive in this baseline. The shared-task
-    replacement note above records the intended new direction; the task roadmap
-    owns exact implementation and activation status.
+- [Legacy shared-task replacement proposal](./flarexdb-shared-task-system.md)
+  - Superseded planning and source evidence. Upstream-sync expectations and
+    optional physical Task infrastructure retention are not current decisions.
+
+- [Legacy custom durable task engine](./flarex-durable-task-engine.md)
+  - Historical architecture and implemented-baseline evidence. Its custom
+    lifecycle and physical Task schema are replacement targets; existing callers
+    remain until explicit cutover.
 
 - `flarex-dynamic-worker-bundle-partitioning.md`
   - Accepted runtime design direction for automatic, size-bounded Dynamic

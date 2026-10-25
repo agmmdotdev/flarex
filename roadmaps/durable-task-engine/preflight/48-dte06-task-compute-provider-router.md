@@ -1,5 +1,13 @@
 # DTE06 Task Compute Provider Router Preflight
 
+> **Legacy Task record - superseded direction.**
+> The [Task System design](../../../design-notes/task-system/README.md) and
+> [current roadmap](../../task-system/README.md) own replacement work.
+> This body is historical baseline/source evidence; its statuses, approvals and
+> next steps apply to the former initiative. Preserve applicable behavior and
+> tests until consumer cutover. Do not use this record to extend the custom
+> engine or retain Task-specific physical tables.
+
 Status: complete privately on 2026-08-27; production-inert and unwired.
 
 Evidence snapshot: 2026-08-27 current repository state after DTE06-F2 and the

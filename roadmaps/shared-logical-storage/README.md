@@ -2,6 +2,12 @@
 
 ## Status And Scope
 
+The separate [Task System replacement](../task-system/README.md) adopts these
+storage mechanics for all Task-owned scope and platform records, including
+scheduler/discovery/repair state, and retires its entire physical Task schema.
+Its design is accepted and implementation pending. It does not silently add
+Task migration to the existing shared-storage completion scope below.
+
 The active [completion plan](./03-completion-plan.md) owns the finite shared-storage
 cutover goal under standing approval, following the completed core execution work.
 It includes existing consumer migrations and structural-engine retirement; advanced

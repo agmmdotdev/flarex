@@ -1,15 +1,21 @@
 # Flarex Durable Task Engine
 
+> **Legacy custom-engine design - superseded.**
+> [Task System: Independent Trigger Fork](./task-system/README.md) and the
+> [current roadmap](../roadmaps/task-system/README.md) own replacement work.
+> Preserve applicable implemented behavior and regression evidence until
+> consumer cutover. Historical approvals and next steps below do not authorize
+> extending the custom engine or keeping its Task-specific physical schema.
+
 ## Status And Scope
 
-For the selected replacement direction, read
-[Shared Task System From The Trigger.dev Fork](./flarexdb-shared-task-system.md)
-and its [focused preflight](../roadmaps/durable-task-engine/preflight/72-shared-trigger-engine-replacement.md).
-This document describes the existing custom-engine baseline. Replacement
-planning does not activate Trigger sources or authorize implementation.
+For current direction, read the new Task design linked above. The earlier
+[shared-task proposal](./flarexdb-shared-task-system.md) and its preflights are
+also superseded. This document describes the custom-engine baseline; its
+implementation claims must be checked against current code.
 
-**Status:** Accepted architecture direction. Implementation authority now lives
-in [`../roadmaps/durable-task-engine/README.md`](../roadmaps/durable-task-engine/README.md).
+**Historical status:** Former accepted architecture. The
+[old roadmap](../roadmaps/durable-task-engine/README.md) is legacy evidence.
 The private lifecycle, Task System Postgres, scheduling/repair, provider, and
 compute-delivery persistence foundations are implemented but production-inert.
 The connected runtime, Worker Loader provider, supervision, result publication,

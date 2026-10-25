@@ -1,5 +1,13 @@
 # DTE07 Task read scope binding
 
+> **Legacy Task record - superseded direction.**
+> The [Task System design](../../../design-notes/task-system/README.md) and
+> [current roadmap](../../task-system/README.md) own replacement work.
+> This body is historical baseline/source evidence; its statuses, approvals and
+> next steps apply to the former initiative. Preserve applicable behavior and
+> tests until consumer cutover. Do not use this record to extend the custom
+> engine or retain Task-specific physical tables.
+
 Status: DTE07-C15 implemented privately on 2026-08-30.
 
 Depends on the clean Task run-list facade, process-local `TaskRunRef`, and the

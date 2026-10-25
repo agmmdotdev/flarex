@@ -20,8 +20,8 @@ The current authorities remain:
   for domain-first organization and incremental Effect migration guidance;
 - package manifests, exports, source, callers, and tests for exact current
   behavior; and
-- [`flarex-durable-task-engine.md`](./flarex-durable-task-engine.md) for the
-  current Trigger.dev-informed durable-task direction.
+- [Task System: Independent Trigger Fork](./task-system/README.md) for current
+  Task engine, all-logical storage, host injection and retirement direction.
 
 If this note conflicts with an accepted roadmap or newer source evidence, the
 accepted roadmap and current source control.
@@ -232,9 +232,12 @@ long-running host assumptions. Reimplementation remains the last choice, but
 source reuse does not justify placing host-neutral task semantics inside the
 Postgres adapter.
 
-The current `flarex-durable-task-engine.md` decision remains in force: the
-Trigger.dev workspace is an inactive compatibility island until a separate
-package-integration decision authorizes a narrower import or extraction path.
+The [Task System design](./task-system/README.md) supersedes the earlier Task
+direction referenced by this investigation. The Trigger reference stays frozen
+and inactive; an independently maintained root-owned fork will adopt actual
+engine methods. All Task-owned scope/platform state becomes logical, including
+scheduler and repair state, and the entire old physical Task schema retires.
+The [current Task roadmap](../roadmaps/task-system/README.md) owns pending gates.
 
 ## Incremental Investigation And Migration Method
 

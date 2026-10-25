@@ -1,5 +1,12 @@
 # Task Command Integration
 
+Task replacement authority is the
+[new design](../../design-notes/task-system/README.md) and
+[Task roadmap](../task-system/README.md). The existing Task implementation
+described below is a migration baseline. Its native workflow behavior, scoped
+child authority, receipts and event guarantees remain required; its custom
+lifecycle and physical Task storage are not the destination.
+
 Status: trusted workflow binding, run creation, lifecycle, genuine
 ordinary/control subjects, continuation/checkpoint authority, finite commerce
 children, callback outcome evidence and Task-bound event gates are implemented

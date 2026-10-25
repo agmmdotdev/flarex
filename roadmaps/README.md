@@ -65,6 +65,17 @@ index/constraint/query proofs and retirement. Existing physical implementation
 receipts remain baseline evidence, not the target. Read this decision before
 new framework storage or runtime scalability work.
 
+## Task System Replacement Authority
+
+The [Task System roadmap](./task-system/README.md) and
+[independent Trigger fork design](../design-notes/task-system/README.md) own
+current Task direction. Adopt the existing engine source once, maintain it
+independently, use private logical storage for all Task-owned state, inject host
+adapters, and retire the entire Task-specific physical schema after cutover.
+The old `durable-task-engine` folder is legacy baseline/source evidence,
+including its replacement preflights. Its historical next steps are not active
+work. The new direction is accepted; runtime implementation remains pending.
+
 ## Start Here
 
 For a first orientation to how one real FlarexDB point mutation crosses the
@@ -124,7 +135,7 @@ with domain rationale in
 | [`35-commit-compiler-and-session-intent.md`](./35-commit-compiler-and-session-intent.md) | Logical session journal, trusted planner/executor split, exact snapshots, idempotency, and conditional SessionDO journaling. |
 | [`42-standard-application-apis.md`](./42-standard-application-apis.md) and [`50-clean-application-apis.md`](./50-clean-application-apis.md) | Stable workspace-internal application stages plus the accepted clean API migration. `CAPI-A` provides the private unversioned Application Definition facade, `CAPI-B` moves developer and reusable system-test definition/source producers onto it, and `CAPI-C` adds separate clean query, mutation, and Action invocation primitives; system-test facade migration, public, and production gates remain pending. Concrete wire and persisted contracts keep versions where exact compatibility requires them. |
 | [`relational-standard-apis/`](./relational-standard-apis/README.md) | Active focused plan and capability ledger for raising the implemented private native relation core through typed Standard Application definition and function-runtime APIs, then composing those same APIs in the system-test facade. It records the supported initial profile, every deliberately unsupported capability and rationale, and the gates required before public or reactive claims. |
-| [`durable-task-engine/06-compute-provider-and-runtime.md`](./durable-task-engine/06-compute-provider-and-runtime.md) | Private durable-task compute delivery and Worker runtime. DTE06-A through D and DTE06-E1 are complete privately; E2 through E5 and the hosted DTE06-F proof remain pending. |
+| [`task-system/`](./task-system/README.md) | Active Task replacement authority: independently maintained Trigger fork, all Task-owned state in logical schemas, injected hosts and complete legacy/physical retirement. Design accepted; implementation pending. |
 
 ## Cross-Cutting Engineering Guidance
 
@@ -200,6 +211,7 @@ Do not extend these files as active design.
 
 | Roadmap | Reason |
 | --- | --- |
+| [`durable-task-engine/`](./durable-task-engine/README.md) | Entire former Task initiative, including preflights 72/73, is superseded by the Task System design and roadmap. Keep source/behavior evidence; do not resume its backlog. |
 | [`02-schema-placement-and-shards.md`](./02-schema-placement-and-shards.md) | Durable Object shard/storage assumptions are superseded by Postgres `scope_id` authority. |
 | [`07-cross-shard-workflows.md`](./07-cross-shard-workflows.md) | Proposed PartitionDO coordinator model is superseded; no accepted generic cross-shard transaction API exists. |
 | [`08-projections.md`](./08-projections.md) | PartitionDO-driven global projection proposal is unimplemented and not an active replacement requirement. |

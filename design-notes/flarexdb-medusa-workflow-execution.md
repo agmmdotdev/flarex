@@ -1,5 +1,11 @@
 # Medusa Business Workflows On Flarex Execution
 
+For Task engine/storage direction, read the
+[independent Trigger fork design](./task-system/README.md) and
+[current Task roadmap](../roadmaps/task-system/README.md). Older DTE links below
+are baseline evidence. Medusa still owns graph, step-retry and compensation
+semantics; Task-owned storage and lifecycle migrate under the new design.
+
 ## Shared Logical Storage Authority
 
 The accepted [shared logical storage decision](./flarexdb-shared-logical-storage.md)
@@ -147,8 +153,10 @@ Flarex has private durable run/attempt, scheduling, provider, retry, cancellatio
 and recovery machinery. Its current API roadmap also includes private inspect,
 result, await, cancellation and listing operations; these are stronger than
 older notes describing all management APIs as future work. See
-[the Task roadmap](../roadmaps/durable-task-engine/README.md) and
-[the current API status](../roadmaps/durable-task-engine/07-observability-live-apis-and-ui.md).
+[the legacy Task baseline](../roadmaps/durable-task-engine/README.md) and
+[its API inventory](../roadmaps/durable-task-engine/07-observability-live-apis-and-ui.md).
+The [current Task roadmap](../roadmaps/task-system/README.md) owns replacement
+direction; verify legacy status claims against executing code before migration.
 
 The [task mutation authority](../packages/standard-application-invocation/src/ApplicationTaskMutationAuthority.ts)
 already handles stable child-mutation identities and reconciliation. Assess it

@@ -37,7 +37,7 @@ evolution retain their owning gates.
 - [Medusa design quality](../medusa-design-quality/README.md) owns completed
   module construction and native semantic reuse; do not rebuild those owners.
 - [Workflow foundations](../workflow-foundations/README.md) and
-  [durable tasks](../durable-task-engine/README.md) own distinct workflow lifecycles.
+  [durable tasks](../task-system/README.md) own distinct workflow lifecycles.
 - [Standalone read preflight](../core-performance/standalone-read-redesign-preflight.md)
   owns the managed installation/read contract and deferred performance targets.
 - Current code and decisive tests establish exact supported operations. Older

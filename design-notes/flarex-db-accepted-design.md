@@ -13,6 +13,19 @@ When another design note conflicts with this document, this document controls.
 Domain roadmaps own durable current status and target direction; Git owns
 chronological implementation history.
 
+## Task System Replacement Authority
+
+The accepted [independent Trigger fork design](./task-system/README.md) owns
+Task-specific architecture and the [Task roadmap](../roadmaps/task-system/README.md)
+owns its pending implementation gates. Adopt actual Trigger engine source and
+maintain the fork independently. All Task-owned database state uses private
+logical schemas, including platform discovery, scheduler ownership and repair
+progress. The full current Task-specific physical schema is a retirement target;
+there is no routing/control/repair exception or new dedicated physical Task
+table set. General shared storage/catalog/settlement infrastructure remains.
+The old Task designs and DTE folder are legacy evidence. This decision does
+not change runtime behavior or authorize a database reset.
+
 ## Shared Logical Storage Replacement
 
 The owner accepts [shared logical storage](./flarexdb-shared-logical-storage.md)

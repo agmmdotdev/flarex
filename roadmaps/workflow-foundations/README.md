@@ -1,5 +1,12 @@
 # Workflow Foundations
 
+For Task lifecycle/storage replacement, use the
+[independent Trigger fork design](../../design-notes/task-system/README.md) and
+[current Task roadmap](../task-system/README.md). The former DTE folder is legacy
+baseline evidence. Existing native workflow contracts remain with this domain;
+continuations, checkpoints, child replay and compensation must migrate with
+their consumer rather than remain on a parallel custom Task engine.
+
 The active [Medusa design-quality refactor](../medusa-design-quality/README.md)
 owns current construction/composition simplification and its extension-cost
 acceptance. It is separate from admitting additional commerce workflows below.
@@ -57,8 +64,9 @@ direction, not existing capability approval or the core admission gates.
 - [Accepted Flarex design](../../design-notes/flarex-db-accepted-design.md) and
   [framework storage architecture](../../design-notes/flarexdb-framework-storage-architecture.md)
   retain cross-domain authority.
-- [Durable Task Engine](../durable-task-engine/README.md) owns existing Task
-  lifecycle, persistence, scheduling, and execution contracts.
+- [Task System](../task-system/README.md) owns Task replacement direction and
+  gates. [Legacy DTE records](../durable-task-engine/README.md) describe baseline
+  lifecycle, persistence, scheduling and execution evidence.
 - [Shared transaction core](../shared-transaction-core/README.md) owns common
   transaction, publication, and recovery boundaries.
 - [Framework integration](../flarexdb-framework-integration/README.md) and

@@ -160,7 +160,7 @@ must not be copied into production Worker cores.
 | `@flarex/executor-worker` (`apps/executor`) | Private Cloudflare executor Worker using service bindings and request-scoped Postgres clients | Owns Worker bindings, authorization-before-allocation, client connect/cleanup, and host wiring; trusted semantics stay in core packages |
 | `@flarex/artifact-runtime` (`apps/artifact-runtime`) | Hosted Dynamic Worker materialization and execution-artifact service | Owns Cloudflare Worker Loader/R2/service-binding adaptation; user code receives restricted syscall transports, never raw platform or database capabilities |
 | `@flarex/example` (`apps/example`) | Consumer fixture and example application | Behaves like a normal user project; it must not become platform infrastructure or own Flarex Wrangler deployment |
-| `third_party/trigger.dev` | Frozen Trigger.dev run-engine and supervisor compatibility source island used as migration input for durable execution | Excluded from the Flarex workspace and runtime graph; it has no Flarex imports, database authority, routing authority, public API, or activation path. Future adoption must use Flarex-owned adapters and preserve the existing Postgres commit authority. |
+| `third_party/trigger.dev` | Frozen source/reference island for one-time adoption into the independently maintained Task fork | Excluded from the Flarex workspace and runtime graph; no runtime imports or activation. The new Task design owns source promotion, logical storage, injected hosts and complete old Task retirement; upstream synchronization is not required. |
 | `third_party/medusa` | Refreshable, exact snapshot of the admitted Cloudflare-oriented Medusa fork used as primary source, regression evidence, and incremental package-promotion input | Pinned at fork `48d5cc675e4e8bc821e22c20c88a751acc66fb5f` and excluded from the Flarex workspace, lockfile, runtime graph, and deployable bundles. It retains its independent pnpm workspace and official-upstream provenance. No active package imports the island; every promoted closure requires a source map, bounded dependency graph, root-owned package, retained tests, and a separate semantic/activation gate. |
 
 No `packages/flarex-core` package currently exists. Add another shared package
@@ -212,50 +212,54 @@ state remain scoped/plain multi-instance values created by the host; they do
 not become module-global Context services. The host owns the only runtime
 bridge.
 
-### Accepted Private Durable Task Package
+### Accepted Task Fork Boundary
 
-`@flarex/durable-task` is now implemented as a private host-neutral domain
-package with explicit internal subpaths for run creation, run-attempt
-lifecycle, run reads, scheduling, and scheduling test adapters. It owns pure
-policy, typed Effect services, Task System ports, and domain Layers. Its runtime
-dependencies remain dependency-leaf utilities, `effect`, and
-`flarex-protocol`; it does not import a persistence or host owner.
+The [Task System design](../design-notes/task-system/README.md) and
+[current roadmap](./task-system/README.md) supersede the old DTE direction.
+The following destination is accepted but not implemented:
 
-`@flarex/persistence-postgres` now owns the DTE04-A3 five-table Task System
-schema and generated migration plus the DTE04-B scope-bound Task System
-lifecycle-store adapter through exact private domain-contract dependencies.
-`flarex-backend` will own host composition, durable
-effect delivery, and runtime projection adapters. The durable-task package must
-not import persistence, Drizzle, Prisma, Redis, Node, Cloudflare, backend, apps,
-Trigger packages, or the frozen Trigger source island. It has no package-root,
-public protocol, SDK, or host-adapter export.
+- One new private `@flarex/trigger-run-engine` owns adopted Trigger lifecycle
+  implementations, used portable helpers and initially their finite semantic
+  store/coordination contracts. It is independently maintained; upstream sync
+  and full Trigger compatibility are not requirements.
+- The engine depends on capabilities, not persistence implementations, Prisma,
+  Redis, Redlock, host SDKs, backend/apps or the frozen source island. Adapted
+  source belongs in the root-owned fork, with provenance and notices preserved.
+- Existing persistence owners implement private logical Task storage and core
+  transaction integration. All Task-owned scope/platform state is logical,
+  including discovery, scheduler and repair records. Retire the entire old
+  Task-specific physical schema; no new physical Task table set is admitted.
+- Existing executor/backend/runtime owners implement delivery, timers, trusted
+  definition resolution and compute adapters. Cloudflare is first; another
+  provider needs its own admitted runtime contract, not a second task engine.
+- Framework adapters retain their admission and native contexts. Shared
+  contracts have one owner; move them coherently to avoid a dependency cycle
+  between the fork and `@flarex/durable-task`. Additional packages require an
+  actual ownership reason.
 
-DTE06-A reserves the host-neutral Task compute-provider dispatch/cancellation
-contract and deterministic in-memory conformance adapter for future explicit
-private `@flarex/durable-task` subpaths. DTE06-B must approve their exact export
-spellings before implementation. `flarex-backend` retains operation-specific
-requested-effect delivery, trusted definition/runtime/input resolution, and
-provider composition; the existing artifact-runtime owner retains Worker
-Loader/R2/service-binding adaptation. No Cloudflare type or host adapter may
-enter `@flarex/durable-task`.
+The frozen reference remains outside the runtime graph. Reconcile source,
+dependency and bundle guards with the exact promoted closure during
+implementation; this documentation change does not relax current guards or
+activate a package, public API or production host.
 
-This package boundary is now admitted by
-[`DTE01-G`](./durable-task-engine/preflight/05-final-package-admission.md).
-Creation remains sequenced behind the private task identity/scope contract and
-the lifecycle adapter checkpoint. The DTE04-A3 schema admission does not
-authorize an app/backend dependency, Worker bundle, public export, store
-adapter, run creation, discovery, effect delivery, or production route.
+### Legacy Task Implementation During Cutover
 
-The DTE01 package owns run-attempt lifecycle only. The revised DTE02-B contract
-uses a first-class canonical Standard Application task catalog with stable
-`TaskIdV1`; it does not reinterpret `action`/`internalAction` or function path
-as task authority. The task-definition/catalog owner is now admitted and
-implemented by DTE04-A2b as
-`@flarex/standard-application-definition/internal/task-definition-v1`. It
-imports only the run-attempt policy, compute-profile reference, and
-definition-revision identity from `./internal/run-attempt-v1`; durable-task
-does not depend back on Standard Application or artifact owners. No host or
-public surface is activated.
+`@flarex/durable-task` currently owns the custom run/attempt decisions, policy,
+private creation/read/scheduling contracts and compute-provider boundary.
+`@flarex/persistence-postgres` owns its Task-specific physical tables and
+adapters; executor/backend/runtime packages own host integration. These remain
+the baseline for unmigrated consumers, with current private dependency limits.
+
+Retain needed admission, immutable definition/runtime binding, scope, fencing,
+publication, recovery and execution mechanics. Replace the custom algorithms,
+aggregate-specific store choreography and physical Task schema. Remove displaced
+exports/dependencies/fixtures as consumers move; retain integration contracts
+only with a named owner and caller. If no responsibility remains, remove the
+old package. First-class Tasks remain distinct from Application actions.
+
+The [old DTE records](./durable-task-engine/README.md) preserve source and
+regression evidence, not an active package-creation backlog. No run may have two
+lifecycle owners, and the completed replacement has no permanent legacy fallback.
 
 `@flarex/utils` is not a core or common-domain package. A candidate belongs
 there only after it is proven to be a stable generic primitive with independent

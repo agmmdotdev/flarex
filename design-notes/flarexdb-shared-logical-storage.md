@@ -9,6 +9,13 @@ implementation acceptance criteria, not completed capabilities or measured gains
 
 ## Decision And Authority
 
+The [Task System design](./task-system/README.md) extends this shared-storage
+destination to every Task-owned record, including private platform-level
+discovery and scheduler/repair state. Its [roadmap](../roadmaps/task-system/README.md)
+owns the separate pending Task cutover. No Task-specific physical table is
+retained as a control-plane exception. General core physical infrastructure
+remains; Task scope does not expand the existing framework completion plan.
+
 Application, Payload content and Medusa commerce use framework-neutral logical
 tables over shared Postgres physical storage families. Creating a shop,
 deployment, logical table or logical index must not create a dedicated physical
