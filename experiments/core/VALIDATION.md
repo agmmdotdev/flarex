@@ -4,7 +4,8 @@ The [bounded create](./PAYLOAD-CREATE.md) and
 [standalone Application](./APPLICATION.md) slices have executable contract,
 PGlite and ordinary-role PostgreSQL witnesses. These establish their stated
 construction profiles only. Full-core gates, general Application support,
-connected reactivity and performance acceptance remain open. No speedup is
+connected reactivity and performance acceptance remain open. Initial connected
+[measurements](./RESULTS.md) miss the latency goals. No active-core speedup is
 established; the optional comparison preserves preparation failures as evidence.
 
 ## Three comparison lanes

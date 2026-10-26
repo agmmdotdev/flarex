@@ -3,7 +3,8 @@
 Status: native scalar update, retrieve-by-ID and list-by-handle are connected to
 the experimental core. The standalone and mixed graphs use the executing native
 service methods. Active Medusa integration remains unchanged. This is a closed,
-relation-free construction profile; measurements and broader support remain open.
+relation-free construction profile. Initial [measurements](./RESULTS.md) miss the
+added-median-latency goal; broader support and performance acceptance remain open.
 
 ## Reuse and ownership
 

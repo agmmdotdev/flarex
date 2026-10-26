@@ -4,7 +4,8 @@ Status: bounded native CRUD implemented. The actual Local API
 create/read/update/delete paths use the native
 binding and one trusted framework command owner. Native preference cleanup uses
 the [core equality operations](./EQUALITY.md) and selected document/preference
-definitions. No CRUD measurement or general Payload support is established.
+definitions. Initial [CRUD measurements](./RESULTS.md) miss the latency goals.
+General Payload support and performance acceptance remain open.
 
 ## Executing native contract
 
@@ -111,7 +112,8 @@ preference cleanup, atomic rollback, concurrent matching writers, operation-spec
 replay access, uncertain acceptance and cancellation/draining. The equality
 foundation separately covers pending membership and actual index plans. These
 prove this declared profile. The mixed graph now borrows the same native deletion
-and preference cleanup under its one accepting owner; performance remains open.
+and preference cleanup under its one accepting owner; performance acceptance
+remains open after the initial failed-goal cohort.
 
 - Real Local API create, persisted-row read/update/delete and complete results;
   defaults, validation, boolean access and admitted hooks execute natively.

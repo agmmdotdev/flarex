@@ -50,7 +50,7 @@ export async function nativeProductFixture(connectionString) {
     releases.push(initialized.shutdown);
     const container = initialized.medusaApp.sharedContainer;
     if (container === undefined) throw new Error("Missing actual native module container");
-    return { database, product: container.resolve(Modules.PRODUCT), close };
+    return { database, product: container.resolve(Modules.PRODUCT), knex: connection, close };
   } catch (cause) {
     try { await close(); } catch (cleanup) { throw new AggregateError([cause, cleanup], "Native Product acquisition/cleanup failed", { cause }); }
     throw cause;

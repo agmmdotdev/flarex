@@ -1,0 +1,61 @@
+{
+  "mode": "smoke",
+  "status": "failed-no-acceptance",
+  "startedAt": "2026-10-26T23:16:10.350Z",
+  "samples": [],
+  "failures": [
+    {
+      "name": "Error",
+      "message": "Error [ERR_PACKAGE_PATH_NOT_EXPORTED]: Package subpath './package.json' is not defined by \"exports\" in C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\experiments\\core\\node_modules\\payload\\package.json",
+      "stack": "Error: Package subpath './package.json' is not defined by \"exports\" in C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\experiments\\core\\node_modules\\payload\\package.json\n    at exportsNotFound (node:internal/modules/esm/resolve:314:10)\n    at packageExportsResolve (node:internal/modules/esm/resolve:662:9)\n    at resolveExports (node:internal/modules/cjs/loader:707:36)\n    at Module._findPath (node:internal/modules/cjs/loader:774:31)\n    at Module._resolveFilename (node:internal/modules/cjs/loader:1485:27)\n    at wrapResolveFilename (node:internal/modules/cjs/loader:1071:27)\n    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1116:12)\n    at require.resolve (node:internal/modules/helpers:171:31)\n    at sourceFingerprint (C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/experiments/core/test/measurement-source.mjs:39:26)\n    at C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/experiments/core/test/measurement.test.mjs:189:59"
+    }
+  ],
+  "contract": "MEASUREMENT.md",
+  "activeBaseline": "blocked: validation/payload-create-failure.json",
+  "semantics": "Product reference independently commits; mixed reference uses standalone candidate Application plus genuine native frameworks. No equivalent atomic native baseline or active speedup claim.",
+  "head": "1e453044605def87d3a6e6ea2952d0c4858b75d3",
+  "host": {
+    "node": "v24.16.0",
+    "v8": "13.6.233.17-node.49",
+    "platform": "win32",
+    "cpuCounterResolution": "Windows counters quantized; zero means below resolution, not zero CPU"
+  },
+  "settings": {
+    "candidate": {
+      "role": "fx_exp_4b7a81eae71f6c22_serving",
+      "superuser": false,
+      "fsync": "on",
+      "synchronous_commit": "on",
+      "full_page_writes": "on",
+      "version": "18.3"
+    },
+    "referenceApplication": {
+      "role": "fx_exp_c004c61e7c4bc1f0_serving",
+      "superuser": false,
+      "fsync": "on",
+      "synchronous_commit": "on",
+      "full_page_writes": "on",
+      "version": "18.3"
+    },
+    "nativePayload": {
+      "role": "fx_exp_387efc45f6ead7e8_serving",
+      "superuser": false,
+      "fsync": "on",
+      "synchronous_commit": "on",
+      "full_page_writes": "on",
+      "version": "18.3"
+    },
+    "nativeProduct": {
+      "role": "fx_exp_e47e595a83d6ac26_serving",
+      "superuser": false,
+      "fsync": "on",
+      "synchronous_commit": "on",
+      "full_page_writes": "on",
+      "version": "18.3"
+    }
+  },
+  "warmups": 0,
+  "pairs": 1,
+  "cleanup": "complete",
+  "finishedAt": "2026-10-26T23:17:23.257Z"
+}

@@ -7,8 +7,9 @@ developer/framework entry points to experimental roots and shared Drizzle
 persistence/materialization. The [multi-table foundation](./MIXED.md) provides
 selected-definition admission, callback-scoped borrowing and one publication,
 now connected to actual Application, Product update/retrieve/list and Payload
-CRUD with native preference cleanup. General queries, connected reactivity, wider native
-lifecycle, measurements and promotion remain pending. The stages below
+CRUD with native preference cleanup. Initial [measurements](./RESULTS.md) miss the
+latency goals. General queries, connected reactivity, wider native lifecycle,
+batch/contention diagnostics, performance acceptance and promotion remain pending. The stages below
 describe the full experiment, not completed support.
 
 ## Stage 1: executable scope and contract map

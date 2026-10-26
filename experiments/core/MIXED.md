@@ -3,8 +3,9 @@
 Status: bounded native connection implemented in `mixed.ts`: an authored
 Application mutation, native Product update/retrieve/list-by-handle, and native Payload
 CRUD and actual preference cleanup share the selected-table accepting owner.
-Complete-request measurements and populated Product relations remain
-pending. Nothing in this note authorizes active-core changes or production
+Initial [complete-request measurements](./RESULTS.md) miss the latency goals;
+batch/contention diagnostics and populated Product relations remain pending.
+Nothing in this note authorizes active-core changes or production
 promotion.
 
 `group-root.ts` lends callback-scoped Application/framework operations with a

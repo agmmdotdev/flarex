@@ -1,0 +1,101 @@
+{
+  "scope": "Initial real native/candidate complete-request measurement",
+  "base": "1e453044605def87d3a6e6ea2952d0c4858b75d3",
+  "recordedAt": "2026-10-27T06:16:59.1940321+06:30",
+  "source": [
+    {
+      "sha256": "dbdf3f3d9c9f49743145458b3cdda06684244e150b7e1f166a7d55c44d697013",
+      "path": "experiments/core/test/comparison.test.mjs"
+    },
+    {
+      "sha256": "a93f5cfdaf6add3ffc1c0fdc57368e4c930082d9a6e4d3d9155c8efaf3e93946",
+      "path": "experiments/core/test/native-product.mjs"
+    },
+    {
+      "sha256": "65a74ce78221b8381a957d585917e9effdc1bde82818c8342377f2967dd8a9bf",
+      "path": "experiments/core/test/native-payload.mjs"
+    },
+    {
+      "sha256": "fea69db61c1b9b9846c56739311e8a4c561dc39c9f9e8c04e75ad23c9b4b516f",
+      "path": "experiments/core/test/measurement.test.mjs"
+    },
+    {
+      "sha256": "4b81867eac7c66da53480fda8613322feea89c69b4542f1355284bd7cdf47abf",
+      "path": "experiments/core/test/measurement-source.mjs"
+    },
+    {
+      "sha256": "7e1ec46fb01c8008d5258ee6a934363693546357cedc785352fa760dc21fbea1",
+      "path": "experiments/core/test/measurement-errors.mjs"
+    },
+    {
+      "sha256": "ab88185db69701b5eab36709b8d965e45cd638fcd9e3824e2415403942b5a9b2",
+      "path": "experiments/core/test/measurement-artifact.mjs"
+    },
+    {
+      "sha256": "877f66a1e2f297125579b0fe06114423eae6bdd96cd84314fb5a7e17caa6709a",
+      "path": "experiments/core/test/measurement-fixture.mjs"
+    },
+    {
+      "sha256": "bc90c71aeae1ca52e7a68820a90b66e6738bf64168be319676b4b52f5ea27457",
+      "path": "experiments/core/test/measurement-contracts.test.mjs"
+    }
+  ],
+  "reports": [
+    {
+      "report": "connected-sql.json",
+      "processExitCode": 0,
+      "warmupsPerWorkload": 5,
+      "verifiedWorkloads": 3,
+      "mode": "diagnostic",
+      "measuredPairsPerWorkload": 2
+    },
+    {
+      "report": "connected-latency.json",
+      "processExitCode": 0,
+      "warmupsPerWorkload": 5,
+      "verifiedWorkloads": 3,
+      "mode": "quiet-latency",
+      "measuredPairsPerWorkload": 30
+    },
+    {
+      "report": "connected-cpu.json",
+      "processExitCode": 0,
+      "warmupsPerWorkload": 5,
+      "verifiedWorkloads": 3,
+      "mode": "separate-counter-cpu",
+      "measuredPairsPerWorkload": 30
+    },
+    {
+      "passed": 4,
+      "processExitCode": 0,
+      "report": "measurement-contracts-final.json",
+      "intentionallyDisabledComparisons": 2
+    }
+  ],
+  "driver": "Ordinary-role PostgreSQL18.3; fsync/synchronous_commit/full_page_writes on; all source/result/observer/checkout/cleanup assertions passed",
+  "scopeOfTypecheck": "tsc-rs passed for configured TypeScript scope; MJS harness checked by explicit lint and runtime tests",
+  "checks": {
+    "rootLintCore": "passed",
+    "localLint": "passed",
+    "diffCheck": "passed",
+    "rootLintDiff": "passed",
+    "reviews": "Both mandatory read-only reviewers clear on final runtime source"
+  },
+  "disposition": "Valid initial measurement; inherited added-latency target missed; no promotion",
+  "retainedFailures": [
+    "connected-smoke-manifest-failure.json",
+    "measurement-smoke-manifest-failure.json",
+    "connected-sql-handle-failure.json",
+    "measurement-sql-handle-failure.json"
+  ],
+  "limits": [
+    "Active baseline not measured; last preparation failure retained separately",
+    "Native Product/mixed independent commits are not equivalent atomic semantics",
+    "Mixed reference Application uses standalone candidate Application host",
+    "Relation-free Product profile only; all five full business graphs remain open",
+    "Windows thread CPU quantized approximately15-16ms",
+    "No exclusive server CPU, WAL or exact serialized-lock hold/wait",
+    "Batch/concurrency diagnostics still required for goal",
+    "No src runtime, SQL schema or active integration changes in this checkpoint"
+  ]
+}
