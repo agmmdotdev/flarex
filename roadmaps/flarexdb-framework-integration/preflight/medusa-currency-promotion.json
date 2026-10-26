@@ -7105,7 +7105,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "cce9a43002a25a97d806a2508d79dc3f0de5287453a1f3c9103b516f6d829c41"
+      "targetSha256": "1dfbc89d09980cb0679fcf7a168bd14e9e79a137e2fc11222c0dca7a8979a333"
     },
     {
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/api-key/steps/create-api-keys.ts",
@@ -7210,8 +7210,8 @@
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/cart/utils/fields.ts",
       "classification": "workflowFork",
       "sourceSha256": "930444480ca2d613c6c461185b680c67ae69df3a77bb3e27fc347f593c33842c",
-      "targetSha256": "0c409b0d55f078c81f526598b325414441fc9c79a5ac4c5e2268fd0649d93800",
-      "transformation": "Authorized native checkout field correction: remove only nonexistent raw_sales_channel_id for text sales_channel_id; retain every genuine raw total and every other selected field in exact source order. The Variant Item pricing source guard enforces this sole byte-level correction."
+      "targetSha256": "3c1abf6adc6db860f116101c38837815a2026320722d87adfd35d3d225d5c635",
+      "transformation": "Authorized native checkout field correction: remove only nonexistent raw_sales_channel_id for text sales_channel_id; retain every genuine raw total and field order. The completeCartFields tuple is readonly at the TypeScript boundary. Exact source and emitted guards enforce these changes."
     },
     {
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/cart/utils/prepare-confirm-inventory-input.ts",
@@ -7281,7 +7281,7 @@
       "classification": "workflowFork",
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/common/steps/use-query-graph.ts",
       "sourceSha256": "3d6da8ea2a9b3762e564d865c82a7dcdc820543b3d8e299faec7ecb80078c3f0",
-      "targetSha256": "0913486c4b6177a1298ee3d6458c56cac17e178c71dab92f53d3158823081a74"
+      "targetSha256": "b696ce92843b71c39702401b76017f8f21bb7d5f192c63f44bfd14b93b02b33c"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/use-remote-query.ts",
@@ -10693,8 +10693,8 @@
     {
       "source": "third_party/medusa/upstream/packages/modules/order/src/utils/calculate-order-change.ts",
       "target": "packages/medusa-order/src/utils/calculate-order-change.ts",
-      "classification": "importRelocation",
-      "targetSha256": "ecbba91098675376a70e5943ff81a335f270a2df550046b6fbd702bf13a09f0a",
+      "classification": "orderSummaryPrecisionFork",
+      "targetSha256": "e824ca5ee8a65322cf7b3d3b8556edd59c4d41f3730d8aa6c9a7895aa11316dc",
       "sourceSha256": "5a8eb52c0b6b157689aae80cb1a25dc7f59e8b490411129991ef4f0af4d6ffdf"
     },
     {
@@ -15899,7 +15899,7 @@
     {
       "target": "packages/medusa-adapter/test/support/logical-payment-collection-fixture.ts",
       "classification": "authored",
-      "targetSha256": "bb313d31b8a753550949515f24d21195d3b586c45601267d6926816bc014b612"
+      "targetSha256": "cb4555666372b9f41d13dd7bca7052a77f69766cc16f01eec07ad0d80f9d6546"
     },
     {
       "target": "packages/medusa-cart/src/utils/totals-selection.ts",
@@ -16056,7 +16056,7 @@
     {
       "target": "packages/medusa-adapter/test/checkout-native-fields-prerequisite.test.ts",
       "classification": "authored",
-      "targetSha256": "7b7d327f40519e7542846180decf58890259024459d579a6adc6b26696aaa524"
+      "targetSha256": "a13079239dd8136bc001c50dfa46006f2824d3fb929bdea11e41c5e3af9af2f5"
     },
     {
       "target": "packages/medusa-adapter/src/modules/order/creation-receipt.ts",
@@ -16103,7 +16103,7 @@
       "target": "packages/medusa-core-flows/src/order/steps/create-orders.ts",
       "classification": "workflowFork",
       "sourceSha256": "7d1eadb4c9e4ce8b27c36a7e503389c766161fe62c832e52fb75573faace893b",
-      "targetSha256": "25d36ecab967cf317d5425fb28a890370a935791bc0303d827de777ca3ddd721",
+      "targetSha256": "75e819f0f784410e24d3cdf060cd8f7743ba3e6a5550f6ee5bfec55e20c4a3bd",
       "transformation": "Retain native statements with finite SDK imports, transaction-covered compensation and erased optional-type seams."
     },
     {
@@ -16174,6 +16174,78 @@
       "target": "packages/medusa-adapter/test/cart-completion-receipts.test.ts",
       "classification": "authored",
       "targetSha256": "07bc38ef2df7860d80b37f7e69a7e56a6850738e843efee130ed3aea197ac25c"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/cart/workflows/complete-cart.ts",
+      "classification": "workflowFork",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/cart/workflows/complete-cart.ts",
+      "sourceSha256": "8c11dcb4b7d78f956fb2352b687758bf49821b9cd03de0bb18d43d83240f9307",
+      "targetSha256": "8fb8f16236864b953602d9ab3c5d8de56d802235c1221ff6a4362e85f08159e3"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/cart/utils/prepare-checkout-order-data.ts",
+      "classification": "workflowFork",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/cart/workflows/complete-cart.ts",
+      "sourceSha256": "8c11dcb4b7d78f956fb2352b687758bf49821b9cd03de0bb18d43d83240f9307",
+      "targetSha256": "4cff073a3e6c28b96eb55b926d101638dff11557cbf3c20f6fd8a53a8ea8affc"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/cart/steps/validate-cart-payments.ts",
+      "classification": "workflowFork",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/cart/steps/validate-cart-payments.ts",
+      "sourceSha256": "37ca85882bd737dd6871611c1b3114ce6d71947b45f4d99eb8a94663a410fc17",
+      "targetSha256": "aa3cd4c739423d5d5985d7ca3a974df38d2875a15790367fd67148c34aae0f4b"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/cart/steps/validate-shipping.ts",
+      "classification": "workflowFork",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/cart/steps/validate-shipping.ts",
+      "sourceSha256": "5de187dfa50d812dc813284fee782d31aaa9d8b7898d37df4e703612dc0cb4e8",
+      "targetSha256": "211ba8c0a38a73ca54d632a54420ec6323a04a564cd4c657b3f026c91364a357"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/cart/steps/reserve-inventory.ts",
+      "classification": "workflowFork",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/cart/steps/reserve-inventory.ts",
+      "sourceSha256": "003c881a7324d6e4fcdc035fdb64b1b52af6b001ffb766dbebeb2ea669b60b78",
+      "targetSha256": "f52017d089530f0e30636c984c8fb64853b107fc0bf8d86c935f0528391a8127"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/promotion/steps/register-usage.ts",
+      "classification": "workflowFork",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/promotion/steps/register-usage.ts",
+      "sourceSha256": "e78daf8e704e0d78c185af1f109d497d9234aa3ed0401840301865ec4d375b41",
+      "targetSha256": "b7bf03644d81d151ea59db4742c772d740d14d56aedf6eac84cc4cbcf65704b4"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/common/steps/checkout-query-views.ts",
+      "classification": "authored",
+      "targetSha256": "b33e65800529fbd3803f103b8329558b71aa78d2817383a0f87aa40810e790dd"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/common/steps/checkout-order-view.ts",
+      "classification": "authored",
+      "targetSha256": "aaa439f8d3aee8f461bb234269f09c271929bb1cbe2f30877804b9e82ba12556"
+    },
+    {
+      "target": "packages/medusa-core-flows/test/checkout-line-price-prerequisite.test.ts",
+      "classification": "authored",
+      "targetSha256": "d43c1a8536af46b2686954daea6d7556064fadce0c0c55e2fc2f5f71597f0072"
+    },
+    {
+      "target": "packages/medusa-core-flows/test/checkout-query-views.test.ts",
+      "classification": "authored",
+      "targetSha256": "a97076357a73929644b60d30b44a4c53abd08dac854cb7511bc9d9491e7609b4"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-checkout-line-price.test.ts",
+      "classification": "authored",
+      "targetSha256": "5ca4ae64e92bd6ef3957c811e5c21e7b3bad0bf15c30e67a980e7cd074e99cb6"
+    },
+    {
+      "target": "packages/medusa-adapter/test/checkout-order-summary-prerequisite.test.ts",
+      "classification": "authored",
+      "targetSha256": "0f4d1c620e3d407d0e1049699c81dcb9da52d95ba915c999e9e7a20ac4312ab4"
     }
   ],
   "dependencies": {
@@ -16518,7 +16590,10 @@
         "./order/create-orders-step",
         "./cart/refund-payment-recreate-payment-session",
         "./cart/compensate-payment-if-needed-step",
-        "./cart/update-carts-step"
+        "./cart/update-carts-step",
+        "./cart/complete-cart",
+        "./cart/prepare-checkout-order-data",
+        "./common/checkout-query-views"
       ]
     },
     {
@@ -20824,12 +20899,12 @@
     },
     {
       "target": "packages/medusa-order/dist/models/return-reason.d.ts",
-      "targetSha256": "a759e68a4e7b1930bbcfd921aa8cc0e5820c838778d16ecad9dfdfb7c29bce79",
+      "targetSha256": "1e452c07fff3b70e6892bf2908477e7e5b1a21c02cc7d91711e0529365dc745c",
       "input": "packages/medusa-order/src/models/return-reason.ts"
     },
     {
       "target": "packages/medusa-order/dist/models/return-reason.d.ts.map",
-      "targetSha256": "a0cfac893a8dac438bb291abfd48a3f3a435b1dec0b229140ec76d0732a32dca",
+      "targetSha256": "fcedb09eb298df6273588db3cc000d338182928f4c7c3f7727948ac410412368",
       "input": "packages/medusa-order/src/models/return-reason.ts"
     },
     {
@@ -22089,17 +22164,17 @@
     },
     {
       "target": "packages/medusa-order/dist/utils/calculate-order-change.d.ts.map",
-      "targetSha256": "fbfc5b3b7f3ea069848082fd6fdc5bced9093d8a9503c06021f203eefd4cabc6",
+      "targetSha256": "e87f39399cc33db62ed59eb5b1f01e38f5f31fc476642cfa55252ac0b1771f98",
       "input": "packages/medusa-order/src/utils/calculate-order-change.ts"
     },
     {
       "target": "packages/medusa-order/dist/utils/calculate-order-change.js",
-      "targetSha256": "0e687c27f47e5cc8adf109b876ee479dc754f753aaee38d45aa8ce03a2df2d52",
+      "targetSha256": "32700999db3043ce7f7f423aba00cac487eac1a741367279e35491d2a09a3f8a",
       "input": "packages/medusa-order/src/utils/calculate-order-change.ts"
     },
     {
       "target": "packages/medusa-order/dist/utils/calculate-order-change.js.map",
-      "targetSha256": "ad72c71627b0bc51dd10c596f9a6e7215b11b82e5f4b54aa932ebf03518c61bf",
+      "targetSha256": "49f9648e6596c0e73a50808fb63292842e164bcc8c593330fedc817895925f38",
       "input": "packages/medusa-order/src/utils/calculate-order-change.ts"
     },
     {

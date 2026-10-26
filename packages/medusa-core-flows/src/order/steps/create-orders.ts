@@ -1,3 +1,5 @@
+import { decodeCheckoutCreatedOrders } from "../../common/steps/checkout-order-view"
+import type { prepareCheckoutOrderData } from "../../cart/utils/prepare-checkout-order-data"
 import type {
   CreateOrderDTO,
   IOrderModuleService,
@@ -8,7 +10,7 @@ import { StepResponse, createStep } from "@medusajs/workflows-sdk"
 /**
  * The orders to create.
  */
-export type CreateOrdersStepInput = CreateOrderDTO[]
+export type CreateOrdersStepInput = (CreateOrderDTO | ReturnType<typeof prepareCheckoutOrderData>)[]
 
 export const createOrdersStepId = "create-orders"
 /**
@@ -30,10 +32,11 @@ export const createOrdersStepId = "create-orders"
  */
 export const createOrdersStep = createStep(
   { name: createOrdersStepId, compensation: "transactionCovered" },
-  async (data: CreateOrderDTO[], { container }) => {
+  async (data: CreateOrdersStepInput, { container }) => {
     const service = container.resolve<IOrderModuleService>(Modules.ORDER)
 
-    const created = await service.createOrders(data)
+    const result: unknown = await Reflect.apply(service.createOrders, service, [data])
+    const created = decodeCheckoutCreatedOrders(result)
     return new StepResponse(
       created,
       created.map((store) => store.id)

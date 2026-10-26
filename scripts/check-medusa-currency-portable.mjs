@@ -80,6 +80,7 @@ for (const entry of [
   "packages/medusa-adapter/src/workflows/cart/variant-inventory-confirmation.ts",
   "packages/medusa-core-flows/src/cart/workflows/confirm-variant-inventory.ts",
   "packages/medusa-core-flows/src/cart/steps/confirm-inventory.ts",
+  "packages/medusa-core-flows/src/cart/workflows/complete-cart.ts",
   "packages/medusa-core-flows/src/cart/utils/prepare-confirm-inventory-input.ts",
   "packages/medusa-inventory/src/utils/inventory-level-availability.ts",
   "packages/medusa-cart/src/services/index.ts",

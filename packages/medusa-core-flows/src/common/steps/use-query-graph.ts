@@ -4,6 +4,8 @@ import { decodeRefundGraphRows, RefundCreditOrderQuery, RefundChangeQuery, Refun
   type RefundCreditOrderView, type RefundChangeView, type RefundPaymentView } from "./refund-query-views";
 import { decodePaymentCollectionGraphRows, CartCollectionRefreshQuery, CartCollectionRefreshView,
   OrderCollectionCreateQuery, OrderCollectionCreateView, CollectionCancellationQuery, CollectionCancellationView } from "./payment-collection-query-views";
+import { decodeCheckoutGraphRows, type CheckoutCartQuery, CheckoutCartView, CheckoutOrderCartQuery,
+  CheckoutOrderCartView, CheckoutShippingQuery, CheckoutShippingView } from "./checkout-query-views";
 
 // Fork of the pinned common graph step. The native graph keeps array results
 // and mandatory bounded pagination; only this compatibility step shapes a single.
@@ -74,7 +76,8 @@ export async function queryWorkflowGraph(input: QueryGraphInput, query: Workflow
   Result.getOrThrow(plan.validate(result));
   const rows = Result.getOrThrow(Result.gen(function* () {
     const selected = yield* decodeRefundGraphRows(input, result.data);
-    return yield* decodePaymentCollectionGraphRows(input, selected);
+    const collections = yield* decodePaymentCollectionGraphRows(input, selected);
+    return yield* decodeCheckoutGraphRows(input, collections);
   }));
   return { data: plan.single ? rows.at(0) : rows, metadata: { ...result.metadata } };
 }
@@ -87,6 +90,9 @@ const step = createStep("use-query-graph-step", async (input: QueryGraphInput, {
 export function useQueryGraphStep(input: typeof CartCollectionRefreshQuery.Type): StepOutput<{ readonly data: typeof CartCollectionRefreshView.Type; readonly metadata: Metadata }>;
 export function useQueryGraphStep(input: typeof OrderCollectionCreateQuery.Type): StepOutput<{ readonly data: typeof OrderCollectionCreateView.Type; readonly metadata: Metadata }>;
 export function useQueryGraphStep(input: typeof CollectionCancellationQuery.Type): StepOutput<{ readonly data: readonly (typeof CollectionCancellationView.Type)[]; readonly metadata: Metadata }>;
+export function useQueryGraphStep(input: CheckoutCartQuery): StepOutput<{ readonly data: CheckoutCartView; readonly metadata: Metadata }>;
+export function useQueryGraphStep(input: typeof CheckoutOrderCartQuery.Type): StepOutput<{ readonly data: typeof CheckoutOrderCartView.Type | undefined; readonly metadata: Metadata }>;
+export function useQueryGraphStep(input: typeof CheckoutShippingQuery.Type): StepOutput<{ readonly data: (typeof CheckoutShippingView.Type)[]; readonly metadata: Metadata }>;
 export function useQueryGraphStep(input: QueryGraphInput & { readonly options: { readonly isList: false } }): StepOutput<{ readonly data: Row | undefined; readonly metadata: Metadata }>;
 export function useQueryGraphStep(input: typeof RefundCreditOrderQuery.Type & { readonly options?: { readonly isList?: true } }): StepOutput<{ readonly data: readonly RefundCreditOrderView[]; readonly metadata: Metadata }>;
 export function useQueryGraphStep(input: typeof RefundChangeQuery.Type & { readonly options?: { readonly isList?: true } }): StepOutput<{ readonly data: readonly RefundChangeView[]; readonly metadata: Metadata }>;

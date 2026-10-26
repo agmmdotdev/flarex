@@ -119,13 +119,15 @@ describe("native159 exact fields and pure types", () => {
   it("retains exact field order and source bytes", () => {
     mutant("packages/medusa-core-flows/src/cart/utils/fields.ts", '"inventory_items.required_quantity"', '"inventory_items.required_quantity", "metadata"');
   });
-  it("admits only removal of the invalid text-ID raw companion", () => {
+  it("admits the text-ID raw correction and literal checkout field declaration", () => {
     const selected = entry("packages/medusa-core-flows/src/cart/utils/fields.ts");
     expect(() => verifyVariantItemPricingSourcePair(selected.target, selected.native, selected.native)).toThrow();
     mutant(selected.target, '  "sales_channel_id",\n', "");
     mutant(selected.target, '  "raw_total",\n', "");
     mutant(selected.target, '  "raw_subtotal",\n', "");
-    expect(selected.actual).toBe(selected.native.replace('  "raw_sales_channel_id",\n', ""));
+    expect(selected.actual).toBe(selected.native.replace('  "raw_sales_channel_id",\n', "")
+      .replace('  "items.variant.inventory_items.inventory.location_levels.stock_locations.sales_channels.name",\n]\n\nexport const cartFieldsForPricingContext',
+        '  "items.variant.inventory_items.inventory.location_levels.stock_locations.sales_channels.name",\n] as const\n\nexport const cartFieldsForPricingContext'));
   });
   it("retains the genuine utility's null branch", () => {
     mutant("packages/medusa-utils/src/common/filter-object-by-keys.ts", "source === null", "source == null");

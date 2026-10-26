@@ -204,7 +204,9 @@ export function verifyVariantItemPricingSourcePair(target, source, actual) {
   if (target.endsWith("/cart/utils/fields.ts")) {
     // Authorized native checkout correction: the text channel identity has no
     // numeric raw companion. Retain every other byte and selector in order.
-    const expected = replaceChecked(source, '  "raw_sales_channel_id",\n', "");
+    const expected = replaceChecked(source, '  "raw_sales_channel_id",\n', "")
+      .replace('  "items.variant.inventory_items.inventory.location_levels.stock_locations.sales_channels.name",\n]\n\nexport const cartFieldsForPricingContext',
+        '  "items.variant.inventory_items.inventory.location_levels.stock_locations.sales_channels.name",\n] as const\n\nexport const cartFieldsForPricingContext');
     if (expected !== actual) throw new Error(failure + ": exact checkout field correction " + target);
     return;
   }

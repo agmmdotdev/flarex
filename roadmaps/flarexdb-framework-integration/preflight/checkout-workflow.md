@@ -269,6 +269,52 @@ Requiring that view to contain the preimage incorrectly refused a genuine native
 completion; the receipt now requires the complete post-write row while retaining
 the native read ledger, protected-field, returned DTO and event checks.
 
+The preserved line-price prerequisite executes the pinned root's actual `cartToOrder`
+transform and genuine `prepareLineItemData` helper. Native public serialization
+retains `raw_unit_price.value: "9007199254740993"` beside a public numeric price
+of `9007199254740992`. The root passes only `item.unit_price`, so its Order input
+loses the exact stored value. Expected: Order creation receives the exact raw
+price while the Cart DTO retains native numeric presentation. Actual: Order input
+contains the rounded price. The correction belongs to native
+`cart/workflows/complete-cart.ts` at its `unitPrice` selection, not to the SDK,
+DAL encoder or storage numeric owner. The approved correction prefers the genuine
+raw companion at that native call site. The pure Cart-to-Order callback is extracted
+once into `prepare-checkout-order-data.ts`, with its entire native body checked
+against the pinned root; the root delegates to that owner. Other native price,
+quantity, adjustment and tax semantics remain unchanged.
+
+The finite root preserves the complete native composer, stored declaration,
+validation, hooks, conditions and declared Payment compensation closure. It prepares
+within the existing node limit. Its consumed Cart, Order-Cart and Shipping Option
+projections have named checked views; they do not assert complete native DTOs.
+The native creation step preserves the actual nullable/own-undefined checkout
+input and validates the genuinely selected returned Order fields before retaining
+created IDs. It still calls the same native method and retained deletion inverse.
+The native empty Inventory and Promotion callbacks retain their real early returns;
+populated resources remain outside the initial profile.
+
+These are root preparation and isolated Cart-to-Order prerequisites. Complete
+checkout execution remains gated on the full metadata-backed Cart graph,
+Order-Cart Link creation/read/inverse, exact quantity and comparison-price
+translation checks, whole-root resource measurement and the connected outcomes
+below. Isolated preparation does not admit a second checkout algorithm or establish
+the complete checkout runtime.
+
+The connected line-price prerequisite preserves another native precision defect:
+the created Line Item now retains `9007199254740993`, while its Order Summary
+stores `9007199254740992`. The pure native totals witness confirms that
+`decorateCartTotals` computes the exact value; `OrderChangeProcessing` in
+`medusa-order/src/utils/calculate-order-change.ts` then JSON-clones the native
+BigNumber before initializing its Summary. That clone presents the rounded public
+number. Expected: the freshly computed exact total initializes native Summary
+accounting. Actual: the clone loses one unit before Summary creation. The native
+Order calculation owner now takes an independent exact decimal snapshot of the
+original total with native arithmetic after cloning the remaining Order state.
+This approved correction retains clone isolation and numeric DTO presentation.
+Storage and the creation receipt reuse the corrected native calculation; neither
+repairs or rounds it independently. Complete checkout admission still requires
+the connected gates above.
+
 Run the genuine root and retained inverses on PGlite and ordinary-role PostgreSQL.
 Require successful placement, native already-linked retry, same-request replay,
 cross-shop refusal, exact totals and raw amounts, Payment validation/authorization

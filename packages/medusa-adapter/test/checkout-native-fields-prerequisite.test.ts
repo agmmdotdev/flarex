@@ -19,8 +19,6 @@ describe("native checkout selected field prerequisites", () => {
       .pipe(Result.flatMap(prepared.query));
     expect(Result.isSuccess(select(["sales_channel_id"]))).toBe(true);
     expect(Result.isFailure(select(["raw_sales_channel_id"]))).toBe(true);
-    const invalid = completeCartFields.filter(field => field === "raw_sales_channel_id");
-    expect(invalid).toEqual([]);
-    expect(Result.isSuccess(select(invalid))).toBe(true);
+    expect(completeCartFields).not.toContain("raw_sales_channel_id");
   });
 });

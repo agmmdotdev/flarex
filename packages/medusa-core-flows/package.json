@@ -234,6 +234,18 @@
     "./cart/update-carts-step": {
       "types": "./src/cart/steps/update-carts.ts",
       "default": "./src/cart/steps/update-carts.ts"
+    },
+    "./cart/complete-cart": {
+      "types": "./src/cart/workflows/complete-cart.ts",
+      "default": "./src/cart/workflows/complete-cart.ts"
+    },
+    "./cart/prepare-checkout-order-data": {
+      "types": "./src/cart/utils/prepare-checkout-order-data.ts",
+      "default": "./src/cart/utils/prepare-checkout-order-data.ts"
+    },
+    "./common/checkout-query-views": {
+      "types": "./src/common/steps/checkout-query-views.ts",
+      "default": "./src/common/steps/checkout-query-views.ts"
     }
   },
   "dependencies": {

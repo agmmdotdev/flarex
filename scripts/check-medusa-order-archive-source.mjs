@@ -68,7 +68,8 @@ export const orderArchiveSourcePairs = Object.freeze([
   { source: nativePrefix + "LICENSE", target: "packages/medusa-order/LICENSE", classification: "unchanged" },
   ...unchanged.map(file => ({ source: moduleSource + file, target: moduleTarget + file, classification: "unchanged" })),
   ...relocated.map(file => ({ source: moduleSource + file, target: moduleTarget + file,
-    classification: file === "services/order-module-service.ts" ? "orderChangeCancellationRestoreFork" : "importRelocation" })),
+    classification: file === "services/order-module-service.ts" ? "orderChangeCancellationRestoreFork" :
+      file === "utils/calculate-order-change.ts" ? "orderSummaryPrecisionFork" : "importRelocation" })),
   { source: moduleSource + "joiner-config.ts", target: moduleTarget + "joiner-config.ts", classification: "orderArchiveFork" },
   ...["index.ts", "order-change-action.ts", "order-change.ts", "status.ts"].map(file => ({
     source: helperSource + file, target: helperTarget + file, classification: "unchanged",
@@ -115,7 +116,7 @@ export function verifyOrderArchiveSourceSelection(files) {
       pair.classification === file.classification)) continue;
     if (orderChangeDeletionSourcePairs.some(pair => pair.source === file.source && pair.target === file.target &&
       pair.classification === file.classification)) continue;
-    const relevant = ["orderArchiveFork", "orderArchiveCompensationFork", "orderChangeCancellationFork", "orderChangeCancellationRestoreFork"].includes(file.classification) || file.target.startsWith("packages/medusa-order/") ||
+    const relevant = ["orderArchiveFork", "orderArchiveCompensationFork", "orderSummaryPrecisionFork", "orderChangeCancellationFork", "orderChangeCancellationRestoreFork"].includes(file.classification) || file.target.startsWith("packages/medusa-order/") ||
       file.target.startsWith(workflowTarget) || file.target.startsWith(helperTarget) ||
       file.source?.startsWith(moduleSource) || file.source?.startsWith(workflowSource) || file.source?.startsWith(helperSource) ||
       orderArchiveSourcePairs.some(pair => pair.source !== nativePrefix + "LICENSE" && pair.source === file.source);
@@ -144,9 +145,12 @@ export function verifyOrderArchiveSource(source, target, destination) {
     return;
   }
   let expected = source.replaceAll("\r\n", "\n");
-  if (pair.classification === "importRelocation") {
+  if (pair.classification === "importRelocation" || pair.classification === "orderSummaryPrecisionFork") {
     if (!expected.includes('"@medusajs/framework/utils"')) throw new Error(failure + ": portable import anchor");
     expected = expected.replaceAll('"@medusajs/framework/utils"', '"@medusajs/framework/utils/portable"');
+    if (pair.classification === "orderSummaryPrecisionFork") expected = replace(expected,
+      '    this.order = JSON.parse(JSON.stringify(order))\n',
+      '    this.order = JSON.parse(JSON.stringify(order))\n    this.order.total = MathBN.convert(order.total ?? 0).toString()\n');
   } else if (destination === moduleTarget + "joiner-config.ts") {
     expected = replace(expected, 'import { defineJoinerConfig, Modules } from "@medusajs/framework/utils"',
       'import { Modules } from "@medusajs/framework/utils/portable"\n' +

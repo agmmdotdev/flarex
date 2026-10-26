@@ -21,6 +21,20 @@ const workflow = entry("packages/medusa-core-flows/src/order/workflows/archive-o
 const joiner = entry("packages/medusa-order/src/joiner-config.ts");
 
 describe("bounded native Order source preparation", () => {
+  it("permits only the exact native total snapshot correction before Summary creation", () => {
+    const selected = entry("packages/medusa-order/src/utils/calculate-order-change.ts");
+    expect(selected.classification).toBe("orderSummaryPrecisionFork");
+    expect(() => verifyOrderArchiveSource(selected.native, selected.actual, selected.target)).not.toThrow();
+    for (const changed of [selected.native.replaceAll('"@medusajs/framework/utils"', '"@medusajs/framework/utils/portable"'),
+      selected.actual.replace('MathBN.convert(order.total ?? 0).toString()', 'Number(order.total ?? 0)'),
+      selected.actual.replace('this.order = JSON.parse(JSON.stringify(order))', 'this.order = order')])
+      expect(() => verifyOrderArchiveSource(selected.native, changed, selected.target)).toThrow(failure);
+    expect(() => verifyOrderArchiveSourceSelection(orderArchiveSourcePairs.map(pair => pair.target === selected.target
+      ? { ...pair, classification: "importRelocation" } : pair))).toThrow(failure);
+    for (const changed of [{ ...selected, target: "packages/medusa-utils/src/order/adjacent.ts" },
+      { ...selected, source: selected.source + ".other" }])
+      expect(() => verifyOrderArchiveSourceSelection([...orderArchiveSourcePairs, changed])).toThrow(failure);
+  });
   it("recognizes only the separately guarded exact Order Change deletion pairs", () => {
     expect(orderChangeDeletionSourcePairs).toHaveLength(2);
     expect(() => verifyOrderArchiveSourceSelection([...orderArchiveSourcePairs, ...orderChangeDeletionSourcePairs])).not.toThrow();

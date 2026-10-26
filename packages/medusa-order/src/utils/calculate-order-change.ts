@@ -56,6 +56,7 @@ export class OrderChangeProcessing {
     options: ProcessOptions
   }) {
     this.order = JSON.parse(JSON.stringify(order))
+    this.order.total = MathBN.convert(order.total ?? 0).toString()
     this.transactions = JSON.parse(JSON.stringify(transactions ?? []))
     this.actions = JSON.parse(JSON.stringify(actions ?? []))
     this.options = options
