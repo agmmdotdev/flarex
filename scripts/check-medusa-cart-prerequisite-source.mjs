@@ -112,7 +112,7 @@ export const cartPrerequisiteSourcePairs = Object.freeze([
   {
     "source": "third_party/medusa/upstream/packages/modules/cart/src/services/cart-module.ts",
     "target": "packages/medusa-cart/src/services/cart-module.ts",
-    "classification": "importRelocation"
+    "classification": "cartPaymentTotalsFork"
   },
   {
     "source": "third_party/medusa/upstream/packages/modules/cart/src/static-manifest.ts",
@@ -572,6 +572,7 @@ export function verifyCartPrerequisiteSourceSelection(files) {
       throw new Error(failure + ": exact source pair " + pair.target);
   }
   for (const file of files) {
+    if (file.target === "packages/medusa-cart/src/utils/totals-selection.ts" && file.source === undefined && file.classification === "authored") continue;
     if (paymentAccountingAuthoredTargets.includes(file.target) && file.source === undefined && file.classification === "authored") continue;
     const targetPair = cartPrerequisiteSourcePairs.find(pair => pair.target === file.target);
     if (targetPair !== undefined) continue;

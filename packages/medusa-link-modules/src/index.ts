@@ -19,3 +19,5 @@ export { LinkOperationRequest as LinkOperationRequestSchema, LinkOperationHandle
   LinkOperationResult as LinkOperationResultSchema, LinkOperationCompensation as LinkOperationCompensationSchema,
   LinkOperationRecord as LinkOperationRecordSchema, LinkPairRevisionRecord as LinkPairRevisionRecordSchema,
   LinkOperationEventIntent as LinkOperationEventIntentSchema, linkPairRevisionId, linkOperationRequestKey } from "./operations/contracts";
+
+export { CartPaymentCollection } from "./definitions/cart-payment-collection"

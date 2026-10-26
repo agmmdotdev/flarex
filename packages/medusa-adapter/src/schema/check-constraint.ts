@@ -8,10 +8,16 @@ const NullImplicationExpression = Schema.String.check(Schema.isPattern(
 
 export const CompiledCheckConstraint = Schema.Struct({
   name: Schema.String,
-  expression: NullImplicationExpression,
+  expression: Schema.Union([NullImplicationExpression, Schema.String.check(Schema.isPattern(
+    /^"[A-Za-z_][A-Za-z0-9_]{0,255}" >= 0(?![\s\S])/,
+  ))]),
 });
 
 export function lowerCompiledCheckConstraint(check: typeof CompiledCheckConstraint.Type) {
+  if (check.expression.endsWith(" >= 0")) return {
+    constraintId: check.name, kind: "numericLowerBound" as const,
+    columnId: check.expression.slice(1, -6), minimum: "0",
+  };
   const separator = " IS NULL OR ";
   const split = check.expression.indexOf(separator);
   const required = check.expression.slice(split + separator.length);

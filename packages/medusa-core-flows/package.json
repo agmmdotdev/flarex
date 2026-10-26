@@ -219,7 +219,15 @@
     "./order/create-order-change-step": "./src/order/steps/create-order-change.ts",
     "./order/confirm-order-changes-step": "./src/order/steps/confirm-order-changes.ts",
     "./order/create-order-change-actions": "./src/order/workflows/create-order-change-actions.ts",
-    "./order/create-order-refund-credit-lines": "./src/order/workflows/payments/create-order-refund-credit-lines.ts"
+    "./order/create-order-refund-credit-lines": "./src/order/workflows/payments/create-order-refund-credit-lines.ts",
+    "./cart/create-payment-collection-for-cart": "./src/cart/workflows/create-payment-collection-for-cart.ts",
+    "./cart/refresh-payment-collection": "./src/cart/workflows/refresh-payment-collection.ts",
+    "./cart/create-payment-collection-step": "./src/cart/steps/create-payment-collection.ts",
+    "./cart/validate-cart-step": "./src/cart/steps/validate-cart.ts",
+    "./payment-collection/cancel-payment-collection": "./src/payment-collection/workflows/cancel-payment-collection.ts",
+    "./payment-collection/update-payment-collection-step": "./src/payment-collection/steps/update-payment-collection.ts",
+    "./payment-collection/cancel-payment-step": "./src/payment-collection/steps/cancel-payment.ts",
+    "./order/create-order-payment-collection": "./src/order/workflows/create-order-payment-collection.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

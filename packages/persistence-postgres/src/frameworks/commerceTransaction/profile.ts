@@ -108,7 +108,7 @@ export const registerCommerceProfile = Effect.fn("CommerceProfile.register")(fun
     artifact.provenance.kind !== "sourceSnapshot" || artifact.dependencies.length !== 0 ||
     !sameArtifactIdentity(artifact.identity, layout.frame.artifact) || layout.frame.tables.length !== 1 ||
     table === undefined || table.columns.length === 0 || table.columns.length > 16 ||
-    table.columns.some(column => column.type === "boolean") || table.checks.some(check => check.kind !== "integerRange") ||
+    table.columns.some(column => column.type === "boolean") || table.checks.some(check => check.kind !== "integerRange" && check.kind !== "numericLowerBound") ||
     table.indexes.some(index => index.kind !== "btree") || table.keys.filter(key => key.kind === "primary").length !== 1 ||
     layout.frame.relationships.length !== 0 || layout.frame.foreignKeys.some(key => key.kind !== "scopeAuthorityForeignKey")) {
     return yield* Effect.fail(commerceError("unsupportedProfile"));

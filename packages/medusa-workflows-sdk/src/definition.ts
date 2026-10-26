@@ -1,4 +1,4 @@
-import { Result } from "effect";
+import { Result, Schema } from "effect";
 import { WorkflowResponse } from "./responses";
 import { definitionError, WorkflowDefinitionError, type Compensate, type Hook, type HookHandlers, type Invoke, type ParallelBranch, type ParallelGroup, type Resolved, type StepExecutionContext, type StepOptions, type WorkflowData, type WorkflowInput, type WorkflowNode } from "./model";
 import { proxify, transformer, referenceOf } from "./references";
@@ -204,19 +204,25 @@ export interface WorkflowDefinition<Input, Output, Hooks extends readonly unknow
   readonly " input"?: Input;
   readonly " output"?: Output;
 }
-export function createWorkflow<Input, Output, const Hooks extends readonly unknown[]>(name: string,
+const WorkflowDeclarationConfig = Schema.Struct({ name: Schema.String, idempotent: Schema.Literal(false) });
+type WorkflowDeclaration = string | typeof WorkflowDeclarationConfig.Type;
+const decodeWorkflowDeclaration = Schema.decodeUnknownResult(WorkflowDeclarationConfig, { onExcessProperty: "error" });
+export function createWorkflow<Input, Output, const Hooks extends readonly unknown[]>(nameOrConfig: WorkflowDeclaration,
   build: (input: Input) => WorkflowResponse<Output, Hooks>,
 ): WorkflowDefinition<Resolved<Input>, Output, Hooks>;
-export function createWorkflow<Input, const Output extends StepOutput<unknown>>(name: string,
+export function createWorkflow<Input, const Output extends StepOutput<unknown>>(nameOrConfig: WorkflowDeclaration,
   build: (input: Input) => Output,
 ): WorkflowDefinition<Resolved<Input>, Output, readonly []>;
-export function createWorkflow<Input, const Output>(name: string,
+export function createWorkflow<Input, const Output>(nameOrConfig: WorkflowDeclaration,
   build: ((input: Input) => Output) & ([Output] extends [void] ? unknown : never),
 ): WorkflowDefinition<Resolved<Input>, Output, readonly []>;
-export function createWorkflow<Input, Output, const Hooks extends readonly unknown[]>(name: string,
+export function createWorkflow<Input, Output, const Hooks extends readonly unknown[]>(nameOrConfig: WorkflowDeclaration,
   build: (input: Input) => WorkflowResponse<Output, Hooks> | Output,
 ): WorkflowDefinition<Resolved<Input>, Output, Hooks> {
-  if (typeof name !== "string") throw definitionError("unsupportedProfile", "Workflow configuration is not admitted in this atomic profile");
+  const configuration = typeof nameOrConfig === "string" ? { name: nameOrConfig }
+    : Result.getOrThrow(decodeWorkflowDeclaration(captureDefinition(nameOrConfig, Object.freeze({}))).pipe(
+      Result.mapError(() => definitionError("unsupportedProfile", "Only native idempotent:false workflow configuration is admitted"))));
+  const name = configuration.name;
   options(name);
   const context: Composer = { owner: Object.freeze({}), nodes: [], hooks: new Set(), pending: new Set(), parallel: [], anonymousConditions: 0, guards: Object.freeze([]) };
   const previous = current;
@@ -303,7 +309,8 @@ export function createWorkflow<Input, Output, const Hooks extends readonly unkno
         return Object.freeze({ ...node, invoke: handler as Invoke<unknown, unknown>, boundHook: true });
       });
       const prepared = Object.freeze({ name, owner: context.owner, nodes: Object.freeze(bound), result, nodeCount,
-        identity: workflowIdentity(name, bound, result, parallel), resolution, ...(parallel === undefined ? {} : { parallel }) });
+        identity: Object.freeze({ ...workflowIdentity(name, bound, result, parallel),
+          ...("idempotent" in configuration ? { idempotent: false as const } : {}) }), resolution, ...(parallel === undefined ? {} : { parallel }) });
       preparedWorkflows.add(prepared);
       return prepared;
     },

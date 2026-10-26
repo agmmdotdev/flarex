@@ -18,6 +18,11 @@
       "types": "./dist/static-manifest.d.ts",
       "source": "./src/static-manifest.ts",
       "default": "./dist/static-manifest.js"
+    },
+    "./utils/totals-selection": {
+      "types": "./dist/utils/totals-selection.d.ts",
+      "source": "./src/utils/totals-selection.ts",
+      "default": "./dist/utils/totals-selection.js"
     }
   },
   "dependencies": {

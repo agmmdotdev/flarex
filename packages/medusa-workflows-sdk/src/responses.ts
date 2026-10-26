@@ -1,4 +1,5 @@
 import { SymbolWorkflowWorkflowData } from "@medusajs/utils/orchestration/symbol";
+import { SkipStepResponse } from "@medusajs/orchestration/transaction/errors";
 
 /** Native create-step-handler wraps a raw callback result before storing it;
  * resolve-value selects response.output ?? response. Nullish raw results retain
@@ -13,6 +14,7 @@ export function stepCallbackOutput(value: unknown): unknown {
 /** Adapted from the pinned SDK response wrappers. Compensation is retained as
  * declaration data; the selected atomic runtime delegates rollback to its owner. */
 export class StepResponse<Output = undefined, Compensation = Output> {
+  static skip(): SkipStepResponse { return new SkipStepResponse(); }
   readonly #output: Output;
   readonly #compensateInput: Compensation | Output;
   constructor(output: Output, compensateInput?: Compensation) {

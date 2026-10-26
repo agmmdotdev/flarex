@@ -7,6 +7,7 @@ import { orderCompleteSourcePairs } from "./check-medusa-order-complete-source.m
 import { orderChangeUpdateSourcePairs } from "./check-medusa-order-change-update-source.mjs";
 import { orderFinanceHelperTargets, verifyOrderFinanceSelection } from "./check-medusa-order-finance-source.mjs";
 import { paymentLifecycleSourcePairs } from "./check-medusa-payment-lifecycle-source.mjs";
+import { paymentCollectionSourcePairs } from "./check-medusa-payment-collection-source.mjs";
 import { orderChangeCancellationSourcePairs, verifyOrderChangeCancellationSource } from "./check-medusa-order-change-cancellation-source.mjs";
 import { orderChangeDeletionSourcePairs } from "./check-medusa-order-change-deletion-source.mjs";
 
@@ -98,7 +99,7 @@ export function verifyOrderArchiveSourceSelection(files) {
   }
   if (files.some(file => orderFinanceHelperTargets.includes(file.target))) verifyOrderFinanceSelection(files);
   for (const file of files) {
-    if (paymentLifecycleSourcePairs.some(pair => pair.source === file.source && pair.target === file.target &&
+    if ([...paymentLifecycleSourcePairs, ...paymentCollectionSourcePairs].some(pair => pair.source === file.source && pair.target === file.target &&
       pair.classification === file.classification)) continue;
     if (orderFinanceHelperTargets.includes(file.target) && file.source === undefined && file.classification === "authored") continue;
     if (orderArchiveAuthoredTargets.includes(file.target) && file.source === undefined && file.classification === "authored") continue;

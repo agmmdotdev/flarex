@@ -93,7 +93,10 @@ export function paymentLifecyclePolicy(prepared: Prepared) {
       const plan = yield* captureCommerceInput(buildQuery(filters, config)).pipe(Result.flatMap(value => query(table, value)));
       const ids = typeof filters.id === "string" ? [filters.id] : Array.isArray(filters.id) ? filters.id :
         Array.isArray(filters.$or) ? filters.$or.filter(isJsonObject).map(value => value.id) : undefined;
-      const roots = orderNativeIdRows(group(table.name).filter(row => row.deleted_at === null && (ids === undefined || ids.includes(row.id))), {});
+      const collectionIds = filters.payment_collection_id === undefined ? undefined :
+        typeof filters.payment_collection_id === "string" ? [filters.payment_collection_id] : filters.payment_collection_id;
+      const roots = orderNativeIdRows(group(table.name).filter(row => row.deleted_at === null && (ids === undefined || ids.includes(row.id)) &&
+        (collectionIds === undefined || Array.isArray(collectionIds) && collectionIds.includes(row.payment_collection_id))), {});
       record(table.name, plan.query.predicate, roots);
       const selected = new Map<string, readonly JsonObject[]>([[table.name, roots]]);
       yield* populate(table.name, roots, toPopulateTree(plan.paths), selected);

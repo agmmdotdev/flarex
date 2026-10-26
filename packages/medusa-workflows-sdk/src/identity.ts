@@ -4,6 +4,7 @@ import { referenceOf } from "./references";
 
 export type WorkflowIdentity = {
   readonly name: string;
+  readonly idempotent?: false;
   readonly nodes: readonly Schema.Json[];
   readonly references: readonly Schema.Json[];
   readonly result: Schema.Json;

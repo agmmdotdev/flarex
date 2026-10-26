@@ -1,6 +1,7 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Brand, Data, Effect, Result } from "effect";
+import { compareExactDecimals } from "flarex-protocol/internal/exact-decimal";
 import { sql, type SQL } from "drizzle-orm";
 
 import { rowsFromDriverExecuteResult } from "../../database/driverExecuteResult";
@@ -1801,6 +1802,8 @@ function checkConstraintMatchesResult(
       (expected.kind === "textSet"
         ? (yield* nullableTextMemberResult(actual, "check_expression", context)) ===
           textSetCatalogExpression(expected, (yield* textMemberResult(actual, "standard_conforming_strings", context)) === "on")
+        : expected.kind === "numericLowerBound"
+        ? numericLowerBoundExpressionMatches(yield* nullableTextMemberResult(actual, "check_expression", context), expected)
         : rangeConstraintExpressionMatches(yield* nullableTextMemberResult(actual, "check_expression", context), expected));
   });
 }
@@ -2110,6 +2113,10 @@ function checkExpressionResult(
         clauses.push(`${column} = ${literal}::text`);
       }
       return clauses.join(" OR ");
+    }
+    if (check.kind === "numericLowerBound") {
+      const literal = yield* dollarQuotedLiteralResult(check.minimum, operation, objectKind, objectName);
+      return `${column} >= ${literal}::numeric`;
     }
     const clauses: string[] = [];
     if (check.minimum !== null) clauses.push(`${column} >= ${check.minimum}`);
@@ -2590,6 +2597,17 @@ function isNullPredicateExpressionMatch(
     .exec(expression);
   return match !== null &&
     decodeCatalogIdentifier(match[1] ?? "") === expectedColumn;
+}
+
+function numericLowerBoundExpressionMatches(actual: string | null, expected: Extract<RelationalPhysicalCheck, { kind: "numericLowerBound" }>): boolean {
+  if (actual === null) return false;
+  const match = /^("(?:[^"]|"")*"|[a-z_][a-z0-9_$]*)\s*>=\s*(.+)$/u.exec(stripRedundantOuterParentheses(actual));
+  if (match === null || decodeCatalogIdentifier(match[1] ?? "") !== expected.column) return false;
+  const literal = stripRedundantOuterParentheses(match[2] ?? "");
+  const value = /^(?:'(-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?)'::numeric|(-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?))$/u.exec(literal);
+  return value !== null && Result.match(compareExactDecimals(value[1] ?? value[2], expected.minimum), {
+    onFailure: () => false, onSuccess: comparison => comparison === 0,
+  });
 }
 
 function rangeConstraintExpressionMatches(

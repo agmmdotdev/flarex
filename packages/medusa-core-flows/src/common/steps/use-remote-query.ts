@@ -1,6 +1,7 @@
 import { Result, Schema } from "effect";
 import { createStep, StepResponse, WorkflowDefinitionError, type StepOutput } from "@medusajs/workflows-sdk";
 import { queryWorkflowGraph, type WorkflowGraphResource } from "./use-query-graph";
+import { CartCollectionCreateQuery, CartCollectionCreateView, decodeCartCollectionCreateView } from "./payment-collection-query-views";
 
 // Pinned Product lists retain the bounded graph seam. Named Fulfillment and
 // Payment singleton profiles use the exact native callable Query ABI.
@@ -39,7 +40,7 @@ const RefundOrderInput = Schema.Struct({ entry_point: Schema.Literal("order"),
 const RefundReasonInput = Schema.Struct({ entry_point: Schema.Literal("refund_reason"),
   fields: Schema.Tuple([Schema.Literal("id"), Schema.Literal("label"), Schema.Literal("code")]),
   variables: Schema.Struct({ id: Schema.String }), list: Schema.Literal(false), throw_if_key_not_found: Schema.Literal(true) });
-const Input = Schema.Union([ListInput, SingletonInput, PaymentCollectionInput, PaymentCustomerInput, OrderPaymentInput,
+const Input = Schema.Union([ListInput, SingletonInput, PaymentCollectionInput, PaymentCustomerInput, OrderPaymentInput, CartCollectionCreateQuery,
   RefundPaymentInput, RefundOrderInput, RefundReasonInput]);
 const retainedProjection = { parseOptions: { onExcessProperty: "preserve" as const } };
 const PaymentCollectionView = Schema.Struct({ id: Schema.String, amount: Schema.Number.check(Schema.isFinite()), currency_code: Schema.String,
@@ -76,10 +77,10 @@ type ListStepInput = Omit<typeof ListInput.Type, "variables"> & {
 };
 type SingletonStepInput = typeof SingletonInput.Type;
 export type EntryStepInput = ListStepInput | SingletonStepInput | typeof PaymentCollectionInput.Type | typeof PaymentCustomerInput.Type | typeof OrderPaymentInput.Type
-  | typeof RefundPaymentInput.Type | typeof RefundOrderInput.Type | typeof RefundReasonInput.Type;
+  | typeof RefundPaymentInput.Type | typeof RefundOrderInput.Type | typeof RefundReasonInput.Type | typeof CartCollectionCreateQuery.Type;
 type Row = typeof Schema.JsonObject.Type;
 interface SingletonQueryResource {
-  (input: { readonly entryPoint: "stock_location" | "payment_collection" | "customer" | "payment" | "order" | "refund_reason"; readonly fields: readonly string[]; readonly variables: { readonly id: string } }
+  (input: { readonly entryPoint: "stock_location" | "payment_collection" | "customer" | "payment" | "order" | "refund_reason" | "cart"; readonly fields: readonly string[]; readonly variables: { readonly id: string } }
     | { readonly entryPoint: "order_payment_collection"; readonly fields: readonly string[]; readonly variables: { readonly payment_collection_id: string } },
     options: { readonly throwIfKeyNotFound: boolean; readonly throwIfRelationNotFound: undefined }): Promise<readonly Row[]>;
 }
@@ -102,6 +103,8 @@ const step = createStep<EntryStepInput, Row | readonly Row[] | undefined>(useRem
     const entities = await query({ entryPoint: data.entry_point, fields: data.fields, variables: data.variables },
       { throwIfKeyNotFound: data.entry_point !== "payment_collection" && data.entry_point !== "customer", throwIfRelationNotFound: undefined });
     const result = entities[0];
+    if (data.entry_point === "cart") return new StepResponse(Result.getOrThrow(decodeCartCollectionCreateView(result)
+      .pipe(Result.mapError(() => new WorkflowDefinitionError({ reason: "invalidDefinition", detail: "Malformed native Cart payment projection" })))));
     if (data.entry_point === "payment_collection") return new StepResponse(Result.getOrThrow(decodeCollectionView(result)
       .pipe(Result.mapError(() => new WorkflowDefinitionError({ reason: "invalidDefinition", detail: "Malformed native Payment collection projection" })))));
     if (data.entry_point === "customer") return new StepResponse(Result.getOrThrow(decodeCustomerView(result)
@@ -121,6 +124,7 @@ const step = createStep<EntryStepInput, Row | readonly Row[] | undefined>(useRem
 });
 
 // Dynamic selection exposes partial records, never a caller-chosen module DTO.
+export function useRemoteQueryStep(input: typeof CartCollectionCreateQuery.Type): StepOutput<typeof CartCollectionCreateView.Type>;
 export function useRemoteQueryStep(input: SingletonStepInput): StepOutput<Row | undefined>;
 export function useRemoteQueryStep(input: typeof PaymentCollectionInput.Type): StepOutput<typeof PaymentCollectionView.Type | undefined>;
 export function useRemoteQueryStep(input: typeof PaymentCustomerInput.Type): StepOutput<typeof PaymentCustomerView.Type | undefined>;

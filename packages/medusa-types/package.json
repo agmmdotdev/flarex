@@ -227,6 +227,11 @@
       "types": "./dist/api-key/mutations/api-key.d.ts",
       "source": "./src/api-key/mutations/api-key.ts",
       "default": "./dist/api-key/mutations/api-key.js"
+    },
+    "./cart/workflows": {
+      "types": "./dist/cart/workflows.d.ts",
+      "source": "./src/cart/workflows.ts",
+      "default": "./dist/cart/workflows.js"
     }
   },
   "license": "MIT",

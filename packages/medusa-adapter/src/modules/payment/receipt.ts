@@ -48,7 +48,11 @@ export function paymentSessionPolicy({ contracts, query, relations }: Prepared) 
       }
       for (const values of rows.values()) values.sort((a, b) => String(a.id).localeCompare(String(b.id)));
       const roots = rows.get(root.name) ?? [], requested = input.filters?.id;
+      const collections = input.filters?.payment_collection_id;
       if (roots.length > 4 || roots.some(row => requested !== undefined && !(Array.isArray(requested) ? requested.includes(String(row.id)) : row.id === requested)))
+        return yield* Effect.fail(mismatch());
+      if (collections !== undefined && (collectionRead || roots.some(row => typeof row.payment_collection_id !== "string" ||
+        !(Array.isArray(collections) ? collections.includes(row.payment_collection_id) : row.payment_collection_id === collections))))
         return yield* Effect.fail(mismatch());
       const expectedReads = [{ table: root.name, query: commerceRelationReadQuery(defaultCommerceResources, plan.query.predicate), total: roots.length, returned: roots.length }];
       for (const path of plan.paths) {

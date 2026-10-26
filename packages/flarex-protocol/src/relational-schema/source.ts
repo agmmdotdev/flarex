@@ -128,6 +128,10 @@ function sourceConstraintInputFromStoredConstraint(input: unknown) {
     nonNullColumnId: storedColumnId(input.nonNullColumn),
     requiredColumnId: storedColumnId(input.requiredColumn), required: input.required, origin: input.origin,
   };
+  if (input.kind === "numericLowerBound") return {
+    constraintId: input.identity.constraintId, kind: input.kind,
+    columnId: storedColumnId(input.column), minimum: input.minimum, origin: input.origin,
+  };
   if (input.kind === "integerRange") {
     return {
       constraintId: input.identity.constraintId,

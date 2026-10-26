@@ -172,6 +172,12 @@ export type RelationalPhysicalIntegerRangeCheck = Readonly<{
 export type RelationalPhysicalCheck = RelationalPhysicalIntegerRangeCheck | (Readonly<{
   readonly identity: RelationalConstraintIdentity;
   readonly name: string;
+  readonly kind: "numericLowerBound";
+  readonly column: string;
+  readonly minimum: string;
+}> & JsonObject) | (Readonly<{
+  readonly identity: RelationalConstraintIdentity;
+  readonly name: string;
   readonly kind: "textSet";
   readonly column: string;
   readonly values: readonly string[];

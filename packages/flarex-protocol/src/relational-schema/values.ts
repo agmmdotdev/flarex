@@ -2,7 +2,7 @@ import { Data, Result } from "effect";
 import { isCanonicalIsoInstant } from "@flarex/time/iso-instant";
 import type { Json, JsonObject } from "../json";
 import type { RelationalColumnType, RelationalConstraintIdentity, RelationalTableDefinition } from "./model";
-import { decodeExactDecimal } from "../exact-decimal";
+import { compareExactDecimals, decodeExactDecimal } from "../exact-decimal";
 
 /** Values have already passed bounded JSON capture. Preserve their strings and
  * object keys across relational storage, without coercing exact numeric text. */
@@ -78,6 +78,14 @@ export function validateRelationalRowValues(table: RelationalTableDefinition, ro
       const value = row[constraint.column.columnId];
       // SQL CHECK predicates admit NULL; the column contract owns nullability.
       if (value === null) continue;
+      if (constraint.kind === "numericLowerBound") {
+        const valid = Result.match(compareExactDecimals(String(value), constraint.minimum), {
+          onFailure: () => false, onSuccess: comparison => comparison >= 0,
+        });
+        if (!valid)
+          return Result.fail(new RelationalRowValueError({ reason: "constraintViolation", column: constraint.column.columnId, constraint: constraint.identity }));
+        continue;
+      }
       const valid = constraint.kind === "textSet"
         ? typeof value === "string" && constraint.values.includes(value)
         : typeof value === "number" && (constraint.minimum === null || value >= constraint.minimum) &&

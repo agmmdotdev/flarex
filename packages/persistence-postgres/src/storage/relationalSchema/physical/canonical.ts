@@ -199,6 +199,7 @@ export const captureRelationalPhysicalLayout = Effect.fn(
             name.spelling,
           );
           break;
+        case "numericLowerBound":
         case "integerRange":
         case "textSet":
           break;
@@ -244,6 +245,7 @@ export const captureRelationalPhysicalLayout = Effect.fn(
             foreignKeyNames,
           )));
           break;
+        case "numericLowerBound":
         case "integerRange":
         case "textSet":
           break;
@@ -744,6 +746,7 @@ function lowerTable(
           return yield* Result.fail(RelationalPhysicalValueError.unsupportedArtifact());
         case "foreignKey":
           break;
+        case "numericLowerBound":
         case "integerRange":
         case "textSet": {
           const physicalName = findNameBySubject(
@@ -766,6 +769,8 @@ function lowerTable(
             ),
             ...(constraint.kind === "integerRange"
               ? { kind: constraint.kind, minimum: constraint.minimum, maximum: constraint.maximum }
+              : constraint.kind === "numericLowerBound"
+              ? { kind: constraint.kind, minimum: constraint.minimum }
               : { kind: constraint.kind, values: Object.freeze([...constraint.values]) }),
           }));
           break;
@@ -1082,6 +1087,7 @@ function physicalConstraintNameSubject(
         identity: copyConstraintIdentity(constraint.identity),
       }));
     case "textSet":
+    case "numericLowerBound":
     case "integerRange":
       return Result.succeed(Object.freeze({
         kind: "checkConstraint",
@@ -1379,6 +1385,8 @@ function constraintCapabilityId(
       return Result.succeed("relational-schema.constraint.textSet");
     case "integerRange":
       return Result.succeed("relational-schema.constraint.integerRange");
+    case "numericLowerBound":
+      return Result.succeed("relational-schema.constraint.numericLowerBound");
     default:
       return unreachablePhysicalVocabulary(constraint);
   }

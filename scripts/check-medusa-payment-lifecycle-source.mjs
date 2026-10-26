@@ -243,5 +243,8 @@ export function verifyPaymentAccountingSource(source, target, helper) {
       'import { paymentCollectionUpdate, roundToCurrencyPrecision, validatePaymentCapture, validatePaymentRefund } from "../utils/accounting"');
   expected = expected.replace(/(protected async (?:capturePaymentFromProvider_|refundPaymentFromProvider_)\([\s\S]*?\n  \)) \{/g,
     "$1: Promise<InferEntityType<typeof Payment>> {");
+  // Approved native owner correction: selector updates return arrays, ID
+  // updates return singletons. The patch object's shape cannot choose this ABI.
+  expected = expected.replace("Array.isArray(data) ? result : result[0]", "isString(idOrSelector) ? result[0] : result");
   equal(expected, target);
 }

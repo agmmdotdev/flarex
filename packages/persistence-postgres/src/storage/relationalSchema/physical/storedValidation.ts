@@ -14,6 +14,8 @@ import {
   hasExactNumericCompanionDefaults,
 } from "flarex-protocol/internal/relational-schema";
 import { compareUtf16Strings } from "@flarex/utils/strings";
+import { Result } from "effect";
+import { compareExactDecimals } from "flarex-protocol/internal/exact-decimal";
 import {
   MAX_RELATIONAL_SCHEMA_CAPABILITIES,
   MAX_RELATIONAL_SCHEMA_COLUMNS_PER_TABLE,
@@ -1052,6 +1054,10 @@ function indexPredicateMatchesTable(
 function isPhysicalCheck(
   input: unknown,
 ): input is RelationalPhysicalCheck {
+  if (isExactPrivateValueRecord(input, ["identity", "name", "kind", "column", "minimum"]) && input.kind === "numericLowerBound") {
+    return isDefinitionIdentity(input.identity, "constraintId") && isPhysicalIdentifier(input.name)
+      && isPhysicalIdentifier(input.column) && isExactNumeric(input.minimum);
+  }
   if (isExactPrivateValueRecord(input, ["identity", "name", "kind", "column", "values"]) && input.kind === "textSet") {
     const values = input.values;
     return isDefinitionIdentity(input.identity, "constraintId") && isPhysicalIdentifier(input.name)
@@ -1340,6 +1346,9 @@ function isBoundedArrayOf<Value>(
 
 function checkMatchesColumn(check: RelationalPhysicalCheck, column: RelationalPhysicalColumn): boolean {
   switch (check.kind) {
+    case "numericLowerBound":
+      return column.type === "numeric" && (column.default.kind !== "exactNumericLiteral" ||
+        Result.match(compareExactDecimals(column.default.value, check.minimum), { onFailure: () => false, onSuccess: comparison => comparison >= 0 }));
     case "textSet":
       return column.type === "text" && (column.default.kind !== "textLiteral" || check.values.includes(column.default.value));
     case "integerRange":

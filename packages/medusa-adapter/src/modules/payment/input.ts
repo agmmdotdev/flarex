@@ -14,7 +14,8 @@ export const PaymentSessionRootInput = Schema.Struct({ payment_collection_id: Pa
   provider_id: Schema.Literal("pp_system_default"), data: Schema.optionalKey(Schema.JsonObject), context: Schema.optionalKey(Schema.JsonObject) });
 export const PaymentDeleteRootInput = Schema.Struct({ ids: PaymentSessionIds });
 export const PaymentRead = Schema.Struct({ filters: Schema.optionalKey(Schema.Struct({
-  id: Schema.optionalKey(Schema.Union([PaymentId, PaymentSessionIds])) })),
+  id: Schema.optionalKey(Schema.Union([PaymentId, PaymentSessionIds])),
+  payment_collection_id: Schema.optionalKey(Schema.Union([PaymentId, PaymentSessionIds])) })),
   config: Schema.optionalKey(Schema.Struct({ select: Schema.optionalKey(Schema.Array(Schema.String).pipe(Schema.mutable)),
     relations: Schema.optionalKey(Schema.Array(Schema.String).pipe(Schema.mutable)), take: Schema.optionalKey(Schema.Literals([4, 15, 256])),
     skip: Schema.optionalKey(Schema.Literal(0)), order: Schema.optionalKey(Schema.Struct({ id: Schema.Literal("ASC") })) })) });

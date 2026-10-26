@@ -53,6 +53,11 @@
       "types": "./dist/joiner-key-validation.d.ts",
       "source": "./src/joiner-key-validation.ts",
       "default": "./dist/joiner-key-validation.js"
+    },
+    "./transaction/utils/sleep": {
+      "types": "./dist/transaction/utils/sleep.d.ts",
+      "source": "./src/transaction/utils/sleep.ts",
+      "default": "./dist/transaction/utils/sleep.js"
     }
   },
   "dependencies": {

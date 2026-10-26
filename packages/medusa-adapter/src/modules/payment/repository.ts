@@ -12,7 +12,7 @@ import { captureExactNumericRow } from "../../value/exact-numeric";
 import { captureNativeDateRecord, captureNativeRecord } from "../../value/native-record";
 import { commerceDecoder } from "../../value/decoder";
 import { decodeNativePaymentCreate, decodeNativeCaptureCreate, decodeNativeRefundCreate,
-  decodeNativeSessionPatch, decodeNativePaymentPatch, decodeNativeCollectionPatch } from "./lifecycle-input";
+  decodeNativeSessionPatch, decodeNativePaymentPatch, NativeCollectionAccountingPatch } from "./lifecycle-input";
 import { makeReadCatalog } from "../../query/catalog";
 import { compileProjection, type ProjectionPolicy } from "../../query/projection";
 import { compileWhere } from "../../query/predicate";
@@ -20,7 +20,8 @@ import { executeRead, orderedCatalog, type ReadPlan } from "../../query/read";
 import { populateCommerceRelations, type CommerceRelation } from "../../query/relations";
 import type { capturePaymentMetadata } from "./schema";
 import { compilePaymentContracts } from "./output";
-import { PaymentId, PaymentSessionCreate, PaymentCollectionCreate } from "./input";
+import { PaymentId, PaymentSessionIds, PaymentSessionCreate } from "./input";
+import { CollectionStoredPatch, CollectionCreates } from "./collection-input";
 
 const decodeQuery = commerceDecoder(Schema.Struct({ where: Schema.JsonObject, options: Schema.Struct({
   fields: Schema.optionalKey(Schema.Array(Schema.String)), populate: Schema.Array(Schema.String),
@@ -28,9 +29,15 @@ const decodeQuery = commerceDecoder(Schema.Struct({ where: Schema.JsonObject, op
   orderBy: Schema.optionalKey(Schema.Struct({ id: Schema.Literal("ASC") })) }) }), "unsupportedProfile");
 const decodeNativeRows = Schema.decodeUnknownEffect(Schema.Array(Schema.Unknown).check(Schema.isLengthBetween(1, 1)));
 const decodeDelete = commerceDecoder(Schema.Struct({ $or: Schema.Array(Schema.Struct({ id: PaymentId })).check(Schema.isLengthBetween(1, 1)) }), "unsupportedProfile");
-const decodeCollectionCreates = commerceDecoder(Schema.Array(PaymentCollectionCreate).check(Schema.isLengthBetween(1, 1)), "unsupportedProfile");
+const decodeCollectionCreates = commerceDecoder(CollectionCreates, "unsupportedProfile");
 const decodeSessionCreates = commerceDecoder(Schema.Array(PaymentSessionCreate).check(Schema.isLengthBetween(1, 1)), "unsupportedProfile");
+const decodeCollectionPatch = commerceDecoder(Schema.Union([
+  CollectionStoredPatch,
+  NativeCollectionAccountingPatch,
+]), "unsupportedProfile");
 const scalarProjection: ProjectionPolicy = { keys: "retain", storageKeys: "last", joinKeys: "storage", selectableRelations: [], nested: new Map() };
+const sessionCollectionWhere = { ...scalarIdWhere, fields: new Map([...scalarIdWhere.fields,
+  ["payment_collection_id", { column: "payment_collection_id", decode: commerceDecoder(Schema.Union([PaymentId, PaymentSessionIds]), "unsupportedProfile") }] as const]) };
 
 /** Two named repository extensions share scalar construction, one borrowed
  * manager and native event state. Other native Payment models stay denied. */
@@ -80,7 +87,7 @@ export function preparePaymentSessionRepository(metadata: Effect.Success<ReturnT
     const collectionProjection: ProjectionPolicy = { ...scalarProjection, selectableRelations: ["payment_sessions", "payments"],
       nested: new Map([["payment_sessions", scalarProjection], ["payments", paymentProjection]]) };
     const query = (table: typeof collection, input: unknown) => Result.gen(function* () {
-      const value = yield* decodeQuery(input), paths: string[] = [];
+      const value = yield* captureCommerceInput(input).pipe(Result.flatMap(decodeQuery)), paths: string[] = [];
       // Native loadRelationsFromTree ignores a terminal scalar population node.
       // Admit only declared scalar leaves, while retaining every relation prefix.
       for (const path of [...value.options.populate, ...(value.options.fields ?? []).filter(field => field.includes("."))]) {
@@ -100,7 +107,7 @@ export function preparePaymentSessionRepository(metadata: Effect.Success<ReturnT
       if (selectedPaths.some(path => !allowed.includes(path))) return yield* Result.fail(commerceError("unsupportedProfile"));
       const projection = yield* compileProjection(catalog, table.name, value.options.fields, selectedPaths,
         table === collection ? collectionProjection : table === session ? sessionProjection : table === payment ? paymentProjection : scalarProjection);
-      const predicate = yield* compileWhere(value.where, scalarIdWhere);
+      const predicate = yield* compileWhere(value.where, table === session ? sessionCollectionWhere : scalarIdWhere);
       return { table: table.name, projection, paths: selectedPaths, relationFilters: [], ordering: new Map(), withDeleted: false,
         query: { skip: 0, order: { column: "id", direction: "asc" }, predicate: { kind: "and", children: [predicate, { kind: "isNull", column: "deleted_at" }] } },
         window: { kind: "catalog", order: "id", select: orderedCatalog("asc") } } satisfies ReadPlan;
@@ -141,9 +148,23 @@ export function preparePaymentSessionRepository(metadata: Effect.Success<ReturnT
       const serialize: DAL.RepositoryService["serialize"] = <Output extends object | object[]>(input: unknown, options?: unknown): Promise<Output> =>
         owner.run(bridge.checked(root, Effect.gen(function* () {
           if (options !== undefined) return yield* root.refuse(commerceError("unsupportedProfile"));
-          const table = input !== null && typeof input === "object" ? origins.get(input) : undefined;
-          if (table === undefined) return yield* root.refuse(commerceError("storedCorruption"));
           const value = yield* Effect.fromResult(captureCommerceInput(input, root.resources));
+          let table = input !== null && typeof input === "object" ? origins.get(input) : undefined;
+          // Native upsert flattens its operation arrays. Authenticate every
+          // retained row of that new container, never infer a model from JSON.
+          if (table === undefined && Array.isArray(input) && Array.isArray(value) && value.length > 0 && value.length <= 4) {
+            const properties = yield* Effect.try({ try: () => Object.getOwnPropertyDescriptors(input),
+              catch: cause => commerceError("storedCorruption", cause) });
+            for (let index = 0; index < value.length; index++) {
+              const property = properties[String(index)];
+              const row: unknown = property !== undefined && "value" in property ? property.value : undefined;
+              const origin = row !== null && typeof row === "object" ? origins.get(row) : undefined;
+              if (origin === undefined || table !== undefined && table !== origin)
+                return yield* root.refuse(commerceError("storedCorruption"));
+              table = origin;
+            }
+          }
+          if (table === undefined) return yield* root.refuse(commerceError("storedCorruption"));
           // SAFETY: native DAL's selected DTO generic is checked against complete
           // metadata projections and exact-number companions before returning.
           const output = yield* contracts.present(value, table);
@@ -173,8 +194,8 @@ export function preparePaymentSessionRepository(metadata: Effect.Success<ReturnT
             const pair = yield* captureNativeRecord(value), entity = yield* Effect.fromResult(captureCommerceInput(pair.entity).pipe(Result.flatMap(decode)));
             const dates = model === "PaymentCollection" ? ["completed_at"] : model === "Payment" ? ["captured_at", "canceled_at"] : ["authorized_at"];
             const data = yield* captureNativeDateRecord(pair.update, dates);
-            const encoded = yield* captureExactNumericRow(data, numbers);
-            const patch = model === "PaymentCollection" ? yield* Effect.fromResult(decodeNativeCollectionPatch(encoded)) :
+            const encoded = yield* captureExactNumericRow(data, numbers, false, model === "PaymentCollection" ? "nativeRaw" : "scalar");
+            const patch = model === "PaymentCollection" ? yield* Effect.fromResult(decodeCollectionPatch(encoded)) :
               model === "Payment" ? yield* Effect.fromResult(decodeNativePaymentPatch(encoded)) : yield* Effect.fromResult(decodeNativeSessionPatch(encoded));
             if (entity.id !== patch.id || model !== "PaymentCollection" && entity.provider_id !== "pp_system_default")
               return yield* ctx.refuse(commerceError("unsupportedProfile"));
@@ -188,10 +209,11 @@ export function preparePaymentSessionRepository(metadata: Effect.Success<ReturnT
         })));
       const collectionRepository: DAL.RepositoryService = { ...denied, serialize, ...readMethods(collection),
         update: updateRows(collection, "PaymentCollection"),
+        delete: deleteRows(collection, contracts.decodeCollection),
         create: (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx, Effect.gen(function* () {
           const data = yield* Effect.fromResult(decodeCollectionCreates(captured));
           const rows = [];
-          for (const row of data) rows.push(yield* captureExactNumericRow(row, contracts.collectionNumbers, true));
+          for (const row of data) rows.push(yield* captureExactNumericRow(row, contracts.collectionNumbers, true, "nativeRaw"));
           const inserted = yield* collections.createRows(ctx, rows, shared);
           return remember(collection.name, inserted.map(row => ({ ...row, payment_providers: [], payment_sessions: [], payments: [] })));
         }))),

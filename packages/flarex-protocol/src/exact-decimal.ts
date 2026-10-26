@@ -1,4 +1,5 @@
 import { Data, Result, Schema } from "effect";
+import { compareBytesLexicographically } from "@flarex/utils/bytes";
 
 // ASCII decimal text also fits the existing single native string component budget.
 export const MAX_EXACT_DECIMAL_TEXT_LENGTH = 2040;
@@ -54,6 +55,15 @@ export function encodeExactDecimalOrderBytes(input: unknown) {
     if (value.sign < 0) for (let index = 1; index < bytes.length; index++) bytes[index] = 255 - bytes[index]!;
     return bytes;
   }));
+}
+
+/** Compare finite decimals through the same exact ordering used by indexes. */
+export function compareExactDecimals(left: unknown, right: unknown) {
+  return Result.gen(function* () {
+    const leftBytes = yield* encodeExactDecimalOrderBytes(left);
+    const rightBytes = yield* encodeExactDecimalOrderBytes(right);
+    return compareBytesLexicographically(leftBytes, rightBytes);
+  });
 }
 
 /** Decode only canonical projected bytes. Returning canonical decimal text keeps

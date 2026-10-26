@@ -1,5 +1,6 @@
 import { Deferred, Effect, Result } from "effect";
 import { StepResponse, stepCallbackOutput } from "./responses";
+import { SkipStepResponse } from "@medusajs/orchestration/transaction/errors";
 import { definitionError, type ParallelGroup, type StepExecutionContext } from "./model";
 import { isPreparedWorkflow, type PreparedWorkflow } from "./definition";
 import { prepareTransformResolution, resolveWorkflowValue, type WorkflowResolution, type WorkflowResolvedValue } from "./resolution";
@@ -23,6 +24,7 @@ export const executeWorkflow = Effect.fn("MedusaWorkflow.execute")(function <Fai
 /** Child frames borrow the root port; only their evaluation caches are local. */
 const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
   definition: PreparedWorkflow, input: unknown, port: WorkflowExecutionPort<Failure>, root = false, framePath: readonly number[] = [],
+  parentStepIdempotencyKey?: string,
 ): Effect.fn.Return<unknown, Failure | ReturnType<typeof definitionError>> {
   const outputs = new Map<object, unknown>();
   const undefinedStepOutputs = new Set<object>();
@@ -90,13 +92,16 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
     }
     const input = yield* port.capture((yield* resolve(resolution)).value);
     if (node.kind === "workflow") {
-      const output = yield* executeFrame(node.workflow, input, port, false, [...framePath, index]);
+      const output = yield* executeFrame(node.workflow, input, port, false, [...framePath, index],
+        JSON.stringify([port.context.eventGroupId, ...framePath, index]));
       outputs.set(node.id, yield* port.capture(output));
       // Native runAsStep wraps a child's result in StepResponse, including void.
       if (output === undefined) undefinedStepOutputs.add(node.id);
       return;
     }
-    const context: StepExecutionContext = Object.freeze({ ...port.context,
+    const { parentStepIdempotencyKey: _suppliedParent, ...baseContext } = port.context;
+    const context: StepExecutionContext = Object.freeze({ ...baseContext,
+      ...(parentStepIdempotencyKey === undefined ? {} : { parentStepIdempotencyKey }),
       idempotencyKey: JSON.stringify([port.context.eventGroupId, ...framePath, index]) });
     const returned = yield* port.invoke(() => {
       const value = node.invoke(input, context);
@@ -107,6 +112,13 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
       return value instanceof Promise ? value.then(refuse, refuse) : refuse();
     });
     if (node.kind === "condition") { outputs.set(node.id, returned); return; }
+    if (returned instanceof SkipStepResponse) {
+      // A genuine native skip publishes no response/compensation payload. A
+      // name-matching foreign Error remains ordinary unsupported callback data.
+      outputs.set(node.id, undefined);
+      undefinedStepOutputs.add(node.id);
+      return;
+    }
     if (returned instanceof StepResponse) {
       const compensation = returned.compensateInput, output = returned.output;
       if (compensation === output) outputs.set(node.id, yield* port.capture(output));

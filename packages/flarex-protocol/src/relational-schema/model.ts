@@ -224,7 +224,17 @@ export type RelationalConstraintDefinition =
   | RelationalNullImplicationConstraint
   | RelationalTextSetConstraint
   | RelationalForeignKeyConstraint
-  | RelationalIntegerRangeConstraint;
+  | RelationalIntegerRangeConstraint
+  | RelationalNumericLowerBoundConstraint;
+
+/** SQL CHECK admits NULL; the numeric column owns nullability. */
+export type RelationalNumericLowerBoundConstraint = Readonly<{
+  readonly identity: RelationalConstraintIdentity;
+  readonly kind: "numericLowerBound";
+  readonly column: RelationalColumnIdentity;
+  readonly minimum: string;
+  readonly origin: RelationalDefinitionOrigin;
+}> & JsonObject;
 
 /** If the guard is non-null, the required column must have this nullness.
  * Both operands are complete row values, so this predicate is two-valued. */

@@ -5,6 +5,7 @@ import { createHook, createStep, createWorkflow, isPreparedWorkflow, StepRespons
 import { executeWorkflow, type WorkflowExecutionPort } from "../src/runtime";
 import { proxify, referenceOf } from "../src/references";
 import type { Resolved, StepFunction, StepOutput } from "../src/model";
+import type { SkipStepResponse } from "@medusajs/orchestration/transaction/errors";
 
 /** SDK-owned Promise test bridge; typed failures, defects and interruption keep
  * Effect's normal runtime semantics, with full outcomes asserted through Exit. */
@@ -267,7 +268,7 @@ describe("prepared workflow resolution", () => {
       return new WorkflowResponse(step(input), { hooks: [hook] });
     });
     expectTypeOf<Parameters<typeof wrapped.prepare>[0]>().toEqualTypeOf<{
-      readonly "native-bare-hook"?: (input: number, context: typeof port.context) => number | StepResponse<number> | Promise<number | StepResponse<number>>;
+      readonly "native-bare-hook"?: (input: number, context: typeof port.context) => number | StepResponse<number> | SkipStepResponse | Promise<number | StepResponse<number> | SkipStepResponse>;
     } | undefined>();
     const hook = vi.fn((input: number) => input + 1);
     expect(await runEffect(executeWorkflow(Result.getOrThrow(wrapped.prepare({ "native-bare-hook": hook })), 9, port))).toEqual({ value: 9 });

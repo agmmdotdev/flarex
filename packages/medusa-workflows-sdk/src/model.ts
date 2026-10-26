@@ -1,6 +1,7 @@
 import { Data } from "effect";
 import type { StepResponse } from "./responses";
 import type { PreparedWorkflow } from "./definition";
+import type { SkipStepResponse } from "@medusajs/orchestration/transaction/errors";
 
 /** Medusa's staged authoring type: values are references until runtime resolution. */
 export declare const dataBrand: unique symbol;
@@ -34,10 +35,13 @@ export interface StepExecutionContext {
   /** Trusted root and complete prepared-node occurrence identity. Identifies
    * an invocation; it grants no resource, storage or compensation authority. */
   readonly idempotencyKey?: string;
+  /** Derived from the actual runAsStep occurrence; absent for a standalone root. */
+  readonly parentStepIdempotencyKey?: string;
 }
 export type Invoke<Input, Output, Compensation = Output> = (input: Input, context: StepExecutionContext) =>
-  Output | StepResponse<Output, Compensation> | Promise<Output | StepResponse<Output, Compensation>>;
-export type Compensate<Input> = (input: Input | undefined, context: StepExecutionContext) => void | Promise<void>;
+  Output | StepResponse<Output, Compensation> | SkipStepResponse | Promise<Output | StepResponse<Output, Compensation> | SkipStepResponse>;
+export type Compensate<Input> = (input: Input | undefined, context: StepExecutionContext) =>
+  void | StepResponse<unknown, unknown> | Promise<void | StepResponse<unknown, unknown>>;
 export interface StepOptions { readonly name: string; readonly compensation?: "transactionCovered" }
 export class WorkflowDefinitionError extends Data.TaggedError("WorkflowDefinitionError")<{
   readonly reason: "unsupportedProfile" | "outsideComposer" | "duplicateStep" | "duplicateHook" | "invalidReference" | "invalidDefinition";

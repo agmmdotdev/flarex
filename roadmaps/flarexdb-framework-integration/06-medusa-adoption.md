@@ -983,9 +983,16 @@ operation. The [Payment financial slice](./preflight/payment-lifecycle-and-order
 adds System-provider authorization, capture and single/batch refund over genuine
 stored Order–PaymentCollection links, native transactions, summaries and
 credit-line changes. Its bounded atomic profile retains native inverses, exact
-refund identities and replay. Customer and Cart association workflows, remote
-providers, independently committed best-effort batches and hosted activation
-retain separate admission gates.
+refund identities and replay.
+
+The [Payment collection slice](./preflight/payment-collection-workflows.md) adds
+native Cart/Order collection creation and genuine stored Links, Cart amount and
+currency refresh with session invalidation, and collection cancellation. Its
+Cart read profile uses complete native metadata and genuine totals; Cart roots
+execute as actual children so native lock steps skip inside the atomic owner.
+Retained update compensation preserves the exact raw amount and omission.
+Customer association, complete Cart creation, remote providers, independently
+committed best-effort batches and hosted activation retain separate gates.
 
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.

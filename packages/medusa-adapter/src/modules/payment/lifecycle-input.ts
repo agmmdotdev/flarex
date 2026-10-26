@@ -33,7 +33,8 @@ export const decodeNativeSessionPatch = commerceDecoder(Schema.Struct({ id: Paym
   authorized_at: Schema.optionalKey(Schema.String) }), "unsupportedProfile");
 export const decodeNativePaymentPatch = commerceDecoder(Schema.Struct({ id: PaymentId, data: Schema.optionalKey(Schema.JsonObject),
   captured_at: Schema.optionalKey(Schema.String), canceled_at: Schema.optionalKey(Schema.String) }), "unsupportedProfile");
-export const decodeNativeCollectionPatch = commerceDecoder(Schema.Struct({ id: PaymentId, status: Schema.String,
+export const NativeCollectionAccountingPatch = Schema.Struct({ id: PaymentId, status: Schema.String,
   authorized_amount: Schema.String, raw_authorized_amount: ExactNumericRaw,
   captured_amount: Schema.String, raw_captured_amount: ExactNumericRaw,
-  refunded_amount: Schema.String, raw_refunded_amount: ExactNumericRaw, completed_at: Schema.optionalKey(Schema.String) }), "unsupportedProfile");
+  refunded_amount: Schema.String, raw_refunded_amount: ExactNumericRaw, completed_at: Schema.optionalKey(Schema.String) });
+export const decodeNativeCollectionPatch = commerceDecoder(NativeCollectionAccountingPatch, "unsupportedProfile");

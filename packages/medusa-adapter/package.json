@@ -54,7 +54,8 @@
     "@medusajs/fulfillment-manual": "workspace:*",
     "@medusajs/order": "workspace:*",
     "@medusajs/payment": "workspace:*",
-    "@medusajs/api-key": "workspace:*"
+    "@medusajs/api-key": "workspace:*",
+    "@medusajs/cart": "workspace:*"
   },
   "devDependencies": {
     "@flarex/application-schema-definition": "workspace:*",

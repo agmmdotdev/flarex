@@ -5,6 +5,7 @@ import {
   isNonBlankString,
 } from "@flarex/utils/strings";
 import { Brand, Result } from "effect";
+import { compareExactDecimals } from "../exact-decimal";
 
 import { RelationalSchemaError } from "./errors";
 import { hasExactNumericCompanionDefaults } from "./exactNumeric";
@@ -557,6 +558,16 @@ function decodeConstraint(
       return Object.freeze({ identity: constraintIdentity(coordinate, tableId, constraintId), kind,
         column: columnIdentity(coordinate, tableId, columnId), values: Object.freeze(values), origin });
     }
+    if (kind === "numericLowerBound") {
+      const fields = yield* exactRecord(input, ["constraintId", "kind", "columnId", "minimum", "origin"], path);
+      const constraintId = yield* decodeIdentityString(fields.at(0), `${path}.constraintId`, brandConstraintId);
+      const columnId = yield* decodeIdentityString(fields.at(2), `${path}.columnId`, brandColumnId);
+      yield* consumeDecodeUnit(budget, `${path}.columnId`);
+      const minimum = yield* decodeExactNumeric(fields.at(3), `${path}.minimum`);
+      const origin = yield* decodeOrigin(fields.at(4), `${path}.origin`);
+      return Object.freeze({ identity: constraintIdentity(coordinate, tableId, constraintId), kind,
+        column: columnIdentity(coordinate, tableId, columnId), minimum, origin });
+    }
     if (kind === "integerRange") {
       const fields = yield* exactRecord(input, [
         "constraintId",
@@ -943,6 +954,16 @@ function validateRelationalSchema(
           const column = yield* requireColumn(lookup.columns, constraint.column, constraintPath + ".column");
           if (column.type !== "text" || (column.default.kind === "textLiteral" && !constraint.values.includes(column.default.value))) {
             return yield* Result.fail(RelationalSchemaError.invalidInput(constraintPath + ".column"));
+          }
+          continue;
+        }
+        if (constraint.kind === "numericLowerBound") {
+          const column = yield* requireColumn(lookup.columns, constraint.column, `${constraintPath}.column`);
+          if (column.type !== "numeric") return yield* Result.fail(RelationalSchemaError.invalidInput(`${constraintPath}.column`));
+          if (column.default.kind === "exactNumericLiteral") {
+            const comparison = yield* compareExactDecimals(column.default.value, constraint.minimum).pipe(
+              Result.mapError(() => RelationalSchemaError.invalidInput(`${constraintPath}.column`)));
+            if (comparison < 0) return yield* Result.fail(RelationalSchemaError.invalidInput(`${constraintPath}.column`));
           }
           continue;
         }
