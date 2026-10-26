@@ -12,7 +12,8 @@ default `0`, native timestamps, and the complete returned document. Access,
 validation, field processing and hooks execute in Payload; the experiment does
 not copy their business algorithm.
 
-The admitted construction profile uses required scalar text/finite number fields,
+The admitted construction profile uses required scalar text/finite number fields
+(excluding negative zero, which JSON/JSONB cannot preserve),
 at most one unique text field, timestamps, depth zero and trusted configuration
 with locally completing callbacks. Callable defaults are preserved. Auth,
 versions, upload, localization, relations, optional/array fields, nesting, custom
@@ -33,17 +34,19 @@ database work; they do not impose a deadline on arbitrary JavaScript callbacks.
 | [definition.ts](./src/definition.ts) | Framework-neutral immutable scalar metadata, version identity, Effect Schema result decoding and canonical unique keys; pure admission returns Result |
 | [payload-definition.ts](./src/payload-definition.ts) | Native configuration admission and translation into those definitions |
 | [root.ts](./src/root.ts) | Request-local rows, incremental unique ownership, observations, sticky failure, bounds and one-way freeze; no SQL or native framework import |
-| [storage.ts](./src/storage.ts) | Trusted Drizzle operations, fresh authority/definition checks, command identity, uniqueness, atomic settlement and durable resolution |
+| [storage.ts](./src/storage.ts) | Framework-specific Drizzle read/unique/settlement profile |
+| [persistence.ts](./src/persistence.ts), [materialization.ts](./src/materialization.ts) | Shared authority, command identity, sessions, deadlines/resolution and atomic row/history/index/event/outcome writes |
+| [changes.ts](./src/changes.ts), [callback.ts](./src/callback.ts) | Shared coherent pending state and supervised completing callback lifetime |
 | [session.ts](./src/session.ts) | Private PostgreSQL checkout, Drizzle transaction control, failed-BEGIN handling, rollback/drain and release |
 | [schema.ts](./src/schema.ts), [drizzle](./drizzle) | Drizzle schema is authoritative; drizzle-kit generates disposable-installation migrations |
 | [payload.ts](./src/payload.ts) | Native lifecycle bridge, capability lifetime, interruption/draining and native error projection; no SQL |
 | [fixture.ts](./test/fixture.ts), [postgres.ts](./test/postgres.ts) | Explicit disposable installation, restricted role and owned cluster cleanup; not a production installation service |
 
 Composition injects storage into the root/bridge and a physical session into
-storage. There is no universal runtime context or engine registry. Storage
-currently contains read and settlement SQL together; split implementation owners
-when the next connected operation requires it, while retaining one accepting
-boundary. A module boundary must not add another admission transaction.
+storage. There is no universal runtime context or engine registry. Application
+uses the same lower owners through its separate read/OCC profile; framework
+create does not acquire an Application read set or automatic retry. A module
+boundary must not add another admission transaction.
 
 The active physical-session owner was inspected: it depends on the current
 metadata database and execution diagnostics. This prototype does not import that
@@ -60,8 +63,11 @@ tenant. `documents`, `unique_claims`, `history`, `event_intents` and `commands`
 retain current rows, uniqueness, revisions, publication intents and outcomes.
 `installation`, `authorities`, `grants`, `definitions` and `clocks` own fresh
 enablement, fence, principal membership, selected scalar definition and per-scope
-commit order. History is insert-only here; tombstones, retention and GC are not
-implemented. Event intents are atomic records, not a delivered outbox service.
+commit order. The shared materializer now supports tombstone revisions and
+historical numeric index intervals for the Application slice. The protected
+per-scope retention floor refuses stale Application snapshots; there is no GC
+service. Framework create/read remains the bounded profile described here.
+Event intents are atomic records, not a delivered outbox service.
 
 The serving role is a trusted core login. It has business DML, command/clock
 writes and reads, but cannot change protected enablement, fences, membership,
@@ -111,7 +117,9 @@ Distinct pending keys use map lookup rather than scanning all retained rows.
 The batch witness covers 1/16/64 rows and asserts two ownership lookups per key,
 plus the final committed document cardinality. This establishes the exercised
 local algorithm only; it does not prove latency, a general indexed query engine
-or delete/reclaim logic.
+or general framework update/delete/reclaim support. Application separately
+exercises replacement, deletion and unique release/reclaim through the same
+pending/materialization owners.
 
 Cancellation revokes callback capability use, aborts its signal and drains the
 admitted completing callback before resource release. The tests exercise late
@@ -177,16 +185,24 @@ is not established. No active source was patched, no check was bypassed, and
 no successful three-lane cohort exists. Keep this witness and correct its real
 owner in separately authorized integration scope before using that baseline.
 
+The isolated test host resolves a single Effect instance across experiment and
+workspace imports; cross-install Schema identity differences must not become
+false validation failures. The migration refusal still reproduces with that
+configuration. This does not establish its underlying cause. The initial report
+is retained in `validation/payload-create-failure-initial.json` and the latest
+diagnostic in `validation/payload-create-failure.json`.
+
 No performance gate has passed. Full paired timings, thread/server CPU, SQL and
 packet/byte attribution, scalar-lock occupancy, scaling/concurrency and hosted
 Worker/Hyperdrive proof remain required. Native Payload also has fewer durable
 history/outcome obligations, so raw query counts alone cannot establish parity.
-The saved failure report has differing before/after source hashes during shared
-checkout development. It is a diagnostic failure witness, not a stable-source
-baseline cohort or proof of the underlying defect's cause.
+The initial failure report has differing before/after source hashes during shared
+checkout development; the latest reproduction has matching hashes. Both are
+diagnostic failure witnesses, not performance baseline cohorts or proof of the
+underlying defect's cause.
 
-The next connected milestone is the [early standalone Application witness](./IMPLEMENTATION.md#early-standalone-application-witness):
-point/missing/range dependencies, pending insert/update visibility, actual conflicts
-and outer retry ownership on both drivers. Do not infer these contracts from
-Payload unique-create tests. Medusa Product and mixed execution follow that proof;
-the active Medusa integration remains on its existing core.
+The [standalone Application construction slice](./APPLICATION.md) now exercises
+point/missing/range dependencies, pending edits, actual conflicts and outer retry
+through the shared foundation. General queries, connected reactivity, Medusa
+Product and mixed execution remain separate gates. Do not infer those contracts
+from Payload unique-create tests; active Medusa remains on its existing core.

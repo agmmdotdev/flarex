@@ -2,7 +2,7 @@ import { Data, Result, Schema } from "effect";
 import { sql, type Logger } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { Pool } from "pg";
-import type { Database } from "./storage.ts";
+import type { Database } from "./persistence.ts";
 import * as tables from "./schema.ts";
 
 export interface Session { readonly run: <A>(work: (database: Database) => Promise<A>) => Promise<A> }

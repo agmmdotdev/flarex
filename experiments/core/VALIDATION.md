@@ -1,10 +1,11 @@
 # Correctness and performance gates
 
-The [bounded create slice](./PAYLOAD-CREATE.md) has executable contract, PGlite and
-ordinary-role PostgreSQL witnesses. These establish only their stated create-only
-behavior. Full-core gates, standalone Application support and performance
-acceptance remain open. The active comparison lane currently fails during its
-existing migration setup; no speedup is established.
+The [bounded create](./PAYLOAD-CREATE.md) and
+[standalone Application](./APPLICATION.md) slices have executable contract,
+PGlite and ordinary-role PostgreSQL witnesses. These establish their stated
+construction profiles only. Full-core gates, general Application support,
+connected reactivity and performance acceptance remain open. No speedup is
+established; the optional comparison preserves preparation failures as evidence.
 
 ## Three comparison lanes
 

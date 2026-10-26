@@ -9,7 +9,7 @@ export default defineConfig({
     testTimeout: 120_000,
     hookTimeout: 120_000,
   },
-  resolve: { alias: {
+  resolve: { dedupe: ["effect"], alias: {
     "cloudflare:workers": fileURLToPath(new URL("../../packages/persistence-postgres/test/support/cloudflareWorkersStub.ts", import.meta.url)),
   } },
 });

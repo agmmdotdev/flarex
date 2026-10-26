@@ -52,6 +52,7 @@ describe.each(["pglite", "postgres"] as const)("complete experimental Payload cr
     const collection = newsCollection();
     collection.hooks = { afterChange: [() => { throw new Error("native hook witness"); }] };
     await withHost(async (database, host) => {
+      expect(await failureOf(host.create(randomUUID(), { headline: "negative-zero", score: -0 }))).toMatchObject({ reason: "invalid" });
       const malformed = await failureOf(host.create(randomUUID(), { headline: "" }));
       expect(malformed._tag).toBe("NativeFailure");
       expect(malformed.cause).toBeInstanceOf(ValidationError);

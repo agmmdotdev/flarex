@@ -1,9 +1,11 @@
 # Implementation sequence
 
-Status: the [bounded Payload-create slice](./PAYLOAD-CREATE.md) now connects the
-native Local API to experimental definitions, indexed root state and Drizzle
-settlement. Broader lifecycle, standalone Application and promotion stages remain
-pending. The stages below describe the full experiment, not completed support.
+Status: [bounded Payload create](./PAYLOAD-CREATE.md) and the
+[standalone Application construction slice](./APPLICATION.md) connect actual
+developer/framework entry points to experimental roots and shared Drizzle
+persistence/materialization. General queries, connected reactivity, wider native
+lifecycle, Medusa/mixed execution and promotion remain pending. The stages below
+describe the full experiment, not completed support.
 
 ## Stage 1: executable scope and contract map
 
@@ -18,6 +20,15 @@ For each workload write its minimum operation trace: admission, business-require
 reads, local edits, native callbacks, constraints and durable settlement. Classify
 each check by obligation, invalidating writer and enforcement lifetime. Distinguish
 framework semantics from an internal order only witnessed by an old test.
+
+Use the current Payload/Medusa integrations to discover requirements, not to
+constrain the replacement's internal compatibility. For every reused requirement
+identify native source or a real supported/durable obligation, its consumer and
+behavioral witness. Inventory old readiness/admission, repository/workflow handoffs
+and per-call lifetimes separately as replaceable mechanisms and measured costs.
+Do not port their sequence or bottlenecks into the experiment to preserve glue.
+Record removed interactions and show the same required behavior through the new
+owners. See the [integration reference rule](./MODULES.md#framework-reuse-and-integration-replacement).
 
 Resolve the direct command's isolation/retry contract and the mixed root's
 snapshot/retention/fence contract. Define a counterexample test for each proposed

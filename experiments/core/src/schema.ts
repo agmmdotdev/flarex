@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
-import { bigint, boolean, check, foreignKey, integer, jsonb, pgSchema, primaryKey, text, timestamp, unique } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, doublePrecision, foreignKey, index, integer, jsonb, pgSchema, primaryKey, text, timestamp, unique } from "drizzle-orm/pg-core";
 import type { Schema } from "effect";
-import type { Document, Field } from "./definition.ts";
+import type { Document, Field, NumericIndex } from "./definition.ts";
 
 /** One shared logical layout per installation; never a table per tenant. */
 export const core = pgSchema("fx_core");
@@ -11,6 +11,7 @@ export const installation = core.table("installation", {
 }, table => [check("installation_singleton", sql`${table.singleton}`)]);
 export const authorities = core.table("authorities", {
   scope: text().primaryKey(), fence: bigint({ mode: "number" }).notNull().default(1), enabled: boolean().notNull().default(true),
+  retainedFrom: bigint({ mode: "number" }).notNull().default(0),
   readLock: boolean().notNull().default(false),
 });
 export const grants = core.table("grants", {
@@ -22,6 +23,8 @@ export const clocks = core.table("clocks", {
 });
 export const definitions = core.table("definitions", {
   table: text().primaryKey(), version: text().notNull(), fields: jsonb().$type<readonly Field[]>().notNull(),
+  tableId: integer().unique(),
+  indexes: jsonb().$type<readonly NumericIndex[]>().notNull().default([]),
   readLock: boolean().notNull().default(false),
 });
 export const commands = core.table("commands", {
@@ -29,6 +32,7 @@ export const commands = core.table("commands", {
   digest: text().notNull(), table: text().notNull().references(() => definitions.table), version: text().notNull(),
   token: text().notNull(), fence: bigint({ mode: "number" }).notNull(), snapshot: bigint({ mode: "number" }).notNull(),
   expires: timestamp({ withTimezone: true, mode: "date" }).notNull(), status: text({ enum: ["active", "aborted", "committed"] }).notNull(),
+  profile: text({ enum: ["framework", "application"] }).notNull().default("framework"),
   result: jsonb().$type<Schema.Json>(), commitSeq: bigint({ mode: "number" }),
 }, table => [unique("command_request").on(table.scope, table.request),
   check("command_status", sql`${table.status} in ('active','aborted','committed')`)]);
@@ -43,9 +47,17 @@ export const uniqueClaims = core.table("unique_claims", {
   foreignKey({ columns: [table.scope, table.table, table.owner], foreignColumns: [documents.scope, documents.table, documents.id] })]);
 export const history = core.table("history", {
   scope: text().notNull(), table: text().notNull(), id: text().notNull(),
-  commitSeq: bigint({ mode: "number" }).notNull(), body: jsonb().$type<Document>().notNull(),
-}, table => [primaryKey({ columns: [table.scope, table.table, table.id, table.commitSeq] })]);
+  commitSeq: bigint({ mode: "number" }).notNull(), body: jsonb().$type<Document>(),
+}, table => [primaryKey({ columns: [table.scope, table.table, table.id, table.commitSeq] }),
+  index("history_conflicts").on(table.scope, table.table, table.commitSeq, table.id)]);
+export const indexVersions = core.table("index_versions", {
+  scope: text().notNull(), table: text().notNull(), index: text().notNull(), id: text().notNull(),
+  key: doublePrecision().notNull(), creationTime: doublePrecision().notNull(), fromSeq: bigint({ mode: "number" }).notNull(), untilSeq: bigint({ mode: "number" }),
+}, table => [primaryKey({ columns: [table.scope, table.table, table.index, table.id, table.fromSeq] }),
+  index("index_selection").on(table.scope, table.table, table.index, table.key, table.creationTime, table.id, table.fromSeq),
+  index("index_invalidations").on(table.scope, table.table, table.index, table.fromSeq, table.untilSeq),
+  foreignKey({ columns: [table.scope, table.table, table.id, table.fromSeq], foreignColumns: [history.scope, history.table, history.id, history.commitSeq] })]);
 export const eventIntents = core.table("event_intents", {
   command: text().notNull().references(() => commands.id), ordinal: integer().notNull(), table: text().notNull(),
-  document: text().notNull(), event: text().notNull(), body: jsonb().$type<Document>().notNull(),
+  document: text().notNull(), event: text().notNull(), body: jsonb().$type<Document>(),
 }, table => [primaryKey({ columns: [table.command, table.ordinal] })]);

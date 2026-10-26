@@ -124,3 +124,33 @@ These patterns identify work and complexity, not their share of total latency.
 
 Recheck these primary sources against the exact database/host used for validation.
 They explain constraints; they do not predict the candidate's performance.
+
+## Standalone Application construction references
+
+The [Application slice](./APPLICATION.md) reads the pinned Convex read/write set
+and outer function-runner owners above as architectural evidence. Its SDK
+counterparts are the pinned checkout's
+[database implementation](../../../../npm-packages/convex/src/server/impl/database_impl.ts)
+and [registration](../../../../npm-packages/convex/src/server/impl/registration_impl.ts).
+`Transaction.next_creation_time` and `CreationTime::increment` establish the
+monotonic creation identity obligation; the accepted Flarex design binds it to a
+database-seeded binary64 cursor. No Rust or FSL source is copied into this slice.
+
+Narrow executing reuse is explicit:
+
+| Existing owner | Reused responsibility and boundary |
+| --- | --- |
+| [Flarex server](../../packages/flarex/src/server.ts), [query](../../packages/flarex/src/query.ts) | Actual registered functions, context contracts and native query construction; the experimental bridge supervises exposed Promises and supplies its own executor |
+| [Validation](../../packages/flarex/src/validation.ts), [IDs](../../packages/flarex/src/ids.ts) | Native argument/return validation and public identity encoding; they confer no admission or mutation authority |
+| [Catalog](../../packages/flarex-protocol/src/catalog.ts), [Application document](../../packages/flarex-protocol/src/app-document.ts), [document ID](../../packages/flarex-protocol/src/app-document-id.ts) | Authoritative table-ID, creation-time and canonical document-ID schemas |
+| [JSON](../../packages/flarex-protocol/src/json.ts), [Scope Sync](../../packages/flarex-protocol/src/scope-sync-v1.ts) | Canonical command JSON and dependency-key decoding/normalization; normalization does not create a subscription |
+| [Document validation boundary](../../packages/flarex-protocol/src/application-revision-syscall-validation-v1.ts) | Existing recoverable document-validation error name/message |
+
+These owners construct no active execution host, database, readiness graph,
+journal, session or committer for the candidate. Current integration sources
+remain requirements evidence under the rule in [AGENTS.md](./AGENTS.md), rather
+than internal interfaces to preserve. The separate Application storage/root owns
+its snapshot, pending state and accepting OCC protocol. PostgreSQL's scalar scope
+clock and historical interval layout are explicit candidate mechanisms, not
+claims that Convex uses the same storage or that Cloudflare coordination commits
+application data.

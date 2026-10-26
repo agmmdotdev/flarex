@@ -11,7 +11,8 @@ import { Pool } from "pg";
 import type { CollectionConfig } from "payload";
 import { compilePayloadDefinition } from "../src/payload-definition.ts";
 import { CoreError } from "../src/errors.ts";
-import { createStorage, type Database, type Storage } from "../src/storage.ts";
+import { createStorage, type Storage } from "../src/storage.ts";
+import { createPersistence, type Database } from "../src/persistence.ts";
 import * as tables from "../src/schema.ts";
 import { postgresSession } from "../src/session.ts";
 
@@ -70,7 +71,7 @@ export async function fixture(connectionString?: string) {
     await owner.insert(tables.authorities).values({ scope: "shop-a" });
     await owner.insert(tables.clocks).values({ scope: "shop-a" });
     await owner.insert(tables.grants).values({ scope: "shop-a", principal: role });
-    await owner.insert(tables.definitions).values({ table: definition.table, version: definition.version, fields: definition.fields });
+    await owner.insert(tables.definitions).values({ table: definition.table, version: definition.version, fields: definition.fields, indexes: definition.indexes });
     await owner.execute(sql.raw(`revoke all on schema fx_core from public`));
     await owner.execute(sql.raw(`grant usage on schema fx_core to ${role}`));
     await owner.execute(sql.raw(`grant select on all tables in schema fx_core to ${role}`));
@@ -78,7 +79,9 @@ export async function fixture(connectionString?: string) {
     // columns confer no right to change installation/authorization facts.
     await owner.execute(sql.raw(`grant update ("readLock") on fx_core.installation,fx_core.authorities,fx_core.grants,fx_core.definitions to ${role}`));
     await owner.execute(sql.raw(`grant insert,update on fx_core.commands,fx_core.clocks to ${role}`));
-    await owner.execute(sql.raw(`grant insert on fx_core.documents,fx_core.unique_claims,fx_core.history,fx_core.event_intents to ${role}`));
+    await owner.execute(sql.raw(`grant insert on fx_core.documents,fx_core.unique_claims,fx_core.history,fx_core.event_intents,fx_core.index_versions to ${role}`));
+    await owner.execute(sql.raw(`grant delete on fx_core.documents,fx_core.unique_claims to ${role}`));
+    await owner.execute(sql.raw(`grant update on fx_core.index_versions to ${role}`));
     let serving: Database;
     if (embedded !== undefined) {
       await owner.execute(sql.raw(`set role ${role}`)); serving = owner;
@@ -94,7 +97,8 @@ export async function fixture(connectionString?: string) {
       await tx.execute(sql.raw(`set role ${role}`));
       return result;
     });
-    const rawStorage = createStorage(servingPool === undefined ? { run: work => serving.transaction(work) } : postgresSession(servingPool));
+    const persistence = createPersistence(servingPool === undefined ? { run: work => serving.transaction(work) } : postgresSession(servingPool));
+    const rawStorage = createStorage(persistence);
     let loseCommitResponse = false;
     const storage: Storage = { ...rawStorage, settle: Effect.fn("TestTransport.settle")((...args: Parameters<Storage["settle"]>) =>
       rawStorage.settle(...args).pipe(Effect.flatMap(result => {
@@ -103,7 +107,7 @@ export async function fixture(connectionString?: string) {
         return Effect.fail(new CoreError({ reason: "storage", cause: "Injected response loss after committed Drizzle transaction" }));
       }))),
     };
-    return { identity, role, admin, serving, servingPool, storage, definition, ownerUrl, servingUrl,
+    return { identity, role, admin, serving, servingPool, persistence, storage, definition, ownerUrl, servingUrl,
       loseNextCommitResponse: () => { loseCommitResponse = true; }, close };
   } catch (cause) {
     try { await close(); } catch (cleanup) { throw new AggregateError([cause, cleanup], "Fixture acquisition and cleanup failed", { cause }); }

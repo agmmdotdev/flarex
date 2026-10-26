@@ -13,6 +13,11 @@ export class NativeFailure extends Data.TaggedError("NativeFailure")<{
 export class NativeOperationFailure extends Data.TaggedError("NativeOperationFailure")<{
   readonly cause: Cause.Cause<CoreError>;
 }> {}
+export class DocumentValidationFailure extends Data.TaggedError("DocumentValidationFailure")<{ readonly cause: unknown }> {}
+export class ApplicationFailure extends Data.TaggedError("ApplicationFailure")<{ readonly cause: unknown }> {}
+export class ApplicationOperationFailure extends Data.TaggedError("ApplicationOperationFailure")<{
+  readonly cause: Cause.Cause<CoreError | DocumentValidationFailure | ApplicationFailure>;
+}> {}
 
 const DatabaseError = Schema.Struct({ code: Schema.String, constraint: Schema.optionalKey(Schema.String) });
 const ForeignDatabaseError = Schema.Union([DatabaseError, Schema.Struct({ cause: DatabaseError })]);

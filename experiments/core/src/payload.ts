@@ -1,12 +1,14 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
-import { Cause, Clock, Effect, Exit, Fiber, Schema } from "effect";
+import { Cause, Clock, Effect, Exit, Schema } from "effect";
 import { BasePayload, buildConfig, createLocalReq, deepCopyObjectSimple, executeAccess, ValidationError, type BaseDatabaseAdapter,
   type CollectionConfig, type DatabaseAdapterObj, type PayloadRequest, type TypeWithID } from "payload";
 import { compilePayloadDefinition } from "./payload-definition.ts";
 import { CoreError, NativeFailure, NativeOperationFailure } from "./errors.ts";
 import { createRoot, type Root } from "./root.ts";
 import type { Storage } from "./storage.ts";
+import { runCallback, supervise } from "./callback.ts";
+import { JsonValue } from "./value.ts";
 
 interface Binding {
   readonly root: Root | null;
@@ -16,16 +18,10 @@ interface Binding {
   live: boolean;
   operations: number;
 }
-const Input = Schema.Record(Schema.String, Schema.Json);
+const Input = Schema.Record(Schema.String, JsonValue);
 /** Cancel capability use immediately, then drain the admitted completing callback.
  * Arbitrary remote/nonterminating hooks are outside this construction profile. */
-const native = <A>(work: (signal: AbortSignal) => Promise<A>) => Effect.uninterruptibleMask(restore => {
-  const controller = new AbortController();
-  const promise = Promise.resolve().then(() => work(controller.signal));
-  const wait = Effect.tryPromise({ try: () => promise, catch: cause => new NativeFailure({ cause }) });
-  return restore(wait).pipe(Effect.onInterrupt(() =>
-    Effect.sync(() => controller.abort()).pipe(Effect.andThen(wait))));
-});
+const native = <A>(work: (signal: AbortSignal) => Promise<A>) => runCallback(work, cause => new NativeFailure({ cause }));
 
 /** Native result/error conversion belongs to this framework boundary only. */
 export const createPayloadHost = Effect.fn("ExperimentPayload.createHost")(function* (
@@ -185,17 +181,7 @@ export const createPayloadHost = Effect.fn("ExperimentPayload.createHost")(funct
       finally { binding.live = false; }
     });
   }).pipe(Effect.flatMap(definition.decode)));
-  const owned = <A, E>(work: Effect.Effect<A, E>) => Effect.gen(function* () {
-    const child = yield* Effect.forkIn(scopeOwner)(work);
-    return yield* Fiber.join(child).pipe(Effect.onInterrupt(() => Effect.gen(function* () {
-      yield* Fiber.interrupt(child);
-      const exit = yield* Fiber.await(child);
-      if (Exit.isFailure(exit)) {
-        const remaining = exit.cause.reasons.filter(reason => !Cause.isInterruptReason(reason));
-        if (remaining.length !== 0) return yield* Effect.failCause(Cause.fromReasons(remaining));
-      }
-    })));
-  });
+  const owned = <A, E>(work: Effect.Effect<A, E>) => supervise(scopeOwner, work);
   return { create: (request: string, data: unknown) => owned(create(request, data)),
     read: (id: string) => owned(read(id)), definition };
 });

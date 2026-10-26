@@ -14,6 +14,15 @@ it does not reproduce or weaken shared correctness, skills, review or commit rul
 - Keep experimental framework bridges and comparison wiring here. Native framework
   packages may supply business behavior. Bridges translate; core modules own
   integrity, SQL, authorization gates, settlement and recovery.
+- Use the current Payload/Medusa integrations as requirements evidence: inspect
+  executing native lifecycle, observable results/errors, durable obligations,
+  failure cases and supported integration branches. This is not a backward
+  compatibility requirement for their internal adapter/core contracts. Derive
+  the new execution design from those obligations; do not copy their repeated
+  admission/readiness, repository handoffs, per-call construction or round trips.
+  An old helper, interface or fixture alone does not make its sequence required.
+  Preserve a boundary only for a named semantic obligation and executable witness;
+  narrow implementation reuse still needs the dependency audit below.
 - Treat current integrations as reusable implementation as well as requirements
   evidence. Before rebuilding a connected path, classify its native behavior,
   translation and execution plumbing as reuse, adapt or replace. Reuse sound

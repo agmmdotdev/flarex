@@ -2,11 +2,14 @@ import { randomUUID } from "node:crypto";
 import { Cause, Effect, Exit, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { compilePayloadDefinition } from "../src/payload-definition.ts";
-import { uniqueKeys } from "../src/definition.ts";
+import { compileDefinition, uniqueKeys, type Document } from "../src/definition.ts";
+import { createPendingIndex } from "../src/pending-index.ts";
+import { nextCreationTime } from "../src/application-values.ts";
 import { CoreError, NativeOperationFailure } from "../src/errors.ts";
 import { createPayloadHost } from "../src/payload.ts";
 import { createRoot } from "../src/root.ts";
-import type { Command, Storage } from "../src/storage.ts";
+import type { Storage } from "../src/storage.ts";
+import type { Command } from "../src/persistence.ts";
 import { newsCollection } from "./fixture.ts";
 
 const command: Command = { id: "command", token: "private-token", request: "request", snapshot: 0, status: "active", result: null };
@@ -19,6 +22,34 @@ const backend = (changes: Partial<Storage> = {}): Storage => ({
 });
 
 describe("framework-neutral root and native boundary contracts", () => {
+  it("rejects table identities outside the authoritative catalog range", () => {
+    for (const tableId of [0, -1, 1.5, 2147483648, Number.MAX_SAFE_INTEGER]) expect(compileDefinition({ table: "tasks", tableId, fields: [] })).toMatchObject({ _tag: "Failure" });
+    expect(compileDefinition({ table: "tasks", tableId: 2147483647, fields: [] })).toMatchObject({ _tag: "Success" });
+  });
+
+  it("maintains ordered pending updates/deletes and prunes selective ranges as state grows", () => {
+    const index = createPendingIndex(); const expected = new Map<string, Document>();
+    let state = 391; const random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state; };
+    const range = { index: "priority", field: "priority", lower: { value: 90, inclusive: true }, upper: { value: 95, inclusive: false } };
+    for (let step = 0; step < 5000; step++) {
+      const id = String(random() % 256); const prior = expected.get(id);
+      if (prior !== undefined) index.set(Number(prior.priority), Number(prior.systemCreationTime), id, null);
+      if (random() % 5 === 0) expected.delete(id);
+      else {
+        const priority = random() % 128; const systemCreationTime = 1000 + random() % 1000;
+        const body = { id, priority, systemCreationTime, createdAt: "t", updatedAt: "t" }; expected.set(id, body); index.set(priority, systemCreationTime, id, body);
+      }
+      if (step % 19 === 0) expect(index.select(range)).toEqual([...expected.values()].filter(row => Number(row.priority) >= 90 && Number(row.priority) < 95)
+        .toSorted((left, right) => Number(left.priority) - Number(right.priority) || Number(left.systemCreationTime) - Number(right.systemCreationTime) || left.id.localeCompare(right.id)));
+    }
+    expect(index.diagnostics().height).toBeLessThanOrEqual(12);
+    const before = index.diagnostics().comparisons; index.select(range);
+    expect(index.diagnostics().comparisons - before).toBeLessThan(50);
+    const ties = createPendingIndex();
+    for (const [id, systemCreationTime] of [["z", 1], ["a", 2]] as const) ties.set(1, systemCreationTime, id, { id, systemCreationTime, priority: 1, createdAt: "t", updatedAt: "t" });
+    expect(ties.select({ ...range, lower: null, upper: null }).map(row => row.id)).toEqual(["z", "a"]);
+    expect(nextCreationTime(1700000000000)).toBe(1700000000000.0002);
+  });
   it("detaches and freezes each compiled unique definition", async () => {
     const collection = newsCollection();
     const definition = await Effect.runPromise(Effect.fromResult(compilePayloadDefinition(collection)));

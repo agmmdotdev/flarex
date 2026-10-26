@@ -75,6 +75,21 @@ where they do not. Keep framework lifecycle obligations explicit, and audit the
 actual dependency graph before reuse so a convenient import does not pull the
 active admission, working-set, transaction or recovery machinery into the candidate.
 
+The current integrations are a requirements reference, not an internal API to
+preserve. Read them to discover the actual supported Payload/Medusa behavior,
+native lifecycle ordering, result/error contracts, durable identities/data and
+failure scenarios. Check those findings against executing native sources and
+named consumers. Existing plumbing or tests alone do not establish an obligation.
+
+For each integration requirement record its semantic owner and witness separately
+from the current mechanism. Replace old working-set, manager/context, repository,
+workflow-host and settlement interfaces when needed. Do not carry repeated
+admission/readiness checks, framework-to-core handoffs, row rescans, per-call
+construction or SQL visits into the candidate merely to keep old glue compatible.
+Fresh authority and actual native behavior still need proof in the new design.
+This permission covers experimental bridges here; it does not authorize editing
+the ongoing active integration or changing native business behavior for speed.
+
 Separate Medusa business behavior from Flarex's adapter execution machinery:
 
 | Layer | Intended treatment |

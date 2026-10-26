@@ -1,20 +1,17 @@
 import { Effect, Ref } from "effect";
-import type { Definition, Document } from "./definition.ts";
+import type { Definition } from "./definition.ts";
 import { uniqueKeys } from "./definition.ts";
 import { CoreError } from "./errors.ts";
-import type { Command, Storage, UniqueObservation } from "./storage.ts";
-
-export const rootLimits = Object.freeze({ rows: 256, bytes: 262_144 });
+import { createChanges } from "./changes.ts";
+import type { Storage, UniqueObservation } from "./storage.ts";
+import type { Command } from "./persistence.ts";
 
 /** This owner is framework-neutral. Its only implemented mutation is insert. */
 export const createRoot = Effect.fn("ExperimentRoot.create")(function* (definition: Definition, storage: Storage, command: Command) {
   const live = yield* Ref.make(true);
   const failure = yield* Ref.make<CoreError | null>(null);
-  const rows = new Map<string, Document>();
-  const owners = new Map<string, string>();
+  const changes = createChanges(definition);
   const observations = new Map<string, UniqueObservation>();
-  let retainedBytes = 0;
-  let keyOperations = 0;
   const poison = Effect.fn("ExperimentRoot.poison")((error: CoreError) => Ref.update(failure, prior => prior ?? error));
   const check = Effect.gen(function* () {
     const failed = yield* Ref.get(failure);
@@ -25,40 +22,28 @@ export const createRoot = Effect.fn("ExperimentRoot.create")(function* (definiti
     yield* check;
     const document = yield* definition.decode(value);
     const id = document.id;
-    if (typeof id !== "string" || rows.has(id)) return yield* Effect.fail(new CoreError({ reason: "invalid" }));
-    const bytes = Buffer.byteLength(JSON.stringify(document));
+    if (typeof id !== "string" || changes.has(id)) return yield* Effect.fail(new CoreError({ reason: "invalid" }));
     const keys = uniqueKeys(definition, document);
-    if (rows.size >= rootLimits.rows || retainedBytes + bytes > rootLimits.bytes) return yield* Effect.fail(new CoreError({ reason: "limit" }));
-    for (const key of keys) {
-      keyOperations++;
-      if (owners.has(JSON.stringify(key))) return yield* Effect.fail(new CoreError({ reason: "unique" }));
-    }
+    yield* Effect.fromResult(changes.check(id, document));
     const unseen = keys.filter(key => !observations.has(JSON.stringify(key)));
     const observed = unseen.length === 0 ? [] : yield* storage.observeUnique(command, unseen);
     // There is no await between validating and applying all derived state.
     yield* check;
-    if (rows.has(id)) return yield* Effect.fail(new CoreError({ reason: "invalid" }));
-    if (rows.size >= rootLimits.rows || retainedBytes + bytes > rootLimits.bytes) return yield* Effect.fail(new CoreError({ reason: "limit" }));
-    for (const key of keys) {
-      keyOperations++;
-      if (owners.has(JSON.stringify(key))) return yield* Effect.fail(new CoreError({ reason: "unique" }));
-    }
+    if (changes.has(id)) return yield* Effect.fail(new CoreError({ reason: "invalid" }));
     for (const item of observed) if (item.owner !== null) return yield* Effect.fail(new CoreError({ reason: "unique" }));
     for (const item of observed) observations.set(JSON.stringify({ field: item.field, key: item.key }), item);
-    for (const key of keys) owners.set(JSON.stringify(key), id);
-    rows.set(id, Object.freeze({ ...document }));
-    retainedBytes += bytes;
+    yield* Effect.fromResult(changes.apply(id, document));
     return { ...document };
   }, effect => effect.pipe(Effect.tapError(poison)));
   const freeze = Effect.fn("ExperimentRoot.freeze")(function* () {
     yield* check;
     yield* Ref.set(live, false);
-    return { rows: [...rows.values()], dependencies: [...observations.values()] };
+    return { rows: changes.entries().flatMap(([, body]) => body === null ? [] : [body]), dependencies: [...observations.values()] };
   });
   return {
     insert, freeze, poison,
     close: Ref.set(live, false),
-    diagnostics: () => ({ rows: rows.size, bytes: retainedBytes, keyOperations }),
+    diagnostics: changes.diagnostics,
   };
 });
 export type Root = Effect.Success<ReturnType<typeof createRoot>>;

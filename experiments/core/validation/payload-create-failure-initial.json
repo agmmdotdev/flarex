@@ -1,0 +1,21 @@
+{
+  "workload": "payload-create",
+  "stage": "active-core-preparation",
+  "status": "failed-no-performance-result",
+  "head": "1e08a55b70ad13ea0969f43a991254355022c9c1",
+  "source": {
+    "before": {
+      "sha256": "2e869766700e37bd19502bd823f13e2652b4640390a3c594a5fc861a71f304a0",
+      "files": 10400
+    },
+    "after": {
+      "sha256": "43a69e6c98f62eb79373af94b90bd4e2c75692f87cf2e3b83d909a52201e8135",
+      "files": 10400
+    }
+  },
+  "error": {
+    "name": "FrameworkMigrationRepositoryError",
+    "message": "FrameworkMigrationRepositoryError: Stored framework migration metadata is corrupt",
+    "stack": "FrameworkMigrationRepositoryError: Stored framework migration metadata is corrupt\n    at Object.storedCorruption (C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/installation/migrationCoordination/repositoryErrors.ts:129:12)\n    at mapStoredValueError (C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/installation/migrationCoordination/migrationPlanRepository.ts:1068:41)\n    at C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/installation/migrationCoordination/migrationPlanRepository.ts:928:36\n    at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:1380:96\n    at ~effect/Utils/internal (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/Utils.js:79:14)\n    at Object.~effect/Effect/args (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:721:53)\n    at ~effect/Effect/evaluate (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:682:22)\n    at FiberImpl.runLoop (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:462:107)\n    at FiberImpl.evaluate (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:422:23)\n    at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:781:15"
+  }
+}
