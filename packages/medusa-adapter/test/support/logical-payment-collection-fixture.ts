@@ -142,7 +142,7 @@ export async function prepareLogicalPaymentCollections(driver: "pglite" | "postg
       order_payment_collection_links: { ...modules.orderLink, module: orderLink.readWorkflow } } }));
     workflowCloses.push(() => Effect.runPromise(host.close)); return host;
   };
-  const prepareCreationProbe = async (mode: "late" | "forward" | "inverse" | "race" | "stored" | "stored-late", afterNative?: () => Promise<void>) => {
+  const prepareCreationProbe = async (mode: "late" | "forward" | "inverse" | "race" | "stored" | "stored-late" | "callback" | "callback-late" | "callback-caught" | "callback-detached", afterNative?: () => Promise<void>) => {
     const resources = Result.getOrThrow(prepareWorkflowResources({
       payment: { module: payment.cartCollectionWorkflow, methods: ["createPaymentCollections", "deletePaymentCollections"], graph: true },
       cart: { module: cart.workflow, methods: [], graph: true },
@@ -167,7 +167,23 @@ export async function prepareLogicalPaymentCollections(driver: "pglite" | "postg
     const declaration = mode === "stored" || mode === "stored-late"
       ? { name: "probe-collection-" + mode, store: true as const, idempotent: false as const, retentionTime: 259200 as const }
       : "probe-collection-" + mode;
-    const flow = mode === "late" || mode === "race" || mode === "stored" || mode === "stored-late"
+    const callback = mode === "callback" || mode === "callback-late" || mode === "callback-caught" || mode === "callback-detached"
+      ? createStep({ name: "native-collection-callback", invokedWorkflows: [createPaymentCollectionForCartWorkflow] },
+        resources.callback(async (input: typeof CreateCartCollectionInput.Type, { container }) => {
+          if (mode === "callback-detached") {
+            void createPaymentCollectionForCartWorkflow(container).run({ input });
+            return new StepResponse(null);
+          }
+          const result = await createPaymentCollectionForCartWorkflow(container).run({ input });
+          if (mode === "callback-late") throw new Error("Late failure after callback-invoked native collection");
+          if (mode === "callback-caught") {
+            try { await createPaymentCollectionForCartWorkflow(container).run({ input }); } catch { /* Caught child refusal must poison the root. */ }
+          }
+          return new StepResponse(result.result);
+        })) : undefined;
+    const flow = callback !== undefined
+      ? createWorkflow("probe-native-collection-callback-" + mode, (value: WorkflowData<typeof CreateCartCollectionInput.Type>) => new WorkflowResponse(callback(value)))
+      : mode === "late" || mode === "race" || mode === "stored" || mode === "stored-late"
       ? createWorkflow(declaration, (value: WorkflowData<typeof CreateCartCollectionInput.Type>) =>
         new WorkflowResponse(probe(createPaymentCollectionForCartWorkflow.runAsStep({ input: value }))))
       : createWorkflow("probe-collection-retained-" + mode, (value: WorkflowData<unknown>) => new WorkflowResponse(probe(value)));

@@ -100,6 +100,38 @@ diagnostic. Production workflow resources, call-local creation/deletion receipts
 and committed event admission remain required before checkout may invoke this
 owner.
 
+## Callback child workflow prerequisite
+
+The pinned `compensate-payment-if-needed` callback invokes
+`refundPaymentAndRecreatePaymentSessionWorkflow(container).run({ input })`.
+The predecessor finite SDK exported a definition object with composition-time
+`runAsStep`, without the native callable factory or an authenticated callback
+child runner. Its strict step configuration also refused an explicit
+`invokedWorkflows` declaration. Two neutral witnesses preserve those failures.
+The owners are the existing finite definition, prepared identity and execution
+port, not a checkout adapter or a second workflow host.
+
+Approved correction: declare the finite child closure at preparation, retain its
+identity and limits, and bind the native callback invocation to the actual live
+parent container/occurrence and caller-owned port. Check the complete child
+closure before callbacks, preserve resource admission, exact captures, sticky
+failure and owner cleanup, and refuse foreign or expired bindings. No child
+commit, independent retry, new root, replay store or global mutable runner is
+admitted. The user separately approved this bounded callback-child correction.
+
+The finite implementation prepares authentic declared child definitions and
+includes their transitive identities and node counts in the parent. Each child
+may run once per actual step callback occurrence through the exact native
+`workflow(container).run({ input })` shape. Per-callback container views retain
+the parent's authenticated resource selection and revoke when the callback
+settles. Undeclared, repeated, malformed and unfinished calls fail through the
+existing Promise/failure owner; caught child rejection cannot allow settlement.
+Nested and parallel occurrences retain independent identities. Native Cart
+collection child execution proves one outer outcome, reopened-host replay and
+complete write/event rollback for late failure, caught refusal and unfinished
+child execution on both database drivers. Checkout's retained Payment inverse
+still needs its own declared native child closure before root admission.
+
 ## Admission gates
 
 Run the genuine root and retained inverses on PGlite and ordinary-role PostgreSQL.

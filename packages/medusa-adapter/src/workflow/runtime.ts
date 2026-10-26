@@ -6,6 +6,7 @@ import { commerceError } from "@flarex/persistence-postgres/internal/commerce-va
 import { makeCommercePromiseOwner, type CommercePromiseOwner } from "../module/promise-owner";
 import { captureWorkflowValue } from "./value";
 import { captureCommerceInput } from "../value/input";
+import { borrowWorkflowResourceContext } from "./resources";
 
 /** One native root owns the foreign step/hook callbacks and their service runners. */
 export const runNativeMedusaWorkflow = Effect.fn("MedusaWorkflow.runNative")(function* (
@@ -24,6 +25,10 @@ export const runNativeMedusaWorkflow = Effect.fn("MedusaWorkflow.runNative")(fun
     context: { container, eventGroupId: ctx.eventGroupId },
     invoke: work => owner.invoke(() => Promise.resolve(work()), error => error instanceof WorkflowDefinitionError
       ? commerceError("unsupportedProfile", error) : undefined),
+    runChild: work => owner.run(work.pipe(Effect.mapError(error => error instanceof WorkflowDefinitionError
+      ? commerceError("unsupportedProfile", error) : error))),
+    bindCallbackResources: child => borrowWorkflowResourceContext(container, child),
+    refuseCallback: error => owner.reject(commerceError("unsupportedProfile", error)),
     });
   }).pipe(
     Effect.catchTag("WorkflowDefinitionError", cause => ctx.refuse(commerceError("unsupportedProfile", cause))),

@@ -6,6 +6,8 @@ import type { StepFunction, StepOutput } from "./model";
 import { OrchestratorBuilder } from "./orchestrator-builder";
 import { workflowIdentity, type WorkflowIdentity } from "./identity";
 import { prepareWorkflowResolution } from "./resolution";
+import { callbackWorkflowView, prepareCallbackWorkflow, registerCallbackWorkflow } from "./callback-binding";
+import type { WorkflowContainer } from "./model";
 
 interface Composer {
   readonly owner: object;
@@ -31,8 +33,16 @@ function assertSynchronous(value: unknown): void {
   }
 }
 function options(value: string | StepOptions): StepOptions {
+  if (typeof value !== "string") {
+    if (typeof value !== "object" || value === null || (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) ||
+      Reflect.ownKeys(value).some(key => {
+        const property = Object.getOwnPropertyDescriptor(value, key);
+        return typeof key !== "string" || !["name", "compensation", "invokedWorkflows"].includes(key) ||
+          property === undefined || !("value" in property) || !property.enumerable;
+      })) throw definitionError("unsupportedProfile", "Invalid finite step options");
+  }
   const input = typeof value === "string" ? { name: value } : { ...value };
-  if (typeof input.name !== "string" || !/^[a-zA-Z][a-zA-Z0-9_-]{0,127}$/.test(input.name) || Object.keys(input).some(key => !["name", "compensation"].includes(key)) ||
+  if (typeof input.name !== "string" || !/^[a-zA-Z][a-zA-Z0-9_-]{0,127}$/.test(input.name) ||
     (input.compensation !== undefined && input.compensation !== "transactionCovered")) throw definitionError("unsupportedProfile", "Only finite ordered atomic steps are admitted");
   return input;
 }
@@ -62,6 +72,20 @@ export function createStep<Input, Output, Compensation = Output>(nameOrConfig: s
   invoke: Invoke<Input, Output, Compensation>, compensate?: Compensate<Compensation>,
 ): StepFunction<Input, Output> {
   const config = options(nameOrConfig);
+  const invokedWorkflows = config.invokedWorkflows === undefined ? undefined : (() => {
+    const children = config.invokedWorkflows;
+    if (!Array.isArray(children) || children.length === 0 || children.length > 64 ||
+      Reflect.ownKeys(children).length !== children.length + 1) throw definitionError("unsupportedProfile", "Invalid callback child closure");
+    const seen = new Set<object>();
+    return Object.freeze(Array.from({ length: children.length }, (_, index) => {
+      const property = Object.getOwnPropertyDescriptor(children, String(index));
+      if (property === undefined || !("value" in property) || !property.enumerable ||
+        typeof property.value !== "function" || seen.has(property.value)) throw definitionError("invalidDefinition", "Invalid or duplicate callback child");
+      const definition = property.value;
+      seen.add(definition);
+      return Object.freeze({ definition, workflow: prepareCallbackWorkflow(definition) });
+    }));
+  })();
   if (compensate !== undefined && config.compensation !== "transactionCovered") throw definitionError("unsupportedProfile", "Compensation must be explicitly transaction covered");
   return input => {
     const context = composer();
@@ -69,7 +93,8 @@ export function createStep<Input, Output, Compensation = Output>(nameOrConfig: s
     // the heterogeneous graph. The private runtime resolves this same edge.
     const node = { id: Object.freeze({}), kind: "step" as const, guards: context.guards,
       name: config.name, input: captureDefinition(input, context.owner), invoke: invoke as Invoke<unknown, unknown>,
-      compensate: compensate as Compensate<unknown> | undefined, compensation: config.compensation, hook: false };
+      compensate: compensate as Compensate<unknown> | undefined, compensation: config.compensation, hook: false,
+      ...(invokedWorkflows === undefined ? {} : { invokedWorkflows }) };
     return stage<Output>(context, node);
   };
 }
@@ -198,6 +223,7 @@ const preparedWorkflows = new WeakSet<object>();
 export const isPreparedWorkflow = (value: unknown): value is PreparedWorkflow =>
   typeof value === "object" && value !== null && preparedWorkflows.has(value);
 export interface WorkflowDefinition<Input, Output, Hooks extends readonly unknown[]> {
+  (container: WorkflowContainer): { readonly run: (options: { readonly input: Input }) => Promise<{ readonly result: Resolved<Output> }> };
   readonly name: string;
   readonly prepare: (hooks?: HookHandlers<Hooks>, ...additional: readonly HookHandlers<Hooks>[]) => Result.Result<PreparedWorkflow, ReturnType<typeof definitionError>>;
   readonly runAsStep: (input: { readonly input: WorkflowInput<Input>; readonly hooks?: HookHandlers<Hooks> }) => StepOutput<Resolved<Output>>;
@@ -257,7 +283,8 @@ export function createWorkflow<Input, Output, const Hooks extends readonly unkno
   if (context.pending.size !== 0) throw definitionError("invalidDefinition", "Every condition requires then");
   let nodeCount = 0;
   for (const node of context.nodes) {
-    nodeCount += 1 + (node.kind === "workflow" ? node.workflow.nodeCount : 0);
+    nodeCount += 1 + (node.kind === "workflow" ? node.workflow.nodeCount :
+      node.invokedWorkflows?.reduce((count, child) => count + child.workflow.nodeCount, 0) ?? 0);
     if (nodeCount > 64) throw definitionError("unsupportedProfile", "Too many workflow nodes");
   }
   const flow = new OrchestratorBuilder();
@@ -322,7 +349,18 @@ export function createWorkflow<Input, Output, const Hooks extends readonly unkno
     },
     catch: cause => cause instanceof WorkflowDefinitionError ? cause : definitionError("invalidDefinition", "Invalid hook registration"),
   });
-  const definition: WorkflowDefinition<Resolved<Input>, Output, Hooks> = Object.freeze({ name, prepare,
+  // Native factories are callable; only an SDK-issued live callback facade can
+  // bind this definition to execution. Preparation remains construction-only.
+  const factory = (container: WorkflowContainer) => {
+    const view = callbackWorkflowView(factory, container);
+    return Object.freeze({ run: (options: { readonly input: Resolved<Input> }) => {
+      // SAFETY: the declared child graph binds Output before the heterogeneous
+      // execution port erases it. Runtime captures preserve that same edge.
+      return view.run(options) as Promise<{ readonly result: Resolved<Output> }>;
+    } });
+  };
+  Object.defineProperty(factory, "name", { value: name, configurable: false });
+  const definition = Object.freeze(Object.assign(factory, { prepare,
     runAsStep: (input: { readonly input: WorkflowInput<Resolved<Input>>; readonly hooks?: HookHandlers<Hooks> }) => {
       const context = composer();
       // Unlike definition data, this boundary deliberately accepts hook functions.
@@ -349,7 +387,8 @@ export function createWorkflow<Input, Output, const Hooks extends readonly unkno
       return stage<Resolved<Output>>(context, { id: Object.freeze({}), kind: "workflow", guards: context.guards,
         name: `${name}-as-step`, input: captured, workflow: child });
     },
-  });
+  }));
+  registerCallbackWorkflow(definition, () => Result.getOrThrow(prepare()));
   return definition;
 }
 

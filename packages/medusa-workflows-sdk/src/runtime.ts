@@ -1,9 +1,10 @@
 import { Deferred, Effect, Result } from "effect";
 import { StepResponse, stepCallbackOutput } from "./responses";
 import { SkipStepResponse } from "@medusajs/orchestration/transaction/errors";
-import { definitionError, type ParallelGroup, type StepExecutionContext } from "./model";
+import { definitionError, type ParallelGroup, type StepExecutionContext, type WorkflowContainer } from "./model";
 import { isPreparedWorkflow, type PreparedWorkflow } from "./definition";
 import { prepareTransformResolution, resolveWorkflowValue, type WorkflowResolution, type WorkflowResolvedValue } from "./resolution";
+import { bindCallbackContainer, callbackWorkflowInput } from "./callback-binding";
 
 export interface WorkflowExecutionPort<Failure> {
   /** Explicit compatibility disposition supplied only by the trusted caller.
@@ -14,6 +15,13 @@ export interface WorkflowExecutionPort<Failure> {
    * an owned copy. Native capture already performs this owner's checkpoint. */
   readonly capture: (value: unknown) => Effect.Effect<unknown, Failure>;
   readonly invoke: (work: () => unknown | Promise<unknown>) => Effect.Effect<unknown, Failure>;
+  /** The existing foreign callback owner runs and drains borrowed child effects.
+   * Failures must remain sticky even when native code catches the rejection. */
+  readonly runChild?: <Value>(work: Effect.Effect<Value, Failure | ReturnType<typeof definitionError>>) => Promise<Value>;
+  readonly refuseCallback?: (error: ReturnType<typeof definitionError>) => never;
+  /** Trusted host preserves its resource-selection evidence on a borrowed view.
+   * The returned cleanup removes that evidence when this callback settles. */
+  readonly bindCallbackResources?: (container: WorkflowContainer) => () => void;
   readonly context: StepExecutionContext;
 }
 /** Fork of reference/transform/response execution, with a caller-owned runtime.
@@ -22,13 +30,21 @@ export const executeWorkflow = Effect.fn("MedusaWorkflow.execute")(function <Fai
   definition: PreparedWorkflow, input: unknown, port: WorkflowExecutionPort<Failure>,
 ) {
   if (!isPreparedWorkflow(definition)) return Effect.fail(definitionError("invalidDefinition", "Workflow was not prepared by this SDK"));
+  if (port.runChild !== undefined && port.refuseCallback === undefined)
+    return Effect.fail(definitionError("unsupportedProfile", "Callback children require their owning synchronous refusal boundary"));
   // Check the complete child closure before invoking any parent callback.
   const pending = [definition];
   while (pending.length !== 0) {
     const current = pending.pop()!;
     if (current.identity.store === true && port.storedWorkflowPolicy !== "atomicRootOutcome")
       return Effect.fail(definitionError("unsupportedProfile", "Stored declarations require the explicit atomic outcome profile"));
-    for (const node of current.nodes) if (node.kind === "workflow") pending.push(node.workflow);
+    for (const node of current.nodes) {
+      if (node.kind === "workflow") pending.push(node.workflow);
+      else if (node.invokedWorkflows !== undefined) {
+        if (port.runChild === undefined) return Effect.fail(definitionError("unsupportedProfile", "Callback children require the owning Promise runner"));
+        pending.push(...node.invokedWorkflows.map(child => child.workflow));
+      }
+    }
   }
   return executeFrame(definition, input, port, true);
 });
@@ -111,9 +127,37 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
       return;
     }
     const { parentStepIdempotencyKey: _suppliedParent, ...baseContext } = port.context;
+    const invocationKey = JSON.stringify([port.context.eventGroupId, ...framePath, index]);
+    const runChild = port.runChild;
+    const refuseCallback = port.refuseCallback;
+    const used = new Set<object>();
+    let live = true;
+    let pendingChildren = 0;
+    const binding = runChild === undefined || refuseCallback === undefined ? undefined : bindCallbackContainer(baseContext.container, (child, options) => {
+      if (!live) return runChild(Effect.fail(definitionError("unsupportedProfile", "Callback child binding has expired")));
+      const position = node.invokedWorkflows?.findIndex(candidate => candidate.definition === child) ?? -1;
+      const declared = node.invokedWorkflows?.[position];
+      const work = declared === undefined || used.has(child)
+        ? Effect.fail(definitionError("unsupportedProfile", "Undeclared, repeated or invalid callback child invocation"))
+        : Effect.gen(function* () {
+          const childInput = yield* port.invoke(() => callbackWorkflowInput(options));
+          const captured = yield* port.capture(childInput);
+          const result = yield* executeFrame(declared.workflow, captured, port, false, [...framePath, index, position], invocationKey);
+          return { result: yield* port.capture(result) };
+        });
+      used.add(child);
+      pendingChildren++;
+      const pending = runChild(work);
+      // Observe even an intentionally unawaited foreign Promise. The runner
+      // retains its complete failure and cleanup responsibility.
+      void pending.then(() => { pendingChildren--; }, () => { pendingChildren--; });
+      return pending;
+    }, refuseCallback);
     const context: StepExecutionContext = Object.freeze({ ...baseContext,
+      ...(binding === undefined ? {} : { container: binding.container }),
       ...(parentStepIdempotencyKey === undefined ? {} : { parentStepIdempotencyKey }),
-      idempotencyKey: JSON.stringify([port.context.eventGroupId, ...framePath, index]) });
+      idempotencyKey: invocationKey });
+    const releaseResources = binding === undefined ? undefined : port.bindCallbackResources?.(binding.container);
     const returned = yield* port.invoke(() => {
       const value = node.invoke(input, context);
       if (node.kind !== "condition" || typeof value === "boolean") return value;
@@ -121,7 +165,8 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
       // Observe an invalid Promise through the same bounded callback owner;
       // neither a rejected Promise nor its completion can escape this invocation.
       return value instanceof Promise ? value.then(refuse, refuse) : refuse();
-    });
+    }).pipe(Effect.ensuring(Effect.sync(() => { live = false; binding?.revoke(); releaseResources?.(); })));
+    if (pendingChildren !== 0) return yield* Effect.fail(definitionError("unsupportedProfile", "Callback returned with unfinished child workflows"));
     if (node.kind === "condition") { outputs.set(node.id, returned); return; }
     if (returned instanceof SkipStepResponse) {
       // A genuine native skip publishes no response/compensation payload. A

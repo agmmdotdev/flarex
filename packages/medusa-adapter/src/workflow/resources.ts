@@ -138,3 +138,10 @@ export function registerWorkflowResourceContext(container: WorkflowContainer, se
   contexts.set(container, { selection, resources, reject });
   return () => contexts.delete(container);
 }
+/** A trusted finite callback borrows precisely the parent's admitted selection. */
+export function borrowWorkflowResourceContext(parent: WorkflowContainer, child: WorkflowContainer) {
+  const bound = contexts.get(parent);
+  if (bound === undefined || contexts.has(child)) throw commerceError("invalidAuthority");
+  contexts.set(child, bound);
+  return () => { contexts.delete(child); };
+}

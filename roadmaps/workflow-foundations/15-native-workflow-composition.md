@@ -370,6 +370,25 @@ Cloudflare deployment or public API compatibility.
 
 ## Approval Boundary
 
+### Bounded callback-invoked children
+
+The approved atomic checkout profile also admits the native callable factory
+shape `workflow(container).run({ input })` inside a step callback. The step must
+declare authentic definitions in `invokedWorkflows`; preparation includes their
+complete identities, storage-policy requirements and inclusive node counts.
+Every declared child may run once per callback occurrence. This is a finite
+declaration, not runtime workflow discovery or arbitrary repeated dispatch.
+
+Each live callback receives a private container view that borrows the existing
+resource selection. Its runner borrows the actual parent occurrence and outer
+execution port through the existing Promise owner. Callback completion revokes
+the view. Foreign containers, undeclared/repeated children, malformed runner
+options and unfinished child calls are refused. Caught child failures retain
+the outer owner's sticky failure and cleanup. There is no child commit, host,
+retry, independent replay store, global current runner or compensator scheduler.
+Transaction-covered compensation remains an explicit finite-profile contract;
+this API does not introduce automatic compensator execution.
+
 The native Product parent exposed a type-owner mismatch in SDK `Resolved<T>`:
 recursive object mapping converted DTO `Date` and callable leaves into objects
 of mapped members, making native child results incompatible with their DTOs.

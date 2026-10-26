@@ -51,7 +51,8 @@ export function workflowIdentity(name: string, nodes: readonly WorkflowNode[], r
   }
   const entries = nodes.map(node => Object.freeze({ name: node.name, kind: node.kind,
     guards: Object.freeze(node.guards.map(position)), input: encode(node.input),
-    ...(node.kind === "workflow" ? { workflow: node.workflow.identity } : { hook: node.hook, bound: node.boundHook === true }),
+    ...(node.kind === "workflow" ? { workflow: node.workflow.identity } : { hook: node.hook, bound: node.boundHook === true,
+      ...(node.invokedWorkflows === undefined ? {} : { invokedWorkflows: Object.freeze(node.invokedWorkflows.map(child => child.workflow.identity)) }) }),
   }));
   const output = encode(result);
   return Object.freeze({ name, nodes: Object.freeze(entries), references: Object.freeze(references), result: output,

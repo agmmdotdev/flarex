@@ -1,6 +1,6 @@
 import { Data } from "effect";
 import type { StepResponse } from "./responses";
-import type { PreparedWorkflow } from "./definition";
+import type { PreparedWorkflow, WorkflowDefinition } from "./definition";
 import type { SkipStepResponse } from "@medusajs/orchestration/transaction/errors";
 
 /** Medusa's staged authoring type: values are references until runtime resolution. */
@@ -42,7 +42,12 @@ export type Invoke<Input, Output, Compensation = Output> = (input: Input, contex
   Output | StepResponse<Output, Compensation> | SkipStepResponse | Promise<Output | StepResponse<Output, Compensation> | SkipStepResponse>;
 export type Compensate<Input> = (input: Input | undefined, context: StepExecutionContext) =>
   void | StepResponse<unknown, unknown> | Promise<void | StepResponse<unknown, unknown>>;
-export interface StepOptions { readonly name: string; readonly compensation?: "transactionCovered" }
+export interface StepOptions {
+  readonly name: string;
+  readonly compensation?: "transactionCovered";
+  /** Each declared child may be invoked once by this callback occurrence. */
+  readonly invokedWorkflows?: readonly Pick<WorkflowDefinition<never, unknown, readonly []>, "name" | "prepare">[];
+}
 export class WorkflowDefinitionError extends Data.TaggedError("WorkflowDefinitionError")<{
   readonly reason: "unsupportedProfile" | "outsideComposer" | "duplicateStep" | "duplicateHook" | "invalidReference" | "invalidDefinition";
   readonly detail: string;
@@ -66,6 +71,7 @@ export type WorkflowNode = WorkflowNodeBase & ({
   readonly compensation: "transactionCovered" | undefined;
   readonly hook: boolean;
   readonly boundHook?: boolean;
+  readonly invokedWorkflows?: readonly { readonly definition: object; readonly workflow: PreparedWorkflow }[];
 });
 export interface Reference {
   readonly kind: "input" | "step" | "transform" | "property";
