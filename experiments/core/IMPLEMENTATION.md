@@ -5,9 +5,10 @@ Status: [bounded Payload create](./PAYLOAD-CREATE.md) and the
 [native Product scalar-update binding](./MEDUSA-PRODUCT.md), connect actual
 developer/framework entry points to experimental roots and shared Drizzle
 persistence/materialization. The [multi-table foundation](./MIXED.md) provides
-selected-definition admission, callback-scoped borrowing and one publication.
-General queries, connected reactivity, wider native lifecycle, connected atomic
-mixed execution and promotion remain pending. The stages below
+selected-definition admission, callback-scoped borrowing and one publication,
+now connected to actual Application, Product and Payload create/update/read.
+General queries, Payload deletion/preferences, connected reactivity, wider native
+lifecycle, measurements and promotion remain pending. The stages below
 describe the full experiment, not completed support.
 
 ## Stage 1: executable scope and contract map

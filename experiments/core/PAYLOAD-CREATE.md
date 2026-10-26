@@ -17,12 +17,21 @@ The admitted construction profile uses required scalar text/finite number fields
 at most one unique text field, timestamps, depth zero and trusted configuration
 with locally completing callbacks. Callable defaults are preserved. Auth,
 versions, upload, localization, relations, optional/array fields, nesting, custom
-IDs, general queries, update/delete and arbitrary remote/nonterminating callbacks
+IDs, general queries, field access, user `beforeOperation` hooks, standalone
+update/delete and arbitrary remote/nonterminating callbacks
 are unsupported. This is not a general Payload database adapter. Unsupported
 database operations fail and poison an active root. The direct read supports only
 the requested identity, with native access and read processing.
 
-The root owns at most 256 inserted rows and 262,144 retained document bytes.
+The [mixed connection](./MIXED.md) additionally uses real native update/read over
+the same pending document under a borrowed root. It does not yet establish full
+standalone CRUD or preference cleanup. Field access and transforming
+`beforeOperation` profiles need fuller saved-result authorization before admission;
+business hooks are not re-executed on committed replay.
+
+The root owns at most 256 staged rows and 262,144 combined retained logical bytes
+for its original/pending documents, dependency evidence and events. This is not a
+heap-size measurement; input and result have their own bounded envelopes.
 Commands have a database-clock deadline of 30 seconds. Serving PostgreSQL sessions
 use 5-second connection/statement timeouts and a 3-second lock timeout. These bound
 database work; they do not impose a deadline on arbitrary JavaScript callbacks.

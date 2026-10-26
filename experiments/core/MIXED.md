@@ -1,9 +1,11 @@
 # Atomic mixed construction contract
 
-Status: multi-table core foundation implemented; native bridge connection and
-complete-request measurements remain pending. Standalone Application,
-Payload-create and Product-update profiles exist. Nothing in this note authorizes
-active-core changes or production promotion.
+Status: bounded native connection implemented in `mixed.ts`: an authored
+Application mutation, native Product title update, and native Payload
+create/update/read share the selected-table accepting owner. Complete-request
+measurements, Payload deletion/preferences and broader Product flows remain
+pending. Nothing in this note authorizes active-core changes or production
+promotion.
 
 `group-root.ts` lends callback-scoped Application/framework operations with a
 shared budget, sticky failure and supervised lifetime. `group-storage.ts` admits
@@ -15,6 +17,22 @@ Migration 0006 changes command identity from one table/version to an immutable
 selected-definition array. It applies only to fresh disposable experiment
 databases. Existing experiment fixtures must be reset; it is not an upgrade of
 existing command rows or an active-core migration.
+
+Application and Product preparation bind immutable inputs and native metadata to
+their operation identity; execution borrows only the selected operations. Payload
+retains real access/default/validation/change/read hooks, including pending reads
+across Local API calls. Native nesting remains refused in this bounded profile.
+Complete exposed adapter promises are owned through invocation completion;
+unfinished work is revoked, drained and fails the group. A caught adapter error
+still latches its original Cause. Each participant owns its native/metadata result
+decoder, reused when checking saved outcomes. Saved mixed replay checks current
+collection access without repeating business hooks.
+
+Field access and user `beforeOperation` hooks are refused at Payload configuration
+admission. Replaying those profiles needs captured native authorization inputs
+and field authorization semantics; checking only collection access against the
+original input is insufficient. These are declared missing capabilities, not
+hooks silently disabled for a comparison.
 
 ## Connected operation
 
@@ -32,7 +50,8 @@ and the native Product event. A failure in any participant, even if caught by
 the composition, must prevent every participant's publication. Native business
 code receives neither physical sessions nor acceptance/recovery capabilities.
 
-Payload update and deletion additionally exercise same-request native reads and
+The [CRUD continuation](./PAYLOAD-CRUD.md) specifies the remaining deletion and
+preference work. Payload update and deletion additionally exercise same-request native reads and
 preference cleanup. Cleanup is real core work over a selected preference table,
 including empty results; the adapter cannot return a successful fabricated no-op.
 Preference writers and cleanup share indexed identity and the accepting owner.

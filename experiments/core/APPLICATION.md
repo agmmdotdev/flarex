@@ -53,6 +53,12 @@ backward compatibility with their internal execution plumbing is required.
   argument copy. Retrying must not reuse guest-mutated arguments or change the
   data bound to a durable request digest.
 
+Host construction captures the actual handler and native validator JSON through
+the SDK's immutable validator owner. Preparation, execution and saved-result
+validation use that same snapshot, even if caller-owned registration objects are
+later changed. Strict descriptor-safe JSON capture refuses getters, unsupported
+prototypes, undefined and oversized input before native field decoding.
+
 Capture one authorized per-scope sequence and use it for every original read.
 Historical index entries have `[fromSeq,untilSeq)` visibility and reference their
 exact row revision. Read exact absence, including the distinction between no

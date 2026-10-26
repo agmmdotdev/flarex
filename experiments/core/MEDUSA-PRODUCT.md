@@ -38,6 +38,10 @@ options and tags are empty, collection and type are null; untouched images,
 variants and categories are absent. The optional native comparison validates
 every returned key/value except independent installation timestamps, which are
 validated separately. Replacement capabilities do not imply populated output.
+The result owner composes complete DML scalar decoding with that closed loaded
+relation projection for live results, committed replay and response-loss recovery.
+Prepared updates also run against callback-scoped mixed roots without opening or
+settling another command; the native service and event implementation are shared.
 
 One direct command opens a durable reservation. Its root caches original row
 observations and owns all pending changes across native DAL calls. First reads
@@ -55,6 +59,16 @@ does not silently broaden the Application profile.
 
 ## Completion and measurement gates
 
+The next matched Product graph is the existing complete native
+update/retrieve/list-by-handle sequence, not a raw method timing or an invented
+Product workflow. Reuse the text-equality query owner needed by
+[Payload cleanup](./PAYLOAD-CRUD.md) for historical/pending handle membership.
+Its list result requires complete native rows; preference deletion requires only
+identities/predecessors. Share selection/invalidation mechanics while keeping
+those result demands explicit. Native service methods and their default query
+construction remain authoritative. Neither this sequence nor growing batches
+establishes child relation, Pricing/Link or workflow-launch compatibility.
+
 Prove PGlite and ordinary-role PostgreSQL results, pending state, native events,
 rollback, revocation, stale writes, identity/replay, cancellation/draining and
 shared Payload/Application regressions. Capture actual SQL/session counts and
@@ -63,5 +77,6 @@ comparison setup blocker rather than bypassing it. Batch, query shape, unrelated
 schema and same-scope contention gates remain required before coverage expansion.
 The opt-in genuine native Product comparison currently proves shape/value parity,
 not timing. This bounded slice alone cannot decide the whole redesign or establish
-deployment. Payload CRUD, broader Product flows, atomic mixed execution and
-matched measurements remain open under the active experimental goal.
+deployment. The [bounded mixed connection](./MIXED.md) now composes this operation
+with actual Application and Payload entry points. Payload CRUD, broader Product
+flows and matched measurements remain open under the active experimental goal.

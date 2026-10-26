@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { Cause, Effect, Exit, Result } from "effect";
+import { Cause, Effect, Exit, Result, Scope } from "effect";
+import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
 import { compilePayloadDefinition } from "../src/payload-definition.ts";
 import { compileDefinition, uniqueKeys, type Document } from "../src/definition.ts";
@@ -67,6 +68,63 @@ describe("framework-neutral root and native boundary contracts", () => {
     const multiple = newsCollection();
     multiple.fields.push({ name: "slug", type: "text", required: true, unique: true });
     expect(compilePayloadDefinition(multiple)).toMatchObject({ _tag: "Failure", failure: { reason: "unsupported" } });
+    const fieldAccess = newsCollection(); fieldAccess.fields = [{ name: "headline", type: "text", required: true, access: { read: () => true } }];
+    expect(compilePayloadDefinition(fieldAccess)).toMatchObject({ _tag: "Failure", failure: { reason: "unsupported" } });
+    const transform = newsCollection(); transform.hooks = { beforeOperation: [({ args }) => args] };
+    expect(compilePayloadDefinition(transform)).toMatchObject({ _tag: "Failure", failure: { reason: "unsupported" } });
+  });
+
+  it.each(["create", "updated-result"] as const)("supervises prepared %s native access through host shutdown", async operation => {
+    let ready = () => {}; let release = () => {}; let signal: AbortSignal | undefined;
+    const started = new Promise<void>(resolve => { ready = resolve; }); const gate = new Promise<void>(resolve => { release = resolve; });
+    const access = async (req: { signal?: AbortSignal }) => { signal = req.signal; ready(); await gate; return true; };
+    const collection = newsCollection(); collection.access = { ...collection.access,
+      ...(operation === "create" ? { create: ({ req }) => access(req) } : { update: ({ req }) => access(req) }) };
+    const scope = await Effect.runPromise(Scope.make());
+    const host = await Effect.runPromise(createPayloadHost(collection, backend(), "shop-a").pipe(Effect.provideService(Scope.Scope, scope)));
+    const prepared = await Effect.runPromise(host.prepareCreate({ headline: "scoped" }));
+    const work = operation === "create" ? prepared.authorize() : host.authorizeUpdatedResult("row", { score: 7 });
+    const pending = Effect.runPromiseExit(work); let closed = false; let closing: Promise<void> | undefined;
+    try {
+      await started; closing = Effect.runPromise(Scope.close(scope, Exit.void)).then(() => { closed = true; });
+      await delay(10); expect(signal?.aborted).toBe(true); expect(closed).toBe(false);
+      release(); const result = await pending; await closing;
+      expect(Exit.isFailure(result) && Cause.hasInterrupts(result.cause)).toBe(true);
+      expect(await Effect.runPromise(Effect.result(operation === "create" ? prepared.authorize() : host.authorizeUpdatedResult("row", {}))))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
+    } finally { release(); await pending; await (closing ?? Effect.runPromise(Scope.close(scope, Exit.void))); }
+  });
+
+  it("revokes and drains a dropped native DAL continuation before it can stage a late replacement", async () => {
+    let ready = () => {}; let release = () => {}; let lateReplacements = 0;
+    const started = new Promise<void>(resolve => { ready = resolve; }); const gate = new Promise<void>(resolve => { release = resolve; });
+    const collection = newsCollection(); collection.hooks = { afterChange: [async ({ req, doc }) => {
+      void req.payload.db.updateOne({ collection: collection.slug, id: "other", data: { score: 99 }, req });
+      await started; return doc;
+    }] };
+    const scope = await Effect.runPromise(Scope.make());
+    const definition = await Effect.runPromise(Effect.fromResult(compilePayloadDefinition(collection)));
+    const storage = backend({ observeRows: Effect.fn("TestPayload.pausedRows")(function* (_command, ids) {
+      if (ids.includes("other")) { ready(); yield* Effect.promise(() => gate); }
+      return ids.map(id => { const body = { id, headline: id, score: 0, createdAt: "2026-10-27T00:00:00.000Z", updatedAt: "2026-10-27T00:00:00.000Z" };
+        return { id, revision: 1, body, bytes: Buffer.byteLength(JSON.stringify(body)) }; });
+    }) });
+    const root = await Effect.runPromise(createRoot(definition, storage, command));
+    const host = await Effect.runPromise(createPayloadHost(collection, storage, "shop-a").pipe(Effect.provideService(Scope.Scope, scope)));
+    const borrowed = { ...root, replace: (value: unknown) => {
+      if (typeof value === "object" && value !== null && "id" in value && value.id === "other") lateReplacements++;
+      return root.replace(value);
+    } };
+    let settled = false;
+    const pending = Effect.runPromiseExit(host.borrowUpdate(borrowed, command.id, "row", { score: 1 })).then(result => { settled = true; return result; });
+    try {
+      await started; await delay(10); expect(settled).toBe(false); release();
+      const result = await pending; expect(Exit.isFailure(result)).toBe(true);
+      if (Exit.isFailure(result)) expect(result.cause.reasons.filter(Cause.isFailReason).map(reason => reason.error))
+        .toContainEqual(expect.objectContaining({ reason: "unsupported" }));
+      expect(lateReplacements).toBe(0); expect(root.diagnostics().rows).toBe(1);
+      expect(await Effect.runPromiseExit(root.freeze())).toMatchObject({ _tag: "Failure" });
+    } finally { release(); await pending; await Effect.runPromise(root.close); await Effect.runPromise(Scope.close(scope, Exit.void)); }
   });
 
   it("retains native drain failure and abort cleanup defect when the caller cancels", async () => {

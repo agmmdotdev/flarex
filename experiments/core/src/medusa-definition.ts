@@ -4,7 +4,10 @@ import { compileCompleteRow } from "../../../packages/medusa-adapter/src/value/c
 import { captureCommerceInput } from "../../../packages/medusa-adapter/src/value/input.ts";
 import { compileDefinition, type Field, type Document } from "./definition.ts";
 import { CoreError } from "./errors.ts";
+import { JsonValue } from "./value.ts";
 const Update = Schema.Struct({ title: Schema.String });
+const ResultProjection = Schema.StructWithRest(Schema.Struct({ options: Schema.Tuple([]), tags: Schema.Tuple([]), collection: Schema.Null, type: Schema.Null }),
+  [Schema.Record(Schema.String, JsonValue)]);
 
 /** Reuse checked executing DML compilation and native complete-row decoding.
  * Installation/authority and the physical layout stay with the new core. */
@@ -49,8 +52,15 @@ export const prepareProductDefinition = Effect.fn("ExperimentProduct.definition"
     const input = yield* Effect.fromResult(captureCommerceInput(value)).pipe(Effect.mapError(cause => new CoreError({ reason: "invalid", cause })));
     return yield* Schema.decodeUnknownEffect(Update)(input, { onExcessProperty: "error" }).pipe(Effect.mapError(cause => new CoreError({ reason: "unsupported", cause })));
   });
+  const decodeResult = Effect.fn("ExperimentProduct.result")(function* (value: unknown) {
+    const input = yield* Effect.fromResult(captureCommerceInput(value)).pipe(Effect.mapError(cause => new CoreError({ reason: "invalid", cause })));
+    const projected = yield* Schema.decodeUnknownEffect(ResultProjection)(input).pipe(Effect.mapError(cause => new CoreError({ reason: "invalid", cause })));
+    const { options: _options, tags: _tags, collection: _collection, type: _type, ...row } = projected;
+    const result: Schema.JsonObject = { ...yield* capture(row), options: [], tags: [], collection: null, type: null };
+    return result;
+  });
   return { definition, table, models: productModels, capture, toDocument, toNative, seed,
-    validateUpdate,
+    validateUpdate, decodeResult,
   };
 });
 export type ProductDefinition = Effect.Success<ReturnType<typeof prepareProductDefinition>>;

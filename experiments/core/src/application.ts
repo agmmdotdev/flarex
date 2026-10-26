@@ -4,24 +4,28 @@ import type { DatabaseReader, DatabaseWriter, MutationCtx, QueryCtx, RegisteredF
 import { createQueryInitializer, type DatabaseQueryRequest, type OrderedQuery } from "../../../packages/flarex/src/query.ts";
 import { encodeFlarexId, parseFlarexId } from "../../../packages/flarex/src/ids.ts";
 import type { Id } from "../../../packages/flarex/src/values.ts";
-import { validateFunctionArgs, validateValue, ValidationError } from "../../../packages/flarex/src/validation.ts";
+import { validatorToJson, validateValue, ValidationError } from "../../../packages/flarex/src/validation.ts";
 import { AppDocumentIdV1Schema } from "../../../packages/flarex-protocol/src/app-document-id.ts";
 import { encodeCanonicalJson } from "../../../packages/flarex-protocol/src/json.ts";
 import { SCOPE_SYNC_DEPENDENCY_KEY_FORMAT_V1, ScopeSyncDependencyKeyV1Schema, normalizeScopeSyncDependencyKeySetV1Result } from "../../../packages/flarex-protocol/src/scope-sync-v1.ts";
 import { APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1, APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1 } from "../../../packages/flarex-protocol/src/application-revision-syscall-validation-v1.ts";
 import type { Definition, Document } from "./definition.ts";
 import { ApplicationFailure, ApplicationOperationFailure, CoreError, DocumentValidationFailure } from "./errors.ts";
-import { createApplicationMutationRoot, createApplicationQueryRoot, type ApplicationMutationRoot, type ApplicationQueryRoot } from "./application-root.ts";
+import { createApplicationMutationRoot, createApplicationQueryRoot, type ApplicationQueryRoot } from "./application-root.ts";
 import type { ApplicationStorage } from "./application-storage.ts";
 import { applicationLimits, NumericRange, type Dependency } from "./query.ts";
 import { runCallback, supervise } from "./callback.ts";
 import { CreationTime, admitApplicationDefinition } from "./application-values.ts";
-import { JsonValue } from "./value.ts";
+import { captureJsonInput, JsonValue } from "./value.ts";
+import type { BorrowedApplicationRoot } from "./group-root.ts";
 
 type AppDocument = Record<string, Schema.Json> & { _id: Id<string>; _creationTime: number };
 type Model = Record<string, { document: AppDocument; fieldPaths: string; indexes: Record<string, readonly [string]> }>;
 type Functions = Readonly<Record<string, RegisteredFunction>>;
-type Root = ApplicationQueryRoot | ApplicationMutationRoot;
+const captureFunction = (fn: RegisteredFunction) => Object.freeze({ kind: fn.kind, partitioned: fn.partition !== null,
+  handler: fn.handler, args: validatorToJson(fn.args), returns: fn.returns === null ? null : validatorToJson(fn.returns) });
+type AdmittedFunction = ReturnType<typeof captureFunction>;
+type Root = Pick<ApplicationQueryRoot, "get" | "range" | "poison"> | BorrowedApplicationRoot;
 const Input = Schema.Record(Schema.String, JsonValue);
 const Request = Schema.Struct({ table: Schema.String, index: Schema.optionalKey(Schema.String),
   range: Schema.optionalKey(Schema.Struct({ expressions: Schema.Array(Schema.Struct({ op: Schema.Literals(["eq", "gt", "gte", "lt", "lte"]), field: Schema.String, value: Schema.Number.check(Schema.isFinite()) })).check(Schema.isMaxLength(8)) })),
@@ -68,11 +72,11 @@ export const createApplicationHost = Effect.fn("ExperimentApplication.host")(fun
   const tableId = yield* Effect.fromResult(admitApplicationDefinition(definition));
   const owner = yield* Effect.scope;
   let live = true; yield* Effect.addFinalizer(() => Effect.sync(() => { live = false; }));
-  const entries = Object.freeze({ ...functions });
+  const entries = Object.freeze(Object.fromEntries(Object.entries(functions).map(([name, fn]) => [name, captureFunction(fn)])));
   const eligible = new Set(retryableMutations);
   const select = (name: string, kind: "query" | "mutation") => {
     const fn = entries[name];
-    return !live ? Effect.fail(new CoreError({ reason: "closed" })) : fn === undefined || fn.kind !== kind || fn.partition !== null
+    return !live ? Effect.fail(new CoreError({ reason: "closed" })) : fn === undefined || fn.kind !== kind || fn.partitioned
       ? Effect.fail(new CoreError({ reason: "unsupported" })) : Effect.succeed(fn);
   };
   const id = (value: string) => Schema.decodeUnknownEffect(AppDocumentIdV1Schema)(value).pipe(
@@ -87,7 +91,7 @@ export const createApplicationHost = Effect.fn("ExperimentApplication.host")(fun
     const result: AppDocument = { ...fields, _id: encodeFlarexId(tableId, parsed.documentId), _creationTime: creation };
     return result;
   });
-  const invoke = (root: Root, fn: RegisteredFunction, args: Record<string, Schema.Json>) => runCallback(async signal => {
+  const invoke = (root: Root, fn: AdmittedFunction, args: Record<string, Schema.Json>) => runCallback(async signal => {
     let active = true;
     const running = new Set<Promise<unknown>>();
     const execute = async <A>(operation: Effect.Effect<A, CoreError | DocumentValidationFailure>): Promise<A> => {
@@ -167,13 +171,13 @@ export const createApplicationHost = Effect.fn("ExperimentApplication.host")(fun
   }, cause => cause instanceof ApplicationOperationFailure ? cause : new ApplicationFailure({ cause })).pipe(
     Effect.catchTag("ApplicationOperationFailure", error => Effect.failCause(error.cause)),
   );
-  const input = (fn: RegisteredFunction, args: unknown) => Schema.decodeUnknownEffect(Input)(args).pipe(
-    Effect.mapError(cause => new CoreError({ reason: "invalid", cause })),
+  const input = (fn: AdmittedFunction, args: unknown) => Effect.fromResult(captureJsonInput(args)).pipe(
+    Effect.flatMap(value => Schema.decodeUnknownEffect(Input)(value).pipe(Effect.mapError(cause => new CoreError({ reason: "invalid", cause })))),
     Effect.map(value => structuredClone(value)),
-    Effect.tap(value => validateNative(() => validateFunctionArgs(fn.args, value))),
+    Effect.tap(value => validateNative(() => validateValue(fn.args, value, "$args"))),
     Effect.flatMap(value => Buffer.byteLength(JSON.stringify(value)) > applicationLimits.bytes ? Effect.fail(new CoreError({ reason: "limit" })) : Effect.succeed(value)),
   );
-  const output = (fn: RegisteredFunction, value: unknown) => Schema.decodeUnknownEffect(JsonValue)(value).pipe(
+  const output = (fn: AdmittedFunction, value: unknown) => Schema.decodeUnknownEffect(JsonValue)(value).pipe(
     Effect.mapError(cause => new CoreError({ reason: "invalid", cause })),
     Effect.map(decoded => structuredClone(decoded)),
     Effect.tap(decoded => { const returns = fn.returns; return returns === null ? Effect.void : validateNative(() => validateValue(returns, decoded)); }),
@@ -191,13 +195,21 @@ export const createApplicationHost = Effect.fn("ExperimentApplication.host")(fun
       }).pipe(Effect.ensuring(root.close));
     }).pipe(Effect.ensuring(storage.closeSnapshot(snapshot)));
   });
-  const mutate = Effect.fn("ExperimentApplication.mutate")(function* (name: string, request: string, args: unknown) {
+  const prepareMutation = Effect.fn("ExperimentApplication.prepareMutation")(function* (name: string, args: unknown) {
     const fn = yield* select(name, "mutation"); const data = yield* input(fn, args);
     const digest = createHash("sha256").update(encodeCanonicalJson({ profile: "application", name, definition: definition.version,
-      handler: fn.handler.toString(), args: fn.exportArgs(), returns: fn.exportReturns(), data },
+      handler: fn.handler.toString(), args: fn.args, returns: fn.returns, data },
     () => { throw new Error("Validated Application command JSON lost an entry"); })).digest("hex");
+    const run = Effect.fn("ExperimentApplication.preparedMutation")(function* (root: BorrowedApplicationRoot) {
+      if (!live) return yield* Effect.fail(new CoreError({ reason: "closed" }));
+      return yield* output(fn, yield* invoke(root, fn, data));
+    });
+    return { digest, run: (root: BorrowedApplicationRoot) => supervise(owner, run(root)), decode: (value: unknown) => output(fn, value) };
+  });
+  const mutate = Effect.fn("ExperimentApplication.mutate")(function* (name: string, request: string, args: unknown) {
+    const prepared = yield* prepareMutation(name, args); const digest = prepared.digest;
     let command = yield* storage.openMutation(scope, request, digest, definition, randomUUID());
-    if (command.status === "committed") return { value: yield* output(fn, command.result), attempts: 0, snapshot: command.snapshot };
+    if (command.status === "committed") return { value: yield* prepared.decode(command.result), attempts: 0, snapshot: command.snapshot };
     for (let attempt = 1; attempt <= applicationLimits.attempts; attempt++) {
       let accepting = false; let retryable = false;
       const exit = yield* Effect.exit(Effect.gen(function* () {
@@ -205,14 +217,14 @@ export const createApplicationHost = Effect.fn("ExperimentApplication.host")(fun
         return yield* Effect.gen(function* () {
           const root = yield* createApplicationMutationRoot(definition, storage, snapshot);
           return yield* Effect.gen(function* () {
-            const value = yield* output(fn, yield* invoke(root, fn, data)); const candidate = yield* root.freeze();
+            const value = yield* prepared.run(root); const candidate = yield* root.freeze();
             accepting = true;
             const committed = yield* storage.accept(command, candidate.changes, candidate.dependencies, value).pipe(Effect.catchTag("CoreError", error => {
               if (error.reason === "conflict") { accepting = false; retryable = true; return Effect.fail(error); }
               if (error.reason !== "storage" || error.phase !== undefined && error.phase !== "commit") { accepting = false; return Effect.fail(error); }
               return storage.resolve(scope, request, digest).pipe(Effect.catchTag("CoreError", recovery => Effect.fail(new CoreError({ reason: "uncertain", cause: { original: error, recovery } }))));
             }));
-            return { value: yield* output(fn, committed), attempts: attempt, snapshot: snapshot.sequence };
+            return { value: yield* prepared.decode(committed), attempts: attempt, snapshot: snapshot.sequence };
           }).pipe(Effect.ensuring(root.close));
         }).pipe(Effect.ensuring(storage.closeSnapshot(snapshot)));
       }).pipe(Effect.ensuring(Effect.gen(function* () { if (!accepting) yield* storage.abort(command); }).pipe(Effect.orDie))));
@@ -225,5 +237,6 @@ export const createApplicationHost = Effect.fn("ExperimentApplication.host")(fun
     return yield* Effect.fail(new CoreError({ reason: "conflict" }));
   });
   return { query: (name: string, args: unknown) => supervise(owner, query(name, args)),
-    mutate: (name: string, request: string, args: unknown) => supervise(owner, mutate(name, request, args)) };
+    mutate: (name: string, request: string, args: unknown) => supervise(owner, mutate(name, request, args)),
+    prepareMutation };
 });

@@ -144,6 +144,7 @@ Narrow executing reuse is explicit:
 | [Validation](../../packages/flarex/src/validation.ts), [IDs](../../packages/flarex/src/ids.ts) | Native argument/return validation and public identity encoding; they confer no admission or mutation authority |
 | [Catalog](../../packages/flarex-protocol/src/catalog.ts), [Application document](../../packages/flarex-protocol/src/app-document.ts), [document ID](../../packages/flarex-protocol/src/app-document-id.ts) | Authoritative table-ID, creation-time and canonical document-ID schemas |
 | [JSON](../../packages/flarex-protocol/src/json.ts), [Scope Sync](../../packages/flarex-protocol/src/scope-sync-v1.ts) | Canonical command JSON and dependency-key decoding/normalization; normalization does not create a subscription |
+| [Private JSON data](../../packages/persistence-postgres/src/values/privateJsonData.ts) | Descriptor-safe bounded immutable value capture only, importing Effect and protocol JSON; no active admission, sessions or settlement. Strict JSON refusal is distinct from Medusa's omit-undefined capture policy. |
 | [Document validation boundary](../../packages/flarex-protocol/src/application-revision-syscall-validation-v1.ts) | Existing recoverable document-validation error name/message |
 
 These owners construct no active execution host, database, readiness graph,

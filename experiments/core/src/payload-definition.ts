@@ -7,12 +7,12 @@ import { CoreError } from "./errors.ts";
 export function compilePayloadDefinition(collection: CollectionConfig) {
   const fields: Field[] = [];
   if (collection.auth || collection.versions || collection.upload || collection.timestamps === false ||
-    collection.lockDocuments !== false || collection.enableQueryPresets !== false) {
+    collection.lockDocuments !== false || collection.enableQueryPresets !== false || (collection.hooks?.beforeOperation?.length ?? 0) !== 0) {
     return Result.fail(new CoreError({ reason: "unsupported" }));
   }
   for (const field of collection.fields) {
     if (!("name" in field) || (field.type !== "text" && field.type !== "number") || !field.required ||
-      field.localized || field.hasMany) return Result.fail(new CoreError({ reason: "unsupported" }));
+      field.localized || field.hasMany || field.access !== undefined) return Result.fail(new CoreError({ reason: "unsupported" }));
     fields.push({ name: field.name, kind: field.type, unique: field.unique === true });
   }
   // This native error projection identifies one field. Multi-unique profiles

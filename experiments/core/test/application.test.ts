@@ -63,6 +63,21 @@ describe.each(["pglite", "postgres"] as const)("standalone experimental Applicat
     expect(await database.admin(db => db.select({ n: count() }).from(tables.commands))).toEqual(commandsBefore);
   }));
 
+  it("binds prepared identity, execution and result validation to one admitted function snapshot", async () => {
+    const args = { name: v.string() };
+    const registered = applicationMutation({ args, returns: v.string(), handler: async (ctx, data) => {
+      await ctx.db.insert("tasks", { name: data.name, priority: 1 }); return data.name;
+    } });
+    await withApplication(async (_database, host) => {
+      const first = await Effect.runPromise(host.prepareMutation("capture", { name: "captured" }));
+      expect(await failureOf(host.prepareMutation("capture", { name: "x".repeat(262145) }))).toMatchObject({ reason: "limit" });
+      Object.assign(registered, { handler: async () => 42, returns: v.number() }); Object.assign(args, { name: v.number() });
+      const second = await Effect.runPromise(host.prepareMutation("capture", { name: "captured" })); expect(second.digest).toBe(first.digest);
+      expect((await Effect.runPromise(host.mutate("capture", randomUUID(), { name: "captured" }))).value).toBe("captured");
+      expect(await failureOf(first.decode(42))).toMatchObject({ reason: "invalid" });
+    }, { capture: registered });
+  });
+
   it("merges inserted and updated pending rows and atomically publishes complete revisions and outcomes", async () => withApplication(async (database, host) => {
     const id = readString((await Effect.runPromise(host.mutate("seed", randomUUID(), { name: "first", priority: 1 }))).value);
     const result = await Effect.runPromise(host.mutate("change", randomUUID(), { id, name: "second" }));

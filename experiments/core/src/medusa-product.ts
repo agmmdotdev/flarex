@@ -9,10 +9,10 @@ import { prepareCommerceInternalService } from "../../../packages/medusa-adapter
 import { captureCommerceInput } from "../../../packages/medusa-adapter/src/value/input.ts";
 import { encodeCanonicalJson } from "../../../packages/flarex-protocol/src/json.ts";
 import { CoreError, NativeCompletionFailure, NativeFailure, NativeOperationFailure } from "./errors.ts";
-import { createRoot, type Root } from "./root.ts";
+import { createRoot } from "./root.ts";
+import type { BorrowedFrameworkRoot } from "./group-root.ts";
 import type { Storage } from "./storage.ts";
 import { prepareProductDefinition, type ProductDefinition } from "./medusa-definition.ts";
-import { JsonValue } from "./value.ts";
 import { runCallback, supervise } from "./callback.ts";
 
 const Find = Schema.Struct({ where: Schema.Struct({ id: Schema.Union([Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(256))]) }),
@@ -37,7 +37,7 @@ const nativeCause = (cause: unknown): Cause.Cause<CoreError | NativeFailure> => 
 
 /** Bind native services once per command, then reuse them across their own DAL
  * calls. The manager is an opaque lifetime identity with no database methods. */
-const bindProduct = (prepared: ProductDefinition, services: ReturnType<typeof prepareServices>, root: Root, signal: AbortSignal) => {
+const bindProduct = (prepared: ProductDefinition, services: ReturnType<typeof prepareServices>, root: BorrowedFrameworkRoot, signal: AbortSignal) => {
   const manager = Object.freeze({}); let live = true; const pending = new Set<Promise<unknown>>();
   const run = <A>(work: Effect.Effect<A, CoreError>): Promise<A> => {
     const promise = Effect.runPromiseExit(Effect.gen(function* () {
@@ -144,29 +144,41 @@ const bindProduct = (prepared: ProductDefinition, services: ReturnType<typeof pr
 export const createProductHost = Effect.fn("ExperimentProduct.host")(function* (storage: Storage, scope: string) {
   const prepared = yield* prepareProductDefinition(); const services = prepareServices(); const owner = yield* Effect.scope;
   let live = true; yield* Effect.addFinalizer(() => Effect.sync(() => { live = false; }));
-  const update = Effect.fn("ExperimentProduct.update")(function* (request: string, id: string, input: unknown) {
+  const invoke = Effect.fn("ExperimentProduct.invoke")(function* (root: BorrowedFrameworkRoot, id: string,
+    data: Effect.Success<ReturnType<ProductDefinition["validateUpdate"]>>) {
     if (!live) return yield* Effect.fail(new CoreError({ reason: "closed" }));
-    const data = yield* prepared.validateUpdate(input); const digest = createHash("sha256").update(encodeCanonicalJson({ operation: "product.update", definition: prepared.definition.version, id, data }, () => { throw new Error("Invalid command JSON"); })).digest("hex");
+    const value = yield* runCallback(async signal => {
+      const bound = bindProduct(prepared, services, root, signal);
+      const result = await Promise.resolve().then(() => bound.service.updateProducts(id, structuredClone(data), bound.context))
+        .then(Exit.succeed, cause => Exit.failCause(nativeCause(cause)));
+      const cleanup = await bound.close().then(() => Exit.void, cause => Exit.failCause(nativeCause(cause)));
+      if (Exit.isFailure(result)) throw new NativeCompletionFailure({ cause: Exit.isFailure(cleanup) ? Cause.combine(result.cause, cleanup.cause) : result.cause });
+      if (Exit.isFailure(cleanup)) throw new NativeCompletionFailure({ cause: cleanup.cause });
+      return result.value;
+    }, cause => cause instanceof NativeCompletionFailure ? cause : new NativeCompletionFailure({ cause: Cause.die(cause) }))
+      .pipe(Effect.catchTag("NativeCompletionFailure", error => Effect.failCause(error.cause)));
+    return yield* prepared.decodeResult(value);
+  });
+  const prepareUpdate = Effect.fn("ExperimentProduct.prepareUpdate")(function* (id: string, input: unknown) {
+    if (!live) return yield* Effect.fail(new CoreError({ reason: "closed" }));
+    const data = yield* prepared.validateUpdate(input);
+    const digest = createHash("sha256").update(encodeCanonicalJson({ operation: "product.update", definition: prepared.definition.version, id, data }, () => { throw new Error("Invalid command JSON"); })).digest("hex");
+    return { digest, run: (root: BorrowedFrameworkRoot) => supervise(owner, invoke(root, id, data)) };
+  });
+  const update = Effect.fn("ExperimentProduct.update")(function* (request: string, id: string, input: unknown) {
+    const invocation = yield* prepareUpdate(id, input); const digest = invocation.digest;
     const command = yield* storage.open(scope, request, digest, prepared.definition, randomUUID());
-    if (command.status === "committed") return yield* Schema.decodeUnknownEffect(JsonValue)(command.result).pipe(Effect.mapError(cause => new CoreError({ reason: "storage", cause })));
+    if (command.status === "committed") return yield* prepared.decodeResult(command.result).pipe(Effect.mapError(cause => new CoreError({ reason: "storage", cause })));
     const root = yield* createRoot(prepared.definition, storage, command); let accepting = false;
     return yield* Effect.gen(function* () {
-      const value = yield* runCallback(async signal => {
-        const bound = bindProduct(prepared, services, root, signal);
-        const result = await Promise.resolve().then(() => bound.service.updateProducts(id, structuredClone(data), bound.context))
-          .then(Exit.succeed, cause => Exit.failCause(nativeCause(cause)));
-        const cleanup = await bound.close().then(() => Exit.void, cause => Exit.failCause(nativeCause(cause)));
-        if (Exit.isFailure(result)) throw new NativeCompletionFailure({ cause: Exit.isFailure(cleanup) ? Cause.combine(result.cause, cleanup.cause) : result.cause });
-        if (Exit.isFailure(cleanup)) throw new NativeCompletionFailure({ cause: cleanup.cause });
-        return result.value;
-      }, cause => cause instanceof NativeCompletionFailure ? cause : new NativeCompletionFailure({ cause: Cause.die(cause) }))
-        .pipe(Effect.catchTag("NativeCompletionFailure", error => Effect.failCause(error.cause)));
-      const result = yield* capture(value); const candidate = yield* root.freeze(); accepting = true;
-      return yield* storage.settle(command, candidate.changes, candidate.dependencies, result, candidate.events).pipe(Effect.catchTag("CoreError", error => {
+      const result = yield* invocation.run(root); const candidate = yield* root.freeze(); accepting = true;
+      const committed = yield* storage.settle(command, candidate.changes, candidate.dependencies, result, candidate.events).pipe(Effect.catchTag("CoreError", error => {
         if (error.reason !== "storage" || error.phase !== undefined && error.phase !== "commit") { accepting = false; return Effect.fail(error); }
         return storage.resolve(scope, request, digest).pipe(Effect.catchTag("CoreError", recovery => Effect.fail(new CoreError({ reason: "uncertain", cause: { original: error, recovery } }))));
       }));
+      return yield* prepared.decodeResult(committed).pipe(Effect.mapError(cause => new CoreError({ reason: "storage", cause })));
     }).pipe(Effect.ensuring(Effect.gen(function* () { yield* root.close; if (!accepting) yield* storage.abort(command); }).pipe(Effect.orDie)));
   });
-  return { prepared, update: (request: string, id: string, input: unknown) => supervise(owner, update(request, id, input)) };
+  return { prepared, update: (request: string, id: string, input: unknown) => supervise(owner, update(request, id, input)),
+    prepareUpdate };
 });

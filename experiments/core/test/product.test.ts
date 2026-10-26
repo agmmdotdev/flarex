@@ -89,6 +89,15 @@ describe.each(["pglite", "postgres"] as const)("native experimental Product (%s)
     expect(await database.admin(db => db.select().from(tables.eventIntents).where(eq(tables.eventIntents.event, "product.product.updated")))).toHaveLength(1);
   }));
 
+  it("refuses malformed recovered Product results after a confirmed real commit", async () => withProduct(async (database, host, id) => {
+    const resolve = database.storage.resolve;
+    database.storage.resolve = (...args) => resolve(...args).pipe(Effect.as({ id, title: 42 }));
+    database.loseNextCommitResponse();
+    expect(await failureOf(host.update(randomUUID(), id, { title: "committed" }))).toMatchObject({ reason: "storage" });
+    expect(await Effect.runPromise(database.storage.read("shop-a", host.prepared.definition, id))).toMatchObject({ title: "committed" });
+    expect(await database.admin(db => db.select().from(tables.eventIntents).where(eq(tables.eventIntents.event, "product.product.updated")))).toHaveLength(1);
+  }));
+
   it.each(["same", "independent"] as const)("checks write predecessors with %s concurrent Product writers", async mode => withProduct(async (database, host, id) => {
     const other = mode === "same" ? id : `prod_${randomUUID()}`; if (mode === "independent") await seedProduct(database, host, other);
     const pause = barrier(); const request = randomUUID(); const settle = database.storage.settle;
