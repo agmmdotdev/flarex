@@ -7105,7 +7105,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "017dc1e6123ac1c01cf1b60529e0a224fe730140167fbf3f0286bf2b294e51f1"
+      "targetSha256": "cce9a43002a25a97d806a2508d79dc3f0de5287453a1f3c9103b516f6d829c41"
     },
     {
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/api-key/steps/create-api-keys.ts",
@@ -14817,7 +14817,7 @@
       "classification": "workflowFork",
       "source": "third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/type.ts",
       "sourceSha256": "dd3511dd3bff9ee1e192fdec72790c20a5944e2a10262d36b0e90ef4db87a538",
-      "targetSha256": "1238c8e45e9cd079538a051819e44cac4b8ca4d55be3577aeb797b8ce23be0f1",
+      "targetSha256": "76c068a9d723a68786f1153a1ad54330e2ca556a9a3e5c6f1f516c49b00572b2",
       "transformation": "Admit explicitly declared finite callback children with identity-covered preparation and one invocation per child per live callback; borrow the actual parent occurrence, resource selection, Promise owner and atomic port. Refuse foreign, expired, undeclared and repeated calls without adding settlement or replay authority."
     },
     {
@@ -15844,17 +15844,17 @@
     {
       "target": "packages/medusa-adapter/src/modules/cart/payment-read.ts",
       "classification": "authored",
-      "targetSha256": "1cf794f92fdc633dd24f041b98bf3ec9a3f8ef52a801edfb8f831c76f00f7627"
+      "targetSha256": "5b4e45e00a46e9b5eeefc19b9629268059e92dbdbcc9788b15d57641b4838590"
     },
     {
       "target": "packages/medusa-adapter/src/modules/cart/payment-receipt.ts",
       "classification": "authored",
-      "targetSha256": "9513f3a35668003ae2c8c4de9e48ffc16b4f1b0cd9aa7c58cf4f8406d5ab0514"
+      "targetSha256": "8faa992b9d69ed88410e7a14b338f7e60bce849ffe6ed02c2f06917c9a016db5"
     },
     {
       "target": "packages/medusa-adapter/src/modules/cart/payment-service.ts",
       "classification": "authored",
-      "targetSha256": "7da8f21f57de6033edf6396ade39fd79981ead7f7ff5b23b64c97c43aa6b1d25"
+      "targetSha256": "f7a5c8944f233c3f6d1216dc3b2cd2cc97387aa139b55e7727c9a881b261e2e7"
     },
     {
       "target": "packages/medusa-adapter/src/modules/cart/schema.ts",
@@ -15899,7 +15899,7 @@
     {
       "target": "packages/medusa-adapter/test/support/logical-payment-collection-fixture.ts",
       "classification": "authored",
-      "targetSha256": "6988e0c69782055ef243d428958d2ea349c9b1a3767d16a7ea2efede9d14509f"
+      "targetSha256": "bb313d31b8a753550949515f24d21195d3b586c45601267d6926816bc014b612"
     },
     {
       "target": "packages/medusa-cart/src/utils/totals-selection.ts",
@@ -16136,6 +16136,44 @@
       "target": "packages/medusa-adapter/test/logical-checkout-exact-session.test.ts",
       "classification": "authored",
       "targetSha256": "d4b0ed946b3ae9706a92de679c9d2abdadbb6fd2f4a5f287c1307be01e65c0ec"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/cart/completion-input.ts",
+      "classification": "authored",
+      "targetSha256": "43290c8f2a5b1f20cdabd3f7df52c2249483d483691d690aae1a0421d72be8a3"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/cart/completion-repository.ts",
+      "classification": "authored",
+      "targetSha256": "641e65489eb258bd301037918dd8d53f3d0d54e1dc83efab1cb473889daf6ebd"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/cart/completion-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "1200cd11716d80acdd145dc4c43499533f9cb7eaead6657c2823c3af3a0c98cc"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-cart-completion-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "72f79948579815afed81d7e3aed76062ea24796df4b2a456318d5ee25aea0630"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/cart/steps/update-carts.ts",
+      "classification": "workflowFork",
+      "targetSha256": "6c11d38158e81d53cb9e31b7daa027a4000a6d5457ba2af5fd4f0a089a590f54",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/cart/steps/update-carts.ts",
+      "sourceSha256": "fbe30464d0d0f06109c6fc5a2ce01f6b2611b978a32a139bc8045eff41ac6bf9",
+      "transformation": "Portable imports and transaction-covered declaration; preserve native retained scalar/Address preimages and exact own-undefined call ABI via receiver-bound calls and an explicit unknown result."
+    },
+    {
+      "target": "packages/medusa-workflows-sdk/test/checkout-compensator-result-prerequisite.test.ts",
+      "classification": "authored",
+      "targetSha256": "219d029124c658b5e90e62204c1dec8f2304f88d2cd99a6ef2f62e25857aced3"
+    },
+    {
+      "target": "packages/medusa-adapter/test/cart-completion-receipts.test.ts",
+      "classification": "authored",
+      "targetSha256": "07bc38ef2df7860d80b37f7e69a7e56a6850738e843efee130ed3aea197ac25c"
     }
   ],
   "dependencies": {
@@ -16479,7 +16517,8 @@
         "./order/create-order-payment-collection",
         "./order/create-orders-step",
         "./cart/refund-payment-recreate-payment-session",
-        "./cart/compensate-payment-if-needed-step"
+        "./cart/compensate-payment-if-needed-step",
+        "./cart/update-carts-step"
       ]
     },
     {

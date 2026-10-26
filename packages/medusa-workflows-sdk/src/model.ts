@@ -40,8 +40,10 @@ export interface StepExecutionContext {
 }
 export type Invoke<Input, Output, Compensation = Output> = (input: Input, context: StepExecutionContext) =>
   Output | StepResponse<Output, Compensation> | SkipStepResponse | Promise<Output | StepResponse<Output, Compensation> | SkipStepResponse>;
+/** Native compensator return values do not become forward step outputs or
+ * settlement authority. Preserve the native callback's ignored-result ABI. */
 export type Compensate<Input> = (input: Input | undefined, context: StepExecutionContext) =>
-  void | StepResponse<unknown, unknown> | Promise<void | StepResponse<unknown, unknown>>;
+  unknown | Promise<unknown>;
 export interface StepOptions {
   readonly name: string;
   readonly compensation?: "transactionCovered";

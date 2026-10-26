@@ -6,6 +6,7 @@ export const checkoutSourcePairs = Object.freeze([
   "order/steps/create-orders.ts",
   "cart/workflows/refund-payment-recreate-payment-session.ts",
   "cart/steps/compensate-payment-if-needed.ts",
+  "cart/steps/update-carts.ts",
 ].map(file => ({ source: "third_party/medusa/upstream/packages/core/core-flows/src/" + file,
   target: prefix + file, classification: "workflowFork" })));
 
@@ -22,6 +23,17 @@ export function adaptCheckoutSource(source, targetPath) {
     // callback therefore receives exactly the native omitted-context behavior.
     .replace("async (createdIds, { container, context })", "async (createdIds, { container })")
     .replace("service.deleteOrders(createdIds, context)", "service.deleteOrders(createdIds)");
+  if (targetPath === prefix + "cart/steps/update-carts.ts") expected = expected
+    .replace('import {\n  ICartModuleService,\n  UpdateAddressDTO,\n  UpdateCartDTO,\n  UpdateCartWorkflowInputDTO,\n} from "@medusajs/framework/types"',
+      'import type { ICartModuleService } from "@medusajs/framework/types"\n' +
+      'import type { UpdateAddressDTO } from "@medusajs/types/cart/mutations"\n' +
+      'import type { UpdateCartWorkflowInputDTO } from "@medusajs/types/cart/workflows"')
+    .replace("  updateCartsStepId,", '  { name: updateCartsStepId, compensation: "transactionCovered" },')
+    .replace("const addressesToUpdate: UpdateAddressDTO[] = []", "const addressesToUpdate = []")
+    .replace("const dataToUpdate: UpdateCartDTO[] = []", "const dataToUpdate = []")
+    .replaceAll("await cartModule.updateAddresses(addressesToUpdate)", "await Reflect.apply(cartModule.updateAddresses, cartModule, [addressesToUpdate])")
+    .replace("return await cartModule.updateCarts(dataToUpdate)",
+      "const restored: unknown = await Reflect.apply(cartModule.updateCarts, cartModule, [dataToUpdate])\n    return restored");
   if (targetPath === prefix + "cart/workflows/refund-payment-recreate-payment-session.ts") expected = expected
     .replace("  {\n    name: refundPaymentAndRecreatePaymentSessionWorkflowId,\n  },", "  refundPaymentAndRecreatePaymentSessionWorkflowId,")
     .replace("customer_id?: string", "customer_id?: string | undefined")

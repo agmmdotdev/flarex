@@ -97,27 +97,34 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
     const scalar = yield* prepareScalarRepository(cart.table, "Cart", scalarIdWhere);
     const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
       const bound = scalar.bind(root, owner), { bridge } = bound, denied = deniedCommerceRepository(bound.repository, bound.refuse);
-      const returned = new WeakSet<object>();
+      const returned = new WeakMap<object, string>(), originals = new Map<string, JsonObject>();
+      const remember = (rows: JsonObject[], table = cart.table.name) => {
+        returned.set(rows, table); for (const row of rows) returned.set(row, table);
+        return rows;
+      };
       const find = Effect.fn("CartPayment.find")(function* (ctx: CommerceCommandContext, input: unknown, count: boolean) {
         const plan = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources).pipe(Result.flatMap(query)));
         const result = yield* executeRead({ ...ctx, admitSelection: (table, rows) => Result.gen(function* () {
           const entity = byName.get(table);
           if (entity === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
           if (rows.length > 4) return yield* Result.fail(commerceError("limitExceeded"));
-          for (const row of rows) yield* entity.complete(projectNativeRow(row));
+          for (const row of rows) {
+            const checked = yield* entity.complete(projectNativeRow(row));
+            if (table === cart.table.name && typeof checked.id === "string") originals.set(checked.id, checked);
+          }
         }) }, catalog, plan, count);
-        const rows = structuredClone(result.rows);
-        returned.add(rows); for (const row of rows) returned.add(row);
+        const rows = remember(structuredClone(result.rows));
         return { ...result, rows };
       });
       const serialize: DAL.RepositoryService["serialize"] = <Output extends object | object[]>(input: unknown, options?: unknown): Promise<Output> =>
         owner.run(bridge.checked(root, Effect.gen(function* () {
-          if (options !== undefined || input === null || typeof input !== "object" || !returned.has(input))
+          const table = input !== null && typeof input === "object" ? returned.get(input) : undefined;
+          if (options !== undefined || table === undefined)
             return yield* root.refuse(commerceError("storedCorruption"));
           const value = yield* Effect.fromResult(captureCommerceInput(input, root.resources));
-          const result = yield* present(value, cart.table.name);
+          const result = yield* present(value, table);
           // SAFETY: complete DML rows preceded native projection; this named
-          // repository returns only its authenticated Cart selection identities.
+          // repository returns only authenticated selections and admitted writes.
           return result as Output;
         })));
       const repository: DAL.RepositoryService = { ...denied, serialize,
@@ -128,7 +135,7 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
           return [result.rows, result.count];
         }))),
       };
-      return { ...bound, repository, denied };
+      return { ...bound, repository, denied, remember, originals };
     };
     return { cart, entities, byName, catalog, relations: catalog.relations, query, present, bind };
   });

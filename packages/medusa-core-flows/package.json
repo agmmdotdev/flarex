@@ -230,7 +230,11 @@
     "./order/create-order-payment-collection": "./src/order/workflows/create-order-payment-collection.ts",
     "./order/create-orders-step": "./src/order/steps/create-orders.ts",
     "./cart/refund-payment-recreate-payment-session": "./src/cart/workflows/refund-payment-recreate-payment-session.ts",
-    "./cart/compensate-payment-if-needed-step": "./src/cart/steps/compensate-payment-if-needed.ts"
+    "./cart/compensate-payment-if-needed-step": "./src/cart/steps/compensate-payment-if-needed.ts",
+    "./cart/update-carts-step": {
+      "types": "./src/cart/steps/update-carts.ts",
+      "default": "./src/cart/steps/update-carts.ts"
+    }
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

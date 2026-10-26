@@ -19,7 +19,7 @@ import { compileCartPaymentCollectionLinkDefinition } from "../../src/links/cart
 import { compileOrderPaymentCollectionLinkDefinition } from "../../src/links/order-payment-collection-schema";
 import { preparePaymentCollectionLinkLifecycle } from "../../src/links/payment-collection-lifecycle";
 import { makePaymentLifecycleCommands } from "../../src/modules/payment/lifecycle-service";
-import { makeCartPaymentReadCommands } from "../../src/modules/cart/payment-service";
+import { makeCartCompletionCommands, makeCartPaymentReadCommands } from "../../src/modules/cart/payment-service";
 import { makeOrderPaymentFinanceCommands } from "../../src/modules/order/finance-service";
 import { prepareCartPaymentCollectionCreationWorkflow, prepareCartPaymentCollectionRefreshWorkflow,
   prepareOrderPaymentCollectionCreationWorkflow, preparePaymentCollectionCancellationWorkflow } from "../../src/workflows/payment/collections";
@@ -47,7 +47,8 @@ export const collectionCartRows: readonly JsonObject[] = [
 ];
 
 export async function prepareLogicalPaymentCollections(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  shared?: OrderFixtureShared, cartRows: readonly JsonObject[] = collectionCartRows, paymentRows: readonly JsonObject[] = []) {
+  shared?: OrderFixtureShared, cartRows: readonly JsonObject[] = collectionCartRows, paymentRows: readonly JsonObject[] = [],
+  cartProfile: "payment" | "completion" = "payment") {
   const definitions = [
     { key: "medusa.payment", definition: await Effect.runPromise(compilePaymentDefinition()) },
     { key: "medusa.cart", definition: await Effect.runPromise(compileCartDefinition()) },
@@ -66,7 +67,8 @@ export async function prepareLogicalPaymentCollections(driver: "pglite" | "postg
   const logger: Logger = { panic() {}, shouldLog: () => false, setLogLevel() {}, unsetLogLevel() {}, activity: value => value,
     progress() {}, error: value => { errors.push(String(value)); }, failure() {}, success: () => ({}), silly() {}, debug() {}, verbose() {},
     http() {}, info() {}, warn() {}, log() {} };
-  const payment = await Effect.runPromise(makePaymentLifecycleCommands(logger)), cart = await Effect.runPromise(makeCartPaymentReadCommands()),
+  const payment = await Effect.runPromise(makePaymentLifecycleCommands(logger)), cart = await Effect.runPromise(
+    cartProfile === "payment" ? makeCartPaymentReadCommands() : makeCartCompletionCommands()),
     order = await Effect.runPromise(makeOrderPaymentFinanceCommands());
   const cartLink = await Effect.runPromise(preparePaymentCollectionLinkLifecycle("cart")),
     orderLink = await Effect.runPromise(preparePaymentCollectionLinkLifecycle("order"));

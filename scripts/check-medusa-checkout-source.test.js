@@ -10,7 +10,8 @@ describe("native checkout source closure", () => {
       expect(() => verifyCheckoutSource(source, target + "\nthrow new Error('changed');", pair.target)).toThrow();
       const mutant = target.replaceAll("input.payment_id", "input.payment_collection_id")
         .replaceAll("service.deleteOrders(createdIds)", "service.deleteOrders([])")
-        .replaceAll("paymentSession.context?.customer?.id", "paymentSession.payment.id");
+        .replaceAll("paymentSession.context?.customer?.id", "paymentSession.payment.id")
+        .replaceAll("Reflect.apply(cartModule.updateCarts, cartModule, [dataToUpdate])", "Reflect.apply(cartModule.updateCarts, cartModule, [[]])");
       expect(mutant).not.toBe(target);
       expect(() => verifyCheckoutSource(source, mutant, pair.target)).toThrow();
     });

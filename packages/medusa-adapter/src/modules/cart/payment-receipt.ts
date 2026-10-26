@@ -15,10 +15,11 @@ import { decodeCartPaymentRead, type prepareCartPaymentRead } from "./payment-re
 
 type Prepared = Result.Result.Success<ReturnType<typeof prepareCartPaymentRead>>;
 const mismatch = () => commerceError("receiptMismatch");
-export function cartPaymentReadPolicy(prepared: Prepared) {
+export function cartPaymentReadPolicy(prepared: Prepared, profile: "payment" | "completion" = "payment") {
   const capture = Effect.fn("CartPayment.captureEvent")((_input: unknown) => Effect.fail(commerceError("unadmittedEvent")));
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("CartPayment.validateRead")(function* (call, activity) {
-    if (call.commandName !== "cartCountForPaymentCollection" || call.mode !== "read" || call.events.length || activity.mutations.length ||
+    const count = call.commandName === (profile === "payment" ? "cartCountForPaymentCollection" : "cartCountForCheckout");
+    if ((!count && (profile !== "completion" || call.commandName !== "cartListForCheckout")) || call.mode !== "read" || call.events.length || activity.mutations.length ||
       activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length) return yield* Effect.fail(mismatch());
     const input = yield* Effect.fromResult(decodeCartPaymentRead(call.input)), config = structuredClone(input.config ?? {});
     const includeTotals = includeCartTotals(config);
@@ -69,7 +70,7 @@ export function cartPaymentReadPolicy(prepared: Prepared) {
       Reflect.apply(createRawPropertiesFromBigNumber, undefined, [Reflect.apply(decorateCartTotals, undefined, [cart])]);
     }
     const result = yield* Effect.fromResult(captureNativeNumericDto(output));
-    if (!jsonEqual(call.result, [result, roots.length])) return yield* Effect.fail(mismatch());
+    if (!jsonEqual(call.result, count ? [result, roots.length] : result)) return yield* Effect.fail(mismatch());
   });
   return { capture, validateLogicalCall };
 }

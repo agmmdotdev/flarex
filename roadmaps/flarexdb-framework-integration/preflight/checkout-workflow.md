@@ -5,8 +5,10 @@
 Status: preflight; the explicit atomic declaration profile is approved. Its
 finite SDK correction retains the native storage declarations and requires the
 trusted execution port to select the atomic outcome policy before any callback.
-The connected checkout runtime and Cart writes remain gated. The bounded Order
-participant below extends its existing owner for isolated checkout admission.
+The connected checkout root remains gated. Native Cart completion and scalar
+preimage restoration are admitted independently in the bounded profile below.
+The bounded Order participant extends its existing owner for isolated checkout
+admission.
 
 The executing reference is Medusa 2.13.4 at
 `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`, specifically
@@ -245,6 +247,27 @@ numeric DTO presentation and the
 existing scalar fallback for a DTO without a raw companion. Any named native
 Session input admission reuses the existing strict native raw encoder;
 storage JSON and companion-field refusal must remain intact.
+
+The bounded native Cart completion profile extends the existing Cart owner for
+`completed_at` and its scalar preimage restoration. Native empty Address reads
+and updates must execute their genuine public methods, with no populated Address
+capability. Every retained field other than `completed_at` must match storage.
+The native `updateCartsStep` compensator returns the actual update result. Pinned
+Medusa's `CompensateFn` permits an ignored `unknown` return, while the finite
+SDK's predecessor `model.ts::Compensate` permitted only void or `StepResponse`.
+The approved shared SDK declaration correction retains the native step and a
+neutral array-returning compensator witness. Its ignored result follows native
+Medusa's `unknown` contract without changing the forward callback result boundary.
+The correction retains native return
+semantics, callback failure/lifetime checks, captured preimages and the existing
+trusted outer rollback; it grants no compensating commit or durable engine.
+
+The Cart completion receipt authenticates historical state from the complete
+mutation preimage and current state from the one observed Cart row. Shared
+working-set observations are a current-row view, not a historical read transcript.
+Requiring that view to contain the preimage incorrectly refused a genuine native
+completion; the receipt now requires the complete post-write row while retaining
+the native read ledger, protected-field, returned DTO and event checks.
 
 Run the genuine root and retained inverses on PGlite and ordinary-role PostgreSQL.
 Require successful placement, native already-linked retry, same-request replay,
