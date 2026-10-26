@@ -2,12 +2,21 @@
 
 ## Current Priority
 
-Performance optimization is paused at the owner's request. Preserve the
-committed runtime and diagnostic evidence while continuing Medusa Product
+Optimization of the active core remains paused at the owner's request. Preserve
+the committed runtime and diagnostic evidence while continuing Medusa Product
 workflow integration. The existing CPU, latency and scaling targets remain
 unmet; pausing does not establish performance acceptance. Further optimization
-requires a separately selected scope. Correctness regressions remain actionable
-at their actual owners during integration.
+of that runtime requires a separately selected scope. Correctness regressions
+remain actionable at their actual owners during integration.
+
+The owner has selected a separate [experimental core](../../experiments/core/README.md)
+to investigate modular execution and storage redesign while current integration
+continues. Its design permits different internal APIs and PostgreSQL structures
+inside isolated disposable resources. It does not modify the active runtime,
+integration schemas/data or production routing. The experimental design/rules,
+implementation sequence and validation gates live together in that folder;
+runtime implementation and performance acceptance are pending. Promotion requires
+a connected consumer/data cutover decision rather than an automatic fallback.
 
 ## Preserved Optimization Status
 
