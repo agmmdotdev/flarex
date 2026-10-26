@@ -3,7 +3,8 @@ import { Effect, Result, Schema } from "effect";
 import { CoreError } from "./errors.ts";
 import { CatalogTableIdSchema } from "../../../packages/flarex-protocol/src/catalog.ts";
 import { AppCreationTimeV1Schema } from "../../../packages/flarex-protocol/src/app-document.ts";
-import { FiniteNumber, JsonValue } from "./value.ts";
+import { FiniteNumber, IndexedText, JsonValue } from "./value.ts";
+const isIndexedText = Schema.is(IndexedText);
 
 export const Document = Schema.StructWithRest(Schema.Struct({
   id: Schema.String, createdAt: Schema.String, updatedAt: Schema.String,
@@ -14,10 +15,12 @@ export const Field = Schema.Struct({ name: Schema.String, kind: Schema.Literals(
 export type Field = Readonly<typeof Field.Type>;
 export const NumericIndex = Schema.Struct({ name: Schema.String, field: Schema.String });
 export type NumericIndex = Readonly<typeof NumericIndex.Type>;
+export const EqualityIndex = NumericIndex;
+export type EqualityIndex = Readonly<typeof EqualityIndex.Type>;
 
 /** Immutable required-value metadata; framework bridges supply their checked
  * scalar/null/JSON grammar without a framework-specific storage layout. */
-export function compileDefinition(input: { readonly table: string; readonly tableId?: number; readonly fields: readonly Field[]; readonly indexes?: readonly NumericIndex[] }) {
+export function compileDefinition(input: { readonly table: string; readonly tableId?: number; readonly fields: readonly Field[]; readonly indexes?: readonly NumericIndex[]; readonly equalities?: readonly EqualityIndex[] }) {
   if (input.tableId !== undefined && !Schema.is(CatalogTableIdSchema)(input.tableId)) return Result.fail(new CoreError({ reason: "unsupported" }));
   const fields: Field[] = [];
   const codecs = new Map<string, Schema.Codec<Schema.Json>>([
@@ -30,24 +33,31 @@ export function compileDefinition(input: { readonly table: string; readonly tabl
       return Result.fail(new CoreError({ reason: "unsupported" }));
     }
     fields.push(Object.freeze({ ...field, ...(field.choices === undefined ? {} : { choices: Object.freeze([...field.choices]) }) }));
-    const scalar = field.kind === "text" ? field.choices === undefined ? Schema.String : Schema.Literals(field.choices)
+    const text = field.choices === undefined ? Schema.String : Schema.Literals(field.choices);
+    const scalar = field.kind === "text" ? (input.equalities?.some(index => index.field === field.name) ? text.check(Schema.makeFilter(isIndexedText)) : text)
       : field.kind === "number" ? FiniteNumber : field.kind === "boolean" ? Schema.Boolean : JsonValue;
     codecs.set(field.name, field.nullable ? Schema.NullOr(scalar) : scalar);
   }
   const shape = Schema.Struct(Object.fromEntries(codecs));
   const indexes = (input.indexes ?? []).map(index => Object.freeze({ ...index }));
+  const equalities = (input.equalities ?? []).map(index => Object.freeze({ ...index }));
   if (indexes.length !== 0 && input.tableId === undefined || new Set(indexes.map(index => index.name)).size !== indexes.length ||
     indexes.some(index => !fields.some(field => field.name === index.field && field.kind === "number" && !field.nullable))) {
     return Result.fail(new CoreError({ reason: "unsupported" }));
   }
+  if (equalities.length !== 0 && input.tableId !== undefined || new Set(equalities.map(index => index.name)).size !== equalities.length ||
+    equalities.some(index => !fields.some(field => field.name === index.field && field.kind === "text"))) {
+    return Result.fail(new CoreError({ reason: "unsupported" }));
+  }
   const tableId = input.tableId ?? null;
-  const identity = JSON.stringify({ table: input.table, tableId, fields, indexes, timestamps: true });
+  const identity = JSON.stringify({ table: input.table, tableId, fields, indexes, equalities, timestamps: true });
   return Result.succeed(Object.freeze({
     table: input.table,
     tableId,
     version: createHash("sha256").update(identity).digest("hex"),
     fields: Object.freeze(fields),
     indexes: Object.freeze(indexes),
+    equalities: Object.freeze(equalities),
     decode: (value: unknown) => Schema.decodeUnknownEffect(shape)(value, { onExcessProperty: "error" }).pipe(
       Effect.flatMap(body => Schema.decodeUnknownEffect(Document)(body)),
       Effect.map(body => structuredClone(body)),
@@ -63,6 +73,12 @@ export function numericField(body: Document, field: string): number {
   const value = body[field];
   if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`Invalid decoded numeric field: ${field}`);
   return value;
+}
+
+export function textField(body: Document, field: string): string | null {
+  const value = body[field];
+  if (value === null || typeof value === "string") return value;
+  throw new Error(`Invalid decoded text field: ${field}`);
 }
 
 export function uniqueKeys(definition: Definition, document: Document) {

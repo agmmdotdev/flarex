@@ -19,6 +19,8 @@ const backend = (changes: Partial<Storage> = {}): Storage => ({
   observeUnique: (_command, keys) => Effect.succeed(keys.map(key => ({ ...key, owner: null }))),
   settle: () => Effect.fail(new CoreError({ reason: "unsupported" })),
   observeRows: () => Effect.succeed([]),
+  observeEquality: () => Effect.fail(new CoreError({ reason: "unsupported" })),
+  observeEqualityRows: () => Effect.fail(new CoreError({ reason: "unsupported" })),
   resolve: () => Effect.fail(new CoreError({ reason: "unsupported" })), abort: () => Effect.void,
   read: () => Effect.succeed(null), ...changes,
 });

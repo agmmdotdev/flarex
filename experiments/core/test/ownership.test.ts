@@ -58,20 +58,20 @@ describe.each(["pglite", "postgres"] as const)("owned query and accepting inputs
     const first = await Effect.runPromise(database.storage.open("shop-a", randomUUID(), "fixture", database.definition, randomUUID()));
     const seed = await Effect.runPromise(createRoot(database.definition, database.storage, first));
     await Effect.runPromise(seed.insert({ id: "row", headline: "original", score: 0, createdAt: "t", updatedAt: "t" }));
-    const seeded = await Effect.runPromise(seed.freeze()); await Effect.runPromise(database.storage.settle(first, seeded.changes, seeded.dependencies, null, []));
+    const seeded = await Effect.runPromise(seed.freeze()); await Effect.runPromise(database.storage.settle(first, seeded.changes, seeded.dependencies, null, [], seeded.predicates));
     const pause = pausedPersistence(database); const storage = createStorage(pause.persistence);
     const command = await Effect.runPromise(storage.open("shop-a", randomUUID(), "candidate", database.definition, randomUUID()));
     const root = await Effect.runPromise(createRoot(database.definition, storage, command));
     const before = await Effect.runPromise(root.get("row")); if (before === null) throw new Error("Missing row");
     await Effect.runPromise(root.replace({ ...before, score: 2 })); const frozen = await Effect.runPromise(root.freeze());
     const changes = [...frozen.changes]; const dependencies = [...frozen.dependencies]; const result = { value: "captured" };
-    pause.holdNextBefore(); const pending = Effect.runPromiseExit(storage.settle(command, changes, dependencies, result, []));
+    pause.holdNextBefore(); const pending = Effect.runPromiseExit(storage.settle(command, changes, dependencies, result, [], []));
     try {
       await pause.started; changes.length = 0; dependencies.length = 0; result.value = "mutated";
       const other = await Effect.runPromise(database.storage.open("shop-a", randomUUID(), "other", database.definition, randomUUID()));
       const writer = await Effect.runPromise(createRoot(database.definition, database.storage, other));
       await Effect.runPromise(writer.replace({ ...before, score: 9 })); const written = await Effect.runPromise(writer.freeze());
-      await Effect.runPromise(database.storage.settle(other, written.changes, written.dependencies, null, []));
+      await Effect.runPromise(database.storage.settle(other, written.changes, written.dependencies, null, [], written.predicates));
       pause.release(); const exit = await pending;
       expect(Exit.isFailure(exit) && Cause.findErrorOption(exit.cause)).toMatchObject({ value: { reason: "conflict" } });
       expect(await Effect.runPromise(database.storage.read("shop-a", database.definition, "row"))).toMatchObject({ score: 9 });

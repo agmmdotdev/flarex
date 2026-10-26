@@ -9,6 +9,7 @@ import type { Dependency } from "./query.ts";
 import type { UniqueObservation } from "./storage.ts";
 import { checkWritePredecessors } from "./write-conflicts.ts";
 import { checkApplicationDependencies } from "./application-conflicts.ts";
+import { checkEqualityDependencies } from "./equality-storage.ts";
 import * as tables from "./schema.ts";
 
 export interface GroupCandidate extends TableChanges {
@@ -49,6 +50,7 @@ export function createGroupStorage(persistence: Persistence) {
       await persistence.checkTime(transaction, stored.expires);
       if (clock === undefined || !Number.isSafeInteger(clock.seq + 1)) throw new CoreError({ reason: "limit" });
       await checkWritePredecessors(transaction, stored.scope, owned);
+      await checkEqualityDependencies(transaction, stored.scope, stored.snapshot, owned);
       if (stored.profile === "mixed") await checkApplicationDependencies(transaction, stored.scope, stored.snapshot, owned);
       await materialize(transaction, stored.scope, command.id, clock.seq + 1, plan, value);
       return value;

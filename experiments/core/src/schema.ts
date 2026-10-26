@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { bigint, boolean, check, doublePrecision, foreignKey, index, integer, jsonb, pgSchema, primaryKey, text, timestamp, unique } from "drizzle-orm/pg-core";
 import type { Schema } from "effect";
-import type { Document, Field, NumericIndex } from "./definition.ts";
+import type { Document, EqualityIndex, Field, NumericIndex } from "./definition.ts";
 
 /** One shared logical layout per installation; never a table per tenant. */
 export const core = pgSchema("fx_core");
@@ -25,6 +25,7 @@ export const definitions = core.table("definitions", {
   table: text().primaryKey(), version: text().notNull(), fields: jsonb().$type<readonly Field[]>().notNull(),
   tableId: integer().unique(),
   indexes: jsonb().$type<readonly NumericIndex[]>().notNull().default([]),
+  equalities: jsonb().$type<readonly EqualityIndex[]>().notNull().default([]),
   readLock: boolean().notNull().default(false),
 });
 export const commands = core.table("commands", {
@@ -61,3 +62,11 @@ export const eventIntents = core.table("event_intents", {
   command: text().notNull().references(() => commands.id), ordinal: integer().notNull(), table: text().notNull(),
   document: text().notNull(), event: text().notNull(), body: jsonb().$type<Schema.Json>(),
 }, table => [primaryKey({ columns: [table.command, table.ordinal] })]);
+
+export const equalityVersions = core.table("equality_versions", {
+  scope: text().notNull(), table: text().notNull(), index: text().notNull(), id: text().notNull(),
+  hash: text().notNull(), key: text().notNull(), fromSeq: bigint({ mode: "number" }).notNull(), untilSeq: bigint({ mode: "number" }),
+}, table => [primaryKey({ columns: [table.scope, table.table, table.index, table.id, table.fromSeq] }),
+  index("equality_selection").on(table.scope, table.table, table.index, table.hash, table.id, table.fromSeq),
+  index("equality_invalidations").on(table.scope, table.table, table.index, table.hash, table.fromSeq, table.untilSeq),
+  foreignKey({ columns: [table.scope, table.table, table.id, table.fromSeq], foreignColumns: [history.scope, history.table, history.id, history.commitSeq] })]);

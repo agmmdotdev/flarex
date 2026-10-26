@@ -1,9 +1,10 @@
 # Bounded Payload CRUD continuation
 
-Status: construction contract for the next slice. Standalone create/read and
-borrowed native update/read exist; standalone update, native deletion and the
-indexed preference cleanup below remain unimplemented. No CRUD measurement or
-general Payload support is established.
+Status: construction contract. Standalone create/read and borrowed native
+update/read exist. The [core equality operations](./EQUALITY.md) now supply the
+bounded identity projection and accepting predicate checks; their native
+preference-cleanup binding, standalone update and native deletion remain
+unimplemented. No CRUD measurement or general Payload support is established.
 
 ## Executing native contract
 

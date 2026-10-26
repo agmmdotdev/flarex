@@ -1,7 +1,6 @@
 import { and, eq, gt, gte, inArray, lt, lte, or, type SQL } from "drizzle-orm";
-import type { Definition } from "./definition.ts";
 import type { Database } from "./persistence.ts";
-import type { Dependency, NumericRange } from "./query.ts";
+import type { NumericRange, TableDependencies } from "./query.ts";
 import { CoreError } from "./errors.ts";
 import * as tables from "./schema.ts";
 
@@ -10,7 +9,6 @@ export const rangePredicate = (range: NumericRange): SQL | undefined => and(
   range.lower === null ? undefined : (range.lower.inclusive ? gte : gt)(tables.indexVersions.key, range.lower.value),
   range.upper === null ? undefined : (range.upper.inclusive ? lte : lt)(tables.indexVersions.key, range.upper.value),
 );
-export interface TableDependencies { readonly definition: Definition; readonly dependencies: readonly Dependency[] }
 
 /** Application/mixed dependency acceptance, separate from direct framework CAS.
  * Call only while holding the common scope clock and fresh selected gates. */

@@ -12,7 +12,7 @@ import type { Command, Persistence, Snapshot } from "./persistence.ts";
 
 type GroupError = CoreError | ApplicationFailure | DocumentValidationFailure | NativeFailure;
 interface Borrow { live: boolean }
-export type BorrowedFrameworkRoot = Pick<Root, "get" | "insert" | "replace" | "delete" | "event" | "poison" | "poisonCause">;
+export type BorrowedFrameworkRoot = Pick<Root, "get" | "insert" | "replace" | "delete" | "equalIds" | "equalRows" | "deleteEqual" | "event" | "poison" | "poisonCause">;
 export type BorrowedApplicationRoot = Pick<ApplicationMutationRoot, "get" | "range" | "insert" | "patch" | "replace" | "delete" | "poison">;
 type Participant = { readonly definition: Definition; readonly kind: "framework"; readonly root: Root }
   | { readonly definition: Definition; readonly kind: "application"; readonly root: ApplicationMutationRoot };
@@ -29,7 +29,8 @@ export const createGroupRoot = Effect.fn("ExperimentGroupRoot.create")(function*
   if (command.profile === "mixed") snapshots.push(yield* persistence.commandSnapshot(command));
   const applicationStorage = createApplicationStorage(persistence); const storage = createStorage(persistence);
   const poison = (cause: Cause.Cause<GroupError>) => Ref.update(state, prior => ({ ...prior, failure: prior.failure ?? cause }));
-  const frameworkObservations = { observeUnique: storage.observeUnique, observeRows: command.profile === "framework" ? storage.observeRows
+  const frameworkObservations = { observeUnique: storage.observeUnique, observeEquality: storage.observeEquality, observeEqualityRows: storage.observeEqualityRows,
+    observeRows: command.profile === "framework" ? storage.observeRows
     : Effect.fn("ExperimentGroupRoot.snapshotRows")(function* (child: Command, ids: readonly string[], remainingBytes: number) {
       const snapshot = yield* persistence.commandSnapshot(child); const rows = []; let remaining = remainingBytes;
       for (const id of ids) { const row = yield* applicationStorage.point(snapshot, id, remaining); rows.push(row); remaining -= row.bytes; }
@@ -80,6 +81,7 @@ export const createGroupRoot = Effect.fn("ExperimentGroupRoot.create")(function*
     });
     return yield* Effect.suspend(() => use({ get: id => operation(root.get(id)), insert: value => operation(root.insert(value)),
       replace: value => operation(root.replace(value)), delete: id => operation(root.delete(id)), event: value => operation(root.event(value)),
+      equalIds: selection => operation(root.equalIds(selection)), equalRows: selection => operation(root.equalRows(selection)), deleteEqual: selection => operation(root.deleteEqual(selection)),
       poison: error => latch(Cause.fail(error)), poisonCause: latch,
     })).pipe(Effect.ensuring(Effect.sync(() => { borrow.live = false; })));
   })));
@@ -109,7 +111,7 @@ export const createGroupRoot = Effect.fn("ExperimentGroupRoot.create")(function*
     for (const participant of participants.values()) {
       if (participant.kind === "framework") {
         const frozen = yield* participant.root.freeze();
-        candidates.push({ definition: participant.definition, changes: frozen.changes, events: frozen.events, uniques: frozen.dependencies, dependencies: frozen.points });
+        candidates.push({ definition: participant.definition, changes: frozen.changes, events: frozen.events, uniques: frozen.dependencies, dependencies: [...frozen.points, ...frozen.predicates] });
       } else {
         const frozen = yield* participant.root.freeze();
         candidates.push({ definition: participant.definition, ...frozen, uniques: [], events: [] });

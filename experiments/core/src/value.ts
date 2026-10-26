@@ -11,12 +11,16 @@ function representable(value: Schema.Json): boolean {
 }
 export const JsonValue = Schema.Json.check(Schema.makeFilter(representable));
 export const FiniteNumber = Schema.Number.check(Schema.isFinite(), Schema.makeFilter(value => !Object.is(value, -0)));
+/** Exact pending/UTF-8/PostgreSQL text equality requires one representable key
+ * grammar. Refuse replacement/truncation before fingerprinting or staging. */
+export const IndexedText = Schema.String.check(Schema.isPattern(/^[^\uD800-\uDFFF]*$/u), Schema.makeFilter(value => !value.includes("\u0000")));
 
 /** Reuse the descriptor-safe value owner only: no persistence/admission imports.
  * Strict JSON preserves undefined refusal; Medusa's omission policy stays with
  * its own native input boundary. Capture bounds precede Schema field access. */
-export function captureJsonInput(value: unknown) {
-  return capturePrivateJsonData(value, 262144, (reason, cause) => new CoreError({ reason: reason === "limitExceeded" ? "limit" : "invalid", cause })).pipe(
+export function captureJsonInput(value: unknown, wellFormedUnicode?: true) {
+  return capturePrivateJsonData(value, 262144, (reason, cause) => new CoreError({ reason: reason === "limitExceeded" ? "limit" : "invalid", cause }),
+    wellFormedUnicode === true ? { wellFormedUnicode: true } : undefined).pipe(
     Result.flatMap(captured => Schema.decodeUnknownResult(JsonValue)(captured.value).pipe(Result.mapError(cause => new CoreError({ reason: "invalid", cause })))),
   );
 }

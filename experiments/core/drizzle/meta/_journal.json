@@ -50,6 +50,13 @@
       "when": 1793042475877,
       "tag": "0006_free_blockbuster",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793049191646,
+      "tag": "0007_fresh_revanche",
+      "breakpoints": true
     }
   ]
 }

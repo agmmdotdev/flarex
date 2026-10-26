@@ -3,8 +3,10 @@ import { CoreError } from "./errors.ts";
 import { applicationLimits } from "./query.ts";
 
 /** One root's logical retained data budget, shared by borrowed table roots.
- * Detached document/event bytes are charged once per retained representation;
- * this is not an estimate of JavaScript heap size or PostgreSQL work. */
+ * Detached document/event bytes are charged once per retained representation.
+ * Equality acquisition additionally charges examined key/identity work bytes,
+ * including invisible historical entries and fingerprint collisions. This is
+ * neither wire/heap size nor all PostgreSQL physical work. */
 export function createBudget() {
   let reads = 0; let pending = 0; let events = 0;
   let dependencies = 0; let dependencyBytes = 0;

@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import type { Schema } from "effect";
-import { numericField, uniqueKeys, type Definition, type Document } from "./definition.ts";
+import { numericField, textField, uniqueKeys, type Definition, type Document } from "./definition.ts";
+import { textFingerprint } from "./equality-key.ts";
 import type { Database } from "./persistence.ts";
 import * as tables from "./schema.ts";
 
@@ -28,7 +29,15 @@ export function planMaterialization(candidates: readonly TableChanges[]) {
   const intents = candidates.flatMap(({ definition, changes, events }) => [...changes.map(change => ({ document: change.id, body: change.body,
     event: change.body === null ? "deleted" : change.before === null ? "created" : "updated" })), ...events]
     .map(intent => ({ table: definition.table, ...structuredClone(intent) })));
-  return { rows, live, existing, claims, indexes, intents };
+  const equalities = candidates.flatMap(({ definition, changes }) => changes.flatMap(change => {
+    const body = change.body;
+    return body === null ? [] : definition.equalities.flatMap(index => {
+      const key = textField(body, index.field);
+      return key === null ? [] : [{ table: definition.table, index: index.name, id: change.id, hash: textFingerprint(key), key }];
+    });
+  }));
+  const existingEqualities = existing.filter(item => candidates.some(candidate => candidate.definition.table === item.table && candidate.definition.equalities.length !== 0));
+  return { rows, live, existing, existingEqualities, claims, indexes, equalities, intents };
 }
 export type MaterializationPlan = ReturnType<typeof planMaterialization>;
 
@@ -44,10 +53,13 @@ export async function materialize(transaction: Database, scope: string, command:
     await transaction.delete(tables.documents).where(and(eq(tables.documents.scope, scope),
       or(...plan.existing.map(item => and(eq(tables.documents.table, item.table), inArray(tables.documents.id, item.ids))))));
   }
+  if (plan.existingEqualities.length !== 0) await transaction.update(tables.equalityVersions).set({ untilSeq: seq }).where(and(eq(tables.equalityVersions.scope, scope), isNull(tables.equalityVersions.untilSeq),
+    or(...plan.existingEqualities.map(item => and(eq(tables.equalityVersions.table, item.table), inArray(tables.equalityVersions.id, item.ids))))));
   if (plan.rows.length !== 0) await transaction.insert(tables.history).values(plan.rows.map(row => ({ scope, table: row.table, id: row.id, commitSeq: seq, body: row.body })));
   if (plan.live.length !== 0) await transaction.insert(tables.documents).values(plan.live.map(row => ({ scope, ...row, commitSeq: seq })));
   if (plan.claims.length !== 0) await transaction.insert(tables.uniqueClaims).values(plan.claims.map(claim => ({ scope, ...claim, commitSeq: seq })));
   if (plan.indexes.length !== 0) await transaction.insert(tables.indexVersions).values(plan.indexes.map(entry => ({ scope, ...entry, fromSeq: seq })));
+  if (plan.equalities.length !== 0) await transaction.insert(tables.equalityVersions).values(plan.equalities.map(entry => ({ scope, ...entry, fromSeq: seq })));
   if (plan.intents.length !== 0) await transaction.insert(tables.eventIntents).values(plan.intents.map((intent, ordinal) => ({ command, ordinal, ...intent })));
   await transaction.update(tables.clocks).set({ seq }).where(eq(tables.clocks.scope, scope));
   await transaction.update(tables.commands).set({ status: "committed", result, commitSeq: seq }).where(eq(tables.commands.id, command));

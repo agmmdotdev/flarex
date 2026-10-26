@@ -71,7 +71,7 @@ export async function fixture(connectionString?: string) {
     await owner.insert(tables.authorities).values({ scope: "shop-a" });
     await owner.insert(tables.clocks).values({ scope: "shop-a" });
     await owner.insert(tables.grants).values({ scope: "shop-a", principal: role });
-    await owner.insert(tables.definitions).values({ table: definition.table, version: definition.version, fields: definition.fields, indexes: definition.indexes });
+    await owner.insert(tables.definitions).values({ table: definition.table, version: definition.version, fields: definition.fields, indexes: definition.indexes, equalities: definition.equalities });
     await owner.execute(sql.raw(`revoke all on schema fx_core from public`));
     await owner.execute(sql.raw(`grant usage on schema fx_core to ${role}`));
     await owner.execute(sql.raw(`grant select on all tables in schema fx_core to ${role}`));
@@ -79,9 +79,9 @@ export async function fixture(connectionString?: string) {
     // columns confer no right to change installation/authorization facts.
     await owner.execute(sql.raw(`grant update ("readLock") on fx_core.installation,fx_core.authorities,fx_core.grants,fx_core.definitions to ${role}`));
     await owner.execute(sql.raw(`grant insert,update on fx_core.commands,fx_core.clocks to ${role}`));
-    await owner.execute(sql.raw(`grant insert on fx_core.documents,fx_core.unique_claims,fx_core.history,fx_core.event_intents,fx_core.index_versions to ${role}`));
+    await owner.execute(sql.raw(`grant insert on fx_core.documents,fx_core.unique_claims,fx_core.history,fx_core.event_intents,fx_core.index_versions,fx_core.equality_versions to ${role}`));
     await owner.execute(sql.raw(`grant delete on fx_core.documents,fx_core.unique_claims to ${role}`));
-    await owner.execute(sql.raw(`grant update on fx_core.index_versions to ${role}`));
+    await owner.execute(sql.raw(`grant update on fx_core.index_versions,fx_core.equality_versions to ${role}`));
     let serving: Database;
     if (embedded !== undefined) {
       await owner.execute(sql.raw(`set role ${role}`)); serving = owner;

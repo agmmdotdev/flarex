@@ -31,7 +31,7 @@ const createReader = Effect.fn("ExperimentApplicationRoot.reader")(function* (de
     ? Effect.void : poison(cause);
   const run = <A, E extends RootError>(work: Effect.Effect<A, E>) => semaphore.withPermit(check.pipe(Effect.andThen(work), Effect.tapCause(latch)));
   const depend = (dependency: Dependency) => {
-    const key = dependency.kind === "point" ? `point:${dependency.id}` : `range:${JSON.stringify(dependency.range)}`;
+    const key = dependency.kind === "point" ? `point:${dependency.id}` : JSON.stringify(dependency);
     if (!dependencies.has(key) && dependencies.size >= applicationLimits.dependencies) return Effect.fail(new CoreError({ reason: "limit" }));
     if (dependencies.has(key)) return Effect.void;
     return Effect.fromResult(budget.dependency(Buffer.byteLength(JSON.stringify(dependency)))).pipe(

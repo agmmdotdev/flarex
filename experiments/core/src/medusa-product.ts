@@ -172,7 +172,7 @@ export const createProductHost = Effect.fn("ExperimentProduct.host")(function* (
     const root = yield* createRoot(prepared.definition, storage, command); let accepting = false;
     return yield* Effect.gen(function* () {
       const result = yield* invocation.run(root); const candidate = yield* root.freeze(); accepting = true;
-      const committed = yield* storage.settle(command, candidate.changes, candidate.dependencies, result, candidate.events).pipe(Effect.catchTag("CoreError", error => {
+      const committed = yield* storage.settle(command, candidate.changes, candidate.dependencies, result, candidate.events, candidate.predicates).pipe(Effect.catchTag("CoreError", error => {
         if (error.reason !== "storage" || error.phase !== undefined && error.phase !== "commit") { accepting = false; return Effect.fail(error); }
         return storage.resolve(scope, request, digest).pipe(Effect.catchTag("CoreError", recovery => Effect.fail(new CoreError({ reason: "uncertain", cause: { original: error, recovery } }))));
       }));

@@ -23,7 +23,7 @@ it.skipIf(process.env.FLAREX_EXPERIMENT_PRODUCT_COMPARE !== "1")("compares genui
       const command = yield* candidate.storage.open("shop-a", randomUUID(), "fixture", definition, randomUUID());
       const root = yield* createRoot(definition, candidate.storage, command);
       yield* root.insert(yield* host.prepared.seed(id, "original", "2026-10-27T00:00:00.000Z"));
-      const frozen = yield* root.freeze(); yield* candidate.storage.settle(command, frozen.changes, frozen.dependencies, null, frozen.events);
+      const frozen = yield* root.freeze(); yield* candidate.storage.settle(command, frozen.changes, frozen.dependencies, null, frozen.events, frozen.predicates);
     }));
     const reference = JSON.parse(JSON.stringify(await native.product.updateProducts(id, { title: "updated" })));
     const result = await Effect.runPromise(host.update(randomUUID(), id, { title: "updated" }));

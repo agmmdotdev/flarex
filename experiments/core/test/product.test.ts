@@ -23,7 +23,7 @@ const seedProduct = (database: Fixture, host: ProductHost, id: string) => Effect
   const command = yield* database.storage.open("shop-a", randomUUID(), "product-fixture", host.prepared.definition, randomUUID());
   const root = yield* createRoot(host.prepared.definition, database.storage, command);
   yield* root.insert(yield* host.prepared.seed(id, "original", "2026-10-27T00:00:00.000Z"));
-  const candidate = yield* root.freeze(); yield* database.storage.settle(command, candidate.changes, candidate.dependencies, null, candidate.events);
+  const candidate = yield* root.freeze(); yield* database.storage.settle(command, candidate.changes, candidate.dependencies, null, candidate.events, candidate.predicates);
 }));
 
 describe.each(["pglite", "postgres"] as const)("native experimental Product (%s)", driver => {
@@ -138,7 +138,7 @@ describe.each(["pglite", "postgres"] as const)("native experimental Product (%s)
     const pending = await Effect.runPromise(root.get(id)); const decoded = Schema.decodeUnknownSync(Schema.Struct({ metadata: Schema.Struct({ nested: Schema.Struct({ value: Schema.Number }) }) }))(pending);
     expect(Reflect.set(decoded.metadata.nested, "value", 50)).toBe(true);
     expect(await Effect.runPromise(root.get(id))).toMatchObject({ metadata: { nested: { value: 1 } } });
-    const candidate = await Effect.runPromise(root.freeze()); await Effect.runPromise(database.storage.settle(command, candidate.changes, candidate.dependencies, null, candidate.events));
+    const candidate = await Effect.runPromise(root.freeze()); await Effect.runPromise(database.storage.settle(command, candidate.changes, candidate.dependencies, null, candidate.events, candidate.predicates));
     expect(object(await Effect.runPromise(host.update(randomUUID(), id, { title: "with-metadata" })))).toMatchObject({ metadata: { nested: { value: 1 } } });
   }));
 });

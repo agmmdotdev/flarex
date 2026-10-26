@@ -42,7 +42,7 @@ describe.each(["pglite", "postgres"] as const)("native Application/Product/Paylo
         const command = yield* database.storage.open("shop-a", randomUUID(), "fixture", host.productDefinition.definition, randomUUID());
         const root = yield* createRoot(host.productDefinition.definition, database.storage, command);
         yield* root.insert(yield* host.productDefinition.seed(id, "original", "2026-10-27T00:00:00.000Z"));
-        const frozen = yield* root.freeze(); yield* database.storage.settle(command, frozen.changes, frozen.dependencies, null, frozen.events);
+        const frozen = yield* root.freeze(); yield* database.storage.settle(command, frozen.changes, frozen.dependencies, null, frozen.events, frozen.predicates);
       }));
       await test(database, host, id, scope);
     } finally { try { await Effect.runPromise(Scope.close(scope, Exit.void)); } finally { await database.close(); } }

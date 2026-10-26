@@ -6,7 +6,7 @@ import { CoreError } from "./errors.ts";
 /** One owner for the currently supported Application value profile. Shared
  * framework metadata must not silently widen either standalone or mixed App. */
 export function admitApplicationDefinition(definition: Definition) {
-  return definition.tableId === null || definition.fields.some(field => field.nullable || field.kind !== "text" && field.kind !== "number")
+  return definition.tableId === null || definition.equalities.length !== 0 || definition.fields.some(field => field.nullable || field.kind !== "text" && field.kind !== "number")
     ? Result.fail(new CoreError({ reason: "unsupported" })) : Result.succeed(definition.tableId);
 }
 
