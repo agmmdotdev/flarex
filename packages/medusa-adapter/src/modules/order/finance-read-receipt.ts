@@ -86,7 +86,12 @@ export function selectOrderFinanceReceiptRows(prepared: Prepared, state: OrderFi
           }
           record(relation.targetTable, predicate, children, order);
         }
-        if (selected.has(relation.targetTable)) return yield* Result.fail(mismatch("repeated-family"));
+        // Native creation selects both nullable Address slots. Two absent
+        // owning relations share an empty target family without a storage read.
+        // Populated repeated cohorts still need independent alias admission.
+        const previous = selected.get(relation.targetTable);
+        if (previous !== undefined && (previous.length !== 0 || children.length !== 0))
+          return yield* Result.fail(mismatch("repeated-family"));
         selected.set(relation.targetTable, children);
         yield* populate(relation.targetTable, children, nested, path);
       }

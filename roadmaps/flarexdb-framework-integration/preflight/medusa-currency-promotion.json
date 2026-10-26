@@ -15453,7 +15453,7 @@
     },
     {
       "target": "packages/medusa-adapter/src/modules/order/finance-read-receipt.ts",
-      "targetSha256": "ec6ad6203bc2f65b723f775dbc5ba1f31336fa3cee08277f3fb3f87437a2c035",
+      "targetSha256": "ede4f6726014d0ecece57b1f5ee3c00ba2c621a6aa0373399044a30f22c59cff",
       "classification": "authored"
     },
     {
@@ -15463,12 +15463,12 @@
     },
     {
       "target": "packages/medusa-adapter/src/modules/order/finance-repository.ts",
-      "targetSha256": "9badaa391bfd7d5081809b4b7c7b605fa200c9994b2b08e1bc4220d58de317d3",
+      "targetSha256": "ddb475753533e60e2bc562ce0cc4e66531bb5330ff6fd3e1a8773876fb0e8c91",
       "classification": "authored"
     },
     {
       "target": "packages/medusa-adapter/src/modules/order/finance-service.ts",
-      "targetSha256": "ea1366673ef8c182cbe778432481ab14baed878090f7730a34dc1deae8150ae9",
+      "targetSha256": "49410d1ad34d87f7fc7f64de02d9a64ec4d8e78ec945f3527f6f49536fc972a3",
       "classification": "authored"
     },
     {
@@ -16018,12 +16018,12 @@
     {
       "target": "packages/medusa-adapter/src/modules/order/creation-input.ts",
       "classification": "authored",
-      "targetSha256": "a8bebb194b7b360a6cac9ae59e7db6f11afd48f302355c3745939fec9e9c9b9a"
+      "targetSha256": "51ae06ad6851928a9a07b21c9938fa5f710a2fa82b9e2fdd658e4c8844fb0beb"
     },
     {
       "target": "packages/medusa-adapter/test/order-creation-input.test.ts",
       "classification": "authored",
-      "targetSha256": "1bb34018e87156a3e9daed23fc2b400c83a5cee29190dbf3b7a4ddeb6aa6c1b4"
+      "targetSha256": "35666314b998ae4add2623c1f1a0d7902bdd64f3fe6634cd58ad751ec4548f6e"
     },
     {
       "target": "packages/medusa-adapter/test/logical-order-creation-consumer.test.ts",
@@ -16054,6 +16054,26 @@
       "target": "packages/medusa-adapter/test/checkout-native-fields-prerequisite.test.ts",
       "classification": "authored",
       "targetSha256": "7b7d327f40519e7542846180decf58890259024459d579a6adc6b26696aaa524"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/order/creation-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "2a6b8c3b7850753ee58257c3fbdf1c49fcfbadaeb4f56f261c2792756d804485"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/order/creation-values.ts",
+      "classification": "authored",
+      "targetSha256": "3b284d2b920936dac19d312f0838cb9358c01345c865daa7c07625eb1b5e7edc"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-order-checkout-admission.test.ts",
+      "classification": "authored",
+      "targetSha256": "909582df8a289bc42ac974c51fb99b7cb64456e2a87697a0499700ff8724dd54"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-order-checkout-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "59ceae53da903264bc69691eeb5a4feb4ad88a2e62445d9faa5d2df3ac8bd22f"
     }
   ],
   "dependencies": {

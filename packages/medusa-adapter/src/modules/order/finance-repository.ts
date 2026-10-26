@@ -20,6 +20,8 @@ import { captureGraph, insertGraphRows } from "../../write/create";
 import type { CreationProfile, GraphCatalog } from "../../write/graph-model";
 import { prepareOrderFinanceQuery, orderFinanceVersionFilters } from "./finance-query";
 import type { captureOrderMetadata } from "./schema";
+import { captureOrderCreationFields } from "./creation-values";
+import { lowerDmlSchema } from "../../schema/lower";
 
 const decodeBatch = commerceDecoder(Schema.Array(Schema.Unknown).check(Schema.isMaxLength(4)), "unsupportedProfile");
 const decodeId = commerceDecoder(Schema.String.check(Schema.isLengthBetween(1, 256)), "unsupportedProfile");
@@ -64,17 +66,24 @@ export function prepareOrderCreationRepository(metadata: Effect.Success<ReturnTy
   return prepareOrderRepository(metadata, "creation");
 }
 
-function prepareOrderRepository(metadata: Effect.Success<ReturnType<typeof captureOrderMetadata>>["frame"], profile: "finance" | "creation") {
+export function prepareOrderCheckoutRepository(metadata: Effect.Success<ReturnType<typeof captureOrderMetadata>>["frame"]) {
+  return prepareOrderRepository(metadata, "checkout");
+}
+
+function prepareOrderRepository(metadata: Effect.Success<ReturnType<typeof captureOrderMetadata>>["frame"], profile: "finance" | "creation" | "checkout") {
   return Result.gen(function* () {
     const contracts = yield* (profile === "finance" ? compileOrderFinanceContracts(metadata) : compileOrderCreationContracts(metadata));
+    const defaults = new Map(lowerDmlSchema(metadata.tables, "commerce.order").tables.map(table =>
+      [table.tableId, new Map(table.columns.map(column => [column.columnId, column.default]))]));
     const { query } = prepareOrderFinanceQuery(contracts.catalog, contracts.entities.map(entity => entity.table));
-    const createDecoders = new Map((profile === "finance" ? [...creations] : contracts.entities.filter(entity =>
+    const creationInputs = profile === "finance" ? [] : contracts.entities.filter(entity =>
       ["order", "order_summary", "order_item", "order_line_item"].includes(entity.table.name)).map(entity =>
         [entity.table.name, entity.table.columns.filter(column => !["id", "display_id", "created_at", "updated_at", "deleted_at"].includes(column.name))
-          .map(column => column.name)] as const))
+          .map(column => column.name)] as const);
+    const createDecoders = new Map([...(profile === "creation" ? [] : creations), ...creationInputs]
       .map(([table, names]) => [table, commerceRowDecoder(names, "unsupportedProfile")]));
-    const patchDecoders = new Map((profile === "finance" ? [...assignments] : []).map(([table, names]) => [table, commerceRowDecoder(["id", ...names], "unsupportedProfile")]));
-    const upsertDecoders = new Map((profile === "finance" ? [...versionedInputs] : []).map(([table, names]) => [table, commerceRowDecoder(names, "unsupportedProfile")]));
+    const patchDecoders = new Map((profile !== "creation" ? [...assignments] : []).map(([table, names]) => [table, commerceRowDecoder(["id", ...names], "unsupportedProfile")]));
+    const upsertDecoders = new Map((profile !== "creation" ? [...versionedInputs] : []).map(([table, names]) => [table, commerceRowDecoder(names, "unsupportedProfile")]));
     type Entity = typeof contracts.entities[number];
     const orderCreation = profile === "finance" ? undefined : yield* Result.gen(function* () {
       const order = yield* contracts.entity("order"), summary = yield* contracts.entity("order_summary");
@@ -109,7 +118,7 @@ function prepareOrderRepository(metadata: Effect.Success<ReturnType<typeof captu
         const entity = yield* contracts.entity(table);
         if (rows.length > 4) return yield* Result.fail(commerceError("limitExceeded"));
         for (const value of rows) yield* entity.complete(projectNativeRow(value));
-        if (profile === "creation" && table === "order" && rows.some(row => row.shipping_address_id !== null || row.billing_address_id !== null))
+        if (profile !== "finance" && table === "order" && rows.some(row => row.shipping_address_id !== null || row.billing_address_id !== null))
           return yield* Result.fail(commerceError("unsupportedProfile"));
       });
       const readContext = (ctx: CommerceCommandContext) => ({ ...ctx, admitSelection: checkedRows });
@@ -183,11 +192,11 @@ function prepareOrderRepository(metadata: Effect.Success<ReturnType<typeof captu
           const rows: JsonObject[] = [];
           for (const value of yield* Effect.fromResult(decodeBatch(input))) {
             const normalized = yield* Effect.fromResult(decodeNormalized(value)), fields = { ...normalized };
-            if (profile === "creation" && name === "order") delete fields.summary;
+            if (profile !== "finance" && name === "order") delete fields.summary;
             for (const number of entity.numbers) delete fields["raw_" + number.name];
             yield* Effect.fromResult(decode(fields)); rows.push(normalized);
           }
-          if (profile === "creation" && name === "order") {
+          if (profile !== "finance" && name === "order") {
             if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
             if (orderCreation === undefined) return yield* ctx.refuse(commerceError("unsupportedProfile"));
             const { creation, summary } = orderCreation;
@@ -271,7 +280,7 @@ function prepareOrderRepository(metadata: Effect.Success<ReturnType<typeof captu
         });
         const softDelete: DAL.RepositoryService["softDelete"] = (input, shared) => bridge.executeInput(shared, input, (ctx, captured) =>
           bridge.checked(ctx, Effect.gen(function* () {
-            if (profile !== "finance" || !versioned.has(name)) return yield* ctx.refuse(commerceError("unsupportedProfile"));
+            if (profile === "creation" || !versioned.has(name)) return yield* ctx.refuse(commerceError("unsupportedProfile"));
             const values = Array.isArray(captured) ? captured : [captured], ids: string[] = [];
             if (values.length > 4) return yield* ctx.refuse(commerceError("limitExceeded"));
             for (const value of values) ids.push(yield* Effect.fromResult(decodeId(value)));
@@ -284,10 +293,11 @@ function prepareOrderRepository(metadata: Effect.Success<ReturnType<typeof captu
           })));
         const remove: DAL.RepositoryService["delete"] = (input, shared) => bridge.executeInput(shared, input, (ctx, captured) =>
           bridge.checked(ctx, Effect.gen(function* () {
-            if (!(profile === "finance" ? ["order_transaction", "order_change", "order_change_action"] : ["order", "order_line_item"]).includes(name))
+            const physicalGraph = profile !== "finance" && ["order", "order_line_item"].includes(name);
+            if (!physicalGraph && !(profile !== "creation" && ["order_transaction", "order_change", "order_change_action"].includes(name)))
               return yield* ctx.refuse(commerceError("unsupportedProfile"));
             const selection = yield* Effect.fromResult(decodeDelete(captured));
-            const lifecycle = profile === "creation" ? medusaLifecycle(ctx, { tables: metadata.tables, entities: contracts.entities }, "delete") : undefined;
+            const lifecycle = physicalGraph ? medusaLifecycle(ctx, { tables: metadata.tables, entities: contracts.entities }, "delete") : undefined;
             const rows = lifecycle === undefined ? yield* (yield* ctx.table(name)).delete(ctx.manager, selection.$or)
               : (yield* (yield* lifecycle.plan(entity.table, yield* lifecycle.roots(entity.table, selection.$or.map(row => row.id)))).apply()).roots;
             yield* Effect.fromResult(checkedRows(name, rows));
@@ -300,34 +310,18 @@ function prepareOrderRepository(metadata: Effect.Success<ReturnType<typeof captu
         const normalizeRows = Effect.fn("OrderFinance.captureRows")(function* (ctx: CommerceCommandContext, input: unknown, retainedRaw: boolean) {
           const rows: JsonObject[] = [];
           for (const value of yield* Effect.fromResult(decodeBatch(input))) {
-            const source = profile === "creation" ? yield* captureNativeRecord(value) : value;
-            if (profile === "creation" && name === "order") {
-              const native = yield* captureNativeRecord(source), summaries = Array.isArray(native.summary) ? native.summary : [native.summary];
+            if (profile !== "finance" && name === "order") {
+              const native = yield* captureOrderCreationFields(value, name), summaries = Array.isArray(native.summary) ? native.summary : [native.summary];
               delete native.summary;
-              for (const key of ["shipping_methods", "promo_codes"]) if (native[key] !== undefined) {
-                if (!Array.isArray(native[key]) || native[key].length !== 0) return yield* ctx.refuse(commerceError("unsupportedProfile"));
-                delete native[key];
-              }
               const normalized = yield* normalize(ctx, native), children: JsonObject[] = [];
               for (const child of summaries) children.push(yield* contracts.normalize(child, "order_summary", ctx.resources));
               rows.push({ ...normalized, summary: children }); continue;
             }
-            if (profile === "creation" && name === "order_line_item") {
-              const native = yield* captureNativeRecord(source);
-              // These native DTO inputs are consumed by the public Order owner,
-              // not stored in OrderLineItem; its separate Item carries quantity.
-              // decorateCartTotals mutates the source item with these native
-              // calculated values before createOrderLineItemsBulk_ runs. They
-              // are not OrderLineItem columns and the native DAL omits them.
-              for (const key of ["order_id", "version", "quantity", "cart_id", "subtotal", "total", "original_subtotal", "original_total",
-                "discount_subtotal", "discount_tax_total", "discount_total", "tax_total", "original_tax_total"]) delete native[key];
-              for (const key of ["tax_lines", "adjustments"]) if (native[key] !== undefined) {
-                if (!Array.isArray(native[key]) || native[key].length !== 0) return yield* ctx.refuse(commerceError("unsupportedProfile"));
-                delete native[key];
-              }
+            if (profile !== "finance" && name === "order_line_item") {
+              const native = yield* captureOrderCreationFields(value, name);
               rows.push(yield* normalize(ctx, native, retainedRaw)); continue;
             }
-            rows.push(yield* normalize(ctx, source, retainedRaw));
+            rows.push(yield* normalize(ctx, value, retainedRaw));
           }
           return rows;
         });
@@ -356,6 +350,6 @@ function prepareOrderRepository(metadata: Effect.Success<ReturnType<typeof captu
       return { bridge, mutationEvents: primary.mutationEvents, refuse: primary.refuse, denied, serialize,
         repository: (model: { readonly name: string }) => repositories.get(model.name) ?? denied };
     };
-    return { bind, contracts, query, versioned };
+    return { bind, contracts, query, versioned, tables: metadata.tables, defaults };
   });
 }

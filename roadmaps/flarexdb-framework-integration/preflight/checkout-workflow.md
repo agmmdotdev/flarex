@@ -5,7 +5,8 @@
 Status: preflight; the explicit atomic declaration profile is approved. Its
 finite SDK correction retains the native storage declarations and requires the
 trusted execution port to select the atomic outcome policy before any callback.
-No checkout runtime or new Cart/Order write profile is admitted by this document.
+The connected checkout runtime and Cart writes remain gated. The bounded Order
+participant below extends its existing owner for isolated checkout admission.
 
 The executing reference is Medusa 2.13.4 at
 `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`, specifically
@@ -96,9 +97,44 @@ The consumer establishes native creation, generated display identity, complete
 physical graph cleanup, same-request replay and whole-root late-failure rollback.
 Generic identity heads and revision history remain after deletion; the complete
 created graph must have current tombstones. Its native event observations are
-diagnostic. Production workflow resources, call-local creation/deletion receipts
-and committed event admission remain required before checkout may invoke this
-owner.
+diagnostic. The separate checkout participant now authenticates call-local
+creation/deletion receipts and committed module events before root admission.
+
+## Bounded Order checkout participant
+
+The existing Order construction, repository, exact-value, query and lifecycle
+owners now expose an explicit `order.checkout` profile. Each creation/deletion
+call admits one digital/manual Order, up to four Line Items and no Address,
+shipping, tax-line, adjustment or credit-line creation. The same participant
+retains native financial methods needed by checkout and Payment accounting;
+the original financial profile retains its model set and mutation permissions.
+
+Creation receipts reuse genuine native total calculation and DTO formatting,
+checked stored rows, relationally lowered literal defaults and exact encoders.
+The trusted generated-serial owner still owns allocation, scope, concurrency
+and dependency proofs. Its complete existing Order support observations remain
+checked preimages rather than invented native DAL reads. Default results select
+both absent Address slots; empty repeated target families are admitted without
+admitting populated repeated aliases. Receipts bind every mutation, exact read
+transcript, returned DTO and ordered module event to this actual call.
+
+Public deletion reuses native `deleteOrders` and the existing physical graph
+correlator for the complete Order cascade and standalone Line Items. The native
+barrier between those two graphs remains explicit. The finite deletion profile
+requires absent Addresses, Changes and Shipping; full newly created graph
+cleanup and its root/Line Item events are authenticated.
+These gates include authenticated historical preimages: hidden Shipping/Change
+wrappers are refused, and every historical Item must reference a Line Item in
+the native cleanup selection. This prevents physical cascades from removing
+hidden wrappers while leaving their standalone rows behind.
+
+Isolated atomic roots prove creation, reopened replay, native capture accounting,
+complete deletion, late-failure rollback and refusal of tampered real receipts.
+Ordinary creation retains the default request-call limit. The connected financial
+probe uses the existing named Payment/Order finance allowance, and retains a
+default-limit rollback witness. This does not set checkout's whole-root budget
+or admit the complete Cart graph, Cart writes, cross-module Links or checkout
+root by itself.
 
 ## Callback child workflow prerequisite
 

@@ -8,12 +8,14 @@ import { commerceModuleEventBus } from "../../module/events";
 import { moduleAliases, relationPaths } from "../../local-graph/module";
 import { decodeGraphCount } from "../../local-graph/query";
 import { makeReadCatalog } from "../../query/catalog";
-import { defineWorkflowMethod, defineWorkflowModule } from "../../workflow/module";
+import { defineWorkflowMethod, defineWorkflowModule, type WorkflowMethod } from "../../workflow/module";
 import { commerceDecoder } from "../../value/decoder";
 import { captureNativeNumericDto } from "../../value/native-numeric";
 import { defineOrderPersistenceModule } from "./module";
 import { captureOrderMetadata } from "./schema";
-import { prepareOrderFinanceRepository } from "./finance-repository";
+import { prepareOrderCheckoutRepository, prepareOrderFinanceRepository } from "./finance-repository";
+import { CheckoutOrderCreates, CheckoutOrderDeletes, decodeCheckoutOrderCreates, decodeCheckoutOrderDeletes } from "./creation-input";
+import { validateCheckoutOrderCreation } from "./creation-receipt";
 import { orderFinanceEventCapture } from "./finance-events";
 import { validateOrderFinanceRead } from "./finance-read-receipt";
 import { validateOrderFinanceTransactions } from "./finance-transactions-receipt";
@@ -33,6 +35,9 @@ const changeArguments = commerceDecoder(Schema.Tuple([OrderFinanceChange]), "inv
 const actionArguments = commerceDecoder(Schema.Tuple([OrderFinanceActions]), "invalidInput");
 const confirmArguments = commerceDecoder(Schema.Tuple([OrderFinanceConfirm]), "invalidInput");
 const undoArguments = commerceDecoder(Schema.Tuple([OrderFinanceUndo.fields.order_id, OrderFinanceUndo.fields.previous.schema]), "invalidInput");
+const checkoutCreateArguments = commerceDecoder(Schema.Tuple([CheckoutOrderCreates]), "invalidInput");
+const checkoutDeleteArguments = commerceDecoder(Schema.Union([Schema.Tuple([CheckoutOrderDeletes]),
+  Schema.Tuple([CheckoutOrderDeletes, Schema.Undefined])]), "invalidInput");
 const decodeTransactions = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(4)), "receiptMismatch");
 const decodeChange = commerceDecoder(Schema.JsonObject, "receiptMismatch");
 const decodeNull = commerceDecoder(Schema.Null, "receiptMismatch");
@@ -42,11 +47,12 @@ const decodeConfirmation = commerceDecoder(Schema.Struct({ items: Schema.Array(S
 /** One native construction for Payment's financial Order branch. Transaction
  * methods, graph reads, CREDIT_LINE_ADD confirmation and its retained native
  * inverse each authenticate their own storage and event receipts. */
-export const makeOrderPaymentFinanceCommands = Effect.fn("OrderFinance.commands")(function* () {
+const makeOrderCommands = Effect.fn("Order.commands")(function* (profile: "finance" | "checkout") {
   const metadata = yield* captureOrderMetadata();
   return yield* Effect.fromResult(Result.gen(function* () {
-    const prepared = yield* prepareOrderFinanceRepository(metadata.frame);
-    const module = yield* defineOrderPersistenceModule({ name: "flarex-order-payment-finance", profile: "order.payment-finance",
+    const prepared = yield* (profile === "finance" ? prepareOrderFinanceRepository(metadata.frame) : prepareOrderCheckoutRepository(metadata.frame));
+    const module = yield* defineOrderPersistenceModule({ name: profile === "finance" ? "flarex-order-payment-finance" : "flarex-order-checkout",
+      profile: profile === "finance" ? "order.payment-finance" : "order.checkout",
       bind: (ctx, owner) => {
         const bound = prepared.bind(ctx, owner), eventBus = commerceModuleEventBus({ owner, resources: ctx.resources,
           capture: message => bound.bridge.current().captureLocalEvent(message),
@@ -59,9 +65,15 @@ export const makeOrderPaymentFinanceCommands = Effect.fn("OrderFinance.commands"
         deleteOrderTransactions: native.deleteOrderTransactions.bind(native),
         createOrderChange: native.createOrderChange.bind(native), addOrderAction: native.addOrderAction.bind(native),
         deleteOrderChanges: native.deleteOrderChanges.bind(native), deleteOrderChangeActions: native.deleteOrderChangeActions.bind(native),
-        confirmOrderChange: native.confirmOrderChange.bind(native), undoLastChange: native.undoLastChange.bind(native) }),
+        confirmOrderChange: native.confirmOrderChange.bind(native), undoLastChange: native.undoLastChange.bind(native),
+        createOrders: native.createOrders.bind(native), deleteOrders: native.deleteOrders.bind(native) }),
     }).pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
     const commands = commerceServiceCommands(module.use), prepare = commerceCommandPreparation("OrderFinance.prepare");
+    const create = commands.write("orderCreateForCheckout", prepare(decodeCheckoutOrderCreates), async ({ service, context }, input) =>
+      Result.getOrThrow(captureNativeNumericDto(await Reflect.apply(service.createOrders, service, [input, context]))));
+    const deleteCreated = commands.write("orderDeleteForCheckout", prepare(decodeCheckoutOrderDeletes), async ({ service, context }, input) => {
+      await service.deleteOrders([...input], context); return null;
+    });
     const orders = commands.read("orderPaymentFinanceOrders", prepare(decodeOrderFinanceRead), async ({ service, context }, input) => {
       const result: unknown = await Reflect.apply(service.listAndCountOrders, service, [input.filters, input.config ?? {}, context]);
       // This native Promise method formats totals after its DAL serialization.
@@ -117,6 +129,12 @@ export const makeOrderPaymentFinanceCommands = Effect.fn("OrderFinance.commands"
       encode: ([order_id, previous]) => ({ order_id, previous }), output: deleteOutput,
       moduleEvents: [event("order_change", "updated"), event("order_change_action", "updated"), event("order", "updated"),
         ...["order_summary", "order_item", "order_shipping", "order_credit_line"].map(table => event(table, "deleted"))] });
+    const createOrders = yield* defineWorkflowMethod({ command: create,
+      arguments: checkoutCreateArguments, encode: ([data]) => data,
+      output: decodeTransactions, moduleEvents: creationTables.map(table => event(table, "created")) });
+    const deleteOrders = yield* defineWorkflowMethod({ command: deleteCreated,
+      arguments: checkoutDeleteArguments, encode: ([ids]) => ids,
+      output: deleteOutput, moduleEvents: [event("order", "deleted"), event("order_line_item", "deleted")] });
     const storedOrder = yield* prepared.contracts.catalog.table("order");
     // ReadTable describes the native public projection, not a storage schema
     // or table capability. These two required native presentation fields must
@@ -124,14 +142,17 @@ export const makeOrderPaymentFinanceCommands = Effect.fn("OrderFinance.commands"
     // The read receipt authenticates the resulting native formatOrder output.
     const presentation = yield* makeReadCatalog([{ ...storedOrder, columns: [...storedOrder.columns, "total", "summary"] }], new Map());
     const aliases = yield* moduleAliases(OrderModuleService.prototype.__joinerConfig());
-    const admitted = [orders, changes, transactions, add, remove, createChange, addActions, deleteChanges, deleteActions, confirmChanges, undoChanges];
+    const admitted = [orders, changes, transactions, add, remove, createChange, addActions, deleteChanges, deleteActions, confirmChanges, undoChanges,
+      ...(profile === "checkout" ? [create, deleteCreated] : [])];
     const read = validateOrderFinanceRead(prepared), write = validateOrderFinanceTransactions(prepared);
     const creation = validateOrderFinanceChangeCreation(prepared), deletion = validateOrderFinanceChangeDeletion(prepared);
     const confirmation = validateOrderFinanceChangeApplication(prepared), undo = validateOrderFinanceChangeUndo(prepared);
     const capture = orderFinanceEventCapture(prepared);
+    const orderCreation = validateCheckoutOrderCreation(prepared);
     const validateLogicalCall: typeof read = (call, activity) => {
       if (call.mode === "read") return read(call, activity);
       switch (call.commandName) {
+        case "orderCreateForCheckout": case "orderDeleteForCheckout": return orderCreation(call, activity);
         case "orderPaymentFinanceChangeCreate": case "orderPaymentFinanceActionsCreate": return creation(call, activity);
         case "orderPaymentFinanceChangesDelete": case "orderPaymentFinanceActionsDelete": return deletion(call, activity);
         case "orderPaymentFinanceChangesConfirm": return confirmation(call, activity);
@@ -140,17 +161,28 @@ export const makeOrderPaymentFinanceCommands = Effect.fn("OrderFinance.commands"
       }
     };
     const policy = { capture, validateLogicalCall };
-    const workflow = yield* defineWorkflowModule({ name: Modules.ORDER, source: module.description,
-      methods: { listOrderTransactions, addOrderTransactions, deleteOrderTransactions,
-        createOrderChange, addOrderAction, deleteOrderChanges, deleteOrderChangeActions, confirmOrderChange, undoLastChange },
+    const financeMethods = { listOrderTransactions, addOrderTransactions, deleteOrderTransactions,
+      createOrderChange, addOrderAction, deleteOrderChanges, deleteOrderChangeActions, confirmOrderChange, undoLastChange };
+    const definition = { name: Modules.ORDER, source: module.description,
       graph: { aliases: aliases.filter(alias => alias.model === "Order" || alias.model === "OrderChange"), reads: [
         { model: "Order", command: orders, table: yield* presentation.table("order"), paths: [],
           orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount },
         { model: "OrderChange", command: changes, table: yield* prepared.contracts.catalog.table("order_change"),
           paths: yield* relationPaths(prepared.contracts.catalog, "order_change", ["actions"]),
           orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount },
-      ] }, logical: { ...policy, commands: admitted, allowPreservingDeletionUpsert: "preserveTimestamps" } });
-    return { orders, changes, transactions, add, remove, createChange, addActions, deleteChanges, deleteActions, confirmChanges, undoChanges, commands: admitted, workflow, prepared,
+      ] }, logical: { ...policy, commands: admitted, allowPreservingDeletionUpsert: "preserveTimestamps" as const } };
+    const withWorkflow = <const Methods extends Readonly<Record<string, WorkflowMethod>>>(methods: Methods) => defineWorkflowModule({ ...definition, methods });
+    return { orders, changes, transactions, add, remove, createChange, addActions, deleteChanges, deleteActions, confirmChanges, undoChanges,
+      create, deleteCreated, commands: admitted, withWorkflow, financeMethods, creationMethods: { createOrders, deleteOrders }, prepared,
       source: module.description, withService: module.use, logicalEventPolicy: () => policy };
   }));
+});
+const creationTables = ["order", "order_summary", "order_line_item", "order_item"];
+export const makeOrderPaymentFinanceCommands = Effect.fn("OrderFinance.commands")(function* () {
+  const { withWorkflow, financeMethods, creationMethods: _creationMethods, create: _create, deleteCreated: _delete, ...commands } = yield* makeOrderCommands("finance");
+  return { ...commands, workflow: yield* Effect.fromResult(withWorkflow(financeMethods)) };
+});
+export const makeOrderCheckoutCommands = Effect.fn("OrderCheckout.commands")(function* () {
+  const { withWorkflow, financeMethods, creationMethods, ...commands } = yield* makeOrderCommands("checkout");
+  return { ...commands, workflow: yield* Effect.fromResult(withWorkflow({ ...financeMethods, ...creationMethods })) };
 });

@@ -1,6 +1,6 @@
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
-import { decodeOrderCreates } from "../src/modules/order/creation-input";
+import { decodeOrderCreates, decodeCheckoutOrderCreates, decodeCheckoutOrderDeletes } from "../src/modules/order/creation-input";
 
 const item = { title: "Digital item", quantity: "1.25", unit_price: "9007199254740993", requires_shipping: false };
 const order = { currency_code: "usd", items: [item] };
@@ -35,5 +35,12 @@ describe("bounded native Order creation input", () => {
     expect(Result.isSuccess(decodeOrderCreates([
       { ...order, items: [item, item] }, { ...order, items: [item, item] },
     ]))).toBe(true);
+  });
+  it("keeps the checkout participant confined to one Order per public call", () => {
+    expect(Result.isSuccess(decodeCheckoutOrderCreates([order]))).toBe(true);
+    expect(Result.isFailure(decodeCheckoutOrderCreates([order, order]))).toBe(true);
+    expect(Result.isSuccess(decodeCheckoutOrderDeletes(["order-one"]))).toBe(true);
+    expect(Result.isFailure(decodeCheckoutOrderDeletes([]))).toBe(true);
+    expect(Result.isFailure(decodeCheckoutOrderDeletes(["order-one", "order-two"]))).toBe(true);
   });
 });

@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { commerceDecoder } from "../../value/decoder";
 import { ExactNumericRaw } from "../../value/exact-numeric";
+import { ScalarId } from "../../repository/scalar-id-read";
 
 const Amount = Schema.Union([Schema.String, Schema.Finite, Schema.Struct(ExactNumericRaw.fields)]);
 const Text = Schema.optionalKey(Schema.NullOr(Schema.String));
@@ -32,3 +33,7 @@ export const OrderCreates = Schema.Array(Schema.Struct({
 })).check(Schema.isLengthBetween(1, 4), Schema.makeFilter(orders =>
   orders.reduce((sum, order) => sum + (order.items?.length ?? 0), 0) <= 4 || "Expected at most four total Order line items"));
 export const decodeOrderCreates = commerceDecoder(OrderCreates, "invalidInput");
+export const CheckoutOrderCreates = OrderCreates.check(Schema.isLengthBetween(1, 1));
+export const CheckoutOrderDeletes = Schema.Array(ScalarId).check(Schema.isLengthBetween(1, 1));
+export const decodeCheckoutOrderCreates = commerceDecoder(CheckoutOrderCreates, "invalidInput");
+export const decodeCheckoutOrderDeletes = commerceDecoder(CheckoutOrderDeletes, "invalidInput");
