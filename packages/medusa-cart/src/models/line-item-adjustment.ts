@@ -13,7 +13,7 @@ const LineItemAdjustment = model
       provider_id: model.text().nullable(),
       promotion_id: model.text().nullable(),
       metadata: model.json().nullable(),
-      item: model.belongsTo(() => LineItem, {
+      item: model.belongsTo((): typeof LineItem => LineItem, {
         mappedBy: "adjustments",
       }),
     }

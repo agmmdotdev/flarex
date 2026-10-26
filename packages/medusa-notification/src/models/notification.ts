@@ -33,6 +33,6 @@ export const Notification = model.define("notification", {
   status: model.enum(NotificationStatus).default(NotificationStatus.PENDING),
 
   provider: model
-    .belongsTo(() => NotificationProvider, { mappedBy: "notifications" })
+    .belongsTo((): typeof NotificationProvider => NotificationProvider, { mappedBy: "notifications" })
     .nullable(),
 })

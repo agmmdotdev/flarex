@@ -4,7 +4,7 @@ import Price from "./price"
 const PriceSet = model
   .define("PriceSet", {
     id: model.id({ prefix: "pset" }).primaryKey(),
-    prices: model.hasMany(() => Price, {
+    prices: model.hasMany((): typeof Price => Price, {
       mappedBy: "price_set",
     }),
   })

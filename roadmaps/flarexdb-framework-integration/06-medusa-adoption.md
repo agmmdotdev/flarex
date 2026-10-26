@@ -979,8 +979,13 @@ implements the bounded System-provider creation root and deletion child over an
 existing collection, using the complete nine-table Payment metadata and shared
 logical persistence. Retained native inverses, replacement and atomic rollback
 remain distinct obligations. Supporting collection creation is a native module
-operation. Customer, Cart/Order Links, remote providers and authorization/capture/
-refund roots retain separate admission gates.
+operation. The [Payment financial slice](./preflight/payment-lifecycle-and-order-finance.md)
+adds System-provider authorization, capture and single/batch refund over genuine
+stored Order–PaymentCollection links, native transactions, summaries and
+credit-line changes. Its bounded atomic profile retains native inverses, exact
+refund identities and replay. Customer and Cart association workflows, remote
+providers, independently committed best-effort batches and hosted activation
+retain separate admission gates.
 
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.

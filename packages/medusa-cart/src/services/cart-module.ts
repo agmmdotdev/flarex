@@ -424,7 +424,7 @@ export default class CartModuleService
       | Partial<CartTypes.CartDTO>,
     data?: CartTypes.UpdateCartDataDTO,
     @MedusaContext() sharedContext: Context = {}
-  ) {
+  ): Promise<InferEntityType<typeof Cart>[]> {
     let toUpdate: CartTypes.UpdateCartDTO[] = []
     if (isString(dataOrIdOrSelector)) {
       toUpdate = [

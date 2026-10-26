@@ -6,10 +6,10 @@ const CustomerGroupCustomer = model.define("CustomerGroupCustomer", {
   id: model.id({ prefix: "cusgc" }).primaryKey(),
   created_by: model.text().nullable(),
   metadata: model.json().nullable(),
-  customer: model.belongsTo(() => Customer, {
+  customer: model.belongsTo((): typeof Customer => Customer, {
     mappedBy: "groups",
   }),
-  customer_group: model.belongsTo(() => CustomerGroup, {
+  customer_group: model.belongsTo((): typeof CustomerGroup => CustomerGroup, {
     mappedBy: "customers",
   }),
 })

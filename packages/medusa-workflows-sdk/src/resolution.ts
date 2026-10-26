@@ -1,6 +1,7 @@
 import { Result } from "effect";
 import { definitionError, type Reference } from "./model";
 import { referenceOf } from "./references";
+import { snapshotNativeNumber } from "@medusajs/utils/totals/native-number";
 
 /** Immutable mechanics compiled from the SDK's captured definition graph. These
  * contain no execution input, outputs, accepted values or transform results. */
@@ -55,6 +56,9 @@ export function prepareTransformResolution(value: unknown): Result.Result<Workfl
         input: reference.kind === "property" || reference.kind === "transform" ? yield* compile(reference.input, depth + 1) : undefined } satisfies WorkflowResolution;
       const array = Array.isArray(value);
       const prototype = Object.getPrototypeOf(value);
+      const numeric = yield* Result.try({ try: () => snapshotNativeNumber(value),
+        catch: () => definitionError("invalidReference", "Invalid native transform number") });
+      if (numeric !== undefined) return { kind: "constant", value: numeric.json } satisfies WorkflowResolution;
       if (prototype === Date.prototype) {
         // Native resolve-value serializes transform results before downstream
         // invocation. Admit only a bare intrinsic Date; custom serialization,

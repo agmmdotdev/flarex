@@ -142,6 +142,6 @@ export async function prepareLogicalPaymentSessions(driver: "pglite" | "postgres
     }
     return rows.sort((a, b) => String(a.id).localeCompare(String(b.id)));
   };
-  return { fixture, payment, options, modules, execution, errors, prepareDelete, prepareCreate, prepareCreateCollection, prepareCreateStep, prepareLateFailure, prepareRetainedDeletion, prepareRetainedCreation,
+  return { fixture, payment, options, modules, execution, logger, errors, prepareDelete, prepareCreate, prepareCreateCollection, prepareCreateStep, prepareLateFailure, prepareRetainedDeletion, prepareRetainedCreation,
     read, snapshot: () => logicalCurrencyInventory(fixture) };
 }

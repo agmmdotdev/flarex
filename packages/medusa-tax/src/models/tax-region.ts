@@ -15,19 +15,19 @@ const TaxRegion = model
     metadata: model.json().nullable(),
     created_by: model.text().nullable(),
     provider: model
-      .belongsTo(() => TaxProvider, {
+      .belongsTo((): typeof TaxProvider => TaxProvider, {
         mappedBy: "regions",
       })
       .nullable(),
     parent: model
-      .belongsTo(() => TaxRegion, {
+      .belongsTo((): typeof TaxRegion => TaxRegion, {
         mappedBy: "children",
       })
       .nullable(),
-    children: model.hasMany(() => TaxRegion, {
+    children: model.hasMany((): typeof TaxRegion => TaxRegion, {
       mappedBy: "parent",
     }),
-    tax_rates: model.hasMany(() => TaxRate, {
+    tax_rates: model.hasMany((): typeof TaxRate => TaxRate, {
       mappedBy: "tax_region",
     }),
   })

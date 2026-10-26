@@ -1,6 +1,7 @@
 import { Effect, Result, Schema } from "effect";
 import { BigNumber } from "@medusajs/utils/totals/big-number";
 import { BigNumber as NativeBigNumber, MathBN } from "@medusajs/framework/utils/portable";
+import { snapshotNativeNumber } from "@medusajs/utils/totals/native-number";
 import { commerceError, isJsonObject, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "./decoder";
 import { captureCommerceInput } from "./input";
@@ -14,6 +15,7 @@ const Raw = Schema.Struct({
 const decodeInput = commerceDecoder(Numeric, "invalidInput");
 const decodeStored = commerceDecoder(Numeric, "storedCorruption");
 const decodeRaw = commerceDecoder(Raw, "storedCorruption");
+const decodeNativeRaw = commerceDecoder(Schema.Struct(Raw.fields), "invalidInput");
 // Use the executing native arithmetic owner, rather than the ESM constructor
 // from another loading path to the same library.
 const ArithmeticNumber = MathBN.convert(0).constructor;
@@ -24,6 +26,11 @@ const nativeNumericInput = (input: unknown, representation: "storage" | "compari
     if (input !== null && typeof input === "object" && input instanceof ArithmeticNumber) return input.toString();
     if (representation === "comparison") return input instanceof NativeBigNumber ? input.bigNumber?.toString() : input;
     if (input instanceof BigNumber) return input.raw?.value;
+    if (input instanceof NativeBigNumber) {
+      const snapshot = snapshotNativeNumber(input);
+      if (snapshot === undefined) throw new TypeError("Unsupported executing native quantity");
+      return snapshot.exact;
+    }
     return input;
   },
   catch: cause => commerceError("invalidInput", cause),
@@ -52,13 +59,27 @@ export const encodeExactNumeric = Effect.fn("MedusaAdapter.encodeExactNumeric")(
   if (raw === undefined || !Number.isFinite(numeric.numeric) || typeof raw.value !== "string") {
     return yield* Effect.fail(commerceError("invalidInput"));
   }
-  return { value: raw.value, raw };
+  const captured = yield* Effect.fromResult(decodeNativeRaw(raw));
+  return { value: captured.value, raw: captured };
+});
+
+/** Only named native DAL profiles accept raw amount records produced by a
+ * genuine native workflow. The ordinary scalar encoder continues to refuse
+ * those records. Precision and canonical companions remain storage-owned. */
+export const encodeNativeExactNumeric = Effect.fn("MedusaAdapter.encodeNativeExactNumeric")(function* (input: unknown) {
+  const plain = yield* Effect.try({ try: () => input !== null && typeof input === "object" &&
+    (Object.getPrototypeOf(input) === Object.prototype || Object.getPrototypeOf(input) === null),
+    catch: cause => commerceError("invalidInput", cause) });
+  if (!plain) return yield* encodeExactNumeric(input);
+  const raw = yield* Effect.fromResult(captureCommerceInput(input).pipe(Result.flatMap(decodeNativeRaw)));
+  return yield* encodeExactNumeric(raw.value);
 });
 
 /** The native DAL may supply genuine BigNumber objects. Descriptor capture
  * keeps accessors/prototypes inert before converting only declared quantities. */
 export const captureExactNumericRow = Effect.fn("MedusaAdapter.captureExactNumericRow")(function* (
   input: unknown, columns: readonly { readonly name: string; readonly defaultValue?: unknown; readonly nullable?: boolean }[], defaults = false,
+  inputProfile: "scalar" | "nativeRaw" = "scalar",
 ) {
   const row = yield* captureNativeRecord(input);
   for (const column of columns) {
@@ -67,7 +88,7 @@ export const captureExactNumericRow = Effect.fn("MedusaAdapter.captureExactNumer
     if (column.nullable && (row[column.name] === null || row[column.name] === undefined && column.defaultValue == null)) {
       row[column.name] = null; row["raw_" + column.name] = null; continue;
     }
-    const encoded = yield* encodeExactNumeric(row[column.name] ?? column.defaultValue);
+    const encoded = yield* (inputProfile === "nativeRaw" ? encodeNativeExactNumeric : encodeExactNumeric)(row[column.name] ?? column.defaultValue);
     row[column.name] = encoded.value; row["raw_" + column.name] = encoded.raw;
   }
   return yield* Effect.fromResult(captureCommerceInput(row)).pipe(Effect.flatMap(value =>

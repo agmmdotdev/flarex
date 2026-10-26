@@ -1642,3 +1642,4 @@ async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
 function digest(byte: number): Uint8Array {
   return new Uint8Array(32).fill(byte);
 }
+import type { DeclarativeV2AuthenticatedRegistrationEvidenceV1 } from "../../../../flarex-backend/src/declarativeV2/AuthenticatedCommandProducer";

@@ -15,13 +15,13 @@ const PaymentSession = model
       .default(PaymentSessionStatus.PENDING),
     authorized_at: model.dateTime().nullable(),
     payment_collection: model.belongsTo<() => typeof PaymentCollection>(
-      () => PaymentCollection,
+      (): typeof PaymentCollection => PaymentCollection,
       {
         mappedBy: "payment_sessions",
       }
     ),
     payment: model
-      .hasOne(() => Payment, {
+      .hasOne((): typeof Payment => Payment, {
         mappedBy: "payment_session",
       })
       .nullable(),

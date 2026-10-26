@@ -6,6 +6,6 @@ export default model.define("region", {
   name: model.text().searchable().translatable(),
   currency_code: model.text().searchable(),
   automatic_taxes: model.boolean().default(true),
-  countries: model.hasMany(() => RegionCountry),
+  countries: model.hasMany((): typeof RegionCountry => RegionCountry),
   metadata: model.json().nullable(),
 })

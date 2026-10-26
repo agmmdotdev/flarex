@@ -11,7 +11,7 @@ export default model
       name: model.text().searchable(),
       display_name: model.text(),
       region: model
-        .belongsTo(() => Region, { mappedBy: "countries" })
+        .belongsTo((): typeof Region => Region, { mappedBy: "countries" })
         .nullable(),
       metadata: model.json().nullable(),
     }

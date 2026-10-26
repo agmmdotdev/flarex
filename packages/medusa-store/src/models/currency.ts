@@ -6,7 +6,7 @@ const StoreCurrency = model.define("StoreCurrency", {
   currency_code: model.text().searchable(),
   is_default: model.boolean().default(false),
   store: model
-    .belongsTo(() => Store, {
+    .belongsTo((): typeof Store => Store, {
       mappedBy: "supported_currencies",
     })
     .nullable(),

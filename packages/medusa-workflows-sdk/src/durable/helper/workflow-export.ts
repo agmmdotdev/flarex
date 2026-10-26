@@ -27,6 +27,7 @@ import {
   FlowRunOptions,
   MainExportedWorkflow,
   WorkflowResult,
+  WorkflowResultOverride,
 } from "./type.js"
 
 function createContextualWorkflowRunner<
@@ -494,7 +495,7 @@ export const exportWorkflow = <TData = unknown, TResult = unknown>(
     >
   ): Promise<
     WorkflowResult<
-      TResultOverride extends undefined ? TResult : TResultOverride
+      WorkflowResultOverride<TResult, TResultOverride>
     >
   > => {
     const container = args?.container
@@ -515,7 +516,7 @@ export const exportWorkflow = <TData = unknown, TResult = unknown>(
     >
   ): Promise<
     WorkflowResult<
-      TResultOverride extends undefined ? TResult : TResultOverride
+      WorkflowResultOverride<TResult, TResultOverride>
     >
   > => {
     const container = args?.container
@@ -540,7 +541,7 @@ export const exportWorkflow = <TData = unknown, TResult = unknown>(
     >
   ): Promise<
     WorkflowResult<
-      TResultOverride extends undefined ? TResult : TResultOverride
+      WorkflowResultOverride<TResult, TResultOverride>
     >
   > => {
     const container = args?.container

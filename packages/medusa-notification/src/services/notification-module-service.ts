@@ -2,8 +2,10 @@ import type {
   Context,
   DAL,
   INotificationModuleService,
+  InferEntityType,
   InternalModuleDeclaration,
   Logger,
+  Message,
   ModulesSdkTypes,
   NotificationTypes,
 } from "@medusajs/types"
@@ -13,10 +15,10 @@ import {
   MedusaContext,
   MedusaService,
 } from "@medusajs/framework/utils/portable"
-import { Notification } from "../models"
+import { Notification, NotificationProvider } from "../models"
 import NotificationProviderService from "./notification-provider"
 import { createNotificationsWithDelivery, prepareNotificationDelivery,
-  type NotificationDeliveryPhases, type NotificationDeliveryProvider, type NotificationDeliveryRow, type NotificationDeliveryUpdate,
+  type NotificationDeliveryPhases, type NotificationDeliveryProvider, type NotificationDeliveryRow, type NotificationDeliveryUpdate, type PreparedNotificationDelivery,
 } from "./notification-delivery"
 
 type NativeDependencies = {
@@ -72,7 +74,10 @@ export default class NotificationModuleService
   async prepareNotificationsForDelivery(
     data: NotificationTypes.CreateNotificationDTO[],
     @MedusaContext() sharedContext: Context = {}
-  ) {
+  ): Promise<{
+    prepared: PreparedNotificationDelivery<InferEntityType<typeof NotificationProvider>, InferEntityType<typeof Notification>>
+    messages: Message[]
+  }> {
     const notificationService = this.notificationService_
     const notificationProviderService = this.notificationProviderService_
     if (!notificationService || !notificationProviderService) {
@@ -93,7 +98,7 @@ export default class NotificationModuleService
   async finalizeNotificationsDelivery(
     updates: NotificationDeliveryUpdate[],
     @MedusaContext() sharedContext: Context = {}
-  ) {
+  ): Promise<{ rows: InferEntityType<typeof Notification>[]; messages: Message[] }> {
     if (!this.notificationService_) throw new Error("Notification delivery finalization is not configured")
     const rows = await this.notificationService_.update(updates, sharedContext)
     return { rows, messages: sharedContext.messageAggregator?.getMessages().default ?? [] }

@@ -13,7 +13,7 @@ const StockLocationAddress = model
     province: model.text().searchable().nullable(),
     postal_code: model.text().searchable().nullable(),
     metadata: model.json().nullable(),
-    stock_locations: model.hasOne(() => StockLocation, {
+    stock_locations: model.hasOne((): typeof StockLocation => StockLocation, {
       mappedBy: "address",
     }),
   })

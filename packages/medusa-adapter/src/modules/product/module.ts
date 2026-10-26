@@ -5,8 +5,8 @@ import { Modules } from "@medusajs/framework/utils/portable";
 import type { DAL, ModulePersistenceAdapter, ModulePersistenceMutationService } from "@medusajs/framework/types";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { prepareCommerceInternalService } from "../../module/persistence";
-import { defineCommerceModule, CommerceModuleDefinitionError, type CommerceModuleExtension } from "../../module/definition";
+import { prepareCommerceInternalService, type CommerceInternalService } from "../../module/persistence";
+import { defineCommerceModule, CommerceModuleDefinitionError, type CommerceModuleExtension, type PreparedCommerceModule } from "../../module/definition";
 import type { CommercePromiseOwner } from "../../module/promise-owner";
 import { captureCommerceInput } from "../../value/input";
 import { captureCategoryProjection } from "./category-projection";
@@ -76,7 +76,19 @@ function bindProduct(ctx: CommerceCommandContext, owner: CommercePromiseOwner, m
 
 /** One integration-owned definition per supported entry profile. The application
  * never registers repositories or chooses these profiles from request input. */
-export function defineProductModule(metadata: ProductRuntimeMetadata, profile: ProductRepositoryProfile = "public") {
+export interface ProductModuleScope {
+  service: ProductModuleService;
+  productService: CommerceInternalService<typeof Product>;
+  categoryService: ProductCategoryService;
+  repository: DAL.RepositoryService;
+  eventBus: ReturnType<typeof commerceModuleEventBus>;
+  context: { readonly manager: CommerceCommandContext["manager"]; readonly transactionManager: CommerceCommandContext["manager"] };
+  capture: ReturnType<typeof bindProduct>["capture"];
+  captureCategory: ReturnType<typeof bindProduct>["captureCategory"];
+}
+
+export function defineProductModule(metadata: ProductRuntimeMetadata, profile: ProductRepositoryProfile = "public"):
+  Result.Result<PreparedCommerceModule<ProductModuleScope>, CommerceModuleDefinitionError> {
   return Result.gen(function* () {
     const entities = new Map<typeof productModels[number], ProductEntityMetadata>();
     for (const model of productModels) {

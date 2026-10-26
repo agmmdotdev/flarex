@@ -11,7 +11,7 @@ export const FulfillmentItem = model
     quantity: model.bigNumber(),
     line_item_id: model.text().nullable(),
     inventory_item_id: model.text().nullable(),
-    fulfillment: model.belongsTo(() => Fulfillment, {
+    fulfillment: model.belongsTo((): typeof Fulfillment => Fulfillment, {
       mappedBy: "items",
     }),
   })

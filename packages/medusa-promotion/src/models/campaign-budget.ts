@@ -13,7 +13,7 @@ const CampaignBudget = model
       currency_code: model.text().nullable(),
       limit: model.bigNumber().nullable(),
       used: model.bigNumber().default(0),
-      campaign: model.belongsTo(() => Campaign, {
+      campaign: model.belongsTo((): typeof Campaign => Campaign, {
         mappedBy: "budget",
       }),
 
@@ -26,7 +26,7 @@ const CampaignBudget = model
       /**
        * @since 2.11.0
        */
-      usages: model.hasMany(() => CampaignBudgetUsage, {
+      usages: model.hasMany((): typeof CampaignBudgetUsage => CampaignBudgetUsage, {
         mappedBy: "budget",
       }),
     }

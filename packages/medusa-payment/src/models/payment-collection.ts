@@ -16,13 +16,13 @@ const PaymentCollection = model
       .enum(PaymentCollectionStatus)
       .default(PaymentCollectionStatus.NOT_PAID),
     metadata: model.json().nullable(),
-    payment_providers: model.manyToMany(() => PaymentProvider, {
+    payment_providers: model.manyToMany((): typeof PaymentProvider => PaymentProvider, {
       mappedBy: "payment_collections",
     }),
-    payment_sessions: model.hasMany(() => PaymentSession, {
+    payment_sessions: model.hasMany((): typeof PaymentSession => PaymentSession, {
       mappedBy: "payment_collection",
     }),
-    payments: model.hasMany(() => Payment, {
+    payments: model.hasMany((): typeof Payment => Payment, {
       mappedBy: "payment_collection",
     }),
   })

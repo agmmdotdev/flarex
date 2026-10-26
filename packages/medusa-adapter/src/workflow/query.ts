@@ -1,7 +1,7 @@
 import { Effect, Result, Schema } from "effect";
 import { coerceFilterValue } from "@medusajs/drizzle/filter-value";
 import { MedusaError } from "@medusajs/framework/utils/portable";
-import { prepareWorkflowGraphQuery, WorkflowGraphCacheOptions, WorkflowGraphQuery } from "@medusajs/core-flows/common/use-query-graph";
+import { prepareWorkflowGraphQuery, WorkflowGraphOptions, WorkflowGraphQuery } from "@medusajs/core-flows/common/use-query-graph";
 import type { AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, commerceLimits } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { PreparedLocalGraph } from "../local-graph/model";
@@ -23,14 +23,18 @@ const decodeRemote = commerceDecoder(Schema.Union([
     variables: Schema.Struct({ variant_id: VariantPriceSetIds }) }),
 ]), "unsupportedProfile");
 const decodeSingleton = commerceDecoder(Schema.Union([Schema.Tuple([
-  Schema.Struct({ entryPoint: Schema.Literals(["stock_location", "fulfillment"]), fields: Fields, variables: Schema.Struct({ id: Schema.String }) }),
+  Schema.Struct({ entryPoint: Schema.Literals(["stock_location", "fulfillment", "payment", "order", "refund_reason"]), fields: Fields, variables: Schema.Struct({ id: Schema.String }) }),
   Schema.Struct({ throwIfKeyNotFound: Schema.Literal(true), throwIfRelationNotFound: Schema.optionalKey(Schema.Undefined) }),
 ]), Schema.Tuple([
   Schema.Struct({ entryPoint: Schema.Literal("payment_collection"), fields: Fields, variables: Schema.Struct({ id: Schema.String }) }),
   Schema.Struct({ throwIfKeyNotFound: Schema.Literal(false), throwIfRelationNotFound: Schema.optionalKey(Schema.Undefined) }),
+]), Schema.Tuple([
+  Schema.Struct({ entryPoint: Schema.Literal("order_payment_collection"), fields: Fields,
+    variables: Schema.Struct({ payment_collection_id: Schema.String }) }),
+  Schema.Struct({ throwIfKeyNotFound: Schema.Boolean, throwIfRelationNotFound: Schema.optionalKey(Schema.Undefined) }),
 ])]), "unsupportedProfile");
 const decodeGraphArguments = commerceDecoder(Schema.Union([
-  Schema.Tuple([WorkflowGraphQuery]), Schema.Tuple([WorkflowGraphQuery, WorkflowGraphCacheOptions]),
+  Schema.Tuple([WorkflowGraphQuery]), Schema.Tuple([WorkflowGraphQuery, WorkflowGraphOptions]),
 ]), "unsupportedProfile");
 
 /** Selected native callable ABIs over the same authenticated graph. This
@@ -43,11 +47,19 @@ export function bindWorkflowQuery(graph: PreparedLocalGraph, context: AtomicComm
       // The pinned singleton RemoteQuery and graph both remove hydration-only
       // join columns. Existing array-ID and service callers retain their native
       // projection, including their admitted Link join fields.
+      const selector = input.entryPoint === "order_payment_collection"
+        ? { column: "payment_collection_id", value: input.variables.payment_collection_id }
+        : { column: "id", value: input.variables.id };
+      // Financial singleton roots use the shared native primary-key check.
+      // The selected module metadata owns the entity name and key semantics.
+      const keyOptions: { readonly throwIfKeyNotFound: true } | undefined =
+        input.entryPoint === "payment" || input.entryPoint === "order" || input.entryPoint === "refund_reason"
+          ? { throwIfKeyNotFound: true } : undefined;
       const data = yield* input.entryPoint === "fulfillment"
         ? query.list({ entity: input.entryPoint, fields: input.fields, filters: { id: [input.variables.id] } })
         : Effect.gen(function* () {
           const result = yield* query.graph({ entity: input.entryPoint, fields: input.fields,
-            filters: { id: [input.variables.id] }, pagination: { take: commerceLimits.catalogRows } });
+            filters: { [selector.column]: [selector.value] }, pagination: { take: commerceLimits.catalogRows } }, keyOptions);
           if (result.metadata.count > commerceLimits.catalogRows) return yield* context.refuse(commerceError("unsupportedProfile"));
           if (result.data.length !== result.metadata.count) return yield* context.refuse(commerceError("storedCorruption"));
           return result.data;
@@ -55,8 +67,9 @@ export function bindWorkflowQuery(graph: PreparedLocalGraph, context: AtomicComm
       if (data.length > 1) return yield* context.refuse(commerceError("storedCorruption"));
       // This is the native business failure, not an ABI or authority refusal.
       // The workflow's existing invoke owner latches an unhandled rejection.
-      if (data.length === 0 && options.throwIfKeyNotFound) return yield* Effect.fail(commerceError("adapterFailure",
-        new MedusaError(MedusaError.Types.NOT_FOUND, (input.entryPoint === "fulfillment" ? "Fulfillment" : "StockLocation") + " id not found: " + input.variables.id)));
+      if (keyOptions === undefined && data.length === 0 && options.throwIfKeyNotFound) return yield* Effect.fail(commerceError("adapterFailure",
+        new MedusaError(MedusaError.Types.NOT_FOUND, (input.entryPoint === "order_payment_collection" ? "OrderPaymentCollection" :
+          input.entryPoint === "fulfillment" ? "Fulfillment" : "StockLocation") + " " + selector.column + " not found: " + selector.value)));
       return data;
     }
     if (args.length !== 1) return yield* context.refuse(commerceError("unsupportedProfile"));
@@ -75,10 +88,11 @@ export function bindWorkflowQuery(graph: PreparedLocalGraph, context: AtomicComm
     return result.data;
   }));
   const nativeGraph = (...args: unknown[]) => owner.run(Effect.gen(function* () {
-    const [input] = yield* checkedCommerceValue(context, () => captureWorkflowInput(args).pipe(Result.flatMap(decodeGraphArguments)));
-    const plan = yield* checkedCommerceValue(context, () => prepareWorkflowGraphQuery(input, commerceLimits.catalogRows)
+    const [input, options] = yield* checkedCommerceValue(context, () => captureWorkflowInput(args).pipe(Result.flatMap(decodeGraphArguments)));
+    const keyOptions = options !== undefined && "throwIfKeyNotFound" in options ? { throwIfKeyNotFound: options.throwIfKeyNotFound } : undefined;
+    const plan = yield* checkedCommerceValue(context, () => prepareWorkflowGraphQuery({ ...input, ...(keyOptions === undefined ? {} : { options: keyOptions }) }, commerceLimits.catalogRows)
       .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause))));
-    const result = yield* query.graph(plan.query);
+    const result = yield* query.graph(plan.query, keyOptions);
     yield* checkedCommerceValue(context, () => plan.validate(result).pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause))));
     return result;
   }));

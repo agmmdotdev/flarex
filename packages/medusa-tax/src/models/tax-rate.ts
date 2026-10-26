@@ -10,10 +10,10 @@ const TaxRate = model
     name: model.text().searchable().translatable(),
     is_default: model.boolean().default(false),
     is_combinable: model.boolean().default(false),
-    tax_region: model.belongsTo(() => TaxRegion, {
+    tax_region: model.belongsTo((): typeof TaxRegion => TaxRegion, {
       mappedBy: "tax_rates",
     }),
-    rules: model.hasMany(() => TaxRateRule, {
+    rules: model.hasMany((): typeof TaxRateRule => TaxRateRule, {
       mappedBy: "tax_rate",
     }),
     metadata: model.json().nullable(),

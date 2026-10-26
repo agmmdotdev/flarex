@@ -14,7 +14,7 @@ const StoreLocale = model.define("StoreLocale", {
    */
   locale_code: model.text().searchable(),
   store: model
-    .belongsTo(() => Store, {
+    .belongsTo((): typeof Store => Store, {
       mappedBy: "supported_locales",
     })
     .nullable(),

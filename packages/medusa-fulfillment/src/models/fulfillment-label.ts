@@ -7,7 +7,7 @@ export const FulfillmentLabel = model.define("fulfillment_label", {
   tracking_number: model.text(),
   tracking_url: model.text(),
   label_url: model.text(),
-  fulfillment: model.belongsTo(() => Fulfillment, {
+  fulfillment: model.belongsTo((): typeof Fulfillment => Fulfillment, {
     mappedBy: "labels",
   }),
 })

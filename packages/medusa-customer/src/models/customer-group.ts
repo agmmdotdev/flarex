@@ -8,7 +8,7 @@ const CustomerGroup = model
     name: model.text().searchable().translatable(),
     metadata: model.json().nullable(),
     created_by: model.text().nullable(),
-    customers: model.manyToMany(() => Customer, {
+    customers: model.manyToMany((): typeof Customer => Customer, {
       mappedBy: "groups",
       pivotEntity: () => CustomerGroupCustomer,
     }),

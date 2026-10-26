@@ -43,9 +43,17 @@ import { BigNumber, createRawPropertiesFromBigNumber, MathBN, transformPropertie
 type PaymentSummary = { order_id: string; totals: Record<"paid_total" | "refunded_total" | "transaction_total" | "pending_difference", BigNumberInput> }
 type PaymentTransaction = { order_id: string; version: number; amount: BigNumberInput }
 export function updateOrderPaymentSummaries(summaries: PaymentSummary[], transactionData: PaymentTransaction[], isRemoved: boolean) `;
-const previewHeader = `import type { Context, IOrderModuleService } from "@medusajs/framework/types"
+const previewHeader = `import type { Context } from "@medusajs/framework/types"
 import { isDefined } from "@medusajs/framework/utils/portable"
-type PreviewReads = Pick<IOrderModuleService, "listOrderLineItems" | "listOrderShippingMethods">
+type PreviewRead = (
+  filters: { id: string[] },
+  config: { relations: ("adjustments" | "tax_lines")[] },
+  sharedContext?: Context
+) => readonly { readonly id: string }[] | Promise<readonly { readonly id: string }[]>
+type PreviewReads = {
+  listOrderLineItems: PreviewRead
+  listOrderShippingMethods: PreviewRead
+}
 export async function includeOrderPreviewDetails(reads: PreviewReads, order, itemsToUpsert, shippingMethodsToUpsert, lineItemAdjustmentsToCreate, sharedContext: Context = {}) `;
 /** Whole-module comparison includes both types/import closure and execution.
  * @param {string} original @param {string} accounting @param {string} totals @param {string} preview */

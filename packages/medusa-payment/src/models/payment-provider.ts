@@ -4,7 +4,7 @@ import PaymentCollection from "./payment-collection"
 const PaymentProvider = model.define("PaymentProvider", {
   id: model.id().primaryKey(),
   is_enabled: model.boolean().default(true),
-  payment_collections: model.manyToMany(() => PaymentCollection, {
+  payment_collections: model.manyToMany((): typeof PaymentCollection => PaymentCollection, {
     mappedBy: "payment_providers",
   }),
 })

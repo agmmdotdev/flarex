@@ -2,6 +2,7 @@ import { Effect, Result } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
 import { model } from "@medusajs/utils/dml/model";
+import { BigNumber } from "@medusajs/framework/utils/portable";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
 import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
 import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
@@ -10,7 +11,7 @@ import { capturePrivateCanonicalValue } from "../../persistence-postgres/src/ins
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { decodeCompiledDml } from "../src/schema/compiled";
 import { lowerDmlSchema } from "../src/schema/lower";
-import { encodeExactNumeric, decodeExactNumeric } from "../src/value/exact-numeric";
+import { captureExactNumericRow, encodeExactNumeric, decodeExactNumeric } from "../src/value/exact-numeric";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 
 const Ledger = model.define("NumericLedger", {
@@ -26,6 +27,16 @@ const malformed = defineCommerceCommand("numericMalformed", "write", Effect.fn(f
   const table = yield* ctx.table("numeric_ledger");
   return [...yield* table.write(ctx.manager, "insert", [{ id: "invalid", ...(input === "null" ? { amount: null } : {}) }])];
 }));
+const nativeWrite = (representation: "quantity" | "raw") => defineCommerceCommand("numericNative" + representation,
+  "write", Effect.fn(function* (ctx, input) {
+    if (typeof input !== "string") return yield* ctx.refuse(commerceError("invalidInput"));
+    // Construct actual native DAL input inside the trusted test command. The
+    // host's caller JSON boundary never admits class instances implicitly.
+    const amount = representation === "quantity" ? new BigNumber(input) : { value: input, precision: 20 };
+    const row = yield* captureExactNumericRow({ id: "native-" + representation, amount }, [{ name: "amount" }], false, "nativeRaw");
+    return [...yield* (yield* ctx.table("numeric_ledger")).write(ctx.manager, "insert", [row])];
+  }));
+const nativeQuantity = nativeWrite("quantity"), nativeRaw = nativeWrite("raw");
 const read = defineCommerceCommand("numericRead", "read", Effect.fn(function* (ctx) {
   const table = yield* ctx.table("numeric_ledger");
   return [...yield* table.find(ctx.manager, { fields: ["id", "amount", "raw_amount", "quantity", "raw_quantity"],
@@ -63,7 +74,7 @@ beforeAll(async () => {
     logicalStorage: { ...fixture.hostInput.logicalStorage,
       source: { sourceKey: "medusa.numeric-ledger", writeProfile: "medusa.numeric-ledger", schema, evidence },
       initialization: { stepId: "numeric-empty", datasetSha256: seed.sha256Hex, expectedRowCount: 0 } },
-    commands: [write, malformed, read],
+    commands: [write, malformed, nativeQuantity, nativeRaw, read],
   }));
   await Effect.runPromise(host.initialize([]));
 }, 180_000);
@@ -91,5 +102,17 @@ describe("shared logical exact numeric contracts", () => {
   it.each(["missing", "null"])("refuses %s required values without committing a row", async mode => {
     expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), malformed, mode))))).toBe(true);
     expect(await Effect.runPromise(host.read(read, null))).toHaveLength(1);
+  });
+  it("stores and replays genuine native quantities and explicit native raw amounts through the same owner", async () => {
+    const value = "9007199254740993.125";
+    for (const command of [nativeQuantity, nativeRaw]) {
+      const key = host.newRequestKey(), result = await Effect.runPromise(host.run(key, command, value));
+      expect(await Effect.runPromise(host.run(key, command, value))).toEqual(result);
+    }
+    expect(await Effect.runPromise(host.read(read, null))).toMatchObject([
+      { id: "exact", amount: "9007199254740993.1250" },
+      { id: "native-quantity", amount: "9007199254740993.1250", raw_amount: { value: "9007199254740993.1250", precision: 20 } },
+      { id: "native-raw", amount: "9007199254740993.1250", raw_amount: { value: "9007199254740993.1250", precision: 20 } },
+    ]);
   });
 });

@@ -114,7 +114,7 @@ export default class TaxModuleService
   protected async createTaxRates_(
     data: TaxTypes.CreateTaxRateDTO[],
     @MedusaContext() sharedContext: Context = {}
-  ) {
+  ): Promise<InferEntityType<typeof TaxRate>[]> {
     const [rules, rateData] = data.reduce(
       (acc, region) => {
         const { rules, ...rest } = region
@@ -195,7 +195,7 @@ export default class TaxModuleService
     idOrSelector: string | string[] | TaxTypes.FilterableTaxRateProps,
     data: TaxTypes.UpdateTaxRateDTO,
     @MedusaContext() sharedContext: Context = {}
-  ) {
+  ): Promise<InferEntityType<typeof TaxRate>> {
     const selector =
       Array.isArray(idOrSelector) || isString(idOrSelector)
         ? { id: idOrSelector }
@@ -337,7 +337,7 @@ export default class TaxModuleService
   async createTaxRegions_(
     data: TaxTypes.CreateTaxRegionDTO[],
     @MedusaContext() sharedContext: Context = {}
-  ) {
+  ): Promise<InferEntityType<typeof TaxRegion>[]> {
     const { defaultRates, regionData } =
       this.prepareTaxRegionInputForCreate(data)
 
@@ -399,7 +399,7 @@ export default class TaxModuleService
   async createTaxRateRules_(
     data: TaxTypes.CreateTaxRateRuleDTO[],
     @MedusaContext() sharedContext: Context = {}
-  ) {
+  ): Promise<InferEntityType<typeof TaxRateRule>[]> {
     const rules = await this.taxRateRuleService_.create(data, sharedContext)
     return rules
   }

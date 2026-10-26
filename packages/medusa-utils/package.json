@@ -692,6 +692,11 @@
       "types": "./dist/api-key/api-key-type.d.ts",
       "source": "./src/api-key/api-key-type.ts",
       "default": "./dist/api-key/api-key-type.js"
+    },
+    "./totals/native-number": {
+      "types": "./dist/totals/native-number.d.ts",
+      "source": "./src/totals/native-number.ts",
+      "default": "./dist/totals/native-number.js"
     }
   },
   "license": "MIT",

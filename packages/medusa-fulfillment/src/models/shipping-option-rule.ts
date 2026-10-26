@@ -6,7 +6,7 @@ export const ShippingOptionRule = model.define("shipping_option_rule", {
   attribute: model.text(),
   operator: model.enum(RuleOperator),
   value: model.json().nullable(),
-  shipping_option: model.belongsTo(() => ShippingOption, {
+  shipping_option: model.belongsTo((): typeof ShippingOption => ShippingOption, {
     mappedBy: "rules",
   }),
 })

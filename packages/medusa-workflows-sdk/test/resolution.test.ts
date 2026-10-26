@@ -271,7 +271,8 @@ describe("prepared workflow resolution", () => {
     } | undefined>();
     const hook = vi.fn((input: number) => input + 1);
     expect(await runEffect(executeWorkflow(Result.getOrThrow(wrapped.prepare({ "native-bare-hook": hook })), 9, port))).toEqual({ value: 9 });
-    expect(hook).toHaveBeenCalledWith(9, port.context);
+    expect(hook).toHaveBeenCalledWith(9, { ...port.context,
+      idempotencyKey: JSON.stringify([port.context.eventGroupId, 0]) });
   });
 
   it("refuses foreign, unknown, non-step and counterfeit bare returns without reading getters", () => {

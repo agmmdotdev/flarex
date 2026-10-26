@@ -88,6 +88,11 @@ type NormalizedPriceListMutationInput = Omit<PriceListDateInput, "rules"> & {
 
 type RelationList<T> = T[] | { toArray(): T[] }
 
+type PriceListUpdateResult = Omit<InferEntityType<typeof PriceList>, "starts_at" | "ends_at"> & {
+  starts_at: InferEntityType<typeof PriceList>["starts_at"] | string
+  ends_at: InferEntityType<typeof PriceList>["ends_at"] | string
+}
+
 const generateMethodForModels = {
   PriceSet,
   PriceList,
@@ -1317,7 +1322,7 @@ export default class PricingModuleService
   protected async createPriceSets_(
     data: PricingTypes.CreatePriceSetDTO[],
     @MedusaContext() sharedContext: Context = {}
-  ) {
+  ): Promise<InferEntityType<typeof PriceSet>[]> {
     const input = Array.isArray(data) ? data : [data]
 
     const toCreate = input.map((inputData) => {
@@ -1341,7 +1346,7 @@ export default class PricingModuleService
   protected async addPrices_(
     input: AddPricesDTO[],
     @MedusaContext() sharedContext: Context = {}
-  ) {
+  ): Promise<InferEntityType<typeof Price>[]> {
     const prices = input.flatMap((data) => {
       return data.prices.map((price) => {
         ;(price as PricingTypes.PriceDTO).price_set_id = data.priceSetId
@@ -1400,7 +1405,7 @@ export default class PricingModuleService
   protected async createPriceLists_(
     data: PricingTypes.CreatePriceListDTO[],
     @MedusaContext() sharedContext: Context = {}
-  ) {
+  ): Promise<InferEntityType<typeof PriceList>[]> {
     const normalized = this.normalizePriceListDate(data)
 
     const priceListsToCreate: ServiceTypes.CreatePriceListDTO[] =
@@ -1452,7 +1457,7 @@ export default class PricingModuleService
   protected async updatePriceLists_(
     data: PricingTypes.UpdatePriceListDTO[],
     @MedusaContext() sharedContext: Context = {}
-  ) {
+  ): Promise<PriceListUpdateResult[]> {
     const existingPriceLists = await this.priceListService_.list(
       { id: data.map((d) => d.id) },
       {},

@@ -23,16 +23,16 @@ const Promotion = model
       .index("IDX_promotion_status")
       .default(PromotionUtils.PromotionStatus.DRAFT),
     campaign: model
-      .belongsTo(() => Campaign, {
+      .belongsTo((): typeof Campaign => Campaign, {
         mappedBy: "promotions",
       })
       .nullable(),
     application_method: model
-      .hasOne<() => typeof ApplicationMethod>(() => ApplicationMethod, {
+      .hasOne<() => typeof ApplicationMethod>((): typeof ApplicationMethod => ApplicationMethod, {
         mappedBy: "promotion",
       })
       .nullable(),
-    rules: model.manyToMany<() => typeof PromotionRule>(() => PromotionRule, {
+    rules: model.manyToMany<() => typeof PromotionRule>((): typeof PromotionRule => PromotionRule, {
       pivotTable: "promotion_promotion_rule",
       mappedBy: "promotions",
     }),

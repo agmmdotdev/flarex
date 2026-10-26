@@ -6,7 +6,7 @@ const TaxRateRule = model
     id: model.id({ prefix: "txrule" }).primaryKey(),
     metadata: model.json().nullable(),
     created_by: model.text().nullable(),
-    tax_rate: model.belongsTo(() => TaxRate, {
+    tax_rate: model.belongsTo((): typeof TaxRate => TaxRate, {
       mappedBy: "rules",
     }),
     reference: model.text(),

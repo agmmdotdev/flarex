@@ -4,7 +4,7 @@ import Cart from "./cart"
 const CreditLine = model
   .define("CreditLine", {
     id: model.id({ prefix: "cacl" }).primaryKey(),
-    cart: model.belongsTo(() => Cart, {
+    cart: model.belongsTo((): typeof Cart => Cart, {
       mappedBy: "credit_lines",
     }),
     reference: model.text().nullable(),

@@ -9,6 +9,7 @@ import { planGraphFields, type GraphFieldPlan } from "./fields";
 import type { GraphParticipant, GraphReadDefinition, GraphReadSelection, LocalGraphQuery, PreparedLocalGraph } from "./model";
 import { populateGraphRemotePaths, prepareGraphRemotePaths, prepareGraphLinkEndpoints, validateGraphPathPrefixes } from "./remote-paths";
 import { prepareGraphDirectPaths } from "./direct-paths";
+import { prepareGraphKeyValidation, prepareGraphKeys, validateGraphPrimaryKey, validateGraphKeys } from "./key-validation";
 
 const queryFields = {
   fields: Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isLengthBetween(1, 256)),
@@ -171,27 +172,39 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
     return Object.freeze({ entities: Object.freeze([...entries.keys()]), bind: (context): LocalGraphQuery => {
       // Only newly originated planner/result failures enter refusal here. A
       // participant call already owns its full failure Cause and must propagate.
-      const execute = Effect.fn("LocalGraph.query")(function* (input: unknown, service: boolean, native: boolean) {
+      const execute = Effect.fn("LocalGraph.query")(function* (input: unknown, service: boolean, native: boolean, options?: unknown) {
         const { entry, args, fields, order } = yield* checkedCommerceValue(context, () => planQuery(input, service ? services : entries, service, native));
         const read = entry.read;
         if (read.result === "list") return yield* context.refuse(commerceError("unsupportedProfile"));
+        const keyPlan = yield* checkedCommerceValue(context, () => prepareGraphKeyValidation(read, args.filters, options));
+        if (keyPlan !== undefined) yield* validateGraphPrimaryKey(keyPlan);
+        const keys = keyPlan === undefined ? undefined : yield* checkedCommerceValue(context, () => prepareGraphKeys(keyPlan));
         const skip = args.pagination.skip ?? 0, take = args.pagination.take;
+        if (keyPlan !== undefined && skip !== 0) return yield* context.refuse(commerceError("unsupportedProfile"));
         const remote = remotePaths.get(entry.read.model);
         const endpoints = linkEndpoints.get(entry.read.model);
         const direct = directPaths.get(entry.read.model);
         const isRemote = (path: string) => remote?.has(path) === true || direct?.has(path) === true || [...endpoints?.keys() ?? []].some(prefix => path === prefix || path.startsWith(prefix + "."));
         const selectedRemote = fields.relations.filter(isRemote);
         const relations = fields.relations.filter(path => !isRemote(path));
-        const select = selectedRemote.length !== 0 && relations.length === 0
+        const selected = selectedRemote.length !== 0 && relations.length === 0
           ? [...new Set([...fields.node.fields, ...entry.read.table.primaryKeys,
             ...selectedRemote.flatMap(path => remote?.get(path)?.sourceKey ?? direct?.get(path)?.sourceKey ?? endpoints?.get(path)?.sourceKey ?? [])])]
             .filter(field => entry.read.table.columns.includes(field)) : fields.select;
+        // The genuine key is fetched in this same DAL selection, then masked
+        // by the original graph projection after native completeness checks.
+        const select = keyPlan === undefined ? selected : [...new Set([...selected, keyPlan.pkField])];
         const value = yield* context.call(entry.participant, entry.read.command, {
           filters: args.filters ?? {}, config: { select, relations, order, skip, take },
         });
         const [rows, count] = yield* checkedCommerceValue(context, () => read.decode(value));
         if (rows.length > take || rows.length !== Math.min(take, Math.max(0, count - skip)))
           return yield* context.refuse(commerceError("storedCorruption"));
+        if (keyPlan !== undefined) {
+          if (rows.length !== count) return yield* context.refuse(commerceError("unsupportedProfile"));
+          yield* validateGraphKeys({ uniqueIds: keys, resData: rows, expand: { serviceConfig: keyPlan.serviceConfig },
+            pkField: keyPlan.pkField, options: keyPlan.options });
+        }
         const populated = selectedRemote.length === 0 ? rows
           : yield* populateGraphRemotePaths(context, rows, fields.node, remote ?? new Map(), endpoints, direct);
         return yield* checkedCommerceValue(context, () => graphResult(populated, count, fields, skip, take));
@@ -210,7 +223,7 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
         const rows = yield* checkedCommerceValue(context, () => read.decode(value));
         return yield* checkedCommerceValue(context, () => fields.project(rows));
       });
-      return Object.freeze({ graph: (input: unknown) => execute(input, false, false), service: (input: unknown) => execute(input, true, true), native: (input: unknown) => execute(input, false, true), list });
+      return Object.freeze({ graph: (input: unknown, options?: unknown) => execute(input, false, false, options), service: (input: unknown) => execute(input, true, true), native: (input: unknown) => execute(input, false, true), list });
     } } satisfies PreparedLocalGraph);
   });
 }

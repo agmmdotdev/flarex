@@ -18,7 +18,7 @@ const CustomerAddress = model
     postal_code: model.text().searchable().nullable(),
     phone: model.text().nullable(),
     metadata: model.json().nullable(),
-    customer: model.belongsTo(() => Customer, {
+    customer: model.belongsTo((): typeof Customer => Customer, {
       mappedBy: "addresses",
     }),
   })

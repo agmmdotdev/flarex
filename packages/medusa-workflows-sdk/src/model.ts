@@ -12,9 +12,10 @@ export type StepOutput<Output> = WorkflowData<Output> & {
 /** Definition inputs may place typed references at any resolved data member.
  * Branded references must match that member's value type; they cannot enter
  * through an otherwise structurally compatible literal record or array. */
-type WorkflowInput<T> = WorkflowData<T> | (T extends Date | ((...args: never[]) => unknown) ? T
+export type WorkflowInput<T> = WorkflowData<T> | (T extends Date | ((...args: never[]) => unknown) ? T
   : T extends readonly unknown[] ? { [Key in keyof T]: WorkflowInput<T[Key]> } & { readonly [dataBrand]?: never }
-  : T extends object ? { [Key in keyof T]: WorkflowInput<T[Key]> } & { readonly [dataBrand]?: never } : T);
+  : T extends object ? Pick<T, keyof T> extends T
+    ? { [Key in keyof T]: WorkflowInput<T[Key]> } & { readonly [dataBrand]?: never } : T : T);
 export interface StepFunction<Input, Output> { (input: WorkflowInput<Input>): StepOutput<Output> }
 /** Resolve structural authoring records without projecting nominal values into
  * public member bags. A private/protected identity is absent from Pick's keys;

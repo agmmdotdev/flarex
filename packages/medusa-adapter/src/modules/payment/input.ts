@@ -16,7 +16,7 @@ export const PaymentDeleteRootInput = Schema.Struct({ ids: PaymentSessionIds });
 export const PaymentRead = Schema.Struct({ filters: Schema.optionalKey(Schema.Struct({
   id: Schema.optionalKey(Schema.Union([PaymentId, PaymentSessionIds])) })),
   config: Schema.optionalKey(Schema.Struct({ select: Schema.optionalKey(Schema.Array(Schema.String).pipe(Schema.mutable)),
-    relations: Schema.optionalKey(Schema.Array(Schema.String).pipe(Schema.mutable)), take: Schema.optionalKey(Schema.Literals([15, 256])),
+    relations: Schema.optionalKey(Schema.Array(Schema.String).pipe(Schema.mutable)), take: Schema.optionalKey(Schema.Literals([4, 15, 256])),
     skip: Schema.optionalKey(Schema.Literal(0)), order: Schema.optionalKey(Schema.Struct({ id: Schema.Literal("ASC") })) })) });
 export const decodePaymentCreate = commerceDecoder(PaymentSessionCreate, "invalidInput");
 export const decodePaymentCollectionCreate = commerceDecoder(PaymentCollectionCreate, "invalidInput");

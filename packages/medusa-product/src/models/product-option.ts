@@ -7,10 +7,10 @@ const ProductOption = model
     id: model.id({ prefix: "opt" }).primaryKey(),
     title: model.text().searchable().translatable(),
     metadata: model.json().nullable(),
-    product: model.belongsTo(() => Product, {
+    product: model.belongsTo((): typeof Product => Product, {
       mappedBy: "options",
     }),
-    values: model.hasMany(() => ProductOptionValue, {
+    values: model.hasMany((): typeof ProductOptionValue => ProductOptionValue, {
       mappedBy: "option",
     }),
   })

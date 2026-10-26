@@ -24,24 +24,24 @@ const Cart = model
     metadata: model.json().nullable(),
     completed_at: model.dateTime().nullable(),
     shipping_address: model
-      .hasOne(() => Address, {
+      .hasOne((): typeof Address => Address, {
         mappedBy: undefined,
         foreignKey: true,
       })
       .nullable(),
     billing_address: model
-      .hasOne(() => Address, {
+      .hasOne((): typeof Address => Address, {
         mappedBy: undefined,
         foreignKey: true,
       })
       .nullable(),
-    items: model.hasMany(() => LineItem, {
+    items: model.hasMany((): typeof LineItem => LineItem, {
       mappedBy: "cart",
     }),
-    credit_lines: model.hasMany(() => CreditLine, {
+    credit_lines: model.hasMany((): typeof CreditLine => CreditLine, {
       mappedBy: "cart",
     }),
-    shipping_methods: model.hasMany(() => ShippingMethod, {
+    shipping_methods: model.hasMany((): typeof ShippingMethod => ShippingMethod, {
       mappedBy: "cart",
     }),
   })

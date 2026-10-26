@@ -1,4 +1,5 @@
 import { inspectPayloadRuntimeForTest } from "../../../../payload-adapter/src/testing";
+import type { PayloadRuntime } from "../../../../payload-adapter/src/runtime";
 import { Deferred, Effect, Fiber, Result } from "effect";
 import { ValidationError } from "payload";
 import { expect, vi } from "vitest";

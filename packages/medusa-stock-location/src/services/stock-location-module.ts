@@ -148,7 +148,7 @@ export default class StockLocationModuleService
   async upsertStockLocations_(
     input: UpsertStockLocationInput[],
     @MedusaContext() context: Context = {}
-  ) {
+  ): Promise<InferEntityType<typeof StockLocation>[]> {
     const toUpdate = input.filter(
       (location): location is UpdateStockLocationInput => !!location.id
     ) as UpdateStockLocationInput[]
@@ -305,7 +305,7 @@ export default class StockLocationModuleService
   async upsertStockLocationAddresses_(
     input: UpsertStockLocationAddressInput[],
     @MedusaContext() context: Context = {}
-  ) {
+  ): Promise<InferEntityType<typeof StockLocationAddress>[]> {
     const toUpdate = input.filter(
       (location): location is UpdateStockLocationAddressInput => !!location.id
     ) as UpdateStockLocationAddressInput[]

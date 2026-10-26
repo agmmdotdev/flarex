@@ -40,17 +40,14 @@ import type {
   WebhookActionResult,
 } from "@medusajs/framework/types"
 import {
-  BigNumber,
   EmitEvents,
   InjectManager,
   InjectTransactionManager,
   isPresent,
   isString,
-  MathBN,
   MedusaContext,
   MedusaError,
   ModulesSdkUtils,
-  PaymentCollectionStatus,
   PaymentSessionStatus,
   promiseAll,
 } from "@medusajs/framework/utils/portable"
@@ -65,6 +62,7 @@ import {
 } from "../models"
 import { joinerConfig } from "../joiner-config"
 import PaymentProviderService from "./payment-provider"
+import { paymentCollectionUpdate, roundToCurrencyPrecision, validatePaymentCapture, validatePaymentRefund } from "../utils/accounting"
 
 type InjectedDependencies = {
   logger?: Logger
@@ -157,19 +155,7 @@ export default class PaymentModuleService
     amount: BigNumberInput,
     currencyCode: string
   ): BigNumberInput {
-    let precision: number | undefined = undefined
-    try {
-      const formatted = Intl.NumberFormat(undefined, {
-        style: "currency",
-        currency: currencyCode,
-      }).format(0.1111111)
-
-      precision = formatted.split(".")[1].length
-    } catch {
-      // Unknown currency, keep the full precision
-    }
-
-    return MathBN.convert(amount, precision)
+    return roundToCurrencyPrecision(amount, currencyCode)
   }
 
   // @ts-expect-error
@@ -723,50 +709,8 @@ export default class PaymentModuleService
     isFullyCaptured: boolean
     capture?: InferEntityType<typeof Capture>
   }> {
-    if (payment.canceled_at) {
-      throw new MedusaError(
-        MedusaError.Types.INVALID_DATA,
-        `The payment: ${payment.id} has been canceled.`
-      )
-    }
-
-    if (payment.captured_at) {
-      return { isFullyCaptured: true }
-    }
-
-    // If no custom amount is passed, we assume the full amount needs to be captured
-    if (!data.amount) {
-      data.amount = payment.amount as number
-    }
-
-    const capturedAmount = payment.captures.reduce((captureAmount, next) => {
-      return MathBN.add(captureAmount, next.raw_amount as BigNumberInput)
-    }, MathBN.convert(0))
-
-    const authorizedAmount = new BigNumber(payment.raw_amount as BigNumberInput)
-    const newCaptureAmount = new BigNumber(data.amount)
-    const remainingToCapture = MathBN.sub(authorizedAmount, capturedAmount)
-
-    if (
-      MathBN.gt(
-        this.roundToCurrencyPrecision(newCaptureAmount, payment.currency_code),
-        this.roundToCurrencyPrecision(remainingToCapture, payment.currency_code)
-      )
-    ) {
-      throw new MedusaError(
-        MedusaError.Types.INVALID_DATA,
-        `You cannot capture more than the authorized amount substracted by what is already captured.`
-      )
-    }
-
-    // When the entire authorized amount has been captured, we return it as complete
-    const totalCaptured = MathBN.convert(
-      MathBN.add(capturedAmount, newCaptureAmount)
-    )
-    const isFullyCaptured = MathBN.gte(
-      this.roundToCurrencyPrecision(totalCaptured, payment.currency_code),
-      this.roundToCurrencyPrecision(authorizedAmount, payment.currency_code)
-    )
+    const { isFullyCaptured } = validatePaymentCapture(data, payment, this.roundToCurrencyPrecision.bind(this))
+    if (payment.captured_at) return { isFullyCaptured }
 
     const capture = await this.captureService_.create(
       {
@@ -789,7 +733,7 @@ export default class PaymentModuleService
       isCaptured?: boolean
     } = {},
     @MedusaContext() sharedContext: Context = {}
-  ) {
+  ): Promise<InferEntityType<typeof Payment>> {
     if (!options.isCaptured) {
       const paymentData = await this.paymentProviderService_.capturePayment(
         payment.provider_id,
@@ -874,26 +818,7 @@ export default class PaymentModuleService
     data: CreateRefundDTO,
     @MedusaContext() sharedContext: Context = {}
   ): Promise<InferEntityType<typeof Refund>> {
-    if (!data.amount) {
-      data.amount = payment.amount as BigNumberInput
-    }
-
-    const capturedAmount = payment.captures.reduce((captureAmount, next) => {
-      const amountAsBigNumber = new BigNumber(next.raw_amount as BigNumberInput)
-      return MathBN.add(captureAmount, amountAsBigNumber)
-    }, MathBN.convert(0))
-    const refundedAmount = payment.refunds.reduce((refundedAmount, next) => {
-      return MathBN.add(refundedAmount, next.raw_amount as BigNumberInput)
-    }, MathBN.convert(0))
-
-    const totalRefundedAmount = MathBN.add(refundedAmount, data.amount)
-
-    if (MathBN.lt(capturedAmount, totalRefundedAmount)) {
-      throw new MedusaError(
-        MedusaError.Types.INVALID_DATA,
-        `You cannot refund more than what is captured on the payment.`
-      )
-    }
+    validatePaymentRefund(payment, data)
 
     const refund = await this.refundService_.create(
       {
@@ -914,7 +839,7 @@ export default class PaymentModuleService
     payment: InferEntityType<typeof Payment>,
     refund: InferEntityType<typeof Refund>,
     @MedusaContext() sharedContext: Context = {}
-  ) {
+  ): Promise<InferEntityType<typeof Payment>> {
     const paymentData = await this.paymentProviderService_.refundPayment(
       payment.provider_id,
       {
@@ -983,77 +908,12 @@ export default class PaymentModuleService
       sharedContext
     )
 
-    const paymentSessions = paymentCollection.payment_sessions
-    const captures = paymentCollection.payments
-      .map((pay) => [...pay.captures])
-      .flat()
-    const refunds = paymentCollection.payments
-      .map((pay) => [...pay.refunds])
-      .flat()
-
-    let authorizedAmount = MathBN.convert(0)
-    let capturedAmount = MathBN.convert(0)
-    let refundedAmount = MathBN.convert(0)
-    let completedAt: Date | undefined
-
-    for (const ps of paymentSessions) {
-      if (ps.status === PaymentSessionStatus.AUTHORIZED) {
-        authorizedAmount = MathBN.add(authorizedAmount, ps.amount)
-      }
-    }
-
-    for (const capture of captures) {
-      capturedAmount = MathBN.add(capturedAmount, capture.amount)
-    }
-
-    for (const refund of refunds) {
-      refundedAmount = MathBN.add(refundedAmount, refund.amount)
-    }
-
-    let status =
-      paymentSessions.length === 0
-        ? PaymentCollectionStatus.NOT_PAID
-        : PaymentCollectionStatus.AWAITING
-
-    if (MathBN.gt(authorizedAmount, 0)) {
-      status = MathBN.gte(
-        this.roundToCurrencyPrecision(
-          authorizedAmount,
-          paymentCollection.currency_code
-        ),
-        this.roundToCurrencyPrecision(
-          paymentCollection.amount,
-          paymentCollection.currency_code
-        )
-      )
-        ? PaymentCollectionStatus.AUTHORIZED
-        : PaymentCollectionStatus.PARTIALLY_AUTHORIZED
-    }
-
-    if (
-      MathBN.gte(
-        this.roundToCurrencyPrecision(
-          capturedAmount,
-          paymentCollection.currency_code
-        ),
-        this.roundToCurrencyPrecision(
-          paymentCollection.amount,
-          paymentCollection.currency_code
-        )
-      )
-    ) {
-      status = PaymentCollectionStatus.COMPLETED
-      completedAt = new Date()
-    }
+    const update = paymentCollectionUpdate(paymentCollection, undefined, this.roundToCurrencyPrecision.bind(this))
 
     await this.paymentCollectionService_.update(
       {
         id: paymentCollectionId,
-        status,
-        authorized_amount: authorizedAmount,
-        captured_amount: capturedAmount,
-        refunded_amount: refundedAmount,
-        completed_at: completedAt,
+        ...update,
       },
       sharedContext
     )

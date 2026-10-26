@@ -14,7 +14,7 @@ const ReservationItem = model
     created_by: model.text().nullable(),
     metadata: model.json().nullable(),
     inventory_item: model
-      .belongsTo(() => InventoryItem, {
+      .belongsTo((): typeof InventoryItem => InventoryItem, {
         mappedBy: "reservation_items",
       })
       .searchable(),

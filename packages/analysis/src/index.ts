@@ -661,7 +661,9 @@ export const sourcePositionResolverFromSourceMapsEffect = Effect.fn(
   return (moduleName, exportName) => positions.get(`${moduleName}:${exportName}`);
 });
 
-export const deploymentAnalysisFromCodegenAnalysisEffect = Effect.fn(
+export const deploymentAnalysisFromCodegenAnalysisEffect: (
+  analysis: DeploymentAnalysis,
+) => Effect.Effect<BackendDeploymentAnalysis, AnalyzerValidatorError | AnalyzerPartitionError> = Effect.fn(
   "FlarexAnalysis.deploymentAnalysisFromCodegenAnalysis",
 )(function* (
   analysis: DeploymentAnalysis,
@@ -679,7 +681,9 @@ export const deploymentAnalysisFromCodegenAnalysisEffect = Effect.fn(
   };
 });
 
-export const backendCodegenAnalysisFromCodegenAnalysisEffect = Effect.fn(
+export const backendCodegenAnalysisFromCodegenAnalysisEffect: (
+  analysis: DeploymentAnalysis,
+) => Effect.Effect<BackendDeploymentCodegenAnalysis, AnalyzerValidatorError | AnalyzerPartitionError> = Effect.fn(
   "FlarexAnalysis.backendCodegenAnalysisFromCodegenAnalysis",
 )(function* (
   analysis: DeploymentAnalysis,

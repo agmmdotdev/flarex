@@ -16,24 +16,24 @@ export const ShippingOption = model
       .default(ShippingOptionPriceType.FLAT),
     data: model.json().nullable(),
     metadata: model.json().nullable(),
-    service_zone: model.belongsTo(() => ServiceZone, {
+    service_zone: model.belongsTo((): typeof ServiceZone => ServiceZone, {
       mappedBy: "shipping_options",
     }),
     shipping_profile: model
-      .belongsTo(() => ShippingProfile, {
+      .belongsTo((): typeof ShippingProfile => ShippingProfile, {
         mappedBy: "shipping_options",
       })
       .nullable(),
-    provider: model.belongsTo(() => FulfillmentProvider).nullable(),
-    type: model.belongsTo(() => ShippingOptionType, {
+    provider: model.belongsTo((): typeof FulfillmentProvider => FulfillmentProvider).nullable(),
+    type: model.belongsTo((): typeof ShippingOptionType => ShippingOptionType, {
       foreignKey: true,
       foreignKeyName: "shipping_option_type_id",
       mappedBy: "shipping_options",
     }),
-    rules: model.hasMany(() => ShippingOptionRule, {
+    rules: model.hasMany((): typeof ShippingOptionRule => ShippingOptionRule, {
       mappedBy: "shipping_option",
     }),
-    fulfillments: model.hasMany(() => Fulfillment, {
+    fulfillments: model.hasMany((): typeof Fulfillment => Fulfillment, {
       mappedBy: "shipping_option",
     }),
   })

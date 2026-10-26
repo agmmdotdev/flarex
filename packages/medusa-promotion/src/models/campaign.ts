@@ -13,11 +13,11 @@ const Campaign = model
       starts_at: model.dateTime().nullable(),
       ends_at: model.dateTime().nullable(),
       budget: model
-        .hasOne<() => typeof CampaignBudget>(() => CampaignBudget, {
+        .hasOne<() => typeof CampaignBudget>((): typeof CampaignBudget => CampaignBudget, {
           mappedBy: "campaign",
         })
         .nullable(),
-      promotions: model.hasMany(() => Promotion, {
+      promotions: model.hasMany((): typeof Promotion => Promotion, {
         mappedBy: "campaign",
       }),
     }

@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import ts from "@typescript/typescript6";
+import { paymentAccountingAuthoredTargets } from "./check-medusa-payment-lifecycle-source.mjs";
 
 const failure = "Changed native Cart prerequisite source";
 const nativePrefix = "third_party/medusa/upstream/";
@@ -316,7 +317,7 @@ export const cartPrerequisiteSourcePairs = Object.freeze([
   {
     "source": "third_party/medusa/upstream/packages/modules/payment/src/services/payment-module.ts",
     "target": "packages/medusa-payment/src/services/payment-module.ts",
-    "classification": "importRelocation"
+    "classification": "paymentAccountingFork"
   },
   {
     "source": "third_party/medusa/upstream/packages/modules/payment/src/services/payment-provider.ts",
@@ -571,6 +572,7 @@ export function verifyCartPrerequisiteSourceSelection(files) {
       throw new Error(failure + ": exact source pair " + pair.target);
   }
   for (const file of files) {
+    if (paymentAccountingAuthoredTargets.includes(file.target) && file.source === undefined && file.classification === "authored") continue;
     const targetPair = cartPrerequisiteSourcePairs.find(pair => pair.target === file.target);
     if (targetPair !== undefined) continue;
     if (/^packages\/medusa-(cart|customer|tax|promotion|payment)\/src\//.test(file.target))
@@ -687,6 +689,12 @@ export function verifyTaxLinesFork(source, target, destination) {
     ): ItemWithRates[] { ${mapBody} }\n` + helpers.join("\n");
     expected = adaptTaxRegionCreationNormalization(expected);
     expected = replaceChecked(expected, "(rule: InferEntityType<typeof TaxRateRule>) =>", "(rule) =>");
+    for (const [method, result] of [["createTaxRates_", "TaxRate>[]"], ["updateTaxRates_", "TaxRate>"],
+      ["createTaxRegions_", "TaxRegion>[]"], ["createTaxRateRules_", "TaxRateRule>[]"]]) {
+      const header = new RegExp("((?:protected )?async " + method + "\\([\\s\\S]*?\\n  \\)) \\{", "g");
+      if ([...expected.matchAll(header)].length !== 1) throw new Error(failure + ": Tax return annotation anchor");
+      expected = expected.replace(header, "$1: Promise<InferEntityType<typeof " + result + "> {");
+    }
   } else if (destination === taxLinesSourcePairs[3]?.target) {
     expected = replaceChecked(expected, "export { default as TaxModuleService }", "export { default as TaxModuleService, selectTaxRatesForItems, prepareTaxRegionInputForCreate, normalizeTaxRegionCodes }");
   } else if (destination === taxLinesSourcePairs[4]?.target) {

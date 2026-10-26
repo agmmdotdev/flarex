@@ -70,7 +70,7 @@ export type LocalGraphResult = {
 
 /** Explicit per-transaction instance; several module sets can coexist. */
 export interface LocalGraphQuery {
-  readonly graph: (input: unknown) => Effect.Effect<LocalGraphResult, CommerceTransactionError>;
+  readonly graph: (input: unknown, options?: unknown) => Effect.Effect<LocalGraphResult, CommerceTransactionError>;
   readonly service: (input: unknown) => Effect.Effect<LocalGraphResult, CommerceTransactionError>;
   /** Callable RemoteQuery retains the native join fields used by its plan. */
   readonly native: (input: unknown) => Effect.Effect<LocalGraphResult, CommerceTransactionError>;

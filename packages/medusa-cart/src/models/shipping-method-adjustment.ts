@@ -15,7 +15,7 @@ const ShippingMethodAdjustment = model
       provider_id: model.text().nullable(),
       metadata: model.json().nullable(),
       promotion_id: model.text().nullable(),
-      shipping_method: model.belongsTo(() => ShippingMethod, {
+      shipping_method: model.belongsTo((): typeof ShippingMethod => ShippingMethod, {
         mappedBy: "adjustments",
       }),
     }

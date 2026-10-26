@@ -32,7 +32,7 @@
     "@medusajs/modules-sdk": "workspace:*"
   },
   "scripts": {
-    "build": "tsc-rs -p tsconfig.json",
-    "typecheck": "tsc-rs -p tsconfig.json --noEmit"
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   }
 }

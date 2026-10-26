@@ -18,13 +18,13 @@ const ShippingMethod = model
       shipping_option_id: model.text().nullable(),
       data: model.json().nullable(),
       metadata: model.json().nullable(),
-      cart: model.belongsTo(() => Cart, {
+      cart: model.belongsTo((): typeof Cart => Cart, {
         mappedBy: "shipping_methods",
       }),
-      tax_lines: model.hasMany(() => ShippingMethodTaxLine, {
+      tax_lines: model.hasMany((): typeof ShippingMethodTaxLine => ShippingMethodTaxLine, {
         mappedBy: "shipping_method",
       }),
-      adjustments: model.hasMany(() => ShippingMethodAdjustment, {
+      adjustments: model.hasMany((): typeof ShippingMethodAdjustment => ShippingMethodAdjustment, {
         mappedBy: "shipping_method",
       }),
     }

@@ -30,8 +30,9 @@ const orderModels = [Order, OrderAddress,
   orderModel(OrderLineItem, "OrderLineItem"), orderModel(OrderLineItemAdjustment, "OrderLineItemAdjustment"),
   orderModel(OrderLineItemTaxLine, "OrderLineItemTaxLine"), orderModel(OrderShipping, "OrderShipping"),
   orderModel(OrderShippingMethod, "OrderShippingMethod"), orderModel(OrderShippingMethodAdjustment, "OrderShippingMethodAdjustment"),
-  orderModel(OrderShippingMethodTaxLine, "OrderShippingMethodTaxLine"), OrderSummary,
-  orderModel(OrderTransaction, "OrderTransaction"), orderModel(Return, "Return"), orderModel(ReturnItem, "ReturnItem"), ReturnReason] as const;
+  orderModel(OrderShippingMethodTaxLine, "OrderShippingMethodTaxLine"), orderModel(OrderSummary, "OrderSummary"),
+  orderModel(OrderTransaction, "OrderTransaction"), orderModel(Return, "Return"), orderModel(ReturnItem, "ReturnItem"),
+  orderModel(ReturnReason, "ReturnReason")] as const;
 export type OrderPersistenceModel = typeof orderModels[number];
 
 /** Full native construction; the selected repositories and public facade own

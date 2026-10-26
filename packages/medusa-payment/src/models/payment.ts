@@ -16,16 +16,16 @@ const Payment = model
     metadata: model.json().nullable(),
     captured_at: model.dateTime().nullable(),
     canceled_at: model.dateTime().nullable(),
-    payment_collection: model.belongsTo(() => PaymentCollection, {
+    payment_collection: model.belongsTo((): typeof PaymentCollection => PaymentCollection, {
       mappedBy: "payments",
     }),
-    payment_session: model.belongsTo(() => PaymentSession, {
+    payment_session: model.belongsTo((): typeof PaymentSession => PaymentSession, {
       mappedBy: "payment",
     }),
-    refunds: model.hasMany(() => Refund, {
+    refunds: model.hasMany((): typeof Refund => Refund, {
       mappedBy: "payment",
     }),
-    captures: model.hasMany(() => Capture, {
+    captures: model.hasMany((): typeof Capture => Capture, {
       mappedBy: "payment",
     }),
   })

@@ -13,14 +13,14 @@ const ProductCategory = model
     rank: model.number().default(0),
     metadata: model.json().nullable(),
     parent_category: model
-      .belongsTo(() => ProductCategory, {
+      .belongsTo((): typeof ProductCategory => ProductCategory, {
         mappedBy: "category_children",
       })
       .nullable(),
-    category_children: model.hasMany(() => ProductCategory, {
+    category_children: model.hasMany((): typeof ProductCategory => ProductCategory, {
       mappedBy: "parent_category",
     }),
-    products: model.manyToMany(() => Product, {
+    products: model.manyToMany((): typeof Product => Product, {
       mappedBy: "categories",
     }),
   })

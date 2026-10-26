@@ -1,11 +1,16 @@
 import { Result, Schema } from "effect";
 import { createStep, StepResponse, WorkflowDefinitionError, type StepOutput } from "@medusajs/workflows-sdk";
+import { decodeRefundGraphRows, RefundCreditOrderQuery, RefundChangeQuery, RefundPaymentsQuery,
+  type RefundCreditOrderView, type RefundChangeView, type RefundPaymentView } from "./refund-query-views";
 
 // Fork of the pinned common graph step. The native graph keeps array results
 // and mandatory bounded pagination; only this compatibility step shapes a single.
-export const WorkflowGraphCacheOptions = Schema.Struct({
+const WorkflowGraphCacheOptions = Schema.Struct({
   cache: Schema.Struct({ enable: Schema.Literal(true) }),
 });
+export const WorkflowGraphOptions = Schema.Union([WorkflowGraphCacheOptions, Schema.Struct({
+  throwIfKeyNotFound: Schema.Literal(true), cache: Schema.optionalKey(WorkflowGraphCacheOptions.fields.cache),
+})]);
 export const WorkflowGraphQuery = Schema.Struct({
   entity: Schema.String,
   fields: Schema.Array(Schema.String),
@@ -18,7 +23,7 @@ export const WorkflowGraphQuery = Schema.Struct({
 const Input = Schema.Struct({
   ...WorkflowGraphQuery.fields,
   options: Schema.optionalKey(Schema.Struct({ isList: Schema.optionalKey(Schema.Boolean),
-    cache: Schema.optionalKey(WorkflowGraphCacheOptions.fields.cache) })),
+    cache: Schema.optionalKey(WorkflowGraphCacheOptions.fields.cache), throwIfKeyNotFound: Schema.optionalKey(Schema.Literal(true)) })),
 });
 export type QueryGraphInput = typeof Input.Type;
 type Row = typeof Schema.JsonObject.Type;
@@ -27,7 +32,7 @@ type GraphResult = { readonly data: readonly Row[]; readonly metadata: Metadata 
 export interface WorkflowGraphResource {
   readonly maxPageSize: number;
   readonly graph: (input: Omit<QueryGraphInput, "options" | "pagination"> & { readonly pagination: NonNullable<QueryGraphInput["pagination"]> },
-    options?: typeof WorkflowGraphCacheOptions.Type) =>
+    options?: typeof WorkflowGraphOptions.Type) =>
     Promise<GraphResult>;
 }
 const decode = Schema.decodeUnknownResult(Input, { onExcessProperty: "error" });
@@ -43,9 +48,11 @@ export function prepareWorkflowGraphQuery(input: unknown, maxPageSize: number) {
     const single = options?.isList === false;
     if (single && (pagination?.skip ?? 0) !== 0) return yield* Result.fail(refusal("A single graph result cannot skip rows"));
     return { query: { ...queryInput, pagination: pagination ?? { take: maxPageSize } }, single,
-      cacheOptions: options?.cache === undefined ? undefined : { cache: options.cache },
+      queryOptions: options?.throwIfKeyNotFound === true
+        ? { throwIfKeyNotFound: true as const, ...(options.cache === undefined ? {} : { cache: options.cache }) }
+        : options?.cache === undefined ? undefined : { cache: options.cache },
       validate: (result: GraphResult): Result.Result<undefined, WorkflowDefinitionError> => {
-        if ((pagination === undefined || single) && (result.metadata.skip !== 0 || result.data.length !== result.metadata.count)) {
+        if ((pagination === undefined || single || options?.throwIfKeyNotFound === true) && (result.metadata.skip !== 0 || result.data.length !== result.metadata.count)) {
           return Result.fail(refusal("The graph step requires a complete bounded result"));
         }
         return single && result.data.length > 1 ? Result.fail(refusal("The graph step expected zero or one record")) : Result.succeed(undefined);
@@ -61,9 +68,10 @@ export function queryWorkflowGraph(input: QueryGraphInput, query: WorkflowGraphR
 export async function queryWorkflowGraph(input: QueryGraphInput, query: WorkflowGraphResource) {
   // Deliberate Promise/throw compatibility edge for the Medusa step signature.
   const plan = Result.getOrThrow(prepareWorkflowGraphQuery(input, query.maxPageSize));
-  const result = await (plan.cacheOptions === undefined ? query.graph(plan.query) : query.graph(plan.query, plan.cacheOptions));
+  const result = await (plan.queryOptions === undefined ? query.graph(plan.query) : query.graph(plan.query, plan.queryOptions));
   Result.getOrThrow(plan.validate(result));
-  return { data: plan.single ? result.data.at(0) : result.data, metadata: { ...result.metadata } };
+  const rows = Result.getOrThrow(decodeRefundGraphRows(input, result.data));
+  return { data: plan.single ? rows.at(0) : rows, metadata: { ...result.metadata } };
 }
 const step = createStep("use-query-graph-step", async (input: QueryGraphInput, { container }) => {
   return new StepResponse(await queryWorkflowGraph(input, container.resolve<WorkflowGraphResource>("query")));
@@ -72,6 +80,9 @@ const step = createStep("use-query-graph-step", async (input: QueryGraphInput, {
 // isList controls the runtime shape. Dynamic field selection deliberately exposes
 // partial JSON records, never a caller-chosen full module DTO.
 export function useQueryGraphStep(input: QueryGraphInput & { readonly options: { readonly isList: false } }): StepOutput<{ readonly data: Row | undefined; readonly metadata: Metadata }>;
+export function useQueryGraphStep(input: typeof RefundCreditOrderQuery.Type & { readonly options?: { readonly isList?: true } }): StepOutput<{ readonly data: readonly RefundCreditOrderView[]; readonly metadata: Metadata }>;
+export function useQueryGraphStep(input: typeof RefundChangeQuery.Type & { readonly options?: { readonly isList?: true } }): StepOutput<{ readonly data: readonly RefundChangeView[]; readonly metadata: Metadata }>;
+export function useQueryGraphStep(input: typeof RefundPaymentsQuery.Type & { readonly options?: { readonly isList?: true } }): StepOutput<{ readonly data: readonly RefundPaymentView[]; readonly metadata: Metadata }>;
 export function useQueryGraphStep(input: QueryGraphInput & { readonly options?: { readonly isList?: true } }): StepOutput<{ readonly data: readonly Row[]; readonly metadata: Metadata }>;
 export function useQueryGraphStep(input: QueryGraphInput): StepOutput<{ readonly data: Row | readonly Row[] | undefined; readonly metadata: Metadata }>;
 export function useQueryGraphStep(input: QueryGraphInput) { return step(input); }

@@ -7,7 +7,7 @@ const RefundReason = model.define("RefundReason", {
   code: model.text().searchable(),
   description: model.text().searchable().translatable().nullable(),
   metadata: model.json().nullable(),
-  refunds: model.hasMany(() => Refund, {
+  refunds: model.hasMany((): typeof Refund => Refund, {
     mappedBy: "refund_reason",
   }),
 })

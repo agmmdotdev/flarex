@@ -28,6 +28,11 @@
       "types": "./dist/types/index.d.ts",
       "source": "./src/types/index.ts",
       "default": "./dist/types/index.js"
+    },
+    "./utils/accounting": {
+      "types": "./dist/utils/accounting.d.ts",
+      "source": "./src/utils/accounting.ts",
+      "default": "./dist/utils/accounting.js"
     }
   },
   "dependencies": {

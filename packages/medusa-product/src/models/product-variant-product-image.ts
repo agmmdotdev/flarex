@@ -7,10 +7,10 @@ import ProductImage from "./product-image"
  */
 const ProductVariantProductImage = model.define("ProductVariantProductImage", {
   id: model.id({ prefix: "pvpi" }).primaryKey(),
-  variant: model.belongsTo(() => ProductVariant, {
+  variant: model.belongsTo((): typeof ProductVariant => ProductVariant, {
     mappedBy: "images",
   }),
-  image: model.belongsTo(() => ProductImage, {
+  image: model.belongsTo((): typeof ProductImage => ProductImage, {
     mappedBy: "variants",
   }),
 })

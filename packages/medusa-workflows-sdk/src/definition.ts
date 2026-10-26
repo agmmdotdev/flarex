@@ -1,6 +1,6 @@
 import { Result } from "effect";
 import { WorkflowResponse } from "./responses";
-import { definitionError, WorkflowDefinitionError, type Compensate, type Hook, type HookHandlers, type Invoke, type ParallelBranch, type ParallelGroup, type Resolved, type StepExecutionContext, type StepOptions, type WorkflowData, type WorkflowNode } from "./model";
+import { definitionError, WorkflowDefinitionError, type Compensate, type Hook, type HookHandlers, type Invoke, type ParallelBranch, type ParallelGroup, type Resolved, type StepExecutionContext, type StepOptions, type WorkflowData, type WorkflowInput, type WorkflowNode } from "./model";
 import { proxify, transformer, referenceOf } from "./references";
 import type { StepFunction, StepOutput } from "./model";
 import { OrchestratorBuilder } from "./orchestrator-builder";
@@ -200,7 +200,7 @@ export const isPreparedWorkflow = (value: unknown): value is PreparedWorkflow =>
 export interface WorkflowDefinition<Input, Output, Hooks extends readonly unknown[]> {
   readonly name: string;
   readonly prepare: (hooks?: HookHandlers<Hooks>, ...additional: readonly HookHandlers<Hooks>[]) => Result.Result<PreparedWorkflow, ReturnType<typeof definitionError>>;
-  readonly runAsStep: (input: { readonly input: Input | WorkflowData<Input>; readonly hooks?: HookHandlers<Hooks> }) => StepOutput<Resolved<Output>>;
+  readonly runAsStep: (input: { readonly input: WorkflowInput<Input>; readonly hooks?: HookHandlers<Hooks> }) => StepOutput<Resolved<Output>>;
   readonly " input"?: Input;
   readonly " output"?: Output;
 }
@@ -310,7 +310,7 @@ export function createWorkflow<Input, Output, const Hooks extends readonly unkno
     catch: cause => cause instanceof WorkflowDefinitionError ? cause : definitionError("invalidDefinition", "Invalid hook registration"),
   });
   const definition: WorkflowDefinition<Resolved<Input>, Output, Hooks> = Object.freeze({ name, prepare,
-    runAsStep: (input: { readonly input: Resolved<Input> | WorkflowData<Resolved<Input>>; readonly hooks?: HookHandlers<Hooks> }) => {
+    runAsStep: (input: { readonly input: WorkflowInput<Resolved<Input>>; readonly hooks?: HookHandlers<Hooks> }) => {
       const context = composer();
       // Unlike definition data, this boundary deliberately accepts hook functions.
       // Inspect descriptors before extracting either input or registration data.

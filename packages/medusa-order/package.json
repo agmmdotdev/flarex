@@ -4,6 +4,11 @@
   "private": true,
   "license": "MIT",
   "exports": {
+    "./types": {
+      "types": "./dist/types/index.d.ts",
+      "source": "./src/types/index.ts",
+      "default": "./dist/types/index.js"
+    },
     "./models": {
       "types": "./dist/models/index.d.ts",
       "source": "./src/models/index.ts",
@@ -13,6 +18,31 @@
       "types": "./dist/services/index.d.ts",
       "source": "./src/services/index.ts",
       "default": "./dist/services/index.js"
+    },
+    "./utils/transform-order": {
+      "types": "./dist/utils/transform-order.d.ts",
+      "source": "./src/utils/transform-order.ts",
+      "default": "./dist/utils/transform-order.js"
+    },
+    "./utils": {
+      "types": "./dist/utils/index.d.ts",
+      "source": "./src/utils/index.ts",
+      "default": "./dist/utils/index.js"
+    },
+    "./utils/payment-accounting": {
+      "types": "./dist/utils/payment-accounting.d.ts",
+      "source": "./src/utils/payment-accounting.ts",
+      "default": "./dist/utils/payment-accounting.js"
+    },
+    "./utils/totals-selection": {
+      "types": "./dist/utils/totals-selection.d.ts",
+      "source": "./src/utils/totals-selection.ts",
+      "default": "./dist/utils/totals-selection.js"
+    },
+    "./utils/preview-details": {
+      "types": "./dist/utils/preview-details.d.ts",
+      "source": "./src/utils/preview-details.ts",
+      "default": "./dist/utils/preview-details.js"
     },
     "./static-manifest": {
       "types": "./dist/static-manifest.d.ts",
@@ -27,7 +57,7 @@
     "@medusajs/modules-sdk": "workspace:*"
   },
   "scripts": {
-    "build": "tsc-rs -p tsconfig.json",
-    "typecheck": "tsc-rs -p tsconfig.json --noEmit"
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   }
 }

@@ -14,7 +14,7 @@ const CampaignBudgetUsage = model
       id: model.id({ prefix: "probudgus" }).primaryKey(),
       attribute_value: model.text(), // e.g. "cus_123" | "john.smith@gmail.com"
       used: model.bigNumber().default(0),
-      budget: model.belongsTo(() => CampaignBudget, {
+      budget: model.belongsTo((): typeof CampaignBudget => CampaignBudget, {
         mappedBy: "usages",
       }),
     }

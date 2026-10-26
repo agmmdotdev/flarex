@@ -6,7 +6,7 @@ const StockLocation = model.define("StockLocation", {
   name: model.text().searchable(),
   metadata: model.json().nullable(),
   address: model
-    .belongsTo(() => StockLocationAddress, {
+    .belongsTo((): typeof StockLocationAddress => StockLocationAddress, {
       mappedBy: "stock_locations",
     })
     .searchable()

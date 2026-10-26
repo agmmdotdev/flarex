@@ -33,13 +33,13 @@ const LineItem = model
       compare_at_unit_price: model.bigNumber().nullable(),
       unit_price: model.bigNumber(),
       metadata: model.json().nullable(),
-      adjustments: model.hasMany(() => LineItemAdjustment, {
+      adjustments: model.hasMany((): typeof LineItemAdjustment => LineItemAdjustment, {
         mappedBy: "item",
       }),
-      tax_lines: model.hasMany(() => LineItemTaxLine, {
+      tax_lines: model.hasMany((): typeof LineItemTaxLine => LineItemTaxLine, {
         mappedBy: "item",
       }),
-      cart: model.belongsTo(() => Cart, {
+      cart: model.belongsTo((): typeof Cart => Cart, {
         mappedBy: "items",
       }),
     }

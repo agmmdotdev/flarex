@@ -4,7 +4,7 @@ import TaxRegion from "./tax-region"
 const TaxProvider = model.define("TaxProvider", {
   id: model.id().primaryKey(),
   is_enabled: model.boolean().default(true),
-  regions: model.hasMany(() => TaxRegion, {
+  regions: model.hasMany((): typeof TaxRegion => TaxRegion, {
     mappedBy: "provider",
   }),
 })

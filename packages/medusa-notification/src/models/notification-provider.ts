@@ -7,5 +7,5 @@ export const NotificationProvider = model.define("notificationProvider", {
   name: model.text(),
   is_enabled: model.boolean().default(true),
   channels: model.array().default([]),
-  notifications: model.hasMany(() => Notification, { mappedBy: "provider" }),
+  notifications: model.hasMany((): typeof Notification => Notification, { mappedBy: "provider" }),
 })

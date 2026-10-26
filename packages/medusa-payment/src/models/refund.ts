@@ -6,11 +6,11 @@ const Refund = model
   .define("Refund", {
     id: model.id({ prefix: "ref" }).primaryKey(),
     amount: model.bigNumber(),
-    payment: model.belongsTo(() => Payment, {
+    payment: model.belongsTo((): typeof Payment => Payment, {
       mappedBy: "refunds",
     }),
     refund_reason: model
-      .belongsTo(() => RefundReason, {
+      .belongsTo((): typeof RefundReason => RefundReason, {
         mappedBy: "refunds",
       })
       .nullable(),

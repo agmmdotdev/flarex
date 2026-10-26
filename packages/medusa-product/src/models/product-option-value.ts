@@ -7,11 +7,11 @@ const ProductOptionValue = model
     value: model.text().translatable(),
     metadata: model.json().nullable(),
     option: model
-      .belongsTo(() => ProductOption, {
+      .belongsTo((): typeof ProductOption => ProductOption, {
         mappedBy: "values",
       })
       .nullable(),
-    variants: model.manyToMany(() => ProductVariant, {
+    variants: model.manyToMany((): typeof ProductVariant => ProductVariant, {
       mappedBy: "options",
     }),
   })

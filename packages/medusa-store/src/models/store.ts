@@ -10,7 +10,7 @@ const Store = model
     default_region_id: model.text().nullable(),
     default_location_id: model.text().nullable(),
     metadata: model.json().nullable(),
-    supported_currencies: model.hasMany(() => StoreCurrency, {
+    supported_currencies: model.hasMany((): typeof StoreCurrency => StoreCurrency, {
       mappedBy: "store",
     }),
     /**
@@ -18,7 +18,7 @@ const Store = model
      *
      * @since 2.12.3
      */
-    supported_locales: model.hasMany(() => StoreLocale, {
+    supported_locales: model.hasMany((): typeof StoreLocale => StoreLocale, {
       mappedBy: "store",
     }),
   })

@@ -16,16 +16,16 @@ const PromotionRule = model
       operator: model
         .enum(PromotionUtils.PromotionRuleOperator)
         .index("IDX_promotion_rule_operator"),
-      values: model.hasMany(() => PromotionRuleValue, {
+      values: model.hasMany((): typeof PromotionRuleValue => PromotionRuleValue, {
         mappedBy: "promotion_rule",
       }),
-      promotions: model.manyToMany(() => Promotion, {
+      promotions: model.manyToMany((): typeof Promotion => Promotion, {
         mappedBy: "rules",
       }),
-      method_target_rules: model.manyToMany(() => ApplicationMethod, {
+      method_target_rules: model.manyToMany((): typeof ApplicationMethod => ApplicationMethod, {
         mappedBy: "target_rules",
       }),
-      method_buy_rules: model.manyToMany(() => ApplicationMethod, {
+      method_buy_rules: model.manyToMany((): typeof ApplicationMethod => ApplicationMethod, {
         mappedBy: "buy_rules",
       }),
     }

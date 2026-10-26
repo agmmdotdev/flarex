@@ -14,10 +14,10 @@ import { paymentModels } from "./schema";
 Module(Modules.PAYMENT, { service: PaymentModuleService });
 export function definePaymentPersistenceModule<Binding extends CommerceModuleRepositories<typeof paymentModels[number]> & {
   readonly eventBus: ReturnType<typeof commerceModuleEventBus>;
-}, Service>(configuration: { readonly bind: (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => Binding;
+}, Service>(configuration: { readonly name?: string; readonly profile?: string; readonly bind: (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => Binding;
   readonly service: (native: PaymentModuleService) => Service }, logger: Logger) {
-  return defineCommerceModule({ name: "flarex-payment-sessions", models: paymentModels,
-    profile: { name: "payment.system-sessions", capabilities: ["paymentProviderService"], bind: configuration.bind },
+  return defineCommerceModule({ name: configuration.name ?? "flarex-payment-sessions", models: paymentModels,
+    profile: { name: configuration.profile ?? "payment.system-sessions", capabilities: ["paymentProviderService"], bind: configuration.bind },
     extensions: { paymentProviderService: { mode: "replace", requires: ["paymentProviderService"], create: ({ binding, persistence }) => {
       const container = createContainer<ConstructorParameters<typeof PaymentProviderService>[0] & { readonly modulePersistenceAdapter: ModulePersistenceAdapter }>();
       container.register({ logger: asValue(logger), paymentProviderRepository: asValue(binding.repository(PaymentProvider)),

@@ -22,16 +22,16 @@ const ApplicationMethod = model
         .enum(PromotionUtils.ApplicationMethodAllocation)
         .index("IDX_application_method_allocation")
         .nullable(),
-      promotion: model.belongsTo(() => Promotion, {
+      promotion: model.belongsTo((): typeof Promotion => Promotion, {
         mappedBy: "application_method",
       }),
-      target_rules: model.manyToMany(() => PromotionRule, {
+      target_rules: model.manyToMany((): typeof PromotionRule => PromotionRule, {
         pivotTable: "application_method_target_rules",
         joinColumn: "application_method_id",
         inverseJoinColumn: "promotion_rule_id",
         mappedBy: "method_target_rules",
       }),
-      buy_rules: model.manyToMany(() => PromotionRule, {
+      buy_rules: model.manyToMany((): typeof PromotionRule => PromotionRule, {
         pivotTable: "application_method_buy_rules",
         joinColumn: "application_method_id",
         inverseJoinColumn: "promotion_rule_id",

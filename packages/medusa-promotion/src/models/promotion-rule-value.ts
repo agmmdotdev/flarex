@@ -7,7 +7,7 @@ const PromotionRuleValue = model
     {
       id: model.id({ prefix: "prorulval" }).primaryKey(),
       value: model.text(),
-      promotion_rule: model.belongsTo(() => PromotionRule, {
+      promotion_rule: model.belongsTo((): typeof PromotionRule => PromotionRule, {
         mappedBy: "values",
       }),
     }

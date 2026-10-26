@@ -50,16 +50,17 @@ describe("Medusa source-island boundary checker", () => {
       "scripts/check-medusa-cart-prerequisite-source.mjs", "scripts/check-medusa-cart-prerequisite-source.test.js",
       "scripts/check-medusa-inventory-confirmation-source.mjs", "scripts/check-medusa-inventory-confirmation-source.test.js",
       "scripts/check-medusa-tax-rule-replacement-source.mjs", "scripts/check-medusa-tax-rule-replacement-source.test.js",
-      "scripts/check-medusa-payment-session-source.mjs", "scripts/check-medusa-payment-session-source.test.js",
+      "scripts/check-medusa-tax-rate-delete-source.mjs", "scripts/check-medusa-tax-rate-delete-source.test.js",
+      "scripts/check-medusa-tax-rate-update-source.mjs", "scripts/check-medusa-tax-rate-update-source.test.js",
+      "scripts/check-medusa-order-archive-source.mjs", "scripts/check-medusa-order-archive-source.test.js",
       "scripts/check-medusa-order-complete-source.mjs", "scripts/check-medusa-order-complete-source.test.js",
       "scripts/check-medusa-order-change-update-source.mjs", "scripts/check-medusa-order-change-update-source.test.js",
       "scripts/check-medusa-order-change-cancellation-source.mjs", "scripts/check-medusa-order-change-cancellation-source.test.js",
       "scripts/check-medusa-order-change-decline-source.mjs", "scripts/check-medusa-order-change-decline-source.test.js",
       "scripts/check-medusa-order-change-deletion-source.mjs", "scripts/check-medusa-order-change-deletion-source.test.js",
-      "scripts/check-medusa-api-key-source.mjs", "scripts/check-medusa-api-key-source.test.js", "scripts/check-medusa-link-operation-source.mjs", "scripts/check-medusa-link-operation-source.test.js",
-      "scripts/check-medusa-order-archive-source.mjs", "scripts/check-medusa-order-archive-source.test.js",
-      "scripts/check-medusa-tax-rate-delete-source.mjs", "scripts/check-medusa-tax-rate-delete-source.test.js",
-      "scripts/check-medusa-tax-rate-update-source.mjs", "scripts/check-medusa-tax-rate-update-source.test.js"];
+      "scripts/check-medusa-payment-session-source.mjs", "scripts/check-medusa-payment-session-source.test.js",
+      "scripts/check-medusa-api-key-source.mjs", "scripts/check-medusa-api-key-source.test.js",
+      "scripts/check-medusa-link-operation-source.mjs", "scripts/check-medusa-link-operation-source.test.js"];
     const adjacentPaths = verifierPaths.flatMap(relativePath => [
       relativePath.replace(/\.(mjs|js)$/, "-adjacent.$1"),
       "scripts/nested/" + posix.basename(relativePath), "tools/" + posix.basename(relativePath),

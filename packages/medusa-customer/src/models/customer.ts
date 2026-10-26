@@ -14,11 +14,11 @@ const Customer = model
     has_account: model.boolean().default(false),
     metadata: model.json().nullable(),
     created_by: model.text().nullable(),
-    groups: model.manyToMany(() => CustomerGroup, {
+    groups: model.manyToMany((): typeof CustomerGroup => CustomerGroup, {
       mappedBy: "customers",
       pivotEntity: () => CustomerGroupCustomer,
     }),
-    addresses: model.hasMany(() => CustomerAddress, {
+    addresses: model.hasMany((): typeof CustomerAddress => CustomerAddress, {
       mappedBy: "customer",
     }),
   })

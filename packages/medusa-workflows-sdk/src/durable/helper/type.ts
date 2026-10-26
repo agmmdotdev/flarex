@@ -54,6 +54,9 @@ export type FlowCancelOptions = {
 /**
  * The details of a workflow's execution.
  */
+export type WorkflowResultOverride<TResult, TResultOverride> =
+  TResultOverride extends undefined ? TResult : TResultOverride
+
 export type WorkflowResult<TResult = unknown> = {
   /**
    * Any errors that occured in the workflow.
@@ -90,7 +93,7 @@ export type ExportedWorkflow<
     >
   ) => Promise<
     WorkflowResult<
-      TResultOverride extends undefined ? TResult : TResultOverride
+      WorkflowResultOverride<TResult, TResultOverride>
     >
   >
   registerStepSuccess: (
@@ -99,7 +102,7 @@ export type ExportedWorkflow<
     >
   ) => Promise<
     WorkflowResult<
-      TResultOverride extends undefined ? TResult : TResultOverride
+      WorkflowResultOverride<TResult, TResultOverride>
     >
   >
   registerStepFailure: (
@@ -108,7 +111,7 @@ export type ExportedWorkflow<
     >
   ) => Promise<
     WorkflowResult<
-      TResultOverride extends undefined ? TResult : TResultOverride
+      WorkflowResultOverride<TResult, TResultOverride>
     >
   >
   retryStep: (args?: FlowRetryStepOptions) => Promise<WorkflowResult>
@@ -135,7 +138,7 @@ export type MainExportedWorkflow<TData = unknown, TResult = unknown> = {
     >
   ): Promise<
     WorkflowResult<
-      TResultOverride extends undefined ? TResult : TResultOverride
+      WorkflowResultOverride<TResult, TResultOverride>
     >
   >
 
@@ -145,7 +148,7 @@ export type MainExportedWorkflow<TData = unknown, TResult = unknown> = {
     >
   ): Promise<
     WorkflowResult<
-      TResultOverride extends undefined ? TResult : TResultOverride
+      WorkflowResultOverride<TResult, TResultOverride>
     >
   >
 
@@ -155,7 +158,7 @@ export type MainExportedWorkflow<TData = unknown, TResult = unknown> = {
     >
   ): Promise<
     WorkflowResult<
-      TResultOverride extends undefined ? TResult : TResultOverride
+      WorkflowResultOverride<TResult, TResultOverride>
     >
   >
 

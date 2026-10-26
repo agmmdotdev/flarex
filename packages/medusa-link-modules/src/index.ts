@@ -11,6 +11,7 @@ export { LocationFulfillmentSet } from "./definitions/fulfillment-set-location";
 export { LocationFulfillmentProvider } from "./definitions/fulfillment-provider-location";
 export { ShippingOptionPriceSet } from "./definitions/shipping-option-price-set";
 export { InventoryLevelStockLocation } from "./definitions/readonly/inventory-level-stock-location";
+export { OrderPaymentCollection } from "./definitions/order-payment-collection";
 export { PublishableApiKeySalesChannel } from "./definitions/publishable-api-key-sales-channel";
 export { linkWorkflowModels } from "./models/link-workflow-models";
 export { LinkOperationStore } from "./operations/store";

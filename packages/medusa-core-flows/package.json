@@ -207,7 +207,19 @@
     "./api-key/update-api-keys": "./src/api-key/workflows/update-api-keys.ts",
     "./api-key/revoke-api-keys": "./src/api-key/workflows/revoke-api-keys.ts",
     "./api-key/delete-api-keys": "./src/api-key/workflows/delete-api-keys.ts",
-    "./api-key/link-sales-channels-to-publishable-key": "./src/api-key/workflows/link-sales-channels-to-publishable-key.ts"
+    "./api-key/link-sales-channels-to-publishable-key": "./src/api-key/workflows/link-sales-channels-to-publishable-key.ts",
+    "./payment/authorize-payment-session-step": "./src/payment/steps/authorize-payment-session.ts",
+    "./payment/capture-payment-step": "./src/payment/steps/capture-payment.ts",
+    "./payment/refund-payment-step": "./src/payment/steps/refund-payment.ts",
+    "./payment/refund-payments-step": "./src/payment/steps/refund-payments.ts",
+    "./payment/capture-payment": "./src/payment/workflows/capture-payment.ts",
+    "./payment/refund-payment": "./src/payment/workflows/refund-payment.ts",
+    "./payment/refund-payments": "./src/payment/workflows/refund-payments.ts",
+    "./order/add-order-transaction-step": "./src/order/steps/add-order-transaction.ts",
+    "./order/create-order-change-step": "./src/order/steps/create-order-change.ts",
+    "./order/confirm-order-changes-step": "./src/order/steps/confirm-order-changes.ts",
+    "./order/create-order-change-actions": "./src/order/workflows/create-order-change-actions.ts",
+    "./order/create-order-refund-credit-lines": "./src/order/workflows/payments/create-order-refund-credit-lines.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

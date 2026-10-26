@@ -5,7 +5,7 @@ const Capture = model
   .define("Capture", {
     id: model.id({ prefix: "capt" }).primaryKey(),
     amount: model.bigNumber(),
-    payment: model.belongsTo(() => Payment, {
+    payment: model.belongsTo((): typeof Payment => Payment, {
       mappedBy: "captures",
     }),
     metadata: model.json().nullable(),

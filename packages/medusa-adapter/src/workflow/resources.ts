@@ -1,5 +1,6 @@
 import { Result, Schema } from "effect";
 import type { Invoke, StepExecutionContext, WorkflowContainer } from "@medusajs/workflows-sdk";
+import type { WorkflowGraphOptions } from "@medusajs/core-flows/common/use-query-graph";
 import { defineAtomicCommerceParticipant, type AtomicCommerceParticipant } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, commerceLimits, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LocalGraphResult } from "../local-graph/model";
@@ -28,7 +29,7 @@ export type NativeWorkflowResources<Selections extends WorkflowSelections, Event
   readonly [Key in keyof Selections as Selections[Key] extends { readonly expose: false } ? never : Selections[Key]["methods"][number] extends never ? never : Key]: {
     readonly [Method in Selections[Key]["methods"][number]]: BoundWorkflowMethod<WorkflowModuleMethods<Selections[Key]["module"]>[Method]>;
   };
-} & ([GraphKeys<Selections>] extends [never] ? {} : { readonly query: { readonly maxPageSize: number; readonly graph: (input: unknown) => Promise<LocalGraphResult> } })
+} & ([GraphKeys<Selections>] extends [never] ? {} : { readonly query: { readonly maxPageSize: number; readonly graph: (input: unknown, options?: typeof WorkflowGraphOptions.Type) => Promise<LocalGraphResult> } })
   & (Events extends true ? { readonly event_bus: { readonly emit: (messages: readonly Json[]) => Promise<void> } } : {});
 export type NativeWorkflowContext<Resources> = StepExecutionContext & { readonly resources: Resources };
 export type NativeWorkflowHooks<Hooks, Resources> = {

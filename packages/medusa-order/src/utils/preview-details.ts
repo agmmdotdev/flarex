@@ -1,7 +1,15 @@
-import type { Context, IOrderModuleService } from "@medusajs/framework/types"
+import type { Context } from "@medusajs/framework/types"
 import { isDefined } from "@medusajs/framework/utils/portable"
 
-type PreviewReads = Pick<IOrderModuleService, "listOrderLineItems" | "listOrderShippingMethods">
+type PreviewRead = (
+  filters: { id: string[] },
+  config: { relations: ("adjustments" | "tax_lines")[] },
+  sharedContext?: Context
+) => readonly { readonly id: string }[] | Promise<readonly { readonly id: string }[]>
+type PreviewReads = {
+  listOrderLineItems: PreviewRead
+  listOrderShippingMethods: PreviewRead
+}
 
 /** Pinned native preview enrichment. Callers supply its two native read ports;
  * arithmetic, mutation order and receiver-owned borrowing remain unchanged. */

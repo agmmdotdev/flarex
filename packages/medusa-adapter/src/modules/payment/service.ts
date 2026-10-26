@@ -7,7 +7,6 @@ import { commerceError } from "@flarex/persistence-postgres/internal/commerce-va
 import { commerceServiceCommands, commerceCommandPreparation } from "../../module/commands";
 import { commerceModuleEventBus } from "../../module/events";
 import { defineWorkflowMethod, defineWorkflowModule } from "../../workflow/module";
-import { defineComposedWorkflowResource } from "../../workflow/composed-resource";
 import { moduleAliases, relationPaths } from "../../local-graph/module";
 import { decodeGraphCount, decodeGraphList } from "../../local-graph/query";
 import { commerceDecoder } from "../../value/decoder";
@@ -15,6 +14,7 @@ import { capturePaymentMetadata, type paymentModels } from "./schema";
 import { definePaymentPersistenceModule } from "./module";
 import { preparePaymentSessionRepository } from "./repository";
 import { paymentSessionPolicy } from "./receipt";
+import { paymentWorkflowLogger } from "./logger";
 import { decodePaymentCreate, decodePaymentCollectionCreate, decodePaymentDelete, decodePaymentRead,
   decodePaymentCreateArguments, decodePaymentDeleteArguments, decodePaymentReadArguments, PaymentCollectionCreate } from "./input";
 
@@ -69,9 +69,7 @@ export const makePaymentSessionCommands = Effect.fn("PaymentAdapter.sessionComma
     const admitted = [createCollection, create, remove, list, count];
     const workflow = yield* defineWorkflowModule({ name: Modules.PAYMENT, source: module.description,
       methods: { createPaymentCollections, createPaymentSession, deletePaymentSession, listPaymentSessions }, graph, logical: { ...policy, commands: admitted } });
-    const logMethods = { error: { arguments: commerceDecoder(Schema.Tuple([Schema.String]), "invalidInput"), output: decodeNull } };
-    const loggerResource = yield* defineComposedWorkflowResource<typeof logMethods>({ identity: { profile: "payment-session-logger" }, dependencies: [],
-      methods: logMethods, bind: () => ({ error: async message => { logger.error(message); return null; } }) });
+    const loggerResource = yield* paymentWorkflowLogger(logger);
     return { createCollection, create, remove, list, count, commands: admitted, workflow, loggerResource,
       withService: module.use, contracts: prepared.contracts, logicalEventPolicy: () => policy };
   }));

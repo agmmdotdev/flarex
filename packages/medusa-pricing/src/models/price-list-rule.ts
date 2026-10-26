@@ -6,7 +6,7 @@ const PriceListRule = model
     id: model.id({ prefix: "prule" }).primaryKey(),
     attribute: model.text(),
     value: model.json().nullable(),
-    price_list: model.belongsTo(() => PriceList, {
+    price_list: model.belongsTo((): typeof PriceList => PriceList, {
       mappedBy: "price_list_rules",
     }),
   })

@@ -16,10 +16,10 @@ const PriceList = model
     starts_at: model.dateTime().nullable(),
     ends_at: model.dateTime().nullable(),
     rules_count: model.number().default(0).nullable(),
-    prices: model.hasMany(() => Price, {
+    prices: model.hasMany((): typeof Price => Price, {
       mappedBy: "price_list",
     }),
-    price_list_rules: model.hasMany(() => PriceListRule, {
+    price_list_rules: model.hasMany((): typeof PriceListRule => PriceListRule, {
       mappedBy: "price_list",
     }),
   })

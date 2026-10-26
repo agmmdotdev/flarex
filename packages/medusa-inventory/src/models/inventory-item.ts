@@ -19,10 +19,10 @@ const InventoryItem = model
     title: model.text().searchable().nullable(),
     thumbnail: model.text().nullable(),
     metadata: model.json().nullable(),
-    location_levels: model.hasMany(() => InventoryLevel, {
+    location_levels: model.hasMany((): typeof InventoryLevel => InventoryLevel, {
       mappedBy: "inventory_item",
     }),
-    reservation_items: model.hasMany(() => ReservationItem, {
+    reservation_items: model.hasMany((): typeof ReservationItem => ReservationItem, {
       mappedBy: "inventory_item",
     }),
     reserved_quantity: model.number().computed(),
