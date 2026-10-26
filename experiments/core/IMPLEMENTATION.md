@@ -5,9 +5,10 @@ The first deliverable is a connected experimental path, not a new exported API.
 
 ## Stage 1: executable scope and contract map
 
-Choose the exact three starting workloads from existing native/Flarex scenarios:
-Payload scalar create, Medusa Product scalar update, and one mixed
-Application/Product/Payload mutation. Record native versions, executing exports,
+Choose the starting workloads from existing native/Flarex scenarios: Payload
+scalar create, Medusa Product scalar update, and one mixed
+Application/Product/Payload mutation, plus the standalone Application witness
+below. Record native versions, executing exports,
 dirty-source fingerprints, inputs, complete outputs, hooks, errors and events.
 The [references](./REFERENCES.md) locate the existing harness and framework sources.
 
@@ -71,6 +72,39 @@ existing installed tools when sufficient; otherwise use an independently scoped
 manifest and lockfile here, with reproducible dependency versions and no edits
 to the active workspace. Wire the comparison through local composition.
 
+### Early standalone Application witness
+
+Develop this witness alongside the first Payload foundation so Application
+requirements shape the shared contracts early. The bounded Payload create slice
+remains a useful deliverable; it cannot by itself close Application support. The
+witness must execute the candidate's own query, root and accepting path without
+Payload/Medusa runtime construction or delegation to the active core's evaluator.
+
+| Part | Minimum connected behavior |
+| --- | --- |
+| Standalone query | Execute an Application query at one authorized exact snapshot; perform a point read, a missing-row read and a bounded indexed-range read. Return the actual values plus owner-consumable precise dependencies, with no write journal or commit capability. |
+| Standalone mutation | Execute an Application mutation using those read contracts; stage an insert and an update, observe its own pending changes while retaining the original snapshot/dependencies, and settle data/history/outcome once. |
+| Row conflict | Pause after a root observes a row; let another admitted writer change it and commit; the first mutation must conflict under its declared protocol. |
+| Missing/range conflict | Commit an insertion of the observed missing identity or into the observed indexed predicate while the first root is paused; final acceptance must detect the relevant conflict. Include changed membership and a non-overlapping control. |
+| Retry ownership | Exercise an eligible whole-attempt Application retry and an ineligible failure. No participant/helper replay, arbitrary external effect, or retry of an unresolved COMMIT. |
+
+Use the existing Application developer/entry contract through a narrow experimental
+bridge. Core unit tests support this consumer proof; a SQL surrogate or framework
+repository call cannot replace it. No new language, SDK or universal framework
+transaction API is required for the witness.
+
+Identify the exact active/experimental Application function, inputs, source
+fingerprints, dependency assertions and complete committed readback before running.
+If an existing fixture lacks a matching standalone workload, add explicit
+experimental comparison wiring and label any missing baseline; do not pretend the
+native mixed benchmark's SQL surrogate supplies Application semantics.
+
+Prove these behaviors on PGlite and ordinary-role PostgreSQL before claiming
+Application compatibility or broadening the shared contracts around framework
+coverage. Extend to delete/tombstone history, retained-snapshot expiry, rollback,
+cancellation, uncertain outcomes and reactivity/dependency consumption under the
+full validation contract before declaring the Application profile supported.
+
 ## Stage 2: minimum owned database lifecycle
 
 Design the required persisted concepts before creating SQL. Inventory all writers,
@@ -92,6 +126,10 @@ Implement point read/missing read and the actual bounded indexed selection neede
 by the chosen workloads, with pending-state overlay and exact dependencies.
 Connect one root owner, immutable preparation and the fresh accepting DB gate.
 Add only the unique/reference behavior those real workloads require.
+
+Exercise the early standalone Application witness through these same neutral
+owners. Original point/missing/range observations must reach actual acceptance;
+recording them locally without checking them at settlement is not Application OCC.
 
 Implement atomic settlement, history, necessary index/unique/relation maintenance,
 durable result/idempotency/event intent and uncertain-COMMIT resolution. Exercise

@@ -11,6 +11,12 @@ that the implementation brief and source references are coherent.
 | Active Flarex | Current complete behavior and measured overhead baseline |
 | Experimental Flarex | Candidate with its declared full guarantees and supported profile |
 
+Standalone Application queries/mutations need independent coverage within the
+active and experimental lanes. Run the same actual Application function and
+assertions, with source and profile identity recorded. The native framework lane
+does not supply an equivalent Application implementation; its SQL surrogates do not
+prove Application snapshots, dependencies, retries or atomic outcomes.
+
 All lanes must execute the same admitted business graph, data size, selections,
 hook branches and complete result assertions. Native independent framework commits
 are not atomic mixed execution: explicitly attribute Flarex's additional snapshot,
@@ -28,6 +34,7 @@ the candidate. Record a missing match as a missing match, not a synthetic baseli
 | Access | Foreign tenant/source/method, revoked principal, denied membership/body access, stale capabilities; no protected body escapes before acceptance |
 | Generation/readiness | Concurrent activation/retirement, unrelated unavailable index, required unavailable index, maintenance crash/reopen and actual protected-writer enforcement |
 | Snapshot/dependencies | Read-your-writes, repeated point read, missing row, insert/update/delete phantom, bounded pagination and changed membership, retained-history expiry |
+| Standalone Application | Genuine query/mutation entry without framework runtimes; exact snapshot and pending visibility; consumed point/missing/range dependencies; row/phantom conflicts and non-overlapping controls; outer-only eligible retry; revision/tombstone history and dependency output usable by the existing reactivity owner |
 | Scalar/projected queries | Count/exists/page over original snapshot plus pending insert/update/delete; repeated edits counted once; missing/negative answers retain required evidence; budget exhaustion never becomes false/partial success |
 | Indexed root state | Compound/null/locale unique keys, release/reclaim and delete/recreate; stale-cache invalidation; ordered pending membership; failed/nested edits leave all derived structures coherent |
 | Direct-command profile | Native visibility witness, same-command nesting, hooks outside physical transactions, declared conflict mapping, no automatic replay, unknown outcome resolved before re-execution |
@@ -44,6 +51,13 @@ native services and workflow definitions is expected; retaining the old core
 under a new SQL facade does not establish the intended replacement. Test changed
 bridge contracts explicitly; do not claim that minimal integration edits are
 already proven.
+
+Also execute the [standalone Application witness](./IMPLEMENTATION.md#early-standalone-application-witness)
+through the candidate's Application bridge. Point/missing/range evidence must
+participate in real acceptance; a passing local map test or create-only unique
+constraint test is insufficient. For read-only queries verify absence of mutation
+machinery. Reuse existing reactivity consumers where practical and label missing
+end-to-end evidence; this does not establish subscription-host deployment.
 
 Expected failures, defects and interruption stay distinct. For error-order changes,
 include a witness showing which callback, external effect or disclosure can occur
@@ -130,8 +144,11 @@ and [CPU gate](../../roadmaps/mixed-mutation-core/27-shared-execution-evidence-r
 
 First-workload measurements guide iteration but do not establish full acceptance.
 All five existing complete graphs must pass before claiming the experiment meets
-the mutation performance goal. If standalone read tuning is included later, use
-its separately owned targets; do not substitute mutation budgets for read goals.
+the mutation performance goal. They do not close standalone Application acceptance.
+Report standalone Application query/mutation correctness and measurements
+separately, using their existing owning contracts and targets where defined.
+Record an absent matched baseline or numerical target as unresolved; do not invent
+one or substitute framework mutation budgets for Application query goals.
 
 Also vary touched rows, unrelated schema size, index/relation fanout, batch size,
 concurrent roots and scope distribution. Record the changed variable and all

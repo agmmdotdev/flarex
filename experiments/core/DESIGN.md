@@ -23,7 +23,7 @@ SQL statement per framework method or a particular saving before measurement.
 | --- | --- |
 | Durable authority | PostgreSQL alone decides committed data, history, facts and outcomes. Worker memory and coordination caches are disposable. |
 | Confinement | Principal, tenant, placement, source ownership and permitted operations are checked at their relevant boundaries; no unauthorized row body is disclosed. |
-| Application execution | A mixed Application mutation reads its exact snapshot plus pending writes and records point, missing-row and index-membership dependencies for serializable acceptance. |
+| Application execution | Standalone queries use an exact authorized snapshot and record precise dependencies. Standalone and mixed mutations read their exact snapshot plus pending writes, record point/missing/index dependencies and validate them for serializable acceptance. Writes retain required revision/tombstone history. |
 | Framework semantics | Real Payload access/default/validation/hooks and Medusa normalization/repositories/workflows remain authoritative. Native errors, visibility, nesting and event behavior are preserved for the admitted profile. |
 | Settlement | One outer owner atomically accepts effects, maintains required indexes/uniques/relations/history, records result/outcome/event intent and commits. Participants cannot settle. |
 | Failure and recovery | Sticky rollback-only failures, fences, deadlines, cancellation, conflict classification and uncertain-COMMIT reconciliation remain explicit. |
@@ -38,15 +38,41 @@ durable intent owner.
 
 Use explicit profiles with separate entry contracts, not `execute(mode, options)`.
 
+- **Application query:** one authorized exact-snapshot read lifetime with precise
+  dependency output for the existing reactivity/invalidation owner. It has no
+  mutation journal or settlement capability and needs no framework runtime.
 - **Direct read:** bounded authorized native read with its documented snapshot
   lifetime. It needs no mutation journal or commit capability.
 - **Direct framework command:** one admitted native command owns its changes and
   outcome. Do not attach Application attempt/OCC machinery unless its actual
   execution semantics require it. A trusted DB-only segment can use a short SQL
   transaction; arbitrary native lifecycle code cannot run inside that segment.
-- **Mixed Application mutation:** one logical attempt owns the original snapshot,
-  dependencies and pending changes across all admitted participants. Database
-  transactions are short read/settlement segments around that logical attempt.
+- **Application mutation, standalone or mixed:** one logical attempt owns the
+  original snapshot, exact dependencies and pending changes. A standalone
+  mutation needs no Payload/Medusa participants. A mixed mutation grants admitted
+  participants narrow capabilities into that same attempt; only the outer owner
+  settles. Database transactions are short read/settlement segments around it.
+
+### Application as an independent consumer
+
+Application must not become an orchestrator that can use the new core only through
+framework adapters. Preserve its portable query/mutation developer contract,
+framework-neutral definitions and root/storage/settlement ownership. New internals
+must support its observations and conflict protocol directly; framework row-change
+facts or a successful unique check do not establish Application OCC.
+
+Implement a small standalone Application query/mutation witness alongside the
+Payload foundation, before broadening framework coverage. It exercises an exact
+snapshot, point and missing reads, indexed membership, pending visibility, a
+single outer settlement, and concurrent row/phantom conflicts. Reuse actual
+Application function/entry behavior where available; do not substitute direct SQL
+for that consumer. See the [construction contract](./IMPLEMENTATION.md#early-standalone-application-witness).
+
+Retain distinct retry eligibility: Application may rerun an eligible complete
+attempt under its outer owner; direct framework commands initially do not replay
+automatically. Actions, remote effects, durable task execution and subscription
+hosting keep their existing owners and separate proof obligations. This witness
+does not claim their redesign or production support.
 
 Framework hooks that need multiple database visits require an explicitly owned
 logical command lifetime. Splitting the command into independent commits is not
@@ -72,7 +98,7 @@ short physical transaction with an explicitly selected isolation level.
 
 These are experimental admission rules, not a claim of arbitrary native framework
 compatibility. Record each starting workload's native visibility and failure
-mapping before implementing its bridge. Mixed Application retries remain owned
+mapping before implementing its bridge. Application retries remain owned
 by the outer attempt under their separate replay contract.
 
 ## Complete query operations

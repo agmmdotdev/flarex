@@ -18,10 +18,12 @@ continues against the active core. This folder is outside the existing
 
 ## Objective
 
-Reduce the complete cost of real Payload, Medusa and mixed Application operations
-by changing execution granularity and ownership. Do not start by copying the
-current core into another directory and renaming its helpers. Existing contracts
-and implementations are evidence to inspect, not a mandatory internal design.
+Reduce the complete cost of standalone Flarex Application queries and mutations,
+Payload, Medusa and mixed operations by changing execution granularity and
+ownership. Application is a first-class consumer of the shared core. Do not start
+by copying the current core into another directory and renaming its helpers.
+Existing contracts and implementations are evidence to inspect, not a mandatory
+internal design.
 
 Modularity is part of the outcome: changing readiness policy, query execution,
 storage layout or commit planning should have a small, explicit dependency
@@ -76,10 +78,14 @@ and [early scaling witnesses](./VALIDATION.md#early-algorithm-and-concurrency-ch
 Concrete physical lock modes/writers and native compatibility evidence still
 need to be bound to the implementation before removing any existing obligation.
 
-Start with one genuine Payload create, one Medusa Product scalar update, then
-one explicitly atomic Application + Product + Payload mutation. Preserve native
-framework behavior and report unsupported capabilities. These are construction
-milestones; acceptance also requires the complete existing business graphs.
+Start with one genuine Payload create and an early standalone Application
+query/mutation witness against the same core owners. Add one Medusa Product
+scalar update, then one explicitly atomic Application + Product + Payload
+mutation. Preserve the portable Application contract and native framework
+behavior, and report unsupported capabilities. These are construction milestones;
+acceptance requires standalone Application evidence as well as the complete
+existing business graphs. Payload create or a mixed graph alone cannot establish
+Application compatibility. See the [Application witness](./IMPLEMENTATION.md#early-standalone-application-witness).
 
 Architecture obligations remain in the [accepted design](../../design-notes/flarex-db-accepted-design.md).
 The [performance roadmap](../../roadmaps/core-performance/README.md) links this
