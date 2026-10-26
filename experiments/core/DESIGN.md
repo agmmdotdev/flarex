@@ -53,6 +53,73 @@ logical command lifetime. Splitting the command into independent commits is not
 an optimization. Declare direct-command isolation and retry semantics before
 implementing its bridge; native transaction semantics must not be silently weakened.
 
+### Direct-command contract for the first candidate
+
+The proposed multi-visit direct command uses one logical snapshot, its own pending
+state and dependencies, and one final accepting transaction. It shares mechanisms
+with a mixed attempt where appropriate, without acquiring an Application API or
+borrowing another root implicitly. A trusted DB-only command can instead use one
+short physical transaction with an explicitly selected isolation level.
+
+| Concern | Candidate rule |
+| --- | --- |
+| Read visibility | Multi-visit commands see their original snapshot plus their own writes. The bridge must prove this preserves the admitted native branch; branches requiring different visibility remain unsupported until a separate explicit contract is selected. |
+| Hooks and nesting | Native lifecycle code runs outside physical transactions. Admitted same-command nested calls share pending state and sticky failure; they cannot settle independently. Independent outer calls remain independent. |
+| Conflict | Validate earlier observations at settlement. A final SQL transaction at `SERIALIZABLE` alone does not validate reads made in earlier transactions. A known conflict produces the profile's declared failure, with no partial durable result. |
+| Replay | Automatic replay of direct framework commands is disabled initially. Enabling it requires whole-command eligibility, hook/compensation behavior and an explicit error-to-retry contract. A repository method cannot retry independently. |
+| Remote effects | Refuse effects/suspension outside the admitted profile before invocation. Durable intent delivery happens after confirmed commit. Business compensation remains native-owned where admitted; rollback is not a replacement for it. |
+| Unknown COMMIT | Resolve the durable command/attempt identity before any re-execution. An unknown outcome is not a retryable conflict or confirmed rollback. |
+
+These are experimental admission rules, not a claim of arbitrary native framework
+compatibility. Record each starting workload's native visibility and failure
+mapping before implementing its bridge. Mixed Application retries remain owned
+by the outer attempt under their separate replay contract.
+
+## Complete query operations
+
+The core contract describes the result the caller needs. Do not implement count
+or existence by constructing a find result and discarding its documents. The
+query owner defines semantics; storage may combine the required work into a
+bounded database operation. Internal SQL steps are not additional domain APIs.
+
+Every operation identifies its root/profile, logical source, authenticated
+definition selection, normalized predicate/access path, requested result shape,
+snapshot contract and remaining row/byte/time limits. It returns an accepted
+result, exact profile-required dependencies, and resource consumption. No cached
+result grants permission to disclose data again under a different authority.
+
+| Operation | Input and useful result | Dependency and bound requirements |
+| --- | --- | --- |
+| Point | Scoped identity and admitted fields; row/projection or exact absence | Record the observed row version or absence. Apply row and byte bounds before disclosure. |
+| Indexed page | Predicate, stable order/tie-breaker, cursor and fields; page plus continuation/lookahead | Prove the selected prefix and successor or exhaustion, including changed membership. Bound examined entries, not just returned rows. A page does not imply a total count. |
+| Exists | Supported predicate; Boolean | A positive witness must remain sufficient under concurrent changes; a negative result needs evidence of no match over its search domain. Never interpret budget exhaustion as false. |
+| Exact count | Supported predicate; scalar total | Capture evidence covering all changes that could alter the counted set, including phantoms. Charge examined entries/rows; an exact count is not generally constant time. |
+| Find-and-count | Page demand plus total; both results from the declared visibility | Combine only when native callback/population ordering permits it. Count evidence covers the entire counted set, not just the returned page. |
+| Relation frontier | Scoped source identities, relation definition and visibility; bounded target identities/projections | Include relation membership and required endpoint dependencies. Authorization of a source is not authorization of every target. |
+| Admitted aggregate | Declared grouping/aggregate and predicate; exact typed result | Specify value/null/overflow semantics, full contributing-set dependencies and work bounds. Add only aggregates required by an admitted workload. |
+
+Authorization applies to scalar answers and membership as well as bodies. The
+eligible page path is fresh gate -> selection -> authorized acquisition -> bounded
+result and dependencies. If a native access callback must run after membership
+selection and before body access, retain two segments and revalidate authority
+at the later acquisition. Do not hold a SQL transaction across that callback.
+
+Mutation-profile operations merge pending state with the root's original snapshot;
+direct reads honor their declared snapshot without constructing mutation state.
+Query projections do not waive native requirements to validate complete results
+before framework-level projection. Unsupported predicates/shapes fail explicitly;
+validate required query semantics before data-dependent shortcuts. If establishing
+the promised result exceeds its budget, refuse; intentional pagination carries
+its declared continuation and never implies an unproved count or exhaustion.
+
+For PostgreSQL-dependent predicates, evaluate eligible committed data beside its
+storage and combine only the relevant pending changes. Do not reread current rows
+as a substitute for the root's original observations. Canonical bytes alone do
+not make every predicate SQL-queryable: first evaluate ordered indexes/covering
+fields, then a declared derived query projection if necessary. Define exact
+semantics, atomic maintenance, historical visibility and measured write/storage
+cost for any projection; it is not a second committed-data authority.
+
 ## Working set and atomic execution boundary
 
 Both are part of the redesign. The working-set owner chooses how original reads,
@@ -85,10 +152,12 @@ flowchart LR
 ```
 
 1. **Preparation:** validate definitions and compile schema/query mechanics for
-   one immutable generation. Installation owns structure and permitted writers.
+   exact immutable definition versions. Installation owns structure and permitted
+   writers.
    Cold preparation is measured separately; it never grants live execution rights.
-2. **Entry:** authenticate the root and establish scope, generation, profile,
-   snapshot if required, bounded lifetime and request/idempotency identity.
+2. **Entry:** authenticate the root and establish scope, installation identity,
+   selected definition versions, profile, snapshot if required, bounded lifetime
+   and request/idempotency identity.
    Child participants receive narrow root-bound capabilities.
 3. **Read:** compile the actual query's requirements. The storage owner performs
    fresh authorization and required mutable eligibility at the same accepting
@@ -99,7 +168,7 @@ flowchart LR
    Framework-visible copies remain isolated from mutable internal state.
 5. **Freeze:** stop/join owned work, refuse late writes, retain sticky failure,
    and construct one detached commit candidate. Freezing is not durable success.
-6. **Settlement:** freshly check authority/fences/generation and constraints,
+6. **Settlement:** freshly check authority/fences/required versions and constraints,
    validate dependencies required by the profile, and atomically materialize all
    required data and outcomes. Only confirmed commit produces durable success.
 7. **Uncertainty:** resolve by durable request/attempt identity before retry.
@@ -117,22 +186,73 @@ simply be dropped because their results happen to be empty.
 | Check | Owner/lifetime | Replacement condition |
 | --- | --- | --- |
 | Installed SQL, tables, permissions and protected writers | Installation generation | Full proof on managed install/maintenance; serving role cannot alter protected structure. Maintenance must drain/fence, reverify and reopen safely after crashes. |
-| Schema shape, codecs, index definitions, source ownership definitions | Immutable preparation | Retain by exact authenticated generation, with bounded cache/resource lifetime. |
+| Schema shape, codecs, index definitions, source ownership definitions | Immutable preparation | Retain by exact authenticated selected versions, with bounded cache/resource lifetime. |
 | Principal, request capabilities, allowed source/method | Entry and operation boundary | Root-bound capabilities; current authorization remains required before disclosure and settlement. |
-| Current placement, generation, revocation, expiry | Storage/settlement accepting boundary | Small fresh database gate with a complete writer/invalidation inventory. No TTL authority cache. |
+| Current placement, installation incarnation, revocation, expiry | Storage/settlement accepting boundary | Small fresh database gate with a complete writer/invalidation inventory. No TTL authority cache. |
 | Index readiness and snapshot retention | Actual required access path | Prove query closure and check eligibility under the read's synchronization; unrelated definitions do not add work. |
 | Write conflicts, uniqueness, references and ownership | Profile-required operation checks plus final serialized acceptance | Preserve observable native failures and final concurrent enforcement. |
 
-For the first prototype, a generation mismatch aborts the affected operation or
-attempt before disclosure/settlement; it does not silently refresh half a root.
-Keeping old generations usable requires a later explicit retention/draining
-contract. Snapshot retention needs an enforced lifetime or refusal, not a trusted
-timestamp alone. Revocation cannot be delayed to commit after data was exposed.
+Keep installation identity, selected schema/definition versions and authorization
+revocation distinct. An incompatible installation change or loss of required
+eligibility aborts before disclosure/settlement; do not refresh half a root.
+Unrelated schema-head movement must not abort a root whose selected definitions
+remain valid. Retaining selected versions requires an enforced retention/draining
+contract. Revocation cannot be delayed to commit after data was exposed.
 
 Readiness is a policy over typed observations, but collection and enforcement
 must share the correct database snapshot/lock lifetime. Separating modules must
 not introduce a time-of-check/time-of-use race. Define post-lock database time,
 lock order and every protected writer before implementing each gate.
+
+### Identity and invalidating writers
+
+Separate immutable admitted identity (scope, correlation and original provenance),
+mutable execution authority (status, fence, revocation, placement, deadline and
+retention eligibility), and operation demand (method, source, access paths and
+remaining bounds). Transport compact identity and demand; PostgreSQL freshly
+checks mutable facts. Immutable records need enforced database writer rules;
+a branded type, digest or signature does not enforce immutability in storage.
+
+This matrix defines synchronization obligations, not installed lock SQL. Before
+DDL, bind every row to actual tables/functions, permitted roles, lock modes and
+one global acquisition order. Include every maintenance/recovery path, not only
+normal requests. An unaccounted invalidating writer blocks removing its check.
+
+| Protected fact | Invalidating writers to enumerate | Read/settlement synchronization and required race witness |
+| --- | --- | --- |
+| Installation identity and structural integrity | Installer, migration, repair, maintenance reopen | Readers/settlers and structural writers share an enforced fence/drain protocol. A crash or replacement cannot reopen unchecked structure. |
+| Root status, fence and current access | Cancellation/terminalization, revocation, placement transfer, attempt replacement | Protect fresh acceptance through the database operation; recheck at later segments. Revocation/fence change must prevent later protected disclosure or settlement. |
+| Selected definitions and source ownership | Activation, retirement, binding replacement, ownership changes | Retain exact selected versions and validate relevant changes. Unrelated head movement proceeds; consumed definition changes conflict/refuse as required. |
+| Required access-path eligibility | Build completion/failure, index/unique/reference retirement or repair | Read and build writers coordinate on the required path. A concurrent retirement cannot serve an invalid path; unrelated unavailable paths do not block it. |
+| Snapshot and history retention | Retention advancement, GC, root expiry and release | Retention writers respect admitted live observations/leases or cause a defined refusal. No read may combine data from an expired snapshot with newer metadata. |
+| Data dependencies and constraints | Every business writer, repair and build publication affecting the selected data | Final acceptance detects row/missing/range conflicts and concurrent unique/reference violations. All writers participate; a serving-role bypass must fail. |
+| Commit order and durable outcome | Settlement, outcome resolution and outcome/history retention | Serialize accepted publication per scope and preserve identity until resolution is safe. Test concurrent roots and lost COMMIT responses. |
+
+Read-side row locks, transaction-scoped advisory locks or a different protocol
+are implementation candidates. None may be swapped locally without updating all
+relevant writers and proving equivalent synchronization. Measure their server
+work, WAL and lock occupancy as well as client round trips. Fresh database time
+must be evaluated at the contract's accepting point, including after lock waits.
+
+## Settlement and commit order
+
+The first candidate preserves scalar per-scope committed order. It may replace
+the clock's physical representation, but sequence allocation alone (for example
+`nextval()`) does not establish commit visibility order.
+
+Finish/join business work and freeze the root before settlement. Prepare immutable
+effects, canonical encodings and relevant changed-index plans outside the commit
+lock. In one short accepting transaction, recheck live authority and dependencies,
+enforce concurrent constraints, materialize effects and atomically record history,
+result, event intent and commit order. Planning outside the lock never substitutes
+for checking mutable facts inside acceptance.
+
+Keep this one coherent protocol with replaceable planning, enforcement and SQL
+implementations; one database call must not hide an unmeasured SQL monolith.
+Measure lock hold/wait time and independent concurrent writes in one scope from
+the first candidate. Revisit ordering/partitioning only if the shortened section
+still fails the required throughput/tail-latency workload; that needs a separate
+visibility contract and migration decision, not a local lock removal.
 
 ## Storage freedom
 
@@ -140,6 +260,12 @@ Physical tables, indexes, SQL functions, permissions and coordination structures
 may change inside disposable experimental resources. Shared logical storage and
 cross-consumer relationships remain the destination; per-shop physical table
 explosion is not the default. Choose structures from the execution requirements.
+
+Existing generic storage families are a useful comparison candidate, not a fixed
+layout or required first implementation. Replace representations that force
+unnecessary transfer, decoding, scans or proof work. Record why each retained or
+changed family supports the operation contracts, including history, maintenance
+and write amplification. Preserve shared logical relationships across consumers.
 
 Before DDL, name the owners of schema generations, authority/fences, current and
 historical rows, index membership, uniqueness, relationships, commit order,
@@ -157,7 +283,10 @@ durable formats cannot be discarded by declaring the experiment isolated.
 - Exact SQL/table layout and which existing primitives can be reused without
   importing the old orchestration.
 - The smallest complete query/row acquisition contract for each native workload.
-- Direct framework command isolation, replay eligibility and hook boundaries.
+- Exact native compatibility evidence and failure mapping for the proposed direct
+  command profile; any additional visibility/replay profile needs its own contract.
+- Concrete writer/lock manifest and physical enforcement of selected-version
+  retention, revocation and installation replacement.
 - Which internal failure ordering can change without changing supported behavior.
 - Whether larger database operations materially reduce CPU and latency after
   including required authorization, dependencies and publication.

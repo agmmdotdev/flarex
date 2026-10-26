@@ -20,6 +20,45 @@ Resolve the direct command's isolation/retry contract and the mixed root's
 snapshot/retention/fence contract. Define a counterexample test for each proposed
 removed boundary. Record exact assumptions and unresolved gates in DESIGN.md.
 
+Complete five concrete specifications before the corresponding runtime work:
+
+1. Bind the [query operations](./DESIGN.md#complete-query-operations) to each actual
+   workload: input/result, authorization point, snapshot, dependencies, bounds
+   and unsupported cases.
+2. Select the [root structures](./MODULES.md#root-owned-indexed-state), mutation
+   ownership, derived-state invalidation and freeze behavior.
+3. Expand the [writer matrix](./DESIGN.md#identity-and-invalidating-writers) into
+   concrete SQL writers, roles, lock modes/order and invalidation witnesses.
+4. Prove the [direct-command profile](./DESIGN.md#direct-command-contract-for-the-first-candidate)
+   against native visibility/hooks/nesting, failure mapping and replay eligibility.
+5. Record before/after operation traces with the precise removed visits, packets,
+   scans and intermediate representations. A renamed helper is not removed work.
+
+Capture a reproducible current baseline for all five existing complete workloads
+before comparing a candidate. Retain raw paired reports, executing source hashes,
+database/durability settings and failures. The experiment's source fingerprint
+must include `experiments/core/`, its SQL/configuration and actual imported native
+code; the existing package-oriented inventory does not cover this folder by itself.
+
+### Initial operation-trace hypotheses
+
+These are source-derived starting points, not measured improvements. Pin the exact
+executing branch before filling visit/byte/CPU/lock counts. A workload that does
+not execute a path receives no attributed saving from replacing it.
+
+| Path | Existing work to trace | Candidate work and elimination claim | Boundary that remains |
+| --- | --- | --- | --- |
+| Eligible indexed page | Index capture -> membership acceptance -> unseen row-body capture -> hydration | One bounded selection/acquisition result; remove eligible external handoff and duplicate interpretation | Native access callback between selection and body disclosure, if required; exact dependencies and work limits |
+| Count | Relational find -> candidate documents -> predicate -> sorting/projection -> discarded documents | Scalar execution with exact dependencies and relevant pending delta; remove unnecessary result construction/transfer | Access policy, native ordering, snapshot semantics and bounded work |
+| PostgreSQL predicate | Acquire original/current documents -> JSON packet -> SQL predicate -> Boolean packet | Evaluate committed snapshot data near storage and combine relevant pending values; remove eligible committed-row echo | Exact PostgreSQL value semantics and read-your-writes, with no reread at a newer snapshot |
+| Batch unique changes | For each row/definition, traverse retained rows and lower their keys again | Maintain canonical key ownership as state changes; remove repeated whole-root comparison | Native conflict timing, release/reclaim, integrity and final concurrent enforcement |
+| Repeated module use | Construct request-bound repositories/services/resources per call | Reuse eligible bindings for the root; remove repeated construction only where ownership permits | Per-call failure/cancellation and service state isolation |
+| Settlement | Acquire scope commit lock -> acceptance/planning/materialization/publication | Prepare immutable encodings/plans first, then short database-local acceptance | Fresh checks, concurrent constraints, scalar commit order and atomic durable outcome |
+
+For every removed visit, list where its authority, dependency, accounting and
+failure duties moved. Compare driver exchanges, internal SQL and physical work;
+packing the old interpreter into one SQL function is not by itself success.
+
 Inventory the selected module/workflow's business code separately from its
 repository, manager/context, participant, event and workflow-host plumbing.
 For each integration dependency mark reuse, experimental replacement or a real
@@ -59,6 +98,10 @@ durable result/idempotency/event intent and uncertain-COMMIT resolution. Exercis
 concurrent changes, rollback and replay before calling the path correct. A
 data-only insert without these obligations is a storage microbenchmark only.
 
+Preserve scalar per-scope commit order for the first candidate. Move safe immutable
+planning outside its lock, and instrument the remaining serialized acceptance.
+Do not replace order with an unproved sequence allocator or partitioned visibility.
+
 Run an early complete-root comparison. Reject a failed hypothesis before adding
 more wrappers or expanding framework coverage. Lower SQL count alone is not success.
 
@@ -85,6 +128,13 @@ edit the integration work. Preserve the witness, identify the seam and continue
 independent experimental work. Resolve that seam with its owner before depending
 on the change; no adapter SQL workaround.
 
+Before broadening framework coverage, exercise the complete candidate with an
+indexed projected page, exact count/existence, a supported PostgreSQL predicate
+over pending edits, growing insert/update batches, indexed versus nonindexed-field
+updates and independent concurrent writers in one scope. Use admitted real paths
+and root contract witnesses; do not build a general aggregate engine in advance
+of a consumer. These are early rejection gates, not post-promotion optimizations.
+
 ## Stage 5: replacement and scaling proof
 
 Demonstrate modularity by replacing one material storage/query or readiness
@@ -95,6 +145,11 @@ Expand the chosen candidate to the five existing complete business graphs and
 the relevant scaling/contention/failure witnesses. Use the three-lane comparison
 and unchanged acceptance rules in VALIDATION.md. Report remaining costs rather
 than declaring the experimental folder itself a successful redesign.
+
+Run the private Worker/cache-disabled Hyperdrive lane after local correctness and
+performance. Transaction pooling must not invalidate the design's state/resource
+assumptions. Report same-scope and different-scope throughput, tails and lock
+occupancy; local warm-session reuse does not prove hosted behavior.
 
 ## Stage 6: promotion recommendation
 

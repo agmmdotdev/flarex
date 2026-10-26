@@ -62,6 +62,20 @@ separated. It is a hypothesis, not a measured performance result. The existing
 core already has working sets, metadata reuse and combined authority/data SQL;
 their mere presence in a new implementation would not establish a new design.
 
+The first candidate combines complete query operations, incrementally indexed
+root state, compact identity with fresh mutable gates, redesigned framework
+bridges and short database-local settlement. Preserve scalar per-scope commit
+order initially and measure its occupancy under concurrent writes. Physical
+storage remains open to replacement; this is not a requirement to preserve the
+current layout or its internal validation sequence.
+
+The brief now specifies [query/profile/authority contracts](./DESIGN.md),
+[root structures and replacement rules](./MODULES.md#root-owned-indexed-state),
+[before/after operation traces](./IMPLEMENTATION.md#initial-operation-trace-hypotheses)
+and [early scaling witnesses](./VALIDATION.md#early-algorithm-and-concurrency-checks).
+Concrete physical lock modes/writers and native compatibility evidence still
+need to be bound to the implementation before removing any existing obligation.
+
 Start with one genuine Payload create, one Medusa Product scalar update, then
 one explicitly atomic Application + Product + Payload mutation. Preserve native
 framework behavior and report unsupported capabilities. These are construction

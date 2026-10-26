@@ -34,12 +34,22 @@ it does not reproduce or weaken shared correctness, skills, review or commit rul
   database verdict. Do not expose raw DB/commit capabilities to framework code.
 - Every replacement states its hypothesis, removed interaction, affected
   guarantees and executable witness. Report remaining complete-request overhead.
+- Specify operation shapes, indexed root ownership, invalidating writers and
+  direct-command visibility/replay before their implementation. Use the concrete
+  contracts in DESIGN.md and MODULES.md; keep before/after traces in the scoped
+  implementation evidence. Separate modules must not introduce repeated admission.
+- Preserve installation identity, selected-definition versions and authorization
+  revocation as distinct concepts. Unrelated schema changes do not automatically
+  invalidate the whole root. Missing writer/retention proof blocks check removal.
 - Preserve supported observable behavior, not arbitrary implementation shape.
   Before changing failure order, identify effects, hooks, disclosures and durable
   obligations it protects. Unresolved ordering stays preserved. Tests alone do
   not establish that an internal sequence is a compatibility requirement.
 - Runtime and schema choices are experimental until proved. Do not turn an
   unmeasured hypothesis into an accepted architecture claim.
+- Retain scalar per-scope commit order in the first candidate while measuring
+  serialized lock occupancy. Existing physical layouts remain replaceable;
+  commit-order/visibility redesign requires a separate explicit contract.
 - Read the repo-local Effect skills and overlay for implementation. Keep pure
   calculation plain, pure fallible policy in Result, runtime decoding in Schema,
   and async work, cancellation and resources in Effect. Do not add per-field

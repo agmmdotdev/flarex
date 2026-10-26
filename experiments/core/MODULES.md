@@ -11,8 +11,8 @@ Implement a boundary when the first connected operation uses it.
 | Definitions | Immutable schema/source compilation, codecs and required query capabilities | Database access, live readiness, request identity |
 | Installation | Physical structure, protected writers, generations, maintenance/reopen | Per-operation business execution |
 | Access policy | Typed authorization and readiness requirements; pure verdicts from complete observations | SQL construction, connection checkout, framework hooks |
-| Query | Bounded logical selection, projection, pagination and dependency requirements | Session admission, physical catalog probing, commit |
-| Attempt | Profile-specific logical lifetime, observations, pending state, budgets and sticky failures | Driver/SQL implementation, native business rules |
+| Query | Bounded point/page/count/existence/relation/aggregate contracts, lowering and dependency requirements | Session admission, physical catalog probing, commit |
+| Attempt | Profile-specific logical lifetime, indexed original/pending state, dependencies, budgets and sticky failures | Driver/SQL implementation, native business rules |
 | Storage | PostgreSQL/PGlite operation execution, fresh gates, snapshots and bounded result decoding | Framework callbacks, workflow orchestration, independent child commit |
 | Settlement | Commit candidate validation/planning, atomic materialization/outcomes and uncertain-result resolution | Native services, runtime hosting, per-read construction |
 | Physical session | Checkout, deadlines, cancellation/draining/quarantine and release | Schema/readiness policy, business transactions |
@@ -23,6 +23,12 @@ Storage and settlement share SQL/physical primitives through their real lower
 owner. Installation is the exclusive structural writer; settlement is the
 exclusive business commit owner for its execution. Do not duplicate policy
 between modules or give each module its own admission transaction.
+
+A module boundary does not prescribe a database round trip, resource scope or
+fresh validation pass. Query, policy and storage can compose into one accepting
+operation. Keep narrow semantic contracts stable while algorithms, physical
+representations and batching remain replaceable. A guarantee change still needs
+an explicit contract change; generic callbacks/options are not an escape hatch.
 
 ## Dependency direction
 
@@ -73,15 +79,24 @@ a storage/readiness implementation change leaves native module and workflow
 business logic untouched. Achieving that target may first require material
 repository and workflow bridge changes; measure and prove the connected result.
 
+Evaluate Medusa repository/service binding reuse for one root instead of rebuilding
+the same graph for every module call. Retain per-call cancellation, failure and
+mutable service ownership; prove that reused instances do not leak request state.
+Preserve native count/population ordering: `find-and-count` cannot move a count
+across a callback when that changes observable behavior. Payload request nesting
+and mutable population results remain framework-owned, with copies where needed.
+
 ## Four important handoffs
 
-1. **Prepared definitions:** exact generation identity plus immutable compiled
-   mechanics. They contain no live transaction or cached permission verdict.
+1. **Prepared definitions:** installation compatibility plus exact selected
+   definition identities and immutable compiled mechanics. They contain no live
+   transaction or cached permission verdict.
    Replacing a schema compiler should not change connection handling.
 2. **Read demand/result:** a bounded trusted plan and root binding in; accepted
-   rows, exact dependencies and resource consumption out. Physical SQL layout
-   and diagnostic observation packets stay inside storage. Unknown driver data
-   is decoded there. The result cannot be replayed under another root/snapshot.
+   rows/projections/scalars, exact dependencies and resource consumption out.
+   Physical SQL layout and diagnostic observation packets stay inside storage.
+   Unknown driver data is decoded there. The result cannot be replayed under
+   another root/snapshot.
 3. **Commit candidate:** detached effects, original dependencies, provenance,
    native result/event intent and request identity. It conveys intent, not a
    right to commit. Settlement freshly authenticates it and owns the decision.
@@ -93,6 +108,75 @@ Define distinct direct and mixed contracts when their guarantees differ. Do not
 hide nullable snapshots, optional finalizers and unrelated authority fields in
 one universal request object. Borrowed participants cannot substitute a direct
 execution implementation if the outer root fails.
+
+## Root-owned indexed state
+
+The Attempt owner maintains the following relationships incrementally. These are
+logical structures; choose concrete maps/trees only when the required operation
+and measurements justify them. Do not create a second mutable document store in
+each bridge or keep derived maps with independent update authority.
+
+| Structure | Key and contents | Update/invalidation rule |
+| --- | --- | --- |
+| Original observations | Scoped table/row identity -> exact original value/version or absence | Capture once under the root's snapshot; later edits never overwrite the original. |
+| Current values | Same identity -> current value or deletion, plus mutation revision | Coalesce repeated edits while retaining native-visible intermediate behavior and required event intent. Canonical values have one owner; framework mutation uses isolated copies. |
+| Table membership | Table -> observed/current and changed identities | Maintain on observation, insert, replacement and deletion; selective operations do not scan other tables' retained rows. |
+| Unique ownership | Definition/version plus canonical locale/key -> current owner or explicit collision | Maintain claims/releases for every relevant observed or changed row; detect conflicts at the required operation boundary. Include compound/null/soft-delete rules from the admitted definition. Database acceptance still enforces concurrent claims. |
+| Ordered membership | Required index/version -> pending additions/removals and ordered keys | Merge relevant deltas with the original snapshot page, including tie-breakers and lookahead. Compute only required indexes; charge lazy construction if used. |
+| Dependencies | Point/absence, predicate/range/page and consumed metadata observations | Preserve enough evidence for the actual result. Deduplicate equivalent evidence without widening away correctness or dropping negative/phantom observations. |
+| Change selection | Changed fields/definitions and affected index/unique/reference plans | Recompute affected derived state on each edit. Unchanged-key skipping needs a defined integrity/repair contract, not only a field-name comparison. |
+
+One mutation operation updates canonical state and all affected derived structures
+coherently. A failed transformation cannot leave maps partially updated. Retain
+sticky failure where required; nested rollback, if the admitted native profile
+requires it, must restore all derived structures together rather than simulate an
+independent commit. No mutation is permitted after freeze.
+
+Any cached computation over pending state records its relevant mutation revision
+or is invalidated by the owner. A second edit, delete/recreate, key release/reclaim
+or nested change must not reuse an obsolete count, projection or unique claim.
+Do not create a broad cache of mutable authorization/readiness verdicts.
+
+For supported predicates, exact count can use:
+
+```text
+visible count = original-snapshot count
+              + sum over relevant changed identities
+                  (matches(current) - matches(original))
+```
+
+Absence/deletion contributes zero, and each identity contributes once regardless
+of edit count. The base result needs complete predicate/phantom evidence; deltas
+use the identical predicate, visibility and value semantics. This permits a scalar
+path without full document-result construction, not without bounded database work.
+Joins/aggregates need their own proven delta semantics; do not apply the formula
+to unsupported shapes.
+
+For SQL predicate evaluation, transport only the needed pending delta when the
+chosen plan permits it. Do not persist every local edit just to query it, echo
+the entire retained root, or assume session-local temporary state survives across
+pooled short transactions. Include encoding and transfer in the cost model.
+
+Target expected constant-time local unique ownership lookup per claim, subject to
+key construction and declared hashing assumptions. Ordered membership has its own
+complexity. Charge retained originals, maps, keys, dependencies and maintenance
+against root memory/work limits; prove behavior across growing batches.
+
+## Failure ordering and replacement contracts
+
+| Boundary | Replacement rule |
+| --- | --- |
+| Authorization/disclosure, native callbacks and external effects | Preserve the admitted ordering and fail before a forbidden action. |
+| Native business errors, constraint timing and compensation | Preserve supported observable behavior, including caught failures and root poisoning. |
+| Internal encoding/corruption checks and physical row order | Identify the invariant and any durable/public obligation separately from the old algorithm. A documented replacement may change precedence when equivalent integrity and refusal are proved. |
+| Settlement/result/event/outcome publication | Preserve atomicity and uncertain-outcome recovery; batching cannot turn partial acceptance into success. |
+
+Do not reproduce a whole-root scan merely because it currently determines which
+internal malformed-row error appears first. Equally, do not remove per-item
+acceptance checks without replacing their invariant. Record original/required/new
+ordering, the named obligation, and a witness before changing it; unresolved
+barriers stay preserved. Existing tests alone neither authorize deletion nor make
+an incidental sequence a permanent compatibility contract.
 
 ## Separate policy from observation without weakening enforcement
 
@@ -118,6 +202,7 @@ behind an interface. Every visit must have a purpose in the operation trace.
 | --- | --- | --- |
 | Replace readiness storage with generation/eligibility records | Installation, storage gate, shared observation contract if necessary | Unrelated-index independence, revocation, maintenance races, query-required readiness |
 | Replace row-by-row capture with bounded query execution | Query lowering and storage implementation | Native results, visibility, exact negative/range dependencies, limits and error ordering |
+| Replace repeated pending-row scans with maintained indexes | Attempt-owned structures and their query/settlement consumption | Original/current consistency, claim release/reclaim, pending visibility, rollback and resource bounds |
 | Change SQL layout/index organization | Installation and storage/settlement lowerings | Logical query/commit contract suite and all connected consumers |
 | Change commit batching | Settlement and its SQL owner | Atomic outcomes, concurrent conflicts/uniques/references, failure barriers and unknown COMMIT |
 | Change driver/resource strategy | Physical session and host construction | Cancellation, pending work, quarantine, cleanup and settlement uncertainty |

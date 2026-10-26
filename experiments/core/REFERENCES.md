@@ -86,3 +86,41 @@ The cited performance numbers are saved cohorts, not current measurements or
 removable-cost estimates. Unrelated integration changes continue. Do not restart
 old failed candidates, weaken their witnesses or treat a smaller SQL string as
 proof of a faster engine.
+
+## Concrete redesign evidence
+
+The follow-up assessment targeted Flarex
+`abb63e1638d0414a01dbdbf6e853f135bfd0c8f2`. The query/unique/predicate findings
+below were also checked against the shared checkout. Pin executing files again
+before implementation; later dirty adapter changes are not covered by that commit.
+These patterns identify work and complexity, not their share of total latency.
+
+| Source / symbol | Finding and experimental consequence |
+| --- | --- |
+| [Working set](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts): `readFiniteIndexRows` | Membership capture followed by acquisition of unseen bodies; evaluate a complete bounded operation while preserving real intervening access callbacks. |
+| Same owner: relational `count`, `executeRelationalFind`, `readRelationalSelection`; [Payload adapter](../../packages/payload-adapter/src/adapter.ts): `count` | Count takes the find pipeline; Payload requests `limit: 1` but returns the total. Dedicated scalar execution can avoid document-result construction, sorting and projection where semantics permit. |
+| Same owner: `withUniqueValidation`, `rows.values()` | Per-change/per-definition traversal and key lowering can produce quadratic local work for growing distinct insert batches. Maintain current key ownership incrementally; preserve required conflict/integrity behavior. |
+| Same owner: `evaluateRelationalPredicate`; [PostgreSQL predicates](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/postgresRelationalPredicate.ts) | Captured original/pending documents are encoded and sent to SQL for matching. Evaluate eligible snapshot data near storage and combine relevant deltas without changing value semantics. |
+| [Installed gate](../../packages/persistence-postgres/src/installation/scopeExecutionAuthorityInstallation.ts), [finite publication](../../packages/persistence-postgres/src/commit/point/finitePublication.ts) | Identity/freshness synchronization and the serialized accepting section need a complete writer inventory and server/lock measurements, not an assumed cache replacement. |
+| [Medusa module construction](../../packages/medusa-adapter/src/module/definition.ts), [read ordering](../../packages/medusa-adapter/src/query/read.ts) | Evaluate root-scoped binding reuse; preserve per-call state and count/population ordering. Savings remain unmeasured. |
+| [Settlement planning](../../packages/persistence-postgres/src/storage/materialization/settlementPlan.ts), [materialization](../../packages/persistence-postgres/src/storage/materialization/domainInstallation.ts) | Existing unchanged-membership skipping does not remove all key preparation/predecessor proof work. Measure remaining work before changing integrity enforcement. |
+| [Measurement sources](../../packages/executor/test/performance/measurement/source.ts) | Existing package-oriented source fingerprints do not by themselves cover `experiments/core`; the candidate runner must include executing experimental SQL/code/configuration. |
+| [Connected-generation results](../../packages/medusa-adapter/benchmarks/core-performance/native-business/connected-generation-results.md), [cost inventory](../../packages/medusa-adapter/benchmarks/core-performance/native-business/cost-inventory-proposal.md) | Historical paired results, capture inventory and materialization barriers. The attachment's archive reconstruction is not independently rerun by this documentation update; retained summaries are not fresh benchmarks. |
+
+## PostgreSQL and hosted execution references
+
+- [Transaction isolation](https://www.postgresql.org/docs/current/transaction-iso.html):
+  isolation belongs to a physical transaction. Final-transaction `SERIALIZABLE`
+  does not retrospectively validate observations from earlier transactions;
+  multi-visit logical commands still need their declared dependency protocol.
+- [Explicit locking](https://www.postgresql.org/docs/current/explicit-locking.html):
+  row/advisory lock lifetimes and conflicts. Row locking can cause disk writes;
+  measure WAL and synchronization cost rather than assume nonlocking-read cost.
+  An advisory-lock candidate requires every relevant writer to participate.
+- [Hyperdrive connection lifecycle](https://developers.cloudflare.com/hyperdrive/concepts/connection-lifecycle/)
+  and [connection pooling](https://developers.cloudflare.com/hyperdrive/concepts/connection-pooling/):
+  pooled transactions and Worker connection lifetimes constrain retained physical
+  state. Local session reuse is not proof of hosted behavior.
+
+Recheck these primary sources against the exact database/host used for validation.
+They explain constraints; they do not predict the candidate's performance.
