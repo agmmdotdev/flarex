@@ -2,17 +2,15 @@ import { Schema } from "effect";
 import { PaymentCollectionStatus } from "@medusajs/framework/utils/portable";
 import { commerceDecoder } from "../../value/decoder";
 import { ExactNumericRaw } from "../../value/exact-numeric";
-import { PaymentAmount, PaymentCollectionCreate, PaymentId } from "./input";
+import { NativePaymentAmount, PaymentCollectionCreate, PaymentId } from "./input";
 
 export const CollectionIds = Schema.Array(PaymentId).pipe(Schema.mutable).check(Schema.isLengthBetween(1, 1));
-export const CollectionAmount = Schema.Union([PaymentAmount, Schema.Struct({ ...ExactNumericRaw.fields,
-  value: Schema.String.check(Schema.isLengthBetween(1, 128)) })]);
-export const CollectionCreates = Schema.Array(Schema.Struct({ ...PaymentCollectionCreate.fields, amount: CollectionAmount }))
+export const CollectionCreates = Schema.Array(Schema.Struct({ ...PaymentCollectionCreate.fields, amount: NativePaymentAmount }))
   .pipe(Schema.mutable).check(Schema.isLengthBetween(1, 1));
-export const CollectionPatch = Schema.Struct({ amount: Schema.optionalKey(CollectionAmount), currency_code: Schema.optionalKey(Schema.String),
+export const CollectionPatch = Schema.Struct({ amount: Schema.optionalKey(NativePaymentAmount), currency_code: Schema.optionalKey(Schema.String),
   metadata: Schema.optionalKey(Schema.NullOr(Schema.JsonObject)), status: Schema.optionalKey(Schema.Literals(Object.values(PaymentCollectionStatus))) });
 export const CollectionUpdate = Schema.Struct({ selector: Schema.Struct({ id: PaymentId }), update: CollectionPatch });
-export const CollectionUpserts = Schema.Array(Schema.Struct({ id: PaymentId, amount: Schema.optionalKey(CollectionAmount),
+export const CollectionUpserts = Schema.Array(Schema.Struct({ id: PaymentId, amount: Schema.optionalKey(NativePaymentAmount),
   currency_code: Schema.optionalKey(Schema.String), metadata: Schema.optionalKey(Schema.NullOr(Schema.JsonObject)) })).pipe(Schema.mutable)
   .check(Schema.isLengthBetween(1, 1));
 export const CollectionStoredPatch = Schema.Struct({ id: PaymentId, amount: Schema.optionalKey(Schema.String),

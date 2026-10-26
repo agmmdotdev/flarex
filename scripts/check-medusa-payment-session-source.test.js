@@ -23,6 +23,14 @@ test("preserves complete native Payment session roots, callbacks and inverse ord
     assert.notEqual(changed, target);
     assert.throws(() => verifyPaymentSessionSource(source, changed, root.target));
   }
+  for (const changed of [target.replace(".filter((ps) => !ps.authorized_at)", ""),
+    target.replace("!ps.authorized_at", "!!ps.authorized_at"),
+    target.replace('"amount", "raw_amount",', '"amount",'),
+    target.replace("data.paymentCollection!.raw_amount ?? data.paymentCollection!.amount", "data.paymentCollection!.amount"),
+    target.replace("data.paymentCollection!.raw_amount ?? data.paymentCollection!.amount", "data.paymentCollection!.amount ?? data.paymentCollection!.raw_amount")]) {
+    assert.notEqual(changed, target);
+    assert.throws(() => verifyPaymentSessionSource(source, changed, root.target));
+  }
 });
 
 test("refuses omitted, repeated, redirected and reclassified native Payment pairs", () => {

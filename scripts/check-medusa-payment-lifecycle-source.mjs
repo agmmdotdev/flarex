@@ -128,8 +128,11 @@ export function verifyPaymentLifecycleSource(source, target, targetPath) {
     .replace('orderChangeQuery.data[0]', 'orderChangeQuery.data[0]!');
   if (targetPath.endsWith("payment/workflows/refund-payments.ts")) expected = expected
     .replace('payments: PaymentDTO[]', 'payments: readonly (Pick<PaymentDTO, "id"> & {\n' +
-      'captures?: readonly Pick<NonNullable<PaymentDTO["captures"]>[number], "amount">[]\n' +
-      'refunds?: readonly Pick<NonNullable<PaymentDTO["refunds"]>[number], "amount">[]\n})[]')
+      'captures?: readonly (Pick<NonNullable<PaymentDTO["captures"]>[number], "amount"> & { raw_amount?: BigNumberInput })[]\n' +
+      'refunds?: readonly (Pick<NonNullable<PaymentDTO["refunds"]>[number], "amount"> & { raw_amount?: BigNumberInput })[]\n})[]')
+    .replaceAll("MathBN.sum(acc, capture.amount)", "MathBN.sum(acc, capture.raw_amount ?? capture.amount)")
+    .replace('"refunds.amount",', '"refunds.amount",\n        "refunds.raw_amount",')
+    .replace('"captures.amount",', '"captures.amount",\n        "captures.raw_amount",')
     .replace('const paymentsMap: Record<\n          string,\n          PaymentDTO & {\n' +
       '            payment_collection: { order: { id: string; currency_code: string } }\n          }\n        > = {}',
       'const paymentsMap: Record<string, (typeof payments)[number]> = {}');

@@ -55,3 +55,16 @@ test("confines the approved native batch accounting correction to new Refund ide
     target.replace("seen.add(refund.id)", "void refund.id")])
     assert.throws(() => verifyPaymentLifecycleSource(source, changed, pair.target));
 });
+
+test("preserves native exact Capture and previous Refund validation", () => {
+  const pair = paymentLifecycleSourcePairs.find(pair => pair.target.endsWith("payment/workflows/refund-payments.ts"));
+  if (pair === undefined) throw new Error("Missing native batch root");
+  const source = read(pair.source), target = read(pair.target);
+  for (const changed of [target.replace('"captures.raw_amount",', ""),
+    target.replace('"refunds.raw_amount",', ""),
+    target.replace("capture.raw_amount ?? capture.amount", "capture.amount"),
+    target.replaceAll("capture.raw_amount ?? capture.amount", "capture.amount ?? capture.raw_amount")]) {
+    assert.notEqual(changed, target);
+    assert.throws(() => verifyPaymentLifecycleSource(source, changed, pair.target));
+  }
+});

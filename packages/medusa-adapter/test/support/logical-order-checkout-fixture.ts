@@ -6,6 +6,7 @@ import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { paymentFinanceCallLimit } from "../../src/workflows/payment/finance-configuration";
+import { createOrdersStep, createOrdersStepId, type CreateOrdersStepInput } from "@medusajs/core-flows/order/create-orders-step";
 import { prepareLogicalOrderFixture } from "./logical-order-fixture";
 
 /** Genuine public module methods through their production participant and
@@ -61,5 +62,25 @@ export async function prepareLogicalOrderCheckout(driver: "pglite" | "postgres",
       prepared: Result.getOrThrow(flow.prepare()), input: CheckoutOrderDeletes, output: Schema.Null, events: internalModuleWorkflowEvents } }));
     hosts.push(() => Effect.runPromise(host.close)); return host;
   };
-  return { ...base, order, create, remove, closeHosts };
+  const nativeFlow = createWorkflow("checkout-native-create-orders", (input: WorkflowData<CreateOrdersStepInput>) => new WorkflowResponse(createOrdersStep(input)));
+  const node = Result.getOrThrow(nativeFlow.prepare()).nodes.find(node => node.name === createOrdersStepId);
+  if (node?.kind !== "step" || node.compensate === undefined) throw new Error("Missing genuine native Order creation inverse");
+  const native = { invoke: node.invoke, compensate: node.compensate };
+  const retainedCreation = async (inverse = false) => {
+    const direction = inverse ? "inverse" : "forward";
+    const step = createStep("checkout-native-create-orders-" + direction, resources.callback(async (input: unknown, context) => {
+      if (inverse) {
+        await native.compensate(Schema.decodeUnknownSync(CheckoutOrderDeletes)(input), context);
+        return new StepResponse(null);
+      }
+      const response = await native.invoke(Schema.decodeUnknownSync(CheckoutOrderCreates)(input), context);
+      if (!(response instanceof StepResponse)) throw new Error("Missing native Order creation StepResponse");
+      return new StepResponse({ output: response.output, retained: response.compensateInput });
+    }));
+    const flow = createWorkflow("checkout-native-create-orders-root-" + direction, (input: WorkflowData<unknown>) => new WorkflowResponse(step(input)));
+    const host = await Effect.runPromise(prepareAtomicWorkflowHost({ ...options, workflow: { name: "checkoutNativeCreateOrders-" + direction,
+      resources, prepared: Result.getOrThrow(flow.prepare()), input: Schema.Json, output: Schema.Json, events: internalModuleWorkflowEvents } }));
+    hosts.push(() => Effect.runPromise(host.close)); return host;
+  };
+  return { ...base, order, create, remove, closeHosts, retainedCreation };
 }

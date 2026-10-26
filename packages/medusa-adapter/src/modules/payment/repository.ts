@@ -223,7 +223,7 @@ export function preparePaymentSessionRepository(metadata: Effect.Success<ReturnT
           const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
           const data = yield* Effect.fromResult(decodeSessionCreates(captured));
           const rows = [];
-          for (const row of data) rows.push(yield* captureExactNumericRow(row, contracts.sessionNumbers, true));
+          for (const row of data) rows.push(yield* captureExactNumericRow(row, contracts.sessionNumbers, true, "nativeRaw"));
           return remember(session.name, [...yield* sessions.createRows(ctx, rows, shared)]);
         }))),
         update: updateRows(session, "PaymentSession"),
@@ -259,7 +259,7 @@ export function preparePaymentSessionRepository(metadata: Effect.Success<ReturnT
         create: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
           const rows: JsonObject[] = [];
           for (const value of yield* decodeNativeRows(input).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)))) {
-            const row = yield* Effect.fromResult(decodeNativeRefundCreate(yield* captureExactNumericRow(value, contracts.refundNumbers)));
+            const row = yield* Effect.fromResult(decodeNativeRefundCreate(yield* captureExactNumericRow(value, contracts.refundNumbers, false, "nativeRaw")));
             const { payment, ...scalar } = row; rows.push({ ...scalar, payment_id: payment });
           }
           return remember(refund.name, [...yield* refunds.createRows(ctx, rows, shared)]);

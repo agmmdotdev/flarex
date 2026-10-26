@@ -2094,7 +2094,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/payment/input.ts",
       "classification": "authored",
-      "targetSha256": "f76b8e200217a49e903798fb0a14fe2f9b31929cf6972171612489275dcfe0eb"
+      "targetSha256": "0c7b60f9f52dec09e0341ad7b577d2504f2dbd212129d41319ce305fe0cf9e68"
     },
     {
       "target": "packages/medusa-adapter/src/modules/payment/module.ts",
@@ -2109,12 +2109,12 @@
     {
       "target": "packages/medusa-adapter/src/modules/payment/receipt.ts",
       "classification": "authored",
-      "targetSha256": "afd1a1e18c12480e277a1cdcfbebb9619f0a2ec5a18a5e37a1f6018b22a113bc"
+      "targetSha256": "6b1e3c2ff44759f06dba2e50447b1478542fbfa981ec6b3a5271f75bff5ef875"
     },
     {
       "target": "packages/medusa-adapter/src/modules/payment/repository.ts",
       "classification": "authored",
-      "targetSha256": "68bf0a844b8c8b5170459e51fc8be138db2c479c21a055e66dcd7020bf9aa3bd"
+      "targetSha256": "0c712920bf210b37d6d9c2bc8de856d12b33c04a61f4bd0b6be3b75a1d860966"
     },
     {
       "target": "packages/medusa-adapter/src/modules/payment/schema.ts",
@@ -6672,7 +6672,7 @@
     {
       "target": "packages/medusa-adapter/test/workflow-remote-query.test.ts",
       "classification": "authored",
-      "targetSha256": "2cb0974678956b33bb0e8d10826b57c0043e28387965465532d602acca4d0eea"
+      "targetSha256": "2c31b32d02e715307224b114c1b39ce6886e94bfda83286a694818d1f80b0354"
     },
     {
       "target": "packages/medusa-adapter/test/workflow-transform-references.test.ts",
@@ -7105,7 +7105,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "6208286e32a883d3899c457be8436db2b4c63ad25a5dc734afc107a23a850a32"
+      "targetSha256": "017dc1e6123ac1c01cf1b60529e0a224fe730140167fbf3f0286bf2b294e51f1"
     },
     {
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/api-key/steps/create-api-keys.ts",
@@ -7288,7 +7288,8 @@
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/common/steps/use-remote-query.ts",
       "sourceSha256": "7a7eed2ee0f9e9b1c53ad85e4aa38ebb700d0aa03b37193214b8ea1d35bc8849",
       "classification": "workflowFork",
-      "targetSha256": "5d86a18b6d8cc23bee894816ef76ad154961129591c48a0bdb9830fa20b0f3f3"
+      "targetSha256": "99f768a5307d2e2f25c2e65fd5a00a9daf6b9b272e821edd79a8c503e5e85a6d",
+      "transformation": " Check authorized_at in the selected native Session wildcard view; retain authorized Session history during native replacement."
     },
     {
       "target": "packages/medusa-core-flows/src/common/workflows/create-links.ts",
@@ -7861,7 +7862,8 @@
       "target": "packages/medusa-core-flows/src/payment-collection/workflows/create-payment-session.ts",
       "classification": "workflowFork",
       "sourceSha256": "12ce538325cccebe526ecb39ff255018aaedc9268421cd5aa36ce863c1b61a20",
-      "targetSha256": "aa10804bf71228fde378757e9bd0d6d31410b9f92a3ace9ffabf5f79f4e99a51"
+      "targetSha256": "248b32e816b490ec257291b4d9131a1313730d5649b4ae0f94dfa228f9bc2736",
+      "transformation": "Retain authorized Session history during native replacement; select and prefer Collection raw_amount for exact Session creation and replacement."
     },
     {
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/payment-collection/workflows/delete-payment-sessions.ts",
@@ -15483,12 +15485,12 @@
     },
     {
       "target": "packages/medusa-adapter/src/modules/payment/lifecycle-input.ts",
-      "targetSha256": "9b1553fcaecaabe139f2fe9428899232df095f7214c0a9d410b6a0fd4b4b6346",
+      "targetSha256": "332bb4dc77b27db5caa9aa767366d579acfb1dadf5b2e6a0c050d3d97aeacada",
       "classification": "authored"
     },
     {
       "target": "packages/medusa-adapter/src/modules/payment/lifecycle-receipt.ts",
-      "targetSha256": "2f199cdb6fdc9d3c59cdcf448945e754aaea2a0dbfbb46a0f08bf9ab148f4e82",
+      "targetSha256": "b73f4e3695db20222dbb1bb3f2f96b303b109c948b1ee74f67c9bc0815969598",
       "classification": "authored"
     },
     {
@@ -15613,7 +15615,7 @@
     },
     {
       "target": "packages/medusa-adapter/test/payment-refund-transform-contract.test.ts",
-      "targetSha256": "e9061c9a80fdb2932f1d8a4a7dd58fe0c48b032cf0092e6c4a18bf48628cb3cf",
+      "targetSha256": "368a1acfa19a650b1213ed6509dc0e0e875a565513d5a9e132accde0a971229b",
       "classification": "authored"
     },
     {
@@ -15628,7 +15630,7 @@
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-payment-finance-fixture.ts",
-      "targetSha256": "a04fa24d50d89b1ecba501d4655d1dcf037b49825a7cde7080bf30a7cf9d6e05",
+      "targetSha256": "a045e75c308882dd186b77e7cad62f2b71a04e19d4b02006e39f6551b1c73d5d",
       "classification": "authored"
     },
     {
@@ -15645,7 +15647,7 @@
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/refund-query-views.ts",
-      "targetSha256": "c8d8874023ed31e4e721281c827ce2189273a436ebc8a487987c8ae3902863dd",
+      "targetSha256": "9a2f740540c61c7797537540579630b91a6070bc609d3e0a46b4ac709b2894de",
       "classification": "authored"
     },
     {
@@ -15734,10 +15736,11 @@
     },
     {
       "target": "packages/medusa-core-flows/src/payment/workflows/refund-payments.ts",
-      "targetSha256": "87ab1b290a689f8b82606773a7d86b918315e8fbdb5b378457b991b36ff024a8",
+      "targetSha256": "3a008c70f06a9ea276e1f8def55ac2efa2d293f32c9bd4216435bcde9b69a99e",
       "classification": "paymentLifecycleFork",
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/payment/workflows/refund-payments.ts",
-      "sourceSha256": "fde0c2fecbba1d49f0bcbb74a8597eeec70921a84f81be8201b9b36b443cebbb"
+      "sourceSha256": "fde0c2fecbba1d49f0bcbb74a8597eeec70921a84f81be8201b9b36b443cebbb",
+      "transformation": "Preserve per-Refund accounting identity and exact amount; select and prefer raw Capture and previous Refund amounts in native refundable-amount validation."
     },
     {
       "target": "packages/medusa-orchestration/src/joiner-key-validation.ts",
@@ -15861,7 +15864,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/payment/collection-input.ts",
       "classification": "authored",
-      "targetSha256": "fffcd1c60a91b1af42e83cf9f3b318909471aa37eb5624a835136c25746614ae"
+      "targetSha256": "cc021aae39cea1830b27b3944cd1cc091867f8623bc0a036397deb791db6322c"
     },
     {
       "target": "packages/medusa-adapter/src/modules/payment/collection-receipt.ts",
@@ -16073,7 +16076,66 @@
     {
       "target": "packages/medusa-adapter/test/support/logical-order-checkout-fixture.ts",
       "classification": "authored",
-      "targetSha256": "59ceae53da903264bc69691eeb5a4feb4ad88a2e62445d9faa5d2df3ac8bd22f"
+      "targetSha256": "bc2230e32acca390294dccb8477311493308f38a30cc2e434c524e48064f8489"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-checkout-native-steps.test.ts",
+      "classification": "authored",
+      "targetSha256": "444c275dc9093fadbd664a78a7d31207393490b795f367a0c0dba40fa4c8e421"
+    },
+    {
+      "target": "packages/medusa-adapter/test/checkout-payment-customer-prerequisite.test.ts",
+      "classification": "authored",
+      "targetSha256": "46b88831cb45ce2f065ca3c74fe05bd0d1b80df4251bf50421974c41e030b424"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-checkout-payment-compensation-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "d9710973d44fc5c7988e9dd527253e0b5bb7151ccba5a9fa525ff49bbaf7984e"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/common/steps/checkout-payment-query-view.ts",
+      "classification": "authored",
+      "targetSha256": "22761129cf6f2a318e7475f13c5383a59d677c97eded13b715d7b6864b4c7110"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/order/steps/create-orders.ts",
+      "target": "packages/medusa-core-flows/src/order/steps/create-orders.ts",
+      "classification": "workflowFork",
+      "sourceSha256": "7d1eadb4c9e4ce8b27c36a7e503389c766161fe62c832e52fb75573faace893b",
+      "targetSha256": "25d36ecab967cf317d5425fb28a890370a935791bc0303d827de777ca3ddd721",
+      "transformation": "Retain native statements with finite SDK imports, transaction-covered compensation and erased optional-type seams."
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/cart/workflows/refund-payment-recreate-payment-session.ts",
+      "target": "packages/medusa-core-flows/src/cart/workflows/refund-payment-recreate-payment-session.ts",
+      "classification": "workflowFork",
+      "sourceSha256": "20895dee676ac2cb5191544a3d042343a4d74e701ecdceffdbd6a9e6204a126e",
+      "targetSha256": "aa45ee575322d2410dfe4cab08e2fa25d5fa196d4612091741459c480d4b4928",
+      "transformation": "Retain native statements with finite SDK imports, transaction-covered compensation and erased optional-type seams."
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/cart/steps/compensate-payment-if-needed.ts",
+      "target": "packages/medusa-core-flows/src/cart/steps/compensate-payment-if-needed.ts",
+      "classification": "workflowFork",
+      "sourceSha256": "df2bdee882a26b70f0df4b15caad3c6907adaa4ff7d53ac3f730f0395c9d6525",
+      "targetSha256": "d0b647b6dacf0502339e5937e9d6fa7ca775794823cf375a1e3514cf22a52e7e",
+      "transformation": "Retain native marker statements and its inverse with a declared finite callback-child closure. The approved customer lookup selects persisted Session context instead of a nonexistent Payment Customer relation; check the exact selected view."
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/payment/recreation-resources.ts",
+      "classification": "authored",
+      "targetSha256": "771386b261d12fef99fe87d0de0f2e505dad8a28bd11ff6f4028f9b055aa3832"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-checkout-exact-refund.test.ts",
+      "classification": "authored",
+      "targetSha256": "f68a90fdc1da76e8993712eea407734e69dfce18219cd75d7cf353b38a6f4ae0"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-checkout-exact-session.test.ts",
+      "classification": "authored",
+      "targetSha256": "d4b0ed946b3ae9706a92de679c9d2abdadbb6fd2f4a5f287c1307be01e65c0ec"
     }
   ],
   "dependencies": {
@@ -16414,7 +16476,10 @@
         "./payment-collection/cancel-payment-collection",
         "./payment-collection/update-payment-collection-step",
         "./payment-collection/cancel-payment-step",
-        "./order/create-order-payment-collection"
+        "./order/create-order-payment-collection",
+        "./order/create-orders-step",
+        "./cart/refund-payment-recreate-payment-session",
+        "./cart/compensate-payment-if-needed-step"
       ]
     },
     {

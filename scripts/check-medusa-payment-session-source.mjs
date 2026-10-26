@@ -46,7 +46,12 @@ export function verifyPaymentSessionSource(source, target, targetPath) {
     .replace("data.customer.account_holders", "data.customer!.account_holders")
     .replace("...data.customer,", "...data.customer!,")
     .replace("data.paymentCollection.amount", "data.paymentCollection!.amount")
+    .replace('fields: ["id", "amount", "currency_code", "payment_sessions.*"]',
+      'fields: ["id", "amount", "raw_amount", "currency_code", "payment_sessions.*"]')
+    .replace("amount: data.paymentCollection!.amount", "amount: data.paymentCollection!.raw_amount ?? data.paymentCollection!.amount")
     .replace("data.paymentCollection.currency_code", "data.paymentCollection!.currency_code")
+    .replace("data.paymentCollection?.payment_sessions?.map((ps) => ps.id)",
+      "data.paymentCollection?.payment_sessions?.filter((ps) => !ps.authorized_at).map((ps) => ps.id)")
     .replace("paymentCustomer.id", "paymentCustomer!.id").replace("accountHolder.id", "accountHolder!.id");
   if (targetPath.endsWith("workflows/delete-payment-sessions.ts")) expected = expected
     .replace('import {\n  deletePaymentSessionsStep,\n  validateDeletedPaymentSessionsStep,\n} from "../steps"',

@@ -800,6 +800,8 @@ export function discoverRootToolSources(repoRoot) {
     "scripts/check-medusa-link-operation-source.test.js",
     "scripts/check-medusa-payment-session-source.mjs",
     "scripts/check-medusa-payment-session-source.test.js",
+    "scripts/check-medusa-checkout-source.mjs",
+    "scripts/check-medusa-checkout-source.test.js",
     "scripts/check-medusa-payment-lifecycle-source.mjs",
     "scripts/check-medusa-payment-lifecycle-source.test.js",
     "scripts/check-medusa-payment-collection-source.mjs",

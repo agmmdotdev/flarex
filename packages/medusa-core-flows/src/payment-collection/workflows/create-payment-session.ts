@@ -76,7 +76,7 @@ export const createPaymentSessionsWorkflow = createWorkflow(
   ): WorkflowResponse<PaymentSessionDTO> => {
     const paymentCollection = useRemoteQueryStep({
       entry_point: "payment_collection",
-      fields: ["id", "amount", "currency_code", "payment_sessions.*"],
+      fields: ["id", "amount", "raw_amount", "currency_code", "payment_sessions.*"],
       variables: { id: input.payment_collection_id },
       list: false,
     }).config({ name: "get-payment-collection" })
@@ -175,7 +175,7 @@ export const createPaymentSessionsWorkflow = createWorkflow(
             customer: data.paymentCustomer,
             account_holder: data.accountHolder,
           },
-          amount: data.paymentCollection!.amount,
+          amount: data.paymentCollection!.raw_amount ?? data.paymentCollection!.amount,
           currency_code: data.paymentCollection!.currency_code,
         }
       }
@@ -186,11 +186,12 @@ export const createPaymentSessionsWorkflow = createWorkflow(
       (data) => {
         return {
           ids:
-            data.paymentCollection?.payment_sessions?.map((ps) => ps.id) || [],
+            data.paymentCollection?.payment_sessions?.filter((ps) => !ps.authorized_at).map((ps) => ps.id) || [],
         }
       }
     )
 
+    // Authorized Sessions retain Payment history and are not replaceable.
     // Note: We are deleting an existing active session before creating a new one
     // for a payment collection as we don't support split payments at the moment.
     // When we are ready to accept split payments, this along with other workflows

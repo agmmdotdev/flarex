@@ -1,12 +1,12 @@
 import { Schema } from "effect";
 import { commerceDecoder } from "../../value/decoder";
 import { ExactNumericRaw } from "../../value/exact-numeric";
-import { PaymentAmount, PaymentId, PaymentRead } from "./input";
+import { NativePaymentAmount, PaymentAmount, PaymentId, PaymentRead } from "./input";
 
 export const PaymentAuthorization = Schema.Struct({ id: PaymentId, context: Schema.optionalKey(Schema.JsonObject) });
 export const PaymentCapture = Schema.Struct({ payment_id: PaymentId, amount: Schema.optionalKey(PaymentAmount),
   captured_by: Schema.optionalKey(PaymentId) });
-export const PaymentRefund = Schema.Struct({ payment_id: PaymentId, amount: Schema.optionalKey(PaymentAmount),
+export const PaymentRefund = Schema.Struct({ payment_id: PaymentId, amount: Schema.optionalKey(NativePaymentAmount),
   created_by: Schema.optionalKey(PaymentId), note: Schema.optionalKey(Schema.String), refund_reason_id: Schema.optionalKey(PaymentId) });
 export const decodePaymentAuthorization = commerceDecoder(PaymentAuthorization, "invalidInput");
 export const decodePaymentCapture = commerceDecoder(PaymentCapture, "invalidInput");

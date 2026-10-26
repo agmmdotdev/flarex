@@ -1,5 +1,6 @@
 // @ts-check
 import { apiKeySourcePairs, verifyApiKeySelection, verifyApiKeySource } from "./check-medusa-api-key-source.mjs";
+import { checkoutSourcePairs, verifyCheckoutSelection, verifyCheckoutSource } from "./check-medusa-checkout-source.mjs";
 import { nativeLinkOperationSourcePairs, verifyNativeLinkOperationSelection } from "./check-medusa-link-operation-source.mjs";
 import { paymentSessionSourcePairs, paymentSessionTypeSourcePairs, verifyPaymentSessionSelection,
   verifyPaymentSessionSource, verifyPaymentSessionTypeSource } from "./check-medusa-payment-session-source.mjs";
@@ -506,6 +507,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   verifyPaymentSessionSelection(promotion.files);
   verifyPaymentLifecycleSelection(promotion.files);
   verifyPaymentCollectionSelection(promotion.files);
+  verifyCheckoutSelection(promotion.files);
   verifyTaxRuleReplacementSelection(promotion.files);
   verifyInventoryConfirmationSourceSelection(promotion.files);
   const sums = readFileSync(path.join(root, "third_party/medusa/SOURCE_SHA256SUMS"));
@@ -1067,6 +1069,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     noSymlinks(root, file.target);
     if (sha256(readFileSync(path.join(root, file.target))) !== file.targetSha256) throw new Error(`Changed promotion target: ${file.target}`);
     if (file.source !== undefined) {
+      if (checkoutSourcePairs.some(pair => pair.target === file.target))
+        verifyCheckoutSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (apiKeySourcePairs.some(pair => pair.target === file.target))
         verifyApiKeySource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (["paymentLifecycleFork", "paymentAccountingFork", "orderRefundValidationFork"].includes(file.classification) &&

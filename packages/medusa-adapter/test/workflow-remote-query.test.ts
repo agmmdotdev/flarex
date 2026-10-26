@@ -76,10 +76,10 @@ describe("native Product remote query seam", () => {
   });
 
   it("retains the native nonthrowing Payment singleton ABI and selected typed projection", async () => {
-    const fields = ["id", "amount", "currency_code", "payment_sessions.*"] as const;
+    const fields = ["id", "amount", "raw_amount", "currency_code", "payment_sessions.*"] as const;
     const input = { entry_point: "payment_collection" as const, fields, variables: { id: "pay_col" }, list: false as const };
-    const calls: unknown[][] = [], row = { id: "pay_col", amount: 12.5, currency_code: "usd",
-      payment_sessions: [{ id: "payses_old", provider_id: "pp_system_default" }] };
+    const calls: unknown[][] = [], row = { id: "pay_col", amount: 12.5, raw_amount: { value: "12.5", precision: 20 }, currency_code: "usd",
+      payment_sessions: [{ id: "payses_old", provider_id: "pp_system_default", authorized_at: null }] };
     const graph = async () => { throw new Error("Payment singleton must use callable Query"); };
     const query = Object.assign(async (...args: unknown[]) => { calls.push(args); return [row]; }, { maxPageSize: 4, graph });
     expect(await execute(query, input)).toEqual(row);

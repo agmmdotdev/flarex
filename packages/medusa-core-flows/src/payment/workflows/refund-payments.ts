@@ -19,8 +19,8 @@ export type ValidatePaymentsRefundStepInput = {
    * The payment details.
    */
   payments: readonly (Pick<PaymentDTO, "id"> & {
-    captures?: readonly Pick<NonNullable<PaymentDTO["captures"]>[number], "amount">[]
-    refunds?: readonly Pick<NonNullable<PaymentDTO["refunds"]>[number], "amount">[]
+    captures?: readonly (Pick<NonNullable<PaymentDTO["captures"]>[number], "amount"> & { raw_amount?: BigNumberInput })[]
+    refunds?: readonly (Pick<NonNullable<PaymentDTO["refunds"]>[number], "amount"> & { raw_amount?: BigNumberInput })[]
   })[]
   /**
    * The payments to refund.
@@ -63,12 +63,12 @@ export const validatePaymentsRefundStep = createStep(
 
     for (const payment of payments) {
       const capturedAmount = (payment.captures || []).reduce(
-        (acc, capture) => MathBN.sum(acc, capture.amount),
+        (acc, capture) => MathBN.sum(acc, capture.raw_amount ?? capture.amount),
         MathBN.convert(0)
       )
 
       const refundedAmount = (payment.refunds || []).reduce(
-        (acc, capture) => MathBN.sum(acc, capture.amount),
+        (acc, capture) => MathBN.sum(acc, capture.raw_amount ?? capture.amount),
         MathBN.convert(0)
       )
 
@@ -143,8 +143,10 @@ export const refundPaymentsWorkflow = createWorkflow(
         "currency_code",
         "refunds.id",
         "refunds.amount",
+        "refunds.raw_amount",
         "captures.id",
         "captures.amount",
+        "captures.raw_amount",
         "payment_collection.order.id",
         "payment_collection.order.currency_code",
       ],

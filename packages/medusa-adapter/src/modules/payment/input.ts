@@ -1,10 +1,13 @@
 import { Schema } from "effect";
 import { commerceDecoder } from "../../value/decoder";
+import { ExactNumericRaw } from "../../value/exact-numeric";
 
 export const PaymentId = Schema.String.check(Schema.isLengthBetween(1, 256));
 export const PaymentAmount = Schema.Union([Schema.String.check(Schema.isLengthBetween(1, 128)), Schema.Number.check(Schema.isFinite())]);
+export const NativePaymentAmount = Schema.Union([PaymentAmount, Schema.Struct({ ...ExactNumericRaw.fields,
+  value: Schema.String.check(Schema.isLengthBetween(1, 128)) })]);
 export const PaymentSessionData = Schema.Struct({ provider_id: Schema.Literal("pp_system_default"), currency_code: Schema.String,
-  amount: PaymentAmount, data: Schema.JsonObject, context: Schema.optionalKey(Schema.NullOr(Schema.JsonObject)),
+  amount: NativePaymentAmount, data: Schema.JsonObject, context: Schema.optionalKey(Schema.NullOr(Schema.JsonObject)),
   metadata: Schema.optionalKey(Schema.JsonObject) });
 export const PaymentSessionCreate = Schema.Struct({ payment_collection_id: PaymentId, ...PaymentSessionData.fields });
 export const PaymentCollectionCreate = Schema.Struct({ currency_code: Schema.String, amount: PaymentAmount,

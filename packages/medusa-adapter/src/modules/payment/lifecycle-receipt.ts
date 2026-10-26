@@ -12,7 +12,7 @@ import { projectRows } from "../../query/projection";
 import { moduleEventDecoder } from "../../module/events";
 import { captureCommerceInput } from "../../value/input";
 import { captureNativeDateRecord } from "../../value/native-record";
-import { captureExactNumericRow, encodeExactNumeric } from "../../value/exact-numeric";
+import { captureExactNumericRow, encodeExactNumeric, encodeNativeExactNumeric } from "../../value/exact-numeric";
 import { commerceDecoder } from "../../value/decoder";
 import { PaymentId, decodePaymentRead, decodePaymentDelete } from "./input";
 import { decodePaymentAuthorization, decodePaymentCapture, decodePaymentRefund, decodePaymentRetrieve } from "./lifecycle-input";
@@ -197,7 +197,7 @@ export function paymentLifecyclePolicy(prepared: Prepared) {
       const payment = yield* Effect.fromResult(selectedOne(contracts.payment, input.payment_id, { select: ["id", "data", "provider_id", "payment_collection_id", "amount", "raw_amount"], relations: ["captures.raw_amount", "refunds.raw_amount"] }));
       const data = structuredClone(input);
       yield* Effect.try({ try: () => Reflect.apply(validatePaymentRefund, undefined, [payment, data]), catch: cause => mismatch("refund-accounting", cause) });
-      const amount = yield* encodeExactNumeric(data.amount);
+      const amount = yield* encodeNativeExactNumeric(data.amount);
       yield* Effect.fromResult(insert(contracts.refund.name, { amount: amount.value, raw_amount: yield* Effect.fromResult(captureCommerceInput(amount.raw)), payment_id: input.payment_id,
         created_by: data.created_by ?? null, note: data.note ?? null, refund_reason_id: data.refund_reason_id ?? null }));
       yield* Effect.fromResult(updatePreimage(contracts.payment, input.payment_id));

@@ -16,7 +16,7 @@ export const RefundChangeQuery = Schema.Struct({ entity: Schema.Literal("order_c
   filters: Schema.Struct({ order_id: Schema.String, status: Schema.Tuple([Schema.Literal("pending")]) }) });
 export const RefundPaymentsQuery = Schema.Struct({ entity: Schema.Literal("payments"),
   fields: Schema.Tuple([Schema.Literal("id"), Schema.Literal("currency_code"), Schema.Literal("refunds.id"), Schema.Literal("refunds.amount"),
-    Schema.Literal("captures.id"), Schema.Literal("captures.amount"), Schema.Literal("payment_collection.order.id"),
+    Schema.Literal("refunds.raw_amount"), Schema.Literal("captures.id"), Schema.Literal("captures.amount"), Schema.Literal("captures.raw_amount"), Schema.Literal("payment_collection.order.id"),
     Schema.Literal("payment_collection.order.currency_code")]), filters: Schema.Struct({ id: Schema.Array(Schema.String) }),
   options: Schema.Struct({ throwIfKeyNotFound: Schema.Literal(true) }) });
 const CreditOrder = Schema.Struct({ id: Schema.String, status: Schema.Literals(Object.values(OrderStatus)),
@@ -24,10 +24,11 @@ const CreditOrder = Schema.Struct({ id: Schema.String, status: Schema.Literals(O
 const Change = Schema.Struct({ id: Schema.String, status: Schema.Literal("pending"), change_type: Schema.NullOr(Schema.String),
   actions: Schema.Array(Schema.Struct({ id: Schema.String, order_id: Schema.String, action: Schema.String, details: Schema.JsonObject,
     reference: Schema.NullOr(Schema.String), reference_id: Schema.NullOr(Schema.String), internal_note: Schema.NullOr(Schema.String) })) });
+const RawAmount = Schema.Struct({ value: Schema.String, precision: Schema.Finite });
 const Payment = Schema.Struct({ id: Schema.String, currency_code: Schema.String,
-  refunds: Schema.Array(Schema.Struct({ id: Schema.String, amount: Schema.Finite })),
-  captures: Schema.Array(Schema.Struct({ id: Schema.String, amount: Schema.Finite })),
-  payment_collection: Schema.NullOr(Schema.Struct({ order: Schema.NullOr(Schema.Struct({ id: Schema.String, currency_code: Schema.String })) })) });
+  refunds: Schema.Array(Schema.Struct({ id: Schema.String, amount: Schema.Finite, raw_amount: RawAmount })),
+  captures: Schema.Array(Schema.Struct({ id: Schema.String, amount: Schema.Finite, raw_amount: RawAmount })),
+  payment_collection: Schema.NullOr(Schema.Struct({ order: Schema.optionalKey(Schema.NullOr(Schema.Struct({ id: Schema.String, currency_code: Schema.String }))) })) });
 export type RefundCreditOrderView = typeof CreditOrder.Type;
 export type RefundChangeView = typeof Change.Type;
 export type RefundPaymentView = typeof Payment.Type;

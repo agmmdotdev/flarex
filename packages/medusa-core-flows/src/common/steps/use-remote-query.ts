@@ -21,7 +21,7 @@ const SingletonInput = Schema.Struct({
   throw_if_key_not_found: Schema.Literal(true),
 });
 const PaymentCollectionInput = Schema.Struct({ entry_point: Schema.Literal("payment_collection"),
-  fields: Schema.Tuple([Schema.Literal("id"), Schema.Literal("amount"), Schema.Literal("currency_code"), Schema.Literal("payment_sessions.*")]),
+  fields: Schema.Tuple([Schema.Literal("id"), Schema.Literal("amount"), Schema.Literal("raw_amount"), Schema.Literal("currency_code"), Schema.Literal("payment_sessions.*")]),
   variables: Schema.Struct({ id: Schema.String }), list: Schema.Literal(false) });
 const PaymentCustomerInput = Schema.Struct({ entry_point: Schema.Literal("customer"),
   fields: Schema.Tuple([Schema.Literal("id"), Schema.Literal("email"), Schema.Literal("company_name"), Schema.Literal("first_name"),
@@ -43,8 +43,9 @@ const RefundReasonInput = Schema.Struct({ entry_point: Schema.Literal("refund_re
 const Input = Schema.Union([ListInput, SingletonInput, PaymentCollectionInput, PaymentCustomerInput, OrderPaymentInput, CartCollectionCreateQuery,
   RefundPaymentInput, RefundOrderInput, RefundReasonInput]);
 const retainedProjection = { parseOptions: { onExcessProperty: "preserve" as const } };
-const PaymentCollectionView = Schema.Struct({ id: Schema.String, amount: Schema.Number.check(Schema.isFinite()), currency_code: Schema.String,
-  payment_sessions: Schema.Array(Schema.Struct({ id: Schema.String }).annotate(retainedProjection)) }).annotate(retainedProjection);
+const RawAmount = Schema.Struct({ value: Schema.String, precision: Schema.Finite });
+const PaymentCollectionView = Schema.Struct({ id: Schema.String, amount: Schema.Number.check(Schema.isFinite()), raw_amount: RawAmount, currency_code: Schema.String,
+  payment_sessions: Schema.Array(Schema.Struct({ id: Schema.String, authorized_at: Schema.NullOr(Schema.String) }).annotate(retainedProjection)) }).annotate(retainedProjection);
 const PaymentCustomerView = Schema.Struct({ id: Schema.String, email: Schema.String, company_name: Schema.NullOr(Schema.String),
   first_name: Schema.NullOr(Schema.String), last_name: Schema.NullOr(Schema.String), phone: Schema.NullOr(Schema.String),
   addresses: Schema.Array(Schema.JsonObject), account_holders: Schema.Array(Schema.Struct({ id: Schema.String, provider_id: Schema.String,
@@ -56,14 +57,13 @@ const decodeOrderPaymentView = Schema.decodeUnknownResult(Schema.UndefinedOr(Ord
 const decodeRequiredOrderPaymentView = Schema.decodeUnknownResult(OrderPaymentView, { onExcessProperty: "error" });
 // These contracts describe the exact selected JSON projections. Native DML and
 // the numeric owner validate stored quantities before the Query ABI returns them.
-const RefundRawAmount = Schema.Struct({ value: Schema.String, precision: Schema.Finite });
 const RefundPaymentView = Schema.Struct({ id: Schema.String, payment_collection_id: Schema.String, currency_code: Schema.String,
-  amount: Schema.Finite, raw_amount: RefundRawAmount,
-  captures: Schema.Array(Schema.Struct({ raw_amount: RefundRawAmount })),
-  refunds: Schema.Array(Schema.Struct({ raw_amount: RefundRawAmount })) });
+  amount: Schema.Finite, raw_amount: RawAmount,
+  captures: Schema.Array(Schema.Struct({ raw_amount: RawAmount })),
+  refunds: Schema.Array(Schema.Struct({ raw_amount: RawAmount })) });
 const RefundOrderView = Schema.Struct({ id: Schema.String, total: Schema.Finite, currency_code: Schema.String,
   region_id: Schema.NullOr(Schema.String), summary: Schema.optionalKey(Schema.NullOr(Schema.Struct({
-    pending_difference: Schema.optionalKey(Schema.Finite), raw_pending_difference: Schema.optionalKey(RefundRawAmount),
+    pending_difference: Schema.optionalKey(Schema.Finite), raw_pending_difference: Schema.optionalKey(RawAmount),
   }).annotate(retainedProjection))) });
 const RefundReasonView = Schema.Struct({ id: Schema.String, label: Schema.String, code: Schema.String });
 export type RefundPaymentQueryView = typeof RefundPaymentView.Type;

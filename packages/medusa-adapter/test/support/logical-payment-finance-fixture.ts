@@ -38,7 +38,8 @@ import { paymentCollectionId, paymentSessionSeed } from "./logical-payment-sessi
  * each existing dataset through its actual trusted initializer; workflow writes
  * subsequently borrow one atomic outer settlement across those participants. */
 export async function prepareLogicalPaymentFinance(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  nativeOrderRows: readonly OrderInitialRow[] = orderFinanceRows, association: "linked" | "unlinked" = "linked", shared?: OrderFixtureShared) {
+  nativeOrderRows: readonly OrderInitialRow[] = orderFinanceRows, association: "linked" | "unlinked" = "linked", shared?: OrderFixtureShared,
+  paymentAmount = "15") {
   const definitions = [
     { key: "medusa.payment", definition: await Effect.runPromise(compilePaymentDefinition()) },
     { key: "medusa.order", definition: await Effect.runPromise(compileOrderDefinition("generate")) },
@@ -74,8 +75,8 @@ export async function prepareLogicalPaymentFinance(driver: "pglite" | "postgres"
   const seed = paymentSessionSeed("payses_finance");
   const paymentStorage = await initialize(0, payment.commands, [
     { table: "refund_reason", row: { id: "refr-finance", label: "Native refund reason", code: "NATIVE_REFUND" } },
-    { table: "payment_collection", row: { id: paymentCollectionId, currency_code: "usd", amount: "15", raw_amount: { value: "15", precision: 20 } } },
-    { ...seed, row: { ...seed.row, amount: "15", raw_amount: { value: "15", precision: 20 } } },
+    { table: "payment_collection", row: { id: paymentCollectionId, currency_code: "usd", amount: paymentAmount, raw_amount: { value: paymentAmount, precision: 20 } } },
+    { ...seed, row: { ...seed.row, amount: paymentAmount, raw_amount: { value: paymentAmount, precision: 20 } } },
   ]);
   const orderStorage = await initialize(1, order.commands, nativeOrderRows);
   const linkStorage = await initialize(2, links.commands, association === "linked" ? [{

@@ -8,7 +8,7 @@ import { projectNativeRow } from "../../repository/result";
 import { projectRows } from "../../query/projection";
 import { assembleCommerceRelations, commerceRelationReadQuery, prepareCommerceRelationPopulation } from "../../query/relations";
 import { captureCommerceInput } from "../../value/input";
-import { encodeExactNumeric } from "../../value/exact-numeric";
+import { encodeExactNumeric, encodeNativeExactNumeric } from "../../value/exact-numeric";
 import { moduleEventDecoder } from "../../module/events";
 import { PaymentId, decodePaymentRead, decodePaymentCreate, decodePaymentDelete, decodePaymentCollectionCreate } from "./input";
 import type { preparePaymentSessionRepository } from "./repository";
@@ -85,12 +85,12 @@ export function paymentSessionPolicy({ contracts, query, relations }: Prepared) 
       for (const row of activity.observedRows) if (row.table !== contracts.session.name || row.row.id !== id) return yield* Effect.fail(mismatch());
       expectedEvents.push({ id, object: "payment_session", action: "deleted" });
     } else {
-      const input = yield* Effect.fromResult(collectionCreate ? decodePaymentCollectionCreate(call.input) : decodePaymentCreate(call.input));
+      const input = collectionCreate ? yield* Effect.fromResult(decodePaymentCollectionCreate(call.input)) : yield* Effect.fromResult(decodePaymentCreate(call.input));
       const table = collectionCreate ? contracts.collection : contracts.session, mutation = activity.mutations[0], stored = mutation?.after;
       if (stored === undefined || stored === null || mutation?.operation !== "insert" || mutation.table !== table.name || mutation.before !== null || mutation.ordinal !== 0 ||
         activity.mutations.length !== (collectionCreate ? 1 : 2)) return yield* Effect.fail(mismatch());
       const row = yield* Effect.fromResult((collectionCreate ? contracts.decodeCollection : contracts.decodeSession)(projectNativeRow(stored)));
-      const encoded = yield* encodeExactNumeric(input.amount);
+      const encoded = yield* (sessionCreate ? encodeNativeExactNumeric : encodeExactNumeric)(input.amount);
       for (const [name, value] of Object.entries({ ...input, amount: encoded.value, raw_amount: encoded.raw }))
         if (!jsonEqual(row[name] ?? null, yield* Effect.fromResult(captureCommerceInput(value)))) return yield* Effect.fail(mismatch());
       if (row.deleted_at !== null || row.created_at !== row.updated_at) return yield* Effect.fail(mismatch());
