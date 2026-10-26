@@ -1,0 +1,113 @@
+import { randomBytes, randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
+import { PGlite } from "@electric-sql/pglite";
+import { drizzle as pgDrizzle } from "drizzle-orm/node-postgres";
+import { drizzle as embeddedDrizzle } from "drizzle-orm/pglite";
+import { migrate as pgMigrate } from "drizzle-orm/node-postgres/migrator";
+import { migrate as embeddedMigrate } from "drizzle-orm/pglite/migrator";
+import { sql } from "drizzle-orm";
+import { Effect } from "effect";
+import { Pool } from "pg";
+import type { CollectionConfig } from "payload";
+import { compilePayloadDefinition } from "../src/payload-definition.ts";
+import { CoreError } from "../src/errors.ts";
+import { createStorage, type Database, type Storage } from "../src/storage.ts";
+import * as tables from "../src/schema.ts";
+import { postgresSession } from "../src/session.ts";
+
+export const newsCollection = (): CollectionConfig => ({
+  slug: "news-items", lockDocuments: false, enableQueryPresets: false, defaultSort: "id",
+  access: { read: () => true, create: () => true, update: () => true, delete: () => true },
+  fields: [{ name: "headline", type: "text", required: true, unique: true },
+    { name: "score", type: "number", required: true, defaultValue: 0 }],
+});
+
+/** Driver clients stay inside this resource fixture. All SQL uses Drizzle. */
+export async function fixture(connectionString?: string) {
+  const identity = `fx_exp_${randomBytes(8).toString("hex")}`;
+  const role = `${identity}_serving`;
+  const password = randomUUID();
+  const provisioning = connectionString === undefined ? undefined : new Pool({ connectionString, max: 1 });
+  const provision = provisioning === undefined ? undefined : pgDrizzle(provisioning);
+  let ownerPool: Pool | undefined;
+  let embedded: PGlite | undefined;
+  let servingPool: Pool | undefined;
+  let created = false;
+  let roleCreated = false;
+  const close = async () => {
+    if (servingPool !== undefined) await servingPool.end();
+    if (ownerPool !== undefined) await ownerPool.end();
+    if (embedded !== undefined) await embedded.close();
+    if (provision !== undefined && provisioning !== undefined) {
+      try {
+        if (created) await provision.execute(sql.raw(`drop database ${identity}`));
+        if (roleCreated) await provision.execute(sql.raw(`drop role ${role}`));
+      } finally { await provisioning.end(); }
+    }
+  };
+  try {
+    const migrationsFolder = fileURLToPath(new URL("../drizzle", import.meta.url));
+    let owner: Database;
+    let servingUrl: string | undefined;
+    let ownerUrl: string | undefined;
+    if (connectionString === undefined) {
+      embedded = new PGlite();
+      const db = embeddedDrizzle(embedded, { schema: tables });
+      await embeddedMigrate(db, { migrationsFolder });
+      owner = db;
+    } else {
+      if (provision === undefined) throw new Error("Missing provisioning owner");
+      await provision.execute(sql.raw(`create database ${identity}`)); created = true;
+      const url = new URL(connectionString); url.pathname = `/${identity}`; ownerUrl = url.toString();
+      ownerPool = new Pool({ connectionString: ownerUrl, max: 3, application_name: `${identity}_owner` });
+      const db = pgDrizzle(ownerPool, { schema: tables });
+      await pgMigrate(db, { migrationsFolder });
+      owner = db;
+    }
+    await (provision ?? owner).execute(sql.raw(`create role ${role} login password '${password}' nosuperuser nocreatedb nocreaterole noinherit`)); roleCreated = true;
+    const definition = await Effect.runPromise(Effect.fromResult(compilePayloadDefinition(newsCollection())));
+    await owner.insert(tables.installation).values({ singleton: true });
+    await owner.insert(tables.authorities).values({ scope: "shop-a" });
+    await owner.insert(tables.clocks).values({ scope: "shop-a" });
+    await owner.insert(tables.grants).values({ scope: "shop-a", principal: role });
+    await owner.insert(tables.definitions).values({ table: definition.table, version: definition.version, fields: definition.fields });
+    await owner.execute(sql.raw(`revoke all on schema fx_core from public`));
+    await owner.execute(sql.raw(`grant usage on schema fx_core to ${role}`));
+    await owner.execute(sql.raw(`grant select on all tables in schema fx_core to ${role}`));
+    // PostgreSQL requires UPDATE on one column for FOR SHARE. These inert
+    // columns confer no right to change installation/authorization facts.
+    await owner.execute(sql.raw(`grant update ("readLock") on fx_core.installation,fx_core.authorities,fx_core.grants,fx_core.definitions to ${role}`));
+    await owner.execute(sql.raw(`grant insert,update on fx_core.commands,fx_core.clocks to ${role}`));
+    await owner.execute(sql.raw(`grant insert on fx_core.documents,fx_core.unique_claims,fx_core.history,fx_core.event_intents to ${role}`));
+    let serving: Database;
+    if (embedded !== undefined) {
+      await owner.execute(sql.raw(`set role ${role}`)); serving = owner;
+    } else {
+      if (ownerUrl === undefined) throw new Error("Missing owned database URL");
+      const url = new URL(ownerUrl); url.username = role; url.password = password; servingUrl = url.toString();
+      servingPool = new Pool({ connectionString: servingUrl, max: 4, application_name: role, connectionTimeoutMillis: 5000, statement_timeout: 5000, lock_timeout: 3000 });
+      serving = pgDrizzle(servingPool, { schema: tables });
+    }
+    const admin = <A>(work: (database: Database) => Promise<A>): Promise<A> => embedded === undefined ? work(owner) : owner.transaction(async tx => {
+      await tx.execute(sql.raw("reset role"));
+      const result = await work(tx);
+      await tx.execute(sql.raw(`set role ${role}`));
+      return result;
+    });
+    const rawStorage = createStorage(servingPool === undefined ? { run: work => serving.transaction(work) } : postgresSession(servingPool));
+    let loseCommitResponse = false;
+    const storage: Storage = { ...rawStorage, settle: Effect.fn("TestTransport.settle")((...args: Parameters<Storage["settle"]>) =>
+      rawStorage.settle(...args).pipe(Effect.flatMap(result => {
+        if (!loseCommitResponse) return Effect.succeed(result);
+        loseCommitResponse = false;
+        return Effect.fail(new CoreError({ reason: "storage", cause: "Injected response loss after committed Drizzle transaction" }));
+      }))),
+    };
+    return { identity, role, admin, serving, servingPool, storage, definition, ownerUrl, servingUrl,
+      loseNextCommitResponse: () => { loseCommitResponse = true; }, close };
+  } catch (cause) {
+    try { await close(); } catch (cleanup) { throw new AggregateError([cause, cleanup], "Fixture acquisition and cleanup failed", { cause }); }
+    throw cause;
+  }
+}
+export type Fixture = Awaited<ReturnType<typeof fixture>>;

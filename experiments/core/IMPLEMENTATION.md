@@ -1,7 +1,9 @@
 # Implementation sequence
 
-Status: documentation scaffold complete; all runtime stages below are pending.
-The first deliverable is a connected experimental path, not a new exported API.
+Status: the [bounded Payload-create slice](./PAYLOAD-CREATE.md) now connects the
+native Local API to experimental definitions, indexed root state and Drizzle
+settlement. Broader lifecycle, standalone Application and promotion stages remain
+pending. The stages below describe the full experiment, not completed support.
 
 ## Stage 1: executable scope and contract map
 

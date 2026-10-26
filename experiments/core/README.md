@@ -1,6 +1,8 @@
 # Experimental Flarex core
 
-Status: design and implementation brief. No experimental runtime exists yet.
+Status: bounded Payload-create prototype implemented with Drizzle. This is not
+an accepted replacement core or a completed performance comparison. See the
+[implemented slice and remaining gates](./PAYLOAD-CREATE.md).
 
 This is a separate core experiment requested by the owner on 2026-10-26. Build
 and evaluate a different execution design here while current Medusa integration
@@ -76,7 +78,9 @@ The brief now specifies [query/profile/authority contracts](./DESIGN.md),
 [before/after operation traces](./IMPLEMENTATION.md#initial-operation-trace-hypotheses)
 and [early scaling witnesses](./VALIDATION.md#early-algorithm-and-concurrency-checks).
 Concrete physical lock modes/writers and native compatibility evidence still
-need to be bound to the implementation before removing any existing obligation.
+need proof for the wider core. The [first slice](./PAYLOAD-CREATE.md) binds its
+create-only operation to actual rows, roles, lock order and native callbacks;
+it removes no obligation from the active runtime.
 
 Start with one genuine Payload create and an early standalone Application
 query/mutation witness against the same core owners. Add one Medusa Product

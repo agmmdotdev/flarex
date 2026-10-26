@@ -1,7 +1,10 @@
 # Correctness and performance gates
 
-No gate has passed for the experimental core. Documentation checks establish only
-that the implementation brief and source references are coherent.
+The [bounded create slice](./PAYLOAD-CREATE.md) has executable contract, PGlite and
+ordinary-role PostgreSQL witnesses. These establish only their stated create-only
+behavior. Full-core gates, standalone Application support and performance
+acceptance remain open. The active comparison lane currently fails during its
+existing migration setup; no speedup is established.
 
 ## Three comparison lanes
 

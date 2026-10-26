@@ -1,0 +1,26 @@
+{
+  "name": "@flarex/experimental-core",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc-rs -p tsconfig.json",
+    "lint": "pnpm --dir ../.. exec oxlint --config oxlint.config.ts experiments/core/src experiments/core/test experiments/core/vitest.config.ts",
+    "schema:generate": "drizzle-kit generate --config drizzle.config.ts"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "drizzle-orm": "0.45.2",
+    "effect": "4.0.0-rc.112",
+    "payload": "3.88.0",
+    "pg": "8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.12.0",
+    "@types/pg": "8.20.0",
+    "drizzle-kit": "0.31.10",
+    "tsc-rs": "0.8.0",
+    "typescript": "7.1.0-beta",
+    "vitest": "5.0.3"
+  }
+}
