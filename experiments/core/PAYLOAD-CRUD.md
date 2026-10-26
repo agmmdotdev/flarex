@@ -110,7 +110,8 @@ PGlite and ordinary-role PostgreSQL witnesses cover the bounded native lifecycle
 preference cleanup, atomic rollback, concurrent matching writers, operation-specific
 replay access, uncertain acceptance and cancellation/draining. The equality
 foundation separately covers pending membership and actual index plans. These
-prove this declared profile; mixed deletion and performance remain open.
+prove this declared profile. The mixed graph now borrows the same native deletion
+and preference cleanup under its one accepting owner; performance remains open.
 
 - Real Local API create, persisted-row read/update/delete and complete results;
   defaults, validation, boolean access and admitted hooks execute natively.

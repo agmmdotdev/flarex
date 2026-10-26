@@ -2,8 +2,8 @@
 
 Status: bounded native connection implemented in `mixed.ts`: an authored
 Application mutation, native Product update/retrieve/list-by-handle, and native Payload
-create/update/read share the selected-table accepting owner. Complete-request
-measurements, Payload deletion/preferences and populated Product relations remain
+CRUD and actual preference cleanup share the selected-table accepting owner.
+Complete-request measurements and populated Product relations remain
 pending. Nothing in this note authorizes active-core changes or production
 promotion.
 
@@ -45,14 +45,21 @@ There is no automatic mixed replay of native hooks or services after a conflict.
 
 The first connected operation inserts an Application task, updates a pre-existing
 relation-free Product's title/handle/status, retrieves/lists its pending result
-and creates/updates a Payload document. Preserve each
+and creates/updates/reads a Payload document. It also deletes a different,
+pre-existing Payload document identified by `payload.deleteId`, including that
+document's actual native preference cleanup. The new document remains committed;
+the existing document and matching preferences become tombstones at the same
+sequence as the Application/Product/new-document changes. Preserve each
 complete native result, local pending visibility, native access/validation/hooks
 and the native Product event. A failure in any participant, even if caught by
 the composition, must prevent every participant's publication. Native business
 code receives neither physical sessions nor acceptance/recovery capabilities.
 
-The [CRUD continuation](./PAYLOAD-CRUD.md) specifies the remaining deletion and
-preference work. Payload update and deletion additionally exercise same-request native reads and
+The [CRUD contract](./PAYLOAD-CRUD.md) supplies the shared deletion and preference
+operations. Select the preference definition with the other three definitions
+before native execution; include the prepared deletion identity and exact deleted
+result in the saved mixed outcome. Replay checks current native delete access
+without re-running business hooks. Payload update and deletion exercise same-request native reads and
 preference cleanup. Cleanup is real core work over a selected preference table,
 including empty results; the adapter cannot return a successful fabricated no-op.
 Preference writers and cleanup share indexed identity and the accepting owner.

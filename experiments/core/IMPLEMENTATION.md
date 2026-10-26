@@ -6,8 +6,8 @@ Status: [bounded Payload create](./PAYLOAD-CREATE.md) and the
 developer/framework entry points to experimental roots and shared Drizzle
 persistence/materialization. The [multi-table foundation](./MIXED.md) provides
 selected-definition admission, callback-scoped borrowing and one publication,
-now connected to actual Application, Product and Payload create/update/read.
-General queries, Payload deletion/preferences, connected reactivity, wider native
+now connected to actual Application, Product update/retrieve/list and Payload
+CRUD with native preference cleanup. General queries, connected reactivity, wider native
 lifecycle, measurements and promotion remain pending. The stages below
 describe the full experiment, not completed support.
 

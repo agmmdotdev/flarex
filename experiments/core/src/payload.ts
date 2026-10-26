@@ -293,6 +293,5 @@ export const createPayloadBinding = Effect.fn("ExperimentPayload.binding")(funct
   return { read: (id: string) => owned(read(id)), definition, preferenceDefinition,
     prepareCreate, prepareUpdate, prepareDelete, authorizeUpdatedResult, uniqueFailure: () => new NativeFailure({ cause: projectUnique() }),
     borrowUpdate: (root: BorrowedFrameworkRoot, transaction: string, id: string, data: unknown) => owned(borrowUpdate(root, transaction, id, data)),
-    borrowRead: (root: BorrowedFrameworkRoot, transaction: string, id: string) => owned(invoke(root, transaction, { operation: "read", id })),
-    borrowDelete: (root: BorrowedFrameworkRoot, preferences: BorrowedFrameworkRoot, transaction: string, id: string) => owned(invoke(root, transaction, { operation: "delete", id, preferences })) };
+    borrowRead: (root: BorrowedFrameworkRoot, transaction: string, id: string) => owned(invoke(root, transaction, { operation: "read", id })) };
 });
