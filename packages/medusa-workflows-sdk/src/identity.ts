@@ -5,6 +5,10 @@ import { referenceOf } from "./references";
 export type WorkflowIdentity = {
   readonly name: string;
   readonly idempotent?: false;
+  /** Native declaration retained under the explicitly selected atomic profile.
+   * The outer outcome owner supplies persistence and its own retention policy. */
+  readonly store?: true;
+  readonly retentionTime?: 259200;
   readonly nodes: readonly Schema.Json[];
   readonly references: readonly Schema.Json[];
   readonly result: Schema.Json;

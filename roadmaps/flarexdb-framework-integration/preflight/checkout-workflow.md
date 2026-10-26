@@ -1,0 +1,88 @@
+# Native checkout workflow
+
+## Status and authority
+
+Status: preflight; the explicit atomic declaration profile is approved. Its
+finite SDK correction retains the native storage declarations and requires the
+trusted execution port to select the atomic outcome policy before any callback.
+No checkout runtime or new Cart/Order write profile is admitted by this document.
+
+The executing reference is Medusa 2.13.4 at
+`48d5cc675e4e8bc821e22c20c88a751acc66fb5f`, specifically
+`cart/workflows/complete-cart.ts`. Preserve its complete native root, actual
+steps, validation, hooks, compensation and already-completed Cart branch.
+Accepted framework/storage boundaries and the existing transaction owners remain
+authoritative. The proposed first profile uses existing Carts and local System
+payments; Cart creation and remote gateways retain separate gates.
+
+## Connected owners and prerequisite order
+
+The root reads the actual Order-Cart Link and complete Cart graph, validates its
+Payment sessions before the hook, and creates an Order only when no Order-Cart
+Link exists. The creation branch validates Shipping, translates stored Cart
+items, addresses, adjustments, tax lines and credit lines through native helpers,
+creates the Order, reserves Inventory, registers Promotion usage, creates Links,
+marks the Cart complete and captures `order.placed`. Payment authorization occurs
+after these operations, followed by actual capture transactions and native hooks.
+Retrying the same Cart with another request identity must preserve the existing
+Order branch as well as the outer owner's same-request replay contract.
+
+Reuse the Payment collection/session/authorization and Order-finance owners.
+Checkout still requires native Order creation/deletion, Cart completion writes
+and their retained inverse, the Order-Cart Link and the complete selected Cart
+graph. Existing Cart payment reads do not admit this graph or any Cart mutation.
+Managed Inventory reservation needs its actual Inventory and Locking owners;
+the existing read-only confirmation capability is insufficient. Empty Inventory
+and Promotion inputs must reach the genuine native early-return branches before
+their resources may be absent. Populated branches require their genuine owners.
+
+Complete Cart creation is separate from completing an existing Cart. Its pending
+Country ordering, Address inverse, Cart-Promotion inverse and Promotion candidate
+selection decisions must not be silently accepted through this checkout work.
+The uncommitted Cart context-read candidate belongs to the stopped Cart session
+and is not a substitute for admitted checkout graph reads.
+
+## Approved workflow declaration disposition
+
+The native root declares `{ name: "complete-cart", store: true,
+idempotent: false, retentionTime: 259200 }`. The predecessor finite SDK admitted only
+the name and exact `idempotent: false` configuration. The preserved SDK witness
+originally received `unsupportedProfile` before the composer was invoked. Its owner is
+`packages/medusa-workflows-sdk/src/definition.ts`, not a Cart or Payment adapter.
+
+Storage and retention are behavioral declarations: the pinned SDK passes them
+to the native workflow manager and orchestrator. The finite profile instead
+borrows one outer atomic root, outcome and replay owner. Merely deleting these
+options or accepting them as ignored metadata would not establish native stored
+execution or three-day retention. A named compatibility disposition must bind
+the declarations to the actual execution owner before dependent root admission.
+Standalone resumable execution, automatic expiry and a second outcome/replay
+store are not established by the current finite SDK.
+
+Approved disposition: the finite owner admits only the exact native stored
+declaration above and retains both fields in prepared workflow identity. The
+trusted execution port must explicitly select `atomicRootOutcome`; the existing
+atomic Medusa host supplies this policy. The complete child closure is checked
+before any parent callback, so nesting cannot bypass policy refusal. Declarations
+without storage keep their existing behavior and strict option checks.
+
+The user explicitly accepts one outer durable atomic outcome and its existing
+replay/retention policy in this private System-provider profile. This is not
+native resumable step history or automatic three-day expiry. No new storage,
+scheduler, child commit or replay mechanism is added. Neutral SDK cases and a
+genuine native Cart collection child establish the declaration, policy, durable
+replay and late-failure rollback boundaries before checkout-root admission.
+
+## Admission gates
+
+Run the genuine root and retained inverses on PGlite and ordinary-role PostgreSQL.
+Require successful placement, native already-linked retry, same-request replay,
+cross-shop refusal, exact totals and raw amounts, Payment validation/authorization
+failure, late-hook rollback, Cart completion restoration, complete Order/Link
+cleanup and committed event accounting. Competing completion must publish at most
+one Order for the Cart through the existing trusted transaction owner.
+
+Any proposed managed Inventory, populated Promotion, captured-Payment compensation
+or durable workflow branch needs its own complete reachable closure. A bounded
+System-provider result does not establish hosted checkout, gateway recovery or
+arbitrary Cart workflows.

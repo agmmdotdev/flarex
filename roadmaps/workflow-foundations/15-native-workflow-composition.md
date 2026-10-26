@@ -234,6 +234,26 @@ Exact replay bypasses all parent/child callbacks. Uncertain acknowledgement uses
 the existing root recovery path without repeating completed business work.
 Exceeding a bound refuses; it never switches to Tasks or raises a ceiling.
 
+### Native Stored Declarations In The Atomic Profile
+
+The finite SDK admits the exact native declaration `store: true`,
+`idempotent: false`, `retentionTime: 259200` only with an explicit compatibility
+disposition. Both storage fields remain in prepared identity, including nested
+workflow identity. Unsupported option combinations and declaration accessors
+remain refused.
+
+Execution requires the trusted port's `storedWorkflowPolicy: "atomicRootOutcome"`.
+The SDK checks every prepared child before invoking any parent callback. The
+existing atomic Medusa runtime supplies that policy because its outer owner
+already retains the sole committed result and owns replay and retention. Step
+context or container values do not select this policy.
+
+This approved private profile does not provide native resumable step history or
+automatic three-day expiry. It introduces no checkpoint store, child settlement,
+scheduler or additional recovery owner. Ordinary finite declarations keep their
+existing behavior. Native durable workflows retain their separate execution
+and storage contracts.
+
 ## Alternatives And Replacement Inventory
 
 Porting another image-association or simple CRUD wrapper is useful business

@@ -3259,7 +3259,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow/runtime.ts",
       "classification": "authored",
-      "targetSha256": "88e1ccfa9e62e0ee3bb3213866e06407cb37d7d3414a7810d7b7c4a15beb6612"
+      "targetSha256": "14e6d539d4a8a1fcd6fbea18cf7f89b523ba28b32f27bdb07537084e959d1e4b"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/value.ts",
@@ -14625,7 +14625,8 @@
       "classification": "workflowFork",
       "source": "third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/create-workflow.ts",
       "sourceSha256": "f5570bf0877ffc08838782735ae6d2274acaf7c39e7285e5d0edad6aa1eed66b",
-      "targetSha256": "2c266e09c469f712f3097672be88ad02799e0a8f1058f2fd6b0de43f45fdc87e"
+      "targetSha256": "2feb668c3ba094b9f9703324b753eeb484f91882491c1c21cdcccf0762e61154",
+      "transformation": "Compose the selected native finite graph under the existing caller-owned atomic execution profile. Retain the exact native stored declaration in identity; require explicit atomicRootOutcome policy over the complete child closure before callbacks. The outer owner retains outcome, replay and retention; native resumable history and automatic three-day expiry are outside this approved profile."
     },
     {
       "target": "packages/medusa-workflows-sdk/src/durable/engine/finite-atomic-child.ts",
@@ -14801,7 +14802,7 @@
     {
       "target": "packages/medusa-workflows-sdk/src/identity.ts",
       "classification": "authored",
-      "targetSha256": "38ba3e6cc3dfa05dd97a277dbd6d619f2d147f58d658deae477266466cb22c19"
+      "targetSha256": "0196255e342db89d767cf988987b22f4fe73d2966c0d6c38f5947ab53f785f80"
     },
     {
       "target": "packages/medusa-workflows-sdk/src/index.ts",
@@ -14847,8 +14848,8 @@
       "classification": "workflowFork",
       "source": "third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/helpers/resolve-value.ts",
       "sourceSha256": "064c5015b436076e84c33688bcb9b75b00d3b70f1753bdfb93ef7424bddc1640",
-      "targetSha256": "dbff148aeeecf44ebc0f394df3e5195e7c2cc289a7ed085608cfe49d7029ac95",
-      "transformation": "Execute the selected native finite graph under the caller-owned Effect port. Preserve native regular callback nullish envelopes and explicit StepResponse undefined property omission through private prepared-reference provenance; keep literal, skipped, child and folded hook results distinct without exposing provenance to capture or callbacks. Native scheduler/durable engine remains separately owned."
+      "targetSha256": "37c866ce7237aada34c62288c7a596518e5c1125bd32d2d2b4891348258af619",
+      "transformation": "Execute the selected native finite graph under the caller-owned Effect port. Preserve native regular callback nullish envelopes and explicit StepResponse undefined property omission through private prepared-reference provenance; keep literal, skipped, child and folded hook results distinct without exposing provenance to capture or callbacks. Native scheduler/durable engine remains separately owned. Retain the exact native stored declaration in identity; require explicit atomicRootOutcome policy over the complete child closure before callbacks. The outer owner retains outcome, replay and retention; native resumable history and automatic three-day expiry are outside this approved profile."
     },
     {
       "target": "packages/medusa-workflows-sdk/test/durable-native-runtime.test.ts",
@@ -15893,7 +15894,7 @@
     {
       "target": "packages/medusa-adapter/test/support/logical-payment-collection-fixture.ts",
       "classification": "authored",
-      "targetSha256": "68838ac4795dac56297a4d62af7e05f8291c440f168b2ee894b6b6c085ccf261"
+      "targetSha256": "c7480f30c969016603a9b28c4f7c3e63837d0b777f40df084467daceb67db321"
     },
     {
       "target": "packages/medusa-cart/src/utils/totals-selection.ts",
@@ -16001,6 +16002,16 @@
       "target": "packages/medusa-adapter/test/logical-payment-reliability.test.ts",
       "classification": "authored",
       "targetSha256": "c943d008d2ab7b85bce915bda29ad7c9a52c2cd4c054642f148f0e2f60846334"
+    },
+    {
+      "target": "packages/medusa-workflows-sdk/test/checkout-declaration-prerequisites.test.ts",
+      "classification": "authored",
+      "targetSha256": "78135af07e402721cebc1252b0adadd1df4a01ac31af7a96dda58b6c50948a61"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-atomic-stored-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "40b71125b74852601cdc332199928990006943cfc60952c696d7cce1c3603dac"
     }
   ],
   "dependencies": {

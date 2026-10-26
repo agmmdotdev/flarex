@@ -6,6 +6,9 @@ import { isPreparedWorkflow, type PreparedWorkflow } from "./definition";
 import { prepareTransformResolution, resolveWorkflowValue, type WorkflowResolution, type WorkflowResolvedValue } from "./resolution";
 
 export interface WorkflowExecutionPort<Failure> {
+  /** Explicit compatibility disposition supplied only by the trusted caller.
+   * It promises one durable atomic outcome, not native step checkpoints or TTL. */
+  readonly storedWorkflowPolicy?: "atomicRootOutcome";
   readonly checkpoint: Effect.Effect<void, Failure>;
   /** Check the current execution lifetime, validate/charge the value and return
    * an owned copy. Native capture already performs this owner's checkpoint. */
@@ -19,6 +22,14 @@ export const executeWorkflow = Effect.fn("MedusaWorkflow.execute")(function <Fai
   definition: PreparedWorkflow, input: unknown, port: WorkflowExecutionPort<Failure>,
 ) {
   if (!isPreparedWorkflow(definition)) return Effect.fail(definitionError("invalidDefinition", "Workflow was not prepared by this SDK"));
+  // Check the complete child closure before invoking any parent callback.
+  const pending = [definition];
+  while (pending.length !== 0) {
+    const current = pending.pop()!;
+    if (current.identity.store === true && port.storedWorkflowPolicy !== "atomicRootOutcome")
+      return Effect.fail(definitionError("unsupportedProfile", "Stored declarations require the explicit atomic outcome profile"));
+    for (const node of current.nodes) if (node.kind === "workflow") pending.push(node.workflow);
+  }
   return executeFrame(definition, input, port, true);
 });
 /** Child frames borrow the root port; only their evaluation caches are local. */

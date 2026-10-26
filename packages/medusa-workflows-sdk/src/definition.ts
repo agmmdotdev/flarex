@@ -204,7 +204,11 @@ export interface WorkflowDefinition<Input, Output, Hooks extends readonly unknow
   readonly " input"?: Input;
   readonly " output"?: Output;
 }
-const WorkflowDeclarationConfig = Schema.Struct({ name: Schema.String, idempotent: Schema.Literal(false) });
+const WorkflowDeclarationConfig = Schema.Union([
+  Schema.Struct({ name: Schema.String, idempotent: Schema.Literal(false) }),
+  Schema.Struct({ name: Schema.String, idempotent: Schema.Literal(false),
+    store: Schema.Literal(true), retentionTime: Schema.Literal(259200) }),
+]);
 type WorkflowDeclaration = string | typeof WorkflowDeclarationConfig.Type;
 const decodeWorkflowDeclaration = Schema.decodeUnknownResult(WorkflowDeclarationConfig, { onExcessProperty: "error" });
 export function createWorkflow<Input, Output, const Hooks extends readonly unknown[]>(nameOrConfig: WorkflowDeclaration,
@@ -221,7 +225,7 @@ export function createWorkflow<Input, Output, const Hooks extends readonly unkno
 ): WorkflowDefinition<Resolved<Input>, Output, Hooks> {
   const configuration = typeof nameOrConfig === "string" ? { name: nameOrConfig }
     : Result.getOrThrow(decodeWorkflowDeclaration(captureDefinition(nameOrConfig, Object.freeze({}))).pipe(
-      Result.mapError(() => definitionError("unsupportedProfile", "Only native idempotent:false workflow configuration is admitted"))));
+      Result.mapError(() => definitionError("unsupportedProfile", "Unsupported finite workflow declaration"))));
   const name = configuration.name;
   options(name);
   const context: Composer = { owner: Object.freeze({}), nodes: [], hooks: new Set(), pending: new Set(), parallel: [], anonymousConditions: 0, guards: Object.freeze([]) };
@@ -310,7 +314,9 @@ export function createWorkflow<Input, Output, const Hooks extends readonly unkno
       });
       const prepared = Object.freeze({ name, owner: context.owner, nodes: Object.freeze(bound), result, nodeCount,
         identity: Object.freeze({ ...workflowIdentity(name, bound, result, parallel),
-          ...("idempotent" in configuration ? { idempotent: false as const } : {}) }), resolution, ...(parallel === undefined ? {} : { parallel }) });
+          ...("idempotent" in configuration ? { idempotent: false as const } : {}),
+          ...("store" in configuration ? { store: true as const, retentionTime: 259200 as const } : {}) }),
+        resolution, ...(parallel === undefined ? {} : { parallel }) });
       preparedWorkflows.add(prepared);
       return prepared;
     },

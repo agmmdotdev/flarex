@@ -142,7 +142,7 @@ export async function prepareLogicalPaymentCollections(driver: "pglite" | "postg
       order_payment_collection_links: { ...modules.orderLink, module: orderLink.readWorkflow } } }));
     workflowCloses.push(() => Effect.runPromise(host.close)); return host;
   };
-  const prepareCreationProbe = async (mode: "late" | "forward" | "inverse" | "race", afterNative?: () => Promise<void>) => {
+  const prepareCreationProbe = async (mode: "late" | "forward" | "inverse" | "race" | "stored" | "stored-late", afterNative?: () => Promise<void>) => {
     const resources = Result.getOrThrow(prepareWorkflowResources({
       payment: { module: payment.cartCollectionWorkflow, methods: ["createPaymentCollections", "deletePaymentCollections"], graph: true },
       cart: { module: cart.workflow, methods: [], graph: true },
@@ -153,7 +153,8 @@ export async function prepareLogicalPaymentCollections(driver: "pglite" | "postg
     if (retained?.kind !== "step" || retained.compensate === undefined) throw new Error("Missing native collection inverse");
     const inverse = retained.compensate, invoke = retained.invoke;
     const probe = createStep("probe-collection-" + mode, resources.callback(async (value: unknown, context) => {
-      if (mode === "late") throw new Error("Late parent failure after native Cart collection Link");
+      if (mode === "late" || mode === "stored-late") throw new Error("Late parent failure after native Cart collection Link");
+      if (mode === "stored") return new StepResponse(value);
       if (mode === "race") {
         if (afterNative === undefined) throw new Error("Missing native collection race barrier");
         await afterNative(); return new StepResponse(value);
@@ -163,8 +164,11 @@ export async function prepareLogicalPaymentCollections(driver: "pglite" | "postg
       if (!(response instanceof StepResponse)) throw new Error("Missing native collection response");
       return new StepResponse({ output: response.output, retained: response.compensateInput });
     }));
-    const flow = mode === "late" || mode === "race"
-      ? createWorkflow("probe-collection-" + mode, (value: WorkflowData<typeof CreateCartCollectionInput.Type>) =>
+    const declaration = mode === "stored" || mode === "stored-late"
+      ? { name: "probe-collection-" + mode, store: true as const, idempotent: false as const, retentionTime: 259200 as const }
+      : "probe-collection-" + mode;
+    const flow = mode === "late" || mode === "race" || mode === "stored" || mode === "stored-late"
+      ? createWorkflow(declaration, (value: WorkflowData<typeof CreateCartCollectionInput.Type>) =>
         new WorkflowResponse(probe(createPaymentCollectionForCartWorkflow.runAsStep({ input: value }))))
       : createWorkflow("probe-collection-retained-" + mode, (value: WorkflowData<unknown>) => new WorkflowResponse(probe(value)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ ...options, modules: cartModules,

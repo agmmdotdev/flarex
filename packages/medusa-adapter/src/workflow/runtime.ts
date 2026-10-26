@@ -16,6 +16,9 @@ export const runNativeMedusaWorkflow = Effect.fn("MedusaWorkflow.runNative")(fun
   return yield* owner.withClose(Effect.gen(function* () {
     const container = yield* owner.invoke(async () => bind(owner));
     return yield* executeWorkflow(definition, input, {
+    // Approved finite profile: declarations remain in identity; this existing
+    // atomic root owns the sole durable outcome, replay and retention policy.
+    storedWorkflowPolicy: "atomicRootOutcome",
     checkpoint: ctx.checkpoint,
     capture: value => captureWorkflowValue(ctx, value),
     context: { container, eventGroupId: ctx.eventGroupId },
