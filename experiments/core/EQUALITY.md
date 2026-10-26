@@ -1,7 +1,8 @@
 # Bounded framework text equality
 
 Status: experimental core construction. Native Payload deletion/preference
-cleanup and Product list-by-handle still need their framework bindings. This
+cleanup now consumes this owner in the bounded native CRUD profile; Product
+list-by-handle still needs its framework binding. This
 capability does not establish general filters, pagination, count, framework
 support or a performance result.
 
@@ -68,5 +69,6 @@ the same accepting owners. Plan witnesses execute the actual identity builder
 under each driver; real PostgreSQL uses the ordinary serving role.
 
 The construction contract for native CRUD remains [PAYLOAD-CRUD.md](./PAYLOAD-CRUD.md).
-It requires native delete hooks and multi-user preference cleanup to consume this
-operation through one selected outer command before CRUD can be measured.
+Native delete hooks and multi-user preference cleanup consume this operation
+through one selected outer command; their connected proof gates must pass before
+CRUD can be measured.

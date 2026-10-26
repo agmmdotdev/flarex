@@ -1,10 +1,10 @@
 # Bounded Payload CRUD continuation
 
-Status: construction contract. Standalone create/read and borrowed native
-update/read exist. The [core equality operations](./EQUALITY.md) now supply the
-bounded identity projection and accepting predicate checks; their native
-preference-cleanup binding, standalone update and native deletion remain
-unimplemented. No CRUD measurement or general Payload support is established.
+Status: bounded native CRUD implemented. The actual Local API
+create/read/update/delete paths use the native
+binding and one trusted framework command owner. Native preference cleanup uses
+the [core equality operations](./EQUALITY.md) and selected document/preference
+definitions. No CRUD measurement or general Payload support is established.
 
 ## Executing native contract
 
@@ -31,11 +31,10 @@ index metadata, materialization and accepting owner.
 
 ## Core-owned indexed deletion
 
-Add an explicit bounded text-equality index capability rather than a global JSON
-index or adapter-local SQL. Own original index intervals and pending membership
-at the core query/change owners. Keep Application numeric queries and their
-admitted scalar profile separate; this capability does not silently widen them.
-Use Drizzle schema/migrations only in disposable experimental installations.
+The bounded text-equality capability owns original index intervals and pending
+membership at the core query/change owners. Application numeric queries and
+their admitted scalar profile remain separate. Drizzle schema/migrations apply
+only to disposable experimental installations; no adapter-local SQL is used.
 
 The operation input is a selected index/field and a bounded set of exact text
 keys. The result is a deletion count. Its acquisition needs matching identities
@@ -79,7 +78,39 @@ lifetime tracking. Avoid copying settlement/recovery into a CRUD test fixture.
 If shared host plumbing needs replacement, keep the concrete profile and authority
 boundary explicit rather than adding a universal transaction context.
 
-## Required witnesses before measurement
+`payload.ts` now constructs the native binding once and owns actual DAL argument,
+result/error and lifetime translation. `payload-host.ts` composes standalone CRUD
+with `framework-command.ts`, whose direct framework owner selects definitions,
+opens one group, accepts once and resolves unknown accepting outcomes. The old
+Payload-specific single-table finalization block is removed. The mixed host uses
+the same binding and retains its own explicit mixed accepting profile.
+
+Create/update select only the document definition. Delete additionally selects
+the native generated preference definition; a retired preference definition must
+not block create/update. Native `deleteMany` admits only the key list for this
+specific deletion and the issued preference facet. It returns native `void`
+after real projected cleanup, including the zero-match predicate. It neither
+starts a child command nor fabricates successful cleanup.
+
+The preference definition verifies the generated native collection's actual
+required users relationship, optional indexed text key and optional JSON value.
+Its bounded codec admits only the host's `users` relation with text IDs and
+uses explicit null for absent optional key/value fields in administrative
+seeding. The fixture writer validates that definition through the same core root;
+native user/preference APIs and general reference enforcement remain unsupported.
+
+Saved native outcomes use metadata decoding and current operation-specific
+collection access. Native update/delete do not independently invoke collection
+read access, so their replay does not add that barrier. The mixed graph's explicit
+read still checks current read access. Business hooks are not replayed.
+
+## Connected witnesses and remaining gates
+
+PGlite and ordinary-role PostgreSQL witnesses cover the bounded native lifecycle,
+preference cleanup, atomic rollback, concurrent matching writers, operation-specific
+replay access, uncertain acceptance and cancellation/draining. The equality
+foundation separately covers pending membership and actual index plans. These
+prove this declared profile; mixed deletion and performance remain open.
 
 - Real Local API create, persisted-row read/update/delete and complete results;
   defaults, validation, boolean access and admitted hooks execute natively.

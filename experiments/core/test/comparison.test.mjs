@@ -9,7 +9,7 @@ import { Effect, Exit, Scope } from "effect";
 import { sql } from "drizzle-orm";
 import { BasePayload, buildConfig } from "payload";
 import { it } from "vitest";
-import { createPayloadHost } from "../src/payload.ts";
+import { createPayloadHost } from "../src/payload-host.ts";
 import { fixture, newsCollection } from "./fixture.ts";
 import { startPostgres } from "./postgres.ts";
 import * as tables from "../src/schema.ts";
@@ -114,7 +114,7 @@ it.skipIf(process.env.FLAREX_EXPERIMENT_COMPARE !== "1")("compares complete Payl
       connectionString: postgres.connectionString, provisioningConnectionString: postgres.connectionString,
     });
     stage = "candidate-and-comparison";
-    const host = await Effect.runPromise(createPayloadHost(newsCollection(), experimental.storage, "shop-a").pipe(Effect.provideService(Scope.Scope, scope)));
+    const host = await Effect.runPromise(createPayloadHost(newsCollection(), experimental.persistence, "shop-a").pipe(Effect.provideService(Scope.Scope, scope)));
     const samples = [];
     const smoke = process.env.FLAREX_EXPERIMENT_COMPARE_SMOKE === "1";
     const warmups = smoke ? 0 : 5;

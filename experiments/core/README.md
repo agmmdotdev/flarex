@@ -2,9 +2,11 @@
 
 Status: bounded Payload-create, standalone Application and native Product scalar
 update slices implemented with Drizzle on shared persistence/materialization owners.
-The [selected-table mixed connection](./MIXED.md) now runs actual Application,
-Product and Payload entry points under one accepting owner. Full Payload CRUD,
-broader Product flows and matched measurements remain pending. The bounded
+The [selected-table mixed connection](./MIXED.md) runs actual Application,
+Product and Payload entry points under one accepting owner. [Bounded Payload
+CRUD](./PAYLOAD-CRUD.md) is implemented with its native preference cleanup and
+atomic document/preference publication. Broader Product flows and matched measurements
+remain pending. The bounded
 [text-equality foundation](./EQUALITY.md) prepares their indexed query/cleanup
 requirements without widening the native profiles. This is
 not an accepted replacement core, a complete Application profile or a completed

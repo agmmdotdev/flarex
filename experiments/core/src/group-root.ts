@@ -10,7 +10,7 @@ import { joinOwned } from "./callback.ts";
 import type { GroupCandidate } from "./group-storage.ts";
 import type { Command, Persistence, Snapshot } from "./persistence.ts";
 
-type GroupError = CoreError | ApplicationFailure | DocumentValidationFailure | NativeFailure;
+export type GroupError = CoreError | ApplicationFailure | DocumentValidationFailure | NativeFailure;
 interface Borrow { live: boolean }
 export type BorrowedFrameworkRoot = Pick<Root, "get" | "insert" | "replace" | "delete" | "equalIds" | "equalRows" | "deleteEqual" | "event" | "poison" | "poisonCause">;
 export type BorrowedApplicationRoot = Pick<ApplicationMutationRoot, "get" | "range" | "insert" | "patch" | "replace" | "delete" | "poison">;

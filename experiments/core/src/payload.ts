@@ -5,14 +5,17 @@ import { BasePayload, buildConfig, createLocalReq, deepCopyObjectSimple, execute
   type CollectionConfig, type DatabaseAdapterObj, type PayloadRequest, type TypeWithID } from "payload";
 import { compilePayloadDefinition } from "./payload-definition.ts";
 import { CoreError, NativeCompletionFailure, NativeFailure, NativeOperationFailure } from "./errors.ts";
-import { createRoot } from "./root.ts";
+import { compilePayloadPreferences } from "./payload-preferences.ts";
 import type { BorrowedFrameworkRoot } from "./group-root.ts";
 import type { Storage } from "./storage.ts";
 import { runCallback, supervise } from "./callback.ts";
-import { captureJsonInput, JsonValue } from "./value.ts";
+import { captureJsonInput, IndexedText, JsonValue } from "./value.ts";
+import { encodeCanonicalJson } from "../../../packages/flarex-protocol/src/json.ts";
 
 interface Binding {
   readonly root: BorrowedFrameworkRoot | null;
+  readonly preferences: BorrowedFrameworkRoot | null;
+  readonly preferenceKeys: readonly string[];
   readonly transaction: string | null;
   readonly readId: string | null;
   readonly signal: AbortSignal;
@@ -21,13 +24,17 @@ interface Binding {
   readonly pending: Set<Promise<unknown>>;
 }
 const Input = Schema.Record(Schema.String, JsonValue);
+const PointIdentity = Schema.Struct({ id: IndexedText });
+const UpdateInput = Schema.Struct({ id: IndexedText, data: Input });
 const PointWhere = Schema.Union([
   Schema.Struct({ id: Schema.Struct({ equals: Schema.String }) }),
   Schema.Struct({ and: Schema.Tuple([Schema.Struct({ id: Schema.Struct({ equals: Schema.String }) })]) }),
 ]);
+const PreferenceWhere = Schema.Struct({ key: Schema.Struct({ in: Schema.Array(IndexedText).check(Schema.isMaxLength(256)) }) });
 type PayloadCall = { readonly operation: "create"; readonly data: typeof Input.Type }
   | { readonly operation: "update"; readonly id: string; readonly data: typeof Input.Type }
-  | { readonly operation: "read"; readonly id: string };
+  | { readonly operation: "read"; readonly id: string }
+  | { readonly operation: "delete"; readonly id: string; readonly preferences: BorrowedFrameworkRoot };
 /** Cancel capability use immediately, then drain the admitted completing callback.
  * Arbitrary remote/nonterminating hooks are outside this construction profile. */
 const native = <A>(work: (signal: AbortSignal) => Promise<A>) => runCallback(work, cause => cause instanceof NativeCompletionFailure ? cause : new NativeFailure({ cause })).pipe(
@@ -35,7 +42,7 @@ const native = <A>(work: (signal: AbortSignal) => Promise<A>) => runCallback(wor
 );
 
 /** Native result/error conversion belongs to this framework boundary only. */
-export const createPayloadHost = Effect.fn("ExperimentPayload.createHost")(function* (
+export const createPayloadBinding = Effect.fn("ExperimentPayload.binding")(function* (
   collection: CollectionConfig, storage: Storage, scope: string,
 ) {
   const definition = yield* Effect.fromResult(compilePayloadDefinition(collection));
@@ -143,9 +150,29 @@ export const createPayloadHost = Effect.fn("ExperimentPayload.createHost")(funct
       // replacement; Payload erases that runtime contract in its generic.
       return result as T;
     }),
-    count: deferred, find: deferred, deleteOne: deferred,
+    deleteOne: args => track(args.req, async binding => {
+      if (binding.root === null || binding.preferences === null || args.collection !== definition.table || args.joins !== undefined || args.returning === false || args.select !== undefined) return unsupported();
+      const where = await runAtAdapter(Effect.fromResult(captureJsonInput(args.where)).pipe(
+        Effect.flatMap(value => Schema.decodeUnknownEffect(PointWhere)(value, { onExcessProperty: "error" }).pipe(
+          Effect.mapError(cause => new CoreError({ reason: "unsupported", cause }))))));
+      bindingFor(args.req); const id = "id" in where ? where.id.equals : where.and[0].id.equals;
+      if (binding.preferenceKeys[0] !== `collection-${definition.table}-${id}`) return unsupported();
+      const before = await runAtAdapter(binding.root.get(id)); bindingFor(args.req);
+      if (before === null) return unsupported();
+      await runAtAdapter(binding.root.delete(id)); bindingFor(args.req); return before;
+    }),
+    deleteMany: args => track(args.req, async binding => {
+      if (binding.preferences === null || args.collection !== "payload-preferences" || args.joins !== undefined) return unsupported();
+      const where = await runAtAdapter(Effect.fromResult(captureJsonInput(args.where, true)).pipe(
+        Effect.flatMap(value => Schema.decodeUnknownEffect(PreferenceWhere)(value, { onExcessProperty: "error" }).pipe(
+          Effect.mapError(cause => new CoreError({ reason: "unsupported", cause }))))));
+      bindingFor(args.req);
+      if (where.key.in.length !== binding.preferenceKeys.length || where.key.in.some((key, index) => key !== binding.preferenceKeys[index])) return unsupported();
+      await runAtAdapter(binding.preferences.deleteEqual({ index: "by_key", field: "key", keys: where.key.in })); bindingFor(args.req);
+    }),
+    count: deferred, find: deferred,
     countGlobalVersions: deferred, countVersions: deferred, createGlobal: deferred, createGlobalVersion: deferred,
-    createMigration: deferred, createVersion: deferred, deleteMany: deferred, deleteVersions: deferred,
+    createMigration: deferred, createVersion: deferred, deleteVersions: deferred,
     findDistinct: deferred, findGlobal: deferred, findGlobalVersions: deferred, findVersions: deferred,
     generateSchema: deferred, migrate: deferred, migrateDown: deferred, migrateFresh: deferred,
     migrateRefresh: deferred, migrateReset: deferred, migrateStatus: deferred, queryDrafts: deferred,
@@ -157,7 +184,7 @@ export const createPayloadHost = Effect.fn("ExperimentPayload.createHost")(funct
     hooks: { ...collection.hooks, beforeOperation: [async args => {
       const binding = bindingFor(args.req);
       binding.operations++;
-      if (binding.operations !== 1 || (binding.root !== null ? !["create", "read", "update"].includes(args.operation) : args.operation !== "read")) return unsupported();
+      if (binding.operations !== 1 || (binding.root !== null ? !["create", "read", "update", "delete"].includes(args.operation) : args.operation !== "read")) return unsupported();
       return;
     }, ...(collection.hooks?.beforeOperation ?? [])] },
   };
@@ -172,6 +199,9 @@ export const createPayloadHost = Effect.fn("ExperimentPayload.createHost")(funct
     kv: { init: () => ({ clear: unsupported, delete: unsupported, get: unsupported, has: unsupported, keys: unsupported, set: unsupported }) },
   }));
   yield* native(() => payload.init({ config, disableDBConnect: true, disableOnInit: true }));
+  const preferenceCollection = payload.collections["payload-preferences"];
+  if (preferenceCollection === undefined) return yield* Effect.fail(new CoreError({ reason: "unsupported" }));
+  const preferenceDefinition = yield* Effect.fromResult(compilePayloadPreferences(preferenceCollection.config));
 
   const input = Effect.fn("ExperimentPayload.input")(function* (data: unknown) {
     if (!live) return yield* Effect.fail(new CoreError({ reason: "closed" }));
@@ -182,14 +212,23 @@ export const createPayloadHost = Effect.fn("ExperimentPayload.createHost")(funct
     }
     return structuredClone(decoded);
   });
+  const pointIdentity = Effect.fn("ExperimentPayload.pointIdentity")(function* (id: string) {
+    if (!live) return yield* Effect.fail(new CoreError({ reason: "closed" }));
+    const captured = yield* Effect.fromResult(captureJsonInput({ id }));
+    const value = yield* Schema.decodeUnknownEffect(PointIdentity)(captured).pipe(Effect.mapError(cause => new CoreError({ reason: "invalid", cause })));
+    return value.id;
+  });
   const invoke = Effect.fn("ExperimentPayload.invoke")((root: BorrowedFrameworkRoot, transaction: string, call: PayloadCall) => native(signal => {
-    const binding: Binding = { root, transaction, readId: null, signal, live: true, operations: 0, pending: new Set() };
+    const binding: Binding = { root, preferences: call.operation === "delete" ? call.preferences : null,
+      preferenceKeys: call.operation === "delete" ? [`collection-${definition.table}-${call.id}`] : [],
+      transaction, readId: null, signal, live: true, operations: 0, pending: new Set() };
     return current.run(binding, () => inBinding(binding, async () => {
         const options = { collection: collection.slug, depth: 0, overrideAccess: false, req: { transactionID: transaction, signal } };
         switch (call.operation) {
           case "create": return await payload.create({ ...options, data: structuredClone(call.data) });
           case "update": return await payload.update({ ...options, id: call.id, data: structuredClone(call.data) });
           case "read": return await payload.findByID({ ...options, id: call.id });
+          case "delete": return await payload.delete({ ...options, id: call.id });
         }
     }));
   }).pipe(Effect.flatMap(definition.decode)));
@@ -198,8 +237,7 @@ export const createPayloadHost = Effect.fn("ExperimentPayload.createHost")(funct
   });
   const prepareCreate = Effect.fn("ExperimentPayload.prepareCreate")(function* (data: unknown) {
     const captured = yield* input(data);
-    const digest = createHash("sha256").update(JSON.stringify({ definition: definition.version,
-      data: Object.fromEntries(Object.entries(captured).toSorted(([left], [right]) => left.localeCompare(right))) })).digest("hex");
+    const digest = identity("payload.create", { data: captured });
     const authorize = Effect.fn("ExperimentPayload.authorizeCreate")(function* () {
       if (!live) return yield* Effect.fail(new CoreError({ reason: "closed" }));
       return yield* owned(native(async signal => {
@@ -211,41 +249,36 @@ export const createPayloadHost = Effect.fn("ExperimentPayload.createHost")(funct
     });
     return { digest, authorize, run: (root: BorrowedFrameworkRoot, transaction: string) => owned(invoke(root, transaction, { operation: "create", data: captured })) };
   });
-  const create = Effect.fn("ExperimentPayload.create")(function* (request: string, data: unknown) {
-    const prepared = yield* prepareCreate(data); const digest = prepared.digest;
-    const command = yield* storage.open(scope, request, digest, definition, randomUUID());
-    if (command.status === "committed") {
-      yield* prepared.authorize();
-      return yield* definition.decode(command.result);
-    }
-    const root = yield* createRoot(definition, storage, command);
-    let accepting = false;
-    return yield* Effect.gen(function* () {
-      const result = yield* prepared.run(root, command.id);
-      const candidate = yield* root.freeze();
-      accepting = true;
-      const committed = yield* storage.settle(command, candidate.changes, candidate.dependencies, result, candidate.events, candidate.predicates).pipe(
-        Effect.catchTag("CoreError", error => {
-          if (error.reason !== "storage" || error.phase !== undefined && error.phase !== "commit") {
-            accepting = false; return Effect.fail(error);
-          }
-          return storage.resolve(scope, request, digest).pipe(
-            Effect.catchTag("CoreError", recovery => Effect.fail(new CoreError({ reason: "uncertain", cause: { original: error, recovery } }))),
-          );
-        }),
-      );
-      return yield* definition.decode(committed);
-    }).pipe(Effect.ensuring(Effect.gen(function* () {
-      yield* root.close;
-      if (!accepting) yield* storage.abort(command);
-    }).pipe(Effect.orDie)));
-  }, effect => effect.pipe(Effect.mapError(error => error instanceof CoreError && error.reason === "unique"
-    ? new NativeFailure({ cause: projectUnique() }) : error)));
-  const read = Effect.fn("ExperimentPayload.read")((id: string) => native(signal => {
-    const binding: Binding = { root: null, transaction: null, readId: id, signal, live: true, operations: 0, pending: new Set() };
-    return current.run(binding, () => inBinding(binding, () => payload.findByID({ collection: collection.slug, id, depth: 0, overrideAccess: false, req: { signal } })));
-  }).pipe(Effect.flatMap(definition.decode)));
+  const read = Effect.fn("ExperimentPayload.read")(function* (value: string) {
+    const id = yield* pointIdentity(value);
+    return yield* native(signal => {
+      const binding: Binding = { root: null, preferences: null, preferenceKeys: [], transaction: null, readId: id, signal, live: true, operations: 0, pending: new Set() };
+      return current.run(binding, () => inBinding(binding, () => payload.findByID({ collection: collection.slug, id, depth: 0, overrideAccess: false, req: { signal } })));
+    }).pipe(Effect.flatMap(definition.decode));
+  });
   const owned = <A, E>(work: Effect.Effect<A, E>) => supervise(scopeOwner, work);
+  const identity = (operation: string, value: Schema.JsonObject) => createHash("sha256").update(encodeCanonicalJson({ operation,
+    definition: definition.version, ...value }, () => { throw new Error("Invalid Payload identity JSON"); })).digest("hex");
+  const authorize = Effect.fn("ExperimentPayload.authorize")((operation: "update" | "delete", id: string, data?: typeof Input.Type) => owned(native(async signal => {
+    if (!live) throw new CoreError({ reason: "closed" });
+    const req = await createLocalReq({ req: { signal } }, payload); const admitted = payload.collections[collection.slug];
+    if (admitted === undefined) throw new CoreError({ reason: "closed" });
+    const verdict = await executeAccess({ id, req, ...(data === undefined ? {} : { data: structuredClone(data) }) }, admitted.config.access[operation]);
+    if (verdict !== true) throw new CoreError({ reason: "unsupported" });
+  })));
+  const prepareUpdate = Effect.fn("ExperimentPayload.prepareUpdate")(function* (id: string, data: unknown) {
+    if (!live) return yield* Effect.fail(new CoreError({ reason: "closed" }));
+    const captured = yield* Effect.fromResult(captureJsonInput({ id, data }));
+    const args = yield* Schema.decodeUnknownEffect(UpdateInput)(captured).pipe(Effect.mapError(cause => new CoreError({ reason: "invalid", cause })));
+    if (Object.keys(args.data).some(key => !definition.fields.some(field => field.name === key))) return yield* Effect.fail(new CoreError({ reason: "unsupported" }));
+    return { digest: identity("payload.update", args), authorize: () => authorize("update", args.id, args.data),
+      run: (root: BorrowedFrameworkRoot, transaction: string) => owned(invoke(root, transaction, { operation: "update", id: args.id, data: args.data })) };
+  });
+  const prepareDelete = Effect.fn("ExperimentPayload.prepareDelete")(function* (value: string) {
+    const id = yield* pointIdentity(value);
+    return { digest: identity("payload.delete", { id, preferenceDefinition: preferenceDefinition.version }), authorize: () => authorize("delete", id),
+      run: (root: BorrowedFrameworkRoot, preferences: BorrowedFrameworkRoot, transaction: string) => owned(invoke(root, transaction, { operation: "delete", id, preferences })) };
+  });
   const authorizeUpdatedResult = Effect.fn("ExperimentPayload.authorizeUpdatedResult")((id: string, data: unknown) => input(data).pipe(Effect.flatMap(captured => owned(native(async signal => {
     if (!live) throw new CoreError({ reason: "closed" });
     const req = await createLocalReq({ req: { signal } }, payload); const admitted = payload.collections[collection.slug];
@@ -257,9 +290,9 @@ export const createPayloadHost = Effect.fn("ExperimentPayload.createHost")(funct
     const readAccess = await executeAccess({ id, req }, admitted.config.access.read);
     if (readAccess !== true) throw new CoreError({ reason: "unsupported" });
   })))));
-  return { create: (request: string, data: unknown) => owned(create(request, data)),
-    read: (id: string) => owned(read(id)), definition,
-    prepareCreate, authorizeUpdatedResult,
+  return { read: (id: string) => owned(read(id)), definition, preferenceDefinition,
+    prepareCreate, prepareUpdate, prepareDelete, authorizeUpdatedResult, uniqueFailure: () => new NativeFailure({ cause: projectUnique() }),
     borrowUpdate: (root: BorrowedFrameworkRoot, transaction: string, id: string, data: unknown) => owned(borrowUpdate(root, transaction, id, data)),
-    borrowRead: (root: BorrowedFrameworkRoot, transaction: string, id: string) => owned(invoke(root, transaction, { operation: "read", id })) };
+    borrowRead: (root: BorrowedFrameworkRoot, transaction: string, id: string) => owned(invoke(root, transaction, { operation: "read", id })),
+    borrowDelete: (root: BorrowedFrameworkRoot, preferences: BorrowedFrameworkRoot, transaction: string, id: string) => owned(invoke(root, transaction, { operation: "delete", id, preferences })) };
 });

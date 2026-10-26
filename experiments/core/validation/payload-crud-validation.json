@@ -1,0 +1,174 @@
+{
+  "scope": "bounded native Payload CRUD and selected document/preference publication",
+  "recordedAt": "2026-10-27T04:41:43.1401349+06:30",
+  "source": [
+    {
+      "path": "experiments/core/src/application-conflicts.ts",
+      "sha256": "06e27592e1001d4576ecb669f9153a6d0dc67838d079a4eb10129fedad1276ee"
+    },
+    {
+      "path": "experiments/core/src/application-root.ts",
+      "sha256": "0069d08af3b9015c574de80b9d39ede7c5953e19d1112d4dad8b812cf1c21cbc"
+    },
+    {
+      "path": "experiments/core/src/application-storage.ts",
+      "sha256": "5a3fe714e1ffbd6a7fee3fb069e3351199ad8bc307beb0c200c9cbadadbc03d8"
+    },
+    {
+      "path": "experiments/core/src/application-values.ts",
+      "sha256": "467bded5a029f6b12b97467b9f891b594f087071647663d3763271e0cc9857dc"
+    },
+    {
+      "path": "experiments/core/src/application.ts",
+      "sha256": "b69dc990401e051be2276baac9691cb99f4ccba8725382ac1d25f6b18086f025"
+    },
+    {
+      "path": "experiments/core/src/budget.ts",
+      "sha256": "4078af4bcc9a31510b7cc8eeb3faa5a8b0c3fa0faa7c6292c3829b9f06348e52"
+    },
+    {
+      "path": "experiments/core/src/callback.ts",
+      "sha256": "fcbaf6239543b947d4501665672fc81b8f64b80a843d9dd819b9c5953e1d90b5"
+    },
+    {
+      "path": "experiments/core/src/changes.ts",
+      "sha256": "653ab702ba086d0b4f1e00ba7703766222edce0aee78fa1ec64b88ab32615afc"
+    },
+    {
+      "path": "experiments/core/src/definition.ts",
+      "sha256": "84f652a5b262b89eed376d2cc6ebadef3606c8be94fac7247fdded819fd0ba62"
+    },
+    {
+      "path": "experiments/core/src/equality-key.ts",
+      "sha256": "5f24e50860ba8f001b9530c4545efe5787f8ede0e952a539d0b2fc40aa09e214"
+    },
+    {
+      "path": "experiments/core/src/equality-storage.ts",
+      "sha256": "fea40cd13c913bccabc9096b5cc311b0f84d45676ffa9b3f34bbc25ba062797f"
+    },
+    {
+      "path": "experiments/core/src/errors.ts",
+      "sha256": "deab518380783142357f4cad6951881622f6aed6ac8dc91c4d79607c41401826"
+    },
+    {
+      "path": "experiments/core/src/framework-command.ts",
+      "sha256": "f0dc117aa795254432a63625fadbba27cb172321c2da265d0336f69983549442"
+    },
+    {
+      "path": "experiments/core/src/group-root.ts",
+      "sha256": "bf41aedf9ba0526e975a50f7abb71ac97051cee24c6aaa69c16a3e9629c49be1"
+    },
+    {
+      "path": "experiments/core/src/group-storage.ts",
+      "sha256": "f371b5594ce345dce3a802d5d8c713c3e02792013699d79f311426e0c7af6c3d"
+    },
+    {
+      "path": "experiments/core/src/materialization.ts",
+      "sha256": "762fca3815f880d952e45a67bbfa988ff13f6d1bf92a566be57929d053a7f2fb"
+    },
+    {
+      "path": "experiments/core/src/medusa-definition.ts",
+      "sha256": "beb077c80488f2c235e1bb70e02b14c8c7402a9d65c01fa76e856212777c00c8"
+    },
+    {
+      "path": "experiments/core/src/medusa-product.ts",
+      "sha256": "baccdc5e0921910c7c90e349b68d5e756386781e0251e8de7e72c4bfb02830b7"
+    },
+    {
+      "path": "experiments/core/src/mixed.ts",
+      "sha256": "f0701a5290d0695a7b061127484d90914b0f7cf103fc25d2f9135f8ed2dfe6c9"
+    },
+    {
+      "path": "experiments/core/src/payload-definition.ts",
+      "sha256": "7a2041cb065006b66e648b1839af26d6a6422a2b614e2152cb0159c8ed40fb01"
+    },
+    {
+      "path": "experiments/core/src/payload-host.ts",
+      "sha256": "5b1d6fef0dd43883fea0a12ad041826b042b02710e5d054639892a1033caa986"
+    },
+    {
+      "path": "experiments/core/src/payload-preferences.ts",
+      "sha256": "b7f1306bef3df3275c11c8c2c4a2175f4af1680581fafe510b1fdc97977a7848"
+    },
+    {
+      "path": "experiments/core/src/payload.ts",
+      "sha256": "5e5b6bb0fe06bb522914f1d4c64b275701ce6bf30a04304b934fe4a924351f1c"
+    },
+    {
+      "path": "experiments/core/src/pending-index.ts",
+      "sha256": "7903042ea65bed9991ca41bfa2e2a192d48cc1dfa04fb123611e62c76b736dc6"
+    },
+    {
+      "path": "experiments/core/src/persistence.ts",
+      "sha256": "1d441894449f79656bcceb312cb775ed6448d087e9dc5f89a882095049dbaa82"
+    },
+    {
+      "path": "experiments/core/src/query.ts",
+      "sha256": "63dcbe333ff59c2706117be41c72f777d7515d9de216f83dcbbbdaf277fc8096"
+    },
+    {
+      "path": "experiments/core/src/root.ts",
+      "sha256": "187f9c7aff8b5d0100e9b428235210e5b3162e19a9c905443a41a748092646ca"
+    },
+    {
+      "path": "experiments/core/src/schema.ts",
+      "sha256": "31f154a17cb477734286611a39a4f19b0751e7bd2fa8ad4e6424ed9b18306cf2"
+    },
+    {
+      "path": "experiments/core/src/session.ts",
+      "sha256": "50b5255b4524fcc327ad354b5518c7109cf8b2d8700b0d364226405d77d252f2"
+    },
+    {
+      "path": "experiments/core/src/storage.ts",
+      "sha256": "c3a7b8316ade7c51335e3e0be9abb24c7eb5cc370aeda5b47fe740a74915dd97"
+    },
+    {
+      "path": "experiments/core/src/value.ts",
+      "sha256": "28211c4e4e42d29906f538f23be0ae7332d3382ab7ee205504d1edd439823838"
+    },
+    {
+      "path": "experiments/core/src/write-conflicts.ts",
+      "sha256": "a8cc1f154cc1380eb7988264fc132be5daf45e50beb1becf26d60cd3b9313ab0"
+    },
+    {
+      "path": "experiments/core/test/contracts.test.ts",
+      "sha256": "62d4eb3a4b99d58f52b8d7060a68b2ad055a7c3b5f44c50eea7d0a1e5f9cc684"
+    },
+    {
+      "path": "experiments/core/test/create.test.ts",
+      "sha256": "f71d13c57f64ddbe1802c30c2da54a1defc14ed3debfd9fbc39d16e13899f412"
+    },
+    {
+      "path": "experiments/core/test/fixture.ts",
+      "sha256": "c92dc6f4db4532a7d3c14fb6588be2defe1cce28aa8e88a48e3f699825f0b7e4"
+    },
+    {
+      "path": "experiments/core/test/mixed.test.ts",
+      "sha256": "924456460e1535b89adba10ea14efc0f00a455f6ad856cd408bd74dc98b5e3c5"
+    },
+    {
+      "path": "experiments/core/test/payload-crud.test.ts",
+      "sha256": "bf2d06afea23df6eddfe067637f5b4a28dfeef7a58baed43838af6fbfd937060"
+    }
+  ],
+  "correctedCohort": {
+    "failure": "V8 Fatal process out of memory: Zone; create.test.ts worker exit2147483651",
+    "completed": {
+      "crud": 34,
+      "mixed": 26,
+      "contracts": 10
+    },
+    "exitCode": 1,
+    "report": "payload-crud-worker-failure.json",
+    "command": "pnpm test -- test/payload-crud.test.ts test/create.test.ts test/mixed.test.ts test/contracts.test.ts",
+    "reporterLimitation": "Vitest JSON success=true conflicts with process exit1 and its unhandled worker error. The process result governs; this is not a clean cohort pass."
+  },
+  "isolatedCreate": {
+    "report": "payload-crud-create.json",
+    "command": "pnpm test -- test/create.test.ts",
+    "passed": 22,
+    "skipped": 2,
+    "exitCode": 0
+  },
+  "disposition": "Affected assertions passed across the completed cohort files and fresh create process. Retain the failed cohort; no claim of a clean aggregate run or identified OOM root cause."
+}

@@ -17,15 +17,15 @@ The admitted construction profile uses required scalar text/finite number fields
 at most one unique text field, timestamps, depth zero and trusted configuration
 with locally completing callbacks. Callable defaults are preserved. Auth,
 versions, upload, localization, relations, optional/array fields, nesting, custom
-IDs, general queries, field access, user `beforeOperation` hooks, standalone
-update/delete and arbitrary remote/nonterminating callbacks
+IDs, general queries, field access, user `beforeOperation` hooks and arbitrary remote/nonterminating callbacks
 are unsupported. This is not a general Payload database adapter. Unsupported
 database operations fail and poison an active root. The direct read supports only
 the requested identity, with native access and read processing.
 
-The [mixed connection](./MIXED.md) additionally uses real native update/read over
-the same pending document under a borrowed root. It does not yet establish full
-standalone CRUD or preference cleanup. Field access and transforming
+The [CRUD continuation](./PAYLOAD-CRUD.md) now binds native standalone update and
+delete, including actual preference cleanup and atomic document/preference publication.
+The [mixed connection](./MIXED.md) uses real native update/read over the same
+pending document under a borrowed root. Field access and transforming
 `beforeOperation` profiles need fuller saved-result authorization before admission;
 business hooks are not re-executed on committed replay.
 
@@ -49,6 +49,7 @@ database work; they do not impose a deadline on arbitrary JavaScript callbacks.
 | [session.ts](./src/session.ts) | Private PostgreSQL checkout, Drizzle transaction control, failed-BEGIN handling, rollback/drain and release |
 | [schema.ts](./src/schema.ts), [drizzle](./drizzle) | Drizzle schema is authoritative; drizzle-kit generates disposable-installation migrations |
 | [payload.ts](./src/payload.ts) | Native lifecycle bridge, capability lifetime, interruption/draining and native error projection; no SQL |
+| [payload-host.ts](./src/payload-host.ts), [framework-command.ts](./src/framework-command.ts) | Standalone CRUD composition and trusted direct-framework command lifetime/recovery; no native callback settlement |
 | [fixture.ts](./test/fixture.ts), [postgres.ts](./test/postgres.ts) | Explicit disposable installation, restricted role and owned cluster cleanup; not a production installation service |
 
 Composition injects storage into the root/bridge and a physical session into
@@ -75,7 +76,7 @@ enablement, fence, principal membership, selected scalar definition and per-scop
 commit order. The shared materializer now supports tombstone revisions and
 historical numeric index intervals for the Application slice. The protected
 per-scope retention floor refuses stale Application snapshots; there is no GC
-service. Framework create/read remains the bounded profile described here.
+service. Framework CRUD remains the bounded profile described in its continuation.
 Event intents are atomic records, not a delivered outbox service.
 
 The serving role is a trusted core login. It has business DML, command/clock

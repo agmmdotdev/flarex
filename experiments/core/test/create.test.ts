@@ -1,15 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import { Cause, Effect, Exit, Result, Scope } from "effect";
+import { Cause, Effect, Exit, Result, Schema, Scope } from "effect";
 import { ValidationError } from "payload";
 import { count, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createPayloadHost } from "../src/payload.ts";
+import { createPayloadHost } from "../src/payload-host.ts";
 import { createRoot } from "../src/root.ts";
 import { fixture, newsCollection, type Fixture } from "./fixture.ts";
 import { startPostgres } from "./postgres.ts";
 import * as tables from "../src/schema.ts";
 import { postgresSession, PhysicalFailure } from "../src/session.ts";
+import { createPersistence, type Database, type Persistence } from "../src/persistence.ts";
+import { Document } from "../src/definition.ts";
 
 const failureOf = async <A, E>(effect: Effect.Effect<A, E>) => Result.match(await Effect.runPromise(Effect.result(effect)), {
   onSuccess: () => { throw new Error("Expected a failure"); }, onFailure: error => error,
@@ -26,11 +28,12 @@ describe.each(["pglite", "postgres"] as const)("complete experimental Payload cr
   let postgres: Awaited<ReturnType<typeof startPostgres>> | undefined;
   beforeAll(async () => { if (driver === "postgres") postgres = await startPostgres(); });
   afterAll(async () => { if (postgres !== undefined) await postgres.close(); });
-  const withHost = async (test: (context: Fixture, host: Effect.Success<ReturnType<typeof createPayloadHost>>) => Promise<void>, collection = newsCollection()) => {
+  const withHost = async (test: (context: Fixture, host: Effect.Success<ReturnType<typeof createPayloadHost>>) => Promise<void>, collection = newsCollection(),
+    transport: (database: Fixture) => Persistence = database => database.persistence) => {
     const database = await fixture(postgres?.connectionString);
     const scope = await Effect.runPromise(Scope.make());
     try {
-      const host = await Effect.runPromise(createPayloadHost(collection, database.storage, "shop-a").pipe(Effect.provideService(Scope.Scope, scope)));
+      const host = await Effect.runPromise(createPayloadHost(collection, transport(database), "shop-a").pipe(Effect.provideService(Scope.Scope, scope)));
       await test(database, host);
     } finally {
       try { await Effect.runPromise(Scope.close(scope, Exit.void)); }
@@ -74,15 +77,25 @@ describe.each(["pglite", "postgres"] as const)("complete experimental Payload cr
   }));
 
   it("resolves a lost accepting response without repeating native hooks", async () => {
-    let hooks = 0;
-    const collection = newsCollection(); collection.hooks = { afterChange: [({ doc }) => { hooks++; return doc; }] };
+    let hooks = 0; let lose = false;
+    const collection = newsCollection(); collection.hooks = { afterChange: [({ doc }) => { hooks++; lose = true; return doc; }] };
     await withHost(async (database, host) => {
-      database.loseNextCommitResponse();
       const created = await Effect.runPromise(host.create(randomUUID(), { headline: "uncertain" }));
       expect(await Effect.runPromise(host.read(created.id))).toEqual(created);
       expect(hooks).toBe(1);
       expect((await readCounts(database))[0]).toEqual({ documents: 1, history: 1, events: 1, committed: 1 });
-    }, collection);
+    }, collection, database => {
+      const physical = database.servingPool === undefined ? { run: <A>(work: (db: Database) => Promise<A>) => database.serving.transaction(work) } : postgresSession(database.servingPool);
+      return createPersistence({ run: async work => {
+        const result = await physical.run(work);
+        if (lose && Schema.is(Document)(result)) {
+          expect((await database.admin(db => db.select().from(tables.commands))).filter(command => command.status === "committed"))
+            .toEqual([expect.objectContaining({ result })]);
+          lose = false; throw new PhysicalFailure({ phase: "commit", cause: "Lost accepted Payload create response" });
+        }
+        return result;
+      } });
+    });
   });
 
   it("checks revocation after native work and before accepting data", async () => {

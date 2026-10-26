@@ -5,7 +5,7 @@ import { drizzle as pgDrizzle } from "drizzle-orm/node-postgres";
 import { drizzle as embeddedDrizzle } from "drizzle-orm/pglite";
 import { migrate as pgMigrate } from "drizzle-orm/node-postgres/migrator";
 import { migrate as embeddedMigrate } from "drizzle-orm/pglite/migrator";
-import { sql } from "drizzle-orm";
+import { sql, type Logger } from "drizzle-orm";
 import { Effect } from "effect";
 import { Pool } from "pg";
 import type { CollectionConfig } from "payload";
@@ -24,7 +24,7 @@ export const newsCollection = (): CollectionConfig => ({
 });
 
 /** Driver clients stay inside this resource fixture. All SQL uses Drizzle. */
-export async function fixture(connectionString?: string) {
+export async function fixture(connectionString?: string, logger?: Logger) {
   const identity = `fx_exp_${randomBytes(8).toString("hex")}`;
   const role = `${identity}_serving`;
   const password = randomUUID();
@@ -53,7 +53,7 @@ export async function fixture(connectionString?: string) {
     let ownerUrl: string | undefined;
     if (connectionString === undefined) {
       embedded = new PGlite();
-      const db = embeddedDrizzle(embedded, { schema: tables });
+      const db = embeddedDrizzle(embedded, { schema: tables, ...(logger === undefined ? {} : { logger }) });
       await embeddedMigrate(db, { migrationsFolder });
       owner = db;
     } else {
@@ -89,7 +89,7 @@ export async function fixture(connectionString?: string) {
       if (ownerUrl === undefined) throw new Error("Missing owned database URL");
       const url = new URL(ownerUrl); url.username = role; url.password = password; servingUrl = url.toString();
       servingPool = new Pool({ connectionString: servingUrl, max: 4, application_name: role, connectionTimeoutMillis: 5000, statement_timeout: 5000, lock_timeout: 3000 });
-      serving = pgDrizzle(servingPool, { schema: tables });
+      serving = pgDrizzle(servingPool, { schema: tables, ...(logger === undefined ? {} : { logger }) });
     }
     const admin = <A>(work: (database: Database) => Promise<A>): Promise<A> => embedded === undefined ? work(owner) : owner.transaction(async tx => {
       await tx.execute(sql.raw("reset role"));
@@ -97,7 +97,7 @@ export async function fixture(connectionString?: string) {
       await tx.execute(sql.raw(`set role ${role}`));
       return result;
     });
-    const persistence = createPersistence(servingPool === undefined ? { run: work => serving.transaction(work) } : postgresSession(servingPool));
+    const persistence = createPersistence(servingPool === undefined ? { run: work => serving.transaction(work) } : postgresSession(servingPool, logger));
     const rawStorage = createStorage(persistence);
     let loseCommitResponse = false;
     const storage: Storage = { ...rawStorage, settle: Effect.fn("TestTransport.settle")((...args: Parameters<Storage["settle"]>) =>

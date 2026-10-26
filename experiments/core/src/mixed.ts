@@ -10,7 +10,7 @@ import { createStorage } from "./storage.ts";
 import { createApplicationStorage } from "./application-storage.ts";
 import { createApplicationHost } from "./application.ts";
 import { createProductHost } from "./medusa-product.ts";
-import { createPayloadHost } from "./payload.ts";
+import { createPayloadBinding } from "./payload.ts";
 import { createGroupRoot } from "./group-root.ts";
 import { createGroupStorage } from "./group-storage.ts";
 import { supervise } from "./callback.ts";
@@ -29,7 +29,7 @@ export const createMixedHost = Effect.fn("ExperimentMixed.host")(function* (pers
   definition: Definition, functions: Readonly<Record<string, RegisteredFunction>>, collection: CollectionConfig) {
   const owner = yield* Effect.scope; const storage = createStorage(persistence); const groups = createGroupStorage(persistence);
   const application = yield* createApplicationHost(definition, createApplicationStorage(persistence), scope, functions);
-  const product = yield* createProductHost(storage, scope); const payload = yield* createPayloadHost(collection, storage, scope);
+  const product = yield* createProductHost(storage, scope); const payload = yield* createPayloadBinding(collection, storage, scope);
   const definitions = Object.freeze([definition, product.prepared.definition, payload.definition]);
   let live = true; yield* Effect.addFinalizer(() => Effect.sync(() => { live = false; }));
   const decode = Effect.fn("ExperimentMixed.outcome")(function* (value: unknown,
