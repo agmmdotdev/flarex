@@ -1,8 +1,8 @@
 # Bounded framework text equality
 
 Status: experimental core construction. Native Payload deletion/preference
-cleanup now consumes this owner in the bounded native CRUD profile; Product
-list-by-handle still needs its framework binding. This
+cleanup and native Product list-by-handle consume this owner within their bounded
+framework profiles. This
 capability does not establish general filters, pagination, count, framework
 support or a performance result.
 

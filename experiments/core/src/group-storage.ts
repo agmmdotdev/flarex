@@ -7,6 +7,7 @@ import { materialize, planMaterialization, type TableChanges } from "./materiali
 import type { Command, Persistence } from "./persistence.ts";
 import type { Dependency } from "./query.ts";
 import type { UniqueObservation } from "./storage.ts";
+import type { Root } from "./root.ts";
 import { checkWritePredecessors } from "./write-conflicts.ts";
 import { checkApplicationDependencies } from "./application-conflicts.ts";
 import { checkEqualityDependencies } from "./equality-storage.ts";
@@ -15,6 +16,13 @@ import * as tables from "./schema.ts";
 export interface GroupCandidate extends TableChanges {
   readonly dependencies: readonly Dependency[];
   readonly uniques: readonly UniqueObservation[];
+}
+
+/** One projection of a framework root's frozen contract, used by the accepting
+ * owner for one or multiple selected definitions. No child publication exists. */
+export function frameworkCandidate(definition: Definition, frozen: Effect.Success<ReturnType<Root["freeze"]>>): GroupCandidate {
+  return { definition, changes: frozen.changes, events: frozen.events, uniques: frozen.dependencies,
+    dependencies: [...frozen.points, ...frozen.predicates] };
 }
 
 /** One accepting owner for selected tables. Framework groups retain direct CAS;

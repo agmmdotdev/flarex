@@ -8,6 +8,7 @@ import { Document, type Definition } from "../src/definition.ts";
 import { CoreError, NativeFailure, NativeOperationFailure } from "../src/errors.ts";
 import { createPayloadHost } from "../src/payload-host.ts";
 import { createRoot, type Root } from "../src/root.ts";
+import { frameworkCandidate } from "../src/group-storage.ts";
 import { createPersistence, type Database, type Persistence } from "../src/persistence.ts";
 import { PhysicalFailure, postgresSession } from "../src/session.ts";
 import { fixture, newsCollection, type Fixture } from "./fixture.ts";
@@ -21,11 +22,11 @@ const failureOf = async <A, E>(work: Effect.Effect<A, E>) => Result.match(await 
 const preference = (id: string, user: string, key: string | null, value: Schema.Json = null) => ({ id,
   user: { relationTo: "users", value: user }, key, value, createdAt: "2026-10-27T00:00:00.000Z", updatedAt: "2026-10-27T00:00:00.000Z" });
 const writePreferences = (database: Fixture, definition: Definition, use: (root: Root) => Effect.Effect<unknown, CoreError>) => Effect.runPromise(Effect.gen(function* () {
-  const command = yield* database.storage.open("shop-a", randomUUID(), "administrative-preference-fixture", definition, randomUUID());
+  const command = yield* database.persistence.openCommand("framework", "shop-a", randomUUID(), "administrative-preference-fixture", definition, randomUUID());
   const root = yield* createRoot(definition, database.storage, command);
   return yield* Effect.gen(function* () {
     yield* use(root); const frozen = yield* root.freeze();
-    yield* database.storage.settle(command, frozen.changes, frozen.dependencies, null, frozen.events, frozen.predicates);
+    yield* database.commands.accept(command, [frameworkCandidate(definition, frozen)], null);
   }).pipe(Effect.ensuring(root.close));
 }));
 

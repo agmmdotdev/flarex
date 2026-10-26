@@ -12,6 +12,7 @@ import * as tables from "../src/schema.ts";
 import { postgresSession, PhysicalFailure } from "../src/session.ts";
 import { createPersistence, type Database, type Persistence } from "../src/persistence.ts";
 import { Document } from "../src/definition.ts";
+import { frameworkCandidate } from "../src/group-storage.ts";
 
 const failureOf = async <A, E>(effect: Effect.Effect<A, E>) => Result.match(await Effect.runPromise(Effect.result(effect)), {
   onSuccess: () => { throw new Error("Expected a failure"); }, onFailure: error => error,
@@ -112,7 +113,7 @@ describe.each(["pglite", "postgres"] as const)("complete experimental Payload cr
     await expect(database.serving.update(tables.definitions).set({ version: "forged" })).rejects.toBeDefined();
     await expect(database.serving.update(tables.authorities).set({ enabled: true })).rejects.toBeDefined();
     await expect(database.serving.execute(sql`drop schema fx_core cascade`)).rejects.toBeDefined();
-    const denied = await Effect.runPromise(Effect.exit(database.storage.open("foreign-shop", randomUUID(), "input", host.definition, randomUUID())));
+    const denied = await Effect.runPromise(Effect.exit(database.persistence.openCommand("framework", "foreign-shop", randomUUID(), "input", host.definition, randomUUID())));
     expect(Exit.isFailure(denied)).toBe(true);
   }));
 
@@ -137,7 +138,7 @@ describe.each(["pglite", "postgres"] as const)("complete experimental Payload cr
     const database = await fixture(postgres?.connectionString);
     try {
       for (const size of [1, 16, 64]) {
-        const command = await Effect.runPromise(database.storage.open("shop-a", randomUUID(), "batch", database.definition, randomUUID()));
+        const command = await Effect.runPromise(database.persistence.openCommand("framework", "shop-a", randomUUID(), "batch", database.definition, randomUUID()));
         const root = await Effect.runPromise(createRoot(database.definition, database.storage, command));
         for (let index = 0; index < size; index++) await Effect.runPromise(root.insert({
           id: randomUUID(), headline: `batch-${size}-${index}`, score: 0,
@@ -145,7 +146,7 @@ describe.each(["pglite", "postgres"] as const)("complete experimental Payload cr
         }));
         expect(root.diagnostics().keyOperations).toBe(2 * size);
         const candidate = await Effect.runPromise(root.freeze());
-        await Effect.runPromise(database.storage.settle(command, candidate.changes, candidate.dependencies, { size }, candidate.events, candidate.predicates));
+        await Effect.runPromise(database.commands.accept(command, [frameworkCandidate(database.definition, candidate)], { size }));
       }
       expect((await readCounts(database))[0]?.documents).toBe(81);
     } finally { await database.close(); }
@@ -210,8 +211,8 @@ describe.each(["pglite", "postgres"] as const)("complete experimental Payload cr
       expect(ran).toBe(false);
       expect(pool.waitingCount).toBe(0); expect(pool.totalCount).toBe(pool.idleCount);
       // The same bounded pool remains usable after discarding the bad checkout.
-      const command = await Effect.runPromise(database.storage.open("shop-a", randomUUID(), "healthy", database.definition, randomUUID()));
-      await Effect.runPromise(database.storage.abort(command));
+      const command = await Effect.runPromise(database.persistence.openCommand("framework", "shop-a", randomUUID(), "healthy", database.definition, randomUUID()));
+      await Effect.runPromise(database.persistence.abort(command));
     } finally { await database.close(); }
   });
 
@@ -220,7 +221,7 @@ describe.each(["pglite", "postgres"] as const)("complete experimental Payload cr
     let release = () => {}; let ready = () => {};
     const gate = new Promise<void>(resolve => { release = resolve; });
     const started = new Promise<void>(resolve => { ready = resolve; });
-    const command = await Effect.runPromise(database.storage.open("shop-a", randomUUID(), "grant-race", database.definition, randomUUID()));
+    const command = await Effect.runPromise(database.persistence.openCommand("framework", "shop-a", randomUUID(), "grant-race", database.definition, randomUUID()));
     const root = await Effect.runPromise(createRoot(database.definition, database.storage, command));
     const document = await Effect.runPromise(root.insert({ id: randomUUID(), headline: "grant-race", score: 0, createdAt: "t", updatedAt: "t" }));
     const candidate = await Effect.runPromise(root.freeze());
@@ -235,7 +236,7 @@ describe.each(["pglite", "postgres"] as const)("complete experimental Payload cr
     };
     try {
       await started;
-      settling = Effect.runPromise(database.storage.settle(command, candidate.changes, candidate.dependencies, document, candidate.events, candidate.predicates));
+      settling = Effect.runPromise(database.commands.accept(command, [frameworkCandidate(database.definition, candidate)], document));
       await waitFor(async () => (await database.admin(db => db.select({ waiting: sql<boolean>`exists(select 1 from pg_stat_activity where application_name=${database.role} and wait_event_type='Lock')` }).from(tables.installation)))[0]?.waiting === true);
       let deleted = false;
       deleting = database.admin(async db => { await db.delete(tables.grants).where(eq(tables.grants.scope, "shop-a")); deleted = true; });

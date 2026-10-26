@@ -53,23 +53,32 @@ export async function checkEqualityDependencies(transaction: Database, scope: st
 }
 
 export function createEqualityStorage(persistence: Persistence) {
+  const acquire = async (transaction: Database, scope: string, definition: Definition, sequence: number, selection: TextEquality,
+    remainingRows: number, remainingBytes: number, projection: "identities" | "documents") => {
+    if (!admittedEquality(definition, selection)) throw new CoreError({ reason: "unsupported" });
+    if (remainingRows < 0 || remainingRows > 256 || remainingBytes < 0 || selection.keys.length > 256 ||
+      Buffer.byteLength(JSON.stringify(selection)) > 262144) throw new CoreError({ reason: "limit" });
+    const rows = selection.keys.length === 0 ? [] : await historicalEqualityQuery(transaction, scope,
+      definition.table, sequence, selection, remainingRows, remainingBytes, projection);
+    const bytes = rows.reduce((total, { body: _body, ...row }) => total + row.bytes + row.keyBytes + Buffer.byteLength(JSON.stringify(row)), 0);
+    if (rows.length > remainingRows || bytes > remainingBytes) throw new CoreError({ reason: "limit" });
+    return { rows: rows.filter(row => row.matches), examined: rows.length, bytes };
+  };
   const observe = Effect.fn("ExperimentEquality.observe")((command: Command, selection: TextEquality,
     remainingRows: number, remainingBytes: number, projection: "identities" | "documents") => persistence.operation(async transaction => {
     const { stored, admitted } = await persistence.load(transaction, command, "share");
     await persistence.checkTime(transaction, stored.expires);
-    if (!admittedEquality(admitted.definition, selection)) throw new CoreError({ reason: "unsupported" });
-    if (remainingRows < 0 || remainingRows > 256 || remainingBytes < 0 || selection.keys.length > 256 ||
-      Buffer.byteLength(JSON.stringify(selection)) > 262144) throw new CoreError({ reason: "limit" });
-    const rows = selection.keys.length === 0 ? [] : await historicalEqualityQuery(transaction, stored.scope,
-      admitted.definition.table, stored.snapshot, selection, remainingRows, remainingBytes, projection);
     // Include every examined key and projected identity, even invisible history
     // and fingerprint collisions. These are bounded work bytes, not wire bytes.
-    const bytes = rows.reduce((total, { body: _body, ...row }) => total + row.bytes + row.keyBytes + Buffer.byteLength(JSON.stringify(row)), 0);
-    if (rows.length > remainingRows || bytes > remainingBytes) throw new CoreError({ reason: "limit" });
-    return { rows: rows.filter(row => row.matches), examined: rows.length, bytes };
+    return acquire(transaction, stored.scope, admitted.definition, stored.snapshot, selection, remainingRows, remainingBytes, projection);
   }));
   return {
     observeEquality: (command: Command, selection: TextEquality, rows: number, bytes: number) => observe(command, selection, rows, bytes, "identities"),
     observeEqualityRows: (command: Command, selection: TextEquality, rows: number, bytes: number) => observe(command, selection, rows, bytes, "documents"),
+    readEqualityRows: Effect.fn("ExperimentEquality.read")((scope: string, definition: Definition, selection: TextEquality,
+      rows: number, bytes: number) => persistence.operation(async transaction => {
+      const authority = await persistence.gate(transaction, scope); await persistence.selected(transaction, definition);
+      return acquire(transaction, scope, definition, authority.seq, selection, rows, bytes, "documents");
+    })),
   };
 }

@@ -1,24 +1,20 @@
 import { and, eq, gt, inArray, lte, or, sql } from "drizzle-orm";
-import { Effect, type Schema } from "effect";
-import { uniqueKeys, type Definition, type Document } from "./definition.ts";
+import { Effect } from "effect";
+import type { Definition, Document } from "./definition.ts";
 import { CoreError } from "./errors.ts";
-import { materialize, planMaterialization, type Change, type EventIntent } from "./materialization.ts";
 import type { Persistence, Command } from "./persistence.ts";
 import * as tables from "./schema.ts";
-import { checkWritePredecessors } from "./write-conflicts.ts";
-import { checkEqualityDependencies, createEqualityStorage } from "./equality-storage.ts";
-import type { EqualityDependency } from "./query.ts";
+import { createEqualityStorage } from "./equality-storage.ts";
 
 export interface UniqueObservation { readonly field: string; readonly key: string; readonly owner: string | null }
 
-/** Framework-command profile; it does not acquire Application OCC/retry policy. */
+/** Framework data observations. Commands publish through group-storage; this
+ * owner has no reservation, accepting, recovery or abort capabilities. */
 export function createStorage(persistence: Persistence) {
   const { operation, load, checkTime } = persistence;
   return {
     metrics: persistence.metrics,
     ...createEqualityStorage(persistence),
-    open: (scope: string, request: string, digest: string, definition: Definition, token: string) =>
-      persistence.openCommand("framework", scope, request, digest, definition, token),
     observeUnique: Effect.fn("ExperimentStorage.observeUnique")((command: Command, keys: readonly { field: string; key: string }[]) => operation(async transaction => {
       const { stored, admitted } = await load(transaction, command, "share");
       await checkTime(transaction, stored.expires);
@@ -49,29 +45,6 @@ export function createStorage(persistence: Persistence) {
       if (rows.reduce((total, row) => total + row.bytes, 0) > remainingBytes) throw new CoreError({ reason: "limit" });
       return rows;
     })),
-    settle: Effect.fn("ExperimentStorage.settle")(function* (command: Command, inputChanges: readonly Change[], inputDependencies: readonly UniqueObservation[], inputResult: Schema.Json, inputEvents: readonly EventIntent[], inputPredicates: readonly EqualityDependency[]) {
-      const { changes, dependencies, result, events, predicates } = structuredClone({ changes: inputChanges, dependencies: inputDependencies, result: inputResult, events: inputEvents, predicates: inputPredicates });
-      const plan = planMaterialization([{ definition: yield* persistence.definition(command), changes, events }]);
-      return yield* operation(async transaction => {
-      const { stored, admitted } = await load(transaction, command, "update");
-      const [clock] = await transaction.select().from(tables.clocks).where(eq(tables.clocks.scope, stored.scope)).for("update");
-      await checkTime(transaction, stored.expires);
-      if (stored.profile !== "framework" || !admitted.owner || admitted.selection.length !== 1) throw new CoreError({ reason: "unsupported" });
-      if (clock === undefined || changes.length > 256 || events.length > 256 || predicates.length + dependencies.length > 256 ||
-        Buffer.byteLength(JSON.stringify(predicates)) > 262144 || Buffer.byteLength(JSON.stringify(changes)) > 262_144 || Buffer.byteLength(JSON.stringify(events)) > 262_144 || Buffer.byteLength(JSON.stringify(result)) > 262_144) throw new CoreError({ reason: "limit" });
-      const seq = clock.seq + 1; if (!Number.isSafeInteger(seq)) throw new CoreError({ reason: "limit" });
-      const observed = new Map(dependencies.map(item => [JSON.stringify({ field: item.field, key: item.key }), item.owner]));
-      for (const change of changes) if (change.body !== null) for (const key of uniqueKeys(admitted.definition, change.body)) {
-        if (!observed.has(JSON.stringify(key))) throw new CoreError({ reason: "invalid" });
-      }
-      if (events.some(event => !changes.some(change => change.id === event.document))) throw new CoreError({ reason: "invalid" });
-      await checkWritePredecessors(transaction, stored.scope, [{ definition: admitted.definition, changes, events }]);
-      await checkEqualityDependencies(transaction, stored.scope, stored.snapshot, [{ definition: admitted.definition, dependencies: predicates }]);
-      await materialize(transaction, stored.scope, command.id, seq, plan, result);
-      return result;
-    }); }),
-    resolve: persistence.resolve,
-    abort: persistence.abort,
     read: Effect.fn("ExperimentStorage.read")((scope: string, definition: Definition, id: string) => operation(async transaction => {
       await persistence.gate(transaction, scope); await persistence.selected(transaction, definition);
       const [row] = await transaction.select({ body: tables.documents.body }).from(tables.documents)

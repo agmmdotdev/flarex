@@ -7,7 +7,7 @@ import { createApplicationMutationRoot, type ApplicationMutationRoot } from "./a
 import { createApplicationStorage } from "./application-storage.ts";
 import { createStorage } from "./storage.ts";
 import { joinOwned } from "./callback.ts";
-import type { GroupCandidate } from "./group-storage.ts";
+import { frameworkCandidate, type GroupCandidate } from "./group-storage.ts";
 import type { Command, Persistence, Snapshot } from "./persistence.ts";
 
 export type GroupError = CoreError | ApplicationFailure | DocumentValidationFailure | NativeFailure;
@@ -111,7 +111,7 @@ export const createGroupRoot = Effect.fn("ExperimentGroupRoot.create")(function*
     for (const participant of participants.values()) {
       if (participant.kind === "framework") {
         const frozen = yield* participant.root.freeze();
-        candidates.push({ definition: participant.definition, changes: frozen.changes, events: frozen.events, uniques: frozen.dependencies, dependencies: [...frozen.points, ...frozen.predicates] });
+        candidates.push(frameworkCandidate(participant.definition, frozen));
       } else {
         const frozen = yield* participant.root.freeze();
         candidates.push({ definition: participant.definition, ...frozen, uniques: [], events: [] });

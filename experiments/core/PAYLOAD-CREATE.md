@@ -43,7 +43,7 @@ database work; they do not impose a deadline on arbitrary JavaScript callbacks.
 | [definition.ts](./src/definition.ts) | Framework-neutral immutable scalar metadata, version identity, Effect Schema result decoding and canonical unique keys; pure admission returns Result |
 | [payload-definition.ts](./src/payload-definition.ts) | Native configuration admission and translation into those definitions |
 | [root.ts](./src/root.ts) | Request-local rows, incremental unique ownership, observations, sticky failure, bounds and one-way freeze; no SQL or native framework import |
-| [storage.ts](./src/storage.ts) | Framework-specific Drizzle read/unique/settlement profile |
+| [storage.ts](./src/storage.ts), [group-storage.ts](./src/group-storage.ts) | Framework Drizzle observations and the single selected-table accepting owner |
 | [persistence.ts](./src/persistence.ts), [materialization.ts](./src/materialization.ts) | Shared authority, command identity, sessions, deadlines/resolution and atomic row/history/index/event/outcome writes |
 | [changes.ts](./src/changes.ts), [callback.ts](./src/callback.ts) | Shared coherent pending state and supervised completing callback lifetime |
 | [session.ts](./src/session.ts) | Private PostgreSQL checkout, Drizzle transaction control, failed-BEGIN handling, rollback/drain and release |

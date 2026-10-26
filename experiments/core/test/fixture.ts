@@ -10,11 +10,11 @@ import { Effect } from "effect";
 import { Pool } from "pg";
 import type { CollectionConfig } from "payload";
 import { compilePayloadDefinition } from "../src/payload-definition.ts";
-import { CoreError } from "../src/errors.ts";
-import { createStorage, type Storage } from "../src/storage.ts";
+import { createStorage } from "../src/storage.ts";
 import { createPersistence, type Database } from "../src/persistence.ts";
 import * as tables from "../src/schema.ts";
 import { postgresSession } from "../src/session.ts";
+import { createGroupStorage } from "../src/group-storage.ts";
 
 export const newsCollection = (): CollectionConfig => ({
   slug: "news-items", lockDocuments: false, enableQueryPresets: false, defaultSort: "id",
@@ -98,17 +98,8 @@ export async function fixture(connectionString?: string, logger?: Logger) {
       return result;
     });
     const persistence = createPersistence(servingPool === undefined ? { run: work => serving.transaction(work) } : postgresSession(servingPool, logger));
-    const rawStorage = createStorage(persistence);
-    let loseCommitResponse = false;
-    const storage: Storage = { ...rawStorage, settle: Effect.fn("TestTransport.settle")((...args: Parameters<Storage["settle"]>) =>
-      rawStorage.settle(...args).pipe(Effect.flatMap(result => {
-        if (!loseCommitResponse) return Effect.succeed(result);
-        loseCommitResponse = false;
-        return Effect.fail(new CoreError({ reason: "storage", cause: "Injected response loss after committed Drizzle transaction" }));
-      }))),
-    };
-    return { identity, role, admin, serving, servingPool, persistence, storage, definition, ownerUrl, servingUrl,
-      loseNextCommitResponse: () => { loseCommitResponse = true; }, close };
+    const storage = createStorage(persistence); const commands = createGroupStorage(persistence);
+    return { identity, role, admin, serving, servingPool, persistence, storage, commands, definition, ownerUrl, servingUrl, close };
   } catch (cause) {
     try { await close(); } catch (cleanup) { throw new AggregateError([cause, cleanup], "Fixture acquisition and cleanup failed", { cause }); }
     throw cause;

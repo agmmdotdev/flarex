@@ -7,6 +7,7 @@ import type { CollectionConfig } from "payload";
 import { createMixedHost, MixedResult } from "../src/mixed.ts";
 import { compileDefinition } from "../src/definition.ts";
 import { createRoot } from "../src/root.ts";
+import { frameworkCandidate } from "../src/group-storage.ts";
 import { createProductHost } from "../src/medusa-product.ts";
 import { createPersistence, type Database, type Persistence } from "../src/persistence.ts";
 import { PhysicalFailure, postgresSession } from "../src/session.ts";
@@ -20,7 +21,7 @@ const failureOf = async <A, E>(work: Effect.Effect<A, E>) => Result.match(await 
   onSuccess: () => { throw new Error("Expected failure"); }, onFailure: error => error,
 });
 const input = (id: string) => ({ application: { name: "seed", args: { name: "mixed-task", priority: 2 } },
-  product: { id, title: "mixed-product" }, payload: { create: { headline: "mixed-news" }, update: { score: 7 } } });
+  product: { id, data: { title: "mixed-product", handle: "mixed-handle", status: "published" } }, payload: { create: { headline: "mixed-news" }, update: { score: 7 } } });
 
 describe.each(["pglite", "postgres"] as const)("native Application/Product/Payload mixed graph (%s)", driver => {
   let postgres: Awaited<ReturnType<typeof startPostgres>> | undefined;
@@ -36,13 +37,13 @@ describe.each(["pglite", "postgres"] as const)("native Application/Product/Paylo
       const host = await Effect.runPromise(createMixedHost(persistence(database), "shop-a", definition, applicationFunctions, collection)
         .pipe(Effect.provideService(Scope.Scope, scope)));
       await database.admin(db => db.insert(tables.definitions).values(host.definitions.filter(selected => selected.table !== database.definition.table)
-        .map(selected => ({ table: selected.table, tableId: selected.tableId, fields: selected.fields, indexes: selected.indexes, version: selected.version }))));
+        .map(selected => ({ table: selected.table, tableId: selected.tableId, fields: selected.fields, indexes: selected.indexes, equalities: selected.equalities, version: selected.version }))));
       const id = `prod_${randomUUID()}`;
       await Effect.runPromise(Effect.gen(function* () {
-        const command = yield* database.storage.open("shop-a", randomUUID(), "fixture", host.productDefinition.definition, randomUUID());
+        const command = yield* database.persistence.openCommand("framework", "shop-a", randomUUID(), "fixture", host.productDefinition.definition, randomUUID());
         const root = yield* createRoot(host.productDefinition.definition, database.storage, command);
         yield* root.insert(yield* host.productDefinition.seed(id, "original", "2026-10-27T00:00:00.000Z"));
-        const frozen = yield* root.freeze(); yield* database.storage.settle(command, frozen.changes, frozen.dependencies, null, frozen.events, frozen.predicates);
+        const frozen = yield* root.freeze(); yield* database.commands.accept(command, [frameworkCandidate(host.productDefinition.definition, frozen)], null);
       }));
       await test(database, host, id, scope);
     } finally { try { await Effect.runPromise(Scope.close(scope, Exit.void)); } finally { await database.close(); } }
@@ -67,8 +68,11 @@ describe.each(["pglite", "postgres"] as const)("native Application/Product/Paylo
       expect(result.payload.updated).toEqual({ ...result.payload.created, score: 7, updatedAt: expect.any(String) });
       expect(result.payload.read).toEqual(result.payload.updated);
       const before = await Effect.runPromise(host.productDefinition.seed(id, "mixed-product", "2026-10-27T00:00:00.000Z"));
-      const native = await Effect.runPromise(host.productDefinition.toNative(before));
-      expect(result.product).toEqual({ ...native, updated_at: expect.any(String), options: [], tags: [], collection: null, type: null });
+      const native = { ...await Effect.runPromise(host.productDefinition.toNative(before)), handle: "mixed-handle", status: "published" };
+      const product = Schema.decodeUnknownSync(Schema.Struct({ updated: Schema.JsonObject, retrieved: Schema.JsonObject, listed: Schema.Array(Schema.JsonObject) }))(result.product);
+      expect(product.updated).toEqual({ ...native, updated_at: expect.any(String), options: [], tags: [], collection: null, type: null });
+      expect(product.retrieved).toEqual({ ...native, updated_at: expect.any(String), collection: null, type: null });
+      expect(product.listed).toEqual([product.retrieved]);
       const history = await database.admin(db => db.select().from(tables.history));
       expect(history.filter(row => row.commitSeq === 2).map(row => row.table).toSorted()).toEqual(["news-items", "product", "tasks"]);
       const commands = await database.admin(db => db.select().from(tables.commands)); expect(commands).toHaveLength(2);
@@ -96,14 +100,30 @@ describe.each(["pglite", "postgres"] as const)("native Application/Product/Paylo
     await onlySeed(database, id);
   }));
 
+  it("retains native Product duplicate-handle classification and aborts the earlier authored mutation", async () => withMixed(async (database, host, id) => {
+    const definition = host.productDefinition.definition; const other = `prod_${randomUUID()}`;
+    await Effect.runPromise(Effect.gen(function* () {
+      const command = yield* database.persistence.openCommand("framework", "shop-a", randomUUID(), "occupied-handle", definition, randomUUID());
+      const root = yield* createRoot(definition, database.storage, command);
+      yield* root.insert({ ...yield* host.productDefinition.seed(other, "occupied", "2026-10-27T00:00:00.000Z"), handle: "mixed-handle" });
+      yield* database.commands.accept(command, [frameworkCandidate(definition, yield* root.freeze())], null);
+    }));
+    expect(await failureOf(host.execute(randomUUID(), input(id)))).toMatchObject({ _tag: "NativeFailure", cause: { type: "invalid_data", cause: { reason: "unique" } } });
+    const documents = await database.admin(db => db.select().from(tables.documents));
+    expect(documents).toHaveLength(2); expect(documents.every(row => row.table === "product")).toBe(true);
+    expect(documents.find(row => row.id === id)?.body).toMatchObject({ title: "original", handle: id.replaceAll("_", "-") });
+    expect(await database.admin(db => db.select().from(tables.history))).toHaveLength(2);
+    expect(await database.admin(db => db.select().from(tables.eventIntents).where(eq(tables.eventIntents.event, "product.product.updated")))).toHaveLength(0);
+  }));
+
   it("refuses unsafe or oversized mixed inputs before admission without invoking getters or native code", async () => withMixed(async (database, host, id) => {
     const before = database.persistence.metrics.operations; let getters = 0;
     const data = input(id);
-    for (const unsafe of [{ ...data, product: { id, get title() { getters++; return "unsafe"; } } },
+    for (const unsafe of [{ ...data, product: { id, data: { get title() { getters++; return "unsafe"; } } } },
       Object.setPrototypeOf(input(id), { inherited: true }), { ...data, application: { name: "seed", args: { name: undefined, priority: 2 } } }]) {
       expect(await failureOf(host.execute(randomUUID(), unsafe))).toMatchObject({ reason: "invalid" });
     }
-    expect(await failureOf(host.execute(randomUUID(), { ...data, product: { id, title: "x".repeat(262145) } }))).toMatchObject({ reason: "limit" });
+    expect(await failureOf(host.execute(randomUUID(), { ...data, product: { id, data: { title: "x".repeat(262145) } } }))).toMatchObject({ reason: "limit" });
     expect(getters).toBe(0); expect(database.persistence.metrics.operations).toBe(before);
     expect(await database.admin(db => db.select().from(tables.commands))).toHaveLength(1);
   }));
@@ -171,7 +191,7 @@ describe.each(["pglite", "postgres"] as const)("native Application/Product/Paylo
     let race = async () => {};
     const collection = newsCollection(); collection.hooks = { afterChange: [async ({ operation, doc }) => { if (operation === "update") await race(); return doc; }] };
     await withMixed(async (database, host, id, scope) => {
-      const product = await Effect.runPromise(createProductHost(database.storage, "shop-a").pipe(Effect.provideService(Scope.Scope, scope)));
+      const product = await Effect.runPromise(createProductHost(database.persistence, "shop-a").pipe(Effect.provideService(Scope.Scope, scope)));
       race = async () => { await Effect.runPromise(product.update(randomUUID(), id, { title: "concurrent-winner" })); };
       expect(await failureOf(host.execute(randomUUID(), input(id)))).toMatchObject({ reason: "conflict" });
       expect(await database.admin(db => db.select().from(tables.documents))).toEqual([expect.objectContaining({ table: "product", body: expect.objectContaining({ title: "concurrent-winner" }) })]);

@@ -1,9 +1,9 @@
 # Atomic mixed construction contract
 
 Status: bounded native connection implemented in `mixed.ts`: an authored
-Application mutation, native Product title update, and native Payload
+Application mutation, native Product update/retrieve/list-by-handle, and native Payload
 create/update/read share the selected-table accepting owner. Complete-request
-measurements, Payload deletion/preferences and broader Product flows remain
+measurements, Payload deletion/preferences and populated Product relations remain
 pending. Nothing in this note authorizes active-core changes or production
 promotion.
 
@@ -36,7 +36,7 @@ hooks silently disabled for a comparison.
 
 ## Connected operation
 
-Run an authored Application mutation, a real native Product title update and
+Run an authored Application mutation, a real native Product update/retrieve/list and
 real Payload Local API operations under one explicitly named mixed command.
 All participants borrow one scope snapshot and command lifetime. Only its
 trusted outer owner accepts, resolves an uncertain outcome or aborts. Independent
@@ -44,7 +44,8 @@ standalone calls keep their existing distinct profiles and never join implicitly
 There is no automatic mixed replay of native hooks or services after a conflict.
 
 The first connected operation inserts an Application task, updates a pre-existing
-relation-free Product and creates/updates a Payload document. Preserve each
+relation-free Product's title/handle/status, retrieves/lists its pending result
+and creates/updates a Payload document. Preserve each
 complete native result, local pending visibility, native access/validation/hooks
 and the native Product event. A failure in any participant, even if caught by
 the composition, must prevent every participant's publication. Native business

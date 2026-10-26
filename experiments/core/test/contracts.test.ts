@@ -14,13 +14,12 @@ import { newsCollection } from "./fixture.ts";
 
 const command: Command = { id: "command", token: "private-token", request: "request", profile: "framework", snapshot: 0, status: "active", result: null };
 const backend = (changes: Partial<Storage> = {}): Storage => ({
-  metrics: { operations: 0 }, open: () => Effect.succeed(command),
+  metrics: { operations: 0 },
   observeUnique: (_command, keys) => Effect.succeed(keys.map(key => ({ ...key, owner: null }))),
-  settle: () => Effect.fail(new CoreError({ reason: "unsupported" })),
   observeRows: () => Effect.succeed([]),
   observeEquality: () => Effect.fail(new CoreError({ reason: "unsupported" })),
   observeEqualityRows: () => Effect.fail(new CoreError({ reason: "unsupported" })),
-  resolve: () => Effect.fail(new CoreError({ reason: "unsupported" })), abort: () => Effect.void,
+  readEqualityRows: () => Effect.fail(new CoreError({ reason: "unsupported" })),
   read: () => Effect.succeed(null), ...changes,
 });
 

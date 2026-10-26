@@ -8,7 +8,7 @@ import { CoreError, NativeFailure } from "../src/errors.ts";
 import { createRoot } from "../src/root.ts";
 import { createGroupRoot, type BorrowedFrameworkRoot } from "../src/group-root.ts";
 import { runCallback } from "../src/callback.ts";
-import { createGroupStorage } from "../src/group-storage.ts";
+import { createGroupStorage, frameworkCandidate } from "../src/group-storage.ts";
 import { fixture, type Fixture } from "./fixture.ts";
 import { startPostgres } from "./postgres.ts";
 import * as tables from "../src/schema.ts";
@@ -17,10 +17,10 @@ const failureOf = async <A, E>(work: Effect.Effect<A, E>) => Result.match(await 
   onSuccess: () => { throw new Error("Expected failure"); }, onFailure: error => error,
 });
 const seed = (database: Fixture, definition: Definition, id: string, headline: string) => Effect.runPromise(Effect.gen(function* () {
-  const command = yield* database.storage.open("shop-a", randomUUID(), "fixture", definition, randomUUID());
+  const command = yield* database.persistence.openCommand("framework", "shop-a", randomUUID(), "fixture", definition, randomUUID());
   const root = yield* createRoot(definition, database.storage, command);
   yield* root.insert({ id, headline, score: 0, createdAt: "original", updatedAt: "original" });
-  const final = yield* root.freeze(); yield* database.storage.settle(command, final.changes, final.dependencies, null, final.events, final.predicates);
+  const final = yield* root.freeze(); yield* database.commands.accept(command, [frameworkCandidate(definition, final)], null);
 }));
 
 describe.each(["pglite", "postgres"] as const)("selected-table accepting owner (%s)", driver => {
@@ -76,7 +76,7 @@ describe.each(["pglite", "postgres"] as const)("selected-table accepting owner (
       const candidates = await Effect.runPromise(group.freeze()); const child = await Effect.runPromise(database.persistence.participant(command, notes));
       expect(await failureOf(database.persistence.abort(child))).toMatchObject({ reason: "denied" });
       expect(await failureOf(database.persistence.participant(child, database.definition))).toMatchObject({ reason: "denied" });
-      expect(await failureOf(database.storage.settle(child, [], [], null, [], []))).toMatchObject({ reason: "unsupported" });
+      expect(await failureOf(storage.accept(child, [{ definition: database.definition, changes: [], events: [], uniques: [], dependencies: [] }], null))).toMatchObject({ reason: "denied" });
       expect(await failureOf(storage.accept(child, candidates, null))).toMatchObject({ reason: "denied" });
       expect(await failureOf(storage.accept({ ...command }, candidates, null))).toMatchObject({ reason: "denied" });
       await Effect.runPromise(storage.accept(command, candidates, null));
@@ -108,11 +108,11 @@ describe.each(["pglite", "postgres"] as const)("selected-table accepting owner (
     try {
       await Effect.runPromise(group.withApplication(app, application => application.insert({ name: "task", priority: 1 })));
       const target = mode === "same" ? "read" : "other";
-      const other = await Effect.runPromise(database.storage.open("shop-a", randomUUID(), "other", database.definition, randomUUID()));
+      const other = await Effect.runPromise(database.persistence.openCommand("framework", "shop-a", randomUUID(), "other", database.definition, randomUUID()));
       const root = await Effect.runPromise(createRoot(database.definition, database.storage, other));
       const body = await Effect.runPromise(root.get(target)); if (body === null) throw new Error("Missing fixture row");
       await Effect.runPromise(root.replace({ ...body, score: 2 })); const changed = await Effect.runPromise(root.freeze());
-      await Effect.runPromise(database.storage.settle(other, changed.changes, changed.dependencies, null, changed.events, changed.predicates));
+      await Effect.runPromise(database.commands.accept(other, [frameworkCandidate(database.definition, changed)], null));
       // First acquisition is after the other commit; mixed framework reads must
       // still return the original command snapshot, not a newer direct read.
       expect(await Effect.runPromise(group.withFramework(database.definition, news => news.get("read")))).toMatchObject({ headline: "old", score: 0 });

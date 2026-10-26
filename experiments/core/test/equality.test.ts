@@ -7,7 +7,7 @@ import { compileDefinition, type Definition, type Document } from "../src/defini
 import { createRoot, type Root } from "../src/root.ts";
 import { createBudget } from "../src/budget.ts";
 import { createGroupRoot } from "../src/group-root.ts";
-import { createGroupStorage } from "../src/group-storage.ts";
+import { createGroupStorage, frameworkCandidate } from "../src/group-storage.ts";
 import { historicalEqualityQuery } from "../src/equality-storage.ts";
 import { textFingerprint } from "../src/equality-key.ts";
 import type { Command } from "../src/persistence.ts";
@@ -23,12 +23,12 @@ const failureOf = async <A, E>(effect: Effect.Effect<A, E>) => Result.match(awai
   onSuccess: () => { throw new Error("Expected refusal"); }, onFailure: error => error,
 });
 const open = (database: Fixture, definition: Definition) => Effect.runPromise(Effect.gen(function* () {
-  const command = yield* database.storage.open("shop-a", randomUUID(), "equality", definition, randomUUID());
+  const command = yield* database.persistence.openCommand("framework", "shop-a", randomUUID(), "equality", definition, randomUUID());
   return { command, root: yield* createRoot(definition, database.storage, command) };
 }));
 const publish = (database: Fixture, command: Command, root: Root) => Effect.runPromise(Effect.gen(function* () {
   const frozen = yield* root.freeze();
-  yield* database.storage.settle(command, frozen.changes, frozen.dependencies, null, frozen.events, frozen.predicates);
+  yield* database.commands.accept(command, [frameworkCandidate(yield* database.persistence.definition(command), frozen)], null);
   return frozen;
 }));
 const write = async (database: Fixture, definition: Definition, use: (root: Root) => Effect.Effect<unknown, CoreError>) => {
@@ -115,14 +115,14 @@ describe.each(["pglite", "postgres"] as const)("bounded text equality (%s)", dri
       expect(await Effect.runPromise(first.root.equalIds(selected()))).toEqual(["a"]);
       expect(await Effect.runPromise(first.root.get("a"))).toEqual(row("a", "wanted", { original: true }));
       expect((await Effect.runPromise(first.root.freeze())).points).toEqual([{ kind: "point", id: "a", revision: 1, tombstone: false }]);
-    } finally { await Effect.runPromise(first.root.close); await Effect.runPromise(database.storage.abort(first.command)); }
+    } finally { await Effect.runPromise(first.root.close); await Effect.runPromise(database.persistence.abort(first.command)); }
     const second = await open(database, definition);
     try {
       await Effect.runPromise(second.root.equalIds(selected()));
       await write(database, definition, root => root.replace(row("a", "wanted", { newer: true })));
       expect(await failureOf(second.root.get("a"))).toMatchObject({ reason: "conflict" });
       expect(await failureOf(second.root.freeze())).toMatchObject({ reason: "conflict" });
-    } finally { await Effect.runPromise(second.root.close); await Effect.runPromise(database.storage.abort(second.command)); }
+    } finally { await Effect.runPromise(second.root.close); await Effect.runPromise(database.persistence.abort(second.command)); }
   }));
 
   it.each(["insert", "enter", "leave", "delete"] as const)("rejects concurrent matching %s at direct acceptance", async change => withRecords(async (database, definition) => {
@@ -137,10 +137,10 @@ describe.each(["pglite", "postgres"] as const)("bounded text equality (%s)", dri
       await write(database, definition, writer => change === "insert" ? writer.insert(row("new", "empty"))
         : change === "enter" ? writer.replace(row("b", "wanted")) : change === "leave" ? writer.replace(row("a", "other")) : writer.delete("a"));
       const frozen = await Effect.runPromise(root.freeze());
-      expect(await failureOf(database.storage.settle(command, frozen.changes, frozen.dependencies, null, frozen.events, frozen.predicates))).toMatchObject({ reason: "conflict" });
+      expect(await failureOf(database.commands.accept(command, [frameworkCandidate(definition, frozen)], null))).toMatchObject({ reason: "conflict" });
       expect(await database.admin(db => db.select().from(tables.commands).where(eq(tables.commands.id, command.id))))
         .toEqual([expect.objectContaining({ status: "active", result: null, commitSeq: null })]);
-    } finally { await Effect.runPromise(root.close); await Effect.runPromise(database.storage.abort(command)); }
+    } finally { await Effect.runPromise(root.close); await Effect.runPromise(database.persistence.abort(command)); }
   }));
 
   it.each(["framework", "mixed"] as const)("checks empty equality predicates in %s groups while unrelated keys remain independent", async profile => withRecords(async (database, definition) => {
@@ -171,8 +171,8 @@ describe.each(["pglite", "postgres"] as const)("bounded text equality (%s)", dri
       expect(await Effect.runPromise(root.equalIds(selected()))).toEqual(["a"]);
       await write(database, definition, writer => change === "leave" ? writer.replace(row("a", "other")) : writer.delete("a"));
       const frozen = await Effect.runPromise(root.freeze()); expect(frozen.changes).toEqual([]);
-      expect(await failureOf(database.storage.settle(command, frozen.changes, frozen.dependencies, null, frozen.events, frozen.predicates))).toMatchObject({ reason: "conflict" });
-    } finally { await Effect.runPromise(root.close); await Effect.runPromise(database.storage.abort(command)); }
+      expect(await failureOf(database.commands.accept(command, [frameworkCandidate(definition, frozen)], null))).toMatchObject({ reason: "conflict" });
+    } finally { await Effect.runPromise(root.close); await Effect.runPromise(database.persistence.abort(command)); }
   }));
 
   it("refuses malformed text and descriptor hazards before exact-key work", async () => withRecords(async (database, definition) => {
@@ -188,19 +188,19 @@ describe.each(["pglite", "postgres"] as const)("bounded text equality (%s)", dri
         expect(await failureOf(root.deleteEqual(selection))).toMatchObject({ reason: index === cases.length - 1 ? "limit" : "invalid" });
         expect(database.persistence.metrics.operations).toBe(before);
         expect(await failureOf(root.freeze())).toMatchObject({ reason: index === cases.length - 1 ? "limit" : "invalid" });
-      } finally { await Effect.runPromise(root.close); await Effect.runPromise(database.storage.abort(command)); }
+      } finally { await Effect.runPromise(root.close); await Effect.runPromise(database.persistence.abort(command)); }
     }
     expect(getters).toBe(0);
     const { command, root } = await open(database, definition);
     try {
       expect(await failureOf(root.insert(row("bad-pending", "\uD800")))).toMatchObject({ reason: "invalid" });
       expect(root.diagnostics().rows).toBe(0);
-    } finally { await Effect.runPromise(root.close); await Effect.runPromise(database.storage.abort(command)); }
+    } finally { await Effect.runPromise(root.close); await Effect.runPromise(database.persistence.abort(command)); }
     const valid = await open(database, definition);
     try {
       await Effect.runPromise(valid.root.insert(row("valid-pending", "\uFFFD")));
       expect(await Effect.runPromise(valid.root.equalIds(selected(["\uFFFD"])))).toEqual(["replacement", "valid-pending"]);
-    } finally { await Effect.runPromise(valid.root.close); await Effect.runPromise(database.storage.abort(valid.command)); }
+    } finally { await Effect.runPromise(valid.root.close); await Effect.runPromise(database.persistence.abort(valid.command)); }
     expect(await Effect.runPromise(database.storage.read("shop-a", definition, "replacement"))).toEqual(row("replacement", "\uFFFD"));
   }));
 
@@ -225,14 +225,14 @@ describe.each(["pglite", "postgres"] as const)("bounded text equality (%s)", dri
   it("counts invisible historical candidates and poisons overflow instead of returning partial rows", async () => withRecords(async (database, definition) => {
     await write(database, definition, root => root.insert(row("a", "wanted")));
     await write(database, definition, root => root.replace(row("a", "wanted", 1)));
-    const command = await Effect.runPromise(database.storage.open("shop-a", randomUUID(), "bounded", definition, randomUUID()));
+    const command = await Effect.runPromise(database.persistence.openCommand("framework", "shop-a", randomUUID(), "bounded", definition, randomUUID()));
     const budget = createBudget(); expect(Result.isSuccess(budget.read(0, 255))).toBe(true);
     const root = await Effect.runPromise(createRoot(definition, database.storage, command, budget));
     try {
       expect(await failureOf(root.equalIds(selected()))).toMatchObject({ reason: "limit" });
       expect(await failureOf(root.freeze())).toMatchObject({ reason: "limit" });
       expect(await database.admin(db => db.select().from(tables.history).where(eq(tables.history.table, definition.table)))).toHaveLength(2);
-    } finally { await Effect.runPromise(root.close); await Effect.runPromise(database.storage.abort(command)); }
+    } finally { await Effect.runPromise(root.close); await Effect.runPromise(database.persistence.abort(command)); }
   }));
 
   it("bounds combined original and pending membership before returning a projection", async () => withRecords(async (database, definition) => {
@@ -245,17 +245,17 @@ describe.each(["pglite", "postgres"] as const)("bounded text equality (%s)", dri
       expect(await failureOf(root.equalIds(selected()))).toMatchObject({ reason: "limit" });
       expect(await failureOf(root.freeze())).toMatchObject({ reason: "limit" });
       expect(await database.admin(db => db.select().from(tables.documents).where(eq(tables.documents.table, definition.table)))).toHaveLength(255);
-    } finally { await Effect.runPromise(root.close); await Effect.runPromise(database.storage.abort(command)); }
+    } finally { await Effect.runPromise(root.close); await Effect.runPromise(database.persistence.abort(command)); }
   }));
 
   it("fails closed for unknown required indexes and revoked authority before acquiring data", async () => withRecords(async (database, definition) => {
     const first = await open(database, definition);
     try { expect(await failureOf(first.root.equalIds({ ...selected(), index: "absent" }))).toMatchObject({ reason: "unsupported" }); }
-    finally { await Effect.runPromise(first.root.close); await Effect.runPromise(database.storage.abort(first.command)); }
+    finally { await Effect.runPromise(first.root.close); await Effect.runPromise(database.persistence.abort(first.command)); }
     const second = await open(database, definition);
     await database.admin(db => db.update(tables.authorities).set({ enabled: false }));
     try { expect(await failureOf(second.root.equalRows(selected()))).toMatchObject({ reason: "denied" }); }
-    finally { await Effect.runPromise(second.root.close); await Effect.runPromise(database.storage.abort(second.command)); }
+    finally { await Effect.runPromise(second.root.close); await Effect.runPromise(database.persistence.abort(second.command)); }
   }));
 
   it("uses the actual bounded identity projection plan without a history or body scan", async () => withRecords(async (database, definition) => {

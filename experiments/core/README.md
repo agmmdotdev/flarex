@@ -1,14 +1,14 @@
 # Experimental Flarex core
 
-Status: bounded Payload-create, standalone Application and native Product scalar
-update slices implemented with Drizzle on shared persistence/materialization owners.
+Status: bounded Payload CRUD, standalone Application and native Product scalar
+update/retrieve/list flows implemented with Drizzle on shared persistence/materialization owners.
 The [selected-table mixed connection](./MIXED.md) runs actual Application,
 Product and Payload entry points under one accepting owner. [Bounded Payload
 CRUD](./PAYLOAD-CRUD.md) is implemented with its native preference cleanup and
-atomic document/preference publication. Broader Product flows and matched measurements
+atomic document/preference publication. Populated Product relations and matched measurements
 remain pending. The bounded
-[text-equality foundation](./EQUALITY.md) prepares their indexed query/cleanup
-requirements without widening the native profiles. This is
+[text-equality foundation](./EQUALITY.md) supplies their indexed query/cleanup
+operations within the declared native profiles. This is
 not an accepted replacement core, a complete Application profile or a completed
 performance comparison. See [Payload](./PAYLOAD-CREATE.md) and
 [Application](./APPLICATION.md) and [Product](./MEDUSA-PRODUCT.md) for the exact
