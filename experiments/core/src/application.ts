@@ -15,7 +15,7 @@ import { createApplicationMutationRoot, createApplicationQueryRoot, type Applica
 import type { ApplicationStorage } from "./application-storage.ts";
 import { applicationLimits, NumericRange, type Dependency } from "./query.ts";
 import { runCallback, supervise } from "./callback.ts";
-import { CreationTime } from "./application-values.ts";
+import { CreationTime, admitApplicationDefinition } from "./application-values.ts";
 import { JsonValue } from "./value.ts";
 
 type AppDocument = Record<string, Schema.Json> & { _id: Id<string>; _creationTime: number };
@@ -65,8 +65,7 @@ const syncKeys = (dependencies: readonly Dependency[], tableId: number) => Resul
 export const createApplicationHost = Effect.fn("ExperimentApplication.host")(function* (
   definition: Definition, storage: ApplicationStorage, scope: string, functions: Functions, retryableMutations: readonly string[] = [],
 ) {
-  const tableId = definition.tableId;
-  if (tableId === null || definition.fields.some(field => field.nullable || field.kind !== "text" && field.kind !== "number")) return yield* Effect.fail(new CoreError({ reason: "unsupported" }));
+  const tableId = yield* Effect.fromResult(admitApplicationDefinition(definition));
   const owner = yield* Effect.scope;
   let live = true; yield* Effect.addFinalizer(() => Effect.sync(() => { live = false; }));
   const entries = Object.freeze({ ...functions });
@@ -136,7 +135,7 @@ export const createApplicationHost = Effect.fn("ExperimentApplication.host")(fun
         if (mutation === null || table !== definition.table) return unsupported();
         const captured = structuredClone(value);
         return track(async () => {
-          const created = await execute(mutation.insert(tableId, captured));
+          const created = await execute(mutation.insert(captured));
           const parsed = parseFlarexId(created); if (parsed === null) throw new Error("Allocated Application identity is invalid");
           return encodeFlarexId<Table>(tableId, parsed.documentId);
         });

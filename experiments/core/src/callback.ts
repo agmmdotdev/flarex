@@ -10,15 +10,19 @@ export const runCallback = Effect.fn("ExperimentCallback.run")(<A, E>(work: (sig
     return restore(wait).pipe(Effect.onInterrupt(() => Effect.sync(() => controller.abort()).pipe(Effect.andThen(wait))));
   }));
 
-/** Bind request work to its host and retain child cleanup failures on cancel. */
-export const supervise = Effect.fn("ExperimentCallback.supervise")(function* <A, E>(scope: Scope.Scope, work: Effect.Effect<A, E>) {
-  const child = yield* Effect.forkIn(scope)(work);
-  return yield* Fiber.join(child).pipe(Effect.onInterrupt(() => Effect.gen(function* () {
+/** Join an owned child, retaining its cleanup failures when the waiter cancels. */
+export const joinOwned = Effect.fn("ExperimentCallback.joinOwned")(<A, E>(child: Fiber.Fiber<A, E>) =>
+  Fiber.join(child).pipe(Effect.onInterrupt(() => Effect.gen(function* () {
     yield* Fiber.interrupt(child);
     const exit = yield* Fiber.await(child);
     if (Exit.isFailure(exit)) {
       const remaining = exit.cause.reasons.filter(reason => !Cause.isInterruptReason(reason));
       if (remaining.length !== 0) return yield* Effect.failCause(Cause.fromReasons(remaining));
     }
-  })));
+  }))));
+
+/** Bind request work to its host and retain child cleanup failures on cancel. */
+export const supervise = Effect.fn("ExperimentCallback.supervise")(function* <A, E>(scope: Scope.Scope, work: Effect.Effect<A, E>) {
+  const child = yield* Effect.forkIn(scope)(work);
+  return yield* joinOwned(child);
 });

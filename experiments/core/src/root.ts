@@ -6,14 +6,22 @@ import type { Storage, UniqueObservation } from "./storage.ts";
 import type { Command } from "./persistence.ts";
 import type { EventIntent } from "./materialization.ts";
 import { freezeOwnedJson, JsonValue } from "./value.ts";
+import { createBudget, type RootBudget } from "./budget.ts";
+import type { PointObservation } from "./query.ts";
+
+export interface RootObservations {
+  readonly observeRows: (command: Command, ids: readonly string[], remainingBytes: number) => Effect.Effect<readonly PointObservation[], CoreError>;
+  readonly observeUnique: Storage["observeUnique"];
+}
 
 const Event = Schema.Struct({ event: Schema.String.check(Schema.isLengthBetween(1, 256)), document: Schema.String, body: JsonValue });
 
 /** Direct framework root. Native DAL calls share original/pending state; only
  * the outer command accepts. It does not carry Application predicate OCC. */
-export const createRoot = Effect.fn("ExperimentRoot.create")(function* (definition: Definition, storage: Storage, command: Command) {
+export const createRoot = Effect.fn("ExperimentRoot.create")(function* (definition: Definition, storage: RootObservations, command: Command,
+  budget: RootBudget = createBudget(), serialized?: Semaphore.Semaphore) {
   const live = yield* Ref.make(true); const failure = yield* Ref.make<Cause.Cause<CoreError> | null>(null);
-  const semaphore = yield* Semaphore.make(1); const changes = createChanges(definition);
+  const semaphore = serialized ?? (yield* Semaphore.make(1)); const changes = createChanges(definition);
   const observations = new Map<string, UniqueObservation>();
   const originals = new Map<string, { revision: number | null; body: Document | null }>();
   const events: EventIntent[] = []; let readBytes = 0; let eventBytes = 0;
@@ -27,11 +35,14 @@ export const createRoot = Effect.fn("ExperimentRoot.create")(function* (definiti
   const original = Effect.fn("ExperimentRoot.original")(function* (id: string) {
     let value = originals.get(id);
     if (value === undefined) {
-      if (originals.size >= 256) return yield* Effect.fail(new CoreError({ reason: "limit" }));
-      const [row] = yield* storage.observeRows(command, [id], 262144 - readBytes - eventBytes - changes.diagnostics().bytes);
+      if (originals.size >= 256 || budget.remainingReads() === 0) return yield* Effect.fail(new CoreError({ reason: "limit" }));
+      const [row] = yield* storage.observeRows(command, [id], budget.remainingBytes());
+      yield* Effect.fromResult(budget.read(row?.bytes ?? 0, 1));
       readBytes += row?.bytes ?? 0;
       const body = row?.body == null ? null : structuredClone(yield* definition.decode(row.body));
       if (body !== null) freezeOwnedJson(body);
+      yield* Effect.fromResult(budget.dependency(Buffer.byteLength(JSON.stringify({ kind: "point", id,
+        revision: row?.revision ?? null, tombstone: body === null && row?.revision != null }))));
       value = { revision: row?.revision ?? null, body }; originals.set(id, value);
     }
     return value.body;
@@ -45,25 +56,28 @@ export const createRoot = Effect.fn("ExperimentRoot.create")(function* (definiti
   };
   const stage = Effect.fn("ExperimentRoot.stage")(function* (id: string, body: Document | null) {
     yield* Effect.fromResult(changes.check(id, body));
+    const previous = changes.get(id);
+    const delta = -(previous == null ? 0 : Buffer.byteLength(JSON.stringify(previous))) + (body === null ? 0 : Buffer.byteLength(JSON.stringify(body)));
+    yield* Effect.fromResult(budget.replacePending(delta, !changes.has(id)));
     const keys = body === null ? [] : uniqueKeys(definition, body);
     const unseen = keys.filter(key => !observations.has(JSON.stringify(key)));
     const observed = unseen.length === 0 ? [] : yield* storage.observeUnique(command, unseen);
-    for (const item of observed) observations.set(JSON.stringify({ field: item.field, key: item.key }), item);
+    for (const item of observed) {
+      yield* Effect.fromResult(budget.dependency(Buffer.byteLength(JSON.stringify(item))));
+      observations.set(JSON.stringify({ field: item.field, key: item.key }), item);
+    }
     for (const key of keys) {
       const observation = observations.get(JSON.stringify(key));
       if (observation === undefined) return yield* Effect.fail(new CoreError({ reason: "invalid" }));
       if (observation.owner !== null && observation.owner !== id && owns(observation.owner, key)) return yield* Effect.fail(new CoreError({ reason: "unique" }));
     }
-    const previous = changes.get(id);
-    const retained = changes.diagnostics().bytes - (previous == null ? 0 : Buffer.byteLength(JSON.stringify(previous))) + (body === null ? 0 : Buffer.byteLength(JSON.stringify(body)));
-    if (readBytes + eventBytes + retained > 262144) return yield* Effect.fail(new CoreError({ reason: "limit" }));
     yield* Effect.fromResult(changes.apply(id, body)); return body === null ? null : structuredClone(body);
   });
   return {
     get: (id: string) => run(current(id).pipe(Effect.map(body => body === null ? null : structuredClone(body)))),
     insert: Effect.fn("ExperimentRoot.insert")((value: unknown) => run(Effect.gen(function* () {
       const body = yield* definition.decode(value);
-      if (changes.has(body.id) || originals.has(body.id) && originals.get(body.id)?.body !== null) return yield* Effect.fail(new CoreError({ reason: "invalid" }));
+      if (changes.has(body.id) || originals.get(body.id)?.revision != null) return yield* Effect.fail(new CoreError({ reason: "invalid" }));
       yield* stage(body.id, body); return structuredClone(body);
     }))),
     replace: Effect.fn("ExperimentRoot.replace")((value: unknown) => run(Effect.gen(function* () {
@@ -79,16 +93,18 @@ export const createRoot = Effect.fn("ExperimentRoot.create")(function* (definiti
     event: Effect.fn("ExperimentRoot.event")((value: unknown) => run(Effect.gen(function* () {
       const event = structuredClone(yield* Schema.decodeUnknownEffect(Event)(value).pipe(Effect.mapError(cause => new CoreError({ reason: "invalid", cause }))));
       const bytes = Buffer.byteLength(JSON.stringify(event));
-      if (events.length >= 256 || readBytes + eventBytes + bytes + changes.diagnostics().bytes > 262144) return yield* Effect.fail(new CoreError({ reason: "limit" }));
+      yield* Effect.fromResult(budget.event(bytes));
       freezeOwnedJson(event); events.push(event); eventBytes += bytes;
     }))),
     freeze: Effect.fn("ExperimentRoot.freeze")(() => run(Effect.gen(function* () {
       yield* Ref.set(live, false);
       return { changes: changes.entries().flatMap(([id, body]) => {
         const before = originals.get(id)?.revision ?? null; return before === null && body === null ? [] : [{ id, before, body }];
-      }), dependencies: [...observations.values()], events: [...events] };
+      }), dependencies: [...observations.values()], points: [...originals].map(([id, observed]) => ({ kind: "point" as const, id,
+        revision: observed.revision, tombstone: observed.body === null && observed.revision !== null })), events: [...events] };
     }))),
-    poison, poisonCause, close: Ref.set(live, false), diagnostics: () => ({ ...changes.diagnostics(), readBytes, eventBytes }),
+    poison, poisonCause, close: Ref.set(live, false), diagnostics: () => ({ ...changes.diagnostics(), readBytes, eventBytes,
+      dependencyBytes: budget.diagnostics().dependencyBytes }),
   };
 });
 export type Root = Effect.Success<ReturnType<typeof createRoot>>;

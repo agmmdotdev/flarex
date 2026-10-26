@@ -1,5 +1,14 @@
-import { Schema } from "effect";
+import { Result, Schema } from "effect";
 import { AppCreationTimeV1Schema } from "../../../packages/flarex-protocol/src/app-document.ts";
+import type { Definition } from "./definition.ts";
+import { CoreError } from "./errors.ts";
+
+/** One owner for the currently supported Application value profile. Shared
+ * framework metadata must not silently widen either standalone or mixed App. */
+export function admitApplicationDefinition(definition: Definition) {
+  return definition.tableId === null || definition.fields.some(field => field.nullable || field.kind !== "text" && field.kind !== "number")
+    ? Result.fail(new CoreError({ reason: "unsupported" })) : Result.succeed(definition.tableId);
+}
 
 /** Application identity uses the exact database-seeded binary64 cursor. This
  * is independent of a framework's ISO timestamp fields. */

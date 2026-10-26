@@ -1,7 +1,9 @@
 # Experimental Flarex core
 
 Status: bounded Payload-create, standalone Application and native Product scalar
-update slices implemented with Drizzle on shared persistence/materialization owners. This is
+update slices implemented with Drizzle on shared persistence/materialization owners.
+The [selected-table foundation](./MIXED.md) now supports one mixed accepting owner;
+native bridge borrowing and the connected mixed workload remain pending. This is
 not an accepted replacement core, a complete Application profile or a completed
 performance comparison. See [Payload](./PAYLOAD-CREATE.md) and
 [Application](./APPLICATION.md) and [Product](./MEDUSA-PRODUCT.md) for the exact

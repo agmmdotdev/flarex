@@ -29,10 +29,10 @@ export const definitions = core.table("definitions", {
 });
 export const commands = core.table("commands", {
   id: text().primaryKey(), scope: text().notNull().references(() => authorities.scope), request: text().notNull(),
-  digest: text().notNull(), table: text().notNull().references(() => definitions.table), version: text().notNull(),
+  digest: text().notNull(), definitions: jsonb().$type<readonly { table: string; version: string }[]>().notNull(),
   token: text().notNull(), fence: bigint({ mode: "number" }).notNull(), snapshot: bigint({ mode: "number" }).notNull(),
   expires: timestamp({ withTimezone: true, mode: "date" }).notNull(), status: text({ enum: ["active", "aborted", "committed"] }).notNull(),
-  profile: text({ enum: ["framework", "application"] }).notNull().default("framework"),
+  profile: text({ enum: ["framework", "application", "mixed"] }).notNull().default("framework"),
   result: jsonb().$type<Schema.Json>(), commitSeq: bigint({ mode: "number" }),
 }, table => [unique("command_request").on(table.scope, table.request),
   check("command_status", sql`${table.status} in ('active','aborted','committed')`)]);

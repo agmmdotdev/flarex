@@ -1,17 +1,12 @@
-import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 import type { Definition, Document } from "./definition.ts";
 import { CoreError } from "./errors.ts";
-import { materialize, type Change } from "./materialization.ts";
+import { materialize, planMaterialization, type Change } from "./materialization.ts";
 import type { Command, Database, Persistence, Snapshot } from "./persistence.ts";
 import { applicationLimits, type Dependency, type NumericRange } from "./query.ts";
 import * as tables from "./schema.ts";
-
-const rangePredicate = (range: NumericRange): SQL | undefined => and(
-  eq(tables.indexVersions.index, range.index),
-  range.lower === null ? undefined : (range.lower.inclusive ? gte : gt)(tables.indexVersions.key, range.lower.value),
-  range.upper === null ? undefined : (range.upper.inclusive ? lte : lt)(tables.indexVersions.key, range.upper.value),
-);
+import { checkApplicationDependencies, rangePredicate } from "./application-conflicts.ts";
 
 /** The actual read plan, shared with EXPLAIN witnesses. Authority stays with
  * the caller's accepting session; this builder is never exposed to functions. */
@@ -61,30 +56,23 @@ export function createApplicationStorage(persistence: Persistence) {
       if (rows.length > remainingRows || bytes > remainingBytes) throw new CoreError({ reason: "limit" });
       return { rows: rows.filter(row => row.visible), examined: rows.length, bytes };
     })),
-    accept: Effect.fn("ExperimentApplicationStorage.accept")((command: Command, changes: readonly Change[], dependencies: readonly Dependency[], result: Schema.Json) => operation(async transaction => {
+    accept: Effect.fn("ExperimentApplicationStorage.accept")(function* (command: Command, inputChanges: readonly Change[], inputDependencies: readonly Dependency[], inputResult: Schema.Json) {
+      const { changes, dependencies, result } = structuredClone({ changes: inputChanges, dependencies: inputDependencies, result: inputResult });
+      const plan = planMaterialization([{ definition: yield* persistence.definition(command), changes, events: [] }]);
+      return yield* operation(async transaction => {
       const { stored, admitted } = await persistence.load(transaction, command, "update");
       const [clock] = await transaction.select().from(tables.clocks).where(eq(tables.clocks.scope, stored.scope)).for("update");
       await persistence.checkTime(transaction, stored.expires);
-      if (stored.profile !== "application") throw new CoreError({ reason: "unsupported" });
+      if (stored.profile !== "application" || !admitted.owner || admitted.selection.length !== 1) throw new CoreError({ reason: "unsupported" });
       if (clock === undefined || changes.length > applicationLimits.rows || dependencies.length > applicationLimits.dependencies ||
         Buffer.byteLength(JSON.stringify(changes)) > applicationLimits.bytes || Buffer.byteLength(JSON.stringify(result)) > applicationLimits.bytes) throw new CoreError({ reason: "limit" });
       const points = dependencies.flatMap(dependency => dependency.kind === "point" ? [dependency.id] : []);
       if (changes.some(change => !points.includes(change.id))) throw new CoreError({ reason: "invalid" });
-      if (points.length !== 0) {
-        const changed = await transaction.select({ id: tables.history.id }).from(tables.history).where(and(eq(tables.history.scope, stored.scope),
-          eq(tables.history.table, stored.table), inArray(tables.history.id, points), gt(tables.history.commitSeq, stored.snapshot))).limit(1);
-        if (changed.length !== 0) throw new CoreError({ reason: "conflict" });
-      }
-      const ranges = dependencies.flatMap(dependency => dependency.kind === "range" ? [rangePredicate(dependency.range)] : []);
-      if (ranges.length !== 0) {
-        const changed = await transaction.select({ id: tables.indexVersions.id }).from(tables.indexVersions).where(and(eq(tables.indexVersions.scope, stored.scope),
-          eq(tables.indexVersions.table, stored.table), or(...ranges), or(gt(tables.indexVersions.fromSeq, stored.snapshot), gt(tables.indexVersions.untilSeq, stored.snapshot)))).limit(1);
-        if (changed.length !== 0) throw new CoreError({ reason: "conflict" });
-      }
+      await checkApplicationDependencies(transaction, stored.scope, stored.snapshot, [{ definition: admitted.definition, dependencies }]);
       const seq = clock.seq + 1; if (!Number.isSafeInteger(seq)) throw new CoreError({ reason: "limit" });
-      await materialize(transaction, stored.scope, admitted.definition, command.id, seq, changes, result);
+      await materialize(transaction, stored.scope, command.id, seq, plan, result);
       return result;
-    })),
+    }); }),
   };
 }
 export type ApplicationStorage = ReturnType<typeof createApplicationStorage>;

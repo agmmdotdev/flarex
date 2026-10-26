@@ -12,7 +12,7 @@ import type { Storage } from "../src/storage.ts";
 import type { Command } from "../src/persistence.ts";
 import { newsCollection } from "./fixture.ts";
 
-const command: Command = { id: "command", token: "private-token", request: "request", snapshot: 0, status: "active", result: null };
+const command: Command = { id: "command", token: "private-token", request: "request", profile: "framework", snapshot: 0, status: "active", result: null };
 const backend = (changes: Partial<Storage> = {}): Storage => ({
   metrics: { operations: 0 }, open: () => Effect.succeed(command),
   observeUnique: (_command, keys) => Effect.succeed(keys.map(key => ({ ...key, owner: null }))),

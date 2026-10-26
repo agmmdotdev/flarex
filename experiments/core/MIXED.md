@@ -1,8 +1,20 @@
 # Atomic mixed construction contract
 
-Status: proposed next construction slice. The existing standalone Application,
-Payload-create and Product-update profiles do not yet implement this boundary.
-Nothing in this note authorizes active-core changes or production promotion.
+Status: multi-table core foundation implemented; native bridge connection and
+complete-request measurements remain pending. Standalone Application,
+Payload-create and Product-update profiles exist. Nothing in this note authorizes
+active-core changes or production promotion.
+
+`group-root.ts` lends callback-scoped Application/framework operations with a
+shared budget, sticky failure and supervised lifetime. `group-storage.ts` admits
+the selected definitions once and publishes their plans once. Participants cannot
+settle or extend the command. The mixed profile checks exact Application
+dependencies; the direct framework group retains its distinct write-CAS profile.
+
+Migration 0006 changes command identity from one table/version to an immutable
+selected-definition array. It applies only to fresh disposable experiment
+databases. Existing experiment fixtures must be reset; it is not an upgrade of
+existing command rows or an active-core migration.
 
 ## Connected operation
 
