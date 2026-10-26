@@ -20,6 +20,12 @@ Resolve the direct command's isolation/retry contract and the mixed root's
 snapshot/retention/fence contract. Define a counterexample test for each proposed
 removed boundary. Record exact assumptions and unresolved gates in DESIGN.md.
 
+Inventory the selected module/workflow's business code separately from its
+repository, manager/context, participant, event and workflow-host plumbing.
+For each integration dependency mark reuse, experimental replacement or a real
+framework seam requiring coordination. Do not assume the old adapter contract
+must survive or that all adapter changes will be mechanical.
+
 Add explicit local package/tool/test configuration here when implementation starts.
 Do not enroll this folder in root workspace or ambient test discovery. Prefer
 existing installed tools when sufficient; otherwise use an independently scoped
@@ -61,6 +67,13 @@ more wrappers or expanding framework coverage. Lower SQL count alone is not succ
 Compose real Payload Local API and actual promoted Medusa service behavior with
 the experimental storage contracts. Bridge code lives here and owns translation
 only. Do not fork native business algorithms or alter active adapter imports.
+
+Replace the repository and workflow execution handoffs where they depend on the
+old working set or atomic lifetime. Exercise the new Attempt/Settlement owners
+through these bridges; importing the old execution host to keep a wrapper
+unchanged would defeat the experiment. Preserve native steps, hooks and results,
+including genuine module-specific semantics. Adapter plumbing may change broadly
+inside this folder without pausing active Medusa integration.
 
 Prove normal/error results, defaults, visibility, nested access and hooks, caught
 failure rollback, events and fresh committed readback. Test the complete standalone

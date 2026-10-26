@@ -47,6 +47,32 @@ driver, SQL builder, runtime host, framework package or global service locator.
 Avoid importing a public barrel that eagerly constructs the active runtime.
 Keep types with their owning contract; a catch-all `contracts.ts` is not an owner.
 
+## Framework reuse and integration replacement
+
+Separate Medusa business behavior from Flarex's adapter execution machinery:
+
+| Layer | Intended treatment |
+| --- | --- |
+| Native models, services, workflow definitions and steps | Reuse their executing implementations and behavioral witnesses; do not rewrite business algorithms for the candidate |
+| Module-specific normalization, projection and genuine domain extensions | Reuse where their contract remains correct; distinguish these semantics from embedded core plumbing |
+| Repository bindings, manager/context translation and query handoff | Rebind, simplify or replace against experimental core contracts |
+| Workflow host/resources/execution bridge | Replace the old-core coupling where necessary while retaining native workflow semantics |
+| Working set, pending state, contribution capture and atomic lifetime | Redesign under the Attempt and Settlement owners, shared across consumers as their profiles permit |
+| Physical schema and SQL operations | Choose structures and operations that support the new lifecycle |
+
+This is not assumed to be a drop-in database-provider swap. Current repositories
+bind `CommerceCommandContext`, and workflow integration binds
+`AtomicCommerceContext` and installed participant resources. The restricted native
+Workflow SDK's `WorkflowExecutionPort` is an existing seam to inspect, not proof
+that every workflow adapter already has a storage-neutral boundary.
+
+Optimize for reuse of business behavior, not minimum adapter file changes.
+Explicitly migrate each experimental bridge rather than emulate old admission,
+working-set or settlement APIs around the new core. The eventual target is that
+a storage/readiness implementation change leaves native module and workflow
+business logic untouched. Achieving that target may first require material
+repository and workflow bridge changes; measure and prove the connected result.
+
 ## Four important handoffs
 
 1. **Prepared definitions:** exact generation identity plus immutable compiled

@@ -53,6 +53,23 @@ logical command lifetime. Splitting the command into independent commits is not
 an optimization. Declare direct-command isolation and retry semantics before
 implementing its bridge; native transaction semantics must not be silently weakened.
 
+## Working set and atomic execution boundary
+
+Both are part of the redesign. The working-set owner chooses how original reads,
+missing/range dependencies, pending values and participant contributions are
+represented and consumed. Its current APIs and intermediate evidence objects are
+replaceable; exact observations, read-your-writes and resource limits are not.
+
+The atomic execution boundary defines which calls share state, who can settle,
+when failure makes the root rollback-only and when results become durable. Its
+construction, participant binding and physical transaction segmentation may
+change. Preserve the admitted root's atomicity, native-visible behavior and
+recovery obligations; no child commit or transaction over untrusted execution.
+
+Evaluate these decisions with the repository/workflow bridges and SQL lifecycle
+as one connected path. Changing database layout beneath unchanged expensive
+coordination does not by itself test this redesign hypothesis.
+
 ## Candidate lifecycle
 
 ```mermaid

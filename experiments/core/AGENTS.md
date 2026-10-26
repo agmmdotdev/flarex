@@ -14,6 +14,10 @@ it does not reproduce or weaken shared correctness, skills, review or commit rul
 - Keep experimental framework bridges and comparison wiring here. Native framework
   packages may supply business behavior. Bridges translate; core modules own
   integrity, SQL, authorization gates, settlement and recovery.
+- Repository/workflow bridges, working-set contracts and atomic lifetime plumbing
+  may be redesigned together here. Do not preserve old core-facing interfaces
+  through compatibility wrappers merely to minimize adapter edits. Preserve
+  required native behavior and keep active integration files untouched.
 - No active package may depend on this folder. Do not modify shared manifests,
   lockfiles, framework sources or production routes for experiment convenience.
   Local tooling must be explicit and must not add tests to ambient discovery.

@@ -34,6 +34,14 @@ the candidate. Record a missing match as a missing match, not a synthetic baseli
 | Resources | Bounded rows/bytes/time/cache lifetime, cancellation settlement/quarantine, all owned resources closed, no transaction across untrusted callbacks or remote effects |
 | Modularity | A material module implementation can be replaced through its declared contract without rewriting framework business behavior or unrelated lifecycle owners |
 
+The connected candidate must exercise its own working-set and atomic lifecycle
+through the real repository/workflow bridges. Audit imports and execution traces
+to rule out delegation to the old admission/working-set/settlement path. Reusing
+native services and workflow definitions is expected; retaining the old core
+under a new SQL facade does not establish the intended replacement. Test changed
+bridge contracts explicitly; do not claim that minimal integration edits are
+already proven.
+
 Expected failures, defects and interruption stay distinct. For error-order changes,
 include a witness showing which callback, external effect or disclosure can occur
 before refusal. Preserve unresolved barriers. Each gate runs on PGlite and focused

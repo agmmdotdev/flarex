@@ -28,6 +28,13 @@ storage layout or commit planning should have a small, explicit dependency
 surface and independently runnable behavioral tests. Shared invariants must
 remain coherent when modules change.
 
+The scope includes the working set, atomic execution boundary, repository bridge,
+workflow execution bridge and their core-facing contracts, as well as PostgreSQL.
+Reusing Medusa models, services and native workflow definitions is the objective;
+minimal edits to existing integration plumbing are not a constraint. Adapter
+changes may be substantial if retaining their current contracts would preserve
+the expensive execution sequence. See the [reuse boundary](./MODULES.md#framework-reuse-and-integration-replacement).
+
 ## Permission and boundaries
 
 The owner authorizes a separate experimental implementation and permits changes
