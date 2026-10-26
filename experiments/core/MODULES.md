@@ -55,6 +55,26 @@ Keep types with their owning contract; a catch-all `contracts.ts` is not an owne
 
 ## Framework reuse and integration replacement
 
+The target is a redesigned core with selectively adapted existing integrations.
+Use the old integration twice: to discover semantic requirements and to reuse
+implementations whose responsibilities remain valid. Reading existing behavior
+and then rewriting all of it is not the default. Starting from scratch applies
+to freedom over core mechanisms, not to discarding native business logic, sound
+framework translation or the integration knowledge already captured in tests.
+
+Choose reuse, adapt or replace for each connected path. Reuse a dependency-safe
+implementation directly when its contract fits. Adapt a narrow binding, or
+separate portable behavior from core coupling when necessary. Replace a mechanism
+when a traced dependency would preserve unwanted ownership, repeated work or the
+old execution sequence. A file's age or adapter location is not sufficient reason
+to replace it; a smaller diff is not sufficient reason to preserve its coupling.
+
+Inject the candidate through native service/repository/database-adapter contracts
+where they permit the new execution model. Revise Flarex's core-facing bindings
+where they do not. Keep framework lifecycle obligations explicit, and audit the
+actual dependency graph before reuse so a convenient import does not pull the
+active admission, working-set, transaction or recovery machinery into the candidate.
+
 Separate Medusa business behavior from Flarex's adapter execution machinery:
 
 | Layer | Intended treatment |

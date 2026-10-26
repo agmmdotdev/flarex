@@ -158,6 +158,31 @@ unchanged would defeat the experiment. Preserve native steps, hooks and results,
 including genuine module-specific semantics. Adapter plumbing may change broadly
 inside this folder without pausing active Medusa integration.
 
+### First Medusa reuse slice
+
+After the bounded foundation, take the existing Medusa Product scalar-update
+path as the next integration slice. Use its current implementation and native
+witnesses before inventing another repository/service framework. Record a small
+reuse/adapt/replace inventory for the connected path: source implementation,
+semantic responsibility, current core dependency, target owner, and behavioral
+witness. Include the native service, normalization/projection, repository binding,
+manager/lifetime translation, events and settlement handoff.
+
+Reuse the native service and sound translation code wherever the dependency audit
+permits. Rebind or replace only the core-coupled mechanisms identified by that
+inventory. Run the same intended behavior through the experimental binding and
+measure the complete request, including setup, callbacks and settlement. Keep
+existing behavioral assertions while replacing fixture setup tied to old internals.
+
+Extend the proven path to one existing native workflow and then the explicit
+mixed boundary, subject to the query, concurrency and failure gates below. Let
+these real consumers expose missing core contracts early. Do not turn broad
+adapter coverage or a general integration framework into a prerequisite for the
+first connected comparison. An existing interface is reusable only if it allows
+the candidate's execution granularity and preserves the required behavior.
+
+### Connected lifecycle and expansion gates
+
 Prove normal/error results, defaults, visibility, nested access and hooks, caught
 failure rollback, events and fresh committed readback. Test the complete standalone
 commands, not only repository methods. Add the actual mixed root: all participants

@@ -14,6 +14,13 @@ it does not reproduce or weaken shared correctness, skills, review or commit rul
 - Keep experimental framework bridges and comparison wiring here. Native framework
   packages may supply business behavior. Bridges translate; core modules own
   integrity, SQL, authorization gates, settlement and recovery.
+- Treat current integrations as reusable implementation as well as requirements
+  evidence. Before rebuilding a connected path, classify its native behavior,
+  translation and execution plumbing as reuse, adapt or replace. Reuse sound
+  implementations and behavioral assertions; replacement needs a concrete coupling
+  or responsibility reason. New core injection must permit a new execution
+  sequence, rather than emulate old internal contracts around it. Follow the
+  bounded reuse inventory in IMPLEMENTATION.md before broad module expansion.
 - Repository/workflow bridges, working-set contracts and atomic lifetime plumbing
   may be redesigned together here. Do not preserve old core-facing interfaces
   through compatibility wrappers merely to minimize adapter edits. Preserve

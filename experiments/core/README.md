@@ -27,6 +27,14 @@ by copying the current core into another directory and renaming its helpers.
 Existing contracts and implementations are evidence to inspect, not a mandatory
 internal design.
 
+Starting from scratch means freedom to replace the core execution design while
+carrying forward useful integration implementation. Existing integrations are
+both requirements evidence and reusable code. Prefer native services/workflows
+and sound translation code composed with revised core-facing bindings; neither
+rewriting all integration behavior nor preserving every old adapter interface is
+the objective. Apply the [reuse decisions](./MODULES.md#framework-reuse-and-integration-replacement)
+to each connected operation before expanding the candidate.
+
 Modularity is part of the outcome: changing readiness policy, query execution,
 storage layout or commit planning should have a small, explicit dependency
 surface and independently runnable behavioral tests. Shared invariants must
