@@ -131,7 +131,7 @@ const decodeReferenceCheckpoints = Schema.decodeUnknownResult(Schema.UndefinedOr
 const decodeRecordedRowReplay = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal(true)));
 const decodeDeletedReferenceDetachment = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal(true)));
 const decodeSetNullPolicy = Schema.decodeUnknownResult(Schema.UndefinedOr(LogicalSetNullPolicy), { onExcessProperty: "error" });
-const decodeParticipantLimit = Schema.decodeUnknownResult(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 9 })));
+const decodeParticipantLimit = Schema.decodeUnknownResult(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 18 })));
 const preparedLogicalMembers = new WeakMap<object, Readonly<{ factory: AtomicCommerceParticipantInput;
   commands: readonly CommerceCommand[]; lifetime: Effect.Success<ReturnType<typeof captureHostPreparationLifetime>> }>>();
 

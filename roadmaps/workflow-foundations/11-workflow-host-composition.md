@@ -17,7 +17,8 @@ schema, commerce module or public application API.
 
 The default participant allowance remains eight. The host forwards the trusted,
 identity-bound [logical participant selection](./09-atomic-composition.md) for
-the complete nine-owner Variant/item pricing graph; this grants no additional
+allowances through eighteen. The Variant/item pricing graph selects nine; the
+native checkout graph remains gated by its owning preflight. This grants no additional
 module methods, physical bindings, transaction lifetimes or resource budgets.
 
 [Product-tag deletion](./13-product-tag-deletion.md) uses the same host with

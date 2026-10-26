@@ -20,6 +20,26 @@ payments; Cart creation and remote gateways retain separate gates.
 
 ## Connected owners and prerequisite order
 
+The complete native selector has an eighteen-source closure: Cart, Order,
+Payment, Cart-Payment Collection, Order-Payment Collection, Order-Cart,
+Customer, Region, Promotion, Cart-Promotion, Product, Product Links, Variant
+Links, Inventory, Stock Location, Sales Channel, Sales Channel-Location and
+Fulfillment. Read-only native links add metadata edges rather than stored
+sources. Empty manual-item branches still need genuine checked target read
+registrations during graph preparation; invented empty endpoints or removal
+of selected paths would change the contract. Existing sources retain their
+individual storage identities and authority.
+
+The original eighteen-member capture witness was refused before source
+reflection because the shared atomic owner admitted an explicit allowance only
+through nine. The authorized correction extends that existing identity-bound
+logical allowance through eighteen. Omission still selects eight, and every
+allowance above eight refuses physical participants even for a smaller cohort.
+The physical binding ceiling remains eight. No adapter transaction, source
+merging, duplicate Link storage or larger implicit allowance is admissible.
+Connected checkout execution still requires the complete graph, retained Link
+inverse and database-backed execution gates below.
+
 The root reads the actual Order-Cart Link and complete Cart graph, validates its
 Payment sessions before the hook, and creates an Order only when no Order-Cart
 Link exists. The creation branch validates Shipping, translates stored Cart

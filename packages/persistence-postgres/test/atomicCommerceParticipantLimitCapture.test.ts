@@ -27,6 +27,17 @@ const logical = (count: number) => Array.from({ length: count }, (_, index) => e
 const refused = { _tag: "Failure", failure: { reason: "unsupportedProfile" } };
 
 describe("trusted logical participant allowance capture", () => {
+  it("admits the explicit eighteen-owner native checkout graph", () => {
+    const members = logical(18), selected = Result.getOrThrow(captureAtomicCommerceParticipants(members, 18));
+    expect(selected).toHaveLength(18);
+    expect(selected.every(member => member.kind === "logical")).toBe(true);
+    expect(captureAtomicCommerceParticipants(logical(18))).toMatchObject(refused);
+    expect(captureAtomicCommerceParticipants(logical(19), 18)).toMatchObject(refused);
+    members.splice(0, members.length);
+    expect(selected).toHaveLength(18);
+    expect(Object.isFrozen(selected)).toBe(true);
+    expect(selected.every(Object.isFrozen)).toBe(true);
+  });
   it("preserves default eight and the separate physical binding ceiling", () => {
     expect(MAX_COMMERCE_BINDINGS).toBe(8);
     expect(Result.isSuccess(captureAtomicCommerceParticipants(logical(8)))).toBe(true);
@@ -50,7 +61,7 @@ describe("trusted logical participant allowance capture", () => {
     expect(Result.isSuccess(captureAtomicCommerceParticipants(members.slice(0, 2), 2))).toBe(true);
     expect(captureAtomicCommerceParticipants([], 9)).toMatchObject(refused);
   });
-  it.each([null, false, true, "9", {}, [], 0, -1, 1.5, 10, 16, Number.NaN, Number.POSITIVE_INFINITY])(
+  it.each([null, false, true, "9", {}, [], 0, -1, 1.5, 19, 128, Number.NaN, Number.POSITIVE_INFINITY])(
     "refuses malformed or unsupported allowance %s before source reflection", invalid => {
       const reflected = { source: 0, installation: 0 };
       expect(captureAtomicCommerceParticipants([envelope("invalid_limit", false, reflected)], invalid)).toMatchObject(refused);
@@ -63,6 +74,13 @@ describe("trusted logical participant allowance capture", () => {
     members[index] = envelope("physical" + index, true, reflected);
     expect(captureAtomicCommerceParticipants(members, 9)).toMatchObject(refused);
     expect(reflected.installation).toBe(0);
+  });
+  it.each([0, 8, 17])("refuses a physical member at position %s in the eighteen-member selection", index => {
+    const reflected = { source: 0, installation: 0 }, members = logical(18);
+    members[index] = envelope("physical_checkout" + index, true, reflected);
+    expect(captureAtomicCommerceParticipants(members, 18)).toMatchObject(refused);
+    expect(reflected.installation).toBe(0);
+    expect(captureAtomicCommerceParticipants([members[index]!], 18)).toMatchObject(refused);
   });
   it("refuses the logical-only allowance for a smaller physical cohort too", () => {
     const reflected = { source: 0, installation: 0 };
