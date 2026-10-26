@@ -66,7 +66,7 @@ export const createApplicationHost = Effect.fn("ExperimentApplication.host")(fun
   definition: Definition, storage: ApplicationStorage, scope: string, functions: Functions, retryableMutations: readonly string[] = [],
 ) {
   const tableId = definition.tableId;
-  if (tableId === null) return yield* Effect.fail(new CoreError({ reason: "unsupported" }));
+  if (tableId === null || definition.fields.some(field => field.nullable || field.kind !== "text" && field.kind !== "number")) return yield* Effect.fail(new CoreError({ reason: "unsupported" }));
   const owner = yield* Effect.scope;
   let live = true; yield* Effect.addFinalizer(() => Effect.sync(() => { live = false; }));
   const entries = Object.freeze({ ...functions });

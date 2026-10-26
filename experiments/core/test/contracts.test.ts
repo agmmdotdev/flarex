@@ -17,6 +17,7 @@ const backend = (changes: Partial<Storage> = {}): Storage => ({
   metrics: { operations: 0 }, open: () => Effect.succeed(command),
   observeUnique: (_command, keys) => Effect.succeed(keys.map(key => ({ ...key, owner: null }))),
   settle: () => Effect.fail(new CoreError({ reason: "unsupported" })),
+  observeRows: () => Effect.succeed([]),
   resolve: () => Effect.fail(new CoreError({ reason: "unsupported" })), abort: () => Effect.void,
   read: () => Effect.succeed(null), ...changes,
 });
@@ -121,7 +122,7 @@ describe("framework-neutral root and native boundary contracts", () => {
     const started = new Promise<void>(resolve => { ready = resolve; });
     let calls = 0;
     const storage = backend({ observeUnique: (_command, keys) => Effect.promise(async () => {
-      if (++calls === 2) ready();
+      if (++calls === 1) ready();
       await gate;
       return keys.map(key => ({ ...key, owner: null }));
     }) });

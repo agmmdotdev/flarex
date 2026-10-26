@@ -1,10 +1,11 @@
 # Implementation sequence
 
 Status: [bounded Payload create](./PAYLOAD-CREATE.md) and the
-[standalone Application construction slice](./APPLICATION.md) connect actual
+[standalone Application construction slice](./APPLICATION.md), plus the
+[native Product scalar-update binding](./MEDUSA-PRODUCT.md), connect actual
 developer/framework entry points to experimental roots and shared Drizzle
 persistence/materialization. General queries, connected reactivity, wider native
-lifecycle, Medusa/mixed execution and promotion remain pending. The stages below
+lifecycle, atomic mixed execution and promotion remain pending. The stages below
 describe the full experiment, not completed support.
 
 ## Stage 1: executable scope and contract map

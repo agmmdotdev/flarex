@@ -9,3 +9,10 @@ function representable(value: Schema.Json): boolean {
 }
 export const JsonValue = Schema.Json.check(Schema.makeFilter(representable));
 export const FiniteNumber = Schema.Number.check(Schema.isFinite(), Schema.makeFilter(value => !Object.is(value, -0)));
+
+/** Only call on detached, validated JSON. Never freeze caller-owned values. */
+export function freezeOwnedJson(value: Schema.Json): void {
+  if (value === null || typeof value !== "object") return;
+  for (const child of Object.values(value)) freezeOwnedJson(child);
+  Object.freeze(value);
+}

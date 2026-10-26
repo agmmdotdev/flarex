@@ -10,6 +10,9 @@
   },
   "dependencies": {
     "@electric-sql/pglite": "0.5.8",
+    "@medusajs/product": "link:../../packages/medusa-product",
+    "@medusajs/framework": "link:../../packages/medusa-framework",
+    "@medusajs/drizzle": "link:../../packages/medusa-drizzle",
     "drizzle-orm": "0.45.2",
     "effect": "4.0.0-rc.112",
     "payload": "3.88.0",

@@ -1,10 +1,12 @@
 # Experimental Flarex core
 
-Status: bounded Payload-create and standalone Application construction slices
-implemented with Drizzle on shared persistence/materialization owners. This is
+Status: bounded Payload-create, standalone Application and native Product scalar
+update slices implemented with Drizzle on shared persistence/materialization owners. This is
 not an accepted replacement core, a complete Application profile or a completed
 performance comparison. See [Payload](./PAYLOAD-CREATE.md) and
-[Application](./APPLICATION.md) for the exact contracts and remaining gates.
+[Application](./APPLICATION.md) and [Product](./MEDUSA-PRODUCT.md) for the exact
+contracts and remaining gates. The active experiment goal continues through
+Payload CRUD, representative Product flows and an atomic mixed comparison.
 
 This is a separate core experiment requested by the owner on 2026-10-26. Build
 and evaluate a different execution design here while current Medusa integration

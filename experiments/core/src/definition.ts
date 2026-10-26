@@ -9,12 +9,14 @@ export const Document = Schema.StructWithRest(Schema.Struct({
   id: Schema.String, createdAt: Schema.String, updatedAt: Schema.String,
 }), [Schema.Record(Schema.String, JsonValue)]);
 export type Document = typeof Document.Type;
-export const Field = Schema.Struct({ name: Schema.String, kind: Schema.Literals(["text", "number"]), unique: Schema.Boolean });
+export const Field = Schema.Struct({ name: Schema.String, kind: Schema.Literals(["text", "number", "boolean", "json"]), unique: Schema.Boolean,
+  nullable: Schema.optionalKey(Schema.Boolean), choices: Schema.optionalKey(Schema.Array(Schema.String)) });
 export type Field = Readonly<typeof Field.Type>;
 export const NumericIndex = Schema.Struct({ name: Schema.String, field: Schema.String });
 export type NumericIndex = Readonly<typeof NumericIndex.Type>;
 
-/** The first profile admits required scalar fields and native timestamps only. */
+/** Immutable required-value metadata; framework bridges supply their checked
+ * scalar/null/JSON grammar without a framework-specific storage layout. */
 export function compileDefinition(input: { readonly table: string; readonly tableId?: number; readonly fields: readonly Field[]; readonly indexes?: readonly NumericIndex[] }) {
   if (input.tableId !== undefined && !Schema.is(CatalogTableIdSchema)(input.tableId)) return Result.fail(new CoreError({ reason: "unsupported" }));
   const fields: Field[] = [];
@@ -23,16 +25,19 @@ export function compileDefinition(input: { readonly table: string; readonly tabl
   ]);
   if (input.tableId !== undefined) codecs.set("systemCreationTime", AppCreationTimeV1Schema);
   for (const field of input.fields) {
-    if ((field.unique && field.kind !== "text") || codecs.has(field.name)) {
+    if ((field.unique && (field.kind !== "text" || field.nullable)) || codecs.has(field.name) ||
+      field.choices !== undefined && (field.kind !== "text" || field.choices.length === 0)) {
       return Result.fail(new CoreError({ reason: "unsupported" }));
     }
-    fields.push(Object.freeze({ ...field }));
-    codecs.set(field.name, field.kind === "text" ? Schema.String : FiniteNumber);
+    fields.push(Object.freeze({ ...field, ...(field.choices === undefined ? {} : { choices: Object.freeze([...field.choices]) }) }));
+    const scalar = field.kind === "text" ? field.choices === undefined ? Schema.String : Schema.Literals(field.choices)
+      : field.kind === "number" ? FiniteNumber : field.kind === "boolean" ? Schema.Boolean : JsonValue;
+    codecs.set(field.name, field.nullable ? Schema.NullOr(scalar) : scalar);
   }
   const shape = Schema.Struct(Object.fromEntries(codecs));
   const indexes = (input.indexes ?? []).map(index => Object.freeze({ ...index }));
   if (indexes.length !== 0 && input.tableId === undefined || new Set(indexes.map(index => index.name)).size !== indexes.length ||
-    indexes.some(index => !fields.some(field => field.name === index.field && field.kind === "number"))) {
+    indexes.some(index => !fields.some(field => field.name === index.field && field.kind === "number" && !field.nullable))) {
     return Result.fail(new CoreError({ reason: "unsupported" }));
   }
   const tableId = input.tableId ?? null;
@@ -45,6 +50,7 @@ export function compileDefinition(input: { readonly table: string; readonly tabl
     indexes: Object.freeze(indexes),
     decode: (value: unknown) => Schema.decodeUnknownEffect(shape)(value, { onExcessProperty: "error" }).pipe(
       Effect.flatMap(body => Schema.decodeUnknownEffect(Document)(body)),
+      Effect.map(body => structuredClone(body)),
       Effect.mapError(cause => new CoreError({ reason: "invalid", cause })),
     ),
   }));

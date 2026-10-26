@@ -11,6 +11,15 @@ importers:
       '@electric-sql/pglite':
         specifier: 0.5.8
         version: 0.5.8
+      '@medusajs/drizzle':
+        specifier: link:../../packages/medusa-drizzle
+        version: link:../../packages/medusa-drizzle
+      '@medusajs/framework':
+        specifier: link:../../packages/medusa-framework
+        version: link:../../packages/medusa-framework
+      '@medusajs/product':
+        specifier: link:../../packages/medusa-product
+        version: link:../../packages/medusa-product
       drizzle-orm:
         specifier: 0.45.2
         version: 0.45.2(@electric-sql/pglite@0.5.8)(@types/pg@8.20.0)(pg@8.22.0)

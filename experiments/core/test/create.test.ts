@@ -132,7 +132,7 @@ describe.each(["pglite", "postgres"] as const)("complete experimental Payload cr
         }));
         expect(root.diagnostics().keyOperations).toBe(2 * size);
         const candidate = await Effect.runPromise(root.freeze());
-        await Effect.runPromise(database.storage.settle(command, candidate.rows, candidate.dependencies, { size }));
+        await Effect.runPromise(database.storage.settle(command, candidate.changes, candidate.dependencies, { size }, candidate.events));
       }
       expect((await readCounts(database))[0]?.documents).toBe(81);
     } finally { await database.close(); }
@@ -222,7 +222,7 @@ describe.each(["pglite", "postgres"] as const)("complete experimental Payload cr
     };
     try {
       await started;
-      settling = Effect.runPromise(database.storage.settle(command, candidate.rows, candidate.dependencies, document));
+      settling = Effect.runPromise(database.storage.settle(command, candidate.changes, candidate.dependencies, document, candidate.events));
       await waitFor(async () => (await database.admin(db => db.select({ waiting: sql<boolean>`exists(select 1 from pg_stat_activity where application_name=${database.role} and wait_event_type='Lock')` }).from(tables.installation)))[0]?.waiting === true);
       let deleted = false;
       deleting = database.admin(async db => { await db.delete(tables.grants).where(eq(tables.grants.scope, "shop-a")); deleted = true; });

@@ -13,6 +13,9 @@ export class NativeFailure extends Data.TaggedError("NativeFailure")<{
 export class NativeOperationFailure extends Data.TaggedError("NativeOperationFailure")<{
   readonly cause: Cause.Cause<CoreError>;
 }> {}
+export class NativeCompletionFailure extends Data.TaggedError("NativeCompletionFailure")<{
+  readonly cause: Cause.Cause<CoreError | NativeFailure>;
+}> {}
 export class DocumentValidationFailure extends Data.TaggedError("DocumentValidationFailure")<{ readonly cause: unknown }> {}
 export class ApplicationFailure extends Data.TaggedError("ApplicationFailure")<{ readonly cause: unknown }> {}
 export class ApplicationOperationFailure extends Data.TaggedError("ApplicationOperationFailure")<{

@@ -157,7 +157,7 @@ export const createPayloadHost = Effect.fn("ExperimentPayload.createHost")(funct
       const result = yield* definition.decode(document);
       const candidate = yield* root.freeze();
       accepting = true;
-      const committed = yield* storage.settle(command, candidate.rows, candidate.dependencies, result).pipe(
+      const committed = yield* storage.settle(command, candidate.changes, candidate.dependencies, result, candidate.events).pipe(
         Effect.catchTag("CoreError", error => {
           if (error.reason !== "storage" || error.phase !== undefined && error.phase !== "commit") {
             accepting = false; return Effect.fail(error);

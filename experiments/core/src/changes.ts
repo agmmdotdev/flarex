@@ -3,6 +3,7 @@ import { numericField, uniqueKeys, type Definition, type Document } from "./defi
 import { CoreError } from "./errors.ts";
 import { createPendingIndex } from "./pending-index.ts";
 import { applicationLimits, type NumericRange } from "./query.ts";
+import { freezeOwnedJson } from "./value.ts";
 
 /** One coherent pending row/unique/index owner, shared by the two write profiles.
  * Callers serialize use and provide already decoded scalar documents. */
@@ -29,7 +30,9 @@ export function createChanges(definition: Definition) {
       for (const key of uniqueKeys(definition, previous)) owners.delete(JSON.stringify(key));
       for (const index of definition.indexes) indexes.get(index.name)?.set(numericField(previous, index.field), numericField(previous, "systemCreationTime"), id, null);
     }
-    const owned = body === null ? null : Object.freeze({ ...body }); rows.set(id, owned);
+    const owned = body === null ? null : structuredClone(body);
+    if (owned !== null) freezeOwnedJson(owned);
+    rows.set(id, owned);
     if (owned !== null) {
       bytes += Buffer.byteLength(JSON.stringify(owned));
       for (const key of uniqueKeys(definition, owned)) owners.set(JSON.stringify(key), id);

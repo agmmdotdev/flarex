@@ -59,5 +59,5 @@ export const indexVersions = core.table("index_versions", {
   foreignKey({ columns: [table.scope, table.table, table.id, table.fromSeq], foreignColumns: [history.scope, history.table, history.id, history.commitSeq] })]);
 export const eventIntents = core.table("event_intents", {
   command: text().notNull().references(() => commands.id), ordinal: integer().notNull(), table: text().notNull(),
-  document: text().notNull(), event: text().notNull(), body: jsonb().$type<Document>(),
+  document: text().notNull(), event: text().notNull(), body: jsonb().$type<Schema.Json>(),
 }, table => [primaryKey({ columns: [table.command, table.ordinal] })]);
