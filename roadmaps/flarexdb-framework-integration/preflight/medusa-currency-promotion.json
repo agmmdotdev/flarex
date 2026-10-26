@@ -15893,7 +15893,7 @@
     {
       "target": "packages/medusa-adapter/test/support/logical-payment-collection-fixture.ts",
       "classification": "authored",
-      "targetSha256": "ce01196ec5713da0e28a22aa4260ed867760976d9d758057f11a56600dd8a254"
+      "targetSha256": "68838ac4795dac56297a4d62af7e05f8291c440f168b2ee894b6b6c085ccf261"
     },
     {
       "target": "packages/medusa-cart/src/utils/totals-selection.ts",
@@ -15996,6 +15996,11 @@
       "target": "packages/medusa-adapter/test/payment-collection-link-receipts.test.ts",
       "classification": "authored",
       "targetSha256": "7e925541d1e2515ef7c2e3b7789d6982b49cb6009bd8e8f6e656f40a56d34340"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-payment-reliability.test.ts",
+      "classification": "authored",
+      "targetSha256": "c943d008d2ab7b85bce915bda29ad7c9a52c2cd4c054642f148f0e2f60846334"
     }
   ],
   "dependencies": {

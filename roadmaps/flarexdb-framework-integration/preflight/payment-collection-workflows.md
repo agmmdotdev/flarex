@@ -54,11 +54,24 @@ not admitted by this slice.
 The admitted profile covers genuine connected roots, missing/deleted collection
 refusal, pending Link visibility, exact amounts, refresh/no-op, cancellation,
 native collection/Link inverses, late failure rollback, events and replay on
-PGlite and ordinary-role PostgreSQL. Source promotion does not establish arbitrary
-Cart workflows. Controlled concurrent creation, cross-scope workflow scenarios,
-response-loss recovery and runtime exclusion of fully captured payments remain
-additional evidence gates. Network providers, full checkout, complete Cart
-creation and hosted activation retain their existing separate gates.
+PGlite and ordinary-role PostgreSQL. Competing Cart creations publish one
+collection and Link: PostgreSQL overlaps both native branches before publication,
+while PGlite serializes the attempts and retains the native already-linked
+refusal alongside rollback-only failure. Replaying the winner adds no durable
+writes. Identical Cart and request identities remain scoped to their own shop;
+foreign collection reads and cancellation cannot cross that boundary.
+
+A capture whose settled response is lost to its client replays after reopening
+the workflow host without another provider invocation or durable write. Changing
+its input under the same request identity is refused. This establishes recovery
+after settlement and client delivery loss; ambiguous database COMMIT
+acknowledgement and process restart retain their separate recovery gates.
+Cancellation leaves a fully captured Payment unchanged while canceling the
+remaining authorized Payment and retaining partial collection accounting.
+
+Source promotion does not establish arbitrary Cart workflows. Network providers,
+full checkout, complete Cart creation and hosted activation retain their existing
+separate gates.
 
 ## Native owner prerequisites
 
