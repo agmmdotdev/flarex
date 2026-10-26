@@ -73,6 +73,33 @@ scheduler, child commit or replay mechanism is added. Neutral SDK cases and a
 genuine native Cart collection child establish the declaration, policy, durable
 replay and late-failure rollback boundaries before checkout-root admission.
 
+## Bounded Order creation consumer
+
+Native Order creation preparation reuses the existing Order persistence,
+complete-row, exact-number, query, graph insertion and physical lifecycle owners.
+The initial consumer admits one to four Orders and four total digital/manual
+items, without Address, shipping, adjustment, tax-line or credit-line writes.
+Order display identities use the existing scoped generated-serial contract.
+The native owner creates Summary values and Item wrappers, returns its actual
+selected DTO and deletes the complete newly created graph through `deleteOrders`.
+Root totals are not part of that default native creation selection; Summary
+accounting and the actual flattened Item values retain their native result shape.
+
+`decorateCartTotals` mutates source Line Items with native calculated BigNumbers
+before the public Order owner creates them. The named creation DAL omits only
+those known non-stored totals and native ephemeral ownership/quantity inputs;
+stored numeric fields still use the existing exact encoder. Caller-supplied
+computed totals, identities and unadmitted graph writes are refused at input.
+The financial profile retains its original model set and mutation permissions.
+
+The consumer establishes native creation, generated display identity, complete
+physical graph cleanup, same-request replay and whole-root late-failure rollback.
+Generic identity heads and revision history remain after deletion; the complete
+created graph must have current tombstones. Its native event observations are
+diagnostic. Production workflow resources, call-local creation/deletion receipts
+and committed event admission remain required before checkout may invoke this
+owner.
+
 ## Admission gates
 
 Run the genuine root and retained inverses on PGlite and ordinary-role PostgreSQL.

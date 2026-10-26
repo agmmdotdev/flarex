@@ -25,8 +25,18 @@ type Metadata = Effect.Success<ReturnType<typeof captureOrderMetadata>>["frame"]
 /** Only the financial closure receives repositories. Complete checked native
  * scalar contracts precede all relation population and DTO formatting. */
 export function compileOrderFinanceContracts(metadata: Metadata) {
+  return compileOrderContracts(metadata, selected);
+}
+
+/** Creation's default native result also selects both owning Address slots.
+ * This grants no Address method or mutation to the financial profile. */
+export function compileOrderCreationContracts(metadata: Metadata) {
+  return compileOrderContracts(metadata, [...selected, ["OrderAddress", "order_address"]]);
+}
+
+function compileOrderContracts(metadata: Metadata, models: readonly (readonly [string, string])[]) {
   return Result.gen(function* () {
-    const entities = yield* Result.all(selected.map(([model, name]) => Result.gen(function* () {
+    const entities = yield* Result.all(models.map(([model, name]) => Result.gen(function* () {
       const table = metadata.tables.find(table => table.name === name);
       if (table === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
       return { model, table, complete: yield* compileCompleteRow(table), projection: yield* compileRowProjection(table),

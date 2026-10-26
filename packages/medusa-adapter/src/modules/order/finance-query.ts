@@ -24,7 +24,7 @@ const decodeQuery = commerceDecoder(Schema.Struct({ where: Schema.optionalKey(Sc
     actions: Schema.optionalKey(Schema.Struct({ ordering: Schema.Literal("ASC") })) })),
 })) }), "unsupportedProfile");
 const populations = new Map<string, readonly string[]>([
-  ["order", ["summary", "transactions", "credit_lines", "items", "items.item", "items.item.tax_lines", "items.item.adjustments",
+  ["order", ["shipping_address", "billing_address", "summary", "transactions", "credit_lines", "items", "items.item", "items.item.tax_lines", "items.item.adjustments",
     "shipping_methods", "shipping_methods.shipping_method", "shipping_methods.shipping_method.tax_lines", "shipping_methods.shipping_method.adjustments"]],
   ["order_change", ["actions"]], ["order_item", ["item"]], ["order_shipping", ["shipping_method"]],
   ["order_line_item", ["adjustments", "tax_lines"]], ["order_shipping_method", ["adjustments", "tax_lines"]],

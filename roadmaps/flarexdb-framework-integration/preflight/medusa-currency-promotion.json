@@ -15431,7 +15431,7 @@
     },
     {
       "target": "packages/medusa-adapter/src/modules/order/finance-contracts.ts",
-      "targetSha256": "add62eaf0f5b7177ee55df3db7f43236f9f9bc02f6ac3cf19c44b1b69380d6da",
+      "targetSha256": "103df4a2e9724b9cd8dd57bd25bfe10f2211812101d2827f1ccf97a5c5831ff2",
       "classification": "authored"
     },
     {
@@ -15446,7 +15446,7 @@
     },
     {
       "target": "packages/medusa-adapter/src/modules/order/finance-query.ts",
-      "targetSha256": "fe684ee3ed792def81376a3776ead7026bc6212bfc46b681b16fc97754c27211",
+      "targetSha256": "5df583ca97a5def16a40d59d2b8e5356cf7a48968491590db9d7796a787ddac6",
       "classification": "authored"
     },
     {
@@ -15461,7 +15461,7 @@
     },
     {
       "target": "packages/medusa-adapter/src/modules/order/finance-repository.ts",
-      "targetSha256": "686d4f3746a705945ea6a477c67da8c60a93ea4cef4e08209fc439a35671ed30",
+      "targetSha256": "9badaa391bfd7d5081809b4b7c7b605fa200c9994b2b08e1bc4220d58de317d3",
       "classification": "authored"
     },
     {
@@ -16012,6 +16012,26 @@
       "target": "packages/medusa-adapter/test/logical-atomic-stored-workflow.test.ts",
       "classification": "authored",
       "targetSha256": "40b71125b74852601cdc332199928990006943cfc60952c696d7cce1c3603dac"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/order/creation-input.ts",
+      "classification": "authored",
+      "targetSha256": "a8bebb194b7b360a6cac9ae59e7db6f11afd48f302355c3745939fec9e9c9b9a"
+    },
+    {
+      "target": "packages/medusa-adapter/test/order-creation-input.test.ts",
+      "classification": "authored",
+      "targetSha256": "1bb34018e87156a3e9daed23fc2b400c83a5cee29190dbf3b7a4ddeb6aa6c1b4"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-order-creation-consumer.test.ts",
+      "classification": "authored",
+      "targetSha256": "0d6a25b6ec71623bc1dbff144d02b2b8aa07be9c32e50b80258dbe2136916aee"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-order-creation-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "a9c9dfae588fc7e7db5f3cbef45d7e263d21c2ae5e9674c319d260a143e35b43"
     }
   ],
   "dependencies": {
