@@ -809,7 +809,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       throw new Error("Native BigNumber type adaptation outside its exact pinned source pair");
     const variantPricingPair = variantItemPricingSourcePairs.find(pair => file.target === pair.target || file.source === pair.source);
     if (variantPricingPair !== undefined && (file.target !== variantPricingPair.target || file.source !== variantPricingPair.source ||
-      file.classification !== (file.target.endsWith("/cart/utils/fields.ts") || file.target.endsWith("/common/filter-object-by-keys.ts")
+      file.classification !== (file.target.endsWith("/common/filter-object-by-keys.ts")
         ? "unchanged" : file.target.includes("/medusa-core-flows/") ? "workflowFork" : "variantItemPricingFork")))
       throw new Error("Variant Item pricing outside its exact pinned source pair");
     if (file.classification === "variantItemPricingFork" && variantPricingPair === undefined)

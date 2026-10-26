@@ -132,6 +132,25 @@ complete write/event rollback for late failure, caught refusal and unfinished
 child execution on both database drivers. Checkout's retained Payment inverse
 still needs its own declared native child closure before root admission.
 
+## Native selected-field correction
+
+The pinned `completeCartFields` included `raw_sales_channel_id` beside the actual
+text `sales_channel_id`. Cart DML defines no such raw companion and the native
+totals owner generates raw values for numeric totals only. The preserved
+checkout field witness admits the real text scalar through the existing native
+query/capture/projection path, then receives `unsupportedProfile` for the raw
+field selected by the genuine native constant. This is an invalid native field
+selection, not a missing storage column or numeric codec.
+
+Approved disposition: remove only `raw_sales_channel_id` from the native complete
+Cart field list, retaining `sales_channel_id` and every genuine numeric raw total.
+The owner is `packages/medusa-core-flows/src/cart/utils/fields.ts`; its pinned
+source guard must record the exact authorized correction. Do not silently drop
+this field in a Cart adapter, loosen the projection owner or invent raw text
+presentation. The user authorized this native-owner correction. The executing
+list removes that single field; its exact source guard refuses retaining the
+invalid selector or changing another field, genuine raw total or field order.
+
 ## Admission gates
 
 Run the genuine root and retained inverses on PGlite and ordinary-role PostgreSQL.

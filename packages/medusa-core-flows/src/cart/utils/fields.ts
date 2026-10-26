@@ -90,7 +90,6 @@ export const completeCartFields = [
   "raw_item_total",
   "raw_item_subtotal",
   "raw_item_tax_total",
-  "raw_sales_channel_id",
   "raw_original_item_total",
   "raw_original_item_subtotal",
   "raw_original_item_tax_total",

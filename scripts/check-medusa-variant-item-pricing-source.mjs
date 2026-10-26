@@ -201,7 +201,14 @@ function adaptPureTypes(source, target) {
  * @param {string} target @param {string} source @param {string} actual */
 export function verifyVariantItemPricingSourcePair(target, source, actual) {
   if (!variantItemPricingSourcePairs.some(pair => pair.target === target)) throw new Error(failure + ": unknown pair");
-  if (target.endsWith("/cart/utils/fields.ts") || target.endsWith("/common/filter-object-by-keys.ts")) {
+  if (target.endsWith("/cart/utils/fields.ts")) {
+    // Authorized native checkout correction: the text channel identity has no
+    // numeric raw companion. Retain every other byte and selector in order.
+    const expected = replaceChecked(source, '  "raw_sales_channel_id",\n', "");
+    if (expected !== actual) throw new Error(failure + ": exact checkout field correction " + target);
+    return;
+  }
+  if (target.endsWith("/common/filter-object-by-keys.ts")) {
     if (source !== actual) throw new Error(failure + ": exact native bytes " + target);
     return;
   }

@@ -119,6 +119,14 @@ describe("native159 exact fields and pure types", () => {
   it("retains exact field order and source bytes", () => {
     mutant("packages/medusa-core-flows/src/cart/utils/fields.ts", '"inventory_items.required_quantity"', '"inventory_items.required_quantity", "metadata"');
   });
+  it("admits only removal of the invalid text-ID raw companion", () => {
+    const selected = entry("packages/medusa-core-flows/src/cart/utils/fields.ts");
+    expect(() => verifyVariantItemPricingSourcePair(selected.target, selected.native, selected.native)).toThrow();
+    mutant(selected.target, '  "sales_channel_id",\n', "");
+    mutant(selected.target, '  "raw_total",\n', "");
+    mutant(selected.target, '  "raw_subtotal",\n', "");
+    expect(selected.actual).toBe(selected.native.replace('  "raw_sales_channel_id",\n', ""));
+  });
   it("retains the genuine utility's null branch", () => {
     mutant("packages/medusa-utils/src/common/filter-object-by-keys.ts", "source === null", "source == null");
   });

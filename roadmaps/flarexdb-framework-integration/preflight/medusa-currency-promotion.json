@@ -7208,9 +7208,10 @@
     {
       "target": "packages/medusa-core-flows/src/cart/utils/fields.ts",
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/cart/utils/fields.ts",
-      "classification": "unchanged",
+      "classification": "workflowFork",
       "sourceSha256": "930444480ca2d613c6c461185b680c67ae69df3a77bb3e27fc347f593c33842c",
-      "targetSha256": "930444480ca2d613c6c461185b680c67ae69df3a77bb3e27fc347f593c33842c"
+      "targetSha256": "0c409b0d55f078c81f526598b325414441fc9c79a5ac4c5e2268fd0649d93800",
+      "transformation": "Authorized native checkout field correction: remove only nonexistent raw_sales_channel_id for text sales_channel_id; retain every genuine raw total and every other selected field in exact source order. The Variant Item pricing source guard enforces this sole byte-level correction."
     },
     {
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/cart/utils/prepare-confirm-inventory-input.ts",
@@ -16048,6 +16049,11 @@
       "target": "packages/medusa-adapter/test/logical-callback-child-workflow.test.ts",
       "classification": "authored",
       "targetSha256": "f60070ba61a645b86e595afe295c653fb190ba6ffb971b3fc6acf72b8c3d3506"
+    },
+    {
+      "target": "packages/medusa-adapter/test/checkout-native-fields-prerequisite.test.ts",
+      "classification": "authored",
+      "targetSha256": "7b7d327f40519e7542846180decf58890259024459d579a6adc6b26696aaa524"
     }
   ],
   "dependencies": {
