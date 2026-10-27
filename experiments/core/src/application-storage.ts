@@ -60,7 +60,7 @@ export function createApplicationStorage(persistence: Persistence) {
       const { changes, dependencies, result } = structuredClone({ changes: inputChanges, dependencies: inputDependencies, result: inputResult });
       const plan = planMaterialization([{ definition: yield* persistence.definition(command), changes, events: [] }]);
       return yield* operation(async transaction => {
-      const { stored, admitted } = await persistence.load(transaction, command, "update");
+      const { stored, admitted } = await persistence.load(transaction, command);
       const [clock] = await transaction.select().from(tables.clocks).where(eq(tables.clocks.scope, stored.scope)).for("update");
       await persistence.checkTime(transaction, stored.expires);
       if (stored.profile !== "application" || !admitted.owner || admitted.selection.length !== 1) throw new CoreError({ reason: "unsupported" });

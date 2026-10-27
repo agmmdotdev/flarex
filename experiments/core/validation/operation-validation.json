@@ -1,0 +1,147 @@
+{
+  "status": "implemented-measured-and-verified-performance-gates-open",
+  "base": "17dba7ecbfb133d6f6fb1118973d1d9f18804e88",
+  "recordedAt": "2026-10-27T11:10:34.976Z",
+  "tests": {
+    "file": "operation-correctness.json",
+    "distinctPassed": 357,
+    "failed": 0,
+    "expectedSkips": 23,
+    "breakdown": {
+      "namedPglite": 156,
+      "ordinaryRolePostgres": 175,
+      "unitBoundary": 20,
+      "additionalPgliteSdkCorpus": 3,
+      "nativeControllerProcess": 3
+    },
+    "skips": "19 PGlite exclusions for real-driver witnesses and 4 opt-in comparison/measurement cases; connected measurement and scaling run separately in 8 completed campaigns."
+  },
+  "focused": {
+    "observation": "operation-observations.json (19 pass, 5 PGlite driver skips)",
+    "ownerSmoke": "operation-owner-smoke.json (56 pass, 2 expected PGlite skips)",
+    "counting": "Focused reruns are not added to distinct correctness totals."
+  },
+  "source": [
+    {
+      "path": "experiments/core/COMBINED-OBSERVATIONS.md",
+      "sha256": "e5d5ea63f38408d1fb00be488a503da4d59664f612be7ad28f65f87d7ecf91ca"
+    },
+    {
+      "path": "experiments/core/MEASUREMENT.md",
+      "sha256": "d972d15024a2b42cbcac277b5aa62d8a7a084637aa962bf2aae88652bb842f46"
+    },
+    {
+      "path": "experiments/core/OBSERVATION-COSTS.md",
+      "sha256": "12eeaacc050a316773f6ad84d75e90479b892b99926236db5c9cd18bc08bf2a6"
+    },
+    {
+      "path": "experiments/core/README.md",
+      "sha256": "200afef7f1180c85bcf5fb5190b9e2e0c2f2b0991a8d38b23241ab1c2ac27616"
+    },
+    {
+      "path": "experiments/core/RESULTS.md",
+      "sha256": "c0d74ed647a8fcb1bb87bb856fac976c7cf6130279171391bb26a537688bcee3"
+    },
+    {
+      "path": "experiments/core/src/application-conflicts.ts",
+      "sha256": "ebd3f7e33ecf2f3380b47ec259fadb45472121806d7018ec8cfeb3f55b770dea"
+    },
+    {
+      "path": "experiments/core/src/application-storage.ts",
+      "sha256": "18435f98cb8567a31bb29890e0fb2dcc2046644a6cb5be40f9a4b2c3f45ed349"
+    },
+    {
+      "path": "experiments/core/src/equality-storage.ts",
+      "sha256": "8920692df12d0f24b1a6fddbe413a3b63675440cbae78218ff60bafe52d5d9c4"
+    },
+    {
+      "path": "experiments/core/src/group-storage.ts",
+      "sha256": "169ce34ff9f4e4f4dbbf419ec0134937299ee4158c0f4319238939aa7d4cc08b"
+    },
+    {
+      "path": "experiments/core/src/persistence.ts",
+      "sha256": "62beede3fae90a88231fe2c76ad1a630e4cb4e70296a5157558955a4b22dc9b2"
+    },
+    {
+      "path": "experiments/core/src/read-guards.ts",
+      "sha256": "5f02e8b6e9dd2685e43bc78a5fe48a70e9b19e5e47e8bae801760e0ea2bf9c14"
+    },
+    {
+      "path": "experiments/core/src/settlement-observations.ts",
+      "sha256": "06dc22fcaf304e6d15b879386cf1c877a731048085ab72b90a418bdf51487796"
+    },
+    {
+      "path": "experiments/core/src/write-conflicts.ts",
+      "sha256": "0f69b585d7e0601980ab1befb5030938c786b75f83c7f5ebf8d0ee3565442102"
+    },
+    {
+      "path": "experiments/core/test/settlement-observations.test.ts",
+      "sha256": "c9165c44d82d6464c3064fe6948f964bf99ca34c02bc1992a0c4a6980fa5fc98"
+    }
+  ],
+  "checks": {
+    "typecheck": "Scoped pnpm --dir experiments/core typecheck (tsc-rs) passed after final runtime/test edits; replayed runtime files restored byte-for-byte.",
+    "explicitLint": "pnpm --dir experiments/core lint -- --quiet passed on final runtime/test source. Root lint does not cover this directory.",
+    "rootLint": "pnpm lint:core and pnpm lint:diff passed on final runtime/test source; final scoped git diff --check passed after documentation.",
+    "reviews": "Both required read-only reviewers cleared the complete 44-path checkpoint against base17dba7ecbfb133d6f6fb1118973d1d9f18804e88, with all14source/document hashes verified. Systems review independently recomputed both inventory digests and exact7runtime deltas plus all flow, batch and contention metrics. No findings remain. Production/performance/broader support gates stay open.",
+    "exactIndex": "Exactly44owned experimental paths staged, with no foreign paths. pnpm lint:diff -- --staged and git diff --cached --check passed. Explicit experimental lint separately covers this directory; root lint does not."
+  },
+  "measurements": {
+    "comparison": "operation-comparison.json",
+    "completedCampaigns": 8,
+    "sourceDifferences": "Exactly 7 modified runtime files in both connected and scaling comparisons; immutable new module present but unimported in control; all native/harness/dependency bytes unchanged.",
+    "performance": "All added-median targets miss; Product/mixed P95 pass, Payload P95 misses. Promotion remains closed."
+  },
+  "resources": {
+    "fresh": "All 8 completed campaigns and full correctness fixtures cleaned up; no owned PostgreSQL, initdb or pg_ctl processes remain.",
+    "interrupted": "operation-initial-smoke-cancelled.json earns no credit. Its verified flarex-core-pg-kU7RFs daemon was stopped; directory deletion rejected by automatic approval review with blocked by policy, retained without alternate deletion.",
+    "failedPreparation": "operation-control-latency.json failed initdb before requests at the unchanged 60s deadline; cleanup complete. Identical retry succeeds; no durability or timeout change.",
+    "earlier": "Previously recorded stopped 4K84Yl/G2pD6q directories remain untouched; see observation-validation.json."
+  },
+  "ownedPaths": [
+    "experiments/core/COMBINED-OBSERVATIONS.md",
+    "experiments/core/MEASUREMENT.md",
+    "experiments/core/OBSERVATION-COSTS.md",
+    "experiments/core/README.md",
+    "experiments/core/RESULTS.md",
+    "experiments/core/src/application-conflicts.ts",
+    "experiments/core/src/application-storage.ts",
+    "experiments/core/src/equality-storage.ts",
+    "experiments/core/src/group-storage.ts",
+    "experiments/core/src/persistence.ts",
+    "experiments/core/src/read-guards.ts",
+    "experiments/core/src/settlement-observations.ts",
+    "experiments/core/src/write-conflicts.ts",
+    "experiments/core/test/settlement-observations.test.ts",
+    "experiments/core/validation/connected-source-2349cc15f551c319850e3df875f0012af94a0f2711f73196acf18c7c9a0d4d50.json",
+    "experiments/core/validation/connected-source-3a3c53e40fac3a3e89e34513b2fc96308b45dc92e4b2e3c508f27d22eec07596.json",
+    "experiments/core/validation/connected-source-41bf4198e8b2b783d105123d4976dbee2a23d2793597f9203fc386303c18a793.json",
+    "experiments/core/validation/connected-source-5b12194010b109166dfdb7150ae03094b6d75f12942fecc6a012f733074e3f3b.json",
+    "experiments/core/validation/connected-source-ad14fd1544d33b370ea5fffc7532a7167395c05ea6cbb9fb792ba15a5a5eefd5.json",
+    "experiments/core/validation/connected-source-f36878004a1604569b5cb2543b42136c09edd392ce6fc064d29d042c247bbe08.json",
+    "experiments/core/validation/operation-after-cpu-test.json",
+    "experiments/core/validation/operation-after-cpu.json",
+    "experiments/core/validation/operation-after-latency-test.json",
+    "experiments/core/validation/operation-after-latency.json",
+    "experiments/core/validation/operation-after-scaling-test.json",
+    "experiments/core/validation/operation-after-scaling.json",
+    "experiments/core/validation/operation-after-sql-test.json",
+    "experiments/core/validation/operation-after-sql.json",
+    "experiments/core/validation/operation-comparison.json",
+    "experiments/core/validation/operation-control-latency-test.json",
+    "experiments/core/validation/operation-control-latency.json",
+    "experiments/core/validation/operation-control-retry-cpu-test.json",
+    "experiments/core/validation/operation-control-retry-cpu.json",
+    "experiments/core/validation/operation-control-retry-latency-test.json",
+    "experiments/core/validation/operation-control-retry-latency.json",
+    "experiments/core/validation/operation-control-scaling-test.json",
+    "experiments/core/validation/operation-control-scaling.json",
+    "experiments/core/validation/operation-control-sql-test.json",
+    "experiments/core/validation/operation-control-sql.json",
+    "experiments/core/validation/operation-correctness.json",
+    "experiments/core/validation/operation-initial-smoke-cancelled.json",
+    "experiments/core/validation/operation-observations.json",
+    "experiments/core/validation/operation-owner-smoke.json",
+    "experiments/core/validation/operation-validation.json"
+  ]
+}

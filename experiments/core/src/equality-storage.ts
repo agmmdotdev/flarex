@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, exists, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import type { Definition, Document } from "./definition.ts";
 import type { Command, Database, Persistence } from "./persistence.ts";
@@ -40,16 +40,19 @@ export function historicalEqualityQuery(transaction: Database, scope: string, ta
 
 /** Framework mutation-query dependency, checked for both direct and mixed
  * profiles under the existing scope clock. Hashes locate; exact text proves. */
-export async function checkEqualityDependencies(transaction: Database, scope: string, sequence: number, candidates: readonly TableDependencies[]) {
+export function equalityConflict(transaction: Database, scope: string, sequence: number, candidates: readonly TableDependencies[]) {
+  let invalid = false;
   const predicates = candidates.flatMap(({ definition, dependencies }) => dependencies.flatMap(dependency => {
     if (dependency.kind !== "equality") return [];
-    if (!admittedEquality(definition, dependency.selection)) throw new CoreError({ reason: "invalid" });
+    if (!admittedEquality(definition, dependency.selection)) { invalid = true; return []; }
     return dependency.selection.keys.length === 0 ? [] : [and(eq(tables.equalityVersions.table, definition.table), equalityPredicate(dependency.selection))];
   }));
-  if (predicates.length !== 0 && (await transaction.select({ id: tables.equalityVersions.id }).from(tables.equalityVersions)
+  if (invalid) return sql<"invalid">`'invalid'::text`;
+  if (predicates.length === 0) return undefined;
+  const conflict = exists(transaction.select({ present: sql`1` }).from(tables.equalityVersions)
     .where(and(eq(tables.equalityVersions.scope, scope), or(...predicates),
-      or(gt(tables.equalityVersions.fromSeq, sequence), gt(tables.equalityVersions.untilSeq, sequence)))).limit(1)).length !== 0)
-    throw new CoreError({ reason: "conflict" });
+      or(gt(tables.equalityVersions.fromSeq, sequence), gt(tables.equalityVersions.untilSeq, sequence)))));
+  return sql<"conflict" | null>`case when ${conflict} then 'conflict'::text else null::text end`;
 }
 
 export function createEqualityStorage(persistence: Persistence) {

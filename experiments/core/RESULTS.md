@@ -1,6 +1,13 @@
 # Initial connected results
 
-The latest [compiled-plan iteration](./OBSERVATION-COSTS.md) improves matched quiet
+The latest [bounded observation composition](./COMBINED-OBSERVATIONS.md) reduces
+CRUD/Product/mixed exchanges to **77/33/53**, with 357 correctness cases passing.
+Matched added median/P95 becomes **23.974/29.746**, **5.627/8.210** and
+**6.072/9.592 ms**. Every median allowance remains missed; Product/mixed pass
+the P95 allowance. Indexed 64-row edits regress, so performance promotion stays
+closed. Current native adapters remain unchanged.
+
+The earlier [compiled-plan iteration](./OBSERVATION-COSTS.md) improves matched quiet
 added median/P95 latency to **25.668/31.828 ms** for Payload CRUD,
 **5.859/9.033 ms** for Product and **6.714/10.707 ms** for mixed. All 338 distinct
 checks pass, but every added-median target remains missed and contention gains

@@ -1,10 +1,11 @@
 # Experimental Flarex core
 
-The latest [compiled read-guard plan iteration](./OBSERVATION-COSTS.md) preserves
-fresh checks and improves measured complete-request latency, with 338 distinct
-checks passing. Every workload still misses the added-median target, so
-performance promotion remains closed. Active Medusa integration is unchanged;
-the initial and [combined-guard](./READ-OBSERVATIONS.md) reports remain intact.
+The latest [bounded observation composition](./COMBINED-OBSERVATIONS.md) reduces
+Payload/Product/mixed exchanges **88→77 / 37→33 / 59→53**, preserving fresh checks
+with 357 distinct cases passing. All added-median targets remain missed;
+performance promotion stays closed. Active Medusa integration is unchanged.
+The initial, [combined-guard](./READ-OBSERVATIONS.md) and
+[compiled-plan](./OBSERVATION-COSTS.md) reports remain intact.
 
 Status: bounded Payload CRUD, standalone Application and native Product scalar
 update/retrieve/list flows implemented with Drizzle on shared persistence/materialization owners.

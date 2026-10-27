@@ -68,13 +68,12 @@ export function createPersistence(session: Session, metrics: SqlMetrics = { oper
     if (stored.snapshot < authority.retainedFrom) throw new CoreError({ reason: "expired" });
     return { stored, admitted };
   };
-  const load = async (transaction: Database, command: Command, lock: "share" | "update") => {
+  const load = async (transaction: Database, command: Command) => {
     const admitted = admissions.get(command);
     if (admitted === undefined) throw new CoreError({ reason: "denied" });
-    const authority = await gate(transaction, admitted.scope);
-    await selectedSet(transaction, admitted.selection);
-    const [stored] = await transaction.select().from(tables.commands).where(eq(tables.commands.id, command.id)).for(lock);
-    return validateCommand(command, admitted, authority, stored);
+    const [row] = await guards.accepting(transaction, admitted.scope, admitted.selection, command.id);
+    if (row === undefined || row.observed_selection.count !== admitted.selection.length) throw new CoreError({ reason: "denied" });
+    return validateCommand(command, admitted, row.observed_authority, row.observed_command);
   };
   const observeCommand = async (transaction: Database, command: Command) => {
     const admitted = admissions.get(command);
@@ -90,7 +89,7 @@ export function createPersistence(session: Session, metrics: SqlMetrics = { oper
     const selection = Object.freeze([...definitions].toSorted((left, right) => left.table < right.table ? -1 : left.table > right.table ? 1 : 0));
     const definition = selection[0];
     if (definition === undefined) throw new CoreError({ reason: "unsupported" });
-    const authority = await gate(transaction, scope); await selectedSet(transaction, selection);
+    const authority = await readAuthority(transaction, scope, selection);
     const identities = selection.map(item => ({ table: item.table, version: item.version }));
     const [inserted] = await transaction.insert(tables.commands).values({ id: randomUUID(), scope, request, digest,
       definitions: identities, token, fence: authority.fence, snapshot: authority.seq,

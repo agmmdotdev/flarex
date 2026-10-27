@@ -8,9 +8,7 @@ import type { Command, Persistence } from "./persistence.ts";
 import type { Dependency } from "./query.ts";
 import type { UniqueObservation } from "./storage.ts";
 import type { Root } from "./root.ts";
-import { checkWritePredecessors } from "./write-conflicts.ts";
-import { checkApplicationDependencies } from "./application-conflicts.ts";
-import { checkEqualityDependencies } from "./equality-storage.ts";
+import { checkGroupDependencies } from "./settlement-observations.ts";
 import * as tables from "./schema.ts";
 
 export interface GroupCandidate extends TableChanges {
@@ -51,15 +49,13 @@ export function createGroupStorage(persistence: Persistence) {
     const plan = planMaterialization(owned);
     const value = structuredClone(result);
     return yield* persistence.operation(async transaction => {
-      const { stored, admitted } = await persistence.load(transaction, command, "update");
+      const { stored, admitted } = await persistence.load(transaction, command);
       if (!admitted.owner || stored.profile !== "framework" && stored.profile !== "mixed" ||
         admitted.selection.length !== owned.length || owned.some(candidate => !admitted.selection.includes(candidate.definition))) throw new CoreError({ reason: "denied" });
       const [clock] = await transaction.select().from(tables.clocks).where(eq(tables.clocks.scope, stored.scope)).for("update");
       await persistence.checkTime(transaction, stored.expires);
       if (clock === undefined || !Number.isSafeInteger(clock.seq + 1)) throw new CoreError({ reason: "limit" });
-      await checkWritePredecessors(transaction, stored.scope, owned);
-      await checkEqualityDependencies(transaction, stored.scope, stored.snapshot, owned);
-      if (stored.profile === "mixed") await checkApplicationDependencies(transaction, stored.scope, stored.snapshot, owned);
+      await checkGroupDependencies(transaction, stored.scope, stored.snapshot, owned, stored.profile);
       await materialize(transaction, stored.scope, command.id, clock.seq + 1, plan, value);
       return value;
     });

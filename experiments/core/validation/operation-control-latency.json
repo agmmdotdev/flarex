@@ -1,0 +1,48 @@
+{
+  "mode": "latency",
+  "label": "operation-control",
+  "status": "failed-no-acceptance",
+  "startedAt": "2026-10-27T10:37:26.619Z",
+  "samples": [],
+  "warmupSamples": [],
+  "failures": [
+    {
+      "stage": "preparing",
+      "evidence": {
+        "stack": "[accessor omitted]",
+        "message": "Command failed: C:\\Program Files\\PostgreSQL\\18\\bin\\initdb.exe -D C:\\Users\\Admin\\AppData\\Local\\Temp\\flarex-core-pg-XhmF0V -U exp_owner --auth=trust --no-locale -E UTF8\n",
+        "code": null,
+        "killed": true,
+        "signal": "SIGTERM",
+        "cmd": "C:\\Program Files\\PostgreSQL\\18\\bin\\initdb.exe -D C:\\Users\\Admin\\AppData\\Local\\Temp\\flarex-core-pg-XhmF0V -U exp_owner --auth=trust --no-locale -E UTF8",
+        "stdout": "The files belonging to this database system will be owned by user \"Admin\".\r\nThis user must also own the server process.\r\n\r\nThe database cluster will be initialized with locale \"C\".\r\nThe default text search configuration will be set to \"english\".\r\n\r\nData page checksums are enabled.\r\n\r\nfixing permissions on existing directory C:/Users/Admin/AppData/Local/Temp/flarex-core-pg-XhmF0V ... ok\r\ncreating subdirectories ... ok\r\nselecting dynamic shared memory implementation ... windows\r\nselecting default \"max_connections\" ... 100\r\nselecting default \"shared_buffers\" ... 128MB\r\nselecting default time zone ... Asia/Rangoon\r\ncreating configuration files ... ok\r\nrunning bootstrap script ... ok\r\nperforming post-bootstrap initialization ... ok\r\nsyncing data to disk ... ",
+        "stderr": ""
+      }
+    }
+  ],
+  "contract": "MEASUREMENT.md",
+  "activeBaseline": "blocked: validation/payload-create-failure.json",
+  "semantics": "Product reference independently commits; mixed reference uses standalone candidate Application plus genuine native frameworks. No equivalent atomic native baseline or active speedup claim.",
+  "head": "17dba7ecbfb133d6f6fb1118973d1d9f18804e88",
+  "host": {
+    "node": "v24.16.0",
+    "v8": "13.6.233.17-node.49",
+    "platform": "win32",
+    "cpuCounterResolution": "Windows counters quantized; zero means below resolution, not zero CPU"
+  },
+  "sourceAtStart": {
+    "sha256": "5b12194010b109166dfdb7150ae03094b6d75f12942fecc6a012f733074e3f3b",
+    "files": 85895,
+    "artifact": "connected-source-5b12194010b109166dfdb7150ae03094b6d75f12942fecc6a012f733074e3f3b.json"
+  },
+  "cleanup": "complete",
+  "source": {
+    "before": null,
+    "after": {
+      "sha256": "5b12194010b109166dfdb7150ae03094b6d75f12942fecc6a012f733074e3f3b",
+      "files": 85895,
+      "artifact": "connected-source-5b12194010b109166dfdb7150ae03094b6d75f12942fecc6a012f733074e3f3b.json"
+    }
+  },
+  "finishedAt": "2026-10-27T10:38:48.964Z"
+}

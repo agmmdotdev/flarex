@@ -41,11 +41,20 @@ const prepareAuthority = (transaction: Database, selection: readonly Definition[
   const { authority, definitions, proof } = readSelection(transaction, selection);
   return transaction.with(authority, definitions, proof).select().from(authority).innerJoin(proof, sql`true`).prepare("");
 };
-const prepareCommand = (transaction: Database, selection: readonly Definition[]) => {
+const commandSelection = (transaction: Database, selection: readonly Definition[], lock: "share" | "update") => {
   const { authority, definitions, proof } = readSelection(transaction, selection);
   const stored = transaction.$with("observed_command").as(transaction.select().from(tables.commands)
     .where(and(eq(tables.commands.id, sql.placeholder("command")), exists(transaction.select({ present: sql`1` }).from(proof).where(eq(proof.count, selection.length)))))
-    .for("share"));
+    .for(lock));
+  return { authority, definitions, proof, stored };
+};
+const prepareAccept = (transaction: Database, selection: readonly Definition[]) => {
+  const { authority, definitions, proof, stored } = commandSelection(transaction, selection, "update");
+  return transaction.with(authority, definitions, proof, stored).select().from(authority)
+    .innerJoin(proof, sql`true`).leftJoin(stored, sql`true`).prepare("");
+};
+const prepareCommand = (transaction: Database, selection: readonly Definition[]) => {
+  const { authority, definitions, proof, stored } = commandSelection(transaction, selection, "share");
   const deadline = transaction.$with("observed_deadline").as(transaction.select({ expired: sql<boolean>`clock_timestamp() >= ${stored.expires}`.as("expired") }).from(stored));
   return transaction.with(authority, definitions, proof, stored, deadline).select().from(authority)
     .innerJoin(proof, sql`true`).leftJoin(stored, sql`true`).leftJoin(deadline, sql`true`).prepare("");
@@ -65,6 +74,7 @@ const prepareSnapshot = (transaction: Database, selection: readonly Definition[]
 export function createReadGuards() {
   const authorities = new WeakMap<Database, Map<string, ReturnType<typeof prepareAuthority>>>();
   const commands = new WeakMap<Database, Map<string, ReturnType<typeof prepareCommand>>>();
+  const accepting = new WeakMap<Database, Map<string, ReturnType<typeof prepareAccept>>>();
   const snapshots = new WeakMap<Database, Map<string, ReturnType<typeof prepareSnapshot>>>();
   const cached = <Q>(cache: WeakMap<Database, Map<string, Q>>, database: Database, selection: readonly Definition[], build: () => Q) => {
     verifySelection(selection);
@@ -81,6 +91,8 @@ export function createReadGuards() {
       cached(authorities, database, selection, () => prepareAuthority(database, selection)).execute({ scope }),
     command: (database: Database, scope: string, selection: readonly Definition[], command: string) =>
       cached(commands, database, selection, () => prepareCommand(database, selection)).execute({ scope, command }),
+    accepting: (database: Database, scope: string, selection: readonly Definition[], command: string) =>
+      cached(accepting, database, selection, () => prepareAccept(database, selection)).execute({ scope, command }),
     snapshot: (database: Database, scope: string, selection: readonly Definition[], expires: Date) =>
       cached(snapshots, database, selection, () => prepareSnapshot(database, selection)).execute({ scope, expires }),
   };

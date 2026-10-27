@@ -205,13 +205,14 @@ complete-request allowances remain missed, contention gains are mixed and per-ro
 observations/transactions remain. No production routing or durable-data cutover
 follows from these bounded Node/PostgreSQL results.
 
-Next investigate complete bounded observation operations at the persistence/session
-owner using the attribution and retained traces. Name required fresh checks,
-invalidating writers, exact snapshot/absence/conflict evidence, lock order and
-failure-order witnesses. Preserve fresh visibility after lock waits and no
-transaction across callbacks. Accepting changes need their own concurrency proof.
-Concentrate replacement in the owner and necessary explicit handoffs, then rerun
-the same owner, consumers and complete measurements.
+The subsequent [bounded observation composition](./COMBINED-OBSERVATIONS.md)
+combines reservation/accepting guards and post-clock conflict observations, with
+fresh lock-wait, expiry, history and failure-order witnesses. Its 357-case suite
+and matched campaigns pass. Exchanges become 77/33/53, while every added-median
+allowance remains missed. Per-row reads/transactions and representative-flow
+gates therefore remain the next work; no check removal or callback-spanning
+transaction follows from this result. The measurements above retain this earlier
+compiled-plan cohort unchanged.
 
 The [representative-flow gate](./VALIDATION.md#representative-flow-and-replacement-gate)
 still requires real Product relations and native Payload lifecycle work before

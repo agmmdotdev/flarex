@@ -19,6 +19,15 @@ The [observation-cost slice](./OBSERVATION-COSTS.md) adds a separate `profile`
 diagnostic mode with V8 stacks, resource-only driver observation and duration-only
 server logging. Its observed times do not replace quiet latency/CPU campaigns.
 
+The [bounded observation composition](./COMBINED-OBSERVATIONS.md) uses this same
+harness and protocol, replaying the prior seven runtime files only for its
+control, then restoring the current implementation byte-for-byte. Final control
+labels are `operation-control-sql`, `operation-control-retry-{latency,cpu}` and
+`operation-control-scaling`; after labels are `operation-after-{sql,latency,cpu}`
+and `operation-after-scaling`. The first control latency preparation timeout is
+retained separately without acceptance credit. No source, durability, timeout,
+native workload or output assertion is loosened to obtain a passing campaign.
+
 The explicit two-lane experiment measures these complete requests:
 
 | Workload | Candidate | Reference |
