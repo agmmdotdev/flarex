@@ -138,6 +138,36 @@ The Worker/Hyperdrive lane must verify transaction-pooling behavior, connection
 lifetime, cancellation and cross-segment state ownership. Do not rely on a pinned
 PostgreSQL session or session-local temporary data across short transactions.
 
+## Representative-flow and replacement gate
+
+Before substantially expanding integration coverage, prove one representative
+complete mixed business flow with real Product relations and native Payload
+lifecycle work, using an existing business graph and its complete result contract.
+Implement the capabilities needed for that witness without treating small scalar
+CRUD success as full-core performance evidence. Record missing branches explicitly;
+a simplified substitute cannot pass this gate.
+
+Measure growing batches and relation fanout, then concurrent independent commands
+within one scope and the same load across scopes. Predeclare the admitted sizes,
+limits and throughput/tail target; retain the complete-request latency allowance
+below. Attribute per-row observations, guards, transaction setup, validation and
+already-batched materialization separately. Preserve the original traces and
+remeasure after changes; fewer exchanges alone do not establish lower latency.
+
+The shared scope-clock lock is an architectural risk to investigate. Separate
+its hold/wait time from pool, client and server costs where observable; otherwise
+mark attribution unresolved. A bounded contention pass or different-scope speedup
+does not prove the same-scope ceiling or its cause. Do not change commit ordering,
+freshness or isolation to satisfy a target without a separate contract and proof.
+
+Require one material observation/settlement implementation replacement through
+the [declared module boundaries](./MODULES.md#proving-replaceability-before-expanding-coverage),
+with preserved owner and connected-consumer correctness witnesses. If performance
+misses its target or replacement requires unrelated lifecycle/business rewrites,
+resolve the owning execution cost or boundary before broadening coverage. This
+gate is additional to all-five-graph, standalone Application and hosted acceptance;
+passing it does not establish promotion or freedom from architectural bottlenecks.
+
 ## Acceptance
 
 The existing complete mutation targets remain **at most 5 ms added median and

@@ -98,6 +98,20 @@ maintenance, WAL or server cost. Adding 64 unrelated definitions and 256 retaine
 unrelated rows left the selective one-row command at 31 exchanges; it does not
 prove constant physical scan work.
 
+The 409 exchanges belong to one standalone Application mutation inserting 64
+documents, not a Medusa workflow or 409 document writes. Its recorded trace has
+64 historical point reads and 67 short transactions. Each extra document adds
+one point observation with BEGIN, authority, definition, expiry, history-read and
+COMMIT exchanges in this initial cohort. Final materialization already batches
+history, documents, unique claims, index entries and event intents across rows;
+the trace contains one INSERT for each of those physical families.
+
+Investigate the repeated per-row observations and their protection/transaction
+cost before proposing write batching. The counts identify an execution pattern,
+not its exclusive latency cost or permission to remove checks. Any replacement
+must preserve exact absence/conflict evidence, fresh authority and failure order.
+These initial counts do not describe a later implementation without remeasurement.
+
 Each contention cell runs 128 independent one-row Application mutations through
 a shared pool with maximum four connections. Automatic retries are disabled.
 All 768 commands succeeded on their first attempt, and committed documents were

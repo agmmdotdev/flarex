@@ -246,6 +246,26 @@ If every change requires editing all modules, stop and fix the boundary. Do not
 make the contracts generic enough to accept arbitrary policy or raw SQL merely
 to avoid explicit edits. A real guarantee change should require consumer work.
 
+## Proving replaceability before expanding coverage
+
+Treat replaceability as an executable requirement, not an inference from module
+names. For observation batching or commit-execution changes, record the existing
+trace, required guarantees, responsible owners and expected consumer changes.
+Keep implementation changes concentrated in those owners and necessary explicit
+handoffs; preserve native business behavior and unrelated lifecycle ownership.
+Run the same owner and connected consumer witnesses against the replacement.
+If a mechanism change spreads through unrelated modules, correct that boundary
+before broadening coverage. A real guarantee change still needs its own contract;
+modularity does not promise that every bottleneck is implementation-only.
+
+The first candidate deliberately serializes acceptance under a per-scope clock
+lock. That is an architectural capacity risk, not a measured throughput ceiling.
+Shortening protected work may fit the existing settlement contract; changing
+commit order or visibility requires a separate explicit design and concurrency
+proof. Preserve current locking while measuring it. Use the
+[representative-flow gate](./VALIDATION.md#representative-flow-and-replacement-gate)
+to decide whether local execution changes suffice before expanding integrations.
+
 ## Testing and iteration mechanics
 
 - Keep reusable behavioral witnesses beside the owning contract. Run the same
