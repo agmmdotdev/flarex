@@ -1,7 +1,13 @@
-# Behavior and execution design
+# Initial candidate behavior and execution design
 
-Status: first candidate to implement and test; runtime, schema and performance
-are unproved. Module boundaries are in [MODULES.md](./MODULES.md).
+Status: baseline contract for the implemented, bounded experimental candidate;
+broader support and performance acceptance remain open. Module boundaries are in
+[MODULES.md](./MODULES.md), with current evidence in [RESULTS.md](./RESULTS.md).
+
+The next architecture discussion starts at [engine/README.md](./engine/README.md).
+The physical transaction segmentation and Postgres coordination described here
+belong to the initial candidate, not a preselected shared-engine design. Required
+behavior remains binding until explicitly revised; proposals do not change runtime.
 
 ## Problem and hypothesis
 

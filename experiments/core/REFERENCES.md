@@ -1,7 +1,9 @@
 # Source and evidence map
 
-Inspected on 2026-10-26. References establish mechanisms and prior results, not
-the feasibility or speed of the proposed experimental replacement.
+Initial inspection: 2026-10-26; shared-engine source map expanded on 2026-10-27.
+References establish mechanisms and prior results, not the feasibility or speed
+of the proposed replacement. The [engine discussion](./engine/README.md) owns the
+current questions; the original candidate remains implementation evidence.
 
 ## Convex source identity
 
@@ -46,22 +48,73 @@ copying; the inspected file identifies FSL-1.1-Apache-2.0. Its SHA-256 is
 This experiment uses Convex as an architectural reference. It does not assume
 permission to transplant source or that every source file has identical terms.
 
+## Engine mechanism reference map
+
+Use these owners together: caches alone do not supply transaction consistency,
+commit authority or recovery. All additional local files below were clean at the
+same enclosing checkout revision recorded above.
+
+| Mechanism | Pinned source and symbols | What it establishes / limit |
+| --- | --- | --- |
+| Bootstrap and snapshots | [database.rs](../../../../crates/database/src/database.rs): `Database::load`; [snapshot_manager.rs](../../../../crates/database/src/snapshot_manager.rs): `SnapshotManager`, `Snapshot` | Load persisted state under ownership; retain bounded immutable versions of metadata and index state. A snapshot is not a complete database copied into RAM. |
+| Schema and index readiness | [schema_registry.rs](../../../../crates/database/src/schema_registry.rs); [index_registry.rs](../../../../crates/indexing/src/index_registry.rs): `require_enabled`; `Transaction::get_schema_by_state` | Versioned registries and explicit index states; metadata reads can contribute dependencies. This does not establish Flarex's revocation or admission semantics. |
+| Selected in-memory indexes | [backend_in_memory_indexes.rs](../../../../crates/indexing/src/backend_in_memory_indexes.rs): `BackendInMemoryIndexes`, `DatabaseIndexMap`, `DatabaseIndexSnapshot` | Ordered persistent maps/sets with keys, timestamps and packed documents, selected index loading and copy-on-write snapshots. Not a separate Redis service or a claim that every index is resident. |
+| Cached index pages | [index_cache/mod.rs](../../../../crates/indexing/src/index_cache/mod.rs): `WriteLogIndexReader`, `get`, `populate`, `apply_writes` | Timestamp-aware cached ranges coordinated with writes; misses still require storage. A plain mutable map does not preserve these semantics. |
+| Dependencies and pending state | [reads.rs](../../../../crates/database/src/reads.rs), [writes.rs](../../../../crates/database/src/writes.rs), [transaction.rs](../../../../crates/database/src/transaction.rs) | Exact point/range/absence dependencies, pending changes, original observations and coalesced writes. These are per-transaction state, distinct from shared caches. |
+| Conflict order and visibility | [committer.rs](../../../../crates/database/src/committer.rs): `validate_commit`, `commit_has_conflict`, `write_to_persistence`, `publish_commit`; [write_log.rs](../../../../crates/database/src/write_log.rs) | Validate against committed and pending accepted writes, persist, then publish cache/log/snapshot state and acknowledge. Uncertain persistence outcomes require recovery, not trusting memory. |
+| PostgreSQL fencing and durability | [postgres/src/lib.rs](../../../../crates/postgres/src/lib.rs): `Lease::transact`; [Postgres/MySQL setup](../../../../self-hosted/advanced/postgres_or_mysql.md) | Documents and index updates still reach durable storage; lease checks fence acceptance. Lost ownership requires resynchronization. Convex's engine does not eliminate all database checks. |
+| Bounded resources and history | [execution_size.rs](../../../../crates/database/src/execution_size.rs), [retention.rs](../../../../crates/database/src/retention.rs), `SnapshotManager` | Execution accounting and bounded retained history are part of the engine design; memory and history cannot grow without limits. |
+| Root execution and retry | [application_function_runner/mod.rs](../../../../crates/application/src/application_function_runner/mod.rs): `retry_mutation`, `run_mutation_inner` | Engine execution/retry ownership must compose with consistency. Native Payload/Medusa hooks need their own explicit replay eligibility. |
+
+Additional SHA-256 values, with paths relative to the enclosing Convex checkout:
+
+```text
+crates/indexing/src/backend_in_memory_indexes.rs 13198e2c09b9a5633fe99c2fc57a2af9ec5c479753c6ae6074b6b3fb9ce36539
+crates/indexing/src/index_cache/mod.rs f19bcbcb3d0d1e877a39ff5b0d8856e2c58755e5b9f28adba064eea0b97a7310
+crates/indexing/src/index_registry.rs 76571a78b7efbcdae017e69d19b04e094fc5a746114fbb909aa81e3da0a853a4
+crates/database/src/write_log.rs 8b4b117dbfc2fa75aeb104f858d7dc3fbd3f0845cc8ee42f3d96ee5d8f5319db
+crates/database/src/retention.rs 01c18d159e4ae42b505be52f80abb45b3f57e19a760b97270aaaff547eeee46d
+crates/postgres/src/lib.rs 68b90055a516b3dfd2ebb31e4387c38dc8aa53ab2e5e6e739d074aad55020caa
+crates/database/src/schema_registry.rs f9434e63d1d6c77531fbcd41cc8f00d991e5392d44ec0c8dd496d09202ce0c11
+crates/database/src/execution_size.rs a59c0b3b85816f9d751b8ecbff780faffd88157b3196e03041bf456ae2b0eacb
+self-hosted/advanced/postgres_or_mysql.md d1ad7e5a7bab27874efddc5ea88a23e50ca7195e8a6ce6ca256dc6bfa875690b
+```
+
+The source map identifies mechanisms to discuss, not a file-for-file port plan.
+TypeScript needs deliberate choices for ordered structures, structural sharing,
+timestamps, key encoding, async scheduling and memory accounting. Neither language
+translation nor identical method names proves equivalent behavior or latency.
+
 ## Transferable ideas and explicit divergences
 
 Transfer snapshot/version ownership, exact dependency tracking, owned pending
 writes and singular commit/retry responsibility. Do not infer that Convex uses
 no storage reads, no validation, no internal RPC or no authorization.
 
-Flarex keeps PostgreSQL as committed-data authority, short physical transactions
-around untrusted execution, explicit framework profiles and the private Worker
-target. Convex's resident Rust database engine and in-memory snapshot structures
-are not a drop-in Worker implementation. Moving all execution to a resident
-database service would be a different hosting proposal, not this experiment.
+Flarex keeps PostgreSQL as committed-data authority, untrusted execution outside
+physical SQL transactions, explicit framework profiles and the accepted private
+Worker target. Convex's resident Rust engine is not a drop-in Worker implementation.
+The new [ownership discussion](./engine/01-ownership-and-lifetime.md) now examines
+shared owners and possible hosts. A resident service or Durable Object engine
+is an open alternative, not a selected replacement for the accepted target.
 
 Official explanations: [How Convex Works](https://stack.convex.dev/how-convex-works),
 [OCC and Atomicity](https://docs.convex.dev/database/advanced/occ), and
 [Writing Data](https://docs.convex.dev/database/writing-data). These describe
 the model; local pinned source anchors exact implementation observations.
+
+[Auth in Functions](https://docs.convex.dev/auth/functions-auth) describes identity
+access and authorization in application functions. Distinguish that from cached
+schema/readiness metadata and Flarex's explicit fresh revocation obligations.
+Do not infer that Convex holds a universally valid cached permission boolean.
+
+For code adaptation, record the exact files, revision, applicable license and
+intended use. The inspected [license](../../../../LICENSE.md), also available
+[upstream](https://github.com/convex/convex-backend/blob/main/LICENSE.md), contains
+FSL permitted-purpose restrictions and a future Apache-2.0 grant for each version
+after two years. Do not assume the inspected version already has that future
+grant or that translating Rust into TypeScript changes the applicable terms.
+This discussion adopts no source port and copies no implementation code.
 
 ## Flarex source and prior experiments
 
@@ -121,6 +174,11 @@ These patterns identify work and complexity, not their share of total latency.
   and [connection pooling](https://developers.cloudflare.com/hyperdrive/concepts/connection-pooling/):
   pooled transactions and Worker connection lifetimes constrain retained physical
   state. Local session reuse is not proof of hosted behavior.
+- [Worker limits](https://developers.cloudflare.com/workers/platform/limits/) and
+  [Durable Object lifecycle](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/):
+  runtime limits, eviction and reconstruction constrain shared engine memory.
+  A named object's ownership model does not make its in-memory state durable or
+  establish an atomic commit spanning that object and PostgreSQL.
 
 Recheck these primary sources against the exact database/host used for validation.
 They explain constraints; they do not predict the candidate's performance.

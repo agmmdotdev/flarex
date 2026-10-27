@@ -43,6 +43,18 @@ it does not reproduce or weaken shared correctness, skills, review or commit rul
 
 ## Design and iteration
 
+- The current design discussion starts at [engine/README.md](./engine/README.md).
+  Work through one active concept at a time using its decision register. Explain
+  the Convex mechanism, alternatives, costs and failure cases before recording
+  the owner's decision. Do not infer acceptance of later concepts from approval
+  to explore the engine direction. Update the affected notes after each decision.
+- Distinguish proposed, accepted, implemented and measured claims. The engine
+  discussion does not select a runtime topology, remove current checks or approve
+  a source translation. Keep existing runtime contracts and measurements as the
+  baseline until an explicit decision and implementation replace them.
+- Use pinned Convex sources as the primary engine reference. Record deliberate
+  divergences and source reuse/license disposition; translating Rust to TypeScript
+  does not settle reuse rights. Preserve PostgreSQL commit authority and Drizzle.
 - Follow [MODULES.md](./MODULES.md). Define each contract at its actual owner;
   avoid a universal context, generic engine registry or options bag.
 - Distinguish immutable definitions, fresh observations, policy decisions and

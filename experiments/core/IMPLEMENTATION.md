@@ -1,4 +1,10 @@
-# Implementation sequence
+# Initial candidate implementation sequence
+
+Planning boundary: this file describes the existing candidate and its original
+construction stages. The [engine decision register](./engine/DECISIONS.md) now
+owns the next design discussion. Pending stages below are not automatic approval
+to expand or optimize that candidate while engine choices remain unresolved.
+Existing implementation, behavioral witnesses and measurements remain evidence.
 
 Status: [bounded Payload create](./PAYLOAD-CREATE.md) and the
 [standalone Application construction slice](./APPLICATION.md), plus the

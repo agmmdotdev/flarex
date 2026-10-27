@@ -1,134 +1,87 @@
 # Experimental Flarex core
 
-The latest [batched new-ID validation](./BATCHED-NEW-IDS.md) reduces 64-row insert
-exchanges **276→21** and transactions **67→3**, with median latency
-**96.796→29.434 ms**. Mixed exchanges fall **53→50**; Payload/Product counts stay
-77/33. All 396 distinct correctness cases pass across the regression and corrected
-owner reruns. Complete-request latency has no overall win and same-scope tails
-regress; performance promotion stays closed. Active Medusa work is unchanged.
+Start with the [shared engine design discussion](./engine/README.md). The owner
+has requested a fresh Convex-based design discussion, one concept at a time,
+with decisions recorded before their implementation. The first open concept is
+[engine ownership and lifetime](./engine/01-ownership-and-lifetime.md).
 
-The preceding [bounded observation composition](./COMBINED-OBSERVATIONS.md) reduces
-Payload/Product/mixed exchanges **88→77 / 37→33 / 59→53**, preserving fresh checks
-with 357 distinct cases passing. All added-median targets remain missed;
-performance promotion stays closed. Active Medusa integration is unchanged.
-The initial, [combined-guard](./READ-OBSERVATIONS.md) and
-[compiled-plan](./OBSERVATION-COSTS.md) reports remain intact.
+## Current state
 
-Status: bounded Payload CRUD, standalone Application and native Product scalar
-update/retrieve/list flows implemented with Drizzle on shared persistence/materialization owners.
-The [selected-table mixed connection](./MIXED.md) runs actual Application,
-Product and Payload entry points under one accepting owner. [Bounded Payload
-CRUD](./PAYLOAD-CRUD.md) is implemented with its native preference cleanup and
-atomic document/preference publication. Initial [connected measurements](./RESULTS.md)
-miss the added-latency goals. Batch/contention diagnostics complete the initial
-assessment: retain modular/native ownership, change database execution granularity,
-and reject promotion. Active-core comparison and populated Product relations
-remain pending. The bounded
-[text-equality foundation](./EQUALITY.md) supplies their indexed query/cleanup
-operations within the declared native profiles. This is
-not an accepted replacement core, a complete Application profile or a completed
-performance acceptance. See [Payload](./PAYLOAD-CREATE.md) and
-[Application](./APPLICATION.md) and [Product](./MEDUSA-PRODUCT.md) for the exact
-contracts and remaining gates. The initial experiment goal covers connected
-Payload CRUD, representative Product flows, atomic mixed execution and measured
-batch/contention behavior; its bounded assessment is complete.
+| Area | Status |
+| --- | --- |
+| Active Flarex core and Medusa integration | Continue separately; outside this experiment's mutation scope |
+| Initial experimental candidate | Bounded Application, Payload CRUD, Product scalar and explicitly atomic mixed flows implemented and measured with Drizzle; performance promotion remains closed |
+| Shared engine direction | Investigation and documentation approved; host, cache design, ownership protocol and implementation slices remain open |
 
-This is a separate core experiment requested by the owner on 2026-10-26. Build
-and evaluate a different execution design here while current Medusa integration
-continues against the active core. This folder is outside the existing
-`packages/*` and `apps/*` workspace membership. It is not a production package.
+The existing candidate already keeps pending writes, observations and some
+prepared state in memory. It does not implement Convex's complete shared
+snapshot, metadata, index/cache and conflict-history machinery. Revisit those
+owners and their database interactions without assuming that a TypeScript port
+or an in-memory cache automatically provides Convex's performance.
 
-## Read in this order
+This folder remains outside `packages/*` and `apps/*` workspace membership.
+It is a separate experiment, not an accepted replacement or production package.
 
-1. [AGENTS.md](./AGENTS.md): scope, isolation and implementation rules.
-2. [DESIGN.md](./DESIGN.md): required behavior and proposed execution lifecycle.
-3. [MODULES.md](./MODULES.md): replaceable owners, contracts and dependency rules.
-4. [IMPLEMENTATION.md](./IMPLEMENTATION.md): connected implementation stages.
-5. [VALIDATION.md](./VALIDATION.md): correctness, comparison and promotion gates.
-6. [REFERENCES.md](./REFERENCES.md): exact Convex sources and Flarex evidence.
+## Current discussion
 
-## Objective
+1. [AGENTS.md](./AGENTS.md): scope, isolation and iteration rules.
+2. [Engine discussion](./engine/README.md): direction, continuing obligations and modular responsibilities.
+3. [Decision register](./engine/DECISIONS.md): accepted discussion process and open concepts.
+4. [Concept 01](./engine/01-ownership-and-lifetime.md): ownership, lifetime and possible hosts.
+5. [REFERENCES.md](./REFERENCES.md): pinned Convex mechanisms, platform constraints and Flarex evidence.
 
-Reduce the complete cost of standalone Flarex Application queries and mutations,
-Payload, Medusa and mixed operations by changing execution granularity and
-ownership. Application is a first-class consumer of the shared core. Do not start
-by copying the current core into another directory and renaming its helpers.
-Existing contracts and implementations are evidence to inspect, not a mandatory
-internal design.
+Discuss one concept, inspect its source and failure cases, record the owner's
+decision, then update affected notes. Keep proposed, accepted, implemented and
+measured status distinct. Later concepts can reopen earlier decisions; queued
+topics and alternative hosts are not implicitly accepted.
 
-Starting from scratch means freedom to replace the core execution design while
-carrying forward useful integration implementation. Existing integrations are
-both requirements evidence and reusable code. Prefer native services/workflows
-and sound translation code composed with revised core-facing bindings; neither
-rewriting all integration behavior nor preserving every old adapter interface is
-the objective. Apply the [reuse decisions](./MODULES.md#framework-reuse-and-integration-replacement)
-to each connected operation before expanding the candidate.
+## Existing implementation and evidence
 
-Modularity is part of the outcome: changing readiness policy, query execution,
-storage layout or commit planning should have a small, explicit dependency
-surface and independently runnable behavioral tests. Shared invariants must
-remain coherent when modules change.
+Retain these documents as the initial candidate's contracts and comparison
+baseline. Its pending implementation stages do not select the next engine slice.
 
-The scope includes the working set, atomic execution boundary, repository bridge,
-workflow execution bridge and their core-facing contracts, as well as PostgreSQL.
-Reusing Medusa models, services and native workflow definitions is the objective;
-minimal edits to existing integration plumbing are not a constraint. Adapter
-changes may be substantial if retaining their current contracts would preserve
-the expensive execution sequence. See the [reuse boundary](./MODULES.md#framework-reuse-and-integration-replacement).
+| Document | Purpose |
+| --- | --- |
+| [DESIGN.md](./DESIGN.md), [MODULES.md](./MODULES.md), [IMPLEMENTATION.md](./IMPLEMENTATION.md) | Initial candidate lifecycle, module boundaries and construction sequence; behavioral obligations remain binding until explicitly revised |
+| [VALIDATION.md](./VALIDATION.md) | Correctness, native comparison, concurrency and promotion gates |
+| [APPLICATION.md](./APPLICATION.md) | Bounded standalone Application contract and remaining gaps |
+| [PAYLOAD-CREATE.md](./PAYLOAD-CREATE.md), [PAYLOAD-CRUD.md](./PAYLOAD-CRUD.md) | Native Payload create/CRUD and atomic preference cleanup |
+| [MEDUSA-PRODUCT.md](./MEDUSA-PRODUCT.md), [EQUALITY.md](./EQUALITY.md) | Native Product scalar flows and bounded indexed text-equality operations |
+| [MIXED.md](./MIXED.md) | Actual Application, Product and Payload entry points under one accepting owner |
+| [RESULTS.md](./RESULTS.md) | Initial connected measurements and batch/contention assessment |
+| [READ-OBSERVATIONS.md](./READ-OBSERVATIONS.md), [OBSERVATION-COSTS.md](./OBSERVATION-COSTS.md), [COMBINED-OBSERVATIONS.md](./COMBINED-OBSERVATIONS.md) | Subsequent observation and preparation experiments |
+| [BATCHED-NEW-IDS.md](./BATCHED-NEW-IDS.md) | Latest new-ID batching measurement and remaining limits |
 
-## Permission and boundaries
+The latest batching slice reduces 64-row insert exchanges **276→21** and
+transactions **67→3**, with median latency **96.796→29.434 ms**. Mixed exchanges
+fall **53→50**; Payload/Product counts remain **77/33**. Complete-request latency
+has no overall win, same-scope tails regress and performance promotion stays
+closed. These saved measurements do not establish shared-engine performance or
+a matched comparison against Convex. Wider Application support, populated
+Product relations and the active-core comparison remain unproved.
 
-The owner authorizes a separate experimental implementation and permits changes
-to its PostgreSQL tables, indexes, SQL functions, permissions and coordination
-structures when the design warrants them. Existing physical storage families
-are reuse candidates. Schema replacement is permitted, not required or proven
-necessary. Design behavior first, execution lifecycle second, storage third.
+## Objective and boundaries
 
-All experimental database work uses explicitly owned disposable resources.
-Current runtime packages, active Medusa integration, existing schemas and named
-durable data are outside this experiment's mutation scope. No production routing,
-data deletion or migration is authorized. Promotion needs a separate connected
-cutover decision, including the actual consumers and durable-data disposition.
+Improve complete Application, Payload, Medusa and mixed operations by changing
+ownership and execution granularity. Preserve useful native services, workflows
+and sound translation code. Existing integration behavior establishes requirements;
+existing adapter interfaces and database coordination sequences need not survive.
+Use the [reuse rules](./MODULES.md#framework-reuse-and-integration-replacement).
 
-The experiment temporarily coexists with the active core for comparison. It is
-not a runtime fallback or a permanent second engine. If it fails, retain useful
-evidence and retire the candidate. If it succeeds, plan one replacement with
-consumer migration and removal of displaced internals.
+Modularity must make query execution, metadata policy, pending state, persistence
+and commit coordination replaceable through small explicit contracts. It must
+not add a transaction, database visit or independent finalizer per module.
+TypeScript and Drizzle remain requirements. New engine mechanisms need explicit
+decisions, connected correctness evidence and complete-request measurements.
 
-## Starting point
+Experimental database work uses explicitly owned disposable resources. Current
+runtime packages, active Medusa work, existing schemas and named durable data
+remain outside this lane. No production routing, data deletion or migration is
+authorized. A successful experiment needs a separate connected cutover decision,
+consumer migration and removal of displaced internals; coexistence here is for
+evaluation, not a permanent fallback engine.
 
-The recommended first hypothesis is **complete bounded storage operations under
-one root execution owner**, with immutable preparation and fresh database gates
-separated. It is a hypothesis, not a measured performance result. The existing
-core already has working sets, metadata reuse and combined authority/data SQL;
-their mere presence in a new implementation would not establish a new design.
-
-The first candidate combines complete query operations, incrementally indexed
-root state, compact identity with fresh mutable gates, redesigned framework
-bridges and short database-local settlement. Preserve scalar per-scope commit
-order initially and measure its occupancy under concurrent writes. Physical
-storage remains open to replacement; this is not a requirement to preserve the
-current layout or its internal validation sequence.
-
-The brief now specifies [query/profile/authority contracts](./DESIGN.md),
-[root structures and replacement rules](./MODULES.md#root-owned-indexed-state),
-[before/after operation traces](./IMPLEMENTATION.md#initial-operation-trace-hypotheses)
-and [early scaling witnesses](./VALIDATION.md#early-algorithm-and-concurrency-checks).
-Concrete physical lock modes/writers and native compatibility evidence still
-need proof for the wider core. The [first slice](./PAYLOAD-CREATE.md) binds its
-create-only operation to actual rows, roles, lock order and native callbacks;
-it removes no obligation from the active runtime.
-
-Start with one genuine Payload create and an early standalone Application
-query/mutation witness against the same core owners. Add one Medusa Product
-scalar update, then one explicitly atomic Application + Product + Payload
-mutation. Preserve the portable Application contract and native framework
-behavior, and report unsupported capabilities. These are construction milestones;
-acceptance requires standalone Application evidence as well as the complete
-existing business graphs. Payload create or a mixed graph alone cannot establish
-Application compatibility. See the [Application witness](./IMPLEMENTATION.md#early-standalone-application-witness).
-
-Architecture obligations remain in the [accepted design](../../design-notes/flarex-db-accepted-design.md).
-The [performance roadmap](../../roadmaps/core-performance/README.md) links this
-separate lane. These documents authorize experimental mechanisms within the
-recorded boundaries; they do not declare a production architecture cutover.
+The [accepted design](../../design-notes/flarex-db-accepted-design.md) retains
+production authority, execution-profile and host obligations. The
+[performance roadmap](../../roadmaps/core-performance/README.md) links this lane.
+The new discussion may propose changes, but does not silently override either.

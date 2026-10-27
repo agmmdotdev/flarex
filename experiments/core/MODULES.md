@@ -1,8 +1,11 @@
 # Replaceable modules
 
-Status: proposed ownership map. These are logical modules, not instructions to
-create one package, interface, service or directory for every row immediately.
-Implement a boundary when the first connected operation uses it.
+Status: initial candidate ownership map and continuing modularity/reuse rules.
+The [engine discussion](./engine/README.md) will explicitly reconsider owners for
+shared snapshots, caches, commit coordination and recovery. This map does not
+preselect their lifetime or hosting. These are logical responsibilities, not
+instructions to create one package, interface, service or directory per row.
+Implement a boundary when an approved connected operation uses it.
 
 ## Ownership map
 
