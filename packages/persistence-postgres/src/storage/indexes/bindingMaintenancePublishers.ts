@@ -1,4 +1,5 @@
 import { getTableColumns, getTableName } from "drizzle-orm";
+import { MAX_PHYSICAL_INDEX_DEFINITIONS } from "./catalogCapacity";
 import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 import { fxAppRowCurrent, fxSystemIndexBuildStates, fxSystemIndexMaintenanceObligations,
   fxSystemScopeClocks, fxSystemScopeExecutionAuthorities, fxSystemUniqueConstraintBuilds,
@@ -46,7 +47,7 @@ BEGIN
     (p_expected_sequence IS NOT NULL AND (p_expected_sequence<=0 OR p_expected_head IS NULL OR p_expected_head !~ '^[0-9a-f]{64}$'))
     THEN ${refusal("storedState")} END IF;
   IF jsonb_typeof(p_outgoing_members) IS DISTINCT FROM 'array' OR jsonb_typeof(p_incoming_members) IS DISTINCT FROM 'array' OR
-    jsonb_array_length(p_outgoing_members)>${ordered ? 512 : 256} OR jsonb_array_length(p_incoming_members)>${ordered ? 512 : 256}
+    jsonb_array_length(p_outgoing_members)>${ordered ? MAX_PHYSICAL_INDEX_DEFINITIONS : 256} OR jsonb_array_length(p_incoming_members)>${ordered ? MAX_PHYSICAL_INDEX_DEFINITIONS : 256}
     THEN ${refusal("storedState")} END IF;
   FOR member_set IN SELECT p_outgoing_members AS members UNION ALL SELECT p_incoming_members LOOP
     prior_id:=0;

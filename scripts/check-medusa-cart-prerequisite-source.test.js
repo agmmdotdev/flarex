@@ -258,7 +258,7 @@ describe("native160 prerequisite source selection", () => {
     "packages/medusa-promotion/src/services/promotion-module.ts",
     "packages/medusa-promotion/src/services/index.ts",
     "packages/medusa-promotion/src/static-manifest.ts",
-    "packages/medusa-promotion/src/utils/compute-actions/build-promotion-rule-query-filter-from-context.ts",
+    "packages/medusa-promotion/src/utils/compute-actions/build-promotion-rule-query-filter-from-context-extra.ts",
   ])("rejects unselected code %s even when marked authored", target => {
     expect(() => verifyCartPrerequisiteSourceSelection([...cartPrerequisiteSourcePairs, { target, classification: "authored" }])).toThrow(failure);
   });

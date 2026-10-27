@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import type { Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { orderedWorkflowIdEvents } from "../src/workflow/events";
+import { EventPriority } from "@medusajs/utils/event-bus/utils";
 
 const calls = { calls: () => [], results: () => [] };
 const event = (data: Json, group = "group") => ({ contract: "shipping-option.updated", contractRevision: "a".repeat(64),
@@ -10,6 +11,24 @@ const event = (data: Json, group = "group") => ({ contract: "shipping-option.upd
   subscribers: [{ id: "subscriber", revision: "c".repeat(64) }] });
 
 describe("native workflow ID event shapes", () => {
+  it("retains only the explicitly selected native critical priority", async () => {
+    const selected = orderedWorkflowIdEvents("shipping-option.updated", () => Effect.succeed(["a"]), { criticalPriority: true });
+    const ordinary = orderedWorkflowIdEvents("shipping-option.updated", () => Effect.succeed(["a"]));
+    const contract = selected.contracts[0], strict = ordinary.contracts[0];
+    if (contract === undefined || strict === undefined) throw new Error("Missing genuine event contract");
+    const original = event({ id: "a" });
+    const message = { ...original.message, options: { priority: EventPriority.CRITICAL } };
+    expect(Result.getOrThrow(contract.decode(message))).toEqual(message);
+    expect(Result.isFailure(strict.decode(message))).toBe(true);
+    for (const refused of [original.message, { ...message, options: {} },
+      { ...message, options: { priority: EventPriority.HIGH } },
+      { ...message, options: { priority: String(EventPriority.CRITICAL) } },
+      { ...message, options: { priority: EventPriority.CRITICAL, delay: 100 } }])
+      expect(Result.isFailure(contract.decode(refused))).toBe(true);
+    await Effect.runPromise(selected.validate([{ ...original, message }], calls));
+    expect(await Effect.runPromise(Effect.result(selected.validate([{ ...original, group: "foreign", message }], calls))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+  });
   it("retains strict object IDs by default and admits string IDs only when selected", () => {
     const ordinary = orderedWorkflowIdEvents("shipping-option.updated", () => Effect.succeed(["a"]));
     const selected = orderedWorkflowIdEvents("shipping-option.updated", () => Effect.succeed(["a"]), { dataShape: "string", pendingCancellation: true });

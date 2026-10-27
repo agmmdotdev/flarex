@@ -1,0 +1,241 @@
+import { Effect, Result, Schema } from "effect";
+import type { Logger } from "@medusajs/framework/types";
+import { createWorkflow, transform, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
+import { authorizePaymentSessionStep } from "@medusajs/core-flows/payment/authorize-payment-session-step";
+import { capturePaymentStep } from "@medusajs/core-flows/payment/capture-payment-step";
+import { refundPaymentStep } from "@medusajs/core-flows/payment/refund-payment-step";
+import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
+import { capturePrivateCanonicalValue, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { compileCartDefinition } from "../../src/modules/cart/schema";
+import { makeCartCheckoutCommands } from "../../src/modules/cart/payment-service";
+import { compileOrderDefinition } from "../../src/modules/order/schema";
+import { makeOrderCheckoutCommands } from "../../src/modules/order/finance-service";
+import { compilePaymentDefinition } from "../../src/modules/payment/schema";
+import { makePaymentLifecycleCommands } from "../../src/modules/payment/lifecycle-service";
+import { compileCustomerDefinition } from "../../src/modules/customer/schema";
+import { makeCustomerCheckoutReadCommands } from "../../src/modules/customer/checkout-read-service";
+import { compileRegionDefinition } from "../../src/modules/region/schema";
+import { makeLocalRegionReadCommands } from "../../src/modules/region/service";
+import { compilePromotionDefinition } from "../../src/modules/promotion/schema";
+import { makePromotionCheckoutReadCommands } from "../../src/modules/promotion/checkout-read-service";
+import { compileProductDefinition } from "../../src/modules/product/definition";
+import { makeLocalProductCommands } from "../../src/modules/product/service";
+import { compileInventoryDefinition } from "../../src/modules/inventory/schema";
+import { makeLocalInventoryCommands } from "../../src/modules/inventory/service";
+import { compileStockLocationDefinition } from "../../src/modules/stock-location/schema";
+import { makeStockLocationCommands } from "../../src/modules/stock-location/service";
+import { compileSalesChannelDefinition } from "../../src/modules/sales-channel/schema";
+import { makeLocalSalesChannelCommands } from "../../src/modules/sales-channel/service";
+import { compileFulfillmentCreationDefinition } from "../../src/modules/fulfillment/shipping-profile-schema";
+import { makeFulfillmentCheckoutReadCommands } from "../../src/modules/fulfillment/checkout-read-service";
+import { compileCartPaymentCollectionLinkDefinition } from "../../src/links/cart-payment-collection-schema";
+import { prepareCartPaymentCollectionLinkRead } from "../../src/links/cart-payment-collection-service";
+import { compileOrderPaymentCollectionLinkDefinition } from "../../src/links/order-payment-collection-schema";
+import { compileOrderCartLinkDefinition } from "../../src/links/order-cart-schema";
+import { prepareCheckoutNativeLinkLifecycle } from "../../src/links/checkout-native-lifecycle";
+import { prepareCheckoutNativeLinkResource } from "../../src/links/checkout-resource";
+import { compileCartPromotionLinkDefinition } from "../../src/links/cart-promotion-schema";
+import { prepareCartPromotionLinkRead } from "../../src/links/cart-promotion-service";
+import { compileProductLinksDefinition } from "../../src/links/product-definition";
+import { prepareLocalProductLinks } from "../../src/links/product-service";
+import { compileVariantLinksDefinition } from "../../src/links/variant-definition";
+import { prepareLocalVariantLinks } from "../../src/links/variant-service";
+import { compileSalesChannelLocationLinkDefinition } from "../../src/links/sales-channel-location-schema";
+import { prepareSalesChannelLocationLink } from "../../src/links/sales-channel-location-service";
+import { workflowModuleDefinition, type WorkflowModule } from "../../src/workflow/module";
+import { captureInstalledWorkflowModules, prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type InstalledWorkflowModule } from "../../src/workflow/host";
+import { prepareWorkflowResources } from "../../src/workflow/resources";
+import { internalModuleWorkflowEvents } from "../../src/workflow/events";
+import { PaymentAuthorization, PaymentRefund } from "../../src/modules/payment/lifecycle-input";
+import { paymentFinanceCallLimit } from "../../src/workflows/payment/finance-configuration";
+import { checkoutModuleNames } from "../../src/workflows/cart/checkout-graph";
+import { prepareCompleteCartWorkflow } from "../../src/workflows/cart/complete-cart";
+import { logicalCurrencyFixture } from "./logical-currency-fixture";
+import { logicalCurrencyInventory } from "./logical-currency-inventory";
+import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
+import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
+import { projectNativeRow } from "../../src/repository/result";
+
+/** Actual native constructions, also used by the metadata-only graph test. */
+export async function checkoutRuntimes() {
+  const errors: string[] = [];
+  const logger: Logger = { panic() {}, shouldLog: () => false, setLogLevel() {}, unsetLogLevel() {}, activity: value => value,
+    progress() {}, error: value => { errors.push(String(value)); }, failure() {}, success: () => ({}), silly() {}, debug() {}, verbose() {}, http() {}, info() {}, warn() {}, log() {} };
+  const payment = await Effect.runPromise(makePaymentLifecycleCommands(logger));
+  const orderCart = await Effect.runPromise(prepareCheckoutNativeLinkLifecycle("order-cart"));
+  const orderPayment = await Effect.runPromise(prepareCheckoutNativeLinkLifecycle("order-payment"));
+  const link = Result.getOrThrow(prepareCheckoutNativeLinkResource([orderCart.native, orderPayment.native]));
+  const workflows = {
+    cart: (await Effect.runPromise(makeCartCheckoutCommands())).workflow,
+    order: (await Effect.runPromise(makeOrderCheckoutCommands())).workflow, payment: payment.workflow,
+    customer: (await Effect.runPromise(makeCustomerCheckoutReadCommands())).workflow,
+    region: (await Effect.runPromise(makeLocalRegionReadCommands())).workflow,
+    promotion: (await Effect.runPromise(makePromotionCheckoutReadCommands())).workflow,
+    fulfillment: (await Effect.runPromise(makeFulfillmentCheckoutReadCommands())).workflow,
+    cart_payment_collection_links: (await Effect.runPromise(prepareCartPaymentCollectionLinkRead())).workflow,
+    order_payment_collection_links: orderPayment.workflow, order_cart_links: orderCart.workflow,
+    cart_promotion_links: (await Effect.runPromise(prepareCartPromotionLinkRead())).workflow,
+    product: (await Effect.runPromise(makeLocalProductCommands())).workflow,
+    inventory: (await Effect.runPromise(makeLocalInventoryCommands("variant-price-calculation"))).workflow,
+    stock_location: (await Effect.runPromise(makeStockLocationCommands())).workflow,
+    sales_channel: (await Effect.runPromise(makeLocalSalesChannelCommands())).workflow,
+    product_links: (await Effect.runPromise(prepareLocalProductLinks())).workflow,
+    variant_links: (await Effect.runPromise(prepareLocalVariantLinks())).workflow,
+    sales_channel_locations: (await Effect.runPromise(prepareSalesChannelLocationLink())).workflow,
+  };
+  return { workflows, payment, link, errors };
+}
+
+export async function checkoutDefinitions() {
+  return [
+    { name: "cart", definition: await Effect.runPromise(compileCartDefinition()) },
+    { name: "order", definition: await Effect.runPromise(compileOrderDefinition("generate")) },
+    { name: "payment", definition: await Effect.runPromise(compilePaymentDefinition()) },
+    { name: "customer", definition: await Effect.runPromise(compileCustomerDefinition()) },
+    { name: "region", definition: await Effect.runPromise(compileRegionDefinition()) },
+    { name: "promotion", definition: await Effect.runPromise(compilePromotionDefinition()) },
+    { name: "fulfillment", definition: await Effect.runPromise(compileFulfillmentCreationDefinition()) },
+    { name: "cart_payment_collection_links", definition: await Effect.runPromise(compileCartPaymentCollectionLinkDefinition()) },
+    { name: "order_payment_collection_links", definition: await Effect.runPromise(compileOrderPaymentCollectionLinkDefinition()) },
+    { name: "order_cart_links", definition: await Effect.runPromise(compileOrderCartLinkDefinition()) },
+    { name: "cart_promotion_links", definition: await Effect.runPromise(compileCartPromotionLinkDefinition()) },
+    { name: "product", definition: await Effect.runPromise(compileProductDefinition()) },
+    { name: "inventory", definition: await Effect.runPromise(compileInventoryDefinition()) },
+    { name: "stock_location", definition: await Effect.runPromise(compileStockLocationDefinition()) },
+    { name: "sales_channel", definition: await Effect.runPromise(compileSalesChannelDefinition()) },
+    { name: "product_links", definition: await Effect.runPromise(compileProductLinksDefinition({ salesChannel: true, shippingProfile: true })) },
+    { name: "variant_links", definition: await Effect.runPromise(compileVariantLinksDefinition()) },
+    { name: "sales_channel_locations", definition: await Effect.runPromise(compileSalesChannelLocationLinkDefinition()) },
+  ] as const;
+}
+
+export async function checkoutSources(definitions: Awaited<ReturnType<typeof checkoutDefinitions>>) {
+  const sources: Array<Effect.Success<ReturnType<typeof captureLogicalSchemaSource>>> = [];
+  for (const { name, definition } of definitions) sources.push(await Effect.runPromise(captureLogicalSchemaSource({
+    key: "medusa.checkout." + name, owner: "medusa", writeProfile: "medusa.checkout." + name, evidence: definition.provenance,
+    definition: { kind: "relational", schema: definition.schema }, bindings: definition.schema.tables.map(table => ({ kind: "definition",
+      localName: table.identity.tableId, table: { namespace: "medusa", logicalName: definition.schema.coordinate.lineageId + "/" + table.identity.tableId } })),
+  })));
+  return sources;
+}
+
+export interface CheckoutCase {
+  readonly name: string;
+  readonly amount?: string;
+  readonly unitPrice?: string;
+  readonly quantity?: number;
+  readonly compareAt?: string;
+  readonly badSession?: boolean;
+  readonly variantId?: string;
+}
+
+const captureExistingPayment = createWorkflow("checkout-existing-captured-payment", (input: WorkflowData<typeof PaymentAuthorization.Type>) => {
+  const authorized = authorizePaymentSessionStep(input);
+  const id = transform(authorized, payment => {
+    if (payment === null || payment === undefined) throw new Error("Missing native checkout Payment authorization");
+    return payment.id;
+  });
+  return new WorkflowResponse(capturePaymentStep({ payment_id: id }));
+});
+const refundExistingPayment = createWorkflow("checkout-existing-refunded-payment", (input: WorkflowData<typeof PaymentRefund.Type>) =>
+  new WorkflowResponse(refundPaymentStep(input)));
+
+export async function prepareLogicalCheckout(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
+  options: { readonly amount?: string; readonly badSession?: boolean; readonly additionalCases?: readonly CheckoutCase[];
+    readonly onPhase?: (phase: string) => void } = {}) {
+  const runtime = await checkoutRuntimes();
+  const definitions = await checkoutDefinitions(), sources = await checkoutSources(definitions);
+  options.onPhase?.("native definitions captured");
+  const fixture = await logicalCurrencyFixture(driver, close, { additionalSources: sources });
+  options.onPhase?.("complete catalog ready");
+  if (driver === "postgres") {
+    const role = await fixture.persistence.query("select rolsuper,rolcreatedb,rolcreaterole,rolbypassrls from pg_roles where rolname=current_user");
+    const activeRole = role.rows[0];
+    if (role.rows.length !== 1 || activeRole === undefined || Object.values(activeRole).some(value => value !== false)) throw new Error("Checkout fixture requires an ordinary role");
+  }
+  const amount = options.amount ?? "12.5";
+  const cartId = "cart-checkout", collectionId = "paycol-checkout", sessionId = "payses-checkout";
+  const cases = new Map<string, { readonly cartId: string; readonly collectionId: string; readonly sessionId: string }>();
+  const carts: JsonObject[] = [], payments: JsonObject[] = [], links: JsonObject[] = [];
+  const inputs: readonly CheckoutCase[] = [{ name: "checkout", amount, ...(options.badSession === undefined ? {} : { badSession: options.badSession }) },
+    ...options.additionalCases ?? []];
+  for (const selected of inputs) {
+    if (cases.has(selected.name)) throw new Error("Duplicate checkout fixture case");
+    const ids = { cartId: "cart-" + selected.name, collectionId: "paycol-" + selected.name, sessionId: "payses-" + selected.name };
+    const value = selected.amount ?? "12.5", unitPrice = selected.unitPrice ?? value;
+    cases.set(selected.name, ids);
+    carts.push({ table: "cart", row: { id: ids.cartId, currency_code: "usd", region_id: "reg-checkout", email: "checkout@example.com" } },
+      { table: "cart_line_item", row: { id: "cali-" + selected.name, cart_id: ids.cartId, title: "Digital manual item", quantity: selected.quantity ?? 1,
+        requires_shipping: false, unit_price: unitPrice, raw_unit_price: { value: unitPrice, precision: 20 },
+        ...(selected.variantId === undefined ? {} : { variant_id: selected.variantId }),
+        ...(selected.compareAt === undefined ? {} : { compare_at_unit_price: selected.compareAt,
+          raw_compare_at_unit_price: { value: selected.compareAt, precision: 20 } }) } });
+    payments.push({ table: "payment_collection", row: { id: ids.collectionId, currency_code: "usd", amount: value, raw_amount: { value, precision: 20 } } },
+      { table: "payment_session", row: { id: ids.sessionId, payment_collection_id: ids.collectionId, provider_id: "pp_system_default",
+        currency_code: "usd", amount: value, raw_amount: { value, precision: 20 }, status: selected.badSession ? "canceled" : "pending", data: {}, context: null } });
+    links.push({ id: "capaycol-" + selected.name, cart_id: ids.cartId, payment_collection_id: ids.collectionId });
+  }
+  const seeds: Readonly<Record<string, readonly JsonObject[]>> = {
+    cart: carts, payment: payments,
+    region: [{ table: "region", row: { id: "reg-checkout", name: "Checkout Region", currency_code: "usd" } }],
+    cart_payment_collection_links: links,
+  };
+  const entries: Array<[string, InstalledWorkflowModule<WorkflowModule>]> = [];
+  for (const [index, selected] of definitions.entries()) {
+    const source = sources[index], module = runtime.workflows[selected.name], logical = workflowModuleDefinition(module)?.logical;
+    if (source === undefined || logical === undefined) throw new Error("Missing genuine checkout source");
+    const rows = seeds[selected.name] ?? [];
+    const dataset = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows }, 1_048_576,
+      { invalidInput: () => new Error("Invalid checkout seed"), hashFailure: cause => new Error("Checkout seed hash", { cause }) }));
+    const logicalStorage = { ...fixture.hostInput.logicalStorage, source: { sourceKey: source.key, writeProfile: source.writeProfile,
+      schema: selected.definition.schema, evidence: selected.definition.provenance },
+      initialization: { stepId: "checkout-existing-" + index, datasetSha256: dataset.sha256Hex, expectedRowCount: rows.length } };
+    const initializer = await Effect.runPromise(makeCommerceHost({ ...fixture.hostInput, logicalStorage, commands: logical.commands,
+      identityAndAccessPolicy: { profile: "checkout-initialization" } }));
+    try { await Effect.runPromise(initializer.initialize(rows)); } finally { await Effect.runPromise(initializer.close); }
+    options.onPhase?.("initialized " + selected.name);
+    entries.push([selected.name, { module, logicalStorage }]);
+  }
+  const modules = Result.getOrThrow(captureInstalledWorkflowModules(Object.fromEntries(entries), checkoutModuleNames));
+  const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
+    prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, ...composition }) };
+  const configuration = { execution, modules, logger: runtime.payment.loggerResource, link: runtime.link,
+    revision: "c".repeat(64), subscribers: [{ id: "native-checkout", revision: "d".repeat(64) }] };
+  const host = await Effect.runPromise(prepareCompleteCartWorkflow(configuration)); close(() => Effect.runPromise(host.close));
+  options.onPhase?.("checkout host prepared");
+  const prepareCapturedPayment = async () => {
+    const resources = Result.getOrThrow(prepareWorkflowResources({ payment: { module: modules.payment.module,
+      methods: ["authorizePaymentSession", "retrievePaymentSession", "capturePayment", "cancelPayment"], graph: true } }, true, { logger: runtime.payment.loggerResource }));
+    const capture = await Effect.runPromise(prepareAtomicWorkflowHost({ execution, modules: { payment: modules.payment },
+      revision: configuration.revision, subscribers: configuration.subscribers, requestCallLimit: paymentFinanceCallLimit,
+      operationScheduling: "queued", borrowedOperationScheduling: "queued",
+      workflow: { name: "checkoutExistingCapturedPayment", resources, prepared: Result.getOrThrow(captureExistingPayment.prepare()),
+        input: PaymentAuthorization, output: Schema.JsonObject, events: internalModuleWorkflowEvents } }));
+    close(() => Effect.runPromise(capture.close)); return capture;
+  };
+  const prepareRefundedPayment = async () => {
+    const resources = Result.getOrThrow(prepareWorkflowResources({ payment: { module: modules.payment.module,
+      methods: ["refundPayment"], graph: true } }, true, { logger: runtime.payment.loggerResource }));
+    const refund = await Effect.runPromise(prepareAtomicWorkflowHost({ execution, modules: { payment: modules.payment },
+      revision: configuration.revision, subscribers: configuration.subscribers, requestCallLimit: paymentFinanceCallLimit,
+      operationScheduling: "queued", borrowedOperationScheduling: "queued",
+      workflow: { name: "checkoutExistingRefundedPayment", resources, prepared: Result.getOrThrow(refundExistingPayment.prepare()),
+        input: PaymentRefund, output: Schema.JsonObject, events: internalModuleWorkflowEvents } }));
+    close(() => Effect.runPromise(refund.close)); return refund;
+  };
+  const snapshot = () => logicalCurrencyInventory(fixture);
+  const rows = async () => {
+    const inventory = await snapshot(), output: JsonObject[] = [], scope = projectScopeIdUuidV1(fixture.application.authority.scopeId).scopeUuid;
+    for (const row of inventory.rows) if (row.scopeUuid === scope) {
+      const version = inventory.revisions.find(value => value.scopeUuid === row.scopeUuid && value.tableId === row.tableId &&
+        value.commitSeq === row.commitSeq && Buffer.from(value.rowId).equals(Buffer.from(row.rowId)));
+      if (version === undefined || version.isTombstone) continue;
+      const value = await decodeCanonicalFlarexValueEvidenceV1({ canonicalBytes: version.valueBytes, sha256: version.valueSha256, profile: "appDocument" });
+      output.push(projectNativeRow(Schema.decodeUnknownSync(Schema.JsonObject)(value.valueJson)));
+    }
+    return output;
+  };
+  return { fixture, runtime, modules, configuration, host, cartId, collectionId, sessionId, cases, prepareCapturedPayment, prepareRefundedPayment, snapshot, rows };
+}

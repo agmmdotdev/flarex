@@ -84,23 +84,36 @@ export function validateGraphPathPrefixes(remote: ReadonlyMap<string, ReadonlyMa
       const candidates = models.get(root), owner = candidates?.[0];
       if (candidates?.length !== 1 || owner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
       for (const path of paths.values()) {
-      const dot = path.path.lastIndexOf(".");
-      const prefix = path.path.slice(0, dot);
-      const local = dot === -1 ? undefined : owner.read.paths.find(relation => relation.path === prefix);
-      const parent = dot === -1 ? root : paths.get(prefix)?.targetModel ??
-        (local !== undefined && local.table.name === path.source.read.table.name && path.source.participant === owner.participant
-          && local.table.primaryKeys.length === 1 && local.table.primaryKeys[0] === path.sourceKey
-          && local.table.columns.every(column => path.source.read.table.columns.includes(column)) ? path.sourceModel : undefined);
-      if (parent !== path.sourceModel) return yield* Result.fail(commerceError("unsupportedProfile"));
+        const dot = path.path.lastIndexOf(".");
+        const prefix = path.path.slice(0, dot);
+        // A local suffix belongs to the nearest authenticated target read.
+        // Prefix length strictly decreases; no new graph or relation loader is
+        // inferred from names, and the genuine target keeps population ownership.
+        const ancestor = [...paths.values()].filter(candidate => prefix.startsWith(candidate.path + "."))
+          .sort((left, right) => right.path.length - left.path.length)[0];
+        const localOwner = ancestor?.target ?? owner;
+        const suffix = ancestor === undefined ? prefix : prefix.slice(ancestor.path.length + 1);
+        const local = dot === -1 ? undefined : localOwner.read.paths.find(relation => relation.path === suffix);
+        const parent = dot === -1 ? root : paths.get(prefix)?.targetModel ??
+          (local !== undefined && local.table.name === path.source.read.table.name && path.source.participant === localOwner.participant
+            && local.table.primaryKeys.length === 1 && local.table.primaryKeys[0] === path.source.read.table.primaryKeys[0]
+            && local.table.columns.includes(path.sourceKey)
+            && local.table.columns.every(column => path.source.read.table.columns.includes(column)) ? path.sourceModel : undefined);
+        if (parent !== path.sourceModel) return yield* Result.fail(commerceError("unsupportedProfile", {
+          root, path: path.path, sourceModel: path.sourceModel, prefix,
+        }));
       }
     }
   });
 }
 
 const decodeKey = commerceDecoder(Schema.String.check(Schema.isLengthBetween(1, 256)), "storedCorruption");
-const keys = (rows: readonly JsonObject[], column: string) => Result.gen(function* () {
+const keys = (rows: readonly JsonObject[], column: string, nullable = false) => Result.gen(function* () {
   const values: string[] = [];
-  for (const row of rows) values.push(yield* decodeKey(row[column]));
+  for (const row of rows) {
+    if (nullable && row[column] === null) continue;
+    values.push(yield* decodeKey(row[column]));
+  }
   return [...new Set(values)];
 });
 
@@ -147,7 +160,7 @@ export const populateGraphRemotePaths = Effect.fn("LocalGraph.populateRemotePath
       const relation = direct.get(name);
       if (relation !== undefined) {
         if (parents.length > relation.maximumSources) return yield* context.refuse(commerceError("unsupportedProfile"));
-        const selected = yield* checkedCommerceValue(context, () => keys(parents, relation.sourceKey));
+        const selected = yield* checkedCommerceValue(context, () => keys(parents, relation.sourceKey, relation.nullableSourceKey));
         const plan = yield* checkedCommerceValue(context, () => targetFields(relation.target.read, child.node, name + "."));
         const fields = [...new Set([...plan.select, relation.targetKey])];
         const targets = selected.length === 0 ? [] : yield* complete(relation.target, { [relation.targetKey]: selected }, fields,

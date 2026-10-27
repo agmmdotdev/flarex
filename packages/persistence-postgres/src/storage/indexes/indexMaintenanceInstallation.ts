@@ -152,7 +152,7 @@ $final$;`;
 
 /** Retained Application openings keep their exact pins. Authority is added to
  * both sides of the reference before binding openings may enter this family. */
-export const MAINTENANCE_AUTHORITY_MIGRATION_SQL = `DO $maintenance_gate$
+const maintenanceMigrationGateSql = `DO $maintenance_gate$
 DECLARE gate fx_system_installation;
 BEGIN
   SELECT * INTO STRICT gate FROM fx_system_installation WHERE singleton_id=1;
@@ -164,7 +164,9 @@ BEGIN
     RAISE EXCEPTION 'Maintenance authority migration requires its managed owner' USING ERRCODE='55000';
   END IF;
 END;
-$maintenance_gate$;
+$maintenance_gate$;`;
+
+export const MAINTENANCE_AUTHORITY_MIGRATION_SQL = `${maintenanceMigrationGateSql}
 --> statement-breakpoint
 DO $maintenance_authority$
 DECLARE target_schema text := current_schema();
@@ -197,6 +199,19 @@ BEGIN
   EXECUTE format('REVOKE ALL ON FUNCTION %1$I.${operation.name}(${operation.signature}) FROM PUBLIC',target_schema);`).join("\n  ")}
 END;
 $maintenance_authority$;`;
+
+/** Replace only the ordered publishers under the existing managed migration
+ * fence. CREATE OR REPLACE preserves their ownership and explicit role grants. */
+export const INDEX_CATALOG_CAPACITY_MIGRATION_SQL = `${maintenanceMigrationGateSql}
+--> statement-breakpoint
+DO $index_catalog_capacity$
+DECLARE target_schema text := current_schema();
+BEGIN
+  ${INDEX_MAINTENANCE_PUBLISHER_FUNCTIONS.filter(operation => operation.name === "fx_replace_active_index_maintenance" ||
+    operation.name === "fx_replace_binding_index_maintenance").map(operation =>
+    `EXECUTE format($ddl$${operation.ddl.replace("CREATE FUNCTION ", "CREATE OR REPLACE FUNCTION ").replaceAll("%", "%%").replaceAll("%%1$I", "%1$I")}$ddl$,target_schema);\n  EXECUTE format('REVOKE ALL ON FUNCTION %1$I.${operation.name}(${operation.signature}) FROM PUBLIC',target_schema);`).join("\n  ")}
+END;
+$index_catalog_capacity$;`;
 
 const checkProof = (schemaName: SQL, table: PgTable, name: string, expression: SQL) => sql`exists (
   select 1 from pg_catalog.pg_constraint k join pg_catalog.pg_class c on c.oid = k.conrelid

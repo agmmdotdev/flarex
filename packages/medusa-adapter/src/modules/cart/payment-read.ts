@@ -1,5 +1,6 @@
 import { Effect, Result, Schema } from "effect";
 import type { DAL } from "@medusajs/framework/types";
+import { cartTotalsFields } from "@medusajs/cart/utils/totals-selection";
 import { describeToManyRelation } from "@medusajs/drizzle/relation-query";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject, type Json, type JsonObject, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -35,7 +36,7 @@ const allowedPaths: ReadonlySet<string> = new Set(cartPaymentPaths);
 
 /** Read-only native Cart totals input. All nine native models are compiled;
  * only the seven relation paths needed by the genuine total selector can read. */
-export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeof captureCartMetadata>>["frame"]) {
+export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeof captureCartMetadata>>["frame"], profile: "payment" | "checkout" = "payment") {
   return Result.gen(function* () {
     const entities = yield* Result.all(metadata.tables.map(table => Result.gen(function* () {
       return { table, complete: yield* compileCompleteRow(table), projection: yield* compileRowProjection(table),
@@ -44,10 +45,29 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
     const byName = new Map(entities.map(entity => [entity.table.name, entity]));
     const cart = byName.get("cart");
     if (cart === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+    const admitRow = (table: string, row: JsonObject) => profile === "checkout" && (table === cart.table.name &&
+      (row.shipping_address_id !== null || row.billing_address_id !== null || row.customer_id !== null) ||
+      table === "cart_line_item" && row.variant_id !== null)
+      ? Result.fail(commerceError("unsupportedProfile")) : Result.succeed(undefined);
+    const totals = cartTotalsFields(), rawTotals = new Set(totals.map(name => "raw_" + name));
+    const paths = profile === "checkout" ? [...cartPaymentPaths, "shipping_address", "billing_address"] : [...cartPaymentPaths];
+    const admittedPaths: ReadonlySet<string> = profile === "checkout" ? new Set(paths) : allowedPaths;
     const relations = new Map<string, Map<string, CommerceRelation>>();
     for (const entity of entities) {
       const members = new Map<string, CommerceRelation>();
       for (const declared of entity.table.relationships) {
+        if (profile === "checkout" && entity === cart && ["shipping_address", "billing_address"].includes(declared.name)) {
+          const keys = declared.foreignKeyNames ?? (declared.foreignKeyName === undefined ? [] : [declared.foreignKeyName]);
+          const foreign = entity.table.foreignKeys.filter(key => key.referencedTable === declared.targetTable &&
+            key.columns.length === keys.length && key.columns.every((name, index) => name === keys[index]));
+          const key = foreign[0];
+          if (declared.type !== "hasOneWithFK" || declared.targetTable !== "cart_address" ||
+            foreign.length !== 1 || key === undefined || keys.length !== 1)
+            return yield* Result.fail(commerceError("unsupportedProfile"));
+          members.set(declared.name, { name: declared.name, sourcePrimaryKeys: ["id"], targetTable: declared.targetTable,
+            targetPrimaryKeys: key.referencedColumns, join: { type: "belongsTo", foreignKeys: keys } });
+          continue;
+        }
         if (declared.type !== "hasMany") continue;
         const relation = describeToManyRelation(entity.table, declared.name, metadata.tables);
         if (relation === undefined || relation.join.type !== "hasMany") return yield* Result.fail(commerceError("unsupportedProfile"));
@@ -57,24 +77,30 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
     }
     const catalog = yield* makeReadCatalog(entities.map(({ table }) => ({ name: table.name, columns: table.columns.map(column => column.name),
       primaryKeys: ["id"], foreignKeys: table.foreignKeys.flatMap(key => key.columns),
+      nullableColumns: table.columns.filter(column => column.nullable).map(column => column.name),
       companions: Object.fromEntries(table.columns.filter(column => column.type === "bigNumber").map(column => [column.name, "raw_" + column.name])) })), relations);
     const leaf: ProjectionPolicy = { keys: "retain", storageKeys: "last", joinKeys: "retain", incomingKeys: true,
       allowWildcard: true, selectableRelations: [], nested: new Map() };
     const children = { ...leaf, selectableRelations: ["tax_lines", "adjustments"], nested: new Map([["tax_lines", leaf], ["adjustments", leaf]]) };
-    const projection: ProjectionPolicy = { ...leaf, selectableRelations: ["items", "credit_lines", "shipping_methods"],
-      nested: new Map([["items", children], ["credit_lines", leaf], ["shipping_methods", children]]) };
-    const query = (input: unknown) => Result.gen(function* () {
+    const projection: ProjectionPolicy = { ...leaf, selectableRelations: ["items", "credit_lines", "shipping_methods",
+      ...(profile === "checkout" ? ["shipping_address", "billing_address"] : [])],
+      nested: new Map([["items", children], ["credit_lines", leaf], ["shipping_methods", children],
+        ...(profile === "checkout" ? [["shipping_address", leaf], ["billing_address", leaf]] as const : [])]) };
+    const queryTable = (table: string, input: unknown) => Result.gen(function* () {
       const value = yield* envelope(input), paths = value.options.populate;
-      if (paths.some(path => !allowedPaths.has(path))) return yield* Result.fail(commerceError("unsupportedProfile"));
+      if (table !== cart.table.name && (profile !== "checkout" || table !== "cart_line_item") ||
+        paths.some(path => table === cart.table.name ? !admittedPaths.has(path) : !["tax_lines", "adjustments"].includes(path)))
+        return yield* Result.fail(commerceError("unsupportedProfile"));
       // raw_total is computed by the actual Cart service after serialization;
       // it is never a storage column or an independently accepted total.
-      const fields = value.options.fields?.filter(field => field !== "raw_total");
-      return { table: cart.table.name, projection: yield* compileProjection(catalog, cart.table.name, fields, paths, projection),
+      const fields = value.options.fields?.filter(field => profile === "checkout" ? !rawTotals.has(field) : field !== "raw_total");
+      return { table, projection: yield* compileProjection(catalog, table, fields, paths, table === cart.table.name ? projection : children),
         paths, withDeleted: false, relationFilters: [], ordering: new Map(),
         query: { skip: 0, order: { column: "id", direction: "asc" }, predicate: { kind: "and", children: [
           yield* compileWhere(value.where, scalarIdWhere), { kind: "isNull", column: "deleted_at" }] } },
         window: { kind: "catalog", order: "id", select: orderedCatalog("asc") } } satisfies ReadPlan;
     });
+    const query = (input: unknown) => queryTable(cart.table.name, input);
     const present = Effect.fn("CartPayment.present")(function* (input: Json, table: string): Effect.fn.Return<Json, CommerceTransactionError> {
       const entity = byName.get(table);
       if (entity === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
@@ -85,7 +111,7 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
         for (const relation of relations.get(table)?.values() ?? []) if (Object.hasOwn(scalar, relation.name)) {
           const child = scalar[relation.name]; delete scalar[relation.name];
           if (child === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
-          nested[relation.name] = yield* present(child, relation.targetTable);
+          nested[relation.name] = child === null && relation.join.type === "belongsTo" ? null : yield* present(child, relation.targetTable);
         }
         yield* Effect.fromResult(entity.projection(scalar));
         const projected = yield* projectExactNumericColumns(scalar, entity.numbers, "reserialize");
@@ -102,18 +128,22 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
         returned.set(rows, table); for (const row of rows) returned.set(row, table);
         return rows;
       };
-      const find = Effect.fn("CartPayment.find")(function* (ctx: CommerceCommandContext, input: unknown, count: boolean) {
-        const plan = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources).pipe(Result.flatMap(query)));
+      const find = Effect.fn("CartPayment.find")(function* (ctx: CommerceCommandContext, input: unknown, count: boolean, table = cart.table.name) {
+        const plan = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources).pipe(Result.flatMap(value => queryTable(table, value))));
         const result = yield* executeRead({ ...ctx, admitSelection: (table, rows) => Result.gen(function* () {
           const entity = byName.get(table);
           if (entity === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
           if (rows.length > 4) return yield* Result.fail(commerceError("limitExceeded"));
           for (const row of rows) {
             const checked = yield* entity.complete(projectNativeRow(row));
+            // The first checkout capability admits digital/manual items and
+            // empty Address/Customer branches. Real joins still own null/empty
+            // presentation; populated capabilities need their retained inverses.
+            yield* admitRow(table, checked);
             if (table === cart.table.name && typeof checked.id === "string") originals.set(checked.id, checked);
           }
         }) }, catalog, plan, count);
-        const rows = remember(structuredClone(result.rows));
+        const rows = remember(structuredClone(result.rows), table);
         return { ...result, rows };
       });
       const serialize: DAL.RepositoryService["serialize"] = <Output extends object | object[]>(input: unknown, options?: unknown): Promise<Output> =>
@@ -135,8 +165,15 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
           return [result.rows, result.count];
         }))),
       };
-      return { ...bound, repository, denied, remember, originals };
+      const lineItemRepository: DAL.RepositoryService = { ...denied, serialize,
+        findAndCount: (input, shared) => bridge.executeInput(shared, input, (ctx, value) => bridge.checked(ctx, Effect.gen(function* () {
+          const result = yield* find(ctx, value, true, "cart_line_item");
+          if (result.count === undefined) return yield* ctx.refuse(commerceError("storedCorruption"));
+          return [result.rows, result.count];
+        }))),
+      };
+      return { ...bound, repository, lineItemRepository, denied, remember, originals };
     };
-    return { cart, entities, byName, catalog, relations: catalog.relations, query, present, bind };
+    return { cart, entities, byName, catalog, relations: catalog.relations, paths, totals, profile, admitRow, query, queryTable, present, bind };
   });
 }

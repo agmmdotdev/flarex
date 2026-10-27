@@ -25,7 +25,7 @@ const mismatch = () => commerceError("receiptMismatch");
 export function cartCompletionPolicy(prepared: Prepared) {
   const read = cartPaymentReadPolicy(prepared, "completion");
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("CartCompletion.validateCall")(function* (call, activity) {
-    if (call.commandName === "cartListForCheckout" || call.commandName === "cartCountForCheckout")
+    if (call.commandName === "cartListForCheckout" || call.commandName === "cartCountForCheckout" || call.commandName === "cartLineItemsCountForCheckout")
       return yield* read.validateLogicalCall(call, activity);
     if (activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length) return yield* Effect.fail(mismatch());
     if (call.commandName === "cartAddressesForCheckout" || call.commandName === "cartEmptyAddressesUpdateForCheckout") {

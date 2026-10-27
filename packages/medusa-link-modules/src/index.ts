@@ -21,3 +21,10 @@ export { LinkOperationRequest as LinkOperationRequestSchema, LinkOperationHandle
   LinkOperationEventIntent as LinkOperationEventIntentSchema, linkPairRevisionId, linkOperationRequestKey } from "./operations/contracts";
 
 export { CartPaymentCollection } from "./definitions/cart-payment-collection"
+
+export { OrderCart } from "./definitions/order-cart"
+
+export { CartCustomer } from "./definitions/readonly/cart-customer"
+export { CartRegion } from "./definitions/readonly/cart-region"
+export { CartProduct } from "./definitions/readonly/cart-product"
+export { CartPromotion } from "./definitions/cart-promotion"

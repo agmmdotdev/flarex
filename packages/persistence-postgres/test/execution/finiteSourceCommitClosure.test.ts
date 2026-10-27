@@ -325,7 +325,7 @@ async function verifyCurrentBindingClosure(driver: "pglite" | "postgres") {
     // Each new table contributes an intrinsic and a primary-key definition.
     const boundaryTableCount = 8;
     const origin = { kind: "authored", sourceId: "test.finite-definition-boundary" };
-    for (const total of [512, 513]) {
+    for (const total of [1024, 1025]) {
       const schemaVersionId = decodeCatalogSchemaVersionId(`finite-definition-boundary-${total}`);
       const declaredIndexes = total - catalog.snapshot.definitions.length - 2 * boundaryTableCount;
       if (declaredIndexes < 0) throw new Error("Original catalog exceeds the independent boundary profile");
@@ -357,16 +357,16 @@ async function verifyCurrentBindingClosure(driver: "pglite" | "postgres") {
           initialDeadline: yield* startCatalogControlDeadline("initial", 20_000),
           lockTimeoutMilliseconds: 5_000, recoveryTimeoutMilliseconds: 20_000 });
       }));
-      if (total === 512) await control.transaction(tx => runEffect(Effect.gen(function* () {
+      if (total === 1024) await control.transaction(tx => runEffect(Effect.gen(function* () {
         yield* ensureLogicalStorageDefinitions(tx, deploymentId, schemaVersionId);
         const closure = yield* prepareAppUniqueConstraintSetClosureV1Effect(control, { deploymentId, schemaVersionId }, tx);
         yield* closeAppUniqueConstraintSetV1InTransactionEffect(tx, closure);
       })));
       const outcome = await runEffect(loadPublishedPhysicalRequirementSnapshotV1(control, { deploymentId, schemaVersionId }).pipe(Effect.result));
-      if (total === 512) {
+      if (total === 1024) {
         const selected = Result.getOrThrow(outcome);
-        if (selected === null) throw new Error("Missing real 512-definition schema");
-        expect(selected.definitions).toHaveLength(512);
+        if (selected === null) throw new Error("Missing real 1024-definition schema");
+        expect(selected.definitions).toHaveLength(1024);
         // The cold reader boundary also owns the complete preparation DTO. Use
         // the real issuer and host meter, rather than a digest-only substitute.
         await runEffect(Effect.scoped(Effect.gen(function* () {
@@ -384,8 +384,8 @@ async function verifyCurrentBindingClosure(driver: "pglite" | "postgres") {
             prepareLogicalStorageReadiness(logical.ports, logical.unique, boundaryLocation));
           const prepared = yield* retained.use(value => Effect.succeed(value));
           expect(prepared.status).toBe("prepared");
-          if (prepared.status !== "prepared") return yield* Effect.die("512-definition cold preparation was not issued");
-          expect(prepared.snapshot.definitions).toHaveLength(512);
+          if (prepared.status !== "prepared") return yield* Effect.die("1024-definition cold preparation was not issued");
+          expect(prepared.snapshot.definitions).toHaveLength(1024);
           expect(yield* requirePreparedLogicalStorageCatalog(prepared, logical.ports, logical.unique, boundaryLocation)).toBe(prepared);
           expect(Result.getOrThrow(retained.readUsage()).chargedBytes).toBeGreaterThan(0);
           const completeDto = JSON.stringify({ manifest: selected.manifest, definitions: selected.definitions },
@@ -404,7 +404,7 @@ async function verifyCurrentBindingClosure(driver: "pglite" | "postgres") {
           })));
           const chargedDto = decodeDto(actualDto);
           expect(chargedDto).toEqual(decodeDto(completeDto));
-          expect(chargedDto.definitions).toHaveLength(512);
+          expect(chargedDto.definitions).toHaveLength(1024);
           yield* retained.close;
           // Disposal revokes catalog issuance; the actual lease below still
           // proves closed lifetime without retaining a closed issuer registry.

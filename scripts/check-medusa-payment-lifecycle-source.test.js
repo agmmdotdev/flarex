@@ -25,6 +25,14 @@ test("retains the finite capture relation check without changing native capture 
     target.replace("await paymentModule.capturePayment(input)", "await paymentModule.refundPayment(input)")])
     assert.throws(() => verifyPaymentLifecycleSource(source, changed, pair.target));
 });
+
+test("retains actual Refund history in native payment authorization", () => {
+  const pair = paymentLifecycleSourcePairs.find(pair => pair.target.endsWith("payment/steps/authorize-payment-session.ts"));
+  if (pair === undefined) throw new Error("Missing authorization step source");
+  const source = read(pair.source), target = read(pair.target);
+  verifyPaymentLifecycleSource(source, target, pair.target);
+  assert.throws(() => verifyPaymentLifecycleSource(source, target.replace(', "payment.refunds"', ""), pair.target));
+});
 test("selects only the genuine native Order refund cancellation guard", () => {
   const pair = paymentLifecycleSourcePairs.find(pair => pair.classification === "orderRefundValidationFork");
   if (pair === undefined) throw new Error("Missing Order refund validation source");

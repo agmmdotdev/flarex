@@ -1,4 +1,4 @@
-import { paymentCollectionLinkReadPolicy } from "./payment-collection-read-receipt";
+import { checkoutLinkReadPolicy } from "./checkout-link-read-receipt";
 import { Effect, Result, Schema } from "effect";
 import { commerceError, defaultCommerceResources, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
@@ -54,7 +54,7 @@ export const prepareCartPaymentCollectionLinkRead = Effect.fn("CartPaymentCollec
     ], undefined, [CartPaymentCollection]))),
   ];
   const basePolicy = linkLogicalEventPolicy(metadata.frame.name, prepared.serviceName, prepared.entityName, ["cart_id", "payment_collection_id"]);
-  const policy = yield* Effect.fromResult(paymentCollectionLinkReadPolicy(metadata.frame, "cart_id", "cartPaymentCollectionCount",
+  const policy = yield* Effect.fromResult(checkoutLinkReadPolicy(metadata.frame, ["cart_id", "payment_collection_id"], "cartPaymentCollectionCount",
     "CartPaymentCollectionLink.validateRead", basePolicy, input => Result.gen(function* () {
       const args = yield* decodeRead(input);
       const plan = yield* captureCommerceInput(buildQuery(args.filters, { ...args.config, take: args.config?.take ?? 4,

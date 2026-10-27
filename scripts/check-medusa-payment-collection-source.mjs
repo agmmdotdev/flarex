@@ -111,8 +111,14 @@ export function verifyCartPaymentTotalsSource(source, target, helper) {
   const include = method("shouldIncludeTotals"), add = method("addRelationsToCalculateTotals");
   if (include === undefined || add === undefined || !ts.isMethodDeclaration(include) || !ts.isMethodDeclaration(add) || !include.body || !add.body)
     throw new Error("Missing native Cart totals selection");
+  const totalsStatement = include.body.statements[0];
+  const totals = totalsStatement !== undefined && ts.isVariableStatement(totalsStatement) ? totalsStatement.declarationList.declarations[0] : undefined;
+  if (totals?.name.getText(ast) !== "totalFields" || totals.initializer === undefined || !ts.isArrayLiteralExpression(totals.initializer))
+    throw new Error("Missing native Cart totals field array");
   const helperExpected = 'import type { FindConfig } from "@medusajs/framework/types"\nimport { deduplicate } from "@medusajs/framework/utils/portable"\n' +
+    'export function cartTotalsFields(): string[] { return ' + totals.initializer.getText(ast) + ' }\n' +
     'export function includeCartTotals(config: FindConfig<Record<string, unknown>>): boolean ' + include.body.getText(ast)
+      .replace(totals.getText(ast), "totalFields = cartTotalsFields()")
       .replace("this.addRelationsToCalculateTotals(config, totalFields)", "addRelationsToCalculateTotals(config, totalFields)") +
     '\nfunction addRelationsToCalculateTotals(config: FindConfig<Record<string, unknown>>, totalFields: string[]) ' + add.body.getText(ast);
   equal(helperExpected, helper);

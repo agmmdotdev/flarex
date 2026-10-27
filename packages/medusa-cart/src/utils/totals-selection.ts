@@ -2,8 +2,7 @@ import type { FindConfig } from "@medusajs/framework/types"
 import { deduplicate } from "@medusajs/framework/utils/portable"
 
 /** Native Cart total selection shared with authenticated read receipts. */
-export function includeCartTotals(config: FindConfig<Record<string, unknown>>): boolean {
-    const totalFields = [
+export function cartTotalsFields(): string[] { return [
       "total",
       "subtotal",
       "tax_total",
@@ -23,7 +22,10 @@ export function includeCartTotals(config: FindConfig<Record<string, unknown>>): 
       "original_shipping_tax_total",
       "original_shipping_subtotal",
       "original_shipping_total",
-    ]
+    ] }
+
+export function includeCartTotals(config: FindConfig<Record<string, unknown>>): boolean {
+    const totalFields = cartTotalsFields()
 
     const includeTotals = (config?.select ?? []).some((field) =>
       totalFields.includes(field as string)

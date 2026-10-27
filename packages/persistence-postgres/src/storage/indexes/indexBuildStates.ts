@@ -1,4 +1,5 @@
 import { observeExecution } from "../../execution/diagnostics/operation";
+import { MAX_PHYSICAL_INDEX_DEFINITIONS } from "./catalogCapacity";
 // Quiet calls retain lazy operation bodies; actual caller/SDK policy owns diagnostic spans.
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { bytesEqualFullScan, encodeBytesToLowercaseHex, copyBytes } from "@flarex/utils/bytes";
@@ -265,7 +266,7 @@ export class IndexBuildStatePersistenceError extends Error {
   }
 }
 
-export const MAX_REQUIRED_INDEX_BUILDS = 512;
+export const MAX_REQUIRED_INDEX_BUILDS = MAX_PHYSICAL_INDEX_DEFINITIONS;
 
 const decodeSelectedBuildLockVerdict = Schema.decodeUnknownEffect(Schema.Struct({
   reason: Schema.Literals(["accepted", "missing", "invalid", "unavailable", "frontier"]),

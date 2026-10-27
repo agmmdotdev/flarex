@@ -77,6 +77,7 @@ import {
   type IndexBuildStateRecord,
   validateIndexBuildStateFrontierResult,
 } from "./indexBuildStates";
+import { MAX_PHYSICAL_INDEX_DEFINITIONS } from "./catalogCapacity";
 import {
   getScopeClock,
   type LockScopeClockForUpdateError,
@@ -118,7 +119,7 @@ const decodeSchemaVersionIdResult = Schema.decodeUnknownResult(
 const decodeDefinitionIdResult = Schema.decodeUnknownResult(
   CatalogIndexDefinitionIdSchema,
 );
-export const MAX_RECONCILED_DEFINITIONS = 512;
+export const MAX_RECONCILED_DEFINITIONS = MAX_PHYSICAL_INDEX_DEFINITIONS;
 
 export interface ReconcilePublishedIndexBuildsV1Input {
   readonly deploymentId: string;

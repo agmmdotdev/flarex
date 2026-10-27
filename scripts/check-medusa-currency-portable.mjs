@@ -26,6 +26,7 @@ for (const entry of [
   "packages/medusa-core-flows/src/payment-collection/workflows/create-payment-session.ts",
   "packages/medusa-core-flows/src/payment-collection/workflows/delete-payment-sessions.ts",
   "packages/medusa-adapter/src/workflows/payment/create-session.ts",
+  "packages/medusa-adapter/src/workflows/cart/complete-cart.ts",
   "packages/medusa-adapter/src/workflows/payment/delete-sessions.ts",
   "packages/medusa-adapter/src/modules/payment/service.ts",
   "packages/medusa-adapter/src/modules/payment/schema.ts",

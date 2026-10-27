@@ -29,3 +29,17 @@ describe("native checkout source closure", () => {
     });
   }
 });
+
+it("retains native checkout Refund identity, sign and exact amount", () => {
+  const pair = checkoutSourcePairs.find(pair => pair.target.endsWith("cart/workflows/complete-cart.ts"));
+  if (pair === undefined) throw new Error("Missing native checkout root");
+  const source = readFileSync(pair.source, "utf8"), target = readFileSync(pair.target, "utf8");
+  for (const changed of [target.replace("reference_id: refund.id", "reference_id: payment.id"),
+    target.replace("refund.raw_amount ?? refund.amount", "refund.amount"),
+    target.replace("refund.raw_amount ?? refund.amount, -1", "refund.raw_amount ?? refund.amount, 1"),
+    target.replace('reference: "refund"', 'reference: "capture"'),
+    target.replace("payment.refunds ?? []", "[]")]) {
+    expect(changed).not.toBe(target);
+    expect(() => verifyCheckoutSource(source, changed, pair.target)).toThrow();
+  }
+});

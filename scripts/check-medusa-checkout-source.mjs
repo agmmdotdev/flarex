@@ -87,7 +87,22 @@ export function adaptCheckoutSource(source, targetPath) {
     .replaceAll('paymentSessions[0].id', 'paymentSessions[0]!.id')
     .replaceAll('paymentSessions![0].id', 'paymentSessions![0]!.id')
     .replace('            sales_channel_id,\n            variants,', '            sales_channel_id: sales_channel_id!,\n            variants,')
-    .replace('payment_collection_id: cart.payment_collection.id', 'payment_collection_id: cart.payment_collection!.id');
+    .replace('payment_collection_id: cart.payment_collection.id', 'payment_collection_id: cart.payment_collection!.id')
+    .replace('import type { LinkDefinition, PromotionTypes }', 'import type { CreateOrderTransactionDTO, LinkDefinition, PromotionTypes }')
+    .replace('  isDefined,\n', '  isDefined,\n  MathBN,\n')
+    .replace('          const transactions =', '          const transactions: CreateOrderTransactionDTO[] =')
+    .replace('          return transactions', '          if (payment) {\n' +
+      '            for (const refund of payment.refunds ?? []) {\n' +
+      '              transactions.push({\n' +
+      '                order_id: createdOrder.id,\n' +
+      '                amount: MathBN.mult(refund.raw_amount ?? refund.amount, -1),\n' +
+      '                currency_code: payment.currency_code,\n' +
+      '                reference: "refund",\n' +
+      '                reference_id: refund.id,\n' +
+      '              })\n' +
+      '            }\n' +
+      '          }\n\n' +
+      '          return transactions');
   if (targetPath === prefix + "cart/steps/validate-cart-payments.ts") expected = expected
     .replace('import type { CartWorkflowDTO } from "@medusajs/framework/types"',
       'import type { CheckoutCartView } from "../../common/steps/checkout-query-views"\n' +

@@ -572,6 +572,8 @@ type SharedCheckedBindingScope = {
   closed: boolean;
   lendingOpen: boolean;
   readonly declaredSourceKeys: ReadonlySet<string> | undefined;
+  readonly declaredSourceCount: number;
+  readonly admittedSourceKeys: Set<string>;
   readonly previous: SharedCheckedBindingScope | undefined;
   readonly observations: SharedCheckedBinding[];
   readonly writeClosures: Map<string, Readonly<{ metadataProjection: PreparedFiniteMetadataProjection;
@@ -590,6 +592,7 @@ export function withSharedLogicalSourceBindingChecks<Value, Failure, Requirement
     const previous = checkedBindings.get(tx);
     const shared: SharedCheckedBindingScope = { closed: false, lendingOpen: true,
       declaredSourceKeys: declaredSourceKeys === undefined ? undefined : new Set(declaredSourceKeys),
+      declaredSourceCount: declaredSourceKeys?.length ?? 0, admittedSourceKeys: new Set(),
       previous, observations: [], writeClosures: new Map() };
     checkedBindings.set(tx, shared);
     return Effect.suspend(work).pipe(Effect.onExit(exit => Effect.sync(() => {
@@ -597,6 +600,7 @@ export function withSharedLogicalSourceBindingChecks<Value, Failure, Requirement
       shared.lendingOpen = false;
       if (Exit.isFailure(exit)) invalidateSharedLogicalSourceBindingChecks(tx);
       shared.observations.length = 0;
+      shared.admittedSourceKeys.clear();
       shared.writeClosures.clear();
       if (checkedBindings.get(tx) !== shared) return;
       let livePrevious = previous;
@@ -609,17 +613,43 @@ export function withSharedLogicalSourceBindingChecks<Value, Failure, Requirement
 
 /** Native root admission ends before business callbacks and publication. The
  * finite proof/closure owner keeps its separate existing callback contract. */
-export function closeSharedLogicalSourceBindingLending(tx: FlarexMetadataTransaction): void {
+export const closeSharedLogicalSourceBindingLending = Effect.fn("LogicalSourceAdmission.closeCohort")(function* (
+  tx: FlarexMetadataTransaction,
+) {
   const shared = checkedBindings.get(tx);
   if (shared?.declaredSourceKeys === undefined) return;
+  const wasOpen = shared.lendingOpen && !shared.closed;
+  // Revoke lending before the final read, including when it fails or is
+  // interrupted. Only this trusted admission prelude can retain the proof.
   shared.lendingOpen = false;
-  shared.observations.length = 0;
-}
+  return yield* Effect.gen(function* () {
+    if (!wasOpen || shared.declaredSourceCount !== shared.declaredSourceKeys?.size ||
+      shared.admittedSourceKeys.size !== shared.declaredSourceCount ||
+      [...shared.admittedSourceKeys].some(key => !shared.declaredSourceKeys?.has(key)))
+      return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    if (shared.declaredSourceCount === 0) {
+      if (shared.observations.length !== 0)
+        return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+      return;
+    }
+    const observation = shared.observations[0];
+    if (shared.observations.length !== 1 || observation?.accepted === undefined)
+      return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    yield* Effect.fromResult(requireAcceptedApplicationBindingLending(observation.accepted,
+      observation.application, tx, observation.originalClock));
+    yield* observation.catalog.validateCatalog(tx, observation.authority,
+      observation.targetProtection.readinessProtection);
+  }).pipe(Effect.ensuring(Effect.sync(() => {
+    shared.observations.length = 0;
+    shared.admittedSourceKeys.clear();
+  })));
+});
 
 export function invalidateSharedLogicalSourceBindingChecks(tx: FlarexMetadataTransaction): void {
   let shared = checkedBindings.get(tx);
   while (shared !== undefined) {
     shared.observations.length = 0;
+    shared.admittedSourceKeys.clear();
     shared.writeClosures.clear();
     if (shared.declaredSourceKeys !== undefined) shared.lendingOpen = false;
     shared = shared.previous;
@@ -813,6 +843,7 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
     const sharedScope = checkedBindings.get(tx);
     const nativeRoot = selection === "full" && owner === "transactionCompletion" && sharedScope?.declaredSourceKeys !== undefined;
     if (nativeRoot && (!sharedScope.lendingOpen || sharedScope.closed || !sharedScope.declaredSourceKeys?.has(source.key) ||
+      sharedScope.declaredSourceCount !== sharedScope.declaredSourceKeys.size || sharedScope.admittedSourceKeys.has(source.key) ||
       [...sharedScope.declaredSourceKeys].some(key => readiness.source(key) === undefined)))
       return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
     const targetInstallation = nativeRoot ? yield* Effect.fromResult(requireAdmittedTargetInstallationIdentity(tx)) : undefined;
@@ -853,14 +884,14 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
       const admitShared = (evidence: ApplicationBindingEvidence, accepted: AcceptedApplicationBinding) => Effect.gen(function* () {
           yield* Effect.fromResult(verifyPreparedLogicalSchemaBinding(readiness, shared.frame, evidence,
             { kind: "activated", activation: shared.activation }));
-          // Split/full-proof control catalogs have no protected pair to lend.
-          // Their static owner stays fresh while the target readiness verdict
-          // uses this admission's installation and scope exclusion.
-          if (nativeRoot && readinessProtection === undefined) yield* readiness.validateCatalog(tx, authority);
+          // The declared cohort retains its initial complete catalog proof
+          // only through trusted admission. closeCohort revalidates it before
+          // business execution; each source still refreshes live readiness.
           if (nativeRoot) {
             if (shared.readinessObservation === undefined)
               return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
             yield* readiness.refreshFullObservation(shared.readinessObservation, tx, authority, clock, readinessProtection);
+            sharedScope.admittedSourceKeys.add(source.key);
           }
           return yield* acceptShared(accepted);
         });
@@ -892,6 +923,7 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
         schemaVersionId: captured.schemaVersionId, manifestSha256: readiness.reference.manifestSha256,
         frame: candidate.frame, activation, head, bindingSelection,
         ...(targetPreparation === undefined ? {} : { selectedPreparation: targetPreparation }) }));
+      if (nativeRoot) sharedScope.admittedSourceKeys.add(source.key);
       return yield* Effect.suspend(() => work(Object.freeze({ tx, authority, clock,
         schemaVersionId: captured.schemaVersionId, source, frame: candidate.frame, head }), accepted, bindingSelection));
     });

@@ -22,7 +22,7 @@ export const decodeGraphDirectPaths = commerceDecoder(Schema.Array(GraphDirectPa
 const decodeSelections = commerceDecoder(Schema.Array(Selection).check(Schema.isMaxLength(16)), "unsupportedProfile");
 const Rest = [Schema.Record(Schema.String, Schema.Json)] as const;
 const Relationship = Schema.StructWithRest(Schema.Struct({ entity: Schema.optionalKey(Name), primaryKey: Name,
-  foreignKey: Name, alias: Name, isList: Schema.optionalKey(Schema.Boolean) }), Rest);
+  foreignKey: Schema.Union([Name, Path]), alias: Name, isList: Schema.optionalKey(Schema.Boolean) }), Rest);
 const decodeJoiner = commerceDecoder(Schema.StructWithRest(Schema.Struct({ isLink: Schema.Literal(true),
   isReadOnlyLink: Schema.optionalKey(Schema.Boolean),
   alias: Schema.optionalKey(Schema.Array(Schema.StructWithRest(Schema.Struct({ entity: Name }), Rest))),
@@ -44,7 +44,13 @@ export function nativeLinkGraphDirectPaths(joiner: ModuleJoinerConfig, selection
         const candidates = native.extends.filter(extension => extension.entity === sourceModel && extension.relationship.alias === part);
         const relation = candidates[0]?.relationship;
         if (candidates.length !== 1 || relation?.entity === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
-        result.push({ ...selection, sourceModel, sourceKey: relation.foreignKey, targetModel: relation.entity,
+        const keys = relation.foreignKey.split("."), sourceKey = keys.at(-1);
+        // Native read-only Cart links qualify a LineItem key with the local
+        // parent path. Resolve that qualification only against this selection;
+        // the graph owner still authenticates the resulting source column.
+        if (sourceKey === undefined || keys.length > 1 && keys.slice(0, -1).join(".") !== selection.path.split(".").slice(0, -1).join("."))
+          return yield* Result.fail(commerceError("unsupportedProfile"));
+        result.push({ ...selection, sourceModel, sourceKey, targetModel: relation.entity,
           targetKey: relation.primaryKey, many: relation.isList === true, nativeFields: true });
         continue;
       }
@@ -66,7 +72,7 @@ export function nativeLinkGraphDirectPaths(joiner: ModuleJoinerConfig, selection
           targetKey: endpoint.foreignKey, many: relation.isList === true, nativeFields: true });
       }
     }
-    return result;
+    return yield* captureCommerceInput(result).pipe(Result.flatMap(decodeGraphDirectPaths));
   });
 }
 
@@ -90,6 +96,7 @@ export function localGraphDirectPath(catalog: ReadCatalog, sourceTable: string, 
 export interface ResolvedGraphDirectPath extends GraphDirectPath {
   readonly source: GraphReadSelection;
   readonly target: GraphReadSelection;
+  readonly nullableSourceKey: boolean;
 }
 
 export function prepareGraphDirectPaths(participants: readonly GraphParticipant[], models: ReadonlyMap<string, readonly GraphReadSelection[]>) {
@@ -107,7 +114,8 @@ export function prepareGraphDirectPaths(participants: readonly GraphParticipant[
           return yield* Result.fail(commerceError("unsupportedProfile"));
         const paths = roots.get(path.root) ?? new Map<string, ResolvedGraphDirectPath>();
         if (paths.has(path.path) || root.read.paths.some(local => local.path === path.path)) return yield* Result.fail(commerceError("unsupportedProfile"));
-        paths.set(path.path, Object.freeze({ ...path, source, target })); roots.set(path.root, paths);
+        paths.set(path.path, Object.freeze({ ...path, source, target,
+          nullableSourceKey: source.read.table.nullableColumns?.includes(path.sourceKey) === true })); roots.set(path.root, paths);
       }
     }
     return roots;

@@ -1,7 +1,7 @@
-import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema, Tracer } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Option, Result, Schema, Tracer } from "effect";
 import { expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { fxSystemIndexBuildStates, fxSystemScopeClocks } from "../../src/database/schema";
+import { fxControlIndexDefinitions, fxSystemIndexBuildStates, fxSystemScopeClocks } from "../../src/database/schema";
 import {
   decodeReplacementScopeIdV1,
   CommitSeqSchema,
@@ -48,6 +48,16 @@ const diagnostics: ExecutionDiagnosticPolicy = {
   observe: (name, work) => Effect.useSpan(name, {}, span =>
     Effect.provideService(work, Tracer.ParentSpan, span)),
 };
+const sourceProofTracer = (spans: string[]) => Tracer.make({ span(options) {
+  // Index/unique coverage owners also authenticate the same binding. Count
+  // source-selected evidence at its actual caller, independently of those
+  // required catalog reads; they must not inflate the source reuse witness.
+  if (options.name !== "DataBindingRepository.readSelectedEvidence" ||
+    (Option.isSome(options.parent) && options.parent.value._tag === "Span" &&
+      options.parent.value.name === "LogicalSourceAdmission.checkBinding"))
+    spans.push(options.name);
+  return new Tracer.NativeSpan(options);
+} });
 
 it("retains full source proof authenticity across serialized SQL and overlapping owner lifetimes", async () => {
   const cleanup: Array<() => Promise<void>> = [];
@@ -67,7 +77,7 @@ it("retains full source proof authenticity across serialized SQL and overlapping
         evidence: fixture.currencyDefinition.provenance }, "medusa", "relational", { kind: "prepared", catalog }));
     const resolved = await runEffect(resolveLocatedTrustedScopeAuthorityEffect(deploymentId, application.authorityPorts));
     const spans: string[] = [];
-    const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
+    const tracer = sourceProofTracer(spans);
     const count = (name: string) => spans.filter(span => span === name).length;
     const bindingProof = "DataBindingRepository.readSelectedEvidence";
     const readinessProof = "LogicalStorageReadiness.inspect";
@@ -151,7 +161,7 @@ async function verifyThreeSourceAcceptance(driver: "pglite" | "postgres") {
     const application = await runEffect(prepareApplicationBindingSelection(fixture.application.activation));
     const resolved = await runEffect(resolveLocatedTrustedScopeAuthorityEffect(deploymentId, fixture.application.authorityPorts));
     const spans: string[] = [];
-    const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
+    const tracer = sourceProofTracer(spans);
     const count = (name: string) => spans.filter(span => span === name).length;
     const entered: string[] = [];
     let escapedRootBinding: AcceptedApplicationBinding | undefined;
@@ -171,7 +181,7 @@ async function verifyThreeSourceAcceptance(driver: "pglite" | "postgres") {
           return payloadSource.withTransactionBinding(application, tx, resolved.authority, clock, (third, payloadAccepted) => Effect.gen(function* () {
             entered.push(third.source.key);
             expect(payloadAccepted).toBe(accepted);
-            closeSharedLogicalSourceBindingLending(tx);
+            yield* closeSharedLogicalSourceBindingLending(tx);
             const afterClose = yield* commerceSource.withTransactionBinding(application, tx, resolved.authority, clock,
               () => Effect.die("Closed source lending entered work"), accepted).pipe(Effect.result);
             expect(afterClose).toMatchObject({ _tag: "Failure", failure: { _tag: "LogicalSourceAdmissionError", reason: "sourceMismatch" } });
@@ -186,8 +196,109 @@ async function verifyThreeSourceAcceptance(driver: "pglite" | "postgres") {
     expect(count("ApplicationActiveHead.readCheckedCoherentForShare")).toBe(1);
     expect(count("DataBindingRepository.readSelectedEvidence")).toBe(1);
     expect(count("LogicalStorageReadiness.inspect")).toBe(1);
+    expect(count("LogicalStorageReadiness.validateStaticCatalog")).toBe(2);
     expect(count("LogicalStorageReadiness.refreshFullObservation")).toBe(2);
     expect(count("ScopeClock.requireAuthorizationRevocationEpochInTransaction")).toBe(3);
+    // Cancellation at the final catalog boundary closes lending even when a
+    // trusted caller inspects the interrupted Exit inside the admission scope.
+    let catalogChecks = 0;
+    const interruptFinalCatalog: ExecutionDiagnosticPolicy = { observe: (name, work) => {
+      if (name === "LogicalStorageReadiness.validateStaticCatalog" && ++catalogChecks === 2) return Effect.interrupt;
+      return diagnostics.observe(name, work);
+    } };
+    await fixture.persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+      yield* lockInstallationForCurrentTransaction(tx);
+      const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId);
+      const first = selected[0], second = selected[1], third = selected[2];
+      if (first === undefined || second === undefined || third === undefined) return yield* Effect.die("Missing complete cohort");
+      yield* withSharedLogicalSourceBindingChecks(tx, () =>
+        first.withTransactionBinding(application, tx, resolved.authority, clock, (_one, accepted) =>
+          second.withTransactionBinding(application, tx, resolved.authority, clock, (_two, nextAccepted) =>
+            third.withTransactionBinding(application, tx, resolved.authority, clock, () => Effect.gen(function* () {
+              const canceled = yield* Effect.exit(closeSharedLogicalSourceBindingLending(tx));
+              expect(Exit.isFailure(canceled)).toBe(true);
+              if (Exit.isFailure(canceled)) expect(Cause.hasInterrupts(canceled.cause)).toBe(true);
+              const afterCancellation = yield* first.withTransactionBinding(application, tx, resolved.authority, clock,
+                () => Effect.die("Interrupted cohort lent evidence to business work"), nextAccepted).pipe(Effect.result);
+              expect(afterCancellation).toMatchObject({ _tag: "Failure", failure: { reason: "sourceMismatch" } });
+            }), nextAccepted), accepted)), selected.map(source => source.source.key));
+    }).pipe(Effect.provideService(ExecutionDiagnostics, interruptFinalCatalog),
+      Effect.ensuring(Effect.sync(() => closeInstallationAdmission(tx))))));
+    expect(catalogChecks).toBe(2);
+    // Cohort declarations are exact, and a failed seal cannot leave reusable
+    // evidence behind even if its caller catches the refusal.
+    for (const malformed of ["missing", "duplicate", "duplicate-declaration", "unknown"] as const) {
+      await fixture.persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+        yield* lockInstallationForCurrentTransaction(tx);
+        const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId);
+        const first = selected[0];
+        if (first === undefined) return yield* Effect.die("Missing genuine first source");
+        const declared = selected.map(source => source.source.key);
+        if (malformed === "duplicate-declaration") declared.push(first.source.key);
+        if (malformed === "unknown") declared.push("missing.source");
+        let businessEntered = false;
+        const failed = yield* withSharedLogicalSourceBindingChecks(tx, () =>
+          first.withTransactionBinding(application, tx, resolved.authority, clock, (_state, accepted) => Effect.gen(function* () {
+            if (malformed === "duplicate") {
+              yield* first.withTransactionBinding(application, tx, resolved.authority, clock,
+                () => Effect.die("Repeated source entered admission"), accepted);
+            }
+            const seal = yield* closeSharedLogicalSourceBindingLending(tx).pipe(Effect.result);
+            expect(seal).toMatchObject({ _tag: "Failure", failure: { reason: "sourceMismatch" } });
+            const retry = yield* closeSharedLogicalSourceBindingLending(tx).pipe(Effect.result);
+            expect(Result.isFailure(retry)).toBe(true);
+            const afterSeal = yield* first.withTransactionBinding(application, tx, resolved.authority, clock,
+              () => Effect.sync(() => { businessEntered = true; }), accepted).pipe(Effect.result);
+            expect(Result.isFailure(afterSeal)).toBe(true);
+          })), declared).pipe(Effect.result);
+        expect(Result.isFailure(failed)).toBe(malformed !== "missing");
+        expect(businessEntered).toBe(false);
+      }).pipe(Effect.ensuring(Effect.sync(() => closeInstallationAdmission(tx))))));
+    }
+    // Mutating the actual immutable control catalog after the last source's
+    // readiness check must be refused by the final complete catalog owner,
+    // before any business callback. This fixture has a separate control DB;
+    // mutate that actual owner and restore its exact bytes in final cleanup.
+    const definition = selected[2]?.indexes[0];
+    if (definition === undefined) throw new Error("Missing actual control definition");
+    const definitionKey = and(eq(fxControlIndexDefinitions.deploymentId, deploymentId),
+      eq(fxControlIndexDefinitions.indexDefinitionId, definition.indexDefinitionId));
+    const original = (await logical.ports.controlDb.select({ bytes: fxControlIndexDefinitions.physicalSpecBytes })
+      .from(fxControlIndexDefinitions).where(definitionKey))[0];
+    if (original === undefined) throw new Error("Missing actual control catalog row");
+    const restoreCatalog = new Error("Restore test-owned catalog corruption");
+    await fixture.persistence.drizzle.transaction(async tx => {
+      try {
+        await runEffect(Effect.gen(function* () {
+          yield* lockInstallationForCurrentTransaction(tx);
+          const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId);
+          const first = selected[0], second = selected[1], third = selected[2];
+          if (first === undefined || second === undefined || third === undefined)
+            return yield* Effect.die("Missing genuine catalog cohort");
+          let businessEntered = false;
+          let catalogChanged = false;
+          const refused = yield* withSharedLogicalSourceBindingChecks(tx, () =>
+            first.withTransactionBinding(application, tx, resolved.authority, clock, (_one, accepted) =>
+              second.withTransactionBinding(application, tx, resolved.authority, clock, (_two, nextAccepted) =>
+                third.withTransactionBinding(application, tx, resolved.authority, clock, () => Effect.gen(function* () {
+                  const changed = yield* Effect.promise(async () => await logical.ports.controlDb.update(fxControlIndexDefinitions)
+                    .set({ physicalSpecBytes: new Uint8Array([0]) }).where(definitionKey)
+                    .returning({ id: fxControlIndexDefinitions.indexDefinitionId }));
+                  expect(changed).toEqual([{ id: definition.indexDefinitionId }]);
+                  catalogChanged = true;
+                  yield* closeSharedLogicalSourceBindingLending(tx);
+                  businessEntered = true;
+                }), nextAccepted), accepted)), selected.map(source => source.source.key)).pipe(Effect.result);
+          expect(Result.isFailure(refused)).toBe(true);
+          expect(catalogChanged).toBe(true);
+          expect(businessEntered).toBe(false);
+        }));
+        throw restoreCatalog;
+      } finally {
+        closeInstallationAdmission(tx);
+        await logical.ports.controlDb.update(fxControlIndexDefinitions).set({ physicalSpecBytes: original.bytes }).where(definitionKey);
+      }
+    }).catch(cause => { if (cause !== restoreCatalog) throw cause; });
     if (escapedRootBinding === undefined) throw new Error("Missing escaped root callback binding");
     const endedBinding = escapedRootBinding;
     // Ordinary full admission refuses an unrelated source's disabled build
@@ -199,7 +310,8 @@ async function verifyThreeSourceAcceptance(driver: "pglite" | "postgres") {
       try {
         await runEffect(lockInstallationForCurrentTransaction(tx));
         const clock = await runEffect(lockScopeClockForUpdateInTransactionEffect(tx, scopeId));
-        await tx.update(fxSystemIndexBuildStates).set({ lifecycle: "declared" }).where(and(
+        await tx.update(fxSystemIndexBuildStates).set({ lifecycle: "declared",
+          maintenanceActivationSequence: null, maintenanceAuthorityKind: null }).where(and(
           eq(fxSystemIndexBuildStates.scopeId, scopeId), eq(fxSystemIndexBuildStates.indexDefinitionId, unrelated.indexDefinitionId)));
         await runEffect(Effect.gen(function* () {
           const first = selected[0];

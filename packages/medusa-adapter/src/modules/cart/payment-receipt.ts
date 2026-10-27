@@ -18,18 +18,21 @@ const mismatch = () => commerceError("receiptMismatch");
 export function cartPaymentReadPolicy(prepared: Prepared, profile: "payment" | "completion" = "payment") {
   const capture = Effect.fn("CartPayment.captureEvent")((_input: unknown) => Effect.fail(commerceError("unadmittedEvent")));
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("CartPayment.validateRead")(function* (call, activity) {
-    const count = call.commandName === (profile === "payment" ? "cartCountForPaymentCollection" : "cartCountForCheckout");
+    const lineItems = prepared.profile === "checkout" && call.commandName === "cartLineItemsCountForCheckout";
+    const rootTable = lineItems ? "cart_line_item" : "cart";
+    const count = lineItems || call.commandName === (profile === "payment" ? "cartCountForPaymentCollection" : "cartCountForCheckout");
     if ((!count && (profile !== "completion" || call.commandName !== "cartListForCheckout")) || call.mode !== "read" || call.events.length || activity.mutations.length ||
       activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length) return yield* Effect.fail(mismatch());
     const input = yield* Effect.fromResult(decodeCartPaymentRead(call.input)), config = structuredClone(input.config ?? {});
-    const includeTotals = includeCartTotals(config);
-    const plan = yield* Effect.fromResult(captureCommerceInput(buildQuery(input.filters, config)).pipe(Result.flatMap(prepared.query)));
+    const includeTotals = !lineItems && includeCartTotals(config);
+    const plan = yield* Effect.fromResult(captureCommerceInput(buildQuery(input.filters, config)).pipe(Result.flatMap(value => prepared.queryTable(rootTable, value))));
     type Row = JsonObject & { readonly id: string };
     const state = new Map<string, Row[]>();
     for (const observation of activity.observedRows) {
       const entity = prepared.byName.get(observation.table);
       if (entity === undefined) return yield* Effect.fail(mismatch());
       const row = yield* Effect.fromResult(entity.complete(projectNativeRow(observation.row)));
+      yield* Effect.fromResult(prepared.admitRow(observation.table, row)).pipe(Effect.mapError(mismatch));
       if (typeof row.id !== "string") return yield* Effect.fail(mismatch());
       const group = state.get(observation.table) ?? [], previous = group.find(value => value.id === row.id);
       if (previous !== undefined && !jsonEqual(previous, row)) return yield* Effect.fail(mismatch());
@@ -37,14 +40,16 @@ export function cartPaymentReadPolicy(prepared: Prepared, profile: "payment" | "
       state.set(observation.table, group);
     }
     const ids = typeof input.filters.id === "string" ? [input.filters.id] : input.filters.id;
-    const roots = orderNativeIdRows((state.get("cart") ?? []).filter(row => row.deleted_at === null && typeof row.id === "string" && ids.includes(row.id)), {});
-    const selected = new Map<string, readonly JsonObject[]>([["cart", roots]]);
-    const reads = [{ table: "cart", query: commerceRelationReadQuery(defaultCommerceResources, plan.query.predicate), total: roots.length, returned: roots.length }];
+    const roots = orderNativeIdRows((state.get(rootTable) ?? []).filter(row => row.deleted_at === null && typeof row.id === "string" && ids.includes(row.id)), {});
+    const selected = new Map<string, readonly JsonObject[]>([[rootTable, roots]]);
+    const reads = [{ table: rootTable, query: commerceRelationReadQuery(defaultCommerceResources, plan.query.predicate), total: roots.length, returned: roots.length }];
     const populate = (source: string, parents: readonly JsonObject[], tree: PopulateTree): Result.Result<void, ReturnType<typeof commerceError>> => Result.gen(function* () {
       for (const [name, nested] of tree) {
         const relation = prepared.relations.get(source)?.get(name);
-        if (relation === undefined || relation.join.type !== "hasMany") return yield* Result.fail(mismatch());
-        const population = yield* prepareCommerceRelationPopulation(relation.join.foreignKeys, parents, relation.sourcePrimaryKeys, true, false);
+        if (relation === undefined || relation.join.type === "manyToMany" || relation.join.type === "hasOne") return yield* Result.fail(mismatch());
+        const owning = relation.join.type === "belongsTo";
+        const population = yield* prepareCommerceRelationPopulation(owning ? relation.targetPrimaryKeys : relation.join.foreignKeys,
+          parents, owning ? relation.join.foreignKeys : relation.sourcePrimaryKeys, true, false);
         let rows: readonly JsonObject[] = [];
         if (Option.isSome(population)) {
           const { column, values, predicate } = population.value;
@@ -53,16 +58,19 @@ export function cartPaymentReadPolicy(prepared: Prepared, profile: "payment" | "
           if (rows.length > 4) return yield* Result.fail(mismatch());
           reads.push({ table: relation.targetTable, query: commerceRelationReadQuery(defaultCommerceResources, predicate), total: rows.length, returned: rows.length });
         }
-        if (selected.has(relation.targetTable)) return yield* Result.fail(mismatch());
+        const previous = selected.get(relation.targetTable);
+        // Both declared Address paths are empty in this profile. Never let a
+        // repeated target replace different evidence from an earlier path.
+        if (previous !== undefined && !jsonEqual(previous, rows)) return yield* Result.fail(mismatch());
         selected.set(relation.targetTable, rows);
         yield* populate(relation.targetTable, rows, nested);
       }
     });
-    yield* Effect.fromResult(populate("cart", roots, toPopulateTree(plan.paths)));
+    yield* Effect.fromResult(populate(rootTable, roots, toPopulateTree(plan.paths)));
     if (roots.length > 4 || !jsonEqual(reads, activity.relationalReads)) return yield* Effect.fail(mismatch());
-    const assembled = yield* Effect.fromResult(assembleCommerceRelations("cart", selected, plan.paths, prepared.relations));
+    const assembled = yield* Effect.fromResult(assembleCommerceRelations(rootTable, selected, plan.paths, prepared.relations));
     const projected = yield* Effect.fromResult(projectRows(assembled, plan.projection.node));
-    const output = yield* prepared.present(projected, "cart");
+    const output = yield* prepared.present(projected, rootTable);
     if (!Array.isArray(output)) return yield* Effect.fail(mismatch());
     if (includeTotals) for (const cart of output) {
       // Native arithmetic mutates its detached DTO. This is the same owner

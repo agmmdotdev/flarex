@@ -125,7 +125,7 @@ export type { ApplicationMethodAllocationValues, ApplicationMethodTargetTypeValu
 export type { CampaignBudgetTypeValues } from "./promotion/common/campaign-budget";
 export type { CampaignBudgetUsageContext, CampaignBudgetUsageDTO } from "./promotion/common/campaing-budget-usage";
 export type { CampaignBudgetExceededAction, ComputeActionContext, ComputeActionItemLine, ComputeActionShippingLine } from "./promotion/common/compute-actions";
-export type { PromotionDTO, PromotionTypeValues } from "./promotion/common/promotion";
+export type { PromotionDTO, PromotionTypeValues, FilterablePromotionProps } from "./promotion/common/promotion";
 export type { PromotionRuleDTO, PromotionRuleOperatorValues } from "./promotion/common/promotion-rule";
 export type { TaxRegionDTO } from "./tax/common";
 export type { ITaxProvider } from "./tax/provider";

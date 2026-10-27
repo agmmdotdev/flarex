@@ -106,7 +106,7 @@ export function prepareLineItemData(data: PrepareLineItemDataInput) {
     )
   }
 
-  let compareAtUnitPrice = item?.compare_at_unit_price
+  let compareAtUnitPrice = item?.raw_compare_at_unit_price ?? item?.compare_at_unit_price
 
   const isSalePrice =
     variant?.calculated_price?.calculated_price?.price_list_type ===

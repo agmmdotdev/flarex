@@ -88,7 +88,8 @@ interface ModuleDefinition {
 }
 const modules = new WeakMap<object, ModuleDefinition>();
 const Table = Schema.Struct({ name: Schema.String, columns: Schema.Array(Schema.String), primaryKeys: Schema.Array(Schema.String),
-  foreignKeys: Schema.Array(Schema.String), companions: Schema.Record(Schema.String, Schema.String) });
+  foreignKeys: Schema.Array(Schema.String), nullableColumns: Schema.optionalKey(Schema.Array(Schema.String)),
+  companions: Schema.Record(Schema.String, Schema.String) });
 const decodeGraphMetadata = commerceDecoder(Schema.Struct({ table: Table,
   paths: Schema.Array(Schema.Struct({ path: Schema.String, table: Table, many: Schema.Boolean, optional: Schema.optionalKey(Schema.Boolean),
     sourceFields: Schema.optionalKey(Schema.Array(Schema.String)), targetFields: Schema.optionalKey(Schema.Array(Schema.String)),

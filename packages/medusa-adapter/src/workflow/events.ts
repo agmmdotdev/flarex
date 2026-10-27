@@ -1,4 +1,5 @@
 import { Effect, Schema } from "effect";
+import { EventPriority } from "@medusajs/utils/event-bus/utils";
 import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../value/decoder";
@@ -8,12 +9,15 @@ import type { WorkflowCallResults } from "./host";
  * Each framework root selects its own event family and expected identities. */
 export function orderedWorkflowIdEvents(name: string,
   expectedIds: (calls: WorkflowCallResults) => Effect.Effect<readonly string[], CommerceTransactionError>,
-  options: { readonly pendingCancellation?: true; readonly dataShape?: "string" } = {}) {
+  options: { readonly pendingCancellation?: true; readonly dataShape?: "string"; readonly criticalPriority?: true } = {}) {
   const id = Schema.String.check(Schema.isLengthBetween(1, 256));
-  const decode = commerceDecoder(Schema.Struct({ name: Schema.Literal(name),
+  const fields = { name: Schema.Literal(name),
     data: options.dataShape === "string" ? id : Schema.Struct({ id }),
     metadata: Schema.Struct({ eventGroupId: Schema.String }),
-  }), "unadmittedEvent");
+  };
+  const decode = commerceDecoder(options.criticalPriority === true
+    ? Schema.Struct({ ...fields, options: Schema.Struct({ priority: Schema.Literal(EventPriority.CRITICAL) }) })
+    : Schema.Struct(fields), "unadmittedEvent");
   return {
     contracts: [{ name, decode, ...(options.pendingCancellation === undefined ? {} : { pendingCancellation: options.pendingCancellation }) }],
     validate: Effect.fn("Workflow.validateOrderedIdEvents")(function* (

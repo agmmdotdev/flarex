@@ -1,4 +1,5 @@
 // @ts-check
+import { checkoutGraphSourcePairs, checkoutGraphAuthoredTargets } from "./check-medusa-checkout-graph-source.mjs";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import ts from "@typescript/typescript6";
@@ -36,8 +37,9 @@ export const workflowCacheSourcePairs = Object.freeze([
     target: `packages/medusa-types/src/feature-flag/${name}.ts`, classification: "unchanged" })),
 ].map(pair => Object.freeze(pair)));
 
-/** Exact source preparation closure. Promotion admits models and pure calculators;
- * its ORM service, prefilter and service metadata are deliberately absent. */
+/** Exact Cart prerequisite closure. Promotion models and pure calculators
+ * belong here; its checkout service and prefilter refusal have a separate
+ * exact source owner. */
 export const cartPrerequisiteSourcePairs = Object.freeze([
   ...taxLinesSourcePairs,
   { source: nativePrefix + "packages/core/types/src/order/workflows.ts",
@@ -572,6 +574,8 @@ export function verifyCartPrerequisiteSourceSelection(files) {
       throw new Error(failure + ": exact source pair " + pair.target);
   }
   for (const file of files) {
+    if (checkoutGraphSourcePairs.some(pair => pair.target === file.target && pair.source === file.source && pair.classification === file.classification) ||
+      checkoutGraphAuthoredTargets.includes(file.target) && file.source === undefined && file.classification === "authored") continue;
     if (file.target === "packages/medusa-cart/src/utils/totals-selection.ts" && file.source === undefined && file.classification === "authored") continue;
     if (paymentAccountingAuthoredTargets.includes(file.target) && file.source === undefined && file.classification === "authored") continue;
     const targetPair = cartPrerequisiteSourcePairs.find(pair => pair.target === file.target);

@@ -23,12 +23,23 @@
       "types": "./dist/utils/validations/index.d.ts",
       "source": "./src/utils/validations/index.ts",
       "default": "./dist/utils/validations/index.js"
+    },
+    "./services": {
+      "types": "./dist/services/index.d.ts",
+      "source": "./src/services/index.ts",
+      "default": "./dist/services/index.js"
+    },
+    "./static-manifest": {
+      "types": "./dist/static-manifest.d.ts",
+      "source": "./src/static-manifest.ts",
+      "default": "./dist/static-manifest.js"
     }
   },
   "dependencies": {
     "@medusajs/framework": "workspace:*",
     "@medusajs/types": "workspace:*",
-    "@medusajs/utils": "workspace:*"
+    "@medusajs/utils": "workspace:*",
+    "@medusajs/modules-sdk": "workspace:*"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

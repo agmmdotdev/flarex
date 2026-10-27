@@ -8,6 +8,8 @@ export interface ReadTable {
   readonly columns: readonly string[];
   readonly primaryKeys: readonly string[];
   readonly foreignKeys: readonly string[];
+  /** Explicit checked DML nullability; omission keeps every join key strict. */
+  readonly nullableColumns?: readonly string[];
   readonly companions: Readonly<Record<string, string>>;
 }
 
@@ -24,12 +26,16 @@ export function makeReadCatalog(tables: readonly ReadTable[], relations: Commerc
   const captured = new Map<string, ReadTable>();
   const joins = new Map<string, Pick<ReadonlyMap<string, CommerceRelation>, "get">>();
   for (const table of tables) {
-    if (captured.has(table.name) || table.primaryKeys.some(key => !table.columns.includes(key))) {
+    const nullable = table.nullableColumns ?? [];
+    if (captured.has(table.name) || table.primaryKeys.some(key => !table.columns.includes(key)) ||
+      !Array.isArray(nullable) || new Set(nullable).size !== nullable.length ||
+      nullable.some(column => !table.columns.includes(column) || table.primaryKeys.includes(column))) {
       return Result.fail(commerceError("unsupportedProfile"));
     }
     captured.set(table.name, Object.freeze({ ...table,
       columns: Object.freeze([...table.columns]), primaryKeys: Object.freeze([...table.primaryKeys]),
       foreignKeys: Object.freeze([...table.foreignKeys]), companions: Object.freeze({ ...table.companions }),
+      ...(table.nullableColumns === undefined ? {} : { nullableColumns: Object.freeze([...nullable]) }),
     }));
   }
   for (const [name, members] of relations) {

@@ -65,3 +65,4 @@ export type { AccountHolderDTO, ApplicationMethodAllocationValues, ApplicationMe
 export type { PaymentProviderContext } from "@medusajs/types";
 export type { ApiKeyTypes, ApiKeyType, ApiKeyDTO, CreateApiKeyDTO, FilterableApiKeyProps, IApiKeyModuleService, RevokeApiKeyDTO, UpdateApiKeyDTO, UpsertApiKeyDTO, LinkWorkflowInput } from "@medusajs/types";
 export type { LinkOperationPair, LinkOperationRequest, LinkOperationHandle, LinkOperationResult, LinkOperationCompensation } from "@medusajs/types";
+export type { FilterablePromotionProps, ComputeActionShippingLine } from "@medusajs/types";

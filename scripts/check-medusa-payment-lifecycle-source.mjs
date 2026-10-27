@@ -66,7 +66,8 @@ export function verifyPaymentLifecycleSource(source, target, targetPath) {
     .replaceAll('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
     .replaceAll('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"');
   if (targetPath.endsWith("authorize-payment-session.ts")) expected = expected.replace("createStep(\n  authorizePaymentSessionStepId,",
-    'createStep(\n  { name: authorizePaymentSessionStepId, compensation: "transactionCovered" },');
+    'createStep(\n  { name: authorizePaymentSessionStepId, compensation: "transactionCovered" },')
+    .replace('relations: ["payment", "payment.captures"],', 'relations: ["payment", "payment.captures", "payment.refunds"],');
   for (const [suffix, step] of [["order/steps/add-order-transaction.ts", "addOrderTransactionStepId"],
     ["order/steps/create-order-change.ts", "createOrderChangeStepId"], ["order/steps/confirm-order-changes.ts", '"confirm-order-changes"'],
     ["common/steps/create-entities.ts", "createEntitiesStepId"]]) if (targetPath.endsWith(suffix))

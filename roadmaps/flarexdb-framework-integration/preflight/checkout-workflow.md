@@ -2,20 +2,22 @@
 
 ## Status and authority
 
-Status: preflight; the explicit atomic declaration profile is approved. Its
+Status: admitted private atomic System-provider checkout for existing Carts
+with up to four digital/manual Line Items, absent Customer and Addresses, and
+empty Inventory, Promotion, shipping, tax and credit-line branches. Its
 finite SDK correction retains the native storage declarations and requires the
 trusted execution port to select the atomic outcome policy before any callback.
-The connected checkout root remains gated. Native Cart completion and scalar
-preimage restoration are admitted independently in the bounded profile below.
-The bounded Order participant extends its existing owner for isolated checkout
-admission.
+The genuine native root composes the complete eighteen-source graph, stored
+Order-Cart and Order-Payment Collection Links, native Order creation/accounting
+and Cart completion under one existing settlement owner. Native Cart completion
+and scalar preimage restoration also retain their independently admitted profile.
 
 The executing reference is Medusa 2.13.4 at
 `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`, specifically
 `cart/workflows/complete-cart.ts`. Preserve its complete native root, actual
 steps, validation, hooks, compensation and already-completed Cart branch.
 Accepted framework/storage boundaries and the existing transaction owners remain
-authoritative. The proposed first profile uses existing Carts and local System
+authoritative. This profile uses existing Carts and local System
 payments; Cart creation and remote gateways retain separate gates.
 
 ## Connected owners and prerequisite order
@@ -37,8 +39,8 @@ logical allowance through eighteen. Omission still selects eight, and every
 allowance above eight refuses physical participants even for a smaller cohort.
 The physical binding ceiling remains eight. No adapter transaction, source
 merging, duplicate Link storage or larger implicit allowance is admissible.
-Connected checkout execution still requires the complete graph, retained Link
-inverse and database-backed execution gates below.
+Connected checkout retains the complete graph, native Link inverse and
+database-backed execution obligations below.
 
 The root reads the actual Order-Cart Link and complete Cart graph, validates its
 Payment sessions before the hook, and creates an Order only when no Order-Cart
@@ -51,9 +53,9 @@ Retrying the same Cart with another request identity must preserve the existing
 Order branch as well as the outer owner's same-request replay contract.
 
 Reuse the Payment collection/session/authorization and Order-finance owners.
-Checkout still requires native Order creation/deletion, Cart completion writes
-and their retained inverse, the Order-Cart Link and the complete selected Cart
-graph. Existing Cart payment reads do not admit this graph or any Cart mutation.
+Checkout uses native Order creation/deletion, Cart completion writes and their
+retained inverse, the Order-Cart Link and the complete selected Cart graph. Its
+explicit Cart checkout profile is distinct from the existing Cart payment reads.
 Managed Inventory reservation needs its actual Inventory and Locking owners;
 the existing read-only confirmation capability is insufficient. Empty Inventory
 and Promotion inputs must reach the genuine native early-return branches before
@@ -95,6 +97,14 @@ native resumable step history or automatic three-day expiry. No new storage,
 scheduler, child commit or replay mechanism is added. Neutral SDK cases and a
 genuine native Cart collection child establish the declaration, policy, durable
 replay and late-failure rollback boundaries before checkout-root admission.
+
+The native `order.placed` message includes `options.priority` with the genuine
+`EventPriority.CRITICAL` value (10). Checkout explicitly selects that exact
+message contract and retains the option in the durable message. Other workflow
+event profiles continue to refuse options unless selected; arbitrary priority,
+delay and delivery options are not admitted. Event IDs remain correlated with
+actual Order creation results and the current event group. This private atomic
+profile does not establish a transport priority scheduler or hosted delivery.
 
 ## Bounded Order creation consumer
 
@@ -188,7 +198,7 @@ Nested and parallel occurrences retain independent identities. Native Cart
 collection child execution proves one outer outcome, reopened-host replay and
 complete write/event rollback for late failure, caught refusal and unfinished
 child execution on both database drivers. Checkout's retained Payment inverse
-still needs its own declared native child closure before root admission.
+declares its genuine refund-and-recreate child closure at the native marker.
 
 ## Native selected-field correction
 
@@ -236,8 +246,8 @@ Production recreation is admitted only as the declared retained marker child;
 its Payment and Collection identities come from the same authenticated Session
 graph. The isolated child host is a test probe, not a standalone public root
 accepting independently selected financial identities. Native Order creation
-and both retained inverses remain independently exercised before whole-root
-checkout admission.
+and both retained inverses retain their independently admitted profiles alongside
+connected checkout.
 
 Review also preserved a native batch-refund precision witness: a full refund of
 `9007199254740993.0000` is rejected because the root selects public Capture and
@@ -313,12 +323,10 @@ created IDs. It still calls the same native method and retained deletion inverse
 The native empty Inventory and Promotion callbacks retain their real early returns;
 populated resources remain outside the initial profile.
 
-These are root preparation and isolated Cart-to-Order prerequisites. Complete
-checkout execution remains gated on the full metadata-backed Cart graph,
-Order-Cart Link creation/read/inverse, exact quantity and comparison-price
-translation checks, whole-root resource measurement and the connected outcomes
-below. Isolated preparation does not admit a second checkout algorithm or establish
-the complete checkout runtime.
+The connected root uses the full metadata-backed Cart graph and native
+Order-Cart Link creation/read/inverse. Exact quantity and comparison pricing,
+whole-root resources and durable outcomes remain obligations of this bounded
+profile; isolated preparation does not admit a second checkout algorithm.
 
 The connected line-price prerequisite preserves another native precision defect:
 the created Line Item now retains `9007199254740993`, while its Order Summary
@@ -332,17 +340,125 @@ Order calculation owner now takes an independent exact decimal snapshot of the
 original total with native arithmetic after cloning the remaining Order state.
 This approved correction retains clone isolation and numeric DTO presentation.
 Storage and the creation receipt reuse the corrected native calculation; neither
-repairs or rounds it independently. Complete checkout admission still requires
-the connected gates above.
+repairs or rounds it independently.
 
-Run the genuine root and retained inverses on PGlite and ordinary-role PostgreSQL.
-Require successful placement, native already-linked retry, same-request replay,
-cross-shop refusal, exact totals and raw amounts, Payment validation/authorization
-failure, late-hook rollback, Cart completion restoration, complete Order/Link
-cleanup and committed event accounting. Competing completion must publish at most
-one Order for the Cart through the existing trusted transaction owner.
+The genuine root preserves successful placement, native already-linked retry,
+same-request replay, exact totals and raw amounts, Payment validation/authorization
+failure, whole-root late-failure rollback and committed event accounting on
+PGlite and ordinary-role PostgreSQL. Native Cart and Order/Link inverses keep
+their authenticated preimages and complete cleanup contracts. Scope isolation
+remains with the existing shared authority and transaction owners. Competing
+completion publishes at most one Order for the Cart; an ordinary PostgreSQL
+lock-timeout loser must retry through the original request identity after
+settlement. The contention assertion inspects the complete Cause and admits a
+physical tracker's second observation only when both refer to the same rejected
+SQL error. Independent failures, defects and interruption remain failures.
 
-Any proposed managed Inventory, populated Promotion, captured-Payment compensation
-or durable workflow branch needs its own complete reachable closure. A bounded
+Any proposed managed Inventory, populated Promotion or durable workflow branch
+needs its own complete reachable closure. A bounded
 System-provider result does not establish hosted checkout, gateway recovery or
 arbitrary Cart workflows.
+
+The full native Cart graph also reaches the read-only CartProduct Link. Its
+declared LineItem foreign key is `items.variant_id`, while the selected LineItem
+read owns the scalar `variant_id`. The current shared direct-path decoder admits
+only scalar names and refuses this genuine declaration before graph preparation.
+Expected: authenticate the native dotted prefix against the selected parent path,
+then use the actual LineItem column. Actual: `unsupportedProfile` at native Link
+decoding. The focused `checkout-native-readonly-link` witness retains this refusal.
+The approved correction belongs to the shared native graph owner: only a declared
+dotted prefix matching the selected parent path is removed, after which the
+existing scalar-key, source-column, cardinality and resource checks apply. No
+copied or rewritten Link declaration is an acceptable adapter repair.
+
+The native quantity translation preserves its actual finite number, including a
+fractional quantity. The comparison-price prerequisite preserves a separate native
+defect: `prepareLineItemData` reads the rounded public `compare_at_unit_price`
+despite retaining `raw_compare_at_unit_price` in its declared input. The genuine
+checkout transform changes `9007199254740993.0000` to `9007199254740992` before Order
+creation. Expected: prefer the retained exact raw comparison price, preserving
+the native sale-price fallback and public numeric DTO. The failing
+`checkout-comparison-price-prerequisite` witness identifies that native helper as
+the correction owner. The approved correction prefers that raw value while
+retaining the native sale-price fallback and public numeric presentation.
+
+The first complete 18-source installation is refused before checkout preparation:
+the shared index-reconciliation owner rejects its complete physical requirement
+set at the existing 512-definition ceiling (`definitionLimitExceeded`). The
+`logical-checkout-workflow` witness retains the real installation failure. No
+adapter may omit genuine indexes or bypass readiness to pass this gate. The
+storage owner's approved correction admits at most 1024 definitions and retains
+complete-catalog verification, readiness and prepared-host byte accounting.
+The 18 native checkout sources require 610 definitions: 97 intrinsic indexes and
+513 declared ordered indexes, before the fixture's Application and Currency
+sources. Omitting native indexes is not an admission option.
+
+After index construction, the same complete installation reached the shared
+readiness reader and failed `IndexMaintenanceError(storedState)` at its separate
+512-build directory bound. The complete catalog and selected build-readiness
+bounds now both use the approved 1024-definition ceiling; duplicate definition
+checks, exact build membership, frontier validation and scope locks remain
+unchanged. The full installation witness retains that connected refusal.
+
+The genuine complete graph also preserves a distinct prefix-owner refusal at
+`items.variant.product.shipping_profile`: `items.variant` is an authenticated
+cross-module edge, then `product` is a genuine ProductVariant local relation.
+The shared prefix validator only checks local relations declared on the original
+Cart root, so it rejects this nested native owner despite every model and column
+being present. The `checkout-workflow-contracts` witness fails during pure graph
+preparation, before database installation. Expected: resolve each local suffix
+against the nearest authenticated edge's target read and retain exact table,
+participant, source-column and cardinality checks. Dependent complete-checkout
+execution uses the approved shared prefix correction. Original local relation
+metadata follows the nearest authenticated target read; deeper explicit edges
+retain their own source and population owner.
+
+Ordinary PostgreSQL subsequently reached binding activation and refused the
+complete incoming index set in `fx_replace_binding_index_maintenance`, whose
+installed function still enforced 512. The approved capacity correction now
+uses one index-owned bound for reconciliation, readiness and ordered maintenance
+publication, with a fenced forward migration for existing publisher bodies.
+
+The preserved `checkout-null-native-key` witness proves a separate shared graph
+refusal: native Cart DML permits `LineItem.variant_id = null`, but direct-edge
+key decoding reports `storedCorruption` before any target read. Customerless
+Carts have the same nullable source-key shape. Expected: retain source-owned
+nullability in checked read metadata and skip only explicitly nullable source
+keys, preserving absent native endpoints, strict primary/target keys, missing
+field refusal, cardinality and cohort limits. The approved correction captures
+DML-derived nullability in workflow identity and checked read snapshots; only
+explicitly nullable direct-edge source keys may omit their endpoint.
+
+The complete PostgreSQL fixture now reaches request execution, where the first
+native checkout case is refused by the existing 10-second initial callback
+deadline. The isolated first-case witness retains the failure while the shared
+logical admission and Application binding-evidence frames unwind. Expected:
+admit this complete declared source cohort within its existing resource policy,
+without relaxing deadlines, dropping catalog checks or changing settlement.
+The preserved operation-count witness confirms that native business execution
+is never entered: no bounded request lifetime or participant call is constructed.
+Unprotected native cohort admission repeats the complete static catalog and
+unique-catalog validation for each source, reaching source 16 before expiry.
+The authorized owner correction retains the initial complete proof only through
+trusted cohort admission and performs a final complete catalog check before
+business execution. Per-source identity, issuer liveness, revocation, clock and
+unique-state refresh, exact cohort completeness, the original manager and final
+settlement guards remain required. Closing the cohort revokes lending before
+the final read and clears observations on success, failure or interruption.
+No proof may survive the admission callback or be reused by a later request.
+
+Review preserves a separate native accounting defect for existing captured
+Payments refunded before Cart completion. The genuine validation and authorization
+callbacks still accept their authorized Session, while the native checkout
+transaction transform selects only Captures. A Capture of `12.5` followed by a
+Refund of `5` or `12.5` therefore creates only the gross Capture transaction and
+omits the Refund from the new Order's Summary. Expected: the existing native
+Order accounting owner receives both Capture-ID and Refund-ID transactions with
+their exact raw amounts. Actual: Refund history is absent from authorization's
+selected Payment and checkout's transaction mapping. The connected native-refund
+fixtures retain partial and full refund witnesses. The proposed correction must
+select the real Refund relation and translate its negative exact amounts in the
+native checkout root; adapters must not reconstruct accounting. The approved
+native-owner correction selects the real Refund relation during authorization
+and passes negative exact Refund-ID transactions to the existing Order owner.
+Native Session eligibility and positive Capture accounting remain unchanged.

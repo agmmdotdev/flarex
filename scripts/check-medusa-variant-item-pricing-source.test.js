@@ -45,6 +45,10 @@ describe("native159 exact source closure", () => {
 });
 
 describe("native159 item/context callbacks", () => {
+  it("requires the authorized exact native comparison-price preference", () => {
+    mutant(mapperPath, "item?.raw_compare_at_unit_price ?? item?.compare_at_unit_price", "item?.compare_at_unit_price");
+    mutant(mapperPath, "item?.raw_compare_at_unit_price ?? item?.compare_at_unit_price", "item?.raw_compare_at_unit_price || item?.compare_at_unit_price");
+  });
   it.each([
     ["zero custom truthiness", "is_custom_price: !!item.unit_price", "is_custom_price: isDefined(item.unit_price)"],
     ["explicit zero output flag", "item_.is_custom_price ?? isDefined(item?.unit_price)", "item_.is_custom_price || !!item?.unit_price"],

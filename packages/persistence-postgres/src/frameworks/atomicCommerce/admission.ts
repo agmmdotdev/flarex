@@ -81,7 +81,7 @@ export const withAtomicCommerceAdmissions = Effect.fnUntraced(function* <Value>(
         const member = members[index];
         if (member === undefined) {
           closeBindingSelectionCaptureInTransaction(tx);
-          closeSharedLogicalSourceBindingLending(tx);
+          yield* closeSharedLogicalSourceBindingLending(tx).pipe(Effect.mapError(projectCommerceRequestFailure));
           invalidateAcceptedApplicationBindingInTransaction(tx);
           return yield* work(admitted);
         }

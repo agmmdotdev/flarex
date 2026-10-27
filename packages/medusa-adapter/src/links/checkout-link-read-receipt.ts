@@ -16,13 +16,14 @@ type Select = (input: unknown) => Result.Result<{ readonly plan: Plan; readonly 
 
 /** Shared Link read evidence; native family selectors and graph cardinality
  * remain at their respective Cart/Order construction boundaries. */
-export function paymentCollectionLinkReadPolicy(table: SchemaTable, endpoint: "cart_id" | "order_id", commandName: string,
+export function checkoutLinkReadPolicy(table: SchemaTable, endpoints: readonly [string, string], commandName: string,
   span: string, base: ReturnType<typeof linkLogicalEventPolicy>, select: Select) {
+  const [endpoint, foreign] = endpoints;
   return Result.gen(function* () {
     const complete = yield* compileCompleteRow(table), encoder = new TextEncoder();
     const compareText = (left: string, right: string) => compareBytesLexicographically(encoder.encode(left), encoder.encode(right));
     const compareEndpoints = (left: JsonObject, right: JsonObject) => compareText(String(left[endpoint]), String(right[endpoint])) ||
-      compareText(String(left.payment_collection_id), String(right.payment_collection_id));
+      compareText(String(left[foreign]), String(right[foreign]));
     const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn(span)(function* (call, activity) {
       yield* base.validateLogicalCall(call, activity);
       if (call.commandName !== commandName || call.mode !== "read") return yield* Effect.fail(commerceError("receiptMismatch"));
@@ -33,7 +34,7 @@ export function paymentCollectionLinkReadPolicy(table: SchemaTable, endpoint: "c
       for (const item of activity.observedRows) {
         if (item.table !== table.name) return yield* Effect.fail(commerceError("receiptMismatch"));
         const row = yield* Effect.fromResult(complete(projectNativeRow(item.row))).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-        const key = JSON.stringify([row[endpoint], row.payment_collection_id]);
+        const key = JSON.stringify([row[endpoint], row[foreign]]);
         if (observed.has(key)) return yield* Effect.fail(commerceError("receiptMismatch"));
         observed.set(key, row);
       }

@@ -960,16 +960,18 @@ The complete Cart persistence, Promotion and Cart Link graph still need adapter
 owners; these Customer and Tax children do not establish Cart-root readiness.
 Complete capacity, remaining call-detail coverage and
 conditional provider/Locking lifecycles must be proved before choosing a
-profile. No Cart write or resource extension for the complete Cart root is
-admitted yet. The connected
+profile. This preflight does not admit the complete Cart creation root or its
+populated resource branches. Existing-Cart checkout has a separate bounded
+profile below. The connected
 [Promise/Cause preservation correction](./preflight/161-native-promise-cause-preservation.md)
 is implemented at the existing failure/lifetime owners; it does not repair
 native Cart business compensation or establish Cart admission.
 
 The private native source prerequisites are promoted for Cart, Customer, Tax
 and Payment, with native totals, provider helpers and complete selected types.
-Promotion currently exposes its models and pure calculators; its executing
-service remains gated by the native SQL prefilter's portable persistence seam.
+Promotion exposes its models, pure calculators, genuine service constructor and
+bounded checkout reads. Its native SQL prefilter refuses execution without the
+unadmitted ORM manager; populated promotion computation remains gated.
 Payment's genuine System provider and service have portable entrypoints; its
 native provider-registration loader remains host-specific. Source promotion
 alone does not admit additional persistence operations or the Cart root.
@@ -993,6 +995,22 @@ execute as actual children so native lock steps skip inside the atomic owner.
 Retained update compensation preserves the exact raw amount and omission.
 Customer association, complete Cart creation, remote providers, independently
 committed best-effort batches and hosted activation retain separate gates.
+
+The [native checkout profile](./preflight/checkout-workflow.md) completes existing
+customerless, addressless Carts with up to four digital/manual Line Items and
+local System payments. Its genuine eighteen-source graph includes stored
+Order-Cart and Order-Payment Collection Links, native totals, Order creation,
+Cart completion and `order.placed`. Capture and pre-existing Refund transactions
+retain their separate identities and exact raw amounts in native Order
+accounting. One trusted atomic owner retains settlement, durable outcomes and
+replay; the actual native child supplies parent metadata for native lock skips.
+The explicit logical-source allowance is eighteen, while physical participants
+retain their eight-member ceiling. Complete catalog admission uses the bounded
+index-owned 1024-definition policy and transaction-local cohort checks.
+Native stored declarations select the approved atomic outcome profile, without
+resumable step history or automatic three-day expiry. Complete Cart creation,
+populated variants, Inventory, Promotion, shipping, tax and credit-line branches,
+remote gateways and hosted activation remain separately gated.
 
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.

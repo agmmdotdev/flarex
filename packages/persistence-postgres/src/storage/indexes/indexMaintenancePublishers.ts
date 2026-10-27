@@ -1,4 +1,5 @@
 import { getTableColumns, getTableName, sql } from "drizzle-orm";
+import { MAX_PHYSICAL_INDEX_DEFINITIONS } from "./catalogCapacity";
 import { PgDialect, type PgColumn, type PgTable } from "drizzle-orm/pg-core";
 import { fxAppRowCurrent, fxSystemApplicationReadinessV1, fxSystemIndexBuildStates,
   fxSystemIndexMaintenanceObligations, fxSystemScopeClocks, fxSystemScopeExecutionAuthorities,
@@ -109,7 +110,7 @@ function fixedPublisher(domain: "index" | "unique"): string {
   const memberValidation = `
   IF jsonb_typeof(p_outgoing_members) IS DISTINCT FROM 'array' OR jsonb_typeof(p_incoming_members) IS DISTINCT FROM 'array'
     THEN ${refusal("storedState")} END IF;
-  IF jsonb_array_length(p_outgoing_members) > ${ordered ? 512 : 256} OR jsonb_array_length(p_incoming_members) > ${ordered ? 512 : 256}
+  IF jsonb_array_length(p_outgoing_members) > ${ordered ? MAX_PHYSICAL_INDEX_DEFINITIONS : 256} OR jsonb_array_length(p_incoming_members) > ${ordered ? MAX_PHYSICAL_INDEX_DEFINITIONS : 256}
     THEN ${refusal("storedState")} END IF;
   FOR member_set IN SELECT p_outgoing_members AS members UNION ALL SELECT p_incoming_members LOOP
     prior_id := 0;

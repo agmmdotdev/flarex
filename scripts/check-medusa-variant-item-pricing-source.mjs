@@ -165,6 +165,10 @@ function adaptCallback(source, target) {
   if (target.endsWith("/prepare-line-item-data.ts")) {
     expected = replaceChecked(expected, "  variant?: PrepareVariantLineItemInput", "  variant?: PrepareVariantLineItemInput | undefined");
     expected = replaceChecked(expected, "  cartId?: string", "  cartId?: string | undefined");
+    expected = replaceChecked(expected, "let compareAtUnitPrice = item?.compare_at_unit_price",
+      "let compareAtUnitPrice = item?.raw_compare_at_unit_price ?? item?.compare_at_unit_price");
+    runtimeExpected = replaceChecked(runtimeExpected, "let compareAtUnitPrice = item?.compare_at_unit_price",
+      "let compareAtUnitPrice = item?.raw_compare_at_unit_price ?? item?.compare_at_unit_price");
   }
   return { expected, runtimeExpected };
 }

@@ -6,7 +6,7 @@ import { QueryLimit, QueryOffset } from "../query/decoder";
 import { makeReadCatalog } from "../query/catalog";
 import { isGraphReadCommand } from "./commands";
 import { planGraphFields, type GraphFieldPlan } from "./fields";
-import type { GraphParticipant, GraphReadDefinition, GraphReadSelection, LocalGraphQuery, PreparedLocalGraph } from "./model";
+import type { GraphParticipant, GraphReadDefinition, GraphReadSelection, GraphRelationPath, LocalGraphQuery, PreparedLocalGraph } from "./model";
 import { populateGraphRemotePaths, prepareGraphRemotePaths, prepareGraphLinkEndpoints, validateGraphPathPrefixes } from "./remote-paths";
 import { prepareGraphDirectPaths } from "./direct-paths";
 import { prepareGraphKeyValidation, prepareGraphKeys, validateGraphPrimaryKey, validateGraphKeys } from "./key-validation";
@@ -155,7 +155,7 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
       if (paths === undefined && endpoints === undefined && direct === undefined) continue;
       if ([...endpoints?.keys() ?? []].some(path => paths?.has(path) || direct?.has(path))) return yield* Result.fail(commerceError("unsupportedProfile"));
       const nativePrefixes = [...paths?.keys() ?? [], ...direct?.keys() ?? []];
-      catalog.set(alias, { ...entry, read: Object.freeze({ ...entry.read, paths: Object.freeze([
+      const expanded: GraphRelationPath[] = [
         ...entry.read.paths.map(path => entry.read.nativeFields === true && !path.many && nativePrefixes.some(prefix => prefix.startsWith(path.path + "."))
           ? Object.freeze({ ...path, nativeFields: true as const }) : path),
         ...[...paths?.values() ?? []].map(path => Object.freeze({ path: path.path, table: path.target.read.table,
@@ -163,11 +163,25 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
         ...[...direct?.values() ?? []].map(path => Object.freeze({ path: path.path, table: path.target.read.table,
           many: path.many, optional: !path.many, ...(path.nativeFields === true ? { nativeFields: true as const } : {}),
           sourceFields: Object.freeze([path.sourceKey]), targetFields: Object.freeze([path.targetKey]) })),
-        ...[...endpoints?.values() ?? []].flatMap(endpoint => [
+        ...[...endpoints?.values() ?? []].map(endpoint =>
           Object.freeze({ path: endpoint.path, table: endpoint.target.read.table, many: false, sourceFields: Object.freeze([endpoint.sourceKey]) }),
-          ...endpoint.target.read.paths.map(path => Object.freeze({ ...path, path: endpoint.path + "." + path.path })),
-        ]),
-      ]) }) });
+        ),
+      ];
+      const edges = [...paths?.values() ?? [], ...direct?.values() ?? [], ...endpoints?.values() ?? []];
+      const declared = new Set(expanded.map(path => path.path));
+      for (const edge of edges) for (const local of edge.target.read.paths) {
+        const path = edge.path + "." + local.path;
+        // A deeper explicit edge owns its target and descendants. Copy only
+        // the selected target's original local metadata, never recursively
+        // expanded metadata or a competing parent's relation definition.
+        if (declared.has(path) || edges.some(other => other !== edge && other.path.startsWith(edge.path + ".") &&
+          (path === other.path || path.startsWith(other.path + ".")))) continue;
+        expanded.push(Object.freeze({ ...local, path,
+          ...(edge.target.read.nativeFields === true && !local.many && nativePrefixes.some(prefix => prefix.startsWith(path + "."))
+            ? { nativeFields: true as const } : {}) }));
+        declared.add(path);
+      }
+      catalog.set(alias, { ...entry, read: Object.freeze({ ...entry.read, paths: Object.freeze(expanded) }) });
     }
     return Object.freeze({ entities: Object.freeze([...entries.keys()]), bind: (context): LocalGraphQuery => {
       // Only newly originated planner/result failures enter refusal here. A
@@ -184,7 +198,8 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
         const remote = remotePaths.get(entry.read.model);
         const endpoints = linkEndpoints.get(entry.read.model);
         const direct = directPaths.get(entry.read.model);
-        const isRemote = (path: string) => remote?.has(path) === true || direct?.has(path) === true || [...endpoints?.keys() ?? []].some(prefix => path === prefix || path.startsWith(prefix + "."));
+        const isRemote = (path: string) => [...remote?.keys() ?? [], ...direct?.keys() ?? [], ...endpoints?.keys() ?? []]
+          .some(prefix => path === prefix || path.startsWith(prefix + "."));
         const selectedRemote = fields.relations.filter(isRemote);
         const relations = fields.relations.filter(path => !isRemote(path));
         const selected = selectedRemote.length !== 0 && relations.length === 0

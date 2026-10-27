@@ -1,11 +1,12 @@
 import type { WorkflowDefinition, Hook } from "@medusajs/workflows-sdk"
-import type { LinkDefinition, PromotionTypes } from "@medusajs/framework/types"
+import type { CreateOrderTransactionDTO, LinkDefinition, PromotionTypes } from "@medusajs/framework/types"
 import { prepareCheckoutOrderData } from "../utils/prepare-checkout-order-data"
 import type { CheckoutCartView } from "../../common/steps/checkout-query-views"
 import { EventPriority } from "@medusajs/utils/event-bus/utils"
 type UsageComputedActions = PromotionTypes.UsageComputedActions
 import {
   isDefined,
+  MathBN,
   Modules,
   OrderStatus,
   OrderWorkflowEvents,
@@ -531,7 +532,7 @@ export const completeCartWorkflow: WorkflowDefinition<
       const orderTransactions = transform(
         { payment, createdOrder },
         ({ payment, createdOrder }) => {
-          const transactions =
+          const transactions: CreateOrderTransactionDTO[] =
             (payment &&
               payment?.captures?.map((capture) => {
                 return {
@@ -543,6 +544,18 @@ export const completeCartWorkflow: WorkflowDefinition<
                 }
               })) ??
             []
+
+          if (payment) {
+            for (const refund of payment.refunds ?? []) {
+              transactions.push({
+                order_id: createdOrder.id,
+                amount: MathBN.mult(refund.raw_amount ?? refund.amount, -1),
+                currency_code: payment.currency_code,
+                reference: "refund",
+                reference_id: refund.id,
+              })
+            }
+          }
 
           return transactions
         }
