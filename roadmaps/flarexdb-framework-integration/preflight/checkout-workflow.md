@@ -4,8 +4,9 @@
 
 Status: admitted private atomic System-provider checkout for existing Carts
 with up to four digital Line Items, including manual items and actual Product
-Variants, and up to four native Inventory Reservations. Customer and Addresses
-remain absent; Promotion, shipping, tax and credit-line branches remain empty. Its
+Variants, and up to four native Inventory Reservations. Existing Customer
+identities and nullable Cart billing/shipping Addresses participate in the graph;
+Promotion, shipping, tax and credit-line branches remain empty. Its
 finite SDK correction retains the native storage declarations and requires the
 trusted execution port to select the atomic outcome policy before any callback.
 The genuine native root composes the complete eighteen-source graph, stored
@@ -67,11 +68,44 @@ selection decisions must not be silently accepted through this checkout work.
 The uncommitted Cart context-read candidate belongs to the stopped Cart session
 and is not a substitute for admitted checkout graph reads.
 
+## Existing Customer and Cart Address participation
+
+Checkout reads the existing Customer through the genuine Cart-Customer edge;
+the native transform assigns that Customer identity to the Order and retains the
+Cart's email. Guest checkout keeps a null Order Customer. Customer rows, saved
+Customer Addresses and Customer Group membership receive no mutation authority.
+Customer creation, address-book management and Customer payment-account/session
+creation remain separate workflows. The retained Payment recreation profile
+still excludes Session context that activates the Customer/account-holder branch.
+
+The two nullable Cart Address slots use their authenticated native owning FKs.
+Their authenticated read transcript retains populated, absent and shared-target
+cases, including the query owner's actual request-local primary-key cache reuse.
+Receipt assembly uses the bounded identity union of the two selections;
+it cannot replace earlier evidence or accept inconsistent bodies for one identity.
+The unchanged native transform removes only the Cart Address ID. Native Order
+creates separate billing/shipping copies with generated Order Address identities,
+preserving the selected scalars, metadata and native managed timestamps. Even when
+both Cart slots share one Address, native Order creates two independent copies.
+Neither the original Cart Addresses nor the Customer are updated by completion.
+
+The existing Order checkout participant admits these two Address creates and
+their native deletion events. Its creation ledger correlates billing-before-
+shipping copies, generated IDs and owning Order FKs before the Order/Summary/Item
+graph. Its deletion ledger preserves native Address-before-Order-before-LineItem
+barriers, complete reads and exact events. The storage owner retains NO ACTION FK
+enforcement; an Address referenced by another Order cannot be removed. Native
+Cart completion retains its scalar Customer preimage and genuine empty Address
+callback inputs; its inverse leaves both Cart Address references intact. The
+same outer transaction owns late-failure rollback, publication and replay. This
+extension adds no participant, limit allowance, native business correction or
+second settlement lifetime.
+
 ## Product and Inventory checkout extension
 
 Status: admitted private connected profile. Reuse the complete eighteen-source
 checkout graph and the genuine `reserveInventoryStep` under the
-existing scope-exclusive outer owner. Existing customerless, addressless digital
+existing scope-exclusive outer owner. Existing digital
 Line Items may reference actual Product Variants. At most four Line Items and
 four generated Reservations are admitted; Inventory Items, channel Locations and
 rich Variant-Inventory Links retain their independently checked graph bounds.
@@ -191,8 +225,8 @@ creation/deletion receipts and committed module events before root admission.
 
 The existing Order construction, repository, exact-value, query and lifecycle
 owners now expose an explicit `order.checkout` profile. Each creation/deletion
-call admits one digital/manual Order, up to four Line Items and no Address,
-shipping, tax-line, adjustment or credit-line creation. The same participant
+call admits one digital/manual Order, up to four Line Items and two copied
+Addresses, without shipping, tax-line, adjustment or credit-line creation. The same participant
 retains native financial methods needed by checkout and Payment accounting;
 the original financial profile retains its model set and mutation permissions.
 
@@ -201,15 +235,15 @@ checked stored rows, relationally lowered literal defaults and exact encoders.
 The trusted generated-serial owner still owns allocation, scope, concurrency
 and dependency proofs. Its complete existing Order support observations remain
 checked preimages rather than invented native DAL reads. Default results select
-both absent Address slots; empty repeated target families are admitted without
-admitting populated repeated aliases. Receipts bind every mutation, exact read
+both nullable Address slots, retaining their separate reads and bounded identity
+union when populated. Receipts bind every mutation, exact read
 transcript, returned DTO and ordered module event to this actual call.
 
 Public deletion reuses native `deleteOrders` and the existing physical graph
-correlator for the complete Order cascade and standalone Line Items. The native
-barrier between those two graphs remains explicit. The finite deletion profile
-requires absent Addresses, Changes and Shipping; full newly created graph
-cleanup and its root/Line Item events are authenticated.
+correlator for copied Addresses, the complete Order cascade and standalone Line
+Items. Native barriers between those graphs remain explicit. The finite deletion
+profile requires absent Changes and Shipping; full newly created graph cleanup
+and its Address/root/Line Item events are authenticated.
 These gates include authenticated historical preimages: hidden Shipping/Change
 wrappers are refused, and every historical Item must reference a Line Item in
 the native cleanup selection. This prevents physical cascades from removing

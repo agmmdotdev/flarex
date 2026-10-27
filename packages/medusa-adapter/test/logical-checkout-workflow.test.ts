@@ -36,7 +36,6 @@ describe("native complete Cart checkout on " + driver, () => {
     { name: "exact", amount: "9007199254740993.0000" },
     { name: "fractional", amount: "1.25", unitPrice: "1", quantity: 1.25, compareAt: "9007199254740993.0000" },
     { name: "canceled", badSession: true }, { name: "late" }, { name: "concurrent" },
-    { name: "populated-customer", customerId: "customer-unadmitted" },
     { name: "captured", amount: "9007199254740993.0000" },
     { name: "partially-refunded" }, { name: "fully-refunded" },
     { name: "exact-refunded", amount: "9007199254740993.0000" }, { name: "late-refunded" },
@@ -110,14 +109,13 @@ describe("native complete Cart checkout on " + driver, () => {
     expect(MathBN.eq(Schema.decodeUnknownSync(Schema.String)(rows.find(row => row.payment_session_id === ids.sessionId)?.amount), "1.25")).toBe(true);
   }, 120_000);
 
-  it("rejects an unprocessable Session and populated Customer capability without publishing anything", async () => {
-    for (const name of ["canceled", "populated-customer"]) {
+  it("rejects an unprocessable Session without publishing anything", async () => {
+    for (const name of ["canceled"]) {
       const before = await local.snapshot(), ids = selectedCase(name);
       const exit = await Effect.runPromiseExit(local.host.run(local.host.newRequestKey(), { id: ids.cartId }));
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit)) {
-        if (name === "canceled") expect(Cause.pretty(exit.cause)).toContain("Payment sessions are required");
-        else expect(Cause.findErrorOption(exit.cause)).toMatchObject({ _tag: "Some", value: { reason: "unsupportedProfile" } });
+        expect(Cause.pretty(exit.cause)).toContain("Payment sessions are required");
       }
       expect(await local.snapshot()).toEqual(before);
     }

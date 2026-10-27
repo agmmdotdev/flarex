@@ -8,7 +8,7 @@ import { jsonEqual } from "flarex-protocol/json";
 import { commerceError, defaultCommerceResources, isJsonObject, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
 import { projectNativeRow, orderNativeIdRows } from "../../repository/result";
-import { assembleCommerceRelations, commerceRelationReadQuery, prepareCommerceRelationPopulation } from "../../query/relations";
+import { assembleCommerceRelations, commerceRelationReadQuery, prepareCommerceRelationPopulation, reusePrimaryRelationRows } from "../../query/relations";
 import { projectRows } from "../../query/projection";
 import { captureCommerceInput } from "../../value/input";
 import { captureNativeNumericDto } from "../../value/native-numeric";
@@ -57,7 +57,7 @@ export function selectOrderFinanceReceiptRows(prepared: Prepared, state: OrderFi
   return Result.gen(function* () {
     const contract = yield* prepared.contracts.entity(table);
     const plan = yield* captureCommerceInput(buildQuery(selectors, config)).pipe(Result.flatMap(input => prepared.query(contract.table, input)));
-    const reads: JsonObject[] = [], selected = new Map<string, readonly JsonObject[]>();
+    const reads: JsonObject[] = [], selected = new Map<string, readonly Row[]>();
     const roots = orderNativeIdRows((state.get(table) ?? []).filter(row => row.deleted_at === null && matchesSelectors(row, selectors)), {});
     if (roots.length > 4) return yield* Result.fail(mismatch("root-bound"));
     const record = (name: string, predicate: Json, rows: readonly Row[], order = "id") => {
@@ -75,7 +75,9 @@ export function selectOrderFinanceReceiptRows(prepared: Prepared, state: OrderFi
         let children: Row[] = [];
         if (Option.isSome(population)) {
           const { column, values, predicate } = population.value;
-          children = [...state.get(relation.targetTable) ?? []].filter(row => row.deleted_at === null && typeof row[column] === "string" &&
+          const reused = owning && relation.targetTable === "order_address"
+            ? reusePrimaryRelationRows(selected.get(relation.targetTable), column, values) : undefined;
+          children = reused ?? [...state.get(relation.targetTable) ?? []].filter(row => row.deleted_at === null && typeof row[column] === "string" &&
             values.includes(row[column]) && (!versioned || parents.some(parent => parent.id === row.order_id && parent.version === row.version)));
           if (children.length > 4) return yield* Result.fail(mismatch("relation-bound"));
           const order = plan.ordering.get(relation.targetTable) ?? "id";
@@ -84,15 +86,16 @@ export function selectOrderFinanceReceiptRows(prepared: Prepared, state: OrderFi
             if (order !== "ordering" || children.some(row => typeof row.ordering !== "number")) return yield* Result.fail(mismatch("relation-order"));
             children.sort((left, right) => Number(left.ordering) - Number(right.ordering));
           }
-          record(relation.targetTable, predicate, children, order);
+          if (reused === undefined) record(relation.targetTable, predicate, children, order);
         }
-        // Native creation selects both nullable Address slots. Two absent
-        // owning relations share an empty target family without a storage read.
-        // Populated repeated cohorts still need independent alias admission.
+        // Native creation selects two independently authenticated Address slots.
+        // Keep both read transcripts and assemble their bounded identity union.
         const previous = selected.get(relation.targetTable);
-        if (previous !== undefined && (previous.length !== 0 || children.length !== 0))
+        if (previous !== undefined && relation.targetTable !== "order_address" && (previous.length !== 0 || children.length !== 0))
           return yield* Result.fail(mismatch("repeated-family"));
-        selected.set(relation.targetTable, children);
+        const cohort = previous === undefined ? children : [...previous, ...children.filter(row => !previous.some(prior => prior.id === row.id))];
+        if (cohort.length > 4) return yield* Result.fail(mismatch("relation-bound"));
+        selected.set(relation.targetTable, cohort);
         yield* populate(relation.targetTable, children, nested, path);
       }
     });

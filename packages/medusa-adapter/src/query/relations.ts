@@ -110,6 +110,15 @@ interface RelationPopulation {
   readonly fetched: Map<string, readonly JsonObject[]>;
 }
 
+/** A complete earlier selection can satisfy a primary-key population only
+ * when it contains every requested identity. Empty or partial misses still read. */
+export function reusePrimaryRelationRows<Row extends JsonObject>(previous: readonly Row[] | undefined, column: string, values: readonly string[]) {
+  if (previous === undefined) return undefined;
+  const ids = new Set(values);
+  const matching = previous.filter(row => typeof row[column] === "string" && ids.has(row[column]));
+  return matching.length === ids.size ? matching : undefined;
+}
+
 const readPopulationRelation = Effect.fn("MedusaAdapter.readRelation")(function* (
   population: RelationPopulation,
   targetTable: string, columns: readonly string[], parents: readonly JsonObject[],
@@ -121,11 +130,8 @@ const readPopulationRelation = Effect.fn("MedusaAdapter.readRelation")(function*
   const { column, values } = selection.value;
   const cacheKey = JSON.stringify([targetTable, softDelete, order, predicate ?? null]);
   const previous = fetched.get(cacheKey);
-  if (primaryLookup && previous !== undefined) {
-    const ids = new Set(values);
-    const matching = previous.filter(row => typeof row[column] === "string" && ids.has(row[column]));
-    if (matching.length === ids.size) return matching;
-  }
+  const reused = primaryLookup ? reusePrimaryRelationRows(previous, column, values) : undefined;
+  if (reused !== undefined) return reused;
   const loaded = yield* readCommerceRelationRows(ctx, targetTable, selection.value.predicate, order);
   fetched.set(cacheKey, loaded);
   return loaded;

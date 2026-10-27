@@ -134,7 +134,7 @@ const makeOrderCommands = Effect.fn("Order.commands")(function* (profile: "finan
       output: decodeTransactions, moduleEvents: creationTables.map(table => event(table, "created")) });
     const deleteOrders = yield* defineWorkflowMethod({ command: deleteCreated,
       arguments: checkoutDeleteArguments, encode: ([ids]) => ids,
-      output: deleteOutput, moduleEvents: [event("order", "deleted"), event("order_line_item", "deleted")] });
+      output: deleteOutput, moduleEvents: [event("order_address", "deleted"), event("order", "deleted"), event("order_line_item", "deleted")] });
     const storedOrder = yield* prepared.contracts.catalog.table("order");
     // ReadTable describes the native public projection, not a storage schema
     // or table capability. These two required native presentation fields must
@@ -177,7 +177,7 @@ const makeOrderCommands = Effect.fn("Order.commands")(function* (profile: "finan
       source: module.description, withService: module.use, logicalEventPolicy: () => policy };
   }));
 });
-const creationTables = ["order", "order_summary", "order_line_item", "order_item"];
+const creationTables = ["order_address", "order", "order_summary", "order_line_item", "order_item"];
 export const makeOrderPaymentFinanceCommands = Effect.fn("OrderFinance.commands")(function* () {
   const { withWorkflow, financeMethods, creationMethods: _creationMethods, create: _create, deleteCreated: _delete, ...commands } = yield* makeOrderCommands("finance");
   return { ...commands, workflow: yield* Effect.fromResult(withWorkflow(financeMethods)) };

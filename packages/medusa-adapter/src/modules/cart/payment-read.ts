@@ -45,9 +45,6 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
     const byName = new Map(entities.map(entity => [entity.table.name, entity]));
     const cart = byName.get("cart");
     if (cart === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
-    const admitRow = (table: string, row: JsonObject) => profile === "checkout" && table === cart.table.name &&
-      (row.shipping_address_id !== null || row.billing_address_id !== null || row.customer_id !== null)
-      ? Result.fail(commerceError("unsupportedProfile")) : Result.succeed(undefined);
     const totals = cartTotalsFields(), rawTotals = new Set(totals.map(name => "raw_" + name));
     const paths = profile === "checkout" ? [...cartPaymentPaths, "shipping_address", "billing_address"] : [...cartPaymentPaths];
     const admittedPaths: ReadonlySet<string> = profile === "checkout" ? new Set(paths) : allowedPaths;
@@ -135,9 +132,6 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
           if (rows.length > 4) return yield* Result.fail(commerceError("limitExceeded"));
           for (const row of rows) {
             const checked = yield* entity.complete(projectNativeRow(row));
-            // Checkout admits existing digital/manual or Variant-backed Items.
-            // Address and Customer writes retain separate admission gates.
-            yield* admitRow(table, checked);
             if (table === cart.table.name && typeof checked.id === "string") originals.set(checked.id, checked);
           }
         }) }, catalog, plan, count);
@@ -172,6 +166,6 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
       };
       return { ...bound, repository, lineItemRepository, denied, remember, originals };
     };
-    return { cart, entities, byName, catalog, relations: catalog.relations, paths, totals, profile, admitRow, query, queryTable, present, bind };
+    return { cart, entities, byName, catalog, relations: catalog.relations, paths, totals, profile, query, queryTable, present, bind };
   });
 }

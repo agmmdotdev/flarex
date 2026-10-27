@@ -43,4 +43,11 @@ describe("bounded native Order creation input", () => {
     expect(Result.isFailure(decodeCheckoutOrderDeletes([]))).toBe(true);
     expect(Result.isFailure(decodeCheckoutOrderDeletes(["order-one", "order-two"]))).toBe(true);
   });
+  it("admits native checkout Address copies without granting caller-supplied Address identities or arbitrary fields", () => {
+    const address = { city: "Yangon", country_code: "mm", created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-02-01T00:00:00.000Z", deleted_at: null };
+    const input = [{ ...order, customer_id: "cus-existing", billing_address: address, shipping_address: address }];
+    expect(Result.getOrThrow(decodeCheckoutOrderCreates(input))).toEqual(input);
+    for (const extra of [{ id: "caller-address" }, { is_default_billing: true }, { unexpected: true }])
+      expect(Result.isFailure(decodeCheckoutOrderCreates([{ ...order, shipping_address: { ...address, ...extra } }]))).toBe(true);
+  });
 });

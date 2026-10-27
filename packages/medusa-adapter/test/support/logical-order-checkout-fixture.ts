@@ -6,12 +6,14 @@ import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { paymentFinanceCallLimit } from "../../src/workflows/payment/finance-configuration";
+import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { createOrdersStep, createOrdersStepId, type CreateOrdersStepInput } from "@medusajs/core-flows/order/create-orders-step";
 import { prepareLogicalOrderFixture } from "./logical-order-fixture";
 
 /** Genuine public module methods through their production participant and
  * call receipts. These roots isolate admission; they do not replace checkout. */
-export async function prepareLogicalOrderCheckout(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void) {
+export async function prepareLogicalOrderCheckout(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
+  additionalSeeds: readonly { readonly table: string; readonly row: JsonObject }[] = []) {
   const order = await Effect.runPromise(makeOrderCheckoutCommands());
   const base = await prepareLogicalOrderFixture(driver, close, order.commands, "checkout-order", [
     { table: "order", row: { id: "order-checkout-existing", display_id: 400, currency_code: "usd", status: "pending" } },
@@ -24,6 +26,7 @@ export async function prepareLogicalOrderCheckout(driver: "pglite" | "postgres",
       raw_unit_price: { value: "1", precision: 20 }, requires_shipping: false } },
     { table: "order_item", row: { id: "orditem-checkout-hidden", order_id: "order-checkout-hidden-item",
       item_id: "ordli-checkout-hidden", quantity: "1", raw_quantity: { value: "1", precision: 20 }, deleted_at: "2026-01-01T00:00:00.000Z" } },
+    ...additionalSeeds,
   ], undefined, "generate");
   const resources = Result.getOrThrow(prepareWorkflowResources({ order: { module: order.workflow,
     methods: ["createOrders", "deleteOrders", "addOrderTransactions"], graph: true } }, true));

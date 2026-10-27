@@ -77,8 +77,8 @@ function prepareOrderRepository(metadata: Effect.Success<ReturnType<typeof captu
       [table.tableId, new Map(table.columns.map(column => [column.columnId, column.default]))]));
     const { query } = prepareOrderFinanceQuery(contracts.catalog, contracts.entities.map(entity => entity.table));
     const creationInputs = profile === "finance" ? [] : contracts.entities.filter(entity =>
-      ["order", "order_summary", "order_item", "order_line_item"].includes(entity.table.name)).map(entity =>
-        [entity.table.name, entity.table.columns.filter(column => !["id", "display_id", "created_at", "updated_at", "deleted_at"].includes(column.name))
+      ["order", "order_summary", "order_item", "order_line_item", ...(profile === "checkout" ? ["order_address"] : [])].includes(entity.table.name)).map(entity =>
+        [entity.table.name, entity.table.columns.filter(column => !(entity.table.name === "order_address" ? ["id"] : ["id", "display_id", "created_at", "updated_at", "deleted_at"]).includes(column.name))
           .map(column => column.name)] as const);
     const createDecoders = new Map([...(profile === "creation" ? [] : creations), ...creationInputs]
       .map(([table, names]) => [table, commerceRowDecoder(names, "unsupportedProfile")]));
@@ -118,7 +118,7 @@ function prepareOrderRepository(metadata: Effect.Success<ReturnType<typeof captu
         const entity = yield* contracts.entity(table);
         if (rows.length > 4) return yield* Result.fail(commerceError("limitExceeded"));
         for (const value of rows) yield* entity.complete(projectNativeRow(value));
-        if (profile !== "finance" && table === "order" && rows.some(row => row.shipping_address_id !== null || row.billing_address_id !== null))
+        if (profile === "creation" && table === "order" && rows.some(row => row.shipping_address_id !== null || row.billing_address_id !== null))
           return yield* Result.fail(commerceError("unsupportedProfile"));
       });
       const readContext = (ctx: CommerceCommandContext) => ({ ...ctx, admitSelection: checkedRows });
@@ -293,7 +293,7 @@ function prepareOrderRepository(metadata: Effect.Success<ReturnType<typeof captu
           })));
         const remove: DAL.RepositoryService["delete"] = (input, shared) => bridge.executeInput(shared, input, (ctx, captured) =>
           bridge.checked(ctx, Effect.gen(function* () {
-            const physicalGraph = profile !== "finance" && ["order", "order_line_item"].includes(name);
+            const physicalGraph = profile !== "finance" && (["order", "order_line_item"].includes(name) || profile === "checkout" && name === "order_address");
             if (!physicalGraph && !(profile !== "creation" && ["order_transaction", "order_change", "order_change_action"].includes(name)))
               return yield* ctx.refuse(commerceError("unsupportedProfile"));
             const selection = yield* Effect.fromResult(decodeDelete(captured));

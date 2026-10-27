@@ -15,7 +15,10 @@ const cartId = "cart-native-completion", completedAt = "2026-10-27T00:00:00.000Z
 describe("genuine native Cart completion and retained inverse", () => {
   let local: Awaited<ReturnType<typeof prepareLogicalPaymentCollections>>;
   beforeAll(async () => { local = await prepareLogicalPaymentCollections(driver, close => cleanup.push(close), undefined,
-    [{ table: "cart", row: { id: cartId, currency_code: "usd", metadata: { nested: { retained: true } } } }], [], "completion"); }, 240_000);
+    [{ table: "cart_address", row: { id: "ca-completion-retained", city: "Retained", metadata: { nested: true } } },
+      { table: "cart", row: { id: cartId, currency_code: "usd", metadata: { nested: { retained: true } } } },
+      { table: "cart", row: { id: "cart-customer-completion", currency_code: "usd", customer_id: "cus-completion-retained",
+        shipping_address_id: "ca-completion-retained", billing_address_id: "ca-completion-retained" } }], [], "completion"); }, 240_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
   const prepare = async (mode: "forward" | "inverse" | "late") => {
@@ -73,6 +76,17 @@ describe("genuine native Cart completion and retained inverse", () => {
     const exit = await Effect.runPromiseExit(forward.run(forward.newRequestKey(), [{ id: cartId, completed_at: completedAt, email: "unadmitted@example.test" }]));
     expect(Exit.isFailure(exit)).toBe(true);
     expect(await local.snapshot()).toEqual(before);
+  }, 240_000);
+
+  it("restores native completion with an existing Customer and leaves both Cart Address references intact", async () => {
+    const forward = await prepare("forward"), inverse = await prepare("inverse");
+    const result = object(await Effect.runPromise(forward.run(forward.newRequestKey(), [{ id: "cart-customer-completion", completed_at: completedAt }])));
+    expect(result.retained).toMatchObject({ cartsBeforeUpdate: [{ customer_id: "cus-completion-retained", completed_at: null }], addressesBeforeUpdate: [] });
+    if (result.retained === undefined) throw new Error("Missing populated Cart preimage");
+    const restored = await Effect.runPromise(inverse.run(inverse.newRequestKey(), result.retained));
+    expect(restored).toMatchObject([{ customer_id: "cus-completion-retained", completed_at: null,
+      shipping_address_id: "ca-completion-retained", billing_address_id: "ca-completion-retained" }]);
+    expect(local.errors).toEqual([]);
   }, 240_000);
 
   it("rolls back the actual native write when its returned DTO is corrupted", async () => {

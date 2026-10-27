@@ -997,7 +997,8 @@ Customer association, complete Cart creation, remote providers, independently
 committed best-effort batches and hosted activation retain separate gates.
 
 The [native checkout profile](./preflight/checkout-workflow.md) completes existing
-customerless, addressless Carts with up to four digital Line Items, including
+guest or existing-Customer Carts with nullable billing/shipping Addresses and up
+to four digital Line Items, including
 manual items and actual Product Variants, and local System payments. Its genuine
 eighteen-source graph includes stored
 Order-Cart and Order-Payment Collection Links, native totals, Order creation,
@@ -1013,8 +1014,11 @@ The explicit logical-source allowance is eighteen, while physical participants
 retain their eight-member ceiling. Complete catalog admission uses the bounded
 index-owned 1024-definition policy and transaction-local cohort checks.
 Native stored declarations select the approved atomic outcome profile, without
-resumable step history or automatic three-day expiry. Complete Cart creation,
-populated Customer and Addresses, Promotion, shipping, tax and credit-line
+resumable step history or automatic three-day expiry. Customer identity reaches
+the Order through the native Cart graph; Order creates independent Address copies
+and its native inverse deletes them without changing the original Cart Addresses
+or Customer. Complete Cart creation, Customer address-book and payment-account
+workflows, Promotion, shipping, tax and credit-line
 branches, larger Inventory cohorts, remote gateways and hosted activation remain
 separately gated.
 

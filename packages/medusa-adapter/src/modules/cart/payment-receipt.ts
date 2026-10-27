@@ -7,7 +7,7 @@ import { jsonEqual } from "flarex-protocol/json";
 import { commerceError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
 import { projectNativeRow, orderNativeIdRows } from "../../repository/result";
-import { assembleCommerceRelations, commerceRelationReadQuery, prepareCommerceRelationPopulation } from "../../query/relations";
+import { assembleCommerceRelations, commerceRelationReadQuery, prepareCommerceRelationPopulation, reusePrimaryRelationRows } from "../../query/relations";
 import { projectRows } from "../../query/projection";
 import { captureCommerceInput } from "../../value/input";
 import { captureNativeNumericDto } from "../../value/native-numeric";
@@ -32,7 +32,6 @@ export function cartPaymentReadPolicy(prepared: Prepared, profile: "payment" | "
       const entity = prepared.byName.get(observation.table);
       if (entity === undefined) return yield* Effect.fail(mismatch());
       const row = yield* Effect.fromResult(entity.complete(projectNativeRow(observation.row)));
-      yield* Effect.fromResult(prepared.admitRow(observation.table, row)).pipe(Effect.mapError(mismatch));
       if (typeof row.id !== "string") return yield* Effect.fail(mismatch());
       const group = state.get(observation.table) ?? [], previous = group.find(value => value.id === row.id);
       if (previous !== undefined && !jsonEqual(previous, row)) return yield* Effect.fail(mismatch());
@@ -53,16 +52,21 @@ export function cartPaymentReadPolicy(prepared: Prepared, profile: "payment" | "
         let rows: readonly JsonObject[] = [];
         if (Option.isSome(population)) {
           const { column, values, predicate } = population.value;
-          rows = orderNativeIdRows((state.get(relation.targetTable) ?? []).filter(row => row.deleted_at === null &&
+          const reused = owning && relation.targetTable === "cart_address"
+            ? reusePrimaryRelationRows(selected.get(relation.targetTable), column, values) : undefined;
+          rows = reused ?? orderNativeIdRows((state.get(relation.targetTable) ?? []).filter(row => row.deleted_at === null &&
             typeof row[column] === "string" && values.includes(row[column])), {});
           if (rows.length > 4) return yield* Result.fail(mismatch());
-          reads.push({ table: relation.targetTable, query: commerceRelationReadQuery(defaultCommerceResources, predicate), total: rows.length, returned: rows.length });
+          if (reused === undefined) reads.push({ table: relation.targetTable, query: commerceRelationReadQuery(defaultCommerceResources, predicate), total: rows.length, returned: rows.length });
         }
         const previous = selected.get(relation.targetTable);
-        // Both declared Address paths are empty in this profile. Never let a
-        // repeated target replace different evidence from an earlier path.
-        if (previous !== undefined && !jsonEqual(previous, rows)) return yield* Result.fail(mismatch());
-        selected.set(relation.targetTable, rows);
+        // Each owning Address slot retains its real cached read transcript. Assembly
+        // needs their union; observation decoding already rejects changed IDs.
+        if (previous !== undefined && relation.targetTable !== "cart_address" && !jsonEqual(previous, rows))
+          return yield* Result.fail(mismatch());
+        const cohort = previous === undefined ? rows : [...previous, ...rows.filter(row => !previous.some(prior => prior.id === row.id))];
+        if (cohort.length > 4) return yield* Result.fail(mismatch());
+        selected.set(relation.targetTable, cohort);
         yield* populate(relation.targetTable, rows, nested);
       }
     });

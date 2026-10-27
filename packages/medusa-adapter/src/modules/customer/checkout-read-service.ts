@@ -14,8 +14,8 @@ import { moduleAliases, scalarGraphDefinition } from "../../local-graph/module";
 import { captureCustomerMetadata } from "./schema";
 import { defineCustomerPersistenceModule } from "./module";
 
-/** The real Customer count service remains available to native Cart's graph;
- * the initial Cart checkout profile separately refuses populated customers. */
+/** Existing Customer identities and scalars participate read-only in native
+ * checkout. Saved Customer Address and Group methods receive no authority. */
 export const makeCustomerCheckoutReadCommands = Effect.fn("Customer.checkoutRead")(function* () {
   const metadata = yield* captureCustomerMetadata();
   return yield* Effect.fromResult(Result.gen(function* () {

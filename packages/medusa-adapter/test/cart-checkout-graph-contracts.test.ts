@@ -30,13 +30,12 @@ it("derives real owning Address paths and every selected native total", async ()
   expect(Result.getOrThrow(prepared.query(query)).paths).toEqual(expect.arrayContaining(["shipping_address", "billing_address"]));
 });
 
-it("admits Variant-backed Items while retaining the Customer and Address gates", () => {
-  const cart = { shipping_address_id: null, billing_address_id: null, customer_id: null };
-  expect(Result.isSuccess(prepared.admitRow("cart", cart))).toBe(true);
-  for (const key of ["shipping_address_id", "billing_address_id", "customer_id"])
-    expect(Result.isFailure(prepared.admitRow("cart", { ...cart, [key]: "outside-profile" }))).toBe(true);
-  expect(Result.isSuccess(prepared.admitRow("cart_line_item", { variant_id: null }))).toBe(true);
-  expect(Result.isSuccess(prepared.admitRow("cart_line_item", { variant_id: "variant-checkout" }))).toBe(true);
+it("authenticates both owning Address slots against native Cart foreign keys", () => {
+  for (const name of ["shipping_address", "billing_address"]) {
+    const relation = prepared.relations.get("cart")?.get(name);
+    expect(relation).toMatchObject({ targetTable: "cart_address", targetPrimaryKeys: ["id"],
+      join: { type: "belongsTo", foreignKeys: [name + "_id"] } });
+  }
 });
 
 it("retains native per-call totals-field ownership", () => {

@@ -131,6 +131,8 @@ export interface CheckoutCase {
   readonly variantId?: string;
   readonly salesChannelId?: string;
   readonly customerId?: string;
+  readonly shippingAddressId?: string;
+  readonly billingAddressId?: string;
   readonly items?: readonly { readonly variantId: string; readonly quantity: number; readonly unitPrice: string }[];
 }
 
@@ -165,6 +167,8 @@ export async function prepareLogicalCheckout(driver: "pglite" | "postgres", clos
     cases.set(selected.name, ids);
     carts.push({ table: "cart", row: { id: ids.cartId, currency_code: "usd", region_id: "reg-checkout", email: "checkout@example.com",
       ...(selected.salesChannelId === undefined ? {} : { sales_channel_id: selected.salesChannelId }),
+      ...(selected.shippingAddressId === undefined ? {} : { shipping_address_id: selected.shippingAddressId }),
+      ...(selected.billingAddressId === undefined ? {} : { billing_address_id: selected.billingAddressId }),
       ...(selected.customerId === undefined ? {} : { customer_id: selected.customerId }) } });
     const items = selected.items ?? [{ variantId: selected.variantId, quantity: selected.quantity ?? 1, unitPrice }];
     for (const [index, item] of items.entries()) carts.push(
@@ -182,16 +186,19 @@ export async function prepareLogicalCheckout(driver: "pglite" | "postgres", clos
     // Independent persisted cases share FK-ordered initialization batches.
     // Interleaving a parent and child for every case needlessly charges one
     // table acquisition/write per row against the unchanged request budget.
-    cart: [...carts.filter(row => row.table === "cart"), ...carts.filter(row => row.table === "cart_line_item")],
+    cart: [...options.additionalSeeds?.cart?.filter(row => row.table === "cart_address") ?? [],
+      ...carts.filter(row => row.table === "cart"), ...carts.filter(row => row.table === "cart_line_item")],
     payment: [...payments.filter(row => row.table === "payment_collection"), ...payments.filter(row => row.table === "payment_session")],
     region: [{ table: "region", row: { id: "reg-checkout", name: "Checkout Region", currency_code: "usd" } }],
     cart_payment_collection_links: links,
   };
+  const sourceSeeds = (name: string) => [...seeds[name] ?? [],
+    ...options.additionalSeeds?.[name]?.filter(row => name !== "cart" || row.table !== "cart_address") ?? []];
   // Validate fixture identity spelling before installing the complete catalog.
   // Storage still performs its own real duplicate/shape/FK checks below.
   for (const selected of definitions) {
     const ids = new Set<string>();
-    for (const entry of [...seeds[selected.name] ?? [], ...options.additionalSeeds?.[selected.name] ?? []]) {
+    for (const entry of sourceSeeds(selected.name)) {
       const wrappedRow = entry.row;
       const wrapped = typeof entry.table === "string" && wrappedRow !== undefined && isJsonObject(wrappedRow);
       if (wrapped === (selected.definition.schema.tables.length === 1)) throw new Error("Wrong single/multi-table checkout fixture seed envelope " + selected.name);
@@ -214,7 +221,7 @@ export async function prepareLogicalCheckout(driver: "pglite" | "postgres", clos
   for (const [index, selected] of definitions.entries()) {
     const source = sources[index], module = runtime.workflows[selected.name], logical = workflowModuleDefinition(module)?.logical;
     if (source === undefined || logical === undefined) throw new Error("Missing genuine checkout source");
-    const rows = [...seeds[selected.name] ?? [], ...options.additionalSeeds?.[selected.name] ?? []];
+    const rows = sourceSeeds(selected.name);
     const dataset = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows }, 1_048_576,
       { invalidInput: () => new Error("Invalid checkout seed"), hashFailure: cause => new Error("Checkout seed hash", { cause }) }));
     const logicalStorage = { ...fixture.hostInput.logicalStorage, source: { sourceKey: source.key, writeProfile: source.writeProfile,
