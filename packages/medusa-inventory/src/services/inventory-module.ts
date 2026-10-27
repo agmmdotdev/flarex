@@ -172,6 +172,13 @@ export default class InventoryModuleService
     }
 
     if (validateQuantityAtLocation) {
+      const demand = new Map<string, Map<string, BigNumberInput>>()
+      for (const item of data) {
+        if (item.allow_backorder) continue
+        const locations = demand.get(item.inventory_item_id) ?? new Map<string, BigNumberInput>()
+        locations.set(item.location_id, MathBN.add(locations.get(item.location_id) ?? 0, item.quantity!))
+        demand.set(item.inventory_item_id, locations)
+      }
       for (const item of data) {
         if (!!item.allow_backorder) {
           continue
@@ -183,7 +190,7 @@ export default class InventoryModuleService
 
         const level = locations?.get(item.location_id)!
 
-        if (MathBN.lt(level.available_quantity, item.quantity!)) {
+        if (MathBN.lt(level.available_quantity, demand.get(item.inventory_item_id)!.get(item.location_id)!)) {
           throw new MedusaError(
             MedusaError.Types.NOT_ALLOWED,
             `Not enough stock available for item ${item.inventory_item_id} at location ${item.location_id}`

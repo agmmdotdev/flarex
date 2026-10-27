@@ -4,31 +4,10 @@ import { PaymentModuleService } from "@medusajs/payment/services";
 import { OrderModuleService } from "@medusajs/order/services";
 import { MathBN } from "@medusajs/framework/utils/portable";
 import { prepareLogicalCheckout } from "./support/logical-checkout-fixture";
+import { expectCheckoutContention } from "./support/checkout-contention";
 import { ExecutionDiagnostics, type ExecutionDiagnosticPolicy } from "../../persistence-postgres/src/execution/diagnostics/operation";
 
 const driver = process.env.FLAREX_TEST_DRIVER === "postgres" ? "postgres" : "pglite";
-const underlyingQueryFailure = Schema.Struct({ cause: Schema.Struct({ cause: Schema.Struct({ cause: Schema.Unknown }) }) });
-const expectCheckoutContention = (cause: Cause.Cause<unknown>) => {
-  expect([1, 2]).toContain(cause.reasons.length);
-  const [callback, tracked] = cause.reasons;
-  if (callback === undefined || !Cause.isFailReason(callback)) throw new Error("Checkout contention contains a defect or interruption", { cause });
-  expect(callback.error).toMatchObject({ reason: "invalidAuthority", cause: {
-    _tag: "ScopeAuthorizationRevocationEpochPersistenceError", operation: "lockForOrdinaryWrite",
-    cause: { cause: { code: "55P03" } },
-  } });
-  if (tracked === undefined) return;
-  if (!Cause.isFailReason(tracked)) throw new Error("Checkout contention contains an additional defect or interruption", { cause });
-  expect(tracked.error).toMatchObject({ reason: "resourceFailure", cause: { _tag: "RelationalSessionError", reason: "resourceFailure",
-    cause: { _tag: "PhysicalSessionResourceIssue", phase: "callback" },
-  } });
-  // The physical owner also retains rejected SQL promises, including a failure
-  // returned by the callback. Admit only the very same rejected query object;
-  // another error, even with the same SQL code, is an independent failure.
-  const original = Schema.decodeUnknownSync(underlyingQueryFailure)(callback.error).cause.cause.cause;
-  const observed = Schema.decodeUnknownSync(underlyingQueryFailure)(tracked.error).cause.cause.cause;
-  expect(original).toMatchObject({ code: "55P03" });
-  expect(observed).toBe(original);
-};
 
 it("checks the entire contention Cause and distinguishes repeated SQL observation from independent failure", () => {
   const sql = { code: "55P03" };
@@ -57,7 +36,7 @@ describe("native complete Cart checkout on " + driver, () => {
     { name: "exact", amount: "9007199254740993.0000" },
     { name: "fractional", amount: "1.25", unitPrice: "1", quantity: 1.25, compareAt: "9007199254740993.0000" },
     { name: "canceled", badSession: true }, { name: "late" }, { name: "concurrent" },
-    { name: "populated-variant", variantId: "variant-unadmitted" },
+    { name: "populated-customer", customerId: "customer-unadmitted" },
     { name: "captured", amount: "9007199254740993.0000" },
     { name: "partially-refunded" }, { name: "fully-refunded" },
     { name: "exact-refunded", amount: "9007199254740993.0000" }, { name: "late-refunded" },
@@ -131,8 +110,8 @@ describe("native complete Cart checkout on " + driver, () => {
     expect(MathBN.eq(Schema.decodeUnknownSync(Schema.String)(rows.find(row => row.payment_session_id === ids.sessionId)?.amount), "1.25")).toBe(true);
   }, 120_000);
 
-  it("rejects an unprocessable Session and populated Variant capability without publishing anything", async () => {
-    for (const name of ["canceled", "populated-variant"]) {
+  it("rejects an unprocessable Session and populated Customer capability without publishing anything", async () => {
+    for (const name of ["canceled", "populated-customer"]) {
       const before = await local.snapshot(), ids = selectedCase(name);
       const exit = await Effect.runPromiseExit(local.host.run(local.host.newRequestKey(), { id: ids.cartId }));
       expect(Exit.isFailure(exit)).toBe(true);

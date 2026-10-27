@@ -997,20 +997,26 @@ Customer association, complete Cart creation, remote providers, independently
 committed best-effort batches and hosted activation retain separate gates.
 
 The [native checkout profile](./preflight/checkout-workflow.md) completes existing
-customerless, addressless Carts with up to four digital/manual Line Items and
-local System payments. Its genuine eighteen-source graph includes stored
+customerless, addressless Carts with up to four digital Line Items, including
+manual items and actual Product Variants, and local System payments. Its genuine
+eighteen-source graph includes stored
 Order-Cart and Order-Payment Collection Links, native totals, Order creation,
 Cart completion and `order.placed`. Capture and pre-existing Refund transactions
 retain their separate identities and exact raw amounts in native Order
-accounting. One trusted atomic owner retains settlement, durable outcomes and
+accounting. Native Inventory preparation selects channel Locations, calculates
+component demand and creates at most four Reservations, retaining unmanaged
+and backorder behavior. Native availability checks combined non-backorder demand
+per Item/Location; retained physical deletion releases stored native quantities.
+One trusted atomic owner retains settlement, durable outcomes and
 replay; the actual native child supplies parent metadata for native lock skips.
 The explicit logical-source allowance is eighteen, while physical participants
 retain their eight-member ceiling. Complete catalog admission uses the bounded
 index-owned 1024-definition policy and transaction-local cohort checks.
 Native stored declarations select the approved atomic outcome profile, without
 resumable step history or automatic three-day expiry. Complete Cart creation,
-populated variants, Inventory, Promotion, shipping, tax and credit-line branches,
-remote gateways and hosted activation remain separately gated.
+populated Customer and Addresses, Promotion, shipping, tax and credit-line
+branches, larger Inventory cohorts, remote gateways and hosted activation remain
+separately gated.
 
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.

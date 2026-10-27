@@ -40,6 +40,7 @@ export const prepareCheckoutGraphs = Effect.fn("Checkout.prepareGraphs")(functio
   };
   const expected = [["cart", "cart.checkout"], ["order", "order.checkout"], ["payment", "payment.system-lifecycle"],
     ["customer", "customer.checkout-read"], ["promotion", "promotion.checkout-read"], ["fulfillment", "fulfillment.checkout-read"],
+    ["inventory", "inventory-checkout"],
     ["order_cart_links", "order-cart.checkout-native-links"], ["order_payment_collection_links", "order-payment.checkout-native-links"]] as const;
   for (const [key, profile] of expected) {
     const selected = definitions.get(key);

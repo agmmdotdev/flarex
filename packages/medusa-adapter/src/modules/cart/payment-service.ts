@@ -102,7 +102,7 @@ const makeCartCommands = Effect.fn("Cart.commands")(function* (profile: "payment
     const workflow = yield* defineWorkflowModule({ name: Modules.CART, source: module.description, methods,
       graph: { aliases: aliases.filter(alias => alias.model === "Cart" || profile === "checkout" && alias.model === "LineItem"), reads: [{ model: "Cart", command: count,
         table: yield* presentation.table("cart"), paths: profile === "checkout" ? yield* relationPaths(read.catalog, "cart", read.paths, { nativeFields: true }) : [],
-        ...(profile === "checkout" ? {} : { selectedFieldsOnly: true }),
+        ...(profile === "checkout" ? { nativeFields: true as const } : { selectedFieldsOnly: true }),
         orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount },
         ...(profile === "checkout" ? [{ model: "LineItem", command: countLines, table: yield* read.catalog.table("cart_line_item"),
           paths: [], orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] : [])] }, logical: { ...policy, commands: admitted } });

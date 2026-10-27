@@ -21,6 +21,7 @@ const decodePairs = commerceDecoder(Schema.Array(Schema.Struct({ entity: Schema.
 const decodeId = commerceDecoder(ScalarId, "storedCorruption");
 const decodeObjects = commerceDecoder(Schema.Array(Schema.JsonObject), "storedCorruption");
 const ids = commerceDecoder(Schema.Array(ScalarId).check(Schema.isMaxLength(1)), "unsupportedProfile");
+const checkoutDeletion = commerceDecoder(Schema.Struct({ $or: Schema.Array(Schema.Struct({ id: ScalarId })).check(Schema.isMaxLength(4)) }), "unsupportedProfile");
 const strings = commerceDecoder(Schema.Union([ScalarId, Schema.Array(ScalarId).check(Schema.isMaxLength(8))]), "unsupportedProfile");
 export const inventoryLevelWhere: WherePolicy = { ...scalarIdWhere,
   fields: new Map(["id", "inventory_item_id", "location_id"].map(column => [column, { column, decode: strings }])),
@@ -56,19 +57,20 @@ export function inventoryQuantityProjection(columns: readonly SchemaTable["colum
 /** Inventory's exact quantities extend shared scalar DAL mechanics. Native
  * services retain availability checks and reservation-to-level adjustments. */
 export function prepareInventoryQuantityRepository(table: SchemaTable, model: "InventoryLevel" | "ReservationItem",
-  profile: "read-only" | "stock-mutations" | "level-updates" | "level-batches" | "level-creations" | "reservation-line-items") {
+  profile: "read-only" | "stock-mutations" | "level-updates" | "level-batches" | "level-creations" | "reservation-line-items" | "checkout-reservations") {
   return Result.gen(function* () {
-    if (!["read-only", "stock-mutations", "level-updates", "level-batches", "level-creations", "reservation-line-items"].includes(profile) ||
+    if (!["read-only", "stock-mutations", "level-updates", "level-batches", "level-creations", "reservation-line-items", "checkout-reservations"].includes(profile) ||
       (profile === "level-updates" || profile === "level-batches" || profile === "level-creations" || profile === "reservation-line-items") && model !== "InventoryLevel")
       return yield* Result.fail(commerceError("unsupportedProfile"));
-    const levelUpdates = profile === "level-updates" || profile === "level-batches", reservationLines = profile === "reservation-line-items";
-    const bounded = levelUpdates || reservationLines, mutable = profile === "stock-mutations" || bounded;
+    const levelUpdates = profile === "level-updates" || profile === "level-batches", reservationLines = profile === "reservation-line-items",
+      checkout = profile === "checkout-reservations";
+    const bounded = levelUpdates || reservationLines || checkout, mutable = profile === "stock-mutations" || bounded;
     const numeric = table.columns.filter(column => column.type === "bigNumber");
     const project = inventoryQuantityProjection(table.columns);
     const scalar = yield* prepareScalarRepository(table, model, model === "InventoryLevel" ? inventoryLevelWhere : scalarIdWhere,
       bounded || profile === "level-creations" ? project : undefined);
     const exactProjection = inventoryQuantityProjection(table.columns, true);
-    const updateNumeric = reservationLines ? numeric.filter(column => column.name === "reserved_quantity")
+    const updateNumeric = reservationLines || checkout && model === "InventoryLevel" ? numeric.filter(column => column.name === "reserved_quantity")
       : levelUpdates ? numeric.filter(column => ["stocked_quantity", "incoming_quantity"].includes(column.name)) : numeric;
     const updateFields = levelUpdates ? ["inventory_item_id", "location_id", ...updateNumeric.map(column => column.name)]
       : model === "InventoryLevel" ? updateNumeric.map(column => column.name) : ["quantity"];
@@ -91,7 +93,7 @@ export function prepareInventoryQuantityRepository(table: SchemaTable, model: "I
       });
       const repository: DAL.RepositoryService = { ...bound.repository,
         create: profile === "level-updates" || reservationLines ? bound.refuse : (input, shared) => bound.bridge.execute(shared, ctx => bound.bridge.checked(ctx, Effect.gen(function* () {
-          if (!Array.isArray(input) || input.length > 8) return yield* ctx.refuse(commerceError("unsupportedProfile"));
+          if (!Array.isArray(input) || input.length > (checkout ? 4 : 8)) return yield* ctx.refuse(commerceError("unsupportedProfile"));
           const rows: JsonObject[] = [];
           for (const row of input) rows.push(yield* captureExactNumericRow(row, numeric, true));
           return yield* decodeRows(yield* bound.createRows(ctx, rows, shared), true);
@@ -119,7 +121,13 @@ export function prepareInventoryQuantityRepository(table: SchemaTable, model: "I
           yield* bound.events.rows("afterUpdate", model, rows.map(row => ({ ...row })), shared);
           return yield* decodeRows(rows, true);
         }))) : bound.refuse,
-        softDelete: mutable && model === "ReservationItem" ? (input, shared) => bound.bridge.execute(shared, ctx => bound.bridge.checked(ctx, Effect.gen(function* () {
+        delete: checkout && model === "ReservationItem" ? (input, shared) => bound.bridge.executeInput(shared, input, (ctx, captured) => bound.bridge.checked(ctx, Effect.gen(function* () {
+          const selected = yield* Effect.fromResult(checkoutDeletion(captured));
+          // The generated native internal service owns afterDelete dispatch.
+          const removed = yield* (yield* ctx.table(table.name)).delete(ctx.manager, selected.$or);
+          return yield* Effect.fromResult(Result.all(removed.map(row => decodeId(row.id))));
+        }))) : bound.refuse,
+        softDelete: !checkout && mutable && model === "ReservationItem" ? (input, shared) => bound.bridge.execute(shared, ctx => bound.bridge.checked(ctx, Effect.gen(function* () {
           const selected = yield* Effect.fromResult(ids(yield* Effect.fromResult(captureCommerceInput(input))));
           const store = yield* ctx.table(table.name);
           const rows = yield* store.lifecycle(ctx.manager, "softDelete", selected.map(id => ({ id })));

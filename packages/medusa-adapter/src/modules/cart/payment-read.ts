@@ -45,9 +45,8 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
     const byName = new Map(entities.map(entity => [entity.table.name, entity]));
     const cart = byName.get("cart");
     if (cart === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
-    const admitRow = (table: string, row: JsonObject) => profile === "checkout" && (table === cart.table.name &&
-      (row.shipping_address_id !== null || row.billing_address_id !== null || row.customer_id !== null) ||
-      table === "cart_line_item" && row.variant_id !== null)
+    const admitRow = (table: string, row: JsonObject) => profile === "checkout" && table === cart.table.name &&
+      (row.shipping_address_id !== null || row.billing_address_id !== null || row.customer_id !== null)
       ? Result.fail(commerceError("unsupportedProfile")) : Result.succeed(undefined);
     const totals = cartTotalsFields(), rawTotals = new Set(totals.map(name => "raw_" + name));
     const paths = profile === "checkout" ? [...cartPaymentPaths, "shipping_address", "billing_address"] : [...cartPaymentPaths];
@@ -136,9 +135,8 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
           if (rows.length > 4) return yield* Result.fail(commerceError("limitExceeded"));
           for (const row of rows) {
             const checked = yield* entity.complete(projectNativeRow(row));
-            // The first checkout capability admits digital/manual items and
-            // empty Address/Customer branches. Real joins still own null/empty
-            // presentation; populated capabilities need their retained inverses.
+            // Checkout admits existing digital/manual or Variant-backed Items.
+            // Address and Customer writes retain separate admission gates.
             yield* admitRow(table, checked);
             if (table === cart.table.name && typeof checked.id === "string") originals.set(checked.id, checked);
           }

@@ -3,8 +3,9 @@
 ## Status and authority
 
 Status: admitted private atomic System-provider checkout for existing Carts
-with up to four digital/manual Line Items, absent Customer and Addresses, and
-empty Inventory, Promotion, shipping, tax and credit-line branches. Its
+with up to four digital Line Items, including manual items and actual Product
+Variants, and up to four native Inventory Reservations. Customer and Addresses
+remain absent; Promotion, shipping, tax and credit-line branches remain empty. Its
 finite SDK correction retains the native storage declarations and requires the
 trusted execution port to select the atomic outcome policy before any callback.
 The genuine native root composes the complete eighteen-source graph, stored
@@ -56,16 +57,70 @@ Reuse the Payment collection/session/authorization and Order-finance owners.
 Checkout uses native Order creation/deletion, Cart completion writes and their
 retained inverse, the Order-Cart Link and the complete selected Cart graph. Its
 explicit Cart checkout profile is distinct from the existing Cart payment reads.
-Managed Inventory reservation needs its actual Inventory and Locking owners;
-the existing read-only confirmation capability is insufficient. Empty Inventory
-and Promotion inputs must reach the genuine native early-return branches before
-their resources may be absent. Populated branches require their genuine owners.
+Managed Inventory reservation uses its actual Inventory and Locking owners as
+described below. Empty Inventory and Promotion inputs retain their genuine native
+early-return branches. Populated Promotion remains separately gated.
 
 Complete Cart creation is separate from completing an existing Cart. Its pending
 Country ordering, Address inverse, Cart-Promotion inverse and Promotion candidate
 selection decisions must not be silently accepted through this checkout work.
 The uncommitted Cart context-read candidate belongs to the stopped Cart session
 and is not a substitute for admitted checkout graph reads.
+
+## Product and Inventory checkout extension
+
+Status: admitted private connected profile. Reuse the complete eighteen-source
+checkout graph and the genuine `reserveInventoryStep` under the
+existing scope-exclusive outer owner. Existing customerless, addressless digital
+Line Items may reference actual Product Variants. At most four Line Items and
+four generated Reservations are admitted; Inventory Items, channel Locations and
+rich Variant-Inventory Links retain their independently checked graph bounds.
+This does not admit shipping, populated Promotion, Cart creation or remote effects.
+
+The native preparation helper selects the stocked location for the Cart's Sales
+Channel, computes component demand and retains unmanaged/backorder behavior. The
+Inventory service owns availability checks, grouped reserved-quantity adjustments,
+reservation creation and physical deletion through its retained native inverse.
+The adapter must reuse its scalar/exact-quantity repository mechanics, checked
+Inventory metadata and authenticated command/event receipts. The existing finite
+locking resource borrows outer scope exclusion; no additional lock lifetime,
+database transaction or distributed provider is introduced.
+
+The Cart graph selects the existing native-field policy so authenticated rich
+Variant-Inventory Link keys remain available to native Inventory preparation.
+Other Cart payment read profiles retain selected-field projection. One Inventory
+participant combines its existing graph reads with authenticated reservation
+create/delete commands; it does not create a second source or settlement owner.
+The retained native deletion callback returns void, so checkout explicitly selects
+the locking resource's identity-covered `voidResult: "null"` ABI. That selection
+converts only the top-level void result, preserving JSON values and rejection;
+the ordinary resource contract and strict nested JSON boundary remain unchanged.
+Stored Reservation quantities and physical release retain native precision-20
+arithmetic. Whole-root failure restores the original persisted state through
+database rollback; independently committed deletion follows the native stored
+quantity contract.
+
+The connected acceptance gate requires actual Product/Variant metadata on the
+created Order, exact fractional component demand, channel-specific location
+selection, insufficient-stock refusal, native backorder/unmanaged behavior,
+four-Reservation batches, shared-stock demand, reservation inverse, late-failure
+rollback, competing Cart stock claims, same-Cart completion and durable replay.
+Existing individual Reservation profiles keep their one-row contract and are
+not widened implicitly by checkout.
+
+The preserved `checkout-reservation-native-prerequisite` witness identifies a
+native Inventory availability defect: `createReservationItems_` passes two
+non-backorder quantities of two to `ensureInventoryLevels` against one level
+with three available units. Expected: native `not_allowed` refusal before any
+Reservation creation. Actual: the genuine method reaches creation and resolves;
+each input quantity is compared independently with the same available quantity.
+The connected shared-stock checkout case retains the corresponding durable-data
+obligation. Correction belongs to native Inventory's batch availability owner,
+not graph assembly, locking, the reservation adapter or storage. Combined demand
+must retain exact arithmetic, item/location separation and native backorder
+semantics. The native combined-stock validation correction is explicitly approved.
+The admitted native owner checks this combined demand before creating any
+Reservation; graph assembly, locking and adapters retain their existing owners.
 
 ## Approved workflow declaration disposition
 
@@ -320,8 +375,8 @@ projections have named checked views; they do not assert complete native DTOs.
 The native creation step preserves the actual nullable/own-undefined checkout
 input and validates the genuinely selected returned Order fields before retaining
 created IDs. It still calls the same native method and retained deletion inverse.
-The native empty Inventory and Promotion callbacks retain their real early returns;
-populated resources remain outside the initial profile.
+The native empty Inventory and Promotion callbacks retain their real early returns.
+Managed Inventory uses the bounded profile above; populated Promotion remains gated.
 
 The connected root uses the full metadata-backed Cart graph and native
 Order-Cart Link creation/read/inverse. Exact quantity and comparison pricing,
@@ -354,8 +409,8 @@ settlement. The contention assertion inspects the complete Cause and admits a
 physical tracker's second observation only when both refer to the same rejected
 SQL error. Independent failures, defects and interruption remain failures.
 
-Any proposed managed Inventory, populated Promotion or durable workflow branch
-needs its own complete reachable closure. A bounded
+Larger Inventory cohorts, populated Promotion and durable workflow branches
+need their own complete reachable closure. A bounded
 System-provider result does not establish hosted checkout, gateway recovery or
 arbitrary Cart workflows.
 

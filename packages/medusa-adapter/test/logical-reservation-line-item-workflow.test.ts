@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { Cause, Deferred, Effect, Fiber, Result, Schema } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
 import { InventoryLevelService, InventoryModuleService } from "@medusajs/inventory/services";
 import { BigNumber } from "@medusajs/utils/totals/big-number";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
@@ -36,6 +36,20 @@ async function refused(work: Effect.Effect<unknown, CommerceTransactionError>, b
   if (Result.isSuccess(result)) throw new Error("Expected native Reservation Line Item refusal");
   if (reason !== undefined) expect(reasons(result.failure)).toContain(reason);
   expect(await snapshot()).toEqual(before); return result.failure;
+}
+async function refusedDefect(work: Effect.Effect<unknown, CommerceTransactionError>, before: Awaited<ReturnType<typeof snapshot>>, expected: Error | string) {
+  const exit = await Effect.runPromiseExit(work);
+  if (Exit.isSuccess(exit)) throw new Error("Expected native Reservation Line Item defect");
+  const defects = exit.cause.reasons.filter(Cause.isDieReason), failures = exit.cause.reasons.filter(Cause.isFailReason);
+  expect(exit.cause.reasons, Cause.pretty(exit.cause)).toHaveLength(2);
+  expect(defects).toHaveLength(1); expect(failures).toHaveLength(1);
+  const defect = defects[0]?.defect, sealed = failures[0]?.error;
+  expect(defect).toBeInstanceOf(Error);
+  if (typeof expected === "string") expect(defect).toMatchObject({ name: "Error", message: expected });
+  else expect(defect).toBe(expected);
+  expect(sealed).toBeInstanceOf(CommerceTransactionError);
+  expect(sealed).toMatchObject({ reason: "rollbackOnly" });
+  expect(await snapshot()).toEqual(before);
 }
 async function reserved(items: readonly string[]) {
   const rows = await connected.probeCohort(items);
@@ -182,8 +196,7 @@ describe("native Reservation deletion by Line Item on shared logical storage", {
     const probes = await connected.prepareProbes(), before = await snapshot();
     const remove = vi.spyOn(InventoryModuleService.prototype, "deleteReservationItemsByLineItem"), restore = vi.spyOn(InventoryModuleService.prototype, "restoreReservationItemsByLineItem");
     try {
-      const failure = await refused(probes.roundtrip.run(probes.roundtrip.newRequestKey(), [line]), before, "adapterFailure");
-      expect(nativeFailure(failure)).toMatchObject({ message: "Roll back native Line Item round trip" });
+      await refusedDefect(probes.roundtrip.run(probes.roundtrip.newRequestKey(), [line]), before, "Roll back native Line Item round trip");
       expect(remove).toHaveBeenCalledTimes(1); expect(restore).toHaveBeenCalledTimes(1);
       const original = await Effect.runPromise(connected.probeReservations(graph.ids));
       expect(original.filter(row => row.deleted_at !== null)).toHaveLength(1); expect((await reserved(graph.items))[0]?.reserved).toEqual(new BigNumber(2).raw);
@@ -248,10 +261,11 @@ describe("native Reservation deletion by Line Item on shared logical storage", {
     const graph = await connected.seed("reservation-line-forgery"), host = await connected.prepare();
     for (const mode of ["throw", "result", "event", "malformed-event"] as const) {
       const original = InventoryModuleService.prototype.deleteReservationItemsByLineItem; let completed = false;
+      const failure = new Error("Late native Line Item deletion failure");
       // @ts-expect-error Deliberately violate the genuine native void ABI in one branch.
       const native = vi.spyOn(InventoryModuleService.prototype, "deleteReservationItemsByLineItem").mockImplementation(async function (this: InventoryModuleService, ...args) {
         await Reflect.apply(original, this, args); completed = true;
-        if (mode === "throw") throw new Error("Late native Line Item deletion failure");
+        if (mode === "throw") throw failure;
         if (mode === "result") {
           return { id: "forged-nonvoid-native-result" };
         }
@@ -262,8 +276,9 @@ describe("native Reservation deletion by Line Item on shared logical storage", {
           metadata: { source: "inventory", object: "reservation_item", action: "deleted" } }], { internal: true }]);
       });
       try {
-        const before = await snapshot(); await refused(host.run(host.newRequestKey(), { ids: graph.lines }), before,
-          mode === "throw" ? "adapterFailure" : mode === "result" ? "storedCorruption" : mode === "malformed-event" ? "unadmittedEvent" : "receiptMismatch");
+        const before = await snapshot(), work = host.run(host.newRequestKey(), { ids: graph.lines });
+        if (mode === "throw") await refusedDefect(work, before, failure);
+        else await refused(work, before, mode === "result" ? "storedCorruption" : mode === "malformed-event" ? "unadmittedEvent" : "receiptMismatch");
         expect(completed).toBe(true);
       } finally { native.mockRestore(); }
     }

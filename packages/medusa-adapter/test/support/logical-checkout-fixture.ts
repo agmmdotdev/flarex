@@ -5,7 +5,7 @@ import { authorizePaymentSessionStep } from "@medusajs/core-flows/payment/author
 import { capturePaymentStep } from "@medusajs/core-flows/payment/capture-payment-step";
 import { refundPaymentStep } from "@medusajs/core-flows/payment/refund-payment-step";
 import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { capturePrivateCanonicalValue, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { capturePrivateCanonicalValue, isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { compileCartDefinition } from "../../src/modules/cart/schema";
@@ -23,7 +23,7 @@ import { makePromotionCheckoutReadCommands } from "../../src/modules/promotion/c
 import { compileProductDefinition } from "../../src/modules/product/definition";
 import { makeLocalProductCommands } from "../../src/modules/product/service";
 import { compileInventoryDefinition } from "../../src/modules/inventory/schema";
-import { makeLocalInventoryCommands } from "../../src/modules/inventory/service";
+import { makeInventoryCheckoutCommands } from "../../src/modules/inventory/checkout-service";
 import { compileStockLocationDefinition } from "../../src/modules/stock-location/schema";
 import { makeStockLocationCommands } from "../../src/modules/stock-location/service";
 import { compileSalesChannelDefinition } from "../../src/modules/sales-channel/schema";
@@ -78,7 +78,7 @@ export async function checkoutRuntimes() {
     order_payment_collection_links: orderPayment.workflow, order_cart_links: orderCart.workflow,
     cart_promotion_links: (await Effect.runPromise(prepareCartPromotionLinkRead())).workflow,
     product: (await Effect.runPromise(makeLocalProductCommands())).workflow,
-    inventory: (await Effect.runPromise(makeLocalInventoryCommands("variant-price-calculation"))).workflow,
+    inventory: (await Effect.runPromise(makeInventoryCheckoutCommands())).workflow,
     stock_location: (await Effect.runPromise(makeStockLocationCommands())).workflow,
     sales_channel: (await Effect.runPromise(makeLocalSalesChannelCommands())).workflow,
     product_links: (await Effect.runPromise(prepareLocalProductLinks())).workflow,
@@ -129,6 +129,9 @@ export interface CheckoutCase {
   readonly compareAt?: string;
   readonly badSession?: boolean;
   readonly variantId?: string;
+  readonly salesChannelId?: string;
+  readonly customerId?: string;
+  readonly items?: readonly { readonly variantId: string; readonly quantity: number; readonly unitPrice: string }[];
 }
 
 const captureExistingPayment = createWorkflow("checkout-existing-captured-payment", (input: WorkflowData<typeof PaymentAuthorization.Type>) => {
@@ -144,17 +147,11 @@ const refundExistingPayment = createWorkflow("checkout-existing-refunded-payment
 
 export async function prepareLogicalCheckout(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
   options: { readonly amount?: string; readonly badSession?: boolean; readonly additionalCases?: readonly CheckoutCase[];
+    readonly additionalSeeds?: Readonly<Record<string, readonly JsonObject[]>>;
     readonly onPhase?: (phase: string) => void } = {}) {
   const runtime = await checkoutRuntimes();
   const definitions = await checkoutDefinitions(), sources = await checkoutSources(definitions);
   options.onPhase?.("native definitions captured");
-  const fixture = await logicalCurrencyFixture(driver, close, { additionalSources: sources });
-  options.onPhase?.("complete catalog ready");
-  if (driver === "postgres") {
-    const role = await fixture.persistence.query("select rolsuper,rolcreatedb,rolcreaterole,rolbypassrls from pg_roles where rolname=current_user");
-    const activeRole = role.rows[0];
-    if (role.rows.length !== 1 || activeRole === undefined || Object.values(activeRole).some(value => value !== false)) throw new Error("Checkout fixture requires an ordinary role");
-  }
   const amount = options.amount ?? "12.5";
   const cartId = "cart-checkout", collectionId = "paycol-checkout", sessionId = "payses-checkout";
   const cases = new Map<string, { readonly cartId: string; readonly collectionId: string; readonly sessionId: string }>();
@@ -166,10 +163,14 @@ export async function prepareLogicalCheckout(driver: "pglite" | "postgres", clos
     const ids = { cartId: "cart-" + selected.name, collectionId: "paycol-" + selected.name, sessionId: "payses-" + selected.name };
     const value = selected.amount ?? "12.5", unitPrice = selected.unitPrice ?? value;
     cases.set(selected.name, ids);
-    carts.push({ table: "cart", row: { id: ids.cartId, currency_code: "usd", region_id: "reg-checkout", email: "checkout@example.com" } },
-      { table: "cart_line_item", row: { id: "cali-" + selected.name, cart_id: ids.cartId, title: "Digital manual item", quantity: selected.quantity ?? 1,
-        requires_shipping: false, unit_price: unitPrice, raw_unit_price: { value: unitPrice, precision: 20 },
-        ...(selected.variantId === undefined ? {} : { variant_id: selected.variantId }),
+    carts.push({ table: "cart", row: { id: ids.cartId, currency_code: "usd", region_id: "reg-checkout", email: "checkout@example.com",
+      ...(selected.salesChannelId === undefined ? {} : { sales_channel_id: selected.salesChannelId }),
+      ...(selected.customerId === undefined ? {} : { customer_id: selected.customerId }) } });
+    const items = selected.items ?? [{ variantId: selected.variantId, quantity: selected.quantity ?? 1, unitPrice }];
+    for (const [index, item] of items.entries()) carts.push(
+      { table: "cart_line_item", row: { id: "cali-" + selected.name + (index === 0 ? "" : "-item-" + index), cart_id: ids.cartId, title: "Digital manual item", quantity: item.quantity,
+        requires_shipping: false, unit_price: item.unitPrice, raw_unit_price: { value: item.unitPrice, precision: 20 },
+        ...(item.variantId === undefined ? {} : { variant_id: item.variantId }),
         ...(selected.compareAt === undefined ? {} : { compare_at_unit_price: selected.compareAt,
           raw_compare_at_unit_price: { value: selected.compareAt, precision: 20 } }) } });
     payments.push({ table: "payment_collection", row: { id: ids.collectionId, currency_code: "usd", amount: value, raw_amount: { value, precision: 20 } } },
@@ -178,15 +179,42 @@ export async function prepareLogicalCheckout(driver: "pglite" | "postgres", clos
     links.push({ id: "capaycol-" + selected.name, cart_id: ids.cartId, payment_collection_id: ids.collectionId });
   }
   const seeds: Readonly<Record<string, readonly JsonObject[]>> = {
-    cart: carts, payment: payments,
+    // Independent persisted cases share FK-ordered initialization batches.
+    // Interleaving a parent and child for every case needlessly charges one
+    // table acquisition/write per row against the unchanged request budget.
+    cart: [...carts.filter(row => row.table === "cart"), ...carts.filter(row => row.table === "cart_line_item")],
+    payment: [...payments.filter(row => row.table === "payment_collection"), ...payments.filter(row => row.table === "payment_session")],
     region: [{ table: "region", row: { id: "reg-checkout", name: "Checkout Region", currency_code: "usd" } }],
     cart_payment_collection_links: links,
   };
+  // Validate fixture identity spelling before installing the complete catalog.
+  // Storage still performs its own real duplicate/shape/FK checks below.
+  for (const selected of definitions) {
+    const ids = new Set<string>();
+    for (const entry of [...seeds[selected.name] ?? [], ...options.additionalSeeds?.[selected.name] ?? []]) {
+      const wrappedRow = entry.row;
+      const wrapped = typeof entry.table === "string" && wrappedRow !== undefined && isJsonObject(wrappedRow);
+      if (wrapped === (selected.definition.schema.tables.length === 1)) throw new Error("Wrong single/multi-table checkout fixture seed envelope " + selected.name);
+      const row = wrapped ? wrappedRow : entry;
+      const table = wrapped ? entry.table : selected.definition.schema.tables.length === 1 ? selected.definition.schema.tables[0]?.identity.tableId : undefined;
+      if (typeof table !== "string" || typeof row.id !== "string") throw new Error("Missing checkout fixture seed identity");
+      const identity = JSON.stringify([table, row.id]);
+      if (ids.has(identity)) throw new Error("Duplicate checkout fixture seed identity " + selected.name + "/" + identity);
+      ids.add(identity);
+    }
+  }
+  const fixture = await logicalCurrencyFixture(driver, close, { additionalSources: sources });
+  options.onPhase?.("complete catalog ready");
+  if (driver === "postgres") {
+    const role = await fixture.persistence.query("select rolsuper,rolcreatedb,rolcreaterole,rolbypassrls from pg_roles where rolname=current_user");
+    const activeRole = role.rows[0];
+    if (role.rows.length !== 1 || activeRole === undefined || Object.values(activeRole).some(value => value !== false)) throw new Error("Checkout fixture requires an ordinary role");
+  }
   const entries: Array<[string, InstalledWorkflowModule<WorkflowModule>]> = [];
   for (const [index, selected] of definitions.entries()) {
     const source = sources[index], module = runtime.workflows[selected.name], logical = workflowModuleDefinition(module)?.logical;
     if (source === undefined || logical === undefined) throw new Error("Missing genuine checkout source");
-    const rows = seeds[selected.name] ?? [];
+    const rows = [...seeds[selected.name] ?? [], ...options.additionalSeeds?.[selected.name] ?? []];
     const dataset = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows }, 1_048_576,
       { invalidInput: () => new Error("Invalid checkout seed"), hashFailure: cause => new Error("Checkout seed hash", { cause }) }));
     const logicalStorage = { ...fixture.hostInput.logicalStorage, source: { sourceKey: source.key, writeProfile: source.writeProfile,
@@ -194,6 +222,7 @@ export async function prepareLogicalCheckout(driver: "pglite" | "postgres", clos
       initialization: { stepId: "checkout-existing-" + index, datasetSha256: dataset.sha256Hex, expectedRowCount: rows.length } };
     const initializer = await Effect.runPromise(makeCommerceHost({ ...fixture.hostInput, logicalStorage, commands: logical.commands,
       identityAndAccessPolicy: { profile: "checkout-initialization" } }));
+    options.onPhase?.("initializing " + selected.name);
     try { await Effect.runPromise(initializer.initialize(rows)); } finally { await Effect.runPromise(initializer.close); }
     options.onPhase?.("initialized " + selected.name);
     entries.push([selected.name, { module, logicalStorage }]);

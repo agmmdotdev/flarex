@@ -10,7 +10,8 @@ import type { WorkflowMethod } from "./module";
 const decodeKeys = commerceDecoder(Schema.Array(ScalarId).check(Schema.isMaxLength(4)), "unsupportedProfile");
 /** Native execute borrows authenticated outer scope exclusion. Item keys retain
  * native identity, while this finite profile deliberately serializes the scope. */
-export function prepareWorkflowLocking(dependencies: readonly WorkflowMethod[]) {
+export function prepareWorkflowLocking(dependencies: readonly WorkflowMethod[], voidResult?: "null") {
+  if (voidResult !== undefined && voidResult !== "null") return Result.fail(commerceError("unsupportedProfile"));
   const execute: ComposedResourceMethod<readonly [readonly string[], () => Promise<unknown>], Json> = {
       arguments: value => Result.gen(function* () {
         if (!Array.isArray(value)) return yield* Result.fail(commerceError("unsupportedProfile"));
@@ -23,6 +24,11 @@ export function prepareWorkflowLocking(dependencies: readonly WorkflowMethod[]) 
       }),
       output: commerceDecoder(Schema.Json, "storedCorruption"),
     };
-  return defineComposedWorkflowResource({ identity: { profile: "inventory-scope-exclusion" }, scopeExclusive: true,
-    dependencies, methods: { execute }, bind: () => ({ execute: (_keys, work) => work() }) });
+  return defineComposedWorkflowResource({ identity: { profile: "inventory-scope-exclusion", ...(voidResult === undefined ? {} : { voidResult }) }, scopeExclusive: true,
+    dependencies, methods: { execute }, bind: () => ({ execute: async (_keys, work) => {
+      const value = await work();
+      // The native reservation inverse ignores its void callback result. This
+      // selected ABI uses the same canonical null as native void commands.
+      return voidResult === "null" && value === undefined ? null : value;
+    } }) });
 }

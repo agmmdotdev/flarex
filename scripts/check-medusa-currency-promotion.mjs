@@ -190,6 +190,7 @@ export function verifyLinkCascadeReturnMapFork(source, target) {
 /** The approved restore correction and exact portable arithmetic extraction.
  * @param {string} source @param {string} target @param {string} helper */
 export function verifyInventoryReservationRestoreFork(source, target, helper) {
+  target = verifyInventoryCombinedDemandCorrection(source, target);
   target = verifyInventoryReservationArithmeticExtraction(source, target, helper);
   const message = "Changed native Inventory reservation restore fork behavior";
   const methodName = "restoreReservationItemsByLineItem_";
@@ -215,6 +216,40 @@ export function verifyInventoryReservationRestoreFork(source, target, helper) {
   const normalized = target.slice(0, adapted.method.getStart(adapted.parsed))
     + native.method.getText(native.parsed) + target.slice(adapted.method.end);
   verifyModuleTypeFork(source, normalized);
+}
+
+/** The approved native batch availability correction changes one method only.
+ * Restore it after checking its complete emitted body, before module parity.
+ * @param {string} source @param {string} target */
+function verifyInventoryCombinedDemandCorrection(source, target) {
+  const message = "Changed native Inventory combined demand correction";
+  /** @param {string} text */
+  const select = text => {
+    emitForkRuntime(text);
+    const parsed = ts.createSourceFile("inventory-demand.ts", text, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
+    const classes = parsed.statements.filter(node => ts.isClassDeclaration(node) && node.name?.text === "InventoryModuleService");
+    if (classes.length !== 1 || !ts.isClassDeclaration(classes[0])) throw new Error(message);
+    const methods = classes[0].members.filter(node => ts.isMethodDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "ensureInventoryLevels");
+    if (methods.length !== 1 || !ts.isMethodDeclaration(methods[0]) || !methods[0].body) throw new Error(message);
+    return { parsed, method: methods[0] };
+  };
+  const native = select(source), adapted = select(target), original = native.method.getText(native.parsed).replaceAll("\r\n", "\n");
+  const loop = "      for (const item of data) {";
+  const validation = "MathBN.lt(level.available_quantity, item.quantity!)";
+  if (original.split(loop).length !== 2 || original.split(validation).length !== 2) throw new Error(message);
+  const grouping = "      const demand = new Map<string, Map<string, BigNumberInput>>()\n"
+    + "      for (const item of data) {\n"
+    + "        if (item.allow_backorder) continue\n"
+    + "        const locations = demand.get(item.inventory_item_id) ?? new Map<string, BigNumberInput>()\n"
+    + "        locations.set(item.location_id, MathBN.add(locations.get(item.location_id) ?? 0, item.quantity!))\n"
+    + "        demand.set(item.inventory_item_id, locations)\n"
+    + "      }\n";
+  const expected = original.replace(loop, grouping + loop).replace(validation,
+    "MathBN.lt(level.available_quantity, demand.get(item.inventory_item_id)!.get(item.location_id)!)");
+  /** @param {string} method */
+  const emitMethod = method => emitForkRuntime("class InventoryDemandGuard {\n" + method + "\n}");
+  if (emitMethod(adapted.method.getText(adapted.parsed)) !== emitMethod(expected)) throw new Error(message);
+  return target.slice(0, adapted.method.getStart(adapted.parsed)) + original + target.slice(adapted.method.end);
 }
 
 /** @param {string} source @param {string} target @param {string} helper */

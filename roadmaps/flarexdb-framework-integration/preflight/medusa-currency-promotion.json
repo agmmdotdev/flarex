@@ -1904,7 +1904,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/inventory/quantity-repository.ts",
       "classification": "authored",
-      "targetSha256": "95ebdf3252a1f335aaa11cad0548318ab013b1d41c64863cd874b4aa360a2377"
+      "targetSha256": "c736e2d89d489f912ec03a88ace6df6b7f39af7023c57ae145d44588e3b03e16"
     },
     {
       "target": "packages/medusa-adapter/src/modules/inventory/reservation-input.ts",
@@ -1939,7 +1939,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/inventory/service.ts",
       "classification": "authored",
-      "targetSha256": "3d42b61d91d40bd56047807225114a1f842a91b3e4783cfe1b794b9704be83e7"
+      "targetSha256": "b827821e21884e1819f6528008058e8eddfc2ad42eb00c33b036c3604074ee67"
     },
     {
       "target": "packages/medusa-adapter/src/modules/inventory/stock-events.ts",
@@ -3229,7 +3229,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow/locking.ts",
       "classification": "authored",
-      "targetSha256": "800ede014038a95ac184f13d8b3702e1ac8a2c124867f5ccbc4f67a4db7dc425"
+      "targetSha256": "a7d43d2afac52856c68c16658c880b503e97ad909a4239d952827c429050afee"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/module.ts",
@@ -4409,7 +4409,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-inventory-reservation-workflows.test.ts",
       "classification": "authored",
-      "targetSha256": "df5b2d8199eaf8a3ada8fec5e2efe4bc8f79709b272ab888a6aab8783eacad6e"
+      "targetSha256": "e1bff80fe7d227eb36f7dc074b9dd357603ec6a0bcfa05e09a41ecd55424eeaa"
     },
     {
       "target": "packages/medusa-adapter/test/logical-inventory-stocking-workflow.test.ts",
@@ -4729,7 +4729,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-reservation-line-item-workflow.test.ts",
       "classification": "authored",
-      "targetSha256": "f2931c6684025961d12829eba5c1d9828de2cdc8ac07c23b812421ff95ab0d46"
+      "targetSha256": "3ddeb470eee7d5258665ab121d0eb8f02c9cf84441610e46cb622d81aeb5a3af"
     },
     {
       "target": "packages/medusa-adapter/test/logical-sales-channel-creation-workflow.test.ts",
@@ -9566,7 +9566,7 @@
       "classification": "inventoryServiceFork",
       "source": "third_party/medusa/upstream/packages/modules/inventory/src/services/inventory-module.ts",
       "sourceSha256": "366aeb86fd408fb56ae52aa43d773721b8f463c8e46bf9d30a299af9745393b8",
-      "targetSha256": "dfdb50d7689af078f4b06d6c7f4af5274725b5111f0598a8f523dc2134543ef2"
+      "targetSha256": "8601ab6f7c465758004d108f86583c2b020755b3067a99b850274f90f8112862"
     },
     {
       "target": "packages/medusa-inventory/src/static-manifest.ts",
@@ -15844,7 +15844,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/cart/payment-read.ts",
       "classification": "authored",
-      "targetSha256": "af4cd4cd8ed6c8485835a472c1716f09c33c79a6f5ff00af8b3c24109a4de4ad"
+      "targetSha256": "080361c4d8b1f7bbdafc5400d44666a223eb031ae9ef6e8e88c61e9cf5d73777"
     },
     {
       "target": "packages/medusa-adapter/src/modules/cart/payment-receipt.ts",
@@ -15854,7 +15854,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/cart/payment-service.ts",
       "classification": "authored",
-      "targetSha256": "1cc114aa6c4e2b2eea9b51a05ebf9fc4f2cbe91e9d19559d88b96107666a452e"
+      "targetSha256": "e8b8bbe04268f99a5555e6f9372605b4ab4f648e75f20b03bb842491b429cc18"
     },
     {
       "target": "packages/medusa-adapter/src/modules/cart/schema.ts",
@@ -16305,17 +16305,17 @@
     {
       "target": "packages/medusa-adapter/src/workflows/cart/checkout-graph.ts",
       "classification": "authored",
-      "targetSha256": "d02cdba5dfca0405868ff5fcfde93a7e431e0c3cf60bd0d8187b4577741edde4"
+      "targetSha256": "0a1d05ff840eb4ac65e9baf9c23ddecf98d86a50e9546fea0c71cc63883c104b"
     },
     {
       "target": "packages/medusa-adapter/src/workflows/cart/complete-cart.ts",
       "classification": "authored",
-      "targetSha256": "3e1a090ff0f9002f671c9b5e6c96f455efaa02d8261179cd223bec2af7b94eb9"
+      "targetSha256": "149ee5fd74ecd1c840b067469f23c6a362ff438208b182fc958d8a6565b5a870"
     },
     {
       "target": "packages/medusa-adapter/test/cart-checkout-graph-contracts.test.ts",
       "classification": "authored",
-      "targetSha256": "13d4bc9766ccc6aba6e6ba91e16739f318653da05449fa50ac6a82a0c53b78ca"
+      "targetSha256": "502bdee01834177894ba10e95ee0f99a07ec2ae363bdfe261e790cf66472c29d"
     },
     {
       "target": "packages/medusa-adapter/test/checkout-comparison-price-prerequisite.test.ts",
@@ -16370,12 +16370,12 @@
     {
       "target": "packages/medusa-adapter/test/logical-checkout-workflow.test.ts",
       "classification": "authored",
-      "targetSha256": "92bbfef107a42faeee1b6a8f33c36128b395c7db79a8ef851e8d5aefa77ab633"
+      "targetSha256": "4c99d9daf350680efe2fb6c091512538ee99153b74b3adad38dead247733d7c8"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-checkout-fixture.ts",
       "classification": "authored",
-      "targetSha256": "f50a86d3164759314deb58ae77d45fc18a5cf02b440d44c99307003e9d1ead64"
+      "targetSha256": "99ca29024ba4584c855b8cb973192ac5d881f58d9a292bda5928b2f291264389"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-nested-prefix.ts",
@@ -16442,6 +16442,61 @@
       "target": "packages/medusa-promotion/src/utils/compute-actions/build-promotion-rule-query-filter-from-context.ts",
       "classification": "authored",
       "targetSha256": "1cd15f2957d800f12dc2e0673ddf150321a81a743892abed0dc4bf1d1c6f18ec"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/inventory/checkout-input.ts",
+      "classification": "authored",
+      "targetSha256": "63556fd1277811d7c1396e557b70335afffc36d5a4fcc0374ae51617c130e360"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/inventory/checkout-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "3e4cf8f239c65d3c87b13f82715357af2a8364aa183cc7cca8feb9b4cb09c077"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/inventory/checkout-resource.ts",
+      "classification": "authored",
+      "targetSha256": "0f54ae91d4be71c385a073c7d9e52064dc053a9cbd4e12d72dfbd0dba37f31ed"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/inventory/checkout-service.ts",
+      "classification": "authored",
+      "targetSha256": "0cc2bc7806c6feb318cc58f95af83175819ce92cc69449722b9b7f5c7802a313"
+    },
+    {
+      "target": "packages/medusa-adapter/test/checkout-inventory-receipts.test.ts",
+      "classification": "authored",
+      "targetSha256": "8b5fbdd74bfc7c0da7b0b653944221700b8eddad188144dc4718fec828be05f4"
+    },
+    {
+      "target": "packages/medusa-adapter/test/checkout-reservation-native-prerequisite.test.ts",
+      "classification": "authored",
+      "targetSha256": "3536bf612f53dceee12074f74fbfd5083ced1ef5e80d5ae1c90d3392c92f1780"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-checkout-inventory.test.ts",
+      "classification": "authored",
+      "targetSha256": "004d43f93731914f193398617245b5452ddc234c8d4b3c2c52972003810fdb75"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/checkout-contention.ts",
+      "classification": "authored",
+      "targetSha256": "38fee57575cd27d48e9e1dc3e624bbd15fb27c2b46b1b5fe340ac6c71c9d1f0a"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/checkout-inventory-data.ts",
+      "classification": "authored",
+      "targetSha256": "b025c6d9291c00aa2f8a959a87c24032cd9a3b6566601d4a6abc96337727f75f"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/checkout-inventory-inverse.ts",
+      "classification": "authored",
+      "targetSha256": "6862074b6874783de22d36f602e44b3e36bf85f4d96724832488af8db5ef0c9e"
+    },
+    {
+      "target": "packages/medusa-adapter/test/checkout-locking-resource.test.ts",
+      "classification": "authored",
+      "targetSha256": "57125f0e6783a967b1b38c18899c34a2c8d91d25df75bc2f98ad96be5aefc39d"
     }
   ],
   "dependencies": {
@@ -19624,17 +19679,17 @@
     },
     {
       "target": "packages/medusa-inventory/dist/services/inventory-module.d.ts.map",
-      "targetSha256": "f5f7e6ce4e94dec356284776374cb25819832c9928d69e53a2b5dab403b0db9b",
+      "targetSha256": "a1f98d1e3cc944b8b4df400a76cc46f0f2abc4ab1618fa053efa3b8bb441b4fa",
       "input": "packages/medusa-inventory/src/services/inventory-module.ts"
     },
     {
       "target": "packages/medusa-inventory/dist/services/inventory-module.js",
-      "targetSha256": "4b8e4491539d47c3d8cda7b9edf99f62869a287865784cceb703cd9d62d22c03",
+      "targetSha256": "cd09d902d653f1a6ca9edeb06ccfe372413bde6a115c43afb09d805af595873f",
       "input": "packages/medusa-inventory/src/services/inventory-module.ts"
     },
     {
       "target": "packages/medusa-inventory/dist/services/inventory-module.js.map",
-      "targetSha256": "5211b26e7533ac2295478f22bcc77722160ca45110f6d6f737d414ffaab5bbe2",
+      "targetSha256": "10b854b630d29674f838456f478d4bc497acc22f00f92cc393053a8d4161e3ce",
       "input": "packages/medusa-inventory/src/services/inventory-module.ts"
     },
     {

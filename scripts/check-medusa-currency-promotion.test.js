@@ -690,6 +690,28 @@ describe("native Inventory reservation line-item restore correction provenance",
 });
 
 
+describe("native Inventory combined stock demand correction provenance", () => {
+  const native = readFileSync("third_party/medusa/upstream/packages/modules/inventory/src/services/inventory-module.ts", "utf8");
+  const adapted = readFileSync("packages/medusa-inventory/src/services/inventory-module.ts", "utf8");
+  const helper = readFileSync("packages/medusa-inventory/src/utils/inventory-level-quantity.ts", "utf8");
+  it("retains the approved whole native availability method", () => {
+    expect(() => verifyInventoryReservationRestoreFork(native, adapted, helper)).not.toThrow();
+  });
+  it.each([
+    ["backorder exemption", "if (item.allow_backorder) continue", "if (!item.allow_backorder) continue"],
+    ["Item identity", "demand.get(item.inventory_item_id)", "demand.get(item.location_id)"],
+    ["Location identity", "locations.set(item.location_id, MathBN.add(", "locations.set(item.inventory_item_id, MathBN.add("],
+    ["previous demand", "locations.get(item.location_id) ?? 0", "0"],
+    ["exact addition", "MathBN.add(locations.get(item.location_id) ?? 0, item.quantity!)", "Number(locations.get(item.location_id) ?? 0) + Number(item.quantity!)"],
+    ["group insertion", "demand.set(item.inventory_item_id, locations)", "demand.set(item.location_id, locations)"],
+    ["complete demand", "demand.get(item.inventory_item_id)!.get(item.location_id)!", "item.quantity!"],
+    ["stock comparison", "MathBN.lt(level.available_quantity, demand.get", "MathBN.gt(level.available_quantity, demand.get"],
+  ])("rejects changed %s", (_name, before, after) => {
+    const changed = adapted.replace(before, after); expect(changed).not.toBe(adapted);
+    expect(() => verifyInventoryReservationRestoreFork(native, changed, helper)).toThrow();
+  });
+});
+
 describe("native Inventory Reservation arithmetic extraction provenance", () => {
   const native = readFileSync("third_party/medusa/upstream/packages/modules/inventory/src/services/inventory-module.ts", "utf8");
   const adapted = readFileSync("packages/medusa-inventory/src/services/inventory-module.ts", "utf8");

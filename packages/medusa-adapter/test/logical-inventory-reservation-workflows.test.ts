@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { Cause, Deferred, Effect, Fiber } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
 import { InventoryModuleService } from "@medusajs/inventory/services";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant, defineCommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
@@ -170,11 +170,21 @@ describe("native stock adjustments and individual reservation workflows", () => 
     await seed("late");
     const beforeRows = await rows(), beforeEvents = await events();
     const original = InventoryModuleService.prototype.createReservationItems;
+    const failure = new Error("late reservation failure");
     const native = vi.spyOn(InventoryModuleService.prototype, "createReservationItems").mockImplementation(async function (this: InventoryModuleService, input, context) {
       await Reflect.apply(original, this, [input, context]);
-      throw new Error("late reservation failure");
+      throw failure;
     });
-    try { await expect(run(create, { reservations: [data("late")] }).catch(error => { throw nativeFailure(error); })).rejects.toThrow("late reservation failure"); }
+    try {
+      const exit = await Effect.runPromiseExit(create.run(create.newRequestKey(), { reservations: [data("late")] }));
+      if (Exit.isSuccess(exit)) throw new Error("Expected late native Reservation defect");
+      const defects = exit.cause.reasons.filter(Cause.isDieReason), failures = exit.cause.reasons.filter(Cause.isFailReason);
+      expect(exit.cause.reasons, Cause.pretty(exit.cause)).toHaveLength(2);
+      expect(defects).toHaveLength(1); expect(failures).toHaveLength(1);
+      expect(defects[0]?.defect).toBe(failure);
+      expect(failures[0]?.error).toBeInstanceOf(CommerceTransactionError);
+      expect(failures[0]?.error).toMatchObject({ reason: "rollbackOnly" });
+    }
     finally { native.mockRestore(); }
     expect(await rows()).toEqual(beforeRows); expect(await events()).toEqual(beforeEvents);
   });

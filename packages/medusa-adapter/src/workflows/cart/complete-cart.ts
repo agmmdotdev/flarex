@@ -13,6 +13,8 @@ import { commerceDecoder } from "../../value/decoder";
 import { ScalarId } from "../../repository/scalar-id-read";
 import { paymentFinanceCallLimit } from "../payment/finance-configuration";
 import { prepareCheckoutModules, type CheckoutModules } from "./checkout-graph";
+import { makeCheckoutInventoryResource } from "../../modules/inventory/checkout-resource";
+import { prepareWorkflowLocking } from "../../workflow/locking";
 
 export const CheckoutInput = Schema.Struct({ id: ScalarId });
 export const CheckoutOutput = Schema.Struct({ id: ScalarId });
@@ -26,29 +28,35 @@ type Links = Result.Result.Success<ReturnType<typeof prepareCheckoutNativeLinkRe
 export const checkoutRoot = createWorkflow("flarex-complete-cart", (input: WorkflowData<typeof CheckoutInput.Type>) =>
   new WorkflowResponse(completeCartWorkflow.runAsStep({ input })));
 
-/** Native forward and retained Payment recreation share these exact services.
- * All other sources supply graph reads only, with no callback mutation surface. */
+/** Native checkout and retained Payment/Inventory callbacks borrow these exact
+ * services. The other sources supply authenticated graph reads only. */
 export function prepareCheckoutResources(modules: CheckoutModules, link: Links, logger: Logger) {
-  return prepareWorkflowResources({
-    cart: { module: modules.cart.module, methods: ["listCarts", "updateCarts", "listAddresses", "updateAddresses"], graph: true },
-    order: { module: modules.order.module, methods: ["createOrders", "deleteOrders", "addOrderTransactions", "deleteOrderTransactions", "listOrderTransactions"], graph: true },
-    payment: { module: modules.payment.module, methods: ["authorizePaymentSession", "retrievePaymentSession", "cancelPayment", "refundPayment", "createPaymentSession", "deletePaymentSession", "listPaymentSessions"], graph: true },
-    order_cart_links: { module: modules.order_cart_links.module, methods: ["nativeCreate", "nativeList", "nativeDismiss"], graph: true, expose: false },
-    order_payment_collection_links: { module: modules.order_payment_collection_links.module, methods: ["nativeCreate", "nativeList", "nativeDismiss"], graph: true, expose: false },
-    cart_payment_collection_links: { module: modules.cart_payment_collection_links.module, methods: [], graph: true, expose: false },
-    cart_promotion_links: { module: modules.cart_promotion_links.module, methods: [], graph: true, expose: false },
-    customer: { module: modules.customer.module, methods: [], graph: true, expose: false },
-    region: { module: modules.region.module, methods: [], graph: true, expose: false },
-    promotion: { module: modules.promotion.module, methods: [], graph: true, expose: false },
-    product: { module: modules.product.module, methods: [], graph: true, expose: false },
-    product_links: { module: modules.product_links.module, methods: [], graph: true, expose: false },
-    variant_links: { module: modules.variant_links.module, methods: [], graph: true, expose: false },
-    inventory: { module: modules.inventory.module, methods: [], graph: true, expose: false },
-    stock_location: { module: modules.stock_location.module, methods: [], graph: true, expose: false },
-    sales_channel: { module: modules.sales_channel.module, methods: [], graph: true, expose: false },
-    sales_channel_locations: { module: modules.sales_channel_locations.module, methods: [], graph: true, expose: false },
-    fulfillment: { module: modules.fulfillment.module, methods: [], graph: true, expose: false },
-  }, true, { link, logger }, { absent: ["locking"] });
+  return Result.gen(function* () {
+    const create = modules.inventory.module.methods.createReservationItems, remove = modules.inventory.module.methods.deleteReservationItems;
+    if (create === undefined || remove === undefined) return yield* Result.fail(commerceError("invalidAuthority"));
+    const inventory = yield* makeCheckoutInventoryResource(create, remove);
+    const locking = yield* prepareWorkflowLocking([create, remove], "null");
+    return yield* prepareWorkflowResources({
+      cart: { module: modules.cart.module, methods: ["listCarts", "updateCarts", "listAddresses", "updateAddresses"], graph: true },
+      order: { module: modules.order.module, methods: ["createOrders", "deleteOrders", "addOrderTransactions", "deleteOrderTransactions", "listOrderTransactions"], graph: true },
+      payment: { module: modules.payment.module, methods: ["authorizePaymentSession", "retrievePaymentSession", "cancelPayment", "refundPayment", "createPaymentSession", "deletePaymentSession", "listPaymentSessions"], graph: true },
+      order_cart_links: { module: modules.order_cart_links.module, methods: ["nativeCreate", "nativeList", "nativeDismiss"], graph: true, expose: false },
+      order_payment_collection_links: { module: modules.order_payment_collection_links.module, methods: ["nativeCreate", "nativeList", "nativeDismiss"], graph: true, expose: false },
+      cart_payment_collection_links: { module: modules.cart_payment_collection_links.module, methods: [], graph: true, expose: false },
+      cart_promotion_links: { module: modules.cart_promotion_links.module, methods: [], graph: true, expose: false },
+      customer: { module: modules.customer.module, methods: [], graph: true, expose: false },
+      region: { module: modules.region.module, methods: [], graph: true, expose: false },
+      promotion: { module: modules.promotion.module, methods: [], graph: true, expose: false },
+      product: { module: modules.product.module, methods: [], graph: true, expose: false },
+      product_links: { module: modules.product_links.module, methods: [], graph: true, expose: false },
+      variant_links: { module: modules.variant_links.module, methods: [], graph: true, expose: false },
+      inventory_commands: { module: modules.inventory.module, methods: ["createReservationItems", "deleteReservationItems"], graph: true, expose: false },
+      stock_location: { module: modules.stock_location.module, methods: [], graph: true, expose: false },
+      sales_channel: { module: modules.sales_channel.module, methods: [], graph: true, expose: false },
+      sales_channel_locations: { module: modules.sales_channel_locations.module, methods: [], graph: true, expose: false },
+      fulfillment: { module: modules.fulfillment.module, methods: [], graph: true, expose: false },
+    }, true, { link, logger, inventory, locking });
+  });
 }
 
 export const prepareCompleteCartWorkflow = Effect.fn("Checkout.prepareCompleteCart")(function* (input: {
@@ -68,7 +76,8 @@ export const prepareCompleteCartWorkflow = Effect.fn("Checkout.prepareCompleteCa
     for (const value of calls.results(created)) ids.push(...(yield* Effect.fromResult(decodeCreated(value))).map(row => row.id));
     return ids;
   }), { criticalPriority: true, pendingCancellation: true });
-  return yield* prepareAtomicWorkflowHost({ execution: options.execution, modules, revision: options.revision, subscribers: options.subscribers,
+  const { inventory, ...otherModules } = modules;
+  return yield* prepareAtomicWorkflowHost({ execution: options.execution, modules: { ...otherModules, inventory_commands: inventory }, revision: options.revision, subscribers: options.subscribers,
     requestParticipantLimit: 18, requestCallLimit: paymentFinanceCallLimit,
     executionIsolation: "scopeExclusive", operationScheduling: "queued", borrowedOperationScheduling: "queued",
     workflow: { name: "completeCartWorkflow", resources, prepared, input: CheckoutInput, output: CheckoutOutput, events } });
