@@ -1,8 +1,10 @@
 # Initial connected measurement
 
 Status: connected latency/CPU/SQL cohorts are recorded in [RESULTS.md](./RESULTS.md).
-They miss the provisional latency goals. Batch/contention diagnostics remain
-pending. The active lane is unmeasured; its last preparation failed as retained
+They miss the provisional latency goals. The corrected batch/contention cohort
+and initial keep/change/reject assessment are complete. Its local concurrency
+target passes; complete-request performance acceptance does not. The active lane
+is unmeasured; its last preparation failed as retained
 in `validation/payload-create-failure.json`.
 
 The explicit two-lane experiment measures these complete requests:
@@ -42,6 +44,24 @@ of 100 successful independent 1-row Application mutations/second with P95 below
 100 ms at concurrency 4 and zero exhausted attempts. This target guides the first
 local contention assessment; it is not a product SLO or inherited acceptance gate.
 Report conflicts/retries, pool limits and unavailable exact server lock hold/wait.
+
+The scaling cohort uses five warmups and five measured commands for each
+insert/overlay/indexed-edit/nonindexed-edit cell at sizes 1/16/64. Overlay changes
+index membership, changes a unique name, deletes pending rows and queries the
+pending numeric range in the same authored SDK function. Each cell has a later,
+separate SQL observation; observer time is excluded from the latency samples.
+Compare a selective one-row command before and after adding 64 unrelated
+definitions and 256 unrelated retained rows through the real accepting owner.
+
+Contention uses 128 independent one-row authored mutations per cell at
+concurrency 1/4/8, first within one scope and then spread over that many scopes.
+Record the shared pool's actual maximum, every request outcome, retry count,
+throughput and P95. Verify all successful committed documents afterward. These
+bounded cells are diagnostic loads, not a production capacity/SLO proof.
+Automatic retries are disabled; reported attempt/retry counts describe successful
+results, while refusals may occur before an attempt. The ordinary-field edit
+changes `note`, which has neither unique nor query indexes; unique-name changes
+remain in the overlay workload, separately from the indexed priority edit.
 
 The [validation protocol](./VALIDATION.md) remains authoritative. Initial results
 can justify continuing or changing this bounded candidate, not production use,

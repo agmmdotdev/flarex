@@ -145,6 +145,9 @@ unresolved accepting outcome is at the transport boundary; it is not a real
 network-partition proof. Publication prefixes, deployed runtime admission,
 durable cross-process attempt recovery and maintenance/GC services are unproved.
 
+The initial [batch/contention diagnostics](./RESULTS.md) pass exact SDK results
+and the predeclared bounded contention target, while exposing repeated database
+work per row. They do not measure all local algorithm costs or production capacity.
 Local correctness is not performance acceptance. Preserve the full comparison,
-modularity replacement, scaling/contention and private Worker/Hyperdrive gates
+modularity replacement, broader scaling and private Worker/Hyperdrive gates
 before promotion. These requirements must not disappear when the first tests pass.

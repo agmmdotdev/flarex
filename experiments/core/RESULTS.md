@@ -76,30 +76,92 @@ Exact serialized-lock hold/wait, WAL attribution and exclusive server CPU remain
 unavailable. Combined harness peak memory includes both lanes, bootstrap and
 source inventory; it cannot establish per-lane request memory.
 
-## Keep and change
+## Batch and contention diagnostics
+
+The corrected ordinary-role PostgreSQL cohort passed complete SDK results,
+committed readback, pending-range membership, source stability and cleanup.
+Each batch cell has five warmups and five measured commands. SQL observation
+runs separately afterward. At five samples P95 is the maximum, so these tails
+are diagnostic; every sample and outlier is retained, with no proven outlier cause.
+
+| Command | Rows | Median / P95 ms | pg exchanges |
+| --- | --- | --- | --- |
+| Insert | 1 / 16 / 64 | 11.619 / 12.636; 42.065 / 191.473; 172.862 / 283.825 | 31 / 121 / **409** |
+| Insert, edit, delete and query pending range | 1 / 16 / 64 | 14.173 / 15.084; 54.332 / 201.177; 188.262 / 662.111 | 43 / 188 / **656** |
+| Indexed priority edit | 1 / 16 / 64 | 8.972 / 9.513; 36.462 / 38.771; 120.408 / 122.969 | 34 / 124 / **412** |
+| Unindexed, nonunique note edit | 1 / 16 / 64 | 8.251 / 8.498; 35.263 / 36.672; 120.992 / 215.571 | 34 / 124 / **412** |
+
+Insert exchanges follow `25 + 6N` at these sizes; both edit controls follow
+`28 + 6N`. This establishes repeated database work per row in this profile,
+not overall CPU complexity. Equal edit counts do not establish equal index
+maintenance, WAL or server cost. Adding 64 unrelated definitions and 256 retained
+unrelated rows left the selective one-row command at 31 exchanges; it does not
+prove constant physical scan work.
+
+Each contention cell runs 128 independent one-row Application mutations through
+a shared pool with maximum four connections. Automatic retries are disabled.
+All 768 commands succeeded on their first attempt, and committed documents were
+verified. Successful-request throughput and complete-request latency follow.
+
+| Concurrency | Scope distribution | Requests / second | Median / P95 ms |
+| --- | --- | --- | --- |
+| 1 | One scope | 128.013 | 7.586 / 8.918 |
+| 1 | One distinct scope | 129.676 | 7.553 / 8.747 |
+| 4 | One scope | **179.739** | 18.841 / **24.554** |
+| 4 | Four scopes | **217.224** | 17.654 / **24.890** |
+| 8 | One scope | 209.947 | 36.791 / 42.812 |
+| 8 | Eight scopes | 229.748 | 34.828 / 36.346 |
+
+Both concurrency-four cells pass the predeclared local diagnostic target of
+100 successful requests/second, P95 below 100 ms and no failures. This is not a
+capacity or production SLO proof. Distribution across scopes improved throughput
+in this cohort; exact scope-lock wait, pool contention, Node CPU and scheduling
+costs are not isolated. The one-scope concurrency-four maximum was 169.474 ms,
+which the P95 alone does not expose.
+
+## Initial decision and next slice
 
 Keep separate Application/framework profiles, immutable definitions, indexed
 pending state, native business behavior, short physical lifetimes and one trusted
 accepting owner. Connected failure tests protect cleanup, conflicts, revocation,
 cancellation/drain, replay and uncertain-outcome recovery.
 
+The requested initial assessment is complete: **keep the ownership design,
+change database execution granularity, and reject promotion of the current
+implementation.** Correct native connections and a passing bounded contention
+target do not compensate for missed complete-request latency goals or per-row
+database chatter. The active core remains unmeasured and unchanged by this work.
+
 Change complete storage-operation granularity at the persistence/session owner.
 Fresh authorization and definition protection remain required; separate client
 round trips for each gate, token/state check, expiry check and data query are an
 implementation choice. Investigate a Drizzle-generated database-local operation
-returning the required authority and data evidence together. Do not fix this in
+returning the required authority and data evidence together. Start with a
+complete read/observation operation, preserve its exact snapshot, fresh gates,
+retention/expiry checks and selected-definition locks, and measure the same native
+requests again. This is a proposed next slice, not an implemented optimization.
+Do not fix this in
 adapters, hold a transaction across callbacks, remove checks speculatively or
 merge Application OCC into a universal framework transaction API.
 
-Batch growth, indexed/nonindexed updates, unrelated retained state and
-same/different-scope contention diagnostics remain open before the goal's final
-assessment. Source-level hypotheses are not measured complexity or capacity.
+Accepting changes need their own concurrency proof. Combining clock-lock
+acquisition and validation into one SQL statement can retain a statement snapshot
+from before a lock wait; preserve visibility of the writer waited behind and the
+existing lock order. Do not infer safe acceptance batching from read batching.
+
+General Application queries/reactivity, populated Product relations, the five
+full business graphs, replacement proof and private Worker/Hyperdrive behavior
+remain open before promotion. Source-level hypotheses are not measured complexity
+or capacity.
 
 ## Evidence
 
 - [Quiet samples](./validation/connected-latency.json),
   [separate CPU samples](./validation/connected-cpu.json) and
   [SQL observation](./validation/connected-sql.json).
+- [Corrected batch/contention samples](./validation/scaling.json),
+  [scaling validation](./validation/scaling-validation.json) and
+  [PGlite corpus/reporter regressions](./validation/scaling-corpus.json).
 - Receipts reference complete digest-named source inventories: candidate files,
   installed SQL/configuration, installed dependency closures, compiled native
   modules and the executing Node binary. Sources are checked before preparation,
@@ -110,6 +172,10 @@ assessment. Source-level hypotheses are not measured complexity or capacity.
   original wrapper-only projection is incomplete; its test output preserves the
   actual invalid handle. Descriptor-safe nested-cause capture and regression
   witnesses now protect subsequent reports.
+- The [initial rejected scaling run](./validation/scaling-initial-rejected.json)
+  retains a missing seed timestamp failure and a wrongly indexed edit control.
+  The corrected fixture supplies required timestamps, edits an actual unindexed
+  field, and reruns the complete cohort. It does not weaken the decoder.
 
 The active baseline's last preparation failure remains in
 [payload-create-failure.json](./validation/payload-create-failure.json). Its owner

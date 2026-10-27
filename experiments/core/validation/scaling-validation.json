@@ -1,0 +1,97 @@
+{
+  "scope": "Initial SDK batch, pending overlay, indexed/unindexed edits and scope contention diagnostics",
+  "base": "bba13192753cb1551bc644fa683f7f678efae6bb",
+  "recordedAt": "2026-10-27T00:12:30.909Z",
+  "source": [
+    {
+      "path": "experiments/core/test/application-corpus.ts",
+      "sha256": "7fd31b813494f3df40a99c14810fe99de23294b13370240c4e6cf1efa1d61aca"
+    },
+    {
+      "path": "experiments/core/test/measurement-contracts.test.mjs",
+      "sha256": "400a6a20fc5797d09dde427c502eaea4dc17b5429bec6d32609e165173c54953"
+    },
+    {
+      "path": "experiments/core/test/measurement.test.mjs",
+      "sha256": "f6ae91483b44afe6ebb46c2009ddab0533e3543d960a0209bb9cc6c7da433bae"
+    },
+    {
+      "path": "experiments/core/test/measurement-report.mjs",
+      "sha256": "23eed8cc35736e06472580b0700d9bebc9ce203e6801f54ac1e2fc6960da3052"
+    },
+    {
+      "path": "experiments/core/test/scaling-corpus.ts",
+      "sha256": "bcc21afb0f6603d31ce4470123be03f3aa4d0c0807cdcbc0a7d23fd268e0429a"
+    },
+    {
+      "path": "experiments/core/test/scaling-corpus.test.mjs",
+      "sha256": "72e70cd7fbaa0f828a72ea1c87ace42850dc7b5442fb5b1d15b9974b631028a5"
+    },
+    {
+      "path": "experiments/core/test/scaling.test.mjs",
+      "sha256": "d6cb722e855e3f4bd545e2e2a69bd40e4232bdc23c544a2eae7f94b1a6c8d8a8"
+    }
+  ],
+  "reports": [
+    {
+      "report": "scaling.json",
+      "testReport": "scaling-test.json",
+      "processExitCode": 0,
+      "passed": 1,
+      "batchCells": 12,
+      "warmupsPerBatchCell": 5,
+      "measuredCommandsPerBatchCell": 5,
+      "contentionCells": 6,
+      "requestsPerContentionCell": 128
+    },
+    {
+      "report": "scaling-corpus.json",
+      "processExitCode": 0,
+      "passed": 8,
+      "reporterContracts": 5,
+      "pgliteSdkSizes": [
+        1,
+        16,
+        64
+      ]
+    }
+  ],
+  "postgres": {
+    "role": "fx_exp_8f5a1d6275315c53_serving",
+    "superuser": false,
+    "fsync": "on",
+    "synchronous_commit": "on",
+    "full_page_writes": "on",
+    "version": "18.3",
+    "poolMax": 4,
+    "sourceStable": true,
+    "cleanup": "complete",
+    "failed": 0
+  },
+  "checks": {
+    "typecheck": "tsc-rs passed; MJS harness checked by explicit lint and runtime tests",
+    "localLint": "passed",
+    "rootLintCore": "passed",
+    "rootLintDiff": "passed; experiment is checked by its explicit local lint",
+    "diffCheck": "passed",
+    "reviews": "Both mandatory read-only reviewers report no findings and retain final source clearance; final docs/numeric receipts and source hashes checked",
+    "exactIndexLint": "passed on the exact staged experiment scope; explicit local lint covers the candidate outside root lint roots"
+  },
+  "retainedFailures": [
+    {
+      "report": "scaling-initial-rejected.json",
+      "testReport": "scaling-initial-test.json",
+      "disposition": "Rejected fixture: unrelated seed omitted required timestamps; prior ordinary-field control changed a unique name. Corrected both; complete PGlite and PostgreSQL cohorts rerun without weakening validation."
+    }
+  ],
+  "disposition": "Valid bounded diagnostics. Both concurrency-four diagnostic targets pass; per-row exchanges remain. Keep modular/native ownership, change database operation granularity, reject current implementation for promotion.",
+  "limits": [
+    "Five measured batch samples per cell; P95 is maximum; outlier cause unproven",
+    "Automatic retries disabled; attempt/retry counts describe successful outcomes, failures may refuse before attempt",
+    "Pool maximum four; no isolated server lock wait/hold, WAL or allocation/key-lowering CPU",
+    "No active-core or native Application performance baseline; existing native mixed reference has independent commit semantics",
+    "No full five-business-graph, populated Product relation, private Worker/Hyperdrive or production acceptance",
+    "Existing connected quiet latency/CPU/SQL receipts retain their original source identity; subsequent shared-reporter extraction changes evidence recording only"
+  ],
+  "resources": "Fixture-owned PGlite and PostgreSQL resources closed. Earlier stopped flarex-core-pg-G2pD6q directory remains after automatic cleanup approval rejection; not reused."
+}

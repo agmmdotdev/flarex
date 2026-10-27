@@ -4,6 +4,7 @@ import { it } from "vitest";
 import { CoreError, NativeFailure } from "../src/errors.ts";
 import { failureEvidence } from "./measurement-errors.mjs";
 import { writeSourceArtifact } from "./measurement-artifact.mjs";
+import { recordMeasurement } from "./measurement-report.mjs";
 import { mkdtemp, readFile, rm, rmdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -46,4 +47,19 @@ it("rejects reuse of an interrupted inventory artifact and preserves its bytes",
     await assert.rejects(writeSourceArtifact(directory, source), /incomplete or conflicting/);
     assert.equal(await readFile(path, "utf8"), "{partial");
   } finally { await rm(path, { force: true }); await rmdir(directory); }
+});
+
+it("still records the rejected receipt when its source artifact conflicts", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "flarex-measurement-report-"));
+  const artifact = join(directory, "connected-source-fixture.json"); const receipt = join(directory, "receipt.json");
+  try {
+    await writeFile(artifact, "{partial");
+    const report = { status: "complete", failures: [{ stage: "body", message: "original" }],
+      source: { before: { sha256: "fixture", files: 1, inventory: [{ path: "test.js", sha256: "bytes" }] } } };
+    const failures = await recordMeasurement(directory, "receipt.json", report); assert.equal(failures.length, 1);
+    const saved = JSON.parse(await readFile(receipt, "utf8"));
+    assert.equal(saved.status, "failed-evidence-recording"); assert.equal(saved.failures[0].message, "original");
+    assert.equal(saved.failures[1].stage, "before-source-artifact"); assert.equal(saved.source.before.inventory.length, 1);
+    assert.equal(await readFile(artifact, "utf8"), "{partial");
+  } finally { await rm(artifact, { force: true }); await rm(receipt, { force: true }); await rmdir(directory); }
 });

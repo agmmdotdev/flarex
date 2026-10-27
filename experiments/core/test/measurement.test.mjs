@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { Effect, Exit, Scope } from "effect";
 import { and, eq } from "drizzle-orm";
@@ -21,7 +20,7 @@ import { nativeProductFixture } from "./native-product.mjs";
 import { sourceFingerprint } from "./measurement-source.mjs";
 import { seed, settings, install } from "./measurement-fixture.mjs";
 import { failureEvidence } from "./measurement-errors.mjs";
-import { writeSourceArtifact } from "./measurement-artifact.mjs";
+import { recordMeasurement } from "./measurement-report.mjs";
 import { createMixedMutationPerformanceTrace, structuralSql } from "../../../packages/persistence-postgres/test/performance/mixedMutationPerformanceTrace.ts";
 
 const directory = fileURLToPath(new URL("../validation/", import.meta.url));
@@ -265,17 +264,8 @@ it.skipIf(process.env.FLAREX_EXPERIMENT_MEASURE === undefined)("measures declare
     }
     report.finishedAt = new Date().toISOString();
     report.failures.push(...failures.map(cause => ({ stage: "cleanup", evidence: failureEvidence(cause) })));
-    let recordingFailure;
-    try {
-      await mkdir(directory, { recursive: true });
-      // One inventory artifact per content digest avoids repeating tens of
-      // thousands of unchanged file hashes in every lane/mode receipt.
-      if (report.sourceAtStart?.inventory !== undefined) report.sourceAtStart = await writeSourceArtifact(directory, report.sourceAtStart);
-      for (const phase of ["before", "after"]) if (report.source?.[phase]?.inventory !== undefined)
-        report.source[phase] = await writeSourceArtifact(directory, report.source[phase]);
-      await writeFile(`${directory}/connected-${mode}.json`, JSON.stringify(report, null, 2) + "\n");
-    } catch (cause) { recordingFailure = cause; }
-    if (failures.length || recordingFailure !== undefined) throw new AggregateError([...(bodyFailure === undefined ? [] : [bodyFailure]),
-      ...failures, ...(recordingFailure === undefined ? [] : [recordingFailure])], "Measurement body/cleanup/recording failed", { cause: bodyFailure });
+    const recording = await recordMeasurement(directory, `connected-${mode}.json`, report);
+    if (failures.length || recording.length) throw new AggregateError([...(bodyFailure === undefined ? [] : [bodyFailure]),
+      ...failures, ...recording], "Measurement body/cleanup/recording failed", { cause: bodyFailure });
   }
 }, 600_000);

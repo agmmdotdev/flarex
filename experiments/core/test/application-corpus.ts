@@ -1,6 +1,6 @@
 import { queryGeneric, mutationGeneric, type QueryBuilder, type MutationBuilder } from "../../../packages/flarex/src/server.ts";
 import { v, type Id } from "../../../packages/flarex/src/values.ts";
-type TaskModel = { tasks: { document: { _id: Id<"tasks">; _creationTime: number; name: string; priority: number };
+export type TaskModel = { tasks: { document: { _id: Id<"tasks">; _creationTime: number; name: string; priority: number };
   fieldPaths: "name" | "priority"; indexes: { by_priority: ["priority"] } } };
 // SAFETY: SDK registration is model-erased; the trusted fixture's compiled
 // definition checks actual table/index names and scalar data at runtime.

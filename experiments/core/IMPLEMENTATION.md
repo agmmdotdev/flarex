@@ -8,8 +8,10 @@ persistence/materialization. The [multi-table foundation](./MIXED.md) provides
 selected-definition admission, callback-scoped borrowing and one publication,
 now connected to actual Application, Product update/retrieve/list and Payload
 CRUD with native preference cleanup. Initial [measurements](./RESULTS.md) miss the
-latency goals. General queries, connected reactivity, wider native lifecycle,
-batch/contention diagnostics, performance acceptance and promotion remain pending. The stages below
+latency goals. Batch/contention diagnostics complete the initial assessment and
+identify per-row database work; the local contention target passes. General
+queries, connected reactivity, wider native lifecycle, performance acceptance and
+promotion remain pending. The stages below
 describe the full experiment, not completed support.
 
 ## Stage 1: executable scope and contract map

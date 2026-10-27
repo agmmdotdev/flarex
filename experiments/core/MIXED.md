@@ -4,7 +4,9 @@ Status: bounded native connection implemented in `mixed.ts`: an authored
 Application mutation, native Product update/retrieve/list-by-handle, and native Payload
 CRUD and actual preference cleanup share the selected-table accepting owner.
 Initial [complete-request measurements](./RESULTS.md) miss the latency goals;
-batch/contention diagnostics and populated Product relations remain pending.
+batch/contention diagnostics now complete the initial keep/change/reject
+assessment. Database execution granularity needs improvement; populated Product
+relations and promotion remain pending.
 Nothing in this note authorizes active-core changes or production
 promotion.
 

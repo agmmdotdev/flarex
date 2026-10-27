@@ -110,6 +110,10 @@ The existing populated Product reference also seeds tags/categories/options,
 images and a variant: relation-free results do not establish that larger graph.
 Keep this missing match and the active-core preparation blocker explicit.
 
+The initial [connected measurements and Application scaling diagnostics](./RESULTS.md)
+are complete. Relation-free Product misses the added-median latency goal; broader
+Product relations and native workflows remain outside the measured contract.
+
 Use VALIDATION.md for exact source/settings fingerprints, separate latency/CPU/SQL
 diagnostics, growing batches, indexed/nonindexed edits, pending queries, unrelated
 schema and same/different-scope concurrency. Product construction alone cannot

@@ -6,15 +6,18 @@ The [selected-table mixed connection](./MIXED.md) runs actual Application,
 Product and Payload entry points under one accepting owner. [Bounded Payload
 CRUD](./PAYLOAD-CRUD.md) is implemented with its native preference cleanup and
 atomic document/preference publication. Initial [connected measurements](./RESULTS.md)
-miss the added-latency goals; active-core comparison, batch/contention diagnostics
-and populated Product relations remain pending. The bounded
+miss the added-latency goals. Batch/contention diagnostics complete the initial
+assessment: retain modular/native ownership, change database execution granularity,
+and reject promotion. Active-core comparison and populated Product relations
+remain pending. The bounded
 [text-equality foundation](./EQUALITY.md) supplies their indexed query/cleanup
 operations within the declared native profiles. This is
 not an accepted replacement core, a complete Application profile or a completed
 performance acceptance. See [Payload](./PAYLOAD-CREATE.md) and
 [Application](./APPLICATION.md) and [Product](./MEDUSA-PRODUCT.md) for the exact
-contracts and remaining gates. The active experiment goal continues through
-Payload CRUD, representative Product flows and an atomic mixed comparison.
+contracts and remaining gates. The initial experiment goal covers connected
+Payload CRUD, representative Product flows, atomic mixed execution and measured
+batch/contention behavior; its bounded assessment is complete.
 
 This is a separate core experiment requested by the owner on 2026-10-26. Build
 and evaluate a different execution design here while current Medusa integration
