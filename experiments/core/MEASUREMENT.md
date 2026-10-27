@@ -15,6 +15,10 @@ That iteration passed all correctness/source/resource checks and reduced
 exchanges, but did not show a latency or CPU improvement. Its results and
 cross-cohort attribution limits are recorded in the linked note.
 
+The [observation-cost slice](./OBSERVATION-COSTS.md) adds a separate `profile`
+diagnostic mode with V8 stacks, resource-only driver observation and duration-only
+server logging. Its observed times do not replace quiet latency/CPU campaigns.
+
 The explicit two-lane experiment measures these complete requests:
 
 | Workload | Candidate | Reference |

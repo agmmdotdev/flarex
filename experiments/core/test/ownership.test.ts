@@ -86,6 +86,7 @@ describe.each(["pglite", "postgres"] as const)("owned query and accepting inputs
       { values: { status: "committed", expires: new Date(0) }, reason: "closed" },
     ];
     for (const test of cases) {
+      await Effect.runPromise(database.storage.observeRows(command, [], 1));
       await database.admin(db => db.update(tables.commands).set(test.values).where(eq(tables.commands.id, command.id)));
       const result = await Effect.runPromiseExit(database.storage.observeRows(command, [], 1));
       expect(Exit.isFailure(result) && Cause.findErrorOption(result.cause)).toMatchObject({ value: { reason: test.reason } });
@@ -99,6 +100,7 @@ describe.each(["pglite", "postgres"] as const)("owned query and accepting inputs
 
   it.skipIf(driver !== "postgres").each(["authority", "definition", "command"] as const)("checks observation expiry after waiting for the %s lock", async owner => withDatabase(async database => {
     const command = await Effect.runPromise(database.persistence.openCommand("framework", "shop-a", randomUUID(), "guard-expiry", database.definition, randomUUID()));
+    await Effect.runPromise(database.storage.observeRows(command, [], 1));
     await database.admin(db => db.update(tables.commands).set({ expires: sql`clock_timestamp() + interval '500 milliseconds'` }).where(eq(tables.commands.id, command.id)));
     const pause = barrier();
     const blocker = database.admin(db => db.transaction(async tx => {
@@ -122,6 +124,7 @@ describe.each(["pglite", "postgres"] as const)("owned query and accepting inputs
   it.skipIf(driver !== "postgres").each(["update", "delete"] as const)("reads a fresh predecessor after a blocked guard and concurrent %s", async change => withDatabase(async (database, app) => {
     const id = await Effect.runPromise(applicationWrite(database.persistence, app, root => root.insert({ name: "original", priority: 1 })));
     const command = await Effect.runPromise(database.persistence.openCommand("framework", "shop-a", randomUUID(), "fresh-predecessor", app, randomUUID()));
+    await Effect.runPromise(database.storage.observeRows(command, [id], 262144));
     const pause = barrier(); const blocker = database.admin(db => db.transaction(async tx => {
       await tx.select().from(tables.commands).where(eq(tables.commands.id, command.id)).for("update"); pause.ready(); await pause.gate;
     }));
@@ -137,6 +140,7 @@ describe.each(["pglite", "postgres"] as const)("owned query and accepting inputs
 
   it.skipIf(driver !== "postgres")("refuses a selected definition retired while the combined guard waits", async () => withDatabase(async database => {
     const command = await Effect.runPromise(database.persistence.openCommand("framework", "shop-a", randomUUID(), "retirement", database.definition, randomUUID()));
+    await Effect.runPromise(database.storage.observeRows(command, [], 1));
     const pause = barrier(); const blocker = database.admin(db => db.transaction(async tx => {
       await tx.update(tables.definitions).set({ version: "retired" }).where(eq(tables.definitions.table, database.definition.table)); pause.ready(); await pause.gate;
     }));
@@ -150,6 +154,7 @@ describe.each(["pglite", "postgres"] as const)("owned query and accepting inputs
 
   it.skipIf(driver !== "postgres").each(["authority", "definition"] as const)("checks snapshot expiry after waiting for the %s lock", async owner => withDatabase(async (database, app) => {
     const storage = createApplicationStorage(database.persistence); const snapshot = await Effect.runPromise(storage.openQuery("shop-a", app));
+    await Effect.runPromise(storage.point(snapshot, "missing", 1));
     const now = async () => (await database.admin(db => db.select({ time: sql<number>`extract(epoch from clock_timestamp())::double precision * 1000` }).from(tables.installation)))[0]?.time;
     // Age the actual 30-second lease without holding a transaction. No fake clock
     // or configurable weaker lease is introduced for this witness.
@@ -174,6 +179,7 @@ describe.each(["pglite", "postgres"] as const)("owned query and accepting inputs
 
   it.skipIf(driver !== "postgres")("refuses a snapshot definition retired while its guard waits", async () => withDatabase(async (database, app) => {
     const storage = createApplicationStorage(database.persistence); const snapshot = await Effect.runPromise(storage.openQuery("shop-a", app));
+    await Effect.runPromise(storage.point(snapshot, "missing", 1));
     const pause = barrier(); const blocker = database.admin(db => db.transaction(async tx => {
       await tx.update(tables.definitions).set({ version: "retired" }).where(eq(tables.definitions.table, app.table)); pause.ready(); await pause.gate;
     }));

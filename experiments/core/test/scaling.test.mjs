@@ -36,7 +36,9 @@ const observation = record => {
 };
 
 it.skipIf(process.env.FLAREX_EXPERIMENT_SCALE !== "1")("measures actual SDK batches and independent scope contention", async () => {
-  const report = { status: "preparing", startedAt: new Date().toISOString(), batches: [], contention: [], failures: [],
+  const label = process.env.FLAREX_EXPERIMENT_SCALING_LABEL ?? "scaling";
+  assert.match(label, /^[a-z][a-z0-9-]{0,47}$/);
+  const report = { label, status: "preparing", startedAt: new Date().toISOString(), batches: [], contention: [], failures: [],
     contract: "MEASUREMENT.md", sizes: [1, 16, 64], concurrency: [1, 4, 8], requestsPerCell: 128,
     target: { meaning: "diagnostic only, predeclared", concurrency: 4, successfulRequestsPerSecond: 100, p95Ms: 100, exhaustedAttempts: 0 },
     unavailable: ["Matched active/native Application baseline", "Exact server lock hold/wait and WAL", "Exclusive per-owner allocation/key-lowering CPU"],
@@ -185,7 +187,7 @@ it.skipIf(process.env.FLAREX_EXPERIMENT_SCALE !== "1")("measures actual SDK batc
     const sourceFailures = [];
     if (report.source.after === undefined) try { report.source.after = await sourceFingerprint(); }
     catch (cause) { sourceFailures.push(cause); report.status = "failed-source-evidence"; report.failures.push({ stage: "closing-source", evidence: failureEvidence(cause) }); }
-    const recording = await recordMeasurement(directory, "scaling.json", report);
+    const recording = await recordMeasurement(directory, `${label}.json`, report);
     if (failures.length || sourceFailures.length || recording.length) throw new AggregateError([...(bodyFailure === undefined ? [] : [bodyFailure]), ...failures,
       ...sourceFailures, ...recording], "Scaling body/cleanup/recording failed", { cause: bodyFailure });
   }

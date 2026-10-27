@@ -1,0 +1,43 @@
+{
+  "status": "cancelled-no-validation-credit",
+  "recordedAt": "2026-10-27T07:19:27.966Z",
+  "reason": "Seven-file correctness cohort exceeded coordinated five-minute lane. Cancelled via Ctrl-C; process exited1. JSON-only reporter did not produce a report, so no per-case pass/fail counts are claimed.",
+  "scope": [
+    "read-guards",
+    "ownership",
+    "application",
+    "payload-crud",
+    "product",
+    "mixed",
+    "equality"
+  ],
+  "typecheck": "Scoped tsc-rs passed on the owned TypeScript source used by this cohort.",
+  "resources": {
+    "runner": "stopped; remaining Vitest processes identified as foreign checkout by exact arguments/parentage and untouched",
+    "databaseProcesses": "No postgres/initdb/pg_ctl process references the canceled fixture",
+    "retainedDirectory": "C:/Users/Admin/AppData/Local/Temp/flarex-core-pg-4K84Yl",
+    "cleanup": "Exact verified stopped partial-fixture deletion rejected by automatic approval review: blocked by policy. No deletion executed; no alternate deletion attempted."
+  },
+  "source": [
+    {
+      "path": "experiments/core/src/session.ts",
+      "sha256": "db7eda81a8e7c87e7b5fdf53f23fa651a5d2badbc9a6a4824d92b4c32808caa3"
+    },
+    {
+      "path": "experiments/core/src/persistence.ts",
+      "sha256": "81fc4759c01155efb710e5dffd3543e3bd0efe684511e3599114c3f630a8a053"
+    },
+    {
+      "path": "experiments/core/src/read-guards.ts",
+      "sha256": "369de0ad581c7d180c345ff1a74c2532850005eee7fcbb3d4bb08058c9222ebe"
+    },
+    {
+      "path": "experiments/core/test/ownership.test.ts",
+      "sha256": "c1f4658039c3cdc23643893640ad73ae6eab3c4f5836640a33915ebb7f452456"
+    },
+    {
+      "path": "experiments/core/test/read-guards.test.ts",
+      "sha256": "968a7f42370ca18ae8b827c411af33bccdc0a9b1bd91bd1c8a4a051f2385d67a"
+    }
+  ]
+}

@@ -113,9 +113,11 @@ server planning/execution, host scheduling or another exclusive cause.
 
 Retain the safe combined guard as a measured experimental implementation and
 reject the hypothesis that fewer exchanges alone establish a local latency win.
-Keep performance promotion closed. A subsequent slice should attribute client
-query construction, server execution/planning and transaction setup on matched
-workloads before choosing another optimization. No active-core speedup, native
+Keep performance promotion closed. The later [attribution and compiled-plan
+slice](./OBSERVATION-COSTS.md) now measures client construction and observable
+waits, reuses immutable Drizzle plans, and improves quiet latency while still
+missing the complete-request median goal. Exact server planning/CPU and lock
+attribution remain unresolved. No active-core speedup, native
 atomic mixed equivalence, five-full-graph acceptance or hosted capacity follows.
 
 Raw evidence: [latency](./validation/combined-read-latency.json),

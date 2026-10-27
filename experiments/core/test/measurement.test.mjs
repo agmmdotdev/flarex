@@ -21,6 +21,8 @@ import { sourceFingerprint } from "./measurement-source.mjs";
 import { seed, settings, install } from "./measurement-fixture.mjs";
 import { failureEvidence } from "./measurement-errors.mjs";
 import { recordMeasurement } from "./measurement-report.mjs";
+import { captureCostDiagnostics, traceCosts } from "./measurement-costs.mjs";
+import { createCpuMeasurementCollector } from "../../../packages/executor/test/performance/measurement/collectors/cpu.ts";
 import { createMixedMutationPerformanceTrace, structuralSql } from "../../../packages/persistence-postgres/test/performance/mixedMutationPerformanceTrace.ts";
 
 const directory = fileURLToPath(new URL("../validation/", import.meta.url));
@@ -30,11 +32,13 @@ const distribution = values => ({ median: quantile(values, 0.5), p95: quantile(v
 const timestamp = value => { assert.equal(typeof value, "string"); assert.ok(Number.isFinite(Date.parse(value))); };
 const poolState = pool => ({ total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount,
   held: pool.held === undefined ? pool.totalCount - pool.idleCount : pool.held.size });
-function healthyObservation(records, expected) {
+function healthyObservation(records, expected, resources = false) {
   assert.equal(records.length, 1);
   const record = records[0]; assert.equal(record.aggregationComplete, true); assert.equal(record.outcome, "ok");
-  for (const flag of ["observationErrors", "droppedObservations", "lostContextDispatches", "unobservedDispatches", "unknownStatementDispatches", "incompleteSpans"])
+  for (const flag of ["observationErrors", "droppedObservations", "lostContextDispatches", "unobservedDispatches", "incompleteSpans"])
     assert.equal(record[flag], 0, `Incomplete SQL observation: ${flag}`);
+  assert.equal(record.unknownStatementDispatches, resources ? record.dispatches.length : 0,
+    "Resources diagnostics deliberately omit SQL structure; full SQL diagnostics must classify every dispatch");
   assert.equal(record.transactions.some(transaction => transaction.outcome === "open-at-end"), false);
   assert.equal(record.dispatches.length > 0, expected, "Intended owner query coverage must be observed");
 }
@@ -49,7 +53,8 @@ function productShape(value) {
 }
 it.skipIf(process.env.FLAREX_EXPERIMENT_MEASURE === undefined)("measures declared complete native and experimental requests", async () => {
   const mode = process.env.FLAREX_EXPERIMENT_MEASURE;
-  assert.ok(["smoke", "latency", "cpu", "sql"].includes(mode), "Select an explicit measurement mode");
+  assert.ok(["smoke", "latency", "cpu", "sql", "profile"].includes(mode), "Select an explicit measurement mode");
+  const observed = mode === "sql" || mode === "profile";
   const label = process.env.FLAREX_EXPERIMENT_MEASURE_LABEL ?? "connected";
   assert.match(label, /^[a-z][a-z0-9-]{0,47}$/);
   const report = { mode, label, status: "preparing", startedAt: new Date().toISOString(), samples: [], warmupSamples: [], failures: [],
@@ -62,7 +67,7 @@ it.skipIf(process.env.FLAREX_EXPERIMENT_MEASURE === undefined)("measures declare
   const traces = [];
   try {
     report.sourceAtStart = await sourceFingerprint();
-    postgres = await startPostgres(); candidate = await fixture(postgres.connectionString); referenceApp = await fixture(postgres.connectionString);
+    postgres = await startPostgres(mode === "profile"); candidate = await fixture(postgres.connectionString); referenceApp = await fixture(postgres.connectionString);
     nativePayload = await nativePayloadFixture(postgres.connectionString); nativeProduct = await nativeProductFixture(postgres.connectionString);
     const definition = await Effect.runPromise(Effect.fromResult(compileDefinition({ table: "tasks", tableId: 7,
       fields: [{ name: "name", kind: "text", unique: true }, { name: "priority", kind: "number", unique: false }],
@@ -78,13 +83,14 @@ it.skipIf(process.env.FLAREX_EXPERIMENT_MEASURE === undefined)("measures declare
       nativePayload: await settings(nativePayload.database), nativeProduct: await settings(nativeProduct.database) };
     const user = await nativePayload.payload.create({ collection: "users", data: { email: "fixture@example.invalid", password: "disposable-fixture-password" }, overrideAccess: true });
     const requests = (collection, id) => ({ collection, id, depth: 0, overrideAccess: false });
-    const warmups = mode === "smoke" ? 0 : 5; const pairs = mode === "smoke" ? 1 : mode === "sql" ? 2 : 30;
+    const warmups = mode === "smoke" ? 0 : 5; const pairs = mode === "smoke" ? 1 : mode === "sql" ? 2 : mode === "profile" ? 5 : 30;
     report.warmups = warmups; report.pairs = pairs;
     const makeTrace = pool => {
-      const trace = createMixedMutationPerformanceTrace({ controlPool: pool, targetPool: pool }); traces.push(trace); return trace;
+      const trace = createMixedMutationPerformanceTrace({ controlPool: pool, targetPool: pool,
+        detail: mode === "profile" ? "resources" : "full" }); traces.push(trace); return trace;
     };
     let candidateTrace, referenceTrace, payloadTrace;
-    if (mode === "sql") {
+    if (observed) {
       candidateTrace = makeTrace(candidate.servingPool); referenceTrace = makeTrace(referenceApp.servingPool);
       assert.equal(nativePayload.pools.length, 1); payloadTrace = makeTrace(nativePayload.pools[0]);
     }
@@ -194,21 +200,36 @@ it.skipIf(process.env.FLAREX_EXPERIMENT_MEASURE === undefined)("measures declare
           const run = prepared.operations[lane];
           const productQueries = []; const onQuery = query => productQueries.push(structuralSql(query.sql));
           if (mode === "sql" && lane === "reference") nativeProduct.knex.on("query", onQuery);
-          const invoke = mode !== "sql" ? run : () => candidateTrace.withInvocation({ id: `${workload}-${index}-${lane}`, mode: "recon" },
+          const invoke = !observed ? run : () => candidateTrace.withInvocation({ id: `${workload}-${index}-${lane}`, mode: "recon" },
             () => referenceTrace.withInvocation({ id: `${workload}-${index}-${lane}`, mode: "recon" },
               () => payloadTrace.withInvocation({ id: `${workload}-${index}-${lane}`, mode: "recon" }, run)));
           const poolsBefore = { candidate: poolState(candidate.servingPool), referenceApplication: poolState(referenceApp.servingPool),
             nativePayload: nativePayload.pools.map(poolState) };
-          const cpu = mode === "cpu" ? { process: process.cpuUsage(), thread: process.threadCpuUsage() } : undefined;
-          const started = performance.now();
-          try { results[lane] = await invoke(); }
-          finally {
+          const mark = mode === "profile" ? await postgres.durationMark() : undefined;
+          const collector = mode === "profile" ? createCpuMeasurementCollector({ allocations: false }) : undefined;
+          const execute = async () => {
+            const cpu = mode === "cpu" ? { process: process.cpuUsage(), thread: process.threadCpuUsage() } : undefined;
+            const started = performance.now();
+            try { results[lane] = await invoke(); }
+            finally {
             const elapsed = performance.now() - started;
             const usage = cpu === undefined ? undefined : { process: process.cpuUsage(cpu.process), thread: process.threadCpuUsage(cpu.thread) };
             nativeProduct.knex.removeListener("query", onQuery);
             sample.lanes[lane] = { elapsedMs: elapsed, ...(usage === undefined ? {} : { cpuMicroseconds: usage }),
               pools: { before: poolsBefore, after: { candidate: poolState(candidate.servingPool), referenceApplication: poolState(referenceApp.servingPool), nativePayload: nativePayload.pools.map(poolState) } },
-              ...(mode !== "sql" ? {} : { candidate: candidateTrace.drainRecords(), referenceApplication: referenceTrace.drainRecords(), nativePayload: payloadTrace.drainRecords(), nativeProductKnex: productQueries }) };
+              ...(!observed ? {} : { candidate: candidateTrace.drainRecords(), referenceApplication: referenceTrace.drainRecords(), nativePayload: payloadTrace.drainRecords(), nativeProductKnex: productQueries }) };
+            }
+          };
+          let invocationFailure;
+          try { if (collector === undefined) await execute(); else await collector.capture(execute); }
+          catch (cause) { invocationFailure = cause; throw cause; }
+          finally {
+            if (collector !== undefined) {
+              sample.lanes[lane] ??= {};
+              const failures = await captureCostDiagnostics(sample.lanes[lane], collector, () => postgres.durationWindow(mark));
+              if (failures.length) throw new AggregateError([...(invocationFailure === undefined ? [] : [invocationFailure]), ...failures],
+                "Request or diagnostic capture failed", { cause: invocationFailure });
+            }
           }
           const observation = sample.lanes[lane];
           for (const key of ["candidate", "referenceApplication"]) {
@@ -216,11 +237,13 @@ it.skipIf(process.env.FLAREX_EXPERIMENT_MEASURE === undefined)("measures declare
           }
           assert.deepEqual(observation.pools.after.nativePayload.map(({ held, waiting }) => ({ held, waiting })),
             poolsBefore.nativePayload.map(({ held, waiting }) => ({ held, waiting })), "Native Payload must return to its admitted bootstrap-checkout baseline");
-          if (mode === "sql") {
-            healthyObservation(observation.candidate, lane === "candidate");
-            healthyObservation(observation.referenceApplication, lane === "reference" && workload === "mixed");
-            healthyObservation(observation.nativePayload, lane === "reference" && workload !== "product");
-            assert.equal(productQueries.length > 0, lane === "reference" && workload !== "payload-crud", "Native Product Knex coverage");
+          if (observed) {
+            healthyObservation(observation.candidate, lane === "candidate", mode === "profile");
+            healthyObservation(observation.referenceApplication, lane === "reference" && workload === "mixed", mode === "profile");
+            healthyObservation(observation.nativePayload, lane === "reference" && workload !== "product", mode === "profile");
+            if (mode === "sql") assert.equal(productQueries.length > 0, lane === "reference" && workload !== "payload-crud", "Native Product Knex coverage");
+            if (mode === "profile") observation.costs = Object.fromEntries(["candidate", "referenceApplication", "nativePayload"]
+              .map(owner => [owner, traceCosts(observation[owner][0])]));
           }
           results[lane] = json(results[lane]);
         }
@@ -232,10 +255,10 @@ it.skipIf(process.env.FLAREX_EXPERIMENT_MEASURE === undefined)("measures declare
     report.source.after = await sourceFingerprint(); report.stableSource = report.source.before.sha256 === report.source.after.sha256;
     report.summary = Object.fromEntries(["payload-crud", "product", "mixed"].map(workload => {
       const samples = report.samples.filter(sample => sample.workload === workload);
-      return [workload, { diagnosticOnly: mode === "smoke" || mode === "sql",
-        [mode === "sql" ? "observedReferenceMs" : "referenceMs"]: distribution(samples.map(sample => sample.lanes.reference.elapsedMs)),
-        [mode === "sql" ? "observedCandidateMs" : "candidateMs"]: distribution(samples.map(sample => sample.lanes.candidate.elapsedMs)),
-        ...(mode === "sql" ? {} : { pairedAddedMs: distribution(samples.map(sample => sample.lanes.candidate.elapsedMs - sample.lanes.reference.elapsedMs)) }),
+      return [workload, { diagnosticOnly: mode === "smoke" || observed,
+        [observed ? "observedReferenceMs" : "referenceMs"]: distribution(samples.map(sample => sample.lanes.reference.elapsedMs)),
+        [observed ? "observedCandidateMs" : "candidateMs"]: distribution(samples.map(sample => sample.lanes.candidate.elapsedMs)),
+        ...(observed ? {} : { pairedAddedMs: distribution(samples.map(sample => sample.lanes.candidate.elapsedMs - sample.lanes.reference.elapsedMs)) }),
         ...(mode !== "cpu" ? {} : { pairedAddedThreadCpuMs: distribution(samples.map(sample => {
           const cpu = sample.lanes.candidate.cpuMicroseconds.thread, reference = sample.lanes.reference.cpuMicroseconds.thread;
           return (cpu.user + cpu.system - reference.user - reference.system) / 1000;

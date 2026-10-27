@@ -1,7 +1,7 @@
 import { Data, Result, Schema } from "effect";
 import { sql, type Logger } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/node-postgres";
-import type { Pool } from "pg";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { Pool, PoolClient } from "pg";
 import type { Database } from "./persistence.ts";
 import * as tables from "./schema.ts";
 
@@ -18,9 +18,15 @@ export class PhysicalFailure extends Data.TaggedError("PhysicalFailure")<{
  * Drizzle, on one private checked-out client. There is no native callback here. */
 export function postgresSession(pool: Pool, logger?: Logger,
   beforeBegin?: (backendPid: number) => Promise<void>): Session {
+  // The facade contains codecs/query mechanics, not a transaction or verdict.
+  // A PoolClient is exclusively checked out for each run; failed clients retire.
+  const databases = new WeakMap<PoolClient, NodePgDatabase<typeof tables>>();
   return { run: async work => {
     const client = await pool.connect().catch(cause => { throw new PhysicalFailure({ phase: "acquire", cause }); });
-    const database = drizzle(client, { schema: tables, ...(logger === undefined ? {} : { logger }) });
+    let database = databases.get(client);
+    if (database === undefined) {
+      database = drizzle(client, { schema: tables, ...(logger === undefined ? {} : { logger }) }); databases.set(client, database);
+    }
     let phase: PhysicalFailure["phase"] = "begin";
     let outcome: Result.Result<Awaited<ReturnType<typeof work>>, unknown>;
     let transportFailed = false;

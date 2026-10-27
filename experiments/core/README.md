@@ -1,9 +1,10 @@
 # Experimental Flarex core
 
-The [combined read-guard iteration](./READ-OBSERVATIONS.md) is implemented and
-measured: exchanges fall, but the later cohort has worse local latency. No
-performance promotion is accepted. It changes experimental persistence only and
-preserves the initial reports below.
+The latest [compiled read-guard plan iteration](./OBSERVATION-COSTS.md) preserves
+fresh checks and improves measured complete-request latency, with 338 distinct
+checks passing. Every workload still misses the added-median target, so
+performance promotion remains closed. Active Medusa integration is unchanged;
+the initial and [combined-guard](./READ-OBSERVATIONS.md) reports remain intact.
 
 Status: bounded Payload CRUD, standalone Application and native Product scalar
 update/retrieve/list flows implemented with Drizzle on shared persistence/materialization owners.

@@ -1,0 +1,193 @@
+{
+  "status": "implemented-measured-and-verified-performance-gates-open",
+  "base": "d3c8997dab2aacefe79bac9a7adb9d7364686b4c",
+  "recordedAt": "2026-10-27T09:57:41.311Z",
+  "tests": [
+    {
+      "file": "observation-read-guards.json",
+      "passed": 11,
+      "failed": 0,
+      "skipped": 1
+    },
+    {
+      "file": "observation-bootstrap-smoke.json",
+      "passed": 14,
+      "failed": 0,
+      "skipped": 1
+    },
+    {
+      "file": "observation-ownership.json",
+      "passed": 17,
+      "failed": 0,
+      "skipped": 9
+    },
+    {
+      "file": "observation-framework-consumers.json",
+      "passed": 121,
+      "failed": 0,
+      "skipped": 1
+    },
+    {
+      "file": "observation-remaining-correctness.json",
+      "passed": 176,
+      "failed": 0,
+      "skipped": 3
+    },
+    {
+      "file": "observation-helper-validation.json",
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0
+    }
+  ],
+  "distinctPassed": 338,
+  "expectedDistinctSkips": 14,
+  "coverage": {
+    "pglite": 149,
+    "ordinaryRolePostgres": 163,
+    "nativeControllerProcess": 3,
+    "unitBoundary": 20,
+    "pgliteCorpus": 3
+  },
+  "source": [
+    {
+      "path": "experiments/core/README.md",
+      "sha256": "211d36753c7e84912cffad4f03a59a2cdaca7b5c32248ec9a6f7c81055cd3bf9"
+    },
+    {
+      "path": "experiments/core/RESULTS.md",
+      "sha256": "82d6827accb41ec4e450692214c8a58933de47d57bd0119778e8575afceb32ea"
+    },
+    {
+      "path": "experiments/core/READ-OBSERVATIONS.md",
+      "sha256": "80ddde7420280efbc54d80dace544e0d698061d8ef8f2bf467342872a6fc12dd"
+    },
+    {
+      "path": "experiments/core/MEASUREMENT.md",
+      "sha256": "3702b6d3b1dca7ca8efbf4d8c504e2f47e09ab999d137884137021707a6f7660"
+    },
+    {
+      "path": "experiments/core/OBSERVATION-COSTS.md",
+      "sha256": "0f6fd88b6d7c2abc67a8c484a71271c8ea3e1434c821ada7fa0e6c8b34ca4f2c"
+    },
+    {
+      "path": "experiments/core/src/persistence.ts",
+      "sha256": "81fc4759c01155efb710e5dffd3543e3bd0efe684511e3599114c3f630a8a053"
+    },
+    {
+      "path": "experiments/core/src/session.ts",
+      "sha256": "db7eda81a8e7c87e7b5fdf53f23fa651a5d2badbc9a6a4824d92b4c32808caa3"
+    },
+    {
+      "path": "experiments/core/src/read-guards.ts",
+      "sha256": "369de0ad581c7d180c345ff1a74c2532850005eee7fcbb3d4bb08058c9222ebe"
+    },
+    {
+      "path": "experiments/core/test/ownership.test.ts",
+      "sha256": "c1f4658039c3cdc23643893640ad73ae6eab3c4f5836640a33915ebb7f452456"
+    },
+    {
+      "path": "experiments/core/test/postgres.ts",
+      "sha256": "139eba010d0e17f87015f65c82a3c096def5f379dbe12dbc0240ec94c59528dd"
+    },
+    {
+      "path": "experiments/core/test/postgres.test.ts",
+      "sha256": "919cf83489d8d24076c8cceacdfb4a6dbb7b6008bbd7b67cfbd6b9d659db492f"
+    },
+    {
+      "path": "experiments/core/test/measurement.test.mjs",
+      "sha256": "62c420e6f85f7c3a7ae2e9e94d6cbddfd6d75bf767363d222b6a752d8145dda8"
+    },
+    {
+      "path": "experiments/core/test/measurement-costs.mjs",
+      "sha256": "139defcc0d3d9fb2f50529cf1241c7d372dc9000ef99921a956d821845c1a306"
+    },
+    {
+      "path": "experiments/core/test/measurement-costs.test.mjs",
+      "sha256": "4f40b5b16a7ac018388d421b9d1f586eb8a798542ac29c6c909c48cb3c367066"
+    },
+    {
+      "path": "experiments/core/test/read-guards.test.ts",
+      "sha256": "968a7f42370ca18ae8b827c411af33bccdc0a9b1bd91bd1c8a4a051f2385d67a"
+    },
+    {
+      "path": "experiments/core/test/read-guard-plans.test.mjs",
+      "sha256": "6b8998b446b8dfceed2dce299e2245f86acd6a02cee6727d80350851f7dbf0db"
+    },
+    {
+      "path": "experiments/core/test/scaling.test.mjs",
+      "sha256": "61c8b6d440a0cf12b6dd072535ac6f61f6d54e0881c0e7275f192626758ea500"
+    }
+  ],
+  "checks": {
+    "typecheck": "Scoped tsc-rs passed after final TypeScript/controller changes; no subsequent TypeScript edits.",
+    "explicitLint": "Final explicit experimental lint passed after final code changes; root lint does not cover this folder.",
+    "rootLint": "Final pnpm lint:core and pnpm lint:diff passed; scoped git diff --check passed.",
+    "reviews": "Both required read-only reviewers cleared the final 56-path slice against d3c8997dab2aacefe79bac9a7adb9d7364686b4c; all 17 source hashes matched. No findings remain. Performance promotion and broader support gates stay open.",
+    "exactIndex": "Exactly 56 owned experimental paths staged, with no foreign paths. pnpm lint:diff -- --staged and git diff --cached --check passed. The explicit experimental lint separately covers this folder; root lint does not."
+  },
+  "resources": {
+    "freshCampaigns": "All8campaigns cleanup complete; fresh correctness/process fixtures removed. No owned runners/databases remain.",
+    "retainedStopped": "Earlier4K84Yl partial fixture deletion was rejected by automatic approval review with blocked by policy; left untouched. EarlierG2pD6q also untouched."
+  },
+  "comparison": "observation-comparison.json",
+  "earlierEvidence": "Initial raw-inspector pilot and earlier quiet baseline retained; corrected matched control/after reports own final conclusions. Canceled seven-file cohort earns no validation credit.",
+  "ownedPaths": [
+    "experiments/core/MEASUREMENT.md",
+    "experiments/core/OBSERVATION-COSTS.md",
+    "experiments/core/READ-OBSERVATIONS.md",
+    "experiments/core/README.md",
+    "experiments/core/RESULTS.md",
+    "experiments/core/src/persistence.ts",
+    "experiments/core/src/read-guards.ts",
+    "experiments/core/src/session.ts",
+    "experiments/core/test/measurement-costs.mjs",
+    "experiments/core/test/measurement-costs.test.mjs",
+    "experiments/core/test/measurement.test.mjs",
+    "experiments/core/test/ownership.test.ts",
+    "experiments/core/test/postgres.test.ts",
+    "experiments/core/test/postgres.ts",
+    "experiments/core/test/read-guard-plans.test.mjs",
+    "experiments/core/test/read-guards.test.ts",
+    "experiments/core/test/scaling.test.mjs",
+    "experiments/core/validation/connected-source-01bf2e48fdadfd4b453a17561dc99af41ef619621024ecc14b96d6a4ac80a99c.json",
+    "experiments/core/validation/connected-source-2ef8ebca54c84493c49c021d0e966cd698d3fdd794129cabf38712908e5180f4.json",
+    "experiments/core/validation/connected-source-407b83e078bda4a4671dec99fc4b6c7cd417f0aef78041daef02eaa6e34bca36.json",
+    "experiments/core/validation/connected-source-473bffe6837bea62434dea2d897ca35e413d6c1b72994254641757e19c29572a.json",
+    "experiments/core/validation/connected-source-7b3a4fab4a8a22ee70cb2732573d66931c3ee305b0eff8807cd106f10e86cc11.json",
+    "experiments/core/validation/connected-source-931c877690b0af6a74a6d1de7b57c10e268f9b23813bbef9e36392a7ba382448.json",
+    "experiments/core/validation/connected-source-9a2152aa057ba2f40facafa846234f114c651b531248507611f99a69e725aad7.json",
+    "experiments/core/validation/connected-source-baff2e3209feb59af5ccf98056c08bf5678c8be940967ee664045a8984d294c6.json",
+    "experiments/core/validation/connected-source-c85d82a1f0972f68be981dc9c96db063e75901b34966e517b4fdc902e8cfcc99.json",
+    "experiments/core/validation/connected-source-fe2acf3b6a7054df01a0528e8f1417921d76ff451388e579256eb2dba65e6e6e.json",
+    "experiments/core/validation/observation-after-cpu-test.json",
+    "experiments/core/validation/observation-after-cpu.json",
+    "experiments/core/validation/observation-after-latency-test.json",
+    "experiments/core/validation/observation-after-latency.json",
+    "experiments/core/validation/observation-after-profile-test.json",
+    "experiments/core/validation/observation-after-profile.json",
+    "experiments/core/validation/observation-after-scaling-test.json",
+    "experiments/core/validation/observation-after-scaling.json",
+    "experiments/core/validation/observation-after-sql-test.json",
+    "experiments/core/validation/observation-after-sql.json",
+    "experiments/core/validation/observation-before-latency-test.json",
+    "experiments/core/validation/observation-before-latency.json",
+    "experiments/core/validation/observation-before-profile-test.json",
+    "experiments/core/validation/observation-before-profile.json",
+    "experiments/core/validation/observation-bootstrap-smoke.json",
+    "experiments/core/validation/observation-comparison.json",
+    "experiments/core/validation/observation-control-latency-test.json",
+    "experiments/core/validation/observation-control-latency.json",
+    "experiments/core/validation/observation-control-profile-test.json",
+    "experiments/core/validation/observation-control-profile.json",
+    "experiments/core/validation/observation-control-scaling-test.json",
+    "experiments/core/validation/observation-control-scaling.json",
+    "experiments/core/validation/observation-correctness-cancelled.json",
+    "experiments/core/validation/observation-framework-consumers.json",
+    "experiments/core/validation/observation-helper-validation.json",
+    "experiments/core/validation/observation-ownership.json",
+    "experiments/core/validation/observation-read-guards.json",
+    "experiments/core/validation/observation-remaining-correctness.json",
+    "experiments/core/validation/observation-validation.json"
+  ]
+}

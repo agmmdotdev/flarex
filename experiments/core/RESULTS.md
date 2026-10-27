@@ -1,5 +1,11 @@
 # Initial connected results
 
+The latest [compiled-plan iteration](./OBSERVATION-COSTS.md) improves matched quiet
+added median/P95 latency to **25.668/31.828 ms** for Payload CRUD,
+**5.859/9.033 ms** for Product and **6.714/10.707 ms** for mixed. All 338 distinct
+checks pass, but every added-median target remains missed and contention gains
+are mixed. This supports retaining bounded plan reuse, not performance promotion.
+
 The subsequent [combined read-guard iteration](./READ-OBSERVATIONS.md) lowers
 CRUD/Product/mixed exchanges to 88/37/59, but added median latency rises to
 35.471/9.777/12.222 ms in its later cohort. It passes correctness and source checks;
