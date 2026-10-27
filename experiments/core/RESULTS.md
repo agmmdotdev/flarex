@@ -1,5 +1,11 @@
 # Initial connected results
 
+The subsequent [combined read-guard iteration](./READ-OBSERVATIONS.md) lowers
+CRUD/Product/mixed exchanges to 88/37/59, but added median latency rises to
+35.471/9.777/12.222 ms in its later cohort. It passes correctness and source checks;
+no latency win or promotion is accepted. The sections below retain the initial
+cohort measurements and decision, with current follow-up guidance.
+
 Decision: **retain modular ownership and native integrations, change the database
 execution plan, and reject this implementation as ready for promotion.** The
 first complete-request cohort misses the inherited added-latency goals. It does
@@ -149,12 +155,13 @@ database chatter. The active core remains unmeasured and unchanged by this work.
 Change complete storage-operation granularity at the persistence/session owner.
 Fresh authorization and definition protection remain required; separate client
 round trips for each gate, token/state check, expiry check and data query are an
-implementation choice. Investigate a Drizzle-generated database-local operation
-returning the required authority and data evidence together. Start with a
-complete read/observation operation, preserve its exact snapshot, fresh gates,
-retention/expiry checks and selected-definition locks, and measure the same native
-requests again. This is a proposed next slice, not an implemented optimization.
-Do not fix this in
+implementation choice. The combined read-guard iteration now collapses the
+pre-read protection queries while retaining a separate data statement for fresh
+visibility after lock waits. It does not establish a local latency improvement.
+Further operation changes must preserve exact snapshots, fresh gates,
+retention/expiry checks and selected-definition locks, and remeasure the complete
+native requests. Attribute remaining client construction, server execution and
+transaction costs before choosing the next change. Do not fix this in
 adapters, hold a transaction across callbacks, remove checks speculatively or
 merge Application OCC into a universal framework transaction API.
 

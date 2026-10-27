@@ -7,6 +7,14 @@ target passes; complete-request performance acceptance does not. The active lane
 is unmeasured; its last preparation failed as retained
 in `validation/payload-create-failure.json`.
 
+The [combined read-guard iteration](./READ-OBSERVATIONS.md) uses the same workload,
+warmup and sampling protocol. Set `FLAREX_EXPERIMENT_MEASURE_LABEL=combined-read`
+to retain separate `validation/combined-read-{latency,cpu,sql}.json` reports.
+The default label remains `connected`; the previous cohort is preserved.
+That iteration passed all correctness/source/resource checks and reduced
+exchanges, but did not show a latency or CPU improvement. Its results and
+cross-cohort attribution limits are recorded in the linked note.
+
 The explicit two-lane experiment measures these complete requests:
 
 | Workload | Candidate | Reference |

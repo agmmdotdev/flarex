@@ -66,8 +66,7 @@ export function createEqualityStorage(persistence: Persistence) {
   };
   const observe = Effect.fn("ExperimentEquality.observe")((command: Command, selection: TextEquality,
     remainingRows: number, remainingBytes: number, projection: "identities" | "documents") => persistence.operation(async transaction => {
-    const { stored, admitted } = await persistence.load(transaction, command, "share");
-    await persistence.checkTime(transaction, stored.expires);
+    const { stored, admitted } = await persistence.observeCommand(transaction, command);
     // Include every examined key and projected identity, even invisible history
     // and fingerprint collisions. These are bounded work bytes, not wire bytes.
     return acquire(transaction, stored.scope, admitted.definition, stored.snapshot, selection, remainingRows, remainingBytes, projection);
@@ -77,7 +76,7 @@ export function createEqualityStorage(persistence: Persistence) {
     observeEqualityRows: (command: Command, selection: TextEquality, rows: number, bytes: number) => observe(command, selection, rows, bytes, "documents"),
     readEqualityRows: Effect.fn("ExperimentEquality.read")((scope: string, definition: Definition, selection: TextEquality,
       rows: number, bytes: number) => persistence.operation(async transaction => {
-      const authority = await persistence.gate(transaction, scope); await persistence.selected(transaction, definition);
+      const authority = await persistence.readAuthority(transaction, scope, [definition]);
       return acquire(transaction, scope, definition, authority.seq, selection, rows, bytes, "documents");
     })),
   };

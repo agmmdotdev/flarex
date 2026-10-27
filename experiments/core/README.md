@@ -1,5 +1,10 @@
 # Experimental Flarex core
 
+The [combined read-guard iteration](./READ-OBSERVATIONS.md) is implemented and
+measured: exchanges fall, but the later cohort has worse local latency. No
+performance promotion is accepted. It changes experimental persistence only and
+preserves the initial reports below.
+
 Status: bounded Payload CRUD, standalone Application and native Product scalar
 update/retrieve/list flows implemented with Drizzle on shared persistence/materialization owners.
 The [selected-table mixed connection](./MIXED.md) runs actual Application,

@@ -269,8 +269,8 @@ describe.each(["pglite", "postgres"] as const)("native experimental Product (%s)
       expect(await Effect.runPromise(host.listByHandle(previous))).toEqual([]);
       expect(await Effect.runPromise(host.listByHandle("concurrent-handle"))).toEqual([expect.objectContaining({ id, title: "concurrent" })]);
       expect(await database.admin(db => db.select().from(tables.commands))).toHaveLength(2);
-    }, database => ({ ...database.persistence, gate: async (transaction, scope) => {
-      const authority = await database.persistence.gate(transaction, scope);
+    }, database => ({ ...database.persistence, readAuthority: async (transaction, scope, definitions) => {
+      const authority = await database.persistence.readAuthority(transaction, scope, definitions);
       if (armed) { armed = false; await race(); }
       return authority;
     } }));

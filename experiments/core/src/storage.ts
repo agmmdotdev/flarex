@@ -11,13 +11,12 @@ export interface UniqueObservation { readonly field: string; readonly key: strin
 /** Framework data observations. Commands publish through group-storage; this
  * owner has no reservation, accepting, recovery or abort capabilities. */
 export function createStorage(persistence: Persistence) {
-  const { operation, load, checkTime } = persistence;
+  const { operation, observeCommand } = persistence;
   return {
     metrics: persistence.metrics,
     ...createEqualityStorage(persistence),
     observeUnique: Effect.fn("ExperimentStorage.observeUnique")((command: Command, keys: readonly { field: string; key: string }[]) => operation(async transaction => {
-      const { stored, admitted } = await load(transaction, command, "share");
-      await checkTime(transaction, stored.expires);
+      const { stored, admitted } = await observeCommand(transaction, command);
       if (keys.length > 256 || Buffer.byteLength(JSON.stringify(keys)) > 262_144) throw new CoreError({ reason: "limit" });
       if (keys.some(key => !admitted.definition.fields.some(field => field.unique && field.name === key.field))) throw new CoreError({ reason: "invalid" });
       const found = keys.length === 0 ? [] : await transaction.select().from(tables.uniqueClaims).where(and(
@@ -28,7 +27,7 @@ export function createStorage(persistence: Persistence) {
       return keys.map(key => ({ ...key, owner: owners.get(JSON.stringify(key)) ?? null }));
     })),
     observeRows: Effect.fn("ExperimentStorage.observeRows")((command: Command, ids: readonly string[], remainingBytes: number) => operation(async transaction => {
-      const { stored, admitted } = await load(transaction, command, "share"); await checkTime(transaction, stored.expires);
+      const { stored, admitted } = await observeCommand(transaction, command);
       if (ids.length > 256 || remainingBytes < 0) throw new CoreError({ reason: "limit" });
       if (ids.length === 0) return [];
       const bytes = sql<number>`octet_length(${tables.documents.body}::text)`.mapWith(Number);
@@ -46,7 +45,7 @@ export function createStorage(persistence: Persistence) {
       return rows;
     })),
     read: Effect.fn("ExperimentStorage.read")((scope: string, definition: Definition, id: string) => operation(async transaction => {
-      await persistence.gate(transaction, scope); await persistence.selected(transaction, definition);
+      await persistence.readAuthority(transaction, scope, [definition]);
       const [row] = await transaction.select({ body: tables.documents.body }).from(tables.documents)
         .where(and(eq(tables.documents.scope, scope), eq(tables.documents.table, definition.table), eq(tables.documents.id, id)));
       return row?.body ?? null;

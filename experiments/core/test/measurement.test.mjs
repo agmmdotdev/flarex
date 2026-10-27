@@ -50,7 +50,9 @@ function productShape(value) {
 it.skipIf(process.env.FLAREX_EXPERIMENT_MEASURE === undefined)("measures declared complete native and experimental requests", async () => {
   const mode = process.env.FLAREX_EXPERIMENT_MEASURE;
   assert.ok(["smoke", "latency", "cpu", "sql"].includes(mode), "Select an explicit measurement mode");
-  const report = { mode, status: "preparing", startedAt: new Date().toISOString(), samples: [], warmupSamples: [], failures: [],
+  const label = process.env.FLAREX_EXPERIMENT_MEASURE_LABEL ?? "connected";
+  assert.match(label, /^[a-z][a-z0-9-]{0,47}$/);
+  const report = { mode, label, status: "preparing", startedAt: new Date().toISOString(), samples: [], warmupSamples: [], failures: [],
     contract: "MEASUREMENT.md", activeBaseline: "blocked: validation/payload-create-failure.json",
     semantics: "Product reference independently commits; mixed reference uses standalone candidate Application plus genuine native frameworks. No equivalent atomic native baseline or active speedup claim.",
     head: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
@@ -264,7 +266,7 @@ it.skipIf(process.env.FLAREX_EXPERIMENT_MEASURE === undefined)("measures declare
     }
     report.finishedAt = new Date().toISOString();
     report.failures.push(...failures.map(cause => ({ stage: "cleanup", evidence: failureEvidence(cause) })));
-    const recording = await recordMeasurement(directory, `connected-${mode}.json`, report);
+    const recording = await recordMeasurement(directory, `${label}-${mode}.json`, report);
     if (failures.length || recording.length) throw new AggregateError([...(bodyFailure === undefined ? [] : [bodyFailure]),
       ...failures, ...recording], "Measurement body/cleanup/recording failed", { cause: bodyFailure });
   }

@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { Cause, Effect, Exit, type Schema } from "effect";
+import { setTimeout as delay } from "node:timers/promises";
+import { eq, sql } from "drizzle-orm";
+import { Cause, Effect, Exit, Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { compileDefinition, type Definition } from "../src/definition.ts";
 import { createPersistence, type Persistence } from "../src/persistence.ts";
@@ -30,6 +32,21 @@ function pausedPersistence(database: Fixture) {
   return { persistence, started, release, holdNextBefore: () => { armed = "before"; }, holdNextAfter: () => { armed = "after"; } };
 }
 
+const barrier = () => {
+  let ready = () => {}; let release = () => {};
+  const started = new Promise<void>(resolve => { ready = resolve; }); const gate = new Promise<void>(resolve => { release = resolve; });
+  return { ready, release, started, gate };
+};
+const waitFor = async (condition: () => Promise<boolean>) => {
+  for (let attempt = 0; attempt < 180; attempt++) { if (await condition()) return; await delay(10); }
+  throw new Error("Missing owned observation/lock witness");
+};
+const decodeLockCount = Schema.decodeUnknownSync(Schema.Struct({ rows: Schema.Array(Schema.Struct({ n: Schema.Number })) }));
+const waitForServingLock = (database: Fixture) => waitFor(async () => {
+  const result = await database.admin(db => db.execute(sql`select count(*)::integer as n from pg_stat_activity where application_name = ${database.role} and wait_event_type = 'Lock'`));
+  return decodeLockCount(result).rows[0]?.n === 1;
+});
+
 const applicationWrite = Effect.fn("TestOwnership.applicationWrite")(function* <A extends Schema.Json>(persistence: Persistence, definition: Definition,
   work: (root: ApplicationMutationRoot) => Effect.Effect<A, CoreError | DocumentValidationFailure>) {
   const storage = createApplicationStorage(persistence);
@@ -54,6 +71,119 @@ describe.each(["pglite", "postgres"] as const)("owned query and accepting inputs
       await test(database, app);
     } finally { await database.close(); }
   };
+
+  it("retains every command binding and closed-before-expired failure order in the combined guard", async () => withDatabase(async database => {
+    const command = await Effect.runPromise(database.persistence.openCommand("framework", "shop-a", randomUUID(), "guard", database.definition, randomUUID()));
+    const [original] = await database.admin(db => db.select().from(tables.commands).where(eq(tables.commands.id, command.id)));
+    if (original === undefined) throw new Error("Missing owned guard command");
+    const cases: readonly { values: Partial<typeof tables.commands.$inferInsert>; reason: string }[] = [
+      { values: { token: "foreign" }, reason: "denied" }, { values: { request: "foreign" }, reason: "denied" },
+      { values: { snapshot: original.snapshot + 1 }, reason: "denied" }, { values: { profile: "mixed" }, reason: "denied" },
+      { values: { definitions: [{ table: database.definition.table, version: "retired" }] }, reason: "denied" },
+      { values: { fence: original.fence + 1 }, reason: "denied" },
+      { values: { expires: new Date(original.expires.getTime() + 1000) }, reason: "denied" },
+      { values: { expires: new Date(0) }, reason: "expired" },
+      { values: { status: "committed", expires: new Date(0) }, reason: "closed" },
+    ];
+    for (const test of cases) {
+      await database.admin(db => db.update(tables.commands).set(test.values).where(eq(tables.commands.id, command.id)));
+      const result = await Effect.runPromiseExit(database.storage.observeRows(command, [], 1));
+      expect(Exit.isFailure(result) && Cause.findErrorOption(result.cause)).toMatchObject({ value: { reason: test.reason } });
+      await database.admin(db => db.update(tables.commands).set(original).where(eq(tables.commands.id, command.id)));
+    }
+    const forged = await Effect.runPromiseExit(database.storage.observeRows({ ...command }, [], 1));
+    expect(Exit.isFailure(forged) && Cause.findErrorOption(forged.cause)).toMatchObject({ value: { reason: "denied" } });
+    expect(await Effect.runPromise(database.storage.observeRows(command, [], 1))).toEqual([]);
+    await Effect.runPromise(database.commands.abort(command));
+  }));
+
+  it.skipIf(driver !== "postgres").each(["authority", "definition", "command"] as const)("checks observation expiry after waiting for the %s lock", async owner => withDatabase(async database => {
+    const command = await Effect.runPromise(database.persistence.openCommand("framework", "shop-a", randomUUID(), "guard-expiry", database.definition, randomUUID()));
+    await database.admin(db => db.update(tables.commands).set({ expires: sql`clock_timestamp() + interval '500 milliseconds'` }).where(eq(tables.commands.id, command.id)));
+    const pause = barrier();
+    const blocker = database.admin(db => db.transaction(async tx => {
+      if (owner === "authority") await tx.select().from(tables.authorities).where(eq(tables.authorities.scope, "shop-a")).for("update");
+      else if (owner === "definition") await tx.select().from(tables.definitions).where(eq(tables.definitions.table, database.definition.table)).for("update");
+      else await tx.select().from(tables.commands).where(eq(tables.commands.id, command.id)).for("update");
+      pause.ready(); await pause.gate;
+    }));
+    let pending: ReturnType<typeof Effect.runPromiseExit> | undefined;
+    try {
+      await pause.started; pending = Effect.runPromiseExit(database.storage.observeRows(command, [], 1)); await waitForServingLock(database);
+      const [lease] = await database.admin(db => db.select({ live: sql<boolean>`${tables.commands.expires} > clock_timestamp() + interval '100 milliseconds'` }).from(tables.commands).where(eq(tables.commands.id, command.id)));
+      expect(lease?.live).toBe(true);
+      await waitFor(async () => (await database.admin(db => db.select({ expired: sql<boolean>`clock_timestamp() >= ${tables.commands.expires}` }).from(tables.commands).where(eq(tables.commands.id, command.id))))[0]?.expired === true);
+      pause.release(); const result = await pending;
+      expect(Exit.isFailure(result) && Cause.findErrorOption(result.cause)).toMatchObject({ value: { reason: "expired" } });
+      expect(await database.admin(db => db.select().from(tables.history))).toEqual([]);
+    } finally { pause.release(); await Promise.allSettled([blocker, pending]); await Effect.runPromise(database.commands.abort(command)); }
+  }));
+
+  it.skipIf(driver !== "postgres").each(["update", "delete"] as const)("reads a fresh predecessor after a blocked guard and concurrent %s", async change => withDatabase(async (database, app) => {
+    const id = await Effect.runPromise(applicationWrite(database.persistence, app, root => root.insert({ name: "original", priority: 1 })));
+    const command = await Effect.runPromise(database.persistence.openCommand("framework", "shop-a", randomUUID(), "fresh-predecessor", app, randomUUID()));
+    const pause = barrier(); const blocker = database.admin(db => db.transaction(async tx => {
+      await tx.select().from(tables.commands).where(eq(tables.commands.id, command.id)).for("update"); pause.ready(); await pause.gate;
+    }));
+    let pending: ReturnType<typeof Effect.runPromiseExit> | undefined;
+    try {
+      await pause.started; pending = Effect.runPromiseExit(database.storage.observeRows(command, [id], 262144)); await waitForServingLock(database);
+      await Effect.runPromise(applicationWrite(database.persistence, app, root => change === "update" ? root.patch(id, { priority: 9 }).pipe(Effect.as(null)) : root.delete(id).pipe(Effect.as(null))));
+      pause.release(); const result = await pending;
+      expect(Exit.isFailure(result) && Cause.findErrorOption(result.cause)).toMatchObject({ value: { reason: "conflict" } });
+      expect(await Effect.runPromise(database.storage.read("shop-a", app, id))).toEqual(change === "delete" ? null : expect.objectContaining({ priority: 9 }));
+    } finally { pause.release(); await Promise.allSettled([blocker, pending]); await Effect.runPromise(database.commands.abort(command)); }
+  }));
+
+  it.skipIf(driver !== "postgres")("refuses a selected definition retired while the combined guard waits", async () => withDatabase(async database => {
+    const command = await Effect.runPromise(database.persistence.openCommand("framework", "shop-a", randomUUID(), "retirement", database.definition, randomUUID()));
+    const pause = barrier(); const blocker = database.admin(db => db.transaction(async tx => {
+      await tx.update(tables.definitions).set({ version: "retired" }).where(eq(tables.definitions.table, database.definition.table)); pause.ready(); await pause.gate;
+    }));
+    let pending: ReturnType<typeof Effect.runPromiseExit> | undefined;
+    try {
+      await pause.started; pending = Effect.runPromiseExit(database.storage.observeRows(command, [], 1)); await waitForServingLock(database);
+      pause.release(); const result = await pending;
+      expect(Exit.isFailure(result) && Cause.findErrorOption(result.cause)).toMatchObject({ value: { reason: "denied" } });
+    } finally { pause.release(); await Promise.allSettled([blocker, pending]); await Effect.runPromise(database.commands.abort(command)); }
+  }));
+
+  it.skipIf(driver !== "postgres").each(["authority", "definition"] as const)("checks snapshot expiry after waiting for the %s lock", async owner => withDatabase(async (database, app) => {
+    const storage = createApplicationStorage(database.persistence); const snapshot = await Effect.runPromise(storage.openQuery("shop-a", app));
+    const now = async () => (await database.admin(db => db.select({ time: sql<number>`extract(epoch from clock_timestamp())::double precision * 1000` }).from(tables.installation)))[0]?.time;
+    // Age the actual 30-second lease without holding a transaction. No fake clock
+    // or configurable weaker lease is introduced for this witness.
+    await delay(28_500);
+    const pause = barrier(); const blocker = database.admin(db => db.transaction(async tx => {
+      if (owner === "authority") await tx.select().from(tables.authorities).where(eq(tables.authorities.scope, "shop-a")).for("update");
+      else await tx.select().from(tables.definitions).where(eq(tables.definitions.table, app.table)).for("update");
+      pause.ready(); await pause.gate;
+    }));
+    let pending: ReturnType<typeof Effect.runPromiseExit> | undefined;
+    try {
+      await Promise.race([pause.started, blocker]); pending = Effect.runPromiseExit(storage.point(snapshot, "missing", 1)); await waitForServingLock(database);
+      // Timestamp-to-Date decoding can round the private expires by <1ms.
+      // A 100ms margin proves the lease is live rather than merely near expiry.
+      expect(await now()).toBeLessThan(snapshot.creationTime + 29_900);
+      await waitFor(async () => (await now() ?? 0) >= snapshot.creationTime + 30_001);
+      pause.release(); const result = await pending;
+      expect(Exit.isFailure(result) && Cause.findErrorOption(result.cause)).toMatchObject({ value: { reason: "expired" } });
+      expect(await database.admin(db => db.select().from(tables.commands))).toEqual([]);
+    } finally { pause.release(); await Promise.allSettled([blocker, pending]); await Effect.runPromise(storage.closeSnapshot(snapshot)); }
+  }));
+
+  it.skipIf(driver !== "postgres")("refuses a snapshot definition retired while its guard waits", async () => withDatabase(async (database, app) => {
+    const storage = createApplicationStorage(database.persistence); const snapshot = await Effect.runPromise(storage.openQuery("shop-a", app));
+    const pause = barrier(); const blocker = database.admin(db => db.transaction(async tx => {
+      await tx.update(tables.definitions).set({ version: "retired" }).where(eq(tables.definitions.table, app.table)); pause.ready(); await pause.gate;
+    }));
+    let pending: ReturnType<typeof Effect.runPromiseExit> | undefined;
+    try {
+      await Promise.race([pause.started, blocker]); pending = Effect.runPromiseExit(storage.point(snapshot, "missing", 1)); await waitForServingLock(database);
+      pause.release(); const result = await pending;
+      expect(Exit.isFailure(result) && Cause.findErrorOption(result.cause)).toMatchObject({ value: { reason: "denied" } });
+    } finally { pause.release(); await Promise.allSettled([blocker, pending]); await Effect.runPromise(storage.closeSnapshot(snapshot)); }
+  }));
 
   it("checks and publishes the same captured framework candidate while caller arrays change during checkout", async () => withDatabase(async database => {
     const first = await Effect.runPromise(database.persistence.openCommand("framework", "shop-a", randomUUID(), "fixture", database.definition, randomUUID()));

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, getTableColumns, or, sql } from "drizzle-orm";
+import { and, asc, eq, exists, getTableColumns, or, sql, type SQL } from "drizzle-orm";
 import { alias, type PgDatabase, type PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { Effect, Schema } from "effect";
 import type { Definition } from "./definition.ts";
@@ -41,28 +41,60 @@ export function createPersistence(session: Session, metrics: SqlMetrics = { oper
     catch: (cause: unknown) => cause instanceof CoreError ? cause : cause instanceof PhysicalFailure
       ? new CoreError({ reason: "storage", phase: cause.phase, cause }) : databaseFailure(cause),
   }).pipe(Effect.uninterruptible);
-  const gate = async (transaction: Database, scope: string) => {
-    const [authority] = await transaction.select({ fence: authorityRow.fence, seq: tables.clocks.seq, retainedFrom: authorityRow.retainedFrom })
+  const gateQuery = (transaction: Database, scope: string) => transaction.select({ fence: authorityRow.fence, seq: tables.clocks.seq, retainedFrom: authorityRow.retainedFrom })
       .from(authorityRow).innerJoin(tables.clocks, eq(tables.clocks.scope, authorityRow.scope))
       .innerJoin(grantRow, and(eq(grantRow.scope, authorityRow.scope), eq(grantRow.principal, sql`current_user`)))
       .innerJoin(installationRow, eq(installationRow.singleton, true))
       .where(and(eq(authorityRow.scope, scope), eq(authorityRow.enabled, true), eq(installationRow.active, true)))
       .for("share", { of: [authorityRow, installationRow, grantRow] });
+  const gate = async (transaction: Database, scope: string) => {
+    const [authority] = await gateQuery(transaction, scope);
     if (authority === undefined) throw new CoreError({ reason: "denied" });
     return authority;
   };
-  const selectedSet = async (transaction: Database, selection: readonly Pick<Definition, "table" | "version">[]) => {
+  const verifySelection = (selection: readonly Pick<Definition, "table" | "version">[]) => {
     if (selection.length === 0 || selection.length > 16 || new Set(selection.map(item => item.table)).size !== selection.length) throw new CoreError({ reason: "unsupported" });
-    const rows = await transaction.select({ version: definitionRow.version }).from(definitionRow)
-      .where(or(...selection.map(definition => and(eq(definitionRow.table, definition.table), eq(definitionRow.version, definition.version)))))
+  };
+  const selectionQuery = (transaction: Database, selection: readonly Pick<Definition, "table" | "version">[], predecessor?: SQL) =>
+    transaction.select({ version: definitionRow.version }).from(definitionRow)
+      .where(and(predecessor, or(...selection.map(definition => and(eq(definitionRow.table, definition.table), eq(definitionRow.version, definition.version))))))
       .orderBy(asc(definitionRow.table)).for("share");
+  const selectedSet = async (transaction: Database, selection: readonly Pick<Definition, "table" | "version">[]) => {
+    verifySelection(selection);
+    const rows = await selectionQuery(transaction, selection);
     if (rows.length !== selection.length) throw new CoreError({ reason: "denied" });
   };
   const selected = (transaction: Database, definition: Definition) => selectedSet(transaction, [definition]);
+  /** Row-locking CTEs cannot be inlined. Each successor consumes its predecessor:
+   * authority -> all selected definitions in table order -> command, if any.
+   * Only read guards are combined; accepting clock/dependency reads stay separate.
+   * Data queries follow this statement with a fresh READ COMMITTED snapshot. */
+  const readSelection = (transaction: Database, scope: string, selection: readonly Definition[]) => {
+    verifySelection(selection);
+    const authority = transaction.$with("observed_authority").as(gateQuery(transaction, scope));
+    const definitions = transaction.$with("observed_definitions").as(selectionQuery(transaction, selection,
+      exists(transaction.select({ present: sql`1` }).from(authority))));
+    const proof = transaction.$with("observed_selection").as(transaction.select({ count: sql<number>`count(*)::integer`.as("count") }).from(definitions));
+    return { authority, definitions, proof };
+  };
+  const readAuthority = async (transaction: Database, scope: string, selection: readonly Definition[]) => {
+    const { authority, definitions, proof } = readSelection(transaction, scope, selection);
+    const [row] = await transaction.with(authority, definitions, proof).select().from(authority).innerJoin(proof, sql`true`);
+    if (row === undefined || row.observed_selection.count !== selection.length) throw new CoreError({ reason: "denied" });
+    return row.observed_authority;
+  };
   const checkTime = async (transaction: Database, expires: Date) => {
     const [time] = await transaction.select({ expired: sql<boolean>`clock_timestamp() >= ${expires}` })
       .from(tables.installation).where(eq(tables.installation.singleton, true));
     if (time?.expired !== false) throw new CoreError({ reason: "expired" });
+  };
+  const validateCommand = (command: Command, admitted: Admission, authority: { fence: number; retainedFrom: number }, stored: typeof tables.commands.$inferSelect | null | undefined) => {
+    if (stored === undefined || stored === null || stored.token !== command.token || stored.scope !== admitted.scope || stored.request !== command.request ||
+      stored.snapshot !== command.snapshot || stored.profile !== command.profile || !matchesSelection(stored.definitions, admitted.selection) ||
+      stored.fence !== admitted.fence || admitted.fence !== authority.fence || stored.expires.getTime() > admitted.expires.getTime()) throw new CoreError({ reason: "denied" });
+    if (stored.status !== "active") throw new CoreError({ reason: "closed" });
+    if (stored.snapshot < authority.retainedFrom) throw new CoreError({ reason: "expired" });
+    return { stored, admitted };
   };
   const load = async (transaction: Database, command: Command, lock: "share" | "update") => {
     const admitted = admissions.get(command);
@@ -70,12 +102,24 @@ export function createPersistence(session: Session, metrics: SqlMetrics = { oper
     const authority = await gate(transaction, admitted.scope);
     await selectedSet(transaction, admitted.selection);
     const [stored] = await transaction.select().from(tables.commands).where(eq(tables.commands.id, command.id)).for(lock);
-    if (stored === undefined || stored.token !== command.token || stored.scope !== admitted.scope || stored.request !== command.request ||
-      stored.snapshot !== command.snapshot || stored.profile !== command.profile || !matchesSelection(stored.definitions, admitted.selection) ||
-      stored.fence !== admitted.fence || admitted.fence !== authority.fence || stored.expires.getTime() > admitted.expires.getTime()) throw new CoreError({ reason: "denied" });
-    if (stored.status !== "active") throw new CoreError({ reason: "closed" });
-    if (stored.snapshot < authority.retainedFrom) throw new CoreError({ reason: "expired" });
-    return { stored, admitted };
+    return validateCommand(command, admitted, authority, stored);
+  };
+  const observeCommand = async (transaction: Database, command: Command) => {
+    const admitted = admissions.get(command);
+    if (admitted === undefined) throw new CoreError({ reason: "denied" });
+    const { authority, definitions, proof } = readSelection(transaction, admitted.scope, admitted.selection);
+    const stored = transaction.$with("observed_command").as(transaction.select().from(tables.commands)
+      .where(and(eq(tables.commands.id, command.id), exists(transaction.select({ present: sql`1` }).from(proof).where(eq(proof.count, admitted.selection.length)))))
+      .for("share"));
+    // The volatile clock projection consumes the already locked command row,
+    // so a blocked command lock cannot turn an elapsed lease into success.
+    const deadline = transaction.$with("observed_deadline").as(transaction.select({ expired: sql<boolean>`clock_timestamp() >= ${stored.expires}`.as("expired") }).from(stored));
+    const [row] = await transaction.with(authority, definitions, proof, stored, deadline).select().from(authority)
+      .innerJoin(proof, sql`true`).leftJoin(stored, sql`true`).leftJoin(deadline, sql`true`);
+    if (row === undefined || row.observed_selection.count !== admitted.selection.length) throw new CoreError({ reason: "denied" });
+    const loaded = validateCommand(command, admitted, row.observed_authority, row.observed_command);
+    if (row.observed_deadline?.expired !== false) throw new CoreError({ reason: "expired" });
+    return loaded;
   };
   const reserve = Effect.fn("ExperimentPersistence.reserve")((profile: "framework" | "application" | "mixed", scope: string, request: string,
     digest: string, definitions: readonly Definition[], token: string) => operation(async transaction => {
@@ -141,10 +185,14 @@ export function createPersistence(session: Session, metrics: SqlMetrics = { oper
   }));
   const loadSnapshot = async (transaction: Database, snapshot: Snapshot) => {
     const admitted = snapshots.get(snapshot); if (admitted === undefined) throw new CoreError({ reason: "closed" });
-    const authority = await gate(transaction, admitted.scope); await selectedSet(transaction, admitted.selection);
-    if (authority.fence !== admitted.fence) throw new CoreError({ reason: "denied" });
-    if (snapshot.sequence < authority.retainedFrom) throw new CoreError({ reason: "expired" });
-    await checkTime(transaction, admitted.expires); return admitted;
+    const { authority, definitions, proof } = readSelection(transaction, admitted.scope, admitted.selection);
+    const [row] = await transaction.with(authority, definitions, proof).select({ fence: authority.fence, retainedFrom: authority.retainedFrom,
+      count: proof.count, expired: sql<boolean>`case when ${proof.count} = ${admitted.selection.length} then clock_timestamp() >= ${admitted.expires} else true end` })
+      .from(authority).innerJoin(proof, sql`true`);
+    if (row === undefined || row.count !== admitted.selection.length) throw new CoreError({ reason: "denied" });
+    if (row.fence !== admitted.fence) throw new CoreError({ reason: "denied" });
+    if (snapshot.sequence < row.retainedFrom || row.expired !== false) throw new CoreError({ reason: "expired" });
+    return admitted;
   };
   const commandSnapshot = Effect.fn("ExperimentPersistence.commandSnapshot")((command: Command) => Effect.gen(function* () {
     const snapshot = commandSnapshots.get(command);
@@ -169,7 +217,7 @@ export function createPersistence(session: Session, metrics: SqlMetrics = { oper
     const admitted = admissions.get(command); if (admitted === undefined) return yield* Effect.fail(new CoreError({ reason: "denied" }));
     return admitted.definition;
   });
-  return { metrics, operation, gate, selected, selectedSet, checkTime, load, openCommand, openGroup, participant, definition, abort, resolve,
+  return { metrics, operation, gate, selected, selectedSet, checkTime, load, observeCommand, readAuthority, openCommand, openGroup, participant, definition, abort, resolve,
     openSnapshot, loadSnapshot, commandSnapshot, restart, closeSnapshot: (snapshot: Snapshot) => Effect.sync(() => { snapshots.delete(snapshot); }) };
 }
 export type Persistence = ReturnType<typeof createPersistence>;
