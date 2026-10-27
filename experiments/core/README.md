@@ -1,6 +1,13 @@
 # Experimental Flarex core
 
-The latest [bounded observation composition](./COMBINED-OBSERVATIONS.md) reduces
+The latest [batched new-ID validation](./BATCHED-NEW-IDS.md) reduces 64-row insert
+exchanges **276→21** and transactions **67→3**, with median latency
+**96.796→29.434 ms**. Mixed exchanges fall **53→50**; Payload/Product counts stay
+77/33. All 396 distinct correctness cases pass across the regression and corrected
+owner reruns. Complete-request latency has no overall win and same-scope tails
+regress; performance promotion stays closed. Active Medusa work is unchanged.
+
+The preceding [bounded observation composition](./COMBINED-OBSERVATIONS.md) reduces
 Payload/Product/mixed exchanges **88→77 / 37→33 / 59→53**, preserving fresh checks
 with 357 distinct cases passing. All added-median targets remain missed;
 performance promotion stays closed. Active Medusa integration is unchanged.

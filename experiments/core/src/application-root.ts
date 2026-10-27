@@ -21,6 +21,7 @@ const createReader = Effect.fn("ExperimentApplicationRoot.reader")(function* (de
   const semaphore = serialized ?? (yield* Semaphore.make(1));
   const originals = new Map<string, { revision: number | null; body: Document | null }>();
   const dependencies = new Map<string, Dependency>();
+  const newIds = new Set<string>();
   let rows = 0; let bytes = 0;
   const check = Effect.gen(function* () {
     if (!(yield* Ref.get(live))) return yield* Effect.fail(new CoreError({ reason: "closed" }));
@@ -49,6 +50,16 @@ const createReader = Effect.fn("ExperimentApplicationRoot.reader")(function* (de
     yield* depend({ kind: "point", id, revision: original.revision, tombstone: original.body === null && original.revision !== null });
     return original.body === null ? null : { ...original.body };
   });
+  // Privately generated identities are tentative, not acquired database rows.
+  // Retain their complete absence demands (even after local deletion) until
+  // finish validates them together. Charge the existing logical read budget.
+  const newId = Effect.fn("ExperimentApplicationRoot.newId")(function* (id: string) {
+    if (originals.has(id)) return yield* Effect.fail(new CoreError({ reason: "conflict" }));
+    if (rows >= applicationLimits.rows || budget.remainingReads() === 0) return yield* Effect.fail(new CoreError({ reason: "limit" }));
+    yield* Effect.fromResult(budget.read(0, 1)); rows++;
+    yield* depend({ kind: "point", id, revision: null, tombstone: false });
+    originals.set(id, { revision: null, body: null }); newIds.add(id);
+  });
   const range = Effect.fn("ExperimentApplicationRoot.range")(function* (selection: NumericRange) {
     const owned = structuredClone(selection);
     const result = yield* storage.range(snapshot, owned, Math.min(applicationLimits.rows - rows, budget.remainingReads()), budget.remainingBytes());
@@ -62,9 +73,10 @@ const createReader = Effect.fn("ExperimentApplicationRoot.reader")(function* (de
     yield* depend({ kind: "range", range: owned }); return { documents, selection: owned };
   });
   const finish = Effect.fn("ExperimentApplicationRoot.finish")(function* () {
-    yield* storage.check(snapshot); yield* Ref.set(live, false); return [...dependencies.values()];
+    yield* newIds.size === 0 ? storage.check(snapshot) : storage.validateNewIds(snapshot, [...newIds]);
+    yield* Ref.set(live, false); return [...dependencies.values()];
   });
-  return { tableId, run, point, range, finish, poison, close: Ref.set(live, false), original: (id: string) => originals.get(id),
+  return { tableId, run, point, newId, range, finish, poison, close: Ref.set(live, false), original: (id: string) => originals.get(id),
     diagnostics: () => ({ rows, bytes, dependencies: dependencies.size }) };
 });
 
@@ -112,7 +124,7 @@ export const createApplicationMutationRoot = Effect.fn("ExperimentApplicationRoo
       const allocated = creationTime; creationTime = nextCreationTime(creationTime);
       const timestamp = new Date(allocated).toISOString();
       const document = yield* decode({ ...data, id, createdAt: timestamp, updatedAt: timestamp, systemCreationTime: allocated });
-      yield* reader.point(id); yield* apply(id, document); return id;
+      yield* reader.newId(id); yield* apply(id, document); return id;
     })),
     patch: (id: string, value: unknown) => reader.run(Effect.gen(function* () {
       const data = yield* fields(value); const before = yield* get(id);

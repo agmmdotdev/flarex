@@ -28,6 +28,14 @@ and `operation-after-scaling`. The first control latency preparation timeout is
 retained separately without acceptance credit. No source, durability, timeout,
 native workload or output assertion is loosened to obtain a passing campaign.
 
+The [batched new-ID iteration](./BATCHED-NEW-IDS.md) uses unchanged workloads and
+the same protocol. Control labels are `insert-control-{latency,cpu,sql}` and
+`insert-control-scaling`; after labels are `insert-after-{latency,cpu,sql}` and
+`insert-after-scaling`. All eight campaigns complete with stable source and
+cleanup. Its comparison receipt identifies the two runtime changes and two
+correctness-test differences, preserving native/harness/dependency bytes.
+No runtime replay or second implementation is retained for this control.
+
 The explicit two-lane experiment measures these complete requests:
 
 | Workload | Candidate | Reference |

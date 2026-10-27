@@ -1,6 +1,17 @@
 # Initial connected results
 
-The latest [bounded observation composition](./COMBINED-OBSERVATIONS.md) reduces
+The latest [batched new-ID validation](./BATCHED-NEW-IDS.md) removes per-insert
+historical point acquisitions: 64-row insert exchanges/transactions become
+**276→21 / 67→3**, with median/P95 **96.796/105.661→29.434/32.865 ms**.
+Payload/Product/mixed exchanges become **77/33/50**, with 12/5/9 transactions.
+Current paired added median/P95 is **27.507/34.060**, **6.013/13.246** and
+**6.567/11.615 ms**. All current complete-request allowances remain missed;
+same-scope contention tails regress despite the insert-batch improvement.
+The 396 distinct correctness cases pass across the full regression report and
+complete corrected owner reruns. Active Medusa integration is untouched and
+performance promotion remains closed.
+
+The preceding [bounded observation composition](./COMBINED-OBSERVATIONS.md) reduces
 CRUD/Product/mixed exchanges to **77/33/53**, with 357 correctness cases passing.
 Matched added median/P95 becomes **23.974/29.746**, **5.627/8.210** and
 **6.072/9.592 ms**. Every median allowance remains missed; Product/mixed pass

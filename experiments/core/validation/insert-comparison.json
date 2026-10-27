@@ -1,0 +1,879 @@
+{
+  "base": "3ef829d6cfc823b12607ccef9e1e7decbb00f3c6",
+  "status": "complete-matched-diagnostic-comparison",
+  "reports": [
+    "insert-control-latency.json",
+    "insert-after-latency.json",
+    "insert-control-cpu.json",
+    "insert-after-cpu.json",
+    "insert-control-sql.json",
+    "insert-after-sql.json",
+    "insert-control-scaling.json",
+    "insert-after-scaling.json"
+  ],
+  "sources": {
+    "connected": {
+      "before": {
+        "sha256": "2349cc15f551c319850e3df875f0012af94a0f2711f73196acf18c7c9a0d4d50",
+        "files": 85970,
+        "artifact": "connected-source-2349cc15f551c319850e3df875f0012af94a0f2711f73196acf18c7c9a0d4d50.json"
+      },
+      "after": {
+        "sha256": "095a70b5c23433f7277ce438934d93ccdd115417e41944185f2e4225c93dfa46",
+        "files": 85971,
+        "artifact": "connected-source-095a70b5c23433f7277ce438934d93ccdd115417e41944185f2e4225c93dfa46.json"
+      },
+      "differences": [
+        {
+          "path": "experiments/core/src/application-root.ts",
+          "before": "0069d08af3b9015c574de80b9d39ede7c5953e19d1112d4dad8b812cf1c21cbc",
+          "after": "17c2f0295af7ea3b640057515640bfa68fd99186092398048ecb78eae7372fb1"
+        },
+        {
+          "path": "experiments/core/src/application-storage.ts",
+          "before": "18435f98cb8567a31bb29890e0fb2dcc2046644a6cb5be40f9a4b2c3f45ed349",
+          "after": "ce907fad8f4de9e659d2e6a3388832bec01e693acbe3acda22b2c5757436dc18"
+        },
+        {
+          "path": "experiments/core/test/application.test.ts",
+          "before": "a7cc0c1493a2a7038f41a087f50fb17042483f1270ad53bc20867aba6f0e58ef",
+          "after": "58ee5223662ffe59a3af29f145d0f2305b9d9cde035404ea4f0c9ab2e80a843b"
+        },
+        {
+          "path": "experiments/core/test/new-id-validation.test.ts",
+          "before": null,
+          "after": "84dc1670cf0fd0705f3eb554683c71f806ecf29a2323e8cc59eb45124ea0ed9e"
+        }
+      ]
+    },
+    "scaling": {
+      "before": {
+        "sha256": "41bf4198e8b2b783d105123d4976dbee2a23d2793597f9203fc386303c18a793",
+        "files": 85883,
+        "artifact": "connected-source-41bf4198e8b2b783d105123d4976dbee2a23d2793597f9203fc386303c18a793.json"
+      },
+      "after": {
+        "sha256": "ce564a073f09199c034993d7f52fed3d064fdd4453abf7804f6ca0290309e54c",
+        "files": 85884,
+        "artifact": "connected-source-ce564a073f09199c034993d7f52fed3d064fdd4453abf7804f6ca0290309e54c.json"
+      },
+      "differences": [
+        {
+          "path": "experiments/core/src/application-root.ts",
+          "before": "0069d08af3b9015c574de80b9d39ede7c5953e19d1112d4dad8b812cf1c21cbc",
+          "after": "17c2f0295af7ea3b640057515640bfa68fd99186092398048ecb78eae7372fb1"
+        },
+        {
+          "path": "experiments/core/src/application-storage.ts",
+          "before": "18435f98cb8567a31bb29890e0fb2dcc2046644a6cb5be40f9a4b2c3f45ed349",
+          "after": "ce907fad8f4de9e659d2e6a3388832bec01e693acbe3acda22b2c5757436dc18"
+        },
+        {
+          "path": "experiments/core/test/application.test.ts",
+          "before": "a7cc0c1493a2a7038f41a087f50fb17042483f1270ad53bc20867aba6f0e58ef",
+          "after": "58ee5223662ffe59a3af29f145d0f2305b9d9cde035404ea4f0c9ab2e80a843b"
+        },
+        {
+          "path": "experiments/core/test/new-id-validation.test.ts",
+          "before": null,
+          "after": "84dc1670cf0fd0705f3eb554683c71f806ecf29a2323e8cc59eb45124ea0ed9e"
+        }
+      ]
+    }
+  },
+  "connected": {
+    "payload-crud": {
+      "before": {
+        "latency": {
+          "diagnosticOnly": false,
+          "referenceMs": {
+            "median": 4.523199999995995,
+            "p95": 8.676599999977043,
+            "minimum": 3.96119999999064,
+            "maximum": 9.71799999999348
+          },
+          "candidateMs": {
+            "median": 30.4660000000149,
+            "p95": 34.636199999979,
+            "minimum": 27.094100000016624,
+            "maximum": 38.68330000000424
+          },
+          "pairedAddedMs": {
+            "median": 25.692700000014156,
+            "p95": 30.28119999996852,
+            "minimum": 18.41750000003958,
+            "maximum": 33.77069999999367
+          }
+        },
+        "cpu": {
+          "median": 16,
+          "p95": 32,
+          "minimum": -16,
+          "maximum": 32
+        },
+        "sql": [
+          {
+            "exchanges": 77,
+            "transactions": 12,
+            "checkouts": 12,
+            "returnedRows": 30,
+            "decodedJsonBytes": 5848
+          },
+          {
+            "exchanges": 77,
+            "transactions": 12,
+            "checkouts": 12,
+            "returnedRows": 30,
+            "decodedJsonBytes": 5848
+          }
+        ]
+      },
+      "after": {
+        "latency": {
+          "diagnosticOnly": false,
+          "referenceMs": {
+            "median": 4.873300000006566,
+            "p95": 5.786900000006426,
+            "minimum": 4.0625,
+            "maximum": 6.328699999983655
+          },
+          "candidateMs": {
+            "median": 32.1822000000102,
+            "p95": 38.938899999979185,
+            "minimum": 27.370699999999488,
+            "maximum": 44.101900000008754
+          },
+          "pairedAddedMs": {
+            "median": 27.506899999978486,
+            "p95": 34.060200000036275,
+            "minimum": 22.128700000001118,
+            "maximum": 37.7732000000251
+          }
+        },
+        "cpu": {
+          "median": 16,
+          "p95": 32,
+          "minimum": -15,
+          "maximum": 47
+        },
+        "sql": [
+          {
+            "exchanges": 77,
+            "transactions": 12,
+            "checkouts": 12,
+            "returnedRows": 30,
+            "decodedJsonBytes": 5849
+          },
+          {
+            "exchanges": 77,
+            "transactions": 12,
+            "checkouts": 12,
+            "returnedRows": 30,
+            "decodedJsonBytes": 5849
+          }
+        ]
+      }
+    },
+    "product": {
+      "before": {
+        "latency": {
+          "diagnosticOnly": false,
+          "referenceMs": {
+            "median": 10.380299999989802,
+            "p95": 13.598800000007031,
+            "minimum": 8.966499999980442,
+            "maximum": 14.076899999985471
+          },
+          "candidateMs": {
+            "median": 16.487800000002608,
+            "p95": 19.534699999989243,
+            "minimum": 14.822899999999208,
+            "maximum": 20.91160000002128
+          },
+          "pairedAddedMs": {
+            "median": 5.845100000005914,
+            "p95": 9.764600000024075,
+            "minimum": 1.46040000001085,
+            "maximum": 10.118300000031013
+          }
+        },
+        "cpu": {
+          "median": 0,
+          "p95": 16,
+          "minimum": -16,
+          "maximum": 16
+        },
+        "sql": [
+          {
+            "exchanges": 33,
+            "transactions": 5,
+            "checkouts": 5,
+            "returnedRows": 10,
+            "decodedJsonBytes": 2623
+          },
+          {
+            "exchanges": 33,
+            "transactions": 5,
+            "checkouts": 5,
+            "returnedRows": 10,
+            "decodedJsonBytes": 2623
+          }
+        ]
+      },
+      "after": {
+        "latency": {
+          "diagnosticOnly": false,
+          "referenceMs": {
+            "median": 10.37510000000475,
+            "p95": 12.974699999991572,
+            "minimum": 9.611000000004424,
+            "maximum": 13.387500000011642
+          },
+          "candidateMs": {
+            "median": 16.44220000001951,
+            "p95": 23.020900000003166,
+            "minimum": 14.711599999980535,
+            "maximum": 31.42730000001029
+          },
+          "pairedAddedMs": {
+            "median": 6.013299999991432,
+            "p95": 13.246199999994133,
+            "minimum": 2.9646999999822583,
+            "maximum": 18.53299999999581
+          }
+        },
+        "cpu": {
+          "median": 0,
+          "p95": 16,
+          "minimum": -16,
+          "maximum": 16
+        },
+        "sql": [
+          {
+            "exchanges": 33,
+            "transactions": 5,
+            "checkouts": 5,
+            "returnedRows": 10,
+            "decodedJsonBytes": 2623
+          },
+          {
+            "exchanges": 33,
+            "transactions": 5,
+            "checkouts": 5,
+            "returnedRows": 10,
+            "decodedJsonBytes": 2623
+          }
+        ]
+      }
+    },
+    "mixed": {
+      "before": {
+        "latency": {
+          "diagnosticOnly": false,
+          "referenceMs": {
+            "median": 22.418399999995017,
+            "p95": 26.386499999993248,
+            "minimum": 20.317700000014156,
+            "maximum": 27.19539999999688
+          },
+          "candidateMs": {
+            "median": 28.64570000002277,
+            "p95": 34.485899999999674,
+            "minimum": 26.722899999993388,
+            "maximum": 34.86150000002817
+          },
+          "pairedAddedMs": {
+            "median": 6.615599999990081,
+            "p95": 12.191399999981513,
+            "minimum": 1.0314999999827705,
+            "maximum": 13.238000000012107
+          }
+        },
+        "cpu": {
+          "median": 0,
+          "p95": 17,
+          "minimum": -32,
+          "maximum": 17
+        },
+        "sql": [
+          {
+            "exchanges": 53,
+            "transactions": 10,
+            "checkouts": 10,
+            "returnedRows": 18,
+            "decodedJsonBytes": 5253
+          },
+          {
+            "exchanges": 53,
+            "transactions": 10,
+            "checkouts": 10,
+            "returnedRows": 18,
+            "decodedJsonBytes": 5252
+          }
+        ]
+      },
+      "after": {
+        "latency": {
+          "diagnosticOnly": false,
+          "referenceMs": {
+            "median": 22.16410000002361,
+            "p95": 27.408900000009453,
+            "minimum": 19.99519999997574,
+            "maximum": 63.63589999999385
+          },
+          "candidateMs": {
+            "median": 29.01720000000205,
+            "p95": 33.70630000001984,
+            "minimum": 26.63289999999688,
+            "maximum": 36.83810000002268
+          },
+          "pairedAddedMs": {
+            "median": 6.567000000010012,
+            "p95": 11.61520000002929,
+            "minimum": -26.797799999971176,
+            "maximum": 11.680200000002515
+          }
+        },
+        "cpu": {
+          "median": -1,
+          "p95": 17,
+          "minimum": -32,
+          "maximum": 31
+        },
+        "sql": [
+          {
+            "exchanges": 50,
+            "transactions": 9,
+            "checkouts": 9,
+            "returnedRows": 17,
+            "decodedJsonBytes": 5230
+          },
+          {
+            "exchanges": 50,
+            "transactions": 9,
+            "checkouts": 9,
+            "returnedRows": 17,
+            "decodedJsonBytes": 5230
+          }
+        ]
+      }
+    }
+  },
+  "scaling": {
+    "before": {
+      "source": {
+        "before": {
+          "sha256": "41bf4198e8b2b783d105123d4976dbee2a23d2793597f9203fc386303c18a793",
+          "files": 85883,
+          "artifact": "connected-source-41bf4198e8b2b783d105123d4976dbee2a23d2793597f9203fc386303c18a793.json"
+        },
+        "after": {
+          "sha256": "41bf4198e8b2b783d105123d4976dbee2a23d2793597f9203fc386303c18a793",
+          "files": 85883,
+          "artifact": "connected-source-41bf4198e8b2b783d105123d4976dbee2a23d2793597f9203fc386303c18a793.json"
+        }
+      },
+      "batches": [
+        {
+          "kind": "insert",
+          "size": 1,
+          "latencyMs": {
+            "median": 10.863199999999779,
+            "p95": 11.956600000001345,
+            "maximum": 11.956600000001345
+          },
+          "exchanges": 24,
+          "transactions": 4,
+          "checkouts": 4
+        },
+        {
+          "kind": "insert",
+          "size": 16,
+          "latencyMs": {
+            "median": 33.68969999999899,
+            "p95": 33.980799999997544,
+            "maximum": 33.980799999997544
+          },
+          "exchanges": 84,
+          "transactions": 19,
+          "checkouts": 19
+        },
+        {
+          "kind": "insert",
+          "size": 64,
+          "latencyMs": {
+            "median": 96.79589999999735,
+            "p95": 105.66070000000036,
+            "maximum": 105.66070000000036
+          },
+          "exchanges": 276,
+          "transactions": 67,
+          "checkouts": 67
+        },
+        {
+          "kind": "overlay",
+          "size": 1,
+          "latencyMs": {
+            "median": 10.60109999999986,
+            "p95": 11.58560000000216,
+            "maximum": 11.58560000000216
+          },
+          "exchanges": 31,
+          "transactions": 6,
+          "checkouts": 6
+        },
+        {
+          "kind": "overlay",
+          "size": 16,
+          "latencyMs": {
+            "median": 42.81649999999718,
+            "p95": 53.727899999998044,
+            "maximum": 53.727899999998044
+          },
+          "exchanges": 124,
+          "transactions": 32,
+          "checkouts": 32
+        },
+        {
+          "kind": "overlay",
+          "size": 64,
+          "latencyMs": {
+            "median": 144.15039999999863,
+            "p95": 155.49240000000282,
+            "maximum": 155.49240000000282
+          },
+          "exchanges": 424,
+          "transactions": 116,
+          "checkouts": 116
+        },
+        {
+          "kind": "indexed",
+          "size": 1,
+          "latencyMs": {
+            "median": 9.104199999997945,
+            "p95": 9.898099999998522,
+            "maximum": 9.898099999998522
+          },
+          "exchanges": 27,
+          "transactions": 4,
+          "checkouts": 4
+        },
+        {
+          "kind": "indexed",
+          "size": 16,
+          "latencyMs": {
+            "median": 33.7429000000011,
+            "p95": 34.34870000000228,
+            "maximum": 34.34870000000228
+          },
+          "exchanges": 87,
+          "transactions": 19,
+          "checkouts": 19
+        },
+        {
+          "kind": "indexed",
+          "size": 64,
+          "latencyMs": {
+            "median": 108.38820000000123,
+            "p95": 109.35829999999987,
+            "maximum": 109.35829999999987
+          },
+          "exchanges": 279,
+          "transactions": 67,
+          "checkouts": 67
+        },
+        {
+          "kind": "nonindexed",
+          "size": 1,
+          "latencyMs": {
+            "median": 8.108500000002095,
+            "p95": 9.32510000000184,
+            "maximum": 9.32510000000184
+          },
+          "exchanges": 27,
+          "transactions": 4,
+          "checkouts": 4
+        },
+        {
+          "kind": "nonindexed",
+          "size": 16,
+          "latencyMs": {
+            "median": 33.06450000000041,
+            "p95": 33.52530000000115,
+            "maximum": 33.52530000000115
+          },
+          "exchanges": 87,
+          "transactions": 19,
+          "checkouts": 19
+        },
+        {
+          "kind": "nonindexed",
+          "size": 64,
+          "latencyMs": {
+            "median": 156.97679999999673,
+            "p95": 559.8325000000041,
+            "maximum": 559.8325000000041
+          },
+          "exchanges": 279,
+          "transactions": 67,
+          "checkouts": 67
+        }
+      ],
+      "contention": [
+        {
+          "concurrency": 1,
+          "distribution": "same",
+          "successfulRequestsPerSecond": 108.99335694004591,
+          "latencyMs": {
+            "median": 8.670700000002398,
+            "p95": 10.323100000001432,
+            "maximum": 52.426699999996345
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": null
+        },
+        {
+          "concurrency": 1,
+          "distribution": "different",
+          "successfulRequestsPerSecond": 109.07048006604924,
+          "latencyMs": {
+            "median": 8.78179999999702,
+            "p95": 12.30460000000312,
+            "maximum": 17.196600000002945
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": null
+        },
+        {
+          "concurrency": 4,
+          "distribution": "same",
+          "successfulRequestsPerSecond": 193.66846349644442,
+          "latencyMs": {
+            "median": 15.898999999997613,
+            "p95": 24.972399999998743,
+            "maximum": 170.9774000000034
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": true
+        },
+        {
+          "concurrency": 4,
+          "distribution": "different",
+          "successfulRequestsPerSecond": 243.91796276668737,
+          "latencyMs": {
+            "median": 15.504099999998289,
+            "p95": 22.49430000000575,
+            "maximum": 25.781600000002072
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": true
+        },
+        {
+          "concurrency": 8,
+          "distribution": "same",
+          "successfulRequestsPerSecond": 204.19095555305398,
+          "latencyMs": {
+            "median": 36.18189999999595,
+            "p95": 53.877300000000105,
+            "maximum": 60.44499999999971
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": null
+        },
+        {
+          "concurrency": 8,
+          "distribution": "different",
+          "successfulRequestsPerSecond": 278.0200800002791,
+          "latencyMs": {
+            "median": 27.28360000000248,
+            "p95": 38.42139999999927,
+            "maximum": 45.551699999996345
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": null
+        }
+      ],
+      "unrelated": [
+        {
+          "definitions": 0,
+          "retainedUnrelatedRows": 0,
+          "exchanges": 24,
+          "transactions": 4
+        },
+        {
+          "definitions": 64,
+          "retainedUnrelatedRows": 256,
+          "exchanges": 24,
+          "transactions": 4
+        }
+      ]
+    },
+    "after": {
+      "source": {
+        "before": {
+          "sha256": "ce564a073f09199c034993d7f52fed3d064fdd4453abf7804f6ca0290309e54c",
+          "files": 85884,
+          "artifact": "connected-source-ce564a073f09199c034993d7f52fed3d064fdd4453abf7804f6ca0290309e54c.json"
+        },
+        "after": {
+          "sha256": "ce564a073f09199c034993d7f52fed3d064fdd4453abf7804f6ca0290309e54c",
+          "files": 85884,
+          "artifact": "connected-source-ce564a073f09199c034993d7f52fed3d064fdd4453abf7804f6ca0290309e54c.json"
+        }
+      },
+      "batches": [
+        {
+          "kind": "insert",
+          "size": 1,
+          "latencyMs": {
+            "median": 8.534200000001874,
+            "p95": 9.034899999998743,
+            "maximum": 9.034899999998743
+          },
+          "exchanges": 21,
+          "transactions": 3,
+          "checkouts": 3
+        },
+        {
+          "kind": "insert",
+          "size": 16,
+          "latencyMs": {
+            "median": 13.768000000003667,
+            "p95": 17.344700000001467,
+            "maximum": 17.344700000001467
+          },
+          "exchanges": 21,
+          "transactions": 3,
+          "checkouts": 3
+        },
+        {
+          "kind": "insert",
+          "size": 64,
+          "latencyMs": {
+            "median": 29.433899999996356,
+            "p95": 32.86489999999321,
+            "maximum": 32.86489999999321
+          },
+          "exchanges": 21,
+          "transactions": 3,
+          "checkouts": 3
+        },
+        {
+          "kind": "overlay",
+          "size": 1,
+          "latencyMs": {
+            "median": 11.075000000004366,
+            "p95": 11.330000000001746,
+            "maximum": 11.330000000001746
+          },
+          "exchanges": 28,
+          "transactions": 5,
+          "checkouts": 5
+        },
+        {
+          "kind": "overlay",
+          "size": 16,
+          "latencyMs": {
+            "median": 27.598000000005413,
+            "p95": 30.79269999999815,
+            "maximum": 30.79269999999815
+          },
+          "exchanges": 61,
+          "transactions": 16,
+          "checkouts": 16
+        },
+        {
+          "kind": "overlay",
+          "size": 64,
+          "latencyMs": {
+            "median": 79.74620000000141,
+            "p95": 87.47589999999764,
+            "maximum": 87.47589999999764
+          },
+          "exchanges": 169,
+          "transactions": 52,
+          "checkouts": 52
+        },
+        {
+          "kind": "indexed",
+          "size": 1,
+          "latencyMs": {
+            "median": 8.974099999999453,
+            "p95": 10.111600000003818,
+            "maximum": 10.111600000003818
+          },
+          "exchanges": 27,
+          "transactions": 4,
+          "checkouts": 4
+        },
+        {
+          "kind": "indexed",
+          "size": 16,
+          "latencyMs": {
+            "median": 33.46100000000297,
+            "p95": 38.01910000000498,
+            "maximum": 38.01910000000498
+          },
+          "exchanges": 87,
+          "transactions": 19,
+          "checkouts": 19
+        },
+        {
+          "kind": "indexed",
+          "size": 64,
+          "latencyMs": {
+            "median": 112.72439999999915,
+            "p95": 139.3359999999957,
+            "maximum": 139.3359999999957
+          },
+          "exchanges": 279,
+          "transactions": 67,
+          "checkouts": 67
+        },
+        {
+          "kind": "nonindexed",
+          "size": 1,
+          "latencyMs": {
+            "median": 8.401700000002165,
+            "p95": 9.705799999996088,
+            "maximum": 9.705799999996088
+          },
+          "exchanges": 27,
+          "transactions": 4,
+          "checkouts": 4
+        },
+        {
+          "kind": "nonindexed",
+          "size": 16,
+          "latencyMs": {
+            "median": 29.110499999995227,
+            "p95": 31.55750000000262,
+            "maximum": 31.55750000000262
+          },
+          "exchanges": 87,
+          "transactions": 19,
+          "checkouts": 19
+        },
+        {
+          "kind": "nonindexed",
+          "size": 64,
+          "latencyMs": {
+            "median": 109.61480000000302,
+            "p95": 243.69309999999678,
+            "maximum": 243.69309999999678
+          },
+          "exchanges": 279,
+          "transactions": 67,
+          "checkouts": 67
+        }
+      ],
+      "contention": [
+        {
+          "concurrency": 1,
+          "distribution": "same",
+          "successfulRequestsPerSecond": 126.22311928291802,
+          "latencyMs": {
+            "median": 6.644700000004377,
+            "p95": 8.050799999997253,
+            "maximum": 161.4386999999988
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": null
+        },
+        {
+          "concurrency": 1,
+          "distribution": "different",
+          "successfulRequestsPerSecond": 150.7020774163644,
+          "latencyMs": {
+            "median": 6.481100000004517,
+            "p95": 7.890099999996892,
+            "maximum": 11.41820000000007
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": null
+        },
+        {
+          "concurrency": 4,
+          "distribution": "same",
+          "successfulRequestsPerSecond": 173.2614298399489,
+          "latencyMs": {
+            "median": 14.598799999999756,
+            "p95": 94.39779999999882,
+            "maximum": 174.55299999999988
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": true
+        },
+        {
+          "concurrency": 4,
+          "distribution": "different",
+          "successfulRequestsPerSecond": 329.78386274807724,
+          "latencyMs": {
+            "median": 11.8579000000027,
+            "p95": 14.801199999994424,
+            "maximum": 16.267699999996694
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": true
+        },
+        {
+          "concurrency": 8,
+          "distribution": "same",
+          "successfulRequestsPerSecond": 201.06419508504845,
+          "latencyMs": {
+            "median": 29.95089999999618,
+            "p95": 180.31270000000222,
+            "maximum": 190.3507000000027
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": null
+        },
+        {
+          "concurrency": 8,
+          "distribution": "different",
+          "successfulRequestsPerSecond": 336.9135664038225,
+          "latencyMs": {
+            "median": 23.581300000005285,
+            "p95": 27.233100000004924,
+            "maximum": 29.90099999999802
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": null
+        }
+      ],
+      "unrelated": [
+        {
+          "definitions": 0,
+          "retainedUnrelatedRows": 0,
+          "exchanges": 21,
+          "transactions": 3
+        },
+        {
+          "definitions": 64,
+          "retainedUnrelatedRows": 256,
+          "exchanges": 21,
+          "transactions": 3
+        }
+      ]
+    }
+  },
+  "limits": [
+    "No overall complete-request latency improvement accepted",
+    "Mixed reference also uses standalone candidate Application and independent native framework commits; not an equivalent atomic baseline",
+    "Windows thread CPU quantum about15-16ms; negative/zero paired values are not negative/zero cost",
+    "Exact server CPU/planning/lock hold/wait/WAL and exclusive allocations unavailable",
+    "Current Medusa/production code untouched; performance promotion remains closed"
+  ]
+}

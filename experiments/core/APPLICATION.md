@@ -71,6 +71,15 @@ its writer conflicts with the same authority lock. A complete query checks
 fresh authority/retention/time again before returning to its caller. No physical
 transaction spans authored function execution.
 
+Privately generated insert IDs remain tentative under the root. They consume
+the existing logical row/dependency budgets, but do not each acquire a database
+row. Freeze validates every generated ID against retained history in one bounded
+Drizzle read after its fresh snapshot gate, including IDs later deleted locally.
+Only successful freeze exports their exact absence dependencies. Live historical
+identities, tombstones and duplicate local generation refuse; final acceptance
+still detects post-freeze collisions. See [batched new-ID validation](./BATCHED-NEW-IDS.md)
+for the explicit local-execution and failure-timing contract.
+
 Settlement locks protected metadata, selected definition, command, then the scalar
 scope clock. Check database time after waits. Any newer row revision conflicts
 with a consumed point/missing read. Index entry creation or closure intersecting

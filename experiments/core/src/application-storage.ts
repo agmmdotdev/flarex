@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 import type { Definition, Document } from "./definition.ts";
 import { CoreError } from "./errors.ts";
@@ -38,6 +38,20 @@ export function createApplicationStorage(persistence: Persistence) {
     commandSnapshot: persistence.commandSnapshot, restart: persistence.restart,
     abort: persistence.abort, resolve: persistence.resolve,
     check: Effect.fn("ExperimentApplicationStorage.check")((snapshot: Snapshot) => operation(async transaction => { await loadSnapshot(transaction, snapshot); })),
+    validateNewIds: Effect.fn("ExperimentApplicationStorage.validateNewIds")(function* (snapshot: Snapshot, inputIds: readonly string[]) {
+      const ids = [...inputIds];
+      if (ids.length > applicationLimits.rows) return yield* Effect.fail(new CoreError({ reason: "limit" }));
+      return yield* operation(async transaction => {
+        const admitted = await loadSnapshot(transaction, snapshot);
+        if (ids.length === 0) return;
+        // Separate from the locking gate for a fresh post-wait statement
+        // snapshot. Any retained history forbids reuse, including tombstones
+        // and revisions older than this root. Transfer no document bodies.
+        const [used] = await transaction.select({ id: tables.history.id }).from(tables.history).where(and(
+          eq(tables.history.scope, admitted.scope), eq(tables.history.table, admitted.definition.table), inArray(tables.history.id, ids))).limit(1);
+        if (used !== undefined) throw new CoreError({ reason: "conflict" });
+      });
+    }),
     point: Effect.fn("ExperimentApplicationStorage.point")((snapshot: Snapshot, id: string, remainingBytes: number) => operation(async transaction => {
       const admitted = await loadSnapshot(transaction, snapshot);
       const bytes = sql<number>`coalesce(octet_length(${tables.history.body}::text),0)`.mapWith(Number);

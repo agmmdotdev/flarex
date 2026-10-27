@@ -1,0 +1,145 @@
+{
+  "base": "3ef829d6cfc823b12607ccef9e1e7decbb00f3c6",
+  "scope": "Experimental Application new-ID validation only; active Medusa and all unrelated paths excluded",
+  "ownedPaths": [
+    "experiments/core/APPLICATION.md",
+    "experiments/core/BATCHED-NEW-IDS.md",
+    "experiments/core/MEASUREMENT.md",
+    "experiments/core/README.md",
+    "experiments/core/RESULTS.md",
+    "experiments/core/src/application-root.ts",
+    "experiments/core/src/application-storage.ts",
+    "experiments/core/test/application.test.ts",
+    "experiments/core/test/new-id-validation.test.ts",
+    "experiments/core/validation/connected-source-03aad1784737b7085cad15b32696271deba80b36a33056d58b58a4cf7d24505f.json",
+    "experiments/core/validation/connected-source-095a70b5c23433f7277ce438934d93ccdd115417e41944185f2e4225c93dfa46.json",
+    "experiments/core/validation/connected-source-ce564a073f09199c034993d7f52fed3d064fdd4453abf7804f6ca0290309e54c.json",
+    "experiments/core/validation/insert-after-cpu-test.json",
+    "experiments/core/validation/insert-after-cpu.json",
+    "experiments/core/validation/insert-after-latency-test.json",
+    "experiments/core/validation/insert-after-latency.json",
+    "experiments/core/validation/insert-after-scaling-test.json",
+    "experiments/core/validation/insert-after-scaling.json",
+    "experiments/core/validation/insert-after-sql-test.json",
+    "experiments/core/validation/insert-after-sql.json",
+    "experiments/core/validation/insert-before-collision-witness.json",
+    "experiments/core/validation/insert-comparison.json",
+    "experiments/core/validation/insert-control-cpu-test.json",
+    "experiments/core/validation/insert-control-cpu.json",
+    "experiments/core/validation/insert-control-latency-test.json",
+    "experiments/core/validation/insert-control-latency.json",
+    "experiments/core/validation/insert-control-scaling-test.json",
+    "experiments/core/validation/insert-control-scaling.json",
+    "experiments/core/validation/insert-control-sql-test.json",
+    "experiments/core/validation/insert-control-sql.json",
+    "experiments/core/validation/insert-correctness-combined.json",
+    "experiments/core/validation/insert-correctness.json",
+    "experiments/core/validation/insert-owner-final.json",
+    "experiments/core/validation/insert-owner-initial.json",
+    "experiments/core/validation/insert-owner.json",
+    "experiments/core/validation/insert-validation.json"
+  ],
+  "sources": [
+    {
+      "path": "experiments/core/APPLICATION.md",
+      "sha256": "97aa236c9dbd825bb83c091defd1451a7dc6634624eeda4a06aa545db781552a"
+    },
+    {
+      "path": "experiments/core/BATCHED-NEW-IDS.md",
+      "sha256": "354e20ecc3acbbeae3dfdfd1cb87154016443b1ff7a3e3ce4487523124c5c91f"
+    },
+    {
+      "path": "experiments/core/MEASUREMENT.md",
+      "sha256": "6dad1e5b9b5cba4a3e6505024281e71f29ef18609c632dfab771304b17a47939"
+    },
+    {
+      "path": "experiments/core/README.md",
+      "sha256": "96b7607d49b11f1d54a37749202f767ec873def9e6da8a2ae85a22c208e6bcc4"
+    },
+    {
+      "path": "experiments/core/RESULTS.md",
+      "sha256": "2321531c8c27d79791d5b6bbbfb10016f1fe72c061ba1d0dc7244cd1d35b7a5a"
+    },
+    {
+      "path": "experiments/core/src/application-root.ts",
+      "sha256": "17c2f0295af7ea3b640057515640bfa68fd99186092398048ecb78eae7372fb1"
+    },
+    {
+      "path": "experiments/core/src/application-storage.ts",
+      "sha256": "ce907fad8f4de9e659d2e6a3388832bec01e693acbe3acda22b2c5757436dc18"
+    },
+    {
+      "path": "experiments/core/test/application.test.ts",
+      "sha256": "58ee5223662ffe59a3af29f145d0f2305b9d9cde035404ea4f0c9ab2e80a843b"
+    },
+    {
+      "path": "experiments/core/test/new-id-validation.test.ts",
+      "sha256": "84dc1670cf0fd0705f3eb554683c71f806ecf29a2323e8cc59eb45124ea0ed9e"
+    }
+  ],
+  "correctness": {
+    "receipt": "insert-correctness-combined.json",
+    "passed": 396,
+    "pglite": 174,
+    "postgres": 196,
+    "unitSdkController": 26,
+    "failed": 0,
+    "defaultSkipped": 26,
+    "method": "Complete affected-file results replace their first-run results; no duplicate credit"
+  },
+  "checks": [
+    {
+      "command": "pnpm --dir experiments/core typecheck",
+      "result": "passed",
+      "compiler": "tsc-rs",
+      "environment": {
+        "RAYON_NUM_THREADS": "2"
+      }
+    },
+    {
+      "command": "pnpm --dir experiments/core lint -- --quiet",
+      "result": "passed",
+      "scope": "Explicit experimental roots"
+    },
+    {
+      "command": "pnpm lint:core",
+      "result": "passed",
+      "scope": "Root configured roots; excludes experiment"
+    },
+    {
+      "command": "pnpm lint:diff",
+      "result": "passed",
+      "scope": "Root configured roots; excludes experiment"
+    },
+    {
+      "command": "git diff --check -- experiments/core",
+      "result": "passed"
+    }
+  ],
+  "measurements": {
+    "receipt": "insert-comparison.json",
+    "campaigns": 8,
+    "status": "all complete, stable source, full verification and cleanup"
+  },
+  "reviews": {
+    "typescript": "Final scoped clearance; all36 paths/nine hashes and correctness accounting verified; no findings",
+    "systems": "Final scoped clearance; raw numeric/source/correctness evidence independently recomputed; no findings",
+    "boundary": "Both reviewers read-only; no tests or compilers rerun by reviewers"
+  },
+  "limits": [
+    "Initial full suite has two obsolete barrier timeouts; complete owner files pass on corrected final test bytes",
+    "Early parallel compiler/test allocations failed; no credit; serialized reruns pass",
+    "No overall complete-request latency improvement; same-scope contention tails regress",
+    "Performance promotion and production/Worker/native-equivalence gates remain closed"
+  ],
+  "commitGates": [
+    "Exact owned index must match all36 listed paths with no foreign staged content",
+    "pnpm lint:diff -- --staged",
+    "git diff --cached --check"
+  ],
+  "resources": {
+    "campaigns": "All eight report completed cleanup",
+    "currentOwnedPostgresProcesses": 0,
+    "olderStoppedDirectories": "Three previous-slice directories untouched; no new retained resource"
+  }
+}

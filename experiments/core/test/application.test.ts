@@ -4,7 +4,7 @@ import { count, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApplicationHost } from "../src/application.ts";
 import { createApplicationStorage, historicalRangeQuery } from "../src/application-storage.ts";
-import { compileDefinition } from "../src/definition.ts";
+import { compileDefinition, type Definition } from "../src/definition.ts";
 import { fixture, type Fixture } from "./fixture.ts";
 import { startPostgres } from "./postgres.ts";
 import { applicationFunctions, applicationQuery, applicationMutation } from "./application-corpus.ts";
@@ -35,12 +35,13 @@ describe.each(["pglite", "postgres"] as const)("standalone experimental Applicat
   beforeAll(async () => { if (driver === "postgres") postgres = await startPostgres(); });
   afterAll(async () => { if (postgres !== undefined) await postgres.close(); });
   const withApplication = async (test: (database: Fixture, host: Effect.Success<ReturnType<typeof createApplicationHost>>, storage: ReturnType<typeof createApplicationStorage>) => Promise<void>,
-    extra: Readonly<Record<string, RegisteredFunction>> = {}, retryable: readonly string[] = []) => {
+    extra: Readonly<Record<string, RegisteredFunction>> = {}, retryable: readonly string[] = [], decode?: Definition["decode"]) => {
     const database = await fixture(postgres?.connectionString); const scope = await Effect.runPromise(Scope.make());
     try {
-      const definition = await Effect.runPromise(Effect.fromResult(compileDefinition({ table: "tasks", tableId: 7,
+      const compiled = await Effect.runPromise(Effect.fromResult(compileDefinition({ table: "tasks", tableId: 7,
         fields: [{ name: "name", kind: "text", unique: true }, { name: "priority", kind: "number", unique: false }],
         indexes: [{ name: "by_priority", field: "priority" }] })));
+      const definition = decode === undefined ? compiled : { ...compiled, decode };
       await database.admin(db => db.insert(tables.definitions).values({ table: definition.table, tableId: definition.tableId,
         version: definition.version, fields: definition.fields, indexes: definition.indexes }));
       const storage = createApplicationStorage(database.persistence);
@@ -388,23 +389,22 @@ describe.each(["pglite", "postgres"] as const)("standalone experimental Applicat
 
   it.each(["insert", "range"] as const)("drains dropped %s promises without losing an owned defect or leaking a rejection", async operation => {
     const pause = barrier(); let returned = false;
+    const defect = new Error("owned-operation-defect");
+    const failing = Effect.promise(async () => { pause.ready(); await pause.gate; }).pipe(Effect.andThen(Effect.die(defect)));
     const dropped = applicationMutation({ args: {}, handler: ctx => {
       if (operation === "insert") void ctx.db.insert("tasks", { name: "dropped", priority: 1 });
       else void ctx.db.query("tasks").withIndex("by_priority").collect();
       returned = true; return null;
     } });
     await withApplication(async (database, host, storage) => {
-      const defect = new Error("owned-database-defect");
-      const failing = Effect.promise(async () => { pause.ready(); await pause.gate; }).pipe(Effect.andThen(Effect.die(defect)));
-      if (operation === "insert") storage.point = () => failing;
-      else storage.range = () => failing;
+      if (operation === "range") storage.range = () => failing;
       let settled = false; const pending = Effect.runPromiseExit(host.mutate("dropped", randomUUID(), {})).then(exit => { settled = true; return exit; });
       try { await pause.started; expect(returned).toBe(true); expect(settled).toBe(false); pause.release();
         const exit = await pending; expect(Exit.isFailure(exit)).toBe(true);
         if (Exit.isFailure(exit)) expect(exit.cause.reasons.filter(Cause.isDieReason).map(reason => reason.defect)).toContain(defect);
         expect(await database.admin(db => db.select().from(tables.documents))).toHaveLength(0);
       } finally { pause.release(); await Promise.allSettled([pending]); }
-    }, { dropped });
+    }, { dropped }, [], operation === "insert" ? () => failing : undefined);
   });
 
   it("refuses caught unsupported query operations and malformed arguments/returns without partial data", async () => {
