@@ -1,7 +1,8 @@
 # Source and evidence map
 
 Initial inspection: 2026-10-26; shared-engine source map expanded on 2026-10-27;
-timestamped reads, cache population/invalidation and retention inspected on 2026-10-28.
+timestamped reads, cache population/invalidation, retention and read authorization
+inspected on 2026-10-28.
 References establish mechanisms and prior results, not the feasibility or speed
 of the proposed replacement. The [engine discussion](./engine/README.md) owns the
 current direction; [OPEN-QUESTIONS.md](./engine/OPEN-QUESTIONS.md) owns the active
@@ -91,6 +92,25 @@ maps snapshot/attempt ownership, execution budgets and root retry to native
 framework boundaries. Its expiry policy is accepted; concrete interlocks and
 numerical limits remain open.
 
+The [read-authorization record](./engine/02-read-authorization.md#pinned-sources-and-necessary-differences)
+maps identity-aware result reuse and tracked permission reads to the same pin.
+It distinguishes snapshot permissions from authentication and Flarex's separate
+engine-grant revocation contract; native result caching is not thereby approved.
+
+Additional inspected authorization owners and SHA-256 values:
+
+| Source | Symbols / lesson to inspect |
+| --- | --- |
+| [application/src/lib.rs](../../../../crates/application/src/lib.rs) | `Application::authenticate`: validated identity construction is separate from query-result reuse |
+| [keybroker/src/broker.rs](../../../../crates/keybroker/src/broker.rs) | `Identity::cache_key`: user attributes and administrative operation scope distinguish relevant identities |
+| [sync/src/state.rs](../../../../crates/sync/src/state.rs) | `identity`: current identity validity, expiry and revalidation in the sync path |
+
+```text
+crates/application/src/lib.rs 8902d84d576e2f56409dbf4f9e81950fbf1453a29674967964c607774872d819
+crates/keybroker/src/broker.rs 006c67399271f57035de1080fa68ef6c5b3d07060e0793267a76c4081c00645d
+crates/sync/src/state.rs 07b9932d191e6c6544f5d270b6fb95f59e56e6b7331fc22c1a69c01c0440fe6b
+```
+
 ## Engine mechanism reference map
 
 Use these owners together: caches alone do not supply transaction consistency,
@@ -156,9 +176,12 @@ Official explanations: [How Convex Works](https://stack.convex.dev/how-convex-wo
 the model; local pinned source anchors exact implementation observations.
 
 [Auth in Functions](https://docs.convex.dev/auth/functions-auth) describes identity
-access and authorization in application functions. Distinguish that from cached
-schema/readiness metadata and Flarex's explicit fresh revocation obligations.
-Do not infer that Convex holds a universally valid cached permission boolean.
+access and authorization in application functions. Permission records read by a
+query participate in its snapshot/dependency contract; identity-aware result
+reuse is not a universally valid cached permission boolean. Distinguish ordinary
+permission-row updates from credential validation and Flarex engine-grant
+revocation. Stronger response-time revocation checks require a named obligation;
+they are not inferred from Convex caching or the presence of native frameworks.
 
 For code adaptation, record the exact files, revision, applicable license and
 intended use. The inspected [license](../../../../LICENSE.md), also available

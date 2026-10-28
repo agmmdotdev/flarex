@@ -47,8 +47,10 @@ folder is the proof area, not a separate permanent framework implementation.
 One concept is active at a time. [App ownership and commit decisions](../experiments/core/engine/01-commit-coordination.md)
 and [timestamped snapshots](../experiments/core/engine/02-timestamped-snapshots.md)
 and [operation lifetime/expiry](../experiments/core/engine/02-operation-lifetime.md)
-are accepted design; numerical budgets, cache representation and fencing protocols
-remain open. Authorization for cached reads is the next discussion. Replication
+are accepted design. [Read authorization](../experiments/core/engine/02-read-authorization.md)
+follows Convex snapshot dependencies with separate engine-grant revocation.
+Numerical budgets, cache representation and fencing protocols remain open.
+Read-after-write freshness is the next discussion. Replication
 is explicitly deferred. Current runtime behavior and
 historical evidence are not rewritten as completed new-engine work.
 

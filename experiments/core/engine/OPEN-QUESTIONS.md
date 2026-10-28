@@ -6,7 +6,7 @@ owns accepted/proposed status; [REFACTOR.md](./REFACTOR.md) owns the accepted
 existing-core migration direction. Focused notes explain the current candidate
 without maintaining another independent question list.
 
-Only **concept 02: authorization for cached reads** is the active discussion focus. App
+Only **concept 02: read-after-write freshness** is the active discussion focus. App
 ownership, coordinator placement, out-of-order saves with ordered normal
 publication, and uncertainty recovery are [accepted](./01-commit-coordination.md). The
 [timestamped-snapshot contract](./02-timestamped-snapshots.md) now answers the
@@ -16,8 +16,10 @@ Convex's reference defaults are not selected engine settings. Q01/Q02 remain
 partially open because their implementation protocols are not fully specified.
 Snapshot ownership, inherited deadlines and phase-aware expiry/retry are now
 [accepted](./02-operation-lifetime.md); numerical limits and native conformance
-remain open. Authorization for cached reads is next; other questions are queued
-dependencies, not silently accepted answers.
+remain open. The [authorization split](./02-read-authorization.md) is accepted:
+tracked snapshot permission reads and identity-aware result reuse, with separate
+authentication and engine-grant revocation. Read-after-write freshness is next;
+other questions are queued dependencies, not silently accepted answers.
 Replication is **open and explicitly deferred**; single-owner fencing/recovery
 is still required. Record a decision or explicit deferral before moving to the
 next concept.
@@ -84,10 +86,11 @@ example, pinned Convex source and remaining representation/proof boundaries.
 
 **Partially answered; active concept 02.** The fixed-timestamp read contract,
 bounded history and [operation-lifetime policy](./02-operation-lifetime.md) are
-accepted. Current authorization for cached reads is the next narrow decision.
+accepted, as is the [authorization direction](./02-read-authorization.md).
+Read-after-write freshness is the next narrow decision.
 Still open: numerical deadline/history budgets, native branch conformance, exact
 expiry errors and cancellation/acceptance interlocks, client freshness tokens,
-authorization/readiness mechanisms, and disclosure or early errors that never
+engine-grant enforcement/readiness mechanisms, and disclosure or early errors that never
 reach final commit. A progress cursor or cached permission boolean cannot stand
 in for the whole contract. A complete native workflow is not automatically one
 atomic snapshot.
@@ -116,27 +119,45 @@ pinned sources and failure witnesses. Numerical budgets and concrete interlocks
 remain open, including distinctions between evicted cache data, missing change-log
 proof and expired authoritative history. Reference defaults are not our settings.
 
-### Next question: authorization for cached reads
+### Answered: authorization for cached reads
 
-**How does the app owner enforce permission changes for cached reads without
-checking PostgreSQL for every row or index lookup?** Separate the snapshot's data
-validity from identity, current revocation and the native operation's access rules.
-Choose the responsible owner, required checks at admission/disclosure/acceptance,
-invalidating writers and the proof permitting reuse of an authorization decision.
-Do not weaken the existing revocation contract merely because the data is cached.
+Accepted: application permission records are tracked reads at the operation's
+snapshot; result reuse accounts for relevant identity and complete dependencies.
+Changes prevent reuse at newer snapshots containing those changes. An ordinary
+permission-row update does not impose universal cancellation of an older running
+query. Authentication and engine-grant revocation remain separate; the latter
+retains its existing attempt-invalidating contract. Stronger disclosure rules
+need a named supported requirement, not an inference from framework integration.
 
-Example: a staff member starts a cart/customer query, access is revoked while it
-awaits a cache miss, then the query is ready to return. Determine which authority
-must still be current before returning the response, including read-only calls
-that never reach the committer. A valid old data snapshot alone cannot answer it.
+The [focused record](./02-read-authorization.md) owns the cart example, pinned
+Convex mechanisms, Flarex differences and proof obligations. No runtime gates are
+removed. Concrete grant freshness, disclosure/acceptance races and native
+result-cache eligibility remain open; a dependency-aware cache does not prove them.
 
-References: Convex [transaction construction](../../../../../crates/database/src/database.rs),
-[query-result identity/dependency handling](../../../../../crates/application/src/cache/mod.rs)
-and [read tracking](../../../../../crates/database/src/reads.rs); Flarex
-[participant admission](../../../packages/persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission.ts)
-and [ownership/auth obligations](./01-ownership-and-lifetime.md#requirements-for-an-answer).
-Inspect actual authorization paths before selecting a protocol; Convex's cache
-identity key alone does not establish Flarex's fresh revocation semantics.
+### Next question: read-after-write freshness
+
+**After a cart update returns success, how does the next query select a snapshot
+that includes that update, including after DO restart or a cold cache?** Ordered
+publication before acknowledgement is already accepted. Select the read-admission
+contract that carries that guarantee into a new operation: whether owner routing
+and recovered progress suffice, or a minimum-timestamp token is required, and
+what happens while the owner cannot yet establish a safe view meeting that bound.
+
+Example: Alice adds an item, receives success, then immediately requests the cart.
+The owner restarts between those calls and the local cache is empty. Identify what
+must be recovered or awaited before serving the query, how timestamped cache
+misses behave, and the distinction from a query that began before the update.
+This concerns separate completed operations, not pending read-your-writes inside
+one attempt. Replication and replica lag remain deferred.
+
+References: Convex [database read timestamps and wait_for_write_ts](../../../../../crates/database/src/database.rs),
+[snapshot publication](../../../../../crates/database/src/snapshot_manager.rs),
+[commit publication](../../../../../crates/database/src/committer.rs) and
+[run_query_at_ts](../../../../../crates/application/src/application_function_runner/mod.rs);
+Flarex [commit/recovery contract](./01-commit-coordination.md) and
+[timestamped reads](./02-timestamped-snapshots.md). Inspect the pinned client/server
+call path before selecting a token or claiming its absence. This question does
+not reopen successful acknowledgement before publication or permit latest-row fallback.
 
 ## Q04 - Values, IDs and ordered representations
 

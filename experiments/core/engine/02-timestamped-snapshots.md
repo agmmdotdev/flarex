@@ -52,9 +52,11 @@ SQLite durability does not make the local cache a second commit authority.
 
 The owner can supply the published timestamp locally while its ownership and
 recovered state are valid. The contract does not require a PostgreSQL freshness
-query before every cache hit. Snapshot validity is separate from current
-authorization, revocation and readiness; their required enforcement cannot be
-removed merely because a timestamp is cached.
+query before every cache hit. Follow the
+[read-authorization split](./02-read-authorization.md): application permission
+records use tracked snapshot reads, while authentication, engine-grant revocation
+and required readiness retain their separate enforcement. A cached timestamp
+does not replace those obligations.
 
 ## Two carts and a cache miss
 
@@ -219,7 +221,7 @@ No Rust source is copied and no representation or performance parity is claimed.
 Snapshot ownership, inherited deadlines and expiry policy are accepted in the
 [operation-lifetime record](./02-operation-lifetime.md). Numerical limits and
 native compatibility still need evidence. The next focused question is
-[authorization for cached reads](./OPEN-QUESTIONS.md#next-question-authorization-for-cached-reads).
+[read-after-write freshness](./OPEN-QUESTIONS.md#next-question-read-after-write-freshness).
 Local version retention, cache coverage and fencing remain in the canonical
 queue; replication stays deferred.
 

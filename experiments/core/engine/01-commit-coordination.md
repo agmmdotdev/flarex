@@ -165,7 +165,7 @@ The published-read-view question is answered by
 while B is durable but unpublished. The [operation-lifetime policy](./02-operation-lifetime.md)
 separates pre-acceptance expiry from accepted/uncertain outcomes that require
 settlement or recovery. Next is
-[authorization for cached reads](./OPEN-QUESTIONS.md#next-question-authorization-for-cached-reads).
+[read-after-write freshness](./OPEN-QUESTIONS.md#next-question-read-after-write-freshness).
 Detailed fencing, outcome representation and resource limits remain open.
 Replication is deferred, not a prerequisite for proving this single-owner path.
 

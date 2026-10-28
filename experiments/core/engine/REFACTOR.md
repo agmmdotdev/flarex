@@ -15,7 +15,10 @@ ownership boundary, initial DO coordinator placement, out-of-order saves with
 ordered normal publication, and the uncertainty recovery contract. The
 [snapshot record](./02-timestamped-snapshots.md) fixes local and PostgreSQL reads
 to one safe published timestamp per operation. The [lifetime record](./02-operation-lifetime.md)
-owns atomic grouping, deadline sharing and expiry/retry policy. Numerical budgets,
+owns atomic grouping, deadline sharing and expiry/retry policy. The
+[authorization record](./02-read-authorization.md) selects tracked snapshot
+permission reads and identity-aware result reuse while keeping authentication and
+engine-grant revocation separate. Numerical budgets,
 concrete fencing and storage/cache representation remain open; replication is explicitly
 deferred.
 
@@ -149,8 +152,9 @@ preserves their guarantees. Measure complete native business graphs, CPU, latenc
 queueing, misses, retries, memory and warm-up. Reuse existing correctness evidence
 without presenting historical cohorts as current performance results.
 
-Current approval is for these design documents. Authorization for cached reads is
-the active question; ownership/fencing protocols remain open. Runtime implementation, cutover,
+Current approval is for these design documents. Read-after-write freshness is
+the active question; grant enforcement and ownership/fencing protocols remain open.
+Runtime implementation, cutover,
 deployment and data changes remain unstarted. Preserve current behavior until a
 connected replacement is implemented and verified, then retire it rather than
 accumulate another engine.

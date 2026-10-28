@@ -20,8 +20,10 @@ Read [01: ownership](./01-ownership-and-lifetime.md) and its
 [02: timestamped snapshots](./02-timestamped-snapshots.md), including
 [cache and retention evidence](./02-timestamped-snapshots.md#pinned-cache-and-retention-evidence).
 The [operation-lifetime record](./02-operation-lifetime.md) owns atomic grouping,
-deadline sharing and expiry/retry rules. Next is
-[authorization for cached reads](./OPEN-QUESTIONS.md#next-question-authorization-for-cached-reads), the
+deadline sharing and expiry/retry rules. The
+[read-authorization record](./02-read-authorization.md) separates tracked snapshot
+permissions from authentication and engine-grant revocation. Next is
+[read-after-write freshness](./OPEN-QUESTIONS.md#next-question-read-after-write-freshness), the
 focused question in Q03. [Pinned references](../REFERENCES.md#engine-mechanism-reference-map)
 anchor each concept and later implementation in actual Convex owners.
 

@@ -7,9 +7,11 @@ commit coordination, bounded out-of-order saves, ordered normal publication and
 uncertainty recovery are accepted design decisions. Timestamped snapshots are
 accepted, with demand caching, write invalidation, validated fills and bounded
 retention as the selected direction. Operation boundaries, inherited deadlines
-and expiry/retry policy are accepted; numerical limits remain open. Concept 02
-now focuses on authorization for cached reads. Ownership, fencing and recovery
-protocol details stay open. Replication is explicitly deferred. This
+and expiry/retry policy are accepted; numerical limits remain open. Snapshot
+permission dependencies and identity-aware result reuse are accepted, with separate
+engine-grant revocation. Concept 02 now focuses on read-after-write freshness.
+Ownership, fencing and recovery protocol details stay open. Replication is
+explicitly deferred. This
 register records decisions, not execution receipts; [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md)
 owns the unresolved queue and its references.
 
@@ -79,7 +81,8 @@ the authorized scope; a small helper change is not the completion criterion.
 
 The [commit-coordination record](./01-commit-coordination.md),
 [timestamped-snapshot record](./02-timestamped-snapshots.md) and
-[operation-lifetime record](./02-operation-lifetime.md) own these decisions:
+[operation-lifetime record](./02-operation-lifetime.md) and
+[read-authorization record](./02-read-authorization.md) own these decisions:
 
 | Decision | Status / boundary |
 | --- | --- |
@@ -91,12 +94,14 @@ The [commit-coordination record](./01-commit-coordination.md),
 | One bounded atomic operation owns a snapshot and deadline; participating nested work shares both, pending state and one outer settlement | Accepted; map Application queries/attempts and actual Payload/Medusa transaction groups without holding snapshots across remote effects or workflow suspension |
 | Expiry before acceptance closes the operation; eligible pure queries/Application attempts may restart, native framework commands initially fail explicitly; accepted or uncertain writes require outcome recovery | Accepted policy; numerical budgets, native conformance, error mapping and cancellation/acceptance interlocks remain open |
 | Populate data/index caches on demand, invalidate relevant ranges at publication, validate concurrent fills, and bound cache size and history separately | Accepted direction following pinned Convex mechanisms; numerical defaults, local structures and cleanup protocol are not selected |
+| Application permission records are tracked snapshot reads; result reuse accounts for relevant identity and all dependencies | Accepted Convex-style direction; ordinary permission updates do not universally cancel older running queries; native access/hook semantics and result-cache eligibility require proof |
+| Authentication and engine-grant revocation remain separate from snapshot permission data | Accepted; preserve the grant's attempt-invalidating revocation contract; concrete enforcement/disclosure races remain open, with stronger checks requiring named obligations |
 | Convex revision `84fbb0e70b4e857913673871cb847ad11a55f3d5`, source-first inspection and justified divergences | Accepted development rule; source reuse/license disposition remains separate |
 | Execution replicas, their synchronization and scaling topology | Open and explicitly deferred; not a prerequisite for the first single-owner design |
 
 The [placement companion](./01-do-execution-and-replicas.md) retains the wider
 cache/hosting sketch and deferred replica example. Numerical lifetime limits, cache
-completeness, authorization, proof for enabling native replay, pipeline bounds and durable
+completeness, grant enforcement, native result-cache/replay eligibility, pipeline bounds and durable
 recovery representation remain substantive unresolved contracts. No arbitrary
 framework replay, raw latest-row disclosure or automatic cross-app atomicity is selected.
 
@@ -110,7 +115,7 @@ execution sequence. No code replacement follows from recording this proposal.
 | ID | Concept | Design status | Implementation / evidence |
 | --- | --- | --- | --- |
 | 01 | [Engine ownership and lifetime](./01-ownership-and-lifetime.md), with [commit coordination](./01-commit-coordination.md) | App boundary, coordinator placement, save/publication order and recovery accepted; residual protocols open; replication deferred | No new engine implementation |
-| 02 | [Timestamped snapshots](./02-timestamped-snapshots.md), [operation lifetime](./02-operation-lifetime.md), metadata, readiness and authorization | Read/cache, operation boundary and expiry/retry policies accepted; authorization for cached reads is active; numerical budgets remain open | Existing fresh gates remain binding; no new snapshot implementation |
+| 02 | [Timestamped snapshots](./02-timestamped-snapshots.md), [operation lifetime](./02-operation-lifetime.md), [read authorization](./02-read-authorization.md), metadata and readiness | Read/cache, operation boundary, expiry/retry and authorization direction accepted; read-after-write freshness is active; numerical budgets remain open | Named grant/native obligations remain binding; no new snapshot implementation |
 | 03 | Values, IDs, timestamps and ordered-key semantics | Open; queued | Existing contracts are evidence, not automatically retained internals |
 | 04 | Read/index execution and coherent caches | Coherence/population principles accepted under 02; representation and execution details queued | Command-local observations exist; shared-engine cache unproved |
 | 05 | Pending state, dependencies and execution profiles | Outer ownership and initial retry policy accepted under 02; detailed representation and native conformance queued | Existing Application/framework witnesses retained |
@@ -123,7 +128,7 @@ execution sequence. No code replacement follows from recording this proposal.
 The order is a discussion guide, not a strict dependency chain. Q01/Q02 record
 the accepted portions and remaining protocol work. Read views and operation
 lifetime policy are recorded under concept 02; the next focused question is
-[authorization for cached reads](./OPEN-QUESTIONS.md#next-question-authorization-for-cached-reads).
+[read-after-write freshness](./OPEN-QUESTIONS.md#next-question-read-after-write-freshness).
 This does not close the remaining ownership/fencing work or open every cache
 topic at once. Open only the next concept when the current outcome is recorded
 or the owner explicitly chooses to defer it. Create its focused note at that point;

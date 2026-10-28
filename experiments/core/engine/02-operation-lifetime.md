@@ -110,7 +110,7 @@ Every admitted native branch still needs visibility, hook and failure witnesses.
 
 ## Remaining decisions and proof
 
-The next question is [authorization for cached reads](./OPEN-QUESTIONS.md#next-question-authorization-for-cached-reads).
+The next question is [read-after-write freshness](./OPEN-QUESTIONS.md#next-question-read-after-write-freshness).
 Numerical deadlines/history budgets, exact expiry errors, cancellation fencing,
 client freshness and framework-specific compatibility remain open implementation
 gates in the canonical queue. No code, schema or deployment change is authorized.

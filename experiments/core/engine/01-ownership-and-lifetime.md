@@ -128,7 +128,7 @@ none is selected or implemented by this decision.
 The canonical queue is [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md). Q01/Q02 record
 accepted app/commit decisions and their remaining protocols. Timestamped reads
 and [operation-lifetime policy](./02-operation-lifetime.md) are accepted; next is
-[authorization for cached reads](./OPEN-QUESTIONS.md#next-question-authorization-for-cached-reads) under Q03.
+[read-after-write freshness](./OPEN-QUESTIONS.md#next-question-read-after-write-freshness) under Q03.
 All relevant writers and stale-owner takeover still need a concrete protocol.
 Replication is deferred; other topics stay queued. The requirements below
 constrain these answers, rather than creating another independent question list.
@@ -157,8 +157,10 @@ separate owners merely for Medusa/Payload. Do not promise cross-owner atomicity.
   schema activation, index builders, maintenance, retention and repair.
 - Define what state is immutable, transaction-local, shared/versioned and durable.
   Cached body validity and permission to disclose that body are separate questions.
-- Preserve the existing fresh revocation contract until a replacement is explicitly
-  accepted and proved. Authorization is not automatically snapshot-only.
+- Follow the [authorization split](./02-read-authorization.md): application
+  permission reads participate in the snapshot; authentication and engine-grant
+  revocation remain separate. Preserve named fresh-revocation obligations until
+  replacement enforcement is explicitly accepted and proved.
 - Retain Postgres as the durable authority. The owner cannot publish success before
   persistence or use memory to resolve an uncertain database commit.
 - Define restart/bootstrap and catch-up after lost ownership, including a crash

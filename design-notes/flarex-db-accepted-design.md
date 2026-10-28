@@ -63,9 +63,17 @@ relevant-write invalidation coordinated with ordered publication, validation of
 concurrent cache fills, and separate bounds for cache size and historical data.
 The [mechanism record](../experiments/core/engine/02-timestamped-snapshots.md#accepted-cache-and-retention-direction)
 owns these principles; recorded Convex defaults do not select our settings.
-Snapshot validity does not replace fresh authorization or combine independent
-native workflow steps into one transaction. The
-[operation-lifetime policy](../experiments/core/engine/02-operation-lifetime.md)
+Snapshot validity does not replace authentication or engine-grant revocation, or
+combine independent native workflow steps into one transaction. The
+[read-authorization decision](../experiments/core/engine/02-read-authorization.md)
+uses identity-aware result reuse and tracked permission reads at the operation's
+snapshot, following Convex. Permission changes invalidate reuse at newer snapshots;
+they do not universally cancel queries already using an older snapshot. Engine
+grants retain their separate scope-revocation contract. Stronger disclosure checks
+need a named supported requirement; native access/hook behavior stays with its
+framework owner. No runtime gate is removed and no arbitrary native result cache
+is approved by this design. Concrete grant enforcement and conformance stay open.
+The [operation-lifetime policy](../experiments/core/engine/02-operation-lifetime.md)
 selects one snapshot and deadline per bounded atomic operation, shared by its
 participating nested work with one outer settlement. Preserve actual native
 transaction groups and hold no snapshot across remote effects or suspension.

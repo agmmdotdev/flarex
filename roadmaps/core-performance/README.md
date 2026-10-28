@@ -27,7 +27,9 @@ invalidation, validated concurrent fills and separate cache/history bounds follo
 the pinned Convex direction. [Operation boundaries and expiry](../../experiments/core/engine/02-operation-lifetime.md)
 are accepted: nested work shares one snapshot/deadline, pre-acceptance expiry
 closes the operation, eligible replay is bounded, and accepted/uncertain writes
-remain subject to outcome recovery. Authorization for cached reads is next;
+remain subject to outcome recovery. [Read authorization](../../experiments/core/engine/02-read-authorization.md)
+uses tracked snapshot permission reads and identity-aware result reuse, with
+separate engine-grant revocation. Read-after-write freshness is next;
 reference defaults are not selected limits. Cache representation
 and detailed ownership/recovery protocols remain open; replication is deferred.
 Nothing is implemented or measured by this decision. Current approval is
