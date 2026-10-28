@@ -64,8 +64,18 @@ concurrent cache fills, and separate bounds for cache size and historical data.
 The [mechanism record](../experiments/core/engine/02-timestamped-snapshots.md#accepted-cache-and-retention-direction)
 owns these principles; recorded Convex defaults do not select our settings.
 Snapshot validity does not replace fresh authorization or combine independent
-native workflow steps into one transaction. Snapshot lifetime, cache representation,
-concrete fencing and recovery mechanisms remain open. Replication is open and
+native workflow steps into one transaction. The
+[operation-lifetime policy](../experiments/core/engine/02-operation-lifetime.md)
+selects one snapshot and deadline per bounded atomic operation, shared by its
+participating nested work with one outer settlement. Preserve actual native
+transaction groups and hold no snapshot across remote effects or suspension.
+Before acceptance, expiry closes the operation and prevents late acceptance;
+only eligible pure queries/replay-safe Application attempts may restart under
+bounded rules. Automatic Medusa/Payload replay initially remains disabled pending
+whole-command proof. Accepted or uncertain writes remain with the outcome-recovery
+owner, even after caller timeout. Numerical budgets, concrete expiry/interlock
+mechanisms, cache representation, fencing and recovery details remain open.
+Replication is open and
 explicitly deferred. This acceptance is design-only:
 it does not implement or activate a DO host, enable framework replay, remove
 existing checks, resume old optimization work or alter current runtime behavior.

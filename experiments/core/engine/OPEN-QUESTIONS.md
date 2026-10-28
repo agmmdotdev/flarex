@@ -6,7 +6,7 @@ owns accepted/proposed status; [REFACTOR.md](./REFACTOR.md) owns the accepted
 existing-core migration direction. Focused notes explain the current candidate
 without maintaining another independent question list.
 
-Only **concept 02: snapshot lifetime** is the active discussion focus. App
+Only **concept 02: authorization for cached reads** is the active discussion focus. App
 ownership, coordinator placement, out-of-order saves with ordered normal
 publication, and uncertainty recovery are [accepted](./01-commit-coordination.md). The
 [timestamped-snapshot contract](./02-timestamped-snapshots.md) now answers the
@@ -14,8 +14,10 @@ published-read-view question. Demand population, relevant-write invalidation,
 validated cache fills and bounded cache/history retention are accepted directions;
 Convex's reference defaults are not selected engine settings. Q01/Q02 remain
 partially open because their implementation protocols are not fully specified.
-Snapshot lifetime is next; other questions are queued dependencies, not silently
-accepted answers.
+Snapshot ownership, inherited deadlines and phase-aware expiry/retry are now
+[accepted](./02-operation-lifetime.md); numerical limits and native conformance
+remain open. Authorization for cached reads is next; other questions are queued
+dependencies, not silently accepted answers.
 Replication is **open and explicitly deferred**; single-owner fencing/recovery
 is still required. Record a decision or explicit deferral before moving to the
 next concept.
@@ -80,15 +82,15 @@ example, pinned Convex source and remaining representation/proof boundaries.
 
 ## Q03 - Snapshots, authorization and read-only freshness
 
-**Partially answered; active concept 02.** The fixed-timestamp read contract is
-[accepted](./02-timestamped-snapshots.md), including bounded history and explicit
-expiry rather than indefinite retention for every running operation. Exact
-snapshot lifetime is the next narrow decision. Still open: native profile mapping,
-client freshness tokens, retention budgets and expiry handling, current
-authorization/readiness, and disclosure or early errors that never reach final
-commit. A progress cursor or cached permission
-boolean cannot stand in for the whole contract. A complete native workflow is not
-automatically one atomic snapshot.
+**Partially answered; active concept 02.** The fixed-timestamp read contract,
+bounded history and [operation-lifetime policy](./02-operation-lifetime.md) are
+accepted. Current authorization for cached reads is the next narrow decision.
+Still open: numerical deadline/history budgets, native branch conformance, exact
+expiry errors and cancellation/acceptance interlocks, client freshness tokens,
+authorization/readiness mechanisms, and disclosure or early errors that never
+reach final commit. A progress cursor or cached permission boolean cannot stand
+in for the whole contract. A complete native workflow is not automatically one
+atomic snapshot.
 
 References: Convex [snapshot manager](../../../../../crates/database/src/snapshot_manager.rs),
 [database read timestamps](../../../../../crates/database/src/database.rs);
@@ -98,27 +100,43 @@ Required examples: revocation during a read, newer cache rows in an older attemp
 history expiry, stale early refusal and read-after-write following success.
 Replica lag remains deferred with replication.
 
-### Next question: snapshot lifetime
+### Answered: snapshot ownership and expiry policy
 
-**How long may an operation keep its timestamp, and what happens if the required
-history expires before it finishes?** Bounded history is accepted; choose the
-actual operation lifetime/resource contract and eligible restart versus explicit
-failure for each native profile. Convex's distinct lookup, write-log and durable
-retention mechanisms are now [recorded with defaults](./02-timestamped-snapshots.md#reference-defaults-not-selected-flarex-settings).
-They do not select our numeric limits or authorize automatic native retry.
+Accepted: one bounded atomic operation owns a snapshot/deadline; participating
+nested work shares them and the outer owner settles. Preserve actual native
+transaction groups, with no snapshot held across remote effects or suspension.
+Before acceptance, expiry closes the operation and prevents late acceptance.
+Eligible pure queries and replay-safe Application mutations may restart as a
+whole under bounded rules; automatic Medusa/Payload replay stays disabled until
+whole-command proof. After acceptance or uncertain persistence, resolve the
+durable outcome rather than treating expiry as permission to repeat work.
 
-Use one cart read pinned at `100` that pauses while newer commits publish.
-When it resumes, distinguish an ordinary local cache miss (PostgreSQL can still
-answer at `100`) from expired authoritative history (the operation cannot continue
-at `100`). Consider native hooks and effects when deciding whether restart is safe.
-Compare Convex [snapshot retention](../../../../../crates/database/src/snapshot_manager.rs),
-[retention validation](../../../../../crates/database/src/retention.rs),
-[persistence snapshots](../../../../../crates/common/src/persistence.rs) and
-[root retry ownership](../../../../../crates/application/src/application_function_runner/mod.rs).
-Local cache representation remains Q05; concrete fencing remains Q01/Q02.
-Expiry must distinguish obsolete snapshot lookup state, missing change-log proof,
-a harmless cache eviction and lost authoritative history. Preserve current data
-during cleanup and account for long workflows that contain independent commits.
+The [focused record](./02-operation-lifetime.md) owns the mapping, cart example,
+pinned sources and failure witnesses. Numerical budgets and concrete interlocks
+remain open, including distinctions between evicted cache data, missing change-log
+proof and expired authoritative history. Reference defaults are not our settings.
+
+### Next question: authorization for cached reads
+
+**How does the app owner enforce permission changes for cached reads without
+checking PostgreSQL for every row or index lookup?** Separate the snapshot's data
+validity from identity, current revocation and the native operation's access rules.
+Choose the responsible owner, required checks at admission/disclosure/acceptance,
+invalidating writers and the proof permitting reuse of an authorization decision.
+Do not weaken the existing revocation contract merely because the data is cached.
+
+Example: a staff member starts a cart/customer query, access is revoked while it
+awaits a cache miss, then the query is ready to return. Determine which authority
+must still be current before returning the response, including read-only calls
+that never reach the committer. A valid old data snapshot alone cannot answer it.
+
+References: Convex [transaction construction](../../../../../crates/database/src/database.rs),
+[query-result identity/dependency handling](../../../../../crates/application/src/cache/mod.rs)
+and [read tracking](../../../../../crates/database/src/reads.rs); Flarex
+[participant admission](../../../packages/persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission.ts)
+and [ownership/auth obligations](./01-ownership-and-lifetime.md#requirements-for-an-answer).
+Inspect actual authorization paths before selecting a protocol; Convex's cache
+identity key alone does not establish Flarex's fresh revocation semantics.
 
 ## Q04 - Values, IDs and ordered representations
 
@@ -162,7 +180,8 @@ invalidation/replacement, budget eviction and equivalent native count/population
 
 ## Q06 - Pending state, framework visibility and replay
 
-**Queued, concept 05.** Which state belongs to a private attempt versus a shared
+**Ownership/retry policy partly accepted; details queued, concept 05.** Follow the
+[operation-lifetime boundary](./02-operation-lifetime.md). Which state belongs to a private attempt versus a shared
 committed cache? Which native commands may execute speculatively and which may
 rerun? Preserve actual visibility, nested calls, rollback-only failure, hook
 ordering, events and workflow compensation. Specify framework conflict behavior

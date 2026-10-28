@@ -4,8 +4,10 @@ Status: **Accepted read contract and cache/retention direction; no implementatio
 Each admitted query or atomic operation reads committed data at one safe published timestamp,
 including cache misses. Follow Convex's demand population, write invalidation,
 validated concurrent fills, bounded cache size and bounded historical retention.
-Exact lifetimes, budgets, local representation and profile-specific expiry/retry
-rules remain open. Replication is **open and explicitly deferred**.
+The [operation-lifetime decision](./02-operation-lifetime.md) selects one snapshot
+and deadline per atomic operation, shared nested work and phase-aware expiry/retry
+rules. Numerical budgets, local representation and native conformance remain
+open. Replication is **open and explicitly deferred**.
 
 This resolves the published-read-view question in the
 [commit contract](./01-commit-coordination.md), under the
@@ -202,8 +204,9 @@ path. Our runtime and storage representation must differ where necessary:
   the Drizzle persistence owner. A current-row table or `ts <= S` predicate on an
   incompletely recovered history is insufficient. Named data needs an explicit
   migration/reset disposition when implementation is selected.
-- Application, Medusa and Payload have distinct atomic lifetimes and replay
-  rules. Map the snapshot unit to each actual profile; a workflow with independent
+- Application, Medusa and Payload retain distinct atomic lifetimes and replay
+  rules under the [accepted operation boundary](./02-operation-lifetime.md#accepted-operation-boundary).
+  Prove each actual native mapping; a workflow with independent
   commits or remote effects is not automatically one snapshot or one retryable
   mutation. Convex's function boundary cannot silently redefine native behavior.
 
@@ -213,12 +216,12 @@ No Rust source is copied and no representation or performance parity is claimed.
 
 ## Next decision and proof boundary
 
-The next focused question is [snapshot lifetime](./OPEN-QUESTIONS.md#next-question-snapshot-lifetime):
-how long may each native operation retain its timestamp, and what happens when
-its required history expires? Bounded retention is accepted; exact limits and
-eligible restart/refusal behavior still need a profile-specific decision.
-Local version retention, cache coverage, authorization and
-fencing remain in the canonical queue; replication stays deferred.
+Snapshot ownership, inherited deadlines and expiry policy are accepted in the
+[operation-lifetime record](./02-operation-lifetime.md). Numerical limits and
+native compatibility still need evidence. The next focused question is
+[authorization for cached reads](./OPEN-QUESTIONS.md#next-question-authorization-for-cached-reads).
+Local version retention, cache coverage and fencing remain in the canonical
+queue; replication stays deferred.
 
 Before implementation can replace current reads, proof must cover B saved before
 A, misses while B is hidden, publication between two reads, an older snapshot

@@ -24,8 +24,11 @@ are accepted design: out-of-order saves, ordered normal publication and recovery
 from uncertainty. [Timestamped snapshots](../../experiments/core/engine/02-timestamped-snapshots.md)
 are accepted across local reads and PostgreSQL misses. Demand caching, write
 invalidation, validated concurrent fills and separate cache/history bounds follow
-the pinned Convex direction. Exact snapshot lifetime and expiry behavior are the
-next discussion; reference defaults are not selected limits. Cache representation
+the pinned Convex direction. [Operation boundaries and expiry](../../experiments/core/engine/02-operation-lifetime.md)
+are accepted: nested work shares one snapshot/deadline, pre-acceptance expiry
+closes the operation, eligible replay is bounded, and accepted/uncertain writes
+remain subject to outcome recovery. Authorization for cached reads is next;
+reference defaults are not selected limits. Cache representation
 and detailed ownership/recovery protocols remain open; replication is deferred.
 Nothing is implemented or measured by this decision. Current approval is
 documentation only; old optimization stages do not authorize the new runtime.

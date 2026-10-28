@@ -6,8 +6,9 @@ necessary breaking changes, portable owners and Cloudflare adapters first is
 coordination, out-of-order saves with ordered normal publication and uncertainty
 recovery are accepted. Timestamped snapshots now govern all read paths, including
 PostgreSQL misses. Demand caching, write invalidation, validated fills and bounded
-cache/history retention are the accepted direction. Exact snapshot lifetime,
-expiry/retry rules, cache representation and fencing remain open;
+cache/history retention are the accepted direction. Atomic-operation boundaries,
+inherited deadlines and expiry/retry policy are accepted. Numerical budgets,
+cache representation and fencing remain open;
 replication is explicitly deferred. Current work is documentation only; no engine
 implementation, source port, data change or production cutover is authorized.
 
@@ -18,7 +19,9 @@ Read [01: ownership](./01-ownership-and-lifetime.md) and its
 [accepted commit decisions](./01-commit-coordination.md), then
 [02: timestamped snapshots](./02-timestamped-snapshots.md), including
 [cache and retention evidence](./02-timestamped-snapshots.md#pinned-cache-and-retention-evidence).
-Next is [snapshot lifetime](./OPEN-QUESTIONS.md#next-question-snapshot-lifetime), the
+The [operation-lifetime record](./02-operation-lifetime.md) owns atomic grouping,
+deadline sharing and expiry/retry rules. Next is
+[authorization for cached reads](./OPEN-QUESTIONS.md#next-question-authorization-for-cached-reads), the
 focused question in Q03. [Pinned references](../REFERENCES.md#engine-mechanism-reference-map)
 anchor each concept and later implementation in actual Convex owners.
 

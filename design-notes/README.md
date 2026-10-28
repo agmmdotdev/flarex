@@ -46,8 +46,10 @@ breaking internal changes and removal of displaced mechanisms. Start at the
 folder is the proof area, not a separate permanent framework implementation.
 One concept is active at a time. [App ownership and commit decisions](../experiments/core/engine/01-commit-coordination.md)
 and [timestamped snapshots](../experiments/core/engine/02-timestamped-snapshots.md)
-are accepted design; snapshot lifetime, cache representation and fencing protocols
-remain open. Replication is explicitly deferred. Current runtime behavior and
+and [operation lifetime/expiry](../experiments/core/engine/02-operation-lifetime.md)
+are accepted design; numerical budgets, cache representation and fencing protocols
+remain open. Authorization for cached reads is the next discussion. Replication
+is explicitly deferred. Current runtime behavior and
 historical evidence are not rewritten as completed new-engine work.
 
 ## Query-Sync Replacement Authority

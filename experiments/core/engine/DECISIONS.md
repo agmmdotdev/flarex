@@ -6,9 +6,10 @@ One independent app has one owner shared by Medusa/Payload/Application. DO-local
 commit coordination, bounded out-of-order saves, ordered normal publication and
 uncertainty recovery are accepted design decisions. Timestamped snapshots are
 accepted, with demand caching, write invalidation, validated fills and bounded
-retention as the selected direction. Concept 02 remains active for exact snapshot
-lifetime and expiry behavior. Remaining ownership, fencing and recovery protocols
-stay open. Replication is explicitly deferred. This
+retention as the selected direction. Operation boundaries, inherited deadlines
+and expiry/retry policy are accepted; numerical limits remain open. Concept 02
+now focuses on authorization for cached reads. Ownership, fencing and recovery
+protocol details stay open. Replication is explicitly deferred. This
 register records decisions, not execution receipts; [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md)
 owns the unresolved queue and its references.
 
@@ -76,8 +77,9 @@ the authorized scope; a small helper change is not the completion criterion.
 
 ## Accepted app, commit and read decisions
 
-The [commit-coordination record](./01-commit-coordination.md) and
-[timestamped-snapshot record](./02-timestamped-snapshots.md) own these decisions:
+The [commit-coordination record](./01-commit-coordination.md),
+[timestamped-snapshot record](./02-timestamped-snapshots.md) and
+[operation-lifetime record](./02-operation-lifetime.md) own these decisions:
 
 | Decision | Status / boundary |
 | --- | --- |
@@ -85,14 +87,16 @@ The [commit-coordination record](./01-commit-coordination.md) and
 | Coordinator and logical conflict validation inside the app DO; PostgreSQL performs durable commits and transactional enforcement | Accepted initial Cloudflare placement; no separate Worker committer required |
 | Ordered acceptance, bounded overlapping saves that may complete out of order, ordered normal publication and acknowledgement | Accepted target; existing clock/publication plumbing must be redesigned where incompatible |
 | Uncertain persistence stops acceptance/publication, fences old work, reconciles all in-flight outcomes, rebuilds state, then resumes | Accepted contract; exact fencing, terminality and reconstruction mechanisms remain open |
-| Each operation reads committed data at one safe published timestamp across RAM, SQLite and PostgreSQL fallback | Accepted; explicit document/index/deletion history, valid-at-timestamp cache results or misses, no silent latest-row fallback; lifetime and representation remain open |
-| Populate data/index caches on demand, invalidate relevant ranges at publication, validate concurrent fills, and bound cache size and history separately | Accepted direction following pinned Convex mechanisms; numerical defaults, local structures, cleanup protocol and native expiry/retry rules are not selected |
+| Each operation reads committed data at one safe published timestamp across RAM, SQLite and PostgreSQL fallback | Accepted; explicit document/index/deletion history, valid-at-timestamp cache results or misses, no silent latest-row fallback; numerical limits and representation remain open |
+| One bounded atomic operation owns a snapshot and deadline; participating nested work shares both, pending state and one outer settlement | Accepted; map Application queries/attempts and actual Payload/Medusa transaction groups without holding snapshots across remote effects or workflow suspension |
+| Expiry before acceptance closes the operation; eligible pure queries/Application attempts may restart, native framework commands initially fail explicitly; accepted or uncertain writes require outcome recovery | Accepted policy; numerical budgets, native conformance, error mapping and cancellation/acceptance interlocks remain open |
+| Populate data/index caches on demand, invalidate relevant ranges at publication, validate concurrent fills, and bound cache size and history separately | Accepted direction following pinned Convex mechanisms; numerical defaults, local structures and cleanup protocol are not selected |
 | Convex revision `84fbb0e70b4e857913673871cb847ad11a55f3d5`, source-first inspection and justified divergences | Accepted development rule; source reuse/license disposition remains separate |
 | Execution replicas, their synchronization and scaling topology | Open and explicitly deferred; not a prerequisite for the first single-owner design |
 
 The [placement companion](./01-do-execution-and-replicas.md) retains the wider
-cache/hosting sketch and deferred replica example. Snapshot lifetime, cache
-completeness, authorization, native replay eligibility, pipeline bounds and durable
+cache/hosting sketch and deferred replica example. Numerical lifetime limits, cache
+completeness, authorization, proof for enabling native replay, pipeline bounds and durable
 recovery representation remain substantive unresolved contracts. No arbitrary
 framework replay, raw latest-row disclosure or automatic cross-app atomicity is selected.
 
@@ -106,10 +110,10 @@ execution sequence. No code replacement follows from recording this proposal.
 | ID | Concept | Design status | Implementation / evidence |
 | --- | --- | --- | --- |
 | 01 | [Engine ownership and lifetime](./01-ownership-and-lifetime.md), with [commit coordination](./01-commit-coordination.md) | App boundary, coordinator placement, save/publication order and recovery accepted; residual protocols open; replication deferred | No new engine implementation |
-| 02 | [Timestamped snapshots](./02-timestamped-snapshots.md), metadata, readiness and authorization lifetimes | Fixed-timestamp reads and bounded cache/history direction accepted; exact snapshot lifetime and profile-specific expiry remain active | Existing fresh gates remain binding; no new snapshot implementation |
+| 02 | [Timestamped snapshots](./02-timestamped-snapshots.md), [operation lifetime](./02-operation-lifetime.md), metadata, readiness and authorization | Read/cache, operation boundary and expiry/retry policies accepted; authorization for cached reads is active; numerical budgets remain open | Existing fresh gates remain binding; no new snapshot implementation |
 | 03 | Values, IDs, timestamps and ordered-key semantics | Open; queued | Existing contracts are evidence, not automatically retained internals |
 | 04 | Read/index execution and coherent caches | Coherence/population principles accepted under 02; representation and execution details queued | Command-local observations exist; shared-engine cache unproved |
-| 05 | Pending state, dependencies and execution profiles | Open; queued | Existing Application/framework witnesses retained |
+| 05 | Pending state, dependencies and execution profiles | Outer ownership and initial retry policy accepted under 02; detailed representation and native conformance queued | Existing Application/framework witnesses retained |
 | 06 | Commit ordering, Drizzle persistence and outcome recovery | Ordering/recovery principles accepted under 01; detailed mechanism queued | Existing atomic publication is the baseline, not the new pipeline |
 | 07 | Schema/index lifecycle, retention and memory limits | Bounded cache/history direction accepted under 02; limits and maintenance details queued | No replacement maintenance/GC protocol selected |
 | 08 | Runtime scheduling, isolation and framework bridges | Cloudflare app coordinator placement accepted; detailed hosting/scheduling queued; replication deferred | No new adapter implementation; native semantics remain required |
@@ -117,16 +121,16 @@ execution sequence. No code replacement follows from recording this proposal.
 | 10 | First connected proof, performance gates and cutover | Open; queued | Existing complete-request measurements retained |
 
 The order is a discussion guide, not a strict dependency chain. Q01/Q02 record
-the accepted portions and remaining protocol work. The published-read-view
-decision is now recorded under concept 02; the next focused question is
-[snapshot lifetime](./OPEN-QUESTIONS.md#next-question-snapshot-lifetime).
+the accepted portions and remaining protocol work. Read views and operation
+lifetime policy are recorded under concept 02; the next focused question is
+[authorization for cached reads](./OPEN-QUESTIONS.md#next-question-authorization-for-cached-reads).
 This does not close the remaining ownership/fencing work or open every cache
 topic at once. Open only the next concept when the current outcome is recorded
 or the owner explicitly chooses to defer it. Create its focused note at that point;
 do not fill this folder with speculative implementations or duplicate roadmaps.
 
-The accepted boundary applies across queued concepts. Recording the current
-proposal does not accept replica/cache protocols or replace the separate
+The accepted boundary applies across queued concepts. Recording these policies
+does not select replica topology or concrete cache layout, or replace the separate
 Application, Payload and Medusa execution profiles. The relevant
 [open questions](./OPEN-QUESTIONS.md) must be resolved
 before selecting a connected implementation slice.

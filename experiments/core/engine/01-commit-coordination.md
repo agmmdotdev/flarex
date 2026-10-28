@@ -162,8 +162,10 @@ unchanged calls concurrently is not this design.
 
 The published-read-view question is answered by
 [timestamped snapshots](./02-timestamped-snapshots.md), including a PostgreSQL miss
-while B is durable but unpublished. The next question is
-[snapshot lifetime](./OPEN-QUESTIONS.md#next-question-snapshot-lifetime).
+while B is durable but unpublished. The [operation-lifetime policy](./02-operation-lifetime.md)
+separates pre-acceptance expiry from accepted/uncertain outcomes that require
+settlement or recovery. Next is
+[authorization for cached reads](./OPEN-QUESTIONS.md#next-question-authorization-for-cached-reads).
 Detailed fencing, outcome representation and resource limits remain open.
 Replication is deferred, not a prerequisite for proving this single-owner path.
 
