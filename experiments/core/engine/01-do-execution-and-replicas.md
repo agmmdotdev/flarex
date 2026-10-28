@@ -3,8 +3,10 @@
 Status: **App ownership and commit decisions accepted; broader mechanisms open**.
 The [commit record](./01-commit-coordination.md) owns DO-local coordination,
 out-of-order saves with ordered normal publication, and uncertainty recovery.
-Cache/hosting details remain unproved. Replication is **open and explicitly
-deferred**; its retained example is not current design or implementation work.
+The [timestamped-snapshot contract](./02-timestamped-snapshots.md) governs local
+and PostgreSQL reads. Cache representation/hosting remain unproved. Replication
+is **open and explicitly deferred**; its retained example is not current design
+or implementation work.
 
 Ordinary Worker execution with a separate cache DO remains a comparison, not
 the selected app-coordinator placement.
@@ -92,10 +94,13 @@ an empty range or complete count without coverage evidence. Keep misses and
 unsupported shapes explicit. PostgreSQL-dependent semantics need their own
 admitted lowering; do not silently substitute SQLite behavior.
 
-A SQLite table containing only the latest row values is not a retained snapshot
-for an attempt that spans awaits. Choose explicit version retention or another
-proved pinned-view mechanism before allowing cache updates to overlap that
-attempt. Eviction and garbage collection must respect its retained view.
+A SQLite table containing only the latest row values cannot answer every read
+for an attempt that spans awaits. The accepted
+[snapshot contract](./02-timestamped-snapshots.md) fixes the attempt's committed
+view at timestamp `S`. Local rows/ranges must prove validity at `S` or miss to
+PostgreSQL history at that same timestamp. Retaining old versions locally versus
+falling back remains open; eviction is not permission to read latest data.
+History expiry requires explicit failure or an eligible restart.
 
 Each DO still has one JavaScript execution thread. Async PostgreSQL waits can
 overlap, while synchronous processing and SQLite calls occupy that execution
@@ -208,9 +213,10 @@ their core-facing contracts under the refactor direction.
 ## Open questions and discussion order
 
 Use [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md) for the canonical questions, source
-references and decision evidence. Q01/Q02 now record accepted app and commit
-decisions, with [published read views](./OPEN-QUESTIONS.md#next-question-published-read-view)
-next. Use one app owner and overlapping operations; replication stays deferred.
+references and decision evidence. Q01/Q02 record accepted app and commit
+decisions; Q03 records timestamped reads, with
+[snapshot lifetime](./OPEN-QUESTIONS.md#next-question-snapshot-lifetime) next.
+Use one app owner and overlapping operations; replication stays deferred.
 Snapshot/cache coverage, framework replay, lifecycle and hosting retain their
 queued details. Single-owner correctness and recovery remain required now.
 

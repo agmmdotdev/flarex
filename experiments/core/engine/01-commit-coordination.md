@@ -57,11 +57,14 @@ changes distinct. Acceptance is not a successful business result.
 | Publish normally | Advance visible engine state in acceptance order; B waits behind A even if B saved first |
 | Acknowledge | Report normal success after the operation's durable result and ordered publication; recovery resolves stored outcomes without replaying committed effects |
 
-All data-reading paths, including PostgreSQL fallback reads, must obey the chosen
-published-view contract. A saved row is not automatically eligible for disclosure.
+All data-reading paths, including PostgreSQL fallback reads, obey the accepted
+[timestamped-snapshot contract](./02-timestamped-snapshots.md): an operation pins
+one safe published timestamp, and every committed-data read answers at that
+timestamp. A saved row is not automatically eligible for disclosure.
 Do not derive a safe publication position from the largest persisted sequence:
 earlier accepted work can still be unresolved. Stable identities, ordering
-representation, bounds and the exact published-view mechanism remain open.
+representation, bounds, snapshot lifetime and concrete cache/history storage
+mechanisms remain open.
 
 The reason to permit overlap is to avoid one database round-trip wait between
 every independent save and follow Convex's mechanism. It is not a measured
@@ -157,11 +160,12 @@ unchanged calls concurrently is not this design.
 
 ## Remaining design and proof boundary
 
-The next question is [the published read view](./OPEN-QUESTIONS.md#next-question-published-read-view):
-what may an operation read while B is durable but A is unresolved, and how do RAM,
-SQLite and PostgreSQL reads agree? Detailed fencing, outcome representation and
-resource limits remain open. Replication is deferred, not a prerequisite for
-proving this single-owner path.
+The published-read-view question is answered by
+[timestamped snapshots](./02-timestamped-snapshots.md), including a PostgreSQL miss
+while B is durable but unpublished. The next question is
+[snapshot lifetime](./OPEN-QUESTIONS.md#next-question-snapshot-lifetime).
+Detailed fencing, outcome representation and resource limits remain open.
+Replication is deferred, not a prerequisite for proving this single-owner path.
 
 Later proof must include nonconflicting saves completing out of order, same-cart
 pending conflicts, no premature B disclosure through any read path, lost COMMIT

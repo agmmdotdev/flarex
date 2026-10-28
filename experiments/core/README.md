@@ -5,7 +5,8 @@ Start with the [portable core refactor discussion](./engine/README.md) and
 reuse the Medusa/Payload integration investment, allow necessary internal breaks
 and inspect Convex for each relevant mechanism. This folder is the design/proof
 area. Work one concept at a time from the [open-question queue](./engine/OPEN-QUESTIONS.md);
-ownership and commit coordination are active. Current work is documentation only.
+timestamped snapshots are accepted and snapshot lifetime is the active question.
+Current work is documentation only.
 
 ## Current state
 
@@ -13,7 +14,7 @@ ownership and commit coordination are active. Current work is documentation only
 | --- | --- |
 | Existing core and Medusa/Payload integrations | Starting point and eventual refactor destination; current behavior remains until a selected connected replacement |
 | Initial experimental candidate | Bounded Application, Payload CRUD, Product scalar and explicitly atomic mixed flows implemented and measured with Drizzle; performance promotion remains closed |
-| Shared engine direction | Existing-core refactor and portable Cloudflare adapters first; independent-app ownership, DO coordinator, out-of-order saves with ordered normal publication and uncertainty recovery accepted; detailed protocols open, replication deferred |
+| Shared engine direction | Existing-core refactor and portable Cloudflare adapters first; independent-app ownership, DO coordinator, out-of-order saves with ordered normal publication, uncertainty recovery and timestamped snapshots accepted; snapshot lifetime and detailed protocols open, replication deferred |
 
 The existing candidate already keeps pending writes, observations and some
 prepared state in memory. It does not implement Convex's complete shared
@@ -40,8 +41,9 @@ It is a proof area, not a production package or permanent alternative engine.
 5. [Open questions](./engine/OPEN-QUESTIONS.md): canonical queue, primary references and required decision evidence.
 6. [Concept 01](./engine/01-ownership-and-lifetime.md): portable core/adapters, ownership and lifetime.
 7. [Commit coordination](./engine/01-commit-coordination.md): accepted app boundary, ordering and recovery, with source mapping and necessary differences.
-8. [DO placement and deferred replicas](./engine/01-do-execution-and-replicas.md): broader cache/hosting sketch and retained replica example.
-9. [REFERENCES.md](./REFERENCES.md): exact Convex pin, source/divergence rules, platform constraints and Flarex evidence.
+8. [Timestamped snapshots](./engine/02-timestamped-snapshots.md): accepted local and persistence read contract, cart example and pinned source mapping.
+9. [DO placement and deferred replicas](./engine/01-do-execution-and-replicas.md): broader cache/hosting sketch and retained replica example.
+10. [REFERENCES.md](./REFERENCES.md): exact Convex pin, source/divergence rules, platform constraints and Flarex evidence.
 
 Discuss one concept, inspect its source and failure cases, record the owner's
 decision, then update affected notes. Keep proposed, accepted, implemented and

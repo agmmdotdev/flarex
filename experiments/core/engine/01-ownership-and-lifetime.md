@@ -4,8 +4,10 @@ Status: **Accepted design boundary**: one independent app has one logical owner,
 shared by Medusa/Payload/Application, with portable core and Cloudflare adapters
 first. DO-local commit coordination, out-of-order saves with ordered normal
 publication, and uncertainty recovery are accepted in the
-[commit record](./01-commit-coordination.md). Routing, fencing and read-view
-mechanisms remain open; replication is explicitly deferred. No implementation.
+[commit record](./01-commit-coordination.md). The
+[timestamped-snapshot contract](./02-timestamped-snapshots.md) is accepted; routing,
+fencing, snapshot lifetime and cache representation remain open. Replication is
+explicitly deferred. No implementation.
 
 The [placement companion](./01-do-execution-and-replicas.md) holds the broader
 cache/hosting sketch and deferred replica example; it does not reopen accepted
@@ -124,8 +126,9 @@ none is selected or implemented by this decision.
 ## Choices still open
 
 The canonical queue is [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md). Q01/Q02 record
-accepted app/commit decisions and their remaining protocols. The next question
-is [the published read view](./OPEN-QUESTIONS.md#next-question-published-read-view).
+accepted app/commit decisions and their remaining protocols. Timestamped reads
+are accepted; the next question is
+[snapshot lifetime](./OPEN-QUESTIONS.md#next-question-snapshot-lifetime) under Q03.
 All relevant writers and stale-owner takeover still need a concrete protocol.
 Replication is deferred; other topics stay queued. The requirements below
 constrain these answers, rather than creating another independent question list.
@@ -191,9 +194,10 @@ also require the actual host. No such new proof is claimed by this documentation
 
 Accepted: one independent app owner, shared framework coordination, portable
 owners and Cloudflare adapters, PostgreSQL authority, and the
-[commit/recovery decisions](./01-commit-coordination.md). This is design only.
+[commit/recovery decisions](./01-commit-coordination.md), with
+[timestamped reads](./02-timestamped-snapshots.md). This is design only.
 
-Unresolved: read-view enforcement, concrete identity/routing/fencing, storage
+Unresolved: snapshot lifetime, concrete identity/routing/fencing, cache/history
 representation, native hosting/replay eligibility and resource limits. These
 remain in the canonical queue. Replication is open and explicitly deferred;
 single-owner recovery does not wait for a replica design. Related concepts

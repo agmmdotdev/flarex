@@ -4,8 +4,9 @@ Status: existing-core refactoring, integration reuse, necessary breaking changes
 portable owners and Cloudflare adapters first are accepted design directions.
 One independent app has one owner shared by Medusa/Payload/Application. DO-local
 commit coordination, bounded out-of-order saves, ordered normal publication and
-uncertainty recovery are accepted design decisions. Concept 01 remains active;
-detailed protocols are open. Replication is open and explicitly deferred. This
+uncertainty recovery are accepted design decisions. Timestamped snapshots are
+accepted; concept 02 is active, with snapshot lifetime next. Remaining ownership,
+fencing and recovery protocols stay open. Replication is explicitly deferred. This
 register records decisions, not execution receipts; [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md)
 owns the unresolved queue and its references.
 
@@ -39,7 +40,7 @@ behavior stays in its framework owner; engine correctness stays in shared core
 and persistence owners; host composition supplies platform mechanisms.
 
 This authorizes documentation only. The accepted choices below do not finalize
-all framework hosting, cache/read-view, fencing, schema or recovery mechanisms.
+all framework hosting, cache retention, fencing, schema or recovery mechanisms.
 No engine implementation, source translation, production activation or measured
 performance acceptance follows.
 
@@ -71,9 +72,10 @@ breaks, complete-operation cost and failure witnesses before a connected slice.
 Once implementation is selected, finish its migrated consumers and cleanup within
 the authorized scope; a small helper change is not the completion criterion.
 
-## Accepted app and commit decisions
+## Accepted app, commit and read decisions
 
-The [commit-coordination record](./01-commit-coordination.md) owns these decisions:
+The [commit-coordination record](./01-commit-coordination.md) and
+[timestamped-snapshot record](./02-timestamped-snapshots.md) own these decisions:
 
 | Decision | Status / boundary |
 | --- | --- |
@@ -81,14 +83,15 @@ The [commit-coordination record](./01-commit-coordination.md) owns these decisio
 | Coordinator and logical conflict validation inside the app DO; PostgreSQL performs durable commits and transactional enforcement | Accepted initial Cloudflare placement; no separate Worker committer required |
 | Ordered acceptance, bounded overlapping saves that may complete out of order, ordered normal publication and acknowledgement | Accepted target; existing clock/publication plumbing must be redesigned where incompatible |
 | Uncertain persistence stops acceptance/publication, fences old work, reconciles all in-flight outcomes, rebuilds state, then resumes | Accepted contract; exact fencing, terminality and reconstruction mechanisms remain open |
+| Each operation reads committed data at one safe published timestamp across RAM, SQLite and PostgreSQL fallback | Accepted; explicit document/index/deletion history, valid-at-timestamp cache results or misses, no silent latest-row fallback; lifetime and representation remain open |
 | Convex revision `84fbb0e70b4e857913673871cb847ad11a55f3d5`, source-first inspection and justified divergences | Accepted development rule; source reuse/license disposition remains separate |
 | Execution replicas, their synchronization and scaling topology | Open and explicitly deferred; not a prerequisite for the first single-owner design |
 
 The [placement companion](./01-do-execution-and-replicas.md) retains the wider
-cache/hosting sketch and deferred replica example. Read views, completeness,
-authorization, native replay eligibility, pipeline bounds and durable recovery
-representation remain substantive unresolved contracts. No arbitrary framework
-replay, raw latest-row disclosure or automatic cross-app atomicity is selected.
+cache/hosting sketch and deferred replica example. Snapshot lifetime, cache
+completeness, authorization, native replay eligibility, pipeline bounds and durable
+recovery representation remain substantive unresolved contracts. No arbitrary
+framework replay, raw latest-row disclosure or automatic cross-app atomicity is selected.
 
 Use the [refactor record](./REFACTOR.md) for keep/adapt/replace choices and the
 source-grounded integration seams. The initial candidate remains evidence;
@@ -99,8 +102,8 @@ execution sequence. No code replacement follows from recording this proposal.
 
 | ID | Concept | Design status | Implementation / evidence |
 | --- | --- | --- | --- |
-| 01 | [Engine ownership and lifetime](./01-ownership-and-lifetime.md), with [commit coordination](./01-commit-coordination.md) | App boundary, coordinator placement, save/publication order and recovery accepted; protocol details active; replication deferred | No new engine implementation |
-| 02 | Snapshot, metadata, readiness and authorization lifetimes | Open; queued | Existing fresh gates remain binding |
+| 01 | [Engine ownership and lifetime](./01-ownership-and-lifetime.md), with [commit coordination](./01-commit-coordination.md) | App boundary, coordinator placement, save/publication order and recovery accepted; residual protocols open; replication deferred | No new engine implementation |
+| 02 | [Timestamped snapshots](./02-timestamped-snapshots.md), metadata, readiness and authorization lifetimes | Fixed-timestamp read contract accepted; active focus is snapshot lifetime; other details open | Existing fresh gates remain binding; no new snapshot implementation |
 | 03 | Values, IDs, timestamps and ordered-key semantics | Open; queued | Existing contracts are evidence, not automatically retained internals |
 | 04 | Read/index execution and coherent caches | Open; queued | Command-local observations exist; shared-engine cache unproved |
 | 05 | Pending state, dependencies and execution profiles | Open; queued | Existing Application/framework witnesses retained |
@@ -111,13 +114,12 @@ execution sequence. No code replacement follows from recording this proposal.
 | 10 | First connected proof, performance gates and cutover | Open; queued | Existing complete-request measurements retained |
 
 The order is a discussion guide, not a strict dependency chain. Q01/Q02 record
-the accepted portions and remaining protocol work. The next focused question is
-[the published read view](./OPEN-QUESTIONS.md#next-question-published-read-view)
-while a later save is durable before an earlier one is resolved. This is a
-dependency of the active commit contract; it does not open every snapshot/cache
-topic at once or close the remaining fencing work. Open only the next concept
-when the current outcome is recorded or
-the owner explicitly chooses to defer it. Create its focused note at that point;
+the accepted portions and remaining protocol work. The published-read-view
+decision is now recorded under concept 02; the next focused question is
+[snapshot lifetime](./OPEN-QUESTIONS.md#next-question-snapshot-lifetime).
+This does not close the remaining ownership/fencing work or open every cache
+topic at once. Open only the next concept when the current outcome is recorded
+or the owner explicitly chooses to defer it. Create its focused note at that point;
 do not fill this folder with speculative implementations or duplicate roadmaps.
 
 The accepted boundary applies across queued concepts. Recording the current

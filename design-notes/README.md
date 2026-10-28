@@ -45,9 +45,10 @@ breaking internal changes and removal of displaced mechanisms. Start at the
 [open questions](../experiments/core/engine/OPEN-QUESTIONS.md). The experimental
 folder is the proof area, not a separate permanent framework implementation.
 One concept is active at a time. [App ownership and commit decisions](../experiments/core/engine/01-commit-coordination.md)
-are accepted design; detailed read-view/fencing protocols remain open and
-replication is explicitly deferred. Current runtime behavior and historical
-evidence are not rewritten as completed new-engine work.
+and [timestamped snapshots](../experiments/core/engine/02-timestamped-snapshots.md)
+are accepted design; snapshot lifetime, cache representation and fencing protocols
+remain open. Replication is explicitly deferred. Current runtime behavior and
+historical evidence are not rewritten as completed new-engine work.
 
 ## Query-Sync Replacement Authority
 

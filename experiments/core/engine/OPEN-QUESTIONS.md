@@ -6,13 +6,15 @@ owns accepted/proposed status; [REFACTOR.md](./REFACTOR.md) owns the accepted
 existing-core migration direction. Focused notes explain the current candidate
 without maintaining another independent question list.
 
-Only **concept 01: ownership and lifetime** is active. App ownership, coordinator
-placement, out-of-order saves with ordered normal publication, and the uncertainty
-recovery contract are [accepted](./01-commit-coordination.md). Q01/Q02 remain
-partially open because their implementation protocols are not fully specified.
-The next focused question is the published read view below. Other questions are
-queued dependencies, not silently accepted answers. Replication is **open and
-explicitly deferred**; single-owner fencing/recovery is still required. Record a
+Only **concept 02: snapshot lifetime** is the active discussion focus. App
+ownership, coordinator placement, out-of-order saves with ordered normal
+publication, and uncertainty recovery are [accepted](./01-commit-coordination.md). The
+[timestamped-snapshot contract](./02-timestamped-snapshots.md) now answers the
+published-read-view question. Q01/Q02 remain partially open because their
+implementation protocols are not fully specified. Snapshot lifetime is next;
+other questions are queued dependencies, not silently accepted answers.
+Replication is **open and explicitly deferred**; single-owner fencing/recovery
+is still required. Record a
 decision or explicit deferral before moving to the next concept.
 
 All Convex links below use the [recorded source pin](../REFERENCES.md#convex-source-identity),
@@ -41,14 +43,14 @@ an operation spanning the proposed partition boundary.
 
 ## Q02 - Validation, commit ordering and recovery
 
-**Partially answered; active dependency of concept 01.** Accepted: the app DO
+**Partially answered, concept 01.** Accepted: the app DO
 hosts logical validation and commit coordination; PostgreSQL enforces durable
 conditions and commits data/outcomes. Independent accepted saves may finish out
 of order, with ordered normal publication/acknowledgement. On uncertainty: stop,
 fence, reconcile every in-flight outcome, rebuild, resume. See the
 [commit contract](./01-commit-coordination.md).
 
-Still open: the published-view mechanism, PostgreSQL interlock and ownership
+Still open: concrete publication representation, PostgreSQL interlock and ownership
 fence, durable operation identity/retention, treatment of confirmed noncommitted
 positions, late writes, pipeline bounds and recovery terminality. The current
 scalar-clock implementation is replaceable; unchanged concurrent calls do not
@@ -62,37 +64,52 @@ and [point commit owner](../../../packages/persistence-postgres/src/commit/point
 Required examples: two proposals passing concurrently, failure before/after
 PostgreSQL commit, cache publication loss and redelivery of a committed request.
 
-### Next question: published read view
+### Answered: published read view
 
-When A was accepted before B, B is saved, and A is still unresolved, **which
-version may a new operation read, and how do RAM, SQLite and PostgreSQL fallback
-reads all enforce it?** Ordered normal publication is accepted; its representation
-and enforcement are not. Choose a coherent view and pinned lifetime, including
-read-after-write behavior and what happens when required history is unavailable.
-The highest saved sequence alone is not a safe published position.
-
-Start with one DO, two independent carts and a third read that misses the cache.
-It must not accidentally expose B ahead of the allowed view. Compare Convex's
-[snapshot manager](../../../../../crates/database/src/snapshot_manager.rs),
-[database read timestamps](../../../../../crates/database/src/database.rs) and
-[ordered publication](../../../../../crates/database/src/committer.rs).
-Resolve this narrow dependency of Q02 before expanding the queued Q03 topic.
+Accepted: pin each admitted operation to a safe published timestamp and carry it
+through RAM/SQLite hits and PostgreSQL misses. Explicit versioned document,
+index and deletion history supplies the older view; a cache without a valid
+answer misses. Saved B remains hidden while its position is unpublished. A running
+operation keeps its timestamp when publication advances. The highest saved
+sequence alone is not safe, and unavailable history never permits latest-row
+fallback. The [focused decision](./02-timestamped-snapshots.md) owns the cart
+example, pinned Convex source and remaining representation/proof boundaries.
 
 ## Q03 - Snapshots, authorization and read-only freshness
 
-**Queued, concept 02.** What authorized view can a root read, how long is it
-retained, and what proves its cached data matches that view? Separate snapshot
-validity, current authorization, readiness and required client freshness.
-Define query responses and early errors that never reach final commit, pinned
-versions across awaits and read-after-write behavior. A progress cursor or cached
-permission boolean cannot stand in for the whole contract.
+**Partially answered; active concept 02.** The fixed-timestamp read contract is
+[accepted](./02-timestamped-snapshots.md). Snapshot lifetime is the next narrow
+decision. Still open: native profile mapping, client freshness tokens, retention
+budgets and expiry handling, current authorization/readiness, and disclosure or
+early errors that never reach final commit. A progress cursor or cached permission
+boolean cannot stand in for the whole contract. A complete native workflow is not
+automatically one atomic snapshot.
 
 References: Convex [snapshot manager](../../../../../crates/database/src/snapshot_manager.rs),
 [database read timestamps](../../../../../crates/database/src/database.rs);
 Flarex [participant admission](../../../packages/persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission.ts)
 and [current read profiles](../DESIGN.md#execution-profiles).
 Required examples: revocation during a read, newer cache rows in an older attempt,
-history expiry, stale early refusal and replica lag after a successful mutation.
+history expiry, stale early refusal and read-after-write following success.
+Replica lag remains deferred with replication.
+
+### Next question: snapshot lifetime
+
+**How long may an operation keep its timestamp, and what happens if the required
+history expires before it finishes?** Decide the lifetime/resource contract and
+eligible restart versus explicit failure. Keeping history for every unfinished
+operation can grow storage; bounding history can interrupt a slow operation.
+Do not select a numeric limit or automatic native retry without evidence.
+
+Use one cart read pinned at `100` that pauses while newer commits publish.
+When it resumes, distinguish an ordinary local cache miss (PostgreSQL can still
+answer at `100`) from expired authoritative history (the operation cannot continue
+at `100`). Consider native hooks and effects when deciding whether restart is safe.
+Compare Convex [snapshot retention](../../../../../crates/database/src/snapshot_manager.rs),
+[retention validation](../../../../../crates/database/src/retention.rs),
+[persistence snapshots](../../../../../crates/common/src/persistence.rs) and
+[root retry ownership](../../../../../crates/application/src/application_function_runner/mod.rs).
+Local cache representation remains Q05; concrete fencing remains Q01/Q02.
 
 ## Q04 - Values, IDs and ordered representations
 
@@ -115,7 +132,10 @@ versions and encoding comparisons across PostgreSQL and local cache execution.
 cache partial or complete for a declared range, and how are misses, absence,
 counts and pagination proved? Decide warming, copying, version retention,
 eviction and query lowering, including PostgreSQL-dependent predicates.
-Do not infer a complete result from an incomplete local index.
+Do not infer a complete result from an incomplete local index. The accepted
+[timestamped-read contract](./02-timestamped-snapshots.md) constrains these choices:
+retain an eligible historical answer locally or miss to PostgreSQL at the same
+timestamp. It does not select local version retention or a cache data structure.
 
 References: Convex [index cache](../../../../../crates/indexing/src/index_cache/mod.rs)
 and [in-memory indexes](../../../../../crates/indexing/src/backend_in_memory_indexes.rs);

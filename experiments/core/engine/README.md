@@ -4,7 +4,8 @@ Status: refactoring the existing core with reusable Medusa/Payload integrations,
 necessary breaking changes, portable owners and Cloudflare adapters first is
 **accepted design direction**. One independent app owner, DO-local commit
 coordination, out-of-order saves with ordered normal publication and uncertainty
-recovery are accepted. Detailed read/cache/fencing protocols remain open;
+recovery are accepted. Timestamped snapshots now govern all read paths, including
+PostgreSQL misses. Snapshot lifetime, cache representation and fencing remain open;
 replication is explicitly deferred. Current work is documentation only; no engine
 implementation, source port, data change or production cutover is authorized.
 
@@ -12,15 +13,16 @@ Read the [refactor direction](./REFACTOR.md) for what we keep, replace and remov
 The [decision register](./DECISIONS.md) tracks accepted/proposed status; the
 [open-question queue](./OPEN-QUESTIONS.md) is the single unresolved-question owner.
 Read [01: ownership](./01-ownership-and-lifetime.md) and its
-[accepted commit decisions](./01-commit-coordination.md). Next is the
-[published read view](./OPEN-QUESTIONS.md#next-question-published-read-view), a
-focused dependency of Q02. [Pinned references](../REFERENCES.md#engine-mechanism-reference-map)
+[accepted commit decisions](./01-commit-coordination.md), then
+[02: timestamped snapshots](./02-timestamped-snapshots.md). Next is
+[snapshot lifetime](./OPEN-QUESTIONS.md#next-question-snapshot-lifetime), the
+focused question in Q03. [Pinned references](../REFERENCES.md#engine-mechanism-reference-map)
 anchor each concept and later implementation in actual Convex owners.
 
 ## Current topology proposal
 
 The [DO execution and replica proposal](./01-do-execution-and-replicas.md) is the
-active companion to concept 01. It applies the new execution/state direction to
+placement companion to concept 01. It applies the new execution/state direction to
 the existing core, retaining useful experimental owners, pending-state semantics,
 precise observations, native behavior and singular settlement while redesigning
 their lifetime, hosting and storage interactions.
@@ -31,9 +33,10 @@ enforcement. Multiple DOs for one app would be execution replicas; that topic is
 open and explicitly deferred, not an automatic scale-out setting.
 
 The proposal records the cart conflict/retry example, the SQLite/PostgreSQL
-authority split and framework replay limits. The commit record owns the accepted
-parts; the companion's remaining mechanisms and replica sketch are not accepted
-protocols. The question queue owns next steps; no implementation plan is selected.
+authority split and framework replay limits. The commit and snapshot records own
+the accepted parts; the companion's remaining mechanisms and replica sketch are
+not accepted protocols. The question queue owns next steps; no implementation
+plan is selected.
 
 ## Accepted core and runtime boundary
 

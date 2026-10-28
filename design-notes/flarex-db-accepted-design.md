@@ -49,9 +49,19 @@ Application, a coordinator inside the app DO, bounded independent saves that may
 finish out of order, and ordered normal publication/acknowledgement. PostgreSQL
 remains durable authority and enforces ownership/transactional conditions.
 Uncertain persistence stops acceptance/publication, fences old work, reconciles
-all in-flight durable outcomes, rebuilds state and only then resumes. Exact
-read-view, fencing and recovery representations remain open. Replication is open
-and explicitly deferred. This acceptance is design-only:
+all in-flight durable outcomes, rebuilds state and only then resumes.
+
+The [timestamped-snapshot decision](../experiments/core/engine/02-timestamped-snapshots.md)
+fixes each admitted operation's committed-data reads to one safe published
+timestamp across RAM, DO SQLite and PostgreSQL fallback. Explicit versioned
+document/index/deletion history supplies that view; a cache without an eligible
+answer misses rather than disclosing latest data. Publication advancing does not
+change an existing operation's timestamp. Unavailable history requires explicit
+failure or an eligible whole-operation restart, never a silent change of view.
+Snapshot validity does not replace fresh authorization or combine independent
+native workflow steps into one transaction. Snapshot lifetime, cache representation,
+concrete fencing and recovery mechanisms remain open. Replication is open and
+explicitly deferred. This acceptance is design-only:
 it does not implement or activate a DO host, enable framework replay, remove
 existing checks, resume old optimization work or alter current runtime behavior.
 The hosted topology below remains the implemented/accepted baseline until a
