@@ -21,7 +21,10 @@ logic, migrate consumers and remove the displaced machinery.
 
 At the start, record the actual supported consumer/workload inventory, exact
 executing source identities, affected data and applicable acceptance gates.
-That inventory is **not yet complete**. Existing public or durable obligations
+The [bounded supported-profile baseline](./baseline/README.md) now records
+the executing consumer families, source identities and explicit support gaps.
+Complete transitive closure and fresh runtime proofs remain slice gates.
+Existing public or durable obligations
 need evidence; an old fixture or helper alone does not create one. Unrelated
 work in progress belongs to its current owner until a coordinated handoff.
 Changes to the goal inventory must be explicit rather than silently expanding

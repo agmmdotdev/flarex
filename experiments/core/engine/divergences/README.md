@@ -54,6 +54,10 @@ evidence, retaining the accepted decision link.
 
 ## Focused implementation records
 
+| Record | Current scope |
+| --- | --- |
+| [Operation-local cache storage](./operation-cache-storage.md) | TypeScript ordered collection, tuple cuts and bounded cache accounting; implementation unstarted. |
+
 | Record | Design / implementation / measurement status |
 | --- | --- |
 | [App-owner execution and coordination runtime](./app-owner-runtime.md) | Accepted runtime placement design / Unstarted / Unmeasured; records the existing DO host adaptation and its CPU/concurrency limits. |

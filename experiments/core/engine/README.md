@@ -14,6 +14,8 @@ bounded implementation after the required source challenge. Implementation,
 measurement and production activation remain separate claims.
 
 Read the [refactor direction](./REFACTOR.md) for what we keep, replace and remove.
+The [supported-profile baseline](./baseline/README.md) fixes the existing
+consumer families and source/status boundaries for the goal.
 The [decision register](./DECISIONS.md) tracks accepted/proposed status; the
 [open-question queue](./OPEN-QUESTIONS.md) is the single unresolved-question owner.
 Read [01: ownership](./01-ownership-and-lifetime.md) and its

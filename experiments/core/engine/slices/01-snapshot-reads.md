@@ -89,7 +89,8 @@ pipeline require their own connected implementation and proof.
 
 1. Recheck shared-worktree overlap, the dirty historical-index reader contract
    and executing caller/fixture identities. Select exact owned paths and cleanup
-   targets; the baseline consumer inventory remains a goal task.
+   targets; the [supported-profile baseline](../baseline/README.md) records the
+   goal inventory, while exact slice execution closure remains a gate.
 2. Specify the minimal reader/cache contract, ordered interval representation
    and bounded resource accounting. Inspect the applicable Effect rules before
    implementation. Record any necessary structural mechanism difference in the
@@ -100,3 +101,36 @@ pipeline require their own connected implementation and proof.
 4. Run required lint/typechecks, owner/consumer regressions and both read-only
    code reviewers. Migrate and remove the selected old path in the connected
    scope; report retained SQL work and the remaining larger milestone gates.
+
+## First implementation contract
+
+The baseline and paired source challenge select a portable ordered cache module
+under the existing storage/index owner, followed by Application reader integration.
+The [storage adaptation record](../divergences/operation-cache-storage.md) owns
+the necessary TypeScript collection, tuple-bound and capacity differences.
+
+- A private cache instance belongs to one immutable operation. Async lifetime,
+  cancellation, admission and serialization remain with the existing Effect
+  snapshot owner; the synchronous ordered storage component creates no service,
+  database transaction, runner or RPC.
+- Store ordered documents per index plus coalesced complete intervals. Lookup
+  splits the requested interval into cached documents and missing ranges,
+  retaining the pinned cap of three cached ranges before a remaining miss.
+- Generic ordered keys and before/after cuts represent exact positions. The
+  PostgreSQL adapter lowers encoded-key-only bounds into the same tuple order
+  as (encodedKey,rowId). After a limited page ending at (k,r1), coverage ends
+  after that position, never after all rows with encoded key k.
+- Populate validated bodies before coverage. If capacity prevents retaining
+  every required body, do not mark the whole interval complete. Cache capacity
+  counts distinct retained bodies independently of logical-call/output budgets.
+  Keep metadata bounded as well as canonical document bytes.
+- The document-revision basis must come from the hydrated typed row, not index
+  membership commitSeq. A nonindexed body update can leave that membership older.
+- A gap between before(b) and after(b) is unknown b; it cannot be merged away.
+  Repeated cache hits still run required authority/history/build checks and
+  charge logical calls, result documents and semantic bytes.
+
+The worker owns only the ordered module and pure scenario tests; the coordinator
+owns dependency wiring, Application reader integration and connected database
+tests. Runtime work is not complete until the real consumer uses the replacement,
+the old direct-fetch bypasses are removed for that scope and required reviews pass.
