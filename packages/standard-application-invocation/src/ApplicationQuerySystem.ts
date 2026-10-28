@@ -1,6 +1,8 @@
 import {
   decodeAppDocumentIdentityV1Result,
 } from "flarex-protocol/app-document-id";
+import { captureExecutionDiagnosticContext } from
+  "@flarex/persistence-postgres/internal/execution-diagnostics";
 import {
   encodeEdgeActionHostPolicyV1,
   EDGE_ACTION_CALLBACK_BRIDGE_IDENTITY_V1,
@@ -621,10 +623,12 @@ const executePreparedSelectionQuery = Effect.fn(
       snapshotCommitSeq: opened.metadata.snapshotToken.commitSeq,
     },
   };
+  const diagnosticContext = yield* Effect.withFiber(fiber =>
+    Effect.succeed(captureExecutionDiagnosticContext(fiber)));
   const result = yield* live.host.runTransaction({
     definition,
     request,
-    capability: new ApplicationQueryRpcCapability(opened.snapshot),
+    capability: new ApplicationQueryRpcCapability(opened.snapshot, diagnosticContext),
   });
   return Object.freeze({ opened, result });
 });
@@ -759,16 +763,20 @@ function runtimeTarget(
 }
 
 class ApplicationQueryRpcCapability extends RpcTarget {
-  constructor(private readonly snapshot: ApplicationQuerySnapshot) {
+  readonly #diagnosticContext: ReturnType<typeof captureExecutionDiagnosticContext>;
+
+  constructor(private readonly snapshot: ApplicationQuerySnapshot,
+    diagnosticContext: ReturnType<typeof captureExecutionDiagnosticContext>) {
     super();
+    this.#diagnosticContext = diagnosticContext;
   }
 
   revalidate(): Promise<void> {
-    return Effect.runPromise(revalidateApplicationQuerySnapshot(this.snapshot).pipe(Effect.asVoid));
+    return this.#run(revalidateApplicationQuerySnapshot(this.snapshot).pipe(Effect.asVoid));
   }
 
   readPointDocument(tableName: string, documentId: string) {
-    return Effect.runPromise(Effect.fromResult(
+    return this.#run(Effect.fromResult(
       decodeAppDocumentIdentityV1Result(documentId),
     ).pipe(Effect.flatMap(identity =>
       readApplicationQueryPoint(this.snapshot, tableName, identity.id)
@@ -781,7 +789,7 @@ class ApplicationQueryRpcCapability extends RpcTarget {
     bounds: unknown,
     limit: number,
   ) {
-    return Effect.runPromise(readApplicationQueryIndex(
+    return this.#run(readApplicationQueryIndex(
       this.snapshot,
       tableName,
       indexDescriptor,
@@ -790,8 +798,12 @@ class ApplicationQueryRpcCapability extends RpcTarget {
     ));
   }
 
+  #run<Value, Failure>(work: Effect.Effect<Value, Failure>): Promise<Value> {
+    return Effect.runPromise(Effect.provideContext(work, this.#diagnosticContext));
+  }
+
   takeIncomingRelationSources(input: unknown) {
-    return Effect.runPromise(Effect.fromResult(
+    return this.#run(Effect.fromResult(
       decodeTakeIncomingRelationSourcesInput(input),
     ).pipe(
       Effect.flatMap(decoded => readApplicationQueryIncomingRelationSources(

@@ -242,7 +242,9 @@ function compileFiniteStorageCapturePlan(database: FlarexMetadataDatabase, locat
 
     const indexStorage = () => buildPreparedAppIndexSnapshotReadStatement(installed?.schemaName ?? locator.schemaName, {
       scopeUuid: parameter("scopeUuid"), indexDefinitionId: parameter("indexDefinitionId"), snapshotCommitSeq: parameter("snapshot"),
-      start: parameter("start"), end: parameter("end"), afterKey: parameter("afterKey"), afterRow: parameter("afterRow"), limit: parameter("limit"),
+      start: parameter("start"), end: parameter("end"), lowerKey: parameter("lowerKey"), lowerRow: parameter("lowerRow"),
+      lowerInclusive: parameter("lowerInclusive"), upperKey: parameter("upperKey"), upperRow: parameter("upperRow"),
+      upperInclusive: parameter("upperInclusive"), limit: parameter("limit"),
     });
     const storage = operation.kind === "relationalPredicate" ? operation.body : kind === "rows" ? buildPreparedAppRowsSnapshotReadStatement(installed?.schemaName ?? locator.schemaName, {
       scopeUuid: parameter("scopeUuid"), tableId: parameter("tableId"),
@@ -483,7 +485,9 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
         settlementWindow: operation.kind === "rows" && operation.settlementWindow === true,
         transferBudget: operation.kind === "rows" ? operation.maximumTotalValueBytes ?? 1_048_576 : 1_048_576,
         start: index?.bounds.startInclusive ?? null, end: index?.bounds.endExclusive ?? null,
-        afterKey: index?.after?.keyBytes ?? null, afterRow: index?.after?.rowIdBytes ?? null, limit: index?.limit ?? 1,
+        lowerKey: index?.lower?.position.keyBytes ?? null, lowerRow: index?.lower?.position.rowIdBytes ?? null,
+        lowerInclusive: index?.lower?.inclusive ?? false, upperKey: index?.upper?.position.keyBytes ?? null,
+        upperRow: index?.upper?.position.rowIdBytes ?? null, upperInclusive: index?.upper?.inclusive ?? false, limit: index?.limit ?? 1,
         historicalRowId: operation.kind === "historicalIdentity" ? operation.rowId : null,
         revisionId: operation.kind === "ownershipPolicyManifest" ? operation.revisionId : null,
         catalogDeploymentId: operation.kind === "ownershipUniqueClosure" ? operation.deploymentId : null,

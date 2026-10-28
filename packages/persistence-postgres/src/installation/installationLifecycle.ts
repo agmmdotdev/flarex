@@ -794,7 +794,7 @@ export const verifyManagedRuntimePrivileges = Effect.fn("InstallationLifecycle.v
           and pg_catalog.has_function_privilege(session_user,
             ${`${schemaName}.fx_read_historical_row_identity(uuid,integer,bytea)`},'EXECUTE')
           and pg_catalog.has_function_privilege(session_user,
-            ${`${schemaName}.fx_read_snapshot_index_page(uuid,integer,bigint,bytea,bytea,bytea,bytea,integer)`},'EXECUTE')
+            ${`${schemaName}.fx_read_snapshot_index_page(uuid,integer,bigint,bytea,bytea,bytea,bytea,boolean,bytea,bytea,boolean,integer)`},'EXECUTE')
           and pg_catalog.has_function_privilege(session_user,
             ${`${schemaName}.fx_read_application_ownership_unique_closure(text,text,integer,integer)`},'EXECUTE')
           and pg_catalog.has_function_privilege(session_user,
@@ -812,7 +812,7 @@ export const verifyManagedRuntimePrivileges = Effect.fn("InstallationLifecycle.v
           and not pg_catalog.has_function_privilege(session_user,
             ${`${schemaName}.fx_read_historical_row_identity(uuid,integer,bytea)`},'EXECUTE')
           and not pg_catalog.has_function_privilege(session_user,
-            ${`${schemaName}.fx_read_snapshot_index_page(uuid,integer,bigint,bytea,bytea,bytea,bytea,integer)`},'EXECUTE')
+            ${`${schemaName}.fx_read_snapshot_index_page(uuid,integer,bigint,bytea,bytea,bytea,bytea,boolean,bytea,bytea,boolean,integer)`},'EXECUTE')
           and pg_catalog.has_function_privilege(session_user,
             ${`${schemaName}.fx_read_application_ownership_unique_closure(text,text,integer,integer)`},'EXECUTE') = (${accessProfile} = 'controlRead')
           and pg_catalog.has_function_privilege(session_user,

@@ -1,7 +1,8 @@
 # Operation-local cache storage in TypeScript
 
 Design status: **Accepted implementation adaptation within the selected slice**.
-Implementation status: **Unstarted**. Measurement status: **Unmeasured**.
+Implementation status: **Connected Application operation-local reader implemented**.
+Measurement status: **Complete-request performance unmeasured**.
 Owner: the [first snapshot read slice](../slices/01-snapshot-reads.md).
 This changes in-process representation and bounded memory accounting; it does
 not change snapshot, authority, ordering or absence guarantees.
@@ -31,10 +32,15 @@ document identity/size metadata. Async resource and cancellation ownership stays
 in the existing Effect snapshot owner, whose read gate serializes use.
 
 Use the published `sorted-btree@2.1.0` ordered collection in place of Rust
-collections. Its [primary source](https://github.com/qwertie/btree-typescript)
-documents ordered iteration/ranges and copy-on-write cloning. Installed types,
-browser portability and actual behavior still require validation; no performance
-equivalence is inferred from that API. This is a library selection within the
+collections, through its named `BTreeEx` constructor at
+`sorted-btree/extended/index.js`. The lean default export is wrapped as an object
+by direct Node ESM; the published named subclass works in both that loader and
+the bundler without a constructor fallback. Extra extended-entry bundle weight
+remains a build/performance gate. Its [primary source](https://github.com/qwertie/btree-typescript)
+documents ordered iteration/ranges and copy-on-write cloning. Direct Node ESM,
+test-host loading and a browser-targeted bundle are checked; actual DO composition and complete
+request costs remain wider-milestone gates. No performance equivalence is
+inferred from that API. This is a library selection within the
 authorized slice, not a new core package or general runtime registry.
 
 Translate the interval merge/split and three-range fallback algorithm. Represent
@@ -66,8 +72,24 @@ logical accounting, closure, revocation, history and output ownership on PGlite
 and ordinary-role PostgreSQL. Test the installed dependency under required
 typecheck/lint/build and host portability gates.
 
-The worker owns the new ordered module/tests; the coordinator owns Application
-integration, dependency wiring, connected validation and removal of displaced
-fetch bypasses. No module, exact executing symbols, benchmark pass or complete
-DO integration is claimed by this adaptation decision. Shared page serving,
-app-lifetime invalidation and native transaction changes remain separate slices.
+The ordered component is at
+[snapshotIndexCache.ts](../../../../packages/persistence-postgres/src/storage/indexes/snapshotIndexCache.ts)
+with [pure scenario tests](../../../../packages/persistence-postgres/test/storage/indexes/snapshotIndexCache.test.ts).
+The [Application snapshot owner](../../../../packages/persistence-postgres/src/application/applicationQuerySnapshot.ts)
+now uses it for repeated points, completed ranges and exact tuple-cut misses.
+Cached row handles detach output only when consumed; the handle privately captures
+the typed revision once. Missing point evidence remains operation-local. The
+actual query RPC carries existing diagnostic context so connected tests observe
+data reads without introducing a business capability or alternate reader.
+
+The selected direct-fetch bypasses are replaced; PostgreSQL readers remain the
+authoritative miss path. Live authority/history/index-build checks and logical
+accounting still run on hits. This intentionally retains their database work
+until a separately challenged replacement proves the corresponding guarantees.
+The historical snapshot reader gains tuple cuts through a forward managed
+migration; its displaced private signature and callers are replaced without
+rewriting historical migrations or deleting application data.
+
+Shared page serving, app-lifetime invalidation, DO storage/restart, native
+transaction changes and performance acceptance remain separate required slices.
+This implemented operation-local adaptation does not close the wider milestone.

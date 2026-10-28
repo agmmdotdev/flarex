@@ -142,6 +142,14 @@ interface AppIndexRangeReadV1Base {
 
 export interface ScanAppIndexAtSnapshotV1Input extends AppIndexRangeReadV1Base {
   readonly snapshotCommitSeq: CommitSeq;
+  /** Full tuple cuts intersect the whole-key bounds. `after` and `lower` are alternatives. */
+  readonly lower?: AppIndexSnapshotPositionCut;
+  readonly upper?: AppIndexSnapshotPositionCut;
+}
+
+export interface AppIndexSnapshotPositionCut {
+  readonly position: AppIndexRangeCursorV1;
+  readonly inclusive: boolean;
 }
 
 export type ScanCurrentAppIndexV1Input = AppIndexRangeReadV1Base;
@@ -984,8 +992,10 @@ export const scanAppIndexAtSnapshotInTransactionEffect = Effect.fnUntraced(funct
   yield* requireScopeUuidEffect(tx, prepared.scopeId, { scopeUuid: prepared.scopeUuid });
   const query = readSnapshotRange(tx, { scopeUuid: prepared.scopeUuid, indexDefinitionId: prepared.indexDefinitionId,
     snapshotCommitSeq: prepared.snapshotCommitSeq, start: prepared.bounds.startInclusive ?? null,
-    end: prepared.bounds.endExclusive ?? null, afterKey: prepared.after?.keyBytes ?? null,
-    afterRow: prepared.after?.rowIdBytes ?? null, limit: prepared.limit });
+    end: prepared.bounds.endExclusive ?? null, lowerKey: prepared.lower?.position.keyBytes ?? null,
+    lowerRow: prepared.lower?.position.rowIdBytes ?? null, lowerInclusive: prepared.lower?.inclusive ?? false,
+    upperKey: prepared.upper?.position.keyBytes ?? null, upperRow: prepared.upper?.position.rowIdBytes ?? null,
+    upperInclusive: prepared.upper?.inclusive ?? false, limit: prepared.limit });
   observeDrizzleRawQuery("scanCurrent", query, observer);
   const driverResult = yield* Effect.uninterruptible(Effect.tryPromise({ try: () => query,
     catch: cause => new AppIndexEntryReadPersistenceError("scanSnapshot", cause) }));
@@ -1771,13 +1781,14 @@ function decodeRangeReadInputResult<Definition extends CapturedIndexReadDefiniti
 }
 
 function decodeCursorResult(
-  cursor: AppIndexRangeCursorV1,
+  cursor: unknown,
   physicalSpec: AppOrderedIndexPhysicalSpecV1,
 ): Result.Result<
   NonNullable<DecodedAppIndexRangeReadV1["after"]>,
   InvalidAppIndexEntryInputError
 > {
   return Result.gen(function* () {
+    if (!isNonArrayRecord(cursor)) return yield* Result.fail(new InvalidAppIndexEntryInputError("invalidCursor"));
     const encodedKey = yield* decodeReadFieldResult(
       decodeOrderedKeyResult(cursor.encodedKey),
       "invalidCursor",
@@ -1805,7 +1816,27 @@ function decodeCursorResult(
   });
 }
 
-export interface PreparedAppIndexSnapshotRead extends DecodedAppIndexRangeReadV1 { readonly snapshotCommitSeq: CommitSeq; }
+interface CapturedAppIndexSnapshotPositionCut {
+  readonly position: NonNullable<DecodedAppIndexRangeReadV1["after"]>;
+  readonly inclusive: boolean;
+}
+
+const SnapshotPositionCutSchema = Schema.Struct({ position: Schema.Unknown, inclusive: Schema.Boolean });
+const decodeSnapshotPositionCutResult = Schema.decodeUnknownResult(SnapshotPositionCutSchema, { onExcessProperty: "error" });
+
+function captureSnapshotPositionCutResult(value: unknown, physicalSpec: AppOrderedIndexPhysicalSpecV1) {
+  return Result.gen(function* () {
+    const cut = yield* decodeReadFieldResult(decodeSnapshotPositionCutResult(value), "invalidCursor");
+    const position = yield* decodeCursorResult(cut.position, physicalSpec);
+    return Object.freeze({ position, inclusive: cut.inclusive });
+  });
+}
+
+export interface PreparedAppIndexSnapshotRead extends DecodedAppIndexRangeReadV1 {
+  readonly snapshotCommitSeq: CommitSeq;
+  readonly lower?: CapturedAppIndexSnapshotPositionCut;
+  readonly upper?: CapturedAppIndexSnapshotPositionCut;
+}
 
 /** Input compilation is detached; it never grants database authority. */
 export const prepareAppIndexSnapshotReadResult = (
@@ -1814,18 +1845,32 @@ export const prepareAppIndexSnapshotReadResult = (
   const snapshotCommitSeq = yield* decodeReadFieldResult(decodeCommitSeqResult(input.snapshotCommitSeq), "invalidSnapshotCommitSeq");
   const captured = yield* decodeRangeReadInputResult(input,
     () => captureIndexReadDefinitionResult(input.scopeId, input.definition));
+  if (input.after !== undefined && input.lower !== undefined)
+    return yield* Result.fail(new InvalidAppIndexEntryInputError("invalidCursor"));
+  const lower = input.lower === undefined
+    ? captured.after === undefined ? undefined : Object.freeze({ position: captured.after, inclusive: false })
+    : yield* captureSnapshotPositionCutResult(input.lower, captured.physicalSpec);
+  const upper = input.upper === undefined ? undefined
+    : yield* captureSnapshotPositionCutResult(input.upper, captured.physicalSpec);
+  if (lower !== undefined && upper !== undefined &&
+    (compareBytes(lower.position.keyBytes, upper.position.keyBytes) ||
+      compareBytes(lower.position.rowIdBytes, upper.position.rowIdBytes)) > 0)
+    return yield* Result.fail(new InvalidAppIndexEntryInputError("invalidBounds"));
   // This input accepts only genuine catalog definitions. Their original issuer
   // established the canonical specification and digest; raw publication inputs
   // elsewhere still require prepareIndexReadDefinitionEffect's real SHA.
   return Object.freeze({ scopeId: captured.scopeId, scopeUuid: captured.scopeProjection.scopeUuid,
     indexDefinitionId: captured.indexDefinitionId, physicalSpec: captured.physicalSpec,
     physicalSpecSha256: appIndexPhysicalSpecSha256HexV1ToBytes(captured.specification.sha256Hex), bounds: captured.bounds,
-    ...(captured.after === undefined ? {} : { after: captured.after }), limit: captured.limit, snapshotCommitSeq });
+    ...(captured.after === undefined ? {} : { after: captured.after }),
+    ...(lower === undefined ? {} : { lower }), ...(upper === undefined ? {} : { upper }), limit: captured.limit, snapshotCommitSeq });
 });
 
 export interface AppIndexSnapshotReadExpressions {
   readonly scopeUuid: SQL; readonly indexDefinitionId: SQL; readonly snapshotCommitSeq: SQL;
-  readonly start: SQL; readonly end: SQL; readonly afterKey: SQL; readonly afterRow: SQL; readonly limit: SQL;
+  readonly start: SQL; readonly end: SQL;
+  readonly lowerKey: SQL; readonly lowerRow: SQL; readonly lowerInclusive: SQL;
+  readonly upperKey: SQL; readonly upperRow: SQL; readonly upperInclusive: SQL; readonly limit: SQL;
 }
 
 /** Trusted located-target compilation only, with fixed storage function/projection. */
@@ -1836,22 +1881,28 @@ export function buildPreparedAppIndexSnapshotReadStatement(schemaName: string | 
     r.key_sha256 as "keySha256", r.row_id_bytes as "rowIdBytes", r.commit_seq_text as "commitSeqText", r.is_tombstone as "isTombstone"
     from ${reader}(${parameters.scopeUuid}::uuid, ${parameters.indexDefinitionId}::integer,
       ${parameters.snapshotCommitSeq}::bigint, ${parameters.start}::bytea,
-      ${parameters.end}::bytea, ${parameters.afterKey}::bytea,
-      ${parameters.afterRow}::bytea, ${parameters.limit}::integer) r order by r.ordinal`;
+      ${parameters.end}::bytea, ${parameters.lowerKey}::bytea,
+      ${parameters.lowerRow}::bytea, ${parameters.lowerInclusive}::boolean,
+      ${parameters.upperKey}::bytea, ${parameters.upperRow}::bytea,
+      ${parameters.upperInclusive}::boolean, ${parameters.limit}::integer) r order by r.ordinal`;
 }
 
 
 export function buildAppIndexSnapshotReadStatement(input: PreparedAppIndexSnapshotRead, schemaName?: string): SQL {
   return buildPreparedAppIndexSnapshotReadStatement(schemaName, { scopeUuid: sql`${input.scopeUuid}`, indexDefinitionId: sql`${input.indexDefinitionId}`,
     snapshotCommitSeq: sql`${input.snapshotCommitSeq}`, start: sql`${input.bounds.startInclusive ?? null}`, end: sql`${input.bounds.endExclusive ?? null}`,
-    afterKey: sql`${input.after?.keyBytes ?? null}`, afterRow: sql`${input.after?.rowIdBytes ?? null}`, limit: sql`${input.limit}` });
+    lowerKey: sql`${input.lower?.position.keyBytes ?? null}`, lowerRow: sql`${input.lower?.position.rowIdBytes ?? null}`,
+    lowerInclusive: sql`${input.lower?.inclusive ?? false}`, upperKey: sql`${input.upper?.position.keyBytes ?? null}`,
+    upperRow: sql`${input.upper?.position.rowIdBytes ?? null}`, upperInclusive: sql`${input.upper?.inclusive ?? false}`, limit: sql`${input.limit}` });
 }
 
 const readSnapshotRange = defineNativeMetadataRead(db => db.execute(buildPreparedAppIndexSnapshotReadStatement(undefined, {
   scopeUuid: sql`${sql.placeholder("scopeUuid")}`, indexDefinitionId: sql`${sql.placeholder("indexDefinitionId")}`,
   snapshotCommitSeq: sql`${sql.placeholder("snapshotCommitSeq")}`, start: sql`${sql.placeholder("start")}`,
-  end: sql`${sql.placeholder("end")}`, afterKey: sql`${sql.placeholder("afterKey")}`,
-  afterRow: sql`${sql.placeholder("afterRow")}`, limit: sql`${sql.placeholder("limit")}`,
+  end: sql`${sql.placeholder("end")}`, lowerKey: sql`${sql.placeholder("lowerKey")}`,
+  lowerRow: sql`${sql.placeholder("lowerRow")}`, lowerInclusive: sql`${sql.placeholder("lowerInclusive")}`,
+  upperKey: sql`${sql.placeholder("upperKey")}`, upperRow: sql`${sql.placeholder("upperRow")}`,
+  upperInclusive: sql`${sql.placeholder("upperInclusive")}`, limit: sql`${sql.placeholder("limit")}`,
 })), "raw");
 
 // There are exactly eight current-range shapes. Only predicate presence is

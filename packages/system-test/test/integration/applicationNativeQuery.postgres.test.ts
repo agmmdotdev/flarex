@@ -13,7 +13,7 @@ import {
   "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
 import { describe, expect, it } from "vitest";
 
-import { APPLICATION_NATIVE_QUERY_FIXTURE_OPTIONS } from
+import { APPLICATION_NATIVE_QUERY_FIXTURE_OPTIONS, APPLICATION_NATIVE_QUERY_CACHE_FIXTURE_OPTIONS } from
   "../../support/applicationNativeQueryHarness";
 import { defineApplicationNativeQueryContract } from
   "../contracts/applicationNativeQueryContract";
@@ -37,9 +37,9 @@ describe("Application-native query PostgreSQL acceptance environment", () => {
 describePostgres("Application-native Standard query - PostgreSQL", () => {
   defineApplicationNativeQueryContract({
     runScenario: scenario => withTemporarySplitPostgresPersistence(
-      persistence => scenario(() =>
+      persistence => scenario(profile =>
         createApplicationNativeMutationPostgresFixture(
-          APPLICATION_NATIVE_QUERY_FIXTURE_OPTIONS,
+          profile === "cacheProbe" ? APPLICATION_NATIVE_QUERY_CACHE_FIXTURE_OPTIONS : APPLICATION_NATIVE_QUERY_FIXTURE_OPTIONS,
           persistence,
         )
       ),

@@ -49,6 +49,10 @@ describe("fixed historical storage primitives", () => {
       // This small lane tests the exact installed storage function bodies. Full
       // migration/lifecycle/role attestation runs in the connected owner lanes.
       for (const statement of migration.split("--> statement-breakpoint").slice(1)) await db.exec(statement);
+      const cutsMigration = await readFile(new URL("../../drizzle/0154_snapshot_index_position_cuts.sql", import.meta.url), "utf8");
+      // Keep this exact-function lane narrow; managed maintenance/role proof is
+      // exercised by the full migrated installation lanes.
+      for (const statement of cutsMigration.split("--> statement-breakpoint").slice(1)) await db.exec(statement);
       await db.exec(await readFile(new URL("../../drizzle/0132_finite_historical_identity.sql", import.meta.url), "utf8"));
       for (const [index, id] of ids.entries()) {
         if (index === 0) continue;
@@ -89,12 +93,26 @@ describe("fixed historical storage primitives", () => {
         key_codec_version,physical_spec_sha256,encoded_key,key_sha256,row_id,2,true
         from fx_app_index_entry_rev where row_id=$1`, [appRowIdHexV1ToBytes(ids[0]!)]);
       const historical = await db.query<{ ordinal: number; commit_seq_text: string; encoded_key_bytes: Uint8Array }>(
-        `select * from fx_read_snapshot_index_page($1,1,1,null,null,null,null,2)`, [scopeUuid]);
+        `select * from fx_read_snapshot_index_page($1,1,1,null,null,null,null,false,null,null,false,2)`, [scopeUuid]);
       expect(historical.rows.map(row => [row.ordinal, row.commit_seq_text, row.encoded_key_bytes[0]]))
         .toEqual([[0, "1", 1], [1, "1", 2], [2, "1", 3]]);
       const later = await db.query<{ ordinal: number; encoded_key_bytes: Uint8Array }>(
-        `select * from fx_read_snapshot_index_page($1,1,2,null,null,null,null,2)`, [scopeUuid]);
+        `select * from fx_read_snapshot_index_page($1,1,2,null,null,null,null,false,null,null,false,2)`, [scopeUuid]);
       expect(later.rows.map(row => [row.ordinal, row.encoded_key_bytes[0]])).toEqual([[0, 2], [1, 3]]);
+      for (const id of ids.slice(0, 3)) await db.query(
+        `insert into fx_app_index_entry_rev values ($1,2,1,1,$2,$3,$2,$4,1,false)`,
+        [scopeUuid, new Uint8Array(32), new Uint8Array([7]), appRowIdHexV1ToBytes(id)]);
+      const b = appRowIdHexV1ToBytes(ids[1]!);
+      const tupleRead = (lowerInclusive: boolean, upperInclusive: boolean) => db.query<{ row_id_bytes: Uint8Array }>(
+        `select * from fx_read_snapshot_index_page($1,2,1,null,null,$2,$3,$4,$2,$3,$5,1)`,
+        [scopeUuid, new Uint8Array([7]), b, lowerInclusive, upperInclusive]);
+      expect((await tupleRead(true, true)).rows.map(row => row.row_id_bytes)).toEqual([b]);
+      expect((await tupleRead(false, true)).rows).toEqual([]);
+      expect((await tupleRead(true, false)).rows).toEqual([]);
+      await expect(db.query(`select * from fx_read_snapshot_index_page($1,2,1,null,null,$2,null,true,null,null,false,1)`,
+        [scopeUuid, new Uint8Array([7])])).rejects.toMatchObject({ code: "22023" });
+      await expect(db.query(`select * from fx_read_snapshot_index_page($1,2,1,null,null,null,null,null,null,null,false,1)`,
+        [scopeUuid])).rejects.toMatchObject({ code: "22023" });
     } finally { await db.close(); }
   });
 

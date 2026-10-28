@@ -11,11 +11,13 @@ import {
 } from "@flarex/utils/bytes";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import { and, eq } from "drizzle-orm";
 import {
   Data,
   Effect,
   HashMap,
+  Option,
   Ref,
   Result,
   Schema,
@@ -50,6 +52,9 @@ import {
 import {
   OrderedIndexBoundHexV1Schema,
   type OrderedIndexBoundsV1,
+  type OrderedIndexBoundHexV1,
+  type OrderedIndexKeyBytesHexV1,
+  type OrderedIndexRowIdHexV1,
 } from "flarex-protocol/ordered-index";
 import {
   MAX_SCHEMA_MANIFEST_APP_INDEXES,
@@ -71,14 +76,24 @@ import { TransactionGrantDeploymentIdV1Schema } from
   "flarex-protocol/transaction-grant";
 
 import {
-  getAppRowAtSnapshotInTransactionEffect,
+  readAppRowAtSnapshotInTransactionEffect,
+  projectAppRowPointReadResult,
   readLiveAppRowsAtSnapshotInTransactionEffect,
   type AppRowPointReadResultV1,
+  type LiveAppRowRevisionV1,
   type AppRowTransaction,
   type ReadAppRowError,
 } from "../storage/documents/appRows";
 import {
+  createSnapshotIndexCache,
+  type SnapshotIndexCache,
+  type SnapshotIndexCut,
+  type SnapshotIndexInterval,
+} from "../storage/indexes/snapshotIndexCache";
+import {
   scanAppIndexAtSnapshotInTransactionEffect,
+  prepareAppIndexSnapshotReadResult,
+  type ScanAppIndexAtSnapshotV1Input,
   type ReadAppIndexRangeV1Error,
 } from "../storage/indexes/appIndexEntries";
 import {
@@ -449,7 +464,26 @@ interface State {
   > | null;
   readonly readGate: Semaphore.Semaphore;
   readonly phase: Ref.Ref<"open" | "finalized" | "closed">;
+  readonly cache: SnapshotIndexCache<string, QueryCacheKey, CachedQueryRow>;
+  readonly missing: Ref.Ref<HashMap.HashMap<string, Extract<AppRowPointReadResultV1, { kind: "missing" }>>>;
+  readonly cacheDefinitions: ReadonlyMap<CatalogTableId, readonly LocatedAppIndexDefinitionV1[]>;
   readonly relations?: ApplicationRelationReadPort;
+}
+
+type QueryCacheKey =
+  | Readonly<{ kind: "row"; rowId: AppDocumentIdentityV1["rowId"] }>
+  | Readonly<{ kind: "prefix"; encodedKey: OrderedIndexBoundHexV1 }>
+  | Readonly<{ kind: "index"; encodedKey: OrderedIndexKeyBytesHexV1; rowId: OrderedIndexRowIdHexV1 }>;
+
+/** An owned immutable handle, like the reference's packed document. Lookup
+ * copies handles; only consumed results detach the actual row body. */
+class CachedQueryRow {
+  readonly #row: LiveAppRowRevisionV1;
+  constructor(row: LiveAppRowRevisionV1) {
+    this.#row = structuredClone(row);
+    Object.freeze(this);
+  }
+  copy(): LiveAppRowRevisionV1 { return structuredClone(this.#row); }
 }
 
 interface QueryRelationReadState {
@@ -666,6 +700,7 @@ export const openApplicationQuerySnapshot = Effect.fn(
     )
     : null;
   const phase = yield* Ref.make<"open" | "finalized" | "closed">("open");
+  const missing = yield* Ref.make(HashMap.empty<string, Extract<AppRowPointReadResultV1, { kind: "missing" }>>());
   const state = Object.freeze({
     scopeExecution,
     selection,
@@ -678,6 +713,9 @@ export const openApplicationQuerySnapshot = Effect.fn(
     dependencies,
     readGate: Semaphore.makeUnsafe(1),
     phase,
+    cache: createQuerySnapshotCache(metadata.budget),
+    cacheDefinitions: groupQueryCacheDefinitions(definitions),
+    missing,
     ...(context.relations === undefined ||
         !hasApplicationRelationReadPortAuthorityForControlDb(
           context.relations,
@@ -1162,7 +1200,7 @@ const readIndex = Effect.fn(
   }));
   return Object.freeze({
     documents: page.documents,
-    isDone: page.positions.isDone,
+    isDone: page.isDone,
   });
 });
 
@@ -1284,7 +1322,67 @@ const revalidateInTransaction = Effect.fn(
   );
 });
 
-function readPointInTransaction(
+function compareQueryCacheKeys(left: QueryCacheKey, right: QueryCacheKey): number {
+  if (left.kind === "row") return right.kind === "row" ? compareUtf16Strings(left.rowId, right.rowId) : -1;
+  if (right.kind === "row") return 1;
+  const keyOrder = compareUtf16Strings(left.encodedKey, right.encodedKey);
+  if (keyOrder !== 0) return keyOrder;
+  if (left.kind === "prefix") return right.kind === "prefix" ? 0 : -1;
+  return right.kind === "prefix" ? 1 : compareUtf16Strings(left.rowId, right.rowId);
+}
+
+function createQuerySnapshotCache(budget: ApplicationQueryBudget) {
+  const metadataLimit = budget.maximumDocuments + budget.maximumPointReads + budget.maximumIndexReads;
+  return createSnapshotIndexCache<string, QueryCacheKey, CachedQueryRow>({
+    compareKeys: compareQueryCacheKeys,
+    captureKey: key => Object.freeze({ ...key }),
+    captureValue: value => value,
+    limits: { bodyBytes: budget.maximumSemanticBytes, indexEntries: metadataLimit, intervals: metadataLimit },
+  });
+}
+
+function groupQueryCacheDefinitions(definitions: readonly LocatedAppIndexDefinitionV1[]) {
+  const grouped = new Map<CatalogTableId, LocatedAppIndexDefinitionV1[]>();
+  for (const definition of definitions) {
+    if (definition.access.kind !== "developer") continue;
+    const existing = grouped.get(definition.access.tableId);
+    if (existing === undefined) grouped.set(definition.access.tableId, [definition]);
+    else existing.push(definition);
+  }
+  return new Map(Array.from(grouped, ([tableId, indexes]) => [tableId, Object.freeze(indexes)]));
+}
+
+function cachePointInterval(key: QueryCacheKey): SnapshotIndexInterval<QueryCacheKey> {
+  return { start: { kind: "before", key }, end: { kind: "after", key } };
+}
+
+function cacheRowIdentity(tableId: CatalogTableId, rowId: AppDocumentIdentityV1["rowId"]): string {
+  return `${tableId}/${rowId}`;
+}
+
+function populateQueryRow(state: State, row: LiveAppRowRevisionV1): void {
+  const value = new CachedQueryRow(row);
+  const documentId = cacheRowIdentity(row.tableId, row.rowId);
+  const point: QueryCacheKey = { kind: "row", rowId: row.rowId };
+  const entry = { key: point, documentId, value, bodyBytes: row.document.semanticSizeBytes };
+  if (!state.cache.populate(`row/${row.tableId}`, [entry], cachePointInterval(point))) return;
+  for (const definition of state.cacheDefinitions.get(row.tableId) ?? []) {
+    // An unrequested index is cached only when its key can be derived. Failure
+    // to derive that optional observation leaves a miss; an actual index read
+    // still performs its normal definition, storage and key-integrity checks.
+    Result.match(lowerAppDeveloperIndexKeyV1(definition, row.document, row.creationTime), {
+      onFailure: () => undefined,
+      onSuccess: encodedKey => {
+        if (encodedKey === null) return;
+        const key: QueryCacheKey = { kind: "index", encodedKey, rowId: row.rowId };
+        state.cache.populate(`index/${definition.indexDefinitionId}`,
+          [{ ...entry, key }], cachePointInterval(key));
+      },
+    });
+  }
+}
+
+const readPointInTransaction = Effect.fn("ApplicationQuerySnapshot.readPointInTransaction")(function* (
   tx: AppRowTransaction,
   scoped: ScopedTransactionContext,
   input: Readonly<{
@@ -1293,20 +1391,32 @@ function readPointInTransaction(
     readonly rowId: AppDocumentIdentityV1["rowId"];
   }>,
 ) {
-  return Effect.gen(function* () {
     yield* revalidateInTransaction(
       tx,
       scoped.clock,
       input.state,
       "pointRead",
     );
-    return yield* getAppRowAtSnapshotInTransactionEffect(tx, {
-      snapshotToken: input.state.metadata.snapshotToken,
+    const { state } = input;
+    const key: QueryCacheKey = { kind: "row", rowId: input.rowId };
+    const cached = state.cache.get(`row/${input.tableId}`, cachePointInterval(key), "asc");
+    const first = cached[0];
+    const identity = { scopeId: state.metadata.snapshotToken.scopeId, tableId: input.tableId, rowId: input.rowId };
+    if (first?.kind === "document") return projectAppRowPointReadResult(identity, first.value.copy());
+    const absence = HashMap.get(yield* Ref.get(state.missing), cacheRowIdentity(input.tableId, input.rowId));
+    if (Option.isSome(absence)) return structuredClone(absence.value);
+    const revision = yield* readAppRowAtSnapshotInTransactionEffect(tx, {
+      scopeId: state.metadata.snapshotToken.scopeId,
+      snapshotCommitSeq: state.metadata.snapshotToken.commitSeq,
       tableId: input.tableId,
       rowId: input.rowId,
     });
-  });
-}
+    const result = projectAppRowPointReadResult(identity, revision);
+    if (revision.kind === "live") populateQueryRow(state, revision);
+    else if (result.kind === "missing") yield* Ref.update(state.missing,
+      values => HashMap.set(values, cacheRowIdentity(input.tableId, input.rowId), structuredClone(result)));
+    return result;
+});
 
 const readIndexInTransaction = Effect.fn(
   "ApplicationQuerySnapshot.readIndexInTransaction",
@@ -1342,63 +1452,112 @@ const readIndexInTransaction = Effect.fn(
   if (!covered) {
     return yield* failure("indexRead", "indexUnavailable");
   }
-  const positions = yield* scanAppIndexAtSnapshotInTransactionEffect(tx, {
+  // Query validity belongs to the shared reader compiler even when no storage
+  // miss occurs. An inverted range must remain invalid rather than cache-empty.
+  yield* Effect.fromResult(prepareAppIndexSnapshotReadResult({
     scopeId: scoped.authority.scopeId,
     definition,
     bounds,
     limit,
     snapshotCommitSeq: state.metadata.snapshotToken.commitSeq,
-  });
+  }));
   const documents: CanonicalFlarexRuntimeObjectV1[] = [];
-  for (
-    let offset = 0;
-    offset < positions.entries.length;
-    offset += INDEX_DOCUMENT_MATERIALIZATION_BATCH_SIZE
-  ) {
-    const entries = positions.entries.slice(
-      offset,
-      offset + INDEX_DOCUMENT_MATERIALIZATION_BATCH_SIZE,
-    );
-    const rows = yield* readLiveAppRowsAtSnapshotInTransactionEffect(tx, {
+  const indexId = `index/${definition.indexDefinitionId}`;
+  const interval = queryCacheInterval(bounds);
+  const components = state.cache.get(indexId, interval, "asc");
+  for (const component of components) {
+    if (component.kind === "document") {
+      if (documents.length === limit) return Object.freeze({ documents: Object.freeze(documents), isDone: false });
+      const row = component.value.copy();
+      if (row.tableId !== table.tableId || !isCanonicalFlarexRuntimeObjectV1(row.document.value))
+        return yield* failure("indexRead", "resourceFailure");
+      yield* charge(state, "indexRead", { documents: 1, semanticBytes: row.document.semanticSizeBytes });
+      documents.push(row.document.value);
+      continue;
+    }
+    const remaining = limit - documents.length;
+    const positions = yield* scanAppIndexAtSnapshotInTransactionEffect(tx, {
       scopeId: scoped.authority.scopeId,
-      tableId: table.tableId,
-      rowIds: Object.freeze(entries.map((entry) => entry.rowId)),
+      definition,
+      ...queryCacheMissBounds(bounds, component.interval),
+      limit: Math.max(1, remaining),
       snapshotCommitSeq: state.metadata.snapshotToken.commitSeq,
     });
-    let semanticBytes = 0;
-    for (let index = 0; index < rows.length; index += 1) {
-      const row = rows[index]!;
-      const entry = entries[index]!;
-      if (
-        entry.tableId !== table.tableId ||
-        row.rowId !== entry.rowId ||
-        !isCanonicalFlarexRuntimeObjectV1(row.document.value)
-      )
-        return yield* failure("indexRead", "resourceFailure");
-      const encodedKey = yield* Effect.fromResult(
-        lowerAppDeveloperIndexKeyV1(
-          definition,
-          row.document,
-          row.creationTime,
-        ).pipe(
-          Result.mapError((cause) =>
-            failureValue("indexRead", "resourceFailure", false, cause),
-          ),
-        ),
-      );
-      if (encodedKey !== entry.encodedKey) {
-        return yield* failure("indexRead", "resourceFailure");
+    if (remaining === 0 && positions.entries.length > 0)
+      return Object.freeze({ documents: Object.freeze(documents), isDone: false });
+    for (let offset = 0; offset < positions.entries.length; offset += INDEX_DOCUMENT_MATERIALIZATION_BATCH_SIZE) {
+      const entries = positions.entries.slice(offset, offset + INDEX_DOCUMENT_MATERIALIZATION_BATCH_SIZE);
+      const rows = yield* readLiveAppRowsAtSnapshotInTransactionEffect(tx, {
+        scopeId: scoped.authority.scopeId,
+        tableId: table.tableId,
+        rowIds: Object.freeze(entries.map(entry => entry.rowId)),
+        snapshotCommitSeq: state.metadata.snapshotToken.commitSeq,
+      });
+      let semanticBytes = 0;
+      for (let index = 0; index < rows.length; index += 1) {
+        const row = rows[index]!;
+        const entry = entries[index]!;
+        if (entry.tableId !== table.tableId || row.rowId !== entry.rowId || !isCanonicalFlarexRuntimeObjectV1(row.document.value))
+          return yield* failure("indexRead", "resourceFailure");
+        const encodedKey = yield* Effect.fromResult(lowerAppDeveloperIndexKeyV1(definition, row.document, row.creationTime).pipe(
+          Result.mapError(cause => failureValue("indexRead", "resourceFailure", false, cause))));
+        if (encodedKey !== entry.encodedKey) return yield* failure("indexRead", "resourceFailure");
+        semanticBytes += row.document.semanticSizeBytes;
+        documents.push(row.document.value);
+        populateQueryRow(state, row);
       }
-      semanticBytes += row.document.semanticSizeBytes;
-      documents.push(row.document.value);
+      yield* charge(state, "indexRead", { documents: rows.length, semanticBytes });
     }
-    yield* charge(state, "indexRead", {
-      documents: rows.length,
-      semanticBytes,
-    });
+    const last = positions.entries.at(-1);
+    const completed = positions.isDone ? component.interval : {
+      start: component.interval.start,
+      end: last === undefined ? component.interval.start : { kind: "after" as const,
+        key: { kind: "index" as const, encodedKey: last.encodedKey, rowId: last.rowId } },
+    };
+    // A second bounded population checks that every retained body is present
+    // before declaring the completed interval; capacity refusal leaves misses.
+    const populated = positions.entries.every(entry => state.cache.get(indexId,
+      cachePointInterval({ kind: "index", encodedKey: entry.encodedKey, rowId: entry.rowId }), "asc")[0]?.kind === "document");
+    if (populated) state.cache.populate(indexId, [], completed);
+    if (!positions.isDone) return Object.freeze({ documents: Object.freeze(documents), isDone: false });
   }
-  return Object.freeze({ positions, documents: Object.freeze(documents) });
+  return Object.freeze({ documents: Object.freeze(documents), isDone: true });
 });
+
+function queryCacheInterval(bounds: OrderedIndexBoundsV1): SnapshotIndexInterval<QueryCacheKey> {
+  return {
+    start: bounds.startInclusive === undefined ? { kind: "beforeAll" } :
+      { kind: "before", key: { kind: "prefix", encodedKey: bounds.startInclusive } },
+    end: bounds.endExclusive === undefined ? { kind: "afterAll" } :
+      { kind: "before", key: { kind: "prefix", encodedKey: bounds.endExclusive } },
+  };
+}
+
+function queryCacheMissBounds(bounds: OrderedIndexBoundsV1, interval: SnapshotIndexInterval<QueryCacheKey>):
+Pick<ScanAppIndexAtSnapshotV1Input, "bounds" | "lower" | "upper"> {
+  const start = interval.start;
+  const end = interval.end;
+  const lower = cachePositionCut(start);
+  const upper = cachePositionCut(end);
+  return {
+    bounds: {
+      ...bounds,
+      ...(start.kind === "before" || start.kind === "after") && start.key.kind === "prefix" ?
+        { startInclusive: start.key.encodedKey } : {},
+      ...(end.kind === "before" || end.kind === "after") && end.key.kind === "prefix" ?
+        { endExclusive: end.key.encodedKey } : {},
+    },
+    ...(lower === undefined ? {} : { lower: { ...lower, inclusive: start.kind === "before" } }),
+    ...(upper === undefined ? {} : { upper: { ...upper, inclusive: end.kind === "after" } }),
+  };
+}
+
+function cachePositionCut(cut: SnapshotIndexCut<QueryCacheKey>) {
+  if (cut.kind === "beforeAll" || cut.kind === "afterAll" || cut.key.kind === "prefix") return undefined;
+  // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: invariant - developer-index intervals contain only prefix/index keys; a row key indicates an internal cache namespace violation.
+  if (cut.key.kind === "row") throw new Error("Row cache position used for a developer index range.");
+  return { position: { encodedKey: cut.key.encodedKey, rowId: cut.key.rowId } };
+}
 
 const readRelationInTransaction = Effect.fn(
   "ApplicationQuerySnapshot.readRelationInTransaction",

@@ -12,13 +12,28 @@ import {
   v,
 } from "@flarex/application-definition";
 import { runQuery } from "@flarex/application-invocation";
+import { ExecutionDiagnostics, type ExecutionDiagnosticPolicy } from
+  "@flarex/persistence-postgres/internal/execution-diagnostics";
+import { InvalidAppIndexEntryInputError } from
+  "@flarex/persistence-postgres/internal/app-index-entry-errors";
+import { invokeApplicationMutation } from
+  "@flarex/standard-application-invocation/internal/application-mutation-system";
+import { decodeAppRowIdHexV1, appDocumentIdV1FromRowIdentity } from
+  "flarex-protocol/app-document-id";
+import { appOrderedIndexDocumentPathV1, compileAppOrderedIndexBoundsV1,
+  lowerAppDeveloperOrderedIndexPhysicalSpecV1, orderedIndexValueFromFlarexValueV1 } from
+  "flarex-protocol/ordered-index";
+import { decodeSchemaManifestAppDeveloperOrderedIndexSpecV1, decodeSchemaManifestAppIndexFieldPath } from
+  "flarex-protocol/schema-manifest";
+import { TransactionFunctionPathV1Schema, TransactionRequestKeyV1Schema } from
+  "flarex-protocol/transaction-session";
 import {
   makeApplicationQuerySystemLayer,
   type ApplicationQuerySystemLive,
 } from
   "@flarex/standard-application-invocation/internal/application-query-system";
-import { Effect } from "effect";
-import { makeApplicationExecutionHost } from
+import { Cause, Effect, Exit, Result, Tracer } from "effect";
+import { ApplicationExecutionHostError, makeApplicationExecutionHost } from
   "flarex-backend/internal/application-execution-host";
 import { ApplicationAnalysisSourceReadError } from
   "flarex-backend/internal/application-analysis-source-reader";
@@ -66,12 +81,46 @@ const USERS_GET_MISMATCH_REFERENCE = defineModule({
   },
 }).reference("get");
 
+const CACHE_DOCUMENT = v.object({ _id: v.string(), _creationTime: v.number(), name: v.string() });
+const CACHE_POINT = v.union(CACHE_DOCUMENT, v.null());
+const CACHE_PAGE = v.object({ documents: v.array(CACHE_DOCUMENT), isDone: v.boolean() });
+const USERS_CACHE_REFERENCE = defineModule({
+  path: "users",
+  source: sourceModule({ path: "functions/users.js", bytes: new TextEncoder().encode("export {};\n") }),
+  functions: {
+    cacheProbe: query({
+      args: v.object({ repeatId: v.string(), missingId: v.string(), suffixId: v.string(),
+        invertedBounds: v.optional(v.union(v.literal("cold"), v.literal("warm"))),
+        bounds: v.object({ startInclusive: v.optional(v.string()), endExclusive: v.optional(v.string()) }) }),
+      returns: v.object({ first: CACHE_POINT, repeated: CACHE_POINT, missing: CACHE_POINT, missingRepeated: CACHE_POINT,
+        limited: CACHE_PAGE, fromRange: CACHE_POINT, expanded: CACHE_PAGE, afterExpanded: CACHE_POINT,
+        covered: CACHE_PAGE, bounded: CACHE_PAGE, boundedLimited: CACHE_PAGE, repeatedRange: CACHE_PAGE }),
+    }),
+  },
+}).reference("cacheProbe");
+
+const CACHE_ROW_A = decodeAppRowIdHexV1("11".repeat(16));
+const CACHE_ROW_B = decodeAppRowIdHexV1("22".repeat(16));
+const CACHE_ROW_C = decodeAppRowIdHexV1("33".repeat(16));
+const CACHE_ROW_MISSING = decodeAppRowIdHexV1("44".repeat(16));
+
 export const APPLICATION_NATIVE_QUERY_FIXTURE_OPTIONS = Object.freeze({
   runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
   compatibilityDate: COMPATIBILITY_DATE,
 });
 
-export type ApplicationNativeQueryFixtureFactory = () => Promise<
+export const APPLICATION_NATIVE_QUERY_CACHE_FIXTURE_OPTIONS = Object.freeze({
+  ...APPLICATION_NATIVE_QUERY_FIXTURE_OPTIONS,
+  includeUserNameIndex: true,
+  includeQueryCacheProbe: true,
+  initialUserDocuments: Object.freeze([
+    Object.freeze({ name: "Ada", rowId: CACHE_ROW_A }),
+    Object.freeze({ name: "Ada", rowId: CACHE_ROW_B }),
+    Object.freeze({ name: "Bea", rowId: CACHE_ROW_C }),
+  ]),
+});
+
+export type ApplicationNativeQueryFixtureFactory = (profile?: "cacheProbe") => Promise<
   ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>
 >;
 
@@ -256,6 +305,127 @@ export async function proveApplicationNativeQuery(
   }
 }
 
+export interface ApplicationNativeQueryDataReadObservation {
+  readonly method: "readPointDocument" | "queryIndexRange";
+  readonly ordinal: number;
+  readonly rowSnapshotReads: number;
+  readonly indexSnapshotReads: number;
+}
+
+type MutableQueryDataReadObservation = {
+  -readonly [Field in keyof ApplicationNativeQueryDataReadObservation]: ApplicationNativeQueryDataReadObservation[Field];
+};
+
+/** Genuine Worker source exercises storage reuse; RPC counts remain logical calls. */
+export async function proveApplicationNativeQueryCache(createFixture: ApplicationNativeQueryFixtureFactory) {
+  const fixture = await createFixture("cacheProbe");
+  const table = fixture.schemaAuthority.tables.find(candidate => candidate.logicalName === "users");
+  if (table === undefined) throw new Error("Application cache probe users table is missing.");
+  const documentId = (rowId: typeof CACHE_ROW_A) => appDocumentIdV1FromRowIdentity({ tableId: table.tableId, rowId });
+  const args = Object.freeze({
+    repeatId: documentId(CACHE_ROW_C),
+    missingId: documentId(CACHE_ROW_MISSING),
+    suffixId: documentId(CACHE_ROW_B),
+    bounds: compileAppOrderedIndexBoundsV1({
+      spec: lowerAppDeveloperOrderedIndexPhysicalSpecV1(decodeSchemaManifestAppDeveloperOrderedIndexSpecV1({
+        kind: "developerOrdered", specVersion: 1, fields: ["name"],
+      })),
+      expressions: [{ op: "eq", field: appOrderedIndexDocumentPathV1(decodeSchemaManifestAppIndexFieldPath("name")),
+        value: orderedIndexValueFromFlarexValueV1("Ada") }],
+    }),
+  });
+  let current: MutableQueryDataReadObservation | undefined;
+  let observations: MutableQueryDataReadObservation[] = [];
+  let indexTransactionSpans: Tracer.NativeSpan[] = [];
+  let observing = false;
+  const loader = new MiniflareApplicationWorkerLoader(method => {
+    current = undefined;
+    if (!observing || (method !== "readPointDocument" && method !== "queryIndexRange")) return;
+    current = { method, ordinal: observations.filter(item => item.method === method).length + 1,
+      rowSnapshotReads: 0, indexSnapshotReads: 0 };
+    observations.push(current);
+  });
+  const tracer = Tracer.make({ span(options) {
+    if (current !== undefined && options.name === "AppRows.captureSnapshotRead") current.rowSnapshotReads++;
+    const span = new Tracer.NativeSpan(options);
+    if (options.name === "ApplicationQuerySnapshot.readIndexInTransaction") indexTransactionSpans.push(span);
+    return span;
+  } });
+  const diagnostics: ExecutionDiagnosticPolicy = {
+    observe(name, work) {
+      if (current !== undefined && name === "AppIndexEntries.scanAtSnapshotInTransaction") current.indexSnapshotReads++;
+      return work;
+    },
+  };
+  const layer = makeApplicationNativeQueryTestLayer(fixture, loader);
+  const invoke = async () => {
+    observations = [];
+    current = undefined;
+    observing = true;
+    const before = loader.loads;
+    try {
+      const value = await runSystemTestEffectV1(Effect.scoped(runQuery(USERS_CACHE_REFERENCE, args).pipe(
+        Effect.provide(layer), Effect.provideService(Tracer.Tracer, tracer),
+        Effect.provideService(ExecutionDiagnostics, diagnostics),
+      )));
+      return Object.freeze({ value, workerLoads: loader.loads - before,
+        reads: Object.freeze(observations.map(item => Object.freeze({ ...item }))) });
+    } finally {
+      observing = false;
+      current = undefined;
+    }
+  };
+  const invokeInvertedBounds = async (mode: "cold" | "warm") => {
+    observations = [];
+    indexTransactionSpans = [];
+    current = undefined;
+    observing = true;
+    const before = loader.loads;
+    try {
+      const outcome = await runSystemTestEffectV1(Effect.scoped(runQuery(USERS_CACHE_REFERENCE,
+        { ...args, invertedBounds: mode }).pipe(
+          Effect.provide(layer), Effect.provideService(Tracer.Tracer, tracer),
+          Effect.provideService(ExecutionDiagnostics, diagnostics), Effect.result,
+        )));
+      // The Worker projects its boundary failure; the existing storage span
+      // retains the precise typed cause so unrelated failures cannot pass.
+      const refused = Result.match(outcome, {
+        onFailure: error => error._tag === "QueryInvocationError" &&
+          error.cause instanceof ApplicationExecutionHostError && error.cause.reason === "readBoundaryFailed",
+        onSuccess: () => false,
+      });
+      const invalidBoundsFailures = indexTransactionSpans.filter(span => span.status._tag === "Ended" &&
+        Exit.isFailure(span.status.exit) && span.status.exit.cause.reasons.some(reason =>
+          Cause.isFailReason(reason) && reason.error instanceof InvalidAppIndexEntryInputError &&
+          reason.error.issue === "invalidBounds")).length;
+      return Object.freeze({ refused, invalidBoundsFailures, workerLoads: loader.loads - before,
+        reads: Object.freeze(observations.map(item => Object.freeze({ ...item }))) });
+    } finally {
+      observing = false;
+      current = undefined;
+    }
+  };
+  try {
+    const coldInvertedBounds = await invokeInvertedBounds("cold");
+    const warmInvertedBounds = await invokeInvertedBounds("warm");
+    const first = await invoke();
+    const { makeApplicationNativeMutationTestLayer } = await import("./applicationNativeMutationHarness");
+    const mutationLayer = await makeApplicationNativeMutationTestLayer(fixture, loader);
+    const renamed = await runSystemTestEffectV1(Effect.scoped(invokeApplicationMutation(
+      TransactionFunctionPathV1Schema.make("users:renameCacheProbe"),
+      { id: args.repeatId, name: "Cyra" },
+      TransactionRequestKeyV1Schema.make("application-native-query-cache:rename"),
+    ).pipe(Effect.provide(mutationLayer))));
+    if (renamed.disposition !== "published") throw new Error("Application cache probe patch did not publish.");
+    const next = await invoke();
+    return Object.freeze({ first, next, coldInvertedBounds, warmInvertedBounds,
+      ids: Object.freeze({ first: documentId(CACHE_ROW_A), second: args.suffixId,
+      changed: args.repeatId, missing: args.missingId }), mutationCommitSeq: renamed.commitSeq });
+  } finally {
+    await loader.dispose();
+  }
+}
+
 type ApplicationWorkerRuntime = Pick<Miniflare, "dispose">;
 
 export class MiniflareApplicationWorkerLoader implements WorkerLoader {
@@ -268,6 +438,8 @@ export class MiniflareApplicationWorkerLoader implements WorkerLoader {
   readonly #runtimes = new Set<ApplicationWorkerRuntime>();
   readonly #disposals: Array<Promise<PromiseSettledResult<void>[]>> = [];
   #nextInvocationBlock: InvocationBlock | undefined;
+
+  constructor(private readonly onCapability: (method: string, argumentsValue: readonly unknown[]) => void = () => undefined) {}
 
   blockNextInvocation(): Readonly<{
     readonly started: Promise<void>;
@@ -298,6 +470,7 @@ export class MiniflareApplicationWorkerLoader implements WorkerLoader {
   }
 
   observeCapability(method: string, argumentsValue: readonly unknown[]): void {
+    this.onCapability(method, argumentsValue);
     if (method === "revalidate") this.revalidations += 1;
     if (method === "takeIncomingRelationSources") this.incomingRelationReads += 1;
     if (method !== "readPointDocument") return;

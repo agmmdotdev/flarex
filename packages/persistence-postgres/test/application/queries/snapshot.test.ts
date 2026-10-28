@@ -679,6 +679,32 @@ describe("Application queries/snapshot", { timeout: 30_000, concurrent: false },
 
         expect(page).toEqual({ documents: [expected.value], isDone: true });
 
+        const boundChecks = await runEffect(Effect.scoped(Effect.gen(function* () {
+          const opened = yield* openApplicationQuerySnapshot(active.selection, "users:get", queryBudget(), {
+            deploymentId: fixture.input.deploymentId,
+            controlDb: fixture.control.drizzle,
+            authority: fixture.authorityPorts,
+            schema: fixture.schema,
+            developerIndexes: queryDeveloperIndexes(fixture),
+          });
+          const reversed = { startInclusive: "02", endExclusive: "01" };
+          const equal = { startInclusive: "01", endExclusive: "01" };
+          const coldReversed = yield* Effect.result(readApplicationQueryIndex(opened.snapshot, "users", "by_name", reversed, 10));
+          const coldEqual = yield* readApplicationQueryIndex(opened.snapshot, "users", "by_name", equal, 10);
+          yield* readApplicationQueryIndex(opened.snapshot, "users", "by_name", {}, 10);
+          const warmReversed = yield* Effect.result(readApplicationQueryIndex(opened.snapshot, "users", "by_name", reversed, 10));
+          const warmEqual = yield* readApplicationQueryIndex(opened.snapshot, "users", "by_name", equal, 10);
+          return { coldReversed, warmReversed, coldEqual, warmEqual };
+        })));
+        for (const outcome of [boundChecks.coldReversed, boundChecks.warmReversed]) {
+          expect(Result.isFailure(outcome)).toBe(true);
+          if (Result.isFailure(outcome)) expect(outcome.failure).toMatchObject({
+            _tag: "InvalidAppIndexEntryInputError", issue: "invalidBounds",
+          });
+        }
+        expect(boundChecks.coldEqual).toEqual({ documents: [], isDone: true });
+        expect(boundChecks.warmEqual).toEqual({ documents: [], isDone: true });
+
         const indexBudget = await runEffect(Effect.result(Effect.scoped(Effect.gen(function* () {
           const opened = yield* openApplicationQuerySnapshot(
             active.selection,
@@ -808,11 +834,27 @@ describe("Application queries/snapshot", { timeout: 30_000, concurrent: false },
         expect(fanOut.results.every(Result.isFailure)).toBe(true);
         expect(transactionStarts).toBe(fanOut.startsBeforeFanOut);
 
-        await fixture.target.drizzle.update(fxSystemIndexBuildStates).set({
-          lifecycle: "validating",
-          maintenanceActivationSequence: null,
-          maintenanceAuthorityKind: null,
-        }).where(eq(fxSystemIndexBuildStates.scopeId, fixture.authority.scopeId));
+        const warmIndexScope = await runEffect(Scope.make());
+        try {
+          const warmed = await runEffect(openApplicationQuerySnapshot(active.selection, "users:get", queryBudget(), {
+            deploymentId: fixture.input.deploymentId,
+            controlDb: fixture.control.drizzle,
+            authority: fixture.authorityPorts,
+            schema: fixture.schema,
+            developerIndexes: queryDeveloperIndexes(fixture),
+          }).pipe(Effect.provideService(Scope.Scope, warmIndexScope)));
+          await runEffect(readApplicationQueryIndex(warmed.snapshot, "users", "by_name", {}, 10));
+          await fixture.target.drizzle.update(fxSystemIndexBuildStates).set({
+            lifecycle: "validating",
+            maintenanceActivationSequence: null,
+            maintenanceAuthorityKind: null,
+          }).where(eq(fxSystemIndexBuildStates.scopeId, fixture.authority.scopeId));
+          const refused = await runEffect(Effect.result(readApplicationQueryIndex(warmed.snapshot, "users", "by_name", {}, 10)));
+          expect(Result.isFailure(refused)).toBe(true);
+          if (Result.isFailure(refused)) expect(refused.failure).toMatchObject({ reason: "indexUnavailable" });
+        } finally {
+          await runEffect(Scope.close(warmIndexScope, Exit.succeed(undefined)));
+        }
         const unavailable = await runEffect(Effect.result(Effect.scoped(Effect.gen(function* () {
           const opened = yield* openApplicationQuerySnapshot(
             active.selection,

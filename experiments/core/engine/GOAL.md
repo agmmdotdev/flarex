@@ -1,6 +1,7 @@
 # Single-owner core refactor goal
 
-Status: **Authorized implementation goal; first slice under source challenge**.
+Status: **Active implementation goal; bounded Application cache/read replacement
+implemented, wider snapshot/DO milestone open**.
 The owner has requested the complete single-owner refactor, delivered through
 bounded connected milestones. This authorization supersedes earlier statements
 that this work is documentation-only. It does not decide unresolved guarantees,

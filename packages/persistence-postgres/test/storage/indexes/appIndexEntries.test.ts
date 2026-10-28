@@ -1,6 +1,7 @@
 import { usePGliteStorageTests } from "../../support/storageTestHarness";
 import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../../src/installation/installationLifecycle";
 import { verifyIndexBatches } from "./indexBatchScenario";
+import { verifySnapshotIndexPositionCuts } from "./appIndexEntriesPositionCutsScenario";
 import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";
 import { verifyMembershipReadPreparation } from "./indexMembershipReadScenario";
 import { verifyRetainedHistoryReads } from "./retainedHistoryReadScenario";
@@ -96,6 +97,26 @@ let locatedDefinition: LocatedAppIndexDefinitionV1;
 
 describe("S10 app-index revision and current storage", { concurrent: false }, () => {
   const { withPersistence, it: databaseIt } = usePGliteStorageTests("indexes");
+
+  databaseIt("intersects exact snapshot tuple cuts before lookahead and preserves historical tombstones", async () => {
+    await withPersistence(async borrowedPersistence => {
+      const persistence = await indexPersistence(borrowedPersistence);
+      const rowC = decodeAppRowIdHexV1("5200000000000000000000000000000c");
+      await persistence.drizzle.transaction(async tx => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try {
+          for (const rowId of [rowA, rowB, rowC]) {
+            await appendRow(tx, await liveRow(rowId, 1n, null, "same-key"));
+            await appendEntry(tx, liveEntry(rowId, keyA, 1n));
+          }
+          await verifySnapshotIndexPositionCuts(tx, { scopeId, definition: locatedDefinition, removeMiddle: async () => {
+            await appendRow(tx, await liveRow(rowB, 2n, 1n, "removed-key"));
+            await appendEntry(tx, tombstoneEntry(rowB, keyA, 2n));
+          } });
+        } finally { closeInstallationAdmission(tx); }
+      });
+    });
+  });
 
   databaseIt("reads complete bounded retained positions and canonical revisions after physical deletion", async () => {
     await withPersistence(async borrowedPersistence => {

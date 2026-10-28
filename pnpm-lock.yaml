@@ -1506,6 +1506,9 @@ importers:
       pg:
         specifier: ^8.22.0
         version: 8.22.0
+      sorted-btree:
+        specifier: 2.1.0
+        version: 2.1.0
     devDependencies:
       drizzle-kit:
         specifier: ^0.31.10
@@ -4076,6 +4079,9 @@ packages:
   sonic-boom@4.2.1:
     resolution: {integrity: sha512-w6AxtubXa2wTXAUsZMMWERrsIRAdrK0Sc+FUytWvYAhBJLyuI4llrMIC1DtlNSdI99EI86KZum2MMq3EAZlF9Q==}
 
+  sorted-btree@2.1.0:
+    resolution: {integrity: sha512-AtYXy3lL+5jrATpbymC2bM8anN/3maLkmVCd94MzypnKjokfCid/zeS3rvXedv7W6ffSfqKIGdz3UaJPWRBZ0g==}
+
   source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
     engines: {node: '>=0.10.0'}
@@ -6079,6 +6085,8 @@ snapshots:
   sonic-boom@4.2.1:
     dependencies:
       atomic-sleep: 1.0.0
+
+  sorted-btree@2.1.0: {}
 
   source-map-js@1.2.1: {}
 

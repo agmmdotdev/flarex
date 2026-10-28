@@ -1,16 +1,14 @@
 # First slice: snapshot reader and operation-local coverage
 
-Status: **Initial independent source challenge complete; runtime implementation
-unstarted**. The [goal](../GOAL.md) authorizes the connected replacement after
-the remaining implementation-boundary gates below. This note records scope and
-decisions, not test receipts or completed capability coverage.
+Status: **Bounded Application operation-local replacement implemented; wider
+portable snapshot/DO milestone open**. The [goal](../GOAL.md) remains active.
+This note records scope and decisions; Git owns validation receipts.
 
 Baseline checkpoint: Flarex `5f6b78b73425`; Convex
 `84fbb0e70b4e857913673871cb847ad11a55f3d5`. Current Flarex sources were inspected
-in the shared worktree, not assumed identical to HEAD. In particular,
-`appIndexEntries.ts` has unrelated modifications: read them as current evidence,
-preserve them, and recheck their contract before implementation/validation. Do
-not claim a frozen whole-workload inventory from this bounded inspection.
+in the shared worktree, not assumed identical to HEAD. Inspect semantic overlap
+with other work before each edit; dirty status alone does not establish ownership.
+Do not claim a frozen whole-workload inventory from this bounded inspection.
 
 ## Three-way challenge
 
@@ -134,3 +132,69 @@ The worker owns only the ordered module and pure scenario tests; the coordinator
 owns dependency wiring, Application reader integration and connected database
 tests. Runtime work is not complete until the real consumer uses the replacement,
 the old direct-fetch bypasses are removed for that scope and required reviews pass.
+
+## Installed snapshot-reader extension
+
+The current-owner challenge traced historical reads through
+`buildPreparedAppIndexSnapshotReadStatement` and the installed eight-argument
+`fx_read_snapshot_index_page`, rather than the separate current-row SQL predicate
+family. Exact cache misses require tuple cuts before the function's visibility
+selection and LIMIT+1. Fetching extra rows and filtering them in an adapter would
+retain unnecessary work and can misstate component continuation.
+
+Extend the snapshot-only reader with explicit lower/upper full-position cuts,
+including inclusion, while retaining existing whole-key bounds as intersections.
+Normalize the existing exclusive `after` cursor through the same captured
+position decoder. Define contradictory input combinations explicitly and fail
+closed. New lower-before-position support must not be silently converted to an
+exclusive after cursor, and upper-before-position must not exclude every row
+sharing the encoded key.
+
+The persistence worker owns the reader/compiler, shared installed SQL function,
+finite-capture caller, installation/grant/fingerprint metadata, a new forward
+migration and owner tests. Migrate every real function caller and remove the
+displaced private signature. Preserve existing durable data; do not rewrite old
+migrations or reset the database. Root owns Application integration and the
+genuine shared PGlite/PostgreSQL query scenario. Existing dirty owner files must
+be compared by semantic diff and preserved; observed EOL-only status is not
+permission to overwrite future changes.
+
+Required owner cases include lower/upper cuts inside duplicate encoded keys,
+inclusive/exclusive tuple boundaries, tombstones at old snapshots, empty cuts,
+limit/lookahead continuation and malformed cursor/boolean shapes. Verify actual
+PostgreSQL plans, including repeated prepared execution, to ensure cutoffs
+constrain storage before pagination. Current/native read families receive no new
+advertised operation unless their executing paths are deliberately migrated.
+
+## Implemented boundary and remaining work
+
+[ApplicationQuerySnapshot](../../../../packages/persistence-postgres/src/application/applicationQuerySnapshot.ts)
+owns one private cache per immutable query snapshot. Point/range reads compose
+covered data and exact missing intervals, retaining current short checked
+transactions, authority/history/build eligibility and logical/output budgets.
+Both cold and cached requests pass the existing snapshot compiler before cache
+lookup, so malformed bounds cannot become apparent absence. The historical
+readers remain the miss path at the same timestamp; the selected unconditional
+point/range fetches are displaced rather than retained as a parallel path.
+
+[SnapshotIndexCache](../../../../packages/persistence-postgres/src/storage/indexes/snapshotIndexCache.ts)
+owns ordered bodies, complete intervals and bounded capacity. The
+[storage adaptation](../divergences/operation-cache-storage.md) records the
+TypeScript collection/accounting and SQL tuple representation differences.
+The installed reader and finite-capture binding share the replacement tuple-cut
+compiler and twelve-argument function. Migration 0154 replaces the former private
+signature through managed installation; old migrations remain immutable.
+
+The genuine query scenario executes `ctx.db.get` and `ctx.db.queryIndexRange`
+through the existing Worker RPC. Repeated hits avoid row/index data fetches;
+they still perform the required authority work. This does not prove zero SQL,
+zero RPC, a new DO host or complete-request performance.
+
+The remaining milestone must extract the portable snapshot/read seam from
+current checked-transaction choreography, establish required writer/publication
+participation, compose the real Cloudflare owner and prove local storage recovery.
+Shared-page serving needs its own justified divergence from the pinned shadow
+reader before activation. Native Medusa/Payload pending-state and lifecycle paths
+remain with their current owners until their connected replacement is challenged.
+The new out-of-order save pipeline and replication are not implemented here;
+replication remains deferred.

@@ -298,7 +298,8 @@
     "effect": "catalog:",
     "flarex": "workspace:*",
     "flarex-protocol": "workspace:*",
-    "pg": "^8.22.0"
+    "pg": "^8.22.0",
+    "sorted-btree": "2.1.0"
   },
   "devDependencies": {
     "drizzle-kit": "^0.31.10",

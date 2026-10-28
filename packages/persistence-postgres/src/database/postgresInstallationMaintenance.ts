@@ -472,7 +472,7 @@ const configureRuntimePermissions = Effect.fn("InstallationMaintenance.configure
         ${schema}.fx_accept_finite_storage_capture(text,${schema}.fx_finite_capture_expected,bytea,bytea,uuid,bigint,bigint,uuid,bigint,text,bigint,text,integer,integer,integer,${schema}.fx_finite_read_expected),
         ${schema}.fx_read_snapshot_rows(uuid,integer,bytea[],bigint,bigint,boolean),
         ${schema}.fx_read_historical_row_identity(uuid,integer,bytea),
-        ${schema}.fx_read_snapshot_index_page(uuid,integer,bigint,bytea,bytea,bytea,bytea,integer),
+        ${schema}.fx_read_snapshot_index_page(uuid,integer,bigint,bytea,bytea,bytea,bytea,boolean,bytea,bytea,boolean,integer),
         ${schema}.fx_read_application_ownership_unique_closure(text,text,integer,integer) to ${role}` :
       `revoke all on function ${schema}.fx_observe_finite_entry(text,uuid,text,text),
         ${schema}.fx_complete_finite_entry(${schema}.fx_finite_entry_expected,boolean),
@@ -480,7 +480,7 @@ const configureRuntimePermissions = Effect.fn("InstallationMaintenance.configure
         ${schema}.fx_accept_finite_storage_capture(text,${schema}.fx_finite_capture_expected,bytea,bytea,uuid,bigint,bigint,uuid,bigint,text,bigint,text,integer,integer,integer,${schema}.fx_finite_read_expected),
         ${schema}.fx_read_snapshot_rows(uuid,integer,bytea[],bigint,bigint,boolean),
         ${schema}.fx_read_historical_row_identity(uuid,integer,bytea),
-        ${schema}.fx_read_snapshot_index_page(uuid,integer,bigint,bytea,bytea,bytea,bytea,integer) from ${role}`));
+        ${schema}.fx_read_snapshot_index_page(uuid,integer,bigint,bytea,bytea,bytea,bytea,boolean,bytea,bytea,boolean,integer) from ${role}`));
     // Activation validates retained ownership in its original target transaction.
     // These bounded invoker reads expose no publication or finite-body capability.
     const ownershipReads = `${schema}.fx_read_application_write_ownership_snapshot(text,integer,integer),

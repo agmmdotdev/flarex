@@ -228,6 +228,8 @@ export interface ApplicationNativeMutationFixtureOptions {
   readonly runtimeHostIdentity: string;
   readonly compatibilityDate: string;
   readonly includeUserNameIndex?: boolean;
+  /** Finite genuine Worker query/patch source for snapshot-cache conformance. */
+  readonly includeQueryCacheProbe?: boolean;
   readonly initialUserDocuments?: readonly ApplicationNativeMutationUserDocument[];
   readonly includeProductLaunch?: boolean;
   readonly includeInternalCalls?: boolean;
@@ -571,7 +573,7 @@ async function createApplicationNativeMutationFixture<
   } as const));
   const source = options.analysis?.source ?? await mutationSourceBundle(options.includeProductLaunch === true,
     options.acceptanceScale?.extraFunctions ?? 0, options.acceptanceScale?.functionPaddingBytes ?? 0,
-    options.includeInternalCalls === true);
+    options.includeInternalCalls === true, options.includeQueryCacheProbe === true);
   const fixtureManifest = {
       format: "flarex.application-manifest",
       version: 1,
@@ -661,7 +663,12 @@ async function createApplicationNativeMutationFixture<
         args: { type: "any" },
         returns: { type: "any" },
         partition: null,
-      }, ...(options.includeInternalCalls === true ? [
+      }, ...(options.includeQueryCacheProbe === true ? [
+        { path: "users:cacheProbe", moduleName: "users", exportName: "cacheProbe",
+          kind: "query", visibility: "public", args: { type: "any" }, returns: { type: "any" }, partition: null },
+        { path: "users:renameCacheProbe", moduleName: "users", exportName: "renameCacheProbe",
+          kind: "mutation", visibility: "public", args: { type: "any" }, returns: { type: "any" }, partition: null },
+      ] as const : []), ...(options.includeInternalCalls === true ? [
         { path: "users:deleteThroughInternal", moduleName: "users", exportName: "deleteThroughInternal",
           kind: "mutation", visibility: "public", args: { type: "any" }, returns: { type: "any" }, partition: null },
         { path: "users:deleteInternal", moduleName: "users", exportName: "deleteInternal",
@@ -1324,7 +1331,7 @@ function resolveTaskPublication(
 }
 
 async function mutationSourceBundle(includeProductLaunch = false, extraFunctionCount = 0,
-  functionPaddingBytes = 0, includeInternalCalls = false): Promise<ApplicationNativeMutationSourceBundle> {
+  functionPaddingBytes = 0, includeInternalCalls = false, includeQueryCacheProbe = false): Promise<ApplicationNativeMutationSourceBundle> {
   const execution = [
     'import { query } from "flarex/server";',
     'import { mutation } from "flarex/server";',
@@ -1339,6 +1346,10 @@ async function mutationSourceBundle(includeProductLaunch = false, extraFunctionC
     "  create: mutation({ handler: users.create }),",
     "  createInternal: internalMutation({ handler: users.createInternal }),",
     "  notify: action({ handler: users.notify }),",
+    ...(includeQueryCacheProbe ? [
+      "  cacheProbe: query({ handler: users.cacheProbe }),",
+      "  renameCacheProbe: mutation({ handler: users.renameCacheProbe }),",
+    ] : []),
     ...(includeInternalCalls ? [
       "  deleteThroughInternal: mutation({ handler: users.deleteThroughInternal }),",
       "  deleteInternal: internalMutation({ handler: users.deleteInternal }),",
@@ -1359,6 +1370,30 @@ async function mutationSourceBundle(includeProductLaunch = false, extraFunctionC
     "export async function get(ctx, args) {",
     "  return await ctx.db.get(args.id);",
     "}",
+    ...(includeQueryCacheProbe ? [
+      "export async function cacheProbe(ctx, args) {",
+      "  if (args.invertedBounds === 'warm') await ctx.db.queryIndexRange('users', 'by_name', {}, 4);",
+      "  if (args.invertedBounds !== undefined) await ctx.db.queryIndexRange('users', 'by_name', { startInclusive: '02', endExclusive: '01' }, 4);",
+      "  const first = await ctx.db.get(args.repeatId);",
+      "  const repeated = await ctx.db.get(args.repeatId);",
+      "  const missing = await ctx.db.get(args.missingId);",
+      "  const missingRepeated = await ctx.db.get(args.missingId);",
+      "  const limited = await ctx.db.queryIndexRange('users', 'by_name', {}, 1);",
+      "  if (limited.documents.length !== 1) throw new Error('Cache probe requires the first indexed document.');",
+      "  const fromRange = await ctx.db.get(limited.documents[0]._id);",
+      "  const expanded = await ctx.db.queryIndexRange('users', 'by_name', {}, 4);",
+      "  const afterExpanded = await ctx.db.get(args.suffixId);",
+      "  const covered = await ctx.db.queryIndexRange('users', 'by_name', {}, 2);",
+      "  const bounded = await ctx.db.queryIndexRange('users', 'by_name', args.bounds, 4);",
+      "  const boundedLimited = await ctx.db.queryIndexRange('users', 'by_name', args.bounds, 1);",
+      "  const repeatedRange = await ctx.db.queryIndexRange('users', 'by_name', {}, 4);",
+      "  return { first, repeated, missing, missingRepeated, limited, fromRange, expanded, afterExpanded, covered, bounded, boundedLimited, repeatedRange };",
+      "}",
+      "export async function renameCacheProbe(ctx, args) {",
+      "  await ctx.db.patch(args.id, { name: args.name });",
+      "  return await ctx.db.get(args.id);",
+      "}",
+    ] : []),
     "export async function create(ctx, args) {",
     "  return await ctx.db.insert(\"users\", { name: args.name });",
     "}",

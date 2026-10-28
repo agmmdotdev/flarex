@@ -2,6 +2,7 @@ import { usePostgresStorageTests } from "../../support/storageTestHarness";
 import { createHash } from "node:crypto";
 import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../../src/installation/installationLifecycle";
 import { verifyIndexBatches } from "./indexBatchScenario";
+import { verifySnapshotIndexPositionCuts } from "./appIndexEntriesPositionCutsScenario";
 import { verifyMembershipReadPreparation } from "./indexMembershipReadScenario";
 import { verifyRetainedHistoryReads } from "./retainedHistoryReadScenario";
 import { verifyDemandVectorFreshness } from "../documents/logicalDependencyValidationScenario";
@@ -51,6 +52,7 @@ import {
   scanCurrentAppIndexInTransactionEffect,
   scanCurrentPublicationIndexInTransactionEffect,
   consumeCurrentAppIndexPagesInTransactionEffect,
+  prepareAppIndexSnapshotReadResult,
 } from "../../../src/storage/indexes/appIndexEntries";
 import {
   locateAppIndexDefinitionByIdEffect,
@@ -89,6 +91,58 @@ const deploymentId = "deployment_s10_postgres";
 let locatedDefinition: LocatedAppIndexDefinitionV1;
 
 describePostgres("real PostgreSQL S10 app-index storage", () => {
+  databaseIt("intersects exact snapshot tuple cuts before lookahead and preserves historical tombstones", async () => {
+    await withPersistence(async persistence => {
+      await insertClock(persistence);
+      const rowC = decodeAppRowIdHexV1("5300000000000000000000000000000c");
+      await persistence.drizzle.transaction(async tx => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try {
+          for (const rowId of [rowA, rowB, rowC]) {
+            await appendRow(tx, rowId, 1n, null, "same-key");
+            await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [indexEntry(rowId, keyA, 1n)]));
+          }
+          const positions = await verifySnapshotIndexPositionCuts(tx, { scopeId, definition: locatedDefinition, removeMiddle: async () => {
+            await appendRow(tx, rowB, 2n, 1n, "removed-key");
+            await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{ ...indexEntry(rowB, keyA, 2n), kind: "tombstone" }]));
+          } });
+          const prepared = Result.getOrThrow(prepareAppIndexSnapshotReadResult({ scopeId, definition: locatedDefinition,
+            bounds: {}, snapshotCommitSeq: CommitSeqSchema.make(1n), limit: 1,
+            lower: { position: positions.middle, inclusive: true }, upper: { position: positions.last, inclusive: true } }));
+          if (process.env.FLAREX_SNAPSHOT_INDEX_PLAN_DIAGNOSTICS === "1") {
+            await tx.execute(sql`set local application_name = 'flarex_snapshot_index_position_cuts'`);
+            await tx.execute(sql`set local auto_explain.log_min_duration = 0`);
+            const diagnostic = rowsFromDriverExecuteResult(await tx.execute(sql`
+              select pg_backend_pid()::integer as pid, current_setting('application_name') as application,
+                clock_timestamp()::text as at`), () => { throw new Error("Missing tuple-plan diagnostic identity"); });
+            console.log("Snapshot tuple-plan diagnostic", diagnostic);
+          }
+          await tx.execute(sql`set local plan_cache_mode = force_generic_plan`);
+          await tx.execute(sql.raw(`prepare fx_snapshot_position_cuts_plan(uuid,integer,bigint,bytea,bytea,bytea,bytea,boolean,bytea,bytea,boolean,integer)
+            as select * from fx_read_snapshot_index_page($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`));
+          try {
+            for (let attempt = 0; attempt < 20; attempt++) {
+              // EXECUTE is a utility statement: these are captured UUID/hex
+              // fixture literals, not protocol placeholders or caller text.
+              const inclusive = attempt % 2 === 0;
+              const rows = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ row_id_bytes: Schema.Uint8Array })))(
+                rowsFromDriverExecuteResult(await tx.execute(sql.raw(`execute fx_snapshot_position_cuts_plan(
+                  '${prepared.scopeUuid}'::uuid,${prepared.indexDefinitionId},1,null,null,
+                  decode('${positions.middle.encodedKey}','hex'),decode('${positions.middle.rowId}','hex'),${inclusive},
+                  decode('${positions.last.encodedKey}','hex'),decode('${positions.last.rowId}','hex'),true,1)`)),
+                () => { throw new Error("Missing snapshot tuple prepared rows"); }));
+              expect(rows.map(row => Buffer.from(row.row_id_bytes).toString("hex")))
+                .toEqual(inclusive ? [positions.middle.rowId, positions.last.rowId] : [positions.last.rowId]);
+            }
+            const counters = rowsFromDriverExecuteResult(await tx.execute(sql`
+              select generic_plans::integer as "genericPlans" from pg_prepared_statements
+              where name='fx_snapshot_position_cuts_plan'`), () => { throw new Error("Missing snapshot tuple prepared counter"); });
+            expect(counters).toEqual([{ genericPlans: 20 }]);
+          } finally { await tx.execute(sql`deallocate fx_snapshot_position_cuts_plan`); }
+        } finally { closeInstallationAdmission(tx); }
+      });
+    });
+  });
   databaseIt("reads complete bounded retained positions and canonical revisions after physical deletion", async () => {
     await withPersistence(async persistence => {
       await insertClock(persistence);
