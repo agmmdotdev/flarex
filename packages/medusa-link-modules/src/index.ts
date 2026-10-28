@@ -28,3 +28,5 @@ export { CartCustomer } from "./definitions/readonly/cart-customer"
 export { CartRegion } from "./definitions/readonly/cart-region"
 export { CartProduct } from "./definitions/readonly/cart-product"
 export { CartPromotion } from "./definitions/cart-promotion"
+
+export { CustomerAccountHolder } from "./definitions/customer-account-holder"

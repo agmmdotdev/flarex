@@ -26,7 +26,7 @@ const decodeSingleton = commerceDecoder(Schema.Union([Schema.Tuple([
   Schema.Struct({ entryPoint: Schema.Literals(["stock_location", "fulfillment", "payment", "order", "refund_reason", "cart"]), fields: Fields, variables: Schema.Struct({ id: Schema.String }) }),
   Schema.Struct({ throwIfKeyNotFound: Schema.Literal(true), throwIfRelationNotFound: Schema.optionalKey(Schema.Undefined) }),
 ]), Schema.Tuple([
-  Schema.Struct({ entryPoint: Schema.Literal("payment_collection"), fields: Fields, variables: Schema.Struct({ id: Schema.String }) }),
+  Schema.Struct({ entryPoint: Schema.Literals(["payment_collection", "customer"]), fields: Fields, variables: Schema.Struct({ id: Schema.String }) }),
   Schema.Struct({ throwIfKeyNotFound: Schema.Literal(false), throwIfRelationNotFound: Schema.optionalKey(Schema.Undefined) }),
 ]), Schema.Tuple([
   Schema.Struct({ entryPoint: Schema.Literal("order_payment_collection"), fields: Fields,

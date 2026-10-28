@@ -137,3 +137,6 @@ export type { PaymentProviderContext } from "./payment/provider";
 export type * as ApiKeyTypes from "./api-key/index";
 export type * from "./api-key/index";
 export type { LinkOperationPair, LinkOperationRequest, LinkOperationHandle, LinkOperationResult, LinkOperationCompensation } from "./link-modules/operations";
+
+export type { CreateCustomerAddressDTO, UpdateCustomerAddressDTO } from "./customer/mutations";
+export type { FilterableCustomerAddressProps } from "./customer/common";

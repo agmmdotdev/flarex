@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import ts from "@typescript/typescript6";
 import { paymentAccountingAuthoredTargets } from "./check-medusa-payment-lifecycle-source.mjs";
+import { customerAddressUpdateSourcePairs } from "./check-medusa-customer-account-source.mjs";
 
 const failure = "Changed native Cart prerequisite source";
 const nativePrefix = "third_party/medusa/upstream/";
@@ -201,11 +202,9 @@ export const cartPrerequisiteSourcePairs = Object.freeze([
     "target": "packages/medusa-customer/src/services/index.ts",
     "classification": "unchanged"
   },
-  {
-    "source": "third_party/medusa/upstream/packages/modules/customer/src/services/customer-module.ts",
-    "target": "packages/medusa-customer/src/services/customer-module.ts",
-    "classification": "importRelocation"
-  },
+  // Address metadata replacement is owned by the native Customer correction.
+  // Share its exact service pair; adjacent Customer behavior stays unselected.
+  ...customerAddressUpdateSourcePairs.filter(pair => pair.target === "packages/medusa-customer/src/services/customer-module.ts"),
   {
     "source": "third_party/medusa/upstream/packages/modules/customer/src/static-manifest.ts",
     "target": "packages/medusa-customer/src/static-manifest.ts",

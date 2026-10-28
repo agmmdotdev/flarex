@@ -1017,10 +1017,22 @@ Native stored declarations select the approved atomic outcome profile, without
 resumable step history or automatic three-day expiry. Customer identity reaches
 the Order through the native Cart graph; Order creates independent Address copies
 and its native inverse deletes them without changing the original Cart Addresses
-or Customer. Complete Cart creation, Customer address-book and payment-account
-workflows, Promotion, shipping, tax and credit-line
+or Customer. Complete Cart creation, the complete-Cart retained Customer-context
+Payment recreation branch, Promotion, shipping, tax and credit-line
 branches, larger Inventory cohorts, remote gateways and hosted activation remain
 separately gated.
+
+The [Customer Address and payment-account profile](./preflight/customer-address-payment-accounts.md)
+adds genuine Address creation, update and physical deletion, including native
+default replacement, hooks and retained inverses, within four-Address cohorts.
+Its approved native corrections retain scalar metadata and restore it exactly,
+while preserving forward merge behavior and stable default selectors. A separate
+three-source Session profile uses native Customer reads, saved Addresses and the
+genuine Customer-AccountHolder Link to create or reuse a local System account.
+It admits the selected nonnull-email Customer view and retains native billing
+Address fallback, Session replacement and atomic rollback/replay. Customerless
+Session and existing complete-Cart resource boundaries remain separate; the
+nineteen-source retained Customer-context checkout branch is not activated.
 
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.

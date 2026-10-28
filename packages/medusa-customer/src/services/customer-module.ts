@@ -479,19 +479,22 @@ export default class CustomerModuleService
   async updateCustomerAddresses(
     addressId: string,
     data: CustomerTypes.UpdateCustomerAddressDTO,
-    sharedContext?: Context
+    sharedContext?: Context,
+    options?: DAL.UpdateOptions
   ): Promise<CustomerTypes.CustomerAddressDTO>
   // @ts-expect-error
   async updateCustomerAddresses(
     addressIds: string[],
     data: CustomerTypes.UpdateCustomerAddressDTO,
-    sharedContext?: Context
+    sharedContext?: Context,
+    options?: DAL.UpdateOptions
   ): Promise<CustomerTypes.CustomerAddressDTO[]>
   // @ts-expect-error
   async updateCustomerAddresses(
     selector: CustomerTypes.FilterableCustomerAddressProps,
     data: CustomerTypes.UpdateCustomerAddressDTO,
-    sharedContext?: Context
+    sharedContext?: Context,
+    options?: DAL.UpdateOptions
   ): Promise<CustomerTypes.CustomerAddressDTO[]>
 
   @InjectManager()
@@ -503,14 +506,16 @@ export default class CustomerModuleService
       | string[]
       | CustomerTypes.FilterableCustomerAddressProps,
     data: CustomerTypes.UpdateCustomerAddressDTO,
-    @MedusaContext() sharedContext: Context = {}
+    @MedusaContext() sharedContext: Context = {},
+    options?: DAL.UpdateOptions
   ): Promise<
     CustomerTypes.CustomerAddressDTO | CustomerTypes.CustomerAddressDTO[]
   > {
     const addresses = await this.updateCustomerAddresses_(
       addressIdOrSelector,
       data,
-      sharedContext
+      sharedContext,
+      options
     )
 
     return await this.baseRepository_.serialize<
@@ -525,7 +530,8 @@ export default class CustomerModuleService
       | string[]
       | CustomerTypes.FilterableCustomerAddressProps,
     data: CustomerTypes.UpdateCustomerAddressDTO,
-    @MedusaContext() sharedContext: Context = {}
+    @MedusaContext() sharedContext: Context = {},
+    options?: DAL.UpdateOptions
   ): Promise<
     | InferEntityType<typeof CustomerAddress>[]
     | InferEntityType<typeof CustomerAddress>
@@ -557,7 +563,8 @@ export default class CustomerModuleService
 
     const addresses = await this.customerAddressService_.update(
       updateData,
-      sharedContext
+      sharedContext,
+      options
     )
 
     if (isString(addressIdOrSelector)) {

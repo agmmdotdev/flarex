@@ -22,6 +22,7 @@ import type { capturePaymentMetadata } from "./schema";
 import { compilePaymentContracts } from "./output";
 import { PaymentId, PaymentSessionIds, PaymentSessionCreate } from "./input";
 import { CollectionStoredPatch, CollectionCreates } from "./collection-input";
+import { AccountHolderStoredCreate } from "./account-input";
 
 const decodeQuery = commerceDecoder(Schema.Struct({ where: Schema.JsonObject, options: Schema.Struct({
   fields: Schema.optionalKey(Schema.Array(Schema.String)), populate: Schema.Array(Schema.String),
@@ -30,6 +31,7 @@ const decodeQuery = commerceDecoder(Schema.Struct({ where: Schema.JsonObject, op
 const decodeNativeRows = Schema.decodeUnknownEffect(Schema.Array(Schema.Unknown).check(Schema.isLengthBetween(1, 1)));
 const decodeDelete = commerceDecoder(Schema.Struct({ $or: Schema.Array(Schema.Struct({ id: PaymentId })).check(Schema.isLengthBetween(1, 1)) }), "unsupportedProfile");
 const decodeCollectionCreates = commerceDecoder(CollectionCreates, "unsupportedProfile");
+const decodeHolderCreates = commerceDecoder(Schema.Array(AccountHolderStoredCreate).check(Schema.isLengthBetween(1, 1)), "unsupportedProfile");
 const decodeSessionCreates = commerceDecoder(Schema.Array(PaymentSessionCreate).check(Schema.isLengthBetween(1, 1)), "unsupportedProfile");
 const decodeCollectionPatch = commerceDecoder(Schema.Union([
   CollectionStoredPatch,
@@ -43,12 +45,13 @@ const sessionCollectionWhere = { ...scalarIdWhere, fields: new Map([...scalarIdW
  * manager and native event state. Other native Payment models stay denied. */
 export function preparePaymentSessionRepository(metadata: Effect.Success<ReturnType<typeof capturePaymentMetadata>>["frame"]) {
   return Result.gen(function* () {
-    const contracts = yield* compilePaymentContracts(metadata), { collection, session, payment, capture, refund, reason } = contracts;
+    const contracts = yield* compilePaymentContracts(metadata), { collection, session, payment, capture, refund, reason, holder } = contracts;
     const collectionScalar = yield* prepareScalarRepository(collection, "PaymentCollection", scalarIdWhere);
     const sessionScalar = yield* prepareScalarRepository(session, "PaymentSession", scalarIdWhere);
     const paymentScalar = yield* prepareScalarRepository(payment, "Payment", scalarIdWhere);
     const captureScalar = yield* prepareScalarRepository(capture, "Capture", scalarIdWhere);
     const refundScalar = yield* prepareScalarRepository(refund, "Refund", scalarIdWhere);
+    const holderScalar = yield* prepareScalarRepository(holder, "AccountHolder", scalarIdWhere);
     const many = collection.relationships.find(relation => relation.name === "payment_sessions");
     if (many?.type !== "hasMany" || many.targetTable !== session.name) return yield* Result.fail(commerceError("unsupportedProfile"));
     const declaredRelations = new Map<string, Map<string, CommerceRelation>>([
@@ -76,7 +79,7 @@ export function preparePaymentSessionRepository(metadata: Effect.Success<ReturnT
       if (declared?.type !== descriptor.join.type || declared.targetTable !== descriptor.targetTable)
         return yield* Result.fail(commerceError("unsupportedProfile"));
     }
-    const catalog = yield* makeReadCatalog([collection, session, payment, capture, refund, reason].map(table => ({ name: table.name,
+    const catalog = yield* makeReadCatalog([collection, session, payment, capture, refund, reason, holder].map(table => ({ name: table.name,
       columns: table.columns.map(column => column.name), primaryKeys: ["id"], foreignKeys: table.foreignKeys.flatMap(key => key.columns),
       companions: Object.fromEntries(table.columns.filter(column => column.type === "bigNumber").map(column => [column.name, "raw_" + column.name])) })), declaredRelations);
     const relations = catalog.relations;
@@ -116,7 +119,7 @@ export function preparePaymentSessionRepository(metadata: Effect.Success<ReturnT
       const collections = collectionScalar.bind(root, owner), sessions = sessionScalar.bind(root, owner, collections.events, collections.bridge);
       const { bridge, events } = collections, denied = deniedCommerceRepository(collections.repository, collections.refuse);
       const payments = paymentScalar.bind(root, owner, events, bridge), captures = captureScalar.bind(root, owner, events, bridge),
-        refunds = refundScalar.bind(root, owner, events, bridge);
+        refunds = refundScalar.bind(root, owner, events, bridge), holders = holderScalar.bind(root, owner, events, bridge);
       // Serialization receives no native model argument. Retain the origin of
       // this command's detached DAL values, including empty/partial selections.
       const origins = new WeakMap<object, string>();
@@ -141,7 +144,8 @@ export function preparePaymentSessionRepository(metadata: Effect.Success<ReturnT
           return yield* executeRead({ ...ctx, admitSelection: (name, rows) => Result.gen(function* () {
             if (rows.length > 4) return yield* Result.fail(commerceError("limitExceeded"));
             const decode = name === collection.name ? contracts.decodeCollection : name === session.name ? contracts.decodeSession :
-              name === payment.name ? contracts.decodePayment : name === capture.name ? contracts.decodeCapture : name === refund.name ? contracts.decodeRefund : contracts.decodeReason;
+              name === payment.name ? contracts.decodePayment : name === capture.name ? contracts.decodeCapture : name === refund.name ? contracts.decodeRefund :
+                name === holder.name ? contracts.decodeHolder : contracts.decodeReason;
             for (const row of rows) yield* decode(projectNativeRow(row));
           }) }, catalog, plan, count);
         })));
@@ -266,8 +270,14 @@ export function preparePaymentSessionRepository(metadata: Effect.Success<ReturnT
         }))),
       };
       const reasonRepository: DAL.RepositoryService = { ...denied, serialize, ...readMethods(reason) };
+      const holderRepository: DAL.RepositoryService = { ...denied, serialize, ...readMethods(holder), delete: deleteRows(holder, contracts.decodeHolder),
+        create: (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx, Effect.gen(function* () {
+          const data = yield* Effect.fromResult(decodeHolderCreates(captured));
+          return remember(holder.name, [...yield* holders.createRows(ctx, data, shared)]);
+        }))),
+      };
       return { bridge, mutationEvents: collections.mutationEvents, refuse: collections.refuse, denied, collectionRepository, sessionRepository,
-        paymentRepository, captureRepository, refundRepository, reasonRepository };
+        paymentRepository, captureRepository, refundRepository, reasonRepository, holderRepository };
     };
     return { bind, contracts, catalog, query, relations };
   });

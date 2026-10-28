@@ -12,8 +12,9 @@ export function compilePaymentContracts(metadata: Effect.Success<ReturnType<type
   return Result.gen(function* () {
     const collection = metadata.tables.find(table => table.name === "payment_collection"), session = metadata.tables.find(table => table.name === "payment_session"),
       payment = metadata.tables.find(table => table.name === "payment"), capture = metadata.tables.find(table => table.name === "capture"),
-      refund = metadata.tables.find(table => table.name === "refund"), reason = metadata.tables.find(table => table.name === "refund_reason");
-    if (collection === undefined || session === undefined || payment === undefined || capture === undefined || refund === undefined || reason === undefined)
+      refund = metadata.tables.find(table => table.name === "refund"), reason = metadata.tables.find(table => table.name === "refund_reason"),
+      holder = metadata.tables.find(table => table.name === "account_holder");
+    if (collection === undefined || session === undefined || payment === undefined || capture === undefined || refund === undefined || reason === undefined || holder === undefined)
       return yield* Result.fail(commerceError("unsupportedProfile"));
     const collectionComplete = yield* compileCompleteRow(collection), sessionComplete = yield* compileCompleteRow(session);
     const collectionProjection = yield* compileRowProjection(collection), sessionProjection = yield* compileRowProjection(session);
@@ -22,7 +23,8 @@ export function compilePaymentContracts(metadata: Effect.Success<ReturnType<type
     });
     const decodeCollection = keyed(collectionComplete), decodeSession = keyed(sessionComplete);
     const decodePayment = keyed(yield* compileCompleteRow(payment)), decodeCapture = keyed(yield* compileCompleteRow(capture)),
-      decodeRefund = keyed(yield* compileCompleteRow(refund)), decodeReason = keyed(yield* compileCompleteRow(reason));
+      decodeRefund = keyed(yield* compileCompleteRow(refund)), decodeReason = keyed(yield* compileCompleteRow(reason)), decodeHolder = keyed(yield* compileCompleteRow(holder));
+    const holderProjection = yield* compileRowProjection(holder);
     const paymentProjection = yield* compileRowProjection(payment), captureProjection = yield* compileRowProjection(capture),
       refundProjection = yield* compileRowProjection(refund), reasonProjection = yield* compileRowProjection(reason);
     const decodeCreatedCollection = (input: unknown) => Result.gen(function* () {
@@ -81,7 +83,9 @@ export function compilePaymentContracts(metadata: Effect.Success<ReturnType<type
       const rows: JsonObject[] = [];
       for (const value of Array.isArray(input) ? input : [input]) {
         const row = yield* Effect.fromResult(object(value));
-        if (table === reason.name) {
+        if (table === holder.name) {
+          yield* Effect.fromResult(holderProjection(row)); rows.push(row);
+        } else if (table === reason.name) {
           yield* Effect.fromResult(reasonProjection(row)); rows.push(row);
         } else if (table === payment.name || table === undefined && "payment_session_id" in row) {
           rows.push(yield* presentPayment(row));
@@ -106,8 +110,8 @@ export function compilePaymentContracts(metadata: Effect.Success<ReturnType<type
       }
       return Array.isArray(input) ? rows : rows[0]!;
     });
-    return { collection, session, payment, capture, refund, reason, collectionNumbers, sessionNumbers, paymentNumbers, captureNumbers, refundNumbers,
-      decodeCollection, decodeCreatedCollection, decodeSession, decodePayment, decodeCapture, decodeRefund, decodeReason, present, presentPayment,
+    return { collection, session, payment, capture, refund, reason, holder, collectionNumbers, sessionNumbers, paymentNumbers, captureNumbers, refundNumbers,
+      decodeCollection, decodeCreatedCollection, decodeSession, decodePayment, decodeCapture, decodeRefund, decodeReason, decodeHolder, present, presentPayment,
       decodePaymentOutput, decodeSessionOutput,
       tables: metadata.tables };
   });

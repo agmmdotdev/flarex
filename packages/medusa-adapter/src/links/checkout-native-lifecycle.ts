@@ -15,17 +15,18 @@ import { linkLogicalEventPolicy } from "./events";
 import { prepareLinkWorkflowService } from "./workflow-service";
 import { prepareOrderCartLinkRead } from "./order-cart-service";
 import { prepareOrderPaymentCollectionLinkRead } from "./order-payment-collection-service";
+import { prepareCustomerAccountHolderLinkRead } from "./customer-account-holder-service";
 
 const decodePairs = commerceDecoder(Schema.Array(Schema.Tuple([ScalarId, ScalarId])).check(Schema.isLengthBetween(1, 1)), "receiptMismatch");
 const decodeList = commerceDecoder(Schema.Struct({ filters: Schema.JsonObject, config: Schema.JsonObject }), "receiptMismatch");
 
 /** The native multi-family Link router receives the genuine generated bulk
  * services. Each family keeps its own storage, read and mutation receipts. */
-export const prepareCheckoutNativeLinkLifecycle = Effect.fn("CheckoutLink.prepareNativeLifecycle")(function* (kind: "order-cart" | "order-payment") {
-  const read = yield* kind === "order-cart" ? prepareOrderCartLinkRead() : prepareOrderPaymentCollectionLinkRead();
+export const prepareCheckoutNativeLinkLifecycle = Effect.fn("CheckoutLink.prepareNativeLifecycle")(function* (kind: "order-cart" | "order-payment" | "customer-account") {
+  const read = yield* kind === "order-cart" ? prepareOrderCartLinkRead() : kind === "order-payment" ? prepareOrderPaymentCollectionLinkRead() : prepareCustomerAccountHolderLinkRead();
   const definition = workflowModuleDefinition(read.workflow);
   if (definition === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
-  const native = yield* Effect.fromResult(prepareLinkWorkflowService(read.prepared, kind === "order-cart" ? "checkoutOrderCart" : "checkoutOrderPayment", "dismiss"));
+  const native = yield* Effect.fromResult(prepareLinkWorkflowService(read.prepared, kind === "order-cart" ? "checkoutOrderCart" : kind === "order-payment" ? "checkoutOrderPayment" : "customerAccountHolder", "dismiss"));
   if (native.dismiss === undefined || native.dismissName === undefined || native.dismissMethod === undefined)
     return yield* Effect.fail(commerceError("invalidAuthority"));
   const [primary, foreign] = read.prepared.joiner.relationships ?? [];
@@ -86,7 +87,7 @@ export const prepareCheckoutNativeLinkLifecycle = Effect.fn("CheckoutLink.prepar
     }
   });
   const policy = { capture: mutation.capture, validateLogicalCall }, commands = [...read.commands, native.create, native.list, native.dismiss];
-  const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: kind === "order-cart" ? "order_cart_links" : "order_payment_collection_links", source: {
+  const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: kind === "order-cart" ? "order_cart_links" : kind === "order-payment" ? "order_payment_collection_links" : "customer_account_holder_links", source: {
     name: definition.source.name, profile: kind + ".checkout-native-links" },
     methods: { nativeCreate: native.createMethod, nativeList: native.listMethod, nativeDismiss: native.dismissMethod },
     graph: definition.graph, logical: { ...policy, commands } }));

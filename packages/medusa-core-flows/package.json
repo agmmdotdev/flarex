@@ -246,7 +246,11 @@
     "./common/checkout-query-views": {
       "types": "./src/common/steps/checkout-query-views.ts",
       "default": "./src/common/steps/checkout-query-views.ts"
-    }
+    },
+    "./customer/create-addresses": "./src/customer/workflows/create-addresses.ts",
+    "./customer/update-addresses": "./src/customer/workflows/update-addresses.ts",
+    "./customer/delete-addresses": "./src/customer/workflows/delete-addresses.ts",
+    "./payment-collection/create-payment-account-holder-step": "./src/payment-collection/steps/create-payment-account-holder.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

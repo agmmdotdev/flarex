@@ -11,6 +11,7 @@ import { paymentSessionPolicy } from "./receipt";
 import { paymentLifecyclePolicy } from "./lifecycle-receipt";
 import { decodeCollectionCreates, decodeCollectionIds, decodeCollectionUpdate, decodeCollectionUpserts } from "./collection-input";
 import type { preparePaymentSessionRepository } from "./repository";
+import { paymentAccountPolicy } from "./account-receipt";
 
 type Prepared = Result.Result.Success<ReturnType<typeof preparePaymentSessionRepository>>;
 const mismatch = (phase: string, cause?: unknown) => commerceError("receiptMismatch", { phase, cause });
@@ -18,9 +19,11 @@ const mismatch = (phase: string, cause?: unknown) => commerceError("receiptMisma
 /** Collection mutation causality. Native Payment remains the operation/event
  * owner; this policy authenticates observed preimages and exact persisted fields. */
 export function paymentCollectionPolicy(prepared: Prepared) {
-  const sessions = paymentSessionPolicy(prepared), lifecycle = paymentLifecyclePolicy(prepared);
+  const sessions = paymentSessionPolicy(prepared), lifecycle = paymentLifecyclePolicy(prepared), accounts = paymentAccountPolicy(prepared);
   const { contracts, query } = prepared;
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("PaymentCollection.validateCall")(function* (call, activity) {
+    if (["paymentAccountHolderCreate", "paymentAccountHolderDelete", "paymentAccountHolderCount"].includes(call.commandName))
+      return yield* accounts.validateLogicalCall(call, activity);
     if (call.commandName === "paymentSessionDeleteForWorkflow" || call.commandName === "paymentSessionCreateForWorkflow" ||
       call.commandName === "paymentSessionListForWorkflow") return yield* sessions.validateLogicalCall(call, activity);
     if (call.commandName === "paymentCollectionsCreate") {

@@ -1,5 +1,5 @@
 import { FindConfig } from "../common"
-import { RestoreReturn, SoftDeleteReturn } from "../dal"
+import { RestoreReturn, SoftDeleteReturn, UpdateOptions } from "../dal"
 import { IModuleService } from "../modules-sdk"
 import { Context } from "../shared-context"
 import {
@@ -554,7 +554,8 @@ export interface ICustomerModuleService extends IModuleService {
   updateCustomerAddresses(
     addressId: string,
     data: UpdateCustomerAddressDTO,
-    sharedContext?: Context
+    sharedContext?: Context,
+    options?: UpdateOptions
   ): Promise<CustomerAddressDTO>
 
   /**
@@ -577,7 +578,8 @@ export interface ICustomerModuleService extends IModuleService {
   updateCustomerAddresses(
     addressIds: string[],
     data: UpdateCustomerAddressDTO,
-    sharedContext?: Context
+    sharedContext?: Context,
+    options?: UpdateOptions
   ): Promise<CustomerAddressDTO[]>
 
   /**
@@ -599,7 +601,8 @@ export interface ICustomerModuleService extends IModuleService {
   updateCustomerAddresses(
     selector: FilterableCustomerAddressProps,
     data: UpdateCustomerAddressDTO,
-    sharedContext?: Context
+    sharedContext?: Context,
+    options?: UpdateOptions
   ): Promise<CustomerAddressDTO[]>
 
   /**

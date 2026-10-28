@@ -1,6 +1,6 @@
 import { Effect, Result, Schema } from "effect";
 import type { Logger } from "@medusajs/framework/types";
-import { Capture, Payment, PaymentCollection, PaymentSession, Refund, RefundReason } from "@medusajs/payment/models";
+import { AccountHolder, Capture, Payment, PaymentCollection, PaymentSession, Refund, RefundReason } from "@medusajs/payment/models";
 import { PaymentModuleService } from "@medusajs/payment/services";
 import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -24,6 +24,7 @@ import { commerceDecoder } from "../../value/decoder";
 import { decodeGraphList } from "../../local-graph/query";
 import { decodePaymentAuthorization, decodePaymentAuthorizationArguments, decodePaymentCapture, decodePaymentCaptureArguments,
   decodePaymentRefund, decodePaymentRefundArguments, decodePaymentRetrieve, decodePaymentRetrieveArguments } from "./lifecycle-input";
+import { decodeAccountHolderCreate, decodeAccountHolderArguments } from "./account-input";
 
 export const makePaymentLifecycleCommands = Effect.fn("PaymentAdapter.lifecycleCommands")(function* (logger: Logger) {
   const metadata = yield* capturePaymentMetadata();
@@ -37,7 +38,8 @@ export const makePaymentLifecycleCommands = Effect.fn("PaymentAdapter.lifecycleC
         return { baseRepository: bound.collectionRepository, events: bound.mutationEvents, eventBus,
           repository: (model: typeof paymentModels[number]) => model === PaymentCollection ? bound.collectionRepository :
             model === PaymentSession ? bound.sessionRepository : model === Payment ? bound.paymentRepository :
-              model === Capture ? bound.captureRepository : model === Refund ? bound.refundRepository : model === RefundReason ? bound.reasonRepository : bound.denied };
+              model === Capture ? bound.captureRepository : model === Refund ? bound.refundRepository : model === RefundReason ? bound.reasonRepository :
+                model === AccountHolder ? bound.holderRepository : bound.denied };
       }, service: native => ({ authorizePaymentSession: native.authorizePaymentSession.bind(native), capturePayment: native.capturePayment.bind(native),
         refundPayment: native.refundPayment.bind(native), cancelPayment: native.cancelPayment.bind(native),
         retrievePayment: native.retrievePayment.bind(native), retrievePaymentSession: native.retrievePaymentSession.bind(native),
@@ -46,9 +48,19 @@ export const makePaymentLifecycleCommands = Effect.fn("PaymentAdapter.lifecycleC
         createPaymentCollections: native.createPaymentCollections.bind(native), listPaymentCollections: native.listPaymentCollections.bind(native),
         updatePaymentCollections: native.updatePaymentCollections.bind(native), upsertPaymentCollections: native.upsertPaymentCollections.bind(native),
         deletePaymentCollections: native.deletePaymentCollections.bind(native), createPaymentSession: native.createPaymentSession.bind(native),
-        deletePaymentSession: native.deletePaymentSession.bind(native), listPaymentSessions: native.listPaymentSessions.bind(native) }),
+        deletePaymentSession: native.deletePaymentSession.bind(native), listPaymentSessions: native.listPaymentSessions.bind(native),
+        createAccountHolder: native.createAccountHolder.bind(native), deleteAccountHolder: native.deleteAccountHolder.bind(native),
+        listAndCountAccountHolders: native.listAndCountAccountHolders.bind(native) }),
     }, logger).pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
     const commands = commerceServiceCommands(module.use), prepare = commerceCommandPreparation("PaymentLifecycle.prepare");
+    const holderCreate = commands.write("paymentAccountHolderCreate", prepare(decodeAccountHolderCreate),
+      // Native DML admits nullable customer email while its provider DTO does not.
+      async ({ service, context }, input) => await Reflect.apply(service.createAccountHolder, service, [input, context]));
+    const holderDelete = commands.write("paymentAccountHolderDelete", prepare(decodePaymentDelete), async ({ service, context }, id) => {
+      await service.deleteAccountHolder(id, context); return null;
+    });
+    const holderCount = commands.read("paymentAccountHolderCount", prepare(decodePaymentRead),
+      ({ service, context }, input) => service.listAndCountAccountHolders(input.filters ?? {}, input.config ?? {}, context));
     const authorize = commands.write("paymentSessionAuthorizeForWorkflow", prepare(decodePaymentAuthorization),
       ({ service, context }, input) => service.authorizePaymentSession(input.id, input.context ?? {}, context));
     const capture = commands.write("paymentCaptureForWorkflow", prepare(decodePaymentCapture),
@@ -88,6 +100,12 @@ export const makePaymentLifecycleCommands = Effect.fn("PaymentAdapter.lifecycleC
     const sessions = commands.read("paymentSessionListForWorkflow", prepare(decodePaymentRead),
       ({ service, context }, input) => service.listPaymentSessions(input.filters ?? {}, input.config ?? {}, context));
     const event = (objectName: string, action: string) => buildModuleResourceEventName({ prefix: Modules.PAYMENT, objectName, action });
+    const decodeNull = commerceDecoder(Schema.Null, "storedCorruption");
+    const createAccountHolder = yield* defineWorkflowMethod({ command: holderCreate, arguments: decodeAccountHolderArguments,
+      encode: ([input]) => input, output: prepared.contracts.decodeHolder, moduleEvents: [event("account_holder", "created")] });
+    const deleteAccountHolder = yield* defineWorkflowMethod({ command: holderDelete, arguments: decodePaymentDeleteArguments,
+      encode: ([id]) => id, output: input => decodeNull(input).pipe(Result.map(() => undefined)),
+      moduleEvents: [event("account_holder", "deleted")] });
     const createPaymentCollections = yield* defineWorkflowMethod({ command: creates,
       arguments: decodeCollectionCreateArguments, encode: ([input]) => input,
       output: decodeGraphList, moduleEvents: [event("payment_collection", "created")] });
@@ -97,7 +115,6 @@ export const makePaymentLifecycleCommands = Effect.fn("PaymentAdapter.lifecycleC
     const upsertPaymentCollections = yield* defineWorkflowMethod({ command: upserts,
       arguments: decodeCollectionUpsertArguments, encode: ([input]) => input,
       output: decodeGraphList, moduleEvents: [event("payment_collection", "updated")] });
-    const decodeNull = commerceDecoder(Schema.Null, "storedCorruption");
     const deletePaymentCollections = yield* defineWorkflowMethod({ command: deletes,
       arguments: decodeCollectionDeleteArguments, encode: ([input]) => input,
       output: input => decodeNull(input).pipe(Result.map(() => undefined)), moduleEvents: [event("payment_collection", "deleted")] });
@@ -133,23 +150,24 @@ export const makePaymentLifecycleCommands = Effect.fn("PaymentAdapter.lifecycleC
       ["PaymentSession", prepared.contracts.session, sessionCount, ["payment", "payment.captures"]],
       ["PaymentCollection", prepared.contracts.collection, collectionCount, ["payment_sessions", "payments", "payments.captures", "payments.refunds"]],
       ["RefundReason", prepared.contracts.reason, reasonCount, []],
+      ["AccountHolder", prepared.contracts.holder, holderCount, []],
     ] as const) graphReads.push({ model, command, table: yield* prepared.catalog.table(table.name), paths: yield* relationPaths(prepared.catalog, table.name, paths),
       selectedFieldsOnly: true, orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount });
     const admitted = [authorize, capture, refund, cancel, retrieve, session, count, sessionCount, collectionCount, reasonCount,
-      creates, updates, upserts, deletes, collections, sessionCreate, sessionDelete, sessions];
+      creates, updates, upserts, deletes, collections, sessionCreate, sessionDelete, sessions, holderCreate, holderDelete, holderCount];
     const workflow = yield* defineWorkflowModule({ name: Modules.PAYMENT, source: module.description,
       methods: { authorizePaymentSession, capturePayment, refundPayment, cancelPayment, retrievePayment, retrievePaymentSession,
         createPaymentCollections, updatePaymentCollections, upsertPaymentCollections, deletePaymentCollections, listPaymentCollections,
-        createPaymentSession, deletePaymentSession, listPaymentSessions },
+        createPaymentSession, deletePaymentSession, listPaymentSessions, createAccountHolder, deleteAccountHolder },
       graph: { aliases: aliases.filter(alias => graphReads.some(read => read.model === alias.model)), reads: graphReads }, logical: { ...policy, commands: admitted } });
     const cartCollectionWorkflow = yield* defineWorkflowModule({ name: Modules.PAYMENT,
       source: { ...module.description, profile: "payment.cart-collection-lifecycle" },
       methods: { createPaymentCollections, updatePaymentCollections, upsertPaymentCollections, deletePaymentCollections, listPaymentCollections,
         createPaymentSession, deletePaymentSession, listPaymentSessions },
-      graph: { aliases: aliases.filter(alias => graphReads.some(read => read.model === alias.model)), reads: graphReads,
+      graph: { aliases: aliases.filter(alias => graphReads.some(read => read.model !== "AccountHolder" && read.model === alias.model)), reads: graphReads.filter(read => read.model !== "AccountHolder"),
         directPaths: [yield* localGraphDirectPath(prepared.catalog, prepared.contracts.collection.name, "PaymentCollection", "PaymentSession", "payment_sessions", {
           root: "Cart", path: "payment_collection.payment_sessions", maximumSources: 4, maximumTargets: 4, maximumPerSource: 4,
-        })] }, logical: { ...policy, commands: admitted } });
+        })] }, logical: { ...policy, commands: admitted.filter(command => command !== holderCreate && command !== holderDelete && command !== holderCount) } });
     return { cartCollectionWorkflow, authorize, capture, refund, cancel, retrieve, session, count, sessionCount, collectionCount, reasonCount,
       creates, updates, upserts, deletes, collections, sessionCreate, sessionDelete, sessions, commands: admitted,
       workflow, loggerResource: yield* paymentWorkflowLogger(logger), withService: module.use, contracts: prepared.contracts, prepared, logicalEventPolicy: () => policy };

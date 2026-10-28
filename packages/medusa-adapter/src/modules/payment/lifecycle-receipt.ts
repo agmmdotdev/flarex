@@ -22,7 +22,7 @@ type Prepared = Result.Result.Success<ReturnType<typeof preparePaymentSessionRep
 type Row = JsonObject & { readonly id: string };
 const mismatch = (phase: string, cause?: unknown) => commerceError("receiptMismatch", { phase, cause });
 const event = moduleEventDecoder(Schema.Struct({ name: Schema.String,
-  metadata: Schema.Struct({ source: Schema.Literal(Modules.PAYMENT), object: Schema.Literals(["payment_session", "payment_collection", "payment", "capture", "refund"]),
+  metadata: Schema.Struct({ source: Schema.Literal(Modules.PAYMENT), object: Schema.Literals(["payment_session", "payment_collection", "payment", "capture", "refund", "account_holder"]),
     action: Schema.Literals(["created", "updated", "deleted"]) }),
   data: Schema.Struct({ id: Schema.Union([PaymentId, Schema.Array(PaymentId).check(Schema.isLengthBetween(1, 4))]) }),
 }), defaultCommerceResources);
