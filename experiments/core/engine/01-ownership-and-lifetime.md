@@ -1,7 +1,9 @@
 # Concept 01: engine ownership and lifetime
 
-Status: **Open**. No host, partition key, routing scheme or lease protocol chosen.
-This is the first discussion card, not authorization to implement an engine host.
+Status: portable core with injected capabilities and Cloudflare adapters first
+is **Accepted** design direction. Ownership topology, partition key, routing,
+cache placement and lease protocol remain **Open**. This card authorizes no
+engine or adapter implementation.
 
 ## Question
 
@@ -29,9 +31,109 @@ This is evidence for coordinated ownership. It is not proof that all Convex data
 is in RAM, that it uses no SQL checks, or that a Worker/DO implementation has the
 same latency. Ordinary cache contents do not independently grant commit authority.
 
+## Accepted portable core and adapter boundary
+
+Build the engine independently of Cloudflare services and inject infrastructure
+implementations at host composition. Cloudflare is the initial host family when
+implementation is separately approved. This carries forward the accepted
+[runtime boundary](../../../design-notes/flarex-db-accepted-design.md#hosted-runtime-topology)
+and [package ownership](../../../roadmaps/16-package-boundaries.md#current-architecture);
+it does not replace their current production topology or activate this experiment.
+
+### Responsibility and dependency direction
+
+| Responsibility | Portable or semantic owner | Initial infrastructure boundary |
+| --- | --- | --- |
+| Framework behavior | Medusa services, repositories and workflows; Payload lifecycle and hooks; Application execution profile | Framework bridges call admitted engine capabilities; exact execution placement remains open |
+| Engine reads and state | Definitions, query/index semantics, pending changes, read dependencies, cache validity and visibility rules | Host creates bounded engine instances; no Cloudflare types or bindings in these contracts |
+| Execution | Trusted invocation, authority, cancellation and outcome rules | Cloudflare invocation, service-binding transport and isolated user-code hosting |
+| Coordination | Ownership, ordering, fencing, takeover and recovery requirements | Cloudflare routing, owner addressing and wake mechanisms; DO role and scope remain open |
+| Persistence | PostgreSQL schemas, SQL/Drizzle operations, transactions, durable history and settlement | Host-supplied connection lifecycle through cache-disabled Hyperdrive; direct PostgreSQL/local drivers keep their separate gates |
+| Change delivery | Committed ordering, replay eligibility, invalidation and freshness rules | Injected delivery/wake transport; a message or publication prefix cannot establish a business commit |
+
+Host composition depends on the portable owners and supplies implementations of
+their narrow contracts. Engine contracts must not import `cloudflare:workers`,
+DO classes/stubs, Worker environment bindings, Hyperdrive or platform storage
+types. Cloudflare APIs remain in adapters. SQL and Drizzle remain in their
+PostgreSQL owner rather than leaking into framework bridges or pure engine code.
+Cloudflare adapters translate platform behavior; they cannot add alternate
+settlement, repair shared-owner defects or silently weaken a guarantee.
+
+Keep these as distinct modules with actual responsibilities, not one giant core
+or universal runtime/options object. Injection does not require making every
+helper, map or index operation a service. Reuse or adapt sound existing owners
+under the [experiment's dependency audit](../AGENTS.md#scope); do not import old
+execution plumbing merely to preserve its sequence. Exact interfaces, package
+placement and implementation reuse remain later decisions.
+
+### Storage, authority and lifetimes
+
+PostgreSQL alone owns committed application data, history and durable outcomes.
+Cache memory, DO SQLite, temporary journals and artifact storage are distinct
+roles; do not erase their guarantees behind a generic key/value storage contract.
+Injecting persistence access does not authorize substituting DO SQLite or memory
+for PostgreSQL. The durable accepting path must enforce the applicable fencing,
+validation and atomic publication rules even if a host routes to one named owner.
+
+Distinguish host/executor lifetime, shop or partition state, invocation/command
+state, and physical database transaction/connection lifetime. Construct shared
+capabilities at the host composition root with Effect services, Layers and Scope
+where appropriate; use explicit instances or scoped factories for dynamic shop,
+request and transaction state. No global Layer may accidentally hold a particular
+shop's mutable state or a borrowed transaction. The owner bounds caches and
+background work and drains or cancels owned work before releasing its resources.
+
+Framework and user execution receive restricted capabilities, never raw platform,
+database, commit or finalizer access. Preserve Application OCC, Payload request
+semantics and Medusa service/workflow transaction, retry and compensation rules.
+Sharing infrastructure does not select a universal transaction API, replay
+arbitrary hooks, or hold SQL transactions across user code, workflow waits or
+remote effects.
+
+### Placement, communication and concurrency
+
+A module boundary is not automatically a network boundary. Keep same-owner local
+calls direct; use explicit bounded batch operations where a chosen placement
+requires RPC. Account for authorization, cache misses, dependent reads, commit
+and recovery calls in complete traces. Do not hide a round trip behind every
+index lookup or promise a fixed two-call workflow before proving its read shape
+and framework obligations.
+
+Injection supplies portability, not parallel CPU execution or shared memory.
+Each host must state its execution model, state lifetime, isolation, delivery,
+eviction and resource limits. A single JavaScript execution thread still shares
+CPU among the framework and engine operations placed there. Multiple executors
+do not automatically share mutable indexes or coherent caches. Future Node,
+Rivet or other hosts need explicit scheduling/state arrangements and conformance;
+none is selected or implemented by this decision.
+
+## Choices still open
+
+- Owner/partition identity and atomic scope: tenant, app and shop are not assumed
+  interchangeable. Define how commands crossing owners are handled.
+- Placement of framework execution, independent engine reads, shared cache state
+  and commit coordination across Workers and optional DOs. Neither an entire
+  engine in one DO per app nor a replicated DO group has been accepted.
+- Cache and index representation, retention, warming, memory budgets and any
+  executor replication. If copies are proposed, prove version/read-view validity,
+  range completeness, absence/deletion invalidation, missed-update recovery and
+  fresh authorization; the cart/change-history examples remain proposals.
+- Ownership protocol, epochs/fences, ordering and takeover after uncertain
+  commits, including every relevant framework, schema and maintenance writer.
+- Concrete injected contracts, adapter APIs, resource construction and operation
+  batching. A platform adapter cannot invent weaker fallback behavior for an
+  unsupported capability.
+- Concurrency admission, queue limits, routing locality, hot-shop scaling and
+  complete-request CPU/latency costs. No throughput or round-trip target has been
+  proved by choosing an adapter boundary.
+- The first connected implementation and its correctness, host-conformance and
+  performance gates. Implementation remains explicitly deferred.
+
 ## Alternatives to compare
 
-These are candidates, not ranked recommendations.
+These are topology candidates, not ranked recommendations. The initial adapter
+family is Cloudflare; the resident-service option is a future portability
+comparison, not an approved host switch.
 
 | Option | Potential benefit | Obligations and tradeoffs |
 | --- | --- | --- |
@@ -61,6 +163,8 @@ that span it. Framework identity alone must not create separate commit owners.
   and eviction costs count; memory need not contain every table or index.
 - Keep user/native callbacks outside SQL transactions. Define how cancellation,
   late callbacks and async interleaving interact with the owner lifetime.
+- State what each injected capability guarantees and which owner enforces it.
+  Unsupported host behavior must fail closed, not redefine core semantics.
 
 ## Evidence required before implementation selection
 
@@ -75,8 +179,20 @@ work, cold bootstrap and cache eviction. Use ordinary-role Postgres for fencing
 and persistence claims. Keep existing business assertions and report warm/cold
 latency, CPU, memory, contention and remaining storage visits separately.
 
+Before an adapter is admitted, check dependency boundaries and run the applicable
+shared contract cases against that host: cancellation and cleanup, isolation,
+eviction/restart, duplicate or missing delivery, ownership loss and uncertain
+outcomes. Portable model tests do not establish platform behavior. PostgreSQL
+claims retain both PGlite and ordinary-role real PostgreSQL proof; hosting claims
+also require the actual host. No such new proof is claimed by this documentation.
+
 ## Decision
 
-Unresolved. Discuss ownership scope and lifetime first, then compare feasible
-hosts against that contract. No option above has been selected. Related concepts
-02 and 06 must refine authority and recovery without silently changing this choice.
+Accepted: portable framework/engine owners, narrow injected infrastructure
+capabilities and Cloudflare adapters first, with PostgreSQL durable authority.
+This acceptance records boundaries only and authorizes no implementation.
+
+Unresolved: ownership scope/lifetime, concrete Cloudflare topology and the other
+open choices above. Related concepts 02, 04, 06 and 08 must refine authority,
+cache validity, recovery and scheduling without baking platform services into
+the core or treating the earlier scaling sketches as accepted protocols.

@@ -1,8 +1,9 @@
 # Engine decision register
 
-Status: discussion in progress. One active concept; all other engine choices
-remain queued. This register records current decisions, not execution receipts
-or a chronological work log.
+Status: portable core and injected Cloudflare adapters first are accepted design
+boundaries. Ownership and lifetime remain the active discussion; detailed engine
+choices remain open. This register records current decisions, not execution
+receipts or a chronological work log.
 
 ## Status vocabulary
 
@@ -24,22 +25,30 @@ existing experimental code, contracts and measurements as evidence while the
 active Medusa integration continues separately. Follow the
 [continuing requirements](./README.md#continuing-requirements).
 
-This accepts investigation and documentation. It does not accept a particular
-host, cache structure, lease protocol, schema replacement, source translation,
-changed authorization semantics or an immediate engine implementation.
+The owner also accepted a portable core with injected infrastructure capabilities
+and Cloudflare adapters as the initial host implementation direction. The
+[boundary record](./01-ownership-and-lifetime.md#accepted-portable-core-and-adapter-boundary)
+owns the responsibility split, lifetime rules and remaining choices. Framework
+behavior stays in its framework owner; engine correctness stays in shared core
+and persistence owners; host composition supplies platform mechanisms.
+
+This authorizes documentation only. It does not select a DO topology, framework
+execution placement, replicated cache, lease protocol, replacement schema,
+source translation or changed authorization semantics. No engine or adapter
+implementation, production activation or performance acceptance follows.
 
 ## Concepts
 
 | ID | Concept | Design status | Implementation / evidence |
 | --- | --- | --- | --- |
-| 01 | [Engine ownership and lifetime](./01-ownership-and-lifetime.md) | Open; active discussion | No new engine implementation |
+| 01 | [Engine ownership and lifetime](./01-ownership-and-lifetime.md) | Portable boundary accepted; ownership topology open and active | No new engine implementation |
 | 02 | Snapshot, metadata, readiness and authorization lifetimes | Open; queued | Existing fresh gates remain binding |
 | 03 | Values, IDs, timestamps and ordered-key semantics | Open; queued | Existing contracts are evidence, not automatically retained internals |
 | 04 | Read/index execution and coherent caches | Open; queued | Command-local observations exist; shared-engine cache unproved |
 | 05 | Pending state, dependencies and execution profiles | Open; queued | Existing Application/framework witnesses retained |
 | 06 | Commit ordering, Drizzle persistence and outcome recovery | Open; queued | Existing atomic publication is the baseline |
 | 07 | Schema/index lifecycle, retention and memory limits | Open; queued | No replacement maintenance/GC protocol selected |
-| 08 | Runtime scheduling, isolation and framework bridges | Open; queued | Native semantics remain required |
+| 08 | Runtime scheduling, isolation and framework bridges | Cloudflare adapter direction accepted; detailed placement and scheduling open | No new adapter implementation; native semantics remain required |
 | 09 | Reactivity and invalidation consumers | Open; queued | No connected shared-engine reactivity claim |
 | 10 | First connected proof, performance gates and cutover | Open; queued | Existing complete-request measurements retained |
 
@@ -48,6 +57,12 @@ be accepted without a credible recovery and writer model; later concepts detail
 that model. Open only the next concept when the current outcome is recorded or
 the owner explicitly chooses to defer it. Create its focused note at that point;
 do not fill this folder with speculative implementations or duplicate roadmaps.
+
+The accepted boundary applies across queued concepts. It does not accept the
+earlier executor-cache sketches or replace the separate Application, Payload and
+Medusa execution profiles. The relevant
+[open choices](./01-ownership-and-lifetime.md#choices-still-open) must be resolved
+before selecting a connected implementation slice.
 
 ## Decision record shape
 

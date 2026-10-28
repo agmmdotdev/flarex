@@ -1,12 +1,31 @@
 # Shared engine design discussion
 
-Status: owner-approved direction to investigate and document; no shared engine,
-hosting choice, source port or production cutover is accepted or implemented here.
+Status: portable core with injected infrastructure capabilities and Cloudflare
+adapters first is **accepted design direction**. Ownership topology, cache and
+coordination protocols remain open. No new shared engine, adapter implementation,
+source port or production cutover is authorized or implemented by this decision.
 
 Start with [01: ownership and lifetime](./01-ownership-and-lifetime.md).
 The [decision register](./DECISIONS.md) tracks that single active concept and the
 remaining questions. [Pinned references](../REFERENCES.md#engine-mechanism-reference-map)
 anchor the discussion in actual Convex code and documented platform behavior.
+
+## Accepted core and runtime boundary
+
+Keep framework and engine behavior independent of Cloudflare services. Host
+composition supplies execution, coordination transport, persistence access and
+other required infrastructure through narrow contracts owned by the component
+that needs them. Shared owners define correctness; adapters implement platform
+mechanisms without changing those guarantees. This is not one universal runtime
+interface or a requirement to create a new package for every capability.
+
+Cloudflare is the first host family to wire when implementation is separately
+approved. Cloudflare bindings and types stay in host adapters; PostgreSQL remains
+the durable authority. Selecting Cloudflare does not select one DO per shop,
+place all Medusa/Payload logic inside a DO, or accept replicated executor caches.
+The [boundary record](./01-ownership-and-lifetime.md#accepted-portable-core-and-adapter-boundary)
+defines responsibilities, lifetimes and the decisions still required. A later
+host must satisfy the same contracts and pass its own conformance gates.
 
 ## Why reopen the design
 
@@ -63,7 +82,9 @@ independent lifetime or finalizer. Existing code is reusable where its owner fit
 
 ## Responsibilities to discuss
 
-These are a coverage map, not accepted module APIs or a port checklist.
+These are a coverage map, not accepted module APIs or a port checklist. The
+portable core/adapter separation above constrains each responsibility without
+selecting its algorithm, placement or exported interface.
 
 | Responsibility | Question we must resolve |
 | --- | --- |

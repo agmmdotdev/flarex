@@ -11,7 +11,7 @@ with decisions recorded before their implementation. The first open concept is
 | --- | --- |
 | Active Flarex core and Medusa integration | Continue separately; outside this experiment's mutation scope |
 | Initial experimental candidate | Bounded Application, Payload CRUD, Product scalar and explicitly atomic mixed flows implemented and measured with Drizzle; performance promotion remains closed |
-| Shared engine direction | Investigation and documentation approved; host, cache design, ownership protocol and implementation slices remain open |
+| Shared engine direction | Portable core and injected Cloudflare adapters first accepted as design boundaries; topology, cache design, ownership protocol and implementation slices remain open |
 
 The existing candidate already keeps pending writes, observations and some
 prepared state in memory. It does not implement Convex's complete shared
@@ -26,8 +26,8 @@ It is a separate experiment, not an accepted replacement or production package.
 
 1. [AGENTS.md](./AGENTS.md): scope, isolation and iteration rules.
 2. [Engine discussion](./engine/README.md): direction, continuing obligations and modular responsibilities.
-3. [Decision register](./engine/DECISIONS.md): accepted discussion process and open concepts.
-4. [Concept 01](./engine/01-ownership-and-lifetime.md): ownership, lifetime and possible hosts.
+3. [Decision register](./engine/DECISIONS.md): accepted boundaries, discussion process and open concepts.
+4. [Concept 01](./engine/01-ownership-and-lifetime.md): portable core/adapters, ownership, lifetime and open placement choices.
 5. [REFERENCES.md](./REFERENCES.md): pinned Convex mechanisms, platform constraints and Flarex evidence.
 
 Discuss one concept, inspect its source and failure cases, record the owner's
