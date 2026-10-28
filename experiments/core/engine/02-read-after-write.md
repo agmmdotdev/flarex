@@ -123,7 +123,8 @@ not turn them into one universal replayable mutation API.
 
 ## Remaining decisions and proof
 
-The next question is [resumable index backfill](./OPEN-QUESTIONS.md#next-question-resumable-index-backfill).
+Resolve the dependencies of the selected slice under the
+[replacement workflow](./REFACTOR.md#convex-guided-replacement-workflow).
 Concrete recovery/readiness interlocks, monotonic timestamp representation,
 client wire details, numerical budgets and historical pagination remain open.
 Replication stays deferred; no follower-read protocol is selected.

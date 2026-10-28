@@ -108,8 +108,10 @@ it cannot repair missing engine readiness with private scans or maps.
 
 ## Remaining decisions and proof
 
-The next question is [resumable index backfill](./OPEN-QUESTIONS.md#next-question-resumable-index-backfill)
-under concept 07. Checkpoint atomicity, concurrent-write capture, durable
+The next unresolved index-lifecycle question is
+[resumable index backfill](./OPEN-QUESTIONS.md#next-question-resumable-index-backfill)
+under concept 07; it need not precede a read slice over an already enabled index.
+Checkpoint atomicity, concurrent-write capture, durable
 completion proof, cancellation/removal/replacement, activation races and build
 budgets remain open. Local cache coverage is still Q05; replication stays deferred.
 

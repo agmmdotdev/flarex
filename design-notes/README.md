@@ -44,7 +44,10 @@ breaking internal changes and removal of displaced mechanisms. Start at the
 [refactor record](../experiments/core/engine/REFACTOR.md) and
 [open questions](../experiments/core/engine/OPEN-QUESTIONS.md). The experimental
 folder is the proof area, not a separate permanent framework implementation.
-One concept is active at a time. [App ownership and commit decisions](../experiments/core/engine/01-commit-coordination.md)
+Use the accepted [replacement workflow](../experiments/core/engine/REFACTOR.md#convex-guided-replacement-workflow)
+one connected responsibility at a time, resolving that slice's semantic
+prerequisites rather than the entire question queue.
+[App ownership and commit decisions](../experiments/core/engine/01-commit-coordination.md)
 and [timestamped snapshots](../experiments/core/engine/02-timestamped-snapshots.md)
 and [operation lifetime/expiry](../experiments/core/engine/02-operation-lifetime.md)
 are accepted design. [Read authorization](../experiments/core/engine/02-read-authorization.md)
@@ -54,7 +57,9 @@ Numerical budgets, cache representation and fencing protocols remain open.
 selects latest-ready-owner reads, recovery gating and reactive timestamp synchronization.
 [Index readiness](../experiments/core/engine/02-index-readiness.md) selects the
 Convex lifecycle, deployment gates and snapshot-based query admission.
-Resumable index backfill is the next discussion. Replication
+The [starting recommendation](../experiments/core/engine/REFACTOR.md#recommended-starting-slice)
+is snapshot-correct point/index reads with injected cache/storage adapters;
+implementation is not authorized. Resumable index backfill remains open. Replication
 is explicitly deferred. Current runtime behavior and
 historical evidence are not rewritten as completed new-engine work.
 

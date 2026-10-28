@@ -26,9 +26,11 @@ permissions from authentication and engine-grant revocation. The
 [read-after-write record](./02-read-after-write.md) owns latest ordinary reads,
 recovery admission and reactive-client timestamp synchronization. The
 [index-readiness record](./02-index-readiness.md) owns ordinary-index lifecycle,
-deployment gating and query admission. Next is
-[resumable index backfill](./OPEN-QUESTIONS.md#next-question-resumable-index-backfill), the
-focused question in Q07. [Pinned references](../REFERENCES.md#engine-mechanism-reference-map)
+deployment gating and query admission. Follow the accepted
+[replacement workflow](./REFACTOR.md#convex-guided-replacement-workflow) and the
+[proposed starting slice](./REFACTOR.md#recommended-starting-slice): replace a
+snapshot-correct point/index read path with injected cache/storage adapters.
+Resumable backfill remains open in Q07. [Pinned references](../REFERENCES.md#engine-mechanism-reference-map)
 anchor each concept and later implementation in actual Convex owners.
 
 ## Current topology proposal
@@ -47,8 +49,8 @@ open and explicitly deferred, not an automatic scale-out setting.
 The proposal records the cart conflict/retry example, the SQLite/PostgreSQL
 authority split and framework replay limits. The commit and snapshot records own
 the accepted parts; the companion's remaining mechanisms and replica sketch are
-not accepted protocols. The question queue owns next steps; no implementation
-plan is selected.
+not accepted protocols. The question queue owns unresolved dependencies; the
+starting slice is a recommendation, not authorization to implement it.
 
 ## Accepted core and runtime boundary
 
@@ -135,16 +137,18 @@ independent lifetime or finalizer. Existing code is reusable where its owner fit
 ## Responsibilities to discuss
 
 Use [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md) for responsibility-specific questions,
-source references and required counterexamples. Only ownership and its commit
-coordination dependency are active; queued topics do not select module APIs,
-data structures, runtime placement or an implementation schedule.
+source references and required counterexamples. Choose the dependencies of one
+connected replacement at a time; queued topics do not impose a global sequence
+or silently select APIs, data structures or runtime placement.
 
 The first implementation should eventually prove a complete small path, including
 cold bootstrap, reads, writes, conflicts, persistence, publication and recovery.
 It must not consist only of fast in-memory map operations. Reuse the actual
 Application and framework workloads and [validation gates](../VALIDATION.md),
 adding warm/cold caches, eviction, owner replacement and memory-pressure witnesses.
-Exact slice scope is deferred until its necessary decisions are accepted.
+The [recommended starting slice](./REFACTOR.md#recommended-starting-slice) scopes
+that proof around existing point/range reads. Settle its required guarantees;
+unrelated questions need not be finished first. No implementation starts here.
 
 ## What follows from copying the design
 

@@ -4,10 +4,14 @@ Start with the [portable core refactor discussion](./engine/README.md) and
 [accepted migration direction](./engine/REFACTOR.md). Refactor the existing core,
 reuse the Medusa/Payload integration investment, allow necessary internal breaks
 and inspect Convex for each relevant mechanism. This folder is the design/proof
-area. Work one concept at a time from the [open-question queue](./engine/OPEN-QUESTIONS.md);
+area. Follow the accepted [replacement workflow](./engine/REFACTOR.md#convex-guided-replacement-workflow)
+one connected responsibility at a time, resolving only its required questions
+from the [open-question queue](./engine/OPEN-QUESTIONS.md);
 snapshot boundaries, expiry policy, the read-authorization split and read-after-write
-freshness and index-readiness direction are accepted; resumable index backfill is
-the active question. Numerical budgets
+freshness and index-readiness direction are accepted. The
+[proposed starting slice](./engine/REFACTOR.md#recommended-starting-slice) replaces
+snapshot-correct point/index reads with injected cache/storage adapters.
+Resumable index backfill, numerical budgets
 and concrete recovery/client protocols remain open.
 Current work is documentation only.
 
@@ -40,7 +44,7 @@ It is a proof area, not a production package or permanent alternative engine.
 1. [AGENTS.md](./AGENTS.md): scope, isolation and iteration rules.
 2. [Engine discussion](./engine/README.md): direction, continuing obligations and modular responsibilities.
 3. [Refactor direction](./engine/REFACTOR.md): keep/adapt/replace, breaking changes, integration seams and cleanup.
-4. [Decision register](./engine/DECISIONS.md): accepted/proposed status and the one active concept.
+4. [Decision register](./engine/DECISIONS.md): accepted/proposed status and the current replacement focus.
 5. [Open questions](./engine/OPEN-QUESTIONS.md): canonical queue, primary references and required decision evidence.
 6. [Concept 01](./engine/01-ownership-and-lifetime.md): portable core/adapters, ownership and lifetime.
 7. [Commit coordination](./engine/01-commit-coordination.md): accepted app boundary, ordering and recovery, with source mapping and necessary differences.

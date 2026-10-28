@@ -113,40 +113,129 @@ platform mechanisms; portable owners retain validity, visibility and acceptance
 rules. Record the pinned revision, source paths and relevant symbols for adapted
 mechanisms. Implementation follows a separately selected refactor slice.
 
+## Convex-guided replacement workflow
+
+Accepted development rule: organize the refactor around replacing existing
+responsibilities. Inspect and adapt the corresponding pinned Convex logic as
+closely as the runtime and supported behavior permit. Rust file order is not a
+migration plan, and existing Flarex differences are expected refactor inputs.
+
+For each slice, keep a short record:
+
+**Current owner -> pinned Convex mechanism -> keep/adapt/replace -> correctness
+cases -> removed code.**
+
+Identify the actual callers and execution profile, source revision/files/symbols,
+required guarantees, affected data and cleanup. Keep native Medusa/Payload
+business behavior, hooks and workflows; reuse or adapt sound core logic. Replace
+mechanisms that cause unnecessary work or conflict with the accepted direction.
+Change obstructing internal interfaces and migrate their callers. Preserve
+required behavior without a Convex equivalent, such as engine-grant revocation,
+with its explicit reason and evidence.
+
+Within an authorized slice, routine TypeScript structure, private API changes,
+caller migration and removal of displaced machinery proceed without another
+approval. An existing mismatch with Convex is not itself a reason to stop. A
+known, accepted divergence does not need repeated approval.
+
+Pause the affected path when the replacement requires an unresolved change to
+guarantees: replaying a native hook/external effect, changing visibility,
+ownership or recovery, or introducing a new divergence to preserve supported
+behavior. Record the source mechanism, concrete conflict, affected behavior and
+recommended resolution in the owning decision/question. Continue independent
+in-scope work. Final validation cannot repair a disclosure or business error
+that has already escaped, and native commands do not automatically become
+Application OCC transactions.
+
 ## One concept and one connected proof at a time
 
-The [decision register](./DECISIONS.md) identifies the single active concept.
-The [open-question queue](./OPEN-QUESTIONS.md) holds unresolved dependencies with
-references; a queued question is not an instruction to implement it now.
+Focus one replacement on a connected outcome. Resolve its semantic prerequisites
+from the [open-question queue](./OPEN-QUESTIONS.md); do not require all future
+questions to be answered or explicitly deferred first. Inspect pinned code while
+working and raise a decision when a real conflict appears. Ordinary mechanism
+choices that preserve accepted guarantees can be made and recorded in the slice.
+The [decision register](./DECISIONS.md) distinguishes accepted rules, proposed
+scopes and implementation; documentation approval still does not start coding.
 
-Each focused concept records: Convex mechanism -> required behavior -> owner and
-contract -> necessary differences/breaks -> failure and performance witnesses ->
-remaining questions. Record its decision or explicit deferral before moving to
-the next concept. Once a concrete implementation scope is authorized, complete
-that connected outcome, consumer migration and cleanup without seeking permission
-again for routine steps already covered by that scope.
+Once implementation is authorized, finish the selected consumer migration,
+owner/consumer validation and cleanup together. Retain an old path only for a
+named unmigrated consumer or durable obligation with a removal gate; do not
+accumulate a permanent second engine. The [validation contract](../VALIDATION.md)
+and root review rules apply to the connected replacement.
 
-Potential proofs, not a selected implementation schedule:
+## Recommended starting slice
 
-1. Establish the profile-correct logical read/attempt/acceptance boundary while
-   retaining or deliberately replacing appropriate PostgreSQL owners.
-2. Rebind real existing consumers: a bounded native Medusa Address operation and
-   Payload CRUD/population path are candidates, alongside standalone Application
-   point/range OCC. Preserve native hooks, outcomes and failure behavior.
-3. Prove one DO's local reads, commit publication, restart and cache reconstruction.
-   Compare complete operations against the current code and native baselines.
-4. Cut over the selected existing consumers and remove the displaced paths;
-   broaden only after their connected guarantees and cost are understood.
+Status: **Proposed starting scope; no runtime implementation authorized**.
+Start with one snapshot-correct document lookup and bounded ordinary-index range
+query, including cache hits and PostgreSQL misses. Use an already enabled index.
+This replaces the read responsibility through a real existing consumer; it is
+not an isolated cache library or a new general index builder.
 
-Replication remains open and explicitly deferred. If reopened, prove two
-execution replicas separately, including gaps, freshness, authorization and
-uncertain outcomes; replica proof is not a prerequisite for a single-owner cutover.
+Current [Application query snapshots](../../../packages/persistence-postgres/src/application/applicationQuerySnapshot.ts)
+already reach [historical row reads](../../../packages/persistence-postgres/src/storage/documents/appRows.ts)
+and [historical index scans](../../../packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts).
+The [logical working-set contract](../../../packages/persistence-postgres/src/storage/documents/logicalDocuments/model.ts)
+still takes a metadata transaction or checked read-transaction callback. Audit
+and move the required read semantics to their portable owner; adding a cache
+behind the old callback alone would retain its SQL/lifetime coupling.
 
-Actual native read visibility and replay eligibility may require a different
-order or narrower scope. Do not convert all framework commands into Application
-OCC. Do not assume final validation can repair disclosure or early business errors
-that already escaped. The [validation contract](../VALIDATION.md) supplies the
-existing gates; changed guarantees require explicit replacement evidence.
+| Responsibility | Initial replacement and injection boundary |
+| --- | --- |
+| Portable snapshot/read owner | Create an operation-scoped view with app/generation and snapshot identity, metadata/index eligibility, point/range dependencies, cache eligibility and complete-range versus missing coverage. Keep pending writes operation-local. |
+| PostgreSQL reader | Reuse or adapt existing timestamped row/index readers behind narrow data-read operations. Keep SQL/Drizzle and database sessions here; a miss must read at the same snapshot. |
+| Local cache/index storage | Supply bounded RAM or DO SQLite storage for versioned records/pages, ordered keys and coverage. The core decides validity; SQLite persistence does not make a cached value authoritative. Select the smallest representation this path needs. |
+| Cloudflare DO host | Construct shared read services and local storage once per app-owner lifetime; each operation gets its own snapshot and working set. Calls within that DO are direct; interfaces do not require an RPC per lookup. Revalidate or discard retained SQLite cache state during bootstrap before reuse. |
+| Existing consumer | Start with a bounded Application point/range read, whose explicit snapshot/dependency contract is already visible. Migrate its call chain and remove the displaced read path in that scope. This is a sequencing recommendation, not a new public API. |
+| Medusa/Payload integration | Reuse native services/Local API and their translations. Rebind a bounded native read after its visibility, lifecycle, authorization and pending-state requirements are accounted for; do not silently switch either framework to Application OCC. |
+
+Keep canonical cached values private; mutable framework results and population
+state remain request-owned. Shared cache lifetime does not extend an operation's
+deadline, snapshot eligibility or mutation authority.
+
+Inspect pinned [SnapshotManager](../../../../../crates/database/src/snapshot_manager.rs),
+[DatabaseIndexSnapshot::range_batch and fetch_cache_misses](../../../../../crates/indexing/src/backend_in_memory_indexes.rs),
+[IndexCache::get, populate and apply_writes](../../../../../crates/indexing/src/index_cache/mod.rs)
+and their relevant tests before implementation. The
+[reference map](../REFERENCES.md#engine-mechanism-reference-map) records the pin
+and hashes. Translate their snapshot, coverage and racing-fill rules; choose
+TypeScript/SQLite representations by the operations they must support.
+
+Suggested order within that connected slice:
+
+1. Trace one existing point/range caller and its actual admission, snapshot,
+   history and dependency owners. Record what stays, changes and disappears.
+2. Establish the narrow snapshot-read boundary and PostgreSQL miss path, then
+   inject local cache storage and the DO composition for the same path. Keep
+   correctness in the core and host types in adapters; avoid a generic runtime
+   registry or a new package per interface.
+3. Connect ordered publication/invalidation and startup readiness to the actual
+   writer/owner path before enabling shared cache reuse. Cover every relevant
+   writer, including framework writers that can touch those records/indexes.
+   Unproven freshness cannot be replaced by a cache TTL or an assumed timestamp.
+4. Prove warm/cold reads, absence and partial ranges, ordering/pagination,
+   concurrent fills/writes, old snapshots, eviction, restart, history expiry and
+   authorization. Migrate and remove the selected old path; compare complete
+   operations, not just local lookup speed.
+
+The cart example for this read contract is: select safe snapshot S, read the
+cart and its item-index range from eligible local state, and fetch uncovered
+data from PostgreSQL at S. After an item update publishes at S+1, a new read
+must see the updated range; an existing S read keeps its old view. A missing
+cache entry is not an empty cart. This example does not itself migrate native
+Medusa cart workflows or authorize their replay.
+
+Only the slice's required portions of Q01/Q02 ownership/publication, Q03
+admission/lifetime, Q04 ordering and Q05 coverage/storage must be settled for
+its activation. Work on proven subpaths can proceed within the selected scope.
+New out-of-order persistence, general index backfill and replica protocols are
+not implicit prerequisites when the slice does not change them; existing
+writer semantics must be stated and proved, not mistaken for the new pipeline.
+If the chosen read cannot work without changing one of those guarantees, resolve
+that dependency before activating the affected path. The canonical queue owns
+remaining questions; no new cache/index algorithm is accepted by this proposal.
+
+Replication remains open and explicitly deferred. A later replica proof is not
+a prerequisite for the first single-owner replacement.
 
 ## Completion boundary
 
@@ -156,8 +245,10 @@ preserves their guarantees. Measure complete native business graphs, CPU, latenc
 queueing, misses, retries, memory and warm-up. Reuse existing correctness evidence
 without presenting historical cohorts as current performance results.
 
-Current approval is for these design documents. Resumable index backfill is
-the active question; grant enforcement and ownership/fencing protocols remain open.
+Current approval is for these design documents and the replacement workflow.
+The starting slice is a recommendation; its required grant enforcement and
+ownership/publication protocols need a concrete mapping before activation.
+Resumable index backfill and other unrelated questions remain open.
 Runtime implementation, cutover,
 deployment and data changes remain unstarted. Preserve current behavior until a
 connected replacement is implemented and verified, then retire it rather than

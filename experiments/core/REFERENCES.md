@@ -69,6 +69,13 @@ product requirements can justify a difference. Retaining old internal plumbing
 or implementation convenience alone cannot. Keep a hypothesis marked unproved;
 never claim performance equivalence from structural similarity.
 
+Apply these rules through the accepted
+[replacement workflow](./engine/REFACTOR.md#convex-guided-replacement-workflow).
+Map each mechanism to its current Flarex responsibility and decide keep, adapt
+or replace. Existing differences are refactor inputs, not automatic reasons to
+stop. Record routine adaptations within the selected scope; pause the affected
+path for a decision only when an unresolved change to guarantees requires it.
+
 These design updates do not authorize implementation.
 The [commit record](./engine/01-commit-coordination.md#pinned-convex-mechanism-and-necessary-differences)
 maps the selected mechanism and the necessary adaptations currently identified.
@@ -175,7 +182,7 @@ translation nor identical method names proves equivalent behavior or latency.
 
 The [index-readiness record](./engine/02-index-readiness.md#pinned-sources-and-necessary-differences)
 maps the accepted ordinary-index lifecycle, deployment gates and snapshot-based
-read admission. Resumable backfill remains the next open mechanism, not an
+read admission. Resumable backfill remains an open mechanism, not an
 implemented consequence of using the same states. The index-registry hash is
 already recorded above; these additional files were inspected at the same pin.
 

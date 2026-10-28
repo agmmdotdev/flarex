@@ -110,7 +110,8 @@ Every admitted native branch still needs visibility, hook and failure witnesses.
 
 ## Remaining decisions and proof
 
-The next question is [resumable index backfill](./OPEN-QUESTIONS.md#next-question-resumable-index-backfill).
+Resolve the dependencies of the selected slice under the
+[replacement workflow](./REFACTOR.md#convex-guided-replacement-workflow).
 Numerical deadlines/history budgets, exact expiry errors, cancellation fencing,
 concrete client protocols and framework-specific compatibility remain open implementation
 gates in the canonical queue. No code, schema or deployment change is authorized.

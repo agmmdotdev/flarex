@@ -41,7 +41,22 @@ choose its structures, libraries and SQLite indexes by required semantics and
 cost rather than copying Rust types. PostgreSQL remains durable authority and
 Application, Payload and Medusa retain explicit execution profiles.
 
-Proceed one active concept at a time through the [decision register](../experiments/core/engine/DECISIONS.md).
+Use the accepted [replacement workflow](../experiments/core/engine/REFACTOR.md#convex-guided-replacement-workflow):
+organize work by existing responsibility, using pinned Convex mechanisms as the
+default and reusing correct existing logic. Existing differences and necessary
+internal breaks are refactor targets, not automatic stop conditions. Within a
+selected implementation scope, routine TypeScript choices, interface changes
+and caller migration can proceed. Pause the affected path when an unresolved
+change to guarantees needs a decision, including native effect replay,
+visibility, ownership, recovery or a new divergence to preserve supported behavior.
+Record current owner, pinned mechanism, keep/adapt/replace, correctness cases
+and removed code. Resolve only that slice's semantic prerequisites; unrelated
+open topics do not require advance completion. The
+[starting-slice recommendation](../experiments/core/engine/REFACTOR.md#recommended-starting-slice)
+is a snapshot-correct point/index read path with injected cache and storage
+adapters; it is proposed, not implementation approval.
+
+Keep one focused replacement at a time in the [decision register](../experiments/core/engine/DECISIONS.md).
 The [open-question queue](../experiments/core/engine/OPEN-QUESTIONS.md) is the
 canonical unresolved list. The [app/commit record](../experiments/core/engine/01-commit-coordination.md)
 owns the accepted decisions: one independent app owner shared by Medusa/Payload/

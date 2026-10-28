@@ -214,8 +214,9 @@ their core-facing contracts under the refactor direction.
 
 Use [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md) for the canonical questions, source
 references and decision evidence. Q01/Q02 record accepted app and commit
-decisions; Q03 records timestamped reads and operation-lifetime policy, with
-[resumable index backfill](./OPEN-QUESTIONS.md#next-question-resumable-index-backfill) next.
+decisions; Q03 records timestamped reads and operation-lifetime policy.
+Follow the [replacement workflow](./REFACTOR.md#convex-guided-replacement-workflow)
+to resolve the selected slice's dependencies; unrelated questions can stay open.
 Use one app owner and overlapping operations; replication stays deferred.
 Snapshot/cache coverage, framework replay, lifecycle and hosting retain their
 queued details. Single-owner correctness and recovery remain required now.

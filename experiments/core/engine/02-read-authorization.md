@@ -90,7 +90,8 @@ No source translation, new grant protocol or native result cache is implemented.
 
 ## Remaining decisions and proof
 
-The next question is [resumable index backfill](./OPEN-QUESTIONS.md#next-question-resumable-index-backfill).
+Resolve the dependencies of the selected slice under the
+[replacement workflow](./REFACTOR.md#convex-guided-replacement-workflow).
 Grant epoch observation/fencing, disclosure and acceptance races, native access
 compatibility, complete result-cache keys and eligibility remain open. Numerical
 budgets and cache representations remain in the canonical queue.

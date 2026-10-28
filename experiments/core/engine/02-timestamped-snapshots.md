@@ -224,8 +224,9 @@ No Rust source is copied and no representation or performance parity is claimed.
 
 Snapshot ownership, inherited deadlines and expiry policy are accepted in the
 [operation-lifetime record](./02-operation-lifetime.md). Numerical limits and
-native compatibility still need evidence. The next focused question is
-[resumable index backfill](./OPEN-QUESTIONS.md#next-question-resumable-index-backfill).
+native compatibility still need evidence. The
+[proposed starting slice](./REFACTOR.md#recommended-starting-slice) applies these
+guarantees to a bounded existing point/range read and its cache/storage adapters.
 Local version retention, cache coverage and fencing remain in the canonical
 queue; replication stays deferred.
 

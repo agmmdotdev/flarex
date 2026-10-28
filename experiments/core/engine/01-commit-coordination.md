@@ -167,8 +167,9 @@ The published-read-view question is answered by
 [timestamped snapshots](./02-timestamped-snapshots.md), including a PostgreSQL miss
 while B is durable but unpublished. The [operation-lifetime policy](./02-operation-lifetime.md)
 separates pre-acceptance expiry from accepted/uncertain outcomes that require
-settlement or recovery. Next is
-[resumable index backfill](./OPEN-QUESTIONS.md#next-question-resumable-index-backfill).
+settlement or recovery. The [replacement workflow](./REFACTOR.md#convex-guided-replacement-workflow)
+selects required decisions by the affected slice; the question queue is not a
+mandatory implementation sequence.
 Detailed fencing, outcome representation and resource limits remain open.
 Replication is deferred, not a prerequisite for proving this single-owner path.
 

@@ -17,8 +17,13 @@ rebuild all integration coverage. Keep useful native behavior and replace the
 mechanisms that preserve unnecessary work. PostgreSQL layouts and old interfaces
 are redesignable; actual retained data needs an explicit disposition.
 
-The [decision register](../../experiments/core/engine/DECISIONS.md) owns the
-one-concept-at-a-time process and [open questions](../../experiments/core/engine/OPEN-QUESTIONS.md)
+The accepted [replacement workflow](../../experiments/core/engine/REFACTOR.md#convex-guided-replacement-workflow)
+uses pinned Convex mechanisms to refactor existing responsibilities. Existing
+differences are not automatic stop conditions; pause the affected path for
+unresolved changes to guarantees and continue ordinary in-scope adaptation.
+Resolve the selected slice's semantic prerequisites without requiring the whole
+question queue to be finished. The [decision register](../../experiments/core/engine/DECISIONS.md)
+owns accepted/proposed status and [open questions](../../experiments/core/engine/OPEN-QUESTIONS.md)
 own unresolved contracts. [App ownership and commit coordination](../../experiments/core/engine/01-commit-coordination.md)
 are accepted design: out-of-order saves, ordered normal publication and recovery
 from uncertainty. [Timestamped snapshots](../../experiments/core/engine/02-timestamped-snapshots.md)
@@ -34,7 +39,10 @@ selects latest-ready-owner reads, bounded recovery admission and timestamped
 cold-cache misses, with reactive-client timestamp synchronization.
 [Index readiness](../../experiments/core/engine/02-index-readiness.md) selects the
 Convex lifecycle, deployment gating and snapshot-based query admission.
-Resumable index backfill is next;
+The [proposed starting slice](../../experiments/core/engine/REFACTOR.md#recommended-starting-slice)
+is an existing Application point/range read with a portable snapshot owner,
+PostgreSQL miss adapter and DO-local cache storage. Its writer/publication and
+read-authority prerequisites remain part of that proof. Resumable backfill remains open;
 reference defaults are not selected limits. Cache representation
 and detailed ownership/recovery protocols remain open; replication is deferred.
 Nothing is implemented or measured by this decision. Current approval is

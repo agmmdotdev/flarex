@@ -6,7 +6,11 @@ owns accepted/proposed status; [REFACTOR.md](./REFACTOR.md) owns the accepted
 existing-core migration direction. Focused notes explain the current candidate
 without maintaining another independent question list.
 
-Only **concept 07: resumable index backfill** is the active discussion focus. App
+The current focus is the [proposed first snapshot/read/cache replacement](./REFACTOR.md#recommended-starting-slice)
+and its necessary dependencies. The accepted [replacement workflow](./REFACTOR.md#convex-guided-replacement-workflow)
+does not require this whole queue to be answered before a bounded slice can
+start. An unresolved guarantee pauses the affected path, not independent work;
+routine in-scope adaptation follows pinned source and accepted rules. App
 ownership, coordinator placement, out-of-order saves with ordered normal
 publication, and uncertainty recovery are [accepted](./01-commit-coordination.md). The
 [timestamped-snapshot contract](./02-timestamped-snapshots.md) now answers the
@@ -22,11 +26,12 @@ authentication and engine-grant revocation. [Read-after-write freshness](./02-re
 is accepted: latest-ready-owner reads, recovery gating, timestamped misses and
 reactive-client timestamp synchronization. [Index readiness](./02-index-readiness.md)
 is accepted: build, complete, then enable; required builds gate deployment and
-queries reject unavailable indexes. Resumable backfill is next. Remaining
+queries reject unavailable indexes. Resumable backfill remains open. Remaining
 concept-02 protocols and other questions stay open/queued, not silently completed.
 Replication is **open and explicitly deferred**; single-owner fencing/recovery
-is still required. Record a decision or explicit deferral before moving to the
-next concept.
+is still required where the selected slice depends on it. Record the required
+decisions in that slice; unrelated questions remain open without a forced
+discussion or deferral. No implementation follows from this queue update.
 
 All Convex links below use the [recorded source pin](../REFERENCES.md#convex-source-identity),
 not an implicit moving upstream revision. Source inspection is evidence for a
@@ -191,6 +196,10 @@ versions and encoding comparisons across PostgreSQL and local cache execution.
 **Direction partly accepted; details queued, concept 04.** Demand population,
 publication-driven invalidation, validated concurrent fills and bounded cache size
 are [accepted principles](./02-timestamped-snapshots.md#accepted-cache-and-retention-direction).
+The [proposed starting slice](./REFACTOR.md#recommended-starting-slice) takes a
+bounded point/range read through this boundary. Select only the cache/storage
+representation and coverage protocol needed for that path; a cache adapter
+cannot hide the current transaction coupling or substitute for writer coverage.
 Still open: which data lives in RAM, DO SQLite and PostgreSQL? Is the
 cache partial or complete for a declared range, and how are misses, absence,
 counts and pagination proved? Decide warming, copying, version retention,
@@ -232,7 +241,7 @@ one-time external effects and unknown-COMMIT recovery without native reexecution
 
 ## Q07 - Schema, index lifecycle and retention
 
-**Partially answered; resumable index backfill active, concept 07.** Follow the
+**Partially answered; remaining mechanisms open, concept 07.** Follow the
 [separate cache/history bounds](./02-timestamped-snapshots.md#accepted-cache-and-retention-direction).
 The accepted [index-readiness record](./02-index-readiness.md) governs lifecycle
 and read admission; it does not decide the complete builder/activation protocol here.
@@ -251,6 +260,10 @@ Required examples: activation during reads, missing feed history, repair writes,
 expired pinned views and safe cleanup after consumer/data cutover.
 
 ### Next question: resumable index backfill
+
+This is the next unresolved question within index lifecycle, not a required
+global next step. A read slice over an already enabled index need not redesign
+the builder. Any new build or activation path still needs this proof.
 
 **How do we build an index while writes continue, then resume after a crash
 without missing or duplicating logical entries?** Select the snapshot/cursor
@@ -313,9 +326,15 @@ with an old cursor, retention gaps and reads during another replica's commit.
 
 ## Q10 - Connected replacement, performance and retirement
 
-**Queued, concept 10.** Which complete native consumers prove the first owner
-replacement, what old work disappears, and what remains? Select implementation
-scope only after its dependencies are decided. Define measurements and stop or
+**Starting slice proposed, concept 10.** The
+[recommendation](./REFACTOR.md#recommended-starting-slice) begins with one existing
+Application point/range read, its portable snapshot owner, a PostgreSQL miss
+adapter and DO-local cache storage. Bounded native Medusa/Payload reads follow
+through their existing integrations once their profile-specific prerequisites
+are met. Which exact consumer and writer/publication hooks prove this replacement,
+what old work disappears, and what remains? Resolve the affected guarantees
+before activation; unrelated future design questions do not block this slice.
+Define measurements and stop or
 redesign criteria before expanding coverage. Plan caller migration and deletion
 of the displaced paths rather than a permanent parallel engine.
 

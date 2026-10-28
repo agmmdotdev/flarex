@@ -41,6 +41,11 @@ dependencies and utility placement.
 - Scope work by authority, lifecycle, resources, compatibility, and activation;
   do not cap connected outcomes by file count. Reuse existing owners and types
   before adding interfaces, validators, codecs, services, or helpers.
+- For Convex-guided core refactoring, follow the accepted
+  [replacement workflow](experiments/core/engine/REFACTOR.md#convex-guided-replacement-workflow).
+  Existing differences and necessary internal breaks are replacement work, not
+  automatic approval gates. Pause the affected path for unresolved changes to
+  guarantees; routine in-scope adaptation and caller migration can proceed.
 - Generic utilities are total, deterministic, domain-neutral dependency leaves.
   Protocol, canonical encoding, crypto, Effect, persistence, host, framework,
   test, and authority policy stay with their actual owner.

@@ -51,14 +51,24 @@ it does not reproduce or weaken shared correctness, skills, review or commit rul
 ## Design and iteration
 
 - The current design discussion starts at [engine/README.md](./engine/README.md).
-  Work through one active concept at a time using its decision register. Explain
-  the Convex mechanism, alternatives, costs and failure cases before recording
-  the owner's decision. Do not infer acceptance of later concepts from approval
-  to explore the engine direction. Update the affected notes after each decision.
+  Follow the [replacement workflow](./engine/REFACTOR.md#convex-guided-replacement-workflow):
+  one existing responsibility and connected outcome at a time, with pinned
+  Convex mechanisms as the default. Record current owner -> pinned mechanism ->
+  keep/adapt/replace -> correctness cases -> removed code. Rust file order does
+  not determine refactor order. Update affected decisions when guarantees change.
 - Keep unresolved questions and their primary references in
   [engine/OPEN-QUESTIONS.md](./engine/OPEN-QUESTIONS.md). Focused concept notes link
-  to that queue instead of maintaining competing lists. Queued concepts are not
-  implementation tasks; record a decision or explicit deferral before moving on.
+  to that queue instead of maintaining competing lists. Resolve the selected
+  slice's semantic prerequisites; unrelated open questions need not be completed
+  or deferred before that slice can proceed. The queue is not a mandatory
+  implementation sequence or authorization to implement every topic.
+- An existing difference from Convex does not itself stop a refactor. Within an
+  authorized slice, routine TypeScript structure, private interface changes,
+  caller migration and cleanup need no new approval. Pause only the affected
+  path when an unresolved change to guarantees needs a decision, such as native
+  effect replay, visibility, ownership, recovery or supported behavior requiring
+  a new divergence. Record the conflict and recommendation; continue independent
+  in-scope work. Accepted differences do not need repeated approval.
 - Distinguish proposed, accepted, implemented and measured claims. Follow the
   accepted app/commit decisions in the register; unresolved protocols are not
   implied decisions. Replication is explicitly deferred. Documentation acceptance

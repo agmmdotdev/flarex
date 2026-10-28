@@ -12,8 +12,11 @@ permission dependencies and identity-aware result reuse are accepted, with separ
 engine-grant revocation. Latest-published read admission, recovery gating and
 reactive-client timestamp synchronization are accepted. Ordinary-index lifecycle,
 deployment readiness gates and snapshot-based index admission are accepted.
-Concept 07 now focuses on resumable index backfill. Remaining concept-02 protocols,
-ownership, fencing and recovery details stay open.
+The Convex-guided replacement workflow is accepted: refactor existing
+responsibilities in bounded slices and raise unresolved changes to guarantees
+when encountered. A first snapshot/read/cache slice is proposed. Resumable index
+backfill, remaining concept-02 protocols, ownership, fencing and recovery details
+stay open.
 Replication is explicitly deferred. This register records decisions, not execution
 receipts; [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md)
 owns the unresolved queue and its references.
@@ -74,11 +77,21 @@ framework source owns behavior without a Convex equivalent. TypeScript RAM cache
 are permitted; evaluate libraries, local structures and SQLite indexes by their
 semantics and cost.
 
-Proceed one active concept at a time. Modular owners must not each introduce a
-new transaction, admission pass or RPC. Record required behavior, owner/contract,
-breaks, complete-operation cost and failure witnesses before a connected slice.
-Once implementation is selected, finish its migrated consumers and cleanup within
-the authorized scope; a small helper change is not the completion criterion.
+Follow the [Convex-guided replacement workflow](./REFACTOR.md#convex-guided-replacement-workflow).
+Record current owner -> pinned mechanism -> keep/adapt/replace -> correctness
+cases -> removed code. Existing differences and necessary internal breaks are
+not automatic stop conditions. Within a selected slice, routine TypeScript
+structure, API changes and caller migration proceed; pause the affected path
+when an unresolved change to guarantees needs a decision. Native effect replay,
+visibility, ownership, recovery and new supported-behavior divergences are such
+decision boundaries. Continue independent work and do not reopen accepted choices.
+
+One focused replacement may cross multiple concepts. Settle its semantic
+prerequisites, without requiring unrelated future questions to be completed.
+Modular owners must not each introduce a transaction, admission pass or RPC.
+Once implementation is selected, finish migrated consumers, proof and cleanup
+within that scope. The [starting slice](./REFACTOR.md#recommended-starting-slice)
+is proposed only; this documentation update does not begin implementation.
 
 ## Accepted app, commit and read decisions
 
@@ -125,28 +138,26 @@ execution sequence. No code replacement follows from recording this proposal.
 | 01 | [Engine ownership and lifetime](./01-ownership-and-lifetime.md), with [commit coordination](./01-commit-coordination.md) | App boundary, coordinator placement, save/publication order and recovery accepted; residual protocols open; replication deferred | No new engine implementation |
 | 02 | [Timestamped snapshots](./02-timestamped-snapshots.md), [operation lifetime](./02-operation-lifetime.md), [read authorization](./02-read-authorization.md), [read-after-write freshness](./02-read-after-write.md) and [index readiness](./02-index-readiness.md) | Read/cache, operation boundary, expiry/retry, authorization, freshness and index-admission direction accepted; remaining budgets/protocols queued | Named grant/native obligations remain binding; no new snapshot implementation |
 | 03 | Values, IDs, timestamps and ordered-key semantics | Open; queued | Existing contracts are evidence, not automatically retained internals |
-| 04 | Read/index execution and coherent caches | Coherence/population principles accepted under 02; representation and execution details queued | Command-local observations exist; shared-engine cache unproved |
+| 04 | Read/index execution and coherent caches | Coherence/population principles accepted under 02; proposed starting slice under review; representation still open | Command-local observations exist; shared-engine cache unproved |
 | 05 | Pending state, dependencies and execution profiles | Outer ownership and initial retry policy accepted under 02; detailed representation and native conformance queued | Existing Application/framework witnesses retained |
 | 06 | Commit ordering, Drizzle persistence and outcome recovery | Ordering/recovery principles accepted under 01; detailed mechanism queued | Existing atomic publication is the baseline, not the new pipeline |
-| 07 | Schema/index lifecycle, retention and memory limits | Index lifecycle/readiness and bounded cache/history direction accepted; resumable index backfill active; other maintenance/limit details queued | No replacement builder, maintenance or GC protocol selected |
+| 07 | Schema/index lifecycle, retention and memory limits | Index lifecycle/readiness and bounded cache/history direction accepted; resumable index backfill and other maintenance/limit details open | No replacement builder, maintenance or GC protocol selected |
 | 08 | Runtime scheduling, isolation and framework bridges | Cloudflare app coordinator placement accepted; detailed hosting/scheduling queued; replication deferred | No new adapter implementation; native semantics remain required |
 | 09 | Reactivity and invalidation consumers | Client timestamp synchronization direction accepted; delivery/protocol details queued | No connected shared-engine reactivity claim |
-| 10 | First connected proof, performance gates and cutover | Open; queued | Existing complete-request measurements retained |
+| 10 | First connected proof, performance gates and cutover | Snapshot-correct point/range read with injected cache/storage proposed as the starting slice | Existing complete-request measurements retained; no implementation approval |
 
-The order is a discussion guide, not a strict dependency chain. Q01/Q02 record
-the accepted portions and remaining protocol work. Read views and operation
-lifetime policy are recorded under concept 02; the next focused question is
-[resumable index backfill](./OPEN-QUESTIONS.md#next-question-resumable-index-backfill).
-This does not close the remaining ownership/fencing work or open every cache
-topic at once. Open only the next concept when the current outcome is recorded
-or the owner explicitly chooses to defer it. Create its focused note at that point;
-do not fill this folder with speculative implementations or duplicate roadmaps.
+The order is a reference map, not a mandatory discussion or implementation chain.
+The current focus is the [proposed starting slice](./REFACTOR.md#recommended-starting-slice)
+and its concrete dependencies. Resumable index backfill remains open in Q07;
+using an already enabled index need not introduce a replacement builder.
+Do not fill this folder with speculative implementations or duplicate roadmaps.
 
 The accepted boundary applies across queued concepts. Recording these policies
 does not select replica topology or concrete cache layout, or replace the separate
 Application, Payload and Medusa execution profiles. The relevant
-[open questions](./OPEN-QUESTIONS.md) must be resolved
-before selecting a connected implementation slice.
+[open questions](./OPEN-QUESTIONS.md) that determine a slice's guarantees must
+be resolved before the affected path is activated. A slice can start within its
+authorized, settled boundaries while unrelated questions remain open.
 
 ## Decision record shape
 
