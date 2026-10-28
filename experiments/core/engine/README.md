@@ -149,10 +149,9 @@ Exact slice scope is deferred until its necessary decisions are accepted.
 ## What follows from copying the design
 
 Use Convex as the primary reference for the complete engine mechanisms, and make
-every necessary product/platform divergence explicit. Source adaptation is a
-separate decision: identify the exact revision, applicable license, intended use
-and provenance before translating code. The currently inspected backend is FSL;
-changing language does not establish permission. This document copies no code.
+every necessary product/platform divergence explicit. Record the exact source
+revision, files and symbols for each adapted mechanism. This document records
+design only.
 
 TypeScript remains the requested implementation direction. Library selection,
 ordered persistent structures, timestamp representation, async scheduling and

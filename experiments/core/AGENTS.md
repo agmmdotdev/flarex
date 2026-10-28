@@ -69,10 +69,9 @@ it does not reproduce or weaken shared correctness, skills, review or commit rul
   pin and [divergence rules](./REFERENCES.md#source-and-divergence-rules). Record
   mechanisms, invariants, concurrency/failure paths and the reason, replacement
   and required evidence for every difference; old plumbing alone is not a reason.
-  Use executing native framework sources when Convex
-  has no equivalent. Record source reuse/license disposition separately; a Rust
-  translation is not automatically authorized. Preserve PostgreSQL authority
-  and Drizzle.
+  Use executing native framework sources when Convex has no equivalent. Keep
+  adapted mechanisms traceable to their pinned source files and symbols.
+  Preserve PostgreSQL authority and Drizzle.
 - Follow [MODULES.md](./MODULES.md). Define each contract at its actual owner;
   avoid a universal context, generic engine registry or options bag.
 - TypeScript RAM caching is allowed. Choose existing libraries, local structures

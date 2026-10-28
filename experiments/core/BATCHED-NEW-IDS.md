@@ -17,7 +17,7 @@ enforces schema and stages `apply_validated_write(document_id, None, ...)`.
 Its committer validates read dependencies before accepting writes. This is
 evidence for separating pending insert construction from physical reads, not
 permission to assume UUID collisions are impossible or omit Flarex's live gates.
-No Convex code or new licensing dependency is copied.
+No Convex code is copied.
 The enclosing Convex source is pinned at
 `84fbb0e70b4e857913673871cb847ad11a55f3d5`; the inspected committer is
 `crates/database/src/committer.rs::validate_commit`.

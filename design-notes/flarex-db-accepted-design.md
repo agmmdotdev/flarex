@@ -32,7 +32,7 @@ guidance together. No unspecified durable-data deletion follows from this policy
 Keep the core portable and inject runtime/storage/coordination mechanisms, with
 Cloudflare as the first host family. Use pinned Convex mechanisms as the primary
 engine reference during design and development, recording necessary runtime,
-framework, product and source-reuse differences under the
+framework and product differences under the
 [source and divergence rules](../experiments/core/REFERENCES.md#source-and-divergence-rules).
 The reference pin is `84fbb0e70b4e857913673871cb847ad11a55f3d5`; inspect its owners
 and relevant tests before each implementation slice and justify every difference.

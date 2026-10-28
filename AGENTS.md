@@ -14,7 +14,7 @@ labels literally; proposals and prototypes do not override accepted decisions.
 dependencies and utility placement.
 
 - Preserve the portable Convex developer model; inspect Convex first and record
-  necessary Cloudflare, partitioning, licensing, or product divergences.
+  necessary Cloudflare, partitioning, or product divergences.
 - Postgres alone owns committed application data, settlement, history, facts,
   and durable outcomes. Cloudflare coordination, caches, freshness state, and
   publication prefixes are not commit authority.

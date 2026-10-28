@@ -72,7 +72,7 @@ before each concept and implementation slice, recording invariants, relevant
 tests, concurrency/recovery and the reason/evidence for each difference. Native
 framework source owns behavior without a Convex equivalent. TypeScript RAM caches
 are permitted; evaluate libraries, local structures and SQLite indexes by their
-semantics and cost. Source reference does not itself authorize source copying.
+semantics and cost.
 
 Proceed one active concept at a time. Modular owners must not each introduce a
 new transaction, admission pass or RPC. Record required behavior, owner/contract,
@@ -104,7 +104,7 @@ The [commit-coordination record](./01-commit-coordination.md),
 | New ordinary reads use the ready app owner's latest published snapshot; startup/recovery gates new reads with bounded waits or explicit failure | Accepted; cold caches miss to PostgreSQL at that same timestamp; no per-query timestamp-fetch request or mandatory minimum-timestamp token for the initial single-owner ordinary-read path; concrete ownership/readiness protocols remain open |
 | Reactive clients retain commit/query timestamps, resolve successful mutation promises after applied query-state progress and check reconnect progress | Accepted direction following pinned Convex backend/client code; exact protocol and subscription implementation remain open; no native replay is enabled |
 | Ordinary database indexes move through Backfilling, Backfilled and Enabled; required builds gate deployment and queries require enabled metadata at their snapshot | Accepted Convex-style lifecycle; staged builds require later enablement, no runtime waiting/partial reads/implicit scan fallback; local cache coverage is separate; backfill, activation and recovery details remain open |
-| Convex revision `84fbb0e70b4e857913673871cb847ad11a55f3d5`, source-first inspection and justified divergences | Accepted development rule; source reuse/license disposition remains separate |
+| Convex revision `84fbb0e70b4e857913673871cb847ad11a55f3d5`, source-first inspection and justified divergences | Accepted development rule; adapted mechanisms retain exact source provenance |
 | Execution replicas, their synchronization and scaling topology | Open and explicitly deferred; not a prerequisite for the first single-owner design |
 
 The [placement companion](./01-do-execution-and-replicas.md) retains the wider
@@ -162,7 +162,7 @@ Each focused note must contain:
    references to remaining questions in the canonical queue.
 8. Implementation eligibility and cleanup/replacement gates.
 
-For source reuse, also record revision/license/provenance disposition. For each
+For source reuse, also record the exact revision, files and symbols. For each
 check to remove, name its replacement enforcement and relevant writer; do not
 equate a cached value with fresh authority. Keep source code, tests and Git as
 implementation/validation evidence rather than recording invented completion.

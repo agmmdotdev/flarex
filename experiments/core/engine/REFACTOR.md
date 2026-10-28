@@ -110,8 +110,8 @@ versioned snapshot; a current-state SQLite table is not retained history.
 Keep pure calculation local and ordinary function calls direct. Logical modules
 do not each need a package, service, transaction or RPC. Host adapters supply
 platform mechanisms; portable owners retain validity, visibility and acceptance
-rules. Source adaptation requires its own pinned provenance/license disposition;
-this direction authorizes architectural reference, not an automatic Rust port.
+rules. Record the pinned revision, source paths and relevant symbols for adapted
+mechanisms. Implementation follows a separately selected refactor slice.
 
 ## One concept and one connected proof at a time
 

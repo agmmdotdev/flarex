@@ -48,12 +48,6 @@ committer.rs      757694be6c9fcac0eb06cc25a9897132a6ae7ae8b364b2fedc7052c22a12fd
 application_function_runner/mod.rs 4c723adb49b632793e6d2507424845bb60218a1ff7d8d2cb4035e7f03607ed33
 ```
 
-Read the local [LICENSE.md](../../../../LICENSE.md) before considering source
-copying; the inspected file identifies FSL-1.1-Apache-2.0. Its SHA-256 is
-`cee614f23a461cb4aba2910e7127ae0969bcf42a0a91a38d3e3449d843383086`.
-This experiment uses Convex as an architectural reference. It does not assume
-permission to transplant source or that every source file has identical terms.
-
 ## Source and divergence rules
 
 The design/development reference remains the exact revision above. Do not follow
@@ -75,11 +69,8 @@ product requirements can justify a difference. Retaining old internal plumbing
 or implementation convenience alone cannot. Keep a hypothesis marked unproved;
 never claim performance equivalence from structural similarity.
 
-Architectural reference and implementation-source reuse are separate. The pinned
-license has competing-use restrictions; a language translation is not itself a
-reuse-rights determination. Record the applicable revision/license/provenance
-disposition before porting source. No source port is authorized by these design
-updates. The [commit record](./engine/01-commit-coordination.md#pinned-convex-mechanism-and-necessary-differences)
+These design updates do not authorize implementation.
+The [commit record](./engine/01-commit-coordination.md#pinned-convex-mechanism-and-necessary-differences)
 maps the selected mechanism and the necessary adaptations currently identified.
 The [snapshot record](./engine/02-timestamped-snapshots.md#pinned-convex-mechanism)
 maps the accepted read contract, persistence fallback and remaining representation
@@ -233,13 +224,8 @@ permission-row updates from credential validation and Flarex engine-grant
 revocation. Stronger response-time revocation checks require a named obligation;
 they are not inferred from Convex caching or the presence of native frameworks.
 
-For code adaptation, record the exact files, revision, applicable license and
-intended use. The inspected [license](../../../../LICENSE.md), also available
-[upstream](https://github.com/convex/convex-backend/blob/main/LICENSE.md), contains
-FSL permitted-purpose restrictions and a future Apache-2.0 grant for each version
-after two years. Do not assume the inspected version already has that future
-grant or that translating Rust into TypeScript changes the applicable terms.
-This discussion adopts no source port and copies no implementation code.
+For code adaptation, record the exact files, revision, symbols and purpose.
+This discussion copies no implementation code.
 
 ## Flarex source and prior experiments
 
@@ -330,7 +316,7 @@ counterparts are the pinned checkout's
 and [registration](../../../../npm-packages/convex/src/server/impl/registration_impl.ts).
 `Transaction.next_creation_time` and `CreationTime::increment` establish the
 monotonic creation identity obligation; the accepted Flarex design binds it to a
-database-seeded binary64 cursor. No Rust or FSL source is copied into this slice.
+database-seeded binary64 cursor. No Rust source is copied into this slice.
 
 Narrow executing reuse is explicit:
 

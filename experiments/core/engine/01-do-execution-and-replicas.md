@@ -206,7 +206,7 @@ No fresh revocation gate is removed merely because a final validator exists.
 The active framework integrations keep their existing admitted bounded SQL
 profiles. Their internal sequence is not imposed on this new engine, but their
 supported observable behavior remains requirements evidence. Co-location does
-not prove arbitrary Medusa/Payload runtime compatibility or license a universal
+not prove arbitrary Medusa/Payload runtime compatibility or establish a universal
 transaction API. Reuse native behavior through the existing integrations, adapting
 their core-facing contracts under the refactor direction.
 
@@ -246,10 +246,10 @@ schema, data and routing changes remain outside this documentation task.
 
 ## Primary references
 
-- [Pinned Convex source and license disposition](../REFERENCES.md#engine-mechanism-reference-map),
+- [Pinned Convex source and mechanism map](../REFERENCES.md#engine-mechanism-reference-map),
   [OCC](https://docs.convex.dev/database/advanced/occ) and
   [mutation execution](https://docs.convex.dev/functions/mutation-functions):
-  source mechanisms and deterministic replay, not permission to port code.
+  source mechanisms and deterministic replay.
 - [Durable Object model](https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/)
   and [SQLite storage](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/):
   per-object execution and private storage; distinct objects do not share a DB.

@@ -30,7 +30,7 @@ next concept.
 
 All Convex links below use the [recorded source pin](../REFERENCES.md#convex-source-identity),
 not an implicit moving upstream revision. Source inspection is evidence for a
-mechanism, not performance parity or permission to copy licensed implementation.
+mechanism, not performance parity.
 
 ## Q01 - Scope ownership and routing
 
