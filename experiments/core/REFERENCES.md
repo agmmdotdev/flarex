@@ -1,7 +1,7 @@
 # Source and evidence map
 
 Initial inspection: 2026-10-26; shared-engine source map expanded on 2026-10-27;
-timestamped persistence-read paths inspected on 2026-10-28.
+timestamped reads, cache population/invalidation and retention inspected on 2026-10-28.
 References establish mechanisms and prior results, not the feasibility or speed
 of the proposed replacement. The [engine discussion](./engine/README.md) owns the
 current direction; [OPEN-QUESTIONS.md](./engine/OPEN-QUESTIONS.md) owns the active
@@ -83,6 +83,9 @@ maps the selected mechanism and the necessary adaptations currently identified.
 The [snapshot record](./engine/02-timestamped-snapshots.md#pinned-convex-mechanism)
 maps the accepted read contract, persistence fallback and remaining representation
 choices against the same pin.
+Its [cache and retention evidence](./engine/02-timestamped-snapshots.md#pinned-cache-and-retention-evidence)
+separates local caches, snapshot/write-log windows and durable history. Recorded
+Convex defaults are reference values, not selected Flarex settings.
 
 ## Engine mechanism reference map
 
@@ -95,13 +98,15 @@ same enclosing checkout revision recorded above.
 | Bootstrap and snapshots | [database.rs](../../../../crates/database/src/database.rs): `Database::load`; [snapshot_manager.rs](../../../../crates/database/src/snapshot_manager.rs): `SnapshotManager`, `Snapshot` | Load persisted state under ownership; retain bounded immutable versions of metadata and index state. A snapshot is not a complete database copied into RAM. |
 | Schema and index readiness | [schema_registry.rs](../../../../crates/database/src/schema_registry.rs); [index_registry.rs](../../../../crates/indexing/src/index_registry.rs): `require_enabled`; `Transaction::get_schema_by_state` | Versioned registries and explicit index states; metadata reads can contribute dependencies. This does not establish Flarex's revocation or admission semantics. |
 | Selected in-memory indexes | [backend_in_memory_indexes.rs](../../../../crates/indexing/src/backend_in_memory_indexes.rs): `BackendInMemoryIndexes`, `DatabaseIndexMap`, `DatabaseIndexSnapshot` | Ordered persistent maps/sets with keys, timestamps and packed documents, selected index loading and copy-on-write snapshots. Not a separate Redis service or a claim that every index is resident. |
-| Cached index pages | [index_cache/mod.rs](../../../../crates/indexing/src/index_cache/mod.rs): `WriteLogIndexReader`, `get`, `populate`, `apply_writes` | Timestamp-aware cached ranges coordinated with writes; misses still require storage. A plain mutable map does not preserve these semantics. |
+| Cached index pages | [index_cache/mod.rs](../../../../crates/indexing/src/index_cache/mod.rs): `IndexCache::new`, `WriteLogIndexReader`, `get`, `populate`, `apply_writes`, `index_page_at_ts` | Demand-filled ranges have timestamp eligibility, overlapping-write invalidation and weighted capacity eviction; no fixed TTL is configured here. Population registers a not-ready entry, checks intervening writes and only readies that same valid population. Missing write history or invalidation tracking prevents reuse. |
 | Fixed-timestamp persistence reads | [common/src/persistence.rs](../../../../crates/common/src/persistence.rs): `RepeatablePersistence::read_snapshot`, `PersistenceSnapshot::index_scan`, `index_get`; [backend_in_memory_indexes.rs](../../../../crates/indexing/src/backend_in_memory_indexes.rs): `range_batch`, `fetch_cache_misses` | Cache misses retain the operation's timestamp through persistence reads. Local absence of an eligible cached version is a miss, not proof of historical absence. This does not require one SQL transaction across the operation. |
 | PostgreSQL historical index reads | [postgres/src/sql.rs](../../../../crates/postgres/src/sql.rs): `INDEX_QUERIES`; [postgres/src/lib.rs](../../../../crates/postgres/src/lib.rs): `_index_scan_inner` | Filter index versions at or before the requested timestamp, choose the latest eligible entry per key including deletion markers, and join its matching document revision. Retention is checked before results are yielded; already saved later versions remain excluded. |
 | Dependencies and pending state | [reads.rs](../../../../crates/database/src/reads.rs), [writes.rs](../../../../crates/database/src/writes.rs), [transaction.rs](../../../../crates/database/src/transaction.rs) | Exact point/range/absence dependencies, pending changes, original observations and coalesced writes. These are per-transaction state, distinct from shared caches. |
 | Conflict order and visibility | [committer.rs](../../../../crates/database/src/committer.rs): `validate_commit`, `commit_has_conflict`, `persistence_writes: FuturesOrdered`, `write_to_persistence`, `publish_commit`; [write_log.rs](../../../../crates/database/src/write_log.rs) | Validate against committed and accepted pending writes; saves may overlap, but normal publication/acknowledgement remains ordered. An escaping persistence error stops the committer and signals shutdown; bootstrap reloads durable state. Classified transient storage retries are a distinct path. |
 | PostgreSQL fencing and durability | [postgres/src/lib.rs](../../../../crates/postgres/src/lib.rs): `Lease::transact`; [Postgres/MySQL setup](../../../../self-hosted/advanced/postgres_or_mysql.md) | Documents and index updates still reach durable storage; lease checks fence acceptance. Lost ownership requires resynchronization. Convex's engine does not eliminate all database checks. |
-| Bounded resources and history | [execution_size.rs](../../../../crates/database/src/execution_size.rs), [retention.rs](../../../../crates/database/src/retention.rs), `SnapshotManager` | Execution accounting and bounded retained history are part of the engine design; memory and history cannot grow without limits. |
+| Bounded resources and history | [execution_size.rs](../../../../crates/database/src/execution_size.rs); [snapshot_manager.rs](../../../../crates/database/src/snapshot_manager.rs): `push`, `snapshot`; [write_log.rs](../../../../crates/database/src/write_log.rs): `enforce_retention_policy`; [retention.rs](../../../../crates/database/src/retention.rs): `candidate_min_snapshot_ts`, `advance_timestamp`, `RetentionValidator` | Snapshot lookup, change-log coverage and durable history have separate bounds. Durable retention boundaries advance before deletion; document cleanup respects index-cleanup progress. Old unsupported snapshots fail explicitly; active operations do not retain all history indefinitely. |
+| Cache and retention settings | [common/src/knobs.rs](../../../../crates/common/src/knobs.rs): `MAX_TRANSACTION_WINDOW`, `INDEX_RETENTION_DELAY`, `DOCUMENT_RETENTION_DELAY`, `INDEX_CACHE_SIZE` | Overridable source defaults: 10-second snapshot lookup window, 4-minute index-history delay, 14-day document-history delay, 512-MiB shared index-cache budget. These are not selected Flarex limits or confirmed hosted settings; current data does not expire by age. |
+| Whole-query result caching | [application/src/cache/mod.rs](../../../../crates/application/src/cache/mod.rs): `validate_cache_result`, `enforce_size_limit`, `MAX_CACHE_AGE` | Validate recorded dependencies and requested timestamp, evict by LRU size limit, and age-check results that observed system time. Separate from index-page caching; no arbitrary native effect/hook memoization follows. |
 | Root execution and retry | [application_function_runner/mod.rs](../../../../crates/application/src/application_function_runner/mod.rs): `retry_mutation`, `run_mutation_inner`; [database.rs](../../../../crates/database/src/database.rs): `wait_for_write_ts` | Eligible conflicts use bounded backoff, wait for the conflicting write to become visible when its timestamp is available, then begin a new transaction and rerun the mutation. This is not resubmitting old writes or repairing an arbitrary cache. Native Payload/Medusa hooks need their own explicit replay eligibility. |
 
 Additional SHA-256 values, with paths relative to the enclosing Convex checkout:
@@ -115,6 +120,8 @@ crates/database/src/retention.rs 01c18d159e4ae42b505be52f80abb45b3f57e19a760b972
 crates/postgres/src/lib.rs 68b90055a516b3dfd2ebb31e4387c38dc8aa53ab2e5e6e739d074aad55020caa
 crates/postgres/src/sql.rs 7d10a159b7c95e7aeb9435c7a2041cd0175f6268c0fa49ba1add3a9cb55c280d
 crates/common/src/persistence.rs d9c7df8f8116b9704cd0bf4141c6bf5388669e713f6469ec806bee93b083bd95
+crates/common/src/knobs.rs 4486ec95a28c2a873e6d4ea18542fde2f03fc6b122cdd03226c99d920dfddf77
+crates/application/src/cache/mod.rs 2913531f584653cbd3551dc97b98b6c6f5e199a53dd95f4b7d95caa746d6fe0e
 crates/database/src/schema_registry.rs f9434e63d1d6c77531fbcd41cc8f00d991e5392d44ec0c8dd496d09202ce0c11
 crates/database/src/execution_size.rs a59c0b3b85816f9d751b8ecbff780faffd88157b3196e03041bf456ae2b0eacb
 self-hosted/advanced/postgres_or_mysql.md d1ad7e5a7bab27874efddc5ea88a23e50ca7195e8a6ce6ca256dc6bfa875690b

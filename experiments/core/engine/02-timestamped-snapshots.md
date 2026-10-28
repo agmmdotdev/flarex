@@ -1,9 +1,11 @@
 # Concept 02: timestamped snapshots
 
-Status: **Accepted read contract; implementation not started**. Each admitted
-query or atomic operation reads committed data at one safe published timestamp,
-including cache misses. Snapshot lifetime, local history representation and
-retention policy remain open. Replication is **open and explicitly deferred**.
+Status: **Accepted read contract and cache/retention direction; no implementation**.
+Each admitted query or atomic operation reads committed data at one safe published timestamp,
+including cache misses. Follow Convex's demand population, write invalidation,
+validated concurrent fills, bounded cache size and bounded historical retention.
+Exact lifetimes, budgets, local representation and profile-specific expiry/retry
+rules remain open. Replication is **open and explicitly deferred**.
 
 This resolves the published-read-view question in the
 [commit contract](./01-commit-coordination.md), under the
@@ -97,6 +99,96 @@ mechanisms. The latter can miss for an older timestamp and read history from
 persistence. Matching the read contract does not require every DO cache to keep
 every revision in RAM or SQLite.
 
+## Accepted cache and retention direction
+
+Follow the inspected Convex mechanisms at the portable core boundary:
+
+- Populate reusable data/index ranges on demand when they miss, with explicit
+  timestamp eligibility and completeness. Selected bootstrap metadata/index
+  loading is a separate responsibility; this does not select full app residency.
+- Coordinate relevant range invalidation with ordered commit publication.
+  Unrelated ranges can remain usable. A time-to-live alone cannot establish
+  validity or replace write participation and ownership fencing.
+- Validate fills against intervening published writes before making the entry
+  reusable. If the necessary change history is unavailable, refuse that fill.
+  Losing invalidation tracking must turn the entry into a miss.
+- Bound retained cache memory/storage and permit eviction of valid entries.
+  Eviction changes the read path to historical persistence at the same timestamp;
+  it does not change the operation's snapshot or prove document absence.
+- Bound authoritative history separately. A running operation does not receive
+  indefinite history retention merely because it is still alive. Keep expiry
+  explicit and let the native profile's root own any eligible restart.
+
+These are accepted design principles, not a selected TypeScript cache library,
+SQLite schema, garbage collector, timeout value or framework replay policy.
+PostgreSQL remains durable authority. The core defines validity, coverage and
+publication ordering; injected runtime/storage adapters supply their mechanisms.
+
+## Pinned cache and retention evidence
+
+All observations below use the same recorded Convex revision. Distinguish these
+stores instead of assigning one expiry policy to everything:
+
+| Store | Pinned source and behavior |
+| --- | --- |
+| Resident metadata and selected indexes | [Database::load](../../../../../crates/database/src/database.rs) loads bootstrap table/index metadata; [BackendInMemoryIndexes](../../../../../crates/indexing/src/backend_in_memory_indexes.rs) maintains selected loaded indexes. Snapshot structures use immutable/copy-on-write state. This is not proof that all application data is resident. |
+| Operation-local document/range cache | [DatabaseIndexSnapshot::range_batch and DatabaseIndexSnapshotCache](../../../../../crates/indexing/src/backend_in_memory_indexes.rs) populate fetched documents and mark complete intervals after their rows are available. Repeated point reads and covered subranges can reuse that operation's observations. |
+| Shared index-page cache | [IndexCache::new, get, populate, apply_writes](../../../../../crates/indexing/src/index_cache/mod.rs) use timestamp-aware ranges, publication-driven invalidation and weighted capacity eviction. Its constructor sets no fixed TTL; a tracked unchanged page can remain useful across newer timestamps. |
+| Recent snapshot lookup history | [SnapshotManager::push and snapshot](../../../../../crates/database/src/snapshot_manager.rs) retain a bounded window, dropping an old version only when its successor leaves that window. A timestamp older than the retained versions produces `OutOfRetention`. Retaining an existing snapshot object does not pin PostgreSQL history indefinitely. |
+| In-memory write history | [WriteLogManager::enforce_retention_policy, WriteLog::is_stale and refresh_token](../../../../../crates/database/src/write_log.rs) bound change history by time and size. Lost history prevents validating an old dependency token or cache fill; it cannot be treated as proof that no write occurred. |
+| Durable document/index history | [candidate_min_snapshot_ts, advance_timestamp and RetentionValidator](../../../../../crates/database/src/retention.rs) advance boundaries from safe persisted repeatable progress, then remove obsolete revisions. Publish the boundary to persistence before advancing the in-memory deletion bound. Document cleanup is constrained by index-cleanup progress. Reads outside the supported boundary fail explicitly. |
+| Whole-query result cache | [CacheManager::validate_cache_result and Inner::enforce_size_limit](../../../../../crates/application/src/cache/mod.rs) validate dependency tokens, reject results newer than the requested timestamp, and evict least-recently-used results to meet the size limit. Results that observed system time also have an age check. This is separate from the shared index-page cache. |
+
+Whole-query result caching is reference evidence here, not approval to memoize
+native Medusa/Payload hooks, access decisions or side effects. Broader reactivity
+and query-result reuse remain under the queued concepts and native contracts.
+
+### Cache fill racing a cart update
+
+1. A read at `100` misses and starts fetching cart quantity `1`.
+2. A mutation saves quantity `2` at `101`. Its ordered publication appends the
+   write log and invalidates overlapping cached ranges before exposing the new
+   snapshot. See [Committer::publish_commit](../../../../../crates/database/src/committer.rs).
+3. The fetch at `100` finishes. The old result can still answer that operation
+   while its history is valid, but must not become an eligible shared answer at
+   `101` without checking intervening writes.
+4. Convex's `populate` inserts an entry marked not ready, registers its range for
+   invalidation, and checks the write log after the fetched timestamp. An overlap
+   or unavailable history discards the entry. Only the same validated population
+   may be marked ready; concurrent invalidation/replacement cannot certify a
+   different entry accidentally.
+5. A new read at `101` can fetch quantity `2` and populate a valid page. The read
+   at `100` continues to use `100`, through an eligible local answer or history.
+
+Range tracking covers both old and new index keys, including inserts and deletes.
+This matters for cached empty ranges, counts and membership changes, not just
+updates to a row already present in the cache. Population validation and future
+invalidation close different sides of the race. The source calls population
+two-phase; this is a local cache protocol, not a distributed database commit.
+
+### Reference defaults, not selected Flarex settings
+
+The pinned [configuration knobs](../../../../../crates/common/src/knobs.rs) define:
+
+| Knob | Source default | Meaning / limitation |
+| --- | --- | --- |
+| `MAX_TRANSACTION_WINDOW_SECONDS` | 10 seconds | Recent in-memory snapshot lookup window; not an exact request timeout or a TTL on every cached object |
+| `INDEX_RETENTION_DELAY` | 4 minutes | Delay behind safe persisted repeatable progress for index-history retention |
+| `DOCUMENT_RETENTION_DELAY` | 14 days | Document-revision history delay; does not make arbitrary 14-day-old indexed snapshots available |
+| `INDEX_CACHE_SIZE` | 512 MiB | Configurable shared index-page cache capacity; not a per-app/DO allocation or a confirmed Convex Cloud setting |
+
+These values are overridable source defaults, not production observations or
+chosen engine limits. Background deletion and safety dependencies can retain data
+longer. Retention removes obsolete versions/tombstones when safe, not a current
+cart or product simply because it was last changed before the retention window.
+Cache eviction, recent snapshot lookup, write-log coverage, durable index history
+and durable document history have different purposes and bounds.
+
+The query-result cache's `MAX_CACHE_AGE` is defined separately as the configured
+total query timeout plus one second and applies to results that observed time.
+It must not be read as a TTL for every data/index cache. No identical numerical
+settings or cache algorithms are selected for TypeScript/DO by this record.
+
 ## Adaptation and remaining choices
 
 The semantic choice follows Convex: a fixed safe timestamp reaches every read
@@ -122,14 +214,19 @@ No Rust source is copied and no representation or performance parity is claimed.
 ## Next decision and proof boundary
 
 The next focused question is [snapshot lifetime](./OPEN-QUESTIONS.md#next-question-snapshot-lifetime):
-how long may an operation retain its timestamp, and what happens when its required
-history expires? Local version retention, cache coverage, authorization and
+how long may each native operation retain its timestamp, and what happens when
+its required history expires? Bounded retention is accepted; exact limits and
+eligible restart/refusal behavior still need a profile-specific decision.
+Local version retention, cache coverage, authorization and
 fencing remain in the canonical queue; replication stays deferred.
 
 Before implementation can replace current reads, proof must cover B saved before
 A, misses while B is hidden, publication between two reads, an older snapshot
 encountering a newer cache entry, historical inserts/deletes and empty ranges,
 count/population agreement, concurrent cache population, and history expiry.
+Include fills invalidated/replaced before becoming ready, lost write-log coverage,
+old/new index keys crossing cached intervals, budget eviction, and durable history
+cleanup racing a historical read. Current rows must survive historical cleanup.
 Preserve pending read-your-writes and current authorization separately. Later
 storage proof requires both PGlite and ordinary-role PostgreSQL, followed by the
 actual host's eviction/recovery cases and complete-operation cost measurements.

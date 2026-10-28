@@ -58,6 +58,11 @@ document/index/deletion history supplies that view; a cache without an eligible
 answer misses rather than disclosing latest data. Publication advancing does not
 change an existing operation's timestamp. Unavailable history requires explicit
 failure or an eligible whole-operation restart, never a silent change of view.
+Follow the pinned Convex cache/retention direction: demand population,
+relevant-write invalidation coordinated with ordered publication, validation of
+concurrent cache fills, and separate bounds for cache size and historical data.
+The [mechanism record](../experiments/core/engine/02-timestamped-snapshots.md#accepted-cache-and-retention-direction)
+owns these principles; recorded Convex defaults do not select our settings.
 Snapshot validity does not replace fresh authorization or combine independent
 native workflow steps into one transaction. Snapshot lifetime, cache representation,
 concrete fencing and recovery mechanisms remain open. Replication is open and

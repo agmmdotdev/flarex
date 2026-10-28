@@ -22,9 +22,11 @@ one-concept-at-a-time process and [open questions](../../experiments/core/engine
 own unresolved contracts. [App ownership and commit coordination](../../experiments/core/engine/01-commit-coordination.md)
 are accepted design: out-of-order saves, ordered normal publication and recovery
 from uncertainty. [Timestamped snapshots](../../experiments/core/engine/02-timestamped-snapshots.md)
-are accepted across local reads and PostgreSQL misses; snapshot lifetime is the
-next discussion. Cache representation and detailed ownership/recovery protocols
-remain open; replication is deferred.
+are accepted across local reads and PostgreSQL misses. Demand caching, write
+invalidation, validated concurrent fills and separate cache/history bounds follow
+the pinned Convex direction. Exact snapshot lifetime and expiry behavior are the
+next discussion; reference defaults are not selected limits. Cache representation
+and detailed ownership/recovery protocols remain open; replication is deferred.
 Nothing is implemented or measured by this decision. Current approval is
 documentation only; old optimization stages do not authorize the new runtime.
 Each later connected slice must migrate its consumers, verify its guarantees and complete

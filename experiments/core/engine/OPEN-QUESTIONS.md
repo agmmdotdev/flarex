@@ -10,12 +10,15 @@ Only **concept 02: snapshot lifetime** is the active discussion focus. App
 ownership, coordinator placement, out-of-order saves with ordered normal
 publication, and uncertainty recovery are [accepted](./01-commit-coordination.md). The
 [timestamped-snapshot contract](./02-timestamped-snapshots.md) now answers the
-published-read-view question. Q01/Q02 remain partially open because their
-implementation protocols are not fully specified. Snapshot lifetime is next;
-other questions are queued dependencies, not silently accepted answers.
+published-read-view question. Demand population, relevant-write invalidation,
+validated cache fills and bounded cache/history retention are accepted directions;
+Convex's reference defaults are not selected engine settings. Q01/Q02 remain
+partially open because their implementation protocols are not fully specified.
+Snapshot lifetime is next; other questions are queued dependencies, not silently
+accepted answers.
 Replication is **open and explicitly deferred**; single-owner fencing/recovery
-is still required. Record a
-decision or explicit deferral before moving to the next concept.
+is still required. Record a decision or explicit deferral before moving to the
+next concept.
 
 All Convex links below use the [recorded source pin](../REFERENCES.md#convex-source-identity),
 not an implicit moving upstream revision. Source inspection is evidence for a
@@ -78,10 +81,12 @@ example, pinned Convex source and remaining representation/proof boundaries.
 ## Q03 - Snapshots, authorization and read-only freshness
 
 **Partially answered; active concept 02.** The fixed-timestamp read contract is
-[accepted](./02-timestamped-snapshots.md). Snapshot lifetime is the next narrow
-decision. Still open: native profile mapping, client freshness tokens, retention
-budgets and expiry handling, current authorization/readiness, and disclosure or
-early errors that never reach final commit. A progress cursor or cached permission
+[accepted](./02-timestamped-snapshots.md), including bounded history and explicit
+expiry rather than indefinite retention for every running operation. Exact
+snapshot lifetime is the next narrow decision. Still open: native profile mapping,
+client freshness tokens, retention budgets and expiry handling, current
+authorization/readiness, and disclosure or early errors that never reach final
+commit. A progress cursor or cached permission
 boolean cannot stand in for the whole contract. A complete native workflow is not
 automatically one atomic snapshot.
 
@@ -96,10 +101,11 @@ Replica lag remains deferred with replication.
 ### Next question: snapshot lifetime
 
 **How long may an operation keep its timestamp, and what happens if the required
-history expires before it finishes?** Decide the lifetime/resource contract and
-eligible restart versus explicit failure. Keeping history for every unfinished
-operation can grow storage; bounding history can interrupt a slow operation.
-Do not select a numeric limit or automatic native retry without evidence.
+history expires before it finishes?** Bounded history is accepted; choose the
+actual operation lifetime/resource contract and eligible restart versus explicit
+failure for each native profile. Convex's distinct lookup, write-log and durable
+retention mechanisms are now [recorded with defaults](./02-timestamped-snapshots.md#reference-defaults-not-selected-flarex-settings).
+They do not select our numeric limits or authorize automatic native retry.
 
 Use one cart read pinned at `100` that pauses while newer commits publish.
 When it resumes, distinguish an ordinary local cache miss (PostgreSQL can still
@@ -110,6 +116,9 @@ Compare Convex [snapshot retention](../../../../../crates/database/src/snapshot_
 [persistence snapshots](../../../../../crates/common/src/persistence.rs) and
 [root retry ownership](../../../../../crates/application/src/application_function_runner/mod.rs).
 Local cache representation remains Q05; concrete fencing remains Q01/Q02.
+Expiry must distinguish obsolete snapshot lookup state, missing change-log proof,
+a harmless cache eviction and lost authoritative history. Preserve current data
+during cleanup and account for long workflows that contain independent commits.
 
 ## Q04 - Values, IDs and ordered representations
 
@@ -128,7 +137,10 @@ versions and encoding comparisons across PostgreSQL and local cache execution.
 
 ## Q05 - Local rows, indexes and cache coverage
 
-**Queued, concept 04.** Which data lives in RAM, DO SQLite and PostgreSQL? Is the
+**Direction partly accepted; details queued, concept 04.** Demand population,
+publication-driven invalidation, validated concurrent fills and bounded cache size
+are [accepted principles](./02-timestamped-snapshots.md#accepted-cache-and-retention-direction).
+Still open: which data lives in RAM, DO SQLite and PostgreSQL? Is the
 cache partial or complete for a declared range, and how are misses, absence,
 counts and pagination proved? Decide warming, copying, version retention,
 eviction and query lowering, including PostgreSQL-dependent predicates.
@@ -137,13 +149,16 @@ Do not infer a complete result from an incomplete local index. The accepted
 retain an eligible historical answer locally or miss to PostgreSQL at the same
 timestamp. It does not select local version retention or a cache data structure.
 
-References: Convex [index cache](../../../../../crates/indexing/src/index_cache/mod.rs)
-and [in-memory indexes](../../../../../crates/indexing/src/backend_in_memory_indexes.rs);
+References: Convex [index cache](../../../../../crates/indexing/src/index_cache/mod.rs),
+[in-memory indexes](../../../../../crates/indexing/src/backend_in_memory_indexes.rs),
+[write log](../../../../../crates/database/src/write_log.rs) and the
+[pinned cache/retention evidence](./02-timestamped-snapshots.md#pinned-cache-and-retention-evidence);
 Flarex [working-set model](../../../packages/persistence-postgres/src/storage/documents/logicalDocuments/model.ts);
 Cloudflare [instance memory](https://developers.cloudflare.com/durable-objects/reference/in-memory-state/)
 and [SQLite storage](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/).
 Required examples: incomplete ranges, inserted/deleted members, cold reads,
-cache updates during an attempt and equivalent native count/population results.
+cache updates during an attempt, lost change-log coverage, fills racing
+invalidation/replacement, budget eviction and equivalent native count/population results.
 
 ## Q06 - Pending state, framework visibility and replay
 
@@ -165,7 +180,10 @@ one-time external effects and unknown-COMMIT recovery without native reexecution
 
 ## Q07 - Schema, index lifecycle and retention
 
-**Queued, concept 07.** How do schema activation, index builders, repair,
+**Bounded-retention direction accepted; details queued, concept 07.** Follow the
+[separate cache/history bounds](./02-timestamped-snapshots.md#accepted-cache-and-retention-direction).
+The concrete cleanup protocol and numerical limits remain open.
+How do schema activation, index builders, repair,
 deletion, permission changes and history GC invalidate or fence cached state?
 Which PostgreSQL layout is retained or replaced, and what data migration/reset
 disposition is required? Do not freeze the old schema to preserve unshipped APIs.

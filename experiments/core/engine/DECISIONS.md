@@ -5,8 +5,10 @@ portable owners and Cloudflare adapters first are accepted design directions.
 One independent app has one owner shared by Medusa/Payload/Application. DO-local
 commit coordination, bounded out-of-order saves, ordered normal publication and
 uncertainty recovery are accepted design decisions. Timestamped snapshots are
-accepted; concept 02 is active, with snapshot lifetime next. Remaining ownership,
-fencing and recovery protocols stay open. Replication is explicitly deferred. This
+accepted, with demand caching, write invalidation, validated fills and bounded
+retention as the selected direction. Concept 02 remains active for exact snapshot
+lifetime and expiry behavior. Remaining ownership, fencing and recovery protocols
+stay open. Replication is explicitly deferred. This
 register records decisions, not execution receipts; [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md)
 owns the unresolved queue and its references.
 
@@ -84,6 +86,7 @@ The [commit-coordination record](./01-commit-coordination.md) and
 | Ordered acceptance, bounded overlapping saves that may complete out of order, ordered normal publication and acknowledgement | Accepted target; existing clock/publication plumbing must be redesigned where incompatible |
 | Uncertain persistence stops acceptance/publication, fences old work, reconciles all in-flight outcomes, rebuilds state, then resumes | Accepted contract; exact fencing, terminality and reconstruction mechanisms remain open |
 | Each operation reads committed data at one safe published timestamp across RAM, SQLite and PostgreSQL fallback | Accepted; explicit document/index/deletion history, valid-at-timestamp cache results or misses, no silent latest-row fallback; lifetime and representation remain open |
+| Populate data/index caches on demand, invalidate relevant ranges at publication, validate concurrent fills, and bound cache size and history separately | Accepted direction following pinned Convex mechanisms; numerical defaults, local structures, cleanup protocol and native expiry/retry rules are not selected |
 | Convex revision `84fbb0e70b4e857913673871cb847ad11a55f3d5`, source-first inspection and justified divergences | Accepted development rule; source reuse/license disposition remains separate |
 | Execution replicas, their synchronization and scaling topology | Open and explicitly deferred; not a prerequisite for the first single-owner design |
 
@@ -103,12 +106,12 @@ execution sequence. No code replacement follows from recording this proposal.
 | ID | Concept | Design status | Implementation / evidence |
 | --- | --- | --- | --- |
 | 01 | [Engine ownership and lifetime](./01-ownership-and-lifetime.md), with [commit coordination](./01-commit-coordination.md) | App boundary, coordinator placement, save/publication order and recovery accepted; residual protocols open; replication deferred | No new engine implementation |
-| 02 | [Timestamped snapshots](./02-timestamped-snapshots.md), metadata, readiness and authorization lifetimes | Fixed-timestamp read contract accepted; active focus is snapshot lifetime; other details open | Existing fresh gates remain binding; no new snapshot implementation |
+| 02 | [Timestamped snapshots](./02-timestamped-snapshots.md), metadata, readiness and authorization lifetimes | Fixed-timestamp reads and bounded cache/history direction accepted; exact snapshot lifetime and profile-specific expiry remain active | Existing fresh gates remain binding; no new snapshot implementation |
 | 03 | Values, IDs, timestamps and ordered-key semantics | Open; queued | Existing contracts are evidence, not automatically retained internals |
-| 04 | Read/index execution and coherent caches | Open; queued | Command-local observations exist; shared-engine cache unproved |
+| 04 | Read/index execution and coherent caches | Coherence/population principles accepted under 02; representation and execution details queued | Command-local observations exist; shared-engine cache unproved |
 | 05 | Pending state, dependencies and execution profiles | Open; queued | Existing Application/framework witnesses retained |
 | 06 | Commit ordering, Drizzle persistence and outcome recovery | Ordering/recovery principles accepted under 01; detailed mechanism queued | Existing atomic publication is the baseline, not the new pipeline |
-| 07 | Schema/index lifecycle, retention and memory limits | Open; queued | No replacement maintenance/GC protocol selected |
+| 07 | Schema/index lifecycle, retention and memory limits | Bounded cache/history direction accepted under 02; limits and maintenance details queued | No replacement maintenance/GC protocol selected |
 | 08 | Runtime scheduling, isolation and framework bridges | Cloudflare app coordinator placement accepted; detailed hosting/scheduling queued; replication deferred | No new adapter implementation; native semantics remain required |
 | 09 | Reactivity and invalidation consumers | Open; queued | No connected shared-engine reactivity claim |
 | 10 | First connected proof, performance gates and cutover | Open; queued | Existing complete-request measurements retained |

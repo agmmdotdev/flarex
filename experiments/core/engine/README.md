@@ -5,7 +5,9 @@ necessary breaking changes, portable owners and Cloudflare adapters first is
 **accepted design direction**. One independent app owner, DO-local commit
 coordination, out-of-order saves with ordered normal publication and uncertainty
 recovery are accepted. Timestamped snapshots now govern all read paths, including
-PostgreSQL misses. Snapshot lifetime, cache representation and fencing remain open;
+PostgreSQL misses. Demand caching, write invalidation, validated fills and bounded
+cache/history retention are the accepted direction. Exact snapshot lifetime,
+expiry/retry rules, cache representation and fencing remain open;
 replication is explicitly deferred. Current work is documentation only; no engine
 implementation, source port, data change or production cutover is authorized.
 
@@ -14,8 +16,9 @@ The [decision register](./DECISIONS.md) tracks accepted/proposed status; the
 [open-question queue](./OPEN-QUESTIONS.md) is the single unresolved-question owner.
 Read [01: ownership](./01-ownership-and-lifetime.md) and its
 [accepted commit decisions](./01-commit-coordination.md), then
-[02: timestamped snapshots](./02-timestamped-snapshots.md). Next is
-[snapshot lifetime](./OPEN-QUESTIONS.md#next-question-snapshot-lifetime), the
+[02: timestamped snapshots](./02-timestamped-snapshots.md), including
+[cache and retention evidence](./02-timestamped-snapshots.md#pinned-cache-and-retention-evidence).
+Next is [snapshot lifetime](./OPEN-QUESTIONS.md#next-question-snapshot-lifetime), the
 focused question in Q03. [Pinned references](../REFERENCES.md#engine-mechanism-reference-map)
 anchor each concept and later implementation in actual Convex owners.
 
