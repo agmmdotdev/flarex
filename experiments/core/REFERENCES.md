@@ -59,10 +59,13 @@ Before each concept and implementation slice, inspect the pinned owner, its
 callers and relevant tests where available. Record the source path and symbols,
 required invariants, concurrency/visibility order and failure behavior. Translate
 the mechanism into the responsible portable TypeScript owner as closely as the
-host and native framework contracts permit. Do not substitute remembered behavior
+host and native framework contracts permit. Copy the actual algorithm, ordering,
+dependency/coverage rules and failure paths where possible. Do not substitute remembered behavior
 or a generic Convex-inspired sketch for reading the code.
 
-Each divergence records the reference mechanism, our replacement, the necessary
+Each necessary mechanism divergence gets its own Markdown file under the
+[divergence index](./engine/divergences/README.md) before affected implementation.
+It records the reference mechanism, our replacement, the necessary
 reason, effects on behavior/cost, affected consumers/data, and correctness and
 performance evidence required. Runtime constraints, framework semantics and
 product requirements can justify a difference. Retaining old internal plumbing
@@ -76,7 +79,10 @@ or replace. Existing differences are refactor inputs, not automatic reasons to
 stop. Record routine adaptations within the selected scope; pause the affected
 path for a decision only when an unresolved change to guarantees requires it.
 
-These design updates do not authorize implementation.
+The [goal contract](./engine/GOAL.md) authorizes implementation after the
+[pre-slice sub-agent challenge](./engine/REFACTOR.md#pre-slice-challenge-and-agent-coordination).
+Compare all three sources before assigning coordinated implementation workers;
+source symbols alone do not establish that a mechanism is active on the read path.
 The [commit record](./engine/01-commit-coordination.md#pinned-convex-mechanism-and-necessary-differences)
 maps the selected mechanism and the necessary adaptations currently identified.
 The [snapshot record](./engine/02-timestamped-snapshots.md#pinned-convex-mechanism)
@@ -144,7 +150,7 @@ same enclosing checkout revision recorded above.
 | Bootstrap and snapshots | [database.rs](../../../../crates/database/src/database.rs): `Database::load`; [snapshot_manager.rs](../../../../crates/database/src/snapshot_manager.rs): `SnapshotManager`, `Snapshot` | Load persisted state under ownership; retain bounded immutable versions of metadata and index state. A snapshot is not a complete database copied into RAM. |
 | Schema and index readiness | [schema_registry.rs](../../../../crates/database/src/schema_registry.rs); [index_registry.rs](../../../../crates/indexing/src/index_registry.rs): `require_enabled`; `Transaction::get_schema_by_state` | Versioned registries and explicit index states; metadata reads can contribute dependencies. This does not establish Flarex's revocation or admission semantics. |
 | Selected in-memory indexes | [backend_in_memory_indexes.rs](../../../../crates/indexing/src/backend_in_memory_indexes.rs): `BackendInMemoryIndexes`, `DatabaseIndexMap`, `DatabaseIndexSnapshot` | Ordered persistent maps/sets with keys, timestamps and packed documents, selected index loading and copy-on-write snapshots. Not a separate Redis service or a claim that every index is resident. |
-| Cached index pages | [index_cache/mod.rs](../../../../crates/indexing/src/index_cache/mod.rs): `IndexCache::new`, `WriteLogIndexReader`, `get`, `populate`, `apply_writes`, `index_page_at_ts` | Demand-filled ranges have timestamp eligibility, overlapping-write invalidation and weighted capacity eviction; no fixed TTL is configured here. Population registers a not-ready entry, checks intervening writes and only readies that same valid population. Missing write history or invalidation tracking prevents reuse. |
+| Cached index-page machinery | [index_cache/mod.rs](../../../../crates/indexing/src/index_cache/mod.rs): `IndexCache::new`, `WriteLogIndexReader`, `get`, `populate`, `apply_writes`, `index_page_at_ts` | Timestamp eligibility, overlapping-write invalidation, race-checked population and weighted capacity eviction exist. At this pin, `IndexCacheReader::index_page` in `backend_in_memory_indexes.rs` fetches and returns persistence data, compares an existing cached page, and invalidates/repopulates it only on mismatch. A cold miss does not populate through that method. Do not infer active shared-cache read avoidance from these APIs. |
 | Fixed-timestamp persistence reads | [common/src/persistence.rs](../../../../crates/common/src/persistence.rs): `RepeatablePersistence::read_snapshot`, `PersistenceSnapshot::index_scan`, `index_get`; [backend_in_memory_indexes.rs](../../../../crates/indexing/src/backend_in_memory_indexes.rs): `range_batch`, `fetch_cache_misses` | Cache misses retain the operation's timestamp through persistence reads. Local absence of an eligible cached version is a miss, not proof of historical absence. This does not require one SQL transaction across the operation. |
 | PostgreSQL historical index reads | [postgres/src/sql.rs](../../../../crates/postgres/src/sql.rs): `INDEX_QUERIES`; [postgres/src/lib.rs](../../../../crates/postgres/src/lib.rs): `_index_scan_inner` | Filter index versions at or before the requested timestamp, choose the latest eligible entry per key including deletion markers, and join its matching document revision. Retention is checked before results are yielded; already saved later versions remain excluded. |
 | Dependencies and pending state | [reads.rs](../../../../crates/database/src/reads.rs), [writes.rs](../../../../crates/database/src/writes.rs), [transaction.rs](../../../../crates/database/src/transaction.rs) | Exact point/range/absence dependencies, pending changes, original observations and coalesced writes. These are per-transaction state, distinct from shared caches. |

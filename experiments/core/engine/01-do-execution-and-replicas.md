@@ -223,7 +223,8 @@ queued details. Single-owner correctness and recovery remain required now.
 
 ## Required proof before adoption
 
-After the required contracts and implementation scope are separately approved,
+Under the [authorized goal](./GOAL.md), after the required pre-slice challenge
+settles the affected contracts and implementation scope,
 compare the existing candidate and proposed path with complete operation traces:
 warm read, cold/missing range, nonconflicting write, conflicting retry, read-only
 freshness, framework hooks, and failure after PostgreSQL commit but before local
@@ -243,7 +244,8 @@ Implementation and cleanup follow the [existing-core refactor direction](./REFAC
 Keep required behavioral evidence while replacing each connected owner, migrate
 its existing consumers and remove displaced internals. There is no requirement
 to rebuild a whole separate experimental framework stack first. Actual runtime,
-schema, data and routing changes remain outside this documentation task.
+schema, data and routing changes follow the goal's scoped migration and
+activation gates; no such change is established by this placement note alone.
 
 ## Primary references
 

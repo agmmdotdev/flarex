@@ -5,11 +5,11 @@ it does not reproduce or weaken shared correctness, skills, review or commit rul
 
 ## Scope
 
-- Current work is design-only. Keep the discussion/proofs in `experiments/core/`
-  and update their owning accepted-design/roadmap pointers together when the
-  user requests a direction change. The accepted [refactor direction](./engine/REFACTOR.md)
-  targets the existing core and integrations; no runtime edit follows from
-  documentation approval. Preserve unrelated shared-checkout work.
+- The [single-owner refactor goal](./engine/GOAL.md) authorizes implementation
+  through challenged, bounded slices. Keep discussion/proofs in `experiments/core/`
+  and migrate accepted replacements to their actual existing package owners.
+  Update accepted-design/roadmap pointers when durable direction changes.
+  Documentation alone does not prove implementation. Preserve unrelated work.
 - Experimental internal APIs, representations, SQL and physical storage may be
   replaced. Do not import active execution/admission/readiness/settlement machinery
   merely to make the prototype run; that would carry the design under test into
@@ -39,8 +39,8 @@ it does not reproduce or weaken shared correctness, skills, review or commit rul
 - Repository/workflow bridges, working-set contracts and atomic lifetime plumbing
   may be redesigned together here. Do not preserve old core-facing interfaces
   through compatibility wrappers merely to minimize adapter edits. Preserve
-  required native behavior. The current documentation scope leaves integration
-  code untouched; later selected replacements migrate the existing consumers.
+  required native behavior. Each authorized connected replacement migrates its
+  existing consumers under the goal's pre-slice challenge and validation gates.
 - No active package may depend on this folder. Do not modify shared manifests,
   lockfiles, framework sources or production routes for experiment convenience.
   Local tooling must be explicit and must not add tests to ambient discovery.
@@ -56,6 +56,24 @@ it does not reproduce or weaken shared correctness, skills, review or commit rul
   Convex mechanisms as the default. Record current owner -> pinned mechanism ->
   keep/adapt/replace -> correctness cases -> removed code. Rust file order does
   not determine refactor order. Update affected decisions when guarantees change.
+- Copy the pinned Convex mechanism as closely as possible, including algorithm,
+  ordering, invariants, dependency/coverage accounting and failure behavior.
+  Prefer translation and verified reuse over a new algorithm. Language syntax
+  and file layout need not match Rust. Every necessary mechanism difference gets
+  its own [divergence record](./engine/divergences/README.md) before affected
+  implementation, explaining why, how, consequences and required witnesses.
+- Before each runtime slice, run the independent
+  [three-way sub-agent challenge](./engine/REFACTOR.md#pre-slice-challenge-and-agent-coordination).
+  Agents first inspect current owners/callers/tests and pinned Convex independently,
+  then challenge each other's findings against the accepted direction. The
+  coordinator records resolved findings, evidence gaps, counterexamples, exact
+  scope and deferred blockers before assigning runtime edits. No affected edit
+  proceeds on an unresolved semantic assumption.
+- Use implementation sub-agents with explicit responsibility and file ownership.
+  Share contract changes and coordinate dependent handoffs; do not overlap edits
+  to one owner or create competing transaction/cache authorities. The coordinator
+  integrates, validates and retires displaced code. Review agents remain read-only;
+  the root's two required post-change reviews still apply.
 - Keep unresolved questions and their primary references in
   [engine/OPEN-QUESTIONS.md](./engine/OPEN-QUESTIONS.md). Focused concept notes link
   to that queue instead of maintaining competing lists. Resolve the selected

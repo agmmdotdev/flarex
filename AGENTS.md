@@ -43,6 +43,13 @@ dependencies and utility placement.
   before adding interfaces, validators, codecs, services, or helpers.
 - For Convex-guided core refactoring, follow the accepted
   [replacement workflow](experiments/core/engine/REFACTOR.md#convex-guided-replacement-workflow).
+  Translate pinned mechanisms as closely as possible. Before each runtime slice,
+  require the independent sub-agent challenge of current core, accepted direction
+  and Convex, followed by coordinated workers with explicit ownership. Record
+  every necessary mechanism divergence in its own Markdown file under the
+  [divergence index](experiments/core/engine/divergences/README.md), including why
+  and how it differs. The [goal contract](experiments/core/engine/GOAL.md) owns
+  the authorized scope and completion gates.
   Existing differences and necessary internal breaks are replacement work, not
   automatic approval gates. Pause the affected path for unresolved changes to
   guarantees; routine in-scope adaptation and caller migration can proceed.

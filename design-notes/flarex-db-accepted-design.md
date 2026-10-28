@@ -36,6 +36,15 @@ framework and product differences under the
 [source and divergence rules](../experiments/core/REFERENCES.md#source-and-divergence-rules).
 The reference pin is `84fbb0e70b4e857913673871cb847ad11a55f3d5`; inspect its owners
 and relevant tests before each implementation slice and justify every difference.
+Copy the mechanism as closely as possible, including algorithm, ordering,
+invariants and failure behavior. Before each slice, independent sub-agents must
+challenge the current core, this accepted direction and actual pinned Convex
+code, then exchange their findings. The coordinator resolves the implementation
+boundary before assigning coordinated workers. Necessary mechanism differences
+require a dedicated [divergence record](../experiments/core/engine/divergences/README.md)
+with why, how, preserved/changed guarantees and implementation evidence. The
+[goal contract](../experiments/core/engine/GOAL.md) now authorizes the full
+single-owner refactor through those gates and supersedes earlier docs-only scope.
 TypeScript can own RAM caches;
 choose its structures, libraries and SQLite indexes by required semantics and
 cost rather than copying Rust types. PostgreSQL remains durable authority and
@@ -54,7 +63,7 @@ and removed code. Resolve only that slice's semantic prerequisites; unrelated
 open topics do not require advance completion. The
 [starting-slice recommendation](../experiments/core/engine/REFACTOR.md#recommended-starting-slice)
 is a snapshot-correct point/index read path with injected cache and storage
-adapters; it is proposed, not implementation approval.
+adapters; its exact boundary must pass the pre-slice challenge before runtime edits.
 
 Keep one focused replacement at a time in the [decision register](../experiments/core/engine/DECISIONS.md).
 The [open-question queue](../experiments/core/engine/OPEN-QUESTIONS.md) is the

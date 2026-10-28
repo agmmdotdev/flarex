@@ -59,7 +59,10 @@ selects latest-ready-owner reads, recovery gating and reactive timestamp synchro
 Convex lifecycle, deployment gates and snapshot-based query admission.
 The [starting recommendation](../experiments/core/engine/REFACTOR.md#recommended-starting-slice)
 is snapshot-correct point/index reads with injected cache/storage adapters;
-implementation is not authorized. Resumable index backfill remains open. Replication
+the [goal contract](../experiments/core/engine/GOAL.md) now authorizes bounded
+implementation after coordinated source challenges and requires separate
+[divergence records](../experiments/core/engine/divergences/README.md).
+Resumable index backfill remains open. Replication
 is explicitly deferred. Current runtime behavior and
 historical evidence are not rewritten as completed new-engine work.
 

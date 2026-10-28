@@ -46,7 +46,7 @@ same latency. Ordinary cache contents do not independently grant commit authorit
 
 Build the engine independently of Cloudflare services and inject infrastructure
 implementations at host composition. Cloudflare is the initial host family when
-implementation is separately approved. This carries forward the accepted
+implementation passes the [goal's slice gates](./GOAL.md). This carries forward the accepted
 [runtime boundary](../../../design-notes/flarex-db-accepted-design.md#hosted-runtime-topology)
 and [package ownership](../../../roadmaps/16-package-boundaries.md#current-architecture);
 it does not replace their current production topology or activate this experiment.

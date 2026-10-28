@@ -1,6 +1,6 @@
 # Existing core refactor direction
 
-Status: **Accepted design and migration direction; implementation not started**.
+Status: **Accepted design and migration direction; goal execution authorized**.
 Refactor the existing Flarex core toward the portable engine and proposed DO
 placement, carrying forward the Medusa and Payload integration investment.
 `experiments/core` is the design/proof area; the destination is the existing
@@ -8,7 +8,9 @@ system with migrated consumers and removed displaced internals. Rebuilding a
 permanent parallel engine or reproducing all framework coverage here is not the
 plan. The [accepted architecture record](../../../design-notes/flarex-db-accepted-design.md#portable-core-refactor-direction)
 owns this direction; the [decision register](./DECISIONS.md) separates it from
-unresolved topology and protocol choices.
+unresolved topology and protocol choices. The [goal contract](./GOAL.md) owns
+the authorized bounded-milestone execution and completion criteria. Runtime
+implementation still requires the pre-slice challenge below.
 
 The [app and commit record](./01-commit-coordination.md) now fixes the independent-app
 ownership boundary, initial DO coordinator placement, out-of-order saves with
@@ -91,14 +93,22 @@ and common interfaces do not establish completed capability coverage.
 
 For each engine concept and each later implementation slice, inspect the
 corresponding [pinned Convex owners](../REFERENCES.md#engine-mechanism-reference-map)
-first. Record the mechanism, invariants, concurrency and failure behavior, then
-map it to the responsible Flarex owner. Follow the portable developer semantics
-and correctness mechanisms as closely as the selected runtime and product allow.
+first. Translate/copy their mechanisms as closely as possible: algorithm,
+control/visibility order, invariants, dependency and coverage accounting, and
+failure/recovery behavior. Prefer a faithful translation or verified existing
+equivalent over inventing a simpler alternative. Map it to the responsible Flarex
+owner; Rust source-file layout and syntax do not determine TypeScript structure.
 Follow the [source and divergence rules](../REFERENCES.md#source-and-divergence-rules):
 inspect relevant callers/tests, retain the exact pin, and record the replacement,
 necessary reason, effects and required evidence for each difference. Where
 Convex has no framework equivalent, inspect the executing native Medusa/Payload
-source instead.
+source instead. Record each necessary mechanism difference in a dedicated new
+[divergence file](./divergences/README.md) before affected implementation. Explain
+the pinned behavior, why it cannot be retained, how the replacement works,
+affected guarantees/costs and the evidence needed. Update that record with actual
+owner/symbol links and remaining limits after implementation; do not call a
+proposed adaptation implemented. Previously accepted platform differences retain
+their existing authority and need a record when a slice concretely adapts them.
 
 TypeScript can maintain in-memory state. We need deliberate alternatives to
 Rust's ordered, persistent/copy-on-write and concurrent structures, not a ban on
@@ -111,7 +121,7 @@ Keep pure calculation local and ordinary function calls direct. Logical modules
 do not each need a package, service, transaction or RPC. Host adapters supply
 platform mechanisms; portable owners retain validity, visibility and acceptance
 rules. Record the pinned revision, source paths and relevant symbols for adapted
-mechanisms. Implementation follows a separately selected refactor slice.
+mechanisms. Implementation follows the goal's challenged bounded slices.
 
 ## Convex-guided replacement workflow
 
@@ -119,6 +129,9 @@ Accepted development rule: organize the refactor around replacing existing
 responsibilities. Inspect and adapt the corresponding pinned Convex logic as
 closely as the runtime and supported behavior permit. Rust file order is not a
 migration plan, and existing Flarex differences are expected refactor inputs.
+The [pre-slice challenge](#pre-slice-challenge-and-agent-coordination) is mandatory
+before runtime edits, and [divergence records](./divergences/README.md) make each
+necessary departure from the pinned mechanism reviewable.
 
 For each slice, keep a short record:
 
@@ -147,6 +160,46 @@ in-scope work. Final validation cannot repair a disclosure or business error
 that has already escaped, and native commands do not automatically become
 Application OCC transactions.
 
+## Pre-slice challenge and agent coordination
+
+Before each runtime implementation slice, the coordinator records its candidate
+responsibility, owned paths/consumers and baseline checkpoint. Assign at least
+two independent read-only sub-agents to inspect the three sources below; the
+coordinator covers any gaps. Agents form source-grounded initial findings before
+exchanging them and challenging each other's conclusions.
+
+| Source | Required challenge |
+| --- | --- |
+| Current core and executing consumers | Trace actual owners, callers, tests, authority/lifetimes and cost. Identify reusable logic and what is replaceable; existing code is neither an automatic obligation nor disposable by default. |
+| Accepted new direction | Check that the slice preserves the selected app boundary, profiles, snapshot/commit/recovery guarantees and portable injection. Identify assumptions the design has not settled. |
+| Pinned Convex core | Read actual mechanism, callers and relevant tests. Explain why a close translation works or identify the exact platform/native obligation requiring a recorded difference. |
+
+Challenge concrete scenarios: racing cache fill/publication, absence or partial
+range mistaken for completeness, older snapshots, pending writes, revocation,
+stale owners, uncertain commit and repeated native effects as relevant. Agreement
+without source evidence or counterexample analysis does not finish the challenge.
+
+Before assigning runtime edits, the coordinator records the short slice map,
+findings and dispositions, retained invariants, removed work, necessary divergence
+links, correctness witnesses and actual consumer/cleanup boundary in a focused
+slice note. Resolve competing ownership/protocol claims; unresolved guarantee
+changes pause the affected path for the owner's decision. Missing evidence is
+an open gate, not an assumed pass. Routine choices within accepted guarantees
+can be resolved by the coordinator without another approval.
+
+Use worker sub-agents for implementation with explicit responsibility and owned
+paths. Tell each worker it shares the codebase, must preserve others' changes and
+must coordinate contract changes with dependent workers. Parallelize independent
+owners; serialize shared-owner edits and dependency handoffs. Agents may exchange
+findings and questions directly; the coordinator owns the final contract and
+integration, not a second runtime authority. Do not run competing heavy database
+or benchmark work on shared resources.
+
+After significant code, run both root-mandated read-only reviewers with exact
+scope and validation evidence. Pre-slice challengers and implementation workers
+do not replace those reviews. Fix substantive findings, revalidate, remove
+displaced paths and commit the connected completed slice.
+
 ## One concept and one connected proof at a time
 
 Focus one replacement on a connected outcome. Resolve its semantic prerequisites
@@ -155,9 +208,10 @@ questions to be answered or explicitly deferred first. Inspect pinned code while
 working and raise a decision when a real conflict appears. Ordinary mechanism
 choices that preserve accepted guarantees can be made and recorded in the slice.
 The [decision register](./DECISIONS.md) distinguishes accepted rules, proposed
-scopes and implementation; documentation approval still does not start coding.
+scopes and implementation. The goal authorizes bounded implementation after the
+mandatory challenge; accepted design by itself is not implementation evidence.
 
-Once implementation is authorized, finish the selected consumer migration,
+For each authorized milestone, finish the selected consumer migration,
 owner/consumer validation and cleanup together. Retain an old path only for a
 named unmigrated consumer or durable obligation with a removal gate; do not
 accumulate a permanent second engine. The [validation contract](../VALIDATION.md)
@@ -165,7 +219,15 @@ and root review rules apply to the connected replacement.
 
 ## Recommended starting slice
 
-Status: **Proposed starting scope; no runtime implementation authorized**.
+Status: **First milestone selected for pre-slice challenge under the authorized goal**.
+The exact consumer/owner boundary follows source findings, not this sketch alone.
+The [first source challenge](./slices/01-snapshot-reads.md) refines the initial
+runtime step to a fixed-timestamp reader seam and operation-local complete-range
+cache, preserving current source/grant checks. At the pin, shared-page
+`IndexCacheReader` fetches persistence first; serving those shared pages directly
+would require a separate divergence and writer/publication proof. The wider DO
+cache/storage integration below is the milestone target, not an assumption that
+the first code patch supplies an app-lifetime cache.
 Start with one snapshot-correct document lookup and bounded ordinary-index range
 query, including cache hits and PostgreSQL misses. Use an already enabled index.
 This replaces the read responsibility through a real existing consumer; it is
@@ -245,11 +307,12 @@ preserves their guarantees. Measure complete native business graphs, CPU, latenc
 queueing, misses, retries, memory and warm-up. Reuse existing correctness evidence
 without presenting historical cohorts as current performance results.
 
-Current approval is for these design documents and the replacement workflow.
-The starting slice is a recommendation; its required grant enforcement and
-ownership/publication protocols need a concrete mapping before activation.
+The [goal](./GOAL.md) authorizes implementation with the stronger translation,
+divergence and sub-agent challenge rules above. The first slice's required grant
+enforcement and ownership/publication protocols need a concrete mapping before
+activation; the pre-slice findings determine its exact implementation boundary.
 Resumable index backfill and other unrelated questions remain open.
-Runtime implementation, cutover,
-deployment and data changes remain unstarted. Preserve current behavior until a
+No runtime implementation or cutover is claimed by these rules. Production
+rollout and unspecified data resets are outside the goal. Preserve current behavior until a
 connected replacement is implemented and verified, then retire it rather than
 accumulate another engine.

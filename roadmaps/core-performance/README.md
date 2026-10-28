@@ -45,8 +45,13 @@ PostgreSQL miss adapter and DO-local cache storage. Its writer/publication and
 read-authority prerequisites remain part of that proof. Resumable backfill remains open;
 reference defaults are not selected limits. Cache representation
 and detailed ownership/recovery protocols remain open; replication is deferred.
-Nothing is implemented or measured by this decision. Current approval is
-documentation only; old optimization stages do not authorize the new runtime.
+The [goal contract](../../experiments/core/engine/GOAL.md) now authorizes the
+complete single-owner refactor through bounded implementation milestones. Before
+each slice, independent sub-agents challenge the current core, accepted direction
+and pinned Convex, then coordinate implementation with explicit ownership.
+Copy mechanisms as closely as possible and record every necessary difference
+in its own [divergence file](../../experiments/core/engine/divergences/README.md).
+No implementation or performance pass is established by that authorization.
 Each later connected slice must migrate its consumers, verify its guarantees and complete
 cleanup; no automatic fallback or permanent dual engine is selected.
 

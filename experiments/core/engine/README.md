@@ -9,8 +9,9 @@ PostgreSQL misses. Demand caching, write invalidation, validated fills and bound
 cache/history retention are the accepted direction. Atomic-operation boundaries,
 inherited deadlines and expiry/retry policy are accepted. Numerical budgets,
 cache representation and fencing remain open;
-replication is explicitly deferred. Current work is documentation only; no engine
-implementation, source port, data change or production cutover is authorized.
+replication is explicitly deferred. The [goal contract](./GOAL.md) authorizes
+bounded implementation after the required source challenge. Implementation,
+measurement and production activation remain separate claims.
 
 Read the [refactor direction](./REFACTOR.md) for what we keep, replace and remove.
 The [decision register](./DECISIONS.md) tracks accepted/proposed status; the
@@ -28,7 +29,7 @@ recovery admission and reactive-client timestamp synchronization. The
 [index-readiness record](./02-index-readiness.md) owns ordinary-index lifecycle,
 deployment gating and query admission. Follow the accepted
 [replacement workflow](./REFACTOR.md#convex-guided-replacement-workflow) and the
-[proposed starting slice](./REFACTOR.md#recommended-starting-slice): replace a
+[starting slice under challenge](./REFACTOR.md#recommended-starting-slice): replace a
 snapshot-correct point/index read path with injected cache/storage adapters.
 Resumable backfill remains open in Q07. [Pinned references](../REFERENCES.md#engine-mechanism-reference-map)
 anchor each concept and later implementation in actual Convex owners.
@@ -50,7 +51,7 @@ The proposal records the cart conflict/retry example, the SQLite/PostgreSQL
 authority split and framework replay limits. The commit and snapshot records own
 the accepted parts; the companion's remaining mechanisms and replica sketch are
 not accepted protocols. The question queue owns unresolved dependencies; the
-starting slice is a recommendation, not authorization to implement it.
+goal supplies implementation authorization within settled, challenged boundaries.
 
 ## Accepted core and runtime boundary
 
@@ -61,8 +62,8 @@ that needs them. Shared owners define correctness; adapters implement platform
 mechanisms without changing those guarantees. This is not one universal runtime
 interface or a requirement to create a new package for every capability.
 
-Cloudflare is the first host family to wire when implementation is separately
-approved. Cloudflare bindings and types stay in host adapters; PostgreSQL remains
+Cloudflare is the first host family to wire under the goal's implementation
+gates. Cloudflare bindings and types stay in host adapters; PostgreSQL remains
 the durable authority. One independent app is the selected ownership boundary,
 with its coordinator in the app DO. This does not prove every native framework
 branch can run there or select replicated executor caches. The wider placement
@@ -148,7 +149,8 @@ Application and framework workloads and [validation gates](../VALIDATION.md),
 adding warm/cold caches, eviction, owner replacement and memory-pressure witnesses.
 The [recommended starting slice](./REFACTOR.md#recommended-starting-slice) scopes
 that proof around existing point/range reads. Settle its required guarantees;
-unrelated questions need not be finished first. No implementation starts here.
+unrelated questions need not be finished first. Implementation proceeds under
+the [goal contract](./GOAL.md) after the required pre-slice challenge.
 
 ## What follows from copying the design
 

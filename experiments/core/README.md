@@ -9,11 +9,14 @@ one connected responsibility at a time, resolving only its required questions
 from the [open-question queue](./engine/OPEN-QUESTIONS.md);
 snapshot boundaries, expiry policy, the read-authorization split and read-after-write
 freshness and index-readiness direction are accepted. The
-[proposed starting slice](./engine/REFACTOR.md#recommended-starting-slice) replaces
+[starting slice under challenge](./engine/REFACTOR.md#recommended-starting-slice) replaces
 snapshot-correct point/index reads with injected cache/storage adapters.
 Resumable index backfill, numerical budgets
 and concrete recovery/client protocols remain open.
-Current work is documentation only.
+The [goal contract](./engine/GOAL.md) authorizes bounded implementation with
+independent three-way challenges, coordinated workers and dedicated
+[divergence records](./engine/divergences/README.md). Copy pinned Convex
+mechanisms as closely as possible; findings decide each exact slice boundary.
 
 ## Current state
 
@@ -33,13 +36,15 @@ The [current DO proposal](./engine/01-do-execution-and-replicas.md) uses the use
 ownership, pending-state and dependency ideas from this experiment while reusing
 existing native integrations. Their internal APIs, SQL segmentation, schemas and
 lifetimes are redesignable; the [keep/adapt/replace map](./engine/REFACTOR.md#keep-adapt-replace-and-add)
-separates real obligations from replaceable implementation. No code changes follow
-from this documentation, and a permanent second framework/engine stack is not the plan.
+separates real obligations from replaceable implementation. The goal supersedes
+the earlier documentation-only scope; implementation must pass its slice gates.
 
 This folder remains outside `packages/*` and `apps/*` workspace membership.
 It is a proof area, not a production package or permanent alternative engine.
 
 ## Current discussion
+
+The [goal contract](./engine/GOAL.md) owns authorized scope, milestones and completion gates.
 
 1. [AGENTS.md](./AGENTS.md): scope, isolation and iteration rules.
 2. [Engine discussion](./engine/README.md): direction, continuing obligations and modular responsibilities.

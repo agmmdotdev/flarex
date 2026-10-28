@@ -1,6 +1,6 @@
 # Engine open questions
 
-Status: **Open design queue; no implementation authorization**. This is the
+Status: **Open design queue within the authorized refactor goal**. This is the
 canonical list of unresolved engine questions. [DECISIONS.md](./DECISIONS.md)
 owns accepted/proposed status; [REFACTOR.md](./REFACTOR.md) owns the accepted
 existing-core migration direction. Focused notes explain the current candidate
@@ -31,7 +31,9 @@ concept-02 protocols and other questions stay open/queued, not silently complete
 Replication is **open and explicitly deferred**; single-owner fencing/recovery
 is still required where the selected slice depends on it. Record the required
 decisions in that slice; unrelated questions remain open without a forced
-discussion or deferral. No implementation follows from this queue update.
+discussion or deferral. The [goal contract](./GOAL.md) authorizes bounded
+implementation after the independent pre-slice challenge; an open question
+does not supply its own answer or accept a new divergence.
 
 All Convex links below use the [recorded source pin](../REFERENCES.md#convex-source-identity),
 not an implicit moving upstream revision. Source inspection is evidence for a

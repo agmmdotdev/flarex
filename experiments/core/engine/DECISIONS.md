@@ -14,7 +14,9 @@ reactive-client timestamp synchronization are accepted. Ordinary-index lifecycle
 deployment readiness gates and snapshot-based index admission are accepted.
 The Convex-guided replacement workflow is accepted: refactor existing
 responsibilities in bounded slices and raise unresolved changes to guarantees
-when encountered. A first snapshot/read/cache slice is proposed. Resumable index
+when encountered. Full-goal implementation is authorized with mandatory
+independent pre-slice challenges, coordinated workers and focused divergence
+records. The first snapshot/read/cache boundary is under challenge. Resumable index
 backfill, remaining concept-02 protocols, ownership, fencing and recovery details
 stay open.
 Replication is explicitly deferred. This register records decisions, not execution
@@ -50,10 +52,13 @@ owns the responsibility split, lifetime rules and remaining choices. Framework
 behavior stays in its framework owner; engine correctness stays in shared core
 and persistence owners; host composition supplies platform mechanisms.
 
-This authorizes documentation only. The accepted choices below do not finalize
-all framework hosting, cache retention, fencing, schema or recovery mechanisms.
-No engine implementation, source translation, production activation or measured
-performance acceptance follows.
+The [goal contract](./GOAL.md) supersedes the earlier documentation-only scope
+and authorizes bounded implementation after the
+[pre-slice challenge](./REFACTOR.md#pre-slice-challenge-and-agent-coordination).
+It does not settle remaining guarantees, establish measured performance or
+authorize production rollout. Agents must inspect active callers as well as
+mechanism definitions; dedicated [divergence records](./divergences/README.md)
+explain every necessary mechanism difference before affected implementation.
 
 ## Accepted refactor and development rules
 
@@ -68,7 +73,8 @@ breaks are accepted. Keeping current PostgreSQL tables is optional, not a frozen
 constraint. Preserve native behavior and correctness guarantees while replacing
 costly mechanisms. Name affected data and its disposition, migrate callers and
 remove displaced code/tests/exports/planning; no compatibility wrapper or fallback
-exists merely to preserve unshipped internals. Current approval edits docs only.
+exists merely to preserve unshipped internals. The goal authorizes these connected
+replacements within their settled boundaries.
 
 Use the [pinned Convex mechanism and divergence rules](../REFERENCES.md#source-and-divergence-rules)
 before each concept and implementation slice, recording invariants, relevant
@@ -91,7 +97,7 @@ prerequisites, without requiring unrelated future questions to be completed.
 Modular owners must not each introduce a transaction, admission pass or RPC.
 Once implementation is selected, finish migrated consumers, proof and cleanup
 within that scope. The [starting slice](./REFACTOR.md#recommended-starting-slice)
-is proposed only; this documentation update does not begin implementation.
+must pass its source challenge before its affected runtime edits begin.
 
 ## Accepted app, commit and read decisions
 
@@ -144,7 +150,7 @@ execution sequence. No code replacement follows from recording this proposal.
 | 07 | Schema/index lifecycle, retention and memory limits | Index lifecycle/readiness and bounded cache/history direction accepted; resumable index backfill and other maintenance/limit details open | No replacement builder, maintenance or GC protocol selected |
 | 08 | Runtime scheduling, isolation and framework bridges | Cloudflare app coordinator placement accepted; detailed hosting/scheduling queued; replication deferred | No new adapter implementation; native semantics remain required |
 | 09 | Reactivity and invalidation consumers | Client timestamp synchronization direction accepted; delivery/protocol details queued | No connected shared-engine reactivity claim |
-| 10 | First connected proof, performance gates and cutover | Snapshot-correct point/range read with injected cache/storage proposed as the starting slice | Existing complete-request measurements retained; no implementation approval |
+| 10 | First connected proof, performance gates and cutover | Snapshot-correct point/range milestone selected for pre-slice challenge; first runtime boundary refined in its slice record | Goal implementation authorized; no runtime replacement or performance pass claimed |
 
 The order is a reference map, not a mandatory discussion or implementation chain.
 The current focus is the [proposed starting slice](./REFACTOR.md#recommended-starting-slice)

@@ -102,10 +102,17 @@ the inspected local files. These are source observations, not measured parity.
 | [In-memory indexes](../../../../../crates/indexing/src/backend_in_memory_indexes.rs): `DatabaseIndexSnapshot::range_batch`, `fetch_cache_misses` | Combine versioned local index state with misses fetched through the snapshot's persistence reader. Cache coverage and historical membership matter as well as row bodies. |
 | [PostgreSQL queries](../../../../../crates/postgres/src/sql.rs): `INDEX_QUERIES`; [reader](../../../../../crates/postgres/src/lib.rs): `_index_scan_inner` | Filter index history by the requested timestamp, select the latest eligible entry per key including deletion markers, and join its matching document revision. Validate retention before yielding results. A physically saved future version is excluded. |
 
-Convex's in-memory snapshots and its shared index-page cache are different
-mechanisms. The latter can miss for an older timestamp and read history from
-persistence. Matching the read contract does not require every DO cache to keep
-every revision in RAM or SQLite.
+Convex's selected resident indexes, operation-local coverage cache and shared
+index-page cache are different mechanisms. At the pin,
+`IndexCacheReader::index_page` in
+[backend_in_memory_indexes.rs](../../../../../crates/indexing/src/backend_in_memory_indexes.rs)
+always fetches and returns persistence data, compares an existing cached page,
+and invalidates/repopulates it only on mismatch. A cold miss does not populate
+through that method. Shared eligibility APIs alone do not establish an active read shortcut.
+Selected resident indexes and the operation-local cache do avoid persistence
+reads. Matching the read contract does not require every DO cache to keep every
+revision in RAM or SQLite. The [first slice challenge](./slices/01-snapshot-reads.md)
+separates these paths and the additional proof needed before shared-page serving.
 
 ## Accepted cache and retention direction
 
@@ -141,7 +148,7 @@ stores instead of assigning one expiry policy to everything:
 | --- | --- |
 | Resident metadata and selected indexes | [Database::load](../../../../../crates/database/src/database.rs) loads bootstrap table/index metadata; [BackendInMemoryIndexes](../../../../../crates/indexing/src/backend_in_memory_indexes.rs) maintains selected loaded indexes. Snapshot structures use immutable/copy-on-write state. This is not proof that all application data is resident. |
 | Operation-local document/range cache | [DatabaseIndexSnapshot::range_batch and DatabaseIndexSnapshotCache](../../../../../crates/indexing/src/backend_in_memory_indexes.rs) populate fetched documents and mark complete intervals after their rows are available. Repeated point reads and covered subranges can reuse that operation's observations. |
-| Shared index-page cache | [IndexCache::new, get, populate, apply_writes](../../../../../crates/indexing/src/index_cache/mod.rs) use timestamp-aware ranges, publication-driven invalidation and weighted capacity eviction. Its constructor sets no fixed TTL; a tracked unchanged page can remain useful across newer timestamps. |
+| Shared index-page cache machinery | [IndexCache::new, get, populate, apply_writes](../../../../../crates/indexing/src/index_cache/mod.rs) provide timestamp-aware ranges, write invalidation and weighted capacity eviction. The pinned `IndexCacheReader` still fetches persistence and compares the cache rather than serving the cached page. Its constructor sets no fixed TTL. |
 | Recent snapshot lookup history | [SnapshotManager::push and snapshot](../../../../../crates/database/src/snapshot_manager.rs) retain a bounded window, dropping an old version only when its successor leaves that window. A timestamp older than the retained versions produces `OutOfRetention`. Retaining an existing snapshot object does not pin PostgreSQL history indefinitely. |
 | In-memory write history | [WriteLogManager::enforce_retention_policy, WriteLog::is_stale and refresh_token](../../../../../crates/database/src/write_log.rs) bound change history by time and size. Lost history prevents validating an old dependency token or cache fill; it cannot be treated as proof that no write occurred. |
 | Durable document/index history | [candidate_min_snapshot_ts, advance_timestamp and RetentionValidator](../../../../../crates/database/src/retention.rs) advance boundaries from safe persisted repeatable progress, then remove obsolete revisions. Publish the boundary to persistence before advancing the in-memory deletion bound. Document cleanup is constrained by index-cleanup progress. Reads outside the supported boundary fail explicitly. |
