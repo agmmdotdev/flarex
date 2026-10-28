@@ -19,10 +19,12 @@ are redesignable; actual retained data needs an explicit disposition.
 
 The [decision register](../../experiments/core/engine/DECISIONS.md) owns the
 one-concept-at-a-time process and [open questions](../../experiments/core/engine/OPEN-QUESTIONS.md)
-own unresolved contracts. DO-local execution/caches and possible OCC replicas
-are proposed, not implemented or measured. Current approval is documentation
-only; old optimization stages do not authorize the new runtime. Each later
-connected slice must migrate its consumers, verify its guarantees and complete
+own unresolved contracts. [App ownership and commit coordination](../../experiments/core/engine/01-commit-coordination.md)
+are accepted design: out-of-order saves, ordered normal publication and recovery
+from uncertainty. Detailed protocols remain open; replication is deferred.
+Nothing is implemented or measured by this decision. Current approval is
+documentation only; old optimization stages do not authorize the new runtime.
+Each later connected slice must migrate its consumers, verify its guarantees and complete
 cleanup; no automatic fallback or permanent dual engine is selected.
 
 ## Preserved Optimization Status

@@ -44,9 +44,10 @@ breaking internal changes and removal of displaced mechanisms. Start at the
 [refactor record](../experiments/core/engine/REFACTOR.md) and
 [open questions](../experiments/core/engine/OPEN-QUESTIONS.md). The experimental
 folder is the proof area, not a separate permanent framework implementation.
-One concept is active at a time. DO-local execution and replicas remain proposed;
-current runtime behavior and historical evidence are not rewritten as completed
-new-engine work.
+One concept is active at a time. [App ownership and commit decisions](../experiments/core/engine/01-commit-coordination.md)
+are accepted design; detailed read-view/fencing protocols remain open and
+replication is explicitly deferred. Current runtime behavior and historical
+evidence are not rewritten as completed new-engine work.
 
 ## Query-Sync Replacement Authority
 

@@ -2,16 +2,19 @@
 
 Status: refactoring the existing core with reusable Medusa/Payload integrations,
 necessary breaking changes, portable owners and Cloudflare adapters first is
-**accepted design direction**. DO-local execution with SQLite caches and possible
-OCC replicas remains **proposed**. Ownership, cache and coordination contracts
-remain open. Current work is documentation only; no engine implementation, source
-port, data change or production cutover is authorized by these notes.
+**accepted design direction**. One independent app owner, DO-local commit
+coordination, out-of-order saves with ordered normal publication and uncertainty
+recovery are accepted. Detailed read/cache/fencing protocols remain open;
+replication is explicitly deferred. Current work is documentation only; no engine
+implementation, source port, data change or production cutover is authorized.
 
 Read the [refactor direction](./REFACTOR.md) for what we keep, replace and remove.
 The [decision register](./DECISIONS.md) tracks accepted/proposed status; the
 [open-question queue](./OPEN-QUESTIONS.md) is the single unresolved-question owner.
-Start with [01: ownership and lifetime](./01-ownership-and-lifetime.md) and Q01/Q02
-in that queue. [Pinned references](../REFERENCES.md#engine-mechanism-reference-map)
+Read [01: ownership](./01-ownership-and-lifetime.md) and its
+[accepted commit decisions](./01-commit-coordination.md). Next is the
+[published read view](./OPEN-QUESTIONS.md#next-question-published-read-view), a
+focused dependency of Q02. [Pinned references](../REFERENCES.md#engine-mechanism-reference-map)
 anchor each concept and later implementation in actual Convex owners.
 
 ## Current topology proposal
@@ -21,15 +24,16 @@ active companion to concept 01. It applies the new execution/state direction to
 the existing core, retaining useful experimental owners, pending-state semantics,
 precise observations, native behavior and singular settlement while redesigning
 their lifetime, hosting and storage interactions.
-It proposes keeping trusted framework/engine processing next to local cached
-rows and indexes, initially in one DO per chosen scope. Multiple DOs for a busy
-scope would be separate execution replicas, with complete OCC and explicit
-snapshot/recovery rules; they are not an automatic scale-out setting.
+The initial app DO hosts commit coordination; broader trusted framework hosting
+and versioned local cache mechanisms still need proof. Logical validation and
+ordering run inside the DO; PostgreSQL performs durable commits and transactional
+enforcement. Multiple DOs for one app would be execution replicas; that topic is
+open and explicitly deferred, not an automatic scale-out setting.
 
 The proposal records the cart conflict/retry example, the SQLite/PostgreSQL
-authority split and framework replay limits. It remains a discussion candidate,
-not an accepted topology or an implementation plan. The question queue owns next
-steps, starting with scope ownership and the authoritative accepting path.
+authority split and framework replay limits. The commit record owns the accepted
+parts; the companion's remaining mechanisms and replica sketch are not accepted
+protocols. The question queue owns next steps; no implementation plan is selected.
 
 ## Accepted core and runtime boundary
 
@@ -42,9 +46,10 @@ interface or a requirement to create a new package for every capability.
 
 Cloudflare is the first host family to wire when implementation is separately
 approved. Cloudflare bindings and types stay in host adapters; PostgreSQL remains
-the durable authority. Selecting Cloudflare does not select one DO per shop,
-place all Medusa/Payload logic inside a DO, or accept replicated executor caches.
-Those placements are now a concrete proposal in the companion note, still open.
+the durable authority. One independent app is the selected ownership boundary,
+with its coordinator in the app DO. This does not prove every native framework
+branch can run there or select replicated executor caches. The wider placement
+sketch remains subject to native hosting and cache correctness evidence.
 The [boundary record](./01-ownership-and-lifetime.md#accepted-portable-core-and-adapter-boundary)
 defines responsibilities, lifetimes and the decisions still required. A later
 host must satisfy the same contracts and pass its own conformance gates.

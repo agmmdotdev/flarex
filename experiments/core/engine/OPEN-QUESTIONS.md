@@ -6,13 +6,14 @@ owns accepted/proposed status; [REFACTOR.md](./REFACTOR.md) owns the accepted
 existing-core migration direction. Focused notes explain the current candidate
 without maintaining another independent question list.
 
-Only **concept 01: ownership and lifetime** is active. Discuss Q01 and Q02
-together as one ownership/acceptance contract, using a successful cart update,
-two conflicting replicas and a crash during commit. Other questions are queued
-dependencies; surface a dependency when needed without silently accepting its
-answer. After a decision or explicit deferral, update this queue and the register
-and choose the next concept. Completed answers link to their owning decision;
-they do not remain contradictory open instructions.
+Only **concept 01: ownership and lifetime** is active. App ownership, coordinator
+placement, out-of-order saves with ordered normal publication, and the uncertainty
+recovery contract are [accepted](./01-commit-coordination.md). Q01/Q02 remain
+partially open because their implementation protocols are not fully specified.
+The next focused question is the published read view below. Other questions are
+queued dependencies, not silently accepted answers. Replication is **open and
+explicitly deferred**; single-owner fencing/recovery is still required. Record a
+decision or explicit deferral before moving to the next concept.
 
 All Convex links below use the [recorded source pin](../REFERENCES.md#convex-source-identity),
 not an implicit moving upstream revision. Source inspection is evidence for a
@@ -20,27 +21,38 @@ mechanism, not performance parity or permission to copy licensed implementation.
 
 ## Q01 - Scope ownership and routing
 
-**Active, concept 01.** What does one execution owner represent: app, shop,
-installation or a smaller partition? Which operations are atomic within it,
-how do all relevant writers participate, and how are stale owners fenced?
-Define owner identity, epoch, routing, acquisition/loss and cross-owner behavior.
-An app/shop name alone is not an atomicity contract.
+**Partially answered, concept 01.** Accepted: one independent app has one logical
+owner; Medusa/Payload/Application share its data and coordination, with distinct
+domain permissions and execution profiles. A shop was only an example. See the
+[app boundary](./01-commit-coordination.md#app-boundary-and-placement).
+
+Still open: concrete app/installation identity mapping, routing, ownership
+generation, acquisition/loss and PostgreSQL fencing; participation by every
+relevant writer and handling of commands crossing app boundaries. Sharing an
+owner does not make independent calls atomic. These are single-owner correctness
+questions, not a request to design execution replication now.
 
 References: [ownership concept](./01-ownership-and-lifetime.md), Convex
 [database bootstrap](../../../../../crates/database/src/database.rs) and
 [PostgreSQL lease](../../../../../crates/postgres/src/lib.rs), plus the
 [DO candidate](./01-do-execution-and-replicas.md#proposed-initial-placement).
-Required examples: concurrent owners, takeover after loss, a stale writer and
+Required examples: old/new owners during takeover, loss, a stale writer and
 an operation spanning the proposed partition boundary.
 
 ## Q02 - Validation, commit ordering and recovery
 
-**Active dependency of concept 01; detailed concept 06 remains queued.** Where
-does the accepting path run, and which PostgreSQL interlock makes validation and
-durable acceptance safe? How do accepted pending writes participate before
-publication? Can we retain or shorten the current scalar-clock critical section,
-or does a different order require a new contract? Specify durable identity,
-unknown outcomes, commit acknowledgement and restart reconciliation.
+**Partially answered; active dependency of concept 01.** Accepted: the app DO
+hosts logical validation and commit coordination; PostgreSQL enforces durable
+conditions and commits data/outcomes. Independent accepted saves may finish out
+of order, with ordered normal publication/acknowledgement. On uncertainty: stop,
+fence, reconcile every in-flight outcome, rebuild, resume. See the
+[commit contract](./01-commit-coordination.md).
+
+Still open: the published-view mechanism, PostgreSQL interlock and ownership
+fence, durable operation identity/retention, treatment of confirmed noncommitted
+positions, late writes, pipeline bounds and recovery terminality. The current
+scalar-clock implementation is replaceable; unchanged concurrent calls do not
+implement this contract. Detailed concept 06 remains queued.
 
 References: Convex [committer](../../../../../crates/database/src/committer.rs),
 [write log](../../../../../crates/database/src/write_log.rs) and
@@ -49,6 +61,22 @@ Flarex [publication](../../../packages/persistence-postgres/src/frameworks/comme
 and [point commit owner](../../../packages/persistence-postgres/src/commit/point/README.md).
 Required examples: two proposals passing concurrently, failure before/after
 PostgreSQL commit, cache publication loss and redelivery of a committed request.
+
+### Next question: published read view
+
+When A was accepted before B, B is saved, and A is still unresolved, **which
+version may a new operation read, and how do RAM, SQLite and PostgreSQL fallback
+reads all enforce it?** Ordered normal publication is accepted; its representation
+and enforcement are not. Choose a coherent view and pinned lifetime, including
+read-after-write behavior and what happens when required history is unavailable.
+The highest saved sequence alone is not a safe published position.
+
+Start with one DO, two independent carts and a third read that misses the cache.
+It must not accidentally expose B ahead of the allowed view. Compare Convex's
+[snapshot manager](../../../../../crates/database/src/snapshot_manager.rs),
+[database read timestamps](../../../../../crates/database/src/database.rs) and
+[ordered publication](../../../../../crates/database/src/committer.rs).
+Resolve this narrow dependency of Q02 before expanding the queued Q03 topic.
 
 ## Q03 - Snapshots, authorization and read-only freshness
 
@@ -132,11 +160,12 @@ expired pinned views and safe cleanup after consumer/data cutover.
 
 ## Q08 - Host adapters, scheduling and hot-shop scaling
 
-**Queued, concept 08; placement sketch remains proposed.** What runs inside the
-DO, routing Worker and untrusted sandbox? Bound CPU, queues, memory, synchronous
+**Queued, concept 08; app coordinator placement accepted.** What remaining
+framework/host capabilities run in the DO, routing Worker and untrusted sandbox?
+Bound CPU, queues, memory, synchronous
 SQLite work and resource lifetimes. How do the executing Medusa/Payload branches
-bundle and behave in that host? If one scope saturates, compare read replicas,
-write-executing replicas and partitioning using actual traffic and semantics.
+bundle and behave in that host? Replication/partitioning comparisons remain open
+and explicitly deferred until the owner reopens that discussion.
 
 References: [portable boundary](./01-ownership-and-lifetime.md#accepted-portable-core-and-adapter-boundary),
 Convex [production runtime](../../../../../crates/runtime/src/prod.rs),
@@ -149,7 +178,9 @@ late callbacks and mixed busy-shop traffic. No throughput follows from a host na
 
 ## Q09 - Change delivery, replica eligibility and reactivity
 
-**Queued across concepts 04, 06 and 09.** How are committed changes replayed into
+**Queued across concepts 04, 06 and 09; replication explicitly deferred.** Single-owner
+cache reconstruction and ordered visibility remain current correctness obligations.
+For a later replica design: how are committed changes replayed into
 each cache, how are gaps detected, and when may a replica serve a given view?
 Choose push, invalidation, on-demand fetch or a bounded combination. Define
 resnapshot, deletion/range updates, local progress and publication ordering.

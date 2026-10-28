@@ -32,16 +32,26 @@ guidance together. No unspecified durable-data deletion follows from this policy
 Keep the core portable and inject runtime/storage/coordination mechanisms, with
 Cloudflare as the first host family. Use pinned Convex mechanisms as the primary
 engine reference during design and development, recording necessary runtime,
-framework, product and source-reuse differences. TypeScript can own RAM caches;
+framework, product and source-reuse differences under the
+[source and divergence rules](../experiments/core/REFERENCES.md#source-and-divergence-rules).
+The reference pin is `84fbb0e70b4e857913673871cb847ad11a55f3d5`; inspect its owners
+and relevant tests before each implementation slice and justify every difference.
+TypeScript can own RAM caches;
 choose its structures, libraries and SQLite indexes by required semantics and
 cost rather than copying Rust types. PostgreSQL remains durable authority and
 Application, Payload and Medusa retain explicit execution profiles.
 
 Proceed one active concept at a time through the [decision register](../experiments/core/engine/DECISIONS.md).
 The [open-question queue](../experiments/core/engine/OPEN-QUESTIONS.md) is the
-canonical unresolved list. Ownership and commit coordination are active;
-[DO-local execution and OCC replicas](../experiments/core/engine/01-do-execution-and-replicas.md)
-remain a proposed topology with open protocols. This acceptance is design-only:
+canonical unresolved list. The [app/commit record](../experiments/core/engine/01-commit-coordination.md)
+owns the accepted decisions: one independent app owner shared by Medusa/Payload/
+Application, a coordinator inside the app DO, bounded independent saves that may
+finish out of order, and ordered normal publication/acknowledgement. PostgreSQL
+remains durable authority and enforces ownership/transactional conditions.
+Uncertain persistence stops acceptance/publication, fences old work, reconciles
+all in-flight durable outcomes, rebuilds state and only then resumes. Exact
+read-view, fencing and recovery representations remain open. Replication is open
+and explicitly deferred. This acceptance is design-only:
 it does not implement or activate a DO host, enable framework replay, remove
 existing checks, resume old optimization work or alter current runtime behavior.
 The hosted topology below remains the implemented/accepted baseline until a

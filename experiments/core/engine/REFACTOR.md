@@ -10,6 +10,11 @@ plan. The [accepted architecture record](../../../design-notes/flarex-db-accepte
 owns this direction; the [decision register](./DECISIONS.md) separates it from
 unresolved topology and protocol choices.
 
+The [app and commit record](./01-commit-coordination.md) now fixes the independent-app
+ownership boundary, initial DO coordinator placement, out-of-order saves with
+ordered normal publication, and the uncertainty recovery contract. Detailed
+read/fencing/storage protocols remain open; replication is explicitly deferred.
+
 ## Keep, adapt, replace and add
 
 | Area | Treatment | Boundary |
@@ -78,8 +83,11 @@ corresponding [pinned Convex owners](../REFERENCES.md#engine-mechanism-reference
 first. Record the mechanism, invariants, concurrency and failure behavior, then
 map it to the responsible Flarex owner. Follow the portable developer semantics
 and correctness mechanisms as closely as the selected runtime and product allow.
-Name every necessary difference and its reason. Where Convex has no framework
-equivalent, inspect the executing native Medusa/Payload source instead.
+Follow the [source and divergence rules](../REFERENCES.md#source-and-divergence-rules):
+inspect relevant callers/tests, retain the exact pin, and record the replacement,
+necessary reason, effects and required evidence for each difference. Where
+Convex has no framework equivalent, inspect the executing native Medusa/Payload
+source instead.
 
 TypeScript can maintain in-memory state. We need deliberate alternatives to
 Rust's ordered, persistent/copy-on-write and concurrent structures, not a ban on
@@ -116,10 +124,12 @@ Potential proofs, not a selected implementation schedule:
    point/range OCC. Preserve native hooks, outcomes and failure behavior.
 3. Prove one DO's local reads, commit publication, restart and cache reconstruction.
    Compare complete operations against the current code and native baselines.
-4. Prove two execution replicas separately, including pending conflicts, gaps,
-   freshness, authorization and committed-but-unacknowledged recovery.
-5. Cut over the selected existing consumers and remove the displaced paths;
+4. Cut over the selected existing consumers and remove the displaced paths;
    broaden only after their connected guarantees and cost are understood.
+
+Replication remains open and explicitly deferred. If reopened, prove two
+execution replicas separately, including gaps, freshness, authorization and
+uncertain outcomes; replica proof is not a prerequisite for a single-owner cutover.
 
 Actual native read visibility and replay eligibility may require a different
 order or narrower scope. Do not convert all framework commands into Application

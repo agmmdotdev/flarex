@@ -1,13 +1,13 @@
-# Proposed DO execution and replica topology
+# DO execution placement and deferred replica proposal
 
-Status: **Proposed; active discussion under concept 01**. The owner requested
-this candidate be recorded for further design, not implemented. Portable core,
-injected Cloudflare adapters first and PostgreSQL durable authority remain
-accepted boundaries. The topology, cache protocol, replica acceptance and
-framework retry contracts below are incomplete and unproved.
+Status: **App ownership and commit decisions accepted; broader mechanisms open**.
+The [commit record](./01-commit-coordination.md) owns DO-local coordination,
+out-of-order saves with ordered normal publication, and uncertainty recovery.
+Cache/hosting details remain unproved. Replication is **open and explicitly
+deferred**; its retained example is not current design or implementation work.
 
-This is the current candidate to discuss. Ordinary Worker execution with a
-separate cache DO remains an alternative to compare, not the selected plan.
+Ordinary Worker execution with a separate cache DO remains a comparison, not
+the selected app-coordinator placement.
 The accepted [refactor direction](./REFACTOR.md) targets the existing core and
 reuses Medusa/Payload integrations, with necessary breaking internal changes.
 The experiment remains a proof/comparison area; this note changes no runtime.
@@ -35,12 +35,14 @@ customers / CMS editors
         |
 public routing Worker
         |
-one named execution DO for an admitted shop scope
+one named execution DO for an independent app
   |-- trusted Application engine and admitted Medusa/Payload processing
   |-- RAM: prepared definitions, hot committed versions, private working sets
   |-- local SQLite: versioned cached rows, derived indexes, replay progress
   |-- restricted calls to isolated user-code execution when required
-  `-- PostgreSQL accepting path: validation, durable data/history/outcomes
+  `-- local commit coordinator: logical validation, accepted-pending order
+        |-- PostgreSQL transaction: ownership/conditions + durable changes/outcome
+        `-- ordered visible cache publication, then success acknowledgement
 ```
 
 Keep trusted framework processing, engine reads and local cache access together
@@ -50,9 +52,10 @@ routing and host/sandbox responsibilities; they are not a required extra hop for
 every trusted engine operation. Untrusted application code or extensions receive
 restricted capabilities in their sandbox, never raw DO storage or settlement.
 
-"Shop" is the concrete example, not a finalized partition key. Tenant, app,
-installation, shop and atomic scope are not automatically interchangeable.
-Bootstrap starts with one execution owner per chosen scope, not a global DO.
+One independent app is the accepted ownership boundary. Medusa and Payload
+share that app's data and coordination; "shop" was only a concrete example.
+The app-to-installation identity mapping remains open. Bootstrap starts with
+one app owner, not a global DO or one owner per cart/framework.
 Cloudflare-specific routing, SQLite access and lifecycle live in injected host
 adapters; portable owners define visibility, cache validity and acceptance.
 
@@ -106,13 +109,16 @@ permits interleaving: one DO does not make a whole async command atomic.
 With one DO, Alice and Bob use the same committed cache but separate pending
 working sets. An eligible add-item operation reads a coherent snapshot, computes
 locally and submits its observations and proposed changes to the accepting path.
-Only confirmed PostgreSQL commit establishes success. The owner then publishes
-the committed version into its cache. This is a logical flow, not a two-call
+Only confirmed PostgreSQL commit and ordered publication establish normal
+acknowledged success. The owner publishes accepted changes in order even if
+their saves finish out of order. See the [single-owner cart and recovery examples](./01-commit-coordination.md#cart-examples).
+This is a logical flow, not a two-call
 promise or a complete protocol for fresh authorization.
 
-If CPU becomes the measured limit, consider multiple execution DOs for the same
-scope. They would have separate RAM and separate SQLite databases. Cloudflare
-does not automatically turn these distinct DO IDs into replicas of one shop.
+**Deferred replica sketch; do not design or implement now.** If explicitly
+reopened after CPU becomes the measured limit, consider multiple execution DOs
+for the same app. They would have separate RAM and separate SQLite databases. Cloudflare
+does not automatically turn these distinct DO IDs into replicas of one app.
 The engine must own routing, snapshot eligibility, change delivery and recovery.
 
 For an eligible deterministic mutation, the proposed OCC behavior is:
@@ -129,10 +135,10 @@ B reruns add-one, reads 2, proposes 3 -> accepting path can commit at 102
 Complete OCC rejects the second stale calculation rather than silently leaving
 quantity at 2. The retry owner must rerun the eligible operation; refreshing the
 cache and resubmitting the old write is insufficient. A retry snapshot must
-include the conflicting committed
-change. Updating one returned row alone does not prove a whole cache current.
+include the conflicting committed change. Updating one returned row alone does
+not prove a whole cache current.
 
-Independent carts need not conflict merely because they share a shop. Conflicts
+Independent carts need not conflict merely because they share an app. Conflicts
 depend on actual point/range/metadata observations and constraints. Shared
 inventory or pricing dependencies can still create contention. More execution
 replicas can increase CPU capacity; they do not remove an accepting-path bottleneck
@@ -151,7 +157,8 @@ write timestamp to become visible before beginning another transaction.
 This is the reference for our proposal, not a claim that Convex runs independent
 Cloudflare SQLite replicas or repairs arbitrary caches on every conflict.
 
-Before replica execution is safe, the new engine must establish:
+The single-owner design needs the applicable correctness guarantees below;
+replica-specific mechanisms remain deferred. Before any future replica execution:
 
 1. A trusted, coherent and retained snapshot for every attempt, plus private
    pending state. Cached data must actually match its claimed snapshot; arbitrary
@@ -163,8 +170,9 @@ Before replica execution is safe, the new engine must establish:
 3. One safe validation/acceptance order under PostgreSQL authority. Specify the
    atomic interlock between validation and persistence, handling of accepted
    pending proposals, owner fencing and takeover. A per-DO local check or a
-   separate check followed by an unprotected write is insufficient. The host of
-   any narrow in-memory committer and its PostgreSQL fence remain open.
+   separate check followed by an unprotected write is insufficient. The initial
+   app DO coordinator placement is accepted; its PostgreSQL fencing mechanism
+   remains open. Replica placement/routing is deferred.
 4. Ordered cache application and catch-up with gap detection, consistent local
    progress, invalidation and history-expiry handling. Notifications can wake
    replay; they do not prove latest state. Whether to push changes, invalidate,
@@ -200,11 +208,11 @@ their core-facing contracts under the refactor direction.
 ## Open questions and discussion order
 
 Use [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md) for the canonical questions, source
-references and decision evidence. Begin with Q01 ownership and Q02 acceptance
-under concept 01, using a successful cart operation and two conflicting replicas.
-Snapshot/cache coverage, framework replay, lifecycle, hosting and change delivery
-remain queued dependencies. Do not defer all coherence decisions until a busy
-shop needs replicas; the single-owner design needs a credible recovery model.
+references and decision evidence. Q01/Q02 now record accepted app and commit
+decisions, with [published read views](./OPEN-QUESTIONS.md#next-question-published-read-view)
+next. Use one app owner and overlapping operations; replication stays deferred.
+Snapshot/cache coverage, framework replay, lifecycle and hosting retain their
+queued details. Single-owner correctness and recovery remain required now.
 
 ## Required proof before adoption
 
@@ -217,11 +225,12 @@ stale owners, revoked access, range phantoms, cache eviction and history expiry.
 
 Use PGlite plus ordinary-role real PostgreSQL for accepting-path claims and the
 actual Cloudflare host for DO storage, interleaving and lifecycle claims. Measure
-CPU, throughput, tail latency, queue time, round trips, rows/bytes replicated,
+CPU, throughput, tail latency, queue time, round trips, rows/bytes transferred,
 warm-up, memory/storage and retry amplification under one busy scope and many
 scopes. Compare the same native business graph; a local lookup microbenchmark
 or a reduced SQL count is insufficient. Existing [validation](../VALIDATION.md)
-and comparison gates remain binding. No such proof is claimed here.
+and comparison gates remain binding. Replica-specific proofs wait for that topic
+to be reopened. No such proof is claimed here.
 
 Implementation and cleanup follow the [existing-core refactor direction](./REFACTOR.md).
 Keep required behavioral evidence while replacing each connected owner, migrate

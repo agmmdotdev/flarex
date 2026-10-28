@@ -59,13 +59,17 @@ it does not reproduce or weaken shared correctness, skills, review or commit rul
   [engine/OPEN-QUESTIONS.md](./engine/OPEN-QUESTIONS.md). Focused concept notes link
   to that queue instead of maintaining competing lists. Queued concepts are not
   implementation tasks; record a decision or explicit deferral before moving on.
-- Distinguish proposed, accepted, implemented and measured claims. The engine
-  discussion does not select a runtime topology, remove current checks or approve
-  a source translation. Keep existing runtime contracts and measurements as the
-  baseline until an explicit decision and implementation replace them.
+- Distinguish proposed, accepted, implemented and measured claims. Follow the
+  accepted app/commit decisions in the register; unresolved protocols are not
+  implied decisions. Replication is explicitly deferred. Documentation acceptance
+  does not remove runtime checks, implement a host or approve source translation.
+  Keep current behavior/measurements as baseline until a verified replacement.
 - Inspect the corresponding pinned Convex owners before each engine design and
-  later implementation slice. Record their mechanism, guarantees, failure paths
-  and necessary differences. Use executing native framework sources when Convex
+  later implementation slice, including relevant callers/tests. Follow the exact
+  pin and [divergence rules](./REFERENCES.md#source-and-divergence-rules). Record
+  mechanisms, invariants, concurrency/failure paths and the reason, replacement
+  and required evidence for every difference; old plumbing alone is not a reason.
+  Use executing native framework sources when Convex
   has no equivalent. Record source reuse/license disposition separately; a Rust
   translation is not automatically authorized. Preserve PostgreSQL authority
   and Drizzle.

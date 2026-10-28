@@ -1,20 +1,23 @@
 # Concept 01: engine ownership and lifetime
 
-Status: portable core with injected capabilities and Cloudflare adapters first
-is **Accepted** design direction. Ownership topology, partition key, routing,
-cache placement and lease protocol remain **Open**. This card authorizes no
-engine or adapter implementation.
+Status: **Accepted design boundary**: one independent app has one logical owner,
+shared by Medusa/Payload/Application, with portable core and Cloudflare adapters
+first. DO-local commit coordination, out-of-order saves with ordered normal
+publication, and uncertainty recovery are accepted in the
+[commit record](./01-commit-coordination.md). Routing, fencing and read-view
+mechanisms remain open; replication is explicitly deferred. No implementation.
 
-Current candidate: [DO-local execution and OCC replicas](./01-do-execution-and-replicas.md),
-recorded as **Proposed** for further discussion. That companion owns the concrete
-placement, cart example and tradeoffs. [REFACTOR.md](./REFACTOR.md) owns the accepted
+The [placement companion](./01-do-execution-and-replicas.md) holds the broader
+cache/hosting sketch and deferred replica example; it does not reopen accepted
+commit decisions. [REFACTOR.md](./REFACTOR.md) owns the accepted
 existing-core migration direction; [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md) owns
 the unresolved queue. This card continues to own the accepted portable boundary.
 
 ## Question
 
-Who maintains coherent engine state between commands, over which data scope,
-and how does another instance safely take over? Where should that owner run?
+The scope is one independent app, not a cart, shop label or framework. Its DO
+hosts commit coordination in the initial Cloudflare design. How does that owner
+maintain a coherent published view, and how does a replacement safely take over?
 
 Example: two requests update the same Product while a third revokes access.
 They may reach different runtime instances. All must use compatible versions,
@@ -53,7 +56,7 @@ it does not replace their current production topology or activate this experimen
 | Framework behavior | Medusa services, repositories and workflows; Payload lifecycle and hooks; Application execution profile | Framework bridges call admitted engine capabilities; exact execution placement remains open |
 | Engine reads and state | Definitions, query/index semantics, pending changes, read dependencies, cache validity and visibility rules | Host creates bounded engine instances; no Cloudflare types or bindings in these contracts |
 | Execution | Trusted invocation, authority, cancellation and outcome rules | Cloudflare invocation, service-binding transport and isolated user-code hosting |
-| Coordination | Ownership, ordering, fencing, takeover and recovery requirements | Cloudflare routing, owner addressing and wake mechanisms; DO role and scope remain open |
+| Coordination | App ownership, ordering, fencing, takeover and recovery requirements | App DO hosts coordination; routing/fencing mechanisms remain open and platform-specific |
 | Persistence | PostgreSQL schemas, SQL/Drizzle operations, transactions, durable history and settlement | Host-supplied connection lifecycle through cache-disabled Hyperdrive; direct PostgreSQL/local drivers keep their separate gates |
 | Change delivery | Committed ordering, replay eligibility, invalidation and freshness rules | Injected delivery/wake transport; a message or publication prefix cannot establish a business commit |
 
@@ -80,6 +83,11 @@ roles; do not erase their guarantees behind a generic key/value storage contract
 Injecting persistence access does not authorize substituting DO SQLite or memory
 for PostgreSQL. The durable accepting path must enforce the applicable fencing,
 validation and atomic publication rules even if a host routes to one named owner.
+
+The [commit record](./01-commit-coordination.md#accepted-order-and-visibility-contract)
+distinguishes DO-side logical validation from PostgreSQL's atomic enforcement and
+durable commit. Accepted, saved and published are different states; no separate
+Worker committer is required. A saved later operation is not automatically visible.
 
 Distinguish host/executor lifetime, shop or partition state, invocation/command
 state, and physical database transaction/connection lifetime. Construct shared
@@ -115,30 +123,29 @@ none is selected or implemented by this decision.
 
 ## Choices still open
 
-The canonical queue is [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md). Q01 scope/routing
-and Q02 validation/order/recovery are active together under this concept. Their
-answer must account for all relevant writers and stale-owner takeover before
-later cache, framework and hosting choices can be finalized. Other questions
-stay queued. The requirements and counterexamples below constrain this concept's
-answer; they are not a second list of independently tracked open work.
+The canonical queue is [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md). Q01/Q02 record
+accepted app/commit decisions and their remaining protocols. The next question
+is [the published read view](./OPEN-QUESTIONS.md#next-question-published-read-view).
+All relevant writers and stale-owner takeover still need a concrete protocol.
+Replication is deferred; other topics stay queued. The requirements below
+constrain these answers, rather than creating another independent question list.
 
 ## Alternatives to compare
 
-These remain alternatives for comparison. DO-local execution is now the current
-discussion candidate, not an accepted topology. The initial adapter family is
-Cloudflare; the resident-service option is a future portability comparison, not
-an approved host switch.
+These are retained comparisons. The selected initial coordinator placement is
+the app DO; the whole framework/cache host design is not yet proved. The
+resident-service option is a future portability comparison, not an approved host
+switch, and the old PostgreSQL coordination path is baseline evidence.
 
 | Option | Potential benefit | Obligations and tradeoffs |
 | --- | --- | --- |
 | Keep Postgres coordination with request-scoped roots and bounded prepared reuse | Smallest hosting change; existing failure model | Fresh coordination visits remain; adding cache alone cannot eliminate them |
-| A named Cloudflare Durable Object owner per chosen scope/partition, with Postgres persistence | Routes related requests to an explicit owner; shared memory while active | Memory eviction/restart, cold reconstruction, routing locality, extra hop, async interleaving, upgrades and Postgres fencing need proof |
+| A named Cloudflare Durable Object owner per independent app, with Postgres persistence | Selected initial coordinator placement; shared memory while active | Memory eviction/restart, cold reconstruction, routing locality, extra hop, async interleaving, upgrades and Postgres fencing need proof |
 | A resident TypeScript service near Postgres with scoped owners | Longer-lived engine state and close storage placement | Changes hosting target; operating, partitioning, takeover and scaling that service become explicit responsibilities |
 
-The scope/partition decision is independent of selecting the host. Avoid one
-global owner for all tenants by accident. Do not promise cross-owner atomicity:
-state the same-owner/same-placement atomic boundary and disposition of commands
-that span it. Framework identity alone must not create separate commit owners.
+The independent-app boundary is accepted; its concrete identity mapping and
+cross-app operation policy remain open. Avoid one global owner for all apps or
+separate owners merely for Medusa/Payload. Do not promise cross-owner atomicity.
 
 ## Requirements for an answer
 
@@ -167,8 +174,8 @@ which steps are local, RPCs or Postgres operations. Name the removed round trips
 and why their guarantees still hold. Include a concurrent revocation and a stale
 owner trying to commit; cache hit rate cannot prove either case safe.
 
-The future connected proof must include two instances/owners contending for
-ownership, loss during acceptance, recovery after committed-but-unacknowledged
+The future connected proof must include old/new instances contending during
+single-owner takeover, loss during acceptance, recovery after committed-but-unacknowledged
 work, cold bootstrap and cache eviction. Use ordinary-role Postgres for fencing
 and persistence claims. Keep existing business assertions and report warm/cold
 latency, CPU, memory, contention and remaining storage visits separately.
@@ -182,13 +189,12 @@ also require the actual host. No such new proof is claimed by this documentation
 
 ## Decision
 
-Accepted: portable framework/engine owners, narrow injected infrastructure
-capabilities and Cloudflare adapters first, with PostgreSQL durable authority.
-This acceptance records boundaries only and authorizes no implementation.
+Accepted: one independent app owner, shared framework coordination, portable
+owners and Cloudflare adapters, PostgreSQL authority, and the
+[commit/recovery decisions](./01-commit-coordination.md). This is design only.
 
-Unresolved: ownership scope/lifetime, concrete Cloudflare topology and the other
-open choices above. The [current DO proposal](./01-do-execution-and-replicas.md)
-records the direction to examine without implementing or accepting its protocols.
-Related concepts 02, 04, 05, 06 and 08 must refine authority,
-cache validity, recovery and scheduling without baking platform services into
-the core or treating the earlier scaling sketches as accepted protocols.
+Unresolved: read-view enforcement, concrete identity/routing/fencing, storage
+representation, native hosting/replay eligibility and resource limits. These
+remain in the canonical queue. Replication is open and explicitly deferred;
+single-owner recovery does not wait for a replica design. Related concepts
+refine these contracts without baking Cloudflare mechanisms into the core.

@@ -52,6 +52,34 @@ copying; the inspected file identifies FSL-1.1-Apache-2.0. Its SHA-256 is
 This experiment uses Convex as an architectural reference. It does not assume
 permission to transplant source or that every source file has identical terms.
 
+## Source and divergence rules
+
+The design/development reference remains the exact revision above. Do not follow
+a moving branch, silently refresh the pin or infer upstream publication from a
+local commit ID. A deliberate pin update records changed mechanisms and refreshes
+the affected source hashes and design comparisons together.
+
+Before each concept and implementation slice, inspect the pinned owner, its
+callers and relevant tests where available. Record the source path and symbols,
+required invariants, concurrency/visibility order and failure behavior. Translate
+the mechanism into the responsible portable TypeScript owner as closely as the
+host and native framework contracts permit. Do not substitute remembered behavior
+or a generic Convex-inspired sketch for reading the code.
+
+Each divergence records the reference mechanism, our replacement, the necessary
+reason, effects on behavior/cost, affected consumers/data, and correctness and
+performance evidence required. Runtime constraints, framework semantics and
+product requirements can justify a difference. Retaining old internal plumbing
+or implementation convenience alone cannot. Keep a hypothesis marked unproved;
+never claim performance equivalence from structural similarity.
+
+Architectural reference and implementation-source reuse are separate. The pinned
+license has competing-use restrictions; a language translation is not itself a
+reuse-rights determination. Record the applicable revision/license/provenance
+disposition before porting source. No source port is authorized by these design
+updates. The [commit record](./engine/01-commit-coordination.md#pinned-convex-mechanism-and-necessary-differences)
+maps the selected mechanism and the necessary adaptations currently identified.
+
 ## Engine mechanism reference map
 
 Use these owners together: caches alone do not supply transaction consistency,
@@ -65,7 +93,7 @@ same enclosing checkout revision recorded above.
 | Selected in-memory indexes | [backend_in_memory_indexes.rs](../../../../crates/indexing/src/backend_in_memory_indexes.rs): `BackendInMemoryIndexes`, `DatabaseIndexMap`, `DatabaseIndexSnapshot` | Ordered persistent maps/sets with keys, timestamps and packed documents, selected index loading and copy-on-write snapshots. Not a separate Redis service or a claim that every index is resident. |
 | Cached index pages | [index_cache/mod.rs](../../../../crates/indexing/src/index_cache/mod.rs): `WriteLogIndexReader`, `get`, `populate`, `apply_writes` | Timestamp-aware cached ranges coordinated with writes; misses still require storage. A plain mutable map does not preserve these semantics. |
 | Dependencies and pending state | [reads.rs](../../../../crates/database/src/reads.rs), [writes.rs](../../../../crates/database/src/writes.rs), [transaction.rs](../../../../crates/database/src/transaction.rs) | Exact point/range/absence dependencies, pending changes, original observations and coalesced writes. These are per-transaction state, distinct from shared caches. |
-| Conflict order and visibility | [committer.rs](../../../../crates/database/src/committer.rs): `validate_commit`, `commit_has_conflict`, `write_to_persistence`, `publish_commit`; [write_log.rs](../../../../crates/database/src/write_log.rs) | Validate against committed and pending accepted writes, persist, then publish cache/log/snapshot state and acknowledge. Uncertain persistence outcomes require recovery, not trusting memory. |
+| Conflict order and visibility | [committer.rs](../../../../crates/database/src/committer.rs): `validate_commit`, `commit_has_conflict`, `persistence_writes: FuturesOrdered`, `write_to_persistence`, `publish_commit`; [write_log.rs](../../../../crates/database/src/write_log.rs) | Validate against committed and accepted pending writes; saves may overlap, but normal publication/acknowledgement remains ordered. An escaping persistence error stops the committer and signals shutdown; bootstrap reloads durable state. Classified transient storage retries are a distinct path. |
 | PostgreSQL fencing and durability | [postgres/src/lib.rs](../../../../crates/postgres/src/lib.rs): `Lease::transact`; [Postgres/MySQL setup](../../../../self-hosted/advanced/postgres_or_mysql.md) | Documents and index updates still reach durable storage; lease checks fence acceptance. Lost ownership requires resynchronization. Convex's engine does not eliminate all database checks. |
 | Bounded resources and history | [execution_size.rs](../../../../crates/database/src/execution_size.rs), [retention.rs](../../../../crates/database/src/retention.rs), `SnapshotManager` | Execution accounting and bounded retained history are part of the engine design; memory and history cannot grow without limits. |
 | Root execution and retry | [application_function_runner/mod.rs](../../../../crates/application/src/application_function_runner/mod.rs): `retry_mutation`, `run_mutation_inner`; [database.rs](../../../../crates/database/src/database.rs): `wait_for_write_ts` | Eligible conflicts use bounded backoff, wait for the conflicting write to become visible when its timestamp is available, then begin a new transaction and rerun the mutation. This is not resubmitting old writes or repairing an arbitrary cache. Native Payload/Medusa hooks need their own explicit replay eligibility. |

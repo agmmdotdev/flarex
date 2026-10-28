@@ -13,7 +13,7 @@ ownership and commit coordination are active. Current work is documentation only
 | --- | --- |
 | Existing core and Medusa/Payload integrations | Starting point and eventual refactor destination; current behavior remains until a selected connected replacement |
 | Initial experimental candidate | Bounded Application, Payload CRUD, Product scalar and explicitly atomic mixed flows implemented and measured with Drizzle; performance promotion remains closed |
-| Shared engine direction | Existing-core refactor, integration reuse, necessary breaking changes and portable Cloudflare adapters first accepted; DO topology/cache/replica protocols remain proposed and open |
+| Shared engine direction | Existing-core refactor and portable Cloudflare adapters first; independent-app ownership, DO coordinator, out-of-order saves with ordered normal publication and uncertainty recovery accepted; detailed protocols open, replication deferred |
 
 The existing candidate already keeps pending writes, observations and some
 prepared state in memory. It does not implement Convex's complete shared
@@ -39,8 +39,9 @@ It is a proof area, not a production package or permanent alternative engine.
 4. [Decision register](./engine/DECISIONS.md): accepted/proposed status and the one active concept.
 5. [Open questions](./engine/OPEN-QUESTIONS.md): canonical queue, primary references and required decision evidence.
 6. [Concept 01](./engine/01-ownership-and-lifetime.md): portable core/adapters, ownership and lifetime.
-7. [DO execution and replica proposal](./engine/01-do-execution-and-replicas.md): local SQLite caches, OCC cart example and tradeoffs; discussion only.
-8. [REFERENCES.md](./REFERENCES.md): pinned Convex mechanisms, platform constraints and Flarex evidence.
+7. [Commit coordination](./engine/01-commit-coordination.md): accepted app boundary, ordering and recovery, with source mapping and necessary differences.
+8. [DO placement and deferred replicas](./engine/01-do-execution-and-replicas.md): broader cache/hosting sketch and retained replica example.
+9. [REFERENCES.md](./REFERENCES.md): exact Convex pin, source/divergence rules, platform constraints and Flarex evidence.
 
 Discuss one concept, inspect its source and failure cases, record the owner's
 decision, then update affected notes. Keep proposed, accepted, implemented and
