@@ -215,7 +215,7 @@ their core-facing contracts under the refactor direction.
 Use [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md) for the canonical questions, source
 references and decision evidence. Q01/Q02 record accepted app and commit
 decisions; Q03 records timestamped reads and operation-lifetime policy, with
-[read-after-write freshness](./OPEN-QUESTIONS.md#next-question-read-after-write-freshness) next.
+[index readiness](./OPEN-QUESTIONS.md#next-question-index-readiness) next.
 Use one app owner and overlapping operations; replication stays deferred.
 Snapshot/cache coverage, framework replay, lifecycle and hosting retain their
 queued details. Single-owner correctness and recovery remain required now.

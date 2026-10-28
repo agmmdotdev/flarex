@@ -58,6 +58,16 @@ document/index/deletion history supplies that view; a cache without an eligible
 answer misses rather than disclosing latest data. Publication advancing does not
 change an existing operation's timestamp. Unavailable history requires explicit
 failure or an eligible whole-operation restart, never a silent change of view.
+The [read-after-write policy](../experiments/core/engine/02-read-after-write.md)
+selects the ready app owner's latest published snapshot for new ordinary reads.
+Startup and uncertainty recovery gate those reads with bounded waits or explicit
+failure until a safe view is reconstructed; cold caches then miss to PostgreSQL
+at that timestamp. No separate timestamp-fetch request is required before each
+query. Reactive-client direction follows Convex: retain commit/query timestamps,
+resolve successful mutation promises after applied query-state progress, and
+check reconnect progress against the backend view. Concrete readiness/recovery
+interlocks and client protocols remain open; this does not enable subscriptions
+or native replay.
 Follow the pinned Convex cache/retention direction: demand population,
 relevant-write invalidation coordinated with ordered publication, validation of
 concurrent cache fills, and separate bounds for cache size and historical data.

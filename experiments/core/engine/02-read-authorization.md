@@ -90,7 +90,7 @@ No source translation, new grant protocol or native result cache is implemented.
 
 ## Remaining decisions and proof
 
-The next question is [read-after-write freshness](./OPEN-QUESTIONS.md#next-question-read-after-write-freshness).
+The next question is [index readiness](./OPEN-QUESTIONS.md#next-question-index-readiness).
 Grant epoch observation/fencing, disclosure and acceptance races, native access
 compatibility, complete result-cache keys and eligibility remain open. Numerical
 budgets and cache representations remain in the canonical queue.

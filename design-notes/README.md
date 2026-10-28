@@ -50,7 +50,9 @@ and [operation lifetime/expiry](../experiments/core/engine/02-operation-lifetime
 are accepted design. [Read authorization](../experiments/core/engine/02-read-authorization.md)
 follows Convex snapshot dependencies with separate engine-grant revocation.
 Numerical budgets, cache representation and fencing protocols remain open.
-Read-after-write freshness is the next discussion. Replication
+[Read-after-write freshness](../experiments/core/engine/02-read-after-write.md)
+selects latest-ready-owner reads, recovery gating and reactive timestamp synchronization.
+Index readiness is the next discussion. Replication
 is explicitly deferred. Current runtime behavior and
 historical evidence are not rewritten as completed new-engine work.
 

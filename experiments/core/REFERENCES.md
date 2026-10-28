@@ -1,8 +1,8 @@
 # Source and evidence map
 
 Initial inspection: 2026-10-26; shared-engine source map expanded on 2026-10-27;
-timestamped reads, cache population/invalidation, retention and read authorization
-inspected on 2026-10-28.
+timestamped reads, cache population/invalidation, retention, read authorization
+and read-after-write freshness inspected on 2026-10-28.
 References establish mechanisms and prior results, not the feasibility or speed
 of the proposed replacement. The [engine discussion](./engine/README.md) owns the
 current direction; [OPEN-QUESTIONS.md](./engine/OPEN-QUESTIONS.md) owns the active
@@ -112,6 +112,30 @@ crates/sync/src/state.rs 07b9932d191e6c6544f5d270b6fb95f59e56e6b7331fc22c1a69c01
 ```
 
 ## Engine mechanism reference map
+
+The [read-after-write record](./engine/02-read-after-write.md#pinned-sources-and-necessary-differences)
+maps publication-before-acknowledgement, latest-query admission, lease-protected
+startup and reactive-client synchronization. The following additional owners were
+inspected at the same pin; the database/committer/persistence hashes are recorded
+elsewhere in this map.
+
+| Source | Symbols / lesson to inspect |
+| --- | --- |
+| [application/src/api.rs](../../../../crates/application/src/api.rs) | `execute_public_query`, `latest_timestamp`: select the latest safe server read view |
+| [local_backend/src/public_api.rs](../../../../crates/local_backend/src/public_api.rs) | `public_query_post`: ordinary queries request `ExecuteQueryTimestamp::Latest` |
+| [browser/http_client.ts](../../../../npm-packages/convex/src/browser/http_client.ts) | `query`, `queryInner`: ordinary requests do not fetch a timestamp separately; explicit historical calls are distinct |
+| [browser/sync/request_manager.ts](../../../../npm-packages/convex/src/browser/sync/request_manager.ts) | `onResponse`, `removeCompleted`: successful mutation promises wait for applied query-state progress |
+| [browser/sync/client.ts](../../../../npm-packages/convex/src/browser/sync/client.ts) | Transition handling and `maxObservedTimestamp` reconnect state |
+| [sync/src/worker.rs](../../../../crates/sync/src/worker.rs) | `Connect`/`MutationResponse` handling: commit timestamps and backwards-view rejection |
+
+```text
+crates/application/src/api.rs 65e06edfc0053c1ab3d685d0b1cd003ed035ecf5ec7275eea336e837224b88f2
+crates/local_backend/src/public_api.rs 4b1760a31337f8abad089bfafe429787dc1fa0677aef1620e5f75d81ef4de57d
+npm-packages/convex/src/browser/http_client.ts b4fb42567d18b853670950519d8c7c90c83616c77124e9509c495052d08b2ef6
+npm-packages/convex/src/browser/sync/request_manager.ts a094d4c15ede3ac0f0b72334324dc54a6deff1cec86e7f8dfe73b2c556eb6bfd
+npm-packages/convex/src/browser/sync/client.ts f5b3428b6912320f3220e01a4392cac1061cbd40c7a1677e64257bc13a51f7e9
+crates/sync/src/worker.rs 8b197efded7fb43f44c649e4ef00e34c298424ff431fcca71d1b757a5f0ff88d
+```
 
 Use these owners together: caches alone do not supply transaction consistency,
 commit authority or recovery. All additional local files below were clean at the

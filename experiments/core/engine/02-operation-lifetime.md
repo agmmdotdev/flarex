@@ -110,9 +110,9 @@ Every admitted native branch still needs visibility, hook and failure witnesses.
 
 ## Remaining decisions and proof
 
-The next question is [read-after-write freshness](./OPEN-QUESTIONS.md#next-question-read-after-write-freshness).
+The next question is [index readiness](./OPEN-QUESTIONS.md#next-question-index-readiness).
 Numerical deadlines/history budgets, exact expiry errors, cancellation fencing,
-client freshness and framework-specific compatibility remain open implementation
+concrete client protocols and framework-specific compatibility remain open implementation
 gates in the canonical queue. No code, schema or deployment change is authorized.
 
 Required later witnesses include nested work inheriting the same snapshot and

@@ -29,7 +29,9 @@ are accepted: nested work shares one snapshot/deadline, pre-acceptance expiry
 closes the operation, eligible replay is bounded, and accepted/uncertain writes
 remain subject to outcome recovery. [Read authorization](../../experiments/core/engine/02-read-authorization.md)
 uses tracked snapshot permission reads and identity-aware result reuse, with
-separate engine-grant revocation. Read-after-write freshness is next;
+separate engine-grant revocation. [Read-after-write freshness](../../experiments/core/engine/02-read-after-write.md)
+selects latest-ready-owner reads, bounded recovery admission and timestamped
+cold-cache misses, with reactive-client timestamp synchronization. Index readiness is next;
 reference defaults are not selected limits. Cache representation
 and detailed ownership/recovery protocols remain open; replication is deferred.
 Nothing is implemented or measured by this decision. Current approval is

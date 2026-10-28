@@ -36,10 +36,11 @@ of framework hooks and external effects. Native profile boundaries still apply.
    within the operation must use the same view; current index membership plus
    historical document bodies is not a coherent snapshot.
 5. Publication may advance while an operation runs. That operation retains `S`;
-   a later operation may select the newer published timestamp. A normal read
-   admitted after acknowledged mutation success must be able to include that
-   mutation. Client freshness tokens and cross-request pagination lifetimes still
-   need their own contracts.
+   a new ordinary read uses the ready owner's latest published timestamp and
+   includes mutations acknowledged before the call began. Follow the
+   [read-after-write policy](./02-read-after-write.md) for recovery gating and
+   reactive-client timestamp synchronization. Exact client protocol and
+   cross-request pagination lifetimes still need their own contracts.
 6. Required history must be available, or the operation must fail explicitly.
    Restart is permitted only under its established replay rules and recomputes
    the operation against a new admitted snapshot. Never silently switch a running
@@ -80,8 +81,11 @@ accompanied by a valid answer for `100` or treated as a miss for that query.
 
 If A's outcome becomes uncertain, the accepted stop/fence/reconcile/rebuild
 protocol applies. This note does not authorize advancing to `102` or discarding
-durable B based on a guess about A. Read availability during recovery remains
-part of the unresolved recovery protocol.
+durable B based on a guess about A. The
+[read-after-write policy](./02-read-after-write.md#accepted-recovery-and-cold-cache-behavior)
+gates new ordinary reads with bounded waits or explicit failure until recovery
+establishes a safe view. Concrete interlocks and handling of already-running
+operations remain part of the unresolved recovery protocol.
 
 ## Pinned Convex mechanism
 
@@ -221,7 +225,7 @@ No Rust source is copied and no representation or performance parity is claimed.
 Snapshot ownership, inherited deadlines and expiry policy are accepted in the
 [operation-lifetime record](./02-operation-lifetime.md). Numerical limits and
 native compatibility still need evidence. The next focused question is
-[read-after-write freshness](./OPEN-QUESTIONS.md#next-question-read-after-write-freshness).
+[index readiness](./OPEN-QUESTIONS.md#next-question-index-readiness).
 Local version retention, cache coverage and fencing remain in the canonical
 queue; replication stays deferred.
 

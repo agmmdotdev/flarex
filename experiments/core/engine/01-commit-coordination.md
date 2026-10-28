@@ -117,8 +117,11 @@ If B is durable and A is not, recovery must preserve B and establish a valid new
 view after proving A's disposition. It cannot fabricate a contiguous successful
 commit prefix. The durable representation of such cases and the fencing/drain
 protocol are unresolved; accepting this contract does not claim they exist.
-Read availability during recovery, outcome retention/expiry and late callbacks
-also require explicit policies before implementation.
+The [read-after-write policy](./02-read-after-write.md#accepted-recovery-and-cold-cache-behavior)
+gates new ordinary reads during recovery: bounded wait or explicit unavailable
+failure until a safe view is reconstructed. Concrete readiness interlocks,
+already-running operation handling, outcome retention/expiry and late callbacks
+still require explicit protocols before implementation.
 
 This is scoped engine recovery, not permission to crash unrelated apps. A thrown
 request handler or automatic DO restart alone does not establish the contract.
@@ -165,7 +168,7 @@ The published-read-view question is answered by
 while B is durable but unpublished. The [operation-lifetime policy](./02-operation-lifetime.md)
 separates pre-acceptance expiry from accepted/uncertain outcomes that require
 settlement or recovery. Next is
-[read-after-write freshness](./OPEN-QUESTIONS.md#next-question-read-after-write-freshness).
+[index readiness](./OPEN-QUESTIONS.md#next-question-index-readiness).
 Detailed fencing, outcome representation and resource limits remain open.
 Replication is deferred, not a prerequisite for proving this single-owner path.
 

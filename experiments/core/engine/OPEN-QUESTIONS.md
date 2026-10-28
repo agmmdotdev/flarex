@@ -6,7 +6,7 @@ owns accepted/proposed status; [REFACTOR.md](./REFACTOR.md) owns the accepted
 existing-core migration direction. Focused notes explain the current candidate
 without maintaining another independent question list.
 
-Only **concept 02: read-after-write freshness** is the active discussion focus. App
+Only **concept 02: index readiness** is the active discussion focus. App
 ownership, coordinator placement, out-of-order saves with ordered normal
 publication, and uncertainty recovery are [accepted](./01-commit-coordination.md). The
 [timestamped-snapshot contract](./02-timestamped-snapshots.md) now answers the
@@ -18,8 +18,10 @@ Snapshot ownership, inherited deadlines and phase-aware expiry/retry are now
 [accepted](./02-operation-lifetime.md); numerical limits and native conformance
 remain open. The [authorization split](./02-read-authorization.md) is accepted:
 tracked snapshot permission reads and identity-aware result reuse, with separate
-authentication and engine-grant revocation. Read-after-write freshness is next;
-other questions are queued dependencies, not silently accepted answers.
+authentication and engine-grant revocation. [Read-after-write freshness](./02-read-after-write.md)
+is accepted: latest-ready-owner reads, recovery gating, timestamped misses and
+reactive-client timestamp synchronization. Index readiness is next; other
+questions are queued dependencies, not silently accepted answers.
 Replication is **open and explicitly deferred**; single-owner fencing/recovery
 is still required. Record a decision or explicit deferral before moving to the
 next concept.
@@ -86,10 +88,11 @@ example, pinned Convex source and remaining representation/proof boundaries.
 
 **Partially answered; active concept 02.** The fixed-timestamp read contract,
 bounded history and [operation-lifetime policy](./02-operation-lifetime.md) are
-accepted, as is the [authorization direction](./02-read-authorization.md).
-Read-after-write freshness is the next narrow decision.
+accepted, as are the [authorization direction](./02-read-authorization.md) and
+[read-after-write policy](./02-read-after-write.md). Index readiness is the next
+narrow decision.
 Still open: numerical deadline/history budgets, native branch conformance, exact
-expiry errors and cancellation/acceptance interlocks, client freshness tokens,
+expiry errors and cancellation/acceptance interlocks, client timestamp encoding/protocol,
 engine-grant enforcement/readiness mechanisms, and disclosure or early errors that never
 reach final commit. A progress cursor or cached permission boolean cannot stand
 in for the whole contract. A complete native workflow is not automatically one
@@ -134,30 +137,45 @@ Convex mechanisms, Flarex differences and proof obligations. No runtime gates ar
 removed. Concrete grant freshness, disclosure/acceptance races and native
 result-cache eligibility remain open; a dependency-aware cache does not prove them.
 
-### Next question: read-after-write freshness
+### Answered: read-after-write freshness
 
-**After a cart update returns success, how does the next query select a snapshot
-that includes that update, including after DO restart or a cold cache?** Ordered
-publication before acknowledgement is already accepted. Select the read-admission
-contract that carries that guarantee into a new operation: whether owner routing
-and recovered progress suffice, or a minimum-timestamp token is required, and
-what happens while the owner cannot yet establish a safe view meeting that bound.
+Accepted: new ordinary queries use the current ready owner's latest published
+snapshot. A call after mutation success includes that mutation; an older running
+query retains its own timestamp. During startup/uncertainty recovery, new ordinary
+reads wait within a bounded deadline or fail explicitly until the owner reconstructs
+a safe view. A ready owner can serve cold-cache misses from PostgreSQL at that
+timestamp; complete cache warming is unnecessary.
 
-Example: Alice adds an item, receives success, then immediately requests the cart.
-The owner restarts between those calls and the local cache is empty. Identify what
-must be recovered or awaited before serving the query, how timestamped cache
-misses behave, and the distinction from a query that began before the update.
-This concerns separate completed operations, not pending read-your-writes inside
-one attempt. Replication and replica lag remain deferred.
+The ordinary single-owner path does not require a separate timestamp-fetch request
+or a client minimum-timestamp token on every call. Reactive-client direction:
+carry commit/query-state timestamps, resolve successful mutation promises after
+applied query-state progress, and reject backwards reconnect views. The
+[focused record](./02-read-after-write.md) owns the pinned backend/client sources,
+cart example, recovery adaptation and remaining protocol/proof gates. No SDK,
+subscription or native replay capability is implemented by this decision.
 
-References: Convex [database read timestamps and wait_for_write_ts](../../../../../crates/database/src/database.rs),
-[snapshot publication](../../../../../crates/database/src/snapshot_manager.rs),
-[commit publication](../../../../../crates/database/src/committer.rs) and
-[run_query_at_ts](../../../../../crates/application/src/application_function_runner/mod.rs);
-Flarex [commit/recovery contract](./01-commit-coordination.md) and
-[timestamped reads](./02-timestamped-snapshots.md). Inspect the pinned client/server
-call path before selecting a token or claiming its absence. This question does
-not reopen successful acknowledgement before publication or permit latest-row fallback.
+### Next question: index readiness
+
+**When an app adds an index while customers continue reading and writing, when
+may a query safely use it?** Choose the read-admission contract for an index that
+is being built, fully built but not enabled, or enabled in a newer snapshot than
+the current operation. Determine how the owner's cached metadata learns the
+transition and what proves complete results at the requested timestamp.
+
+Example: add an index for finding a customer's carts while new carts are still
+being created. Decide whether a query requiring the unfinished index fails, waits
+or uses an explicitly supported alternative, and what happens to an older query
+when the index becomes enabled. Do not infer a complete result from partial local
+cache coverage or equate an enabled logical index with every page being cached.
+
+References: Convex [IndexRegistry::require_enabled](../../../../../crates/indexing/src/index_registry.rs),
+[snapshot manager](../../../../../crates/database/src/snapshot_manager.rs),
+[index loading and persistence misses](../../../../../crates/indexing/src/backend_in_memory_indexes.rs);
+Flarex [logical storage readiness](../../../packages/persistence-postgres/src/storage/catalog/logicalStorageReadiness.ts)
+and [identity/invalidating writers](../DESIGN.md#identity-and-invalidating-writers).
+This is the narrow concept-02 readiness question; complete backfill, schema
+activation and cleanup protocols remain under Q07, and local cache coverage under
+Q05. No fallback or new index-build implementation is selected yet.
 
 ## Q04 - Values, IDs and ordered representations
 
@@ -222,6 +240,8 @@ one-time external effects and unknown-COMMIT recovery without native reexecution
 
 **Bounded-retention direction accepted; details queued, concept 07.** Follow the
 [separate cache/history bounds](./02-timestamped-snapshots.md#accepted-cache-and-retention-direction).
+The current [index-readiness question](#next-question-index-readiness) addresses
+read admission; it does not decide the complete builder/activation protocol here.
 The concrete cleanup protocol and numerical limits remain open.
 How do schema activation, index builders, repair,
 deletion, permission changes and history GC invalidate or fence cached state?
@@ -258,6 +278,9 @@ late callbacks and mixed busy-shop traffic. No throughput follows from a host na
 
 **Queued across concepts 04, 06 and 09; replication explicitly deferred.** Single-owner
 cache reconstruction and ordered visibility remain current correctness obligations.
+The [reactive-client timestamp direction](./02-read-after-write.md#accepted-reactive-client-direction)
+is accepted; subscription delivery, wire details and reconnect handling still need
+their own design. This does not implement reactivity or select replica freshness.
 For a later replica design: how are committed changes replayed into
 each cache, how are gaps detected, and when may a replica serve a given view?
 Choose push, invalidation, on-demand fetch or a bounded combination. Define
