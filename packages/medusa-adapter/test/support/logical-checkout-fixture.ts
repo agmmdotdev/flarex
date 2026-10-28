@@ -15,6 +15,10 @@ import { makeOrderCheckoutCommands } from "../../src/modules/order/finance-servi
 import { compilePaymentDefinition } from "../../src/modules/payment/schema";
 import { makePaymentLifecycleCommands } from "../../src/modules/payment/lifecycle-service";
 import { compileCustomerDefinition } from "../../src/modules/customer/schema";
+import { makeCustomerAddressCommands } from "../../src/modules/customer/address-service";
+import { compileCustomerAccountHolderLinkDefinition } from "../../src/links/customer-account-holder-schema";
+import { prepareCustomerCheckoutNativeLinkResource, prepareCustomerAccountNativeLinkResource } from "../../src/links/checkout-resource";
+import { prepareCustomerPaymentSessionWorkflow } from "../../src/workflows/payment/customer-session";
 import { makeCustomerCheckoutReadCommands } from "../../src/modules/customer/checkout-read-service";
 import { compileRegionDefinition } from "../../src/modules/region/schema";
 import { makeLocalRegionReadCommands } from "../../src/modules/region/service";
@@ -50,8 +54,8 @@ import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { PaymentAuthorization, PaymentRefund } from "../../src/modules/payment/lifecycle-input";
 import { paymentFinanceCallLimit } from "../../src/workflows/payment/finance-configuration";
-import { checkoutModuleNames } from "../../src/workflows/cart/checkout-graph";
-import { prepareCompleteCartWorkflow } from "../../src/workflows/cart/complete-cart";
+import { checkoutModuleNames, customerCheckoutModuleNames } from "../../src/workflows/cart/checkout-graph";
+import { prepareCompleteCartWorkflow, prepareCustomerCompleteCartWorkflow } from "../../src/workflows/cart/complete-cart";
 import { logicalCurrencyFixture } from "./logical-currency-fixture";
 import { logicalCurrencyInventory } from "./logical-currency-inventory";
 import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
@@ -111,7 +115,22 @@ export async function checkoutDefinitions() {
   ] as const;
 }
 
-export async function checkoutSources(definitions: Awaited<ReturnType<typeof checkoutDefinitions>>) {
+export async function customerCheckoutRuntimes() {
+  const native = await checkoutRuntimes(), account = await Effect.runPromise(prepareCheckoutNativeLinkLifecycle("customer-account"));
+  const customer = await Effect.runPromise(makeCustomerAddressCommands());
+  const orderCart = await Effect.runPromise(prepareCheckoutNativeLinkLifecycle("order-cart"));
+  const orderPayment = await Effect.runPromise(prepareCheckoutNativeLinkLifecycle("order-payment"));
+  return { ...native, workflows: { ...native.workflows, customer: customer.workflow,
+    order_cart_links: orderCart.workflow, order_payment_collection_links: orderPayment.workflow, customer_account_holder_links: account.workflow },
+    link: Result.getOrThrow(prepareCustomerCheckoutNativeLinkResource([orderCart.native, orderPayment.native, account.native])), sessionLink: Result.getOrThrow(prepareCustomerAccountNativeLinkResource(account.native)), account, customer };
+}
+
+export async function customerCheckoutDefinitions() {
+  return [...await checkoutDefinitions(), { name: "customer_account_holder_links",
+    definition: await Effect.runPromise(compileCustomerAccountHolderLinkDefinition()) }] as const;
+}
+
+export async function checkoutSources(definitions: Awaited<ReturnType<typeof checkoutDefinitions>> | Awaited<ReturnType<typeof customerCheckoutDefinitions>>) {
   const sources: Array<Effect.Success<ReturnType<typeof captureLogicalSchemaSource>>> = [];
   for (const { name, definition } of definitions) sources.push(await Effect.runPromise(captureLogicalSchemaSource({
     key: "medusa.checkout." + name, owner: "medusa", writeProfile: "medusa.checkout." + name, evidence: definition.provenance,
@@ -131,6 +150,7 @@ export interface CheckoutCase {
   readonly variantId?: string;
   readonly salesChannelId?: string;
   readonly customerId?: string;
+  readonly sessionContext?: JsonObject;
   readonly shippingAddressId?: string;
   readonly billingAddressId?: string;
   readonly items?: readonly { readonly variantId: string; readonly quantity: number; readonly unitPrice: string }[];
@@ -148,11 +168,14 @@ const refundExistingPayment = createWorkflow("checkout-existing-refunded-payment
   new WorkflowResponse(refundPaymentStep(input)));
 
 export async function prepareLogicalCheckout(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  options: { readonly amount?: string; readonly badSession?: boolean; readonly additionalCases?: readonly CheckoutCase[];
+  options: { readonly customerContext?: boolean; readonly amount?: string; readonly badSession?: boolean; readonly additionalCases?: readonly CheckoutCase[];
     readonly additionalSeeds?: Readonly<Record<string, readonly JsonObject[]>>;
     readonly onPhase?: (phase: string) => void } = {}) {
-  const runtime = await checkoutRuntimes();
-  const definitions = await checkoutDefinitions(), sources = await checkoutSources(definitions);
+  const customerRuntime = options.customerContext ? await customerCheckoutRuntimes() : undefined;
+  const runtime = customerRuntime ?? await checkoutRuntimes();
+  const workflows: Readonly<Record<string, WorkflowModule>> = runtime.workflows;
+  const names = options.customerContext ? customerCheckoutModuleNames : checkoutModuleNames;
+  const definitions = await (options.customerContext ? customerCheckoutDefinitions() : checkoutDefinitions()), sources = await checkoutSources(definitions);
   options.onPhase?.("native definitions captured");
   const amount = options.amount ?? "12.5";
   const cartId = "cart-checkout", collectionId = "paycol-checkout", sessionId = "payses-checkout";
@@ -179,7 +202,7 @@ export async function prepareLogicalCheckout(driver: "pglite" | "postgres", clos
           raw_compare_at_unit_price: { value: selected.compareAt, precision: 20 } }) } });
     payments.push({ table: "payment_collection", row: { id: ids.collectionId, currency_code: "usd", amount: value, raw_amount: { value, precision: 20 } } },
       { table: "payment_session", row: { id: ids.sessionId, payment_collection_id: ids.collectionId, provider_id: "pp_system_default",
-        currency_code: "usd", amount: value, raw_amount: { value, precision: 20 }, status: selected.badSession ? "canceled" : "pending", data: {}, context: null } });
+        currency_code: "usd", amount: value, raw_amount: { value, precision: 20 }, status: selected.badSession ? "canceled" : "pending", data: {}, context: selected.sessionContext ?? null } });
     links.push({ id: "capaycol-" + selected.name, cart_id: ids.cartId, payment_collection_id: ids.collectionId });
   }
   const seeds: Readonly<Record<string, readonly JsonObject[]>> = {
@@ -219,8 +242,8 @@ export async function prepareLogicalCheckout(driver: "pglite" | "postgres", clos
   }
   const entries: Array<[string, InstalledWorkflowModule<WorkflowModule>]> = [];
   for (const [index, selected] of definitions.entries()) {
-    const source = sources[index], module = runtime.workflows[selected.name], logical = workflowModuleDefinition(module)?.logical;
-    if (source === undefined || logical === undefined) throw new Error("Missing genuine checkout source");
+    const source = sources[index], module = workflows[selected.name], logical = module === undefined ? undefined : workflowModuleDefinition(module)?.logical;
+    if (source === undefined || logical === undefined || module === undefined) throw new Error("Missing genuine checkout source");
     const rows = sourceSeeds(selected.name);
     const dataset = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows }, 1_048_576,
       { invalidInput: () => new Error("Invalid checkout seed"), hashFailure: cause => new Error("Checkout seed hash", { cause }) }));
@@ -234,12 +257,12 @@ export async function prepareLogicalCheckout(driver: "pglite" | "postgres", clos
     options.onPhase?.("initialized " + selected.name);
     entries.push([selected.name, { module, logicalStorage }]);
   }
-  const modules = Result.getOrThrow(captureInstalledWorkflowModules(Object.fromEntries(entries), checkoutModuleNames));
+  const modules = Result.getOrThrow(captureInstalledWorkflowModules(Object.fromEntries(entries), names));
   const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
     prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, ...composition }) };
   const configuration = { execution, modules, logger: runtime.payment.loggerResource, link: runtime.link,
     revision: "c".repeat(64), subscribers: [{ id: "native-checkout", revision: "d".repeat(64) }] };
-  const host = await Effect.runPromise(prepareCompleteCartWorkflow(configuration)); close(() => Effect.runPromise(host.close));
+  const host = await Effect.runPromise(options.customerContext ? prepareCustomerCompleteCartWorkflow(configuration) : prepareCompleteCartWorkflow(configuration)); close(() => Effect.runPromise(host.close));
   options.onPhase?.("checkout host prepared");
   const prepareCapturedPayment = async () => {
     const resources = Result.getOrThrow(prepareWorkflowResources({ payment: { module: modules.payment.module,
@@ -261,6 +284,13 @@ export async function prepareLogicalCheckout(driver: "pglite" | "postgres", clos
         input: PaymentRefund, output: Schema.JsonObject, events: internalModuleWorkflowEvents } }));
     close(() => Effect.runPromise(refund.close)); return refund;
   };
+  const prepareCustomerSession = async () => {
+    if (customerRuntime === undefined) throw new Error("Customer-context fixture required");
+    const session = await Effect.runPromise(prepareCustomerPaymentSessionWorkflow({ ...configuration, link: customerRuntime.sessionLink, modules: { payment: { ...modules.payment, module: runtime.payment.workflow },
+      customer: { ...modules.customer, module: customerRuntime.customer.workflow },
+      customer_account_holder_links: { ...modules.customer_account_holder_links, module: customerRuntime.account.workflow } } }));
+    close(() => Effect.runPromise(session.close)); return session;
+  };
   const snapshot = () => logicalCurrencyInventory(fixture);
   const rows = async () => {
     const inventory = await snapshot(), output: JsonObject[] = [], scope = projectScopeIdUuidV1(fixture.application.authority.scopeId).scopeUuid;
@@ -273,5 +303,5 @@ export async function prepareLogicalCheckout(driver: "pglite" | "postgres", clos
     }
     return output;
   };
-  return { fixture, runtime, modules, configuration, host, cartId, collectionId, sessionId, cases, prepareCapturedPayment, prepareRefundedPayment, snapshot, rows };
+  return { fixture, runtime, modules, configuration, customerSessionLink: customerRuntime?.sessionLink, host, cartId, collectionId, sessionId, cases, prepareCapturedPayment, prepareRefundedPayment, prepareCustomerSession, snapshot, rows };
 }

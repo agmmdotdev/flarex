@@ -39,10 +39,12 @@ ceilings remain unchanged. The native `noCompensation` declaration is retained:
 failed outer executions still roll back AccountHolder, Link and Session writes
 atomically. Reused accounts retain the native null deletion marker.
 
-This source closure does not activate the nineteen-source complete-Cart retained
-Customer-context Payment recreation branch. That requires a separate connected
-checkout profile and its own admission proof. Cart context creation, Customer
-Groups, production routes and external payment gateways remain separately gated.
+The separate [Customer-context checkout profile](./checkout-customer-context.md)
+uses this native Customer graph and the genuine stored Link in its nineteen-
+source complete-Cart and retained Payment recreation closure. This three-source
+Session profile retains its own exact account-Link router and ordinary identity
+encoding. Cart context creation, Customer Groups, production routes and external
+payment gateways remain separately gated.
 
 ## Native Address metadata correction
 

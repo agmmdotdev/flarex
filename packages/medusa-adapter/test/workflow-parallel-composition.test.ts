@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { Deferred, Effect, Fiber, Result } from "effect";
-import { createHook, createStep, createWorkflow, parallelize, transform, when, WorkflowResponse, type Resolved, type WorkflowData } from "@medusajs/workflows-sdk";
+import { createHook, createStep, createWorkflow, parallelize, transform, when, WorkflowResponse, type Resolved, type WorkflowData, type StepExecutionContext } from "@medusajs/workflows-sdk";
 import { executeWorkflow, type WorkflowExecutionPort } from "@medusajs/workflows-sdk/native";
 
 const port: WorkflowExecutionPort<Error> = {
@@ -13,8 +13,9 @@ describe("native parallel workflow composition", () => {
   it("enters both child frames before either finishes and returns positional results on the same root port", async () => {
     const reached = Deferred.makeUnsafe<void>(), release = Deferred.makeUnsafe<void>();
     let entered = 0;
+    const contexts: StepExecutionContext[] = [];
     const step = createStep("work", async (value: number, context) => {
-      expect(context).toBe(port.context);
+      contexts.push(context);
       if (++entered === 2) await Effect.runPromise(Deferred.succeed(reached, undefined));
       await Effect.runPromise(Deferred.await(release)); return value;
     });
@@ -30,6 +31,16 @@ describe("native parallel workflow composition", () => {
       expect(entered).toBe(2); yield* Deferred.succeed(release, undefined);
       return yield* Fiber.join(fiber);
     }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)))))).toEqual([10, 20]);
+    expect(contexts).toHaveLength(2);
+    for (const context of contexts) {
+      expect(context.container).toBe(port.context.container);
+      expect(context.eventGroupId).toBe(port.context.eventGroupId);
+    }
+    expect(contexts.map(context => [context.parentStepIdempotencyKey, context.idempotencyKey])).toEqual([
+      ['["one-parallel-root",0]', '["one-parallel-root",0,0]'],
+      ['["one-parallel-root",1]', '["one-parallel-root",1,0]'],
+    ]);
+    expect(port.context).not.toHaveProperty("idempotencyKey");
   });
 
   it("single-flights a shared asynchronous parent transform while isolating each child's caches and hooks", async () => {

@@ -14,14 +14,19 @@ const Batch = Schema.Array(Schema.Union([
 ])).pipe(Schema.mutable).check(Schema.isLengthBetween(1, 2));
 const decodeArguments = commerceDecoder(Schema.Tuple([Batch]), "invalidInput");
 const decodeRows = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(2)), "storedCorruption");
-const decodeAccountArguments = commerceDecoder(Schema.Tuple([Schema.Array(Schema.Struct({ customer: Schema.Struct({ customer_id: ScalarId }),
-  payment: Schema.Struct({ account_holder_id: ScalarId }) })).pipe(Schema.mutable).check(Schema.isLengthBetween(1, 1))]), "invalidInput");
+const AccountBatch = Schema.Array(Schema.Struct({ customer: Schema.Struct({ customer_id: ScalarId }),
+  payment: Schema.Struct({ account_holder_id: ScalarId }) })).pipe(Schema.mutable).check(Schema.isLengthBetween(1, 1));
+const decodeAccountArguments = commerceDecoder(Schema.Tuple([AccountBatch]), "invalidInput");
+const decodeCustomerCheckoutArguments = commerceDecoder(Schema.Union([Schema.Tuple([Batch]), Schema.Tuple([AccountBatch])]), "invalidInput");
 type Native = Result.Result.Success<ReturnType<typeof prepareLinkWorkflowService>>;
 type Definition = NonNullable<ReturnType<typeof linkWorkflowServiceDefinition>>;
+type NativeLinkProfile = "checkout" | "customer-account" | "customer-checkout";
+const nativeLinkProfiles = new WeakMap<object, NativeLinkProfile>();
+export const nativeLinkResourceProfile = (resource: object): NativeLinkProfile | undefined => nativeLinkProfiles.get(resource);
 
 /** One genuine native router owns cross-family creation and retained dismissal.
  * Its loaded services invoke only the two authenticated participant owners. */
-function prepareNativeLinkResource(services: readonly Native[], profile: "checkout" | "customer-account") {
+function prepareNativeLinkResource(services: readonly Native[], profile: NativeLinkProfile) {
   return Result.gen(function* () {
     const selected: Array<Definition & { readonly dismissMethod: NonNullable<Definition["dismissMethod"]> }> = [];
     for (const service of services) {
@@ -30,11 +35,14 @@ function prepareNativeLinkResource(services: readonly Native[], profile: "checko
       selected.push({ ...definition, dismissMethod: definition.dismissMethod });
     }
     const names = selected.map(service => service.routing.__joinerConfig.serviceName);
-    if (profile === "checkout" ? selected.length !== 2 || new Set(names).size !== 2 || !names.includes(OrderCart.serviceName) || !names.includes(OrderPaymentCollection.serviceName)
-      : selected.length !== 1 || names[0] !== CustomerAccountHolder.serviceName)
+    const expected = profile === "customer-account" ? [CustomerAccountHolder.serviceName]
+      : profile === "checkout" ? [OrderCart.serviceName, OrderPaymentCollection.serviceName]
+      : [OrderCart.serviceName, OrderPaymentCollection.serviceName, CustomerAccountHolder.serviceName];
+    if (selected.length !== expected.length || new Set(names).size !== expected.length || expected.some(name => !names.includes(name)))
       return yield* Result.fail(commerceError("unsupportedProfile"));
-    const argumentsDecoder = profile === "checkout" ? decodeArguments : decodeAccountArguments;
-    return yield* defineComposedWorkflowResource({ identity: { format: profile === "checkout" ? "medusa.checkout.native-links" : "medusa.customer-account.native-links", services: selected.map(service => service.routing) },
+    const argumentsDecoder = profile === "checkout" ? decodeArguments : profile === "customer-account" ? decodeAccountArguments : decodeCustomerCheckoutArguments;
+    const resource = yield* defineComposedWorkflowResource({ identity: { format: profile === "checkout" ? "medusa.checkout.native-links"
+      : profile === "customer-account" ? "medusa.customer-account.native-links" : "medusa.customer-checkout.native-links", services: selected.map(service => service.routing) },
       dependencies: selected.flatMap(service => [service.createMethod, service.listMethod, service.dismissMethod]),
       methods: { create: { arguments: argumentsDecoder, output: decodeRows }, dismiss: { arguments: argumentsDecoder, output: decodeRows } },
       bind: invoke => {
@@ -48,7 +56,10 @@ function prepareNativeLinkResource(services: readonly Native[], profile: "checko
         return { create: async (...[links]: Arguments) => native.create(links), dismiss: async (...[links]: Arguments) => native.dismiss(links) };
       },
     });
+    nativeLinkProfiles.set(resource, profile);
+    return resource;
   });
 }
 export const prepareCheckoutNativeLinkResource = (services: readonly Native[]) => prepareNativeLinkResource(services, "checkout");
 export const prepareCustomerAccountNativeLinkResource = (service: Native) => prepareNativeLinkResource([service], "customer-account");
+export const prepareCustomerCheckoutNativeLinkResource = (services: readonly Native[]) => prepareNativeLinkResource(services, "customer-checkout");

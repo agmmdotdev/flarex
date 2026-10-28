@@ -4,6 +4,9 @@ import { compensatePaymentIfNeededStep, compensatePaymentIfNeededStepId } from "
 import { refundPaymentAndRecreatePaymentSessionWorkflow } from "@medusajs/core-flows/cart/refund-payment-recreate-payment-session";
 import { preparePaymentRecreationResources } from "../../src/workflows/payment/recreation-resources";
 import { paymentFinanceCallLimit } from "../../src/workflows/payment/finance-configuration";
+import type { PaymentFinanceWorkflowInput } from "../../src/workflows/payment/finance-configuration";
+import type { InstalledWorkflowModule } from "../../src/workflow/host";
+import type { PreparedWorkflowResources } from "../../src/workflow/resources";
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { NativePaymentAmount, PaymentId, PaymentSessionRootInput } from "../../src/modules/payment/input";
@@ -31,6 +34,13 @@ export async function prepareNativePaymentRecreation(local: Awaited<ReturnType<t
 export async function prepareRetainedCheckoutPayment(local: Awaited<ReturnType<typeof prepareLogicalPaymentFinance>>,
   kind: "forward" | "inverse" | "late", close: (cleanup: () => Promise<void>) => void) {
   const resources = Result.getOrThrow(preparePaymentRecreationResources(local.options.modules, local.options.logger));
+  return prepareRetainedCheckoutPaymentWithResources(local.options, resources, kind, close);
+}
+
+type RetainedOptions = Omit<PaymentFinanceWorkflowInput, "modules"> & { readonly modules: Readonly<Record<string, InstalledWorkflowModule>>;
+  readonly requestParticipantLimit?: number; readonly identityEncoding?: "resourceDigest"; readonly executionIsolation?: "scopeExclusive" };
+export async function prepareRetainedCheckoutPaymentWithResources(options: RetainedOptions, resources: PreparedWorkflowResources,
+  kind: "forward" | "inverse" | "late", close: (cleanup: () => Promise<void>) => void) {
   const native = createWorkflow("select-native-checkout-payment-marker", (input: WorkflowData<{ payment_session_id: string }>) =>
     new WorkflowResponse(compensatePaymentIfNeededStep(input)));
   const node = Result.getOrThrow(native.prepare()).nodes.find(node => node.name === compensatePaymentIfNeededStepId);
@@ -48,7 +58,7 @@ export async function prepareRetainedCheckoutPayment(local: Awaited<ReturnType<t
       return new StepResponse(null);
     }));
   const flow = createWorkflow("retained-checkout-payment-root-" + kind, (input: WorkflowData<string>) => new WorkflowResponse(step(input)));
-  const host = await Effect.runPromise(prepareAtomicWorkflowHost({ ...local.options,
+  const host = await Effect.runPromise(prepareAtomicWorkflowHost({ ...options,
     requestCallLimit: paymentFinanceCallLimit, operationScheduling: "queued", borrowedOperationScheduling: "queued",
     workflow: { name: "retainedCheckoutPayment-" + kind, resources, prepared: Result.getOrThrow(flow.prepare()),
       input: PaymentId, output: Schema.Json, events: internalModuleWorkflowEvents } }));

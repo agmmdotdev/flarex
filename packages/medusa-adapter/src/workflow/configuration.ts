@@ -1,6 +1,6 @@
-import { Result } from "effect";
+import { Effect, Result } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { commerceError, commerceLimits, capturePrivateJsonDataOmittingUndefined, useCapturedPrivateJsonData } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, commerceLimits, capturePrivateCanonicalValue, capturePrivateJsonDataOmittingUndefined, useCapturedPrivateJsonData } from "@flarex/persistence-postgres/internal/commerce-values";
 
 /** Configuration uses the atomic owner's policy JSON contract (64 KiB and
  * depth 64), rather than the native business-value envelope. Keep the complete
@@ -60,3 +60,12 @@ export function captureWorkflowArray<Value>(input: readonly Value[]) {
     return Object.freeze(values) as readonly Value[];
   });
 }
+
+/** An explicit encoding of the complete resource proof. Both its captured
+ * canonical frame and the final workflow policy retain the 64 KiB ceiling. */
+export const captureWorkflowResourceDigest = Effect.fn("Workflow.captureResourceDigest")(function* (input: unknown) {
+  const resources = yield* Effect.fromResult(captureWorkflowPolicy(input));
+  const captured = yield* capturePrivateCanonicalValue({ format: "flarex.medusa-workflow-resources", version: 1, resources },
+    commerceLimits.rowBytes, { invalidInput: () => commerceError("limitExceeded"), hashFailure: cause => commerceError("resourceFailure", cause) });
+  return captured.sha256Hex;
+});

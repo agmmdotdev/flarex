@@ -1017,8 +1017,7 @@ Native stored declarations select the approved atomic outcome profile, without
 resumable step history or automatic three-day expiry. Customer identity reaches
 the Order through the native Cart graph; Order creates independent Address copies
 and its native inverse deletes them without changing the original Cart Addresses
-or Customer. Complete Cart creation, the complete-Cart retained Customer-context
-Payment recreation branch, Promotion, shipping, tax and credit-line
+or Customer. Complete Cart creation, Promotion, shipping, tax and credit-line
 branches, larger Inventory cohorts, remote gateways and hosted activation remain
 separately gated.
 
@@ -1031,8 +1030,19 @@ three-source Session profile uses native Customer reads, saved Addresses and the
 genuine Customer-AccountHolder Link to create or reuse a local System account.
 It admits the selected nonnull-email Customer view and retains native billing
 Address fallback, Session replacement and atomic rollback/replay. Customerless
-Session and existing complete-Cart resource boundaries remain separate; the
-nineteen-source retained Customer-context checkout branch is not activated.
+Session and existing complete-Cart resource boundaries remain separate.
+
+The [Customer-context checkout profile](./preflight/checkout-customer-context.md)
+extends the private native complete-Cart closure with the genuine Customer-
+AccountHolder Link as its nineteenth logical source. Its retained native
+refund/recreate child reads persisted Customer context, saved Addresses and
+linked local System accounts, preserving exact amounts and historical Sessions.
+Checkout exposes graph-only Customer access; each native Link router is
+authenticated for its exact family profile. An explicit resource-digest identity
+covers every method, graph and composed Link field under the unchanged 64 KiB
+proof and policy limits. The eighteen-source identity/resource profile and
+physical eight-member ceiling remain unchanged. General Customer CRUD, remote
+providers, saved payment methods and hosted activation remain separately gated.
 
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.

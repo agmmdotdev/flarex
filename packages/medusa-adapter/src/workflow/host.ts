@@ -7,7 +7,7 @@ import { captureCommerceResources, commerceError, isJsonObject, type CommerceRes
 import { prepareLocalGraph } from "../local-graph/query";
 import { runNativeMedusaWorkflow } from "./runtime";
 import { captureCommerceInput } from "../value/input";
-import { captureWorkflowArray, captureWorkflowRecord, captureWorkflowPolicy } from "./configuration";
+import { captureWorkflowArray, captureWorkflowRecord, captureWorkflowPolicy, captureWorkflowResourceDigest } from "./configuration";
 import { workflowMethodDefinition, workflowModuleDefinition, type WorkflowMethod, type WorkflowModule } from "./module";
 import { workflowResourceSelections, workflowComposedResources, workflowAbsentResources, type PreparedWorkflowResources } from "./resources";
 import { composedWorkflowResourceDefinition } from "./composed-resource";
@@ -18,6 +18,7 @@ import { commerceDecoder } from "../value/decoder";
 import type { TrustedWorkflowExecutionSubject, TrustedWorkflowControlSubject } from "@flarex/persistence-postgres/internal/trusted-workflow-execution-subject";
 import type { PreparedCommitEventEligibility } from "@flarex/persistence-postgres/internal/commit-event-eligibility";
 
+const decodeIdentityEncoding = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Literal("resourceDigest")));
 const decodeOperationScheduling = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Literal("queued")));
 const decodeExecutionIsolation = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Literal("scopeExclusive")));
 const decodeLogicalPublication = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal("mixed")));
@@ -91,6 +92,7 @@ export interface AtomicWorkflowDefinition<Resources, Input extends Json, Output 
  * per invocation, and exactly one existing core transaction/recovery owner. */
 export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition")(function* <Resources, Input extends Json, Output extends Json, EncodedInput extends Json>(input: {
   readonly identityAndAccessPolicy: Json;
+  readonly identityEncoding?: "resourceDigest";
   readonly modules: Readonly<Record<string, InstalledWorkflowModule>>;
   readonly workflow: AtomicWorkflowDefinition<Resources, Input, Output, EncodedInput>;
   readonly revision: string;
@@ -109,6 +111,8 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
   readonly allowTaskControl?: true;
 }) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
+  const identityEncoding = yield* decodeIdentityEncoding(options.identityEncoding)
+    .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   const operationScheduling = yield* decodeOperationScheduling(options.operationScheduling)
     .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   const borrowedOperationScheduling = yield* decodeOperationScheduling(options.borrowedOperationScheduling)
@@ -287,9 +291,11 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
   };
   const absentResources = workflowAbsentResources(workflow.resources);
   if (absentResources === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
+  const resourceProof = { resources: identities, ...(composedIdentities.length ? { composedResources: composedIdentities } : {}) };
+  const resourceIdentity = identityEncoding === undefined ? resourceProof
+    : { identityEncoding, resourceDigest: yield* captureWorkflowResourceDigest(resourceProof) };
   const identity = yield* Effect.fromResult(captureWorkflowPolicy({ policy, workflow: {
-    revision: options.revision, definition: workflow.prepared.identity, resources: identities, events: [...names],
-    ...(composedIdentities.length ? { composedResources: composedIdentities } : {}),
+    revision: options.revision, definition: workflow.prepared.identity, ...resourceIdentity, events: [...names],
     ...(absentResources.length ? { absentResources } : {}),
     ...(executionIsolation === undefined ? {} : { executionIsolation }),
     ...(operationScheduling === undefined ? {} : { operationScheduling }),
@@ -317,6 +323,7 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
 
 interface WorkflowHostInput<Resources, Input extends Json, Output extends Json, EncodedInput extends Json, Host extends AtomicCommerceHost> {
   readonly execution: AtomicWorkflowExecution<Host>;
+  readonly identityEncoding?: "resourceDigest";
   readonly modules: Readonly<Record<string, InstalledWorkflowModule>>;
   readonly workflow: AtomicWorkflowDefinition<Resources, Input, Output, EncodedInput>;
   readonly revision: string;
@@ -337,6 +344,7 @@ const prepareBoundWorkflowHost = Effect.fn("Workflow.prepareBoundHost")(function
   if (typeof execution.prepare !== "function") return yield* Effect.fail(commerceError("unsupportedProfile"));
   const prepared = yield* prepareWorkflowComposition({ identityAndAccessPolicy: execution.identityAndAccessPolicy,
     modules: options.modules, workflow: options.workflow, revision: options.revision,
+    ...(options.identityEncoding === undefined ? {} : { identityEncoding: options.identityEncoding }),
     ...(options.subscribers === undefined ? {} : { subscribers: options.subscribers }),
     ...(options.requestParticipantLimit === undefined ? {} : { requestParticipantLimit: options.requestParticipantLimit }),
     ...(options.requestCallLimit === undefined ? {} : { requestCallLimit: options.requestCallLimit }),

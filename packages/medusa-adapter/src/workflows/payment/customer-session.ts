@@ -1,4 +1,4 @@
-import { Effect, Schema, type Result } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { createPaymentSessionsWorkflow } from "@medusajs/core-flows/payment-collection/create-payment-session";
 import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -6,7 +6,7 @@ import { CustomerPaymentSessionInput } from "../../modules/payment/account-input
 import type { makePaymentLifecycleCommands } from "../../modules/payment/lifecycle-service";
 import type { makeCustomerAddressCommands } from "../../modules/customer/address-service";
 import type { prepareCheckoutNativeLinkLifecycle } from "../../links/checkout-native-lifecycle";
-import type { prepareCustomerAccountNativeLinkResource } from "../../links/checkout-resource";
+import { nativeLinkResourceProfile, type prepareCustomerAccountNativeLinkResource } from "../../links/checkout-resource";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { internalModuleWorkflowEvents } from "../../workflow/events";
 import { captureInstalledWorkflowModules, prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type InstalledWorkflowModule } from "../../workflow/host";
@@ -30,6 +30,7 @@ export interface CustomerPaymentSessionOptions {
  * exposed by this resource even though the Customer source also owns them. */
 export function prepareCustomerPaymentSessionResources(modules: Readonly<Record<"payment" | "customer" | "customer_account_holder_links", InstalledWorkflowModule>>,
   logger: CustomerPaymentSessionOptions["logger"], link: CustomerPaymentSessionOptions["link"]) {
+  if (nativeLinkResourceProfile(link) !== "customer-account") return Result.fail(commerceError("invalidAuthority"));
   return prepareWorkflowResources({
     payment: { module: modules.payment.module, methods: ["createAccountHolder", "deleteAccountHolder", "createPaymentSession", "deletePaymentSession", "listPaymentSessions"], graph: true },
     customer: { module: modules.customer.module, methods: [], graph: true, expose: false },

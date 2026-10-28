@@ -49,7 +49,7 @@ import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 export interface AtomicCommerceHostInput<Failure> extends CommerceHostConfiguration<Failure> {
   readonly participants: readonly AtomicCommerceParticipantInput[];
   /** Trusted root participant allowance, identity-bound when explicit. Omission
-   * retains eight; explicit allowances above eight, through eighteen, require
+   * retains eight; explicit allowances above eight, through nineteen, require
    * exclusively logical participants. Physical binding limits stay at eight. */
   readonly requestParticipantLimit?: number;
   readonly commands: readonly AtomicCommerceCommand[];

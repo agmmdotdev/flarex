@@ -10,12 +10,12 @@ import { capturePrivateCanonicalValue } from "../../../src/installation/framewor
 import { commerceError } from "../../../src/frameworks/commerceTransaction/model";
 import { prepareNeutralLogicalFixture } from "../../storage/relationalSchema/neutralLogicalFixture";
 
-/** Eighteen real sources use one scope owner and one outer settlement. The
+/** Nineteen real sources use one scope owner and one outer settlement. The
  * same row ID in every source makes cross-source aliasing visible. */
 export async function checkoutParticipantAllowanceScenario(driver: "pglite" | "postgres") {
   const cleanup: Array<() => Promise<void>> = [];
   try {
-    const definitions = Array.from({ length: 18 }, (_, index) => {
+    const definitions = Array.from({ length: 19 }, (_, index) => {
       const key = "neutral.checkout-owner-" + index, evidence = { kind: "synthetic", sourceId: key };
       const schema = Result.getOrThrow(normalizeRelationalSchema({ owner: "medusa", lineageId: key, capabilities: [], tables: [{
         tableId: "entry", origin: evidence, columns: ["id", "owner"].map(columnId => ({
@@ -65,23 +65,35 @@ export async function checkoutParticipantAllowanceScenario(driver: "pglite" | "p
     const input = { ...fixture.hostInput, identityAndAccessPolicy: { profile: "neutral-checkout-eighteen" },
       commands: [root], participants: members, executionIsolation: "scopeExclusive" as const };
     expect(await Effect.runPromise(Effect.result(makeAtomicCommerceHost(input)))).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
-    await Effect.runPromise(Effect.acquireUseRelease(makeAtomicCommerceHost({ ...input, requestParticipantLimit: 18 }), host => Effect.gen(function* () {
+    await Effect.runPromise(Effect.acquireUseRelease(makeAtomicCommerceHost({ ...input, requestParticipantLimit: 19 }), host => Effect.gen(function* () {
       expect(yield* Effect.result(host.run(host.newRequestKey(), root, "write"))).toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
     }), host => host.close));
-    // This neutral eighteen-call root selects the existing explicit call ABI.
+    expect(await Effect.runPromise(Effect.result(makeAtomicCommerceHost({ ...input, requestParticipantLimit: 18 }))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    // This neutral nineteen-call root selects the existing explicit call ABI.
     // Participant admission must not silently increase the ordinary call limit.
     const baselineCalls = calls;
-    await Effect.runPromise(Effect.acquireUseRelease(makeAtomicCommerceHost({ ...input, requestParticipantLimit: 18, requestCallLimit: 128 }), host => Effect.gen(function* () {
+    await Effect.runPromise(Effect.acquireUseRelease(makeAtomicCommerceHost({ ...input, requestParticipantLimit: 19, requestCallLimit: 128 }), host => Effect.gen(function* () {
       expect(yield* host.run(host.newRequestKey(), root, "read")).toEqual(members.map(() => []));
       const request = host.newRequestKey(), expected = members.map((_, index) => ({ id: "same-id", owner: "owner-" + index }));
       expect(yield* host.run(request, root, "write")).toEqual(expected);
-      expect(calls - baselineCalls).toBe(18);
+      expect(calls - baselineCalls).toBe(19);
       expect(yield* host.run(request, root, "write")).toEqual(expected);
-      expect(calls - baselineCalls).toBe(18);
+      expect(calls - baselineCalls).toBe(19);
       expect(yield* Effect.result(host.run(host.newRequestKey(), root, "fail"))).toMatchObject({ _tag: "Failure" });
-      expect(calls - baselineCalls).toBe(36);
+      expect(calls - baselineCalls).toBe(38);
       expect(yield* host.run(host.newRequestKey(), root, "read")).toEqual(expected.map(row => [row]));
     }), host => host.close));
+    const first = members[0];
+    if (first === undefined) throw new Error("Missing neutral source");
+    const probe = defineAtomicCommerceCommand("checkoutAllowanceIdentity", ctx => ctx.call(first.participant, read, null));
+    const identityInput = { ...input, commands: [probe], participants: [first] };
+    await Effect.runPromise(Effect.acquireUseRelease(makeAtomicCommerceHost({ ...identityInput, requestParticipantLimit: 18 }), eighteen =>
+      Effect.acquireUseRelease(makeAtomicCommerceHost({ ...identityInput, requestParticipantLimit: 19 }), nineteen => Effect.gen(function* () {
+        const key = eighteen.newRequestKey();
+        expect(yield* eighteen.run(key, probe, null)).toEqual([{ id: "same-id", owner: "owner-0" }]);
+        expect(yield* Effect.result(nineteen.run(key, probe, null))).toMatchObject({ _tag: "Failure", failure: { reason: "requestConflict" } });
+      }), host => host.close), host => host.close));
   } finally {
     for (const release of cleanup.reverse()) await release();
   }
