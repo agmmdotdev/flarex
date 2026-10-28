@@ -110,7 +110,7 @@ Every admitted native branch still needs visibility, hook and failure witnesses.
 
 ## Remaining decisions and proof
 
-The next question is [index readiness](./OPEN-QUESTIONS.md#next-question-index-readiness).
+The next question is [resumable index backfill](./OPEN-QUESTIONS.md#next-question-resumable-index-backfill).
 Numerical deadlines/history budgets, exact expiry errors, cancellation fencing,
 concrete client protocols and framework-specific compatibility remain open implementation
 gates in the canonical queue. No code, schema or deployment change is authorized.

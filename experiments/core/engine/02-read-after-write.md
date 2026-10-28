@@ -123,7 +123,7 @@ not turn them into one universal replayable mutation API.
 
 ## Remaining decisions and proof
 
-The next question is [index readiness](./OPEN-QUESTIONS.md#next-question-index-readiness).
+The next question is [resumable index backfill](./OPEN-QUESTIONS.md#next-question-resumable-index-backfill).
 Concrete recovery/readiness interlocks, monotonic timestamp representation,
 client wire details, numerical budgets and historical pagination remain open.
 Replication stays deferred; no follower-read protocol is selected.

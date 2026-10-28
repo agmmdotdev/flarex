@@ -6,7 +6,7 @@ owns accepted/proposed status; [REFACTOR.md](./REFACTOR.md) owns the accepted
 existing-core migration direction. Focused notes explain the current candidate
 without maintaining another independent question list.
 
-Only **concept 02: index readiness** is the active discussion focus. App
+Only **concept 07: resumable index backfill** is the active discussion focus. App
 ownership, coordinator placement, out-of-order saves with ordered normal
 publication, and uncertainty recovery are [accepted](./01-commit-coordination.md). The
 [timestamped-snapshot contract](./02-timestamped-snapshots.md) now answers the
@@ -20,8 +20,10 @@ remain open. The [authorization split](./02-read-authorization.md) is accepted:
 tracked snapshot permission reads and identity-aware result reuse, with separate
 authentication and engine-grant revocation. [Read-after-write freshness](./02-read-after-write.md)
 is accepted: latest-ready-owner reads, recovery gating, timestamped misses and
-reactive-client timestamp synchronization. Index readiness is next; other
-questions are queued dependencies, not silently accepted answers.
+reactive-client timestamp synchronization. [Index readiness](./02-index-readiness.md)
+is accepted: build, complete, then enable; required builds gate deployment and
+queries reject unavailable indexes. Resumable backfill is next. Remaining
+concept-02 protocols and other questions stay open/queued, not silently completed.
 Replication is **open and explicitly deferred**; single-owner fencing/recovery
 is still required. Record a decision or explicit deferral before moving to the
 next concept.
@@ -86,11 +88,11 @@ example, pinned Convex source and remaining representation/proof boundaries.
 
 ## Q03 - Snapshots, authorization and read-only freshness
 
-**Partially answered; active concept 02.** The fixed-timestamp read contract,
+**Partially answered; remaining protocols queued, concept 02.** The fixed-timestamp read contract,
 bounded history and [operation-lifetime policy](./02-operation-lifetime.md) are
 accepted, as are the [authorization direction](./02-read-authorization.md) and
-[read-after-write policy](./02-read-after-write.md). Index readiness is the next
-narrow decision.
+[read-after-write policy](./02-read-after-write.md) and
+[index-readiness direction](./02-index-readiness.md).
 Still open: numerical deadline/history budgets, native branch conformance, exact
 expiry errors and cancellation/acceptance interlocks, client timestamp encoding/protocol,
 engine-grant enforcement/readiness mechanisms, and disclosure or early errors that never
@@ -154,28 +156,20 @@ applied query-state progress, and reject backwards reconnect views. The
 cart example, recovery adaptation and remaining protocol/proof gates. No SDK,
 subscription or native replay capability is implemented by this decision.
 
-### Next question: index readiness
+### Answered: index readiness
 
-**When an app adds an index while customers continue reading and writing, when
-may a query safely use it?** Choose the read-admission contract for an index that
-is being built, fully built but not enabled, or enabled in a newer snapshot than
-the current operation. Determine how the owner's cached metadata learns the
-transition and what proves complete results at the requested timestamp.
+Accepted for ordinary application database indexes: Backfilling, Backfilled and
+Enabled are distinct states. Required non-staged builds gate deployment activation;
+staged builds remain unavailable until a later enablement. A query explicitly
+requiring an unavailable index fails rather than waiting, scanning implicitly or
+reading partial results. Operations resolve readiness from their own versioned
+metadata and retain the required dependency.
 
-Example: add an index for finding a customer's carts while new carts are still
-being created. Decide whether a query requiring the unfinished index fails, waits
-or uses an explicitly supported alternative, and what happens to an older query
-when the index becomes enabled. Do not infer a complete result from partial local
-cache coverage or equate an enabled logical index with every page being cached.
-
-References: Convex [IndexRegistry::require_enabled](../../../../../crates/indexing/src/index_registry.rs),
-[snapshot manager](../../../../../crates/database/src/snapshot_manager.rs),
-[index loading and persistence misses](../../../../../crates/indexing/src/backend_in_memory_indexes.rs);
-Flarex [logical storage readiness](../../../packages/persistence-postgres/src/storage/catalog/logicalStorageReadiness.ts)
-and [identity/invalidating writers](../DESIGN.md#identity-and-invalidating-writers).
-This is the narrow concept-02 readiness question; complete backfill, schema
-activation and cleanup protocols remain under Q07, and local cache coverage under
-Q05. No fallback or new index-build implementation is selected yet.
+The [focused record](./02-index-readiness.md) owns the cart example, pinned source
+and adaptation boundary. Enablement does not mean every index page is cached;
+eligible misses still read PostgreSQL at the operation timestamp. Build checkpoints,
+concurrent-write coverage, crash recovery and activation mechanics remain Q07;
+local coverage remains Q05. No runtime change is authorized by this acceptance.
 
 ## Q04 - Values, IDs and ordered representations
 
@@ -238,10 +232,10 @@ one-time external effects and unknown-COMMIT recovery without native reexecution
 
 ## Q07 - Schema, index lifecycle and retention
 
-**Bounded-retention direction accepted; details queued, concept 07.** Follow the
+**Partially answered; resumable index backfill active, concept 07.** Follow the
 [separate cache/history bounds](./02-timestamped-snapshots.md#accepted-cache-and-retention-direction).
-The current [index-readiness question](#next-question-index-readiness) addresses
-read admission; it does not decide the complete builder/activation protocol here.
+The accepted [index-readiness record](./02-index-readiness.md) governs lifecycle
+and read admission; it does not decide the complete builder/activation protocol here.
 The concrete cleanup protocol and numerical limits remain open.
 How do schema activation, index builders, repair,
 deletion, permission changes and history GC invalidate or fence cached state?
@@ -255,6 +249,28 @@ References: Convex [schema registry](../../../../../crates/database/src/schema_r
 and [invalidating-writer baseline](../DESIGN.md#identity-and-invalidating-writers).
 Required examples: activation during reads, missing feed history, repair writes,
 expired pinned views and safe cleanup after consumer/data cutover.
+
+### Next question: resumable index backfill
+
+**How do we build an index while writes continue, then resume after a crash
+without missing or duplicating logical entries?** Select the snapshot/cursor
+contract, how ongoing inserts/updates/deletes are covered, what progress is saved
+durably, and the proof required before marking the index Backfilled.
+
+Example: the builder has processed half the carts when Alice adds a cart, Bob
+changes a customer assignment and the DO restarts. Determine which work is safe
+to repeat, how those writes remain represented, and how the replacement owner
+knows the index is complete. A last-seen row ID alone is not the chosen protocol.
+
+References: pinned Convex [database index worker](../../../../../crates/database/src/database_index_workers/mod.rs),
+[IndexWriter](../../../../../crates/database/src/database_index_workers/index_writer.rs),
+[backfill progress metadata](../../../../../crates/database/src/bootstrap_model/index_backfills/mod.rs)
+and [index state](../../../../../crates/common/src/bootstrap_model/index/database_index/index_state.rs);
+Flarex [readiness contract](./02-index-readiness.md) and
+[owner recovery](./01-commit-coordination.md#accepted-uncertainty-recovery).
+Inspect the actual scan, live-write, checkpoint and retention interleavings before
+selecting the replacement. This does not enable the index, implement a builder,
+settle every schema lifecycle question or reopen replication.
 
 ## Q08 - Host adapters, scheduling and hot-shop scaling
 

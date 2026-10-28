@@ -2,7 +2,7 @@
 
 Initial inspection: 2026-10-26; shared-engine source map expanded on 2026-10-27;
 timestamped reads, cache population/invalidation, retention, read authorization
-and read-after-write freshness inspected on 2026-10-28.
+read-after-write freshness and index readiness inspected on 2026-10-28.
 References establish mechanisms and prior results, not the feasibility or speed
 of the proposed replacement. The [engine discussion](./engine/README.md) owns the
 current direction; [OPEN-QUESTIONS.md](./engine/OPEN-QUESTIONS.md) owns the active
@@ -179,6 +179,32 @@ The source map identifies mechanisms to discuss, not a file-for-file port plan.
 TypeScript needs deliberate choices for ordered structures, structural sharing,
 timestamps, key encoding, async scheduling and memory accounting. Neither language
 translation nor identical method names proves equivalent behavior or latency.
+
+### Index readiness sources
+
+The [index-readiness record](./engine/02-index-readiness.md#pinned-sources-and-necessary-differences)
+maps the accepted ordinary-index lifecycle, deployment gates and snapshot-based
+read admission. Resumable backfill remains the next open mechanism, not an
+implemented consequence of using the same states. The index-registry hash is
+already recorded above; these additional files were inspected at the same pin.
+
+| Source | Symbols / lesson to inspect |
+| --- | --- |
+| [database index state](../../../../crates/common/src/bootstrap_model/index/database_index/index_state.rs) | `DatabaseIndexState`: Backfilling, Backfilled and Enabled are distinct |
+| [index model](../../../../crates/database/src/bootstrap_model/index.rs) | `enable_index`, `commit_indexes_for_schema`: require backfilled state and coordinate enabled metadata |
+| [database index worker](../../../../crates/database/src/database_index_workers/mod.rs) | `backfill_tablet`, `finish_backfill`: snapshot build, retention coordination and committed completion |
+| [index writer](../../../../crates/database/src/database_index_workers/index_writer.rs) | `backfill_from_ts`, `backfill_exact_snapshot_of_table`, `backfill_forwards`: snapshot and later-write coverage; inspect the full protocol before adaptation |
+| [transaction index](../../../../crates/database/src/transaction_index.rs) | `require_enabled`, `record_interval`: successful resolution records metadata dependency |
+| [deployment configuration](../../../../crates/application/src/deploy_config.rs) | Required non-staged index progress and `finish_push`: coordinate deployment readiness |
+
+```text
+crates/common/src/bootstrap_model/index/database_index/index_state.rs 05e26e4578e366c0ef7d37e36f402171e0f05de3adeec0648804834de6d69f6e
+crates/database/src/bootstrap_model/index.rs 02a7d31a51b525f37f8ea7c23592bcbd47aa5919e3ad8a1205ed4a4320be55b8
+crates/database/src/database_index_workers/mod.rs f5f0c866d92e7ea57164d8c543043f83d13a9e839639d8bc4adb60f3e52afa4c
+crates/database/src/database_index_workers/index_writer.rs cc519a989a8b2065fe0749b18fa812bb76f0c9230159705ecb86bfcb191be86d
+crates/database/src/transaction_index.rs 3948e3f5985215903c505ce7d0825b02a9e42af88f80cf5bc13480ccf533f616
+crates/application/src/deploy_config.rs d439acdb01ba4e98c589061ecf1f83a6379190f5eb055a041ff714e6ae40b2f0
+```
 
 ## Transferable ideas and explicit divergences
 

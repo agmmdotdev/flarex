@@ -24,9 +24,11 @@ deadline sharing and expiry/retry rules. The
 [read-authorization record](./02-read-authorization.md) separates tracked snapshot
 permissions from authentication and engine-grant revocation. The
 [read-after-write record](./02-read-after-write.md) owns latest ordinary reads,
-recovery admission and reactive-client timestamp synchronization. Next is
-[index readiness](./OPEN-QUESTIONS.md#next-question-index-readiness), the
-focused question in Q03. [Pinned references](../REFERENCES.md#engine-mechanism-reference-map)
+recovery admission and reactive-client timestamp synchronization. The
+[index-readiness record](./02-index-readiness.md) owns ordinary-index lifecycle,
+deployment gating and query admission. Next is
+[resumable index backfill](./OPEN-QUESTIONS.md#next-question-resumable-index-backfill), the
+focused question in Q07. [Pinned references](../REFERENCES.md#engine-mechanism-reference-map)
 anchor each concept and later implementation in actual Convex owners.
 
 ## Current topology proposal

@@ -10,8 +10,10 @@ retention as the selected direction. Operation boundaries, inherited deadlines
 and expiry/retry policy are accepted; numerical limits remain open. Snapshot
 permission dependencies and identity-aware result reuse are accepted, with separate
 engine-grant revocation. Latest-published read admission, recovery gating and
-reactive-client timestamp synchronization are accepted. Concept 02 now focuses
-on index readiness. Ownership, fencing and recovery protocol details stay open.
+reactive-client timestamp synchronization are accepted. Ordinary-index lifecycle,
+deployment readiness gates and snapshot-based index admission are accepted.
+Concept 07 now focuses on resumable index backfill. Remaining concept-02 protocols,
+ownership, fencing and recovery details stay open.
 Replication is explicitly deferred. This register records decisions, not execution
 receipts; [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md)
 owns the unresolved queue and its references.
@@ -83,8 +85,9 @@ the authorized scope; a small helper change is not the completion criterion.
 The [commit-coordination record](./01-commit-coordination.md),
 [timestamped-snapshot record](./02-timestamped-snapshots.md),
 [operation-lifetime record](./02-operation-lifetime.md),
-[read-authorization record](./02-read-authorization.md) and
-[read-after-write record](./02-read-after-write.md) own these decisions:
+[read-authorization record](./02-read-authorization.md),
+[read-after-write record](./02-read-after-write.md) and
+[index-readiness record](./02-index-readiness.md) own these decisions:
 
 | Decision | Status / boundary |
 | --- | --- |
@@ -100,6 +103,7 @@ The [commit-coordination record](./01-commit-coordination.md),
 | Authentication and engine-grant revocation remain separate from snapshot permission data | Accepted; preserve the grant's attempt-invalidating revocation contract; concrete enforcement/disclosure races remain open, with stronger checks requiring named obligations |
 | New ordinary reads use the ready app owner's latest published snapshot; startup/recovery gates new reads with bounded waits or explicit failure | Accepted; cold caches miss to PostgreSQL at that same timestamp; no per-query timestamp-fetch request or mandatory minimum-timestamp token for the initial single-owner ordinary-read path; concrete ownership/readiness protocols remain open |
 | Reactive clients retain commit/query timestamps, resolve successful mutation promises after applied query-state progress and check reconnect progress | Accepted direction following pinned Convex backend/client code; exact protocol and subscription implementation remain open; no native replay is enabled |
+| Ordinary database indexes move through Backfilling, Backfilled and Enabled; required builds gate deployment and queries require enabled metadata at their snapshot | Accepted Convex-style lifecycle; staged builds require later enablement, no runtime waiting/partial reads/implicit scan fallback; local cache coverage is separate; backfill, activation and recovery details remain open |
 | Convex revision `84fbb0e70b4e857913673871cb847ad11a55f3d5`, source-first inspection and justified divergences | Accepted development rule; source reuse/license disposition remains separate |
 | Execution replicas, their synchronization and scaling topology | Open and explicitly deferred; not a prerequisite for the first single-owner design |
 
@@ -119,12 +123,12 @@ execution sequence. No code replacement follows from recording this proposal.
 | ID | Concept | Design status | Implementation / evidence |
 | --- | --- | --- | --- |
 | 01 | [Engine ownership and lifetime](./01-ownership-and-lifetime.md), with [commit coordination](./01-commit-coordination.md) | App boundary, coordinator placement, save/publication order and recovery accepted; residual protocols open; replication deferred | No new engine implementation |
-| 02 | [Timestamped snapshots](./02-timestamped-snapshots.md), [operation lifetime](./02-operation-lifetime.md), [read authorization](./02-read-authorization.md), [read-after-write freshness](./02-read-after-write.md), metadata and readiness | Read/cache, operation boundary, expiry/retry, authorization and freshness direction accepted; index readiness is active; numerical budgets and concrete protocols remain open | Named grant/native obligations remain binding; no new snapshot implementation |
+| 02 | [Timestamped snapshots](./02-timestamped-snapshots.md), [operation lifetime](./02-operation-lifetime.md), [read authorization](./02-read-authorization.md), [read-after-write freshness](./02-read-after-write.md) and [index readiness](./02-index-readiness.md) | Read/cache, operation boundary, expiry/retry, authorization, freshness and index-admission direction accepted; remaining budgets/protocols queued | Named grant/native obligations remain binding; no new snapshot implementation |
 | 03 | Values, IDs, timestamps and ordered-key semantics | Open; queued | Existing contracts are evidence, not automatically retained internals |
 | 04 | Read/index execution and coherent caches | Coherence/population principles accepted under 02; representation and execution details queued | Command-local observations exist; shared-engine cache unproved |
 | 05 | Pending state, dependencies and execution profiles | Outer ownership and initial retry policy accepted under 02; detailed representation and native conformance queued | Existing Application/framework witnesses retained |
 | 06 | Commit ordering, Drizzle persistence and outcome recovery | Ordering/recovery principles accepted under 01; detailed mechanism queued | Existing atomic publication is the baseline, not the new pipeline |
-| 07 | Schema/index lifecycle, retention and memory limits | Bounded cache/history direction accepted under 02; limits and maintenance details queued | No replacement maintenance/GC protocol selected |
+| 07 | Schema/index lifecycle, retention and memory limits | Index lifecycle/readiness and bounded cache/history direction accepted; resumable index backfill active; other maintenance/limit details queued | No replacement builder, maintenance or GC protocol selected |
 | 08 | Runtime scheduling, isolation and framework bridges | Cloudflare app coordinator placement accepted; detailed hosting/scheduling queued; replication deferred | No new adapter implementation; native semantics remain required |
 | 09 | Reactivity and invalidation consumers | Client timestamp synchronization direction accepted; delivery/protocol details queued | No connected shared-engine reactivity claim |
 | 10 | First connected proof, performance gates and cutover | Open; queued | Existing complete-request measurements retained |
@@ -132,7 +136,7 @@ execution sequence. No code replacement follows from recording this proposal.
 The order is a discussion guide, not a strict dependency chain. Q01/Q02 record
 the accepted portions and remaining protocol work. Read views and operation
 lifetime policy are recorded under concept 02; the next focused question is
-[index readiness](./OPEN-QUESTIONS.md#next-question-index-readiness).
+[resumable index backfill](./OPEN-QUESTIONS.md#next-question-resumable-index-backfill).
 This does not close the remaining ownership/fencing work or open every cache
 topic at once. Open only the next concept when the current outcome is recorded
 or the owner explicitly chooses to defer it. Create its focused note at that point;

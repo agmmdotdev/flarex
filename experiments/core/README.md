@@ -6,7 +6,8 @@ reuse the Medusa/Payload integration investment, allow necessary internal breaks
 and inspect Convex for each relevant mechanism. This folder is the design/proof
 area. Work one concept at a time from the [open-question queue](./engine/OPEN-QUESTIONS.md);
 snapshot boundaries, expiry policy, the read-authorization split and read-after-write
-freshness are accepted; index readiness is the active question. Numerical budgets
+freshness and index-readiness direction are accepted; resumable index backfill is
+the active question. Numerical budgets
 and concrete recovery/client protocols remain open.
 Current work is documentation only.
 
@@ -16,7 +17,7 @@ Current work is documentation only.
 | --- | --- |
 | Existing core and Medusa/Payload integrations | Starting point and eventual refactor destination; current behavior remains until a selected connected replacement |
 | Initial experimental candidate | Bounded Application, Payload CRUD, Product scalar and explicitly atomic mixed flows implemented and measured with Drizzle; performance promotion remains closed |
-| Shared engine direction | Existing-core refactor and portable Cloudflare adapters first; independent-app ownership, DO coordinator, save/publication order, recovery, timestamped reads, operation lifetime, read authorization and read-after-write direction accepted; numerical budgets and detailed protocols open, replication deferred |
+| Shared engine direction | Existing-core refactor and portable Cloudflare adapters first; independent-app ownership, DO coordinator, save/publication order, recovery, timestamped reads, operation lifetime, read authorization, read-after-write and index-readiness direction accepted; numerical budgets and detailed protocols open, replication deferred |
 
 The existing candidate already keeps pending writes, observations and some
 prepared state in memory. It does not implement Convex's complete shared
@@ -47,8 +48,9 @@ It is a proof area, not a production package or permanent alternative engine.
 9. [Operation lifetime](./engine/02-operation-lifetime.md): accepted atomic boundaries, inherited deadlines, expiry and retry policy with remaining implementation gates.
 10. [Read authorization](./engine/02-read-authorization.md): tracked permission reads and identity-aware reuse, separate grant revocation and remaining enforcement proof.
 11. [Read-after-write freshness](./engine/02-read-after-write.md): latest ordinary reads, recovery admission, cold-cache misses and reactive-client timestamps.
-12. [DO placement and deferred replicas](./engine/01-do-execution-and-replicas.md): broader cache/hosting sketch and retained replica example.
-13. [REFERENCES.md](./REFERENCES.md): exact Convex pin, source/divergence rules, platform constraints and Flarex evidence.
+12. [Index readiness](./engine/02-index-readiness.md): building/completed/enabled states, deployment gating, query errors and metadata snapshot rules.
+13. [DO placement and deferred replicas](./engine/01-do-execution-and-replicas.md): broader cache/hosting sketch and retained replica example.
+14. [REFERENCES.md](./REFERENCES.md): exact Convex pin, source/divergence rules, platform constraints and Flarex evidence.
 
 Discuss one concept, inspect its source and failure cases, record the owner's
 decision, then update affected notes. Keep proposed, accepted, implemented and

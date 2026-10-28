@@ -225,7 +225,7 @@ No Rust source is copied and no representation or performance parity is claimed.
 Snapshot ownership, inherited deadlines and expiry policy are accepted in the
 [operation-lifetime record](./02-operation-lifetime.md). Numerical limits and
 native compatibility still need evidence. The next focused question is
-[index readiness](./OPEN-QUESTIONS.md#next-question-index-readiness).
+[resumable index backfill](./OPEN-QUESTIONS.md#next-question-resumable-index-backfill).
 Local version retention, cache coverage and fencing remain in the canonical
 queue; replication stays deferred.
 

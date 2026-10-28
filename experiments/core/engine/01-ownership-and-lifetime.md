@@ -128,7 +128,7 @@ none is selected or implemented by this decision.
 The canonical queue is [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md). Q01/Q02 record
 accepted app/commit decisions and their remaining protocols. Timestamped reads
 and [operation-lifetime policy](./02-operation-lifetime.md) are accepted; next is
-[index readiness](./OPEN-QUESTIONS.md#next-question-index-readiness) under Q03.
+[resumable index backfill](./OPEN-QUESTIONS.md#next-question-resumable-index-backfill) under Q07.
 All relevant writers and stale-owner takeover still need a concrete protocol.
 Replication is deferred; other topics stay queued. The requirements below
 constrain these answers, rather than creating another independent question list.

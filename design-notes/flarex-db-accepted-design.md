@@ -68,6 +68,14 @@ resolve successful mutation promises after applied query-state progress, and
 check reconnect progress against the backend view. Concrete readiness/recovery
 interlocks and client protocols remain open; this does not enable subscriptions
 or native replay.
+The [ordinary-index readiness policy](../experiments/core/engine/02-index-readiness.md)
+follows Convex's Backfilling, Backfilled and Enabled lifecycle. Required builds
+gate deployment activation; staged builds remain unavailable until enabled.
+Queries explicitly requiring an unavailable index fail without waiting, reading
+partial results or silently scanning instead. Operations resolve enabled metadata
+at their own snapshot with the required dependencies. Durable completeness and
+local cache coverage remain distinct. Resumable backfill, concurrent-write proof
+and concrete activation/recovery protocols remain open; no builder is implemented.
 Follow the pinned Convex cache/retention direction: demand population,
 relevant-write invalidation coordinated with ordered publication, validation of
 concurrent cache fills, and separate bounds for cache size and historical data.

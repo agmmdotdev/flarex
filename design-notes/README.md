@@ -52,7 +52,9 @@ follows Convex snapshot dependencies with separate engine-grant revocation.
 Numerical budgets, cache representation and fencing protocols remain open.
 [Read-after-write freshness](../experiments/core/engine/02-read-after-write.md)
 selects latest-ready-owner reads, recovery gating and reactive timestamp synchronization.
-Index readiness is the next discussion. Replication
+[Index readiness](../experiments/core/engine/02-index-readiness.md) selects the
+Convex lifecycle, deployment gates and snapshot-based query admission.
+Resumable index backfill is the next discussion. Replication
 is explicitly deferred. Current runtime behavior and
 historical evidence are not rewritten as completed new-engine work.
 
