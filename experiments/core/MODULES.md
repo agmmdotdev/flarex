@@ -7,6 +7,11 @@ preselect their lifetime or hosting. These are logical responsibilities, not
 instructions to create one package, interface, service or directory per row.
 Implement a boundary when an approved connected operation uses it.
 
+The [DO execution proposal](./engine/01-do-execution-and-replicas.md) co-locates
+several of these responsibilities while keeping their portable contracts distinct.
+It proposes additional committed-cache lifetimes alongside private attempt state;
+it does not prescribe a package per owner or preserve old bridge APIs.
+
 ## Ownership map
 
 | Module | Owns | Must not own |

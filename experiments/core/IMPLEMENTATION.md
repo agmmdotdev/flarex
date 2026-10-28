@@ -6,6 +6,11 @@ owns the next design discussion. Pending stages below are not automatic approval
 to expand or optimize that candidate while engine choices remain unresolved.
 Existing implementation, behavioral witnesses and measurements remain evidence.
 
+The [DO execution and replica proposal](./engine/01-do-execution-and-replicas.md)
+is the current discussion candidate. Its ownership, cache, acceptance and
+framework replay questions must be resolved before a new connected construction
+slice is selected; the stages below are not that candidate's implementation plan.
+
 Status: [bounded Payload create](./PAYLOAD-CREATE.md) and the
 [standalone Application construction slice](./APPLICATION.md), plus the
 [native Product scalar-update binding](./MEDUSA-PRODUCT.md), connect actual

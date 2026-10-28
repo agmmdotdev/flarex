@@ -2,13 +2,31 @@
 
 Status: portable core with injected infrastructure capabilities and Cloudflare
 adapters first is **accepted design direction**. Ownership topology, cache and
-coordination protocols remain open. No new shared engine, adapter implementation,
-source port or production cutover is authorized or implemented by this decision.
+coordination protocols remain open. The current **proposed** topology places
+trusted processing and local SQLite caches in an execution DO, with OCC-based
+replicas as a scaling candidate. No new shared engine, adapter implementation,
+source port or production cutover is authorized or implemented by these notes.
 
 Start with [01: ownership and lifetime](./01-ownership-and-lifetime.md).
 The [decision register](./DECISIONS.md) tracks that single active concept and the
 remaining questions. [Pinned references](../REFERENCES.md#engine-mechanism-reference-map)
 anchor the discussion in actual Convex code and documented platform behavior.
+
+## Current topology proposal
+
+The [DO execution and replica proposal](./01-do-execution-and-replicas.md) is the
+active companion to concept 01. It retains the initial experiment's useful
+module owners, pending state, precise observations, native behavior and singular
+settlement while reconsidering their lifetime, hosting and storage interactions.
+It proposes keeping trusted framework/engine processing next to local cached
+rows and indexes, initially in one DO per chosen scope. Multiple DOs for a busy
+scope would be separate execution replicas, with complete OCC and explicit
+snapshot/recovery rules; they are not an automatic scale-out setting.
+
+The proposal records the cart conflict/retry example, the SQLite/PostgreSQL
+authority split, framework replay limits and the ordered open questions. It is
+the current discussion candidate, not an accepted topology or an implementation
+plan. Start by resolving scope ownership and the authoritative accepting path.
 
 ## Accepted core and runtime boundary
 
@@ -23,6 +41,7 @@ Cloudflare is the first host family to wire when implementation is separately
 approved. Cloudflare bindings and types stay in host adapters; PostgreSQL remains
 the durable authority. Selecting Cloudflare does not select one DO per shop,
 place all Medusa/Payload logic inside a DO, or accept replicated executor caches.
+Those placements are now a concrete proposal in the companion note, still open.
 The [boundary record](./01-ownership-and-lifetime.md#accepted-portable-core-and-adapter-boundary)
 defines responsibilities, lifetimes and the decisions still required. A later
 host must satisfy the same contracts and pass its own conformance gates.

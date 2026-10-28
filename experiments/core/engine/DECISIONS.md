@@ -2,8 +2,9 @@
 
 Status: portable core and injected Cloudflare adapters first are accepted design
 boundaries. Ownership and lifetime remain the active discussion; detailed engine
-choices remain open. This register records current decisions, not execution
-receipts or a chronological work log.
+choices remain open. DO-local execution and OCC replicas are the current
+proposal for that discussion. This register records current decisions, not
+execution receipts or a chronological work log.
 
 ## Status vocabulary
 
@@ -37,18 +38,40 @@ execution placement, replicated cache, lease protocol, replacement schema,
 source translation or changed authorization semantics. No engine or adapter
 implementation, production activation or performance acceptance follows.
 
+## Current proposed direction
+
+The owner requested that the [DO execution and replica candidate](./01-do-execution-and-replicas.md)
+be recorded as an unfinished design for continued discussion. It proposes one
+execution DO per chosen scope with trusted framework/core processing, RAM working
+state and SQLite cached rows/indexes, backed by authoritative PostgreSQL. If CPU
+becomes the measured limit, multiple execution DOs could use coherent snapshots
+and complete OCC at the shared accepting path. Conflict refresh must discard and
+rerun only an eligible attempt; arbitrary framework replay is not accepted.
+
+Ordinary Worker execution plus a separate cache DO remains a comparison option,
+not an accepted topology. The current candidate uses complete OCC to reject a
+stale replica's mutation proposal instead of requiring a latest-data check before
+every local read. Cache validity, read-only freshness, authorization, ordering
+against already accepted pending writes, framework eligibility and recovery
+remain substantive unresolved contracts.
+
+Retain the initial experimental core's behavioral contracts, useful ownership
+and implementation evidence. Redesign internal lifetimes, representations and
+bridges as required rather than copying its execution sequence or discarding its
+native behavior. No code replacement follows from recording this proposal.
+
 ## Concepts
 
 | ID | Concept | Design status | Implementation / evidence |
 | --- | --- | --- | --- |
-| 01 | [Engine ownership and lifetime](./01-ownership-and-lifetime.md) | Portable boundary accepted; ownership topology open and active | No new engine implementation |
+| 01 | [Engine ownership and lifetime](./01-ownership-and-lifetime.md), with [DO execution candidate](./01-do-execution-and-replicas.md) | Portable boundary accepted; DO-local execution and OCC replicas proposed; active | No new engine implementation |
 | 02 | Snapshot, metadata, readiness and authorization lifetimes | Open; queued | Existing fresh gates remain binding |
 | 03 | Values, IDs, timestamps and ordered-key semantics | Open; queued | Existing contracts are evidence, not automatically retained internals |
 | 04 | Read/index execution and coherent caches | Open; queued | Command-local observations exist; shared-engine cache unproved |
 | 05 | Pending state, dependencies and execution profiles | Open; queued | Existing Application/framework witnesses retained |
 | 06 | Commit ordering, Drizzle persistence and outcome recovery | Open; queued | Existing atomic publication is the baseline |
 | 07 | Schema/index lifecycle, retention and memory limits | Open; queued | No replacement maintenance/GC protocol selected |
-| 08 | Runtime scheduling, isolation and framework bridges | Cloudflare adapter direction accepted; detailed placement and scheduling open | No new adapter implementation; native semantics remain required |
+| 08 | Runtime scheduling, isolation and framework bridges | Cloudflare adapter direction accepted; placement proposal recorded under 01; scheduling open | No new adapter implementation; native semantics remain required |
 | 09 | Reactivity and invalidation consumers | Open; queued | No connected shared-engine reactivity claim |
 | 10 | First connected proof, performance gates and cutover | Open; queued | Existing complete-request measurements retained |
 
@@ -58,9 +81,9 @@ that model. Open only the next concept when the current outcome is recorded or
 the owner explicitly chooses to defer it. Create its focused note at that point;
 do not fill this folder with speculative implementations or duplicate roadmaps.
 
-The accepted boundary applies across queued concepts. It does not accept the
-earlier executor-cache sketches or replace the separate Application, Payload and
-Medusa execution profiles. The relevant
+The accepted boundary applies across queued concepts. Recording the current
+proposal does not accept replica/cache protocols or replace the separate
+Application, Payload and Medusa execution profiles. The relevant
 [open choices](./01-ownership-and-lifetime.md#choices-still-open) must be resolved
 before selecting a connected implementation slice.
 

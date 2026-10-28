@@ -9,6 +9,11 @@ The physical transaction segmentation and Postgres coordination described here
 belong to the initial candidate, not a preselected shared-engine design. Required
 behavior remains binding until explicitly revised; proposals do not change runtime.
 
+The current [DO execution and replica proposal](./engine/01-do-execution-and-replicas.md)
+retains the useful contracts below while exploring longer-lived local cache/index
+state and different execution placement. Its OCC replica sketch does not enable
+automatic replay of the direct framework commands specified here.
+
 ## Problem and hypothesis
 
 The active core pays repeated client interpretation, checked command and evidence

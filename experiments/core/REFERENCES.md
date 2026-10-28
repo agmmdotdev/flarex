@@ -64,7 +64,7 @@ same enclosing checkout revision recorded above.
 | Conflict order and visibility | [committer.rs](../../../../crates/database/src/committer.rs): `validate_commit`, `commit_has_conflict`, `write_to_persistence`, `publish_commit`; [write_log.rs](../../../../crates/database/src/write_log.rs) | Validate against committed and pending accepted writes, persist, then publish cache/log/snapshot state and acknowledge. Uncertain persistence outcomes require recovery, not trusting memory. |
 | PostgreSQL fencing and durability | [postgres/src/lib.rs](../../../../crates/postgres/src/lib.rs): `Lease::transact`; [Postgres/MySQL setup](../../../../self-hosted/advanced/postgres_or_mysql.md) | Documents and index updates still reach durable storage; lease checks fence acceptance. Lost ownership requires resynchronization. Convex's engine does not eliminate all database checks. |
 | Bounded resources and history | [execution_size.rs](../../../../crates/database/src/execution_size.rs), [retention.rs](../../../../crates/database/src/retention.rs), `SnapshotManager` | Execution accounting and bounded retained history are part of the engine design; memory and history cannot grow without limits. |
-| Root execution and retry | [application_function_runner/mod.rs](../../../../crates/application/src/application_function_runner/mod.rs): `retry_mutation`, `run_mutation_inner` | Engine execution/retry ownership must compose with consistency. Native Payload/Medusa hooks need their own explicit replay eligibility. |
+| Root execution and retry | [application_function_runner/mod.rs](../../../../crates/application/src/application_function_runner/mod.rs): `retry_mutation`, `run_mutation_inner`; [database.rs](../../../../crates/database/src/database.rs): `wait_for_write_ts` | Eligible conflicts use bounded backoff, wait for the conflicting write to become visible when its timestamp is available, then begin a new transaction and rerun the mutation. This is not resubmitting old writes or repairing an arbitrary cache. Native Payload/Medusa hooks need their own explicit replay eligibility. |
 
 Additional SHA-256 values, with paths relative to the enclosing Convex checkout:
 
@@ -95,8 +95,9 @@ Flarex keeps PostgreSQL as committed-data authority, untrusted execution outside
 physical SQL transactions, explicit framework profiles and the accepted private
 Worker target. Convex's resident Rust engine is not a drop-in Worker implementation.
 The new [ownership discussion](./engine/01-ownership-and-lifetime.md) now examines
-shared owners and possible hosts. A resident service or Durable Object engine
-is an open alternative, not a selected replacement for the accepted target.
+shared owners and possible hosts. [DO-local execution with OCC replicas](./engine/01-do-execution-and-replicas.md)
+is the current experimental proposal, not an accepted replacement for the
+production target. A resident service remains a future comparison option.
 
 Official explanations: [How Convex Works](https://stack.convex.dev/how-convex-works),
 [OCC and Atomicity](https://docs.convex.dev/database/advanced/occ), and
@@ -179,6 +180,12 @@ These patterns identify work and complexity, not their share of total latency.
   runtime limits, eviction and reconstruction constrain shared engine memory.
   A named object's ownership model does not make its in-memory state durable or
   establish an atomic commit spanning that object and PostgreSQL.
+- [Durable Object model](https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/)
+  and [SQLite storage API](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/):
+  each object has single-threaded JavaScript execution and private transactional
+  storage. Distinct IDs do not share a SQLite database. Synchronous local queries
+  avoid per-query network calls but occupy the execution path; local storage
+  durability is distinct from application commit authority in PostgreSQL.
 
 Recheck these primary sources against the exact database/host used for validation.
 They explain constraints; they do not predict the candidate's performance.

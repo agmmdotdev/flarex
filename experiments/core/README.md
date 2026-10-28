@@ -11,13 +11,19 @@ with decisions recorded before their implementation. The first open concept is
 | --- | --- |
 | Active Flarex core and Medusa integration | Continue separately; outside this experiment's mutation scope |
 | Initial experimental candidate | Bounded Application, Payload CRUD, Product scalar and explicitly atomic mixed flows implemented and measured with Drizzle; performance promotion remains closed |
-| Shared engine direction | Portable core and injected Cloudflare adapters first accepted as design boundaries; topology, cache design, ownership protocol and implementation slices remain open |
+| Shared engine direction | Portable core and injected Cloudflare adapters first accepted as design boundaries; DO-local execution with SQLite caches and possible OCC replicas is the current proposal; protocols and implementation slices remain open |
 
 The existing candidate already keeps pending writes, observations and some
 prepared state in memory. It does not implement Convex's complete shared
 snapshot, metadata, index/cache and conflict-history machinery. Revisit those
 owners and their database interactions without assuming that a TypeScript port
 or an in-memory cache automatically provides Convex's performance.
+
+The [current DO proposal](./engine/01-do-execution-and-replicas.md) builds on this
+experiment's modular owners, native behavior, pending state, dependency tracking
+and one outer settlement. Those benefits remain useful. Their internal APIs,
+physical transaction segmentation and request-scoped lifetime are redesignable;
+this documentation does not replace the candidate code or its behavioral baseline.
 
 This folder remains outside `packages/*` and `apps/*` workspace membership.
 It is a separate experiment, not an accepted replacement or production package.
@@ -28,7 +34,8 @@ It is a separate experiment, not an accepted replacement or production package.
 2. [Engine discussion](./engine/README.md): direction, continuing obligations and modular responsibilities.
 3. [Decision register](./engine/DECISIONS.md): accepted boundaries, discussion process and open concepts.
 4. [Concept 01](./engine/01-ownership-and-lifetime.md): portable core/adapters, ownership, lifetime and open placement choices.
-5. [REFERENCES.md](./REFERENCES.md): pinned Convex mechanisms, platform constraints and Flarex evidence.
+5. [DO execution and replica proposal](./engine/01-do-execution-and-replicas.md): retained core properties, local SQLite caches, OCC cart example and open questions; discussion only.
+6. [REFERENCES.md](./REFERENCES.md): pinned Convex mechanisms, platform constraints and Flarex evidence.
 
 Discuss one concept, inspect its source and failure cases, record the owner's
 decision, then update affected notes. Keep proposed, accepted, implemented and

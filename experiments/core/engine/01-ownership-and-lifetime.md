@@ -5,6 +5,11 @@ is **Accepted** design direction. Ownership topology, partition key, routing,
 cache placement and lease protocol remain **Open**. This card authorizes no
 engine or adapter implementation.
 
+Current candidate: [DO-local execution and OCC replicas](./01-do-execution-and-replicas.md),
+recorded as **Proposed** for further discussion. That companion owns the concrete
+placement, retained experimental-core properties, cart example, tradeoffs and
+ordered open questions. This card continues to own the accepted portable boundary.
+
 ## Question
 
 Who maintains coherent engine state between commands, over which data scope,
@@ -113,11 +118,15 @@ none is selected or implemented by this decision.
   interchangeable. Define how commands crossing owners are handled.
 - Placement of framework execution, independent engine reads, shared cache state
   and commit coordination across Workers and optional DOs. Neither an entire
-  engine in one DO per app nor a replicated DO group has been accepted.
+  engine in one DO per app nor a replicated DO group has been accepted. The
+  current proposal co-locates trusted processing and local caches in a DO;
+  replicas remain conditional on complete snapshot/OCC/recovery contracts.
 - Cache and index representation, retention, warming, memory budgets and any
   executor replication. If copies are proposed, prove version/read-view validity,
   range completeness, absence/deletion invalidation, missed-update recovery and
-  fresh authorization; the cart/change-history examples remain proposals.
+  fresh authorization. Proper OCC can reject a stale mutation proposal; it does
+  not validate arbitrary cache contents or automatically repair read-only
+  freshness and early disclosure. The companion's cart/retry flow is a proposal.
 - Ownership protocol, epochs/fences, ordering and takeover after uncertain
   commits, including every relevant framework, schema and maintenance writer.
 - Concrete injected contracts, adapter APIs, resource construction and operation
@@ -131,9 +140,10 @@ none is selected or implemented by this decision.
 
 ## Alternatives to compare
 
-These are topology candidates, not ranked recommendations. The initial adapter
-family is Cloudflare; the resident-service option is a future portability
-comparison, not an approved host switch.
+These remain alternatives for comparison. DO-local execution is now the current
+discussion candidate, not an accepted topology. The initial adapter family is
+Cloudflare; the resident-service option is a future portability comparison, not
+an approved host switch.
 
 | Option | Potential benefit | Obligations and tradeoffs |
 | --- | --- | --- |
@@ -193,6 +203,8 @@ capabilities and Cloudflare adapters first, with PostgreSQL durable authority.
 This acceptance records boundaries only and authorizes no implementation.
 
 Unresolved: ownership scope/lifetime, concrete Cloudflare topology and the other
-open choices above. Related concepts 02, 04, 06 and 08 must refine authority,
+open choices above. The [current DO proposal](./01-do-execution-and-replicas.md)
+records the direction to examine without implementing or accepting its protocols.
+Related concepts 02, 04, 05, 06 and 08 must refine authority,
 cache validity, recovery and scheduling without baking platform services into
 the core or treating the earlier scaling sketches as accepted protocols.
