@@ -1,4 +1,5 @@
 // @ts-check
+import { extendNativeCartCreationSource } from "./check-medusa-cart-creation-source.mjs";
 import ts from "@typescript/typescript6";
 
 const native = "third_party/medusa/upstream/";
@@ -126,5 +127,5 @@ export function verifyCartPaymentTotalsSource(source, target, helper) {
   expected = expected.slice(0, include.body.getStart(ast)) + "{ return includeCartTotals(config) }" + expected.slice(include.body.end);
   expected = 'import { includeCartTotals } from "../utils/totals-selection"\n' + expected.replace("  deduplicate,\n", "");
   expected = expected.replace(/(protected async updateCarts_\([\s\S]*?\n  \)) \{/, "$1: Promise<InferEntityType<typeof Cart>[]> {");
-  equal(expected, target);
+  equal(extendNativeCartCreationSource(expected), target);
 }

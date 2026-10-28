@@ -383,6 +383,39 @@ event/retry policy or Flarex logical reference profile.
 These scoped business corrections are approved. Preserve the original native
 residual witnesses and separately bind each corrected owner to its source.
 
+The Address correction has an explicit native ownership capability. Its
+`createCartsWithOwnership` operation calls the genuine Cart creation owner and
+records generation claims in the same protected transaction. Its retained
+`compensateCartsCreation` operation checks those claims, original Address
+assignments and complete active/soft-deleted reference cohorts before invoking
+the native Cart and Address deletion services. Original `createCarts` behavior
+and the default nine-model profile remain unchanged; the original Cart creation
+workflow step has not yet been admitted through this capability.
+
+The fresh-install ownership profile adds three native protocol models. A
+durable operation retains the Cart/Address snapshot and compensation state.
+Cart and Address claims use the target native ID as their canonical primary
+key, checked by the native decoder and sole issuer, so tombstoning cannot admit
+another claim with that key. Each claim retains its target FK. Physical
+target deletion cascades its claim, so physical native ID reuse cannot carry
+forward the earlier insertion's authority. The operation survives target
+deletion. Neither caller-supplied internal storage IDs nor timestamps establish
+generation. A retained shared Address is not chased on later replay. Address
+assignment changes conflict; this is not a general version fence for every
+in-place field update.
+
+The native PostgreSQL read owner borrows the actual READ COMMITTED transaction,
+locks operation, Cart and Address rows in fixed order, and checks references in
+a fresh statement after strong Address locks. Its FK-column reads preserve
+database nulls without ORM relation initialization. The logical port instead
+requires authenticated existing scope exclusion and complete indexed reads on
+the same manager. It introduces no SQL or settlement owner. Its current tests
+exercise native receipt storage and inverse decisions with trusted initial
+rows; they do not establish the full native Cart creation workflow on Flarex.
+The twelve-model profile is a fresh installation contract, not an upgrade of
+populated nine-model Cart sources. Native event timing and failure limits
+remain separate from commit authority.
+
 1. **Cart-owned Address cleanup.** Retain exact created Cart and newly created
    inline Address identities. One native Cart transaction removes owned Carts
    and only their still-owned, unshared Addresses; reused or superseded identities

@@ -22,6 +22,13 @@ test("extracts the exact native Cart total selector and leaves every service ope
   verifyCartPaymentTotalsSource(source, target, helper);
   assert.throws(() => verifyCartPaymentTotalsSource(source, target, helper.replace('"items.tax_lines"', '"items.invalid"')));
   assert.throws(() => verifyCartPaymentTotalsSource(source, target.replace("decorateCartTotals(cart)", "cart"), helper));
+  for (const [before, after] of [
+    ["this.cartCreationStore_.record(cartCreationSnapshot(carts, plan), sharedContext)", "this.cartCreationStore_.record(cartCreationSnapshot(carts, plan), {})"],
+    ["this.cartCreationStore_.compensate(receipt, sharedContext", "this.cartCreationStore_.compensate(receipt, {}"],
+    ["await this.createCarts_(data, sharedContext)", "await this.createCarts_(data, {})"],
+    ["carts: presentCartCreation(carts), receipt", "carts, receipt"],
+    ["this.addressService_.delete(ids, context)", "this.addressService_.delete(ids, {})"],
+  ]) assert.throws(() => verifyCartPaymentTotalsSource(source, target.replace(before, after), helper));
 });
 
 test("retains only the approved scalar amount preimage selection", () => {

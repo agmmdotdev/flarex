@@ -1,6 +1,8 @@
 {
   "extends": "../../tools/medusa/tsconfig.fork.json",
   "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "outDir": "dist",
     "rootDir": "src"
   },

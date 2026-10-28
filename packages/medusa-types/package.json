@@ -232,6 +232,11 @@
       "types": "./dist/cart/workflows.d.ts",
       "source": "./src/cart/workflows.ts",
       "default": "./dist/cart/workflows.js"
+    },
+    "./cart/creation": {
+      "types": "./dist/cart/creation.d.ts",
+      "source": "./src/cart/creation.ts",
+      "default": "./dist/cart/creation.js"
     }
   },
   "license": "MIT",

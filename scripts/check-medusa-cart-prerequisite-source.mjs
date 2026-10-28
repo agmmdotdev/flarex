@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import ts from "@typescript/typescript6";
 import { paymentAccountingAuthoredTargets } from "./check-medusa-payment-lifecycle-source.mjs";
 import { customerAddressUpdateSourcePairs } from "./check-medusa-customer-account-source.mjs";
+import { cartCreationAuthoredTargets } from "./check-medusa-cart-creation-source.mjs";
 
 const failure = "Changed native Cart prerequisite source";
 const nativePrefix = "third_party/medusa/upstream/";
@@ -584,6 +585,7 @@ export function verifyCartPrerequisiteSourceSelection(files) {
     if (checkoutGraphSourcePairs.some(pair => pair.target === file.target && pair.source === file.source && pair.classification === file.classification) ||
       checkoutGraphAuthoredTargets.includes(file.target) && file.source === undefined && file.classification === "authored") continue;
     if (file.target === "packages/medusa-cart/src/utils/totals-selection.ts" && file.source === undefined && file.classification === "authored") continue;
+    if (cartCreationAuthoredTargets.includes(file.target) && file.source === undefined && file.classification === "authored") continue;
     if (paymentAccountingAuthoredTargets.includes(file.target) && file.source === undefined && file.classification === "authored") continue;
     const targetPair = cartPrerequisiteSourcePairs.find(pair => pair.target === file.target);
     if (targetPair !== undefined) continue;

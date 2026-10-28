@@ -4,6 +4,11 @@
   "private": true,
   "license": "MIT",
   "exports": {
+    "./creation-models": {
+      "types": "./dist/creation/models.d.ts",
+      "source": "./src/creation/models.ts",
+      "default": "./dist/creation/models.js"
+    },
     "./models": {
       "types": "./dist/models/index.d.ts",
       "source": "./src/models/index.ts",
@@ -23,13 +28,20 @@
       "types": "./dist/utils/totals-selection.d.ts",
       "source": "./src/utils/totals-selection.ts",
       "default": "./dist/utils/totals-selection.js"
+    },
+    "./creation": {
+      "types": "./dist/creation/index.d.ts",
+      "source": "./src/creation/index.ts",
+      "default": "./dist/creation/index.js"
     }
   },
   "dependencies": {
+    "effect": "catalog:",
     "@medusajs/framework": "workspace:*",
     "@medusajs/types": "workspace:*",
     "@medusajs/utils": "workspace:*",
-    "@medusajs/modules-sdk": "workspace:*"
+    "@medusajs/modules-sdk": "workspace:*",
+    "@medusajs/deps": "workspace:*"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
