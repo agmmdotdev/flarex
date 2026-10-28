@@ -6,8 +6,11 @@ owns accepted/proposed status; [REFACTOR.md](./REFACTOR.md) owns the accepted
 existing-core migration direction. Focused notes explain the current candidate
 without maintaining another independent question list.
 
-The current focus is the [proposed first snapshot/read/cache replacement](./REFACTOR.md#recommended-starting-slice)
-and its necessary dependencies. The accepted [replacement workflow](./REFACTOR.md#convex-guided-replacement-workflow)
+The first bounded [operation-local snapshot cache](./slices/01-snapshot-reads.md)
+is implemented. The current focus is the selected
+[timestamped cache-transfer slice](./slices/02-timestamped-cache-transfer.md),
+whose independent source challenge is complete and runtime is unstarted.
+The accepted [replacement workflow](./REFACTOR.md#convex-guided-replacement-workflow)
 does not require this whole queue to be answered before a bounded slice can
 start. An unresolved guarantee pauses the affected path, not independent work;
 routine in-scope adaptation follows pinned source and accepted rules. App
@@ -198,10 +201,13 @@ versions and encoding comparisons across PostgreSQL and local cache execution.
 **Direction partly accepted; details queued, concept 04.** Demand population,
 publication-driven invalidation, validated concurrent fills and bounded cache size
 are [accepted principles](./02-timestamped-snapshots.md#accepted-cache-and-retention-direction).
-The [proposed starting slice](./REFACTOR.md#recommended-starting-slice) takes a
-bounded point/range read through this boundary. Select only the cache/storage
-representation and coverage protocol needed for that path; a cache adapter
-cannot hide the current transaction coupling or substitute for writer coverage.
+The [operation-local slice](./slices/01-snapshot-reads.md) implements bounded
+point/range reuse with complete intervals and exact misses. The selected
+[timestamped transfer](./slices/02-timestamped-cache-transfer.md) next applies the
+active pinned cache-refresh mechanism to supported Application app-row data,
+retaining live gates. Its source audit does not establish runtime proof.
+A cache adapter cannot hide current transaction coupling or substitute for
+writer coverage. Wider local-storage, shared-page and native contracts stay open.
 Still open: which data lives in RAM, DO SQLite and PostgreSQL? Is the
 cache partial or complete for a declared range, and how are misses, absence,
 counts and pagination proved? Decide warming, copying, version retention,
@@ -328,8 +334,8 @@ with an old cursor, retention gaps and reads during another replica's commit.
 
 ## Q10 - Connected replacement, performance and retirement
 
-**Starting slice proposed, concept 10.** The
-[recommendation](./REFACTOR.md#recommended-starting-slice) begins with one existing
+**Connected refactor active, concept 10.** The
+[starting milestone](./REFACTOR.md#recommended-starting-slice) begins with one existing
 Application point/range read, its portable snapshot owner, a PostgreSQL miss
 adapter and DO-local cache storage. Bounded native Medusa/Payload reads follow
 through their existing integrations once their profile-specific prerequisites

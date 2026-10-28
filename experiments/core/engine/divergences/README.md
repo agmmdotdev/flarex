@@ -56,7 +56,9 @@ evidence, retaining the accepted decision link.
 
 | Record | Current scope |
 | --- | --- |
-| [Operation-local cache storage](./operation-cache-storage.md) | TypeScript ordered collection, tuple cuts and bounded cache accounting; implementation unstarted. |
+| [Operation-local cache storage](./operation-cache-storage.md) | Connected Application query cache implemented; complete-request performance and wider DO milestone open. |
+| [Completed query cache handoff](./query-cache-transfer.md) | Selected next contract; exclusive concurrent-query checkout, consumption, negative-evidence reset and matching limits; runtime unstarted. |
+| [PostgreSQL cache refresh](./postgres-cache-refresh.md) | Selected next contract; guarded durable-feed/history reconstruction at exactly the admitted timestamp; runtime unstarted. |
 
 | Record | Design / implementation / measurement status |
 | --- | --- |

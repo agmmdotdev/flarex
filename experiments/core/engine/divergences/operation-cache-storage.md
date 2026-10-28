@@ -93,3 +93,10 @@ rewriting historical migrations or deleting application data.
 Shared page serving, app-lifetime invalidation, DO storage/restart, native
 transaction changes and performance acceptance remain separate required slices.
 This implemented operation-local adaptation does not close the wider milestone.
+
+The [selected cache-transfer slice](../slices/02-timestamped-cache-transfer.md)
+next extends this owner with explicit key removal and central body/revision
+replacement while preserving complete intervals and reference accounting.
+Current immutable-timestamp `populate` is not a write-refresh operation.
+That extension remains unimplemented; it must cover shared-body references,
+same-key updates, inserts into known-empty ranges and capacity-triggered clearing.

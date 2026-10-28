@@ -76,6 +76,12 @@ The [starting-slice record](./REFACTOR.md#recommended-starting-slice) is the fir
 candidate. Its mechanism choices remain subject to the required source challenge;
 authorization to implement the goal is not acceptance of every proposed detail.
 
+The [bounded operation-local replacement](./slices/01-snapshot-reads.md) is
+implemented. The next selected [cache-transfer slice](./slices/02-timestamped-cache-transfer.md)
+has completed its independent source challenge and records the handoff and
+PostgreSQL-refresh adaptations; runtime is unstarted. Neither closes the wider
+snapshot/DO milestone or the complete goal.
+
 ## Mandatory challenge before each slice
 
 Before implementation, independent sub-agents inspect and challenge:

@@ -31,8 +31,11 @@ recovery admission and reactive-client timestamp synchronization. The
 [index-readiness record](./02-index-readiness.md) owns ordinary-index lifecycle,
 deployment gating and query admission. Follow the accepted
 [replacement workflow](./REFACTOR.md#convex-guided-replacement-workflow) and the
-[starting slice under challenge](./REFACTOR.md#recommended-starting-slice): replace a
-snapshot-correct point/index read path with injected cache/storage adapters.
+[starting milestone](./REFACTOR.md#recommended-starting-slice). Its bounded
+[operation-local query cache](./slices/01-snapshot-reads.md) is implemented; the
+next selected [timestamped cache-transfer slice](./slices/02-timestamped-cache-transfer.md)
+translates the active Convex handoff/write-log mechanism. The wider portable
+snapshot/DO composition remains open.
 Resumable backfill remains open in Q07. [Pinned references](../REFERENCES.md#engine-mechanism-reference-map)
 anchor each concept and later implementation in actual Convex owners.
 

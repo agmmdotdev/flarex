@@ -219,7 +219,8 @@ and root review rules apply to the connected replacement.
 
 ## Recommended starting slice
 
-Status: **First milestone selected for pre-slice challenge under the authorized goal**.
+Status: **Bounded operation-local read replacement implemented; wider first
+milestone open under the authorized goal**.
 The exact consumer/owner boundary follows source findings, not this sketch alone.
 The [first source challenge](./slices/01-snapshot-reads.md) refines the initial
 runtime step to a fixed-timestamp reader seam and operation-local complete-range
@@ -228,6 +229,9 @@ cache, preserving current source/grant checks. At the pin, shared-page
 would require a separate divergence and writer/publication proof. The wider DO
 cache/storage integration below is the milestone target, not an assumption that
 the first code patch supplies an app-lifetime cache.
+The next selected [cache-transfer slice](./slices/02-timestamped-cache-transfer.md)
+follows the pin's active timestamped transaction-cache handoff, with protected
+PostgreSQL refresh; it does not enable the shadow shared-page reader.
 Start with one snapshot-correct document lookup and bounded ordinary-index range
 query, including cache hits and PostgreSQL misses. Use an already enabled index.
 This replaces the read responsibility through a real existing consumer; it is
@@ -312,7 +316,8 @@ divergence and sub-agent challenge rules above. The first slice's required grant
 enforcement and ownership/publication protocols need a concrete mapping before
 activation; the pre-slice findings determine its exact implementation boundary.
 Resumable index backfill and other unrelated questions remain open.
-No runtime implementation or cutover is claimed by these rules. Production
+The owning slice records distinguish implemented paths from proposals; these
+rules alone supply no runtime or cutover evidence. Production
 rollout and unspecified data resets are outside the goal. Preserve current behavior until a
 connected replacement is implemented and verified, then retire it rather than
 accumulate another engine.
