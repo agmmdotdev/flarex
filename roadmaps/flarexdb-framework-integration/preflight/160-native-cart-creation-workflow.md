@@ -4,8 +4,9 @@
 
 Status: the selected original-native cohort is characterized after the bounded
 [Variant and item pricing workflow](./159-native-variant-item-price-calculation.md).
-The module-owner plan is prepared. Native compensation and Promotion helper
-corrections remain proposals requiring an explicit business decision. Maximum-graph evidence,
+The module-owner plan is prepared. The scoped native compensation contracts and Promotion helper
+correction are approved; their ownership and concurrency proofs remain
+implementation gates. Maximum-graph evidence,
 remaining call-detail coverage, native inverse concurrency/ownership proofs,
 resource measurement and adapter admission remain pending.
 
@@ -23,8 +24,8 @@ candidate prefilter uses native SQL, including deleted relation rows and
 text-to-decimal comparisons, so ordinary active-relation reads or a list-all
 fallback cannot replace it. A native persistence seam must preserve candidate
 selection and failures before the connected Promotion service can be admitted.
-These prerequisites add no adapter commands, Cart write profile or provider
-activation. Native compensation decisions and complete inverse proofs remain
+The selected context and Inventory read branches add no Cart write profile
+or provider activation. Native compensation decisions and complete inverse proofs remain
 separate gates.
 
 The executing reference is Medusa 2.13.4, commit
@@ -35,6 +36,37 @@ The accepted Medusa boundary, shared logical storage and existing workflow
 transaction owners remain authoritative. This plan admits no Cart writes or
 resource allowance for the complete Cart root. Selected child profiles remain
 separate. Product export and chunked file import remain deferred.
+
+## Implemented Cart context read branch
+
+The private context-read profile composes the genuine `findSalesChannelStep`,
+`findOneOrAnyRegionStep` and `validateSalesChannelStep`. Its named Store and
+Region/Country reads and existing Sales Channel retrieval share the queued
+atomic workflow owner. Checked DML validates complete stored rows before
+projection; call-local receipts bind the actual selections and returned values.
+The existing Shipping Option Region profile remains separate.
+
+The context facade requires its named Store/Region profiles and the selected
+Sales Channel retrieval capability before preparing a host. Caller-provided
+resource or publication overrides and additional workflow options are refused.
+The Region selector preserves null and empty Store defaults as actual native
+queries; stored Region identities retain their existing complete-row checks.
+
+The native Channel step resolves optional Caching even when caching is not
+enabled. This profile declares `caching` absent through the existing resource
+binder, authenticates that declaration with the private resource identity and
+execution policy, and then executes the unchanged native uncached callback.
+Required, undeclared, malformed and expired resolution still refuses through
+the existing failure/lifetime owner. No Caching provider is activated.
+
+The bounded Cart context profile explicitly admits Country ordering by
+`iso_2 ASC` as an approved compatibility choice. Native
+Region queries order roots by ID without an explicit Country order, and native
+serialization preserves collection order. This Cart Region profile
+selects Countries by `iso_2 ASC`; the measured original-native Country cohorts
+also return ascending IDs, but do not establish a general native ordering
+contract. This choice changes no other Region profile or resource limit.
+Customer creation, Cart writes and the complete Cart root remain unadmitted.
 
 ## Implemented Inventory confirmation branch
 
@@ -197,10 +229,16 @@ invalid numeric text and an oversized stored exponent separately preserve
 `22P02` and `22003`. Omitted item arrays can instead fail final native context
 validation after candidate selection has succeeded; that is not a SQL failure.
 
-The separate helper proposal filters nonfinite context thresholds and uses
+The approved helper correction filters nonfinite context thresholds and uses
 `FALSE` for an empty generated disjunction. It leaves stored Rule casts, lexical
 matching and all other clauses unchanged. These changes alter native failures
-and require an explicit business decision; the original helper remains intact.
+and are explicitly approved. The unchanged original helper remains the
+preserved reference until the corrected persistence seam is implemented.
+The separately executed direct-service candidate reaches normal native action
+calculation for the selected empty-array and nonfinite-context cases. The
+selected ordinary, lexical, history, stored-cast and manual-code controls retain
+their original measured outcomes. This does not establish corrected full-Cart
+behavior or authorize Promotion service admission.
 
 The [shared numeric-cast predicate](../../shared-logical-storage/68-postgres-relational-predicates.md)
 provides complete-Boolean PostgreSQL evaluation through the existing trusted
@@ -340,10 +378,10 @@ support the proposed strong-lock mechanism for creation writers but do not prove
 the native ownership receipt, general update cooperation, deadlock freedom,
 event/retry policy or Flarex logical reference profile.
 
-## Proposed native inverse corrections
+## Approved native inverse contracts
 
-These business changes are unapproved. Preserve the original native residual
-witnesses and separately bind every correction candidate to its source.
+These scoped business corrections are approved. Preserve the original native
+residual witnesses and separately bind each corrected owner to its source.
 
 1. **Cart-owned Address cleanup.** Retain exact created Cart and newly created
    inline Address identities. One native Cart transaction removes owned Carts
@@ -407,7 +445,7 @@ update: conflict upsert can replace native Link content while retaining the
 logical insertion. The proposed Link inverse must prove its resulting
 generation and supersession rules separately from physical-recreation checks.
 
-## Implementation sequence after the native decision
+## Implementation sequence
 
 1. Prove the scoped inverse contracts at the genuine native owners before
    applying business corrections. Retain typed failures, conflicts, complete

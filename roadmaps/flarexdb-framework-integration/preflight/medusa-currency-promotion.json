@@ -2674,7 +2674,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/region/service.ts",
       "classification": "authored",
-      "targetSha256": "9bcca8002e6ec38596f75285280aa4094500c7343cdfe7e4710d6ec34e8c9040"
+      "targetSha256": "8ca2f8795573638daf3fbb0f7e21dc8a37e3db91c219a5c4833865b75af28761"
     },
     {
       "target": "packages/medusa-adapter/src/modules/sales-channel/create-input.ts",
@@ -2709,7 +2709,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/sales-channel/service.ts",
       "classification": "authored",
-      "targetSha256": "6cda9358b50b778cce0d413a2ce4e0bdf4159126129074719eb700d83fa35490"
+      "targetSha256": "f85baf9a15b5a5a0a7b1de93ee229001167e5f0ee75c258b5d51c6075c2790a4"
     },
     {
       "target": "packages/medusa-adapter/src/modules/sales-channel/update-input.ts",
@@ -7105,7 +7105,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "386c7c0affce8523af471110249df5238eba4b08ce58e7cbcc39c9175518b788"
+      "targetSha256": "cc6f5b518f34a3964ea552c4585a0bc9ed79af3c016cf37e2c31613fe90d0f2f"
     },
     {
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/api-key/steps/create-api-keys.ts",
@@ -16679,6 +16679,117 @@
       "target": "packages/medusa-adapter/test/workflow-resource-identity.test.ts",
       "classification": "authored",
       "targetSha256": "5d3b667c9f817954f1a3ef1686092763181f25328d959d1a1ef9db965d0e896e"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/region/cart-read-input.ts",
+      "classification": "authored",
+      "targetSha256": "a1cf279cebbd31ed4ee396bb9e4205718e80459207d2da5fa4ae6db624e06faf"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/region/cart-read-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "9c9567b4f7d164067c03f76313f409ad695789d68428c497b10da7c10644b6d4"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/region/cart-read-repository.ts",
+      "classification": "authored",
+      "targetSha256": "3478b6a34881b011026a67c9330a92637de5cc1579052d447e78ee31f4a72a91"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/region/cart-read-service.ts",
+      "classification": "authored",
+      "targetSha256": "a0a8bdb4531cfd39ac6a3356029b0d8d24120026182a34701b1ca0e2cc164a66"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/sales-channel/cart-read-input.ts",
+      "classification": "authored",
+      "targetSha256": "1bfdb7a8bbd5b07fa142854b05018ba181cd5f09d93d818e5848b7749a44ea5f"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/sales-channel/cart-read-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "893c185bd2a17b5bb686a813e340f9093122798ee0e9868eb1fc3ea890bdb9a7"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/store/cart-read-input.ts",
+      "classification": "authored",
+      "targetSha256": "08205f52f818dd8f992a9e4dc97232d4e7d70cd3a205c4bb40d56e966dbffd1e"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/store/cart-read-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "31269a1e2c9a091396cadae6c1116732b28b8c42d0619e4d46e69e1b752d2251"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/store/cart-read-repository.ts",
+      "classification": "authored",
+      "targetSha256": "ce5b97f167d8e862a4c7e8f821185e3bd919c432b2de7675322dc6654c892222"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/store/cart-read-service.ts",
+      "classification": "authored",
+      "targetSha256": "6d345aad201ec2c99b9d661aeb14a72b2d53d866a4c1d181df31ea53abbd2f0b"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/cart/context-read.ts",
+      "classification": "authored",
+      "targetSha256": "e5f2f6e4838930e5c64754410d177902ae73370939e0634803806b015eb8d609"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-cart-context-read-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "9e2618fe4db9a37d3e98bd7032af7fa7cdb0bc32fc66c19e6533fd5a21f5187c"
+    },
+    {
+      "target": "packages/medusa-adapter/test/region-cart-read-contracts.test.ts",
+      "classification": "authored",
+      "targetSha256": "795165dfca57df58a56231b66699930797d7215299fe006845bb586d8706f385"
+    },
+    {
+      "target": "packages/medusa-adapter/test/region-cart-read-receipts.test.ts",
+      "classification": "authored",
+      "targetSha256": "13d8fbdc1c9c6eae888a618afc06821a6a61e2ea43b3a75c1763e91d8e8240b8"
+    },
+    {
+      "target": "packages/medusa-adapter/test/sales-channel-cart-read-receipts.test.ts",
+      "classification": "authored",
+      "targetSha256": "edc54e9cef5433c29cfec96e309a8502a6d076f36ae6c52bb20280a2e7a3d231"
+    },
+    {
+      "target": "packages/medusa-adapter/test/store-cart-read-receipts.test.ts",
+      "classification": "authored",
+      "targetSha256": "3d3d3841c90c1d33988c618f7c8aeffbb9453d0bf1418592268725c68cdf9b05"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-cart-context-read-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "3839f62f9bb656fe7d6622430534474361645a9f709657298afa0221f1801f92"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/cart/steps/find-one-or-any-region.ts",
+      "target": "packages/medusa-core-flows/src/cart/steps/find-one-or-any-region.ts",
+      "classification": "cartContextReadFork",
+      "sourceSha256": "fe94f10d88bf2b255086cc1979e6e2720ebb24ab04001b153ec5be69d65891c7",
+      "targetSha256": "40e32d367c476a27bfacc36d873a94c35a2b3baca3637fe98276e59377dbd847"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/cart/steps/find-sales-channel.ts",
+      "target": "packages/medusa-core-flows/src/cart/steps/find-sales-channel.ts",
+      "classification": "cartContextReadFork",
+      "sourceSha256": "28f724fd7a891fceb6c9678c1d395a5878a505c877ddec838ae5a5d40cc0e9b8",
+      "targetSha256": "89fdbed92dc1cfd3249b1be8d74e0bbbd878646f8787ac23ea1668b50b94e27e"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/cart/steps/validate-sales-channel.ts",
+      "target": "packages/medusa-core-flows/src/cart/steps/validate-sales-channel.ts",
+      "classification": "cartContextReadFork",
+      "sourceSha256": "05d6e13a2ea5c8ae639d1c1d580d56cb1e5e07839fad007f86d7db37e3ce3e31",
+      "targetSha256": "3a1393e4c80baf05d774993c7a973dc5357e0623e79ae0db29affcfcc9e3e404"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/region/module.ts",
+      "classification": "authored",
+      "targetSha256": "e8c90c71aab84018b9ceb61612335c821bcfa23e124c34296f3780ce629334ac"
     }
   ],
   "dependencies": {

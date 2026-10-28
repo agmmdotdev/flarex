@@ -250,7 +250,10 @@
     "./customer/create-addresses": "./src/customer/workflows/create-addresses.ts",
     "./customer/update-addresses": "./src/customer/workflows/update-addresses.ts",
     "./customer/delete-addresses": "./src/customer/workflows/delete-addresses.ts",
-    "./payment-collection/create-payment-account-holder-step": "./src/payment-collection/steps/create-payment-account-holder.ts"
+    "./payment-collection/create-payment-account-holder-step": "./src/payment-collection/steps/create-payment-account-holder.ts",
+    "./cart/find-sales-channel-step": "./src/cart/steps/find-sales-channel.ts",
+    "./cart/find-one-or-any-region-step": "./src/cart/steps/find-one-or-any-region.ts",
+    "./cart/validate-sales-channel-step": "./src/cart/steps/validate-sales-channel.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

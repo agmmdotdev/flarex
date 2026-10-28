@@ -38,6 +38,13 @@ export const workflowCacheSourcePairs = Object.freeze([
     target: `packages/medusa-types/src/feature-flag/${name}.ts`, classification: "unchanged" })),
 ].map(pair => Object.freeze(pair)));
 
+export const cartContextReadSourcePairs = Object.freeze([
+  ...["find-sales-channel", "find-one-or-any-region", "validate-sales-channel"].map(name => ({
+    source: nativePrefix + `packages/core/core-flows/src/cart/steps/${name}.ts`,
+    target: `packages/medusa-core-flows/src/cart/steps/${name}.ts`, classification: "cartContextReadFork",
+  })),
+].map(pair => Object.freeze(pair)));
+
 /** Exact Cart prerequisite closure. Promotion models and pure calculators
  * belong here; its checkout service and prefilter refusal have a separate
  * exact source owner. */
@@ -47,6 +54,7 @@ export const cartPrerequisiteSourcePairs = Object.freeze([
     target: "packages/medusa-types/src/order/workflows.ts", classification: "unchanged" },
   ...customerSelectionSourcePairs,
   ...workflowCacheSourcePairs,
+  ...cartContextReadSourcePairs,
   {
     "source": "third_party/medusa/upstream/LICENSE",
     "target": "packages/medusa-cart/LICENSE",
@@ -762,6 +770,41 @@ export function verifyPaymentJoinerFork(source, target) {
     'import { defineJoinerConfigFromModels } from "@medusajs/utils/modules-sdk/portable-joiner-config-builder"');
   expected = replaceChecked(expected, "defineJoinerConfig(Modules.PAYMENT,", "defineJoinerConfigFromModels(Modules.PAYMENT,");
   if (authorityProgram(expected) !== authorityProgram(target)) throw new Error(failure + ": Payment joiner program");
+}
+
+/** Erased container/query/input contracts and exact portable import relocation
+ * leave every native Cart call and branch unchanged.
+ * @param {string} source @param {string} target @param {string} destination */
+export function verifyCartContextReadFork(source, target, destination) {
+  let expected = source;
+  /** @param {string} before @param {string} after @param {number} [count] */
+  const replace = (before, after, count = 1) => {
+    if (expected.split(before).length !== count + 1) throw new Error(failure + ": Cart context relocation anchor");
+    expected = expected.split(before).join(after);
+  };
+  if (destination === "packages/medusa-core-flows/src/cart/steps/find-sales-channel.ts") {
+    replace("  MedusaContainer,\n", "");
+    replace('} from "@medusajs/framework/types"', '} from "@medusajs/types"\nimport type { WorkflowContainer as MedusaContainer } from "@medusajs/workflows-sdk"');
+    replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"');
+    replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+    replace("salesChannelId?: string | null", "salesChannelId?: string | null | undefined");
+  } else if (destination === "packages/medusa-core-flows/src/cart/steps/find-one-or-any-region.ts") {
+    replace('import { MedusaContainer } from "@medusajs/framework/types"',
+      'import type { WorkflowContainer as MedusaContainer } from "@medusajs/workflows-sdk"\nimport type { Schema } from "effect"');
+    replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"');
+    replace('import { StepResponse, createStep } from "@medusajs/framework/workflows-sdk"',
+      'import { StepResponse, createStep } from "@medusajs/workflows-sdk"\n\ninterface CartRegionQuery {\n' +
+      '  graph(input: { entity: "region"; filters: { id: string }; fields: string[] }, options: { cache: { enable: true } }): Promise<{ data: (typeof Schema.JsonObject.Type)[] }>\n' +
+      '  graph(input: { entity: "store"; fields: string[] }, options: { cache: { enable: true } }): Promise<{ data: (typeof Schema.JsonObject.Type & { default_region_id: string | null })[] }>\n}');
+    replace("regionId?: string", "regionId?: string | undefined");
+    replace("container.resolve(ContainerRegistrationKeys.QUERY)", "container.resolve<CartRegionQuery>(ContainerRegistrationKeys.QUERY)", 3);
+  } else if (destination === "packages/medusa-core-flows/src/cart/steps/validate-sales-channel.ts") {
+    replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"');
+    replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+    replace('from "@medusajs/framework/types"', 'from "@medusajs/types"');
+    replace("salesChannel: SalesChannelDTO", "salesChannel: SalesChannelDTO | null | undefined");
+  } else throw new Error(failure + ": unknown Cart context source");
+  if (authorityProgram(expected) !== authorityProgram(target)) throw new Error(failure + ": Cart context program");
 }
 
 /** Authenticate the shared cache helper independently of any Cart step. Only

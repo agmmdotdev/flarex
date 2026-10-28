@@ -1,11 +1,9 @@
 import { Effect, Result, Schema } from "effect";
 import { Country, Region } from "@medusajs/region/models";
-import { RegionModuleService } from "@medusajs/region/services";
 import { regionStaticResources } from "@medusajs/region/static-manifest";
 import { Modules } from "@medusajs/framework/utils/portable";
 import type { FindConfig, RegionDTO } from "@medusajs/framework/types";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { defineCommerceModule } from "../../module/definition";
 import { commerceCommandPreparation, commerceServiceCommands } from "../../module/commands";
 import { commerceModuleEventBus } from "../../module/events";
 import { defineWorkflowMethod, defineWorkflowModule } from "../../workflow/module";
@@ -15,6 +13,7 @@ import { captureRegionMetadata } from "./schema";
 import { RegionFilters, RegionReadConfig, decodeRegionReadInput } from "./input";
 import { prepareRegionReadRepository } from "./repository";
 import { regionReadPolicy } from "./receipt";
+import { defineRegionReadModule } from "./module";
 
 const readArguments = commerceDecoder(Schema.Union([Schema.Tuple([RegionFilters]),
   Schema.Tuple([RegionFilters, Schema.Union([RegionReadConfig, Schema.Undefined])])]), "invalidInput");
@@ -25,16 +24,11 @@ export const makeLocalRegionReadCommands = Effect.fn("RegionAdapter.readCommands
   const metadata = yield* captureRegionMetadata();
   return yield* Effect.fromResult(Result.gen(function* () {
     const prepared = yield* prepareRegionReadRepository(metadata.frame);
-    const module = yield* defineCommerceModule({ name: "flarex-region-read", models: [Region, Country],
-      profile: { name: "region-shipping-option-read", capabilities: [], bind: (ctx, owner) => {
+    const module = yield* defineRegionReadModule({ name: "flarex-region-read", profile: "region-shipping-option-read", bind: (ctx, owner) => {
         const bound = prepared.bind(ctx, owner), eventBus = commerceModuleEventBus({ owner, resources: ctx.resources,
           capture: message => bound.bridge.current().captureLocalEvent(message), check: work => bound.bridge.checked(ctx, work), refuse: bound.refuse });
         return { baseRepository: bound.repository, repository: (model: typeof Region | typeof Country) => model === Region ? bound.repository : bound.denied,
           events: bound.mutationEvents, eventBus };
-      } }, extensions: {}, service: ({ binding, dependencies, context }) => {
-        const container = { ...dependencies, [Modules.EVENT_BUS]: binding.eventBus };
-        const native = new RegionModuleService(container, { scope: "internal" });
-        return { service: { listRegions: native.listRegions.bind(native), listAndCountRegions: native.listAndCountRegions.bind(native) }, context };
       },
     }).pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
     const commands = commerceServiceCommands(module.use), prepare = commerceCommandPreparation("RegionRead.prepare")(decodeRegionReadInput);

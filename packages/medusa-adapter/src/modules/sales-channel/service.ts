@@ -26,6 +26,8 @@ import { SalesChannelUpdateSelector, SalesChannelUpdateData, SalesChannelUpdateR
   compileSalesChannelUpdateContracts, decodeSalesChannelUpdateInput } from "./update-input";
 import { compileSalesChannelDeletionContracts, decodeSalesChannelDeletionArguments, decodeSalesChannelDeletionIds } from "./delete-input";
 import { salesChannelDeletionPolicy } from "./delete-receipt";
+import { compileSalesChannelCartReadContracts, decodeSalesChannelCartReadArguments } from "./cart-read-input";
+import { salesChannelCartReadPolicy } from "./cart-read-receipt";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 export const SimpleSalesChannelInput = Schema.Struct({ id: Schema.optionalKey(Id), name: Schema.String });
@@ -66,12 +68,13 @@ const decodeWorkflowUpdateArguments = commerceDecoder(Schema.Tuple([SalesChannel
 export const makeLocalSalesChannelCommands = Effect.fn("SalesChannelAdapter.commands")(function* () {
   const metadata = yield* captureSalesChannelMetadata();
   return yield* Effect.fromResult(Result.gen(function* () {
-    const { bind, table } = yield* prepareSalesChannelRepository(metadata.frame);
+    const { bind, table, query } = yield* prepareSalesChannelRepository(metadata.frame);
     const sourceTable = metadata.frame.tables[0];
     if (sourceTable === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     const createContracts = yield* compileSalesChannelCreateContracts(sourceTable);
     const updateContracts = yield* compileSalesChannelUpdateContracts(sourceTable);
     const deletionContracts = yield* compileSalesChannelDeletionContracts(sourceTable);
+    const cartReadContracts = yield* compileSalesChannelCartReadContracts(sourceTable);
     const defineModule = (profile: "sales-channel" | "sales-channel.update-workflows" | "sales-channel.delete-workflows") => defineCommerceModule({
       name: "flarex-sales-channel-local", models: [SalesChannel],
       profile: { name: profile, capabilities: [], bind: (ctx, owner) => {
@@ -152,7 +155,15 @@ export const makeLocalSalesChannelCommands = Effect.fn("SalesChannelAdapter.comm
       encode: ([channels]) => channels, output: createContracts.decodeRows,
       moduleEvents: [buildModuleResourceEventName({ prefix: Modules.SALES_CHANNEL, objectName: "sales_channel", action: "created" })] });
     const workflow = yield* defineWorkflowModule({ name: Modules.SALES_CHANNEL, source: module.description, methods: { createSalesChannels }, graph, logical: { ...salesChannelLogicalEventPolicy(), commands: [create, update, remove, list, count, retrieve] } });
-    return { create, update, delete: remove, list, count, retrieve, graph, workflow, updateWorkflow, deleteWorkflow,
+    const retrieveSalesChannel = yield* defineWorkflowMethod({ command: retrieve, arguments: decodeSalesChannelCartReadArguments,
+      encode: ([id]) => ({ id }), output: cartReadContracts.decodeRow });
+    // Reuse the prepared native module and its genuine retrieve command. This
+    // separate participant admits only that read and has no graph/write/event
+    // surface; existing module workflows retain their current admission.
+    const cartReadWorkflow = yield* defineWorkflowModule({ name: Modules.SALES_CHANNEL, source: module.description,
+      methods: { retrieveSalesChannel }, graph: { aliases: [], reads: [] },
+      logical: { ...salesChannelCartReadPolicy(sourceTable, query, cartReadContracts), commands: [retrieve] } });
+    return { create, update, delete: remove, list, count, retrieve, graph, workflow, updateWorkflow, deleteWorkflow, cartReadWorkflow,
       listForWorkflow, updateBySelector, softDeleteForWorkflow, restoreForWorkflow,
       commands: [create, update, remove, list, count, retrieve],
       withService: module.use,

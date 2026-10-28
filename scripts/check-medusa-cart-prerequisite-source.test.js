@@ -2,12 +2,13 @@
 import { taxLinesSourcePairs, verifyTaxLinesFork } from "./check-medusa-cart-prerequisite-source.mjs";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { cartPrerequisiteSourcePairs, workflowCacheSourcePairs, customerSelectionSourcePairs, verifyCustomerSelectionFork, verifyWorkflowCacheFork, verifyCartPrerequisiteSourceSelection, verifyPaymentJoinerFork } from "./check-medusa-cart-prerequisite-source.mjs";
+import { cartPrerequisiteSourcePairs, cartContextReadSourcePairs, workflowCacheSourcePairs, customerSelectionSourcePairs,
+  verifyWorkflowCacheFork, verifyCustomerSelectionFork, verifyCartContextReadFork,
+  verifyCartPrerequisiteSourceSelection, verifyPaymentJoinerFork } from "./check-medusa-cart-prerequisite-source.mjs";
 import { verifyModuleTypeFork } from "./check-medusa-currency-promotion.mjs";
 import { verifyTestPort } from "./check-medusa-test-port.mjs";
 
 const failure = "Changed native Cart prerequisite source";
-
 
 describe("native Tax line source contracts", () => {
   it.each(taxLinesSourcePairs)("retains complete typed and emitted $target", pair => {
@@ -211,6 +212,31 @@ describe("native shared workflow cache source contracts", () => {
   it("refuses broader erased declarations as well as runtime mutations", () => {
     const selected = entry("packages/medusa-utils/src/caching/index.ts");
     expect(() => verifyWorkflowCacheFork(selected.native, selected.actual.replace("allowUnregistered: true }): T | undefined", "allowUnregistered: boolean }): T"), selected.target)).toThrow(failure);
+  });
+});
+
+describe("native Cart context read source contracts", () => {
+  it("keeps cache support and Cart step admission disjoint", () => {
+    expect(cartContextReadSourcePairs).toHaveLength(3);
+    expect(new Set([...workflowCacheSourcePairs, ...cartContextReadSourcePairs].map(pair => pair.target)).size).toBe(7);
+    const selected = entry("packages/medusa-utils/src/caching/index.ts");
+    expect(() => verifyCartContextReadFork(selected.native, selected.actual, selected.target)).toThrow(failure);
+    expect(() => verifyWorkflowCacheFork(selected.native, selected.actual, "packages/medusa-core-flows/src/cart/steps/find-sales-channel.ts")).toThrow(failure);
+  });
+  it.each(cartContextReadSourcePairs.filter(pair => pair.classification === "cartContextReadFork"))("preserves complete typed and emitted $target", pair => {
+    const selected = entry(pair.target);
+    expect(() => verifyCartContextReadFork(selected.native, selected.actual, pair.target)).not.toThrow();
+  });
+  it.each([
+    ["packages/medusa-core-flows/src/cart/steps/find-sales-channel.ts", "if (data.salesChannelId)", "if (true)"],
+    ["packages/medusa-core-flows/src/cart/steps/find-sales-channel.ts", 'select: ["id", "default_sales_channel_id"]', 'select: ["id"]'],
+    ["packages/medusa-core-flows/src/cart/steps/find-one-or-any-region.ts", 'fields: ["*", "countries.*"]', 'fields: ["*"]'],
+    ["packages/medusa-core-flows/src/cart/steps/find-one-or-any-region.ts", "cache: { enable: true }", "cache: { enable: false }"],
+    ["packages/medusa-core-flows/src/cart/steps/validate-sales-channel.ts", "if (!salesChannel?.id)", "if (false)"],
+  ])("refuses changed native behavior in %s", (target, before, after) => {
+    const selected = entry(target), changed = selected.actual.replace(before, after);
+    expect(changed).not.toBe(selected.actual);
+    expect(() => verifyCartContextReadFork(selected.native, changed, target)).toThrow(failure);
   });
 });
 
