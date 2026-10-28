@@ -35,6 +35,19 @@ Older relationship examples in broad CMS, commerce, developer-API, InstantDB,
 or internal-schema notes remain research vocabulary. They do not override the
 native relational authority above.
 
+## Core Refactor Direction
+
+The [accepted portable-core direction](./flarex-db-accepted-design.md#portable-core-refactor-direction)
+evolves the existing core and reuses Medusa/Payload behavior, with necessary
+breaking internal changes and removal of displaced mechanisms. Start at the
+[engine discussion](../experiments/core/engine/README.md),
+[refactor record](../experiments/core/engine/REFACTOR.md) and
+[open questions](../experiments/core/engine/OPEN-QUESTIONS.md). The experimental
+folder is the proof area, not a separate permanent framework implementation.
+One concept is active at a time. DO-local execution and replicas remain proposed;
+current runtime behavior and historical evidence are not rewritten as completed
+new-engine work.
+
 ## Query-Sync Replacement Authority
 
 For live-query coordination, use

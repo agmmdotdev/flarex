@@ -1,10 +1,11 @@
 # Engine decision register
 
-Status: portable core and injected Cloudflare adapters first are accepted design
-boundaries. Ownership and lifetime remain the active discussion; detailed engine
-choices remain open. DO-local execution and OCC replicas are the current
-proposal for that discussion. This register records current decisions, not
-execution receipts or a chronological work log.
+Status: existing-core refactoring, integration reuse, necessary breaking changes,
+portable owners and Cloudflare adapters first are accepted design directions.
+Ownership and lifetime remain the single active concept; detailed engine choices
+remain open. DO-local execution and OCC replicas are proposed. This register
+records decisions, not execution receipts; [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md)
+owns the unresolved queue and its references.
 
 ## Status vocabulary
 
@@ -33,10 +34,37 @@ owns the responsibility split, lifetime rules and remaining choices. Framework
 behavior stays in its framework owner; engine correctness stays in shared core
 and persistence owners; host composition supplies platform mechanisms.
 
-This authorizes documentation only. It does not select a DO topology, framework
+This authorizes documentation only. It does not finalize a DO topology, framework
 execution placement, replicated cache, lease protocol, replacement schema,
 source translation or changed authorization semantics. No engine or adapter
 implementation, production activation or performance acceptance follows.
+
+## Accepted refactor and development rules
+
+The owner selected [refactoring the existing core](./REFACTOR.md), retaining
+useful Medusa/Payload implementations and experimental-core design properties.
+The experiment is the proof area; existing packages and their consumers are the
+destination. Rebuilding a permanent parallel framework/engine stack is superseded
+as a planning assumption, not recorded as a previously implemented replacement.
+
+Necessary early-development internal API/type/schema/codec/identity and bridge
+breaks are accepted. Keeping current PostgreSQL tables is optional, not a frozen
+constraint. Preserve native behavior and correctness guarantees while replacing
+costly mechanisms. Name affected data and its disposition, migrate callers and
+remove displaced code/tests/exports/planning; no compatibility wrapper or fallback
+exists merely to preserve unshipped internals. Current approval edits docs only.
+
+Use the pinned Convex mechanism before each concept and implementation slice,
+recording invariants, concurrency/recovery and deliberate differences. Native
+framework source owns behavior without a Convex equivalent. TypeScript RAM caches
+are permitted; evaluate libraries, local structures and SQLite indexes by their
+semantics and cost. Source reference does not itself authorize source copying.
+
+Proceed one active concept at a time. Modular owners must not each introduce a
+new transaction, admission pass or RPC. Record required behavior, owner/contract,
+breaks, complete-operation cost and failure witnesses before a connected slice.
+Once implementation is selected, finish its migrated consumers and cleanup within
+the authorized scope; a small helper change is not the completion criterion.
 
 ## Current proposed direction
 
@@ -55,10 +83,10 @@ every local read. Cache validity, read-only freshness, authorization, ordering
 against already accepted pending writes, framework eligibility and recovery
 remain substantive unresolved contracts.
 
-Retain the initial experimental core's behavioral contracts, useful ownership
-and implementation evidence. Redesign internal lifetimes, representations and
-bridges as required rather than copying its execution sequence or discarding its
-native behavior. No code replacement follows from recording this proposal.
+Use the [refactor record](./REFACTOR.md) for keep/adapt/replace choices and the
+source-grounded integration seams. The initial candidate remains evidence;
+neither it nor old active-core interfaces constrain the successor's internal
+execution sequence. No code replacement follows from recording this proposal.
 
 ## Concepts
 
@@ -75,7 +103,8 @@ native behavior. No code replacement follows from recording this proposal.
 | 09 | Reactivity and invalidation consumers | Open; queued | No connected shared-engine reactivity claim |
 | 10 | First connected proof, performance gates and cutover | Open; queued | Existing complete-request measurements retained |
 
-The order is a discussion guide, not a strict dependency chain. Ownership cannot
+The order is a discussion guide, not a strict dependency chain. [Q01 and Q02](./OPEN-QUESTIONS.md#q01---scope-ownership-and-routing)
+are the current focus within concept 01. Ownership cannot
 be accepted without a credible recovery and writer model; later concepts detail
 that model. Open only the next concept when the current outcome is recorded or
 the owner explicitly chooses to defer it. Create its focused note at that point;
@@ -84,7 +113,7 @@ do not fill this folder with speculative implementations or duplicate roadmaps.
 The accepted boundary applies across queued concepts. Recording the current
 proposal does not accept replica/cache protocols or replace the separate
 Application, Payload and Medusa execution profiles. The relevant
-[open choices](./01-ownership-and-lifetime.md#choices-still-open) must be resolved
+[open questions](./OPEN-QUESTIONS.md) must be resolved
 before selecting a connected implementation slice.
 
 ## Decision record shape
@@ -97,7 +126,8 @@ Each focused note must contain:
 4. Alternatives and tradeoffs, including latency, CPU, memory and failure behavior.
 5. The owner's decision and rationale, or an explicit unresolved outcome.
 6. Effects on related notes, consumers, schemas and compatibility obligations.
-7. Required counterexamples, correctness tests and performance measurements.
+7. Required counterexamples, full-operation correctness/cost measurements and
+   references to remaining questions in the canonical queue.
 8. Implementation eligibility and cleanup/replacement gates.
 
 For source reuse, also record revision/license/provenance disposition. For each

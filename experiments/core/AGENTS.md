@@ -5,15 +5,20 @@ it does not reproduce or weaken shared correctness, skills, review or commit rul
 
 ## Scope
 
-- Work in `experiments/core/`. Read active code and source references as evidence.
-  Preserve unrelated shared-checkout changes, including active Medusa work.
+- Current work is design-only. Keep the discussion/proofs in `experiments/core/`
+  and update their owning accepted-design/roadmap pointers together when the
+  user requests a direction change. The accepted [refactor direction](./engine/REFACTOR.md)
+  targets the existing core and integrations; no runtime edit follows from
+  documentation approval. Preserve unrelated shared-checkout work.
 - Experimental internal APIs, representations, SQL and physical storage may be
   replaced. Do not import active execution/admission/readiness/settlement machinery
   merely to make the prototype run; that would carry the design under test into
-  the candidate. Narrow reuse needs a named responsibility and dependency audit.
-- Keep experimental framework bridges and comparison wiring here. Native framework
-  packages may supply business behavior. Bridges translate; core modules own
-  integrity, SQL, authorization gates, settlement and recovery.
+  the candidate. Reuse correct shared owners after a responsibility/dependency
+  audit; do not rebuild them solely because they are in active packages.
+- Keep experimental bridge/proof wiring here until a connected active-package
+  migration is selected. Reuse existing native and sound adapter implementations;
+  do not recreate all integration coverage in a second engine. Bridges translate;
+  core modules own integrity, SQL, authorization gates, settlement and recovery.
 - Use the current Payload/Medusa integrations as requirements evidence: inspect
   executing native lifecycle, observable results/errors, durable obligations,
   failure cases and supported integration branches. This is not a backward
@@ -29,11 +34,13 @@ it does not reproduce or weaken shared correctness, skills, review or commit rul
   implementations and behavioral assertions; replacement needs a concrete coupling
   or responsibility reason. New core injection must permit a new execution
   sequence, rather than emulate old internal contracts around it. Follow the
-  bounded reuse inventory in IMPLEMENTATION.md before broad module expansion.
+  reuse map in [engine/REFACTOR.md](./engine/REFACTOR.md) and the baseline evidence
+  in IMPLEMENTATION.md before broad module expansion.
 - Repository/workflow bridges, working-set contracts and atomic lifetime plumbing
   may be redesigned together here. Do not preserve old core-facing interfaces
   through compatibility wrappers merely to minimize adapter edits. Preserve
-  required native behavior and keep active integration files untouched.
+  required native behavior. The current documentation scope leaves integration
+  code untouched; later selected replacements migrate the existing consumers.
 - No active package may depend on this folder. Do not modify shared manifests,
   lockfiles, framework sources or production routes for experiment convenience.
   Local tooling must be explicit and must not add tests to ambient discovery.
@@ -48,15 +55,25 @@ it does not reproduce or weaken shared correctness, skills, review or commit rul
   the Convex mechanism, alternatives, costs and failure cases before recording
   the owner's decision. Do not infer acceptance of later concepts from approval
   to explore the engine direction. Update the affected notes after each decision.
+- Keep unresolved questions and their primary references in
+  [engine/OPEN-QUESTIONS.md](./engine/OPEN-QUESTIONS.md). Focused concept notes link
+  to that queue instead of maintaining competing lists. Queued concepts are not
+  implementation tasks; record a decision or explicit deferral before moving on.
 - Distinguish proposed, accepted, implemented and measured claims. The engine
   discussion does not select a runtime topology, remove current checks or approve
   a source translation. Keep existing runtime contracts and measurements as the
   baseline until an explicit decision and implementation replace them.
-- Use pinned Convex sources as the primary engine reference. Record deliberate
-  divergences and source reuse/license disposition; translating Rust to TypeScript
-  does not settle reuse rights. Preserve PostgreSQL commit authority and Drizzle.
+- Inspect the corresponding pinned Convex owners before each engine design and
+  later implementation slice. Record their mechanism, guarantees, failure paths
+  and necessary differences. Use executing native framework sources when Convex
+  has no equivalent. Record source reuse/license disposition separately; a Rust
+  translation is not automatically authorized. Preserve PostgreSQL authority
+  and Drizzle.
 - Follow [MODULES.md](./MODULES.md). Define each contract at its actual owner;
   avoid a universal context, generic engine registry or options bag.
+- TypeScript RAM caching is allowed. Choose existing libraries, local structures
+  or SQLite indexes by required semantics and evidence, not by a Rust type name.
+  A module must not add its own RPC, transaction or fresh admission by default.
 - Distinguish immutable definitions, fresh observations, policy decisions and
   mutation authority. A type, hash, cached object or signature is not a fresh
   database verdict. Do not expose raw DB/commit capabilities to framework code.
@@ -75,9 +92,10 @@ it does not reproduce or weaken shared correctness, skills, review or commit rul
   not establish that an internal sequence is a compatibility requirement.
 - Runtime and schema choices are experimental until proved. Do not turn an
   unmeasured hypothesis into an accepted architecture claim.
-- Retain scalar per-scope commit order in the first candidate while measuring
-  serialized lock occupancy. Existing physical layouts remain replaceable;
-  commit-order/visibility redesign requires a separate explicit contract.
+- The initial candidate's scalar per-scope commit order remains baseline evidence.
+  The successor may redesign it under the active ownership/acceptance concept;
+  existing locks and layouts are not permanent constraints. A replacement must
+  establish the required visibility, concurrency and recovery guarantees.
 - Read the repo-local Effect skills and overlay for implementation. Keep pure
   calculation plain, pure fallible policy in Result, runtime decoding in Schema,
   and async work, cancellation and resources in Effect. Do not add per-field

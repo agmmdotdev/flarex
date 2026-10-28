@@ -1,9 +1,10 @@
 # Replaceable modules
 
-Status: initial candidate ownership map and continuing modularity/reuse rules.
-The [engine discussion](./engine/README.md) will explicitly reconsider owners for
-shared snapshots, caches, commit coordination and recovery. This map does not
-preselect their lifetime or hosting. These are logical responsibilities, not
+Status: initial candidate ownership map and continuing modularity/reuse rules,
+carried forward under the accepted [existing-core refactor](./engine/REFACTOR.md).
+The [open-question queue](./engine/OPEN-QUESTIONS.md) governs successor decisions
+for shared snapshots, caches, coordination and recovery. This map does not
+freeze the initial APIs, lifetime, schema or hosting. These are responsibilities, not
 instructions to create one package, interface, service or directory per row.
 Implement a boundary when an approved connected operation uses it.
 
@@ -63,7 +64,7 @@ Keep types with their owning contract; a catch-all `contracts.ts` is not an owne
 
 ## Framework reuse and integration replacement
 
-The target is a redesigned core with selectively adapted existing integrations.
+The target is the existing core refactored with selectively adapted integrations.
 Use the old integration twice: to discover semantic requirements and to reuse
 implementations whose responsibilities remain valid. Reading existing behavior
 and then rewriting all of it is not the default. Starting from scratch applies
@@ -95,8 +96,9 @@ workflow-host and settlement interfaces when needed. Do not carry repeated
 admission/readiness checks, framework-to-core handoffs, row rescans, per-call
 construction or SQL visits into the candidate merely to keep old glue compatible.
 Fresh authority and actual native behavior still need proof in the new design.
-This permission covers experimental bridges here; it does not authorize editing
-the ongoing active integration or changing native business behavior for speed.
+The current stage records the redesign and does not edit active integration
+code. Later selected scopes migrate existing bridges at their actual owners;
+they need not preserve old contracts or recreate all native coverage here.
 
 Separate Medusa business behavior from Flarex's adapter execution machinery:
 
@@ -266,11 +268,11 @@ If a mechanism change spreads through unrelated modules, correct that boundary
 before broadening coverage. A real guarantee change still needs its own contract;
 modularity does not promise that every bottleneck is implementation-only.
 
-The first candidate deliberately serializes acceptance under a per-scope clock
-lock. That is an architectural capacity risk, not a measured throughput ceiling.
-Shortening protected work may fit the existing settlement contract; changing
-commit order or visibility requires a separate explicit design and concurrency
-proof. Preserve current locking while measuring it. Use the
+The initial candidate serializes acceptance under a per-scope clock lock. That
+is baseline evidence and a capacity risk, not a required successor algorithm or
+measured throughput ceiling. The active ownership/acceptance concept may redesign
+it with explicit visibility, concurrency and recovery evidence. Existing enforcement
+continues until its replacement is selected and proved. Use the
 [representative-flow gate](./VALIDATION.md#representative-flow-and-replacement-gate)
 to decide whether local execution changes suffice before expanding integrations.
 

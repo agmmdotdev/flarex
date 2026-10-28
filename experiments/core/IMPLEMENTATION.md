@@ -1,10 +1,12 @@
-# Initial candidate implementation sequence
+# Initial candidate implementation sequence (baseline)
 
-Planning boundary: this file describes the existing candidate and its original
-construction stages. The [engine decision register](./engine/DECISIONS.md) now
-owns the next design discussion. Pending stages below are not automatic approval
-to expand or optimize that candidate while engine choices remain unresolved.
-Existing implementation, behavioral witnesses and measurements remain evidence.
+Planning boundary: the stages below are the original candidate's construction
+record, not the successor work queue. The [existing-core refactor](./engine/REFACTOR.md)
+now owns the migration direction; [DECISIONS.md](./engine/DECISIONS.md) and
+[OPEN-QUESTIONS.md](./engine/OPEN-QUESTIONS.md) own the single active concept and
+remaining decisions. Preserve useful implementation, native witnesses and measured
+results; do not resume pending stages or build a parallel framework stack merely
+because this old sequence contains them. Current approval is documentation only.
 
 The [DO execution and replica proposal](./engine/01-do-execution-and-replicas.md)
 is the current discussion candidate. Its ownership, cache, acceptance and

@@ -1,32 +1,35 @@
-# Shared engine design discussion
+# Portable core refactor discussion
 
-Status: portable core with injected infrastructure capabilities and Cloudflare
-adapters first is **accepted design direction**. Ownership topology, cache and
-coordination protocols remain open. The current **proposed** topology places
-trusted processing and local SQLite caches in an execution DO, with OCC-based
-replicas as a scaling candidate. No new shared engine, adapter implementation,
-source port or production cutover is authorized or implemented by these notes.
+Status: refactoring the existing core with reusable Medusa/Payload integrations,
+necessary breaking changes, portable owners and Cloudflare adapters first is
+**accepted design direction**. DO-local execution with SQLite caches and possible
+OCC replicas remains **proposed**. Ownership, cache and coordination contracts
+remain open. Current work is documentation only; no engine implementation, source
+port, data change or production cutover is authorized by these notes.
 
-Start with [01: ownership and lifetime](./01-ownership-and-lifetime.md).
-The [decision register](./DECISIONS.md) tracks that single active concept and the
-remaining questions. [Pinned references](../REFERENCES.md#engine-mechanism-reference-map)
-anchor the discussion in actual Convex code and documented platform behavior.
+Read the [refactor direction](./REFACTOR.md) for what we keep, replace and remove.
+The [decision register](./DECISIONS.md) tracks accepted/proposed status; the
+[open-question queue](./OPEN-QUESTIONS.md) is the single unresolved-question owner.
+Start with [01: ownership and lifetime](./01-ownership-and-lifetime.md) and Q01/Q02
+in that queue. [Pinned references](../REFERENCES.md#engine-mechanism-reference-map)
+anchor each concept and later implementation in actual Convex owners.
 
 ## Current topology proposal
 
 The [DO execution and replica proposal](./01-do-execution-and-replicas.md) is the
-active companion to concept 01. It retains the initial experiment's useful
-module owners, pending state, precise observations, native behavior and singular
-settlement while reconsidering their lifetime, hosting and storage interactions.
+active companion to concept 01. It applies the new execution/state direction to
+the existing core, retaining useful experimental owners, pending-state semantics,
+precise observations, native behavior and singular settlement while redesigning
+their lifetime, hosting and storage interactions.
 It proposes keeping trusted framework/engine processing next to local cached
 rows and indexes, initially in one DO per chosen scope. Multiple DOs for a busy
 scope would be separate execution replicas, with complete OCC and explicit
 snapshot/recovery rules; they are not an automatic scale-out setting.
 
 The proposal records the cart conflict/retry example, the SQLite/PostgreSQL
-authority split, framework replay limits and the ordered open questions. It is
-the current discussion candidate, not an accepted topology or an implementation
-plan. Start by resolving scope ownership and the authoritative accepting path.
+authority split and framework replay limits. It remains a discussion candidate,
+not an accepted topology or an implementation plan. The question queue owns next
+steps, starting with scope ownership and the authoritative accepting path.
 
 ## Accepted core and runtime boundary
 
@@ -48,6 +51,11 @@ host must satisfy the same contracts and pass its own conformance gates.
 
 ## Why reopen the design
 
+The existing integrations already have native repository/Local API injection
+seams. Reuse that investment while changing the core-facing contracts that
+preserve unnecessary work. The experiment is a proving area, not a requirement
+to build another full framework stack before migrating existing consumers.
+
 The existing experiment implements bounded Application, Payload, Product and
 mixed operations with pending state, dependencies and one final publication.
 It reduces database visits but largely retains request-scoped execution with
@@ -64,12 +72,15 @@ Convex performance result and no shared-engine measurement yet.
 ## How we work through this
 
 1. Discuss one concept in plain language, using a small concrete execution example.
-2. Inspect the pinned Convex owner and the relevant current Flarex requirement.
+2. Inspect the pinned Convex owner, its guarantees and failure paths; inspect
+   executing native sources for framework-specific behavior. Do this again for
+   each later implementation slice rather than relying only on an initial survey.
 3. Explain alternatives, failure cases, cost and effects on earlier decisions.
 4. Record the owner's explicit decision, or keep the concept open. Recommendations
    and tentative sketches are not decisions.
-5. Update the register and all affected notes together. Mark replaced decisions
-   superseded and remove conflicting planning guidance; retain baseline evidence.
+5. Update the register, canonical question queue and affected notes together.
+   Mark replaced decisions superseded and remove conflicting planning guidance;
+   retain baseline evidence. Do not duplicate unresolved lists across notes.
 6. Select a connected implementation slice only after its required decisions are
    accepted. Implementation and measured acceptance are separate statuses.
 
@@ -94,28 +105,19 @@ independent lifetime or finalizer. Existing code is reusable where its owner fit
 - Keep native/application callbacks and remote effects outside physical SQL
   transactions. Only the trusted outer owner publishes an atomic command.
 - Keep current Medusa integration work and active runtime packages untouched.
-  No deployment, data reset, migration or production routing follows from this note.
+  This is the current documentation boundary, not a permanent prohibition on
+  refactoring them. Later connected scopes migrate existing consumers and remove
+  displaced mechanisms. No data reset or deployment follows from these notes.
 - The accepted production target remains the private Worker and cache-disabled
   Hyperdrive. Investigating another host is allowed; changing that target needs
   an explicit architecture decision. Ordinary Worker memory is not a shared owner.
 
 ## Responsibilities to discuss
 
-These are a coverage map, not accepted module APIs or a port checklist. The
-portable core/adapter separation above constrains each responsibility without
-selecting its algorithm, placement or exported interface.
-
-| Responsibility | Question we must resolve |
-| --- | --- |
-| Engine ownership | What scope/partition is coordinated, by whom, and how does takeover work? |
-| Versioned snapshots and metadata | Which versions are retained, and how do authority and readiness relate to them? |
-| Values and ordered keys | Which encoding, comparison and identity semantics must TypeScript preserve? |
-| Reads, indexes and caches | What can memory answer, how are misses fetched, and how is validity established? |
-| Pending state and read dependencies | How do points, absence, ranges and native observations contribute to conflicts? |
-| Commit and persistence | How are conflicts ordered, writes persisted, outcomes resolved and state published? |
-| Schema/index lifecycle and retention | How do build, activation, cleanup and history expiry participate safely? |
-| Runtime and integration | How do bounded resources, concurrency, cancellation and framework lifetimes compose? |
-| Reactivity | How do committed changes feed exact invalidation without a second source of truth? |
+Use [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md) for responsibility-specific questions,
+source references and required counterexamples. Only ownership and its commit
+coordination dependency are active; queued topics do not select module APIs,
+data structures, runtime placement or an implementation schedule.
 
 The first implementation should eventually prove a complete small path, including
 cold bootstrap, reads, writes, conflicts, persistence, publication and recovery.
@@ -136,3 +138,6 @@ TypeScript remains the requested implementation direction. Library selection,
 ordered persistent structures, timestamp representation, async scheduling and
 memory accounting remain open; a JavaScript Map is not a substitute for all Rust
 ordered/copy-on-write structures. Do not claim equivalent performance in advance.
+RAM caching is possible in TypeScript and DO instance state. Choose suitable
+existing libraries, TypeScript structures or SQLite indexes; do not invent a
+replacement solely because the reference implementation uses Rust.

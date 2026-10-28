@@ -2,6 +2,14 @@
 
 ## Status And Authority
 
+For successor engine planning, the [portable core refactor direction](./flarex-db-accepted-design.md#portable-core-refactor-direction)
+and [current discussion](../experiments/core/engine/README.md) now control. Use the
+[open-question queue](../experiments/core/engine/OPEN-QUESTIONS.md) one concept at
+a time. The contracts/findings below describe prior core work and retained
+requirements; their unfinished steps do not select or authorize the DO engine.
+Preserve source evidence and implemented guarantees while replacing conflicting
+planning assumptions under the new refactor record.
+
 Status: owner-requested design and acceptance plan; runtime replacements,
 benchmarks and activation are not implemented by this document. Source findings
 identify costs and contention risks, not measured production bottlenecks.

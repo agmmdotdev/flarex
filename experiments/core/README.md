@@ -1,17 +1,19 @@
-# Experimental Flarex core
+# Flarex core refactor and experiments
 
-Start with the [shared engine design discussion](./engine/README.md). The owner
-has requested a fresh Convex-based design discussion, one concept at a time,
-with decisions recorded before their implementation. The first open concept is
-[engine ownership and lifetime](./engine/01-ownership-and-lifetime.md).
+Start with the [portable core refactor discussion](./engine/README.md) and
+[accepted migration direction](./engine/REFACTOR.md). Refactor the existing core,
+reuse the Medusa/Payload integration investment, allow necessary internal breaks
+and inspect Convex for each relevant mechanism. This folder is the design/proof
+area. Work one concept at a time from the [open-question queue](./engine/OPEN-QUESTIONS.md);
+ownership and commit coordination are active. Current work is documentation only.
 
 ## Current state
 
 | Area | Status |
 | --- | --- |
-| Active Flarex core and Medusa integration | Continue separately; outside this experiment's mutation scope |
+| Existing core and Medusa/Payload integrations | Starting point and eventual refactor destination; current behavior remains until a selected connected replacement |
 | Initial experimental candidate | Bounded Application, Payload CRUD, Product scalar and explicitly atomic mixed flows implemented and measured with Drizzle; performance promotion remains closed |
-| Shared engine direction | Portable core and injected Cloudflare adapters first accepted as design boundaries; DO-local execution with SQLite caches and possible OCC replicas is the current proposal; protocols and implementation slices remain open |
+| Shared engine direction | Existing-core refactor, integration reuse, necessary breaking changes and portable Cloudflare adapters first accepted; DO topology/cache/replica protocols remain proposed and open |
 
 The existing candidate already keeps pending writes, observations and some
 prepared state in memory. It does not implement Convex's complete shared
@@ -19,23 +21,26 @@ snapshot, metadata, index/cache and conflict-history machinery. Revisit those
 owners and their database interactions without assuming that a TypeScript port
 or an in-memory cache automatically provides Convex's performance.
 
-The [current DO proposal](./engine/01-do-execution-and-replicas.md) builds on this
-experiment's modular owners, native behavior, pending state, dependency tracking
-and one outer settlement. Those benefits remain useful. Their internal APIs,
-physical transaction segmentation and request-scoped lifetime are redesignable;
-this documentation does not replace the candidate code or its behavioral baseline.
+The [current DO proposal](./engine/01-do-execution-and-replicas.md) uses the useful
+ownership, pending-state and dependency ideas from this experiment while reusing
+existing native integrations. Their internal APIs, SQL segmentation, schemas and
+lifetimes are redesignable; the [keep/adapt/replace map](./engine/REFACTOR.md#keep-adapt-replace-and-add)
+separates real obligations from replaceable implementation. No code changes follow
+from this documentation, and a permanent second framework/engine stack is not the plan.
 
 This folder remains outside `packages/*` and `apps/*` workspace membership.
-It is a separate experiment, not an accepted replacement or production package.
+It is a proof area, not a production package or permanent alternative engine.
 
 ## Current discussion
 
 1. [AGENTS.md](./AGENTS.md): scope, isolation and iteration rules.
 2. [Engine discussion](./engine/README.md): direction, continuing obligations and modular responsibilities.
-3. [Decision register](./engine/DECISIONS.md): accepted boundaries, discussion process and open concepts.
-4. [Concept 01](./engine/01-ownership-and-lifetime.md): portable core/adapters, ownership, lifetime and open placement choices.
-5. [DO execution and replica proposal](./engine/01-do-execution-and-replicas.md): retained core properties, local SQLite caches, OCC cart example and open questions; discussion only.
-6. [REFERENCES.md](./REFERENCES.md): pinned Convex mechanisms, platform constraints and Flarex evidence.
+3. [Refactor direction](./engine/REFACTOR.md): keep/adapt/replace, breaking changes, integration seams and cleanup.
+4. [Decision register](./engine/DECISIONS.md): accepted/proposed status and the one active concept.
+5. [Open questions](./engine/OPEN-QUESTIONS.md): canonical queue, primary references and required decision evidence.
+6. [Concept 01](./engine/01-ownership-and-lifetime.md): portable core/adapters, ownership and lifetime.
+7. [DO execution and replica proposal](./engine/01-do-execution-and-replicas.md): local SQLite caches, OCC cart example and tradeoffs; discussion only.
+8. [REFERENCES.md](./REFERENCES.md): pinned Convex mechanisms, platform constraints and Flarex evidence.
 
 Discuss one concept, inspect its source and failure cases, record the owner's
 decision, then update affected notes. Keep proposed, accepted, implemented and
@@ -59,13 +64,10 @@ baseline. Its pending implementation stages do not select the next engine slice.
 | [READ-OBSERVATIONS.md](./READ-OBSERVATIONS.md), [OBSERVATION-COSTS.md](./OBSERVATION-COSTS.md), [COMBINED-OBSERVATIONS.md](./COMBINED-OBSERVATIONS.md) | Subsequent observation and preparation experiments |
 | [BATCHED-NEW-IDS.md](./BATCHED-NEW-IDS.md) | Latest new-ID batching measurement and remaining limits |
 
-The latest batching slice reduces 64-row insert exchanges **276→21** and
-transactions **67→3**, with median latency **96.796→29.434 ms**. Mixed exchanges
-fall **53→50**; Payload/Product counts remain **77/33**. Complete-request latency
-has no overall win, same-scope tails regress and performance promotion stays
-closed. These saved measurements do not establish shared-engine performance or
-a matched comparison against Convex. Wider Application support, populated
-Product relations and the active-core comparison remain unproved.
+Saved results remain in their evidence documents rather than being copied into
+the new direction as performance claims. The initial candidate missed complete
+performance acceptance; fewer exchanges did not establish a complete-request
+win. No shared-engine or matched Convex performance result is established.
 
 ## Objective and boundaries
 
@@ -81,12 +83,12 @@ not add a transaction, database visit or independent finalizer per module.
 TypeScript and Drizzle remain requirements. New engine mechanisms need explicit
 decisions, connected correctness evidence and complete-request measurements.
 
-Experimental database work uses explicitly owned disposable resources. Current
-runtime packages, active Medusa work, existing schemas and named durable data
-remain outside this lane. No production routing, data deletion or migration is
-authorized. A successful experiment needs a separate connected cutover decision,
-consumer migration and removal of displaced internals; coexistence here is for
-evaluation, not a permanent fallback engine.
+Any later experimental database work uses explicitly owned disposable resources.
+This documentation task leaves runtime packages, ongoing integration, schemas and
+data untouched. Future selected replacements target their actual existing owners
+and include connected consumer migration, verification and retirement. Keeping
+an old layout is optional; resetting actual data requires an explicit disposition.
+No production routing, data deletion or implementation is authorized now.
 
 The [accepted design](../../design-notes/flarex-db-accepted-design.md) retains
 production authority, execution-profile and host obligations. The

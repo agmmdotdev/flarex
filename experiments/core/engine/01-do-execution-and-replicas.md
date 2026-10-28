@@ -8,25 +8,17 @@ framework retry contracts below are incomplete and unproved.
 
 This is the current candidate to discuss. Ordinary Worker execution with a
 separate cache DO remains an alternative to compare, not the selected plan.
-The initial experimental implementation remains the comparison baseline;
-this note neither replaces its code nor changes the production topology.
+The accepted [refactor direction](./REFACTOR.md) targets the existing core and
+reuses Medusa/Payload integrations, with necessary breaking internal changes.
+The experiment remains a proof/comparison area; this note changes no runtime.
 
 ## What we retain from the experimental core
 
-The new direction extends the experiment's ownership work rather than discarding
-it. [DESIGN.md](../DESIGN.md) owns the existing behavioral contracts and
-[MODULES.md](../MODULES.md) the reuse rules. Retain these useful properties:
-
-| Existing property | Treatment in the proposed engine |
-| --- | --- |
-| Small owners for definitions, query, access, attempts, storage and settlement | Retain responsibility boundaries; hosting together does not merge them into a universal runtime or context |
-| One trusted outer settlement owner | Retain; framework participants and execution replicas cannot independently publish business success |
-| Original observations, indexed pending state and read-your-writes | Retain per attempt; separate this private state from reusable committed caches |
-| Exact point, absence and range dependencies for tracked profiles | Retain; local SQLite reads must produce equivalent evidence rather than bypass it |
-| Complete bounded query operations | Retain point/page/count/exists/relation semantics and budgets; avoid one RPC per internal lookup |
-| Real Application, Payload and Medusa entry behavior | Reuse business behavior and behavioral witnesses; adapt or replace old core-facing glue when it preserves unwanted execution costs |
-| Distinct execution profiles and explicit mixed composition | Retain; shared storage and OCC primitives do not make every framework command replayable |
-| Drizzle/PostgreSQL settlement, history, outcomes and failure obligations | Retain durable authority; exact physical layout and internal interfaces remain redesignable |
+The [keep/adapt/replace map](./REFACTOR.md#keep-adapt-replace-and-add) covers both
+the active integrations and the initial experiment. Keep useful modular owners,
+private pending state, precise dependencies, native behavior and singular
+settlement. [DESIGN.md](../DESIGN.md) remains the initial candidate's behavioral
+baseline; its internal sequence is not a successor architecture requirement.
 
 What changes is the proposed lifetime and placement of reusable engine state:
 from mostly request-scoped execution and PostgreSQL coordination toward a
@@ -202,30 +194,17 @@ The active framework integrations keep their existing admitted bounded SQL
 profiles. Their internal sequence is not imposed on this new engine, but their
 supported observable behavior remains requirements evidence. Co-location does
 not prove arbitrary Medusa/Payload runtime compatibility or license a universal
-transaction API. Reuse native behavior through redesigned experimental bridges.
+transaction API. Reuse native behavior through the existing integrations, adapting
+their core-facing contracts under the refactor direction.
 
 ## Open questions and discussion order
 
-Remain within concept 01 while resolving its dependencies; references to later
-concepts below do not accept their algorithms or create implementation tasks.
-
-| Priority | Question to decide | Concrete consequence |
-| --- | --- | --- |
-| 1 | What is the execution/atomic scope, and must every relevant writer pass its protocol? | Decide what one DO owns, how ownership is fenced, and what a cross-shop or cross-partition operation means |
-| 2 | Where does validation/acceptance run, and what does PostgreSQL enforce atomically? | Prevent conflicting pending proposals from both passing; specify crash, takeover and uncertain-COMMIT recovery |
-| 3 | What snapshot can a local cache serve, and how is its completeness proved? | Specify row/range coverage, version retention, cache misses, read-only freshness, early errors and fresh authorization |
-| 4 | Which framework commands are eligible for replay? | Preserve access/hooks/events, nesting, compensation and remote effects; classify conflict without silently rerunning arbitrary native code |
-| 5 | Which rows/indexes are local, and which semantics require PostgreSQL? | Choose bounded hot subsets versus wider copies, query lowering, index builds, warm-up, schema activation and eviction |
-| 6 | How are committed changes delivered and replicas made eligible? | Specify contiguous replay, gaps, deletion/absence, resnapshot, load routing and read-after-write guarantees |
-| 7 | Which bottleneck justifies which scaling path? | Compare read replicas, write-executing replicas and cart partitions; all require explicit shared-data/commit behavior |
-| 8 | How are resources and concurrent attempts scheduled? | Bound CPU/queue time, synchronous scans, memory, SQLite growth, replay lag, retry amplification and maintenance interference |
-| 9 | What replaces the current bridge/lifetime plumbing? | Audit reuse/adapt/replace without importing old per-call construction or turning each module into RPC |
-| 10 | What is the first complete proof and its stopping criterion? | Choose a bounded Application path and actual framework witnesses before implementation; no arbitrary framework or scale claim |
-
-Begin the next discussion with ownership and the accepting path (questions 1-2),
-using one successful cart operation and two conflicting replicas. Do not defer
-all coherence decisions until a busy shop needs replicas; the single-owner
-version must already have a credible history, acceptance and recovery model.
+Use [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md) for the canonical questions, source
+references and decision evidence. Begin with Q01 ownership and Q02 acceptance
+under concept 01, using a successful cart operation and two conflicting replicas.
+Snapshot/cache coverage, framework replay, lifecycle, hosting and change delivery
+remain queued dependencies. Do not defer all coherence decisions until a busy
+shop needs replicas; the single-owner design needs a credible recovery model.
 
 ## Required proof before adoption
 
@@ -244,11 +223,11 @@ scopes. Compare the same native business graph; a local lookup microbenchmark
 or a reduced SQL count is insufficient. Existing [validation](../VALIDATION.md)
 and comparison gates remain binding. No such proof is claimed here.
 
-Implementation replacement, promotion and cleanup remain separate decisions.
-Keep the current experiment and its witnesses until a connected replacement is
-proved; then migrate its consumers and remove displaced internals under a named
-cutover plan. Do not accumulate permanent parallel engines or update active
-packages, production routing, schemas or durable data as part of this proposal.
+Implementation and cleanup follow the [existing-core refactor direction](./REFACTOR.md).
+Keep required behavioral evidence while replacing each connected owner, migrate
+its existing consumers and remove displaced internals. There is no requirement
+to rebuild a whole separate experimental framework stack first. Actual runtime,
+schema, data and routing changes remain outside this documentation task.
 
 ## Primary references
 

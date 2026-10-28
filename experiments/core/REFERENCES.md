@@ -3,7 +3,11 @@
 Initial inspection: 2026-10-26; shared-engine source map expanded on 2026-10-27.
 References establish mechanisms and prior results, not the feasibility or speed
 of the proposed replacement. The [engine discussion](./engine/README.md) owns the
-current questions; the original candidate remains implementation evidence.
+current direction; [OPEN-QUESTIONS.md](./engine/OPEN-QUESTIONS.md) owns the active
+and queued questions with their references. The original candidate remains
+implementation evidence. [REFACTOR.md](./engine/REFACTOR.md#existing-seams-and-limits)
+maps current integration seams and reuse limits; inspect those owners before
+replacing their behavior or assuming that their interfaces must be retained.
 
 ## Convex source identity
 
@@ -189,6 +193,13 @@ These patterns identify work and complexity, not their share of total latency.
 
 Recheck these primary sources against the exact database/host used for validation.
 They explain constraints; they do not predict the candidate's performance.
+
+TypeScript/DO RAM caching is possible; [instance memory](https://developers.cloudflare.com/durable-objects/reference/in-memory-state/)
+can retain hot state while resident. Rust's concrete structures and multithreaded
+sharing are not directly supplied by that host. Select equivalent version/order
+semantics through appropriate libraries, local structures or SQLite, and account
+for eviction/reconstruction. Referencing Convex does not require reproducing each
+Rust type or copying source before its reuse disposition is established.
 
 ## Standalone Application construction references
 

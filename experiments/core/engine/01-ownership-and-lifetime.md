@@ -7,8 +7,9 @@ engine or adapter implementation.
 
 Current candidate: [DO-local execution and OCC replicas](./01-do-execution-and-replicas.md),
 recorded as **Proposed** for further discussion. That companion owns the concrete
-placement, retained experimental-core properties, cart example, tradeoffs and
-ordered open questions. This card continues to own the accepted portable boundary.
+placement, cart example and tradeoffs. [REFACTOR.md](./REFACTOR.md) owns the accepted
+existing-core migration direction; [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md) owns
+the unresolved queue. This card continues to own the accepted portable boundary.
 
 ## Question
 
@@ -114,29 +115,12 @@ none is selected or implemented by this decision.
 
 ## Choices still open
 
-- Owner/partition identity and atomic scope: tenant, app and shop are not assumed
-  interchangeable. Define how commands crossing owners are handled.
-- Placement of framework execution, independent engine reads, shared cache state
-  and commit coordination across Workers and optional DOs. Neither an entire
-  engine in one DO per app nor a replicated DO group has been accepted. The
-  current proposal co-locates trusted processing and local caches in a DO;
-  replicas remain conditional on complete snapshot/OCC/recovery contracts.
-- Cache and index representation, retention, warming, memory budgets and any
-  executor replication. If copies are proposed, prove version/read-view validity,
-  range completeness, absence/deletion invalidation, missed-update recovery and
-  fresh authorization. Proper OCC can reject a stale mutation proposal; it does
-  not validate arbitrary cache contents or automatically repair read-only
-  freshness and early disclosure. The companion's cart/retry flow is a proposal.
-- Ownership protocol, epochs/fences, ordering and takeover after uncertain
-  commits, including every relevant framework, schema and maintenance writer.
-- Concrete injected contracts, adapter APIs, resource construction and operation
-  batching. A platform adapter cannot invent weaker fallback behavior for an
-  unsupported capability.
-- Concurrency admission, queue limits, routing locality, hot-shop scaling and
-  complete-request CPU/latency costs. No throughput or round-trip target has been
-  proved by choosing an adapter boundary.
-- The first connected implementation and its correctness, host-conformance and
-  performance gates. Implementation remains explicitly deferred.
+The canonical queue is [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md). Q01 scope/routing
+and Q02 validation/order/recovery are active together under this concept. Their
+answer must account for all relevant writers and stale-owner takeover before
+later cache, framework and hosting choices can be finalized. Other questions
+stay queued. The requirements and counterexamples below constrain this concept's
+answer; they are not a second list of independently tracked open work.
 
 ## Alternatives to compare
 

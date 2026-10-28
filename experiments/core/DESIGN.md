@@ -4,10 +4,13 @@ Status: baseline contract for the implemented, bounded experimental candidate;
 broader support and performance acceptance remain open. Module boundaries are in
 [MODULES.md](./MODULES.md), with current evidence in [RESULTS.md](./RESULTS.md).
 
-The next architecture discussion starts at [engine/README.md](./engine/README.md).
+The next architecture discussion starts at [engine/README.md](./engine/README.md),
+under the accepted [existing-core refactor direction](./engine/REFACTOR.md).
 The physical transaction segmentation and Postgres coordination described here
 belong to the initial candidate, not a preselected shared-engine design. Required
 behavior remains binding until explicitly revised; proposals do not change runtime.
+Internal APIs, physical layouts and implementation sequences remain replaceable;
+the [open-question queue](./engine/OPEN-QUESTIONS.md) governs the successor design.
 
 The current [DO execution and replica proposal](./engine/01-do-execution-and-replicas.md)
 retains the useful contracts below while exploring longer-lived local cache/index

@@ -2,17 +2,20 @@
 
 ## Status And Scope
 
-The active goal covers Flarex DB core redesign. New Medusa integration and
-framework capability expansion are subsequent work. Future framework semantics
-constrain core contracts; existing consumers affected by a core break must still
-be migrated and regression-tested within that slice.
+This record describes the earlier selected core-execution work and its retained
+acceptance evidence. Successor planning now follows the
+[portable core refactor direction](../../design-notes/flarex-db-accepted-design.md#portable-core-refactor-direction),
+[decision register](../../experiments/core/engine/DECISIONS.md) and
+[open-question queue](../../experiments/core/engine/OPEN-QUESTIONS.md).
+Existing Medusa/Payload integrations are reuse assets and consumers of the future
+replacement, not work that must all be rebuilt after a parallel core completes.
 
-The owner grants standing approval to proceed slice by slice. Record each
-focused design/preflight, necessary breaks, affected consumers and cleanup before
-implementation, then implement, validate, run both required reviews and commit.
-Do not wait for a separate approval response for each slice. Surface materially
-different decisions explicitly and correct the actual owner; this authorization
-does not permit silent durable-data deletion or unrelated integration expansion.
+Earlier slice-by-slice implementation authorization does not authorize the
+new DO topology, caches or replica protocol. The successor is currently
+design-only, one concept at a time. Later selected implementation scopes must
+include affected callers, behavioral/data obligations, verification and removal
+of displaced paths. Necessary internal breaks remain permitted; data deletion
+and unrelated capability expansion are not implicit.
 
 Status: selected core execution contracts and connected acceptance complete;
 retained limits and retirement gates are tracked in

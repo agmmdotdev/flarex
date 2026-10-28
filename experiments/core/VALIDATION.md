@@ -1,5 +1,12 @@
 # Correctness and performance gates
 
+These gates are retained evidence and requirements for the
+[existing-core refactor](./engine/REFACTOR.md), not an instruction to complete a
+second framework implementation. Select one connected replacement after its
+[open design questions](./engine/OPEN-QUESTIONS.md) are resolved. Reuse real native
+consumer assertions, change setup for the new owners, and test its complete flow.
+Broader acceptance still requires the applicable full comparison coverage below.
+
 The [bounded create](./PAYLOAD-CREATE.md) and
 [standalone Application](./APPLICATION.md) slices have executable contract,
 PGlite and ordinary-role PostgreSQL witnesses. These establish their stated
@@ -188,7 +195,9 @@ one or substitute framework mutation budgets for Application query goals.
 Also vary touched rows, unrelated schema size, index/relation fanout, batch size,
 concurrent roots and scope distribution. Record the changed variable and all
 limits. Flat helper counts do not prove scale; hot shared locks can erase a
-single-request win. Hosted claims require the actual Worker/Hyperdrive lane.
+single-request win. Hosted claims require the actual selected host: the baseline
+Worker/Hyperdrive lane and, for proposed DO behavior, actual DO lifecycle/storage
+proof. Local or Node conformance does not establish DO compatibility.
 
 Acceptance also requires the algorithmic properties above: no repeated unrelated
 schema/root scans for selective operations, no full document-result construction

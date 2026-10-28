@@ -9,14 +9,21 @@ unmet; pausing does not establish performance acceptance. Further optimization
 of that runtime requires a separately selected scope. Correctness regressions
 remain actionable at their actual owners during integration.
 
-The owner has selected a separate [experimental core](../../experiments/core/README.md)
-to investigate modular execution and storage redesign while current integration
-continues. Its design permits different internal APIs and PostgreSQL structures
-inside isolated disposable resources. It does not modify the active runtime,
-integration schemas/data or production routing. The experimental design/rules,
-implementation sequence and validation gates live together in that folder;
-runtime implementation and performance acceptance are pending. Promotion requires
-a connected consumer/data cutover decision rather than an automatic fallback.
+The owner has selected [refactoring the existing core](../../experiments/core/engine/REFACTOR.md)
+with reuse of Medusa/Payload integrations, necessary breaking internal changes,
+portable owners and injected Cloudflare adapters. The [experimental core](../../experiments/core/README.md)
+is the design/proof area, not a permanent parallel engine or a requirement to
+rebuild all integration coverage. Keep useful native behavior and replace the
+mechanisms that preserve unnecessary work. PostgreSQL layouts and old interfaces
+are redesignable; actual retained data needs an explicit disposition.
+
+The [decision register](../../experiments/core/engine/DECISIONS.md) owns the
+one-concept-at-a-time process and [open questions](../../experiments/core/engine/OPEN-QUESTIONS.md)
+own unresolved contracts. DO-local execution/caches and possible OCC replicas
+are proposed, not implemented or measured. Current approval is documentation
+only; old optimization stages do not authorize the new runtime. Each later
+connected slice must migrate its consumers, verify its guarantees and complete
+cleanup; no automatic fallback or permanent dual engine is selected.
 
 ## Preserved Optimization Status
 
@@ -25,8 +32,9 @@ Recurring mixed coverage updates and six duplicate standalone binding reads are
 removed; mixed publication retains its fresh binding check. Complete matched
 measurements still fail every fixed CPU and latency gate.** The local standalone-read
 implementation and consumer cutover are complete; its separate read-tuning pause
-remains in place. Standalone mutations are part of the active connected redesign.
-The current deliverable is the [publication/capture/CPU cost inventory and ranked proposal](../../packages/medusa-adapter/benchmarks/core-performance/native-business/cost-inventory-proposal.md).
+remains in place. Standalone mutations were part of that connected redesign.
+The retained [publication/capture/CPU cost inventory and ranked proposal](../../packages/medusa-adapter/benchmarks/core-performance/native-business/cost-inventory-proposal.md)
+records the earlier optimization investigation.
 Its implemented publication correction removes recurring coverage-marker writes
 through genuine binding-owned maintenance and reuses protected binding evidence
 within the standalone transaction; the [approved preflight](../mixed-mutation-core/27-shared-execution-evidence-redesign-preflight.md#approved-correction-transaction-binding-selection-reuse)
@@ -280,6 +288,10 @@ baseline. Preserve original evidence and do not sum overlapping phase percentile
 
 ## Delivery And Remaining Scope
 
+This section preserves the earlier delivery requirements and unresolved scope.
+Use the current priority and engine question queue above to select successor
+work; these older implementation instructions do not resume the paused effort.
+
 The [execution checks and framework lifecycle direction](../mixed-mutation-core/22-execution-checks-and-framework-lifecycles-preflight.md)
 connects the proved standalone mechanisms to the mixed foundation replacement.
 Admission establishes current authority, readiness follows actual query demand,
@@ -306,10 +318,10 @@ Do not hold SQL across untrusted callbacks or treat cached metadata as admission
 
 The [mixed foundation plan](../mixed-mutation-core/14-execution-redesign-roadmap.md)
 and [shared execution evidence preflight](../mixed-mutation-core/27-shared-execution-evidence-redesign-preflight.md)
-own the active connected mutation replacement. Select its remaining scope from
-complete-request evidence, including initial construction and final settlement
-when required; do not impose a component-by-component delivery sequence.
-The [deferred finite proposal](./orchestration-target-design.md#deferred-finite-proposal)
+record the earlier connected mutation replacement. Its remaining scope is
+requirements evidence for successor selection, including initial construction
+and final settlement when required; it is not an independent implementation queue.
+The [deferred finite proposal](./orchestration-target-design.md#finite-successor-and-historical-proposal)
 remains a proposal and cannot impose its journal/claims on standalone reads.
 Public developer APIs, broad framework expansion, general schema evolution,
 new compute hosting and durable-data deletion remain outside this slice.

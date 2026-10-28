@@ -13,6 +13,40 @@ When another design note conflicts with this document, this document controls.
 Domain roadmaps own durable current status and target direction; Git owns
 chronological implementation history.
 
+## Portable Core Refactor Direction
+
+Accepted design direction: evolve the existing core and reuse the existing
+Medusa/Payload integrations through connected owner replacements. The
+[refactor record](../experiments/core/engine/REFACTOR.md) owns the keep/adapt/replace
+map and migration principles. `experiments/core` is the design and proof area,
+not a requirement to rebuild all framework coverage in a permanent second engine.
+
+The project is early and not in production. Necessary internal API, type,
+schema, codec, identity and integration-contract breaks remain accepted. Preserve
+required native behavior and correctness guarantees, not expensive old execution
+sequences or unshipped interfaces. Retaining current PostgreSQL layouts is an
+option, not a constraint; each replacement names affected data and its migration
+or reset disposition. Migrate callers and remove displaced code and planning
+guidance together. No unspecified durable-data deletion follows from this policy.
+
+Keep the core portable and inject runtime/storage/coordination mechanisms, with
+Cloudflare as the first host family. Use pinned Convex mechanisms as the primary
+engine reference during design and development, recording necessary runtime,
+framework, product and source-reuse differences. TypeScript can own RAM caches;
+choose its structures, libraries and SQLite indexes by required semantics and
+cost rather than copying Rust types. PostgreSQL remains durable authority and
+Application, Payload and Medusa retain explicit execution profiles.
+
+Proceed one active concept at a time through the [decision register](../experiments/core/engine/DECISIONS.md).
+The [open-question queue](../experiments/core/engine/OPEN-QUESTIONS.md) is the
+canonical unresolved list. Ownership and commit coordination are active;
+[DO-local execution and OCC replicas](../experiments/core/engine/01-do-execution-and-replicas.md)
+remain a proposed topology with open protocols. This acceptance is design-only:
+it does not implement or activate a DO host, enable framework replay, remove
+existing checks, resume old optimization work or alter current runtime behavior.
+The hosted topology below remains the implemented/accepted baseline until a
+connected replacement and its cutover are separately selected and proved.
+
 ## Task System Replacement Authority
 
 The accepted [independent Trigger fork design](./task-system/README.md) owns
