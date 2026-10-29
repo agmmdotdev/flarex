@@ -453,6 +453,12 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
             inspectLogicalRelationalRealBatch(operation.batch, operation.tableId, reason => refused(reason === "invalidAuthority" ? "invalidAuthority" : "invalidInput")));
           if (!matchesLogicalRelationalAttemptTable(input.finiteReadDemand.admission, operation.tableId, batch.table))
             return yield* Result.fail(refused("invalidAuthority"));
+          // Related programs retain two original source table identities. The
+          // same actual participant must own both before any dynamic body is
+          // planned; common lineage or a cross-source bundle grants nothing.
+          if ("child" in batch && batch.child !== undefined &&
+            !matchesLogicalRelationalAttemptTable(input.finiteReadDemand.admission, batch.child.tableId, batch.child.table))
+            return yield* Result.fail(refused("invalidAuthority"));
         }
         if (preparedIndex !== undefined && (selected?.definition === undefined ||
           selected.definition.indexDefinitionId !== preparedIndex.indexDefinitionId ||
@@ -523,6 +529,18 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
       const protectedPredicate = Effect.fnUntraced(function* (predicate: Extract<FiniteStorageCaptureOperation, { kind: "relationalPredicate" | "relationalReal" }>) {
         const headerShape = shapes.get("ownershipFence");
         if (headerShape === undefined) return yield* Effect.die("Finite capture header shape missing");
+        const related = predicate.kind === "relationalPredicate" && (yield* Effect.fromResult(
+          inspectPostgresRelationalBatch(predicate.batch, predicate.tableId,
+            (reason, cause) => refused(reason === "invalidAuthority" ? "invalidAuthority" : "invalidInput", cause)))).child !== undefined;
+        if (related && profile.kind === "fullArtifact" && retained?.controlDb === undefined)
+          return yield* Effect.fail(refused("invalidAuthority"));
+        // Full-artifact compatibility may use a separate control database. Its
+        // epoch is absent from the target header, so the same existing control
+        // capture owner brackets this related operation. Co-located control is
+        // already covered by the target header; never nest its transaction.
+        const separateControl = related && profile.kind === "fullArtifact" && retained?.controlDb !== database ? retained?.controlDb : undefined;
+        const controlEntry = separateControl === undefined ? undefined : yield* captureControl(separateControl);
+
         const requireAccepted = Effect.fnUntraced(function* (result: Captured, epoch?: Readonly<{ target: string | null; control: string | null }>) {
           const accepted = yield* acceptCapture(result, epoch);
           if (accepted.kind === "attemptReplaced") {
@@ -556,6 +574,8 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
             const decoded = yield* Effect.fromResult(decodePostgresRelationalMatches(predicate.batch, predicate.tableId, body.rawRows,
               (reason, cause) => refused(reason === "invalidAuthority" ? "invalidAuthority" : "storedCorruption", cause)));
             yield* requireAccepted(yield* execute(headerShape), epoch);
+            if (separateControl !== undefined && controlEntry !== undefined)
+              yield* captureControl(separateControl, undefined, controlEntry.epoch);
             return { kind: "relationalPredicate" as const, body, decoded };
           }, (effect, tx) => effect.pipe(Effect.ensuring(Effect.sync(() => closeInstallationAdmission(tx)))));
         if (profile.kind === "fullArtifact") return yield* runEffectTransactionSettlement(

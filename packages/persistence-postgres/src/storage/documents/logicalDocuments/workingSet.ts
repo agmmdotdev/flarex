@@ -53,8 +53,9 @@ import { decodeCapturedAppIndexSnapshotPageEffect,
   MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, type AppIndexRangeCursorV1, type AppIndexRangePageV1 } from "../../indexes/appIndexEntries";
 import { decodeLogicalFindQuery, isLogicalRange, selectLogicalIndex, selectLogicalPageIndex, prepareLogicalQueryPredicate, logicalWhereValues, logicalSelectionWhere, selectLogicalUniqueValues, selectLogicalIndexValues, type LogicalSelectionValues, type LogicalWhere } from "./query";
 import { prepareLogicalRelationalRead, logicalRelationalSelectionValues, type LogicalRelationalReadDemand } from "./relationalQuery";
+import { decodeRelatedRelationalQuery, prepareRelatedRelationalPredicate } from "./relatedRelationalPredicate";
 import { preparePostgresRelationalBatch, inspectPostgresRelationalBatch, buildPostgresRelationalPredicateBody,
-  decodePostgresRelationalMatches } from "./postgresRelationalPredicate";
+  decodePostgresRelationalMatches, type PostgresRelationalPredicateBatch } from "./postgresRelationalPredicate";
 import { rowsFromDriverExecuteResult } from "../../../database/driverExecuteResult";
 import { decodeLogicalAggregate, sumLogicalRows } from "./aggregate";
 import { relationalTextIdentity } from "./relationalRows";
@@ -172,6 +173,8 @@ export interface LogicalRelationalReadObservation {
   /** Exact returned identities before projection, requested explicitly or by
    * storage-insertion ordering. Candidate/dependency rows remain separate. */
   readonly orderedIdentities?: readonly JsonObject[];
+  /** Actual binding for a successfully decoded related-program match vector. */
+  readonly related?: Readonly<{ childTableId: CatalogTableId; childTableName: string; foreignKeyConstraintId: string }>;
 }
 export interface LogicalDocumentChanges {
   readonly insertionRoot?: LogicalInsertionRoot;
@@ -272,6 +275,8 @@ interface PreparedWriteMechanicsState {
     "tables" | "relationalCapabilities" | "searchDefinitions" | "indexes" | "unique">;
   readonly metadataProjections: readonly PreparedFiniteMetadataProjection[];
   readonly metadataByTable: ReadonlyMap<CatalogTableId, PreparedFiniteMetadataProjection>;
+  /** Issued per genuine source preparation, preserved through combinations. */
+  readonly sourceByTable: ReadonlyMap<CatalogTableId, object>;
   readonly lifetimes: readonly NonNullable<Effect.Success<ReturnType<typeof captureHostPreparationLifetime>>>[];
   readonly tablesByName: ReadonlyMap<string, LogicalDocumentTable>;
   readonly tablesById: ReadonlyMap<CatalogTableId, LogicalDocumentTable>;
@@ -363,6 +368,7 @@ const fieldCandidates = <Value>(values: readonly Value[], fieldFor: (value: Valu
 };
 const issueWriteMechanics = Effect.fnUntraced(function* <Failure>(
   input: WriteMechanicsInput, lifetimes: PreparedWriteMechanicsState["lifetimes"], error: LogicalDocumentFailure<Failure>,
+  sourceByTable?: ReadonlyMap<CatalogTableId, object>,
 ) {
   for (const lifetime of lifetimes) yield* Effect.fromResult(lifetime.checkOpen()).pipe(Effect.mapError(cause =>
     error(cause.reason === "closed" ? "closed" : "resourceFailure", cause)));
@@ -438,11 +444,12 @@ const issueWriteMechanics = Effect.fnUntraced(function* <Failure>(
     groupedIndexes: [...indexesByTable].map(([tableId, definitions]) => ({ tableId, count: definitions.length })),
     groupedUnique: [...uniqueByTable].map(([tableId, definitions]) => ({ tableId, count: definitions.length })),
     groupedSearch: [...searchByTable].map(([tableId, definitions]) => ({ tableId, count: definitions.length })),
-    metadataRouting,
+    metadataRouting, sourceRouting: tables.map(table => ({ tableId: table.tableId })),
   })).pipe(Effect.mapError(cause => error("resourceFailure", cause)));
   const prepared = makeWriteMechanicsToken();
   preparedWriteMechanics.set(prepared, { projection: Object.freeze({ tables, relationalCapabilities: capabilities,
     searchDefinitions, indexes, unique }), metadataProjections, metadataByTable,
+    sourceByTable: sourceByTable ?? new Map(tables.map(table => [table.tableId, prepared])),
     lifetimes, tablesByName, tablesById, indexesByTable, uniqueByTable, foreignKeys,
     indexCandidates, uniqueCandidates, searchCandidates, relationalAccess });
   for (const owner of lifetimes) {
@@ -508,7 +515,8 @@ export const combineLogicalWriteMechanics = Effect.fnUntraced(function* <Failure
     metadataProjections: [...new Set(states.flatMap(state => state.metadataProjections))],
     ...(capabilities === undefined ? {} : { relationalCapabilities: capabilities }),
     indexes: inputs.flatMap(input => input.indexes), unique: inputs.flatMap(input => input.unique),
-    searchDefinitions: inputs.flatMap(input => input.searchDefinitions) }, Object.freeze(lifetimes), error);
+    searchDefinitions: inputs.flatMap(input => input.searchDefinitions) }, Object.freeze(lifetimes), error,
+    new Map(states.flatMap(state => [...state.sourceByTable])));
   writeSources.set(prepared, new Set(inputs));
   const cache = combined;
   const evict = writeCombinationEviction(cache, prepared, third);
@@ -1308,26 +1316,29 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
   /** Candidate acquisition owns dependencies; PostgreSQL evaluates the captured
    * current values without rereading committed rows or retaining a verdict.
    * Find/page retain their existing outer diagnostic operation boundaries. */
-  const evaluateRelationalPredicate = Effect.fnUntraced(function* (table: LogicalDocumentTable, query: ReadQuery, documents: readonly JsonObject[]) {
-    if (query.postgresPredicate === undefined || table.relational === undefined)
-      return yield* Effect.fail(error("invalidAuthority"));
-    const batch = yield* Effect.fromResult(preparePostgresRelationalBatch(query.postgresPredicate,
-      table.relational, table.tableId, documents, { rows: callIdentityLimit, bytes: lifetime.remainingBytes() }, error));
-    const inspected = yield* Effect.fromResult(inspectPostgresRelationalBatch(batch, table.tableId, error));
+  const evaluatePostgresRelationalBatch = Effect.fnUntraced(function* (tableId: CatalogTableId, batch: PostgresRelationalPredicateBatch) {
+    const inspected = yield* Effect.fromResult(inspectPostgresRelationalBatch(batch, tableId, error));
     yield* charge(inspected.inputBytes);
-    const result = yield* (finiteProfile === undefined ? runStorageRead({ kind: "rows", tableId: table.tableId },
-      { tableId: table.tableId }, tx => Effect.gen(function* () {
-        const body = yield* Effect.fromResult(buildPostgresRelationalPredicateBody(batch, table.tableId, error));
+    const result = yield* (finiteProfile === undefined ? runStorageRead({ kind: "rows", tableId: tableId },
+      { tableId: tableId }, tx => Effect.gen(function* () {
+        const body = yield* Effect.fromResult(buildPostgresRelationalPredicateBody(batch, tableId, error));
         const captured = yield* runDrizzleStatementEffect(tx.execute(body), cause => error("resourceFailure", cause));
         return yield* Effect.try({
           try: () => rowsFromDriverExecuteResult(captured, () => { throw new Error("Malformed relational predicate driver result"); }),
           catch: cause => error("storedCorruption", cause),
         });
-      })).pipe(Effect.flatMap(rawRows => Effect.fromResult(decodePostgresRelationalMatches(batch, table.tableId, rawRows, error)))) :
-      finiteProfile.captureStorage({ kind: "relationalPredicate", tableId: table.tableId, batch },
-        { kind: "rows", tableId: table.tableId }));
+      })).pipe(Effect.flatMap(rawRows => Effect.fromResult(decodePostgresRelationalMatches(batch, tableId, rawRows, error)))) :
+      finiteProfile.captureStorage({ kind: "relationalPredicate", tableId: tableId, batch },
+        { kind: "rows", tableId: tableId }));
     yield* charge(result.bytes);
     return result.matches;
+  });
+  const evaluateRelationalPredicate = Effect.fnUntraced(function* (table: LogicalDocumentTable, query: ReadQuery, documents: readonly JsonObject[]) {
+    if (query.postgresPredicate === undefined || table.relational === undefined)
+      return yield* Effect.fail(error("invalidAuthority"));
+    const batch = yield* Effect.fromResult(preparePostgresRelationalBatch(query.postgresPredicate,
+      table.relational, table.tableId, documents, { rows: callIdentityLimit, bytes: lifetime.remainingBytes() }, error));
+    return yield* evaluatePostgresRelationalBatch(table.tableId, batch);
   });
   const withStorageFrontier = <A>(demand: LogicalStorageReadDemand, selection: PendingSelection,
     work: Effect.Effect<A, Failure>): Effect.Effect<A, Failure> =>
@@ -1920,7 +1931,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       const docs = yield* Effect.forEach(matched.slice(query.offset, query.offset + query.limit), row => lifetime.fromResult(output(row.document, true)));
       return Object.freeze({ docs: Object.freeze(docs), total: matched.length });
     }))));
-  const readRelationalSelection = (tableName: string, input: unknown, complete = false, preparation?: ReadPreparation) => observeExecution("LogicalDocuments.readRelationalSelection", Effect.gen(function* () {
+  const readRelationalSelection = (tableName: string, input: unknown, complete = false, preparation?: ReadPreparation,
+    relatedCohort = false) => observeExecution("LogicalDocuments.readRelationalSelection", Effect.gen(function* () {
     const table = yield* tableForName(tableName);
     if (table.relational === undefined || state.relationalCapabilities === undefined) return yield* Effect.fail(error("invalidAuthority"));
     const captured = yield* Effect.fromResult(useCapturedPrivateJsonData(preparation?.retained?.captured.value ?? input, lifetime.remainingBytes(), error));
@@ -1929,7 +1941,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     if (query.storageInsertion && state.allowStorageInsertionOrder !== true) return yield* Effect.fail(error("invalidAuthority"));
     if (state.snapshotCommitSeq !== undefined && (query.search !== null || query.json !== null))
       return yield* Effect.fail(error("invalidInput"));
-    if (complete && query.selections === null && query.search === null && query.json === null)
+    if (complete && !relatedCohort && query.selections === null && query.search === null && query.json === null)
       return yield* Effect.fail(error("invalidInput"));
     const selected = new Map<AppDocumentIdV1, PendingDocument>();
     // A null predicate required by every Boolean branch may use an admitted
@@ -2126,6 +2138,46 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
   }));
   const executeRelationalFind = (context: BoundedRequestContext,
     id: PresentedTransactionId, tableName: string, input: unknown, preparation?: ReadPreparation) => observeExecution("LogicalDocuments.relationalFind", Effect.suspend(() => runOperation(context, id, "read", readRelationalSelection(tableName, input, false, preparation))));
+
+  const executeRelatedRelationalFind = (context: BoundedRequestContext, id: PresentedTransactionId,
+    tableName: string, input: unknown) => observeExecution("LogicalDocuments.relatedRelationalFind", Effect.suspend(() =>
+      runOperation(context, id, "read", Effect.gen(function* () {
+        if (writeMechanics === undefined || writeMechanics.closed === true || state.relationalCapabilities === undefined)
+          return yield* Effect.fail(error("unsupportedProfile"));
+        const captured = yield* Effect.fromResult(useCapturedPrivateJsonData(input, lifetime.remainingBytes(), error));
+        yield* charge(captured.bytes);
+        const query = yield* Effect.fromResult(decodeRelatedRelationalQuery(captured.value).pipe(Result.mapError(cause => error("invalidInput", cause))));
+        const parent = yield* tableForName(tableName), child = yield* tableForName(query.childTable);
+        const source = writeMechanics.sourceByTable.get(parent.tableId);
+        if (source === undefined || source !== writeMechanics.sourceByTable.get(child.tableId) ||
+          parent.relational === undefined || child.relational === undefined)
+          return yield* Effect.fail(error("invalidAuthority"));
+        const prepared = yield* Effect.fromResult(prepareRelatedRelationalPredicate(parent.relational, child.relational,
+          child.tableId, state.relationalCapabilities, query, limits.pageRows, error));
+        // Complete current cohorts use the existing bounded PK index owner,
+        // including pending writes and exact snapshot dependencies.
+        const parents = yield* readRelationalSelection(tableName,
+          { includeIdentities: true, order: { column: prepared.parentColumn, direction: "asc" } }, true, undefined, true);
+        const children = yield* readRelationalSelection(query.childTable,
+          { includeIdentities: true, order: { column: prepared.childPrimaryColumn, direction: "asc" } }, true, undefined, true);
+        const batch = yield* Effect.fromResult(preparePostgresRelationalBatch(prepared.program,
+          parent.relational, parent.tableId, parents.docs, { rows: callIdentityLimit, bytes: lifetime.remainingBytes() }, error,
+          { table: child.relational, tableId: child.tableId, rows: children.docs }));
+        const matches = yield* evaluatePostgresRelationalBatch(parent.tableId, batch);
+        const matched = Object.freeze(parents.docs.filter((_, ordinal) => matches[ordinal] === true));
+        const identities: JsonObject[] = [];
+        for (const row of matched) {
+          const key = row[prepared.parentColumn];
+          if (typeof key !== "string") return yield* Effect.fail(error("storedCorruption"));
+          identities.push(Object.freeze({ [prepared.parentColumn]: key }));
+        }
+        const retained = yield* Effect.fromResult(capturePrivateJsonData(identities, lifetime.remainingBytes(), error));
+        yield* charge(retained.bytes);
+        relationalReads.push(Object.freeze({ tableId: parent.tableId, tableName: parent.logicalName, query: captured.value,
+          total: matched.length, returned: matched.length, orderedIdentities: Object.freeze(identities),
+          related: Object.freeze({ childTableId: child.tableId, childTableName: child.logicalName, foreignKeyConstraintId: query.foreignKey }) }));
+        return matched;
+      }))));
 
   const executeRelationalPage = (context: BoundedRequestContext,
     id: PresentedTransactionId, tableName: string, input: unknown, preparation?: ReadPreparation) => observeExecution("LogicalDocuments.relationalPage", Effect.suspend(() => runOperation(context, id, "read", Effect.gen(function* () {
@@ -3048,6 +3100,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
           } satisfies LogicalRelationalReadProgram<Failure>);
         },
         find: (context, query) => executeRelationalFind(context, id, tableName, query).pipe(Effect.map(result => result.docs)),
+        related: (context, query) => executeRelatedRelationalFind(context, id, tableName, query),
         findPage: (context, query) => executeRelationalPage(context, id, tableName, query),
         count: (context, query) => executeRelationalFind(context, id, tableName, query).pipe(Effect.map(result => result.total)),
         aggregate: (context, query) => relationalAggregate(context, id, tableName, query),

@@ -67,7 +67,8 @@ export interface LogicalCommerceObservedRow {
   readonly row: JsonObject;
 }
 const ReadCount = Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }));
-const decodeRelationalRead = Schema.decodeUnknownEffect(Schema.Struct({ query: Schema.Json, total: ReadCount, returned: ReadCount, orderedIdentities: Schema.optionalKey(Schema.Array(Schema.Record(Schema.String, Schema.String))) })
+const RelatedRead = Schema.Struct({ childTable: Schema.String, foreignKeyConstraintId: Schema.String });
+const decodeRelationalRead = Schema.decodeUnknownEffect(Schema.Struct({ related: Schema.optionalKey(RelatedRead), query: Schema.Json, total: ReadCount, returned: ReadCount, orderedIdentities: Schema.optionalKey(Schema.Array(Schema.Record(Schema.String, Schema.String))) })
   .check(Schema.makeFilter(value => value.returned <= value.total &&
     (value.orderedIdentities === undefined || value.orderedIdentities.length === value.returned))), { onExcessProperty: "error" });
 export interface LogicalCommerceReferenceSelection {
@@ -284,13 +285,18 @@ export const projectLogicalCommerceActivity = Effect.fnUntraced(function* (
   for (const observation of activity.relationalReads) {
     const table = names.get(observation.tableId);
     if (table === undefined || table !== observation.tableName) return yield* Effect.fail(commerceError("storedCorruption"));
+    const relatedChild = observation.related === undefined ? undefined : names.get(observation.related.childTableId);
+    if (observation.related !== undefined && (relatedChild === undefined || relatedChild !== observation.related.childTableName))
+      return yield* Effect.fail(commerceError("storedCorruption"));
     const captured = yield* Effect.fromResult(useCapturedPrivateJsonData({ query: observation.query, total: observation.total, returned: observation.returned,
+      ...(observation.related === undefined ? {} : { related: { childTable: relatedChild, foreignKeyConstraintId: observation.related.foreignKeyConstraintId } }),
       ...(observation.orderedIdentities === undefined ? {} : { orderedIdentities: observation.orderedIdentities }) },
       Number.MAX_SAFE_INTEGER, (_reason, cause) => commerceError("storedCorruption", cause)));
     const selected = yield* decodeRelationalRead(captured.value)
       .pipe(Effect.mapError(cause => commerceError("storedCorruption", cause)));
     relationalReads.push(Object.freeze({ table, query: detachLogicalRelationalActivityJson(selected.query),
       total: selected.total, returned: selected.returned,
+      ...(selected.related === undefined ? {} : { related: Object.freeze({ ...selected.related }) }),
       ...(selected.orderedIdentities === undefined ? {} : { orderedIdentities: Object.freeze(selected.orderedIdentities.map(identity =>
         Object.freeze(detachLogicalRelationalActivityJson(identity)))) }) }));
   }

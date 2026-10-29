@@ -258,3 +258,48 @@ unbounded regex/fulltext work and capacity are not established by this slice.
 - Admit the connected full Price Preference update workflow only after these
   owner gates and its own native/adapter proofs hold. Do not substitute an
   ID-only selector profile for the accepted native selector contract.
+
+
+## Proposed same-source related predicate program
+
+Status: implemented as a private, explicitly selected same-source profile. This
+heading retains its existing reference anchor. General joins, physical-store
+admission and complete native Promotion/Cart workflow admission remain outside
+this capability. The approved native historical evaluation policy is recorded
+in [preflight 160](../flarexdb-framework-integration/preflight/160-native-cart-creation-workflow.md#promotion-prefilter-compatibility-boundary).
+
+The optional logical table operation related accepts one genuine parent table,
+one same-source child table, a checked nonnullable TEXT child FK to the single
+TEXT parent primary key, and a bounded Boolean program. Parent and child leaves
+reuse the scalar compiler; notInChild compares the parent key with the checked
+child FK projection. PostgreSQL evaluates the complete left-join/subquery
+program, including lexical guards, numeric casts and SQL NULL behavior. The
+scalar API continues to refuse dotted columns, augmented rows and invented
+combined metadata.
+
+Both complete current cohorts use existing indexed acquisition, snapshot and
+pending-write owners. Original source-preparation group identity is retained
+through combined mechanics; matching lineage alone does not authorize a pair.
+The shared program limits remain 64 nodes, depth eight and 256 operands across
+related wrappers and scalar subtrees. Combined cohort rows and bytes, possible
+parent/child comparisons and returned values consume existing request budgets;
+no limit is raised. The issued batch retains both actual table definitions and
+catalog IDs, an immutable program and exact ordered parent verdicts. Activity
+retains each cohort's identities and the authenticated related match selection.
+
+Finite capture authenticates both genuine tables before dynamic evaluation.
+The existing accepting header, body, fresh tail and confirmed settlement owner
+remains authoritative. The installed paired frontier already fences complete
+control metadata generations. For the fullArtifact compatibility profile with
+a separate control database, only the related operation additionally brackets
+the protected target capture with existing control-epoch reads. A changed
+child catalog epoch refuses before result exposure. Scalar captures and physical
+profiles retain their existing admission contracts.
+
+No adapter SQL, source-local exception, extra workflow transaction, independent
+runner, recovery store or reusable verdict is introduced. Automatic Promotion
+root selection, no-root skip, historical evaluation policy and global/target/buy
+membership exclusions stay with native Promotion. Its absence of automatic
+roots skips this operation; it changes no shared empty-batch semantics. The
+native SQL comparator's bounded agreement is not general plan-error equivalence,
+production activation or unbounded query/graph support.

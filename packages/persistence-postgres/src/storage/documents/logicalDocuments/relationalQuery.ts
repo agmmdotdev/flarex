@@ -199,7 +199,9 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
     };
     let nodes = 0;
     let operands = 0;
+    let maximumDepth = 0;
     const visit = (inputNode: unknown, depth: number): Result.Result<Filter<Failure>, Failure> => Result.gen(function* () {
+      maximumDepth = Math.max(maximumDepth, depth);
       if (++nodes > relationalReadLimits.filterNodes || depth > relationalReadLimits.filterDepth)
         return yield* Result.fail(error("limitExceeded"));
       const node = yield* decodeNode(inputNode).pipe(Result.mapError(cause => error("invalidInput", cause)));
@@ -526,6 +528,7 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
           : Result.fail(error("invalidInput")),
       });
     });
-    return Object.freeze({ demand, pointDemand, compile });
+    return Object.freeze({ demand, pointDemand, compile, predicate: filter.predicate,
+      complexity: Object.freeze({ nodes, operands, depth: maximumDepth }) });
   });
 }

@@ -66,6 +66,9 @@ export interface LogicalRelationalReadProgram<Failure> {
 }
 
 export interface LogicalRelationalStore<Failure> {
+  /** Genuine same-source FK pair only. Both complete current cohorts remain
+   * owned by this working set; physical/unprepared profiles omit admission. */
+  readonly related?: (context: BoundedRequestContext, query: unknown) => Effect.Effect<readonly JsonObject[], Failure>;
   /** Inert source-bound construction. Capture and validation remain inside the
    * first actual guarded operation; each execution charges the complete query. */
   readonly prepareRead: (query: unknown) => LogicalRelationalReadProgram<Failure>;

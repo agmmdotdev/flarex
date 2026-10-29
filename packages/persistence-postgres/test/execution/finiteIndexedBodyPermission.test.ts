@@ -15,6 +15,8 @@ import { encodeAdmittedFrameworkOperationV1Result } from "flarex-protocol/intern
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { createMixedMutationProductFixture } from "../../../executor/test/performance/support/mixedMutationProductFixture";
 import { runNativeStandaloneProductMutation, runNativeStandaloneProductUpdate, seedNativeProductAttemptGraph } from "../../../medusa-adapter/test/support/native-product-attempt-seed";
+import { fxControlLogicalReadTables } from "../../src/database/schema/catalogLogicalReads";
+import { prepareRelatedRelationalPredicate } from "../../src/storage/documents/logicalDocuments/relatedRelationalPredicate";
 import { fxAppRowRevisions } from "../../src/database/schema";
 import { LogicalParticipantInvocationError } from "../../src/storage/documents/logicalDocuments/participantErrors";
 import type { FiniteSessionJournalParticipantSelection } from "../../src/execution/journal/api";
@@ -562,6 +564,86 @@ describe.each(drivers)("finite indexed body permission on %s", driver => {
           expect(nativeRows()[1]?.rawCount).toBeLessThanOrEqual(44);
         }),
       });
+    } finally { observer.restore(); await base.close(); }
+  }, 180_000);
+
+  it("authenticates both related tables before SQL and retains fresh child-catalog authority through the predicate tail", async () => {
+    let participant: FiniteSessionJournalParticipantSelection | undefined;
+    const base = await createMixedMutationProductFixture({ driver, suffix: "finite-related-" + driver,
+      hooks: { transformFiniteEntrySources: participants => { participant = participants[0]; return participants; } } });
+    const observer = observeNativeCaptures();
+    try {
+      if (participant === undefined) throw failure("Missing actual related participant");
+      const actualParticipant = participant;
+      const fresh = async (name: string, run: ReadCase["run"]) => {
+        const fixture = await base.openCompetingFiniteFixture("finite-related-" + driver + "-" + name);
+        try { observer.begin(); await runReadCase(fixture, actualParticipant, { caseName: name, run }); }
+        finally { observer.stop(); await fixture.close(); }
+      };
+      const pair = (permission: PredicatePermission) => {
+        const parent = permission.tables.find(table => table.localName === base.seedGraph.catalog.product.table.name);
+        const child = permission.tables.find(table => table.localName === base.seedGraph.catalog.option.table.name);
+        if (parent === undefined || child === undefined) throw failure("Missing actual Product/Option pair");
+        const constraint = child.definition.constraints.find(value => value.kind === "foreignKey" &&
+          value.targetColumns[0]?.tableId === parent.definition.identity.tableId);
+        if (constraint === undefined) throw failure("Missing actual Option/Product FK");
+        return { parent, child, foreignKey: constraint.identity.constraintId };
+      };
+      const predicate = { kind: "child", predicate: { kind: "postgresText", column: "title", operator: "exists", value: true } };
+      await fresh("genuine", (working, lifetime, id, _root, permission) => Effect.gen(function* () {
+        const { parent, child, foreignKey } = pair(permission);
+        const store = yield* working.relationalTable(lifetime.context, id, parent.localName);
+        if (store.related === undefined) throw failure("Missing admitted related capability");
+        const query = { childTable: child.localName, foreignKey, predicate };
+        const found = yield* store.related(lifetime.context, query);
+        expect(found.map(row => row.id)).toEqual([base.seed.productId]);
+        expect(observer.captures.filter(value => value.kind === "relationalPredicate")).toEqual([
+          expect.objectContaining({ rawCount: 1, headerReason: "accepted" })]);
+        const activity = yield* working.activitySnapshot();
+        expect(activity.relationalReads.at(-1)).toMatchObject({ tableId: parent.tableId, query, total: 1, returned: 1,
+          orderedIdentities: [{ id: base.seed.productId }], related: { childTableId: child.tableId, foreignKeyConstraintId: foreignKey } });
+        expect(activity.relationalReads.slice(-3, -1).every(value => value.orderedIdentities !== undefined)).toBe(true);
+      }));
+      for (const mode of ["copiedChild", "wrongChildId"] as const) await fresh(mode, (_working, _lifetime, _id, _root, permission) => Effect.gen(function* () {
+        const { parent, child, foreignKey } = pair(permission);
+        const definition = mode === "copiedChild" ? { ...child.definition } : child.definition;
+        const childId = mode === "wrongChildId" ? parent.tableId : child.tableId;
+        // Invalid PostgreSQL regex makes premature body planning observable,
+        // even for an empty candidate cohort. Only child provenance changes.
+        const prepared = yield* Effect.fromResult(prepareRelatedRelationalPredicate(parent.definition, definition, childId,
+          permission.schema.capabilities, { childTable: child.localName, foreignKey,
+            predicate: { kind: "child", predicate: { kind: "postgresText", column: "title", operator: "regex", value: "[" } } }, 8, failure));
+        const batch = yield* Effect.fromResult(preparePostgresRelationalBatch(prepared.program, parent.definition, parent.tableId, [],
+          { rows: 8, bytes: 65_536 }, failure, { table: definition, tableId: childId, rows: [] }));
+        expect(yield* permission.capture({ kind: "relationalPredicate", tableId: parent.tableId, batch },
+          { kind: "rows", tableId: parent.tableId }).pipe(Effect.result)).toMatchObject({ _tag: "Failure", failure: {
+            message: "captureFailure", cause: { _tag: "FiniteStorageCaptureError", reason: "invalidAuthority" } } });
+        expect(observer.captures.filter(value => value.kind === "relationalPredicate")).toHaveLength(0);
+      }));
+      if (driver === "pglite") await fresh("child-control-tail", (working, lifetime, id, _root, permission) => Effect.gen(function* () {
+        const { parent, child, foreignKey } = pair(permission);
+        const store = yield* working.relationalTable(lifetime.context, id, parent.localName);
+        if (store.related === undefined) throw failure("Missing admitted related capability");
+        const [original] = yield* Effect.tryPromise({ try: () => base.currency.control.drizzle.select().from(fxControlLogicalReadTables)
+          .where(and(eq(fxControlLogicalReadTables.deploymentId, base.currency.deploymentId), eq(fxControlLogicalReadTables.tableId, child.tableId))),
+          catch: cause => failure("Read genuine child metadata", cause) });
+        if (original === undefined) throw failure("Missing original child read catalog");
+        let changed = false;
+        observer.begin({ afterPredicateBody: async () => {
+          expect(observer.headers.slice(-2).map(value => value.reason)).toEqual(["accepted", "accepted"]);
+          const updated = await base.currency.control.drizzle.update(fxControlLogicalReadTables)
+            .set({ projectionSha256: original.projectionSha256 })
+            .where(and(eq(fxControlLogicalReadTables.deploymentId, original.deploymentId),
+              eq(fxControlLogicalReadTables.schemaVersionId, original.schemaVersionId),
+              eq(fxControlLogicalReadTables.sourceKey, original.sourceKey), eq(fxControlLogicalReadTables.localName, original.localName)))
+            .returning();
+          expect(updated.map(value => value.tableId)).toEqual([child.tableId]); changed = true;
+        } });
+        expect(yield* store.related(lifetime.context, { childTable: child.localName, foreignKey, predicate }).pipe(Effect.result))
+          .toMatchObject({ _tag: "Failure", failure: { message: "captureFailure", cause: {
+            _tag: "FiniteStorageCaptureError", reason: "invalidAuthority" } } });
+        expect(changed).toBe(true);
+      }));
     } finally { observer.restore(); await base.close(); }
   }, 180_000);
 
