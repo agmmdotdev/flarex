@@ -1,6 +1,6 @@
 # Exact range completion evidence
 
-Status: **Selected producer-correction contract; implementation unstarted**.
+Status: **Newly executed range evidence corrected; full pending milestone open**.
 Owner: [pending-state replacement](./04-mutation-pending-state.md). This is its
 first connected prerequisite, not completion of that milestone or the full goal.
 
@@ -93,3 +93,28 @@ cache coverage that does not advance from the membership witness. Use meaningful
 existing owner/consumer regressions, both database lanes, scoped Oxc checks and
 both final reviewers. Old journal cutover, incremental pending indexes and the
 real Standard migration remain open parent gates.
+
+## Executing owners and bounded proof
+
+`projectRangePage` retains the decoded membership tuple separately from the
+limited entries. Both `runFiniteIndexedQueryEffect` and
+`runIndexedQueryInTransactionEffect` keep their existing sorted merged positions
+and materialization loop. `indexRangeDependencyFromPage` compares their logical
+extra position with the unshadowed raw lookahead and uses the earlier tuple.
+This computes the merged N+1 frontier without another array, sort or body read.
+The synthetic complete native page and exact-shape reader assertions use null.
+
+The [shared native/CMS scenario](../../../../packages/persistence-postgres/test/frameworks/cmsTransaction/nativeCmsPublicationScenario.ts)
+exercises newly executed durable evidence against real CMS deletion and bounded
+key movement. The [finite scenario](../../../../packages/persistence-postgres/test/execution/journal/finiteIndexedQueriesScenario.ts)
+uses genuine prepared admission, entry, journal, freeze and publication owners;
+a second finite mutation commits its deletion before the stale proposal is
+rejected. Both check unchanged durable inventory after refusal. The finite
+fixture selects the existing bounded `finiteCapture` target transport; its
+control database remains ordinary. No engine guard or timeout limit changes.
+
+Direct readers cover current, historical and batched pages, tuple ties,
+exhaustion and tombstones. Journal tests retain selected-only accounting,
+unselected-body nonmaterialization, private pending refill and replay without
+additional charges. Existing snapshot and actual DO scenarios retain their
+cache-coverage and public-result contracts. Validation receipts belong in Git.

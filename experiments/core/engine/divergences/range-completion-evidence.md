@@ -1,7 +1,7 @@
 # Exact range completion and selected-body evidence
 
 Design status: **Selected bounded producer adaptation**.
-Implementation status: **Unstarted**.
+Implementation status: **Newly executed finite/durable range producer correction implemented**.
 Measurement status: **No capacity claim**.
 Owner: [range-evidence prerequisite](../slices/04a-range-completion-evidence.md).
 
@@ -39,7 +39,9 @@ gate is complete writer/log participation with same-key body regressions, not
 the presence of a new pending index map.
 
 The implementation remains at `appIndexEntries.projectRangePage` and the shared
-finite/durable `indexedQueries` evidence producers. It reuses
+finite/durable `indexedQueries` evidence producers. `indexRangeDependencyFromPage`
+compares the existing sorted merged extra position with the unshadowed raw
+membership lookahead, avoiding another merge allocation or sort. It reuses
 `AppIndexRangeCursorV1`, current suppression/refill, normalization, accounting and
 acceptance. The raw lookahead is authenticated membership data, not authority,
 a user-visible body or proof of shared-cache coverage.

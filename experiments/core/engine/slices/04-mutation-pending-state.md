@@ -1,8 +1,8 @@
 # Application mutation pending state and read evidence
 
 Status: **Independent source challenge and peer exchange complete; range-evidence
-producer contract selected; broader pending replacement and stored-profile
-cutover remain open**. No runtime implementation is established by this note.
+producer correction implemented; broader pending replacement and stored-profile
+cutover remain open**. The substep record owns its bounded implementation status.
 The [goal](../GOAL.md) remains unchanged. The bounded
 [actual DO query host](./03-application-query-do-host.md) is implemented.
 
@@ -155,3 +155,41 @@ Matching stored durable requests must not become fresh finite executions or fals
 request-key conflicts. Preserve authenticated retry tickets, full outcome
 reconciliation and native non-replay rules. Retained old readers need a named
 anchor obligation and removal gate; no durable-data deletion is selected here.
+
+## Required untrusted Application admission boundary
+
+Current durable Standard operations freshly check authority, claim, expiry and
+grant epoch before returning an admitted value. The authority-row shared lock
+orders that check against revocation. Local RPC openness checks and process-local
+claim inspection are not equivalent. Existing finite known-point answers and
+receipt replay can run before the next heartbeat; final publication refusal
+does not preserve the earlier Worker value or structured-error behavior.
+
+The Standard cutover must retain that admission guarantee without retaining
+per-syscall journal persistence. Reuse the finite storage-capture admission owner
+for an authority-only check inside the trusted ordered Application operation,
+before local planning/result delivery or replay. Preserve its failure mapping,
+full Cause and sticky failure. Do not renew the lease on every read, put SQL in
+the RPC adapter or impose a new transaction profile on native commands.
+The concrete bounded contract and connected revocation/error witness are still
+required before that cutover.
+
+This is an admission ordering guarantee, not instantaneous cancellation of an
+already admitted RPC in transit. Removing its database check later requires
+complete participation by activation, permission-withdrawing framework binding
+writers and privileged maintenance/restore, plus a fenced-owner race proof.
+
+## Required nested-lifecycle witness
+
+The source audit found shared-root freeze/close but no write checkpoint/restore
+hook for catchable internal Application mutation failure. A child patch followed
+by a catchable application error is therefore a source-inferred risk that must
+be exercised before the pending replacement. It is not a confirmed runtime
+failure. Trace whether the actual journal makes that case terminal before
+deciding its existing supported behavior.
+
+Where catchable nested rollback is selected, the pending index delta must roll
+back with writes while retaining required reads and accounting. A new tree or
+copy-on-write representation does not by itself establish that lifecycle.
+Borrowed native participant failure currently aborts the whole root and must
+retain that distinct contract.

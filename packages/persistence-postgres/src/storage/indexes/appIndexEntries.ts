@@ -172,6 +172,8 @@ export interface AppIndexRangePageV1 {
   readonly entries: ReadonlyArray<AppIndexRangeEntryV1>;
   readonly isDone: boolean;
   readonly continueCursor: AppIndexRangeCursorV1 | null;
+  /** Authenticated membership beyond entries, without a materialized body. */
+  readonly lookahead: AppIndexRangeCursorV1 | null;
 }
 
 const appendQueryEffect = <T>(
@@ -2118,7 +2120,9 @@ function projectRangePage(limit: number, decoded: readonly AppIndexRangeEntryV1[
   const entries = Object.freeze(decoded.slice(0, limit));
   const last = entries.at(-1);
   const continueCursor = isDone || last === undefined ? null : Object.freeze({ encodedKey: last.encodedKey, rowId: last.rowId });
-  return Object.freeze({ entries, isDone, continueCursor });
+  const extra = decoded[limit];
+  const lookahead = extra === undefined ? null : Object.freeze({ encodedKey: extra.encodedKey, rowId: extra.rowId });
+  return Object.freeze({ entries, isDone, continueCursor, lookahead });
 }
 
 // Per-row decoding is covered by the named SQL/range operation; preserve every

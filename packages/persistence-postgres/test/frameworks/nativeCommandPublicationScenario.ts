@@ -10,6 +10,7 @@ import {
   canonicalizeSessionJournalEffect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
+import type { OrderedIndexBoundsV1 } from "flarex-protocol/ordered-index";
 import {
   createApplicationMutationSessionActivationPersistenceV1,
 } from "../../src/execution/session/activation";
@@ -61,7 +62,8 @@ import type { CommerceHostTestFixture } from "./commerceTransaction/commerceHost
 
 /** Real admission, journal and finishing owners for the bounded native range workload. */
 export const prepareNativeRangePublication = Effect.fn("NativeCommand.prepareRangePublication")(function* (
-  native: Awaited<ReturnType<typeof cmsHostFixture>>["fixture"], auditTitle?: string,
+  native: Awaited<ReturnType<typeof cmsHostFixture>>["fixture"], auditTitle?: string, rangeLimit = 32,
+  bounds: OrderedIndexBoundsV1 = {},
 ) {
   const active = (yield* native.relationActivation.readActive());
   const admission = (yield* selectApplicationMutationAdmission(active.selection, "functions:write", {
@@ -82,7 +84,9 @@ export const prepareNativeRangePublication = Effect.fn("NativeCommand.prepareRan
     snapshotToken: activation.anchor.snapshotToken, schemaVersionId: native.relation.binding.schemaVersionId }));
   const table = (yield* store.resolvePointTableEffect(attempt, "posts"));
   const index = (yield* store.resolveDeveloperIndexEffect(table, "by_title"));
-  expect((yield* store.runIndexedQueryEffect(index, { kind: "indexRange", syscallSequence: CommitSyscallSequenceV1Schema.make(1n), bounds: {}, limit: 32 }))).toMatchObject({ kind: "completed" });
+  const range = yield* store.runIndexedQueryEffect(index, { kind: "indexRange", syscallSequence: CommitSyscallSequenceV1Schema.make(1n), bounds, limit: rangeLimit });
+  expect(range).toMatchObject({ kind: "completed" });
+  if (range.kind !== "completed" || range.outcome.kind !== "indexRangePage") throw new Error("Expected native indexed page");
   if (auditTitle !== undefined) {
     const audit = yield* store.resolvePointTableEffect(attempt, "audit");
     const validator = issueSetupSeededSyscallValidatorProofV1({ scopeId: native.authority.scopeId,
@@ -102,7 +106,10 @@ export const prepareNativeRangePublication = Effect.fn("NativeCommand.prepareRan
   const finishing = (yield* loader.loadFinishingEffect(selectorFromRelationAnchor(activation.anchor)));
   if (finishing.kind !== "loaded") throw new Error("Expected native finishing evidence");
   const command = (yield* Effect.promise(() => pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1(authority, finishing.evidence)));
-  return { activation, command: { ...command, journalBytes: journal.canonicalBytes,
+  return { activation, page: range.outcome,
+    readAccounting: Object.freeze({ readDocuments: finishing.evidence.root.readDocuments,
+      readSemanticBytes: finishing.evidence.root.readSemanticBytes, pointDependencyCount: finishing.evidence.root.pointDependencyCount }),
+    command: { ...command, journalBytes: journal.canonicalBytes,
     successfulResult: { valueCodecVersion: result.evidence.valueCodecVersion, value: { observed: true }, canonicalBytes: result.canonicalBytes,
       semanticSizeBytes: result.semanticSizeBytes, sha256Hex: result.evidence.sha256Hex } },
     options: { developerIndexes, intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(native.control.drizzle),

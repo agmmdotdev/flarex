@@ -256,7 +256,7 @@ async function verifyDemandVectorEnvelopeCapture(db: FlarexMetadataDatabase, sco
       await runEffect(consumeCurrentAppIndexPagesInTransactionEffect(tx, [demand, demand], cause => cause,
         (ordinal, page) => Effect.sync(() => {
           consumed.push(ordinal);
-          expect(page).toEqual({ entries: [], isDone: true, continueCursor: null });
+          expect(page).toEqual({ entries: [], isDone: true, continueCursor: null, lookahead: null });
           expect(Object.isFrozen(page)).toBe(true);
           if (ordinal === 0) { later.ordinal = 0; later.present = false; }
         })));

@@ -83,9 +83,12 @@ the existing Application query path. Neither closes the wider
 snapshot/DO milestone or the complete goal. The bounded
 [actual-DO query composition](./slices/03-application-query-do-host.md) now executes
 the genuine query path with default local workerd and ordinary PostgreSQL.
-The next [mutation pending-state preflight](./slices/04-mutation-pending-state.md)
-records independent source challenge and peer convergence. Its connected
-replacement contract and stored-profile disposition remain prerequisites to code.
+The [mutation pending-state replacement](./slices/04-mutation-pending-state.md)
+records independent source challenge and peer convergence. Its first
+[range-evidence prerequisite](./slices/04a-range-completion-evidence.md) is
+implemented for newly executed operations. Incremental shared-root indexes, the
+real Standard cutover and stored-profile disposition remain open; a producer
+correction does not repair older journal readsets or complete that milestone.
 
 ## Mandatory challenge before each slice
 

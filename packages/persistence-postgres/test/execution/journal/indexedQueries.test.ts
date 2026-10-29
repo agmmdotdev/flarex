@@ -405,14 +405,14 @@ describe("Journal indexed queries (PGlite)", () => {
     if (current.developerIndex === null) {
       throw new Error("Missing O10-A developer index handle.");
     }
+    const firstOperation = Object.freeze({
+      kind: "indexRange" as const,
+      syscallSequence: syscallSequence(1n),
+      bounds: Object.freeze({}),
+      limit: 1,
+    });
     await expect(runEffect(current.store.runIndexedQueryEffect(
-      current.developerIndex,
-      {
-        kind: "indexRange",
-        syscallSequence: syscallSequence(1n),
-        bounds: Object.freeze({}),
-        limit: 1,
-      },
+      current.developerIndex, firstOperation,
     ))).resolves.toMatchObject({
       kind: "completed",
       delivery: "executed",
@@ -431,7 +431,24 @@ describe("Journal indexed queries (PGlite)", () => {
       upper_kind: "position_inclusive",
     }]);
     expect(frontier.rows[0]?.upper_encoded_key).toBeInstanceOf(Uint8Array);
-    expect(frontier.rows[0]?.upper_row_id).toBeInstanceOf(Uint8Array);
+    expect(frontier.rows[0]?.upper_row_id).toEqual(appRowIdHexV1ToBytes(SECOND_ROW_ID));
+    const selected = await canonicalizeAppDocumentV1({ tableId: current.tableId,
+      rowId: SEEDED_ROW_ID, creationTime: SEEDED_CREATION_TIME, fields: { name: "Ada" } });
+    const afterFirst = await journalRoot(current.anchor.sessionId);
+    expect(afterFirst).toMatchObject({ read_documents: 1,
+      read_semantic_bytes: selected.semanticSizeBytes, point_dependency_count: 1,
+      indexed_query_syscalls: 1 });
+    const points = await persistence.query<{ row_id: Uint8Array }>(
+      "select row_id from fx_system_tx_journal_point where session_id = $1",
+      [current.anchor.sessionId],
+    );
+    expect(points.rows).toEqual([{ row_id: appRowIdHexV1ToBytes(SEEDED_ROW_ID) }]);
+    const counts = await journalCounts(current.anchor.sessionId);
+    await expect(runEffect(current.store.runIndexedQueryEffect(
+      current.developerIndex, firstOperation,
+    ))).resolves.toMatchObject({ delivery: "replayed", outcome: { isDone: false } });
+    expect(await journalRoot(current.anchor.sessionId)).toEqual(afterFirst);
+    expect(await journalCounts(current.anchor.sessionId)).toEqual(counts);
 
     await expect(runEffect(current.store.runIndexedQueryEffect(
       current.developerIndex,
@@ -465,6 +482,91 @@ describe("Journal indexed queries (PGlite)", () => {
       index_range_dependency_count: 1,
       point_dependency_count: 2,
     });
+  });
+
+  it("retains a committed lookahead without materializing its body", async () => {
+    const current = await scenario("lookahead_membership_only", {
+      seedFields: { name: "Ada" }, additionalSeedFields: { name: "Zoe" }, developerIndex: true,
+    });
+    if (current.developerIndex === null) throw new Error("Missing developer index handle.");
+    // The membership is genuine. A corrupt unselected body would fail if the
+    // extra position accidentally entered document materialization.
+    await persistence.query(`update fx_app_row_rev set value_sha256 = $4
+      where scope_uuid = $1 and table_id = $2 and row_id = $3`, [
+      projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid, current.tableId,
+      appRowIdHexV1ToBytes(SECOND_ROW_ID), new Uint8Array(32),
+    ]);
+    await expect(runEffect(current.store.runIndexedQueryEffect(current.developerIndex, {
+      kind: "indexRange", syscallSequence: syscallSequence(1n), bounds: {}, limit: 1,
+    }))).resolves.toMatchObject({ kind: "completed", outcome: { documents: [{ name: "Ada" }], isDone: false } });
+    const ranges = await persistence.query<{ upper_row_id: Uint8Array }>(
+      "select upper_row_id from fx_system_tx_journal_index_range where session_id = $1",
+      [current.anchor.sessionId],
+    );
+    expect(ranges.rows).toEqual([{ upper_row_id: appRowIdHexV1ToBytes(SECOND_ROW_ID) }]);
+    expect(await journalRoot(current.anchor.sessionId)).toMatchObject({
+      read_documents: 1, point_dependency_count: 1, indexed_query_syscalls: 1,
+    });
+  });
+
+  it("refills deleted base prefixes before a far pending lookahead without charging its body", async () => {
+    const seeds = [3, 4].map(ordinal => Object.freeze({
+      fields: Object.freeze({ name: ordinal.toString().padStart(2, "0") }),
+      rowId: decodeAppRowIdHexV1(`84000000000040008000${ordinal.toString(16).padStart(12, "0")}`),
+      creationTime: decodeAppCreationTimeV1(1_725_000_000_000.25 + ordinal),
+    }));
+    const current = await scenario("lookahead_pending_refill", {
+      seedFields: { name: "01" }, additionalSeedFields: { name: "02" },
+      extraIndexedSeeds: seeds, developerIndex: true,
+    });
+    if (current.developerIndex === null) throw new Error("Missing developer index handle.");
+    const third = seeds[0], fourth = seeds[1];
+    if (third === undefined || fourth === undefined) throw new Error("Missing indexed seeds.");
+    const validator = issueSetupSeededSyscallValidatorProofV1({ scopeId: current.anchor.scopeId,
+      schemaVersionId: current.schemaVersionId, schemaManifest: current.schemaManifest });
+    for (const [ordinal, rowId] of [SEEDED_ROW_ID, SECOND_ROW_ID].entries()) {
+      await runEffect(current.store.runPointOperationEffect(current.table, {
+        kind: "delete", syscallSequence: syscallSequence(BigInt(ordinal + 1)),
+        documentId: appDocumentIdV1FromRowIdentity({ tableId: current.tableId, rowId }),
+      }, validator));
+    }
+    await runEffect(current.store.runPointOperationEffect(current.table, {
+      kind: "insert", syscallSequence: syscallSequence(3n), fields: { name: "100" },
+    }, validator));
+    const before = await journalRoot(current.anchor.sessionId);
+    await expect(runEffect(current.store.runIndexedQueryEffect(current.developerIndex, {
+      kind: "indexRange", syscallSequence: syscallSequence(4n), bounds: {}, limit: 1,
+    }))).resolves.toMatchObject({ kind: "completed", outcome: { documents: [{ name: "03" }], isDone: false } });
+    const first = await journalRoot(current.anchor.sessionId);
+    const thirdDocument = await canonicalizeAppDocumentV1({ tableId: current.tableId,
+      rowId: third.rowId, creationTime: third.creationTime, fields: third.fields });
+    expect(first.read_documents - before.read_documents).toBe(1);
+    expect(first.read_semantic_bytes - before.read_semantic_bytes).toBe(thirdDocument.semanticSizeBytes);
+    expect(first.point_dependency_count - before.point_dependency_count).toBe(1);
+    expect((await persistence.query<{ upper_row_id: Uint8Array }>(
+      "select upper_row_id from fx_system_tx_journal_index_range where session_id = $1",
+      [current.anchor.sessionId],
+    )).rows).toEqual([{ upper_row_id: appRowIdHexV1ToBytes(fourth.rowId) }]);
+
+    const pending = await persistence.query<{ row_id: Uint8Array }>(
+      "select row_id from fx_system_tx_journal_point where session_id = $1 and overlay_kind = 'live'",
+      [current.anchor.sessionId],
+    );
+    expect(pending.rows).toHaveLength(1);
+    await expect(runEffect(current.store.runIndexedQueryEffect(current.developerIndex, {
+      kind: "indexRange", syscallSequence: syscallSequence(5n), bounds: {}, limit: 2,
+    }))).resolves.toMatchObject({ kind: "completed", outcome: { documents: [{ name: "03" }, { name: "04" }], isDone: false } });
+    const second = await journalRoot(current.anchor.sessionId);
+    const fourthDocument = await canonicalizeAppDocumentV1({ tableId: current.tableId,
+      rowId: fourth.rowId, creationTime: fourth.creationTime, fields: fourth.fields });
+    expect(second.read_documents - first.read_documents).toBe(2);
+    expect(second.read_semantic_bytes - first.read_semantic_bytes)
+      .toBe(thirdDocument.semanticSizeBytes + fourthDocument.semanticSizeBytes);
+    expect(second.point_dependency_count - first.point_dependency_count).toBe(1);
+    expect((await persistence.query<{ upper_row_id: Uint8Array }>(
+      "select upper_row_id from fx_system_tx_journal_index_range where session_id = $1",
+      [current.anchor.sessionId],
+    )).rows).toEqual([{ upper_row_id: pending.rows[0]?.row_id }]);
   });
 
   it("records the complete requested interval for an empty indexed page", async () => {

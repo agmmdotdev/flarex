@@ -1002,7 +1002,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     // owner charges them. No body crosses this query's native result boundary.
     const page: AppIndexRangePageV1 = complete ? {
       entries: yield* readLogicalIndexRange(tx, state.scopeId, selection, limit, error, testHooks?.observeIndexQuery),
-      isDone: true, continueCursor: null,
+      isDone: true, continueCursor: null, lookahead: null,
     } : yield* readLogicalIndexPage(tx, state.scopeId, selection, limit, error, testHooks?.observeIndexQuery);
     yield* acceptMembership(page);
     if (page.entries.some(entry => entry.tableId !== table.tableId) ||

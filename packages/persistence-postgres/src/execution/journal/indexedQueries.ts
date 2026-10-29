@@ -61,7 +61,7 @@ import {
   scanAppIndexAtSnapshotInTransactionEffect,
   decodeCapturedAppIndexSnapshotPageEffect,
 } from "../../storage/indexes/appIndexEntries";
-import type { AppIndexRangeEntryV1 } from "../../storage/indexes/appIndexEntries";
+import type { AppIndexRangeCursorV1, AppIndexRangeEntryV1 } from "../../storage/indexes/appIndexEntries";
 import { lowerAppDeveloperIndexKeyV1 } from "../../storage/indexes/appDeveloperIndexCommitV1";
 import {
   isIndexBuildSnapshotCoveredInTransactionEffect,
@@ -354,6 +354,9 @@ const runFiniteIndexedQueryEffect = Effect.fnUntraced(
       merged.sort(compareIndexedQueryMergedPositions);
       const page = Object.freeze(merged.slice(0, request.limit));
       const isDone = snapshotPage.isDone && merged.length <= request.limit;
+      const snapshotLookahead = snapshotPage.lookahead;
+      const lookahead = snapshotLookahead !== null && !stagedByRowId.has(snapshotLookahead.rowId)
+        ? snapshotLookahead : null;
       const documents: CanonicalFlarexValueV1[] = [];
       const newPoints: JournalPointMutationV1[] = [];
       const newPointReads = new Map<string, LiveAppRowRevisionV1>();
@@ -543,8 +546,9 @@ const runFiniteIndexedQueryEffect = Effect.fnUntraced(
         const dependency = indexRangeDependencyFromPage(
           index,
           request,
-          page,
+          merged,
           isDone,
+          lookahead,
         );
         const ranges = yield* Effect.fromResult(
           normalizeLogicalIndexRangeReadDependenciesV1Result([
@@ -1061,6 +1065,9 @@ const runIndexedQueryInTransactionEffect = Effect.fn(
   const pagePositions = Object.freeze(mergedPositions.slice(0, request.limit));
   const pageIsDone =
     snapshotPage.isDone && mergedPositions.length <= request.limit;
+  const snapshotLookahead = snapshotPage.lookahead;
+  const lookahead = snapshotLookahead !== null && !stagedByRowId.has(snapshotLookahead.rowId)
+    ? snapshotLookahead : null;
   const readDocumentLimitIssue = firstExceededLimit(counters, {
     ...ZERO_COUNTER_DELTAS,
     readDocuments: pagePositions.length,
@@ -1240,8 +1247,9 @@ const runIndexedQueryInTransactionEffect = Effect.fn(
   const dependency = indexRangeDependencyFromPage(
     index,
     request,
-    pagePositions,
+    mergedPositions,
     pageIsDone,
+    lookahead,
   );
   const nextRanges = yield* Effect.fromResult(
     normalizeLogicalIndexRangeReadDependenciesV1Result([
@@ -1328,20 +1336,29 @@ function indexRangeDependencyFromPage(
       readonly kind: "indexRange";
     }
   >,
-  entries: ReadonlyArray<
-    Readonly<{
-      readonly encodedKey: OrderedIndexKeyBytesHexV1;
-      readonly rowId: OrderedIndexRowIdHexV1;
-    }>
-  >,
+  mergedPositions: readonly AppIndexRangeCursorV1[],
   isDone: boolean,
+  lookahead: AppIndexRangeCursorV1 | null,
 ): LogicalIndexRangeReadDependencyV1 {
-  const last = entries.at(-1);
-  if (!isDone && last === undefined) {
-    // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: invariant - positive limits and N-plus-one page construction require a consumed position for every non-final page
-    throw new Error(
-      "A non-final indexed page must contain a consumed position.",
-    );
+  // N+S compensation keeps the raw membership lookahead beyond every returned
+  // document. Compare it only with the merged N+1 evidence position, never
+  // materialize or charge its body.
+  const mergedLookahead = mergedPositions[request.limit];
+  const frontier = lookahead !== null && (mergedLookahead === undefined ||
+      compareIndexedQueryMergedPositions(lookahead, mergedLookahead) < 0)
+    ? lookahead : mergedLookahead;
+  let upper: LogicalIndexRangeReadDependencyV1["upper"];
+  if (isDone) {
+    upper = request.endExclusive === null
+      ? null
+      : Object.freeze({ kind: "key", encodedKey: request.endExclusive, inclusive: false });
+  } else {
+    if (frontier === undefined) {
+      // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: invariant - N+S compensation and retained N-plus-one membership require an extra position for every non-final page
+      throw new Error("A non-final indexed page must retain its extra evidence position.");
+    }
+    upper = Object.freeze({ kind: "position", encodedKey: frontier.encodedKey,
+      rowId: frontier.rowId, inclusive: true });
   }
   return Object.freeze({
     kind: "appIndexRange",
@@ -1358,20 +1375,7 @@ function indexRangeDependencyFromPage(
             encodedKey: request.startInclusive,
             inclusive: true,
           }),
-    upper: isDone
-      ? request.endExclusive === null
-        ? null
-        : Object.freeze({
-            kind: "key",
-            encodedKey: request.endExclusive,
-            inclusive: false,
-          })
-      : Object.freeze({
-          kind: "position",
-          encodedKey: last!.encodedKey,
-          rowId: last!.rowId,
-          inclusive: true,
-        }),
+    upper,
   });
 }
 
@@ -1393,8 +1397,8 @@ function encodedIndexKeyIsWithinBounds(
 }
 
 function compareIndexedQueryMergedPositions(
-  left: IndexedQueryMergedPositionV1,
-  right: IndexedQueryMergedPositionV1,
+  left: AppIndexRangeCursorV1,
+  right: AppIndexRangeCursorV1,
 ): number {
   const keyOrder = compareUtf16Strings(left.encodedKey, right.encodedKey);
   return keyOrder !== 0

@@ -13,8 +13,10 @@ also implements bounded Application app-row handoff and refresh. The bounded
 [actual-DO query host](./slices/03-application-query-do-host.md) implements genuine
 local query composition and cold restart. Full app-owner bootstrap/recovery and
 broader native integration remain open. The next
-[mutation pending-state preflight](./slices/04-mutation-pending-state.md) has
-completed independent source challenge; its replacement contract is still open.
+[mutation pending-state replacement](./slices/04-mutation-pending-state.md) has
+completed independent source challenge. Its range-evidence prerequisite is
+implemented; the incremental root, Standard cutover and old-journal disposition
+remain open.
 The accepted [replacement workflow](./REFACTOR.md#convex-guided-replacement-workflow)
 does not require this whole queue to be answered before a bounded slice can
 start. An unresolved guarantee pauses the affected path, not independent work;
@@ -243,6 +245,14 @@ rerun? Preserve actual visibility, nested calls, rollback-only failure, hook
 ordering, events and workflow compensation. Specify framework conflict behavior
 before enabling automatic replay. Updating the cache does not salvage an old
 pending-write proposal; an eligible retry recomputes the whole operation.
+
+The selected [range-evidence correction](./slices/04a-range-completion-evidence.md)
+retains the already fetched membership lookahead for exact completion verdicts
+on newly executed operations. It does not enable mutation-cache handoff or
+repair saved durable receipts. The [pending replacement](./slices/04-mutation-pending-state.md)
+owns incremental index maintenance, both Application/native write paths,
+untrusted syscall admission, nested-lifecycle witnesses and stored-profile
+cutover prerequisites. Native replay eligibility is unchanged.
 
 References: Convex [reads](../../../../../crates/database/src/reads.rs),
 [writes](../../../../../crates/database/src/writes.rs) and
