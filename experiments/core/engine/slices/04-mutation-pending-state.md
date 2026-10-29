@@ -137,7 +137,7 @@ or finite-only helper does not complete the real Standard cutover.
    bounded replacement retains eligibility-first private reference paging with
    its named removal gate and preserves native validation and accounting.
    Private pending state remains separate from committed query cache.
-3. Actual Standard mutation cutover: route new requests through the shared
+3. [Actual Standard mutation cutover](./04c-standard-mutation-cutover.md): route new requests through the shared
    evaluator, existing finite Worker runner, immutable freeze and publication
    owners. Remove displaced Standard durable-journal/seal/loader construction.
    Preserve authoritative outcomes and require explicit old-anchor disposition.
@@ -187,14 +187,16 @@ writers and privileged maintenance/restore, plus a fenced-owner race proof.
 
 ## Required nested-lifecycle witness
 
-The source audit found shared-root freeze/close but no write checkpoint/restore
-hook for catchable internal Application mutation failure. A child patch followed
-by a catchable application error is therefore a source-inferred risk that must
-be exercised before the pending replacement. It is not a confirmed runtime
-failure. Trace whether the actual journal makes that case terminal before
-deciding its existing supported behavior.
+The source challenge resolves the current rule through the newer Application
+migration owner: every rejected admitted child fails the whole invocation, even
+after parent catch. The actual runtime tracks the rejected settlement and refuses
+root success; this is not a confirmed child-write leak. Historical SAP06's caught
+publication profile is distinct. The [04C prerequisite](./04c-standard-mutation-cutover.md#first-prerequisite-current-nested-failure-witness)
+now proves child write, declared error, parent catch and no publication through
+the genuine current Standard Worker on both database lanes. The actual finite
+Standard cutover remains open.
 
-Where catchable nested rollback is selected, the pending index delta must roll
+If catchable nested rollback is selected later, the pending index delta must roll
 back with writes while retaining required reads and accounting. A new tree or
 copy-on-write representation does not by itself establish that lifecycle.
 Borrowed native participant failure currently aborts the whole root and must

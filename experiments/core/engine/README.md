@@ -44,6 +44,8 @@ implemented for newly executed mutations. The bounded
 [incremental pending-index slice](./slices/04b-incremental-pending-indexes.md)
 is implemented for shared Application/native pending roots and their selected
 readers. The wider Standard/native mutation migration remains open.
+The [Standard mutation cutover](./slices/04c-standard-mutation-cutover.md) records
+its challenged connected boundary and implemented current nested-failure witness.
 Resumable backfill remains open in Q07. [Pinned references](../REFERENCES.md#engine-mechanism-reference-map)
 anchor each concept and later implementation in actual Convex owners.
 

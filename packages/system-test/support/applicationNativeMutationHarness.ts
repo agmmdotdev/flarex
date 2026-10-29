@@ -1,4 +1,12 @@
-import { decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
+import {
+  decodeAppDocumentIdentityV1,
+  decodeAppRowIdHexV1,
+} from "flarex-protocol/app-document-id";
+import { decodeCanonicalAppDocumentEvidenceV1 } from "flarex-protocol/app-document";
+import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
+import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
+import type { fxAppRowRevisions } from
+  "@flarex/persistence-postgres/internal/system-test/schema";
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import {
   createApplicationMutationGrantVerificationKernelV1,
@@ -80,6 +88,7 @@ export const APPLICATION_NESTED_MUTATION_FIXTURE_OPTIONS = Object.freeze({
   runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
   compatibilityDate: COMPATIBILITY_DATE,
   includeInternalCalls: true,
+  includeUserNameIndex: true,
   // Build the initial row into intrinsic indexes before activation.
   initialUserDocuments: [{ name: "Ada", rowId: decodeAppRowIdHexV1("00".repeat(15) + "11") }],
 });
@@ -1118,6 +1127,205 @@ export async function proveApplicationNestedMutation(fixture: ApplicationNativeM
   } finally {
     await loader.dispose();
   }
+}
+
+export async function proveApplicationNestedMutationFailure(
+  fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
+) {
+  const calls: Array<Readonly<{ method: string; arguments: readonly unknown[] }>> = [];
+  const loader = new MiniflareApplicationWorkerLoader((method, argumentsValue) => {
+    calls.push(Object.freeze({ method, arguments: structuredClone(argumentsValue) }));
+  });
+  try {
+    const failureRequestKey = "application-native:nested-patch-failure";
+    let failureReceipts: Awaited<ReturnType<
+      typeof readApplicationNestedMutationReceipts
+    >> | undefined;
+    const layer = await makeApplicationNativeMutationTestLayer(fixture, loader, {
+      // Abort terminalization removes journals. Observe genuine stored receipts
+      // after the Worker has finished, while the actual runner still owns them.
+      afterRuntime: () => failureReceipts === undefined
+        ? Effect.promise(async () => {
+          failureReceipts = await readApplicationNestedMutationReceipts(
+            fixture, failureRequestKey,
+          );
+        })
+        : Effect.void,
+    });
+    const invoke = (fail: boolean, requestKey: string) => invokeApplicationMutation(
+      TransactionFunctionPathV1Schema.make("users:patchThroughInternal"),
+      { id: NESTED_USER_DOCUMENT_ID, fail },
+      TransactionRequestKeyV1Schema.make(requestKey),
+    );
+    const before = await readApplicationNestedMutationState(fixture);
+    const failureOutcome = await runSystemTestEffectV1(Effect.scoped(
+      invoke(true, failureRequestKey).pipe(
+        Effect.map(outcome => Object.freeze({
+          disposition: "accepted" as const,
+          outcomeDisposition: outcome.disposition,
+          value: outcome.value,
+        })),
+        Effect.catchTag("PointMutationOccApplicationErrorV1", error =>
+          Effect.succeed(Object.freeze({
+            disposition: "rejected" as const,
+            errorTag: error._tag,
+            code: error.code,
+            message: error.message,
+            data: error.data,
+          }))),
+        Effect.provide(layer),
+      ),
+    ));
+    const afterFailure = await readApplicationNestedMutationState(fixture);
+    if (failureReceipts === undefined) {
+      throw new Error("Nested Application Worker did not reach its observation boundary.");
+    }
+    const failureCalls = calls.splice(0);
+    const failureWorkerLoads = loader.loads;
+    const successful = await runSystemTestEffectV1(Effect.scoped(
+      invoke(false, "application-native:nested-patch-success").pipe(
+        Effect.provide(layer),
+      ),
+    ));
+    const afterSuccess = await readApplicationNestedMutationState(fixture);
+    const successWorkerLoads = loader.loads;
+    const subsequent = await runSystemTestEffectV1(Effect.scoped(
+      invokeApplicationMutation(
+        TransactionFunctionPathV1Schema.make("users:create"),
+        { name: "Independent after nested failure" },
+        TransactionRequestKeyV1Schema.make("application-native:after-nested-failure"),
+      ).pipe(Effect.provide(layer)),
+    ));
+    const afterSubsequent = await readApplicationNestedMutationState(fixture);
+    return Object.freeze({
+      documentId: NESTED_USER_DOCUMENT_ID,
+      before,
+      failure: Object.freeze({
+        outcome: failureOutcome,
+        state: afterFailure,
+        receipts: failureReceipts,
+        calls: failureCalls,
+        workerLoads: failureWorkerLoads,
+      }),
+      success: Object.freeze({
+        outcome: successful,
+        state: afterSuccess,
+        workerLoads: successWorkerLoads - failureWorkerLoads,
+      }),
+      subsequent: Object.freeze({
+        outcome: subsequent,
+        state: afterSubsequent,
+        workerLoads: loader.loads - successWorkerLoads,
+      }),
+    });
+  } finally {
+    await loader.dispose();
+  }
+}
+
+async function readApplicationNestedMutationState(
+  fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
+) {
+  const scopeUuid = projectScopeIdUuidV1(fixture.authority.scopeId).scopeUuid;
+  const identity = decodeAppDocumentIdentityV1(NESTED_USER_DOCUMENT_ID);
+  const parameters = [scopeUuid, identity.tableId, identity.rowId];
+  const rows = await fixture.target.query<Pick<
+    typeof fxAppRowRevisions.$inferSelect,
+    "creationTime" | "valueCodecVersion" | "valueBytes" | "valueSha256"
+  > & { commitSeq: string; revision: unknown }>(`
+    select current_row.commit_seq::text as "commitSeq",
+      revision.creation_time as "creationTime",
+      revision.value_codec_version as "valueCodecVersion",
+      revision.value_bytes as "valueBytes", revision.value_sha256 as "valueSha256",
+      to_jsonb(revision) as revision
+    from fx_app_row_current as current_row
+    join fx_app_row_rev as revision using (scope_uuid, table_id, row_id, commit_seq)
+    where current_row.scope_uuid = $1 and current_row.table_id = $2
+      and current_row.row_id = decode($3, 'hex')`, parameters);
+  const row = rows.rows[0];
+  if (rows.rows.length !== 1 || row === undefined) {
+    throw new Error("Nested Application witness requires its exact current row.");
+  }
+  const document = await decodeCanonicalAppDocumentEvidenceV1({
+    tableId: identity.tableId, rowId: identity.rowId,
+    creationTime: row.creationTime, codecVersion: row.valueCodecVersion,
+    canonicalBytes: row.valueBytes, sha256: row.valueSha256,
+  });
+  // Detached database projections are compared verbatim; they grant no capability.
+  const history = await fixture.target.query<{ revision: unknown }>(`
+    select to_jsonb(revision) as revision from fx_app_row_rev as revision
+    where scope_uuid = $1 and table_id = $2 and row_id = decode($3, 'hex')
+    order by commit_seq`, parameters);
+  const membership = await fixture.target.query<{ membership: unknown }>(`
+    select to_jsonb(current_entry) as membership
+    from fx_app_index_entry_current as current_entry
+    join fx_app_index_entry_rev as revision
+      using (scope_uuid, index_definition_id, encoded_key, row_id, commit_seq)
+    where current_entry.scope_uuid = $1 and revision.table_id = $2
+      and current_entry.row_id = decode($3, 'hex')
+    order by current_entry.index_definition_id, current_entry.encoded_key`, parameters);
+  const membershipHistory = await fixture.target.query<{ revision: unknown }>(`
+    select to_jsonb(revision) as revision from fx_app_index_entry_rev as revision
+    where scope_uuid = $1 and table_id = $2 and row_id = decode($3, 'hex')
+    order by index_definition_id, encoded_key, commit_seq`, parameters);
+  const counts = await fixture.target.query<{
+    commits: number; successfulOutcomes: number; feed: number; outbox: number;
+  }>(`select
+    (select count(*)::int from fx_system_commit where scope_uuid = $1) as commits,
+    (select count(*)::int from fx_system_idempotency where scope_uuid = $1) as "successfulOutcomes",
+    (select count(*)::int from fx_system_commit_app_row_change where scope_uuid = $1) as feed,
+    (select count(*)::int from fx_system_commit_wake where scope_uuid = $1) as outbox`,
+  [scopeUuid]);
+  const publication = counts.rows[0];
+  if (publication === undefined) throw new Error("Nested Application counts are missing.");
+  return Object.freeze({
+    scopeUuid,
+    tableId: identity.tableId,
+    rowId: identity.rowId,
+    document: document.valueJson,
+    commitSeq: BigInt(row.commitSeq),
+    currentRevision: row.revision,
+    history: history.rows.map(item => item.revision),
+    membership: membership.rows.map(item => item.membership),
+    membershipHistory: membershipHistory.rows.map(item => item.revision),
+    publication,
+  });
+}
+
+async function readApplicationNestedMutationReceipts(
+  fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
+  requestKey: string,
+) {
+  const scopeUuid = projectScopeIdUuidV1(fixture.authority.scopeId).scopeUuid;
+  const receipts = await fixture.target.query<{
+    sequence: string; operationKind: string; outcomeKind: string;
+    requestBytes: Uint8Array; requestSha256: Uint8Array;
+    outcomeBytes: Uint8Array; outcomeSha256: Uint8Array;
+  }>(`select receipt.last_syscall_sequence::text as sequence,
+      receipt.operation_kind as "operationKind", receipt.outcome_kind as "outcomeKind",
+      receipt.request_bytes as "requestBytes", receipt.request_sha256 as "requestSha256",
+      receipt.outcome_bytes as "outcomeBytes", receipt.outcome_sha256 as "outcomeSha256"
+    from fx_system_tx_journal_receipt as receipt
+    join fx_system_tx_session as session using (scope_uuid, session_id, attempt_fence)
+    where session.scope_uuid = $1 and session.request_key = $2
+    order by receipt.last_syscall_sequence`, [scopeUuid, requestKey]);
+  const observations = [];
+  for (const receipt of receipts.rows) {
+    const request = await decodeCanonicalFlarexValueEvidenceV1({
+      canonicalBytes: receipt.requestBytes, sha256: receipt.requestSha256,
+    });
+    const outcome = await decodeCanonicalFlarexValueEvidenceV1({
+      canonicalBytes: receipt.outcomeBytes, sha256: receipt.outcomeSha256,
+    });
+    observations.push(Object.freeze({
+      sequence: BigInt(receipt.sequence),
+      operationKind: receipt.operationKind,
+      outcomeKind: receipt.outcomeKind,
+      request: request.valueJson,
+      outcome: outcome.valueJson,
+    }));
+  }
+  return observations;
 }
 
 function observeApplicationMutationConfiguration(

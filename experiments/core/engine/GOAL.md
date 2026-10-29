@@ -93,6 +93,11 @@ now connects accepted Application/native writes to ordered current positions and
 written-ID suppression, preserving profile-specific interpretation and failure
 order. The real Standard cutover and stored-profile disposition remain open;
 these replacements do not repair older journal readsets or complete that milestone.
+The [Standard cutover contract](./slices/04c-standard-mutation-cutover.md) records
+the connected preparation, ordered admission, stored-request and recovery
+requirements. Its genuine current nested-failure prerequisite is implemented;
+the ordinary Standard cutover and operation-admission replacement remain
+unimplemented.
 
 ## Mandatory challenge before each slice
 
