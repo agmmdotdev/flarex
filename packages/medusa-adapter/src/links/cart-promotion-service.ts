@@ -15,6 +15,8 @@ import { ScalarId as Id } from "../repository/scalar-id-read";
 import { prepareLinkService } from "./service";
 import { linkLogicalEventPolicy } from "./events";
 import { captureCartPromotionLinkMetadata } from "./cart-promotion-schema";
+import { captureCartPromotionCreationLinkMetadata } from "./cart-promotion-creation-schema";
+import { captureLinkOperationMetadata } from "./operation-schema";
 import { captureCommerceInput } from "../value/input";
 
 const Filter = Schema.Union([Id, Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(4))]);
@@ -28,9 +30,12 @@ const decodeRead = commerceDecoder(Schema.Struct({ filters: Schema.optionalKey(S
 })) }), "invalidInput");
 
 /** Genuine stored Module Link reads. Checkout receives no Link create,
- * cascade or dismissal capability; installed rows remain authoritative. */
-export const prepareCartPromotionLinkRead = Effect.fn("CartPromotionLink.prepareRead")(function* () {
-  const metadata = yield* captureCartPromotionLinkMetadata(), prepared = yield* prepareLinkService(metadata);
+ * cascade or dismissal capability; installed rows remain authoritative. The
+ * fresh creation profile shares these exact reads with its native writer. */
+export const prepareCartPromotionLinkRead = Effect.fn("CartPromotionLink.prepareRead")(function* (profile: "checkout" | "creation" = "checkout") {
+  const metadata = yield* profile === "checkout" ? captureCartPromotionLinkMetadata() : captureCartPromotionCreationLinkMetadata();
+  const prepared = yield* profile === "checkout" ? prepareLinkService(metadata)
+    : prepareLinkService(metadata, 8, true, (yield* captureLinkOperationMetadata()).frame);
   const prepare = commerceCommandPreparation("CartPromotionLink.prepareInput")(decodeRead);
   const count = defineGraphReadCommand("cartPromotionCount", Effect.fn("CartPromotionLink.count")(function* (ctx: CommerceCommandContext, input: Json) {
     const args = yield* prepare(ctx, input);
@@ -67,10 +72,11 @@ export const prepareCartPromotionLinkRead = Effect.fn("CartPromotionLink.prepare
         }) };
     })));
   const commands = [count];
+  const graph = { aliases, services: yield* Effect.fromResult(nativeLinkGraphServices(prepared.joiner)),
+      reads: [{ model, command: count, table: prepared.prepared.table, paths: [], orderable: ["cart_id"], uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount }],
+      linkEndpoints: endpoints, remotePaths };
   const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "cart_promotion_links",
     source: { name: prepared.serviceName, profile: "cart-promotion-read" }, methods: {},
-    graph: { aliases, services: yield* Effect.fromResult(nativeLinkGraphServices(prepared.joiner)),
-      reads: [{ model, command: count, table: prepared.prepared.table, paths: [], orderable: ["cart_id"], uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount }],
-      linkEndpoints: endpoints, remotePaths }, logical: { ...policy, commands } }));
-  return { metadata, prepared, workflow, count, commands, logicalEventPolicy: () => policy };
+    graph, logical: { ...policy, commands } }));
+  return { metadata, prepared, workflow, graph, count, commands, logicalEventPolicy: () => policy };
 });

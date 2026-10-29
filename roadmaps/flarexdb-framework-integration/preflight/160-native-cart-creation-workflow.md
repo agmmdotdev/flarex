@@ -5,8 +5,9 @@
 Status: the selected original-native cohort is characterized after the bounded
 [Variant and item pricing workflow](./159-native-variant-item-price-calculation.md).
 The module-owner plan is prepared. The scoped native compensation contracts and Promotion helper
-correction are approved; their ownership and concurrency proofs remain
-implementation gates. Maximum-graph evidence,
+correction are approved. The native Address and Link ownership owners and their
+scoped concurrency proofs are implemented; complete-root ownership remains an
+admission gate. Maximum-graph evidence,
 remaining call-detail coverage, native inverse concurrency/ownership proofs,
 resource measurement and adapter admission remain pending.
 
@@ -19,7 +20,8 @@ Payment's unchanged static manifest retains the host-specific provider loader
 and is outside the portable service/provider entrypoint claim.
 
 Promotion's models, types and pure calculation/validation helpers are selected;
-its executing service and static manifest remain unpromoted. Its automatic
+its native service executes only the separate checkout read profile. Automatic
+computation and the corresponding static service profile remain unadmitted. Its automatic
 candidate prefilter uses native SQL, including deleted relation rows and
 text-to-decimal comparisons, so ordinary active-relation reads or a list-all
 fallback cannot replace it. A native persistence seam must preserve candidate
@@ -276,6 +278,34 @@ native evaluation policy that changes these
 failures requires its own explicit compatibility decision; the finite-threshold
 and empty-disjunction proposals do not authorize that change.
 
+A subsequent genuine native internal-service probe compares its actual emitted
+SELECT with the same statement over typed captured relation CTEs. It preserves
+the two approved helper corrections, complete historical table contents and
+the seven referenced native relations. With a nondeleted automatic Promotion,
+a detached numeric Rule containing invalid text and all three pivot families
+empty, the original native query raises `22P02`; both materialized and
+nonmaterialized captured relations return that Promotion. Fourteen companion
+cases agree, including no automatic root, linked/manual/deleted Rule or Value
+history, target and buy Rules, lexical guards, overflow, multi-Value exclusion
+and the approved empty/nonfinite contexts. The ordinary-role native schema is
+removed after the probe. These are native PostgreSQL characterization results,
+not an admitted Flarex predicate or cross-driver integration proof.
+
+This concrete difference blocks a representation-only Promotion query port.
+The proposed native contract is an explicit staged selection: obtain the
+complete nondeleted automatic root cohort; when it is nonempty, evaluate the
+complete historical Rule/Value Boolean predicate in PostgreSQL for every
+retained context attribute, preserving lexical guards and stored casts; then
+apply the existing global/target/buy membership exclusions and native root
+ordering. With no automatic roots, skip cast evaluation. This fixes evaluation
+cohort ownership while leaving PostgreSQL Boolean expression/error ordering
+unspecified. It intentionally replaces physical-plan-dependent suppression of
+detached or unrelated Rule errors. This native evaluation cohort is explicitly
+approved and remains unimplemented. Any required shared multi-relation capture
+correction still needs its own failing witness, owner contract and authorization. Preserve
+the authentic native mismatch; do not hide it in adapter-side filtering or
+eager JavaScript validation.
+
 The genuine Cart root reaches the nonfinite-context failure through ordinary
 JSON metadata: `"2"` completes creation, whereas `"Infinity"` and `"1e309"`
 fail during Promotion refresh. The SDK can fulfill its Promise while recording
@@ -482,8 +512,34 @@ This is a fresh three-table Cart-Promotion source, not a migration of populated
 one-table checkout sources. Native precommit event delivery remains observable
 when a later native failure rolls database work back; logical publication stays
 with its outer settlement owner. Arbitrary writers that bypass revision heads
-remain outside retained-generation admission. The native Cart step and complete
-Cart creation root still require integration with this resource.
+remain outside retained-generation admission.
+
+The corrected native `updateCartPromotionsStep` now consumes this exact handle.
+It preserves the existing-Link query, supplied-code lookup, native ADD/REMOVE/
+REPLACE defaults and dismiss-before-create ordering, including overlapping
+pairs. The selected-code lookup uses the existing complete bounded graph seam
+and retains its native cache hint. Omitted or empty ADD remains a no-op after
+the genuine existing-Link read. Mutation requests derive identity from the
+actual step occurrence and retain their handle before applying, so failed or
+lost apply responses still identify the original native inverse. The framework
+Promise/Cause owner recognizes this genuine native terminal wrapper only through
+an inert own cause field: it restores an identity it actually issued, or the
+expected Medusa terminal-state error. Genuine defects, interruption and compound
+Causes retain their original channels; name-only wrappers, arbitrary foreign
+causes and getters do not gain presentation provenance.
+
+The creation Link profile reuses the existing Cart-Promotion read construction,
+checked graph and closed read receipts with the same native service and three
+tables. The native callable query ABI explicitly admits the bounded raw
+`cart_promotion` selector by Cart ID. The isolated logical callback proof admits
+direct Link reads only, with no mocked Cart or Promotion traversal targets.
+Its native empty ADD and empty-code REPLACE callbacks and retained inverse
+execute on both storage drivers, including committed original-row restoration
+and superseded-generation refusal. Nonempty-code selection is characterized at
+the native callback port; admission of the actual Promotion code read and the
+complete Cart creation graph remains pending. These callback checks do not
+establish automatic Promotion computation or full-root Cart creation.
+
 
 A workflow-level precheck followed by independent deletes is insufficient for
 Address safety or partial-inverse recovery. Pair-only Link dismissal cannot

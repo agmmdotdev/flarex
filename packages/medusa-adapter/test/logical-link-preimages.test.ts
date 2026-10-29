@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Cause, Effect, Exit, Schema } from "effect";
+import { LinkPreimageOperationHandleSchema } from "@medusajs/link-modules";
+import { PromotionActions } from "@medusajs/framework/utils/portable";
 import type { LinkPreimageOperationRequest } from "@medusajs/types";
 import { prepareLogicalLinkPreimages } from "./support/logical-link-preimage-fixture";
 import { projectNativeRow } from "../src/repository/result";
@@ -20,6 +22,38 @@ function failureReasons(value: unknown): string[] {
 }
 
 describe("native exact Link preimages on logical storage", { concurrent: false }, () => {
+  it("executes the genuine native empty ADD callback through the real stored Link query without writing an operation", async () => {
+    const cart = "cart-native-empty";
+    await connected.run({ action: "create", pairs: [[cart, "native-empty-existing", {}]] });
+    const before = await selected(cart), operations = connected.evidence;
+    expect(await connected.run({ action: "nativeForward", input: { id: cart } })).toBeNull();
+    expect(await selected(cart)).toEqual(before);
+    const actual = operations("cartPromotionCount");
+    expect(actual.call.mode).toBe("read"); expect(actual.activity.mutations).toEqual([]);
+    expect(actual.call.result).toEqual([[{ cart_id: cart, promotion_id: "native-empty-existing" }], 1]);
+  }, 120_000);
+  it("restores four original Link rows through the genuine native REPLACE callback and its retained inverse across commits", async () => {
+    const cart = "cart-native-replace-empty";
+    const pairs: Array<[string, string, Record<string, never>]> = Array.from({ length: 4 }, (_, index) => [cart, "native-replace-" + index, {}]);
+    await connected.run({ action: "create", pairs }); const before = await selected(cart);
+    const value = await connected.run({ action: "nativeForward", input: { id: cart, action: PromotionActions.REPLACE } });
+    const handle = Schema.decodeUnknownSync(LinkPreimageOperationHandleSchema)(value);
+    expect(handle.request.mutations.map(mutation => mutation.action)).toEqual(["dismiss"]);
+    expect((await selected(cart)).every(row => row.deleted_at !== null)).toBe(true);
+    await connected.run({ action: "nativeInverse", handle }); expect(await selected(cart)).toEqual(before);
+    await connected.run({ action: "nativeInverse", handle }); expect(await selected(cart)).toEqual(before);
+    expect(connected.evidence("cartPromotionCompensatePreimages").call.result).toMatchObject({ status: "alreadyCompensated" });
+  }, 120_000);
+  it("refuses the actual native retained inverse after another writer supersedes its original Link generation", async () => {
+    const cart = "cart-native-superseded", foreign = "native-superseded";
+    await connected.run({ action: "create", pairs: [[cart, foreign, {}]] });
+    const handle = Schema.decodeUnknownSync(LinkPreimageOperationHandleSchema)(await connected.run({ action: "nativeForward", input: { id: cart, action: PromotionActions.REPLACE } }));
+    await connected.run({ action: "create", pairs: [[cart, foreign, {}]] }); const before = await connected.snapshot();
+    const exit = await Effect.runPromiseExit(connected.host.run(connected.host.newRequestKey(), { action: "nativeInverse", handle }));
+    expect(Exit.isFailure(exit)).toBe(true); if (Exit.isFailure(exit)) expect(Cause.pretty(exit.cause)).toContain("superseded");
+    expect(await connected.snapshot()).toEqual(before);
+  }, 120_000);
+
   it("restores an already active native Link's exact ID and timestamps across committed calls", async () => {
     const target = pair("existing"); await connected.run({ action: "create", pairs: [[target.primary, target.foreign, {}]] });
     const before = await selected(target.primary), input = request("existing-preimage", [{ action: "create", pairs: [target] }]);

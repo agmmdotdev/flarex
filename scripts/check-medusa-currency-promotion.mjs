@@ -46,6 +46,8 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "@typescript/typescript6";
 
+import { cartPromotionStepSourcePairs, cartPromotionStepAuthoredTarget, verifyCartPromotionStepSource, verifyCartPromotionStepSelection } from "./check-medusa-cart-promotion-step-source.mjs";
+
 const manifestPath = "roadmaps/flarexdb-framework-integration/preflight/medusa-currency-promotion.json";
 const sourcePrefix = "third_party/medusa/upstream/";
 export const nativeBigNumberSourcePair = Object.freeze({
@@ -535,6 +537,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   verifyApiKeySelection(promotion.files);
   verifyNativeLinkOperationSelection(promotion.files);
   verifyCartPrerequisiteSourceSelection(promotion.files);
+  verifyCartPromotionStepSelection(promotion.files);
   verifyOrderArchiveSourceSelection(promotion.files);
   verifyOrderCompleteSourceSelection(promotion.files);
   verifyOrderChangeUpdateSourceSelection(promotion.files);
@@ -1180,6 +1183,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
         verifyTaxLinesFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (file.classification === "paymentJoinerFork")
         verifyPaymentJoinerFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
+      if (cartPromotionStepSourcePairs.some(pair => pair.target === file.target))
+        verifyCartPromotionStepSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"),
+          readFileSync(path.join(root, cartPromotionStepAuthoredTarget), "utf8"), file.target);
       if (file.classification === "cartContextReadFork")
         verifyCartContextReadFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (file.classification === "workflowCacheFork")

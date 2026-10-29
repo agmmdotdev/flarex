@@ -1,5 +1,6 @@
 import { Cause, Effect, Exit, Result } from "effect";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { PermanentStepFailureError } from "@medusajs/orchestration/transaction/errors";
 import { MedusaError } from "@medusajs/framework/utils/portable";
 import { captureExecutionDiagnosticContext } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { commerceError, commerceLimits, CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -57,10 +58,24 @@ export function makeCommercePromiseOwner(recordFailure?: FailureObserver) {
       // Foreign thrown proxies can refuse prototype inspection. That refusal
       // does not make the original rejection an expected domain error.
       try {
-        if (error instanceof CommerceTransactionError) return Cause.fail(error);
-        if (error instanceof MedusaError) {
-          const expected = commerceError("adapterFailure", error);
-          nativePresentations.set(expected, error);
+        // A genuine native terminal step wraps its retained compensation and
+        // an issued failure, or its own expected Medusa terminal-state error.
+        // Authenticate that class and an inert own field; never walk arbitrary
+        // cause chains, getters, name-only wrappers or foreign defect payloads.
+        let presented = error;
+        if (error instanceof PermanentStepFailureError) {
+          const descriptor = Object.getOwnPropertyDescriptor(error, "cause");
+          const original: unknown = descriptor !== undefined && Object.hasOwn(descriptor, "value") ? descriptor.value : undefined;
+          if (original !== null && (typeof original === "object" || typeof original === "function")) {
+            const owned = receipts.get(original);
+            if (owned !== undefined) return owned;
+          }
+          if (original instanceof MedusaError) presented = original;
+        }
+        if (presented instanceof CommerceTransactionError) return Cause.fail(presented);
+        if (presented instanceof MedusaError) {
+          const expected = commerceError("adapterFailure", presented);
+          nativePresentations.set(expected, presented);
           return Cause.fail(expected);
         }
         const expected = domain?.(error);

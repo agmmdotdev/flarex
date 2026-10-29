@@ -15,6 +15,9 @@ const Fields = Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256)))
 const VariantPriceSetIds = Schema.Array(Schema.String.check(Schema.isMaxLength(256))).check(
   Schema.isMaxLength(8), Schema.makeFilter(ids => new Set(ids).size <= 4));
 const decodeRemote = commerceDecoder(Schema.Union([
+  Schema.Struct({ entryPoint: Schema.Literal("cart_promotion"),
+    fields: Schema.Tuple([Schema.Literal("cart_id"), Schema.Literal("promotion_id")]),
+    variables: Schema.Struct({ cart_id: Schema.Array(Schema.String).check(Schema.isMaxLength(4)) }) }),
   Schema.Struct({ entryPoint: Name, fields: Fields,
     variables: Schema.Struct({ id: Schema.Array(Schema.UndefinedOr(Schema.String)).check(Schema.isMaxLength(commerceLimits.catalogRows)) }) }),
   Schema.Struct({ service: Name, fields: Fields, variables: Schema.Struct({ filters: Schema.JsonObject }) }),
@@ -79,7 +82,8 @@ export function bindWorkflowQuery(graph: PreparedLocalGraph, context: AtomicComm
         // RemoteJoiner.fetchData deduplicates IDs in first occurrence order.
         // The captured public call keeps its raw duplicates and empty strings;
         // this named ABI still reads the genuine stored Link graph, even [].
-        filters: "variant_id" in input.variables ? { variant_id: [...new Set(input.variables.variant_id)] }
+        filters: "cart_id" in input.variables ? { cart_id: [...new Set(input.variables.cart_id)] }
+          : "variant_id" in input.variables ? { variant_id: [...new Set(input.variables.variant_id)] }
           : { id: input.variables.id.map(value => coerceFilterValue("id", value)) },
         pagination: { take: commerceLimits.catalogRows } })
       : query.service({ service: input.service, fields: input.fields, filters: input.variables.filters, pagination: { take: commerceLimits.catalogRows } });

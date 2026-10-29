@@ -6,9 +6,10 @@ import { commerceDecoder } from "../value/decoder";
 import { commerceCommandPreparation, commerceServiceCommands } from "../module/commands";
 import { defineWorkflowMethod, defineWorkflowModule } from "../workflow/module";
 import { defineComposedWorkflowResource } from "../workflow/composed-resource";
-import { captureCartPromotionCreationLinkMetadata } from "./cart-promotion-creation-schema";
-import { captureLinkOperationMetadata } from "./operation-schema";
-import { prepareLinkService } from "./service";
+import { prepareCartPromotionLinkRead } from "./cart-promotion-service";
+// Read construction and preimage writes share one actual native Link service.
+// Protocol tables are selected once by the creation-profile read construction.
+// The read owner also supplies the existing checked graph and read receipts.
 import { linkPreimageEventPolicy } from "./preimage-events";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
@@ -22,8 +23,8 @@ const decodeCompensation = commerceDecoder(LinkOperationCompensationSchema, "sto
 /** Explicit finite access to the genuine native ordered preimage protocol.
  * It cannot obtain caller-supplied preimages, another family or a settlement. */
 export const prepareCartPromotionPreimageLinks = Effect.fn("CartPromotionPreimages.prepare")(function* () {
-  const metadata = yield* captureCartPromotionCreationLinkMetadata();
-  const prepared = yield* prepareLinkService(metadata, 8, true, (yield* captureLinkOperationMetadata()).frame);
+  const read = yield* prepareCartPromotionLinkRead("creation");
+  const { metadata, prepared } = read;
   const serviceName = prepared.serviceName;
   if (prepared.lifecycle.preimageOperations !== true) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const boundedHandle = LinkPreimageOperationHandleSchema.check(Schema.makeFilter(handle => handle.serviceName === serviceName && isBounded(handle.request)));
@@ -56,12 +57,17 @@ export const prepareCartPromotionPreimageLinks = Effect.fn("CartPromotionPreimag
   const nativeDismiss = yield* Effect.fromResult(defineWorkflowMethod({ command: dismiss,
     arguments: dismissArguments, encode: ([pairs]) => pairs,
     output: decodeRows, moduleEvents: events }));
-  const policy = linkPreimageEventPolicy({ tableName: metadata.frame.name, serviceName, entityName: prepared.entityName,
+  const writePolicy = linkPreimageEventPolicy({ tableName: metadata.frame.name, serviceName, entityName: prepared.entityName,
     endpoints: ["cart_id", "promotion_id"], applyName, compensateName, createName, dismissName });
+  const policy = { ...writePolicy, validateLogicalCall: Effect.fn("CartPromotionPreimages.validateCall")(function* (call, activity) {
+    yield* call.commandName === "cartPromotionCount" ? read.logicalEventPolicy().validateLogicalCall(call, activity)
+      : writePolicy.validateLogicalCall(call, activity);
+  }) } satisfies typeof writePolicy;
+  const allCommands = [...read.commands, apply, compensate, create, dismiss];
   const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "cart_promotion_preimage_links",
-    source: { name: serviceName, profile: "cart-promotion.exact-preimages" }, graph: { aliases: [], reads: [] },
+    source: { name: serviceName, profile: "cart-promotion.exact-preimages" }, graph: read.graph,
     methods: { applyPreimageOperation, compensatePreimageOperation, create: nativeCreate, dismiss: nativeDismiss },
-    logical: { ...policy, commands: [apply, compensate, create, dismiss] } }));
+    logical: { ...policy, commands: allCommands } }));
   const resource = yield* Effect.fromResult(defineComposedWorkflowResource({
     identity: { format: "medusa.cart-promotion.exact-preimages", serviceName, maximumMutations: 2, maximumPairsPerMutation: 4 },
     dependencies: [applyPreimageOperation, compensatePreimageOperation], scopeExclusive: true,
@@ -72,5 +78,5 @@ export const prepareCartPromotionPreimageLinks = Effect.fn("CartPromotionPreimag
     bind: invoke => ({ applyPreimageOperation: (selected, request) => invoke(applyPreimageOperation, selected, request),
       compensatePreimageOperation: handle => invoke(compensatePreimageOperation, handle) }),
   }));
-  return { metadata, prepared, workflow, resource, commands: [apply, compensate, create, dismiss], policy };
+  return { metadata, prepared, workflow, resource, commands: allCommands, policy, graph: read.graph };
 });

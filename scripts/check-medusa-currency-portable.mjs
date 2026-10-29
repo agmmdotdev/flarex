@@ -95,6 +95,7 @@ const entries = [
   "packages/medusa-core-flows/src/cart/steps/find-sales-channel.ts",
   "packages/medusa-core-flows/src/cart/steps/find-one-or-any-region.ts",
   "packages/medusa-core-flows/src/cart/steps/validate-sales-channel.ts",
+  "packages/medusa-core-flows/src/cart/steps/update-cart-promotions.ts",
   "packages/medusa-cart/src/services/index.ts",
   "packages/medusa-cart/src/static-manifest.ts",
   "packages/medusa-customer/src/services/index.ts",

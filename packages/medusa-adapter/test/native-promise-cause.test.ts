@@ -1,7 +1,11 @@
 import { promiseFailureObserver } from "./support/promise-failure-observer";
 import { Cause, Context, Deferred, Effect, Exit, Fiber, Result } from "effect";
 import { describe, expect, it } from "vitest";
-import { MedusaError } from "@medusajs/framework/utils/portable";
+import { updateCartPromotionsStep } from "@medusajs/core-flows/cart/update-cart-promotions-step";
+import { createWorkflow, WorkflowResponse } from "@medusajs/workflows-sdk";
+import type { Link } from "@medusajs/modules-sdk/link";
+import { PermanentStepFailureError } from "@medusajs/orchestration/transaction/errors";
+import { PromotionActions, MedusaError } from "@medusajs/framework/utils/portable";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, commerceLimits, defaultCommerceResources, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
@@ -10,6 +14,22 @@ import { makeCommercePromiseOwner, type CommercePromiseOwner } from "../src/modu
 import { withCommerceService } from "../src/module/service-bridge";
 import { commerceRepositoryContext } from "../src/repository/context";
 import { checkedCommerceValue } from "../src/value/checked";
+
+// Exercise the public genuine native callback. These narrow resource ports
+// isolate failure transport; persisted Link behavior is proven separately.
+async function applyNativeCartPromotionStep(link: Pick<Link, "applyPreimageOperation">): Promise<unknown> {
+  const flow = createWorkflow("native-cart-cause-witness", () => new WorkflowResponse(updateCartPromotionsStep({ id: "cart", action: PromotionActions.REPLACE })));
+  const node = Result.getOrThrow(flow.prepare()).nodes[0];
+  if (node?.kind !== "step") throw new Error("Missing genuine native Cart promotion callback");
+  return Reflect.apply(node.invoke, undefined, [{ id: "cart", action: PromotionActions.REPLACE }, {
+    idempotencyKey: "actual-native-cause-occurrence", eventGroupId: "native-cause",
+    container: { resolve: (name: string) => {
+      if (name === "link") return link;
+      if (name === "remoteQuery") return async () => [{ cart_id: "cart", promotion_id: "promotion" }];
+      throw new Error("Unexpected native cause resource " + name);
+    } },
+  }]);
+}
 
 const throughBridge = (work: (owner: CommercePromiseOwner, ctx: CommerceCommandContext) => Promise<unknown>) =>
   Effect.runPromiseExit(Effect.scoped(Effect.gen(function* () {
@@ -30,6 +50,52 @@ function reasons<Value>(exit: Exit.Exit<Value, CommerceTransactionError>) {
 }
 
 describe("native Promise complete Cause ownership", () => {
+  it("restores the issued Cause through the real native Cart Link terminal presentation", async () => {
+    const original = commerceError("invalidInput");
+    const cause = reasons(await throughBridge(owner => applyNativeCartPromotionStep({
+      applyPreimageOperation: () => owner.run(Effect.fail(original)),
+    })));
+    expect(cause).toHaveLength(1);
+    const reason = cause[0];
+    if (reason === undefined || !Cause.isFailReason(reason)) throw new Error("Missing original native Link refusal");
+    expect(reason.error).toBe(original);
+  });
+  it("classifies the real native Cart terminal-state conflict without adding a defect", async () => {
+    const cause = reasons(await throughBridge(() => applyNativeCartPromotionStep({
+      applyPreimageOperation: async (serviceName, request) => ({ operationId: request.operationId, serviceName, state: "cancelled", changedPairs: 0, replayed: true }),
+    })));
+    expect(cause).toHaveLength(1);
+    const reason = cause[0];
+    if (reason === undefined || !Cause.isFailReason(reason)) throw new Error("Missing typed terminal conflict");
+    expect(reason.error.reason).toBe("adapterFailure");
+    expect(reason.error.cause).toBeInstanceOf(MedusaError);
+    expect(reason.error.cause).toMatchObject({ type: MedusaError.Types.CONFLICT });
+  });
+
+  it.each(["defect", "interruption", "compound"] as const)("retains the issued %s Cause through the real Cart terminal wrapper", async kind => {
+    const original = commerceError("invalidInput"), defect = new TypeError("genuine Link defect");
+    const work = kind === "defect" ? Effect.die(defect) : kind === "interruption" ? Effect.interrupt
+      : Effect.fail(original).pipe(Effect.ensuring(Effect.die(defect)));
+    const cause = reasons(await throughBridge(owner => applyNativeCartPromotionStep({
+      applyPreimageOperation: () => owner.run(work),
+    })));
+    expect(cause.some(reason => Cause.isDieReason(reason) && reason.defect instanceof PermanentStepFailureError)).toBe(false);
+    if (kind === "interruption") expect(cause.some(Cause.isInterruptReason)).toBe(true);
+    else expect(cause.some(reason => Cause.isDieReason(reason) && reason.defect === defect)).toBe(true);
+    if (kind === "compound") expect(cause.some(reason => Cause.isFailReason(reason) && reason.error === original)).toBe(true);
+  });
+  it.each(["name-only", "foreign-cause", "getter-cause"] as const)("keeps an unauthenticated %s terminal wrapper a defect", async kind => {
+    const inner = new MedusaError(MedusaError.Types.CONFLICT, "foreign conflict");
+    const wrapper = kind === "name-only" ? Object.assign(new Error("forged native terminal"), { name: "PermanentStepFailure" })
+      : new PermanentStepFailureError("native terminal");
+    let reads = 0;
+    Object.defineProperty(wrapper, "cause", kind === "getter-cause" ? { get: () => { reads++; return inner; } }
+      : { value: kind === "foreign-cause" ? new Error("unknown foreign defect") : inner });
+    const cause = reasons(await throughBridge(async () => { throw wrapper; }));
+    expect(reads).toBe(0); expect(cause).toHaveLength(1);
+    expect(cause.some(reason => Cause.isDieReason(reason) && reason.defect === wrapper)).toBe(true);
+  });
+
   it("presents a native error while restoring the original registered failure on re-entry", async () => {
     const original = commerceError("invalidInput");
     const native = new MedusaError(MedusaError.Types.NOT_FOUND, "native relationship missing");

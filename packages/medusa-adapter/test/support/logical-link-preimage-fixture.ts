@@ -1,5 +1,7 @@
 import { Effect, Result, Schema } from "effect";
 import { createStep, createWorkflow, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
+import { updateCartPromotionsStep, type UpdateCartPromotionStepInput } from "@medusajs/core-flows/cart/update-cart-promotions-step";
+import { PromotionActions } from "@medusajs/framework/utils/portable";
 import { LinkPreimageOperationRequestSchema, LinkPreimageOperationHandleSchema } from "@medusajs/link-modules";
 import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
 import { capturePrivateCanonicalValue, commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -19,7 +21,10 @@ import { defineWorkflowModule } from "../../src/workflow/module";
 import type { LogicalCallReceiptValidation } from "../../src/repository/call-receipt";
 
 const Id = Schema.String;
+const NativeInput = Schema.Struct({ id: Id, action: Schema.optionalKey(Schema.Literals([PromotionActions.ADD, PromotionActions.REMOVE, PromotionActions.REPLACE])) });
 const ProbeInput = Schema.Union([
+  Schema.Struct({ action: Schema.Literal("nativeForward"), input: NativeInput }),
+  Schema.Struct({ action: Schema.Literal("nativeInverse"), handle: LinkPreimageOperationHandleSchema }),
   Schema.Struct({ action: Schema.Literal("create"), pairs: Schema.Array(Schema.Tuple([Id, Id, Schema.Struct({})]).pipe(Schema.mutable)).pipe(Schema.mutable) }),
   Schema.Struct({ action: Schema.Literal("dismiss"), pairs: Schema.Array(Schema.Tuple([Id, Id]).pipe(Schema.mutable)).pipe(Schema.mutable) }),
   Schema.Struct({ action: Schema.Literal("apply"), request: LinkPreimageOperationRequestSchema, failAfter: Schema.optionalKey(Schema.Boolean) }),
@@ -39,7 +44,9 @@ export async function prepareLogicalLinkPreimages(driver: "pglite" | "postgres",
   const links = await Effect.runPromise(prepareCartPromotionPreimageLinks());
   const evidence = new Map<string, { call: Parameters<LogicalCallReceiptValidation>[0]; activity: Parameters<LogicalCallReceiptValidation>[1] }>();
   const observedModule = Result.getOrThrow(defineWorkflowModule({ name: links.workflow.name,
-    source: { name: links.prepared.serviceName, profile: "cart-promotion.exact-preimages" }, graph: { aliases: [], reads: [] }, methods: links.workflow.methods,
+    source: { name: links.prepared.serviceName, profile: "cart-promotion.exact-preimages" }, // This one-source fixture selects direct Link reads only; native Cart/Promotion
+    // traversals remain for the full Cart graph composition, not mocked targets.
+    graph: { ...links.graph, remotePaths: [], linkEndpoints: [] }, methods: links.workflow.methods,
     logical: { ...links.policy, commands: links.commands, validateLogicalCall: Effect.fn(function* (call, activity) {
       yield* links.policy.validateLogicalCall(call, activity);
       evidence.set(call.commandName, { call, activity });
@@ -57,8 +64,22 @@ export async function prepareLogicalLinkPreimages(driver: "pglite" | "postgres",
   const reader = await Effect.runPromise(makeCommerceHost({ ...fixture.hostInput, logicalStorage: storage, commands: [read] }));
   close(() => Effect.runPromise(reader.close)); await Effect.runPromise(reader.initialize([]));
   const resources = Result.getOrThrow(prepareWorkflowResources({ links: { module: observedModule,
-    methods: ["create", "dismiss", "applyPreimageOperation", "compensatePreimageOperation"], graph: false } }, true));
-  const step = createStep("probe-native-link-preimages", resources.callback(async (input: typeof ProbeInput.Type, { resources }): Promise<StepResponse<Json>> => {
+    methods: ["create", "dismiss", "applyPreimageOperation", "compensatePreimageOperation"], graph: true } }, true, { link: links.resource }));
+  const nativeFlow = createWorkflow("native-cart-promotion-callback-witness", (input: WorkflowData<UpdateCartPromotionStepInput>) => new WorkflowResponse(updateCartPromotionsStep(input)));
+  const native = Result.getOrThrow(nativeFlow.prepare()).nodes[0];
+  if (native?.kind !== "step" || native.compensate === undefined) throw new Error("Missing genuine native Cart promotion callbacks");
+  const nativeInverse = native.compensate;
+  const step = createStep("probe-native-link-preimages", resources.callback(async (input: typeof ProbeInput.Type, context): Promise<StepResponse<Json>> => {
+    const { resources } = context;
+    if (input.action === "nativeForward") {
+      const result = await Reflect.apply(native.invoke, undefined, [input.input, context]);
+      if (!(result instanceof StepResponse)) throw new Error("Missing retained native Cart promotion response");
+      return new StepResponse(result.compensateInput);
+    }
+    if (input.action === "nativeInverse") {
+      await Reflect.apply(nativeInverse, undefined, [input.handle, context]);
+      return new StepResponse(null);
+    }
     const service = resources.links;
     if (input.action === "create") return new StepResponse(await service.create(input.pairs));
     if (input.action === "dismiss") return new StepResponse(await service.dismiss(input.pairs));

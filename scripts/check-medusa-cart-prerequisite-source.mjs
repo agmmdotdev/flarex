@@ -7,6 +7,8 @@ import { paymentAccountingAuthoredTargets } from "./check-medusa-payment-lifecyc
 import { customerAddressUpdateSourcePairs } from "./check-medusa-customer-account-source.mjs";
 import { cartCreationAuthoredTargets } from "./check-medusa-cart-creation-source.mjs";
 
+import { cartPromotionStepSourcePairs, cartPromotionStepAuthoredTarget } from "./check-medusa-cart-promotion-step-source.mjs";
+
 const failure = "Changed native Cart prerequisite source";
 const nativePrefix = "third_party/medusa/upstream/";
 
@@ -56,6 +58,7 @@ export const cartPrerequisiteSourcePairs = Object.freeze([
   ...customerSelectionSourcePairs,
   ...workflowCacheSourcePairs,
   ...cartContextReadSourcePairs,
+  ...cartPromotionStepSourcePairs,
   {
     "source": "third_party/medusa/upstream/LICENSE",
     "target": "packages/medusa-cart/LICENSE",
@@ -576,6 +579,8 @@ export const cartPrerequisiteSourcePairs = Object.freeze([
  * authority. Every other selected source has exactly its declared destination.
  * @param {readonly {source?: string, target: string, classification: string}[]} files */
 export function verifyCartPrerequisiteSourceSelection(files) {
+  // Pair-only callers retain their existing native classification checks.
+  // The full promotion guard also requires the new authored operation helper.
   for (const pair of cartPrerequisiteSourcePairs) {
     const selected = files.filter(file => file.target === pair.target);
     if (selected.length !== 1 || selected[0]?.source !== pair.source || selected[0]?.classification !== pair.classification)
@@ -585,6 +590,7 @@ export function verifyCartPrerequisiteSourceSelection(files) {
     if (checkoutGraphSourcePairs.some(pair => pair.target === file.target && pair.source === file.source && pair.classification === file.classification) ||
       checkoutGraphAuthoredTargets.includes(file.target) && file.source === undefined && file.classification === "authored") continue;
     if (file.target === "packages/medusa-cart/src/utils/totals-selection.ts" && file.source === undefined && file.classification === "authored") continue;
+    if (file.target === cartPromotionStepAuthoredTarget && file.source === undefined && file.classification === "authored") continue;
     if (cartCreationAuthoredTargets.includes(file.target) && file.source === undefined && file.classification === "authored") continue;
     if (paymentAccountingAuthoredTargets.includes(file.target) && file.source === undefined && file.classification === "authored") continue;
     const targetPair = cartPrerequisiteSourcePairs.find(pair => pair.target === file.target);
