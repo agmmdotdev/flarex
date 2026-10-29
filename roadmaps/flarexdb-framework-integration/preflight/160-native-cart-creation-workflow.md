@@ -672,10 +672,12 @@ These are native DAL requirements, not admission of a logical creation writer.
 Native Promotion's active-Campaign query uses one native Date for inclusive
 starts_at <= now and exclusive ends_at > now. The current scalar owner admits
 strict timestamp comparisons, but rejects timestamp membership in in. The
-preserved genuine-DML witness cannot express the inclusive boundary as
-strict-less-than OR exact membership; it refuses invalidInput. This dependent
-Campaign branch requires authorization for canonical timestamp membership at
-the existing scalar query owner. No adapter time adjustment, rounded bound or
+preserved genuine-DML witness initially could not express the inclusive boundary
+as strict-less-than OR exact membership; it refused invalidInput. The approved
+scalar-owner correction admits canonical timestamp membership with existing
+index, snapshot and resource authority. Campaign preparation retains the single
+native clock and its distinct inclusive-start and exclusive-end boundaries.
+No adapter time adjustment, rounded bound or
 substituted transaction clock satisfies the native contract.
 
 

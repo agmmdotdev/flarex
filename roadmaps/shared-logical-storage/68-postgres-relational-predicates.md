@@ -131,10 +131,12 @@ The finite numeric-column `numericIn` contract and existing pure predicates
 remain unchanged. This scalar mechanism does not admit joins or Promotion
 business policy, and does not repair native malformed SQL generation.
 
-## Positive text and Boolean NULL membership
+## Positive text, Boolean and canonical timestamp membership
 
-Positive `in` accepts SQL NULL query operands against checked TEXT and Boolean
-columns, including nonnullable columns. NULL contributes no equality match; it
+Positive `in` accepts SQL NULL query operands against checked TEXT, Boolean and
+TIMESTAMPTZ columns, including nonnullable columns. Timestamp operands use the
+existing canonical UTC millisecond encoding and checked calendar/year range;
+offset spellings, finer precision and invalid dates refuse. NULL contributes no equality match; it
 does not mean that a stored value is null. Literal text `"null"` remains distinct.
 Use the existing explicit-null predicate to select null values.
 
@@ -144,6 +146,12 @@ existing column and index authority still applies to NULL-only and empty
 cohorts. Pure matching and complete PostgreSQL Boolean-tree evaluation preserve
 the same positive WHERE result. Physical compatibility parameterizes a typed SQL
 NULL without passing it through the stored-value validator.
+
+Timestamp equality points retain the existing indexed selection owner and
+missing-index refusal. An indexed timestamp less-than branch combined with
+membership represents an inclusive upper boundary without changing its clock
+value. Current, pending and earlier committed snapshots use the existing
+dependency, history, rollback and durable replay owners.
 
 This query contract does not relax nonnullable writes, numeric membership,
 negative recipes or indexed-point NULL operands. Malformed siblings, wrong

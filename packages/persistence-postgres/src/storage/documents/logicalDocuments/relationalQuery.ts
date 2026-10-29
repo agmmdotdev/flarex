@@ -209,7 +209,7 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
         operands += node.values.length;
         if (operands > relationalReadLimits.filterOperands) return yield* Result.fail(error("limitExceeded"));
         const column = columnForName(node.column);
-        if (column === undefined || (column.type !== "text" && column.type !== "boolean") ||
+        if (column === undefined || (column.type !== "text" && column.type !== "boolean" && column.type !== "timestamptz") ||
             node.values.some(value => value !== null && !isRelationalColumnValue(column.type, false, value)))
           return yield* Result.fail(error("invalidInput"));
         demandedFields.add(node.column);
@@ -229,7 +229,7 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
           const conditional = declaredUnconditional ? undefined : indexes.find(candidate => candidate.columns[0]?.columnId === node.column &&
             candidate.predicate?.kind === "isNull" && requiredNulls.has(candidate.predicate.column.columnId));
           if (!unconditional && conditional === undefined)
-            return Result.succeed({ selections: null, unindexedText: column.type === "text" });
+            return Result.succeed({ selections: null, unindexedText: column.type === "text" || column.type === "timestamptz" });
           const nullColumn = conditional?.predicate?.kind === "isNull" ? conditional.predicate.column.columnId : undefined;
           return Result.succeed({ selections: [...keys].map(value => ({ column: node.column, value,
             ...(nullColumn === undefined ? {} : { nullColumn }) })), unindexedText: false });
