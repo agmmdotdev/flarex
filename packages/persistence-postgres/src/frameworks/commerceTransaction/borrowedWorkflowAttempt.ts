@@ -109,6 +109,11 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
         yield* localRootGate;
         const mechanics = yield* combineLogicalWriteMechanics(states.map(state => state.writeMechanics), logicalCommerceError);
         const resources = yield* Effect.fromResult(captureCommerceResources(input.resources ?? defaultCommerceResources));
+        // This combined borrowed view has no participant-local related-program
+        // allowance. Refuse explicit selection instead of advertising a value
+        // that its shared working set would silently replace with the default.
+        if (resources.relatedPredicateNodes !== undefined)
+          return yield* Effect.fail(commerceError("unsupportedProfile"));
         const commandMs = yield* Schema.decodeUnknownEffect(FrameworkCommandMilliseconds)(
           input.requestCommandMs ?? commerceLimits.commandMs,
         ).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));

@@ -1,6 +1,6 @@
 import { Result, Schema } from "effect";
 import { commerceError, commerceLimits } from "./model";
-import { CommerceCallLimit, CommerceCommandByteLimit, commerceResourceCeilings } from "../../execution/preparation/frameworkExecutionPolicy";
+import { CommerceCallLimit, CommerceCommandByteLimit, commerceResourceCeilings, RelatedPredicateNodeLimit } from "../../execution/preparation/frameworkExecutionPolicy";
 import { logicalMaterializationBatchBudget } from "../../storage/documents/logicalDocuments/policy";
 import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from "flarex-protocol/commit-protocol";
 
@@ -11,6 +11,7 @@ const Resources = Schema.Struct({
   writeBatchRows: ceiling(commerceResourceCeilings.writeBatchRows), facts: ceiling(commerceResourceCeilings.facts),
   calls: CommerceCallLimit, eventMessages: ceiling(commerceResourceCeilings.eventMessages), eventIds: ceiling(commerceResourceCeilings.eventIds),
   commandBytes: CommerceCommandByteLimit, valueNodes: ceiling(commerceResourceCeilings.valueNodes),
+  relatedPredicateNodes: Schema.optionalKey(RelatedPredicateNodeLimit),
 });
 export type CommerceResources = typeof Resources.Type;
 

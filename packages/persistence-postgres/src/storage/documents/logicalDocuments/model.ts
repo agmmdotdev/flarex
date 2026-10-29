@@ -196,6 +196,8 @@ export type LogicalDocumentWorkingSetInput<Failure> = Readonly<{
   readonly snapshotCommitSeq?: CommitSeq;
   readonly tables: readonly LogicalDocumentTable[];
   readonly relationalCapabilities?: readonly RelationalPersistenceCapability[];
+  /** Trusted construction only; related query data cannot select this bound. */
+  readonly relatedPredicateNodes?: number;
   readonly reconstitution?: LogicalReconstitutionPolicy;
   readonly insertValidation?: LogicalInsertValidation;
   readonly allowPreservingDeletionUpsert?: LogicalPreservingDeletionUpsertPolicy;

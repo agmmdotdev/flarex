@@ -288,10 +288,11 @@ combined metadata.
 Both complete current cohorts use existing indexed acquisition, snapshot and
 pending-write owners. Original source-preparation group identity is retained
 through combined mechanics; matching lineage alone does not authorize a pair.
-The shared program limits remain 64 nodes, depth eight and 256 operands across
-related wrappers and scalar subtrees. Combined cohort rows and bytes, possible
-parent/child comparisons and returned values consume existing request budgets;
-no limit is raised. The issued batch retains both actual table definitions and
+The default shared program limits remain 64 nodes, depth eight and 256 operands
+across related wrappers and scalar subtrees. The explicitly selected Promotion
+allowance below changes only aggregate related nodes. Combined cohort rows and
+bytes, possible parent/child comparisons and returned values consume existing
+request budgets. Other limits remain unchanged. The issued batch retains both actual table definitions and
 catalog IDs, an immutable program and exact ordered parent verdicts. Activity
 retains each cohort's identities and the authenticated related match selection.
 
@@ -311,3 +312,32 @@ membership exclusions stay with native Promotion. Its absence of automatic
 roots skips this operation; it changes no shared empty-batch semantics. The
 native SQL comparator's bounded agreement is not general plan-error equivalence,
 production activation or unbounded query/graph support.
+
+## Native Promotion related-program resource gate
+
+Status: implemented as a private, explicitly selected native Promotion profile. The
+preserved genuine eight-attribute Cart context produces 188 predicate nodes,
+depth five and 80 operands (3,711 UTF-8 SQL bytes). The current 64-node aggregate
+related-program default correctly refuses limitExceeded; manual Promotion and
+Campaign reads are independent of this refusal. Removing native context fields,
+splitting the tree or evaluating casts in JavaScript would change the admitted
+native historical Rule/Value policy.
+
+The existing captured, immutable, identity-bound CommerceResources selection
+owns the optional relatedPredicateNodes allowance, bounded at 256. Omission
+retains default 64 and its existing canonical identity bytes. Only the selected
+participant's related compiler receives the captured allowance; query JSON
+cannot select it. The selected native Promotion profile admits the complete
+188-node program without pruning context or splitting evaluation.
+Scalar subtree limits remain 64, with aggregate related depth eight and 256
+operands, same-source authentication, cohort/byte/join budgets, protected
+capture and the single settlement owner unchanged. Captured selection is
+isolated between participants and retained in request identity; a changed
+selection conflicts with durable replay. Complete Cart root admission remains
+with its separate workflow owner.
+
+The separate combined borrowed-workflow profile has no participant-local
+allowance. It refuses an explicit relatedPredicateNodes selection before
+working-set construction. Its omitted/default policy and existing Product
+Launch consumer remain unchanged. Queued Commerce borrowing retains the
+original participant's selected working set and supports the Promotion profile.

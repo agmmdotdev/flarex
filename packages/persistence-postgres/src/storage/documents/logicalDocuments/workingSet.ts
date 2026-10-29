@@ -54,6 +54,7 @@ import { decodeCapturedAppIndexSnapshotPageEffect,
 import { decodeLogicalFindQuery, isLogicalRange, selectLogicalIndex, selectLogicalPageIndex, prepareLogicalQueryPredicate, logicalWhereValues, logicalSelectionWhere, selectLogicalUniqueValues, selectLogicalIndexValues, type LogicalSelectionValues, type LogicalWhere } from "./query";
 import { prepareLogicalRelationalRead, logicalRelationalSelectionValues, type LogicalRelationalReadDemand } from "./relationalQuery";
 import { decodeRelatedRelationalQuery, prepareRelatedRelationalPredicate } from "./relatedRelationalPredicate";
+import { decodeRelatedPredicateNodeLimit, relationalReadLimits } from "../../../execution/preparation/frameworkExecutionPolicy";
 import { preparePostgresRelationalBatch, inspectPostgresRelationalBatch, buildPostgresRelationalPredicateBody,
   decodePostgresRelationalMatches, type PostgresRelationalPredicateBatch } from "./postgresRelationalPredicate";
 import { rowsFromDriverExecuteResult } from "../../../database/driverExecuteResult";
@@ -562,6 +563,10 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
   testHooks?: LogicalDocumentReadTestHooks<Failure>,
   constructionTx?: FlarexMetadataTransaction,
 ) {
+  const selectedRelatedPredicateNodes = configuration.relatedPredicateNodes;
+  const relatedPredicateNodes = yield* Effect.fromResult(decodeRelatedPredicateNodeLimit(
+    selectedRelatedPredicateNodes === undefined ? relationalReadLimits.filterNodes : selectedRelatedPredicateNodes,
+  ).pipe(Result.mapError(cause => configuration.error("invalidInput", cause))));
   const readProfile = configuration.readReadiness?.kind === "queryRequired" ? configuration.readReadiness : undefined;
   const finiteProfile = configuration.readReadiness?.kind === "finiteQueryRequired" ? configuration.readReadiness : undefined;
   const readMechanics = readProfile === undefined ? undefined : preparedReadMechanics.get(readProfile.mechanics);
@@ -605,7 +610,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       configuration.tx === undefined ? configuration.readTransaction(work, demand) : work(configuration.tx);
   const runConstructionRead = <A, E>(work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
     constructionTx === undefined ? runRead(work) : work(constructionTx);
-  const state = Object.freeze({ ...configuration, limits: Object.freeze({ ...configuration.limits }),
+  const state = Object.freeze({ ...configuration, relatedPredicateNodes, limits: Object.freeze({ ...configuration.limits }),
     relationalCapabilities: selectedWriteMechanics?.relationalCapabilities ?? readProfile?.mechanics.relationalCapabilities ?? (configuration.relationalCapabilities === undefined ? undefined : Object.freeze(structuredClone(configuration.relationalCapabilities))),
     tables: selectedWriteMechanics?.tables ?? readProfile?.mechanics.tables ?? Object.freeze(configuration.tables.map(table => {
       if (table.relational === undefined) return Object.freeze(table);
@@ -2153,7 +2158,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
           parent.relational === undefined || child.relational === undefined)
           return yield* Effect.fail(error("invalidAuthority"));
         const prepared = yield* Effect.fromResult(prepareRelatedRelationalPredicate(parent.relational, child.relational,
-          child.tableId, state.relationalCapabilities, query, limits.pageRows, error));
+          child.tableId, state.relationalCapabilities, query, limits.pageRows, error, state.relatedPredicateNodes));
         // Complete current cohorts use the existing bounded PK index owner,
         // including pending writes and exact snapshot dependencies.
         const parents = yield* readRelationalSelection(tableName,

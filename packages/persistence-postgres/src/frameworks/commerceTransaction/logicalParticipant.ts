@@ -142,6 +142,7 @@ export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
   if (readReadiness.kind === "full")
     for (const table of state.tables) yield* Effect.fromResult(bindPreparedLogicalRelationalRows(table.mechanics, logicalCommerceError));
   const working = yield* makeLogicalDocumentWorkingSet({ tx, scopeId: state.authority.scopeId, clock: state.clock, lifetime,
+    ...(resources.relatedPredicateNodes === undefined ? {} : { relatedPredicateNodes: resources.relatedPredicateNodes }),
     ...(detachDeletedReferences ? { detachDeletedReferences: true as const } : {}),
     ...(allowReferenceCheckpoints ? { allowReferenceCheckpoints: true as const } : {}),
     ...(selectedInsertValidation === undefined ? {} : { insertValidation: selectedInsertValidation }),

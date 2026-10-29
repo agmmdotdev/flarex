@@ -2,6 +2,7 @@ import { Result, Schema } from "effect";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { RelationalPersistenceCapability, RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
 import { prepareLogicalRelationalRead, relationalReadLimits } from "./relationalQuery";
+import { decodeRelatedPredicateNodeLimit } from "../../../execution/preparation/frameworkExecutionPolicy";
 import { issuePostgresRelatedRelationalPredicate, type NormalizedRelatedRelationalPredicate } from "./postgresRelationalPredicate";
 import type { LogicalDocumentFailure } from "./model";
 
@@ -18,8 +19,9 @@ const decodeNode = Schema.decodeUnknownResult(Node, { onExcessProperty: "error" 
 export function prepareRelatedRelationalPredicate<Failure>(parent: RelationalTableDefinition,
   child: RelationalTableDefinition, childTableId: CatalogTableId,
   capabilities: readonly RelationalPersistenceCapability[], query: typeof Query.Type,
-  pageRows: number, error: LogicalDocumentFailure<Failure>) {
+  pageRows: number, error: LogicalDocumentFailure<Failure>, selectedNodeLimit: number = relationalReadLimits.filterNodes) {
   return Result.gen(function* () {
+    const nodeLimit = yield* decodeRelatedPredicateNodeLimit(selectedNodeLimit).pipe(Result.mapError(cause => error("invalidInput", cause)));
     const constraint = child.constraints.find(member => member.identity.constraintId === query.foreignKey);
     const parentPrimary = parent.keys.find(key => key.kind === "primary");
     const childPrimary = child.keys.find(key => key.kind === "primary");
@@ -38,7 +40,7 @@ export function prepareRelatedRelationalPredicate<Failure>(parent: RelationalTab
       return yield* Result.fail(error("invalidInput"));
     let nodes = 0, operands = 0;
     const visit = (input: unknown, depth: number): Result.Result<NormalizedRelatedRelationalPredicate, Failure> => Result.gen(function* () {
-      if (++nodes > relationalReadLimits.filterNodes || depth > relationalReadLimits.filterDepth)
+      if (++nodes > nodeLimit || depth > relationalReadLimits.filterDepth)
         return yield* Result.fail(error("limitExceeded"));
       const node = yield* decodeNode(input).pipe(Result.mapError(cause => error("invalidInput", cause)));
       if ("children" in node) {
@@ -54,7 +56,7 @@ export function prepareRelatedRelationalPredicate<Failure>(parent: RelationalTab
         { predicate: node.predicate, order: { column, direction: "asc" } }, pageRows, error);
       nodes += scalar.complexity.nodes;
       operands += scalar.complexity.operands;
-      if (nodes > relationalReadLimits.filterNodes || operands > relationalReadLimits.filterOperands ||
+      if (nodes > nodeLimit || operands > relationalReadLimits.filterOperands ||
         depth + 1 + scalar.complexity.depth > relationalReadLimits.filterDepth)
         return yield* Result.fail(error("limitExceeded"));
       return Object.freeze({ kind: node.kind, predicate: scalar.predicate });

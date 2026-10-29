@@ -105,6 +105,20 @@ const fixture = (calls = 20, commandBytes = defaultCommerceResources.commandByte
   return { input, evaluator, inspect, getter, foreign, root };
 };
 
+it.each([64, 256])("refuses unsupported borrowed related-node selection %s before working construction", async relatedPredicateNodes => {
+  const { input, evaluator } = fixture();
+  const result = await Effect.runPromise(Effect.result(makeBorrowedWorkflowAttempt({ ...input,
+    resources: { ...defaultCommerceResources, relatedPredicateNodes },
+  })));
+  try {
+    expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    expect(construction.storageReads).toBe(0); expect(construction.workingConstructions).toBe(0);
+  } finally {
+    if (Result.isSuccess(result)) await Effect.runPromise(result.success.abort);
+    evaluator.close();
+  }
+});
+
 it.each(["aggregate-only", "conjunction"] as const)("refuses borrowed %s validation before source admission or working construction", async shape => {
   const { input, evaluator } = fixture(), member = input.members[0];
   if (member === undefined) throw new Error("Missing capture fixture member");

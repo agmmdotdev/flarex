@@ -39,6 +39,11 @@ export const decodeCmsRequestBudget = Schema.decodeUnknownResult(CmsRequestBudge
 
 /** Shared predicate complexity, independently bounded from rows returned. */
 export const relationalReadLimits = Object.freeze({ filterNodes: 64, filterDepth: 8, filterOperands: 256 });
+/** Aggregate related programs may select a larger trusted allowance. Scalar
+ * subtrees keep relationalReadLimits independently. This is private framework
+ * policy, not a change to Application query operators or query data. */
+export const RelatedPredicateNodeLimit = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 256 }));
+export const decodeRelatedPredicateNodeLimit = Schema.decodeUnknownResult(RelatedPredicateNodeLimit);
 
 export const commerceLimits = Object.freeze({
   commandDefinitions: 128,
