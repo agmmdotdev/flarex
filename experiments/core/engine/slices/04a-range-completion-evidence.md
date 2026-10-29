@@ -91,8 +91,9 @@ lookahead; a selected same-key body update; unchanged page contents/cursors and
 logical accounting; current/historical/batch and synthetic page invariants; and
 cache coverage that does not advance from the membership witness. Use meaningful
 existing owner/consumer regressions, both database lanes, scoped Oxc checks and
-both final reviewers. Old journal cutover, incremental pending indexes and the
-real Standard migration remain open parent gates.
+both final reviewers. [Incremental pending indexes](./04b-incremental-pending-indexes.md)
+have their own bounded implementation. Old journal cutover and the real Standard
+migration remain open parent gates.
 
 ## Executing owners and bounded proof
 

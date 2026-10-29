@@ -42,73 +42,80 @@ export const FINITE_INDEXED_QUERY_OPTIONS = {
 
 type Fixture = ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>;
 
+export const makeFiniteIndexedQueriesHarness = Effect.fn("FiniteIndexedQueries.harness")(
+  function* (native: Fixture) {
+    const context = Object.freeze({ deploymentId: native.deploymentId, controlDb: native.control.drizzle,
+      authority: native.authorityPorts, schema: native.schema });
+    const retained = yield* Effect.acquireRelease(retainPreparedHost(preparedHostTestRuntime(native.target.drizzle),
+      Effect.gen(function* () {
+        const preparation = yield* prepareFiniteApplicationMutationAdmission(native.activation, "users:create", context);
+        const candidateSchemaWriteGuard = yield* prepareFiniteAppSchemaCandidateWriteGuardPortEffect({
+          candidateValidation: native.candidateValidation, pointCommitAuthority: native.sessionAuthority,
+        }, { deploymentId: native.deploymentId, scopeId: native.authority.scopeId, profile: "fullArtifactProof" });
+        return Object.freeze({ preparation, candidateSchemaWriteGuard });
+      })), owner => owner.close);
+    const prepared = yield* retained.use(host => Effect.fromResult(readPreparedFiniteApplicationMutationInputs(host.preparation, context)));
+    const users = prepared.schema.tables.find(table => table.logicalName === "users");
+    if (users === undefined) throw new Error("Missing actual finite users table");
+    const alphaId = appDocumentIdV1FromRowIdentity({ tableId: users.tableId, rowId: ALPHA_ROW });
+    const betaId = appDocumentIdV1FromRowIdentity({ tableId: users.tableId, rowId: BETA_ROW });
+    const store = createSessionJournalStorePersistence(native.sessionAuthority, {
+      grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1, randomUuid: randomUUID, indexedQueries: native.indexedQueries,
+    });
+    const candidateSchemaWriteGuard = yield* retained.use(host => Effect.succeed(host.candidateSchemaWriteGuard));
+    const publisher = createPointCommitPublisherPortV1(native.sessionAuthority, {
+      ...native.servingOwners.materialization,
+      uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(native.control.drizzle),
+      uniqueConstraintEligibility: native.uniqueConstraintEligibility, candidateSchemaWriteGuard,
+    });
+    const open = Effect.fn("FiniteIndexedQueries.open")(function* () {
+      const entry = yield* store.prepareFiniteEntryEffect([]);
+      const authorizationRevocationEpoch = yield* runEffectTransaction<
+        Effect.Success<ReturnType<typeof requireScopeAuthorizationRevocationEpochInTransactionEffect>>,
+        Effect.Error<ReturnType<typeof requireScopeAuthorizationRevocationEpochInTransactionEffect>>,
+        unknown, FlarexMetadataTransaction>(
+        run => native.target.drizzle.transaction(run), "Finite indexed fixture grant preparation rolled back",
+        tx => requireScopeAuthorizationRevocationEpochInTransactionEffect(tx, native.authority.scopeId), cause => cause);
+      const evidence = yield* Effect.tryPromise(() => applicationMutationActivationEvidenceFixture({
+        deploymentId: TransactionGrantDeploymentIdV1Schema.make(native.deploymentId), executionAuthority: prepared.executionAuthority,
+        authorizationRevocationEpoch, requestKey: randomUUID(), grantId: randomUUID(),
+      }));
+      const activated = yield* retained.use(host => createApplicationMutationSessionActivationPersistenceV1(native.sessionAuthority,
+        { leaseDurationMilliseconds: 240_000, randomUuid: randomUUID }).activateFiniteEffect({
+        deploymentId: TransactionGrantDeploymentIdV1Schema.make(native.deploymentId), scopeId: evidence.scopeId,
+        preparedAdmission: host.preparation, admissionContext: context, evidence: evidence.evidence,
+      }, entry));
+      if (activated.activation.status !== "created" || activated.entry === undefined) throw new Error("Missing genuine finite entry");
+      const confirmed = yield* Effect.fromResult(store.confirmedFiniteEntryAttempt(activated.entry, entry));
+      expect(confirmed.context.session.executionProfile).toBe("finiteRoot");
+      const validator = yield* deriveApplicationSyscallValidator({ scopeId: native.authority.scopeId,
+        schemaVersionId: confirmed.context.executionPin.schemaVersionId, schemaManifest: confirmed.schemaManifest });
+      const table = yield* store.resolvePointTableEffect(confirmed.attempt, "users");
+      const index = yield* store.resolveDeveloperIndexEffect(table, "by_name");
+      return { attempt: confirmed.attempt, table, index, validator, context: confirmed.context, activation: activated.activation, schemaManifest: confirmed.schemaManifest };
+    });
+    const freeze = Effect.fn("FiniteIndexedQueries.freeze")(function* (entry: Effect.Success<ReturnType<typeof open>>) {
+      const result = yield* canonicalizeSuccessfulResultV1Effect(null);
+      const frozenAttempt = yield* store.freezeFiniteRootEffect(entry.attempt, result);
+      const view = readFrozenFiniteAttempt(frozenAttempt);
+      if (view === undefined) throw new Error("Missing authentic frozen finite projection");
+      const session = projectConfirmedSession(entry.context.session);
+      const authority = relationAuthorityFromAnchor(entry.activation.anchor, entry.context.executionPin.schemaVersionId,
+        entry.activation.executionClaim);
+      return { view, command: { authorityPins: pointCommitAuthorityPinsFromStoredSessionV1(authority, session),
+        session: pointCommitSessionFromStoredSessionV1(session, "running"), executionClaim: entry.activation.executionClaim, frozenAttempt } };
+    });
+
+    return Object.freeze({ store, open, freeze, publisher, alphaId, betaId, tableId: users.tableId });
+  },
+);
+
 /** The actual finite entry, journal, frozen-root and publisher owners all run
  * here. No durable-journal sealing or fabricated finite capability is involved. */
 export const finiteIndexedQueriesScenario = Effect.fn("FiniteIndexedQueries.scenario")(
   function* (native: Fixture) {
     return yield* Effect.scoped(Effect.gen(function* () {
-      const context = Object.freeze({ deploymentId: native.deploymentId, controlDb: native.control.drizzle,
-        authority: native.authorityPorts, schema: native.schema });
-      const retained = yield* Effect.acquireRelease(retainPreparedHost(preparedHostTestRuntime(native.target.drizzle),
-        Effect.gen(function* () {
-          const preparation = yield* prepareFiniteApplicationMutationAdmission(native.activation, "users:create", context);
-          const candidateSchemaWriteGuard = yield* prepareFiniteAppSchemaCandidateWriteGuardPortEffect({
-            candidateValidation: native.candidateValidation, pointCommitAuthority: native.sessionAuthority,
-          }, { deploymentId: native.deploymentId, scopeId: native.authority.scopeId, profile: "fullArtifactProof" });
-          return Object.freeze({ preparation, candidateSchemaWriteGuard });
-        })), owner => owner.close);
-      const prepared = yield* retained.use(host => Effect.fromResult(readPreparedFiniteApplicationMutationInputs(host.preparation, context)));
-      const users = prepared.schema.tables.find(table => table.logicalName === "users");
-      if (users === undefined) throw new Error("Missing actual finite users table");
-      const alphaId = appDocumentIdV1FromRowIdentity({ tableId: users.tableId, rowId: ALPHA_ROW });
-      const betaId = appDocumentIdV1FromRowIdentity({ tableId: users.tableId, rowId: BETA_ROW });
-      const store = createSessionJournalStorePersistence(native.sessionAuthority, {
-        grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1, randomUuid: randomUUID, indexedQueries: native.indexedQueries,
-      });
-      const candidateSchemaWriteGuard = yield* retained.use(host => Effect.succeed(host.candidateSchemaWriteGuard));
-      const publisher = createPointCommitPublisherPortV1(native.sessionAuthority, {
-        ...native.servingOwners.materialization,
-        uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(native.control.drizzle),
-        uniqueConstraintEligibility: native.uniqueConstraintEligibility, candidateSchemaWriteGuard,
-      });
-      const open = Effect.fn("FiniteIndexedQueries.open")(function* () {
-        const entry = yield* store.prepareFiniteEntryEffect([]);
-        const authorizationRevocationEpoch = yield* runEffectTransaction<
-          Effect.Success<ReturnType<typeof requireScopeAuthorizationRevocationEpochInTransactionEffect>>,
-          Effect.Error<ReturnType<typeof requireScopeAuthorizationRevocationEpochInTransactionEffect>>,
-          unknown, FlarexMetadataTransaction>(
-          run => native.target.drizzle.transaction(run), "Finite indexed fixture grant preparation rolled back",
-          tx => requireScopeAuthorizationRevocationEpochInTransactionEffect(tx, native.authority.scopeId), cause => cause);
-        const evidence = yield* Effect.tryPromise(() => applicationMutationActivationEvidenceFixture({
-          deploymentId: TransactionGrantDeploymentIdV1Schema.make(native.deploymentId), executionAuthority: prepared.executionAuthority,
-          authorizationRevocationEpoch, requestKey: randomUUID(), grantId: randomUUID(),
-        }));
-        const activated = yield* retained.use(host => createApplicationMutationSessionActivationPersistenceV1(native.sessionAuthority,
-          { leaseDurationMilliseconds: 240_000, randomUuid: randomUUID }).activateFiniteEffect({
-          deploymentId: TransactionGrantDeploymentIdV1Schema.make(native.deploymentId), scopeId: evidence.scopeId,
-          preparedAdmission: host.preparation, admissionContext: context, evidence: evidence.evidence,
-        }, entry));
-        if (activated.activation.status !== "created" || activated.entry === undefined) throw new Error("Missing genuine finite entry");
-        const confirmed = yield* Effect.fromResult(store.confirmedFiniteEntryAttempt(activated.entry, entry));
-        expect(confirmed.context.session.executionProfile).toBe("finiteRoot");
-        const validator = yield* deriveApplicationSyscallValidator({ scopeId: native.authority.scopeId,
-          schemaVersionId: confirmed.context.executionPin.schemaVersionId, schemaManifest: confirmed.schemaManifest });
-        const table = yield* store.resolvePointTableEffect(confirmed.attempt, "users");
-        const index = yield* store.resolveDeveloperIndexEffect(table, "by_name");
-        return { attempt: confirmed.attempt, table, index, validator, context: confirmed.context, activation: activated.activation };
-      });
-      const freeze = Effect.fn("FiniteIndexedQueries.freeze")(function* (entry: Effect.Success<ReturnType<typeof open>>) {
-        const result = yield* canonicalizeSuccessfulResultV1Effect(null);
-        const frozenAttempt = yield* store.freezeFiniteRootEffect(entry.attempt, result);
-        const view = readFrozenFiniteAttempt(frozenAttempt);
-        if (view === undefined) throw new Error("Missing authentic frozen finite projection");
-        const session = projectConfirmedSession(entry.context.session);
-        const authority = relationAuthorityFromAnchor(entry.activation.anchor, entry.context.executionPin.schemaVersionId,
-          entry.activation.executionClaim);
-        return { view, command: { authorityPins: pointCommitAuthorityPinsFromStoredSessionV1(authority, session),
-          session: pointCommitSessionFromStoredSessionV1(session, "running"), executionClaim: entry.activation.executionClaim, frozenAttempt } };
-      });
-
+      const { store, open, freeze, publisher, alphaId, betaId } = yield* makeFiniteIndexedQueriesHarness(native);
       const original = yield* open();
       const page = yield* store.runIndexedQueryEffect(original.index, { kind: "indexRange",
         syscallSequence: CommitSyscallSequenceV1Schema.make(1n), bounds: {}, limit: 1 });
@@ -172,7 +179,7 @@ function projectConfirmedSession(row: FiniteEntryAttemptKernelContext["session"]
   };
 }
 
-async function inventory(native: Fixture) {
+export async function inventory(native: Fixture) {
   const database = native.target.drizzle;
   const { scopeUuid } = projectScopeIdUuidV1(native.authority.scopeId);
   return {

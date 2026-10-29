@@ -1,7 +1,7 @@
 import { Data, Effect, Result, Schema } from "effect";
 import { inspectLogicalRelationalFailure, retainLogicalRelationalFailure, type LogicalRelationalUniqueValue } from "./relationalFailure";
 import { sql } from "drizzle-orm";
-import type { CatalogTableId } from "flarex-protocol/catalog";
+import type { CatalogIndexDefinitionId, CatalogTableId } from "flarex-protocol/catalog";
 import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
 import { runDrizzleStatementEffect } from "../../../database/drizzleStatementEffect";
 import { rowsFromDriverExecuteResult } from "../../../database/driverExecuteResult";
@@ -13,11 +13,12 @@ import type { LogicalDocumentFailure, LogicalDocumentFailureReason } from "./mod
 import { canonicalizeFlarexValueV1Effect, copyCanonicalFlarexValueBytesV1, copyFlarexValueSha256V1, type CanonicalFlarexValueV1 } from "flarex-protocol/value";
 import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
+import type { OrderedIndexKeyHexV1 } from "flarex-protocol/ordered-index";
 import { capturePrivateJsonData, inspectCapturedPrivateJsonData, useCapturedPrivateJsonData } from "../../../values/privateJsonData";
-import { detachStoredAppDocumentEvidence, detachStoredAppRowRevisionEvidence, inspectStoredAppDocumentEvidence } from "../appRowCanonicalEvidence";
+import { detachStoredAppDocumentEvidence, detachStoredAppRowRevisionEvidence, inspectStoredAppDocumentEvidence, protectStoredAppDocumentEvidence } from "../appRowCanonicalEvidence";
 import { MAX_BOUNDED_APP_ROW_READ_IDENTITIES, MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES, type AppRowReadResultV1 } from "../appRows";
 import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
-import { isLocatedAppIndexDefinitionV1, type LocatedAppIndexDefinitionV1 } from "../../indexes/locatedAppIndexDefinition";
+import { isLocatedAppIndexDefinitionV1, sameLocatedAppIndexDefinition, type LocatedAppIndexDefinitionV1 } from "../../indexes/locatedAppIndexDefinition";
 import { isLocatedAppUniqueConstraintDefinitionV1, type LocatedAppUniqueConstraintDefinitionV1 } from "../../unique/locatedAppUniqueConstraintDefinition";
 import { lowerAppDeveloperIndexKeyV1 } from "../../indexes/appDeveloperIndexKeys";
 import { lowerCanonicalAppUniqueConstraintV1Result } from "../../unique/appUniqueConstraintKeys";
@@ -255,13 +256,29 @@ const canonicalBytesMatch = (document: CanonicalFlarexValueV1, verdict: Canonica
   compareBytesLexicographically(document.sha256, verdict.digest) === 0;
 interface CanonicalDerivedKeys {
   readonly unique: Map<LocatedAppUniqueConstraintDefinitionV1, Readonly<{ key: Result.Result.Success<ReturnType<typeof lowerCanonicalAppUniqueConstraintV1Result>>; bytes?: Uint8Array }>>;
-  readonly index: Map<LocatedAppIndexDefinitionV1, Map<AppCreationTimeV1, Result.Result.Success<ReturnType<typeof lowerAppDeveloperIndexKeyV1>>>>;
+  readonly index: Map<CatalogIndexDefinitionId, Readonly<{ definition: LocatedAppIndexDefinitionV1;
+    keys: Map<AppCreationTimeV1, OrderedIndexKeyHexV1 | null> }>>;
 }
 export interface LogicalCanonicalKeyOwner<Failure> {
   /** The existing root/local retained-document owner is the cache lifetime. */
   readonly identity: ReadonlySet<CanonicalFlarexValueV1>;
   readonly retain: (document: CanonicalFlarexValueV1, bytes: number) => Result.Result<void, Failure>;
+  readonly retainIndex?: (definition: LocatedAppIndexDefinitionV1, document: CanonicalFlarexValueV1,
+    creationTime: AppCreationTimeV1, key: OrderedIndexKeyHexV1 | null, bytes: number) => Result.Result<void, Failure>;
   readonly error: LogicalDocumentFailure<Failure>;
+}
+/** Existing owner-held key evidence can share its payload with a private index.
+ * Independently issued genuine handles must qualify through the catalog owner;
+ * a structural lookalike or corrupted document byte loan supplies no proof. */
+export function hasRetainedLogicalCanonicalIndexKey(definition: LocatedAppIndexDefinitionV1,
+  document: CanonicalFlarexValueV1, creationTime: AppCreationTimeV1,
+  owner: ReadonlySet<CanonicalFlarexValueV1>, key: OrderedIndexKeyHexV1 | null): boolean {
+  const verdict = canonicalRows.get(document);
+  if (!isLocatedAppIndexDefinitionV1(definition) || verdict === undefined || !canonicalBytesMatch(document, verdict) ||
+      verdict.kind === "document" && !verdict.intact()) return false;
+  const retained = verdict.derived?.get(owner)?.index.get(definition.indexDefinitionId);
+  return retained !== undefined && sameLocatedAppIndexDefinition(retained.definition, definition) &&
+    retained.keys.has(creationTime) && retained.keys.get(creationTime) === key;
 }
 function derivedKeys(document: CanonicalFlarexValueV1, verdict: CanonicalRowVerdict | CanonicalDocumentVerdict, owner: ReadonlySet<CanonicalFlarexValueV1>) {
   const owners = verdict.derived ?? new WeakMap<ReadonlySet<CanonicalFlarexValueV1>, CanonicalDerivedKeys>();
@@ -310,20 +327,26 @@ export function lowerLogicalCanonicalUniqueKey<Failure>(definition: LocatedAppUn
 }
 
 export function lowerLogicalCanonicalIndexKey<Failure>(definition: LocatedAppIndexDefinitionV1, document: CanonicalFlarexValueV1, creationTime: AppCreationTimeV1,
-  owner: LogicalCanonicalKeyOwner<Failure>, reason: "documentInvalid" | "storedCorruption" | "invalidInput") {
+  owner: LogicalCanonicalKeyOwner<Failure>, reason: "documentInvalid" | "storedCorruption" | "invalidInput",
+  interpret?: (fallback: () => Result.Result<OrderedIndexKeyHexV1 | null, Failure>) => Result.Result<OrderedIndexKeyHexV1 | null, Failure>) {
   return Result.gen(function* () {
     const verdict = canonicalRows.get(document);
     if (verdict !== undefined && (!canonicalBytesMatch(document, verdict) || verdict.kind === "document" && !verdict.intact()))
       return yield* Result.fail(owner.error(reason));
     const eligible = verdict !== undefined && isLocatedAppIndexDefinitionV1(definition);
-    const retained = verdict?.derived?.get(owner.identity)?.index.get(definition);
-    if (retained?.has(creationTime)) return retained.get(creationTime) ?? null;
-    const lowered = yield* lowerAppDeveloperIndexKeyV1(definition, document, creationTime).pipe(Result.mapError(cause => owner.error(reason, cause)));
+    const retained = eligible ? verdict.derived?.get(owner.identity)?.index.get(definition.indexDefinitionId) : undefined;
+    if (retained !== undefined && !sameLocatedAppIndexDefinition(retained.definition, definition))
+      return yield* Result.fail(owner.error(reason));
+    if (retained?.keys.has(creationTime)) return retained.keys.get(creationTime) ?? null;
+    const fallback = () => lowerAppDeveloperIndexKeyV1(definition, document, creationTime).pipe(Result.mapError(cause => owner.error(reason, cause)));
+    const lowered = yield* (interpret === undefined ? fallback() : interpret(fallback));
     if (verdict !== undefined && eligible) {
-      yield* owner.retain(document, 128 + 2 * (lowered?.length ?? 0));
-      const byCreationTime = retained ?? new Map<AppCreationTimeV1, Result.Result.Success<ReturnType<typeof lowerAppDeveloperIndexKeyV1>>>();
-      byCreationTime.set(creationTime, lowered);
-      derivedKeys(document, verdict, owner.identity).index.set(definition, byCreationTime);
+      const bytes = 128 + 2 * (lowered?.length ?? 0);
+      yield* (owner.retainIndex === undefined ? owner.retain(document, bytes)
+        : owner.retainIndex(definition, document, creationTime, lowered, bytes));
+      const entry = retained ?? Object.freeze({ definition, keys: new Map<AppCreationTimeV1, OrderedIndexKeyHexV1 | null>() });
+      entry.keys.set(creationTime, lowered);
+      derivedKeys(document, verdict, owner.identity).index.set(definition.indexDefinitionId, entry);
     }
     return lowered;
   });
@@ -524,6 +547,22 @@ export function validateLogicalRelationalCanonicalRow(mechanics: PreparedLogical
   });
 }
 
+/** Root retention owns an immutable canonical frame, independently of public
+ * mutable detach projections. A genuine native verdict transfers its exact
+ * private semantic/REAL identities; copying grants no new verdict or keys.
+ * Original expected bytes and a failed intact verdict survive the capture. */
+export function protectLogicalCanonicalDocument(document: CanonicalFlarexValueV1): CanonicalFlarexValueV1 {
+  const protectedDocument = protectStoredAppDocumentEvidence(document);
+  if (protectedDocument === document) return document;
+  const verdict = canonicalRows.get(document);
+  if (verdict === undefined) return protectedDocument;
+  const { derived: _derived, ...interpretation } = verdict;
+  const intact = verdict.kind === "document" ? verdict.intact() : true;
+  canonicalRows.set(protectedDocument, interpretation.kind === "document"
+    ? Object.freeze({ ...interpretation, intact: () => intact }) : Object.freeze(interpretation));
+  if (isJsonObject(protectedDocument.valueJson)) canonicalJsonRows.set(protectedDocument.valueJson, protectedDocument);
+  return protectedDocument;
+}
 /** Only this owner clones and issues a detached canonical copy. Foreign
  * documents gain no verdict. Canonical trees are already immutable;
  * owned copies share those trees and detach every mutable buffer. */

@@ -29,6 +29,7 @@ import type {
   PointMutationSessionAttemptLoadIssueV1,
 } from "../session/errors";
 import type { SessionJournalPointOperationKindV1 } from "./contracts";
+import type { LogicalDocumentRootLimitError } from "../../storage/documents/logicalDocuments/rootEvaluator";
 
 export class InvalidSessionJournalCapabilityV1Error extends Data.TaggedError(
   "InvalidSessionJournalCapabilityV1Error",
@@ -105,6 +106,7 @@ export type SessionJournalResolvePointTableV1Error =
 
 export type SessionJournalRunPointOperationV1Error =
   | ApplicationTableWriteDeniedError
+  | LogicalDocumentRootLimitError
   | InvalidSessionJournalCapabilityV1Error
   | InvalidSessionJournalInputV1Error
   | SessionJournalAttemptUnavailableV1Error
@@ -132,6 +134,7 @@ export type SessionJournalResolveDeveloperIndexV1Error =
   | LocateAppDeveloperIndexDefinitionsV1Error;
 
 export type SessionJournalRunIndexedQueryV1Error =
+  | LogicalDocumentRootLimitError
   | InvalidSessionJournalCapabilityV1Error
   | InvalidSessionJournalInputV1Error
   | SessionJournalAttemptUnavailableV1Error

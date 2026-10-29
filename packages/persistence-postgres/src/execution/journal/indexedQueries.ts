@@ -132,14 +132,17 @@ import {
   finiteApplicationCapture,
   discardFiniteRootEvidence,
   finitePoint,
-  finitePoints,
+  finiteRootState,
   finitePointObservation,
   recordFiniteApplicationDemandMetadataEffect,
 } from "./finiteRoot";
 import type { FiniteRootAttemptState } from "./finiteRoot";
+import { logicalDocumentRootWrittenCount, readLogicalDocumentRootPendingIndex,
+  type LogicalDocumentRootPointFailure, type LogicalDocumentRootPendingPosition } from "../../storage/documents/logicalDocuments/rootEvaluator";
 import {
   mapDeveloperIndexResolutionFailure,
   mapRunIndexedQueryFailure,
+  mapLogicalDocumentRootFailure,
   fromIndexedQueryPromise,
   mapExactRunningIndexedQueryFailure,
   kernelContextMatchesAttempt,
@@ -256,54 +259,15 @@ const runFiniteIndexedQueryEffect = Effect.fnUntraced(
             ),
           }),
         });
-      const staged = finitePoints(finite, index.tableId).filter(
-        (point) => point.overlay.kind !== "none",
-      );
-      if (staged.length > MAX_POINT_COMMIT_MATERIAL_ROWS_V1)
-        return yield* Effect.fail(
-          corruption(index.attempt, "pointDependencyCountMismatch"),
-        );
-      const stagedByRowId = new Map<
-        OrderedIndexRowIdHexV1,
-        IndexedQueryStagedPositionV1
-      >();
-      for (const point of staged) {
-        const rowId = yield* Effect.fromResult(
-          orderedIndexRowIdHexV1FromBytesResult(
-            appRowIdHexV1ToBytes(point.rowId),
-          ).pipe(
-            Result.mapError((cause) =>
-              corruption(index.attempt, "pointDependencyCountMismatch", cause),
-            ),
-          ),
-        );
-        if (point.overlay.kind === "deleted") {
-          stagedByRowId.set(rowId, Object.freeze({ kind: "deleted", rowId }));
-          continue;
-        }
-        if (point.overlay.kind !== "live")
-          return yield* Effect.fail(
-            corruption(index.attempt, "liveOverlayEvidenceMissing"),
-          );
-        const encodedKey = yield* Effect.fromResult(
-          lowerAppDeveloperIndexKeyV1(
-            index.definition,
-            point.overlay.document,
-            point.overlay.creationTime,
-          ),
-        );
-        stagedByRowId.set(
-          rowId,
-          encodedKey === null
-            ? Object.freeze({ kind: "deleted", rowId })
-            : Object.freeze({
-                kind: "live",
-                rowId,
-                encodedKey,
-                document: point.overlay.document,
-              }),
-        );
-      }
+      const root = finiteRootState(finite);
+      if (root === null) return yield* Effect.fail(corruption(index.attempt, "pointDependencyCountMismatch"));
+      const rootFailure = (cause: LogicalDocumentRootPointFailure) =>
+        mapLogicalDocumentRootFailure(index.attempt, "pointDependencyCountMismatch", cause);
+      const writtenCount = yield* Effect.fromResult(logicalDocumentRootWrittenCount(root, index.tableId).pipe(
+        Result.mapError(rootFailure),
+      ));
+      if (writtenCount > MAX_POINT_COMMIT_MATERIAL_ROWS_V1)
+        return yield* Effect.fail(corruption(index.attempt, "pointDependencyCountMismatch"));
       const bounds: OrderedIndexBoundsV1 = Object.freeze({
         ...(request.startInclusive === null
           ? {}
@@ -312,6 +276,12 @@ const runFiniteIndexedQueryEffect = Effect.fnUntraced(
           ? {}
           : { endExclusive: request.endExclusive }),
       });
+      const pendingIndex = yield* Effect.fromResult(readLogicalDocumentRootPendingIndex<SessionJournalRunIndexedQueryV1Error>(root, index.definition, {
+        order: "application", bounds, limit: request.limit + 1, error: rootFailure,
+        lower: row => row.current === null ? Result.succeed(null)
+          : lowerAppDeveloperIndexKeyV1(index.definition, row.current, row.creationTime),
+        charge: () => Result.succeed(undefined),
+      }));
       const membership = yield* capture(
         {
           kind: "indexPage",
@@ -320,7 +290,7 @@ const runFiniteIndexedQueryEffect = Effect.fnUntraced(
             scopeId: index.attempt.selector.scopeId,
             definition: index.definition,
             bounds,
-            limit: request.limit + staged.length,
+            limit: request.limit + writtenCount,
             snapshotCommitSeq: index.attempt.snapshotToken.commitSeq,
           },
         },
@@ -335,27 +305,28 @@ const runFiniteIndexedQueryEffect = Effect.fnUntraced(
         membership.rawRows,
       ).pipe(Effect.mapError(mapRunIndexedQueryFailure));
       const merged: IndexedQueryMergedPositionV1[] = [];
-      for (const entry of snapshotPage.entries)
-        if (!stagedByRowId.has(entry.rowId))
-          merged.push(
-            Object.freeze({
-              kind: "snapshot",
-              rowId: entry.rowId,
-              encodedKey: entry.encodedKey,
-              entry,
-            }),
-          );
-      for (const position of stagedByRowId.values())
-        if (
-          position.kind === "live" &&
-          encodedIndexKeyIsWithinBounds(position.encodedKey, request)
-        )
-          merged.push(position);
-      merged.sort(compareIndexedQueryMergedPositions);
+      let pendingOffset = 0;
+      let pendingPosition = pendingIndex.positions[pendingOffset];
+      const appendPending = (position: LogicalDocumentRootPendingPosition) => {
+        merged.push(Object.freeze({ kind: "live", rowId: position.rowId, encodedKey: position.encodedKey, document: position.document }));
+      };
+      for (const entry of snapshotPage.entries) {
+        if (pendingIndex.hasWritten(entry.rowId)) continue;
+        const position = Object.freeze({ kind: "snapshot" as const, rowId: entry.rowId, encodedKey: entry.encodedKey, entry });
+        while (pendingPosition !== undefined && compareIndexedQueryMergedPositions(pendingPosition, position) <= 0) {
+          appendPending(pendingPosition);
+          pendingPosition = pendingIndex.positions[++pendingOffset];
+        }
+        merged.push(position);
+      }
+      while (pendingPosition !== undefined) {
+        appendPending(pendingPosition);
+        pendingPosition = pendingIndex.positions[++pendingOffset];
+      }
       const page = Object.freeze(merged.slice(0, request.limit));
       const isDone = snapshotPage.isDone && merged.length <= request.limit;
       const snapshotLookahead = snapshotPage.lookahead;
-      const lookahead = snapshotLookahead !== null && !stagedByRowId.has(snapshotLookahead.rowId)
+      const lookahead = snapshotLookahead !== null && !pendingIndex.hasWritten(snapshotLookahead.rowId)
         ? snapshotLookahead : null;
       const documents: CanonicalFlarexValueV1[] = [];
       const newPoints: JournalPointMutationV1[] = [];
@@ -622,7 +593,7 @@ const runFiniteIndexedQueryEffect = Effect.fnUntraced(
               )
               .pipe(
                 Result.mapError((cause) =>
-                  corruption(
+                  mapLogicalDocumentRootFailure(
                     index.attempt,
                     "pointDependencyChangedAtSnapshot",
                     cause,

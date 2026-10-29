@@ -6,7 +6,7 @@ import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { CommitSeqSchema, ScopeIdSchema } from "flarex-protocol/storage-authority";
 import type { FlarexMetadataTransaction } from "../../src/database/metadataTransaction";
 import type { SessionJournalAttempt } from "../../src/execution/journal/api";
-import { makeLogicalDocumentRootEvaluator, attachLogicalDocumentRootEvaluator } from "../../src/storage/documents/logicalDocuments/rootEvaluator";
+import { acceptLogicalDocumentRootWrite, makeLogicalDocumentRootEvaluator, attachLogicalDocumentRootEvaluator } from "../../src/storage/documents/logicalDocuments/rootEvaluator";
 import { issueLogicalDeletedReferenceEvidence, hasLogicalDeletedReferenceEvidence, rebaseLogicalDeletedReferenceEvidence,
   captureLogicalInsertionGraph } from "../../src/storage/documents/logicalDocuments/insertionOrder";
 import { detachLogicalDocumentChanges } from "../../src/storage/documents/logicalDocuments/detachChanges";
@@ -43,17 +43,21 @@ it("retains exact causal ordinals and preimages through detachment, recreation a
       yield* Effect.fromResult(root.writePoint("parent", targetPoint, { kind: "deleted" }, "delete"));
       yield* Effect.fromResult(root.writePoint("parent", targetPoint, { kind: "live", creationTime, document: parent }, "insert"));
       yield* Effect.fromResult(root.writePoint("parent", targetPoint, { kind: "deleted" }, "delete"));
-      yield* Effect.fromResult(root.writePoint("source", sourcePoint, { kind: "live", creationTime, document: sourceAfter }, "patch"));
-      const patch = state.attempts[5], deleted = state.attempts[4];
-      if (patch?.before === null || patch?.before === undefined || patch.after === null || deleted?.before === null || deleted?.before === undefined)
+      const pending = state.rows.get(sourceId), deleted = state.attempts[4];
+      if (pending?.current === null || pending?.current === undefined || deleted?.before === null || deleted?.before === undefined)
         throw new Error("Missing actual patch and deletion preimages");
+      const patch = Object.freeze({ ordinal: state.attempts.length, tableId: sourceTableId, tableName: "source",
+        documentId: sourceId, operation: "patch" as const, before: pending.current, after: sourceAfter });
       const cause = { sourceColumn: "parent_id", targetTableId, targetColumn: "id", targetKey: "parent", targetDeleteOrdinal: 4 };
       const issuedRoot = root.snapshot().insertionRoot;
       if (issuedRoot === undefined) throw new Error("Missing actual root namespace");
       const evidence = yield* Effect.fromResult(issueLogicalDeletedReferenceEvidence(issuedRoot, scopeId,
         { ordinal: patch.ordinal, tableId: patch.tableId, documentId: patch.documentId, before: patch.before, after: patch.after },
         cause, { documentId: deleted.documentId, before: deleted.before }));
-      state.attempts[5] = Object.freeze({ ...patch, deletedReference: Object.freeze(cause), deletedReferenceEvidence: evidence });
+      yield* Effect.fromResult(acceptLogicalDocumentRootWrite(state, pending,
+        Object.freeze({ ...patch, deletedReference: Object.freeze(cause), deletedReferenceEvidence: evidence }), failure => failure));
+      expect(Reflect.set(state.attempts, 5, Object.freeze({ ...patch, deletedReference: { ...cause, targetDeleteOrdinal: 2 } }))).toBe(false);
+      expect(state.attempts[5]?.deletedReferenceEvidence).toBe(evidence);
       // Final target presence is valid: native compensation never relinks a
       // previously detached child merely because it recreates the same ID.
       yield* Effect.fromResult(root.writePoint("parent", targetPoint, { kind: "live", creationTime, document: parent }, "insert"));

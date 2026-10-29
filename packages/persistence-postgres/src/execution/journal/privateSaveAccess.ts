@@ -6,7 +6,7 @@ import { inspectLogicalParticipantAdmissionBundle, inspectLogicalParticipantAtte
 import { inspectLogicalDocumentAttemptConfiguration } from "../../storage/documents/logicalDocuments/documentAdmission";
 import { LogicalParticipantInvocationError } from "../../storage/documents/logicalDocuments/participantErrors";
 import { requireFiniteAttemptPreparationOpen, requireFiniteProductReference } from "../../storage/documents/logicalDocuments/sourceAdmission";
-import { reserveLogicalDocumentRootBytes } from "../../storage/documents/logicalDocuments/rootEvaluator";
+import { LogicalDocumentRootLimitError, reserveLogicalDocumentRootBytes } from "../../storage/documents/logicalDocuments/rootEvaluator";
 import type { LogicalDocumentWorkingSetInput } from "../../storage/documents/logicalDocuments/model";
 import { inspectPrivateReferencePermissionEvidence, type PrivateReferencePermissionEvidence } from "./privatePermissionEvidence";
 import { PrivateReadPrincipal } from "./privateReadAccess";
@@ -89,7 +89,7 @@ export function makePrivateReferenceSaveOperations(owner: JournalAttemptOwner) {
             inspectPrivateReferencePermissionEvidence(evidence.value, attempt, principal) === undefined) return yield* Effect.fail(refused("invalidAuthority"));
           yield* Effect.fromResult(reserveLogicalDocumentRootBytes(finite.evaluator, { attempt, scopeId: principal.scopeId,
             snapshotCommitSeq: attempted.snapshotToken.commitSeq, attemptFence: attempted.selector.attemptFence.toString() }, identity.canonicalByteLength))
-            .pipe(Effect.mapError(reason => refused(reason === "limitExceeded" ? "limitExceeded" : "invalidAuthority")));
+            .pipe(Effect.mapError(reason => refused(reason instanceof LogicalDocumentRootLimitError || reason === "limitExceeded" ? "limitExceeded" : "invalidAuthority", reason)));
           const selected = yield* Effect.fromResult(issueLogicalParticipantAdmissionBundle(attempt, { participant: selection.participant,
             operationMethods: methods, profileRevision: identity.sha256Hex, sources: [{ admission: parent.admissions[0]!, methods: parent.sourceMethods[0]! }] }))
             .pipe(Effect.mapError(cause => refused("invalidAuthority", cause)));

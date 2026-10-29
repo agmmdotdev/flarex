@@ -2,7 +2,9 @@ import { Effect, Result } from "effect";
 import { copyBytes, bytesEqualFullScan } from "@flarex/utils/bytes";
 import { decodeCanonicalAppDocumentEvidenceV1Effect,
   type DecodeCanonicalAppDocumentEvidenceV1Input } from "flarex-protocol/app-document";
-import { FlarexValueEvidenceV1Error, type CanonicalFlarexValueV1 } from "flarex-protocol/value";
+import { copyCanonicalFlarexValueBytesV1, copyFlarexValueSha256V1,
+  FlarexValueEvidenceV1Error, type CanonicalFlarexValueV1 } from "flarex-protocol/value";
+import { createOwnedCanonicalFlarexRuntimeValueReaderV1 } from "flarex-protocol/internal/value-runtime-core";
 import type { AppRowReadResultV1, LiveAppRowRevisionV1 } from "./appRows";
 
 interface StoredDocumentEvidence {
@@ -13,6 +15,47 @@ interface StoredDocumentEvidence {
   readonly revisions: WeakSet<AppRowReadResultV1>;
 }
 const decodedDocuments = new WeakMap<CanonicalFlarexValueV1, StoredDocumentEvidence>();
+interface ProtectedDocumentFrame {
+  readonly runtime: CanonicalFlarexValueV1["value"];
+  readonly policy: CanonicalFlarexValueV1["valueJson"];
+  readonly read: () => CanonicalFlarexValueV1["value"];
+}
+const protectedDocuments = new WeakMap<CanonicalFlarexValueV1, ProtectedDocumentFrame>();
+
+const storedDocumentReferencesMatch = (document: CanonicalFlarexValueV1, evidence: StoredDocumentEvidence): boolean => {
+  const protectedFrame = protectedDocuments.get(document);
+  return protectedFrame === undefined ? evidence.runtime === document.value && evidence.policy === document.valueJson
+    : evidence.runtime === protectedFrame.runtime && evidence.policy === protectedFrame.policy;
+};
+
+/** Privately capture an already canonical frame for a retained root. This owns
+ * its runtime/policy trees and exposes defensive binary/evidence reads. It does
+ * not validate or grant decoder provenance to a foreign canonical structure.
+ * Only an already protected frame is idempotent; mutable originals are copied
+ * again so subsequent source corruption cannot be hidden by an alias cache. */
+export function protectStoredAppDocumentEvidence(document: CanonicalFlarexValueV1): CanonicalFlarexValueV1 {
+  if (protectedDocuments.has(document)) return document;
+  const detached = detachStoredAppDocumentEvidence(document);
+  const runtime = detached.value, policy = detached.valueJson;
+  const read = createOwnedCanonicalFlarexRuntimeValueReaderV1(runtime);
+  // Canonical policy is plain JSON with no runtime binary leaves. The existing
+  // owned-tree reader freezes these newly detached containers without decoding.
+  createOwnedCanonicalFlarexRuntimeValueReaderV1(policy);
+  const bytes = copyCanonicalFlarexValueBytesV1(detached.canonicalBytes), digest = copyFlarexValueSha256V1(detached.sha256);
+  const protectedDocument: CanonicalFlarexValueV1 = Object.freeze({
+    profile: detached.profile, codecVersion: detached.codecVersion,
+    semanticSizeBytes: detached.semanticSizeBytes, nestingDepth: detached.nestingDepth,
+    canonicalText: detached.canonicalText, valueJson: policy,
+    get value() { return read(); },
+    get canonicalBytes() { return copyCanonicalFlarexValueBytesV1(bytes); },
+    get sha256() { return copyFlarexValueSha256V1(digest); },
+  });
+  protectedDocuments.set(protectedDocument, Object.freeze({ runtime, policy, read }));
+  const evidence = decodedDocuments.get(detached);
+  if (evidence !== undefined) decodedDocuments.set(protectedDocument, Object.freeze({ ...evidence,
+    runtime, policy, revisions: new WeakSet<AppRowReadResultV1>() }));
+  return protectedDocument;
+}
 
 /** The decoder alone transfers its provenance into an owned detached copy.
  * Protected evidence stays private, including a changed buffer's original
@@ -36,7 +79,7 @@ export function detachStoredAppRowRevisionEvidence(revision: AppRowReadResultV1,
 
 function transferStoredDocumentEvidence(document: CanonicalFlarexValueV1, detached: CanonicalFlarexValueV1): void {
   const evidence = decodedDocuments.get(document);
-  if (evidence !== undefined && evidence.runtime === document.value && evidence.policy === document.valueJson)
+  if (evidence !== undefined && storedDocumentReferencesMatch(document, evidence))
     decodedDocuments.set(detached, Object.freeze({ ...evidence, runtime: detached.value, policy: detached.valueJson,
       revisions: new WeakSet<AppRowReadResultV1>() }));
 }
@@ -72,11 +115,12 @@ export function inspectStoredAppDocumentEvidence(document: CanonicalFlarexValueV
   FlarexValueEvidenceV1Error
 > {
   const evidence = decodedDocuments.get(document);
-  if (evidence === undefined || evidence.runtime !== document.value || evidence.policy !== document.valueJson)
+  if (evidence === undefined || !storedDocumentReferencesMatch(document, evidence))
     return Result.succeed(undefined);
   if (!bytesEqualFullScan(document.canonicalBytes, evidence.bytes))
     return Result.fail(new FlarexValueEvidenceV1Error({ issue: { reason: "canonicalBytesMismatch" } }));
   if (!bytesEqualFullScan(document.sha256, evidence.digest))
     return Result.fail(new FlarexValueEvidenceV1Error({ issue: { reason: "sha256Mismatch" } }));
-  return Result.succeed(Object.freeze({ runtime: evidence.runtime, policy: evidence.policy }));
+  const protectedFrame = protectedDocuments.get(document);
+  return Result.succeed(Object.freeze({ runtime: protectedFrame === undefined ? evidence.runtime : protectedFrame.read(), policy: evidence.policy }));
 }

@@ -1,7 +1,7 @@
 # Incremental private pending indexes
 
 Design status: **Selected bounded adaptation after independent source challenge**.
-Implementation status: **Unstarted**.
+Implementation status: **Bounded shared-root replacement implemented**.
 Measurement status: **Unmeasured**.
 Owner: [04B pending-index replacement](../slices/04b-incremental-pending-indexes.md).
 The [goal](../GOAL.md) and existing profile guarantees remain unchanged.
@@ -47,7 +47,7 @@ the pin and require extra native error/visibility rules. Instead, update the
 selected index on demand from accepted writes. Keep the existing lowering,
 integrity checks, profile error mapping and final acceptance enforcement.
 
-## Planned replacement
+## Replacement mechanism
 
 The existing portable
 [`root evaluator`](../../../../packages/persistence-postgres/src/storage/documents/logicalDocuments/rootEvaluator.ts)
@@ -86,6 +86,73 @@ in their existing owners. It adds no PostgreSQL read or body materialization
 solely for index maintenance. The implementation must bound and release derived
 memory without charging the same native canonical key twice.
 
+Reuse the existing canonical index-cache ownership as the native-first payload
+proof. For Application-first reuse, the root's exact current-key lookup proves
+its retained payload. The native index-retention callback preserves its existing
+full lifetime charge when adding a cache record, while root retention includes
+the new metadata and only payload not already owned. The root computes this
+qualification itself; there is no caller boolean, second key ledger or free tree
+metadata. Application no-op callbacks cannot bypass actual root retention.
+Both reuse orders, existing retained-key hits and refusal placement need proof.
+For a new body with an unchanged key, genuine native lowering must happen before
+any prior-tuple payload discount. A retained old tuple can prove payload ownership
+without proving the new body's interpretation; the strict hint still misses.
+
+Root-local memory/identity bounds produce `LogicalDocumentRootLimitError` with
+the actual resource and observed/maximum values. Point/index journal boundaries
+preserve it, including selected-body hydration through `observePoint` after a
+valid membership capture. Quota refusal at that cut is not
+`pointDependencyChangedAtSnapshot` corruption. Native owners retain their
+existing limit classification and original cause. Keep the body-ingestion and
+index-installation bounds at their existing cuts and preserve ordered cleanup;
+do not turn exhaustion into partial results, refunds or retry permission.
+Root memory is not a persisted syscall read-byte dimension. This adaptation adds
+no saved receipt/codec or new retry policy. Named root accounting costs remain
+separate from document, attempt and returned-value charges.
+
+Independent preparation can reissue genuine handles for one physical index.
+Use one exact qualification from the existing located-definition owner in both
+root registration and the canonical derived-key cache. The latter retains one
+qualified genuine definition per physical ID, rather than charging another key
+payload because a different handle object reached it. Keep current integrity,
+codec/specification and scope/table checks; mismatches refuse at the existing
+native read boundary. No alias table or second key ledger is introduced.
+
+## Canonical ownership and native write proof
+
+Retaining documents across reads must preserve the pinned private-document
+ownership in TypeScript despite mutable runtime trees, policy objects and binary
+leaves. A read-only collection and shallow object freeze cannot establish it.
+The root uses `protectLogicalCanonicalDocument` in the existing
+[canonical owner](../../../../packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts),
+which delegates stored provenance to the existing
+[decoder evidence owner](../../../../packages/persistence-postgres/src/storage/documents/appRowCanonicalEvidence.ts).
+They capture private runtime/policy and byte/digest storage, freeze owned policy
+containers and supply defensive mutable loans. Foreign shapes gain no decoder
+or native interpretation evidence. Known corruption remains a refusal rather
+than being repaired by the copy.
+
+Protection is idempotent only for an already protected frame. One ingestion
+reuses that protected identity for a shared base/current/original document;
+there is no global memo from a mutable original to an old snapshot. The original
+full revision evaluation order and general mutable-detachment contracts remain
+unchanged. Root rows, index positions and attempts can share the protected frame,
+with copying at unsafe ingestion and defensive runtime/buffer reads. This has
+allocation cost and does not establish a zero-copy fast path.
+
+Native business validation still precedes candidate protection, which precedes
+unique validation and the existing REAL write-evidence capture. Root acceptance
+keeps the exact authored frozen attempt when its protected canonical references
+are unchanged. Otherwise, a frozen owner-created canonical projection uses
+[`retainDetachedLogicalRealWriteAttempt`](../../../../packages/persistence-postgres/src/storage/documents/logicalDocuments/realWriteEvidence.ts)
+to transfer an existing genuine witness after canonical-copy qualification.
+Copying an attempt header loses its WeakMap identity; calling the capture issuer
+again would instead risk granting proof to an unauthenticated projection.
+Keep original issuer identity or use its authenticated transfer. Structural
+copies and genuine converted documents
+alone cannot manufacture an original attempt witness. Preserve insertion/causal
+tokens, ordinals and digests rather than issuing replacement evidence.
+
 ## Native eligibility and retained consumer
 
 Ordinary finite Application ranges and native complete/bounded indexed readers
@@ -98,6 +165,21 @@ the actual Application dependency/native row encounter order and native REAL
 document preflight, inspection and integrity phases. These native checks can
 still inspect all pending rows; only the displaced key reconstruction and sort
 are removed by this bounded adaptation.
+
+Complete native `withAccessCandidates` returns all pending table candidates,
+even sparse/out-of-index-bound rows; its lower/mark phase and later validation,
+projection and accounting precede residual filtering. It had no global sort to
+remove. Keep that responsibility. Its native interpretation owner may accept an
+optional key interpretation from the root only after existing canonical/cache
+guards, with normal retention and error mapping afterward. Require the exact
+physical specification, current body, creation time and covered accepted write;
+a miss uses the original lowerer, while sparse null is a cached interpretation.
+The result is `Result<Option<Key | null>, RootFailure>`: `None` is a miss and
+`Some(null)` is a qualified sparse key. Only `None` selects fallback; closed or
+foreign roots and conflicting definitions remain failures. Sparse exclusion does
+not erase the row's accepted write identity or accounting obligations.
+This lookup never activates global catch-up or skips native side phases. Actual
+ordered tree consumption remains finite ranges and native bounded-page merging.
 
 The authenticated `privateReferencePage` in
 [`workingSet.ts`](../../../../packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts)
@@ -128,11 +210,35 @@ The ordinary Standard mutation cutover, old journal disposition, commit pipeline
 native hosting, complete-flow performance and replication decisions are not
 implemented by this record.
 
-Before marking 04B implemented, prove repeated reads without complete staged-key
+Required regressions cover repeated reads without complete staged-key
 rebuilds, same-key body replacement, repeated key moves, sparse exclusion,
 insert/delete identity preservation, late index registration, native/Application
 alternation, temporary-invalid repair, selected-index failure order, refill and
 exact completion, failed candidate installation, close/freeze and canonical
-integrity. Use genuine owners and both PGlite and ordinary PostgreSQL consumer
-lanes; rerun the affected actual Cloudflare host path and both mandated reviews.
+integrity through genuine owners and both PGlite and ordinary PostgreSQL consumer
+lanes. The affected actual Cloudflare host path and both mandated reviews remain
+part of the slice's acceptance contract.
 Structural removal of scans/sorts is not a throughput or complete-request claim.
+
+## Executing source and acceptance status
+
+The root owner now implements `acceptLogicalDocumentRootWrite`,
+`registerLogicalDocumentRootIndexes`, `readLogicalDocumentRootPendingIndex`,
+`lookupLogicalDocumentRootPendingKey` and `retainLogicalDocumentRootIndexKey`.
+Its private state and runtime read-only views replace external mutation of
+current rows/attempts. `finiteRoot` supplies genuine prepared definitions;
+finite range merging and native bounded pages consume the private tree.
+
+[`sameLocatedAppIndexDefinition`](../../../../packages/persistence-postgres/src/storage/indexes/locatedAppIndexDefinition.ts)
+qualifies genuine immutable definitions. The existing canonical-key owner in
+[`relationalRows`](../../../../packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts)
+uses it for physical-ID cache records and retention proof. Native complete and
+private-reference eligibility/error phases remain as described above.
+
+The root emits its own typed resource limit error, preserved by the
+[journal failure owner](../../../../packages/persistence-postgres/src/execution/journal/journalFailures.ts)
+and correctly mapped by native callers. No persisted quota dimension or error
+receipt codec is added. Owner-level quota/callback proofs, genuine finite
+entry/publication cases and real catalog predicate coverage retain their distinct
+scopes. Detailed validation and review receipts belong in the scoped Git record;
+the wider goal remains open.

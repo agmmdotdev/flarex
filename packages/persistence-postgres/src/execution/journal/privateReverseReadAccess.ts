@@ -7,7 +7,7 @@ import { inspectLogicalParticipantAdmissionBundle, inspectLogicalParticipantAtte
 import { withLogicalDocumentAttemptAdmissionEffect } from "../../storage/documents/logicalDocuments/documentAdmission";
 import { requireFiniteAttemptPreparationOpen, requireFiniteProductReference } from "../../storage/documents/logicalDocuments/sourceAdmission";
 import { selectLogicalIndex } from "../../storage/documents/logicalDocuments/query";
-import { reserveLogicalDocumentRootBytes } from "../../storage/documents/logicalDocuments/rootEvaluator";
+import { LogicalDocumentRootLimitError, reserveLogicalDocumentRootBytes } from "../../storage/documents/logicalDocuments/rootEvaluator";
 import { cmsError } from "../../frameworks/cmsTransaction/model";
 import { inspectPrivateReverseReadEvidence, type PrivateReverseReadEvidence } from "./privateReverseReadEvidence";
 import { PrivateReadPrincipal, inspectPrivateParticipantReadAccess, type PrivateParticipantReadAccess } from "./privateReadAccess";
@@ -129,7 +129,7 @@ export function makePrivateReverseReadOperations(owner: JournalAttemptOwner) {
             return yield* Effect.fail(refused("invalidAuthority"));
           yield* Effect.fromResult(reserveLogicalDocumentRootBytes(finite.evaluator, { attempt, scopeId: principal.scopeId,
             snapshotCommitSeq: attempted.snapshotToken.commitSeq, attemptFence: attempted.selector.attemptFence.toString() }, identity.canonicalByteLength))
-            .pipe(Effect.mapError(reason => refused(reason === "limitExceeded" ? "limitExceeded" : "invalidAuthority")));
+            .pipe(Effect.mapError(reason => refused(reason instanceof LogicalDocumentRootLimitError || reason === "limitExceeded" ? "limitExceeded" : "invalidAuthority", reason)));
           const bundle = yield* Effect.fromResult(issueLogicalParticipantAdmissionBundle(attempt, { participant: selection.participant,
             operationMethods: [method], profileRevision: identity.sha256Hex, sources: [{ admission, methods: [method] }] }))
             .pipe(Effect.mapError(cause => refused("invalidAuthority", cause)));

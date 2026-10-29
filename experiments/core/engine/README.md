@@ -40,10 +40,10 @@ snapshot/DO composition remains open. The bounded
 [actual-DO query host slice](./slices/03-application-query-do-host.md) is implemented
 with actual local workerd and ordinary PostgreSQL proof. The
 [range-evidence correction](./slices/04a-range-completion-evidence.md) is also
-implemented for newly executed mutations. The next
+implemented for newly executed mutations. The bounded
 [incremental pending-index slice](./slices/04b-incremental-pending-indexes.md)
-records the challenged contract; its runtime implementation and the wider
-Standard/native mutation migration remain open.
+is implemented for shared Application/native pending roots and their selected
+readers. The wider Standard/native mutation migration remains open.
 Resumable backfill remains open in Q07. [Pinned references](../REFERENCES.md#engine-mechanism-reference-map)
 anchor each concept and later implementation in actual Convex owners.
 

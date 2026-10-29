@@ -1,8 +1,9 @@
 # Application mutation pending state and read evidence
 
 Status: **Independent source challenge and peer exchange complete; range-evidence
-producer correction implemented; broader pending replacement and stored-profile
-cutover remain open**. The substep record owns its bounded implementation status.
+producer correction and bounded shared-root pending indexes implemented; broader
+pending replacement and stored-profile cutover remain open**. Each substep record
+owns its bounded implementation status.
 The [goal](../GOAL.md) remains unchanged. The bounded
 [actual DO query host](./03-application-query-do-host.md) is implemented.
 
@@ -129,13 +130,13 @@ or finite-only helper does not complete the real Standard cutover.
    for newly executed indexed operations. Keep returned-body point dependencies,
    current pagination results and accounting. Existing journal receipts are not
    repaired by replay; their cutover remains a separate required disposition.
-2. [Incremental pending indexes](./04b-incremental-pending-indexes.md): adapt the
-   existing shared root evaluator and
-   both its Application and borrowed native write paths. Maintain per-index
-   pending changes instead of relowering and sorting every staged table point on
-   every ordinary range. The challenged contract retains eligibility-first private
-   reference paging with its named removal gate and preserves native validation
-   and accounting. Private pending state remains separate from committed query cache.
+2. [Incremental pending indexes](./04b-incremental-pending-indexes.md): implemented
+   in the existing shared root evaluator and both its Application and borrowed
+   native write paths. Per-index current positions replace repeated complete
+   staged-key rebuilds in the selected finite and bounded native readers. The
+   bounded replacement retains eligibility-first private reference paging with
+   its named removal gate and preserves native validation and accounting.
+   Private pending state remains separate from committed query cache.
 3. Actual Standard mutation cutover: route new requests through the shared
    evaluator, existing finite Worker runner, immutable freeze and publication
    owners. Remove displaced Standard durable-journal/seal/loader construction.

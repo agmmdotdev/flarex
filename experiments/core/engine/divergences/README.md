@@ -64,7 +64,7 @@ evidence, retaining the accepted decision link.
 | [Cloudflare PostgreSQL shutdown](./pg-cloudflare-shutdown.md) | Transport task barrier with controlled and actual-host conformance; preserves real failures, ordered end, forced escalation and TLS generations. Direct native TLS negotiation and stalled-write destruction bounds remain unproved. |
 | [Local Cloudflare runtime](./cloudflare-local-runtime.md) | Source-corrected default workerd integrated with bounded local host proof; no hosted deployment or capacity claim. |
 | [Exact range completion evidence](./range-completion-evidence.md) | Newly executed finite/durable producer correction implemented; preserves exact N+1 completion, selected-body dependencies and accounting. Old journal cutover and the full pending replacement remain open. |
-| [Incremental pending indexes](./incremental-pending-indexes.md) | Selected bounded adaptation / Unstarted / Unmeasured; lazy current-position trees with accepted written-ID suppression preserve fallible key timing. Private reference projection remains a named retained consumer. |
+| [Incremental pending indexes](./incremental-pending-indexes.md) | Selected bounded adaptation / Implemented / Unmeasured; lazy current-position trees with accepted written-ID suppression preserve fallible key timing. Protected canonical/attempt views retain native evidence. Private reference projection remains a named retained consumer. |
 
 | Record | Design / implementation / measurement status |
 | --- | --- |

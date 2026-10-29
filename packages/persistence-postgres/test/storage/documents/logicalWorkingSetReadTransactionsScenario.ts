@@ -52,6 +52,8 @@ import {
 import {
   makeLogicalDocumentRootEvaluator,
   requireLogicalDocumentRootEvaluatorOpen,
+  LOGICAL_DOCUMENT_ROOT_WRITTEN_IDENTITY_BYTES,
+  LOGICAL_DOCUMENT_ROOT_WRITTEN_TABLE_BYTES,
 } from "../../../src/storage/documents/logicalDocuments/rootEvaluator";
 import type {
   SessionJournalAttempt,
@@ -234,7 +236,11 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
             if (at === "validator") return yield* Effect.fail(validatorFailure);
             returnBytes = yield* Effect.fromResult(capturePrivateJsonData(document.value, 65_536, failure).pipe(Result.map(value => value.bytes)));
             // Retaining the attempt also records its identity's first row use.
-            yield* Effect.fromResult(lifetime.charge(lifetime.remainingBytes() - document.canonicalBytes.byteLength - 128 - 32 - returnBytes + 1));
+            // This fresh root must also retain its first written identity/table;
+            // reserve that actual owner cost so refusal still occurs at return.
+            const acceptedMetadataBytes = LOGICAL_DOCUMENT_ROOT_WRITTEN_IDENTITY_BYTES + LOGICAL_DOCUMENT_ROOT_WRITTEN_TABLE_BYTES;
+            yield* Effect.fromResult(lifetime.charge(lifetime.remainingBytes() - document.canonicalBytes.byteLength
+              - 128 - 32 - acceptedMetadataBytes - returnBytes + 1));
           }), error: failure, uniqueConflict: () => failure("uniqueConflict"),
           limits: { pageRows: 8, identities: 8, documentBytes: 65_536 },
         }, firstTime, [], []);

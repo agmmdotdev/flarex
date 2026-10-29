@@ -1,6 +1,7 @@
 # Incremental indexes for the shared pending root
 
-Status: **Challenged contract only; not implemented**. Independent current-owner,
+Status: **Bounded shared-root pending-index replacement implemented**.
+Independent current-owner,
 pinned-Convex and accepted-direction findings have been exchanged. This document
 records the bounded replacement and its implementation gates. Source checkpoint:
 Flarex `d1002bae4`; Convex
@@ -19,7 +20,7 @@ contract completes that cutover. Replication remains deferred.
 | --- | --- | --- |
 | `finitePoints` walks root dependencies; finite `indexedQueries` reconstructs staged positions, lowers their keys and sorts a merged array for each read. | `TransactionIndex` owns per-physical-index ordered pending entries. | Keep a per-index BTree on the existing root and catch up accepted changes before ordinary indexed reads. Remove the finite per-read pending reconstruction. |
 | Application `rootEvaluator.writePoint` and native `workingSet` write helpers mutate the same original/current rows and accepted attempts through different paths. | `Writes::update` accepts the write before `TransactionIndex::finish_update` updates its private index delta. | Give both actual writers one synchronous accepted-transition boundary. Existing rows and immutable attempts remain the pending-data owner. |
-| Native complete-membership and bounded-page reads inspect pending table rows and lower their selected index keys. | Ordered pending live values and tombstones merge with the admitted snapshot. | Connect both ordinary shared-root read paths to the same current-key delta and written-ID base suppression, retaining their own admission, residual predicates, accounting and membership evidence. |
+| Native complete-membership and bounded-page reads inspect pending table rows and lower their selected index keys. | Ordered pending live values and tombstones merge with the admitted snapshot. | Bounded pages consume ordered current positions. Complete native selection retains its all-pending candidate phase and can reuse exact current-key interpretations without activating global catch-up. Preserve admission, predicates, accounting and membership evidence. |
 | Native private reference paging checks its authenticated relevant value and allowed IDs before lowering a pending key. | The general upstream index merge does not establish this product-specific eligibility order. | Retain this reader's existing eligibility-first bounded merge until an equivalent delta proof exists. Do not introduce failures from hidden rows. |
 
 Executing owners are the
@@ -130,9 +131,10 @@ All Application and shared-root native mutations must publish their accepted
 attempt, current row and written-identity notification together in one
 synchronous fold. Cover document insert/patch/replace/remove, relational deletion, close-time
 cascade deletion and set-null rewrites that already use the document writer.
-Snapshot hydration is not a write. The existing Application-only
-`overlayWriteGenerations` and the before-operation `activityGeneration` are not
-complete accepted-write cursors and cannot stand in for the shared attempt log.
+Snapshot hydration is not a write. `overlayWriteGenerations` now advances for
+accepted shared-root writes; the before-operation `activityGeneration` also
+includes non-write activity. Neither replaces the immutable accepted-attempt log
+as the per-index catch-up history.
 
 Constrain mutable row/current/attempt access to that boundary. A `ReadonlyMap`
 whose values or canonical bytes remain mutable is not sufficient. Consumers
@@ -140,6 +142,41 @@ must not receive the mutable BTree or an index result that can mutate its retain
 canonical evidence. Preserve existing detached public projections and authentic
 canonical ingestion. This does not authorize a new root service or transaction
 API; reuse the current owner's types and capability boundaries.
+
+## Retained canonical bodies and native attempt evidence
+
+The root's rows, attempts and index positions share protected canonical frames,
+using `protectLogicalCanonicalDocument` in the existing
+[canonical interpretation owner](../../../../packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts)
+and `protectStoredAppDocumentEvidence` in the existing
+[stored-document evidence owner](../../../../packages/persistence-postgres/src/storage/documents/appRowCanonicalEvidence.ts).
+A read-only collection or frozen outer object alone cannot protect nested runtime
+values, JSON policy, typed arrays or `ArrayBuffer` leaves. These owners capture
+private runtime/policy and evidence buffers, freeze their owned policy containers,
+and expose defensive runtime/binary/evidence reads. Protection does not validate
+or confer stored-decoder provenance on a foreign canonical shape.
+
+Already protected frames retain their identity. Mutable originals are not
+globally memoized: a later capture must still observe source corruption. One
+root ingestion protects a shared source document once and reuses that protected
+identity across base, current and original revision. The original full revision
+copy/evaluation order and existing mutable-detachment contracts stay with their
+owners. Existing false/corrupt interpretation verdicts remain false; protection
+must not turn a corrupted source into valid evidence. This adds owning copies
+at unsafe ingestion and defensive copies for mutable loans; it is not a
+zero-allocation or zero-copy claim.
+
+Native candidate protection occurs after document validation and before unique
+validation and REAL attempt capture. If the authored frozen attempt already
+contains the root's protected before/after frames, the root retains that exact
+attempt. If owner-created canonical copies are necessary, it freezes the
+projected attempt and uses
+[`retainDetachedLogicalRealWriteAttempt`](../../../../packages/persistence-postgres/src/storage/documents/logicalDocuments/realWriteEvidence.ts)
+to transfer only an existing genuine witness with verified canonical-copy
+lineage. A structurally identical attempt cannot inherit REAL proof merely by
+referencing a genuinely converted document. Do not recapture or manufacture
+proof at root acceptance. Original opaque insertion and deleted-reference
+evidence, ordinals and digests remain unchanged.
 
 ## Atomicity, lowering and budgets
 
@@ -204,11 +241,60 @@ failure latches do not acquire a refund or rollback policy from this cache.
 Preserve refusal-before-cache-install and adversarial canonical corruption
 coverage while establishing the concrete ownership and charge placement.
 
+The shared-key bridge uses the existing canonical index-cache ownership to
+prove native-first payload retention; it does not add another key ledger.
+For Application-first reuse, the root's exact current-key lookup proves which
+payload it already owns. An optional native index-retention callback keeps the
+existing full native lifetime cost when adding that native cache record, while
+the root charges its newly retained metadata and any payload not already owned.
+The root computes that discount from genuine ownership, never a caller boolean.
+An unchanged retained native key still follows its existing guard/cache path.
+Additional tree/locator metadata remains charged, and Application callbacks
+cannot waive root retention. Prove both reuse orders and refusal placement.
+Interpretation and payload ownership are distinct: after a new current body is
+genuinely lowered, the root may prove that its unchanged key/row tuple is still
+retained from the previous body and avoid charging that payload again. This does
+not let the previous body's key answer interpretation for the new body. Keep the
+strict current-body hint, exact tuple proof and different-key negative control.
+
+Root memory/identity exhaustion is a local resource failure, not storage
+corruption. `LogicalDocumentRootLimitError` carries the actual resource,
+observed amount and maximum. Point/index journal owners preserve it, including
+when an otherwise valid indexed page exhausts the root while hydrating a
+selected body through `observePoint`. That refusal must not become
+`pointDependencyChangedAtSnapshot` corruption. Native owners keep their existing
+limit classification with the original cause. The body-ingestion bound remains
+before protected capture; index retention bounds remain before candidate
+installation. Selected-body
+hydration refusal retains the existing ordered operation's failure/cleanup
+behavior. No partial success, quota refund or new retry eligibility follows.
+
+First-write identity/order and first-table retention use the root owner's
+`LOGICAL_DOCUMENT_ROOT_WRITTEN_IDENTITY_BYTES` and
+`LOGICAL_DOCUMENT_ROOT_WRITTEN_TABLE_BYTES`, separately from
+document/attempt/return envelopes. A
+fixture targeting a later return refusal must reserve those genuine intervening
+costs rather than weaken limits or move the acceptance boundary. No existing
+persisted syscall dimension describes root working memory. Do not invent a
+read-byte dimension, persist a new receipt format or add another error wrapper.
+
+Located definitions can be reissued as distinct genuine handles. Native-first
+payload proof cannot rely on object identity: native complete selection may
+retain a key under one handle before an Application range activates the tree
+using another. Qualify by the existing located-definition owner, including the
+same physical ID, scope/table, codec and exact immutable specification. Reuse
+that single qualification in root registration and the existing canonical key
+cache, keyed by physical definition identity with a genuine qualified handle.
+A conflicting definition must fail at its existing read boundary, not overwrite
+or silently miss. This replaces the cache's object-key representation; it adds
+no alias collection, second payload ledger or competing fingerprint codec.
+
 ## Actual reader closure and retained algorithms
 
-The new delta must reach finite Application `runIndexedQuery`, native
-`withAccessCandidates` complete-membership reads, and native bounded indexed
-pages with residual predicates. Keep their actual snapshot capture, selected
+The ordered delta must reach finite Application `runIndexedQuery` and native
+bounded indexed pages with residual predicates. Native `withAccessCandidates`
+complete-membership reads consume the shared root's current rows and may reuse
+its valid per-row keys through the native interpretation owner. Keep actual snapshot capture, selected
 body reads, per-consumer provenance, exact dependencies, error mapping and
 admission checks. Ordered lookup does not authorize native document disclosure
 or replace predicate evaluation. Standalone native working sets without a
@@ -217,6 +303,29 @@ converted to Application OCC by this substep.
 This delta covers ordinary current visible pending values at the admitted
 snapshot. It does not replace historical retained-membership candidate APIs,
 unique enforcement, search or vector mechanisms.
+
+The implementation source pass established a more precise complete-native
+boundary: `withAccessCandidates` returns every pending table row, including
+sparse/out-of-index-bound rows. Its lower-key/mark-use phase is interleaved in row
+order; later REAL/projection/inspection/charge phases precede residual filtering.
+There was no global pending-key sort there. A global failing catch-up before
+that phase, or tree-filtering its returned candidates, changes failure order.
+Retain this native responsibility rather than call a tree and discard its result.
+
+The bounded shared-key bridge is an optional interpretation callback at
+`lowerLogicalCanonicalIndexKey`, after its canonical and retained-key guards,
+before its existing retention and error mapping. It may reuse only a root-owned
+key for the exact immutable physical specification, current canonical body,
+creation time and covered accepted write. A miss uses the existing lowerer;
+sparse null remains distinct from a miss. `lookupLogicalDocumentRootPendingKey`
+returns `Result<Option<Key | null>, RootFailure>`: only `None` runs the existing
+lowerer; `Some(null)` is a qualified sparse interpretation. Closed/foreign roots
+or conflicting physical definitions remain failures, never cache misses. A
+sparse key still retains its written identity and write/accounting obligations.
+This lookup performs no global
+catch-up, admission or broader validation. Thus an Application-warm tree cannot
+skip native integrity/retention or expose another pending row's error early.
+The complete native candidate loop and its required cost remain explicit.
 
 Retain native side preflight before bounds/residual filtering. In particular,
 bounded native pages run `checkRealDocuments` over all pending live candidates;
@@ -258,8 +367,9 @@ future eligibility-preserving delta proof and connected native witness allow
 removal; this is a named product obligation, not an unused fallback.
 
 Remove the displaced shared-root finite `finitePoints` range scan, per-read
-staged-key map and merged-array sort, and the ordinary native pending-key
-reconstruction replaced by the tree. Remove obsolete exports/helpers only after
+staged-key map and merged-array sort, and bounded native result sorts replaced
+by ordered merging. Preserve the complete native interpretation/side-preflight
+loop; it is not a displaced ordered-range implementation. Remove obsolete exports/helpers only after
 checking their actual other consumers. Do not remove non-indexed table reads,
 the retained private reference algorithm, standalone native paths or genuine
 behavioral coverage merely because they also inspect pending rows.
@@ -277,7 +387,7 @@ failure witness and guarantee decision. Any future write rollback must restore
 or invalidate the delta and watermark with pending writes while preserving the
 selected read evidence/accounting contract.
 
-Before claiming implementation, exercise actual Application and ordinary native
+Required regressions exercise actual Application and ordinary native
 consumers for insert/delete/key moves, same-key body updates, repaired invalid
 intermediate keys, invalid latest keys outside bounds, repeated unchanged reads,
 cross-writer changes, late borrowed registration, hydration, cascade writes,
@@ -290,6 +400,48 @@ publication and native rollback-only witnesses on the affected PGlite and
 ordinary-role Postgres lanes. Use the actual finite Worker path where the
 consumer crosses that boundary; an actual DO mutation-host claim needs its own
 host proof and is not established by the earlier DO query host or a unit helper.
-Complete the required reviews and cleanup before a runtime completion claim. This
-document records source/control-flow findings and required witnesses, not new
-executed timing, scale, database or host evidence.
+This document owns the mechanism and required regression contracts. Executed
+database/host checks, required reviews and cleanup belong in the scoped Git
+record. No timing or scale acceptance follows from the bounded replacement.
+
+## Executing owners and remaining boundary
+
+`rootEvaluator` now owns the accepted transition, protected row/attempt views,
+accepted written identities and incremental pending trees. `writePoint` and
+native `recordAttempt` reach the same synchronous fold. `finiteRoot` registers
+genuine prepared definitions and no longer exports `finitePoints`.
+`runFiniteIndexedQueryEffect` consumes ordered current positions and captured
+written-ID suppression with a linear merge, retaining the compensation bound
+and 04A evidence. Native bounded pages consume the same ordered positions after
+their required native side phases. Complete native selection retains its own
+candidate ordering and uses the exact per-row canonical-key bridge.
+
+`sameLocatedAppIndexDefinition` owns physical qualification across genuine
+handles. The issuer retains owned immutable access/spec containers; root
+registration and the canonical index cache reuse that single comparison. The
+canonical cache stores one qualified record per physical definition, preserving
+integrity, native error mapping and actual retention. Payload ownership is
+separate from a current-body interpretation hint.
+
+`LogicalDocumentRootLimitError` identifies actual local byte/identity exhaustion.
+The journal failure owner preserves it; native owners retain their limit mapping
+and cause. Private save/reverse access and causal-evidence fixtures use the
+revised protected owner boundary. The native return-refusal witness reserves
+new authoritative first-write metadata costs while keeping its original quota,
+remaining-byte, accepted-attempt and full-Cause assertions.
+
+The genuine finite driver scenario connects entry, operations, freeze and
+publication. Additional owner scenarios cover callback failure/closure and
+retention with real observations/definitions; those are owner proofs, not host
+admission claims. A real catalog-bound, unactivated predicate variant exercises
+key/null/key with live current rows and retained write identity/history. It
+leaves the selected binding unchanged and does not add public Application
+predicate admission, index readiness or a native hosting capability.
+
+The retained private reference merge, native complete side phases and standalone
+native profile remain explicit responsibilities. Standard still needs the 04C
+preparation/grant/outcome cutover; old saved readsets are not repaired. This slice
+does not implement mutation DO hosting, catchable nested rollback, out-of-order
+saves/publication, fencing, replication or complete-request capacity. Detailed
+validation and review receipts belong in the scoped Git record; these wider
+goal gates remain open.

@@ -1,7 +1,8 @@
 # Single-owner core refactor goal
 
-Status: **Active implementation goal; bounded Application cache/read replacement
-and local query DO composition implemented; wider core milestones open**.
+Status: **Active implementation goal; bounded Application cache/read replacement,
+local query DO composition and shared pending indexes implemented; wider core
+milestones open**.
 The owner has requested the complete single-owner refactor, delivered through
 bounded connected milestones. This authorization supersedes earlier statements
 that this work is documentation-only. It does not decide unresolved guarantees,
@@ -86,12 +87,12 @@ the genuine query path with default local workerd and ordinary PostgreSQL.
 The [mutation pending-state replacement](./slices/04-mutation-pending-state.md)
 records independent source challenge and peer convergence. Its first
 [range-evidence prerequisite](./slices/04a-range-completion-evidence.md) is
-implemented for newly executed operations. The next
-[incremental shared-root index contract](./slices/04b-incremental-pending-indexes.md)
-records source challenge and the necessary lowering/suppression adaptation;
-runtime implementation remains open. The real Standard cutover and stored-profile
-disposition also remain open; a producer correction does not repair older journal
-readsets or complete that milestone.
+implemented for newly executed operations. The bounded
+[incremental shared-root index replacement](./slices/04b-incremental-pending-indexes.md)
+now connects accepted Application/native writes to ordered current positions and
+written-ID suppression, preserving profile-specific interpretation and failure
+order. The real Standard cutover and stored-profile disposition remain open;
+these replacements do not repair older journal readsets or complete that milestone.
 
 ## Mandatory challenge before each slice
 

@@ -151,6 +151,7 @@ import type { FiniteRootAttemptState } from "./finiteRoot";
 import {
   mapPointTableResolutionFailure,
   mapRunPointOperationFailure,
+  mapLogicalDocumentRootFailure,
   fromPointOperationPromise,
   mapExactRunningAttemptTransactionFailure,
   kernelContextMatchesAttempt,
@@ -711,7 +712,7 @@ const runFinitePointOperationEffect = Effect.fnUntraced(function* (
             .observePoint(table.tableName, observation, { kind: "missing" })
             .pipe(
               Result.mapError((cause) =>
-                corruption(
+                mapLogicalDocumentRootFailure(
                   table.attempt,
                   "pointDependencyChangedAtSnapshot",
                   cause,
@@ -739,7 +740,7 @@ const runFinitePointOperationEffect = Effect.fnUntraced(function* (
           )
           .pipe(
             Result.mapError((cause) =>
-              corruption(
+              mapLogicalDocumentRootFailure(
                 table.attempt,
                 "pointDependencyChangedAtSnapshot",
                 cause,
@@ -933,7 +934,7 @@ const planFinitePointOperationEffect = Effect.fnUntraced(function* (
           )
           .pipe(
             Result.mapError((cause) =>
-              corruption(
+              mapLogicalDocumentRootFailure(
                 table.attempt,
                 "pointDependencyChangedAtSnapshot",
                 cause,

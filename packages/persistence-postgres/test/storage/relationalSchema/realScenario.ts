@@ -31,6 +31,8 @@ import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryCurrent, fxAppIndexE
   fxSystemCommits, fxSystemCommitAppRowChanges, fxSystemIdempotency, fxSystemScopeClocks } from "../../../src/database/schema";
 import { fxSystemLogicalSourceInitializations } from "../../../src/storage/catalog/logicalStorageInitialization";
 import { prepareNeutralLogicalFixture } from "./neutralLogicalFixture";
+import { getScopeClock } from "../../../src/scope/scopeClock";
+import { pendingRealRootScenario } from "./pendingRealRootScenario";
 
 const stamp = "2026-10-22T00:00:00.000Z";
 const kinds = ["main", "initial", "invalid-initial", "references"] as const;
@@ -332,7 +334,8 @@ export async function realScenario(driver: "pglite" | "postgres", finiteCapture 
     if (sourceTable === undefined || binding === undefined) throw new Error("Missing genuine installed real table");
     const mechanics = prepareLogicalRelationalTableMechanics(sourceTable, schemaFor("main").capabilities), policy = Result.getOrThrow(mechanics.rows);
     const candidate = Result.getOrThrow(policy.normalize({ id: "private-owner", measure: 1.0000000596046448 }, null, stamp));
-    const documentId = appDocumentIdV1FromRowIdentity({ tableId: binding.tableId, rowId: Result.getOrThrow(appRowIdHexV1FromBytesResult(new Uint8Array(16).fill(39))) });
+    const privateRowId = Result.getOrThrow(appRowIdHexV1FromBytesResult(new Uint8Array(16).fill(39)));
+    const documentId = appDocumentIdV1FromRowIdentity({ tableId: binding.tableId, rowId: privateRowId });
     expect((await Effect.runPromiseExit(canonicalizeLogicalRelationalRow(mechanics, candidate, documentId, AppCreationTimeV1Schema.make(1))))._tag).toBe("Failure");
     const supplied = [candidate], batch = Result.getOrThrow(prepareLogicalRelationalRealBatch(mechanics, binding.tableId, { mode: "normalize", rows: supplied }, { rows: 1, bytes: 4096 }, (reason, cause) => new Error(reason, { cause })));
     supplied.length = 0; expect(Reflect.set(candidate, "measure", 7)).toBe(false);
@@ -374,6 +377,19 @@ export async function realScenario(driver: "pglite" | "postgres", finiteCapture 
     Result.getOrThrow(retainLogicalRealWriteAttempt(originalAttempt, projectedAttempt, 7, privateError));
     expect((await Effect.runPromise(projectLogicalCommerceActivity(names, { ...activity, attempts: [projectedAttempt] }))).mutations)
       .toMatchObject([{ ordinal: 0, realNormalization: { measure: 1.0000000596046448, other: null } }]);
+    const rootClock = await getScopeClock(fixture.persistence.drizzle, fixture.application.authority.scopeId);
+    if (rootClock === null) throw new Error("Missing genuine neutral REAL snapshot clock");
+    const rootOriginal = await Effect.runPromise(runEffectTransaction<AppRowReadResultV1, ReadAppRowError, Error, FlarexMetadataTransaction>(
+      callback => fixture.persistence.drizzle.transaction(callback), "Neutral REAL root original", tx => readAppRowAtSnapshotInTransactionEffect(tx,
+        { scopeId: fixture.application.authority.scopeId, tableId: binding.tableId,
+          rowId: privateRowId, snapshotCommitSeq: rootClock.lastCommitSeq }),
+      cause => new Error("Neutral REAL root original transaction", { cause })));
+    expect(rootOriginal).toEqual({ kind: "missing" });
+    await Effect.runPromise(Effect.scoped(pendingRealRootScenario({ attempt: projectedAttempt,
+      creationTime: AppCreationTimeV1Schema.make(1), scopeId: fixture.application.authority.scopeId,
+      snapshotCommitSeq: rootClock.lastCommitSeq, observation: { tableId: binding.tableId, rowId: privateRowId, documentId,
+        readAt: rootClock.lastCommitSeq, dependency: { kind: "appRowPoint", documentId,
+          observed: { kind: "missing", basis: { kind: "noVisibleRevision" } } } } })));
     const detachedAttempt = Object.freeze({ ...originalAttempt, after: detachLogicalCanonicalDocument(document) });
     retainDetachedLogicalRealWriteAttempt(originalAttempt, detachedAttempt);
     expect(Result.getOrThrow(inspectLogicalRealWriteAttempt(detachedAttempt, privateError)))

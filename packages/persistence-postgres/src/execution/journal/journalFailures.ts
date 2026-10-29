@@ -20,6 +20,7 @@ import type {
 } from "./errors";
 import type { SessionJournalAttemptStateV1 } from "./state";
 import { ExactDecimalError } from "flarex-protocol/internal/exact-decimal";
+import { LogicalDocumentRootLimitError, type LogicalDocumentRootPointFailure } from "../../storage/documents/logicalDocuments/rootEvaluator";
 import { Effect } from "effect";
 import { ApplicationTableWriteDeniedError } from "../../application/ownership/Model";
 import { OrderedIndexKeyTooLargeError } from "flarex-protocol/ordered-index";
@@ -218,6 +219,7 @@ export function mapRunPointOperationFailure(
     });
   }
   if (
+    cause instanceof LogicalDocumentRootLimitError ||
     cause instanceof ApplicationTableWriteDeniedError ||
     cause instanceof InvalidSessionJournalCapabilityV1Error ||
     cause instanceof InvalidSessionJournalInputV1Error ||
@@ -281,6 +283,7 @@ export function mapRunIndexedQueryFailure(
     return new SessionJournalAttemptUnavailableV1Error({ issue: cause.issue });
   }
   if (
+    cause instanceof LogicalDocumentRootLimitError ||
     cause instanceof InvalidSessionJournalCapabilityV1Error ||
     cause instanceof InvalidSessionJournalInputV1Error ||
     cause instanceof SessionJournalAttemptUnavailableV1Error ||
@@ -402,6 +405,15 @@ export function attemptFromContext(
     executionClaim: Object.freeze({ ...context.executionClaim }),
     executionProfile: context.journalRoot.executionProfile,
   });
+}
+
+/** Root-local resource exhaustion is independent of durable evidence validity. */
+export function mapLogicalDocumentRootFailure(
+  attempt: SessionJournalAttemptStateV1,
+  reason: SessionJournalStorageCorruptionReasonV1,
+  cause: LogicalDocumentRootPointFailure,
+): LogicalDocumentRootLimitError | SessionJournalStorageCorruptionV1Error {
+  return cause instanceof LogicalDocumentRootLimitError ? cause : corruption(attempt, reason, cause);
 }
 
 export function corruption(

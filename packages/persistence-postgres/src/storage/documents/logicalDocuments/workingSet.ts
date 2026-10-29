@@ -65,7 +65,7 @@ import { prepareLogicalRelationalTableMechanics, hasPreparedLogicalRelationalTab
   bindPreparedLogicalRelationalRows, prepareLogicalRelationalRowValues, canonicalizeLogicalRelationalRow, captureLogicalRelationalCanonicalRow,
   prepareLogicalRelationalRealBatch, inspectLogicalRelationalRealBatch, executeLogicalRelationalRealBatch, hasLogicalRelationalRealVerdict,
   nativeLogicalRelationalCanonicalRow, captureLogicalRelationalActivityJson, lowerLogicalCanonicalUniqueKey, lowerLogicalCanonicalIndexKey,
-  forgetLogicalCanonicalDerivedKeys, logicalUniqueKeyRetentionBytes, retainLogicalRelationalUniqueFailure } from "./relationalRows";
+  forgetLogicalCanonicalDerivedKeys, logicalUniqueKeyRetentionBytes, retainLogicalRelationalUniqueFailure, protectLogicalCanonicalDocument, type LogicalCanonicalKeyOwner } from "./relationalRows";
 import { prepareLogicalRelationalForeignKeys, type LogicalRelationalForeignKey } from "./relationalForeignKeys";
 import { runDrizzleStatementEffect } from "../../../database/drizzleStatementEffect";
 import { databaseTimestampFromUnknown } from "../../../database/databaseTimestamp";
@@ -74,7 +74,11 @@ import { hasProtectedScopeTransactionTimestampIssuer, protectedScopeTransactionT
 import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
 import type { BoundedRequestContext, PresentedTransactionId, BoundedRequestLifetime } from "../../../execution/preparation/boundedRequestLifetime";
 import type { LogicalDocumentWorkingSetInput, LogicalRelationalStore, LogicalRelationalReadProgram, LogicalStorageReadDemand, LogicalSetNullPolicy } from "./model";
-import { attachLogicalDocumentRootEvaluator, consumeLogicalDocumentRootMetadataDependency, type LogicalDocumentRootState } from "./rootEvaluator";
+import { acceptLogicalDocumentRootWrite, attachLogicalDocumentRootEvaluator, consumeLogicalDocumentRootMetadataDependency,
+  logicalDocumentRootWrittenRows, lookupLogicalDocumentRootPendingKey, observeLogicalDocumentRootRow,
+  readLogicalDocumentRootPendingIndex, registerLogicalDocumentRootIndexes, retainLogicalDocumentRootIndexKey,
+  LogicalDocumentRootLimitError, type LogicalDocumentRootPointFailure,
+  type LogicalDocumentRootState } from "./rootEvaluator";
 import type { LogicalParticipantAdmissionBundle } from "./participantAdmission";
 import { finiteMetadataTableKey, finiteMetadataAccessKey,
   finiteMetadataDefinitionKey, type PreparedFiniteMetadataProjection } from "../../../execution/finiteMetadataDependencies";
@@ -119,13 +123,22 @@ export interface PendingDocument {
   readonly base: Readonly<{ kind: "live"; commitSeq: CommitSeq; creationTime: AppCreationTimeV1; document: CanonicalFlarexValueV1;
     insertionOrder?: Readonly<{ commitSeq: CommitSeq; attemptOrdinal: number }> }> |
     Readonly<{ kind: "tombstone"; commitSeq: CommitSeq; insertionOrder?: Readonly<{ commitSeq: CommitSeq; attemptOrdinal: number }> }> | null;
-  insertionOrder?: LogicalInsertionOrder;
+  readonly insertionOrder?: LogicalInsertionOrder | undefined;
   readonly creationTime: AppCreationTimeV1;
-  current: CanonicalFlarexValueV1 | null;
-  deletedValue?: CanonicalFlarexValueV1;
-  readonly attempts: number[];
+  readonly current: CanonicalFlarexValueV1 | null;
+  readonly deletedValue?: CanonicalFlarexValueV1 | undefined;
+  readonly attempts: readonly number[];
   /** Only independently durable borrowed journals hydrate an overlay. */
-  borrowedOverlay?: true;
+  readonly borrowedOverlay?: true | undefined;
+}
+/** Mutable storage belongs only to this standalone native owner. Shared roots
+ * expose read views and accept complete transitions through their own fold. */
+interface MutablePendingDocument extends PendingDocument {
+  insertionOrder?: LogicalInsertionOrder | undefined;
+  current: CanonicalFlarexValueV1 | null;
+  deletedValue?: CanonicalFlarexValueV1 | undefined;
+  readonly attempts: number[];
+  borrowedOverlay?: true | undefined;
 }
 export type LogicalDocumentChange = LogicalDocumentPointEvidence & Readonly<{ insertionOrder?: LogicalInsertionOrder }> & (
   | Readonly<{ kind: "live"; creationTime: AppCreationTimeV1; document: CanonicalFlarexValueV1 }>
@@ -735,7 +748,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
   const transactionTime = Effect.suspend(() => nativeTimestampObservation === undefined ? cachedTransactionTime
     : Effect.fromResult(readProtectedScopeTransactionTimestamp(nativeTimestampObservation.tx, state.scopeId, nativeTimestampObservation.identity))
       .pipe(Effect.mapError(cause => error("invalidAuthority", cause)), Effect.andThen(cachedTransactionTime)));
-  const rows = root?.rows ?? new Map<AppDocumentIdV1, PendingDocument>();
+  const localRows = new Map<AppDocumentIdV1, MutablePendingDocument>();
+  const rows: ReadonlyMap<AppDocumentIdV1, PendingDocument> = root?.rows ?? localRows;
   const setNull: LogicalSetNullIntent[] = root?.setNull ?? [];
   const referenceReplacements: LogicalReferenceReplacementIntent[] = root?.referenceReplacements ?? [];
   let activityGeneration = 0;
@@ -766,7 +780,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
   const indexReads = root?.indexReads ?? new Map<string, LogicalIndexRead>();
   const pageReads: LogicalIndexPageRead[] = root?.pageReads ?? [];
   const searchReads: LogicalSearchRead[] = root?.searchReads ?? [];
-  const attempts: LogicalDocumentAttempt[] = root?.attempts ?? [];
+  const standaloneAttempts: LogicalDocumentAttempt[] = [];
+  const attempts: readonly LogicalDocumentAttempt[] = root?.attempts ?? standaloneAttempts;
   const lifecycle: LogicalRelationalLifecycleObservation[] = root?.lifecycle ?? [];
   const relationalReads: LogicalRelationalReadObservation[] = root?.relationalReads ?? [];
   const localCursor = Object.freeze({ attempts: attempts.length, lifecycle: lifecycle.length, relationalReads: relationalReads.length,
@@ -886,21 +901,34 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
   });
   const markPendingUse = (pending: PendingDocument | undefined) => pending?.current == null
     ? Result.succeed(undefined) : markRowUse(pending.documentId);
+  const rootFailure = (reason: LogicalDocumentRootPointFailure) => reason instanceof LogicalDocumentRootLimitError
+    ? error("limitExceeded", reason) : error(reason === "observationMismatch" ? "storedCorruption"
+    : reason === "invalidDocument" ? "documentInvalid" : reason);
   const derivedKeyDocuments = root?.derivedKeyDocuments ?? new Set<CanonicalFlarexValueV1>();
-  const keyOwner = { identity: derivedKeyDocuments, error,
-    retain: (document: CanonicalFlarexValueV1, bytes: number) => chargeResult(bytes).pipe(Result.map(() => { derivedKeyDocuments.add(document); })) };
+  const keyOwner: LogicalCanonicalKeyOwner<Failure> = { identity: derivedKeyDocuments, error,
+    retain: (document, bytes) => chargeResult(bytes).pipe(Result.map(() => { derivedKeyDocuments.add(document); })),
+    retainIndex: (definition, document, keyCreationTime, key, bytes) => (root === undefined ? chargeResult(bytes)
+      : retainLogicalDocumentRootIndexKey(root, definition, document, keyCreationTime, key, bytes, { error: rootFailure, charge: lifetime.charge }))
+      .pipe(Result.map(() => { derivedKeyDocuments.add(document); })) };
+  if (root !== undefined) yield* lifetime.fromResult(registerLogicalDocumentRootIndexes(root, indexDefinitions,
+    { error: rootFailure, charge: lifetime.charge }));
   const lowerUnique = (definition: LocatedAppUniqueConstraintDefinitionV1, document: CanonicalFlarexValueV1,
     reason: "documentInvalid" | "storedCorruption" | "invalidInput") => lowerLogicalCanonicalUniqueKey(definition, document, keyOwner, reason);
   const lowerIndex = (definition: LocatedAppIndexDefinitionV1, document: CanonicalFlarexValueV1, rowCreationTime: AppCreationTimeV1,
-    reason: "documentInvalid" | "storedCorruption" | "invalidInput") => lowerLogicalCanonicalIndexKey(definition, document, rowCreationTime, keyOwner, reason);
+    reason: "documentInvalid" | "storedCorruption" | "invalidInput") =>
+    lowerLogicalCanonicalIndexKey(definition, document, rowCreationTime, keyOwner, reason, fallback => root === undefined ? fallback()
+      : lookupLogicalDocumentRootPendingKey(root, definition, document, rowCreationTime).pipe(
+        Result.mapError(rootFailure), Result.flatMap(retained => Option.match(retained, {
+          onNone: fallback, onSome: key => Result.succeed(key),
+        }))));
   const releaseDerivedKeys = (document: CanonicalFlarexValueV1) => {
     forgetLogicalCanonicalDerivedKeys(document, keyOwner.identity);
     derivedKeyDocuments.delete(document);
   };
-  const replaceCurrent = (pending: PendingDocument, document: CanonicalFlarexValueV1 | null) => {
-    if (pending.current !== null && pending.current !== document &&
-        (pending.base?.kind !== "live" || pending.current !== pending.base.document)) releaseDerivedKeys(pending.current);
-    pending.current = document;
+  const retainObservedRow = <Row extends PendingDocument>(pending: Row): Result.Result<void, Failure> => {
+    if (root !== undefined) return observeLogicalDocumentRootRow(root, pending).pipe(Result.mapError(rootFailure), Result.map(() => undefined));
+    localRows.set(pending.documentId, { ...pending, attempts: [...pending.attempts] });
+    return Result.succeed(undefined);
   };
   // Owned observation and hydration are synchronous Result folds. Their lazy
   // consumers remain Effect boundaries; per-row diagnostic stacks add no owner.
@@ -964,7 +992,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     if (alreadyObserved || rows.has(documentId)) return;
     if (rows.size >= limits.identities) return yield* Result.fail(error("limitExceeded"));
     yield* chargeResult(128 + (base.kind === "live" ? base.document.canonicalBytes.byteLength : 0));
-    rows.set(documentId, { tableId, tableName: table.logicalName, rowId: base.rowId, documentId, base,
+    yield* retainObservedRow({ tableId, tableName: table.logicalName, rowId: base.rowId, documentId, base,
       creationTime: base.creationTime, current: base.kind === "live" ? base.document : null, attempts: [],
       ...(base.insertionOrder === undefined ? {} : { insertionOrder: committedLogicalInsertionOrder(base.insertionOrder) }) });
   });
@@ -987,7 +1015,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     // The existing row envelope charge includes the retained revision scalars;
     // finite originals/base/current share this already charged document.
     yield* chargeResult(128 + bytes);
-    rows.set(documentId, { tableId: table.tableId, tableName: table.logicalName, rowId: selectedRowId, documentId, base,
+    yield* retainObservedRow({ tableId: table.tableId, tableName: table.logicalName, rowId: selectedRowId, documentId, base,
       creationTime: base.creationTime, current: base.kind === "live" ? base.document : null, attempts: [],
       ...(base.insertionOrder === undefined ? {} : { insertionOrder: committedLogicalInsertionOrder(base.insertionOrder) }),
       ...(root !== undefined && base.kind === "live" ? { originalRevision: base } : {}) });
@@ -1229,10 +1257,10 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         return;
       }
       if (seedCreationTime === undefined) return yield* Effect.fail(error("storedCorruption"));
-      rows.set(documentId, { tableId: seed.tableId, tableName: table.logicalName, rowId: seed.rowId,
+      yield* lifetime.fromResult(retainObservedRow({ tableId: seed.tableId, tableName: table.logicalName, rowId: seed.rowId,
         documentId, base: existing?.base ?? null, creationTime: seedCreationTime,
         ...(existing?.insertionOrder === undefined ? {} : { insertionOrder: existing.insertionOrder }),
-        current: seed.overlay.kind === "live" ? seed.overlay.document : null, attempts: [], borrowedOverlay: true });
+        current: seed.overlay.kind === "live" ? seed.overlay.document : null, attempts: [], borrowedOverlay: true }));
     }));
     // Ordered batches preserve the original observation/base/overlay charge
     // sequence. A cached base ends a batch so its overlay is checked before
@@ -1558,29 +1586,38 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       ...(deletedReference === undefined || causalEvidence === undefined ? {} : { deletedReference: deletedReference.cause, deletedReferenceEvidence: causalEvidence }),
       ...(insertion === undefined ? {} : { insertionAttemptOrdinal: insertion.ordinal, insertionEvidence: insertion.evidence }) });
     yield* captureLogicalRealWriteAttempt(attempt, error);
-    if (insertionAttemptOrdinal !== undefined) pending.insertionOrder = Object.freeze({ kind: "pending", attemptOrdinal: insertionAttemptOrdinal });
-    pending.attempts.push(attempt.ordinal);
-    attempts.push(attempt);
+    if (root !== undefined) return yield* acceptLogicalDocumentRootWrite(root, pending, attempt, rootFailure, lifetime.charge);
+    const owned: MutablePendingDocument = localRows.get(pending.documentId) ?? { ...pending, attempts: [...pending.attempts] };
+    if (insertionAttemptOrdinal !== undefined) owned.insertionOrder = Object.freeze({ kind: "pending", attemptOrdinal: insertionAttemptOrdinal });
+    if (operation === "delete" && owned.current !== null) owned.deletedValue = owned.current;
+    owned.attempts.push(attempt.ordinal);
+    standaloneAttempts.push(attempt);
+    if (owned.current !== null && owned.current !== after &&
+        (owned.base?.kind !== "live" || owned.current !== owned.base.document)) releaseDerivedKeys(owned.current);
+    owned.current = after;
+    localRows.set(owned.documentId, owned);
   });
   const withWrittenDocument = <Value>(pending: PendingDocument, fields: JsonObject, operation: "insert" | "patch" | "replace", consume: (written: JsonObject) => Effect.Effect<Value, Failure>,
     prepareDocument?: (pending: PendingDocument) => Effect.Effect<CanonicalFlarexValueV1, Failure>,
     deletedReference?: Readonly<{ cause: LogicalDeletedReferenceCause; deleted: LogicalDocumentAttempt }>) => observeExecution("LogicalDocuments.validateWrite", Effect.gen(function* (): Effect.fn.Return<Value, Failure> {
-    const document = yield* (prepareDocument === undefined ? canonicalizeFlarexValueV1Effect({ ...fields, _id: pending.documentId, _creationTime: pending.creationTime }, "appDocument")
+    const candidateDocument = yield* (prepareDocument === undefined ? canonicalizeFlarexValueV1Effect({ ...fields, _id: pending.documentId, _creationTime: pending.creationTime }, "appDocument")
       .pipe(Effect.mapError(cause => error("documentInvalid", cause))) : prepareDocument(pending));
-    if (document.canonicalBytes.byteLength > limits.documentBytes) return yield* Effect.fail(error("limitExceeded"));
+    if (candidateDocument.canonicalBytes.byteLength > limits.documentBytes) return yield* Effect.fail(error("limitExceeded"));
     const table = yield* tableForId(pending.tableId);
     yield* state.validateDocument({ operation, tableName: table.logicalName, tableId: pending.tableId, documentId: pending.documentId,
-      creationTime: pending.creationTime, document });
+      creationTime: pending.creationTime, document: candidateDocument });
+    // The accepted native attempt must be authored against the same immutable
+    // canonical identity retained by a shared root. Standalone detach contracts
+    // and the earlier complete document-validation phase remain unchanged.
+    const document = root === undefined ? candidateDocument : protectLogicalCanonicalDocument(candidateDocument);
     return yield* withUniqueValidation(pending, document, Effect.gen(function* () {
       if (!rows.has(pending.documentId) && rows.size >= limits.identities) return yield* Effect.fail(error("limitExceeded"));
       yield* charge(document.canonicalBytes.byteLength);
       yield* lifetime.fromResult(recordAttempt(pending, operation, document, deletedReference));
-      replaceCurrent(pending, document);
-      rows.set(pending.documentId, pending);
       const written = yield* lifetime.fromResult(output(document, true));
       return yield* consume(written);
     })).pipe(Effect.ensuring(Effect.sync(() => {
-      if (pending.current !== document && (pending.base?.kind !== "live" || pending.base.document !== document)) releaseDerivedKeys(document);
+      if (rows.get(pending.documentId)?.current !== document && (pending.base?.kind !== "live" || pending.base.document !== document)) releaseDerivedKeys(document);
     })));
   }));
   const write = (pending: PendingDocument, fields: JsonObject, operation: "insert" | "patch" | "replace") =>
@@ -1673,8 +1710,6 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       const { pending } = yield* locate(documentId, tableName);
       if (pending?.current == null) return yield* Effect.fail(error("documentMissing"));
       yield* lifetime.fromResult(recordAttempt(pending, "delete", null));
-      pending.deletedValue = pending.current;
-      replaceCurrent(pending, null);
     }))));
   const withAccessCandidates = <Value>(tableName: string, values: LogicalSelectionValues, indexedOnly: boolean, exactPoint: Readonly<{ columns: readonly string[]; nullColumn?: string }> | undefined, consume: (candidates: Iterable<PendingDocument>) => Effect.Effect<Value, Failure>, preparation?: CandidatePreparation, reuseValues = true) => observeExecution("LogicalDocuments.withCandidateSelection", Effect.gen(function* (): Effect.fn.Return<Value, Failure> {
     const table = yield* tableForName(tableName);
@@ -1770,7 +1805,9 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     }
     const usesIndex = !scanned.has(table.tableId) || indexReads.has(selection.identity);
     return yield* continueSelection(usesIndex && !indexReads.has(selection.identity), Effect.gen(function* () {
-      for (const row of rows.values()) {
+      const pendingRows = root === undefined ? rows.values()
+        : yield* lifetime.fromResult(logicalDocumentRootWrittenRows(root, table.tableId).pipe(Result.mapError(rootFailure)));
+      for (const row of pendingRows) {
         if (row.tableId !== table.tableId || row.current === null ||
           row.borrowedOverlay !== true && row.attempts.length === 0) continue;
         const currentKey = yield* lifetime.fromResult(lowerIndex(selection.definition, row.current, row.creationTime, "storedCorruption"));
@@ -2250,16 +2287,29 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     return yield* withStorageFrontier({ kind: "index", tableId: table.tableId,
       indexDefinitionId: selection.definition.indexDefinitionId }, { tableId: table.tableId }, Effect.gen(function* () {
       let examined = 0;
+      const pendingGeneration = root?.attempts.length;
+      const pendingRows = root === undefined ? rows.values()
+        : yield* lifetime.fromResult(logicalDocumentRootWrittenRows(root, table.tableId).pipe(Result.mapError(rootFailure)));
       const pendingCandidates: PendingDocument[] = [];
-      for (const row of rows.values()) if (row.tableId === table.tableId && (row.borrowedOverlay === true || row.attempts.length > 0)) {
+      for (const row of pendingRows) if (row.tableId === table.tableId && (row.borrowedOverlay === true || row.attempts.length > 0)) {
         if (++examined > callIdentityLimit) return yield* Effect.fail(error("limitExceeded"));
         yield* charge(64);
         pendingCandidates.push(row);
       }
       yield* add(pendingCandidates);
+      if (root !== undefined && (root.closed || root.attempts.length !== pendingGeneration))
+        return yield* Effect.fail(error(root.closed ? "closed" : "writeConflict"));
+      const pendingIndex = root === undefined ? undefined : yield* lifetime.fromResult(
+        readLogicalDocumentRootPendingIndex(root, selection.definition, { order: "native", bounds: selection.bounds, error: rootFailure,
+          lower: row => row.current === null ? Result.succeed(null)
+            : lowerIndex(selection.definition, row.current, row.creationTime, "storedCorruption"),
+          charge: lifetime.charge }));
       const needed = query.offset + query.limit + 1;
       let after: AppIndexRangeCursorV1 | undefined;
-      let result: Member[] = [];
+      let result: Member[] = pendingIndex === undefined ? [] : pendingIndex.positions.flatMap(position => {
+        const member = matched.get(position.documentId);
+        return member === undefined ? [] : [member];
+      });
       while (true) {
         const remaining = callIdentityLimit - examined;
         if (remaining < 1) return yield* Effect.fail(error("limitExceeded"));
@@ -2308,10 +2358,25 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
           if (pending?.base?.kind !== "live" || pending.base.commitSeq < entry.commitSeq) return yield* Effect.fail(error("writeConflict"));
           const baseKey = yield* lifetime.fromResult(lowerIndex(selection.definition, pending.base.document, pending.base.creationTime, "storedCorruption"));
           if (baseKey !== entry.encodedKey) return yield* Effect.fail(error("writeConflict"));
-          if (pending.attempts.length === 0) committed.push(pending);
+          if (pendingIndex === undefined ? pending.attempts.length === 0 : !pendingIndex.hasWritten(pending.rowId)) committed.push(pending);
         }
         yield* add(committed);
-        result = [...matched.values()].toSorted((left, right) => comparePagePosition({ key: left.key, rowId: left.row.rowId }, { key: right.key, rowId: right.row.rowId }));
+        if (pendingIndex === undefined) {
+          result = [...matched.values()].toSorted((left, right) => comparePagePosition({ key: left.key, rowId: left.row.rowId }, { key: right.key, rowId: right.row.rowId }));
+        } else {
+          const next = committed.flatMap(row => { const member = matched.get(row.documentId); return member === undefined ? [] : [member]; });
+          const merged: Member[] = [];
+          let left = 0, right = 0;
+          while (left < result.length && right < next.length) {
+            const a = result[left]!, b = next[right]!;
+            const order = comparePagePosition({ key: a.key, rowId: a.row.rowId }, { key: b.key, rowId: b.row.rowId });
+            if (order < 0) { merged.push(a); left++; }
+            else { merged.push(b); right++; if (order === 0) left++; }
+          }
+          while (left < result.length) merged.push(result[left++]!);
+          while (right < next.length) merged.push(next[right++]!);
+          result = merged;
+        }
         const frontier = result[needed - 1], witness = page.entries[page.entries.length - 1];
         // A pending-only frontier still requires a committed successor or EOF.
         // Each captured window includes that witness, protecting its negative gap.
@@ -2320,6 +2385,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         if (page.continueCursor === null) return yield* Effect.fail(error("storedCorruption"));
         after = page.continueCursor;
       }
+      if (root !== undefined && (root.closed || root.attempts.length !== pendingGeneration))
+        return yield* Effect.fail(error(root.closed ? "closed" : "writeConflict"));
       const projected: JsonObject[] = [];
       for (const member of result.slice(query.offset, query.offset + query.limit)) {
         const row: Record<string, Json> = {};
@@ -2575,8 +2642,6 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
           if (operation === "delete") {
             if (pending === undefined || previous === null || pending.current === null) return yield* Effect.fail(error("storedCorruption"));
             yield* lifetime.fromResult(recordAttempt(pending, "delete", null));
-            pending.deletedValue = pending.current;
-            replaceCurrent(pending, null);
             result.push(previous);
             return yield* changeRows(position + 1);
           }
@@ -2769,8 +2834,6 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
             if (value[foreignKey.source.column] !== entry.key) continue;
             if (!cascade || foreignKey.onDelete !== "cascade") return yield* Effect.fail(error("documentInvalid"));
             yield* lifetime.fromResult(recordAttempt(child, "delete", null));
-            child.deletedValue = child.current;
-            replaceCurrent(child, null);
             if (child.base?.kind === "live") yield* Effect.fromResult(appendKeys(child, child.base.document.value));
             yield* Effect.fromResult(appendKeys(child, value));
           }

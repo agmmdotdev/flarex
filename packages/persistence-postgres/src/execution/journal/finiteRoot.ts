@@ -83,7 +83,10 @@ import {
   consumeLogicalDocumentRootMetadataDependency,
   takeLogicalDocumentRootSnapshot,
   borrowClosedLogicalDocumentRoot,
+  registerLogicalDocumentRootIndexes,
+  LogicalDocumentRootLimitError,
 } from "../../storage/documents/logicalDocuments/rootEvaluator";
+import { readPreparedPublicationDefinitions } from "../../commit/publication/definitionPreparation";
 import type { LogicalDocumentRootEvaluator } from "../../storage/documents/logicalDocuments/rootEvaluator";
 import type {
   FiniteEntryAttemptKernelContext,
@@ -351,25 +354,6 @@ export function readKnownFinitePoint(
   });
 }
 
-export function finitePoints(
-  finite: FiniteRootAttemptState,
-  tableId: CatalogTableId,
-): readonly JournalPointMutationV1[] {
-  const root = finiteRootState(finite);
-  if (root === null) return [];
-  const points: JournalPointMutationV1[] = [];
-  for (const observation of root.dependencies.values())
-    if (observation.tableId === tableId)
-      points.push(
-        projectFinitePoint(
-          root.pins.scopeId,
-          observation,
-          root.rows.get(observation.documentId),
-        ),
-      );
-  return points;
-}
-
 export function finitePointObservation(
   finite: FiniteRootAttemptState,
   point: JournalPointMutationV1,
@@ -531,6 +515,15 @@ const recordFiniteExecutionMetadataEffect = Effect.fn(
         new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }),
       );
   }
+  const prepared = yield* Effect.fromResult(getFiniteApplicationPublicationDefinitions(finite.metadata, handle).pipe(
+    Result.mapError(cause => new LogicalParticipantAdmissionError({ reason: "invalidAuthority", cause })),
+  ));
+  const definitions = readPreparedPublicationDefinitions(prepared.prepared);
+  if (definitions === null) return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+  yield* Effect.fromResult(registerLogicalDocumentRootIndexes(root, definitions.indexes, {
+    error: cause => new LogicalParticipantAdmissionError({ reason: cause instanceof LogicalDocumentRootLimitError || cause === "limitExceeded"
+      ? "limitExceeded" : "invalidAuthority", cause }),
+  }));
 });
 
 // Repeated demand bookkeeping belongs to its public journal operation. Keep
