@@ -10,7 +10,9 @@ The first bounded [operation-local snapshot cache](./slices/01-snapshot-reads.md
 is implemented. The connected
 [timestamped cache-transfer slice](./slices/02-timestamped-cache-transfer.md)
 also implements bounded Application app-row handoff and refresh. Actual DO
-composition, restart and broader native integration remain open.
+composition, restart and broader native integration remain open. The selected
+[actual-DO query host](./slices/03-application-query-do-host.md) is the next bounded
+contract after its independent source challenge; implementation is unstarted.
 The accepted [replacement workflow](./REFACTOR.md#convex-guided-replacement-workflow)
 does not require this whole queue to be answered before a bounded slice can
 start. An unresolved guarantee pauses the affected path, not independent work;

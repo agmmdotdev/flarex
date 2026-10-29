@@ -59,6 +59,7 @@ evidence, retaining the accepted decision link.
 | [Operation-local cache storage](./operation-cache-storage.md) | Connected Application query cache implemented; complete-request performance and wider DO milestone open. |
 | [Completed query cache handoff](./query-cache-transfer.md) | Bounded Application path implemented; exclusive concurrent-query checkout, invocation-owned completion, negative-evidence reset and matching limits. DO lifecycle and complete-request performance remain open. |
 | [PostgreSQL cache refresh](./postgres-cache-refresh.md) | Bounded Application path implemented; guarded durable-feed/history reconstruction at exactly the admitted timestamp. Current publication and live gates remain; no native-cache or throughput claim. |
+| [Application query DO host](./application-query-do-host.md) | Selected read-only actual-host contract; trusted local references, invocation-scoped clients and unchanged PostgreSQL authority. Runtime unstarted. |
 
 | Record | Design / implementation / measurement status |
 | --- | --- |

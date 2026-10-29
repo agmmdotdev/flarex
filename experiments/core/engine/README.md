@@ -36,7 +36,9 @@ deployment gating and query admission. Follow the accepted
 [timestamped cache-transfer slice](./slices/02-timestamped-cache-transfer.md)
 implements the active Convex handoff/write-log mechanism for supported
 Application app-row query data. The wider portable
-snapshot/DO composition remains open.
+snapshot/DO composition remains open. The next selected
+[actual-DO query host slice](./slices/03-application-query-do-host.md) records the
+independent challenge, local-reference and invocation-resource boundaries.
 Resumable backfill remains open in Q07. [Pinned references](../REFERENCES.md#engine-mechanism-reference-map)
 anchor each concept and later implementation in actual Convex owners.
 

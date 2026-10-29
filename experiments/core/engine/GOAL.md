@@ -80,7 +80,9 @@ The [bounded operation-local replacement](./slices/01-snapshot-reads.md) is
 implemented. The [timestamped cache-transfer slice](./slices/02-timestamped-cache-transfer.md)
 now connects exclusive query-cache handoff and guarded PostgreSQL refresh to
 the existing Application query path. Neither closes the wider
-snapshot/DO milestone or the complete goal.
+snapshot/DO milestone or the complete goal. The next selected
+[actual-DO query composition](./slices/03-application-query-do-host.md) has completed
+its independent source challenge; its bounded runtime is unstarted.
 
 ## Mandatory challenge before each slice
 
