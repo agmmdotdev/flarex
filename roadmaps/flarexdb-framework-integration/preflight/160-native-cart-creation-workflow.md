@@ -619,3 +619,96 @@ consumer regressions, types, builds, source/promotion/portability checks and
 lint. Obtain both required read-only reviews and commit the completed slice.
 Bounded private admission will not establish hosted activation, arbitrary
 providers/hooks or general Cart workflow support.
+
+
+### Shared related-predicate admission gate
+
+The approved staged SQL prototype evaluates the exact original emitted
+Rule/Value condition before applying native membership exclusions. It preserves
+the detached malformed-Value failure, lexical-guard suppression, stored numeric
+overflow, historical rows, multi-Value exclusion and the no-automatic-root skip
+in the selected comparison cohort. This is an authenticated native ORM SQL
+prototype, not an implemented native persistence port or Flarex admission.
+
+The independent owner challenge confirms that existing scalar programs and
+capture batches bind only one real table. A neutral indexed-parent witness with
+a child-value cast refuses `invalidInput`; relation-filter composition and
+synthetic joined rows do not satisfy the required contract. The proposed
+[same-source related predicate owner](../../shared-logical-storage/68-postgres-relational-predicates.md#proposed-same-source-related-predicate-program)
+is separately authorized and in implementation. Its owner and consumer checks
+must establish both genuine tables' provenance and liveness through protected
+entry, evaluation and fresh tail before connected admission.
+
+
+### Native creation DAL requirements
+
+The current genuine Cart ownership service creates nested inline Addresses and
+a Cart before its separate Line Item batch, then reloads only its Address
+relations. Its returned Cart therefore retains empty items, credit_lines and
+shipping_methods collections even when new Line Items are stored. Preserve
+that result through the native serializer; a final populated Cart reread would
+change the workflow return contract. The exact raw Line Item price survives
+above JavaScript safe-integer precision while the public numeric column rounds.
+The logical write boundary must retain that raw value through its existing
+exact-numeric owner.
+
+The current private ownership models also participate in native CRUD hooks:
+operation and Cart/Address claim creation, plus operation state updates, are
+observable alongside the genuine Cart, Address and Line Item events. The
+creation binding must account for those actual native hooks and their flush
+boundaries; it cannot treat these rows as eventless bookkeeping or invent an
+ORM flush sorter. The authored fresh ownership profile preserves the public
+Cart/Address/Line Item event sequence and the exact generation-bound private
+claim event family. Relative sibling ordering inside that private family is
+not a compatibility guarantee: genuine MikroORM flush order differs from the
+Store's repository-call order. Receipts must correlate every private event to
+its actual same-generation mutation. Native string Address reuse remains unclaimed, and
+compensating the original Cart retains an Address referenced by that new Cart.
+These are native DAL requirements, not admission of a logical creation writer.
+
+
+### Native Campaign inclusive-start gate
+
+Native Promotion's active-Campaign query uses one native Date for inclusive
+starts_at <= now and exclusive ends_at > now. The current scalar owner admits
+strict timestamp comparisons, but rejects timestamp membership in in. The
+preserved genuine-DML witness cannot express the inclusive boundary as
+strict-less-than OR exact membership; it refuses invalidInput. This dependent
+Campaign branch requires authorization for canonical timestamp membership at
+the existing scalar query owner. No adapter time adjustment, rounded bound or
+substituted transaction clock satisfies the native contract.
+
+
+## Implemented fresh Cart creation owner binding
+
+The separate private Cart creation profile admits the twelve genuine ownership
+models and executes the native create-carts step with its retained native
+ownership inverse under the existing queued, scope-exclusive outer owner. It
+creates up to four Carts, eight inline Addresses and four total Line Items,
+Tax Lines and Adjustments each. Native generated internal services and the
+existing graph/row/numeric owners perform persistence; fixture insertion is
+not a replacement for native creation. The fixed named profile selects the
+existing 512-call allowance and retains other request limits.
+
+The serializer returns the original native created Cart projection, including
+empty to-many collections after the separate Line Item call. It admits only
+issued rows from the same live owner and entity table; clones, mixed origins, accessors
+and use after closure refuse. Exact numeric companions remain authoritative
+for created line prices and adjustment amounts. The native presentation owner
+removes private ownership relations from public results.
+
+Call-local receipts bind input, exact current generation, mutations, complete
+reads, outputs and lifecycle events. The retained inverse reuses the native
+CartCreationStore over immutable captured evidence plus the existing physical
+graph correlator. Scope exclusion, fixed lock order, shared Address protection,
+recreation/supersession checks, rollback and durable replay stay with their
+existing owners. Public event grouping follows actual native Address, Cart,
+Line Item, Tax Line and Adjustment order; the private sibling distinction
+above remains explicit.
+
+The nine-model payment/completion profile and the eventless low-level ownership
+fixture retain their separate contracts. This writer binds one genuine Cart
+source; it does not combine two Cart participants or admit the complete Cart
+creation root. Connected Promotion/Campaign calculation, adjustment and Tax
+refresh, maximum-root resources and remaining root hooks still require their
+own closure and admission proofs.

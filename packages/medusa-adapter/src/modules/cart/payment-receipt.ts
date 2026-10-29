@@ -1,6 +1,7 @@
 import { Effect, Option, Result } from "effect";
 import { buildQuery } from "@medusajs/utils/modules-sdk/build-query";
-import { toPopulateTree, type PopulateTree } from "@medusajs/drizzle/relation-query";
+import { toPopulateTree, fillEmptyToManyRelations, type PopulateTree } from "@medusajs/drizzle/relation-query";
+import { presentCartCreation } from "@medusajs/cart/creation";
 import { includeCartTotals } from "@medusajs/cart/utils/totals-selection";
 import { createRawPropertiesFromBigNumber, decorateCartTotals } from "@medusajs/framework/utils/portable";
 import { jsonEqual } from "flarex-protocol/json";
@@ -15,16 +16,17 @@ import { decodeCartPaymentRead, type prepareCartPaymentRead } from "./payment-re
 
 type Prepared = Result.Result.Success<ReturnType<typeof prepareCartPaymentRead>>;
 const mismatch = () => commerceError("receiptMismatch");
-export function cartPaymentReadPolicy(prepared: Prepared, profile: "payment" | "completion" = "payment") {
+export function cartPaymentReadPolicy(prepared: Prepared, profile: "payment" | "completion" | "creation" = "payment") {
   const capture = Effect.fn("CartPayment.captureEvent")((_input: unknown) => Effect.fail(commerceError("unadmittedEvent")));
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("CartPayment.validateRead")(function* (call, activity) {
+    const creation = profile === "creation";
     const lineItems = prepared.profile === "checkout" && call.commandName === "cartLineItemsCountForCheckout";
     const rootTable = lineItems ? "cart_line_item" : "cart";
     const count = lineItems || call.commandName === (profile === "payment" ? "cartCountForPaymentCollection" : "cartCountForCheckout");
-    if ((!count && (profile !== "completion" || call.commandName !== "cartListForCheckout")) || call.mode !== "read" || call.events.length || activity.mutations.length ||
+    if ((!count && (creation ? call.commandName !== "cartListForCreation" : profile !== "completion" || call.commandName !== "cartListForCheckout")) || call.mode !== "read" || call.events.length || activity.mutations.length ||
       activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length) return yield* Effect.fail(mismatch());
     const input = yield* Effect.fromResult(decodeCartPaymentRead(call.input)), config = structuredClone(input.config ?? {});
-    const includeTotals = !lineItems && includeCartTotals(config);
+    const includeTotals = !creation && !lineItems && includeCartTotals(config);
     const plan = yield* Effect.fromResult(captureCommerceInput(buildQuery(input.filters, config)).pipe(Result.flatMap(value => prepared.queryTable(rootTable, value))));
     type Row = JsonObject & { readonly id: string };
     const state = new Map<string, Row[]>();
@@ -56,7 +58,7 @@ export function cartPaymentReadPolicy(prepared: Prepared, profile: "payment" | "
             ? reusePrimaryRelationRows(selected.get(relation.targetTable), column, values) : undefined;
           rows = reused ?? orderNativeIdRows((state.get(relation.targetTable) ?? []).filter(row => row.deleted_at === null &&
             typeof row[column] === "string" && values.includes(row[column])), {});
-          if (rows.length > 4) return yield* Result.fail(mismatch());
+          if (rows.length > (creation && relation.targetTable === "cart_address" ? 8 : 4)) return yield* Result.fail(mismatch());
           if (reused === undefined) reads.push({ table: relation.targetTable, query: commerceRelationReadQuery(defaultCommerceResources, predicate), total: rows.length, returned: rows.length });
         }
         const previous = selected.get(relation.targetTable);
@@ -65,7 +67,7 @@ export function cartPaymentReadPolicy(prepared: Prepared, profile: "payment" | "
         if (previous !== undefined && relation.targetTable !== "cart_address" && !jsonEqual(previous, rows))
           return yield* Result.fail(mismatch());
         const cohort = previous === undefined ? rows : [...previous, ...rows.filter(row => !previous.some(prior => prior.id === row.id))];
-        if (cohort.length > 4) return yield* Result.fail(mismatch());
+        if (cohort.length > (creation && relation.targetTable === "cart_address" ? 8 : 4)) return yield* Result.fail(mismatch());
         selected.set(relation.targetTable, cohort);
         yield* populate(relation.targetTable, rows, nested);
       }
@@ -81,7 +83,10 @@ export function cartPaymentReadPolicy(prepared: Prepared, profile: "payment" | "
       // invoked by CartModuleService, never a second totals implementation.
       Reflect.apply(createRawPropertiesFromBigNumber, undefined, [Reflect.apply(decorateCartTotals, undefined, [cart])]);
     }
-    const result = yield* Effect.fromResult(captureNativeNumericDto(output));
+    if (creation) {
+      fillEmptyToManyRelations(output, new Map(prepared.cart.table.relationships.map(relationship => [relationship.name, { relationship }])));
+    }
+    const result = yield* Effect.fromResult(captureNativeNumericDto(creation ? Reflect.apply(presentCartCreation, undefined, [output]) : output));
     if (!jsonEqual(call.result, count ? [result, roots.length] : result)) return yield* Effect.fail(mismatch());
   });
   return { capture, validateLogicalCall };

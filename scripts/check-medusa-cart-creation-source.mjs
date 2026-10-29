@@ -1,4 +1,5 @@
 // @ts-check
+import { createHash } from "node:crypto";
 export const cartCreationAuthoredTargets = Object.freeze([
   "packages/medusa-cart/src/creation/contracts.ts", "packages/medusa-cart/src/creation/index.ts",
   "packages/medusa-cart/src/creation/models.ts", "packages/medusa-cart/src/creation/postgres.ts",
@@ -64,4 +65,14 @@ export function extendNativeCartCreationSource(original) {
     'import { includeCartTotals } from "../utils/totals-selection"\n' + imports)
     .replace("protected readonly moduleDeclaration: InternalModuleDeclaration\n", "protected readonly moduleDeclaration: InternalModuleDeclaration,\n    protected readonly cartCreationStore_?: CartCreationStore\n")
     .replace("  // @ts-expect-error\n  async updateCarts(", methods + "  // @ts-expect-error\n  async updateCarts(");
+}
+
+
+export const cartCreationStepSourcePair = Object.freeze({ source: "third_party/medusa/upstream/packages/core/core-flows/src/cart/steps/create-carts.ts", target: "packages/medusa-core-flows/src/cart/steps/create-carts.ts", classification: "workflowFork" });
+/** Exact native ownership-capability correction; default Cart IDs alone do
+ * not grant the new generation-authenticated inverse. No adjacent step gains
+ * fork permission. @param {string} source @param {string} target */
+export function verifyCartCreationStepSource(source, target) {
+  const digest = /** @param {string} text */ text => createHash("sha256").update(text.replaceAll("\r\n", "\n")).digest("hex");
+  if (digest(source) !== "bebe7a7e8986213786d9dbe02f9a64aad3c5c1cb603937486f45c5e27d3c5a04" || digest(target) !== "737ccebc877c1ad5e1e42b1b7dbaeea43c76d294cb4e471c3424d2a89ac97202") throw new Error("Changed native Cart creation step source");
 }

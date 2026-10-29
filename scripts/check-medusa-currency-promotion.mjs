@@ -48,6 +48,8 @@ import ts from "@typescript/typescript6";
 
 import { cartPromotionStepSourcePairs, cartPromotionStepAuthoredTarget, verifyCartPromotionStepSource, verifyCartPromotionStepSelection } from "./check-medusa-cart-promotion-step-source.mjs";
 
+import { cartCreationStepSourcePair, verifyCartCreationStepSource } from "./check-medusa-cart-creation-source.mjs";
+
 const manifestPath = "roadmaps/flarexdb-framework-integration/preflight/medusa-currency-promotion.json";
 const sourcePrefix = "third_party/medusa/upstream/";
 export const nativeBigNumberSourcePair = Object.freeze({
@@ -1186,6 +1188,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       if (cartPromotionStepSourcePairs.some(pair => pair.target === file.target))
         verifyCartPromotionStepSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"),
           readFileSync(path.join(root, cartPromotionStepAuthoredTarget), "utf8"), file.target);
+      if (file.target === cartCreationStepSourcePair.target)
+        verifyCartCreationStepSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
       if (file.classification === "cartContextReadFork")
         verifyCartContextReadFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (file.classification === "workflowCacheFork")

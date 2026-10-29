@@ -1,7 +1,7 @@
 import { Effect, Result, Schema } from "effect";
 import type { DAL } from "@medusajs/framework/types";
 import { cartTotalsFields } from "@medusajs/cart/utils/totals-selection";
-import { describeToManyRelation } from "@medusajs/drizzle/relation-query";
+import { describeToManyRelation, fillEmptyToManyRelations } from "@medusajs/drizzle/relation-query";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject, type Json, type JsonObject, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommercePromiseOwner } from "../../module/promise-owner";
@@ -36,7 +36,7 @@ const allowedPaths: ReadonlySet<string> = new Set(cartPaymentPaths);
 
 /** Read-only native Cart totals input. All nine native models are compiled;
  * only the seven relation paths needed by the genuine total selector can read. */
-export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeof captureCartMetadata>>["frame"], profile: "payment" | "checkout" = "payment") {
+export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeof captureCartMetadata>>["frame"], profile: "payment" | "checkout" | "creation" = "payment") {
   return Result.gen(function* () {
     const entities = yield* Result.all(metadata.tables.map(table => Result.gen(function* () {
       return { table, complete: yield* compileCompleteRow(table), projection: yield* compileRowProjection(table),
@@ -46,13 +46,13 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
     const cart = byName.get("cart");
     if (cart === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     const totals = cartTotalsFields(), rawTotals = new Set(totals.map(name => "raw_" + name));
-    const paths = profile === "checkout" ? [...cartPaymentPaths, "shipping_address", "billing_address"] : [...cartPaymentPaths];
-    const admittedPaths: ReadonlySet<string> = profile === "checkout" ? new Set(paths) : allowedPaths;
+    const paths = profile !== "payment" ? [...cartPaymentPaths, "shipping_address", "billing_address"] : [...cartPaymentPaths];
+    const admittedPaths: ReadonlySet<string> = profile !== "payment" ? new Set(paths) : allowedPaths;
     const relations = new Map<string, Map<string, CommerceRelation>>();
     for (const entity of entities) {
       const members = new Map<string, CommerceRelation>();
       for (const declared of entity.table.relationships) {
-        if (profile === "checkout" && entity === cart && ["shipping_address", "billing_address"].includes(declared.name)) {
+        if (profile !== "payment" && entity === cart && ["shipping_address", "billing_address"].includes(declared.name)) {
           const keys = declared.foreignKeyNames ?? (declared.foreignKeyName === undefined ? [] : [declared.foreignKeyName]);
           const foreign = entity.table.foreignKeys.filter(key => key.referencedTable === declared.targetTable &&
             key.columns.length === keys.length && key.columns.every((name, index) => name === keys[index]));
@@ -79,17 +79,17 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
       allowWildcard: true, selectableRelations: [], nested: new Map() };
     const children = { ...leaf, selectableRelations: ["tax_lines", "adjustments"], nested: new Map([["tax_lines", leaf], ["adjustments", leaf]]) };
     const projection: ProjectionPolicy = { ...leaf, selectableRelations: ["items", "credit_lines", "shipping_methods",
-      ...(profile === "checkout" ? ["shipping_address", "billing_address"] : [])],
+      ...(profile !== "payment" ? ["shipping_address", "billing_address"] : [])],
       nested: new Map([["items", children], ["credit_lines", leaf], ["shipping_methods", children],
-        ...(profile === "checkout" ? [["shipping_address", leaf], ["billing_address", leaf]] as const : [])]) };
+        ...(profile !== "payment" ? [["shipping_address", leaf], ["billing_address", leaf]] as const : [])]) };
     const queryTable = (table: string, input: unknown) => Result.gen(function* () {
       const value = yield* envelope(input), paths = value.options.populate;
-      if (table !== cart.table.name && (profile !== "checkout" || table !== "cart_line_item") ||
+      if (table !== cart.table.name && (profile === "payment" || table !== "cart_line_item") ||
         paths.some(path => table === cart.table.name ? !admittedPaths.has(path) : !["tax_lines", "adjustments"].includes(path)))
         return yield* Result.fail(commerceError("unsupportedProfile"));
       // raw_total is computed by the actual Cart service after serialization;
       // it is never a storage column or an independently accepted total.
-      const fields = value.options.fields?.filter(field => profile === "checkout" ? !rawTotals.has(field) : field !== "raw_total");
+      const fields = value.options.fields?.filter(field => profile !== "payment" ? !rawTotals.has(field) : field !== "raw_total");
       return { table, projection: yield* compileProjection(catalog, table, fields, paths, table === cart.table.name ? projection : children),
         paths, withDeleted: false, relationFilters: [], ordering: new Map(),
         query: { skip: 0, order: { column: "id", direction: "asc" }, predicate: { kind: "and", children: [
@@ -119,9 +119,9 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
     const scalar = yield* prepareScalarRepository(cart.table, "Cart", scalarIdWhere);
     const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
       const bound = scalar.bind(root, owner), { bridge } = bound, denied = deniedCommerceRepository(bound.repository, bound.refuse);
-      const returned = new WeakMap<object, string>(), originals = new Map<string, JsonObject>();
+      const returned = new WeakMap<object, { readonly table: string; readonly kind: "row" | "rows" }>(), originals = new Map<string, JsonObject>();
       const remember = (rows: JsonObject[], table = cart.table.name) => {
-        returned.set(rows, table); for (const row of rows) returned.set(row, table);
+        returned.set(rows, { table, kind: "rows" }); for (const row of rows) returned.set(row, { table, kind: "row" });
         return rows;
       };
       const find = Effect.fn("CartPayment.find")(function* (ctx: CommerceCommandContext, input: unknown, count: boolean, table = cart.table.name) {
@@ -129,21 +129,75 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
         const result = yield* executeRead({ ...ctx, admitSelection: (table, rows) => Result.gen(function* () {
           const entity = byName.get(table);
           if (entity === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
-          if (rows.length > 4) return yield* Result.fail(commerceError("limitExceeded"));
+          if (rows.length > (profile === "creation" && table === "cart_address" ? 8 : 4)) return yield* Result.fail(commerceError("limitExceeded"));
           for (const row of rows) {
             const checked = yield* entity.complete(projectNativeRow(row));
             if (table === cart.table.name && typeof checked.id === "string") originals.set(checked.id, checked);
           }
         }) }, catalog, plan, count);
-        const rows = remember(structuredClone(result.rows), table);
+        const detached = structuredClone(result.rows);
+        // The native full creation read initializes unloaded to-many properties.
+        // Selected checkout projections retain their existing presentation.
+        if (profile === "creation") {
+          const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources).pipe(Result.flatMap(envelope)));
+          if (captured.options.fields === undefined) {
+            const entity = byName.get(table);
+            if (entity === undefined) return yield* ctx.refuse(commerceError("storedCorruption"));
+            fillEmptyToManyRelations(detached, new Map(entity.table.relationships.map(relationship => [relationship.name, { relationship }])));
+          }
+        }
+        const rows = remember(detached, table);
         return { ...result, rows };
       });
       const serialize: DAL.RepositoryService["serialize"] = <Output extends object | object[]>(input: unknown, options?: unknown): Promise<Output> =>
         owner.run(bridge.checked(root, Effect.gen(function* () {
-          const table = input !== null && typeof input === "object" ? returned.get(input) : undefined;
-          if (options !== undefined || table === undefined)
-            return yield* root.refuse(commerceError("storedCorruption"));
-          const value = yield* Effect.fromResult(captureCommerceInput(input, root.resources));
+          if (options !== undefined) return yield* root.refuse(commerceError("storedCorruption"));
+          const source = input !== null && typeof input === "object" ? input : undefined;
+          const issued = source === undefined ? undefined : returned.get(source);
+          let table = issued?.table, retained: unknown = input;
+          const array = yield* Effect.try({ try: () => Array.isArray(input), catch: cause => commerceError("storedCorruption", cause) });
+          if (array) {
+            // Only creation admits fresh containers of rows from the same live
+            // owner and table. Existing profiles retain their issued containers.
+            if (source === undefined || issued === undefined && profile !== "creation" || issued?.kind === "row")
+              return yield* root.refuse(commerceError("storedCorruption"));
+            const snapshot = yield* Effect.try({ try: () => ({ keys: Reflect.ownKeys(source), prototype: Object.getPrototypeOf(source) }),
+              catch: cause => commerceError("storedCorruption", cause) });
+            if (snapshot.prototype !== Array.prototype) return yield* root.refuse(commerceError("storedCorruption"));
+            // Apply the existing value owner's own-key budget before any
+            // foreign descriptor callback or descriptor-map allocation.
+            if (snapshot.keys.length > root.resources.valueNodes) return yield* root.refuse(commerceError("limitExceeded"));
+            const properties: PropertyDescriptorMap = {};
+            for (const key of snapshot.keys) {
+              const property = yield* Effect.try({ try: () => Object.getOwnPropertyDescriptor(source, key),
+                catch: cause => commerceError("storedCorruption", cause) });
+              if (property === undefined) return yield* root.refuse(commerceError("storedCorruption"));
+              Object.defineProperty(properties, key, { value: property, enumerable: true });
+            }
+            const lengthProperty = properties.length;
+            const length: unknown = lengthProperty !== undefined && "value" in lengthProperty ? lengthProperty.value : undefined;
+            if (typeof length !== "number" || !Number.isSafeInteger(length) || length < 0 ||
+              issued === undefined && length > 4) return yield* root.refuse(commerceError("storedCorruption"));
+            if (length > root.resources.valueNodes) return yield* root.refuse(commerceError("limitExceeded"));
+            // Authenticate even an issued array's current members. The retained
+            // descriptors, rather than another view of a foreign Proxy, supply
+            // both the row identities and the safe container captured below.
+            for (let index = 0; index < length; index++) {
+              const property = properties[String(index)];
+              const row: unknown = property !== undefined && "value" in property ? property.value : undefined;
+              const origin = row !== null && typeof row === "object" ? returned.get(row) : undefined;
+              if (origin?.kind !== "row" || table !== undefined && table !== origin.table)
+                return yield* root.refuse(commerceError("storedCorruption"));
+              table = origin.table;
+            }
+            if (length === 0 && table === undefined) table = cart.table.name;
+            // Preserve every descriptor so the existing value owner still
+            // refuses accessors, sparse/non-enumerable indices and extra keys.
+            retained = yield* Effect.try({ try: () => Object.defineProperties([], properties),
+              catch: cause => commerceError("storedCorruption", cause) });
+          } else if (issued?.kind !== "row") return yield* root.refuse(commerceError("storedCorruption"));
+          if (table === undefined) return yield* root.refuse(commerceError("storedCorruption"));
+          const value = yield* Effect.fromResult(captureCommerceInput(retained, root.resources));
           const result = yield* present(value, table);
           // SAFETY: complete DML rows preceded native projection; this named
           // repository returns only authenticated selections and admitted writes.

@@ -3,6 +3,8 @@ import type { Context, DAL } from "@medusajs/framework/types";
 import { CartCreationStore, type CartCreationOwnershipReads } from "@medusajs/cart/creation";
 import { requireAtomicCommerceScopeExclusion, type CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import type { commerceMutationEvents } from "../../repository/mutation-events";
+import type { commerceRepositoryContext } from "../../repository/context";
 import type { CommercePromiseOwner } from "../../module/promise-owner";
 import { prepareScalarRepository } from "../../repository/scalar";
 import { scalarIdWhere } from "../../repository/scalar-id-read";
@@ -34,33 +36,40 @@ export function prepareCartCreationOwnership(metadata: Metadata) {
       const where: WherePolicy = key === "id" ? scalarIdWhere : { ...scalarIdWhere, fields: new Map([
         ...scalarIdWhere.fields, [key, { column: key, decode: ids }],
       ]) };
-      return { name, table, key, scalar: yield* prepareScalarRepository(table, model, where),
+      return { name, model, table, key, scalar: yield* prepareScalarRepository(table, model, where),
         complete: yield* compileCompleteRow(table),
         create: commerceRowDecoder(table.columns.map(column => column.name).filter(name => !["created_at", "updated_at", "deleted_at"].includes(name)), "unsupportedProfile") };
     })));
     const cart = metadata.tables.find(table => table.name === "cart"), address = metadata.tables.find(table => table.name === "cart_address");
     if (cart === undefined || address === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     const completeCart = yield* compileCompleteRow(cart), completeAddress = yield* compileCompleteRow(address);
-    const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
+    const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner, shared?: {
+      readonly bridge: ReturnType<typeof commerceRepositoryContext>;
+      readonly events: ReturnType<typeof commerceMutationEvents>;
+    }) => {
       const first = prepared[0];
       if (first === undefined) return owner.reject(commerceError("unsupportedProfile"));
-      const bridge = first.scalar.bind(root, owner).bridge;
+      const bridge = shared?.bridge ?? first.scalar.bind(root, owner).bridge;
       const run = <T>(context: Context, work: (ctx: CommerceCommandContext) => Effect.Effect<T, CommerceTransactionError>) =>
         bridge.execute(context, ctx => bridge.checked(ctx, Effect.gen(function* () {
           yield* requireAtomicCommerceScopeExclusion(ctx); return yield* work(ctx);
         })));
       const repositories = new Map(prepared.map(entity => {
-        const bound = entity.scalar.bind(root, owner, undefined, bridge);
+        const bound = entity.scalar.bind(root, owner, shared?.events, bridge);
         const repository: DAL.RepositoryService = { ...bound.repository,
-          create: (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx, Effect.gen(function* () {
+          create: (input, context) => bridge.executeInput(context, input, (ctx, captured) => bridge.checked(ctx, Effect.gen(function* () {
             yield* requireAtomicCommerceScopeExclusion(ctx);
             const inputRows = yield* Effect.fromResult(rows(captured));
             for (const row of inputRows) { yield* Effect.fromResult(entity.create(row)); yield* Effect.fromResult(id(row.id)); }
             const written = yield* (yield* ctx.table(entity.name)).write(ctx.manager, "insert", inputRows);
-            for (const row of written) yield* Effect.fromResult(entity.complete(projectNativeRow(row)));
-            return structuredClone([...written].map(projectNativeRow));
+            const checked = []; for (const row of written) checked.push(yield* Effect.fromResult(entity.complete(projectNativeRow(row))));
+            if (shared !== undefined) {
+              if (context === undefined || !shared.events.isSubscribed(context)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+              yield* shared.events.created(checked.map(entityRow => ({ modelName: entity.model, entity: { ...entityRow } })), context);
+            }
+            return structuredClone(checked);
           }))),
-          update: entity.key !== "id" ? bound.refuse : (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx, Effect.gen(function* () {
+          update: entity.key !== "id" ? bound.refuse : (input, context) => bridge.executeInput(context, input, (ctx, captured) => bridge.checked(ctx, Effect.gen(function* () {
             yield* requireAtomicCommerceScopeExclusion(ctx);
             const pairs = yield* Effect.fromResult(updates(captured)), patches: JsonObject[] = [];
             for (const pair of pairs) {
@@ -69,8 +78,12 @@ export function prepareCartCreationOwnership(metadata: Metadata) {
               patches.push({ id: before.id, state: pair.update.state });
             }
             const written = yield* (yield* ctx.table(entity.name)).write(ctx.manager, "update", patches);
-            for (const row of written) yield* Effect.fromResult(entity.complete(projectNativeRow(row)));
-            return structuredClone([...written].map(projectNativeRow));
+            const checked = []; for (const row of written) checked.push(yield* Effect.fromResult(entity.complete(projectNativeRow(row))));
+            if (shared !== undefined) {
+              if (context === undefined || !shared.events.isSubscribed(context)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+              yield* shared.events.rows("afterUpdate", entity.model, checked, context);
+            }
+            return structuredClone(checked);
           }))),
           delete: bound.refuse, softDelete: bound.refuse, restore: bound.refuse, upsert: bound.refuse, upsertWithReplace: bound.refuse,
         };
@@ -104,6 +117,6 @@ export function prepareCartCreationOwnership(metadata: Metadata) {
       const select = (name: typeof models[number][0]) => { const value = repositories.get(name); if (value === undefined) return owner.reject(commerceError("unsupportedProfile")); return value; };
       return { bridge, reads, repositories, store: new CartCreationStore({ operations: select("cart_creation_operation"), carts: select("cart_creation_cart"), addresses: select("cart_creation_address"), reads }) };
     };
-    return { metadata, bind };
+    return { metadata, protocol: prepared, bind };
   });
 }

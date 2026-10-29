@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import ts from "@typescript/typescript6";
 import { paymentAccountingAuthoredTargets } from "./check-medusa-payment-lifecycle-source.mjs";
 import { customerAddressUpdateSourcePairs } from "./check-medusa-customer-account-source.mjs";
-import { cartCreationAuthoredTargets } from "./check-medusa-cart-creation-source.mjs";
+import { cartCreationAuthoredTargets, cartCreationStepSourcePair } from "./check-medusa-cart-creation-source.mjs";
 
 import { cartPromotionStepSourcePairs, cartPromotionStepAuthoredTarget } from "./check-medusa-cart-promotion-step-source.mjs";
 
@@ -58,6 +58,7 @@ export const cartPrerequisiteSourcePairs = Object.freeze([
   ...customerSelectionSourcePairs,
   ...workflowCacheSourcePairs,
   ...cartContextReadSourcePairs,
+  cartCreationStepSourcePair,
   ...cartPromotionStepSourcePairs,
   {
     "source": "third_party/medusa/upstream/LICENSE",

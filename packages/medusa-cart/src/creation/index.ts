@@ -4,3 +4,4 @@ export { CartCreationSnapshot, CartCreationRecord, CartCreationHandle,
   decodeCartCreationSnapshot, decodeCartCreationRecord, decodeCartCreationHandle,
   decodeCartCreationClaims, decodeCartCreationAddressClaims } from "./contracts"
 export { cartCreationSnapshot, prepareCartCreationAddresses } from "./snapshot"
+export { presentCartCreation } from "./presentation"
