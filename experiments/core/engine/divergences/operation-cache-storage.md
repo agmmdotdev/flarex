@@ -95,8 +95,17 @@ transaction changes and performance acceptance remain separate required slices.
 This implemented operation-local adaptation does not close the wider milestone.
 
 The [selected cache-transfer slice](../slices/02-timestamped-cache-transfer.md)
-next extends this owner with explicit key removal and central body/revision
-replacement while preserving complete intervals and reference accounting.
-Current immutable-timestamp `populate` is not a write-refresh operation.
-That extension remains unimplemented; it must cover shared-body references,
-same-key updates, inserts into known-empty ranges and capacity-triggered clearing.
+extends this owner through `SnapshotIndexCache.applyWrite` and `removeIndex`.
+Immutable-timestamp `populate` remains a separate population operation.
+The extension is implemented in the connected Application handoff path.
+
+The pinned backend applies an index write at a time. This TypeScript owner
+deduplicates bodies across indexes, so `applyWrite` groups all of one row's
+old/new index positions: remove the old positions, replace its captured body
+once, then insert only within already complete coverage. Private reference
+counts release a body after its final retained index entry disappears and avoid
+charging or replacing it repeatedly. This representation adaptation prevents
+stale shared aliases and double body accounting; it is not a second manager.
+`removeIndex` releases its entries, intervals and body references. Capacity
+refusal clears reuse; inconsistent trusted deltas remain defects. Previously
+materialized outputs retain their captured value.

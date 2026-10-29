@@ -23,7 +23,7 @@ import {
   type ApplicationQuerySystemApi,
 } from
   "@flarex/standard-application-invocation/internal/application-query-system";
-import { Effect } from "effect";
+import { Cause, Effect, Exit } from "effect";
 import { flarexValueToJsonV1 } from "flarex-protocol/value";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
@@ -76,8 +76,10 @@ const deliverMessage = module.reference("deliver");
 describe("clean Application invocation primitives", () => {
   it("runs a typed query without a mutation request key", async () => {
     const value = Object.freeze({ text: "hello" });
+    const releaseSuccess: boolean[] = [];
     const invoke = vi.fn<ApplicationQuerySystemApi["invoke"]>(
-      () => Effect.succeed(value),
+      () => Effect.acquireRelease(Effect.succeed(value),
+        (_, exit) => Effect.sync(() => { releaseSuccess.push(Exit.isSuccess(exit)); })),
     );
     const system = ApplicationQuerySystem.of({
       selectionQuery: Object.freeze({
@@ -87,13 +89,14 @@ describe("clean Application invocation primitives", () => {
     });
     const identity = Object.freeze({ kind: "anonymous" as const });
 
-    const result = await Effect.runPromise(Effect.scoped(
+    const result = await Effect.runPromise(
       runQuery(getMessage, { id: "message-1" }, { identity }).pipe(
         Effect.provideService(ApplicationQuerySystem, system),
       ),
-    ));
+    );
 
     expect(result).toBe(value);
+    expect(releaseSuccess).toEqual([true]);
     expect(invoke).toHaveBeenCalledWith(
       "messages:get",
       { id: "message-1" },
@@ -103,11 +106,13 @@ describe("clean Application invocation primitives", () => {
   });
 
   it("rejects a query result that disagrees with the local reference", async () => {
+    const releaseSuccess: boolean[] = [];
     const system = ApplicationQuerySystem.of({
       selectionQuery: Object.freeze({
         runQuery: () => Effect.die("selection query must not run"),
       }),
-      invoke: () => Effect.succeed(Object.freeze({ text: 1 })),
+      invoke: () => Effect.acquireRelease(Effect.succeed(Object.freeze({ text: 1 })),
+        (_, exit) => Effect.sync(() => { releaseSuccess.push(Exit.isSuccess(exit)); })),
     });
 
     const error = await Effect.runPromise(Effect.scoped(
@@ -118,6 +123,7 @@ describe("clean Application invocation primitives", () => {
     ));
 
     expect(isResultContractError(error)).toBe(true);
+    expect(releaseSuccess).toEqual([false]);
     if (isResultContractError(error)) {
       expect(error.operation).toBe("query");
       expect(error.cause.issue).toMatchObject({
@@ -144,6 +150,32 @@ describe("clean Application invocation primitives", () => {
 
     expect(result).toBe("host-neutral-id-text");
     expectTypeOf(result).toEqualTypeOf<string>();
+  });
+
+  it("preserves query cleanup defects before caller recovery observes its outcome", async () => {
+    const cleanupDefect = new Error("query cleanup failed");
+    const releaseSuccess: boolean[] = [];
+    const system = ApplicationQuerySystem.of({
+      selectionQuery: Object.freeze({
+        runQuery: () => Effect.die("selection query must not run"),
+      }),
+      invoke: () => Effect.acquireRelease(Effect.succeed(Object.freeze({ text: "hello" })),
+        (_, exit) => Effect.gen(function* () {
+          releaseSuccess.push(Exit.isSuccess(exit));
+          return yield* Effect.die(cleanupDefect);
+        })),
+    });
+    const outcome = await Effect.runPromise(Effect.scoped(
+      runQuery(getMessage, { id: "message-1" }).pipe(
+        Effect.provideService(ApplicationQuerySystem, system), Effect.exit,
+      ),
+    ));
+    expect(releaseSuccess).toEqual([true]);
+    expect(Exit.isFailure(outcome)).toBe(true);
+    if (Exit.isFailure(outcome)) {
+      expect(outcome.cause.reasons).toHaveLength(1);
+      expect(outcome.cause.reasons.filter(Cause.isDieReason).map(reason => reason.defect)).toEqual([cleanupDefect]);
+    }
   });
 
   it("projects the typed value without losing authoritative mutation evidence", async () => {

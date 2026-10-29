@@ -1,7 +1,7 @@
 # Second slice: timestamped Application cache transfer
 
-Status: **Independent source challenge complete; bounded contract selected;
-runtime unstarted**. The [goal](../GOAL.md) remains active. This extends the
+Status: **Bounded Application query transfer and guarded refresh implemented**.
+The [goal](../GOAL.md) remains active. This extends the
 [implemented operation-local reader](./01-snapshot-reads.md); it does not activate
 shared page serving, native caches or a new commit pipeline.
 
@@ -73,7 +73,12 @@ current definition/build eligibility and exclude unsupported index families.
    dependencies, identity, failure and disclosure state private. Consume/seal
    the operation under its read gate after successful Worker RPC drain and,
    where applicable, receipt finalization and assembly. Consume only after the
-   entire selected success path. Ordinary queries currently remain
+   entire selected success path, then return data only when the existing trusted
+   invocation-owned operation scope and cleanup also exit successfully. The
+   public facade owns the scope through result validation and publishes staged
+   candidates afterward, so caller-side error recovery cannot rewrite its
+   outcome. Sealing closes reads; cleanup without a seal or with failure or
+   interruption discards the candidate. Ordinary queries previously remained
    open until scope closure: a successful generic scope finalizer alone is not
    a consume protocol. Failed/cancelled work discards the checkout; older returns
    cannot replace a newer idle candidate, and checkout never refreshes backwards.
@@ -109,7 +114,28 @@ fixture edits presented as production writers. Attribute feed and hydration SQL
 costs explicitly; measure complete queries before claiming a performance win.
 Both post-code reviewers and scoped cleanup/commit remain required.
 
-This record is not implementation evidence. Actual Cloudflare app-owner
-composition, DO restart/storage proofs, native profile migration, ordered
-out-of-order-save publication and complete-request acceptance remain goal gates.
-Replication stays deferred.
+## Executing owners and remaining scope
+
+- `SnapshotIndexCache.applyWrite` and `removeIndex` maintain existing complete
+  coverage, replace shared row bodies once and clear reuse on capacity refusal.
+- `createApplicationQueryCacheHandoff` transfers one exclusive data-only candidate;
+  `captureApplicationQueryCacheRefresh` captures exactly the admitted interval
+  through the existing guarded open transaction and bounded commit-feed owner.
+- `openApplicationQuerySnapshot` reconnects the candidate after fresh admission;
+  `completeApplicationQuerySnapshot` seals it under the read gate. The resource
+  release stages only successful sealed work, and `withApplicationQueryCompletion`
+  publishes only after public `runQuery` result validation and all cleanup succeed.
+- Standard query composition injects the handoff. Selected unconditional cache
+  setup and duplicated cache-value helpers are removed; required PostgreSQL,
+  live eligibility and logical-accounting paths remain their existing owners.
+
+Pure cache/handoff, paired database lifecycle and genuine Application Worker
+query-consumer witnesses exercise this bounded path. Structural history fixtures
+prove refresh edge cases; genuine supported mutation paths prove consumer
+write-to-refresh behavior. These are distinct evidence, not interchangeable
+producer coverage. Validation and review receipts belong in Git.
+
+Actual Cloudflare app-owner composition, DO restart/storage proofs, native profile
+migration, ordered out-of-order-save publication and complete-request acceptance
+remain goal gates. Current PostgreSQL publication is still serialized. No complete
+request performance improvement is claimed. Replication stays deferred.

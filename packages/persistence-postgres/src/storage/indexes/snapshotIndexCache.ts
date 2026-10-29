@@ -20,6 +20,17 @@ export interface SnapshotIndexCacheEntry<Key, Value> {
   readonly bodyBytes: number;
 }
 
+export interface SnapshotIndexCacheWrite<IndexId, Key, Value> {
+  readonly documentId: string;
+  readonly newDocument: Readonly<{ value: Value; bodyBytes: number }> | null;
+  /** Complete old/new deltas for every relevant tracked index, once per index. */
+  readonly indexes: readonly Readonly<{
+    indexId: IndexId;
+    oldKey: Key | null;
+    newKey: Key | null;
+  }>[];
+}
+
 export type SnapshotIndexCacheComponent<Key, Value> =
   | Readonly<{ kind: "document"; key: Key; documentId: string; value: Value }>
   | Readonly<{ kind: "miss"; interval: SnapshotIndexInterval<Key> }>;
@@ -54,6 +65,15 @@ export interface SnapshotIndexCache<IndexId, Key, Value> {
     interval: SnapshotIndexInterval<Key>,
     order: "asc" | "desc",
   ) => readonly SnapshotIndexCacheComponent<Key, Value>[];
+  /**
+   * Apply one complete row write during exclusive checkout; active operations
+   * must not share this instance. Preserves coverage, removes old keys and
+   * replaces shared bodies even when the new keys are unchanged. False clears
+   * the entire cache on capacity refusal; stop refreshing. Trusted-input defects
+   * throw and require the caller to discard this checkout.
+   */
+  readonly applyWrite: (write: SnapshotIndexCacheWrite<IndexId, Key, Value>) => boolean;
+  readonly removeIndex: (indexId: IndexId) => void;
   readonly stats: () => SnapshotIndexCacheStats;
 }
 
@@ -70,7 +90,7 @@ export interface SnapshotIndexCacheConfiguration<Key, Value> {
 const MAX_CACHED_RANGES_PER_INTERVAL = 3;
 
 /**
- * Private operation-owned storage translated from the pinned Convex
+ * Private exclusively owned storage translated from the pinned Convex
  * DatabaseIndexSnapshotCache and IntervalSet mechanisms. It performs no reads,
  * validation, authority checks, logical accounting or snapshot advancement.
  */
@@ -83,6 +103,7 @@ export function createSnapshotIndexCache<IndexId extends string | number, Key, V
 interface CachedBody<Value> {
   readonly value: Value;
   readonly bytes: number;
+  references: number;
 }
 
 interface IndexDocuments<Key> {
@@ -164,12 +185,72 @@ implements SnapshotIndexCache<IndexId, Key, Value> {
     intervals: this.#intervals,
   });
 
+  readonly applyWrite = (write: SnapshotIndexCacheWrite<IndexId, Key, Value>): boolean => {
+    const seen = new Set<IndexId>();
+    const updates = write.indexes.map(update => {
+      if (seen.has(update.indexId)) throw new Error("Snapshot cache write repeats an index.");
+      seen.add(update.indexId);
+      if (write.newDocument === null && update.newKey !== null)
+        throw new Error("Snapshot cache deletion has a new key.");
+      return { indexId: update.indexId,
+        oldKey: update.oldKey === null ? null : this.#configuration.captureKey(update.oldKey),
+        newKey: update.newKey === null ? null : this.#configuration.captureKey(update.newKey) };
+    });
+    // Like the pinned apply_write, remove old positions even for equal keys.
+    // Grouping the row's indexes releases and replaces its shared body once.
+    for (const update of updates) {
+      const index = this.#indexes.get(update.indexId);
+      if (index !== undefined && update.oldKey !== null)
+        this.#removeDocument(index, update.oldKey, write.documentId);
+    }
+    const previousBody = this.#bodies.get(write.documentId);
+    if (write.newDocument === null) {
+      if (previousBody !== undefined) throw new Error("Snapshot cache deletion retains an index reference.");
+      return true;
+    }
+    const additions: Readonly<{ index: IndexDocuments<Key>; key: Key; existing: boolean }>[] = [];
+    for (const update of updates) {
+      const index = this.#indexes.get(update.indexId);
+      if (index === undefined || update.newKey === null || !this.#coversKey(index, update.newKey)) continue;
+      const identity = index.documents.get(update.newKey);
+      if (identity !== undefined && identity !== write.documentId) throw new Error("Snapshot cache key identity changed.");
+      additions.push({ index, key: update.newKey, existing: identity !== undefined });
+    }
+    if (previousBody === undefined && additions.length === 0) return true;
+    const bodyBytes = this.#bodyBytes - (previousBody?.bytes ?? 0) + write.newDocument.bodyBytes;
+    const indexEntries = this.#indexEntries + additions.filter(addition => !addition.existing).length;
+    if (bodyBytes > this.#configuration.limits.bodyBytes || indexEntries > this.#configuration.limits.indexEntries) {
+      this.#clear();
+      return false;
+    }
+    const body: CachedBody<Value> = { value: this.#configuration.captureValue(write.newDocument.value),
+      bytes: write.newDocument.bodyBytes, references: previousBody?.references ?? 0 };
+    this.#bodies.set(write.documentId, body);
+    this.#bodyBytes = bodyBytes;
+    for (const addition of additions) {
+      if (addition.existing) continue;
+      addition.index.documents.set(addition.key, write.documentId);
+      body.references++;
+    }
+    this.#indexEntries = indexEntries;
+    return true;
+  };
+
+  readonly removeIndex = (indexId: IndexId): void => {
+    const index = this.#indexes.get(indexId);
+    if (index === undefined) return;
+    this.#indexes.delete(indexId);
+    for (const documentId of index.documents.values()) this.#releaseBody(documentId);
+    this.#indexEntries -= index.documents.size;
+    this.#intervals -= index.intervals.size;
+  };
+
   #populateDocument(indexId: IndexId, entry: SnapshotIndexCacheEntry<Key, Value>): boolean {
     const documents = this.#indexes.get(indexId);
     const previousIdentity = documents?.documents.get(entry.key);
     if (previousIdentity !== undefined) {
-      // One cache belongs to an immutable snapshot. A key/body identity cannot
-      // change during that lifetime; callers validate body/revision evidence.
+      // Population is within one immutable snapshot. Timestamp advancement
+      // uses applyWrite; callers validate body/revision evidence.
       if (previousIdentity !== entry.documentId) throw new Error("Snapshot cache key identity changed.");
       return true;
     }
@@ -185,16 +266,49 @@ implements SnapshotIndexCache<IndexId, Key, Value> {
     };
     const addition = this.#prepareCoverage(documents, point);
     if (!this.#canAddCoverage(addition)) return false;
-    const capturedBody = body ?? Object.freeze({ value: this.#configuration.captureValue(entry.value), bytes: entry.bodyBytes });
+    const capturedBody = body ?? { value: this.#configuration.captureValue(entry.value), bytes: entry.bodyBytes, references: 0 };
     const index = this.#index(indexId);
     if (body === undefined) {
       this.#bodies.set(entry.documentId, capturedBody);
       this.#bodyBytes += addedBytes;
     }
     index.documents.set(key, entry.documentId);
+    capturedBody.references++;
     this.#indexEntries++;
     this.#addCoverage(index, addition);
     return true;
+  }
+
+  #coversKey(index: IndexDocuments<Key>, key: Key): boolean {
+    const cut: SnapshotIndexCut<Key> = { kind: "before", key };
+    const preceding = index.intervals.getPairOrNextLower(cut);
+    return preceding !== undefined && this.#compareCuts(cut, preceding[1]) < 0;
+  }
+
+  #removeDocument(index: IndexDocuments<Key>, key: Key, documentId: string): void {
+    const identity = index.documents.get(key);
+    if (identity === undefined) return;
+    if (identity !== documentId) throw new Error("Snapshot cache old key identity changed.");
+    index.documents.delete(key);
+    this.#indexEntries--;
+    this.#releaseBody(documentId);
+  }
+
+  #releaseBody(documentId: string): void {
+    const body = this.#bodies.get(documentId);
+    if (body === undefined || body.references <= 0) throw new Error("Snapshot cache body reference missing.");
+    body.references--;
+    if (body.references > 0) return;
+    this.#bodies.delete(documentId);
+    this.#bodyBytes -= body.bytes;
+  }
+
+  #clear(): void {
+    this.#indexes.clear();
+    this.#bodies.clear();
+    this.#bodyBytes = 0;
+    this.#indexEntries = 0;
+    this.#intervals = 0;
   }
 
   #index(indexId: IndexId): IndexDocuments<Key> {

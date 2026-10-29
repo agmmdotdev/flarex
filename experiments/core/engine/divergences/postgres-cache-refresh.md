@@ -1,7 +1,7 @@
 # PostgreSQL-backed timestamped cache refresh
 
 Design status: **Accepted bounded translation contract; activation requires
-writer and connected-consumer proofs**. Implementation status: **Unstarted**.
+writer and connected-consumer proofs**. Implementation status: **Bounded Application query path implemented**.
 Measurement status: **Unmeasured**.
 Owner: [timestamped cache-transfer slice](../slices/02-timestamped-cache-transfer.md).
 The related [query handoff record](./query-cache-transfer.md) owns concurrent
@@ -50,6 +50,15 @@ survives. Bound headers, changes and hydrated data by the owning admitted reuse
 capacity. Missing history or exhausted reuse capacity discards the candidate;
 corruption, SQL failures and interruption keep their typed classification.
 
+The existing transaction feed reader uses a global child-page cap. Its bounded
+refresh variant must enforce the caller's smaller whole-commit child allowance
+at that same owner before transferring child facts; adapter-side rejection after
+fetching the global maximum is insufficient. Preserve existing default feed
+behavior and corruption validation. Historical body capture may reuse its
+existing one protocol-bounded crossing-body allowance, then refuse reuse before
+further hydration. Report this transfer bound separately from retained cache
+bytes; it is not a strict SQL-byte limit.
+
 Match scope/generation/epoch and relevant definitions. Prune unavailable or
 changed index identities instead of invalidating unrelated definitions by an
 unrelated global schema stamp. Retain fresh selection, grant, history and build
@@ -79,15 +88,21 @@ closure is not a measured throughput claim or production activation proof.
 
 ## Implementation and required evidence
 
-Planned owners are the existing commit-feed/history storage family and the
-portable data-cache owner, connected at actual Application snapshot admission.
-Migrate selected construction and refresh callers; avoid another independent
-transaction lifecycle or an adapter-side copy of publication validation.
-No schema change or data reset is implied by this record.
+[applicationQueryCacheRefresh.ts](../../../../packages/persistence-postgres/src/application/applicationQueryCacheRefresh.ts)
+implements `captureApplicationQueryCacheRefresh` using the already guarded
+snapshot-open `ScopedTransaction`. The existing
+[commitFeed.ts](../../../../packages/persistence-postgres/src/commit/commitFeed.ts)
+owns `readBoundedCommitFeedPageInTransactionEffect`, including whole-window
+header and child bounds; default feed callers retain their existing behavior.
+The refresh adapter captures canonical old/new revisions, and the portable
+cache owner derives relevant keys and applies the writes. It creates no second
+transaction lifetime, schema change or data reset.
 
 Prove target bounding with a newer publication, protected retention, missing
 history, epoch/fence changes, genuine producer writes and same-key body updates
 on PGlite and ordinary-role PostgreSQL. Preserve exact failure behavior and
 existing authority/build/accounting witnesses. The owning slice supplies the
-remaining handoff, host, performance, review and cleanup gates. Runtime remains
-unstarted; add exact executing symbols after implementation.
+remaining handoff, host and complete-request performance gates. Bounded owner
+and genuine Application-consumer paths execute on both database lanes; actual
+DO lifecycle and native physical-cache migration remain outside this slice.
+Validation receipts and review evidence belong in Git.

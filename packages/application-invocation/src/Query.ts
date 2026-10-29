@@ -9,9 +9,10 @@ import { inspectFunctionReference } from
 import {
   ApplicationQuerySystem,
   invokeApplicationQuery,
+  withApplicationQueryCompletion,
 } from
   "@flarex/standard-application-invocation/internal/application-query-system";
-import { Effect, Scope } from "effect";
+import { Effect } from "effect";
 import type { ExecutionIdentity } from "flarex-protocol/auth";
 
 import {
@@ -46,19 +47,21 @@ export const runQuery = Effect.fn("Application.runQuery")(function* <
 ): Effect.fn.Return<
   InferFunctionReturn<Reference["contract"]>,
   RunQueryError,
-  ApplicationQuerySystem | Scope.Scope
+  ApplicationQuerySystem
 > {
-  const inspected = inspectFunctionReference(reference);
-  const value = yield* invokeApplicationQuery(
-    inspected.path,
-    args,
-    options.identity,
-  ).pipe(Effect.mapError(projectQueryInvocationError));
-  const validated = yield* validateResultContract(
-    inspected,
-    value,
-    queryResultContractError,
-  );
-  // SAFETY: the opaque reference's validator accepted this canonical value.
-  return validated as InferFunctionReturn<Reference["contract"]>;
+  return yield* withApplicationQueryCompletion(Effect.gen(function* () {
+    const inspected = inspectFunctionReference(reference);
+    const value = yield* invokeApplicationQuery(
+      inspected.path,
+      args,
+      options.identity,
+    ).pipe(Effect.mapError(projectQueryInvocationError));
+    const validated = yield* validateResultContract(
+      inspected,
+      value,
+      queryResultContractError,
+    );
+    // SAFETY: the opaque reference's validator accepted this canonical value.
+    return validated as InferFunctionReturn<Reference["contract"]>;
+  }));
 });

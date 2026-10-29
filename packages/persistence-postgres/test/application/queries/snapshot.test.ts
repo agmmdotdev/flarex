@@ -8,6 +8,7 @@ import {
 } from "../../../src/application/activation/repository";
 import {
   finalizeApplicationQueryEvaluationSnapshot,
+  completeApplicationQuerySnapshot,
   readApplicationQueryIndex,
   readApplicationQueryPoint,
   revalidateApplicationQuerySnapshot,
@@ -98,6 +99,17 @@ describe("Application queries/snapshot", { timeout: 30_000, concurrent: false },
               reason: "invalidComposition",
             });
           }
+          yield* completeApplicationQuerySnapshot(opened.snapshot);
+          const afterCompletion = yield* Effect.result(revalidateApplicationQuerySnapshot(opened.snapshot));
+          expect(Result.isFailure(afterCompletion)).toBe(true);
+          if (Result.isFailure(afterCompletion)) expect(afterCompletion.failure).toMatchObject({
+            operation: "revalidate", reason: "invalidComposition",
+          });
+          const duplicateCompletion = yield* Effect.result(completeApplicationQuerySnapshot(opened.snapshot));
+          expect(Result.isFailure(duplicateCompletion)).toBe(true);
+          if (Result.isFailure(duplicateCompletion)) expect(duplicateCompletion.failure).toMatchObject({
+            operation: "complete", reason: "invalidComposition",
+          });
           return revalidated;
         })));
 

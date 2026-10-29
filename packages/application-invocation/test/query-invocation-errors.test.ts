@@ -221,6 +221,16 @@ type DirectQueryOwnerError = Exclude<
 type DirectQueryOwnerTag = DirectQueryOwnerError["_tag"];
 
 const DIRECT_QUERY_OWNER_REASON = Object.freeze({
+  InvalidAppRowReadInputError: "invalidConfiguration",
+  CommitFeedInputErrorV1: "invalidConfiguration",
+  CommitFeedCursorResetRequiredErrorV1: "historyUnavailable",
+  AppRowScopeAuthorityUnavailableError: "staleScopeAuthority",
+  CommitFeedScopeNotFoundErrorV1: "staleScopeAuthority",
+  AppRowReadPersistenceError: "unavailable",
+  CommitFeedSqlErrorV1: "unavailable",
+  AppRowTableFrontierCorruptionError: "corruptData",
+  AppRowStorageCorruptionError: "corruptData",
+  CommitFeedCorruptionErrorV1: "corruptData",
   TrustedScopeAuthorityResolutionError: "staleScopeAuthority",
   ScopeClockNotFoundError: "staleScopeAuthority",
   ScopeExecutionAuthorityError: "staleScopeAuthority",

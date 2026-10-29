@@ -7,9 +7,10 @@ existing-core migration direction. Focused notes explain the current candidate
 without maintaining another independent question list.
 
 The first bounded [operation-local snapshot cache](./slices/01-snapshot-reads.md)
-is implemented. The current focus is the selected
-[timestamped cache-transfer slice](./slices/02-timestamped-cache-transfer.md),
-whose independent source challenge is complete and runtime is unstarted.
+is implemented. The connected
+[timestamped cache-transfer slice](./slices/02-timestamped-cache-transfer.md)
+also implements bounded Application app-row handoff and refresh. Actual DO
+composition, restart and broader native integration remain open.
 The accepted [replacement workflow](./REFACTOR.md#convex-guided-replacement-workflow)
 does not require this whole queue to be answered before a bounded slice can
 start. An unresolved guarantee pauses the affected path, not independent work;
@@ -203,9 +204,10 @@ publication-driven invalidation, validated concurrent fills and bounded cache si
 are [accepted principles](./02-timestamped-snapshots.md#accepted-cache-and-retention-direction).
 The [operation-local slice](./slices/01-snapshot-reads.md) implements bounded
 point/range reuse with complete intervals and exact misses. The selected
-[timestamped transfer](./slices/02-timestamped-cache-transfer.md) next applies the
+[timestamped transfer](./slices/02-timestamped-cache-transfer.md) applies the
 active pinned cache-refresh mechanism to supported Application app-row data,
-retaining live gates. Its source audit does not establish runtime proof.
+retaining live gates. Its connected execution does not establish actual DO
+lifecycle, native-cache or complete-request performance acceptance.
 A cache adapter cannot hide current transaction coupling or substitute for
 writer coverage. Wider local-storage, shared-page and native contracts stay open.
 Still open: which data lives in RAM, DO SQLite and PostgreSQL? Is the

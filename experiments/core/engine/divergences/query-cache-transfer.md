@@ -2,7 +2,8 @@
 
 Design status: **Accepted bounded translation contract; activation requires the
 owning slice's writer, history and consumer proofs**.
-Implementation status: **Unstarted**. Measurement status: **Unmeasured**.
+Implementation status: **Bounded Application query path implemented**.
+Measurement status: **Unmeasured**.
 Owner: [timestamped cache-transfer slice](../slices/02-timestamped-cache-transfer.md).
 The full [goal](../GOAL.md) authorizes connected implementation within settled
 guarantees. No durable-data reset, native replay or authorization weakening is
@@ -48,7 +49,7 @@ the durable-feed reconstruction and retained live gates. The existing
 and body-accounting representation; it gains explicit write application for
 this transfer rather than attempting to reuse immutable `populate`.
 
-## Planned replacement
+## Replacement
 
 Keep the ordered cache and typed private row bodies under portable owners.
 An app-scoped handoff owner transfers exclusive data-cache ownership between
@@ -61,9 +62,40 @@ without rewinding it. Refresh privately before making the cache available.
 
 Add explicit trusted consume/seal under the existing read gate, after successful
 Worker completion and drained RPC failures, and after evaluation receipt
-finalization and assembly when applicable. Only the entire selected success path
-may return the candidate. Failed/cancelled work discards its checkout;
-queued or late reads cannot retain an alias to returned data.
+finalization and assembly when applicable. Sealing ends further reads; it does
+not immediately return data. The existing snapshot's trusted operation-scope
+release closes the capability and stages the sealed candidate only on `Exit`
+success. The public query invocation owns that operation scope through local
+result validation; it no longer borrows the caller's ambient scope. A narrow
+per-invocation completion owner publishes staged data only after the entire
+owned scope, including cleanup, settles successfully. Cleanup without a seal,
+failure after sealing and interruption discard the checkout. This moves the
+existing query lifetime to its actual owner; it adds no database transaction.
+Queued or late reads cannot retain an alias to returned data.
+
+Closing an unsealed or failed snapshot discards its private cache and does not
+wait for already admitted reads. Its capability and phase close immediately,
+so queued reads cannot begin another transaction. Only a successful sealed
+handoff joins the read gate before staging data for reuse. Waiting on discarded
+work would deadlock the existing close-then-release caller contract without
+protecting any transferred cache.
+
+This outcome gate is necessary because invocation result-contract validation
+can fail after the standard query body completes. Returning directly from
+`completeApplicationQuerySnapshot` would precede that enclosing owned outcome.
+Caller-side `Effect.result` or `Effect.flip` can also turn a failed child into
+ambient scope success, so an ambient `Exit` alone is insufficient. The completion
+owner is provided only to trusted execution; the untrusted Worker receives no
+outcome, scope or cache-finalizer capability. Its post-scope drain also prevents
+a later cleanup failure from publishing a candidate staged by an earlier release.
+Convex's sequential scheduler consumes its transaction before retaining the
+cache; ordinary query composition needs the corresponding explicit seal and
+successful scope outcome, rather than inferring success from body completion.
+
+Lower trusted selection/evaluation and direct snapshot profiles retain their
+explicit outer-scope contract and have no caller-reference result validator.
+The public `runQuery` facade supplies the stronger invocation outcome boundary;
+the data-read and cache algorithms are shared rather than duplicated.
 
 Bind reusable data to the actual app/scope generation and relevant definition
 identities. Initially clear the separate negative-point map on checkout rather
@@ -93,7 +125,18 @@ and refresh bypasses. Retain current eligibility only until the versioned
 metadata, grant and complete-writer protocol proves a correct replacement.
 Do not turn this staged retention into the final engine architecture.
 
-The owning slice lists the source challenge, exact producer boundary, required
-counterexamples and PGlite/PostgreSQL/host/performance gates. Record actual
-executing symbols after implementation; this design record supplies no runtime,
-performance, native compatibility or DO lifecycle evidence.
+The executing portable data owner is
+[applicationQueryDataCache.ts](../../../../packages/persistence-postgres/src/application/applicationQueryDataCache.ts):
+`createApplicationQueryCacheHandoff` owns one idle candidate, and
+`ApplicationQueryDataCache` holds only data and relevant definition identities.
+[applicationQuerySnapshot.ts](../../../../packages/persistence-postgres/src/application/applicationQuerySnapshot.ts)
+checks out after guarded admission, seals through
+`completeApplicationQuerySnapshot`, and stages only eligible release outcomes.
+[withApplicationQueryCompletion](../../../../packages/persistence-postgres/src/application/applicationQueryCompletion.ts)
+owns the public `runQuery` scope through result validation and all cleanup.
+The standard invocation port injects the handoff through its existing composition.
+
+The owning slice retains the exact producer boundary and required
+counterexamples. Paired database and genuine query-consumer witnesses cover
+the bounded path; actual DO lifecycle, native-cache integration and complete
+request performance remain separate goal gates. Validation receipts belong in Git.

@@ -79,6 +79,7 @@ import type { ApplicationAnalysisSourceReader } from
   "flarex-backend/internal/application-analysis-source-reader";
 import {
   openApplicationQuerySnapshot,
+  completeApplicationQuerySnapshot,
   finalizeApplicationQueryEvaluationSnapshot,
   readApplicationQueryIndex,
   readApplicationQueryIncomingRelationSources,
@@ -93,6 +94,10 @@ import {
   type UseApplicationQuerySnapshotError,
 } from
   "@flarex/persistence-postgres/internal/application-query-snapshot";
+import { createApplicationQueryCacheHandoff } from
+  "@flarex/persistence-postgres/internal/application-query-cache";
+export { withApplicationQueryCompletion } from
+  "@flarex/persistence-postgres/internal/application-query-completion";
 import { decodeTakeIncomingRelationSourcesInput } from
   "./ApplicationRelationQueryInput";
 import type {
@@ -375,7 +380,9 @@ function captureSelectionLive(
     ) => runTransaction.call(hostOwner, input),
   });
   return Object.freeze({
-    snapshot: live.snapshot,
+    snapshot: live.snapshot.cacheHandoff === undefined
+      ? Object.freeze({ ...live.snapshot, cacheHandoff: createApplicationQueryCacheHandoff() })
+      : live.snapshot,
     snapshotBudget: Object.freeze({ ...live.snapshotBudget }),
     source,
     host,
@@ -445,6 +452,7 @@ function makeSelectionInvoke(
       prepared,
       false,
     );
+    yield* completeApplicationQuerySnapshot(executed.opened.snapshot);
     return executed.result;
   });
 }
@@ -486,13 +494,15 @@ function makeSelectionEvaluate(
       );
       const snapshotReceipt = yield*
         finalizeApplicationQueryEvaluationSnapshot(executed.opened.snapshot);
-      return yield* assembleApplicationSelectionQueryEvaluationReceipt(
+      const receipt = yield* assembleApplicationSelectionQueryEvaluationReceipt(
         prepared,
         canonicalArguments,
         identityAccessPolicy.sha256Hex,
         canonicalResult,
         snapshotReceipt,
       );
+      yield* completeApplicationQuerySnapshot(executed.opened.snapshot);
+      return receipt;
     },
   );
 }

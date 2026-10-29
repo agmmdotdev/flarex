@@ -81,22 +81,28 @@ const USERS_GET_MISMATCH_REFERENCE = defineModule({
   },
 }).reference("get");
 
-const CACHE_DOCUMENT = v.object({ _id: v.string(), _creationTime: v.number(), name: v.string() });
+const CACHE_DOCUMENT = v.object({ _id: v.string(), _creationTime: v.number(), name: v.string(), padding: v.optional(v.string()) });
 const CACHE_POINT = v.union(CACHE_DOCUMENT, v.null());
 const CACHE_PAGE = v.object({ documents: v.array(CACHE_DOCUMENT), isDone: v.boolean() });
+const CACHE_ARGUMENTS = v.object({ repeatId: v.string(), missingId: v.string(), suffixId: v.string(),
+  invertedBounds: v.optional(v.union(v.literal("cold"), v.literal("warm"))),
+  bounds: v.object({ startInclusive: v.optional(v.string()), endExclusive: v.optional(v.string()) }) });
 const USERS_CACHE_REFERENCE = defineModule({
   path: "users",
   source: sourceModule({ path: "functions/users.js", bytes: new TextEncoder().encode("export {};\n") }),
   functions: {
     cacheProbe: query({
-      args: v.object({ repeatId: v.string(), missingId: v.string(), suffixId: v.string(),
-        invertedBounds: v.optional(v.union(v.literal("cold"), v.literal("warm"))),
-        bounds: v.object({ startInclusive: v.optional(v.string()), endExclusive: v.optional(v.string()) }) }),
+      args: CACHE_ARGUMENTS,
       returns: v.object({ first: CACHE_POINT, repeated: CACHE_POINT, missing: CACHE_POINT, missingRepeated: CACHE_POINT,
         limited: CACHE_PAGE, fromRange: CACHE_POINT, expanded: CACHE_PAGE, afterExpanded: CACHE_POINT,
         covered: CACHE_PAGE, bounded: CACHE_PAGE, boundedLimited: CACHE_PAGE, repeatedRange: CACHE_PAGE }),
     }),
   },
+}).reference("cacheProbe");
+const USERS_CACHE_MISMATCH_REFERENCE = defineModule({
+  path: "users",
+  source: sourceModule({ path: "functions/users-cache-mismatch.js", bytes: new TextEncoder().encode("export {};\n") }),
+  functions: { cacheProbe: query({ args: CACHE_ARGUMENTS, returns: v.boolean() }) },
 }).reference("cacheProbe");
 
 const CACHE_ROW_A = decodeAppRowIdHexV1("11".repeat(16));
@@ -248,12 +254,12 @@ export async function proveApplicationNativeQuery(
       });
     },
   });
-  const invoke = () => runSystemTestEffectV1(Effect.scoped(
+  const invoke = () => runSystemTestEffectV1(
     runQuery(
       USERS_GET_REFERENCE,
       { id: seeded.documentId },
     ).pipe(Effect.provide(layer)),
-  ));
+  );
   const invokeMismatch = () => runSystemTestEffectV1(Effect.scoped(
     runQuery(
       USERS_GET_MISMATCH_REFERENCE,
@@ -338,6 +344,8 @@ export async function proveApplicationNativeQueryCache(createFixture: Applicatio
   let observations: MutableQueryDataReadObservation[] = [];
   let indexTransactionSpans: Tracer.NativeSpan[] = [];
   let observing = false;
+  let refreshRowSnapshotReads = 0;
+  let refreshCaptures = 0;
   const loader = new MiniflareApplicationWorkerLoader(method => {
     current = undefined;
     if (!observing || (method !== "readPointDocument" && method !== "queryIndexRange")) return;
@@ -346,7 +354,11 @@ export async function proveApplicationNativeQueryCache(createFixture: Applicatio
     observations.push(current);
   });
   const tracer = Tracer.make({ span(options) {
-    if (current !== undefined && options.name === "AppRows.captureSnapshotRead") current.rowSnapshotReads++;
+    if (observing && options.name === "AppRows.captureSnapshotRead") {
+      if (current === undefined) refreshRowSnapshotReads++;
+      else current.rowSnapshotReads++;
+    }
+    if (observing && options.name === "ApplicationQueryCache.captureRefresh") refreshCaptures++;
     const span = new Tracer.NativeSpan(options);
     if (options.name === "ApplicationQuerySnapshot.readIndexInTransaction") indexTransactionSpans.push(span);
     return span;
@@ -360,15 +372,17 @@ export async function proveApplicationNativeQueryCache(createFixture: Applicatio
   const layer = makeApplicationNativeQueryTestLayer(fixture, loader);
   const invoke = async () => {
     observations = [];
+    refreshRowSnapshotReads = 0;
+    refreshCaptures = 0;
     current = undefined;
     observing = true;
     const before = loader.loads;
     try {
-      const value = await runSystemTestEffectV1(Effect.scoped(runQuery(USERS_CACHE_REFERENCE, args).pipe(
+      const value = await runSystemTestEffectV1(runQuery(USERS_CACHE_REFERENCE, args).pipe(
         Effect.provide(layer), Effect.provideService(Tracer.Tracer, tracer),
         Effect.provideService(ExecutionDiagnostics, diagnostics),
-      )));
-      return Object.freeze({ value, workerLoads: loader.loads - before,
+      ));
+      return Object.freeze({ value, workerLoads: loader.loads - before, refreshRowSnapshotReads, refreshCaptures,
         reads: Object.freeze(observations.map(item => Object.freeze({ ...item }))) });
     } finally {
       observing = false;
@@ -405,12 +419,29 @@ export async function proveApplicationNativeQueryCache(createFixture: Applicatio
       current = undefined;
     }
   };
+  const invokeCaughtMismatch = async () => {
+    const before = loader.loads;
+    const error = await runSystemTestEffectV1(Effect.scoped(runQuery(USERS_CACHE_MISMATCH_REFERENCE, args).pipe(
+      Effect.provide(layer), Effect.flip,
+    )));
+    return Object.freeze({ error, workerLoads: loader.loads - before });
+  };
   try {
     const coldInvertedBounds = await invokeInvertedBounds("cold");
     const warmInvertedBounds = await invokeInvertedBounds("warm");
     const first = await invoke();
+    const unchanged = await invoke();
+    const caughtMismatch = await invokeCaughtMismatch();
+    const afterCaughtMismatch = await invoke();
     const { makeApplicationNativeMutationTestLayer } = await import("./applicationNativeMutationHarness");
     const mutationLayer = await makeApplicationNativeMutationTestLayer(fixture, loader);
+    const touched = await runSystemTestEffectV1(Effect.scoped(invokeApplicationMutation(
+      TransactionFunctionPathV1Schema.make("users:renameCacheProbe"),
+      { id: args.repeatId, name: "Bea", padding: "same-key refreshed body" },
+      TransactionRequestKeyV1Schema.make("application-native-query-cache:body"),
+    ).pipe(Effect.provide(mutationLayer))));
+    if (touched.disposition !== "published") throw new Error("Application cache body patch did not publish.");
+    const sameKey = await invoke();
     const renamed = await runSystemTestEffectV1(Effect.scoped(invokeApplicationMutation(
       TransactionFunctionPathV1Schema.make("users:renameCacheProbe"),
       { id: args.repeatId, name: "Cyra" },
@@ -418,7 +449,7 @@ export async function proveApplicationNativeQueryCache(createFixture: Applicatio
     ).pipe(Effect.provide(mutationLayer))));
     if (renamed.disposition !== "published") throw new Error("Application cache probe patch did not publish.");
     const next = await invoke();
-    return Object.freeze({ first, next, coldInvertedBounds, warmInvertedBounds,
+    return Object.freeze({ first, unchanged, caughtMismatch, afterCaughtMismatch, sameKey, next, coldInvertedBounds, warmInvertedBounds,
       ids: Object.freeze({ first: documentId(CACHE_ROW_A), second: args.suffixId,
       changed: args.repeatId, missing: args.missingId }), mutationCommitSeq: renamed.commitSeq });
   } finally {

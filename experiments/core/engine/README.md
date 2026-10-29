@@ -33,8 +33,9 @@ deployment gating and query admission. Follow the accepted
 [replacement workflow](./REFACTOR.md#convex-guided-replacement-workflow) and the
 [starting milestone](./REFACTOR.md#recommended-starting-slice). Its bounded
 [operation-local query cache](./slices/01-snapshot-reads.md) is implemented; the
-next selected [timestamped cache-transfer slice](./slices/02-timestamped-cache-transfer.md)
-translates the active Convex handoff/write-log mechanism. The wider portable
+[timestamped cache-transfer slice](./slices/02-timestamped-cache-transfer.md)
+implements the active Convex handoff/write-log mechanism for supported
+Application app-row query data. The wider portable
 snapshot/DO composition remains open.
 Resumable backfill remains open in Q07. [Pinned references](../REFERENCES.md#engine-mechanism-reference-map)
 anchor each concept and later implementation in actual Convex owners.

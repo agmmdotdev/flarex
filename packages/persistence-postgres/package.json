@@ -38,6 +38,8 @@
     "./internal/application-managed-schema-planning": "./src/application/applicationManagedSchemaPlanning.ts",
     "./internal/application-managed-schema-application": "./src/application/applicationManagedSchemaApplication.ts",
     "./internal/application-query-snapshot": "./src/application/applicationQuerySnapshot.ts",
+    "./internal/application-query-cache": "./src/application/applicationQueryDataCache.ts",
+    "./internal/application-query-completion": "./src/application/applicationQueryCompletion.ts",
     "./internal/commit-feed": "./src/commit/commitFeed.ts",
     "./internal/scope-sync-change-source-read-v1": "./src/sync/scopeSyncChangeSourceReadV1.ts",
     "./internal/scope-sync-active-head-observation-v1": "./src/sync/scopeSyncActiveHeadObservationV1.ts",

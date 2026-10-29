@@ -48,6 +48,9 @@ export type CommitFeedInputFailureReasonV1 =
   | "scopeUuidInvalid"
   | "exclusiveCommitSeqInvalid"
   | "maximumCommitsInvalid"
+  | "inclusiveCommitSeqInvalid"
+  | "changeLimitsInvalid"
+  | "inclusiveCommitSeqAheadOfClock"
   | "cursorAheadOfClock";
 
 export type CommitFeedCorruptionReasonV1 =
@@ -178,6 +181,31 @@ export interface CommitFeedTransactionReadInputV1
   readonly maximumCommits: number;
 }
 
+/** A trusted composition may stop before the observed head and refuse a whole
+ * commit before querying either child family when its admitted work is smaller. */
+export interface BoundedCommitFeedTransactionReadInput
+  extends CommitFeedTransactionReadInputV1 {
+  readonly inclusiveCommitSeq: CommitSeq;
+  readonly maximumAppRowChanges: number;
+  readonly maximumRelationAdjacencyChanges: number;
+}
+
+export type BoundedCommitFeedPage =
+  | Readonly<{ readonly kind: "page"; readonly page: CommitFeedPageV1 }>
+  | Readonly<{ readonly kind: "capacityExceeded" }>;
+
+interface CommitFeedCaptureBounds {
+  readonly inclusiveCommitSeq: CommitSeq;
+  readonly maximumAppRowChanges: number;
+  readonly maximumRelationAdjacencyChanges: number;
+}
+
+const decodeInclusiveCommitSeqResult = Schema.decodeUnknownResult(Schema.toType(CommitSeqSchema));
+const decodeBoundedFeedLimitsResult = Schema.decodeUnknownResult(Schema.Struct({
+  maximumAppRowChanges: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: MAX_COMMIT_FEED_PAGE_APP_ROW_CHANGES_V1 })),
+  maximumRelationAdjacencyChanges: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: MAX_COMMIT_FEED_PAGE_RELATION_ADJACENCY_CHANGES_V1 })),
+}));
+
 export interface CommitFeedQueryV1 {
   readonly name:
     | "clock"
@@ -231,6 +259,7 @@ interface CapturedCommitFeedRowsV1 {
   readonly appRowChangeRows: ReadonlyArray<CommitAppRowChangeRow>;
   readonly relationAdjacencyChangeRows:
     ReadonlyArray<CommitRelationAdjacencyChangeRow>;
+  readonly capacityExceeded?: true;
 }
 
 interface ValidatedCommitFeedInputV1 {
@@ -320,6 +349,37 @@ export const readCommitFeedPageInTransactionV1Effect = Effect.fn(
   ));
 });
 
+export const readBoundedCommitFeedPageInTransactionEffect = Effect.fn(
+  "CommitFeed.readBoundedPageInTransaction",
+)(function* (
+  tx: FlarexMetadataTransaction,
+  rawInput: BoundedCommitFeedTransactionReadInput,
+  observeQuery?: CommitFeedRepositoryOptionsV1["observeQuery"],
+): Effect.fn.Return<BoundedCommitFeedPage, CommitFeedListAfterErrorV1> {
+  const input = yield* Effect.fromResult(validateListAfterInput(rawInput));
+  const maximumCommits = yield* Effect.fromResult(validateMaximumCommits(rawInput.maximumCommits));
+  const inclusiveCommitSeq = yield* Effect.fromResult(decodeInclusiveCommitSeqResult(rawInput.inclusiveCommitSeq).pipe(
+    Result.mapError(() => new CommitFeedInputErrorV1({ reason: "inclusiveCommitSeqInvalid" })),
+  ));
+  if (inclusiveCommitSeq < input.exclusiveCommitSeq) {
+    return yield* new CommitFeedInputErrorV1({ reason: "inclusiveCommitSeqInvalid" });
+  }
+  const limits = yield* Effect.fromResult(decodeBoundedFeedLimitsResult(rawInput).pipe(
+    Result.mapError(() => new CommitFeedInputErrorV1({ reason: "changeLimitsInvalid" })),
+  ));
+  const bounds = Object.freeze({ inclusiveCommitSeq, ...limits });
+  const captured = yield* Effect.tryPromise({
+    try: () => captureCommitFeedRowsInTransaction(tx, input, observeQuery, maximumCommits, bounds),
+    catch: cause => new CommitFeedSqlErrorV1({ operation: "listAfter", cause }),
+  });
+  // Header corruption and invalid positions are never ordinary cache capacity.
+  yield* Effect.fromResult(validateFeedHeaderCapture(input, captured.clockRows, captured.headerRows,
+    maximumCommits, inclusiveCommitSeq));
+  if (captured.capacityExceeded === true) return Object.freeze({ kind: "capacityExceeded" });
+  const page = yield* Effect.fromResult(materializeCommitFeedPage(input, captured, maximumCommits, inclusiveCommitSeq));
+  return Object.freeze({ kind: "page", page });
+});
+
 function validateListAfterInput(
   input: CommitFeedListAfterInputV1,
 ): Result.Result<ValidatedCommitFeedInputV1, CommitFeedInputErrorV1> {
@@ -375,6 +435,7 @@ async function captureCommitFeedRowsInTransaction(
   input: ValidatedCommitFeedInputV1,
   observeQuery: CommitFeedRepositoryOptionsV1["observeQuery"],
   maximumCommits: number,
+  bounds?: CommitFeedCaptureBounds,
 ): Promise<CapturedCommitFeedRowsV1> {
     const clockQuery = tx
       .select({
@@ -404,6 +465,7 @@ async function captureCommitFeedRowsInTransaction(
       .where(and(
         eq(fxSystemCommits.scopeUuid, input.scopeUuid),
         gt(fxSystemCommits.commitSeq, input.exclusiveCommitSeq),
+        bounds === undefined ? undefined : lte(fxSystemCommits.commitSeq, bounds.inclusiveCommitSeq),
       ))
       .orderBy(asc(fxSystemCommits.commitSeq))
       .limit(maximumCommits + 1);
@@ -415,6 +477,8 @@ async function captureCommitFeedRowsInTransaction(
       clockRows,
       headerRows,
       maximumCommits,
+      bounds?.inclusiveCommitSeq,
+      bounds !== undefined,
     );
     if (selection === null) {
       return Object.freeze({
@@ -422,6 +486,14 @@ async function captureCommitFeedRowsInTransaction(
         headerRows: detachDriverRows(headerRows),
         appRowChangeRows: Object.freeze([]),
         relationAdjacencyChangeRows: Object.freeze([]),
+      });
+    }
+
+    if (bounds !== undefined && (selection.expectedChangeCount > bounds.maximumAppRowChanges ||
+      selection.expectedRelationAdjacencyChangeCount > bounds.maximumRelationAdjacencyChanges)) {
+      return Object.freeze({
+        clockRows: detachDriverRows(clockRows), headerRows: detachDriverRows(headerRows),
+        appRowChangeRows: Object.freeze([]), relationAdjacencyChangeRows: Object.freeze([]), capacityExceeded: true,
       });
     }
 
@@ -532,110 +604,52 @@ function selectHeadersForChildCapture(
   clockRows: ReadonlyArray<ScopeClockRow>,
   headerRows: ReadonlyArray<CommitHeaderRow>,
   maximumCommits: number,
+  inclusiveCommitSeq?: CommitSeq,
+  boundedWindow = false,
 ): HeaderCaptureSelectionV1 | null {
-  const clock = clockRows.length === 1 ? clockRows[0] : undefined;
-  if (
-    clock === undefined ||
-    clock.scopeUuid !== input.scopeUuid ||
-    typeof clock.lastCommitSeq !== "bigint" ||
-    typeof clock.oldestAvailableCommitSeq !== "bigint" ||
-    clock.lastCommitSeq < 0n ||
-    clock.lastCommitSeq > MAX_PERSISTED_SIGNED_INT64_V1 ||
-    clock.oldestAvailableCommitSeq < 0n ||
-    clock.oldestAvailableCommitSeq > clock.lastCommitSeq ||
-    input.exclusiveCommitSeq < retainedFloorExclusiveCursor(
-      clock.oldestAvailableCommitSeq,
-    ) ||
-    input.exclusiveCommitSeq > clock.lastCommitSeq
-  ) {
-    return null;
-  }
-
-  let expectedCommitSeq = input.exclusiveCommitSeq + 1n;
-  for (const header of headerRows) {
-    if (
-      header.scopeUuid !== input.scopeUuid ||
-      typeof header.commitSeq !== "bigint" ||
-      header.commitSeq !== expectedCommitSeq ||
-      header.commitSeq < 1n ||
-      header.commitSeq > clock.lastCommitSeq ||
-      !Number.isInteger(header.changeCount) ||
-      header.changeCount < 0 ||
-      header.changeCount > MAX_COMMIT_FEED_PAGE_APP_ROW_CHANGES_V1 ||
-      !Number.isInteger(header.relationalChangeCount) || header.relationalChangeCount < 0 || header.relationalChangeCount > 16000 ||
-      !Number.isInteger(header.relationAdjacencyChangeCount) ||
-      header.relationAdjacencyChangeCount < 0 ||
-      header.relationAdjacencyChangeCount >
-        MAX_COMMIT_FEED_PAGE_RELATION_ADJACENCY_CHANGES_V1 ||
-      finiteDateMilliseconds(header.committedAt) === undefined
-    ) {
-      return null;
-    }
-    expectedCommitSeq += 1n;
-  }
-  const lastCapturedCommitSeq = expectedCommitSeq - 1n;
-  if (
-    headerRows.length < maximumCommits + 1 &&
-    lastCapturedCommitSeq < clock.lastCommitSeq
-  ) {
-    return null;
-  }
-
-  let expectedChangeCount = 0;
-  let expectedRelationAdjacencyChangeCount = 0;
-  let selectedCount = 0;
-  for (
-    const header of headerRows.slice(0, maximumCommits)
-  ) {
-    if (
-      selectedCount > 0 &&
-      (
-        expectedChangeCount + header.changeCount >
-          MAX_COMMIT_FEED_PAGE_APP_ROW_CHANGES_V1 ||
-        expectedRelationAdjacencyChangeCount +
-            header.relationAdjacencyChangeCount >
-          MAX_COMMIT_FEED_PAGE_RELATION_ADJACENCY_CHANGES_V1
-      )
-    ) {
-      break;
-    }
-    expectedChangeCount += header.changeCount;
-    expectedRelationAdjacencyChangeCount +=
-      header.relationAdjacencyChangeCount;
-    selectedCount += 1;
-  }
-  if (selectedCount === 0) return null;
-  const first = headerRows[0];
-  const last = headerRows[selectedCount - 1];
-  if (first === undefined || last === undefined) return null;
-  return Object.freeze({
-    firstCommitSeq: CommitSeqSchema.make(first.commitSeq),
-    lastCommitSeq: CommitSeqSchema.make(last.commitSeq),
-    expectedChangeCount,
-    expectedRelationAdjacencyChangeCount,
+  // Validation failures are materialized by the owning caller after SQL settles;
+  // they must not trigger child reads or become a capacity verdict.
+  return Result.match(validateFeedHeaderCapture(input, clockRows, headerRows, maximumCommits, inclusiveCommitSeq), {
+    onFailure: () => null,
+    onSuccess: ({ headers }) => {
+      // Default feed pagination may shorten a page by global child volume.
+      // Bounded capture must count the entire admitted header window first;
+      // otherwise truncation can hide a later over-budget commit.
+      const selected = boundedWindow ? headers.slice(0, maximumCommits) : selectPageHeaders(headers, maximumCommits);
+      const first = selected[0], last = selected.at(-1);
+      if (first === undefined || last === undefined) return null;
+      return Object.freeze({
+        firstCommitSeq: CommitSeqSchema.make(first.commitSeq),
+        lastCommitSeq: CommitSeqSchema.make(last.commitSeq),
+        expectedChangeCount: selected.reduce((total, header) => total + header.changeCount, 0),
+        expectedRelationAdjacencyChangeCount: selected.reduce((total, header) => total + header.relationAdjacencyChangeCount, 0),
+      });
+    },
   });
 }
 
-function materializeCommitFeedPage(
+function validateFeedHeaderCapture(
   input: ValidatedCommitFeedInputV1,
-  captured: CapturedCommitFeedRowsV1,
+  clockRows: ReadonlyArray<ScopeClockRow>,
+  headerRows: ReadonlyArray<CommitHeaderRow>,
   maximumCommits: number,
+  inclusiveCommitSeq?: CommitSeq,
 ): Result.Result<
-  CommitFeedPageV1,
+  Readonly<{ readonly clock: ScopeClockRow; readonly headers: ReadonlyArray<CommitHeaderRow> }>,
   CommitFeedInputErrorV1 | CommitFeedScopeNotFoundErrorV1 |
     CommitFeedCursorResetRequiredErrorV1 |
     CommitFeedCorruptionErrorV1
 > {
   return Result.gen(function* () {
-    if (captured.clockRows.length === 0) {
+    if (clockRows.length === 0) {
       return yield* Result.fail(new CommitFeedScopeNotFoundErrorV1({
         scopeUuid: input.scopeUuid,
       }));
     }
-    if (captured.clockRows.length !== 1) {
+    if (clockRows.length !== 1) {
       return yield* corruption(input, "scopeClockDuplicate");
     }
-    const clock = captured.clockRows[0];
+    const clock = clockRows[0];
     if (
       clock === undefined ||
       clock.scopeUuid !== input.scopeUuid ||
@@ -652,6 +666,9 @@ function materializeCommitFeedPage(
       return yield* Result.fail(new CommitFeedInputErrorV1({
         reason: "cursorAheadOfClock",
       }));
+    }
+    if (inclusiveCommitSeq !== undefined && inclusiveCommitSeq > clock.lastCommitSeq) {
+      return yield* Result.fail(new CommitFeedInputErrorV1({ reason: "inclusiveCommitSeqAheadOfClock" }));
     }
     const restartExclusiveCommitSeq = retainedFloorExclusiveCursor(
       clock.oldestAvailableCommitSeq,
@@ -670,9 +687,27 @@ function materializeCommitFeedPage(
     const headers = yield* validateCommitHeaders(
       input,
       clock,
-      captured.headerRows,
+      headerRows,
       maximumCommits,
+      inclusiveCommitSeq,
     );
+    return Object.freeze({ clock, headers });
+  });
+}
+
+function materializeCommitFeedPage(
+  input: ValidatedCommitFeedInputV1,
+  captured: CapturedCommitFeedRowsV1,
+  maximumCommits: number,
+  inclusiveCommitSeq?: CommitSeq,
+): Result.Result<
+  CommitFeedPageV1,
+  CommitFeedInputErrorV1 | CommitFeedScopeNotFoundErrorV1 |
+    CommitFeedCursorResetRequiredErrorV1 | CommitFeedCorruptionErrorV1
+> {
+  return Result.gen(function* () {
+    const { clock, headers } = yield* validateFeedHeaderCapture(input, captured.clockRows,
+      captured.headerRows, maximumCommits, inclusiveCommitSeq);
     const selectedHeaders = selectPageHeaders(headers, maximumCommits);
     const expectedChangeCount = selectedHeaders.reduce(
       (total, header) => total + header.changeCount,
@@ -846,6 +881,7 @@ function validateCommitHeaders(
   clock: ScopeClockRow,
   rows: ReadonlyArray<CommitHeaderRow>,
   maximumCommits: number,
+  inclusiveCommitSeq?: CommitSeq,
 ): Result.Result<
   ReadonlyArray<CommitHeaderRow>,
   CommitFeedCorruptionErrorV1
@@ -874,7 +910,7 @@ function validateCommitHeaders(
     if (row.commitSeq !== expectedCommitSeq) {
       return corruption(input, "commitHeaderGap", row.commitSeq);
     }
-    if (row.commitSeq > clock.lastCommitSeq) {
+    if (row.commitSeq > (inclusiveCommitSeq ?? clock.lastCommitSeq)) {
       return corruption(input, "commitHeaderPastClock", row.commitSeq);
     }
     expectedCommitSeq += 1n;
@@ -882,7 +918,7 @@ function validateCommitHeaders(
   const lastCapturedCommitSeq = expectedCommitSeq - 1n;
   if (
     rows.length < maximumCommits + 1 &&
-    lastCapturedCommitSeq < clock.lastCommitSeq
+    lastCapturedCommitSeq < (inclusiveCommitSeq ?? clock.lastCommitSeq)
   ) {
     return corruption(
       input,

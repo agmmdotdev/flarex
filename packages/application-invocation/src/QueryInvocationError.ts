@@ -54,7 +54,11 @@ export function projectQueryInvocationError(
     case "ApplicationSchemaAuthorityError":
       return queryInvocationError(projectSchemaAuthorityReason(error), error);
     case "InvalidApplicationRelationReadinessInputError":
+    case "InvalidAppRowReadInputError":
+    case "CommitFeedInputErrorV1":
       return queryInvocationError("invalidConfiguration", error);
+    case "CommitFeedCursorResetRequiredErrorV1":
+      return queryInvocationError("historyUnavailable", error);
     case "ApplicationRelationBuildUnavailableError":
     case "ApplicationRelationReadinessUnavailableError":
       return queryInvocationError("applicationUnavailable", error);
@@ -92,9 +96,13 @@ export function projectQueryInvocationError(
     case "TrustedScopeAuthorityResolutionError":
     case "ScopeClockNotFoundError":
     case "ScopeExecutionAuthorityError":
+    case "AppRowScopeAuthorityUnavailableError":
+    case "CommitFeedScopeNotFoundErrorV1":
     case "AppUniqueConstraintSetBuildStaleAuthorityV1Error":
       return queryInvocationError("staleScopeAuthority", error);
     case "TrustedScopeAuthorityPortError":
+    case "AppRowReadPersistenceError":
+    case "CommitFeedSqlErrorV1":
     case "ScopeAuthorizationRevocationEpochPersistenceError":
     case "AppIndexDefinitionReadPersistenceError":
     case "AppSchemaVersionIndexBindingPersistenceError":
@@ -105,6 +113,9 @@ export function projectQueryInvocationError(
     case "SchemaVersionArtifactPersistenceError":
       return queryInvocationError("unavailable", error);
     case "ScopeClockCorruptionError":
+    case "AppRowTableFrontierCorruptionError":
+    case "AppRowStorageCorruptionError":
+    case "CommitFeedCorruptionErrorV1":
     case "AppIndexDefinitionCatalogCorruptionError":
     case "AppUniqueConstraintCatalogCorruptionError":
     case "AppUniqueConstraintSetBuildStateV1Error":

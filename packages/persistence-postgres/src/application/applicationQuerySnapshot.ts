@@ -11,11 +11,11 @@ import {
 } from "@flarex/utils/bytes";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { compareUtf16Strings } from "@flarex/utils/strings";
 import { and, eq } from "drizzle-orm";
 import {
   Data,
   Effect,
+  Exit,
   HashMap,
   Option,
   Ref,
@@ -54,7 +54,6 @@ import {
   type OrderedIndexBoundsV1,
   type OrderedIndexBoundHexV1,
   type OrderedIndexKeyBytesHexV1,
-  type OrderedIndexRowIdHexV1,
 } from "flarex-protocol/ordered-index";
 import {
   MAX_SCHEMA_MANIFEST_APP_INDEXES,
@@ -80,16 +79,32 @@ import {
   projectAppRowPointReadResult,
   readLiveAppRowsAtSnapshotInTransactionEffect,
   type AppRowPointReadResultV1,
-  type LiveAppRowRevisionV1,
   type AppRowTransaction,
   type ReadAppRowError,
 } from "../storage/documents/appRows";
 import {
-  createSnapshotIndexCache,
-  type SnapshotIndexCache,
   type SnapshotIndexCut,
   type SnapshotIndexInterval,
 } from "../storage/indexes/snapshotIndexCache";
+import {
+  applyQueryCacheRowWrite,
+  cachePointInterval,
+  cacheRowIdentity,
+  createApplicationQueryDataCache,
+  populateQueryRow,
+  type ApplicationQueryCacheHandoff,
+  type ApplicationQueryCacheStamp,
+  type ApplicationQueryDataCache,
+  type QueryCacheKey,
+} from "./applicationQueryDataCache";
+import {
+  captureApplicationQueryCacheRefresh,
+  type ApplicationQueryCacheRefreshError,
+} from "./applicationQueryCacheRefresh";
+import {
+  ApplicationQueryCompletion,
+  type ApplicationQueryCompletionApi,
+} from "./applicationQueryCompletion";
 import {
   scanAppIndexAtSnapshotInTransactionEffect,
   prepareAppIndexSnapshotReadResult,
@@ -191,6 +206,7 @@ import {
 import {
   defineScopedReadOperation,
   type ScopedReadOperation,
+  type ScopedTransaction,
   type ScopedTransactionContext,
 } from "../scope/execution/ScopedTransaction";
 
@@ -338,6 +354,7 @@ export class ApplicationQuerySnapshotError extends Data.TaggedError(
     | "pointRead"
     | "indexRead"
     | "relationRead"
+    | "complete"
     | "finalizeEvaluation";
   readonly reason:
     | "invalidComposition"
@@ -374,6 +391,7 @@ export class ApplicationRelationQuerySnapshotError extends Data.TaggedError(
 
 export type OpenApplicationQuerySnapshotError =
   | ApplicationQuerySnapshotError
+  | ApplicationQueryCacheRefreshError
   | ApplicationActivationError
   | ValidateApplicationRelationActiveSelectionInTransactionError
   | ApplicationSchemaAuthorityError
@@ -428,6 +446,8 @@ export interface ApplicationQuerySnapshotContext {
   readonly relationSchema?: ApplicationRelationSchemaAuthorityPort;
   readonly relations?: ApplicationRelationReadPort;
   readonly developerIndexes: AppDeveloperIndexDefinitionPortV1;
+  /** Trusted app-host optimization; absence retains an independent cold view. */
+  readonly cacheHandoff?: ApplicationQueryCacheHandoff;
 }
 
 export interface ApplicationRelationQuerySnapshotContext {
@@ -463,27 +483,13 @@ interface State {
     HashMap.HashMap<string, ApplicationQueryReadDependency>
   > | null;
   readonly readGate: Semaphore.Semaphore;
-  readonly phase: Ref.Ref<"open" | "finalized" | "closed">;
-  readonly cache: SnapshotIndexCache<string, QueryCacheKey, CachedQueryRow>;
+  readonly phase: Ref.Ref<"open" | "finalized" | "sealed" | "closed">;
+  readonly dataCache: ApplicationQueryDataCache;
+  readonly cacheStamp: ApplicationQueryCacheStamp;
+  readonly cacheHandoff?: ApplicationQueryCacheHandoff;
   readonly missing: Ref.Ref<HashMap.HashMap<string, Extract<AppRowPointReadResultV1, { kind: "missing" }>>>;
-  readonly cacheDefinitions: ReadonlyMap<CatalogTableId, readonly LocatedAppIndexDefinitionV1[]>;
+  readonly completion?: ApplicationQueryCompletionApi;
   readonly relations?: ApplicationRelationReadPort;
-}
-
-type QueryCacheKey =
-  | Readonly<{ kind: "row"; rowId: AppDocumentIdentityV1["rowId"] }>
-  | Readonly<{ kind: "prefix"; encodedKey: OrderedIndexBoundHexV1 }>
-  | Readonly<{ kind: "index"; encodedKey: OrderedIndexKeyBytesHexV1; rowId: OrderedIndexRowIdHexV1 }>;
-
-/** An owned immutable handle, like the reference's packed document. Lookup
- * copies handles; only consumed results detach the actual row body. */
-class CachedQueryRow {
-  readonly #row: LiveAppRowRevisionV1;
-  constructor(row: LiveAppRowRevisionV1) {
-    this.#row = structuredClone(row);
-    Object.freeze(this);
-  }
-  copy(): LiveAppRowRevisionV1 { return structuredClone(this.#row); }
 }
 
 interface QueryRelationReadState {
@@ -515,17 +521,19 @@ const relationStates = new WeakMap<
 >();
 
 const openScopedOperation = defineScopedReadOperation(
-  (tx, scoped, input: Readonly<{
+  Effect.fn("ApplicationQuerySnapshot.openWithCacheInTransaction")(function* (tx, scoped, input: Readonly<{
     readonly selection: ApplicationActiveSelection;
     readonly claimed: ApplicationExecutableActiveSelection;
     readonly fn: ApplicationExecutableActiveSelection["basis"]["manifest"]["functions"][number];
-  }>) => openInTransaction(
-    tx,
-    scoped.clock,
-    input.selection,
-    input.claimed,
-    input.fn,
-  ),
+    readonly budget: ApplicationQueryBudget;
+    readonly definitions: readonly LocatedAppIndexDefinitionV1[];
+    readonly tableIds: readonly CatalogTableId[];
+    readonly cacheHandoff?: ApplicationQueryCacheHandoff;
+  }>, capability) {
+    const opened = yield* openInTransaction(tx, scoped.clock, input.selection, input.claimed, input.fn);
+    const cache = yield* openQueryDataCache(capability, scoped.clock, input);
+    return Object.freeze({ ...opened, ...cache });
+  }),
 );
 
 const revalidateScopedOperation = defineScopedReadOperation(
@@ -622,6 +630,7 @@ export const openApplicationQuerySnapshot = Effect.fn(
 > {
   const capturedBudget = yield* Effect.fromResult(captureBudget(budget));
   const scopeExecution = yield* ScopeExecution;
+  const completion = yield* Effect.serviceOption(ApplicationQueryCompletion);
   const claimed = yield* Effect.fromResult(
     claimApplicationExecutableActiveSelection(selection),
   );
@@ -674,7 +683,8 @@ export const openApplicationQuerySnapshot = Effect.fn(
     located,
     "open",
     openScopedOperation,
-    Object.freeze({ selection, claimed, fn }),
+    Object.freeze({ selection, claimed, fn, budget: capturedBudget, definitions, tableIds,
+      ...(context.cacheHandoff === undefined ? {} : { cacheHandoff: context.cacheHandoff }) }),
   );
   const metadata = snapshotMetadata({
     basis,
@@ -699,7 +709,7 @@ export const openApplicationQuerySnapshot = Effect.fn(
       HashMap.empty<string, ApplicationQueryReadDependency>(),
     )
     : null;
-  const phase = yield* Ref.make<"open" | "finalized" | "closed">("open");
+  const phase = yield* Ref.make<"open" | "finalized" | "sealed" | "closed">("open");
   const missing = yield* Ref.make(HashMap.empty<string, Extract<AppRowPointReadResultV1, { kind: "missing" }>>());
   const state = Object.freeze({
     scopeExecution,
@@ -713,8 +723,10 @@ export const openApplicationQuerySnapshot = Effect.fn(
     dependencies,
     readGate: Semaphore.makeUnsafe(1),
     phase,
-    cache: createQuerySnapshotCache(metadata.budget),
-    cacheDefinitions: groupQueryCacheDefinitions(definitions),
+    dataCache: opened.dataCache,
+    cacheStamp: opened.cacheStamp,
+    ...(context.cacheHandoff === undefined ? {} : { cacheHandoff: context.cacheHandoff }),
+    ...(Option.isNone(completion) ? {} : { completion: completion.value }),
     missing,
     ...(context.relations === undefined ||
         !hasApplicationRelationReadPortAuthorityForControlDb(
@@ -726,9 +738,18 @@ export const openApplicationQuerySnapshot = Effect.fn(
   });
   const snapshot = yield* Effect.acquireRelease(
     Effect.sync(() => issue(state)),
-    issued => Effect.gen(function* () {
-      yield* Ref.set(state.phase, "closed");
-      states.delete(issued);
+    (issued, exit) => Effect.gen(function* () {
+      const priorPhase = yield* Ref.modify(state.phase, current => [current, "closed"] as const);
+      yield* Effect.sync(() => states.delete(issued));
+      const handoff = state.cacheHandoff;
+      // Discarded private data need not join an admitted read. Scope closure
+      // must still reject queued reads before the caller releases that work.
+      if (priorPhase !== "sealed" || !Exit.isSuccess(exit) || handoff === undefined) return;
+      yield* state.readGate.withPermit(Effect.gen(function* () {
+        const candidate = Object.freeze({ stamp: state.cacheStamp, data: state.dataCache });
+        if (state.completion === undefined) yield* Effect.sync(() => handoff.put(candidate));
+        else yield* state.completion.stage(handoff, candidate);
+      }));
     }),
   );
   return Object.freeze({ snapshot, metadata: snapshotMetadata(metadata) });
@@ -886,6 +907,23 @@ export const finalizeApplicationQueryEvaluationSnapshot = Effect.fn(
         captureApplicationQueryReadDependency,
       )),
     });
+  }));
+});
+
+/** Seal the selected readonly path. Its existing owner-scope release returns
+ * data only after successful Exit; failure after sealing still discards it. */
+export const completeApplicationQuerySnapshot = Effect.fn(
+  "ApplicationQuerySnapshot.complete",
+)(function* (snapshot: ApplicationQuerySnapshot): Effect.fn.Return<void, ApplicationQuerySnapshotError> {
+  const state = yield* Effect.fromResult(claim(snapshot, "complete"));
+  yield* state.readGate.withPermit(Effect.gen(function* () {
+    const sealed = yield* Ref.modify(state.phase, phase =>
+      phase === "open" || phase === "finalized"
+        ? [true, "sealed" as const]
+        : [false, phase] as const);
+    if (!sealed) {
+      return yield* failure("complete", "invalidComposition");
+    }
   }));
 });
 
@@ -1301,6 +1339,44 @@ const openInTransaction = Effect.fn(
   });
 });
 
+const openQueryDataCache = Effect.fn("ApplicationQuerySnapshot.openDataCache")(function* (
+  capability: ScopedTransaction,
+  clock: ScopeClockRecord,
+  input: Readonly<{
+    readonly claimed: ApplicationExecutableActiveSelection;
+    readonly budget: ApplicationQueryBudget;
+    readonly definitions: readonly LocatedAppIndexDefinitionV1[];
+    readonly tableIds: readonly CatalogTableId[];
+    readonly cacheHandoff?: ApplicationQueryCacheHandoff;
+  }>,
+): Effect.fn.Return<Readonly<{ dataCache: ApplicationQueryDataCache; cacheStamp: ApplicationQueryCacheStamp }>,
+  ApplicationQueryCacheRefreshError> {
+  const cacheStamp = Object.freeze({ deploymentId: input.claimed.basis.deploymentId,
+    scopeId: clock.scopeId, storageGeneration: clock.storageGeneration,
+    storageGenerationFence: clock.storageGenerationFence, epoch: clock.epoch,
+    commitSeq: clock.lastCommitSeq });
+  const fresh = () => Object.freeze({ cacheStamp,
+    dataCache: createApplicationQueryDataCache(input.budget, input.definitions, input.tableIds) });
+  if (input.cacheHandoff === undefined) return fresh();
+  const candidate = input.cacheHandoff.take({ stamp: cacheStamp, budget: input.budget,
+    definitions: input.definitions, tableIds: input.tableIds });
+  if (Option.isNone(candidate) || candidate.value.stamp.commitSeq < clock.oldestAvailableCommitSeq) return fresh();
+  const { data } = candidate.value;
+  const retained = data.cache.stats();
+  if (retained.indexEntries === 0 && retained.intervals === 0) return fresh();
+  if (candidate.value.stamp.commitSeq === clock.lastCommitSeq) return Object.freeze({ cacheStamp, dataCache: data });
+  const captured = yield* captureApplicationQueryCacheRefresh(capability, {
+    fromCommitSeq: candidate.value.stamp.commitSeq, targetCommitSeq: clock.lastCommitSeq,
+    maximumCommits: data.limits.indexEntries, maximumChanges: data.limits.indexEntries,
+    maximumSemanticBytes: data.limits.bodyBytes,
+  });
+  if (captured.kind === "cold") return fresh();
+  for (const change of captured.changes) {
+    if (!applyQueryCacheRowWrite(data, change.previous, change.next)) return fresh();
+  }
+  return Object.freeze({ cacheStamp, dataCache: data });
+});
+
 const revalidateInTransaction = Effect.fn(
   "ApplicationQuerySnapshot.revalidateInTransaction",
 )(function* (
@@ -1322,66 +1398,6 @@ const revalidateInTransaction = Effect.fn(
   );
 });
 
-function compareQueryCacheKeys(left: QueryCacheKey, right: QueryCacheKey): number {
-  if (left.kind === "row") return right.kind === "row" ? compareUtf16Strings(left.rowId, right.rowId) : -1;
-  if (right.kind === "row") return 1;
-  const keyOrder = compareUtf16Strings(left.encodedKey, right.encodedKey);
-  if (keyOrder !== 0) return keyOrder;
-  if (left.kind === "prefix") return right.kind === "prefix" ? 0 : -1;
-  return right.kind === "prefix" ? 1 : compareUtf16Strings(left.rowId, right.rowId);
-}
-
-function createQuerySnapshotCache(budget: ApplicationQueryBudget) {
-  const metadataLimit = budget.maximumDocuments + budget.maximumPointReads + budget.maximumIndexReads;
-  return createSnapshotIndexCache<string, QueryCacheKey, CachedQueryRow>({
-    compareKeys: compareQueryCacheKeys,
-    captureKey: key => Object.freeze({ ...key }),
-    captureValue: value => value,
-    limits: { bodyBytes: budget.maximumSemanticBytes, indexEntries: metadataLimit, intervals: metadataLimit },
-  });
-}
-
-function groupQueryCacheDefinitions(definitions: readonly LocatedAppIndexDefinitionV1[]) {
-  const grouped = new Map<CatalogTableId, LocatedAppIndexDefinitionV1[]>();
-  for (const definition of definitions) {
-    if (definition.access.kind !== "developer") continue;
-    const existing = grouped.get(definition.access.tableId);
-    if (existing === undefined) grouped.set(definition.access.tableId, [definition]);
-    else existing.push(definition);
-  }
-  return new Map(Array.from(grouped, ([tableId, indexes]) => [tableId, Object.freeze(indexes)]));
-}
-
-function cachePointInterval(key: QueryCacheKey): SnapshotIndexInterval<QueryCacheKey> {
-  return { start: { kind: "before", key }, end: { kind: "after", key } };
-}
-
-function cacheRowIdentity(tableId: CatalogTableId, rowId: AppDocumentIdentityV1["rowId"]): string {
-  return `${tableId}/${rowId}`;
-}
-
-function populateQueryRow(state: State, row: LiveAppRowRevisionV1): void {
-  const value = new CachedQueryRow(row);
-  const documentId = cacheRowIdentity(row.tableId, row.rowId);
-  const point: QueryCacheKey = { kind: "row", rowId: row.rowId };
-  const entry = { key: point, documentId, value, bodyBytes: row.document.semanticSizeBytes };
-  if (!state.cache.populate(`row/${row.tableId}`, [entry], cachePointInterval(point))) return;
-  for (const definition of state.cacheDefinitions.get(row.tableId) ?? []) {
-    // An unrequested index is cached only when its key can be derived. Failure
-    // to derive that optional observation leaves a miss; an actual index read
-    // still performs its normal definition, storage and key-integrity checks.
-    Result.match(lowerAppDeveloperIndexKeyV1(definition, row.document, row.creationTime), {
-      onFailure: () => undefined,
-      onSuccess: encodedKey => {
-        if (encodedKey === null) return;
-        const key: QueryCacheKey = { kind: "index", encodedKey, rowId: row.rowId };
-        state.cache.populate(`index/${definition.indexDefinitionId}`,
-          [{ ...entry, key }], cachePointInterval(key));
-      },
-    });
-  }
-}
-
 const readPointInTransaction = Effect.fn("ApplicationQuerySnapshot.readPointInTransaction")(function* (
   tx: AppRowTransaction,
   scoped: ScopedTransactionContext,
@@ -1399,7 +1415,7 @@ const readPointInTransaction = Effect.fn("ApplicationQuerySnapshot.readPointInTr
     );
     const { state } = input;
     const key: QueryCacheKey = { kind: "row", rowId: input.rowId };
-    const cached = state.cache.get(`row/${input.tableId}`, cachePointInterval(key), "asc");
+    const cached = state.dataCache.cache.get(`row/${input.tableId}`, cachePointInterval(key), "asc");
     const first = cached[0];
     const identity = { scopeId: state.metadata.snapshotToken.scopeId, tableId: input.tableId, rowId: input.rowId };
     if (first?.kind === "document") return projectAppRowPointReadResult(identity, first.value.copy());
@@ -1412,7 +1428,7 @@ const readPointInTransaction = Effect.fn("ApplicationQuerySnapshot.readPointInTr
       rowId: input.rowId,
     });
     const result = projectAppRowPointReadResult(identity, revision);
-    if (revision.kind === "live") populateQueryRow(state, revision);
+    if (revision.kind === "live") populateQueryRow(state.dataCache, revision);
     else if (result.kind === "missing") yield* Ref.update(state.missing,
       values => HashMap.set(values, cacheRowIdentity(input.tableId, input.rowId), structuredClone(result)));
     return result;
@@ -1464,7 +1480,7 @@ const readIndexInTransaction = Effect.fn(
   const documents: CanonicalFlarexRuntimeObjectV1[] = [];
   const indexId = `index/${definition.indexDefinitionId}`;
   const interval = queryCacheInterval(bounds);
-  const components = state.cache.get(indexId, interval, "asc");
+  const components = state.dataCache.cache.get(indexId, interval, "asc");
   for (const component of components) {
     if (component.kind === "document") {
       if (documents.length === limit) return Object.freeze({ documents: Object.freeze(documents), isDone: false });
@@ -1504,7 +1520,7 @@ const readIndexInTransaction = Effect.fn(
         if (encodedKey !== entry.encodedKey) return yield* failure("indexRead", "resourceFailure");
         semanticBytes += row.document.semanticSizeBytes;
         documents.push(row.document.value);
-        populateQueryRow(state, row);
+        populateQueryRow(state.dataCache, row);
       }
       yield* charge(state, "indexRead", { documents: rows.length, semanticBytes });
     }
@@ -1516,9 +1532,9 @@ const readIndexInTransaction = Effect.fn(
     };
     // A second bounded population checks that every retained body is present
     // before declaring the completed interval; capacity refusal leaves misses.
-    const populated = positions.entries.every(entry => state.cache.get(indexId,
+    const populated = positions.entries.every(entry => state.dataCache.cache.get(indexId,
       cachePointInterval({ kind: "index", encodedKey: entry.encodedKey, rowId: entry.rowId }), "asc")[0]?.kind === "document");
-    if (populated) state.cache.populate(indexId, [], completed);
+    if (populated) state.dataCache.cache.populate(indexId, [], completed);
     if (!positions.isDone) return Object.freeze({ documents: Object.freeze(documents), isDone: false });
   }
   return Object.freeze({ documents: Object.freeze(documents), isDone: true });

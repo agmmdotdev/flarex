@@ -211,3 +211,184 @@ describe("operation-owned snapshot index coverage", () => {
     expect(store.stats()).toEqual({ bodyBytes: 9, bodies: 1, indexEntries: 1, intervals: 1 });
   });
 });
+
+describe("exclusive snapshot cache write application", () => {
+  it("replaces a shared body and revision once for unchanged keys without mutating old materialized results", () => {
+    const store = cache({ bodyBytes: 8, indexEntries: 2 });
+    const original = { ...entry(2, "shared"), bodyBytes: 4 };
+    const indexed = { ...original, key: key(6) };
+    store.populate("by-id", [original], point(original.key));
+    store.populate("by-value", [indexed], span(5, 9));
+    const historical = store.get("by-value", span(5, 9), "asc");
+    const updated = { value: { body: { name: "updated" }, revision: 74 }, bodyBytes: 8 };
+    expect(store.applyWrite({ documentId: "shared", newDocument: updated, indexes: [
+      { indexId: "by-id", oldKey: original.key, newKey: original.key },
+      { indexId: "by-value", oldKey: indexed.key, newKey: indexed.key },
+    ] })).toBe(true);
+    updated.value.body.name = "mutated input";
+    updated.value.revision = 99;
+    for (const [indexId, position] of [["by-id", original.key], ["by-value", indexed.key]] as const) {
+      expect(store.get(indexId, point(position), "asc")).toEqual([{
+        kind: "document", key: position, documentId: "shared", value: { body: { name: "updated" }, revision: 74 },
+      }]);
+    }
+    expect(historical).toEqual([document(indexed)]);
+    expect(store.stats()).toEqual({ bodyBytes: 8, bodies: 1, indexEntries: 2, intervals: 2 });
+  });
+
+  it("moves a key inside known coverage and removes it when it moves outside without extending that coverage", () => {
+    const store = cache();
+    const original = entry(2, "moving", "stable-row");
+    store.populate("index", [original], span(1, 5));
+    const inside = { ...original, key: key(4, "stable-row"), value: { body: { name: "inside" }, revision: 42 } };
+    expect(store.applyWrite({ documentId: "moving", newDocument: inside, indexes: [
+      { indexId: "index", oldKey: original.key, newKey: inside.key },
+    ] })).toBe(true);
+    expect(store.get("index", span(1, 5), "asc")).toEqual([document(inside)]);
+    expect(store.get("index", point(original.key), "asc")).toEqual([]);
+    const outside = { ...inside, key: key(8, "stable-row"), value: { body: { name: "outside" }, revision: 43 } };
+    expect(store.applyWrite({ documentId: "moving", newDocument: outside, indexes: [
+      { indexId: "index", oldKey: inside.key, newKey: outside.key },
+    ] })).toBe(true);
+    expect(store.get("index", span(1, 5), "asc")).toEqual([]);
+    expect(store.get("index", point(outside.key), "asc")).toEqual([miss(point(outside.key))]);
+    expect(store.stats()).toEqual({ bodyBytes: 0, bodies: 0, indexEntries: 0, intervals: 1 });
+  });
+
+  it("applies an insertion to a completed empty range even when the cache retains zero bodies", () => {
+    const store = cache();
+    store.populate("index", [], span(1, 5));
+    expect(store.stats().bodies).toBe(0);
+    const inserted = entry(3);
+    expect(store.applyWrite({ documentId: inserted.documentId, newDocument: inserted, indexes: [
+      { indexId: "index", oldKey: null, newKey: inserted.key },
+      { indexId: "untracked", oldKey: null, newKey: key(7) },
+    ] })).toBe(true);
+    expect(store.get("index", span(1, 5), "asc")).toEqual([document(inserted)]);
+    expect(store.get("untracked", all, "asc")).toEqual([miss(all)]);
+    expect(store.stats()).toEqual({ bodyBytes: 1, bodies: 1, indexEntries: 1, intervals: 1 });
+  });
+
+  it("deletes shared aliases while preserving complete intervals for a later reinsertion", () => {
+    const store = cache();
+    const original = entry(2, "shared");
+    const indexed = { ...original, key: key(4) };
+    store.populate("by-id", [original], point(original.key));
+    store.populate("by-value", [indexed], span(1, 6));
+    expect(store.applyWrite({ documentId: "shared", newDocument: null, indexes: [
+      { indexId: "by-id", oldKey: original.key, newKey: null },
+      { indexId: "by-value", oldKey: indexed.key, newKey: null },
+    ] })).toBe(true);
+    expect(store.stats()).toEqual({ bodyBytes: 0, bodies: 0, indexEntries: 0, intervals: 2 });
+    expect(store.get("by-id", point(original.key), "asc")).toEqual([]);
+    expect(store.get("by-value", span(1, 6), "asc")).toEqual([]);
+    const reinserted = { ...original, value: { body: { name: "reinserted" }, revision: 84 }, bodyBytes: 7 };
+    const newIndexKey = key(3);
+    expect(store.applyWrite({ documentId: "shared", newDocument: reinserted, indexes: [
+      { indexId: "by-id", oldKey: null, newKey: original.key },
+      { indexId: "by-value", oldKey: null, newKey: newIndexKey },
+    ] })).toBe(true);
+    expect(store.get("by-id", point(original.key), "asc")).toEqual([document(reinserted)]);
+    expect(store.get("by-value", span(1, 6), "asc")).toEqual([document({ ...reinserted, key: newIndexKey })]);
+    expect(store.stats()).toEqual({ bodyBytes: 7, bodies: 1, indexEntries: 2, intervals: 2 });
+  });
+
+  it("drops unavailable index coverage and releases each shared body only after its last reference", () => {
+    const store = cache();
+    const shared = { ...entry(1, "shared"), bodyBytes: 3 };
+    const separate = { ...entry(2), bodyBytes: 5 };
+    const indexed = { ...shared, key: key(9) };
+    store.populate("by-id", [shared, separate], all);
+    store.populate("by-value", [indexed], point(indexed.key));
+    expect(store.stats()).toEqual({ bodyBytes: 8, bodies: 2, indexEntries: 3, intervals: 2 });
+    store.removeIndex("by-id");
+    expect(store.get("by-id", all, "asc")).toEqual([miss(all)]);
+    expect(store.get("by-value", point(indexed.key), "asc")).toEqual([document(indexed)]);
+    expect(store.stats()).toEqual({ bodyBytes: 3, bodies: 1, indexEntries: 1, intervals: 1 });
+    store.removeIndex("by-value");
+    store.removeIndex("by-value");
+    expect(store.stats()).toEqual({ bodyBytes: 0, bodies: 0, indexEntries: 0, intervals: 0 });
+  });
+
+  it("clears all reuse when a body replacement exceeds capacity instead of retaining stale complete ranges", () => {
+    const store = cache({ bodyBytes: 2 });
+    const original = entry(1);
+    store.populate("index", [original], all);
+    store.populate("other-index", [entry(2)], point(key(2)));
+    store.populate("empty-index", [], all);
+    const historical = store.get("index", all, "asc");
+    expect(store.applyWrite({ documentId: original.documentId,
+      newDocument: { value: { body: { name: "too large" }, revision: 42 }, bodyBytes: 2 }, indexes: [
+        { indexId: "index", oldKey: original.key, newKey: original.key },
+      ] })).toBe(false);
+    expect(store.stats()).toEqual({ bodyBytes: 0, bodies: 0, indexEntries: 0, intervals: 0 });
+    for (const indexId of ["index", "other-index", "empty-index"])
+      expect(store.get(indexId, all, "asc")).toEqual([miss(all)]);
+    expect(historical).toEqual([document(original)]);
+  });
+
+  it("clears all reuse when a covered insertion exceeds the distinct index-entry limit", () => {
+    const store = cache({ indexEntries: 1 });
+    store.populate("index", [entry(1)], all);
+    const inserted = entry(2);
+    expect(store.applyWrite({ documentId: inserted.documentId, newDocument: inserted, indexes: [
+      { indexId: "index", oldKey: null, newKey: inserted.key },
+    ] })).toBe(false);
+    expect(store.stats()).toEqual({ bodyBytes: 0, bodies: 0, indexEntries: 0, intervals: 0 });
+    expect(store.get("index", all, "asc")).toEqual([miss(all)]);
+  });
+
+  it("frees old aliases before checking a same-size replacement at exact body and entry capacity", () => {
+    const store = cache({ bodyBytes: 8, indexEntries: 2, intervals: 2 });
+    const original = { ...entry(2, "shared"), bodyBytes: 8 };
+    const indexed = { ...original, key: key(6) };
+    store.populate("by-id", [original], span(1, 5));
+    store.populate("by-value", [indexed], span(5, 9));
+    const updated = { value: { body: { name: "changed" }, revision: 42 }, bodyBytes: 8 };
+    expect(store.applyWrite({ documentId: "shared", newDocument: updated, indexes: [
+      { indexId: "by-id", oldKey: original.key, newKey: key(3) },
+      { indexId: "by-value", oldKey: indexed.key, newKey: key(7) },
+    ] })).toBe(true);
+    expect(store.get("by-id", span(1, 5), "asc")).toEqual([document({ ...original, ...updated, key: key(3) })]);
+    expect(store.get("by-value", span(5, 9), "asc")).toEqual([document({ ...original, ...updated, key: key(7) })]);
+    expect(store.stats()).toEqual({ bodyBytes: 8, bodies: 1, indexEntries: 2, intervals: 2 });
+  });
+
+  it("does not insert into unknown gaps or excluded endpoints and preserves zero-body coverage", () => {
+    const store = cache();
+    store.populate("index", [], span(1, 3));
+    store.populate("index", [], span(5, 7));
+    for (const order of [3, 4, 7]) {
+      const inserted = entry(order);
+      expect(store.applyWrite({ documentId: inserted.documentId, newDocument: inserted, indexes: [
+        { indexId: "index", oldKey: null, newKey: inserted.key },
+      ] })).toBe(true);
+      expect(store.get("index", point(inserted.key), "asc")).toEqual([miss(point(inserted.key))]);
+    }
+    expect(store.stats()).toEqual({ bodyBytes: 0, bodies: 0, indexEntries: 0, intervals: 2 });
+    const included = entry(1);
+    expect(store.applyWrite({ documentId: included.documentId, newDocument: included, indexes: [
+      { indexId: "index", oldKey: null, newKey: included.key },
+    ] })).toBe(true);
+    expect(store.get("index", span(1, 3), "asc")).toEqual([document(included)]);
+    expect(store.get("index", span(5, 7), "asc")).toEqual([]);
+    expect(store.stats()).toEqual({ bodyBytes: 1, bodies: 1, indexEntries: 1, intervals: 2 });
+  });
+
+  it("reports impossible trusted writes as invariant failures rather than capacity refusals", () => {
+    const store = cache();
+    const original = entry(2);
+    store.populate("index", [original], all);
+    expect(() => store.applyWrite({ documentId: original.documentId, newDocument: null, indexes: [
+      { indexId: "index", oldKey: original.key, newKey: original.key },
+    ] })).toThrow("Snapshot cache deletion has a new key.");
+    expect(() => store.applyWrite({ documentId: original.documentId, newDocument: original, indexes: [
+      { indexId: "index", oldKey: original.key, newKey: original.key },
+      { indexId: "index", oldKey: original.key, newKey: original.key },
+    ] })).toThrow("Snapshot cache write repeats an index.");
+    expect(() => store.applyWrite({ documentId: original.documentId, newDocument: null, indexes: [] }))
+      .toThrow("Snapshot cache deletion retains an index reference.");
+    expect(store.get("index", all, "asc")).toEqual([document(original)]);
+    expect(store.stats()).toEqual({ bodyBytes: 1, bodies: 1, indexEntries: 1, intervals: 1 });
+  });
+});
