@@ -103,6 +103,9 @@ The [04C2 contract](./04c2-exact-selection-preparation.md) records the implement
 exact original finite preparation and execution-group catalog coverage, including
 explicit installation reconciliation. It replaces existing finite consumer work; Standard configuration
 capture, stored-profile dispatch and ordinary finite activation remain later gates.
+The [04C3 source challenge](./04c3-standard-finite-execution.md) now records the
+connected ordinary Standard replacement and its concrete stored-data decision;
+its runtime implementation is unstarted.
 
 ## Stored requests, outcomes and recovery
 

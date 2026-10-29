@@ -14,9 +14,10 @@ also implements bounded Application app-row handoff and refresh. The bounded
 local query composition and cold restart. Full app-owner bootstrap/recovery and
 broader native integration remain open. The next
 [mutation pending-state replacement](./slices/04-mutation-pending-state.md) has
-completed independent source challenge. Its range-evidence prerequisite is
-implemented; the incremental root, Standard cutover and old-journal disposition
-remain open.
+completed independent source challenge. Range evidence, incremental shared-root
+indexes, operation admission and exact original finite preparation are implemented.
+The [ordinary Standard cutover](./slices/04c3-standard-finite-execution.md) and
+[stored-attempt disposition](./05-stored-attempt-disposition.md) remain open.
 The accepted [replacement workflow](./REFACTOR.md#convex-guided-replacement-workflow)
 does not require this whole queue to be answered before a bounded slice can
 start. An unresolved guarantee pauses the affected path, not independent work;
@@ -252,7 +253,10 @@ on newly executed operations. It does not enable mutation-cache handoff or
 repair saved durable receipts. The [pending replacement](./slices/04-mutation-pending-state.md)
 owns incremental index maintenance, both Application/native write paths,
 untrusted syscall admission, nested-lifecycle witnesses and stored-profile
-cutover prerequisites. Native replay eligibility is unchanged.
+cutover prerequisites. Native replay eligibility is unchanged. The next connected
+[Standard replacement](./slices/04c3-standard-finite-execution.md) has completed
+independent challenge and peer exchange; the concrete historical-data decision is
+[stored Application attempt disposition](./05-stored-attempt-disposition.md).
 
 References: Convex [reads](../../../../../crates/database/src/reads.rs),
 [writes](../../../../../crates/database/src/writes.rs) and

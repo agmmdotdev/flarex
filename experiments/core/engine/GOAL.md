@@ -102,6 +102,10 @@ The [exact-original preparation prerequisite](./slices/04c2-exact-selection-prep
 is implemented for existing finite Product/Payload consumers, including full
 callable-catalog coverage and explicit installation reconciliation. Ordinary
 Standard finite activation and recovery remain open.
+The [ordinary Standard replacement](./slices/04c3-standard-finite-execution.md)
+has completed independent challenge and peer exchange. Its connected runtime
+implementation remains unstarted; the affected historical-data path requires the
+[stored-attempt disposition](./05-stored-attempt-disposition.md).
 
 ## Mandatory challenge before each slice
 
