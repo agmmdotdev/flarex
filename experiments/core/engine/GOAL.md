@@ -97,6 +97,7 @@ The [Standard cutover contract](./slices/04c-standard-mutation-cutover.md) recor
 the connected preparation, ordered admission, stored-request and recovery
 requirements. Its genuine current nested-failure prerequisite is implemented;
 the connected [operation-admission replacement](./slices/04c1-application-operation-admission.md)
+is implemented. The ordinary Standard cutover remains unimplemented.
 
 ## Mandatory challenge before each slice
 
