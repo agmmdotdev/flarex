@@ -61,6 +61,7 @@ import {
   validatePromotionRuleAttributes,
 } from "../utils"
 import { CreatePromotionRuleValueDTO } from "../types/promotion-rule-value"
+import type { PromotionPrefilterPersistence } from "../utils/compute-actions/prefilter"
 import { buildPromotionRuleQueryFilterFromContext } from "../utils/compute-actions/build-promotion-rule-query-filter-from-context"
 
 type InjectedDependencies = {
@@ -129,7 +130,8 @@ export default class PromotionModuleService
       campaignBudgetService,
       campaignBudgetUsageService,
     }: InjectedDependencies,
-    protected readonly moduleDeclaration: InternalModuleDeclaration
+    protected readonly moduleDeclaration: InternalModuleDeclaration,
+    protected readonly prefilterPersistence?: PromotionPrefilterPersistence
   ) {
     // @ts-ignore
     super(...arguments)
@@ -736,7 +738,8 @@ export default class PromotionModuleService
       const rulePrefilteringFilters =
         await buildPromotionRuleQueryFilterFromContext(
           applicationContext,
-          sharedContext
+          sharedContext,
+          this.prefilterPersistence
         )
 
       let prefilteredAutomaticPromotionIds: string[] = []

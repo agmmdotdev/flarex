@@ -697,6 +697,21 @@
       "types": "./dist/totals/native-number.d.ts",
       "source": "./src/totals/native-number.ts",
       "default": "./dist/totals/native-number.js"
+    },
+    "./modules-sdk/build-models-name-to-linkable-keys-map": {
+      "types": "./dist/modules-sdk/build-models-name-to-linkable-keys-map.d.ts",
+      "source": "./src/modules-sdk/build-models-name-to-linkable-keys-map.ts",
+      "default": "./dist/modules-sdk/build-models-name-to-linkable-keys-map.js"
+    },
+    "./translations/apply-translations": {
+      "types": "./dist/translations/apply-translations.d.ts",
+      "source": "./src/translations/apply-translations.ts",
+      "default": "./dist/translations/apply-translations.js"
+    },
+    "./translations/apply-translations-to-tax-lines": {
+      "types": "./dist/translations/apply-translations-to-tax-lines.d.ts",
+      "source": "./src/translations/apply-translations-to-tax-lines.ts",
+      "default": "./dist/translations/apply-translations-to-tax-lines.js"
     }
   },
   "license": "MIT",

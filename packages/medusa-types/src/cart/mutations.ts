@@ -254,17 +254,17 @@ export interface CreateAdjustmentDTO {
   /**
    * The description of the adjustment.
    */
-  description?: string
+  description?: string | undefined
 
   /**
    * The associated promotion's ID.
    */
-  promotion_id?: string
+  promotion_id?: string | undefined
 
   /**
    * The associated provider's ID.
    */
-  provider_id?: string
+  provider_id?: string | undefined
 }
 
 /**
@@ -375,12 +375,12 @@ export interface CreateTaxLineDTO {
   /**
    * The description of the tax line.
    */
-  description?: string
+  description?: string | undefined
 
   /**
    * The associated tax rate's ID.
    */
-  tax_rate_id?: string
+  tax_rate_id?: string | undefined
 
   /**
    * The code of the tax line.
@@ -395,11 +395,11 @@ export interface CreateTaxLineDTO {
   /**
    * The associated provider's ID.
    */
-  provider_id?: string
+  provider_id?: string | undefined
   /**
    * The associated item's ID.
    */
-  item_id?: string
+  item_id?: string | undefined
 }
 
 /**
@@ -414,32 +414,32 @@ export interface UpdateTaxLineDTO {
   /**
    * The description of the tax line.
    */
-  description?: string
+  description?: string | undefined
 
   /**
    * The associated tax rate's ID.
    */
-  tax_rate_id?: string
+  tax_rate_id?: string | undefined
 
   /**
    * The code of the tax line.
    */
-  code?: string
+  code?: string | undefined
 
   /**
    * The rate of the tax line.
    */
-  rate?: number
+  rate?: number | undefined
 
   /**
    * The associated provider's ID.
    */
-  provider_id?: string
+  provider_id?: string | undefined
 
   /**
    * The associated item's ID.
    */
-  item_id?: string
+  item_id?: string | undefined
 }
 
 /**
@@ -853,17 +853,17 @@ export interface CreateShippingMethodAdjustmentDTO {
   /**
    * The description of the shipping method adjustment.
    */
-  description?: string
+  description?: string | undefined
 
   /**
    * The associated promotion's ID.
    */
-  promotion_id?: string
+  promotion_id?: string | undefined
 
   /**
    * The associated provider's ID.
    */
-  provider_id?: string
+  provider_id?: string | undefined
 }
 
 /**

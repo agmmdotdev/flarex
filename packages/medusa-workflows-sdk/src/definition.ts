@@ -8,6 +8,8 @@ import { workflowIdentity, type WorkflowIdentity } from "./identity";
 import { prepareWorkflowResolution } from "./resolution";
 import { callbackWorkflowView, prepareCallbackWorkflow, registerCallbackWorkflow } from "./callback-binding";
 import type { WorkflowContainer } from "./model";
+import { captureNativeCartCreationProfile, nativeCartCreationProfile } from "./native-cart-creation-profile";
+import { captureNativePricingContextProfile, nativePricingContextResult, parseNativePricingContext, type NativePricingContext } from "./native-pricing-context";
 
 interface Composer {
   readonly owner: object;
@@ -118,17 +120,41 @@ export function transform(input: unknown, ...functions: readonly unknown[]): Wor
   // SAFETY: at least one transformer was constructed above.
   return staged as WorkflowData<unknown>;
 }
-export function createHook<const Name extends string, Input, Output = unknown>(name: Name, input: Input, options_: Record<string, never> = {}): Hook<Name, Input, Output> {
-  if (Reflect.ownKeys(options_).length !== 0) throw definitionError("unsupportedProfile", "Hook validators require a separately admitted profile");
+export function createHook<const Name extends string, Input>(name: Name, input: Input,
+  options_: { readonly resultValidator: typeof nativePricingContextResult }): Hook<Name, Resolved<Input>, NativePricingContext>;
+export function createHook<const Name extends string, Input, Output = unknown>(name: Name, input: Input,
+  options_?: Record<string, never>): Hook<Name, Resolved<Input>, Output>;
+export function createHook<const Name extends string, Input, Output = unknown>(name: Name, input: Input, options_: unknown = {}): Hook<Name, Resolved<Input>, Output> {
+  if (typeof options_ !== "object" || options_ === null) throw definitionError("unsupportedProfile", "Invalid finite hook options");
+  const keys = Reflect.ownKeys(options_);
+  const validator = keys.length === 0 ? undefined : (() => {
+    const property = Object.getOwnPropertyDescriptor(options_, "resultValidator");
+    if (keys.length !== 1 || keys[0] !== "resultValidator" || property === undefined || !("value" in property) || !property.enumerable ||
+      Object.getPrototypeOf(options_) !== Object.prototype && Object.getPrototypeOf(options_) !== null)
+      throw definitionError("unsupportedProfile", "Invalid finite hook validator options");
+    return captureNativePricingContextProfile(property.value);
+  })();
   const context = composer();
   if (context.hooks.has(name)) throw definitionError("duplicateHook", `Cannot define multiple hook handlers for the ${name} hook`);
   options(name);
   context.hooks.add(name);
   // No-op hook resolves to undefined in this profile, preserving getResult absence.
   const id = Object.freeze({});
-  context.nodes.push({ id, kind: "step", guards: context.guards, name, input: captureDefinition(input, context.owner), invoke: () => undefined, compensate: undefined, compensation: undefined, hook: true });
+  context.nodes.push({ id, kind: "step", guards: context.guards, name, input: captureDefinition(input, context.owner), invoke: () => undefined, compensate: undefined, compensation: undefined, hook: true,
+    ...(validator === undefined ? {} : { hookValidator: validator }) });
   const result = proxify<Output | undefined>({ kind: "step", owner: context.owner, step: id });
-  return Object.freeze({ name, getResult: () => result });
+  if (validator === undefined) return Object.freeze({ name, getResult: () => result });
+  let cached: WorkflowData<Output | undefined> | undefined;
+  return Object.freeze({ name, getResult: () => {
+    if (cached !== undefined) return cached;
+    if (current !== context) throw definitionError("outsideComposer", "Read a hook result in its own active composer");
+    const resultId = Object.freeze({});
+    context.nodes.push({ id: resultId, kind: "step", guards: context.guards, name: `get-${name}-result`, input: result,
+      invoke: parseNativePricingContext, compensate: undefined, compensation: undefined, hook: false,
+      hookResult: Object.freeze({ handler: id, validator }) });
+    cached = proxify<Output | undefined>({ kind: "step", owner: context.owner, step: resultId });
+    return cached;
+  } });
 }
 /** Mark actual staged sibling regions. The positional results retain their
  * references; preparation and execution own the new parallel arrangement. */
@@ -235,8 +261,29 @@ const WorkflowDeclarationConfig = Schema.Union([
   Schema.Struct({ name: Schema.String, idempotent: Schema.Literal(false),
     store: Schema.Literal(true), retentionTime: Schema.Literal(259200) }),
 ]);
-type WorkflowDeclaration = string | typeof WorkflowDeclarationConfig.Type;
+type WorkflowDeclaration = string | typeof WorkflowDeclarationConfig.Type | {
+  readonly name: string; readonly constructionProfile: typeof nativeCartCreationProfile;
+};
 const decodeWorkflowDeclaration = Schema.decodeUnknownResult(WorkflowDeclarationConfig, { onExcessProperty: "error" });
+const decodeProfileName = Schema.decodeUnknownResult(Schema.String);
+
+function captureWorkflowDeclaration(input: WorkflowDeclaration) {
+  if (typeof input === "string") return { name: input };
+  const profile = typeof input === "object" && input !== null ? Object.getOwnPropertyDescriptor(input, "constructionProfile") : undefined;
+  if (profile !== undefined) {
+    const keys = Reflect.ownKeys(input), name = Object.getOwnPropertyDescriptor(input, "name");
+    if (keys.length !== 2 || keys.some(key => key !== "name" && key !== "constructionProfile") ||
+      Object.getPrototypeOf(input) !== Object.prototype && Object.getPrototypeOf(input) !== null ||
+      name === undefined || !("value" in name) || !name.enumerable || !("value" in profile) || !profile.enumerable)
+      throw definitionError("unsupportedProfile", "Invalid native Cart construction declaration");
+    const selected = captureNativeCartCreationProfile(profile.value);
+    const declaredName = Result.getOrThrow(decodeProfileName(name.value).pipe(
+      Result.mapError(() => definitionError("unsupportedProfile", "Invalid native Cart construction name"))));
+    return { name: declaredName, constructionProfile: selected };
+  }
+  return Result.getOrThrow(decodeWorkflowDeclaration(captureDefinition(input, Object.freeze({}))).pipe(
+    Result.mapError(() => definitionError("unsupportedProfile", "Unsupported finite workflow declaration"))));
+}
 export function createWorkflow<Input, Output, const Hooks extends readonly unknown[]>(nameOrConfig: WorkflowDeclaration,
   build: (input: Input) => WorkflowResponse<Output, Hooks>,
 ): WorkflowDefinition<Resolved<Input>, Output, Hooks>;
@@ -249,9 +296,8 @@ export function createWorkflow<Input, const Output>(nameOrConfig: WorkflowDeclar
 export function createWorkflow<Input, Output, const Hooks extends readonly unknown[]>(nameOrConfig: WorkflowDeclaration,
   build: (input: Input) => WorkflowResponse<Output, Hooks> | Output,
 ): WorkflowDefinition<Resolved<Input>, Output, Hooks> {
-  const configuration = typeof nameOrConfig === "string" ? { name: nameOrConfig }
-    : Result.getOrThrow(decodeWorkflowDeclaration(captureDefinition(nameOrConfig, Object.freeze({}))).pipe(
-      Result.mapError(() => definitionError("unsupportedProfile", "Unsupported finite workflow declaration"))));
+  const configuration = captureWorkflowDeclaration(nameOrConfig);
+  const maximumNodes = "constructionProfile" in configuration ? configuration.constructionProfile.maximumNodes : 64;
   const name = configuration.name;
   options(name);
   const context: Composer = { owner: Object.freeze({}), nodes: [], hooks: new Set(), pending: new Set(), parallel: [], anonymousConditions: 0, guards: Object.freeze([]) };
@@ -285,7 +331,7 @@ export function createWorkflow<Input, Output, const Hooks extends readonly unkno
   for (const node of context.nodes) {
     nodeCount += 1 + (node.kind === "workflow" ? node.workflow.nodeCount :
       node.invokedWorkflows?.reduce((count, child) => count + child.workflow.nodeCount, 0) ?? 0);
-    if (nodeCount > 64) throw definitionError("unsupportedProfile", "Too many workflow nodes");
+    if (nodeCount > maximumNodes) throw definitionError("unsupportedProfile", "Too many workflow nodes");
   }
   const flow = new OrchestratorBuilder();
   const byName = new Map<string, WorkflowNode>();
@@ -342,7 +388,8 @@ export function createWorkflow<Input, Output, const Hooks extends readonly unkno
       const prepared = Object.freeze({ name, owner: context.owner, nodes: Object.freeze(bound), result, nodeCount,
         identity: Object.freeze({ ...workflowIdentity(name, bound, result, parallel),
           ...("idempotent" in configuration ? { idempotent: false as const } : {}),
-          ...("store" in configuration ? { store: true as const, retentionTime: 259200 as const } : {}) }),
+          ...("store" in configuration ? { store: true as const, retentionTime: 259200 as const } : {}),
+          ...("constructionProfile" in configuration ? { constructionProfile: configuration.constructionProfile } : {}) }),
         resolution, ...(parallel === undefined ? {} : { parallel }) });
       preparedWorkflows.add(prepared);
       return prepared;

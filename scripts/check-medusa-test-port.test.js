@@ -596,9 +596,13 @@ describe("maintained Medusa test ports", () => {
       expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, replacement), repository)).toThrow();
     });
     it.each([
-      ["selector", 'const variantItemPricing = admission === "variant-item-pricing"', 'const variantItemPricing = true'],
-      ["selector spelling", 'const variantItemPricing = admission === "variant-item-pricing"', 'const variantItemPricing = admission === "variant-updates"'],
+      ["selector", 'variantItemPricing = admission === "variant-item-pricing" || cartCreationPricing', 'variantItemPricing = true'],
+      ["selector spelling", 'variantItemPricing = admission === "variant-item-pricing" || cartCreationPricing', 'variantItemPricing = admission === "variant-updates"'],
       ["profile", 'variantItemPricing ? "pricing-variant-item-pricing"', 'variantItemPricing ? "pricing-base-prices"'],
+      ["Cart selector", 'const cartCreationPricing = admission === "cart-creation"', 'const cartCreationPricing = true'],
+      ["Cart profile", 'cartCreationPricing ? "pricing-cart-creation"', 'cartCreationPricing ? "pricing-variant-item-pricing"'],
+      ["Cart command", 'cartCreationPricing ? "pricingCalculateCartCreation"', 'cartCreationPricing ? "pricingCalculateVariantItems"'],
+      ["Cart native-method admission", 'admission === "variant-item-pricing" || cartCreationPricing', 'admission === "variant-item-pricing"'],
       ["command overgrant", 'variantItemPricing ? [count, calculate]', 'variantItemPricing ? [count, calculate, create]'],
       ["command omission", 'variantItemPricing ? [count, calculate]', 'variantItemPricing ? [calculate]'],
       ["method overgrant", 'variantItemPricing ? { calculatePrices }', 'variantItemPricing ? { calculatePrices, createPriceSets }'],
@@ -610,7 +614,7 @@ describe("maintained Medusa test ports", () => {
       ["preference creation refusal", 'createPricePreferences: variantItemPricing || shipping', 'createPricePreferences: shipping'],
       ["native calculation visibility", 'calculatePrices: preferences || shipping', 'calculatePrices: variantItemPricing || preferences || shipping'],
       ["native calculation owner", 'native.calculatePrices.bind(native)', 'native.listPriceSets.bind(native)'],
-      ["calculation dispatch", 'commands.read("pricingCalculateVariantItems"', 'commands.write("pricingCalculateVariantItems"'],
+      ["calculation dispatch", 'commands.read(cartCreationPricing ? "pricingCalculateCartCreation" : "pricingCalculateVariantItems"', 'commands.write(cartCreationPricing ? "pricingCalculateCartCreation" : "pricingCalculateVariantItems"'],
       ["calculation decoder", 'prepare(decodeVariantItemPricingCalculation)', 'prepare(decodePricingCalculation)'],
       ["calculation context", '[{ id: [...args.filters.id] }, args.pricingContext, context]', '[{ id: [...args.filters.id] }, {}, context]'],
       ["calculation receiver", 'Reflect.apply(service.calculatePrices, service,', 'Reflect.apply(service.calculatePrices, {},'],
@@ -624,7 +628,10 @@ describe("maintained Medusa test ports", () => {
       expect(() => verifyPricingWorkflowSelection(original, changed, repository)).toThrow("Unadmitted native Pricing workflow selection");
     });
     it.each([
-      ["selector", 'const variantItemPricing = admission === "variant-item-pricing"', 'const variantItemPricing = false'],
+      ["selector", 'variantItemPricing = admission === "variant-item-pricing" || cartCreationPricing', 'variantItemPricing = false'],
+      ["Cart selector", 'const cartCreationPricing = admission === "cart-creation"', 'const cartCreationPricing = true'],
+      ["Cart cap routing", 'cartCreationPricing ? "cart-creation" :', 'cartCreationPricing ? "variant-item-pricing" :'],
+      ["Cart scalar fallback", 'cartCreationPricing ? "cart-creation" :', 'cartCreationPricing ? "scalar" :'],
       ["PriceSet creation refusal", 'create: variantItemPricing ? refuse : (input, shared)', 'create: (input, shared)'],
       ["PriceList creation refusal", 'create: variantItemPricing || listUpdates', 'create: listUpdates'],
       ["preference creation refusal", 'create: variantItemPricing ? refuse : preferenceCreate', 'create: preferenceCreate'],
@@ -632,7 +639,7 @@ describe("maintained Medusa test ports", () => {
       ["calculation profile fallback", 'variantItemPricing ? "variant-item-pricing" : "scalar"', '"variant-item-pricing"'],
       ["calculation arguments", 'calculateLogicalPrices(ctx, { filters, pricingContext },', 'calculateLogicalPrices(ctx, { filters, pricingContext: {} },'],
       ["calculation owner", 'calculateLogicalPrices(ctx, { filters, pricingContext },', 'otherCalculatePrices(ctx, { filters, pricingContext },'],
-      ["admission union", '| "variant-item-pricing";', '| "all-pricing";'],
+      ["admission union", '| "variant-item-pricing" | "cart-creation";', '| "all-pricing" | "cart-creation";'],
     ])("rejects variant item pricing repository %s mutation", (_name, before, after) => {
       const changed = repository.replace(before, after);
       expect(changed).not.toBe(repository);

@@ -29,10 +29,15 @@ const decodeFlatVariantItemPricingContext = commerceDecoder(Schema.Record(Schema
   Schema.Union([FlatContextPrimitive, Schema.Array(FlatContextPrimitive)])), "invalidInput");
 /** The pinned utility owns nested/array/null normalization. Bound the resulting
  * non-control attributes before native candidate matching or indexed reads. */
-export function prepareVariantItemPricingContext(context: typeof Schema.JsonObject.Type) {
+export type VariantItemPricingProfile = "variant-item-pricing" | "cart-creation";
+export function prepareVariantItemPricingContext(context: typeof Schema.JsonObject.Type, profile: VariantItemPricingProfile = "variant-item-pricing") {
   return Result.gen(function* () {
+    if (profile !== "variant-item-pricing" && profile !== "cart-creation") return yield* Result.fail(commerceError("unsupportedProfile"));
     const flattened = yield* decodeFlatVariantItemPricingContext(flattenObjectToKeyValuePairs(context));
-    if (Object.keys(flattened).filter(key => key !== "currency_code" && key !== "quantity").length > 10)
+    // Closed complete-Cart context: the native Region/Country DTO and
+    // customer_id require17 non-control attributes. Ordinary callers keep10.
+    const maximum = profile === "cart-creation" ? 17 : 10;
+    if (Object.keys(flattened).filter(key => key !== "currency_code" && key !== "quantity").length > maximum)
       return yield* Result.fail(commerceError("limitExceeded"));
     return flattened;
   });
@@ -83,18 +88,18 @@ const decodeListRules = commerceDecoder(Schema.Array(ListRuleRow), "storedCorrup
 /** Every stage is a complete core-owned indexed selection. Exceeding the
  * selected resource bound refuses instead of dropping a candidate. */
 export const calculateLogicalPrices = Effect.fn("Pricing.calculateLogical")(function* (
-  ctx: CommerceCommandContext, input: unknown, profile: "scalar" | "variant-item-pricing" = "scalar",
+  ctx: CommerceCommandContext, input: unknown, profile: "scalar" | VariantItemPricingProfile = "scalar",
 ) {
-  if (profile !== "scalar" && profile !== "variant-item-pricing") return yield* ctx.refuse(commerceError("unsupportedProfile"));
+  if (profile !== "scalar" && profile !== "variant-item-pricing" && profile !== "cart-creation") return yield* ctx.refuse(commerceError("unsupportedProfile"));
   const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
-  const { filters, values } = yield* profile === "variant-item-pricing" ? Effect.gen(function* () {
+  const { filters, values } = yield* profile !== "scalar" ? Effect.gen(function* () {
     const parsed = yield* Effect.fromResult(decodeVariantItemPricingCalculation(captured));
     yield* Effect.try({
       try: () => validatePricingCurrencyCode(parsed.pricingContext.context?.currency_code),
       catch: cause => cause,
     }).pipe(Effect.catch(cause => cause instanceof MedusaError
       ? Effect.fail(commerceError("adapterFailure", cause)) : Effect.die(cause)));
-    const values = yield* Effect.fromResult(prepareVariantItemPricingContext(parsed.pricingContext.context ?? {}));
+    const values = yield* Effect.fromResult(prepareVariantItemPricingContext(parsed.pricingContext.context ?? {}, profile));
     return { filters: parsed.filters, values };
   }) : Effect.fromResult(decodePricingCalculation(captured)
     .pipe(Result.map(parsed => ({ filters: parsed.filters, values: parsed.pricingContext.context ?? {} }))));

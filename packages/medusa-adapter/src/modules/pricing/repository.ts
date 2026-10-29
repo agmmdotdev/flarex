@@ -107,11 +107,11 @@ const projectionPolicy: ProjectionPolicy = { ...scalarProjection, allowedPaths: 
 /** Pricing owns the finite nested creation policy; shared graph/read owners
  * retain traversal, scoped persistence and native mutation dispatch. */
 export type PricingRepositoryAdmission = "create" | "variant-updates" | "product-updates" | "price-preferences" |
-  "price-preference-updates" | "price-preference-deletions" | "price-list-creations" | "price-list-updates" | "price-list-deletions" | "price-list-price-creations" | "price-list-price-updates" | "price-list-price-removals" | "shipping-options" | "shipping-option-updates" | "variant-item-pricing";
+  "price-preference-updates" | "price-preference-deletions" | "price-list-creations" | "price-list-updates" | "price-list-deletions" | "price-list-price-creations" | "price-list-price-updates" | "price-list-price-removals" | "shipping-options" | "shipping-option-updates" | "variant-item-pricing" | "cart-creation";
 export function preparePricingRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"], admission: PricingRepositoryAdmission = "create") {
   return Result.gen(function* () {
     const mutable = admission === "variant-updates" || admission === "product-updates", lifecycle = admission === "product-updates";
-    const variantItemPricing = admission === "variant-item-pricing";
+    const cartCreationPricing = admission === "cart-creation", variantItemPricing = admission === "variant-item-pricing" || cartCreationPricing;
     const preferenceUpdates = admission === "price-preference-updates", preferenceDeletions = admission === "price-preference-deletions";
     const preferences = admission === "price-preferences" || preferenceUpdates || preferenceDeletions;
     const shippingUpdates = admission === "shipping-option-updates", shipping = admission === "shipping-options" || shippingUpdates;
@@ -449,7 +449,7 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
       const calculatePrices = (filters: Parameters<import("@medusajs/framework/types").PricingRepositoryService["calculatePrices"]>[0],
         pricingContext: Parameters<import("@medusajs/framework/types").PricingRepositoryService["calculatePrices"]>[1],
         shared: Parameters<import("@medusajs/framework/types").PricingRepositoryService["calculatePrices"]>[2]) =>
-        bridge.execute(shared, ctx => bridge.checked(ctx, calculateLogicalPrices(ctx, { filters, pricingContext }, variantItemPricing ? "variant-item-pricing" : "scalar")));
+        bridge.execute(shared, ctx => bridge.checked(ctx, calculateLogicalPrices(ctx, { filters, pricingContext }, cartCreationPricing ? "cart-creation" : variantItemPricing ? "variant-item-pricing" : "scalar")));
       return { repository, denied, listRepository, ruleRepository: mutationRepositories?.ruleRepository ?? ruleRepository,
         priceRepository: priceRemovalRepository ?? listPriceRepository ?? mutationRepositories?.priceRepository ?? denied, preferenceRepository, mutationEvents, bridge, refuse, calculatePrices };
     };

@@ -20,13 +20,15 @@ export function cartPaymentReadPolicy(prepared: Prepared, profile: "payment" | "
   const capture = Effect.fn("CartPayment.captureEvent")((_input: unknown) => Effect.fail(commerceError("unadmittedEvent")));
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("CartPayment.validateRead")(function* (call, activity) {
     const creation = profile === "creation";
-    const lineItems = prepared.profile === "checkout" && call.commandName === "cartLineItemsCountForCheckout";
-    const rootTable = lineItems ? "cart_line_item" : "cart";
-    const count = lineItems || call.commandName === (profile === "payment" ? "cartCountForPaymentCollection" : "cartCountForCheckout");
+    const lineItems = prepared.profile !== "payment" && call.commandName === "cartLineItemsCountForCheckout";
+    const shippingMethods = prepared.profile === "creation" && call.commandName === "cartShippingMethodsCountForCreation";
+    const child = lineItems || shippingMethods;
+    const rootTable = lineItems ? "cart_line_item" : shippingMethods ? "cart_shipping_method" : "cart";
+    const count = child || call.commandName === (profile === "payment" ? "cartCountForPaymentCollection" : "cartCountForCheckout");
     if ((!count && (creation ? call.commandName !== "cartListForCreation" : profile !== "completion" || call.commandName !== "cartListForCheckout")) || call.mode !== "read" || call.events.length || activity.mutations.length ||
       activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length) return yield* Effect.fail(mismatch());
     const input = yield* Effect.fromResult(decodeCartPaymentRead(call.input)), config = structuredClone(input.config ?? {});
-    const includeTotals = !creation && !lineItems && includeCartTotals(config);
+    const includeTotals = !creation && !child && includeCartTotals(config);
     const plan = yield* Effect.fromResult(captureCommerceInput(buildQuery(input.filters, config)).pipe(Result.flatMap(value => prepared.queryTable(rootTable, value))));
     type Row = JsonObject & { readonly id: string };
     const state = new Map<string, Row[]>();

@@ -45,6 +45,9 @@ describe("native159 exact source closure", () => {
 });
 
 describe("native159 item/context callbacks", () => {
+  it("requires the approved absent Cart quantity selector removal", () => {
+    mutant("packages/medusa-core-flows/src/cart/utils/fields.ts", '  "subtotal",', '  "quantity",\n  "subtotal",');
+  });
   it("requires the authorized exact native comparison-price preference", () => {
     mutant(mapperPath, "item?.raw_compare_at_unit_price ?? item?.compare_at_unit_price", "item?.compare_at_unit_price");
     mutant(mapperPath, "item?.raw_compare_at_unit_price ?? item?.compare_at_unit_price", "item?.raw_compare_at_unit_price || item?.compare_at_unit_price");
@@ -64,7 +67,7 @@ describe("native159 item/context callbacks", () => {
     ["leaf child owner", 'from "../steps/get-variant-price-sets"', 'from "../steps"'],
     ["portable utility owner", 'from "@medusajs/framework/utils/portable"', 'from "@medusajs/framework/utils"'],
     ["type owner", 'from "@medusajs/types"', 'from "@medusajs/other-types"'],
-    ["public input DTO", "cart: Partial<CartDTO>", "cart: CartDTO"],
+    ["public input DTO", "cart: { [Key in keyof CartDTO]?: CartDTO[Key] | undefined }", "cart: CartDTO"],
   ])("rejects changed %s", (_label, before, after) => mutant(rootPath, before, after));
   it.each([
     ["group key sorting", ".sort(([a], [b]) => a.localeCompare(b))", ".sort(([a], [b]) => b.localeCompare(a))"],
@@ -130,6 +133,7 @@ describe("native159 exact fields and pure types", () => {
     mutant(selected.target, '  "raw_total",\n', "");
     mutant(selected.target, '  "raw_subtotal",\n', "");
     expect(selected.actual).toBe(selected.native.replace('  "raw_sales_channel_id",\n', "")
+      .replace('  "quantity",\n', "")
       .replace('  "items.variant.inventory_items.inventory.location_levels.stock_locations.sales_channels.name",\n]\n\nexport const cartFieldsForPricingContext',
         '  "items.variant.inventory_items.inventory.location_levels.stock_locations.sales_channels.name",\n] as const\n\nexport const cartFieldsForPricingContext'));
   });

@@ -29,13 +29,20 @@ const decodeJoiner = commerceDecoder(Schema.StructWithRest(Schema.Struct({ isLin
   relationships: Schema.optionalKey(Schema.Array(Relationship)),
   extends: Schema.Array(Schema.StructWithRest(Schema.Struct({ entity: Schema.optionalKey(Name), relationship: Relationship }), Rest)),
 }), Rest), "unsupportedProfile");
+const decodeTarget = commerceDecoder(Schema.StructWithRest(Schema.Struct({ serviceName: Name,
+  primaryKeys: Schema.Array(Name), alias: Schema.Array(Schema.StructWithRest(Schema.Struct({ entity: Name,
+    args: Schema.StructWithRest(Schema.Struct({ methodSuffix: Name }), Rest) }), Rest)),
+}), Rest), "unsupportedProfile");
+const decodeMethod = commerceDecoder(Schema.StructWithRest(Schema.Struct({ methodSuffix: Name }), Rest), "unsupportedProfile");
 
 /** Direct native relationships include rich Link rows and the read-only Level
  * extension. They borrow actual source/target commands, never a fake Link. */
-export function nativeLinkGraphDirectPaths(joiner: ModuleJoinerConfig, selections: readonly GraphDirectPathSelection[], sourceModel: string) {
+export function nativeLinkGraphDirectPaths(joiner: ModuleJoinerConfig, selections: readonly GraphDirectPathSelection[], sourceModel: string,
+  targetJoiner?: ModuleJoinerConfig) {
   return Result.gen(function* () {
     const native = yield* captureCommerceInput(joiner).pipe(Result.flatMap(decodeJoiner));
     const selected = yield* captureCommerceInput(selections).pipe(Result.flatMap(decodeSelections));
+    const target = targetJoiner === undefined ? undefined : yield* captureCommerceInput(targetJoiner).pipe(Result.flatMap(decodeTarget));
     const result: GraphDirectPath[] = [];
     const linkModels = new Set(native.alias?.map(alias => alias.entity));
     for (const selection of selected) {
@@ -43,14 +50,23 @@ export function nativeLinkGraphDirectPaths(joiner: ModuleJoinerConfig, selection
       if (native.isReadOnlyLink === true) {
         const candidates = native.extends.filter(extension => extension.entity === sourceModel && extension.relationship.alias === part);
         const relation = candidates[0]?.relationship;
-        if (candidates.length !== 1 || relation?.entity === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+        if (candidates.length !== 1 || relation === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+        let targetModel = relation.entity;
+        if (targetModel === undefined) {
+          if (target === undefined || target.serviceName !== relation.serviceName || !target.primaryKeys.includes(relation.primaryKey))
+            return yield* Result.fail(commerceError("unsupportedProfile"));
+          const method = yield* decodeMethod(relation.args);
+          const models = new Set(target.alias.filter(alias => alias.args.methodSuffix === method.methodSuffix).map(alias => alias.entity));
+          targetModel = models.size === 1 ? [...models][0] : undefined;
+          if (targetModel === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+        }
         const keys = relation.foreignKey.split("."), sourceKey = keys.at(-1);
         // Native read-only Cart links qualify a LineItem key with the local
         // parent path. Resolve that qualification only against this selection;
         // the graph owner still authenticates the resulting source column.
         if (sourceKey === undefined || keys.length > 1 && keys.slice(0, -1).join(".") !== selection.path.split(".").slice(0, -1).join("."))
           return yield* Result.fail(commerceError("unsupportedProfile"));
-        result.push({ ...selection, sourceModel, sourceKey, targetModel: relation.entity,
+        result.push({ ...selection, sourceModel, sourceKey, targetModel,
           targetKey: relation.primaryKey, many: relation.isList === true, nativeFields: true });
         continue;
       }

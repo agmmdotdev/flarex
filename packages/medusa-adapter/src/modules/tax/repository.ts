@@ -7,7 +7,7 @@ import type { CommercePromiseOwner } from "../../module/promise-owner";
 import { makeReadCatalog } from "../../query/catalog";
 import { compileProjection, type ProjectionPolicy } from "../../query/projection";
 import { executeRead, orderedCatalog, type ReadPlan } from "../../query/read";
-import { readCommerceRelationRows, type CommerceRelation, type CommerceRelationReadContext } from "../../query/relations";
+import { bindCommerceRelationRows, readCommerceRelationRows, type CommerceRelation, type CommerceRelationReadContext } from "../../query/relations";
 import { resolveCommerceRelationFilter } from "../../query/relation-filter";
 import { type Predicate } from "../../query/predicate";
 import { prepareScalarRepository } from "../../repository/scalar";
@@ -100,7 +100,7 @@ export function prepareTaxLinesRepository(metadata: Metadata) {
       // Full Rules are checked even when a matching selector would return fewer.
       const ruleCohort = ruleCohortPredicate(regionalIds);
       yield* readCommerceRelationRows(ctx, rule.name, ruleCohort);
-      const matchingRules = parsed.rulePredicate === undefined ? undefined : yield* resolveCommerceRelationFilter(ctx, rate.name, "rules",
+      const matchingRules = parsed.rulePredicate === undefined ? undefined : yield* resolveCommerceRelationFilter(bindCommerceRelationRows(ctx), rate.name, "rules",
         { kind: "and", children: [ruleCohort, parsed.rulePredicate] }, catalog.relations);
       return yield* executeRead(ctx, catalog, candidatePlan(parsed.regionIds, matchingRules), false);
     });

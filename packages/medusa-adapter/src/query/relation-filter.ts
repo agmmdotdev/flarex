@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { commerceError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { readCommerceRelationRows, type CommerceRelationLookup, type CommerceRelation, type CommerceRelationReadContext } from "./relations";
+import { type CommerceRelationLookup, type CommerceRelation, type CommerceRelationRows } from "./relations";
 import type { Predicate } from "./predicate";
 
 const identities = Effect.fn("MedusaAdapter.relationIdentities")(function* (rows: readonly JsonObject[], columns: readonly string[], nullable = false) {
@@ -22,7 +22,7 @@ const visible = (predicate: Predicate, withDeleted: boolean): Predicate => ({ ki
 /** Resolve an admitted existence predicate from leaf to root, before paging.
  * Every lookup stays on the same manager and proves its complete bounded set. */
 export const resolveCommerceRelationFilter = Effect.fn("MedusaAdapter.resolveRelationFilter")(function* (
-  ctx: CommerceRelationReadContext, source: string, path: string,
+  readRows: CommerceRelationRows, source: string, path: string,
   predicate: Json, relations: CommerceRelationLookup, withDeleted = false,
 ) {
   const steps: { source: string; relation: CommerceRelation }[] = [];
@@ -38,7 +38,7 @@ export const resolveCommerceRelationFilter = Effect.fn("MedusaAdapter.resolveRel
   }
   const leafKey = steps.at(-1)?.relation.targetPrimaryKeys[0];
   if (leafKey === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  let rows = yield* readCommerceRelationRows(ctx, table, predicate, leafKey);
+  let rows = yield* readRows(table, predicate, leafKey);
   for (let index = steps.length - 1; index >= 0; index--) {
     const step = steps[index];
     if (step === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -56,12 +56,12 @@ export const resolveCommerceRelationFilter = Effect.fn("MedusaAdapter.resolveRel
       const target = join.targetColumns[0];
       if (join.targetColumns.length !== 1 || target === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
       const values = yield* identities(rows, relation.targetPrimaryKeys);
-      const pivots = yield* readCommerceRelationRows(ctx, join.pivotTable, { kind: "in", column: target, values }, target);
+      const pivots = yield* readRows(join.pivotTable, { kind: "in", column: target, values }, target);
       selected = { kind: "in", column: rootKey, values: yield* identities(pivots, join.sourceColumns) };
     } else return yield* Effect.fail(commerceError("unsupportedProfile"));
     if (index === 0) return selected;
     if (index > 0) {
-      rows = yield* readCommerceRelationRows(ctx, step.source, visible(selected, withDeleted), rootKey);
+      rows = yield* readRows(step.source, visible(selected, withDeleted), rootKey);
     }
   }
   return yield* Effect.fail(commerceError("unsupportedProfile"));

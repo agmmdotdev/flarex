@@ -2,42 +2,36 @@
 
 ## Status and authority
 
-Status: the selected original-native cohort is characterized after the bounded
-[Variant and item pricing workflow](./159-native-variant-item-price-calculation.md).
-The module-owner plan is prepared. The scoped native compensation contracts and Promotion helper
-correction are approved. The native Address and Link ownership owners and their
-scoped concurrency proofs are implemented; complete-root ownership remains an
-admission gate. Maximum-graph evidence,
-remaining call-detail coverage, native inverse concurrency/ownership proofs,
-resource measurement and adapter admission remain pending.
+Status: implemented as a private bounded native Cart creation profile. The
+genuine createCartWorkflow and its complete child closure use eighteen native
+sources, one twelve-model Cart owner and the existing trusted outer settlement
+owner. Customer group reads, native Promotion calculation, Tax/Adjustment
+refresh and explicit native numeric presentation extend that existing owner.
+The selected profile preserves native callbacks and retained inverses.
 
-Private source prerequisites now include the native Cart, Customer, Tax and
-Payment services/models, local System providers, Cart totals helpers and selected
-native type closure. Runtime adaptations only relocate framework utility
-imports; Payment's explicit-model joiner delegates directly to the existing
-native portable builder. Its model order, aliases and options remain native.
-Payment's unchanged static manifest retains the host-specific provider loader
-and is outside the portable service/provider entrypoint claim.
+Private prerequisites retain genuine Cart, Customer, Tax and Payment
+services/models, local System providers, Cart totals and selected native types.
+Runtime adaptations and approved native corrections have exact source guards.
+Payment's explicit-model joiner delegates to the existing native portable
+builder; its host-specific provider loader remains outside portable service
+entrypoint claims.
 
-Promotion's models, types and pure calculation/validation helpers are selected;
-its native service executes only the separate checkout read profile. Automatic
-computation and the corresponding static service profile remain unadmitted. Its automatic
-candidate prefilter uses native SQL, including deleted relation rows and
-text-to-decimal comparisons, so ordinary active-relation reads or a list-all
-fallback cannot replace it. A native persistence seam must preserve candidate
-selection and failures before the connected Promotion service can be admitted.
-The selected context and Inventory read branches add no Cart write profile
-or provider activation. Native compensation decisions and complete inverse proofs remain
-separate gates.
+The private native Promotion calculation profile now uses its seven-model
+source and the approved same-source PostgreSQL predicate owner. Native candidate
+selection, complete historical Rule/Value evaluation, Link exclusions and final
+computeActions retain separate ownership. No automatic roots skips cast
+evaluation. The selected 256-node aggregate allowance preserves the complete
+native context and the default/scalar limits; broader Promotion mutation and
+complete Cart admission remain separate.
 
 The executing reference is Medusa 2.13.4, commit
 `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`, recorded by
 `third_party/medusa/SOURCE.json`. The root is `createCartWorkflow` in
 `third_party/medusa/upstream/packages/core/core-flows/src/cart/workflows/create-carts.ts`.
 The accepted Medusa boundary, shared logical storage and existing workflow
-transaction owners remain authoritative. This plan admits no Cart writes or
-resource allowance for the complete Cart root. Selected child profiles remain
-separate. Product export and chunked file import remain deferred.
+transaction owners remain authoritative. The implemented private Cart writer
+and selected child profiles have their own bounded contracts. Complete-root
+resource selection does not by itself authorize business execution. Product export and chunked file import remain deferred.
 
 ## Implemented Cart context read branch
 
@@ -136,16 +130,16 @@ refreshes taxes and promotions, runs payment refresh and `cart.created`
 emission in parallel, invokes `cartCreated`, and returns the original created
 Cart value. Do not assume that value equals a subsequent persisted Cart read.
 
-| Owner | Existing reuse and required work |
+| Owner | Implemented bounded reuse |
 | --- | --- |
 | Product and Pricing | Reuse 159's genuine native calculation and complete graph. |
-| Inventory | Reuse the implemented bounded confirmation child, its Location projection, Channel and required/available quantity checks, and native backorder behavior. Complete Cart-root composition remains separate. |
-| Store, Sales Channel and Region | Extend named reads for default-channel selection, native channel retrieval, wildcard fields and Countries. |
-| Cart | Add its nine native models, persistence, line items, tax lines, adjustments, totals and raw decimal presentation. |
-| Customer | Add the native owner, guest/account/email selection, creation and genuine compensating deletion. |
-| Tax | Add native persistence, service and provider registration, including genuine local SystemTax calculation. |
-| Promotion | Add native automatic/manual calculation, adjustment writes and Cart-Promotion Link traversal. |
-| Payment | Prove the Cart-PaymentCollection graph and conditional service/provider resolution; never fabricate a skipped or successful call. |
+| Inventory | Reuse the implemented bounded confirmation child, its Location projection, Channel and required/available quantity checks, and native backorder behavior. Native Cart-root composition selects that existing read-only owner. |
+| Store, Sales Channel and Region | Reuse named default-channel/Region reads, native channel retrieval and the complete bounded Country cohort. |
+| Cart | Reuse its twelve-model ownership source, native creation, Tax/Adjustment methods, computed totals and native raw decimal presentation. |
+| Customer | Reuse native guest/account/email selection, creation, retained deletion and the bounded group graph. |
+| Tax | Use native persistence, service and genuine local SystemTax calculation. |
+| Promotion | Use native automatic/manual calculation, bounded historical predicates, adjustment writes and genuine Cart-Promotion Links. |
+| Payment | Retain the genuine Cart-PaymentCollection graph and native conditional refresh branch. |
 
 Empty Cart input still reaches connected owners. Tax refresh resolves Tax
 before its no-context exit and invokes both Cart tax-line setters, including
@@ -301,8 +295,9 @@ ordering. With no automatic roots, skip cast evaluation. This fixes evaluation
 cohort ownership while leaving PostgreSQL Boolean expression/error ordering
 unspecified. It intentionally replaces physical-plan-dependent suppression of
 detached or unrelated Rule errors. This native evaluation cohort is explicitly
-approved and remains unimplemented. Any required shared multi-relation capture
-correction still needs its own failing witness, owner contract and authorization. Preserve
+approved and implemented through the bounded same-source related predicate
+owner. Additional shared capabilities still require their own failing witness,
+owner contract and authorization. Preserve
 the authentic native mismatch; do not hide it in adapter-side filtering or
 eager JavaScript validation.
 
@@ -710,7 +705,166 @@ above remains explicit.
 
 The nine-model payment/completion profile and the eventless low-level ownership
 fixture retain their separate contracts. This writer binds one genuine Cart
-source; it does not combine two Cart participants or admit the complete Cart
-creation root. Connected Promotion/Campaign calculation, adjustment and Tax
-refresh, maximum-root resources and remaining root hooks still require their
-own closure and admission proofs.
+source and does not combine two Cart participants. The complete root below
+reuses that owner through its separate creation-workflow profile.
+
+## Remaining native creation selector and automatic-Promotion gates
+
+The preserved checked-DML test native-cart-create-selector-witness.test.ts
+compiles all twelve genuine Cart ownership models. Native update-tax-lines
+requests shipping_address.region_code, absent from Address DML; the tax
+context consumes the genuine province instead. Native cartFieldsForRefreshSteps
+also requests root quantity, absent from Cart DML, totals and DTOs; Line Item
+quantity remains genuine. Both exact selectors originally refused unsupportedProfile. The approved native
+correction removes only those selectors. Province and Line Item quantity remain
+in the genuine query closure; metadata validation remains strict.
+
+The genuine native automatic-Promotion callback separately reaches the shared
+related-program node limit with 188 nodes, depth five and 80 operands for its
+eight-attribute Cart context. The preserved
+logical-native-promotion-compute.test.ts originally refused limitExceeded. The
+approved identity-bound 256-node related-program allowance admits that complete
+native context. Its unchanged default/scalar limits are owned by the
+[shared predicate resource gate](../../shared-logical-storage/68-postgres-relational-predicates.md#native-promotion-related-program-resource-gate).
+Independent manual calculation, Campaign and receipt checks do not establish
+this automatic branch or complete-root admission.
+
+### Native pricing-hook validator gate
+
+The preserved native-cart-pricing-hook-witness.test.ts executes the genuine
+pricingContextResult declaration with native createHook usage. The finite SDK
+originally refused resultValidator as unsupportedProfile. The pinned native owner stages
+the hook handler first and lazily stages one cached get-result node. Unbound
+handlers bypass parsing; bound undefined is parsed. Compensation belongs to the
+original handler, including when later result parsing fails. Eager validation
+in the existing combined finite hook node would change that contract.
+
+The approved closed SDK profile extracts only native
+z.record(z.string(), z.any()).optional(), re-exported at the original native
+pricingContextResult declaration. The SDK captures the genuine schema and
+parser internally, refuses arbitrary schemas/clones/substitutions, retains lazy
+result staging and compensation, and includes the profile in workflow identity.
+Native parsing remains under the existing invoke, capture and resource owner.
+No generic validator registry or arbitrary parse callback is admitted. Ordinary
+hooks retain their existing construction and identity. Complete Cart construction
+has the separate measured node gate below.
+
+### Native public raw-number spelling gate
+
+The genuine native ORM and portable creation profile preserve the same exact
+Adjustment value for string input 9007199254740993.1250, while their public raw
+companions differ: the ORM returns raw_amount.value 9007199254740993.125; the
+portable profile returns 9007199254740993.1250. The native BigNumber field setter
+uses the genuine trimZeros helper after toPrecision(20). The shared exact
+numeric encoder and its neutral regression deliberately preserve the latter
+storage spelling; equal decimal value alone does not prove identical raw DTOs.
+
+The paired native DAL output and logical-cart-creation-refresh.test.ts preserve
+this representation witness. The approved nativeOrm presentation mode uses the genuine trimZeros helper for
+DML-declared raw numeric companions, including raw-only selections. It is
+explicitly selected by the new Cart creation profile; storage values, unrelated
+JSON and existing presentation modes remain unchanged. Native Tax and Adjustment
+forward and retained inverse calls use this same presentation owner. Exact raw
+amounts remain authoritative for compensation.
+
+### Complete native definition-node gate
+
+The preserved native-cart-create-root-declaration.test.ts now reaches the
+finite SDK aggregate node limit and refuses the complete genuine root. Actual
+child preparation plus the exact guarded native composer establish 72 nodes:
+16 root nodes, Pricing two, Inventory confirmation one, Tax nine, Promotion 31
+(including its 13-node Payment refresh child), and direct Payment refresh 13.
+The required outer child wrapper adds one, for a complete bound of 73. No SDK
+guard was disabled and no child was pruned or split for this measurement.
+
+The approved SDK-issued immutable construction profile is capped at 73,
+selected explicitly by the native root and its outer wrapper and bound into
+workflow identity. Actual definition preparation retains all 72 native nodes
+and the required wrapper. Ordinary construction remains capped at 64 with its
+existing identity bytes. Node grammar, dependencies, resource admission,
+callback limits and one outer settlement remain unchanged. Generic caller JSON
+node limits and unbounded definitions remain refused. This closed construction
+profile is selected by the implemented bounded root.
+
+## Native Line Item totals prefix gate
+
+The initial complete-root witness reached native Promotion with Line Items lacking subtotal
+because creation graph metadata exposes only stored Line Item fields. Native
+CartModuleService already decorates those items using the genuine Cart/Line
+Item total owners. The existing totals-selection metadata now derives all
+required GetItemTotalOutput field names from the pinned native declaration;
+optional detail totals remain outside the fresh-Cart profile.
+
+Adding the nine computed totals and their raw companions to that Cart relation
+view preserves the native calculation, but the preserved pure graph witness
+cart-create-native-totals-graph.log refuses items.variant. Shared prefix
+validation currently requires every presented local field to exist in the
+separate counted Line Item read, which correctly returns stored DML fields
+without Cart decoration. Declaring fictitious computed fields on that direct
+DAL read or dropping native totals would misrepresent its owner.
+
+The approved graph-owner correction keeps stored-column provenance separate
+from checked native presentation metadata. Source and join keys must remain
+stored and authenticated against the actual counted read. Native computed
+fields may extend the local presentation only through that checked owner;
+unlisted fields, foreign participants/tables, missing or substituted keys and
+cardinality violations remain refused. Existing prefix consumers and the
+connected fresh-Cart cases require both-driver validation. The implemented presentation declaration is captured with the native read
+metadata and included in workflow resource identity. Stored prefix, join and
+ordering checks remain unchanged.
+
+## Native Cart creation Pricing context profile
+
+The genuine Region and Country DTOs, passed through the exact native Variant
+pricing transform and flattening utility, produce sixteen non-control pricing
+attributes for a guest and seventeen with customer_id. Timestamps and the
+Country's Region key are genuine inputs. The ordinary ten-attribute Variant
+pricing profile therefore cannot admit this complete native root context.
+
+The existing Pricing owner now has a closed Cart-creation profile capped at
+seventeen non-control attributes. Its separate command/profile identity is
+required explicitly by Cart creation composition. The ordinary ten-attribute
+profile, native flattening, currency checks, indexed candidate selection and
+matcher remain unchanged. Query inputs cannot select a numeric allowance, and
+native fields are not pruned. Region metadata that exceeds this bounded
+context remains unadmitted. The complete native root selects this profile explicitly; it does not widen
+ordinary Variant/item Pricing.
+
+## Implemented bounded complete Cart creation root
+
+The native root runs as a child of the trusted atomic workflow owner. Its
+complete graph contains Cart, Customer, Region, Store, Promotion, Tax, Payment,
+Product, Pricing, Inventory, Stock Location, Sales Channel, Fulfillment and the
+five genuine Link sources. Cart and Inventory each participate once. Existing
+pricing, Inventory confirmation and Sales Channel command/receipt builders are
+reused; native local and cross-module relations retain authenticated ownership.
+
+The root creates one fresh Cart with up to four Line Items. Store defaults,
+Customer selection, the sole-Country Address fallback, exact manual prices and
+native Product pricing retain their native transforms. Native System Tax,
+automatic/manual Promotion calculation and adjustment/Cart-Promotion Link
+writes use the same pending view. Inventory confirmation reads current stock;
+insufficient stock and invalid quantity refuse before durable Cart creation.
+Late cartCreated failure rolls back Cart, Addresses, new guest Customer, Tax,
+Adjustment and Link effects through their existing owners.
+
+The result remains the original created Cart projection, including empty items
+after native separate Line Item creation. Persisted graph reads include actual
+native computed totals and raw companions through captured presentation
+metadata. Stored exact decimal spelling remains distinct from nativeOrm DTO
+normalization. The native payment-refresh child updates an existing Collection;
+a fresh Cart has no Collection or Cart-PaymentCollection Link created by it.
+
+The profile explicitly selects eighteen logical participants, the existing
+512-call Cart allowance, the 73-node construction marker, seventeen Pricing
+context attributes and 256 aggregate Promotion predicate nodes. Ordinary
+profiles retain their own limits. Queued execution and borrowing, scope
+exclusion, resource-digest identity, the existing business deadline and one
+Postgres settlement/outcome owner remain unchanged. Durable replay returns the
+original result without another native mutation or event publication.
+
+Custom validation/pricing-context handlers, translation, populated Shipping
+adjustments, existing-ID Tax upserts and external providers retain separate
+admission gates. Caching is declared absent and native translation is disabled
+for this profile. This bounded private integration establishes no production
+activation, arbitrary framework support or capacity claim.

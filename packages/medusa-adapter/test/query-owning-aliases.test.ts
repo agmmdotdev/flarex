@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { expect, it } from "vitest";
 import { commerceError, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
-import { populateCommerceRelations, type CommerceRelationReadContext, type CommerceRelations } from "../src/query/relations";
+import { bindCommerceRelationRows, populateCommerceRelations, type CommerceRelationReadContext, type CommerceRelations } from "../src/query/relations";
 import { mockRelationalRead } from "./mock-relational-read";
 
 const relations: CommerceRelations = new Map([["parent", new Map(["left", "right"].map(name => [name, {
@@ -36,7 +36,7 @@ it.each(cases)("retains real owning-relation cache reads and one borrowed manage
           return batch;
         }),
       }) };
-    const result = yield* populateCommerceRelations(context, "parent", roots, ["left", "right"], relations, new Map())
+    const result = yield* populateCommerceRelations(bindCommerceRelationRows(context), "parent", roots, ["left", "right"], relations, new Map())
       .pipe(Effect.ensuring(lifetime.close));
     expect(reads).toHaveLength(batches.length);
     expect(result.map(row => [row.left, row.right])).toEqual(pairs.map(pair => pair.map(id => id === null ? null : child(id))));

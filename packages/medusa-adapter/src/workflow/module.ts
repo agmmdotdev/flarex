@@ -6,6 +6,7 @@ import type { GraphModuleDefinition } from "../local-graph/model";
 import { prepareLocalGraph } from "../local-graph/query";
 import { decodeGraphRemotePaths, decodeGraphLinkEndpoints } from "../local-graph/links";
 import { decodeGraphDirectPaths } from "../local-graph/direct-paths";
+import { GraphPresentation, captureGraphPresentation } from "../local-graph/presentation";
 import { defineAtomicCommerceParticipant } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { captureCommerceInput } from "../value/input";
 import { commerceDecoder } from "../value/decoder";
@@ -91,7 +92,9 @@ const Table = Schema.Struct({ name: Schema.String, columns: Schema.Array(Schema.
   foreignKeys: Schema.Array(Schema.String), nullableColumns: Schema.optionalKey(Schema.Array(Schema.String)),
   companions: Schema.Record(Schema.String, Schema.String) });
 const decodeGraphMetadata = commerceDecoder(Schema.Struct({ table: Table,
+  presentation: Schema.optionalKey(GraphPresentation),
   paths: Schema.Array(Schema.Struct({ path: Schema.String, table: Table, many: Schema.Boolean, optional: Schema.optionalKey(Schema.Boolean),
+    presentation: Schema.optionalKey(GraphPresentation),
     sourceFields: Schema.optionalKey(Schema.Array(Schema.String)), targetFields: Schema.optionalKey(Schema.Array(Schema.String)),
     nativeFields: Schema.optionalKey(Schema.Literal(true)) })),
   orderable: Schema.Array(Schema.String), uniqueOrder: Schema.Array(Schema.String),
@@ -195,13 +198,25 @@ function captureGraphDefinition(input: GraphModuleDefinition) {
     const reads = [];
     for (const source of yield* captureWorkflowArray(definition.reads)) {
       const read = yield* captureWorkflowRecord(source);
+      let omittedPresentation = false;
       const metadata = yield* captureCommerceInput({ table: read.table, paths: read.paths, orderable: read.orderable, uniqueOrder: read.uniqueOrder,
-        optionalFields: read.optionalFields }).pipe(Result.flatMap(decodeGraphMetadata));
+        optionalFields: read.optionalFields, presentation: read.presentation }, undefined, path => {
+          if (path[0] === "presentation" && path.length > 1 || path[0] === "paths" && path[2] === "presentation" && path.length > 3)
+            omittedPresentation = true;
+        }).pipe(Result.flatMap(decodeGraphMetadata));
+      if (omittedPresentation) return yield* Result.fail(commerceError("unsupportedProfile"));
       if (typeof read.model !== "string" || typeof read.decode !== "function" || typeof read.multipleOrder !== "boolean" ||
         read.allowOrFilters !== undefined && read.allowOrFilters !== true ||
         read.selectedFieldsOnly !== undefined && read.selectedFieldsOnly !== true ||
         read.nativeFields !== undefined && read.nativeFields !== true) return yield* Result.fail(commerceError("unsupportedProfile"));
-      reads.push(Object.freeze({ ...read, ...metadata,
+      const presentation = metadata.presentation === undefined ? undefined : yield* captureGraphPresentation(metadata.presentation, metadata.table);
+      const paths = [];
+      for (const path of metadata.paths) {
+        const presentation = path.presentation === undefined ? undefined : yield* captureGraphPresentation(path.presentation, path.table);
+        paths.push(Object.freeze({ ...path, ...(presentation === undefined ? {} : { presentation }) }));
+      }
+      reads.push(Object.freeze({ ...read, ...metadata, paths: Object.freeze(paths),
+        ...(presentation === undefined ? {} : { presentation }),
         ...(metadata.optionalFields === undefined ? {} : { optionalFields: Object.freeze([...metadata.optionalFields]) }) }));
     }
     const remotePaths = definition.remotePaths === undefined ? undefined : yield* captureCommerceInput(definition.remotePaths).pipe(Result.flatMap(decodeGraphRemotePaths));

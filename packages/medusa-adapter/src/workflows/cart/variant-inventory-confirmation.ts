@@ -60,6 +60,29 @@ const variantInventoryConfirmationWorkflow = createWorkflow("native-variant-inve
 const names = ["product", "pricing", "inventory", "stock_location", "sales_channel", "fulfillment",
   "product_links", "variant_links", "sales_channel_locations"] as const;
 
+/** Extend the authenticated native Inventory graph with its existing finite
+ * confirmation command, retaining one participant and the original routing. */
+export const prepareVariantInventoryConfirmationModule = Effect.fn("MedusaWorkflow.prepareInventoryConfirmationModule")(function* (input: InstalledWorkflowModule) {
+  const source = workflowModuleDefinition(input.module)?.source;
+  if (source?.name !== "flarex-inventory-local" || source.profile !== "inventory-variant-price-calculation")
+    return yield* Effect.fail(commerceError("invalidAuthority"));
+  const confirmation = yield* makeInventoryConfirmationCommands();
+  const original = workflowModuleDefinition(input.module);
+  if (original?.logical === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
+  const graphPolicy = original.logical, confirmationPolicy = confirmation.logicalEventPolicy();
+  const graphCommands = new Set<CommerceCommand>(original.graph.reads.map(read => read.command));
+  const validateLogicalCall: LogicalCommerceCallValidation = Effect.fn("Inventory.validateGraphAndConfirmation")(function* (call, activity, command) {
+    if (command === confirmation.confirm) return yield* confirmationPolicy.validateLogicalCall(call, activity);
+    if (!graphCommands.has(command)) return yield* Effect.fail(commerceError("invalidAuthority"));
+    yield* graphPolicy.validateLogicalCall(call, activity, command);
+  });
+  const inventoryModule = yield* Effect.fromResult(defineWorkflowModule({ name: input.module.name,
+    source: { ...original.source, profile: "inventory-variant-confirmation" }, methods: confirmation.workflow.methods,
+    graph: original.graph, logical: { commands: [...graphCommands, confirmation.confirm],
+      capture: confirmationPolicy.capture, validateLogicalCall } }));
+  return { binding: { ...input, module: inventoryModule }, resource: confirmation.resource };
+});
+
 /** One Inventory participant owns the existing graph reads and confirmation.
  * The composed native ABI receives no database capability or extra lifetime.
  * The named trusted call allowance is bound by the existing host identity API. */
@@ -75,20 +98,8 @@ export const prepareVariantInventoryConfirmationWorkflow = Effect.fn("MedusaWork
   // Preserve the original graph owner's source/profile admission before the
   // combined Inventory profile adds a single authentic native method.
   const graphModules = yield* prepareVariantItemPricingModules(captured);
-  const confirmation = yield* makeInventoryConfirmationCommands();
-  const original = workflowModuleDefinition(graphModules.inventory.module);
-  if (original?.logical === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
-  const graphPolicy = original.logical, confirmationPolicy = confirmation.logicalEventPolicy();
-  const graphCommands = new Set<CommerceCommand>(original.graph.reads.map(read => read.command));
-  const validateLogicalCall: LogicalCommerceCallValidation = Effect.fn("Inventory.validateGraphAndConfirmation")(function* (call, activity, command) {
-    if (command === confirmation.confirm) return yield* confirmationPolicy.validateLogicalCall(call, activity);
-    if (!graphCommands.has(command)) return yield* Effect.fail(commerceError("invalidAuthority"));
-    yield* graphPolicy.validateLogicalCall(call, activity, command);
-  });
-  const inventoryModule = yield* Effect.fromResult(defineWorkflowModule({ name: graphModules.inventory.module.name,
-    source: { ...original.source, profile: "inventory-variant-confirmation" }, methods: confirmation.workflow.methods,
-    graph: original.graph, logical: { commands: [...graphCommands, confirmation.confirm],
-      capture: confirmationPolicy.capture, validateLogicalCall } }));
+  const confirmation = yield* prepareVariantInventoryConfirmationModule(graphModules.inventory);
+  const inventoryModule = confirmation.binding.module;
   const { inventory: inventoryStorage, ...otherModules } = graphModules;
   const modules = { ...otherModules, inventory_graph: { ...inventoryStorage, module: inventoryModule } };
   const resources = yield* Effect.fromResult(prepareWorkflowResources({

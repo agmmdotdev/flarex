@@ -1,3 +1,4 @@
+import type { CartDTO } from "@medusajs/types"
 import type { CartCollectionRefreshView } from "../../common/steps/payment-collection-query-views"
 import type { WorkflowDefinition, Hook } from "@medusajs/workflows-sdk"
 import { MathBN, isPresent } from "@medusajs/framework/utils/portable"
@@ -28,7 +29,7 @@ export type RefreshPaymentCollectionForCartWorklowInput = {
   /**
    * The Cart reference.
    */
-  cart?: typeof CartCollectionRefreshView.Type
+  cart?: typeof CartCollectionRefreshView.Type | (CartDTO & { payment_collection?: undefined })
 }
 
 export const refreshPaymentCollectionForCartWorkflowId =
@@ -60,7 +61,7 @@ export const refreshPaymentCollectionForCartWorkflowId =
  */
 export const refreshPaymentCollectionForCartWorkflow: WorkflowDefinition<
   RefreshPaymentCollectionForCartWorklowInput, undefined,
-  readonly [Hook<"validate", { input: RefreshPaymentCollectionForCartWorklowInput; cart: typeof CartCollectionRefreshView.Type }>]
+  readonly [Hook<"validate", { input: RefreshPaymentCollectionForCartWorklowInput; cart: NonNullable<RefreshPaymentCollectionForCartWorklowInput["cart"]> }>]
 > = createWorkflow(
   {
     name: refreshPaymentCollectionForCartWorkflowId,

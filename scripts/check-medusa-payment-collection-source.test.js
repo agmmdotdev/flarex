@@ -4,6 +4,9 @@ import test from "node:test";
 import { paymentCollectionSourcePairs, verifyPaymentCollectionSelection, verifyPaymentCollectionSource, verifyCartPaymentTotalsSource } from "./check-medusa-payment-collection-source.mjs";
 /** @param {string} file */
 const read = file => readFileSync(new URL("../" + file, import.meta.url), "utf8");
+const itemTotalsSource = read("third_party/medusa/upstream/packages/core/utils/src/totals/line-item/index.ts");
+/** @param {string} source @param {string} target @param {string} helper */
+const verifyTotals = (source, target, helper) => verifyCartPaymentTotalsSource(source, target, helper, itemTotalsSource);
 test("requires each exact native workflow selection once", () => {
   verifyPaymentCollectionSelection(paymentCollectionSourcePairs);
   assert.throws(() => verifyPaymentCollectionSelection(paymentCollectionSourcePairs.slice(1)));
@@ -19,16 +22,16 @@ for (const pair of paymentCollectionSourcePairs) test("retains native collection
 test("extracts the exact native Cart total selector and leaves every service operation intact", () => {
   const source = read("third_party/medusa/upstream/packages/modules/cart/src/services/cart-module.ts"),
     target = read("packages/medusa-cart/src/services/cart-module.ts"), helper = read("packages/medusa-cart/src/utils/totals-selection.ts");
-  verifyCartPaymentTotalsSource(source, target, helper);
-  assert.throws(() => verifyCartPaymentTotalsSource(source, target, helper.replace('"items.tax_lines"', '"items.invalid"')));
-  assert.throws(() => verifyCartPaymentTotalsSource(source, target.replace("decorateCartTotals(cart)", "cart"), helper));
+  verifyTotals(source, target, helper);
+  assert.throws(() => verifyTotals(source, target, helper.replace('"items.tax_lines"', '"items.invalid"')));
+  assert.throws(() => verifyTotals(source, target.replace("decorateCartTotals(cart)", "cart"), helper));
   for (const [before, after] of [
     ["this.cartCreationStore_.record(cartCreationSnapshot(carts, plan), sharedContext)", "this.cartCreationStore_.record(cartCreationSnapshot(carts, plan), {})"],
     ["this.cartCreationStore_.compensate(receipt, sharedContext", "this.cartCreationStore_.compensate(receipt, {}"],
     ["await this.createCarts_(data, sharedContext)", "await this.createCarts_(data, {})"],
     ["carts: presentCartCreation(carts), receipt", "carts, receipt"],
     ["this.addressService_.delete(ids, context)", "this.addressService_.delete(ids, {})"],
-  ]) assert.throws(() => verifyCartPaymentTotalsSource(source, target.replace(before, after), helper));
+  ]) assert.throws(() => verifyTotals(source, target.replace(before, after), helper));
 });
 
 test("retains only the approved scalar amount preimage selection", () => {
@@ -52,4 +55,12 @@ test("retains captured-payment exclusion, validation and exact Cart amount compa
     assert.ok(pair);
     assert.throws(() => verifyPaymentCollectionSource(read(pair.source), read(pair.target).replace(before, after), pair.target));
   }
+});
+
+test("retains exact required native Line Item total metadata", () => {
+  const source = read("third_party/medusa/upstream/packages/modules/cart/src/services/cart-module.ts");
+  const target = read("packages/medusa-cart/src/services/cart-module.ts"), helper = read("packages/medusa-cart/src/utils/totals-selection.ts");
+  verifyTotals(source, target, helper);
+  assert.throws(() => verifyTotals(source, target, helper.replace('"original_subtotal"', '"invented_total"')));
+  assert.throws(() => verifyCartPaymentTotalsSource(source, target, helper, itemTotalsSource.replace("subtotal: BigNumber", "subtotal?: BigNumber")));
 });

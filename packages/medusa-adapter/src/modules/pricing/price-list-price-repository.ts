@@ -3,7 +3,7 @@ import { generateEntityId } from "@medusajs/framework/utils/portable";
 import { prepareUpsertWithReplaceEntries, uniqueUpsertEntries, planUpsertRelationEntries, applyUpsertRelationResults } from "@medusajs/utils/dal/upsert-planning";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject, type JsonObject, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { assembleCommerceRelations, type CommerceRelationOrder } from "../../query/relations";
+import { bindCommerceRelationRows, assembleCommerceRelations, type CommerceRelationOrder } from "../../query/relations";
 import { resolveCommerceRelationFilter } from "../../query/relation-filter";
 import { projectRows } from "../../query/projection";
 import { projectNativeRow } from "../../repository/result";
@@ -67,11 +67,11 @@ export const readPriceListPriceCandidates = Effect.fn("PricingLists.readPriceCan
   ctx: CommerceCommandContext, contracts: PriceListPriceCreationContracts, input: unknown,
 ) {
   const plan = yield* Effect.fromResult(contracts.compileNativeCandidatePlan(input));
-  const activeSetMembership = yield* resolveCommerceRelationFilter({ ...ctx,
+  const activeSetMembership = yield* resolveCommerceRelationFilter(bindCommerceRelationRows({ ...ctx,
     admitSelection: (table, rows) => Result.gen(function* () {
       if (table !== contracts.tables.set.name) return yield* Result.fail(commerceError("unsupportedProfile"));
       for (const row of rows) yield* contracts.decodeSetRow(projectNativeRow(row));
-    }) }, contracts.tables.price.name, "price_set", plan.setPredicate, contracts.relations);
+    }) }), contracts.tables.price.name, "price_set", plan.setPredicate, contracts.relations);
   const roots: (JsonObject & Readonly<{ id: string }>)[] = [];
   const store = yield* ctx.table(contracts.tables.price.name);
   for (const input of yield* store.find(ctx.manager, plan.rootQuery(activeSetMembership))) {

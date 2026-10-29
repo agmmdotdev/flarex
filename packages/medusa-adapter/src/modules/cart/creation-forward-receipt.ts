@@ -3,24 +3,26 @@ import { MedusaError } from "@medusajs/utils/common/errors";
 import { cartCreationSnapshot, prepareCartCreationAddresses } from "@medusajs/cart/creation";
 import { buildQuery } from "@medusajs/utils/modules-sdk/build-query";
 import { jsonEqual } from "flarex-protocol/json";
-import { commerceError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, type Json, type JsonObject, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
 import { projectNativeRow, orderNativeIdRows } from "../../repository/result";
 import { captureGraph } from "../../write/create";
 import { captureCommerceInput } from "../../value/input";
-import { decodeCartCreates, decodeCartCreationResult } from "./creation-input";
+import { decodeCartCreates, decodeCartCreationResult, type CartCreates, type CartRootCreates } from "./creation-input";
 import type { prepareCartCreationRepository } from "./creation-repository";
 import { cartPaymentReadPolicy } from "./payment-receipt";
 
 type Prepared = Result.Result.Success<ReturnType<typeof prepareCartCreationRepository>>;
+export type CartCreationInputDecoder = (input: unknown) => Result.Result<typeof CartCreates.Type | typeof CartRootCreates.Type, CommerceTransactionError>;
 const mismatch = () => commerceError("receiptMismatch");
 
 /** Correlate native creation with the existing graph capture owner, checked
  * DML defaults, native ownership snapshot and the original Cart read policy.
  * Generated identities come only from the actual complete insertion cohort. */
 export const validateCartCreated = Effect.fn("CartCreation.validateCreated")(function* (prepared: Prepared,
-  call: Parameters<LogicalCallReceiptValidation>[0], activity: Parameters<LogicalCallReceiptValidation>[1]) {
-  const input = yield* Effect.fromResult(decodeCartCreates(call.input)), result = yield* Effect.fromResult(decodeCartCreationResult(call.result));
+  call: Parameters<LogicalCallReceiptValidation>[0], activity: Parameters<LogicalCallReceiptValidation>[1],
+  decodeInput: CartCreationInputDecoder = decodeCartCreates) {
+  const input = yield* Effect.fromResult(decodeInput(call.input)), result = yield* Effect.fromResult(decodeCartCreationResult(call.result));
   const inserted = new Map<string, JsonObject[]>();
   for (const [ordinal, mutation] of activity.mutations.entries()) {
     const entity = prepared.byName.get(mutation.table);
@@ -85,7 +87,11 @@ export const validateCartCreated = Effect.fn("CartCreation.validateCreated")(fun
     expected.push({ table: entity.table.name, row });
   const receipt = result.receipt;
   if (receipt !== undefined) {
-    const snapshot = yield* Effect.try({ try: () => cartCreationSnapshot(result.carts, prepareCartCreationAddresses(input)), catch: cause => cause })
+    // The complete native root supplies DML-nullable fields omitted by the
+    // narrower public CreateCartDTO declaration. The selected decoder above
+    // retains those exact values; this named native boundary only observes
+    // Address ownership and never performs another creation implementation.
+    const snapshot = yield* Effect.try({ try: () => cartCreationSnapshot(result.carts, Reflect.apply(prepareCartCreationAddresses, undefined, [input])), catch: cause => cause })
       .pipe(Effect.catch(cause => cause instanceof MedusaError ? Effect.fail(commerceError("receiptMismatch", cause)) : Effect.die(cause)));
     if (!jsonEqual(snapshot.addresses, [...addressIds])) return yield* Effect.fail(mismatch());
     expected.push({ table: "cart_creation_operation", row: { id: receipt.operation_id, ...snapshot, state: "applied" } },

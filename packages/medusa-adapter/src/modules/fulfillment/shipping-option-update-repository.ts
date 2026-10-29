@@ -11,7 +11,7 @@ import type { CommercePromiseOwner } from "../../module/promise-owner";
 import { captureCommerceInput } from "../../value/input";
 import { commerceDecoder } from "../../value/decoder";
 import { executeRead } from "../../query/read";
-import { populateCommerceRelations } from "../../query/relations";
+import { bindCommerceRelationRows, populateCommerceRelations } from "../../query/relations";
 import { replaceGraphRows } from "../../write/replace";
 import { compileShippingOptionUpdateContracts, ShippingOptionUpdate } from "./shipping-option-update-input";
 import { prepareShippingOptionUpdateGraph } from "./shipping-option-update-graph";
@@ -72,7 +72,7 @@ export function prepareShippingOptionUpdateRepository(metadata: Metadata) {
               yield* events.rows(event, model, (replaced.performedActions[action][model] ?? []).map(value => ({ ...value })), shared);
         }
         const paths = [...new Set(pairs.flatMap(({ update }) => [...(update.type === undefined ? [] : ["type"]), ...(update.rules === undefined ? [] : ["rules"])]))];
-        const populated = yield* populateCommerceRelations({ manager: ctx.manager, table: ctx.table, resources: ctx.resources, admitSelection },
+        const populated = yield* populateCommerceRelations(bindCommerceRelationRows({ manager: ctx.manager, table: ctx.table, resources: ctx.resources, admitSelection }),
           contracts.option.name, output, paths, contracts.relations, graph.profile.ordering);
         fillNullToOneRelations(populated, descriptors);
         return structuredClone(yield* Effect.fromResult(contracts.decodeRows(populated)));

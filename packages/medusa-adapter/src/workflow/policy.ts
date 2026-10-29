@@ -1,5 +1,9 @@
 import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 
+/** The closed native Promotion prefilter retains one complete related program.
+ * Ordinary participants and scalar subtrees keep their default node limit. */
+export const promotionComputeResources = Object.freeze({ ...defaultCommerceResources, relatedPredicateNodes: 256 });
+
 /** Named trusted workflow selections. The core captures and caps these at
  * composition; business inputs cannot raise them. Keep distinct workload names
  * even when today's allowances are equal. */

@@ -5,8 +5,14 @@ import type { SkipStepResponse } from "@medusajs/orchestration/transaction/error
 
 /** Medusa's staged authoring type: values are references until runtime resolution. */
 export declare const dataBrand: unique symbol;
-export type WorkflowData<T> = [T] extends [never] ? { readonly [dataBrand]: T }
-  : T extends null | void ? { readonly [dataBrand]: T } : T & { readonly [dataBrand]: T };
+type StagedValue<T> = T extends null | void ? { readonly [dataBrand]: T } : T & { readonly [dataBrand]: T };
+export type WorkflowData<T> = 0 extends 1 & T ? T
+  : [T] extends [never] ? { readonly [dataBrand]: T }
+  : [Extract<T, null | undefined>] extends [never] ? StagedValue<T>
+  : [NonNullable<T>] extends [never] ? StagedValue<T>
+  : [NonNullable<T>] extends [object]
+    ? { readonly [Key in keyof NonNullable<T>]: NonNullable<T>[Key] | undefined } & { readonly [dataBrand]: T }
+    : StagedValue<T>;
 export type StepOutput<Output> = WorkflowData<Output> & {
   readonly config: (options: { readonly name: string; readonly noCompensation?: true } | { readonly noCompensation: true; readonly name?: string }) => StepOutput<Output>;
 };
@@ -73,6 +79,8 @@ export type WorkflowNode = WorkflowNodeBase & ({
   readonly compensation: "transactionCovered" | undefined;
   readonly hook: boolean;
   readonly boundHook?: boolean;
+  readonly hookValidator?: "nativePricingContextResult";
+  readonly hookResult?: { readonly handler: object; readonly validator: "nativePricingContextResult" };
   readonly invokedWorkflows?: readonly { readonly definition: object; readonly workflow: PreparedWorkflow }[];
 });
 export interface Reference {

@@ -27,9 +27,9 @@ const definitions = [["cart_address", "Address"], ["cart", "Cart"], ["cart_line_
 /** Native Cart owns creation, ordering, separate Line Item calls and retained
  * ownership decisions. This binding supplies checked DML writes and borrowed
  * lifecycle capabilities to that single genuine service instance. */
-export function prepareCartCreationRepository(metadata: Metadata, read: PreparedRead) {
+export function prepareCartCreationRepository(metadata: Metadata, read: PreparedRead, inputProfile: "standalone" | "workflow" = "standalone") {
   return Result.gen(function* () {
-    if (read.profile !== "creation") return yield* Result.fail(commerceError("unsupportedProfile"));
+    if (read.profile !== "creation" || inputProfile !== "standalone" && inputProfile !== "workflow") return yield* Result.fail(commerceError("unsupportedProfile"));
     const ownership = yield* prepareCartCreationOwnership(metadata);
     const entities = yield* Result.all(definitions.map(([name, model]) => Result.gen(function* () {
       const contract = read.byName.get(name);
@@ -83,6 +83,10 @@ export function prepareCartCreationRepository(metadata: Metadata, read: Prepared
       const rows: JsonObject[] = [];
       for (const value of yield* Effect.fromResult(batch(input))) {
         const captured = yield* captureNativeRecord(value), children: Record<string, unknown> = {};
+        // Native createCartWorkflow carries these typed workflow-only fields
+        // through Cart.create. The genuine DAL ignores them at mapped writes.
+        // Keep original command input/identity; omit only these two names here.
+        if (inputProfile === "workflow" && target === cart) { delete captured.promo_codes; delete captured.additional_data; }
         for (const name of target === cart ? ["shipping_address", "billing_address"] : target === line ? ["tax_lines", "adjustments"] : []) {
           const member = captured[name]; delete captured[name];
           if (member === undefined) continue;

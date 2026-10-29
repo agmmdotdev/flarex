@@ -1,16 +1,27 @@
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkCheckoutGraphSource, checkoutGraphSourcePairs, checkoutGraphAuthoredTargets, expectedPromotionService, verifyCheckoutGraphSelection, verifyNativeCheckoutLink, verifyPromotionService, verifyPromotionSqlPrefilter, promotionSqlPrefilterGate } from "./check-medusa-checkout-graph-source.mjs";
+import { checkCheckoutGraphSource, checkoutGraphSourcePairs, checkoutGraphAuthoredTargets, expectedPromotionService, verifyCheckoutGraphSelection, verifyNativeCheckoutLink, verifyPromotionService, verifyPromotionSqlPrefilter } from "./check-medusa-checkout-graph-source.mjs";
 import { cartPrerequisiteSourcePairs, verifyCartPrerequisiteSourceSelection } from "./check-medusa-cart-prerequisite-source.mjs";
 
-test("retains actual native checkout Links, Promotion constructor and SQL refusal", () => { checkCheckoutGraphSource(); });
-test("rejects native SQL prefilter activation or any different refusal behavior", () => {
-  verifyPromotionSqlPrefilter(promotionSqlPrefilterGate);
-  for (const changed of [promotionSqlPrefilterGate.replace("throw new MedusaError", "return new MedusaError"),
-    promotionSqlPrefilterGate.replace("throw new MedusaError", "return _sharedContext.manager.executeQuery"),
-    promotionSqlPrefilterGate.replace("NOT_ALLOWED", "NOT_FOUND")])
-    assert.throws(() => verifyPromotionSqlPrefilter(changed), /refusal drift/);
+test("retains actual native checkout Links, Promotion constructor and approved prefilter owner", () => { checkCheckoutGraphSource(); });
+test("rejects changes to the exact native prefilter and its portable persistence seam", () => {
+  for (const path of checkoutGraphAuthoredTargets) {
+    const original = readFileSync(path, "utf8");
+    verifyPromotionSqlPrefilter(original, path);
+    assert.throws(() => verifyPromotionSqlPrefilter(original + "\nexport const bypass = true;", path), /prefilter drift/);
+  }
+  const plan = checkoutGraphAuthoredTargets.find(path => path.endsWith("/prefilter-plan.ts"));
+  const helper = checkoutGraphAuthoredTargets.find(path => path.endsWith("/prefilter.ts"));
+  assert.ok(plan); assert.ok(helper);
+  for (const [path, before, after] of [[plan, "filter(Number.isFinite)", "filter(value => !isNaN(value))"],
+    [plan, '|| "FALSE"', '|| "TRUE"'], [helper, "persistence === undefined", "false"],
+    [helper, "await persistence.evaluateRules", "await persistence.rules"]]) {
+    assert.ok(path);
+    const source = readFileSync(path, "utf8");
+    assert.ok(source.includes(before));
+    assert.throws(() => verifyPromotionSqlPrefilter(source.replace(before, after), path), /prefilter drift/);
+  }
 });
 test("authenticates exact source/classification pairs and refuses omissions, duplicates and redirects", () => {
   const first = checkoutGraphSourcePairs[0];
@@ -39,8 +50,9 @@ test("refuses portable import reversions in promoted targets and authored refusa
     assert.throws(() => pair.classification === "promotionServiceFork" ? verifyPromotionService(native, changed) :
       verifyNativeCheckoutLink(native, changed), /drift/);
   }
-  assert.throws(() => verifyPromotionSqlPrefilter(promotionSqlPrefilterGate.replace(
-    '"@medusajs/framework/utils/portable"', '"@medusajs/framework/utils"')), /refusal drift/);
+  for (const path of checkoutGraphAuthoredTargets.filter(path => path.endsWith("/prefilter.ts")))
+    assert.throws(() => verifyPromotionSqlPrefilter(readFileSync(path, "utf8").replace(
+      '"@medusajs/framework/utils/portable"', '"@medusajs/framework/utils"'), path), /prefilter drift/);
 });
 
 test("keeps the Cart prerequisite module gate exact when admitting checkout Promotion", () => {

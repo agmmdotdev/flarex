@@ -2,7 +2,7 @@ import { Effect, Result, Schema } from "effect";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { orderNativeIdRows, projectNativeRow } from "../../repository/result";
-import { populateCommerceRelations, readCommerceRelationRows, type CommerceRelations } from "../../query/relations";
+import { bindCommerceRelationRows, populateCommerceRelations, readCommerceRelationRows, type CommerceRelations } from "../../query/relations";
 import { commerceDecoder } from "../../value/decoder";
 import { captureCommerceInput } from "../../value/input";
 import { ShippingProfileDeletionIds, type compileShippingProfileDeletionContracts } from "./shipping-profile-delete-input";
@@ -38,7 +38,7 @@ export function prepareShippingProfileDeletionValidationRead(contracts: Result.R
         if (rows.length > 8) return yield* Result.fail(commerceError("limitExceeded"));
         for (const row of rows) yield* contracts.decodeOptionRow(projectNativeRow(row));
       }) };
-    const populated = yield* populateCommerceRelations(readContext, contracts.profile.name,
+    const populated = yield* populateCommerceRelations(bindCommerceRelationRows(readContext), contracts.profile.name,
       orderNativeIdRows(roots, input.where), ["shipping_options"], relations, new Map());
     // Shared logical rows carry two private document fields. The native
     // presentation must remove those from populated children as well.

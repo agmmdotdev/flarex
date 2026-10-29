@@ -1,7 +1,7 @@
 import { Effect, Result } from "effect";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { populateCommerceRelations, type CommerceRelationReadContext } from "../../query/relations";
+import { bindCommerceRelationRows, populateCommerceRelations, type CommerceRelationReadContext } from "../../query/relations";
 import { resolveCommerceRelationFilter } from "../../query/relation-filter";
 import { projectNativeRow } from "../../repository/result";
 import { projectExactNumericColumns } from "../../value/exact-numeric";
@@ -34,13 +34,13 @@ export const readPriceListPriceRemovalRows = Effect.fn("PricingLists.readPriceRe
     if (row.deleted_at !== null || typeof row.price_set_id !== "string") return yield* ctx.refuse(commerceError("storedCorruption"));
     setIds.push(row.price_set_id);
   }
-  const membership = yield* resolveCommerceRelationFilter(readContext, contracts.tables.price.name, "price_set",
+  const membership = yield* resolveCommerceRelationFilter(bindCommerceRelationRows(readContext), contracts.tables.price.name, "price_set",
     plan.setPredicate(setIds), contracts.relations);
   const roots: JsonObject[] = [];
   const matched = yield* store.find(ctx.manager, plan.rootQuery(membership));
   yield* Effect.fromResult(admitSelection(contracts.tables.price.name, matched));
   for (const row of matched) roots.push(projectNativeRow(row));
-  const populated = yield* populateCommerceRelations(readContext, contracts.tables.price.name, roots,
+  const populated = yield* populateCommerceRelations(bindCommerceRelationRows(readContext), contracts.tables.price.name, roots,
     ["price_set", "price_list"], contracts.relations, new Map());
   const values: JsonObject[] = [];
   for (const inputRow of populated) {

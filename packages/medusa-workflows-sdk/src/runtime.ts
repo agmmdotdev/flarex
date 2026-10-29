@@ -55,6 +55,7 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
 ): Effect.fn.Return<unknown, Failure | ReturnType<typeof definitionError>> {
   const outputs = new Map<object, unknown>();
   const undefinedStepOutputs = new Set<object>();
+  const hookResponses = new Set<object>();
   const transforms = new Map<object, unknown>();
   const pendingTransforms = new Map<object, Deferred.Deferred<WorkflowResolvedValue, Failure | ReturnType<typeof definitionError>>>();
   const transformDependencies = new Map<object, Set<object>>();
@@ -117,7 +118,24 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
       if (resolved.undefinedStepResult) undefinedStepOutputs.add(node.id);
       return;
     }
-    const input = yield* port.capture((yield* resolve(resolution)).value);
+    let resolvedInput = (yield* resolve(resolution)).value;
+    if (node.kind !== "workflow" && node.hookResult !== undefined) {
+      const handler = definition.nodes.find(candidate => candidate.id === node.hookResult?.handler);
+      if (handler === undefined || handler.kind === "workflow" || !handler.hook || handler.hookValidator !== node.hookResult.validator)
+        return yield* Effect.fail(definitionError("invalidDefinition", "Unknown native hook result handler"));
+      if (handler.boundHook !== true) {
+        // Native NOOP is internal state, not user data or a parse argument.
+        outputs.set(node.id, yield* port.capture(undefined));
+        undefinedStepOutputs.add(node.id);
+        return;
+      }
+      // Native getStepResult reads the stored callback wrapper's .output. A
+      // genuine StepResponse contributes its forward output; a raw callback
+      // contributes only its own output member, usually undefined.
+      if (!hookResponses.has(handler.id)) resolvedInput = typeof resolvedInput === "object" && resolvedInput !== null && "output" in resolvedInput
+        ? resolvedInput.output : undefined;
+    }
+    const input = yield* port.capture(resolvedInput);
     if (node.kind === "workflow") {
       const output = yield* executeFrame(node.workflow, input, port, false, [...framePath, index],
         JSON.stringify([port.context.eventGroupId, ...framePath, index]));
@@ -176,6 +194,7 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
       return;
     }
     if (returned instanceof StepResponse) {
+      if (node.hook) hookResponses.add(node.id);
       const compensation = returned.compensateInput, output = returned.output;
       if (compensation === output) outputs.set(node.id, yield* port.capture(output));
       else {

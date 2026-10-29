@@ -4,7 +4,7 @@ import { Effect, Option, Result, Schema } from "effect";
 import { commerceError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
 import { commerceDecoder } from "../src/value/decoder";
-import type { CommerceRelation, CommerceRelationReadContext } from "../src/query/relations";
+import { bindCommerceRelationRows, type CommerceRelation, type CommerceRelationReadContext } from "../src/query/relations";
 import { resolveCommerceRelationFilter } from "../src/query/relation-filter";
 import { makeReadCatalog, type ReadTable } from "../src/query/catalog";
 import { compileWhere, selectorPredicate, type WherePolicy } from "../src/query/predicate";
@@ -137,9 +137,9 @@ describe("shared Medusa read compilation and execution", () => {
     ]));
     const admitted: string[] = [];
     try {
-      expect(await Effect.runPromise(resolveCommerceRelationFilter({ ...fixture.ctx, admitSelection: table => {
+      expect(await Effect.runPromise(resolveCommerceRelationFilter(bindCommerceRelationRows({ ...fixture.ctx, admitSelection: table => {
         admitted.push(table); return Result.succeed(undefined);
-      } }, "volumes", "editions.editor", { kind: "in", column: "code", values: ["e1"] }, nested, withDeleted)))
+      } }), "volumes", "editions.editor", { kind: "in", column: "code", values: ["e1"] }, nested, withDeleted)))
         .toEqual({ kind: "in", column: "isbn", values: ["v1"] });
       expect(fixture.operations).toEqual(["find:editors", "find:editions"]); expect(admitted).toEqual(["editors", "editions"]);
       expect(fixture.queries[1]).toEqual({ table: "editions", query: { take: defaultCommerceResources.queryRows,
@@ -157,7 +157,7 @@ describe("shared Medusa read compilation and execution", () => {
       ["editions", [{ serial: "s1", deleted_at: null }]], ["editors", [{ code: "e1", edition_serial: "s1" }]],
     ]));
     try {
-      expect(await Effect.runPromise(resolveCommerceRelationFilter(fixture.ctx, "volumes", "editor.edition",
+      expect(await Effect.runPromise(resolveCommerceRelationFilter(bindCommerceRelationRows(fixture.ctx), "volumes", "editor.edition",
         { kind: "in", column: "serial", values: ["s1"] }, nested)))
         .toEqual({ kind: "in", column: "editor_code", values: ["e1"] });
       expect(fixture.operations).toEqual(["find:editions", "find:editors"]);
@@ -172,7 +172,7 @@ describe("shared Medusa read compilation and execution", () => {
     const nested = new Map([["volumes", new Map<string, CommerceRelation>([["editor", { name: "editor", sourcePrimaryKeys: ["isbn"],
       targetTable: "editors", targetPrimaryKeys: ["code", "region"], join: { type: "belongsTo", foreignKeys: ["editor_code", "region"] } }]])]]);
     try {
-      expect(await Effect.runPromise(Effect.result(resolveCommerceRelationFilter(fixture.ctx, "volumes", "editor",
+      expect(await Effect.runPromise(Effect.result(resolveCommerceRelationFilter(bindCommerceRelationRows(fixture.ctx), "volumes", "editor",
         { kind: "and", children: [] }, nested))))
         .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
       expect(fixture.operations).toEqual([]);

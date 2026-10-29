@@ -4,7 +4,6 @@ export const cartFieldsForRefreshSteps = [
   "id",
   "email",
   "currency_code",
-  "quantity",
   "subtotal",
   "original_item_total",
   "item_total",

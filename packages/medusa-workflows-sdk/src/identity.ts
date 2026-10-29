@@ -9,6 +9,7 @@ export type WorkflowIdentity = {
    * The outer outcome owner supplies persistence and its own retention policy. */
   readonly store?: true;
   readonly retentionTime?: 259200;
+  readonly constructionProfile?: { readonly profile: "nativeCartCreation"; readonly maximumNodes: 73 };
   readonly nodes: readonly Schema.Json[];
   readonly references: readonly Schema.Json[];
   readonly result: Schema.Json;
@@ -52,6 +53,8 @@ export function workflowIdentity(name: string, nodes: readonly WorkflowNode[], r
   const entries = nodes.map(node => Object.freeze({ name: node.name, kind: node.kind,
     guards: Object.freeze(node.guards.map(position)), input: encode(node.input),
     ...(node.kind === "workflow" ? { workflow: node.workflow.identity } : { hook: node.hook, bound: node.boundHook === true,
+      ...(node.hookValidator === undefined ? {} : { hookValidator: node.hookValidator }),
+      ...(node.hookResult === undefined ? {} : { hookResult: Object.freeze({ handler: position(node.hookResult.handler), validator: node.hookResult.validator }) }),
       ...(node.invokedWorkflows === undefined ? {} : { invokedWorkflows: Object.freeze(node.invokedWorkflows.map(child => child.workflow.identity)) }) }),
   }));
   const output = encode(result);

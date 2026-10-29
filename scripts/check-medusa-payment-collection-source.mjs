@@ -54,9 +54,9 @@ export function verifyPaymentCollectionSource(source, target, targetPath) {
       .replace('cart: CartDTO & { payment_collection?: any }', 'cart: Pick<CartDTO, "id"> & { payment_collection?: { id: string } | null }')
       .replaceAll("data.created[0].id", "data.created[0]!.id").replace("new WorkflowResponse(created[0])", "new WorkflowResponse(created[0]!)");
   if (file === "cart/workflows/refresh-payment-collection.ts") expected =
-    'import type { CartCollectionRefreshView } from "../../common/steps/payment-collection-query-views"\nimport type { WorkflowDefinition, Hook } from "@medusajs/workflows-sdk"\n' + expected
-      .replace('export const refreshPaymentCollectionForCartWorkflow = createWorkflow(', 'export const refreshPaymentCollectionForCartWorkflow: WorkflowDefinition<\n  RefreshPaymentCollectionForCartWorklowInput, undefined,\n  readonly [Hook<"validate", { input: RefreshPaymentCollectionForCartWorklowInput; cart: typeof CartCollectionRefreshView.Type }>]\n> = createWorkflow(')
-      .replace("cart?: any", "cart?: typeof CartCollectionRefreshView.Type").replace("return fetchCart ?? input.cart", "return (fetchCart ?? input.cart)!")
+    'import type { CartDTO } from "@medusajs/types"\nimport type { CartCollectionRefreshView } from "../../common/steps/payment-collection-query-views"\nimport type { WorkflowDefinition, Hook } from "@medusajs/workflows-sdk"\n' + expected
+      .replace('export const refreshPaymentCollectionForCartWorkflow = createWorkflow(', 'export const refreshPaymentCollectionForCartWorkflow: WorkflowDefinition<\n  RefreshPaymentCollectionForCartWorklowInput, undefined,\n  readonly [Hook<"validate", { input: RefreshPaymentCollectionForCartWorklowInput; cart: NonNullable<RefreshPaymentCollectionForCartWorklowInput["cart"]> }>]\n> = createWorkflow(')
+      .replace("cart?: any", "cart?: typeof CartCollectionRefreshView.Type | (CartDTO & { payment_collection?: undefined })").replace("return fetchCart ?? input.cart", "return (fetchCart ?? input.cart)!")
       .replace("filters: { id: cartId }", "filters: { id: cartId! }")
       .replace("return input.cart_id ?? input.cart?.id", "return (input.cart_id ?? input.cart?.id)!")
       .replace("selector: { id: cart.payment_collection.id }", "selector: { id: cart.payment_collection!.id }")
@@ -102,8 +102,21 @@ export function verifyPaymentCollectionSource(source, target, targetPath) {
   equal(expected, target);
 }
 
-/** @param {string} source @param {string} target @param {string} helper */
-export function verifyCartPaymentTotalsSource(source, target, helper) {
+/** Derive the required public fields from the pinned calculation owner's type.
+ * Optional detail totals are a separate capability. @param {string} source */
+export function nativeLineItemTotalsFieldNames(source) {
+  const ast = parse(source), declarations = ast.statements.filter(node => ts.isInterfaceDeclaration(node) && node.name.text === "GetItemTotalOutput");
+  const declaration = declarations[0];
+  if (declarations.length !== 1 || declaration === undefined || !ts.isInterfaceDeclaration(declaration)) throw new Error("Missing native Line Item totals contract");
+  const fields = declaration.members.filter(node => ts.isPropertySignature(node) && node.questionToken === undefined).map(node => {
+    if (!ts.isPropertySignature(node) || !ts.isIdentifier(node.name) || node.type?.getText(ast) !== "BigNumber") throw new Error("Changed native Line Item total field");
+    return node.name.text;
+  });
+  if (fields.length === 0 || new Set(fields).size !== fields.length) throw new Error("Changed native Line Item total fields");
+  return fields;
+}
+/** @param {string} source @param {string} target @param {string} helper @param {string} itemTotalsSource */
+export function verifyCartPaymentTotalsSource(source, target, helper, itemTotalsSource) {
   const normalized = source.replaceAll("\r\n", "\n").replaceAll('"@medusajs/framework/utils"', '"@medusajs/framework/utils/portable"');
   const ast = parse(normalized), declaration = ast.statements.find(ts.isClassDeclaration);
   if (declaration === undefined) throw new Error("Missing native Cart class");
@@ -122,7 +135,8 @@ export function verifyCartPaymentTotalsSource(source, target, helper) {
       .replace(totals.getText(ast), "totalFields = cartTotalsFields()")
       .replace("this.addRelationsToCalculateTotals(config, totalFields)", "addRelationsToCalculateTotals(config, totalFields)") +
     '\nfunction addRelationsToCalculateTotals(config: FindConfig<Record<string, unknown>>, totalFields: string[]) ' + add.body.getText(ast);
-  equal(helperExpected, helper);
+  equal(helperExpected + "\nexport function lineItemTotalsFields(): readonly string[] { return " +
+    JSON.stringify(nativeLineItemTotalsFieldNames(itemTotalsSource)) + " }\n", helper);
   let expected = normalized.slice(0, add.getStart(ast)) + normalized.slice(add.end);
   expected = expected.slice(0, include.body.getStart(ast)) + "{ return includeCartTotals(config) }" + expected.slice(include.body.end);
   expected = 'import { includeCartTotals } from "../utils/totals-selection"\n' + expected.replace("  deduplicate,\n", "");

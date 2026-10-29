@@ -255,7 +255,21 @@
     "./payment-collection/create-payment-account-holder-step": "./src/payment-collection/steps/create-payment-account-holder.ts",
     "./cart/find-sales-channel-step": "./src/cart/steps/find-sales-channel.ts",
     "./cart/find-one-or-any-region-step": "./src/cart/steps/find-one-or-any-region.ts",
-    "./cart/validate-sales-channel-step": "./src/cart/steps/validate-sales-channel.ts"
+    "./cart/validate-sales-channel-step": "./src/cart/steps/validate-sales-channel.ts",
+    "./cart/create-carts": "./src/cart/workflows/create-carts.ts",
+    "./cart/update-tax-lines": "./src/cart/workflows/update-tax-lines.ts",
+    "./cart/update-cart-promotions": "./src/cart/workflows/update-cart-promotions.ts",
+    "./cart/set-tax-lines-for-items-step": "./src/cart/steps/set-tax-lines-for-items.ts",
+    "./cart/create-line-item-adjustments-step": "./src/cart/steps/create-line-item-adjustments.ts",
+    "./cart/create-shipping-method-adjustments-step": "./src/cart/steps/create-shipping-method-adjustments.ts",
+    "./cart/remove-line-item-adjustments-step": "./src/cart/steps/remove-line-item-adjustments.ts",
+    "./cart/remove-shipping-method-adjustments-step": "./src/cart/steps/remove-shipping-method-adjustments.ts",
+    "./cart/get-actions-to-compute-from-promotions-step": "./src/cart/steps/get-actions-to-compute-from-promotions.ts",
+    "./cart/get-promotion-codes-to-apply-step": "./src/cart/steps/get-promotion-codes-to-apply.ts",
+    "./cart/prepare-adjustments-from-promotion-actions-step": "./src/cart/steps/prepare-adjustments-from-promotion-actions.ts",
+    "./common/get-translated-tax-lines-step": "./src/common/steps/get-translated-tax-lines.ts",
+    "./common/get-translated-line-items-step": "./src/common/steps/get-translated-line-items.ts",
+    "./common/utils/apply-translations-to-items": "./src/common/utils/apply-translations-to-items.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

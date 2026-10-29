@@ -22,7 +22,7 @@ const names = ["product", "pricing", "inventory", "stock_location", "sales_chann
 /** Select original commands/storage and derive only the finite native read
  * graph. Canonical DML and native Link owners supply every endpoint key. */
 export const prepareVariantItemPricingModules = Effect.fn("MedusaWorkflow.prepareVariantItemPricingModules")(function* (
-  input: Readonly<Record<string, InstalledWorkflowModule>>,
+  input: Readonly<Record<string, InstalledWorkflowModule>>, pricingProfile: "variant-item-pricing" | "cart-creation" = "variant-item-pricing",
 ) {
   const record = yield* Effect.fromResult(captureWorkflowRecord(input));
   if (Object.keys(record).length !== names.length) return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -38,7 +38,9 @@ export const prepareVariantItemPricingModules = Effect.fn("MedusaWorkflow.prepar
   const variantLinks = yield* Effect.fromResult(definition("variant_links"));
   const channelLocations = yield* Effect.fromResult(definition("sales_channel_locations"));
   if (product.source.name !== "flarex-product-local" ||
-    pricing.source.name !== "flarex-pricing-local" || pricing.source.profile !== "pricing-variant-item-pricing" ||
+    pricing.source.name !== "flarex-pricing-local" ||
+    pricing.source.profile !== (pricingProfile === "cart-creation" ? "pricing-cart-creation" : "pricing-variant-item-pricing") ||
+    pricingProfile !== "variant-item-pricing" && pricingProfile !== "cart-creation" ||
     inventory.source.name !== "flarex-inventory-local" || inventory.source.profile !== "inventory-variant-price-calculation")
     return yield* Effect.fail(commerceError("invalidAuthority"));
   const calculatePrices = installed.pricing.module.methods.calculatePrices;

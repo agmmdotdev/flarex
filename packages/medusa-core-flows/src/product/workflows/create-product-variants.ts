@@ -254,7 +254,7 @@ export const createProductVariantsWorkflowId = "create-product-variants"
 export const createProductVariantsWorkflow = createWorkflow(
   createProductVariantsWorkflowId,
   (input: WorkflowData<CreateProductVariantsWorkflowInput>): WorkflowResponse<ProductTypes.ProductVariantDTO[], readonly [Hook<"productVariantsCreated", {
-    product_variants: WorkflowData<ProductTypes.ProductVariantDTO[]>
+    product_variants: ProductTypes.ProductVariantDTO[]
     additional_data: Record<string, unknown> | undefined
   }>]> => {
     // Passing prices to the product module will fail, we want to keep them for after the variant is created.

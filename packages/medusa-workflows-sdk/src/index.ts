@@ -6,3 +6,6 @@ export type { Hook, Invoke, WorkflowContainer, Resolved, StepOptions } from "./m
 export type { WorkflowDefinition, PreparedWorkflow } from "./definition";
 export { isPreparedWorkflow } from "./definition";
 export type { StepFunction, StepOutput } from "./model";
+export { nativePricingContextResult } from "./native-pricing-context";
+export { nativeCartCreationProfile } from "./native-cart-creation-profile";
+export type { NativePricingContext } from "./native-pricing-context";

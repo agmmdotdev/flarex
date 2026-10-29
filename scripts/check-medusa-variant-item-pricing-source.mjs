@@ -139,6 +139,12 @@ function adaptCallback(source, target) {
     // in-place mutation while restoring its original staged DTO authoring type.
     expected = replaceChecked(expected, '    }).config({ name: "fetch-variants" })',
       '    }).config({ name: "fetch-variants" }) as unknown as WorkflowData<{\n      data: NonNullable<PrepareLineItemDataInput["variant"]>[]\n    }>');
+    expected = replaceChecked(expected, "cart: Partial<CartDTO> & {", "cart: { [Key in keyof CartDTO]?: CartDTO[Key] | undefined } & {");
+    expected = replaceChecked(expected, "    region_id?: string", "    region_id?: string | undefined");
+    expected = replaceChecked(expected, "    customer_id?: string", "    customer_id?: string | undefined");
+    expected = replaceChecked(expected, "region?: Partial<RegionDTO>", "region?: Partial<RegionDTO> | null | undefined");
+    expected = replaceChecked(expected, "  >[]\n  setPricingContextResult", "  >[] | undefined\n  setPricingContextResult");
+    expected = replaceChecked(expected, "setPricingContextResult: object", "setPricingContextResult: object | undefined");
     expected = replaceChecked(expected, "variant.calculated_price = calculatedPriceSet",
       'variant.calculated_price = calculatedPriceSet as NonNullable<PrepareLineItemDataInput["variant"]>["calculated_price"]');
     expected = replaceChecked(expected, "input.unitPrice = calculatedPriceSet.calculated_amount",
@@ -198,6 +204,14 @@ function adaptPureTypes(source, target) {
     expected = replaceChecked(expected, 'from "../customer"', 'from "../customer/common"');
     expected = replaceChecked(expected, 'from "../payment"', 'from "../payment/common"');
   }
+  if (target.endsWith("/cart/mutations.ts")) {
+    const parsed = ts.createSourceFile("cart-native-types.ts", expected, ts.ScriptTarget.Latest, true);
+    for (const node of [...parsed.statements].reverse()) if (ts.isInterfaceDeclaration(node) &&
+      ["CreateTaxLineDTO", "UpdateTaxLineDTO", "CreateAdjustmentDTO", "CreateShippingMethodAdjustmentDTO"].includes(node.name.text)) {
+      const original = node.getText(parsed), adapted = original.replace(/(\?: (?:string|number))(?=\n)/g, "$1 | undefined");
+      expected = expected.slice(0, node.getStart(parsed)) + adapted + expected.slice(node.end);
+    }
+  }
   return expected;
 }
 
@@ -206,9 +220,10 @@ function adaptPureTypes(source, target) {
 export function verifyVariantItemPricingSourcePair(target, source, actual) {
   if (!variantItemPricingSourcePairs.some(pair => pair.target === target)) throw new Error(failure + ": unknown pair");
   if (target.endsWith("/cart/utils/fields.ts")) {
-    // Authorized native checkout correction: the text channel identity has no
-    // numeric raw companion. Retain every other byte and selector in order.
-    const expected = replaceChecked(source, '  "raw_sales_channel_id",\n', "")
+    // Authorized native corrections remove the nonexistent numeric companion
+    // and Cart-root quantity. Genuine Line Item quantity remains selected.
+    const expected = replaceChecked(replaceChecked(source, '  "raw_sales_channel_id",\n', ""),
+      '  "quantity",\n', "")
       .replace('  "items.variant.inventory_items.inventory.location_levels.stock_locations.sales_channels.name",\n]\n\nexport const cartFieldsForPricingContext',
         '  "items.variant.inventory_items.inventory.location_levels.stock_locations.sales_channels.name",\n] as const\n\nexport const cartFieldsForPricingContext');
     if (expected !== actual) throw new Error(failure + ": exact checkout field correction " + target);

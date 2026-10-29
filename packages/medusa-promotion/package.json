@@ -33,6 +33,11 @@
       "types": "./dist/static-manifest.d.ts",
       "source": "./src/static-manifest.ts",
       "default": "./dist/static-manifest.js"
+    },
+    "./prefilter": {
+      "types": "./dist/utils/compute-actions/prefilter.d.ts",
+      "source": "./src/utils/compute-actions/prefilter.ts",
+      "default": "./dist/utils/compute-actions/prefilter.js"
     }
   },
   "dependencies": {

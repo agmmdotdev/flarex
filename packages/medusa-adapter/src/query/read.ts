@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type CommerceTransactionError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { populateCommerceRelations, readCommerceRelationRows, type CommerceRelationReadContext, type CommerceRelationOrder } from "./relations";
+import { bindCommerceRelationRows, populateCommerceRelations, readCommerceRelationRows, type CommerceRelationReadContext, type CommerceRelationOrder } from "./relations";
 import { resolveCommerceRelationFilter } from "./relation-filter";
 import type { ReadCatalog } from "./catalog";
 import { projectRows, type ReadProjection } from "./projection";
@@ -37,6 +37,7 @@ export const executeRead: (
   boundStore?: CommerceCommandContext["store"],
 ) {
   const table = yield* Effect.fromResult(catalog.table(plan.table));
+  const readRows = bindCommerceRelationRows(ctx);
   // Table acquisition consumes a request call. Reuse an explicitly supplied
   // command-bound store; otherwise acquire before relation lookups as before.
   const window: BoundReadWindow = plan.window.kind === "catalog" ? plan.window
@@ -47,13 +48,13 @@ export const executeRead: (
     if (table.primaryKeys.length !== 1 || key === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
     const children: Json[] = [...query.predicate.children];
     for (const filter of plan.relationFilters) children.push(yield* resolveCommerceRelationFilter(
-      ctx, plan.table, filter.path, filter.predicate, catalog.relations, plan.withDeleted));
+      readRows, plan.table, filter.path, filter.predicate, catalog.relations, plan.withDeleted));
     query = { ...query, predicate: { kind: "and", children } };
   }
   const selection = yield* readWindow(ctx, plan.table, query, window);
   const countBefore = plan.window.kind === "catalog" || plan.window.countAt === "beforePopulation";
   let count = withCount && countBefore ? yield* selection.count : undefined;
-  const populated = yield* populateCommerceRelations(ctx, plan.table, selection.rows, plan.paths, catalog.relations, plan.ordering, plan.withDeleted, plan.populationFilters);
+  const populated = yield* populateCommerceRelations(readRows, plan.table, selection.rows, plan.paths, catalog.relations, plan.ordering, plan.withDeleted, plan.populationFilters);
   const rows = yield* Effect.fromResult(projectRows(populated, plan.projection.node));
   if (withCount && !countBefore) count = yield* selection.count;
   return { rows, count };

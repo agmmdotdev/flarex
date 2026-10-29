@@ -4,7 +4,7 @@ import { commerceError, defaultCommerceResources } from "@flarex/persistence-pos
 import { moduleEventDecoder } from "../../module/events";
 import { jsonEqual } from "flarex-protocol/json";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
-import { validateCartCreated } from "./creation-forward-receipt";
+import { validateCartCreated, type CartCreationInputDecoder } from "./creation-forward-receipt";
 import { validateCartCreationInverse } from "./creation-inverse-receipt";
 import { decodeCartCreationReceipt } from "./creation-input";
 import type { prepareCartCreationRepository } from "./creation-repository";
@@ -33,14 +33,14 @@ const token = ({ object, action, id }: Expected) => JSON.stringify([object, acti
 /** The fresh ownership profile retains exact private event identities and
  * generation without promising MikroORM's sibling-claim flush order. Public
  * Cart/Address/Line Item events retain their genuine native sequence. */
-export function cartCreationPolicy(prepared: Result.Result.Success<ReturnType<typeof prepareCartCreationRepository>>) {
+export function cartCreationPolicy(prepared: Result.Result.Success<ReturnType<typeof prepareCartCreationRepository>>, decodeInput?: CartCreationInputDecoder) {
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("CartCreation.validateCall")(function* (call, activity) {
     const mismatch = () => commerceError("receiptMismatch");
     if (call.mode !== "write" || activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length)
       return yield* Effect.fail(mismatch());
     const expected: Expected[] = [];
     if (call.commandName === "cartCreateWithOwnership") {
-      const created = yield* validateCartCreated(prepared, call, activity);
+      const created = yield* validateCartCreated(prepared, call, activity, decodeInput);
       for (const item of created) {
         const object = objects[item.table];
         if (object === undefined || typeof item.row.id !== "string") return yield* Effect.fail(mismatch());

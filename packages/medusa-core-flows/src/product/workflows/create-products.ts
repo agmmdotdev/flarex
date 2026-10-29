@@ -165,7 +165,7 @@ export const createProductsWorkflowId = "create-products"
 export const createProductsWorkflow = createWorkflow(
   createProductsWorkflowId,
   (input: WorkflowData<CreateProductsWorkflowInput>): WorkflowResponse<ProductTypes.ProductDTO[], readonly [Hook<"productsCreated", {
-    products: WorkflowData<ProductTypes.ProductDTO[]>
+    products: ProductTypes.ProductDTO[]
     additional_data: Record<string, unknown> | undefined
   }>]> => {
     // Passing prices to the product module will fail, we want to keep them for after the product is created.

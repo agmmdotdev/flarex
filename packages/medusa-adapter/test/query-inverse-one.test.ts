@@ -3,7 +3,7 @@ import { Effect, Result } from "effect";
 import { commerceError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
 import { projectRows } from "../src/query/projection";
-import { assembleCommerceRelations, populateCommerceRelations, type CommerceRelationReadContext } from "../src/query/relations";
+import { bindCommerceRelationRows, assembleCommerceRelations, populateCommerceRelations, type CommerceRelationReadContext } from "../src/query/relations";
 import { relationPaths } from "../src/local-graph/module";
 import { resolveCommerceRelationFilter } from "../src/query/relation-filter";
 import { mockRelationalRead } from "./mock-relational-read";
@@ -37,7 +37,7 @@ describe("shared inverse singleton query owner", () => {
             return [{ id: "orphan", deleted_at: null, ...(parent === undefined ? {} : { [key]: parent }) }];
           }),
         }) };
-      const result = yield* Effect.result(resolveCommerceRelationFilter(context, source, path,
+      const result = yield* Effect.result(resolveCommerceRelationFilter(bindCommerceRelationRows(context), source, path,
         { kind: "in", column: "id", values: ["orphan"] }, inverseRelations).pipe(Effect.ensuring(lifetime.close)));
       if (parent === null) expect(Result.getOrThrow(result)).toEqual({ kind: "in", column: "id", values: [] });
       else expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
@@ -76,7 +76,7 @@ describe("shared inverse singleton query owner", () => {
             return duplicate && table === "neutral_child" ? [...selected, { id: "c2", parent_id: "p1", deleted_at: null }] : selected;
           }),
         }) };
-      const result = yield* Effect.result(populateCommerceRelations(context, "neutral_parent", roots, inversePaths, inverseRelations, new Map())
+      const result = yield* Effect.result(populateCommerceRelations(bindCommerceRelationRows(context), "neutral_parent", roots, inversePaths, inverseRelations, new Map())
         .pipe(Effect.ensuring(lifetime.close)));
       expect(queries[0]).toEqual({ take: 256, order: { column: "id", direction: "asc" }, predicate: { kind: "and", children: [
         { kind: "in", column: "parent_id", values: ["p1", "p2"] }, { kind: "isNull", column: "deleted_at" },

@@ -657,6 +657,7 @@ export function verifyTaxLinesFork(source, target, destination) {
       + expected.slice(end);
     expected = replaceChecked(expected, 'from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"');
     expected = replaceChecked(expected, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+    expected = replaceChecked(expected, "force_tax_calculation?: boolean", "force_tax_calculation?: boolean | undefined");
   } else if (destination === taxLinesSourcePairs[1]?.target) {
     const parsed = ts.createSourceFile("native-system-tax.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
     const classes = parsed.statements.filter(ts.isClassDeclaration);
@@ -799,11 +800,11 @@ export function verifyCartContextReadFork(source, target, destination) {
     replace("salesChannelId?: string | null", "salesChannelId?: string | null | undefined");
   } else if (destination === "packages/medusa-core-flows/src/cart/steps/find-one-or-any-region.ts") {
     replace('import { MedusaContainer } from "@medusajs/framework/types"',
-      'import type { WorkflowContainer as MedusaContainer } from "@medusajs/workflows-sdk"\nimport type { Schema } from "effect"');
+      'import type { WorkflowContainer as MedusaContainer } from "@medusajs/workflows-sdk"\nimport type { Schema } from "effect"\nimport type { RegionDTO } from "@medusajs/types"');
     replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"');
     replace('import { StepResponse, createStep } from "@medusajs/framework/workflows-sdk"',
       'import { StepResponse, createStep } from "@medusajs/workflows-sdk"\n\ninterface CartRegionQuery {\n' +
-      '  graph(input: { entity: "region"; filters: { id: string }; fields: string[] }, options: { cache: { enable: true } }): Promise<{ data: (typeof Schema.JsonObject.Type)[] }>\n' +
+      '  graph(input: { entity: "region"; filters: { id: string }; fields: string[] }, options: { cache: { enable: true } }): Promise<{ data: (RegionDTO & typeof Schema.JsonObject.Type)[] }>\n' +
       '  graph(input: { entity: "store"; fields: string[] }, options: { cache: { enable: true } }): Promise<{ data: (typeof Schema.JsonObject.Type & { default_region_id: string | null })[] }>\n}');
     replace("regionId?: string", "regionId?: string | undefined");
     replace("container.resolve(ContainerRegistrationKeys.QUERY)", "container.resolve<CartRegionQuery>(ContainerRegistrationKeys.QUERY)", 3);

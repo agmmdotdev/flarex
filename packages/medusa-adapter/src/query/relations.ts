@@ -27,6 +27,15 @@ export interface CommerceRelationReadOptions {
 export type CommerceRelationReadContext = Pick<CommerceCommandContext, "manager" | "table" | "resources"> & {
   readonly admitSelection?: (table: string, rows: readonly JsonObject[]) => Result.Result<void, CommerceTransactionError>;
 };
+export type CommerceRelationRows = (table: string, predicate: Json, order?: CommerceRelationOrder,
+  options?: CommerceRelationReadOptions) => Effect.Effect<readonly JsonObject[], CommerceTransactionError>;
+
+/** Bind the live manager once. Population/filter execution receives only this
+ * operation; proof reconstruction supplies an authenticated observation reader
+ * without manufacturing a database manager or another request lifetime. */
+export function bindCommerceRelationRows(ctx: CommerceRelationReadContext, defaults: CommerceRelationReadOptions = {}): CommerceRelationRows {
+  return (table, predicate, order, options) => readCommerceRelationRows(ctx, table, predicate, order, { ...defaults, ...options });
+}
 
 /** One complete-set query shape for execution and authenticated read receipts. */
 export function commerceRelationReadQuery(resources: Pick<CommerceCommandContext["resources"], "queryRows">,
@@ -102,7 +111,7 @@ function attachHasOne(rows: Array<Record<string, Json>>, name: string, related: 
 }
 
 interface RelationPopulation {
-  readonly ctx: Parameters<typeof readCommerceRelationRows>[0];
+  readonly readRows: CommerceRelationRows;
   readonly relations: CommerceRelationLookup;
   readonly ordering: ReadonlyMap<string, CommerceRelationOrder>;
   readonly withDeleted: boolean;
@@ -124,7 +133,7 @@ const readPopulationRelation = Effect.fn("MedusaAdapter.readRelation")(function*
   targetTable: string, columns: readonly string[], parents: readonly JsonObject[],
   parentColumns: readonly string[], softDelete: boolean, order: CommerceRelationOrder, primaryLookup = false, predicate?: Predicate,
 ) {
-  const { ctx, fetched, withDeleted } = population;
+  const { readRows, fetched, withDeleted } = population;
   const selection = yield* Effect.fromResult(prepareCommerceRelationPopulation(columns, parents, parentColumns, softDelete, withDeleted, predicate));
   if (Option.isNone(selection)) return [];
   const { column, values } = selection.value;
@@ -132,7 +141,7 @@ const readPopulationRelation = Effect.fn("MedusaAdapter.readRelation")(function*
   const previous = fetched.get(cacheKey);
   const reused = primaryLookup ? reusePrimaryRelationRows(previous, column, values) : undefined;
   if (reused !== undefined) return reused;
-  const loaded = yield* readCommerceRelationRows(ctx, targetTable, selection.value.predicate, order);
+  const loaded = yield* readRows(targetTable, selection.value.predicate, order);
   fetched.set(cacheKey, loaded);
   return loaded;
 });
@@ -162,7 +171,7 @@ const populateRelationTree = Effect.fn("MedusaAdapter.populateTree")(function* (
       continue;
     }
     const pivotRows = join.type === "manyToMany"
-      ? yield* readPopulationRelation(population, join.pivotTable, join.sourceColumns, rows, descriptor.sourcePrimaryKeys, false, join.targetColumns[0] ?? "id")
+      ? yield* readPopulationRelation(population, join.pivotTable, join.sourceColumns, rows, descriptor.sourcePrimaryKeys, false, ordering.get(join.pivotTable) ?? join.targetColumns[0] ?? "id")
       : [];
     const related = join.type === "hasMany"
       ? yield* readPopulationRelation(population, descriptor.targetTable, join.foreignKeys, rows, descriptor.sourcePrimaryKeys, true, order, false, predicate)
@@ -179,7 +188,7 @@ const populateRelationTree = Effect.fn("MedusaAdapter.populateTree")(function* (
 /** Core owns the session, bounds and row decoding. Medusa owns relation grouping.
  * This instance is local to one call and never acquires a second manager. */
 export const populateCommerceRelations = Effect.fn("MedusaAdapter.populateRelations")(function* (
-  ctx: CommerceRelationReadContext,
+  readRows: CommerceRelationRows,
   table: string,
   roots: readonly JsonObject[],
   paths: readonly string[],
@@ -196,7 +205,7 @@ export const populateCommerceRelations = Effect.fn("MedusaAdapter.populateRelati
   // Retain ordered scalar rows only, never a branch's mutable population. A
   // later primary-key read can reuse a complete subset of an earlier FK read.
   const fetched = new Map<string, readonly JsonObject[]>();
-  const population: RelationPopulation = { ctx, relations, ordering, withDeleted, filters, fetched };
+  const population: RelationPopulation = { readRows, relations, ordering, withDeleted, filters, fetched };
   return yield* populateRelationTree(population, table, roots, toPopulateTree(paths));
 });
 

@@ -26,7 +26,7 @@ export interface GetItemTaxLinesStepInput {
    * requests to third-party services, depending on the implementation of the
    * tax provider associated with the cart or order's region.
    */
-  force_tax_calculation?: boolean
+  force_tax_calculation?: boolean | undefined
   /**
    * Whether the tax lines are for an order return.
    */

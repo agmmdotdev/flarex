@@ -17,7 +17,7 @@ import { makeReadCatalog } from "../../query/catalog";
 import { compileProjection, type ProjectionPolicy } from "../../query/projection";
 import { compileWhere } from "../../query/predicate";
 import { executeRead, orderedCatalog, type ReadPlan } from "../../query/read";
-import { populateCommerceRelations, type CommerceRelation } from "../../query/relations";
+import { bindCommerceRelationRows, populateCommerceRelations, type CommerceRelation } from "../../query/relations";
 import type { capturePaymentMetadata } from "./schema";
 import { compilePaymentContracts } from "./output";
 import { PaymentId, PaymentSessionIds, PaymentSessionCreate } from "./input";
@@ -241,7 +241,7 @@ export function preparePaymentSessionRepository(metadata: Effect.Success<ReturnT
             const { payment_session, ...scalar } = row; rows.push({ ...scalar, payment_session_id: payment_session });
           }
           const inserted = yield* payments.createRows(ctx, rows, shared);
-          return remember(payment.name, (yield* populateCommerceRelations(ctx, payment.name, inserted, ["payment_session"], relations, new Map()))
+          return remember(payment.name, (yield* populateCommerceRelations(bindCommerceRelationRows(ctx), payment.name, inserted, ["payment_session"], relations, new Map()))
             .map(row => ({ ...row, captures: [], refunds: [] })));
         }))),
       };

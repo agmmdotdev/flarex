@@ -3,7 +3,7 @@ import type { DAL } from "@medusajs/framework/types";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { jsonEqual } from "flarex-protocol/json";
-import { populateCommerceRelations } from "../../query/relations";
+import { bindCommerceRelationRows, populateCommerceRelations } from "../../query/relations";
 import { prepareScalarRepository } from "../../repository/scalar";
 import { scalarIdWhere } from "../../repository/scalar-id-read";
 import { deniedCommerceRepository } from "../../repository/denied";
@@ -86,13 +86,13 @@ export function prepareFulfillmentCreationRepository(metadata: Metadata) {
         if (result.rows.length > 1) return yield* ctx.refuse(commerceError("limitExceeded"));
         const rows: JsonObject[] = [];
         for (const value of result.rows) rows.push(yield* Effect.fromResult(contracts.fulfillment.decodeRow(projectNativeRow(value))));
-        const populated = yield* populateCommerceRelations({ manager: ctx.manager, table: ctx.table, resources: ctx.resources,
+        const populated = yield* populateCommerceRelations(bindCommerceRelationRows({ manager: ctx.manager, table: ctx.table, resources: ctx.resources,
           admitSelection: (table, rows) => Result.gen(function* () {
             const entity = contracts.referenceFields.find(field => field.entity.table.name === table)?.entity;
             if (entity === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
             if (rows.length > entity.maximum) return yield* Result.fail(commerceError("limitExceeded"));
             for (const row of rows) yield* entity.decodeRow(projectNativeRow(row));
-          }) }, contracts.fulfillment.table.name, rows, contracts.referenceFields.map(field => field.name), contracts.queryRelations, new Map());
+          }) }), contracts.fulfillment.table.name, rows, contracts.referenceFields.map(field => field.name), contracts.queryRelations, new Map());
         return structuredClone(populated.map(row => contracts.initializeRead(row, row)));
       });
       const create = Effect.fn("FulfillmentCreation.create")(function* (ctx: CommerceCommandContext, input: unknown,

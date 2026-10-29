@@ -68,3 +68,5 @@ export type { LinkOperationPair, LinkOperationRequest, LinkOperationHandle, Link
 export type { FilterablePromotionProps, ComputeActionShippingLine } from "@medusajs/types";
 
 export type { CreateCustomerAddressDTO, UpdateCustomerAddressDTO, FilterableCustomerAddressProps } from "@medusajs/types";
+
+export type { AddItemAdjustmentAction, AddShippingMethodAdjustment, CartLineItemDTO, CartShippingMethodDTO, CartWorkflowDTO, ComputeActionOptions, ComputeActions, ConfirmVariantInventoryWorkflowInputDTO, CreateCartDTO, CreateCartWorkflowInputDTO, CreateLineItemDTO, CreateLineItemTaxLineDTO, CreateShippingMethodTaxLineDTO, CreateLineItemAdjustmentDTO, CreateShippingMethodAdjustmentDTO, IPromotionModuleService, ItemTaxLineDTO, ProductVariantDTO, RemoveItemAdjustmentAction, RemoveShippingMethodAdjustment, ShippingTaxLineDTO } from "@medusajs/types";

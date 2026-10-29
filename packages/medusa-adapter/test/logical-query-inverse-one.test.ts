@@ -1,3 +1,4 @@
+import { bindCommerceRelationRows } from "../src/query/relations";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { model } from "@medusajs/framework/utils/portable";
@@ -34,7 +35,7 @@ const filterOrphan = defineCommerceCommand("neutralInverseFilterOrphan", "read",
   ordering: new Map(), withDeleted: false, window: { kind: "catalog", order: "id", select: orderedCatalog("asc") },
 }, false).pipe(Effect.map(result => result.rows)));
 const filterManyOrphan = defineCommerceCommand("neutralInverseFilterManyOrphan", "read", ctx => resolveCommerceRelationFilter(
-  ctx, "neutral_child", "notes", { kind: "in", column: "id", values: ["note-orphan"] }, inverseRelations));
+  bindCommerceRelationRows(ctx), "neutral_child", "notes", { kind: "in", column: "id", values: ["note-orphan"] }, inverseRelations));
 
 describe("logical shared inverse singleton query", () => {
   let host: Effect.Success<ReturnType<typeof makeCommerceHost>>;

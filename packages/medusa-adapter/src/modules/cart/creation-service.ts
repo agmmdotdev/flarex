@@ -1,13 +1,12 @@
 import { Effect, Result, Schema } from "effect";
 import type { ICartCreationOwnershipService } from "@medusajs/types/cart/creation";
+import type { ModulePersistenceModel } from "@medusajs/framework/types";
 import { cartCreationModels } from "@medusajs/cart/creation-models";
-import { CartModuleService } from "@medusajs/cart/services";
-import { Module } from "@medusajs/utils/modules-sdk/module";
 import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineWorkflowMethod, defineWorkflowModule } from "../../workflow/module";
 import { commerceDecoder } from "../../value/decoder";
-import { defineCommerceModule } from "../../module/definition";
+import { defineCartCreationPersistenceModule } from "./creation-module";
 import { commerceServiceCommands, commerceCommandPreparation } from "../../module/commands";
 import { commerceModuleEventBus } from "../../module/events";
 import { captureCartCreationMetadata } from "./creation-schema";
@@ -19,8 +18,6 @@ import { CartCreates, CartCreationReceipt, decodeCartCreationResult, decodeCartC
 const createArguments = commerceDecoder(Schema.Tuple([CartCreates]), "invalidInput");
 const compensateArguments = commerceDecoder(Schema.Tuple([CartCreationReceipt]), "invalidInput");
 
-Module(Modules.CART, { service: CartModuleService });
-
 /** A distinct fresh twelve-model creation profile. Native Cart receives its
  * genuine generated internals and approved ownership store on one borrowed
  * manager; neither this factory nor the store starts or settles a transaction. */
@@ -29,26 +26,21 @@ export const makeCartCreationCommands = Effect.fn("CartCreation.commands")(funct
   return yield* Effect.fromResult(Result.gen(function* () {
     const read = yield* prepareCartPaymentRead(metadata.frame, "creation");
     const prepared = yield* prepareCartCreationRepository(metadata.frame, read);
-    const module = yield* defineCommerceModule({ name: "flarex-cart-creation", models: [cartCreationModels.Cart, cartCreationModels.Address, cartCreationModels.LineItem,
-      cartCreationModels.CreditLine, cartCreationModels.LineItemTaxLine, cartCreationModels.LineItemAdjustment,
-      cartCreationModels.ShippingMethod, cartCreationModels.ShippingMethodTaxLine, cartCreationModels.ShippingMethodAdjustment,
-      cartCreationModels.CartCreationOperation, cartCreationModels.CartCreationCart, cartCreationModels.CartCreationAddress],
-      profile: { name: "cart.creation-owned", capabilities: [], bind: (ctx, owner) => {
+    const module = yield* defineCartCreationPersistenceModule({ name: "flarex-cart-creation", profile: "cart.creation-owned",
+      bind: (ctx, owner) => {
         const bound = prepared.bind(ctx, owner);
         const eventBus = commerceModuleEventBus({ owner, resources: ctx.resources,
           capture: message => bound.bridge.current().captureLocalEvent(message), check: work => bound.bridge.checked(ctx, work), refuse: bound.refuse });
         return { owner, eventBus, store: bound.store, baseRepository: bound.repository, events: bound.mutationEvents,
-          repository: (model: typeof cartCreationModels[keyof typeof cartCreationModels]) => model === cartCreationModels.Cart ? bound.repository :
+          repository: (model: ModulePersistenceModel) => model === cartCreationModels.Cart ? bound.repository :
             model === cartCreationModels.Address ? bound.addressRepository : model === cartCreationModels.LineItem ? bound.lineItemRepository :
               model === cartCreationModels.CartCreationOperation ? bound.protocolRepositories.get("cart_creation_operation") ?? bound.denied :
               model === cartCreationModels.CartCreationCart ? bound.protocolRepositories.get("cart_creation_cart") ?? bound.denied :
               model === cartCreationModels.CartCreationAddress ? bound.protocolRepositories.get("cart_creation_address") ?? bound.denied : bound.denied };
-      } }, extensions: {}, service: ({ binding, dependencies, context }) => {
-        const container = { ...dependencies, [Modules.EVENT_BUS]: binding.eventBus };
-        const native = new CartModuleService(container, { scope: "internal" }, binding.store);
+      }, service: native => {
         const service: ICartCreationOwnershipService = { createCartsWithOwnership: native.createCartsWithOwnership.bind(native),
           compensateCartsCreation: native.compensateCartsCreation.bind(native) };
-        return { service, context };
+        return service;
       },
     }).pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
     const commands = commerceServiceCommands(module.use), prepare = commerceCommandPreparation("CartCreation.prepare");

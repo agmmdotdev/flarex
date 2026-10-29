@@ -2,6 +2,7 @@ import { Effect, Result, Schema } from "effect";
 import { BigNumber } from "@medusajs/utils/totals/big-number";
 import { BigNumber as NativeBigNumber, MathBN } from "@medusajs/framework/utils/portable";
 import { snapshotNativeNumber } from "@medusajs/utils/totals/native-number";
+import { trimZeros } from "@medusajs/utils/common/trim-zeros";
 import { commerceError, isJsonObject, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "./decoder";
 import { captureCommerceInput } from "./input";
@@ -120,32 +121,53 @@ export const decodeExactNumeric = Effect.fn("MedusaAdapter.decodeExactNumeric")(
 });
 
 /** Metadata-selected numeric projection. Native entities can retain exact
- * decimals; public DTOs convert only after every stored companion is checked. */
+ * decimals; public DTOs convert only after every stored companion is checked.
+ * The explicit native ORM presentation reuses its genuine raw-value spelling
+ * normalizer only for these metadata-declared companions, after validation. */
 export const projectExactNumericColumns = Effect.fn("MedusaAdapter.projectExactNumericColumns")(function* (
   value: Json,
-  columns: readonly { readonly name: string; readonly nullable?: boolean }[], mode: "exact" | "dto" | "reserialize" = "dto",
+  columns: readonly { readonly name: string; readonly nullable?: boolean }[], mode: "exact" | "dto" | "reserialize" | "nativeOrm" = "dto",
 ) {
   const output: JsonObject[] = [];
   for (const stored of Array.isArray(value) ? value : [value]) {
     if (!isJsonObject(stored)) return yield* Effect.fail(commerceError("storedCorruption"));
     let row: Record<string, Json> | undefined;
-    for (const column of columns) if (Object.hasOwn(stored, column.name)) {
-      const value = stored[column.name], raw = stored["raw_" + column.name];
-      const decoded = yield* Effect.gen(function* () {
-        // Native Pricing serializes public numeric DTOs more than once. Validate
-        // their raw exact value independently and require the same DTO number.
-        if (mode === "reserialize" && typeof value === "number") {
-          const companion = yield* Effect.fromResult(decodeRaw(raw));
-          const numeric = yield* decodeExactNumeric(companion.value, companion);
-          if (numeric !== value) return yield* Effect.fail(commerceError("storedCorruption"));
-          return numeric;
+    for (const column of columns) {
+      const present = Object.hasOwn(stored, column.name), rawName = "raw_" + column.name, raw = stored[rawName];
+      if (!present && (mode !== "nativeOrm" || !Object.hasOwn(stored, rawName))) continue;
+      if (present) {
+        const value = stored[column.name];
+        const decoded = yield* Effect.gen(function* () {
+          // Native Pricing serializes public numeric DTOs more than once. Validate
+          // their raw exact value independently and require the same DTO number.
+          if ((mode === "reserialize" || mode === "nativeOrm") && typeof value === "number") {
+            const companion = yield* Effect.fromResult(decodeRaw(raw));
+            const numeric = yield* decodeExactNumeric(companion.value, companion);
+            if (numeric !== value) return yield* Effect.fail(commerceError("storedCorruption"));
+            return numeric;
+          }
+          return yield* decodeExactNumeric(value, raw, column.nullable);
+        });
+        const replacement = mode === "exact" ? value! : decoded;
+        if (!Object.is(stored[column.name], replacement)) {
+          row ??= { ...stored };
+          row[column.name] = replacement;
         }
-        return yield* decodeExactNumeric(value, raw, column.nullable);
-      });
-      const replacement = mode === "exact" ? value! : decoded;
-      if (!Object.is(stored[column.name], replacement)) {
-        row ??= { ...stored };
-        row[column.name] = replacement;
+      } else {
+        // Native projections can select the raw field alone. Validate that
+        // selected companion without inventing its omitted numeric field.
+        if (raw === null && column.nullable) continue;
+        const companion = yield* Effect.fromResult(decodeRaw(raw));
+        yield* decodeExactNumeric(companion.value, companion);
+      }
+      if (mode === "nativeOrm" && raw !== null) {
+        const companion = yield* Effect.fromResult(decodeRaw(raw));
+        const normalized = trimZeros(companion.value);
+        if (normalized !== companion.value) {
+          if (raw === undefined || !isJsonObject(raw)) return yield* Effect.fail(commerceError("storedCorruption"));
+          row ??= { ...stored };
+          row["raw_" + column.name] = { ...raw, value: normalized };
+        }
       }
     }
     output.push(row ?? stored);

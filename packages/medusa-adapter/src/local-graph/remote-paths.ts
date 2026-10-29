@@ -8,6 +8,7 @@ import type { ProjectionNode } from "../query/projection";
 import type { GraphParticipant, GraphReadSelection, GraphRemotePath } from "./model";
 import { decodeGraphRemotePaths, decodeGraphLinkEndpoints, type GraphLinkEndpoint } from "./links";
 import { planGraphFields } from "./fields";
+import { graphSelectableColumns } from "./presentation";
 import { captureCommerceInput } from "../value/input";
 import type { ResolvedGraphDirectPath } from "./direct-paths";
 
@@ -140,7 +141,7 @@ export const populateGraphRemotePaths = Effect.fn("LocalGraph.populateRemotePath
   const targetFields = (read: GraphReadSelection["read"], projection: ProjectionNode, prefix: string) => {
     const fields: string[] = [];
     const visit = (node: ProjectionNode, local: string, absolute: string) => {
-      fields.push(...[...node.fields].filter(field => read.table.columns.includes(field) || local !== "").map(field => local + field));
+      fields.push(...[...node.fields].filter(field => graphSelectableColumns(read).includes(field) || local !== "").map(field => local + field));
       for (const child of node.children) {
         const name = absolute + child.name, edge = paths.get(name) ?? direct.get(name) ?? endpoints.get(name);
         if (edge !== undefined) fields.push(local + edge.sourceKey);

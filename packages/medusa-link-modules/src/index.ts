@@ -35,3 +35,5 @@ export { LinkPreimageOperationRequest as LinkPreimageOperationRequestSchema, Lin
   LinkPreimageOperationRecord as LinkPreimageOperationRecordSchema, LinkPreimageRow as LinkPreimageRowSchema,
   linkPreimageRequestKey, linkPreimageRowKey } from "./operations/preimage-contracts"
 export type { LinkPreimageStorage } from "./operations/preimage-storage"
+
+export { CartShippingOption } from "./definitions/readonly/cart-shipping-option"

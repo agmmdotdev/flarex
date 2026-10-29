@@ -1,4 +1,5 @@
 export { model } from "@medusajs/utils/dml/model";
+export { FeatureFlag } from "@medusajs/utils/feature-flags/flag-router";
 export { DmlEntity, type DMLEntitySchemaBuilder } from "@medusajs/utils/dml/entity";
 export { BelongsTo } from "@medusajs/utils/dml/relations/belongs-to";
 export { HasMany } from "@medusajs/utils/dml/relations/has-many";

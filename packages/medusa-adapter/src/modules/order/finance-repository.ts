@@ -13,7 +13,7 @@ import { captureNativeRecord } from "../../value/native-record";
 import { deniedCommerceRepository } from "../../repository/denied";
 import { projectNativeRow } from "../../repository/result";
 import { medusaLifecycle } from "../../repository/lifecycle";
-import { readCommerceRelationRows, populateCommerceRelations } from "../../query/relations";
+import { bindCommerceRelationRows, readCommerceRelationRows, populateCommerceRelations } from "../../query/relations";
 import { projectRows } from "../../query/projection";
 import { compileOrderCreationContracts, compileOrderFinanceContracts } from "./finance-contracts";
 import { captureGraph, insertGraphRows } from "../../write/create";
@@ -144,7 +144,7 @@ function prepareOrderRepository(metadata: Effect.Success<ReturnType<typeof captu
         const rows = yield* readCommerceRelationRows(readContext(ctx), entity.table.name, plan.query.predicate);
         remember(entity.table.name, rows);
         const versionFilters = yield* Effect.fromResult(orderFinanceVersionFilters(entity.table.name, plan.paths, rows));
-        const populated = yield* populateCommerceRelations(readContext(ctx), entity.table.name, rows, plan.paths,
+        const populated = yield* populateCommerceRelations(bindCommerceRelationRows(readContext(ctx)), entity.table.name, rows, plan.paths,
           contracts.relations, plan.ordering, false, versionFilters);
         return { rows: returned(entity.table.name, yield* Effect.fromResult(projectRows(populated, plan.projection.node))), count: rows.length };
       });

@@ -2,7 +2,7 @@ import { Effect, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { mockRelationalRead } from "./mock-relational-read";
 import { commerceError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import type { CommerceRelation } from "../src/query/relations";
+import { bindCommerceRelationRows, type CommerceRelation } from "../src/query/relations";
 import { populateCommerceRelations } from "../src/query/relations";
 import { commerceDecoder } from "../src/value/decoder";
 import { makeReadCatalog } from "../src/query/catalog";
@@ -60,7 +60,7 @@ describe("per-path population predicates", () => {
       }), count: unused, write: unused, delete: unused, lifecycle: unused }),
     };
     try {
-      expect(await Effect.runPromise(populateCommerceRelations(ctx, "roots", [{ id: "r", person_id: "p" }], paths, catalog.relations, new Map(), false, filters)))
+      expect(await Effect.runPromise(populateCommerceRelations(bindCommerceRelationRows(ctx), "roots", [{ id: "r", person_id: "p" }], paths, catalog.relations, new Map(), false, filters)))
         .toEqual([{ id: "r", person_id: "p", visible: { id: "p", person_id: "n", state: "open", nested: { id: "n", person_id: null, state: "nested" } }, hidden: null, unfiltered: { id: "p", person_id: "n", state: "open" } }]);
       expect(queries).toHaveLength(4);
       for (const [index, value] of ["open", "nested", "closed"].entries()) expect(queries[index]).toMatchObject({ predicate: { children: [

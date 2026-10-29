@@ -11,7 +11,7 @@ import type { CommercePromiseOwner } from "../../module/promise-owner";
 import { captureCommerceInput } from "../../value/input";
 import { assembleProducts, captureProductGraph, insertProductGraph } from "./graph";
 import { findProducts } from "./query";
-import { populateCommerceRelations } from "../../query/relations";
+import { bindCommerceRelationRows, populateCommerceRelations } from "../../query/relations";
 import { findProductRelated, insertProductRelated, updateProductRelated } from "./related";
 import { findCollectionMembershipProducts, updateCollectionMembershipProducts } from "./collection-membership";
 import { commerceDecoder } from "../../value/decoder";
@@ -122,7 +122,7 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
       if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
       const mutations = metadata.entities.flatMap(entity => (rows.get(entity.table.name) ?? []).map(row => ({ modelName: entity.model, entity: { ...row } })));
       yield* events.created(mutations, shared);
-      return yield* populateCommerceRelations(ctx, metadata.product.table.name, yield* Effect.fromResult(assembleProducts(metadata, rows,
+      return yield* populateCommerceRelations(bindCommerceRelationRows(ctx), metadata.product.table.name, yield* Effect.fromResult(assembleProducts(metadata, rows,
         productRelations.filter(name => !["tags", "categories", "collection", "type"].includes(name)))),
       ["tags", "categories", "collection", "type"], metadata.queryRelations, new Map());
     }))),

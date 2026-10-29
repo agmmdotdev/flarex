@@ -1,5 +1,6 @@
 import type { WorkflowContainer as MedusaContainer } from "@medusajs/workflows-sdk"
 import type { Schema } from "effect"
+import type { RegionDTO } from "@medusajs/types"
 import {
   ContainerRegistrationKeys,
   MedusaError,
@@ -7,7 +8,7 @@ import {
 import { StepResponse, createStep } from "@medusajs/workflows-sdk"
 
 interface CartRegionQuery {
-  graph(input: { entity: "region"; filters: { id: string }; fields: string[] }, options: { cache: { enable: true } }): Promise<{ data: (typeof Schema.JsonObject.Type)[] }>
+  graph(input: { entity: "region"; filters: { id: string }; fields: string[] }, options: { cache: { enable: true } }): Promise<{ data: (RegionDTO & typeof Schema.JsonObject.Type)[] }>
   graph(input: { entity: "store"; fields: string[] }, options: { cache: { enable: true } }): Promise<{ data: (typeof Schema.JsonObject.Type & { default_region_id: string | null })[] }>
 }
 

@@ -9,7 +9,7 @@ import { captureProductSchema } from "../src/modules/product/schema";
 import { productRuntimeMetadata, type ProductRuntimeMetadata } from "../src/modules/product/runtime-metadata";
 import { decodeProductQuery } from "../src/modules/product/query-profile";
 import { findProductRelated } from "../src/modules/product/related";
-import { assembleCommerceRelations, populateCommerceRelations, readCommerceRelationRows } from "../src/query/relations";
+import { bindCommerceRelationRows, assembleCommerceRelations, populateCommerceRelations, readCommerceRelationRows } from "../src/query/relations";
 import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
 import { prepareProductReadInput, productReadFilters } from "../src/modules/product/service-input";
@@ -251,7 +251,7 @@ describe("Medusa relation query extraction", () => {
         { calls: 256, commandBytes: 1_048_576, commandMs: 30_000 }, {}, {}, "query-test", "read");
       const selected = yield* Effect.fromResult(decodeProductQuery(catalog, { options: { populate: [first, second] } }));
       const unused = () => Effect.fail(commerceError("unsupportedProfile"));
-      const result = yield* populateCommerceRelations({
+      const result = yield* populateCommerceRelations(bindCommerceRelationRows({
         manager: lifetime.context, resources: defaultCommerceResources,
         table: table => Effect.succeed({ prepareRead(query: unknown) { return mockRelationalRead(this, query); }, findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")),
           find: Effect.fn("QueryTest.find")((manager) => Effect.sync(() => {
@@ -261,7 +261,7 @@ describe("Medusa relation query extraction", () => {
           })),
           count: () => Effect.succeed((rows.get(table) ?? []).length), write: unused, delete: unused, lifecycle: unused,
         }),
-      }, catalog.product.table.name, [{ id: "p" }], selected.relations, catalog.queryRelations, new Map()).pipe(Effect.ensuring(lifetime.close));
+      }), catalog.product.table.name, [{ id: "p" }], selected.relations, catalog.queryRelations, new Map()).pipe(Effect.ensuring(lifetime.close));
       expect(reads.filter(table => table === catalog.value.table.name)).toHaveLength(1);
       expect(result).toMatchObject([{ options: [{ values: [{ value: "red" }, { value: "blue" }] }],
         variants: [{ options: [{ value: "red" }] }] }]);

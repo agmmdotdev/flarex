@@ -142,3 +142,10 @@ export type { CreateCustomerAddressDTO, UpdateCustomerAddressDTO } from "./custo
 export type { FilterableCustomerAddressProps } from "./customer/common";
 
 export type { LinkPreimageOperationRequest, LinkPreimageOperationHandle } from "./link-modules/preimages"
+
+export type { CartShippingMethodDTO } from "./cart/common";
+export type { CreateCartDTO, CreateLineItemDTO, CreateLineItemTaxLineDTO, CreateShippingMethodTaxLineDTO, CreateLineItemAdjustmentDTO, CreateShippingMethodAdjustmentDTO } from "./cart/mutations";
+export type { CartWorkflowDTO, ConfirmVariantInventoryWorkflowInputDTO, CreateCartWorkflowInputDTO } from "./cart/workflows";
+export type { ItemTaxLineDTO, ShippingTaxLineDTO } from "./tax/common";
+export type { AddItemAdjustmentAction, AddShippingMethodAdjustment, ComputeActionOptions, ComputeActions, RemoveItemAdjustmentAction, RemoveShippingMethodAdjustment } from "./promotion/common/compute-actions";
+export type { IPromotionModuleService } from "./promotion/service";

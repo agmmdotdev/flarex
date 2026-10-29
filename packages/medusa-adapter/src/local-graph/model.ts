@@ -2,6 +2,8 @@ import type { Effect, Result } from "effect";
 import type { AtomicCommerceContext, AtomicCommerceParticipant } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import type { CommerceTransactionError, Json, JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { ReadTable } from "../query/catalog";
+import type { GraphPresentation } from "./presentation";
+export type { GraphPresentation } from "./presentation";
 import type { GraphReadCommand } from "./commands";
 import type { GraphRemotePath, GraphLinkEndpoint } from "./links";
 import type { GraphDirectPath } from "./direct-paths";
@@ -10,6 +12,8 @@ export type { GraphRemotePath, GraphRemotePathSelection } from "./links";
 export interface GraphRelationPath {
   readonly path: string;
   readonly table: ReadTable;
+  /** Authenticated computed output names; never stored key or join evidence. */
+  readonly presentation?: GraphPresentation;
   readonly many: boolean;
   /** A service-owned absent to-one value, not an arbitrary missing response. */
   readonly optional?: boolean;
@@ -26,6 +30,8 @@ interface GraphReadMetadata {
   readonly model: string;
   readonly command: GraphReadCommand;
   readonly table: ReadTable;
+  /** Authenticated computed output names; never stored key or join evidence. */
+  readonly presentation?: GraphPresentation;
   readonly paths: readonly GraphRelationPath[];
   readonly orderable: readonly string[];
   /** Individually unique columns; composite primary-key components are not. */

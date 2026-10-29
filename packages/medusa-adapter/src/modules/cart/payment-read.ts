@@ -36,7 +36,8 @@ const allowedPaths: ReadonlySet<string> = new Set(cartPaymentPaths);
 
 /** Read-only native Cart totals input. All nine native models are compiled;
  * only the seven relation paths needed by the genuine total selector can read. */
-export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeof captureCartMetadata>>["frame"], profile: "payment" | "checkout" | "creation" = "payment") {
+export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeof captureCartMetadata>>["frame"], profile: "payment" | "checkout" | "creation" = "payment",
+  numericPresentation: "reserialize" | "nativeOrm" = "reserialize") {
   return Result.gen(function* () {
     const entities = yield* Result.all(metadata.tables.map(table => Result.gen(function* () {
       return { table, complete: yield* compileCompleteRow(table), projection: yield* compileRowProjection(table),
@@ -84,7 +85,7 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
         ...(profile !== "payment" ? [["shipping_address", leaf], ["billing_address", leaf]] as const : [])]) };
     const queryTable = (table: string, input: unknown) => Result.gen(function* () {
       const value = yield* envelope(input), paths = value.options.populate;
-      if (table !== cart.table.name && (profile === "payment" || table !== "cart_line_item") ||
+      if (table !== cart.table.name && (profile === "payment" || table !== "cart_line_item" && (profile !== "creation" || table !== "cart_shipping_method")) ||
         paths.some(path => table === cart.table.name ? !admittedPaths.has(path) : !["tax_lines", "adjustments"].includes(path)))
         return yield* Result.fail(commerceError("unsupportedProfile"));
       // raw_total is computed by the actual Cart service after serialization;
@@ -110,7 +111,7 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
           nested[relation.name] = child === null && relation.join.type === "belongsTo" ? null : yield* present(child, relation.targetTable);
         }
         yield* Effect.fromResult(entity.projection(scalar));
-        const projected = yield* projectExactNumericColumns(scalar, entity.numbers, "reserialize");
+        const projected = yield* projectExactNumericColumns(scalar, entity.numbers, numericPresentation);
         if (!isJsonObject(projected)) return yield* Effect.fail(commerceError("storedCorruption"));
         output.push({ ...projected, ...nested });
       }
@@ -211,14 +212,15 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
           return [result.rows, result.count];
         }))),
       };
-      const lineItemRepository: DAL.RepositoryService = { ...denied, serialize,
+      const childRepository = (table: "cart_line_item" | "cart_shipping_method"): DAL.RepositoryService => ({ ...denied, serialize,
         findAndCount: (input, shared) => bridge.executeInput(shared, input, (ctx, value) => bridge.checked(ctx, Effect.gen(function* () {
-          const result = yield* find(ctx, value, true, "cart_line_item");
+          const result = yield* find(ctx, value, true, table);
           if (result.count === undefined) return yield* ctx.refuse(commerceError("storedCorruption"));
           return [result.rows, result.count];
         }))),
-      };
-      return { ...bound, repository, lineItemRepository, denied, remember, originals };
+      });
+      const lineItemRepository = childRepository("cart_line_item"), shippingMethodRepository = childRepository("cart_shipping_method");
+      return { ...bound, repository, lineItemRepository, shippingMethodRepository, denied, remember, originals };
     };
     return { cart, entities, byName, catalog, relations: catalog.relations, paths, totals, profile, query, queryTable, present, bind };
   });

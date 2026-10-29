@@ -1,11 +1,14 @@
 // @ts-check
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
 const checkoutLinks = ["order-cart", "cart-promotion", "readonly/cart-customer", "readonly/cart-region", "readonly/cart-product"];
 export const checkoutGraphAuthoredTargets = Object.freeze([
   "packages/medusa-promotion/src/utils/compute-actions/build-promotion-rule-query-filter-from-context.ts",
+  "packages/medusa-promotion/src/utils/compute-actions/prefilter.ts",
+  "packages/medusa-promotion/src/utils/compute-actions/prefilter-plan.ts",
 ]);
 export const checkoutGraphSourcePairs = [
   ...checkoutLinks.map(name => ({ source: "third_party/medusa/upstream/packages/modules/link-modules/src/definitions/" + name + ".ts",
@@ -31,7 +34,12 @@ export function expectedPromotionService(source) {
     if (!declaration.test(result)) throw new Error("Missing pinned Promotion declaration: " + name);
     result = result.replace(declaration, "$1: Promise<InferEntityType<typeof " + model + ">[]> {");
   }
-  return result;
+  return result.replace('import { buildPromotionRuleQueryFilterFromContext }',
+    'import type { PromotionPrefilterPersistence } from "../utils/compute-actions/prefilter"\nimport { buildPromotionRuleQueryFilterFromContext }')
+    .replace("protected readonly moduleDeclaration: InternalModuleDeclaration\n",
+      "protected readonly moduleDeclaration: InternalModuleDeclaration,\n    protected readonly prefilterPersistence?: PromotionPrefilterPersistence\n")
+    .replace("          applicationContext,\n          sharedContext\n",
+      "          applicationContext,\n          sharedContext,\n          this.prefilterPersistence\n");
 }
 /** @param {string} source @param {string} target */
 export function verifyPromotionService(source, target) {
@@ -58,20 +66,19 @@ export function verifyCheckoutGraphSelection(files) {
       file.source === pair.source && file.target === pair.target && file.classification === pair.classification))
     throw new Error("Redirected native checkout graph source");
 }
-export const promotionSqlPrefilterGate = `import type { Context, DAL, PromotionTypes } from "@medusajs/framework/types"
-import { MedusaError } from "@medusajs/framework/utils/portable"
-
-/** The native SQL prefilter requires a MikroORM manager. This bounded read
- * profile exposes no promotion computation or database-manager capability. */
-export async function buildPromotionRuleQueryFilterFromContext(
-  _context: PromotionTypes.ComputeActionContext, _sharedContext: Context
-): Promise<DAL.FilterQuery<unknown> | null> {
-  throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Promotion SQL prefilter is outside the checkout read profile")
-}`;
-
-/** @param {string} target */
-export function verifyPromotionSqlPrefilter(target) {
-  if (normalize(target) !== promotionSqlPrefilterGate.trim()) throw new Error("Promotion SQL prefilter refusal drift");
+/** Exact approved native owner program, including finite thresholds, the empty
+ * disjunction, historical cast cohort and the absent-port refusal. */
+/** @type {Readonly<Partial<Record<string, string>>>} */
+const promotionPrefilterDigests = {
+  "packages/medusa-promotion/src/utils/compute-actions/build-promotion-rule-query-filter-from-context.ts": "56209bd1959622b0f3565b6df57b26d24fd299634b5a4f9711b1762a76f598d2",
+  "packages/medusa-promotion/src/utils/compute-actions/prefilter.ts": "0c41b180acfe643b0a047ac3267daa08d420c6d2f6c618be2ae95a63fae58640",
+  "packages/medusa-promotion/src/utils/compute-actions/prefilter-plan.ts": "c09ad4b5b3b870baa4ad6e71f0c266fcd1a7e16d9bcb4919ecbc6da118a5c6ab"
+};
+/** @param {string} target @param {string} [path] */
+export function verifyPromotionSqlPrefilter(target, path = checkoutGraphAuthoredTargets[0]) {
+  const expected = promotionPrefilterDigests[path];
+  if (expected === undefined || createHash("sha256").update(normalize(target)).digest("hex") !== expected)
+    throw new Error("Native Promotion prefilter drift");
 }
 
 export function checkCheckoutGraphSource(root = process.cwd()) {
@@ -86,7 +93,7 @@ export function checkCheckoutGraphSource(root = process.cwd()) {
     read("packages/medusa-promotion/src/static-manifest.ts"));
   verifyNativeCheckoutLink(read("third_party/medusa/upstream/packages/modules/promotion/src/services/index.ts"),
     read("packages/medusa-promotion/src/services/index.ts"));
-  verifyPromotionSqlPrefilter(read("packages/medusa-promotion/src/utils/compute-actions/build-promotion-rule-query-filter-from-context.ts"));
+  for (const path of checkoutGraphAuthoredTargets) verifyPromotionSqlPrefilter(read(path), path);
 }
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   checkCheckoutGraphSource();

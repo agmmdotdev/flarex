@@ -7,6 +7,7 @@ import { decodePricingCalculation, decodeVariantItemPricingCalculation, prepareV
 import { commerceDecoder } from "../src/value/decoder";
 import { makeLocalPricingCommands } from "../src/modules/pricing/service";
 import { workflowMethodDefinition, workflowModuleDefinition } from "../src/workflow/module";
+import { nativeCartPricingContext } from "./support/native-cart-pricing-context";
 
 const context = { id: "cart159-input", currency_code: "usd", region_id: "reg159-input", customer_id: "cus159-input",
   quantity: 1, is_custom_price: false };
@@ -85,6 +86,40 @@ describe("native Variant/item Pricing contracts", () => {
       ...Object.fromEntries(Array.from({ length: 10 }, (_, index) => ["attribute-" + index, "value"])) };
     expect(Result.getOrThrow(prepareVariantItemPricingContext(maximum))).toEqual(maximum);
     expect(prepareVariantItemPricingContext({ ...maximum, eleventh: true }))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
+  });
+
+  it("selects the closed Cart creation context bound while keeping ordinary ten-attribute behavior", async () => {
+    const maximum = { currency_code: "usd", quantity: 1,
+      ...Object.fromEntries(Array.from({ length: 17 }, (_, index) => ["attribute-" + index, "value"])) };
+    expect(Result.getOrThrow(prepareVariantItemPricingContext(maximum, "cart-creation"))).toEqual(maximum);
+    expect(prepareVariantItemPricingContext({ ...maximum, eighteenth: true }, "cart-creation"))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
+    expect(prepareVariantItemPricingContext(maximum)).toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
+    expect(Reflect.apply(prepareVariantItemPricingContext, undefined, [maximum, 17]))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    const original = await Effect.runPromise(makeLocalPricingCommands("variant-item-pricing")),
+      cart = await Effect.runPromise(makeLocalPricingCommands("cart-creation"));
+    expect(workflowModuleDefinition(original.workflow)?.source.profile).toBe("pricing-variant-item-pricing");
+    expect(workflowModuleDefinition(cart.workflow)?.source.profile).toBe("pricing-cart-creation");
+    const oldMethod = original.workflow.methods.calculatePrices, cartMethod = cart.workflow.methods.calculatePrices;
+    if (oldMethod === undefined || cartMethod === undefined) throw new Error("Missing genuine native Pricing methods");
+    const oldCommand = workflowMethodDefinition(oldMethod)?.command, cartCommand = workflowMethodDefinition(cartMethod)?.command;
+    if (oldCommand === undefined || cartCommand === undefined) throw new Error("Missing genuine Pricing command identity");
+    expect(commerceCommandIdentity(oldCommand)).toEqual({ name: "pricingCalculateVariantItems", mode: "read" });
+    expect(commerceCommandIdentity(cartCommand)).toEqual({ name: "pricingCalculateCartCreation", mode: "read" });
+  });
+
+  it("admits the measured native Region/Country context without dropping any native key", () => {
+    const before = structuredClone(nativeCartPricingContext);
+    const flattened = Result.getOrThrow(prepareVariantItemPricingContext(nativeCartPricingContext, "cart-creation"));
+    expect(Object.keys(flattened)).toHaveLength(19);
+    expect(Object.keys(flattened).filter(key => key !== "currency_code" && key !== "quantity")).toHaveLength(17);
+    expect(flattened).toMatchObject({ "region.automatic_taxes": true,
+      "region.countries.iso_2": ["us"], "region.countries.created_at": ["2026-10-29T16:12:19.040Z"], customer_id: "cus-create-root" });
+    expect(nativeCartPricingContext).toEqual(before);
+    expect(prepareVariantItemPricingContext(nativeCartPricingContext)).toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
+    expect(prepareVariantItemPricingContext({ ...nativeCartPricingContext, extra: "eighteenth" }, "cart-creation"))
       .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
   });
 

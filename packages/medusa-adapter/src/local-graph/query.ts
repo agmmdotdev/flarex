@@ -6,6 +6,7 @@ import { QueryLimit, QueryOffset } from "../query/decoder";
 import { makeReadCatalog } from "../query/catalog";
 import { isGraphReadCommand } from "./commands";
 import { planGraphFields, type GraphFieldPlan } from "./fields";
+import { captureGraphPresentation, graphSelectableColumns } from "./presentation";
 import type { GraphParticipant, GraphReadDefinition, GraphReadSelection, GraphRelationPath, LocalGraphQuery, PreparedLocalGraph } from "./model";
 import { populateGraphRemotePaths, prepareGraphRemotePaths, prepareGraphLinkEndpoints, validateGraphPathPrefixes } from "./remote-paths";
 import { prepareGraphDirectPaths } from "./direct-paths";
@@ -90,13 +91,16 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
         // unnecessary here because services retain population responsibility.
         const tables = new Map([input.table, ...input.paths.map(path => path.table)].map(table => [table.name, table]));
         const catalog = yield* makeReadCatalog([...tables.values()], new Map());
+        const presentation = input.presentation === undefined ? undefined : yield* captureGraphPresentation(input.presentation, input.table);
         const paths = [];
         const names = new Set<string>();
         for (const relation of input.paths) {
           if (names.has(relation.path) || relation.path.split(".").some(part => !/^[a-z][a-z0-9_]*$/.test(part)) ||
             relation.nativeFields !== undefined && relation.nativeFields !== true) return yield* Result.fail(commerceError("unsupportedProfile"));
           names.add(relation.path);
+          const presentation = relation.presentation === undefined ? undefined : yield* captureGraphPresentation(relation.presentation, relation.table);
           paths.push(Object.freeze({ ...relation, table: yield* catalog.table(relation.table.name),
+            ...(presentation === undefined ? {} : { presentation }),
             ...(relation.targetFields === undefined ? {} : { targetFields: Object.freeze([...relation.targetFields]) }),
             ...(relation.sourceFields === undefined ? {} : { sourceFields: Object.freeze([...relation.sourceFields]) }) }));
         }
@@ -121,6 +125,7 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
           || (table.primaryKeys.length === 1 && !input.uniqueOrder.includes(identity))
           || input.orderable.some(field => !table.columns.includes(field)) || input.uniqueOrder.some(field => !input.orderable.includes(field))) return yield* Result.fail(commerceError("unsupportedProfile"));
         const read = Object.freeze({ ...input, table, paths: Object.freeze(paths),
+          ...(presentation === undefined ? {} : { presentation }),
           ...(input.optionalFields === undefined ? {} : { optionalFields: Object.freeze([...input.optionalFields]) }),
           orderable: Object.freeze([...input.orderable]), uniqueOrder: Object.freeze([...input.uniqueOrder]) });
         models.set(read.model, read);
@@ -159,12 +164,15 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
         ...entry.read.paths.map(path => entry.read.nativeFields === true && !path.many && nativePrefixes.some(prefix => prefix.startsWith(path.path + "."))
           ? Object.freeze({ ...path, nativeFields: true as const }) : path),
         ...[...paths?.values() ?? []].map(path => Object.freeze({ path: path.path, table: path.target.read.table,
+          ...(path.target.read.presentation === undefined ? {} : { presentation: path.target.read.presentation }),
           many: path.many !== false, optional: path.many === false, nativeFields: true as const, sourceFields: Object.freeze([path.sourceKey]) })),
         ...[...direct?.values() ?? []].map(path => Object.freeze({ path: path.path, table: path.target.read.table,
+          ...(path.target.read.presentation === undefined ? {} : { presentation: path.target.read.presentation }),
           many: path.many, optional: !path.many, ...(path.nativeFields === true ? { nativeFields: true as const } : {}),
           sourceFields: Object.freeze([path.sourceKey]), targetFields: Object.freeze([path.targetKey]) })),
         ...[...endpoints?.values() ?? []].map(endpoint =>
-          Object.freeze({ path: endpoint.path, table: endpoint.target.read.table, many: false, sourceFields: Object.freeze([endpoint.sourceKey]) }),
+          Object.freeze({ path: endpoint.path, table: endpoint.target.read.table, many: false, sourceFields: Object.freeze([endpoint.sourceKey]),
+            ...(endpoint.target.read.presentation === undefined ? {} : { presentation: endpoint.target.read.presentation }) }),
         ),
       ];
       const edges = [...paths?.values() ?? [], ...direct?.values() ?? [], ...endpoints?.values() ?? []];
@@ -203,9 +211,9 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
         const selectedRemote = fields.relations.filter(isRemote);
         const relations = fields.relations.filter(path => !isRemote(path));
         const selected = selectedRemote.length !== 0 && relations.length === 0
-          ? [...new Set([...fields.node.fields, ...entry.read.table.primaryKeys,
+          ? [...new Set([...fields.scalarSelect, ...entry.read.table.primaryKeys,
             ...selectedRemote.flatMap(path => remote?.get(path)?.sourceKey ?? direct?.get(path)?.sourceKey ?? endpoints?.get(path)?.sourceKey ?? [])])]
-            .filter(field => entry.read.table.columns.includes(field)) : fields.select;
+            .filter(field => graphSelectableColumns(entry.read).includes(field)) : fields.select;
         // The genuine key is fetched in this same DAL selection, then masked
         // by the original graph projection after native completeness checks.
         const select = keyPlan === undefined ? selected : [...new Set([...selected, keyPlan.pkField])];
