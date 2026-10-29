@@ -1,4 +1,5 @@
 import { isNonBlankString } from "@flarex/utils/strings";
+import { Result } from "effect";
 
 import {
   reportSecondaryCleanupError,
@@ -70,9 +71,54 @@ export class HostedExecutorErrorResponse extends Error {
   }
 }
 
-type PrimaryFailure =
+export type ExecutorPrimaryFailure =
   | { readonly failed: false }
   | { readonly failed: true; readonly error: unknown };
+
+/** One client has one close operation, shared with transaction quarantine. */
+export function createExecutorClientLifetime(
+  client: ExecutorDatabaseClient,
+  onCleanupError?: RequestScopedExecutorWorkerDependencies<ExecutorDatabaseClient>["onCleanupError"],
+) {
+  let closing: Promise<void> | undefined;
+  const release = (): Promise<void> => closing ??= Promise.resolve().then(() => client.end());
+  return Object.freeze({
+    /** Effect scopes need the rejecting release so they can retain full Causes. */
+    release,
+    quarantine: (_discardError: Error): Promise<void> => release(),
+    close: async (primary: ExecutorPrimaryFailure): Promise<void> => {
+      try {
+        await release();
+      } catch (cleanupError) {
+        if (!primary.failed) throw cleanupError;
+        await reportSecondaryCleanupError(onCleanupError, {
+          primaryError: primary.error,
+          cleanupError,
+        });
+      }
+    },
+  });
+}
+
+/** Existing private token/config admission, before any database allocation. */
+export function admitExecutorRequest(
+  request: Request,
+  env: ExecutorWorkerEnv,
+): Result.Result<
+  Readonly<{ capabilityToken: string; connectionString: string }>,
+  Response
+> {
+  const capabilityToken = env.FLAREX_EXECUTOR_TOKEN;
+  if (!hasConfiguredValue(capabilityToken)) {
+    return Result.fail(configurationErrorResponse(new HostedExecutorMissingCapabilityTokenError()));
+  }
+  if (!hasBearerCapability(request, capabilityToken)) return Result.fail(unauthorizedResponse());
+  const connectionString = env.HYPERDRIVE_CACHE_DISABLED?.connectionString;
+  if (!hasConfiguredValue(connectionString)) {
+    return Result.fail(configurationErrorResponse(new HostedExecutorMissingHyperdriveError()));
+  }
+  return Result.succeed(Object.freeze({ capabilityToken, connectionString }));
+}
 
 export function createRequestScopedExecutorWorker<
   Client extends ExecutorDatabaseClient,
@@ -81,28 +127,15 @@ export function createRequestScopedExecutorWorker<
 ): ExecutorWorker {
   return {
     fetch: async (request, env) => {
-      const capabilityToken = env.FLAREX_EXECUTOR_TOKEN;
-      if (!hasConfiguredValue(capabilityToken)) {
-        return configurationErrorResponse(
-          new HostedExecutorMissingCapabilityTokenError(),
-        );
-      }
-      if (!hasBearerCapability(request, capabilityToken)) {
-        return unauthorizedResponse();
-      }
+      const admission = admitExecutorRequest(request, env);
+      if (Result.isFailure(admission)) return admission.failure;
+      const { capabilityToken, connectionString } = admission.success;
 
-      const connectionString =
-        env.HYPERDRIVE_CACHE_DISABLED?.connectionString;
-      if (!hasConfiguredValue(connectionString)) {
-        return configurationErrorResponse(
-          new HostedExecutorMissingHyperdriveError(),
-        );
-      }
-
-      let client: Client | undefined;
-      let primaryFailure: PrimaryFailure = { failed: false };
+      let lifetime: ReturnType<typeof createExecutorClientLifetime> | undefined;
+      let primaryFailure: ExecutorPrimaryFailure = { failed: false };
       try {
-        client = dependencies.createClient(connectionString, request);
+        const client = dependencies.createClient(connectionString, request);
+        lifetime = createExecutorClientLifetime(client, dependencies.onCleanupError);
         await client.connect();
         const handler = dependencies.createHandler({
           client,
@@ -120,17 +153,7 @@ export function createRequestScopedExecutorWorker<
         primaryFailure = { failed: true, error };
         throw error;
       } finally {
-        if (client !== undefined) {
-          try {
-            await client.end();
-          } catch (cleanupError) {
-            if (!primaryFailure.failed) throw cleanupError;
-            await reportSecondaryCleanupError(dependencies.onCleanupError, {
-              primaryError: primaryFailure.error,
-              cleanupError,
-            });
-          }
-        }
+        await lifetime?.close(primaryFailure);
       }
     },
   } satisfies ExecutorWorker;

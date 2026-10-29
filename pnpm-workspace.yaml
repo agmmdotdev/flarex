@@ -16,3 +16,7 @@ catalog:
   "vite": "^8.3.3"
   "vitest": "^5.0.3"
   "wrangler": "^4.100.0"
+overrides:
+  workerd@1.20260611.1: 1.20260929.1
+patchedDependencies:
+  pg-cloudflare@1.4.0: patches/pg-cloudflare@1.4.0.patch

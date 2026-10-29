@@ -20,7 +20,8 @@ class QueryCompositionFailure extends Data.TaggedError(
     | "invalidExecutionContext"
     | "invalidTarget"
     | "sourceReadFailed"
-    | "workerDefinitionFailed";
+    | "workerDefinitionFailed"
+    | "requestResourceFailed";
   readonly cause?: unknown;
 }> {}
 
@@ -461,6 +462,7 @@ describe("clean Query invocation-error projection", () => {
     ["invalidTarget", "invalidConfiguration"],
     ["sourceReadFailed", "unavailable"],
     ["workerDefinitionFailed", "unavailable"],
+    ["requestResourceFailed", "unavailable"],
   ] as const satisfies readonly (readonly [
     QueryCompositionFailure["reason"],
     QueryInvocationErrorReason,

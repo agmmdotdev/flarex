@@ -1,7 +1,7 @@
 # Single-owner core refactor goal
 
 Status: **Active implementation goal; bounded Application cache/read replacement
-implemented, wider snapshot/DO milestone open**.
+and local query DO composition implemented; wider core milestones open**.
 The owner has requested the complete single-owner refactor, delivered through
 bounded connected milestones. This authorization supersedes earlier statements
 that this work is documentation-only. It does not decide unresolved guarantees,
@@ -80,9 +80,12 @@ The [bounded operation-local replacement](./slices/01-snapshot-reads.md) is
 implemented. The [timestamped cache-transfer slice](./slices/02-timestamped-cache-transfer.md)
 now connects exclusive query-cache handoff and guarded PostgreSQL refresh to
 the existing Application query path. Neither closes the wider
-snapshot/DO milestone or the complete goal. The next selected
-[actual-DO query composition](./slices/03-application-query-do-host.md) has completed
-its independent source challenge; its bounded runtime is unstarted.
+snapshot/DO milestone or the complete goal. The bounded
+[actual-DO query composition](./slices/03-application-query-do-host.md) now executes
+the genuine query path with default local workerd and ordinary PostgreSQL.
+The next [mutation pending-state preflight](./slices/04-mutation-pending-state.md)
+records independent source challenge and peer convergence. Its connected
+replacement contract and stored-profile disposition remain prerequisites to code.
 
 ## Mandatory challenge before each slice
 
@@ -139,6 +142,14 @@ focused ordinary-role real PostgreSQL lanes. DO storage, lifecycle, interleaving
 and restart claims require the actual Cloudflare host; Node or local mock
 conformance is insufficient. Keep quiet performance runs separate from competing
 load and stop only resources owned by this work.
+
+The owner's current compiler selection is installed Oxc
+`tsrs@0.20.1-ts7.1.0-beta --fast` for scoped checks. Do not run native `tsc`/`tsgo`
+or scripts that invoke them. A suspected checker false positive pauses the
+affected path for a direct report with the exact command, diagnostic, source
+identity and uncertainty; do not suppress it or change valid code merely to
+silence it. Native comparison needs separate authorization. Compiler benchmarks
+remain stopped. This selects validation tooling, not weaker runtime guarantees.
 
 Use the recorded [performance gates](../VALIDATION.md#acceptance), the
 [performance owner](../../../roadmaps/core-performance/README.md#acceptance-is-complete-request-cost)

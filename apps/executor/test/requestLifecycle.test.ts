@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { Cause, Effect, Exit, Result } from "effect";
 
 import {
   createRequestScopedExecutorWorker,
+  createExecutorClientLifetime,
   HostedExecutorErrorResponse,
   type ExecutorCleanupErrorInput,
   type ExecutorDatabaseClient,
@@ -23,6 +25,51 @@ const validEnv = {
 } satisfies ExecutorWorkerEnv;
 
 describe("request-scoped executor Worker lifecycle", () => {
+  it("shares one real close operation between quarantine and request cleanup", async () => {
+    let ends = 0;
+    let finish!: () => void;
+    const closing = new Promise<void>(resolve => { finish = resolve; });
+    const lifetime = createExecutorClientLifetime({
+      connect: () => Promise.resolve(),
+      end: () => { ends += 1; return closing; },
+    });
+    const quarantine = lifetime.quarantine(new Error("unsafe transaction connection"));
+    const release = lifetime.release();
+    const cleanup = lifetime.close({ failed: false });
+    await Promise.resolve();
+    expect(ends).toBe(1);
+    finish();
+    await Promise.all([quarantine, release, cleanup]);
+    await lifetime.close({ failed: false });
+    expect(ends).toBe(1);
+  });
+
+  it("preserves both query and release failure when Effect owns cleanup", async () => {
+    const queryError = new Error("query failed");
+    const cleanupError = new Error("connection release failed");
+    let ends = 0;
+    const reports: ExecutorCleanupErrorInput[] = [];
+    const lifetime = createExecutorClientLifetime({
+      connect: () => Promise.resolve(),
+      end: () => { ends += 1; return Promise.reject(cleanupError); },
+    }, input => { reports.push(input); });
+    const exit = await Effect.runPromiseExit(Effect.scoped(Effect.gen(function* () {
+      yield* Effect.acquireRelease(Effect.succeed(lifetime), current =>
+        Effect.tryPromise({ try: current.release, catch: cause => cause }).pipe(Effect.orDie));
+      return yield* Effect.fail(queryError);
+    })));
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const query = Cause.findError(exit.cause);
+      const cleanup = Cause.findDefect(exit.cause);
+      expect(Result.isSuccess(query) && query.success).toBe(queryError);
+      expect(Result.isSuccess(cleanup) && cleanup.success).toBe(cleanupError);
+      expect(exit.cause.reasons).toHaveLength(2);
+    }
+    expect(ends).toBe(1);
+    expect(reports).toEqual([]);
+  });
+
   it("fails closed on missing configuration without allocating a client", async () => {
     const harness = createHarness();
 

@@ -2,7 +2,7 @@ import { describe } from "vitest";
 import {
   createApplicationNativeMutationPGliteFixtureWithPersistence,
 } from "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
-import { APPLICATION_NATIVE_QUERY_FIXTURE_OPTIONS } from "../../support/applicationNativeQueryHarness";
+import { APPLICATION_NATIVE_QUERY_FIXTURE_OPTIONS } from "../../support/applicationNativeQueryDefinitions";
 import { defineApplicationActionAuthorityContract } from "../contracts/applicationActionAuthorityContract";
 import { createMigratedSplitPGlitePersistence } from "../support/databaseFixturesV1";
 

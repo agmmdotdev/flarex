@@ -1,0 +1,74 @@
+# Invocation-scoped PostgreSQL client lifetime
+
+Design status: **Accepted runtime adaptation within the actual-DO slice**.
+Implementation status: **Shared observation and invocation-scoped lifetime implemented**.
+Measurement status: **Unmeasured**.
+Owner: [actual DO query composition](../slices/03-application-query-do-host.md).
+
+## Pinned mechanism
+
+At Convex `84fbb0e70b4e857913673871cb847ad11a55f3d5`,
+[connection.rs](../../../../../../crates/postgres/src/connection.rs) owns the pool
+and driver lifecycle. `ConvexPgPool::create_connection` starts the named
+`postgres_connection` task polling `conn.poll_message`; an error is reported and
+the poller finishes. `get_connection_internal` skips closed clients.
+`handle_error` marks closed, unexpected-message and timeout connections poisoned,
+and the connection's drop path does not return poisoned connections for reuse.
+These are inspected production mechanisms, not an executed upstream fault test.
+
+## Why and how the host differs
+
+The Cloudflare host uses the existing node-postgres driver and request-scoped
+clients against injected persistence/Hyperdrive. It does not copy Convex's
+process-local pool and Tokio background connection task. Hyperdrive pooling and
+the portable engine's transaction owner remain separate responsibilities.
+
+node-postgres can report a disconnected idle connection through an EventEmitter
+`error`, outside the query Promise. The existing Flarex pooled path observes
+these errors, but its connected-client path did not. Reuse that observation at
+the persistence driver owner and connect it to the actual request lifetime.
+Install observation before connection, retain it through settled release, latch
+the original error and surface it through the owning transaction/resource outcome.
+A no-op listener or an adapter catch-and-continue would discard the evidence.
+
+There must remain one connect/end owner and one memoized release operation.
+Quarantine and finalization share that operation rather than closing the client
+independently. Remove observers only after shutdown has settled; never detach
+the handler while a live socket can still report failure. Do not add SQL probes,
+new retries, another transaction scope or an unbounded background fiber.
+
+The existing HTTP Promise boundary preserves its primary rejection and reports
+secondary cleanup errors. The Effect query scope has the stronger full-Cause
+contract: its finalizer calls the same rejecting low-level release directly, so
+a body failure and cleanup defect both survive. Keep the old HTTP projection at
+that boundary; do not apply its error suppression inside query finalization.
+The existing query completion owner remains the sole cache-return gate.
+
+## Consumers, removal and proof
+
+The selected consumer is the actual DO query host's connected PostgreSQL client.
+Reuse existing pool observation and connected read-committed settlement semantics;
+remove any superseded duplicate observation. The host receives lifecycle
+capabilities, not a second event/error algorithm. No application-data format,
+schema, grant, lease, publication order or durable outcome changes.
+
+Prove body plus cleanup failure preserves both original reasons and closes once;
+disconnect during a real held source/Worker phase becomes an owned failure;
+failed checkout cannot publish; and a subsequent request reconnects cold.
+Keep existing HTTP primary-error behavior and pooled/connected driver regressions.
+Unit EventEmitter witnesses establish listener/latch/disposal behavior; ordinary
+PostgreSQL and actual workerd establish the selected real disconnect path.
+[`observePostgresClientErrors` and `observePostgresClientLifetime`](../../../../packages/persistence-postgres/src/database/postgresClientLifetime.ts)
+own the shared first-error latch and scoped observation. The
+[connected and pooled runners](../../../../packages/persistence-postgres/src/database/postgresLocatedReadCommitted.ts)
+consume that observation; the
+[host client lifetime](../../../../apps/executor/src/requestLifecycle.ts)
+owns their shared release. The
+[DO acquisition scope](../../../../apps/executor/src/applicationQueryDO.ts)
+installs observation before connect and retains the rejecting finalizer outcome
+through query completion. Rejected release retains the observer until an actual
+terminal driver event; shutdown is never inferred from rejection alone.
+
+No connection event test alone proves commit uncertainty recovery, fencing or
+managed Hyperdrive behavior. Actual local socket and DO scenarios retain only
+their declared host and failure guarantees.

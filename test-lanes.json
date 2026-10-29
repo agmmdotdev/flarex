@@ -297,9 +297,17 @@
     "o09-b-postgres": [
       "o09-b-postgres"
     ],
+    "application-query-do-postgres": [
+      "application-query-do-postgres"
+    ],
+    "postgres-socket-starttls": [
+      "postgres-socket-starttls"
+    ],
     "workerd": [
       "workerd-persistence",
-      "h04-workerd-postgres"
+      "h04-workerd-postgres",
+      "application-query-do-postgres",
+      "postgres-socket-starttls"
     ],
     "hosted": [
       "h05-hosted"
@@ -1366,6 +1374,52 @@
           "args": [
             "test:service-binding:postgres"
           ]
+        }
+      ]
+    },
+    {
+      "id": "application-query-do-postgres",
+      "category": "workerd",
+      "proof": "Bounded private Application query core in a local actual Durable Object, nested WorkerLoader, real source artifacts and ordinary PostgreSQL; includes socket shutdown conformance. Does not establish hosted Hyperdrive, commit ownership, production routing or capacity.",
+      "prerequisites": [
+        { "name": "FLAREX_POSTGRES_DATABASE_URL" },
+        { "name": "FLAREX_POSTGRES_PROVISIONING_DATABASE_URL" }
+      ],
+      "steps": [
+        {
+          "id": "socket-conformance",
+          "cwd": "apps/executor",
+          "command": "pnpm",
+          "args": ["exec", "vitest", "run", "test/pgCloudflareSocket.test.ts", "--maxWorkers=1", "--no-file-parallelism"]
+        },
+        {
+          "id": "native-socket-cancellation",
+          "cwd": "apps/executor",
+          "command": "pnpm",
+          "args": ["exec", "vitest", "run", "test/pgCloudflareSocket.native.test.ts", "--maxWorkers=1", "--no-file-parallelism"]
+        },
+        {
+          "id": "actual-do-query",
+          "cwd": "apps/executor",
+          "command": "pnpm",
+          "args": ["exec", "vitest", "run", "test/applicationQueryDO.postgres.test.ts", "--maxWorkers=1", "--no-file-parallelism"]
+        }
+      ]
+    },
+    {
+      "id": "postgres-socket-starttls",
+      "category": "workerd",
+      "proof": "Patched PostgreSQL socket STARTTLS and cleanup through the default local workerd executable and an ordinary-role TLS-enabled loopback PostgreSQL fixture. Explicit fixture CA trust is confined to that runtime; this does not establish hosted Hyperdrive or direct TLS negotiation.",
+      "prerequisites": [
+        { "name": "FLAREX_POSTGRES_DATABASE_URL" },
+        { "name": "FLAREX_POSTGRES_TLS_CA_FILE" }
+      ],
+      "steps": [
+        {
+          "id": "native-postgres-starttls",
+          "cwd": "apps/executor",
+          "command": "pnpm",
+          "args": ["exec", "vitest", "run", "test/pgCloudflareSocket.postgres.test.ts", "--maxWorkers=1", "--no-file-parallelism"]
         }
       ]
     },

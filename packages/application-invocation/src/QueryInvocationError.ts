@@ -192,6 +192,7 @@ function projectCompositionReason(
       return "corruptData";
     case "sourceReadFailed":
     case "workerDefinitionFailed":
+    case "requestResourceFailed":
       return "unavailable";
   }
 }

@@ -91,6 +91,15 @@ describe("backend validator metadata parsing", () => {
     });
   });
 
+  it("rejects object validator metadata with an absent field map", () => {
+    const result = parseValidatorJson({ type: "object" }, "$validator");
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isSuccess(result)) throw new Error("Expected missing field map to fail.");
+    expect(result.failure).toMatchObject({
+      path: "$validator.value",
+      message: "$validator.value: Object validator value must be an object.",
+    });
+  });
   it("treats reserved object names as own validator and document fields", () => {
     for (const fieldName of ["__proto__", "constructor", "toString"]) {
       const rawFields = Object.fromEntries([[

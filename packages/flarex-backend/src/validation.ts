@@ -157,7 +157,7 @@ export function parseValidatorJson(
     }
     case "object": {
       const rawFields = value.value;
-      if (!isWritableJsonObject(rawFields)) {
+      if (rawFields === undefined || !isWritableJsonObject(rawFields)) {
         return backendValidationFailure("Object validator value must be an object.", `${path}.value`);
       }
       return Result.gen(function* () {

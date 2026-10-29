@@ -13,6 +13,7 @@ import {
   createPostgresClientPersistence,
   type PostgresClientFlarexPersistence,
 } from "../../src/database/postgresClient";
+import { observePostgresClientLifetime, type PostgresClientLifetimeObservation } from "../../src/database/postgresClientLifetime";
 import {
   createPostgresPersistence,
   type PostgresFlarexPersistence,
@@ -384,6 +385,7 @@ export async function withTemporaryPostgresClientPersistence(
   fn: (
     persistence: PostgresClientFlarexPersistence,
     client: Client,
+    observation: PostgresClientLifetimeObservation,
   ) => Promise<void>,
 ): Promise<void> {
   const connectionString = requiredPostgresUrl();
@@ -392,6 +394,7 @@ export async function withTemporaryPostgresClientPersistence(
   const adminPool = new Pool({ connectionString });
   let migrationPersistence: PostgresFlarexPersistence | undefined;
   let client: Client | undefined;
+  let observation: PostgresClientLifetimeObservation | undefined;
   let primaryError: unknown;
 
   try {
@@ -410,8 +413,10 @@ export async function withTemporaryPostgresClientPersistence(
       connectionString,
       options: `-c search_path=${schemaName}`,
     });
+    observation = observePostgresClientLifetime(client);
     await client.connect();
-    await fn(createPostgresClientPersistence(client), client);
+    observation.check();
+    await fn(createPostgresClientPersistence(client), client, observation);
   } catch (error) {
     primaryError = error;
     throw error;
@@ -419,7 +424,9 @@ export async function withTemporaryPostgresClientPersistence(
     const cleanupErrors: unknown[] = [];
     const clientToClose = client;
     if (clientToClose !== undefined) {
-      await recordCleanupError(cleanupErrors, () => clientToClose.end());
+      const currentObservation = observation;
+      await recordCleanupError(cleanupErrors, () => currentObservation === undefined ? clientToClose.end() :
+        currentObservation.finish(() => clientToClose.end()));
     }
     const migrationPersistenceToClose = migrationPersistence;
     if (migrationPersistenceToClose !== undefined) {

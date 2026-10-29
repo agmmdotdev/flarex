@@ -1,7 +1,8 @@
 # Read-only Application query host in a Durable Object
 
 Design status: **Accepted bounded host adaptation within the authorized goal**.
-Implementation status: **Unstarted**. Measurement status: **Unmeasured**.
+Implementation status: **Bounded local DO composition implemented**.
+Measurement status: **Unmeasured**.
 Owner: [third slice](../slices/03-application-query-do-host.md).
 This refines the accepted [runtime adaptation](./app-owner-runtime.md); it does
 not select durable coordinator fencing or general app routing.
@@ -71,10 +72,17 @@ request resource owners; remove only construction superseded in this scope.
 Do not relabel the old SQLite-authoritative `PartitionDO` or retain a parallel
 query algorithm in the test host.
 
-The owning slice requires actual DO/Worker/PostgreSQL execution, failed cleanup,
-concurrent cache ownership, authority refusal, isolation and cold restart proofs.
+[`makeApplicationQueryDurableObject`](../../../../apps/executor/src/applicationQueryDO.ts)
+owns the host lifetime and composes
+[`makeApplicationQuerySystemFactoryLayer`](../../../../packages/standard-application-invocation/src/ApplicationQuerySystem.ts)
+with the shared `constructApplicationQueryPorts` implementation.
+[`createPostgresClientApplicationQueryServing`](../../../../packages/persistence-postgres/src/application/applicationQueryServing.ts)
+reuses the existing serving graph, target registration and active-selection
+issuer. The [actual-host scenario](../../../../apps/executor/test/applicationQueryDO.postgres.test.ts)
+uses real DO/Worker/PostgreSQL execution for cache refresh, failed cleanup,
+concurrent ownership, authority refusal, isolation and cold reconstruction.
+
 PGlite and Node evidence retain their stated scopes; local workerd is not hosted
-Hyperdrive or managed-eviction evidence. Exact executing symbols, final status
-and Git validation evidence are filled after implementation. Full coordinator
-fencing/recovery, native hosting, production activation and performance remain
-separate goal gates. Replication stays deferred.
+Hyperdrive or managed-eviction evidence. Full coordinator fencing/recovery, native hosting,
+production activation and performance remain separate goal gates. Replication
+stays deferred.

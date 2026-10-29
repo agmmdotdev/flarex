@@ -150,11 +150,8 @@ const allowedRunPromiseSites = new Map([
   [siteKey("packages/persistence-postgres/src/execution/session/target.ts", "[RUN_LOCATED_REPEATABLE_READ_V1]"), 1],
   [siteKey("packages/persistence-postgres/src/execution/session/target.ts", "[TERMINALIZE_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1]"), 1],
   [siteKey("packages/persistence-postgres/src/database/locatedReadCommittedRunner.ts", "createDefaultLocatedReadCommittedTransactionRunnerV1"), 1],
-  [siteKey("packages/standard-application-invocation/src/ApplicationQuerySystem.ts", "ApplicationQueryRpcCapability.revalidate"), 1],
-  [siteKey("packages/standard-application-invocation/src/ApplicationQuerySystem.ts", "ApplicationQueryRpcCapability.readPointDocument"), 1],
-  [siteKey("packages/standard-application-invocation/src/ApplicationQuerySystem.ts", "ApplicationQueryRpcCapability.queryIndexRange"), 1],
-  // RpcTarget requires a Promise; the capability retains its existing snapshot lifetime.
-  [siteKey("packages/standard-application-invocation/src/ApplicationQuerySystem.ts", "ApplicationQueryRpcCapability.takeIncomingRelationSources"), 1],
+  // RpcTarget methods share one Promise bridge with captured diagnostics/snapshot lifetime.
+  [siteKey("packages/standard-application-invocation/src/ApplicationQuerySystem.ts", "ApplicationQueryRpcCapability.#run"), 1],
 ]);
 
 /** @type {Map<string, number>} */
@@ -177,6 +174,8 @@ const allowedRunPromiseExitSites = new Map([
 
 /** @type {Map<string, number>} */
 const allowedRunPromiseExitWithSites = new Map([
+  // The existing native Promise owner transports full Exit/Cause with its captured context.
+  [siteKey("packages/medusa-adapter/src/module/promise-owner.ts", "run"), 1],
   // Existing transaction bridges lend only the captured diagnostic policy,
   // tracer/parent and explicit tracing flags, never business services or Clock.
   [siteKey("packages/persistence-postgres/src/database/effectTransaction.ts", "runEffectTransactionSettlement"), 1],
@@ -188,8 +187,7 @@ const allowedRunPromiseExitWithSites = new Map([
 
 /** @type {Map<string, number>} */
 const allowedRunPromiseWithSites = new Map([
-  // The native framework Promise owner preserves captured tracing and cancellation.
-  [siteKey("packages/medusa-adapter/src/module/promise-owner.ts", "run"), 1],
+
   // These existing Payload DAL/rollback edges preserve actual invocation
   // diagnostics and cancellation instead of starting a default runtime.
   [siteKey("packages/payload-adapter/src/adapter.ts", "run"), 1],

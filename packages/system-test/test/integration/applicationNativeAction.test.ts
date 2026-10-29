@@ -1,5 +1,5 @@
 import { createApplicationNativeMutationPGliteFixtureWithPersistence } from "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
-import { APPLICATION_NATIVE_QUERY_FIXTURE_OPTIONS } from "../../support/applicationNativeQueryHarness";
+import { APPLICATION_NATIVE_QUERY_FIXTURE_OPTIONS } from "../../support/applicationNativeQueryDefinitions";
 import { createMigratedSplitPGlitePersistence } from "../support/databaseFixturesV1";
 import { describe, expect, it, vi } from "vitest";
 

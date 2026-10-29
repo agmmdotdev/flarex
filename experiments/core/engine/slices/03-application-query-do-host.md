@@ -1,7 +1,7 @@
 # Third slice: actual DO Application query composition
 
-Status: **Independent source challenge complete; bounded contract selected;
-runtime unstarted**. The [goal](../GOAL.md) remains active. This extends the
+Status: **Bounded Application query DO composition implemented**.
+The [goal](../GOAL.md) remains active. This extends the
 [timestamped handoff](./02-timestamped-cache-transfer.md) into an actual local
 workerd Durable Object. It does not establish the full durable app coordinator,
 production routing, hosted Hyperdrive acceptance or native framework hosting.
@@ -48,7 +48,10 @@ selects read-only DO composition before the broader pending/dependency replaceme
 
 The [host adaptation](../divergences/application-query-do-host.md) records why
 and how this differs from full Convex database ownership. Its bounded dispatch
-is ordinary trusted application code, not a new engine function registry.
+is ordinary trusted application code, not a new engine function registry. The
+[client-lifetime adaptation](../divergences/postgres-client-lifetime.md) records
+the pinned connection poller, Node driver error observation and complete cleanup
+outcome needed by this host.
 
 ## Selected implementation contract
 
@@ -71,6 +74,14 @@ is ordinary trusted application code, not a new engine function registry.
    reconstruction. Do not write authoritative app data or a claimed persisted
    query cache to DO SQLite.
 
+The selected anonymous query profile authenticates the private executor hop;
+it does not acquire a transaction grant or compare a pinned principal-revocation
+epoch. Its real warm refusal gates are active target/function, scope placement,
+history and index readiness. Grant-epoch enforcement and credential/principal
+proof remain profile-specific wider-goal obligations, not tests supplied by
+changing the query fixture's SQL. Structural fence injection tests only the
+existing guard; it does not prove a production takeover/maintenance writer.
+
 Request-scoped clients are the selected lifetime here. Cloudflare documents
 [handler-scoped clients and DO connection allocation](https://developers.cloudflare.com/hyperdrive/concepts/connection-lifecycle/)
 and [TCP socket lifecycle](https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/).
@@ -89,7 +100,7 @@ worker may repair an owner defect in its consumer adapter.
 
 Prove actual DO -> public query -> isolated Worker -> snapshot -> completion;
 cold/warm reuse; same-key and key-changing genuine mutation refresh; concurrent
-exclusive checkout; revoked grant and changed generation; wrong configured tuple
+exclusive checkout; active-target/function withdrawal, index-readiness refusal and changed generation; wrong configured tuple
 refusal; result failure and client-cleanup failure before cache publication;
 two-scope isolation; and restart at the same DO identity with a new boot and cold
 authoritative reconstruction. Require positive controls and owned cleanup.
@@ -104,3 +115,53 @@ remain separate gates. Both mandated reviews and scoped commit are required.
 General dynamic app routing, durable fencing/bootstrap, pending-state replacement,
 out-of-order saves, native hosting and complete-request performance remain open.
 Replication stays deferred.
+
+## Runtime selection and conformance boundary
+
+The complete local Windows functional scenario uses the selected default
+`workerd@1.20260929.1` dependency, with no executable override. The native socket
+and existing Application query, mutation, action and authority scenarios retain
+their separate actual-host, PGlite and ordinary-role PostgreSQL scopes.
+The original June host exposed native access-violation termination, and driver
+investigation exposed a separate socket-read failure during cleanup. A reduced
+DO/driver proof or passing rerun does not establish the native failure's cause.
+Failed requests never publish their cache, and cleanup failures remain outcomes.
+
+The controlled comparison retains the same Miniflare version, compatibility
+date, application source, driver and database. September 29 is the first
+published release containing upstream [atomic cppgc sweeping restoration](https://github.com/cloudflare/workerd/commit/e5803288aef5315a69cfcb759cfec11311464586).
+The defect is present in the original `v1.20260611.1` source: its heap requests
+atomic sweeping but the pinned V8 implementation overwrites that setting. The
+upstream fix covers isolate-finalization failures involving Response/R2 stream
+objects. This is source-grounded selection evidence, not attribution of our
+observed native failure. Retain the executing binary identities and both
+outcomes. The generic half-close comparison did not establish an acceptable
+host. With the selected PostgreSQL end contract restored, the complete
+functional scenario passes on September 29 while the June runtime still
+produces native failure.
+The selected [local runtime adaptation](../divergences/cloudflare-local-runtime.md)
+owns dependency integration and default-runtime proof. This does not
+establish the precise cause of the earlier native access violation.
+
+The separate [STARTTLS witness](../../../../apps/executor/test/pgCloudflareSocket.postgres.test.ts)
+executes the actual patched driver in default workerd against TLS-enabled
+ordinary PostgreSQL. Its fixture CA is confined to that runtime's loopback
+network service. It observes the PostgreSQL `S` response, the actual socket
+class, server-reported TLS and complete client shutdown. An empty-CA control
+fails before SQL, between two successful trusted connections. Native workerd
+exposes an opaque network failure here; this does not establish a public
+certificate-error classification. Direct TLS negotiation retains controlled
+primitive coverage, without a claimed native PostgreSQL proof.
+
+The shared action-authority harness recognizes only the existing task callback
+JSON columns admitted by the native workflow owner. Its direct-action body
+policy still rejects all other body columns and proves that the real database
+CHECK rejects each callback payload on an existing direct-action HTTP row.
+No production schema or effect ownership changes for this harness correction.
+
+For the selected local PostgreSQL URL, Miniflare defaults omitted `sslmode` to
+`disable` and selects its external native TCP service. Its Node Hyperdrive TLS
+proxy is not on this path; changing that proxy would not correct this witness.
+The reduced driver-only scenario also reproduces the graceful cleanup failure,
+so the application engine, R2 and WorkerLoader are not required for that failure.
+This does not attribute the separate access violation.

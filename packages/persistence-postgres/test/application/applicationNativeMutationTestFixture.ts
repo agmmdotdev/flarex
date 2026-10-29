@@ -230,6 +230,9 @@ export interface ApplicationNativeMutationFixtureOptions {
   readonly includeUserNameIndex?: boolean;
   /** Finite genuine Worker query/patch source for snapshot-cache conformance. */
   readonly includeQueryCacheProbe?: boolean;
+  /** Caller-prepared artifact data, including a genuine finalized R2 root when
+   * exercising the actual artifact host. It does not supply authority. */
+  readonly sourceBundle?: ApplicationNativeMutationSourceBundle;
   readonly initialUserDocuments?: readonly ApplicationNativeMutationUserDocument[];
   readonly includeProductLaunch?: boolean;
   readonly includeInternalCalls?: boolean;
@@ -545,11 +548,13 @@ async function createApplicationNativeMutationFixture<
     deploymentId,
     projectId,
   });
-  await target.query(
-    `insert into deployments (deployment_id, project_id)
-     values ($1, $2)`,
-    [deploymentId, projectId],
-  );
+  if (control !== target) {
+    await target.query(
+      `insert into deployments (deployment_id, project_id)
+       values ($1, $2)`,
+      [deploymentId, projectId],
+    );
+  }
   await target.drizzle.update(fxSystemScopeExecutionAuthorities).set({ storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1") })
     .where(eq(fxSystemScopeExecutionAuthorities.scopeId, provisioned.scope.scopeId));
   const clock = await target.getScopeClock(provisioned.scope.scopeId);
@@ -571,7 +576,7 @@ async function createApplicationNativeMutationFixture<
       fieldType: { type: "literal", value: "p".repeat(options.acceptanceScale?.functionPaddingBytes ?? 0) }, optional: true,
     } } }, returns: { type: "null" }, partition: null,
   } as const));
-  const source = options.analysis?.source ?? await mutationSourceBundle(options.includeProductLaunch === true,
+  const source = options.analysis?.source ?? options.sourceBundle ?? await createApplicationNativeMutationSourceBundle(options.includeProductLaunch === true,
     options.acceptanceScale?.extraFunctions ?? 0, options.acceptanceScale?.functionPaddingBytes ?? 0,
     options.includeInternalCalls === true, options.includeQueryCacheProbe === true);
   const fixtureManifest = {
@@ -1330,7 +1335,7 @@ function resolveTaskPublication(
       });
 }
 
-async function mutationSourceBundle(includeProductLaunch = false, extraFunctionCount = 0,
+export async function createApplicationNativeMutationSourceBundle(includeProductLaunch = false, extraFunctionCount = 0,
   functionPaddingBytes = 0, includeInternalCalls = false, includeQueryCacheProbe = false): Promise<ApplicationNativeMutationSourceBundle> {
   const execution = [
     'import { query } from "flarex/server";',

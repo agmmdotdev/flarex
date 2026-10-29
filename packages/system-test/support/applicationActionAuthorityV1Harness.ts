@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Effect, Exit, Fiber, Result } from "effect";
+import { expect } from "vitest";
 import {
   encodeApplicationActionInvocationRequestV2,
   makeExecutionEvidenceBodyReferenceV1,
@@ -705,11 +706,76 @@ export async function proveApplicationActionAuthorityV1(
         column_name like '%bytes%'
         or data_type in ('json', 'jsonb')
       )
-      and column_name not in (
-        'application_execution_authority_json',
-        'application_execution_authority_canonical_bytes'
+      and not (
+        (table_name = 'fx_system_application_action_invocation_v1' and (
+          (column_name = 'application_execution_authority_json'
+            and data_type = 'jsonb')
+          or (column_name = 'application_execution_authority_canonical_bytes'
+            and data_type = 'bytea')
+        ))
+        or (table_name = 'fx_system_external_effect_attempt_v1'
+          and data_type = 'jsonb'
+          and column_name in (
+            'trusted_callback_input_json',
+            'trusted_callback_policy_json',
+            'trusted_callback_outcome_json'
+          ))
       )
   `);
+  // Native task callbacks own these three bounded JSON columns. Direct actions
+  // and non-callback effects must still retain only their R2 body references.
+  const callbackBodies = await lane.persistence.query<{ count: string }>(`
+    select count(*)::text as count
+    from fx_system_external_effect_attempt_v1
+    where (effect_kind <> 'trusted_callback' or subject_kind = 'direct_action')
+      and (
+        trusted_callback_input_json is not null
+        or trusted_callback_policy_json is not null
+        or trusted_callback_outcome_json is not null
+      )
+  `);
+  if (callbackBodies.rows[0]?.count !== "0") {
+    throw new Error("AAV-A1 non-callback effects contain callback bodies.");
+  }
+  const outboundEvidenceSql = `
+    select to_jsonb(effect)::text as evidence
+    from fx_system_external_effect_attempt_v1 as effect
+    where scope_id = $1 and subject_kind = 'direct_action'
+      and effect_kind = 'outbound_http' and stable_effect_key = $2
+      and effect_ordinal = $3
+  `;
+  const outboundIdentity = [
+    context.authority.scopeId,
+    "http:main",
+    outbound.effectOrdinal.toString(),
+  ];
+  const outboundBefore = await lane.persistence.query<{ evidence: string }>(
+    outboundEvidenceSql,
+    outboundIdentity,
+  );
+  expect(outboundBefore.rows).toHaveLength(1);
+  for (const column of [
+    "trusted_callback_input_json",
+    "trusted_callback_policy_json",
+    "trusted_callback_outcome_json",
+  ] as const) {
+    // Each hostile UPDATE is its own autocommit statement. The real CHECK must
+    // reject it before the next statement verifies the complete retained row.
+    await expect(lane.persistence.query(`
+      update fx_system_external_effect_attempt_v1
+      set ${column} = '{}'::jsonb
+      where scope_id = $1 and subject_kind = 'direct_action'
+        and effect_kind = 'outbound_http' and stable_effect_key = $2
+        and effect_ordinal = $3
+    `, outboundIdentity)).rejects.toMatchObject({
+      code: "23514",
+      constraint: "fx_external_effect_callback_columns_check",
+    });
+    expect((await lane.persistence.query<{ evidence: string }>(
+      outboundEvidenceSql,
+      outboundIdentity,
+    )).rows).toEqual(outboundBefore.rows);
+  }
   const counts = await lane.persistence.query<{
     invocations: string;
     effects: string;

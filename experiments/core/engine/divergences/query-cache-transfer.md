@@ -122,7 +122,7 @@ skip write application merely because it retains no documents.
 
 Migrate actual query construction and remove the displaced selected cache setup
 and refresh bypasses. Retain current eligibility only until the versioned
-metadata, grant and complete-writer protocol proves a correct replacement.
+metadata, applicable authorization and complete-writer protocol proves a correct replacement.
 Do not turn this staged retention into the final engine architecture.
 
 The executing portable data owner is

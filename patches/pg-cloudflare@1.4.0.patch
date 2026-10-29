@@ -1,0 +1,1061 @@
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index a779d149eeca6cf1c3d58e9c79e900a94b92fcca..ebc51a95a9d99c966a6f7eed5283d83140347203 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -1,31 +1,49 @@
+ /// <reference types="node" />
+-/// <reference types="node" />
+-/// <reference types="node" />
+ import { TlsOptions } from 'cloudflare:sockets';
+ import { EventEmitter } from 'events';
+-/**
+- * Wrapper around the Cloudflare built-in socket that can be used by the `Connection`.
+- */
++type Callback = (...args: unknown[]) => void;
++/** PostgreSQL facade with an owned transport shutdown barrier. */
+ export declare class CloudflareSocket extends EventEmitter {
+     readonly ssl: boolean;
+     writable: boolean;
+     destroyed: boolean;
+-    private _upgrading;
+     private _upgraded;
+-    private _cfSocket;
+-    private _cfWriter;
+-    private _cfReader;
++    private _generation;
++    private _target;
++    private _tasks;
++    private _writes;
++    private _reported;
++    private _firstFailure;
++    private _ending;
++    private _closed;
++    private _orderedEndStarted;
++    private _forced;
++    private _terminal;
++    private _endCallbacks;
+     constructor(ssl: boolean);
+     setNoDelay(): this;
+     setKeepAlive(): this;
+     ref(): this;
+     unref(): this;
+-    connect(port: number, host: string, connectListener?: (...args: unknown[]) => void): Promise<this | undefined>;
++    connect(port: number, host: string, connectListener?: Callback): Promise<this | undefined>;
+     _listen(): Promise<void>;
+     _listenOnce(): Promise<void>;
+-    write(data: Uint8Array | string, encoding?: BufferEncoding, callback?: (...args: unknown[]) => void): true | void;
+-    end(data?: Buffer, encoding?: BufferEncoding, callback?: (...args: unknown[]) => void): this;
+-    destroy(reason: string): this;
++    private _pump;
++    private _read;
++    private _isCancellation;
++    write(data: Uint8Array | string, callback?: Callback): true | void;
++    write(data: Uint8Array | string, encoding?: BufferEncoding, callback?: Callback): true | void;
++    end(data?: Buffer, encoding?: BufferEncoding, callback?: Callback): this;
++    destroy(reason?: unknown): this;
+     startTls(options: TlsOptions): void;
+     _addClosedHandler(): void;
++    private _openGeneration;
++    private _startReader;
++    private _track;
++    private _report;
++    private _callback;
++    private _drainWrites;
++    private _closeGeneration;
++    private _finish;
+ }
++export {};
+diff --git a/dist/index.js b/dist/index.js
+index 7f0933ec1b3a5f3ce4a0d7d5b8fa00f9a1fe553e..52d722403a2430667ff4707af7924e2f0f33f3a8 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -1,154 +1,359 @@
+-"use strict";
+-Object.defineProperty(exports, "__esModule", { value: true });
+-exports.CloudflareSocket = void 0;
+-const events_1 = require("events");
+-/**
+- * Wrapper around the Cloudflare built-in socket that can be used by the `Connection`.
+- */
+-class CloudflareSocket extends events_1.EventEmitter {
+-    constructor(ssl) {
+-        super();
+-        this.ssl = ssl;
+-        this.writable = false;
+-        this.destroyed = false;
+-        this._upgrading = false;
+-        this._upgraded = false;
+-        this._cfSocket = null;
+-        this._cfWriter = null;
+-        this._cfReader = null;
++var __create = Object.create;
++var __defProp = Object.defineProperty;
++var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
++var __getOwnPropNames = Object.getOwnPropertyNames;
++var __getProtoOf = Object.getPrototypeOf;
++var __hasOwnProp = Object.prototype.hasOwnProperty;
++var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
++var __export = (target, all) => {
++  for (var name in all)
++    __defProp(target, name, { get: all[name], enumerable: true });
++};
++var __copyProps = (to, from, except, desc) => {
++  if (from && typeof from === "object" || typeof from === "function") {
++    for (let key of __getOwnPropNames(from))
++      if (!__hasOwnProp.call(to, key) && key !== except)
++        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
++  }
++  return to;
++};
++var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
++  // If the importer is in node compatibility mode or this is not an ESM
++  // file that has been converted to a CommonJS file using a Babel-
++  // compatible transform (i.e. "__esModule" has not been set), then set
++  // "default" to the CommonJS "module.exports" for node compatibility.
++  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
++  mod
++));
++var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
++var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
++var index_exports = {};
++__export(index_exports, {
++  CloudflareSocket: () => CloudflareSocket
++});
++module.exports = __toCommonJS(index_exports);
++var import_events = require("events");
++class CloudflareSocket extends import_events.EventEmitter {
++  constructor(ssl) {
++    super();
++    this.ssl = ssl;
++    __publicField(this, "writable", false);
++    __publicField(this, "destroyed", false);
++    __publicField(this, "_upgraded", false);
++    __publicField(this, "_generation");
++    __publicField(this, "_target");
++    __publicField(this, "_tasks", /* @__PURE__ */ new Set());
++    __publicField(this, "_writes", /* @__PURE__ */ new Set());
++    __publicField(this, "_reported", /* @__PURE__ */ new Set());
++    __publicField(this, "_firstFailure");
++    __publicField(this, "_ending", false);
++    __publicField(this, "_closed", false);
++    __publicField(this, "_orderedEndStarted", false);
++    __publicField(this, "_forced", false);
++    __publicField(this, "_terminal");
++    __publicField(this, "_endCallbacks", []);
++  }
++  setNoDelay() {
++    return this;
++  }
++  setKeepAlive() {
++    return this;
++  }
++  ref() {
++    return this;
++  }
++  unref() {
++    return this;
++  }
++  connect(port, host, connectListener) {
++    if (this._ending) throw new Error("Cannot connect an ending socket");
++    if (connectListener) this.once("connect", connectListener);
++    const connecting = this._track(async () => {
++      const options = this.ssl ? { secureTransport: "starttls" } : {};
++      const mod = await import("cloudflare:sockets");
++      const generation = this._openGeneration(mod.connect(`${host}:${port}`, options), this.ssl, this.ssl);
++      const ready = await generation.readyTask;
++      if (!ready.ok) return void 0;
++      if (!this._ending) {
++        this.writable = true;
++        this.emit("connect");
++        if (this.ssl && !this._ending && !generation.retired) this._startReader(generation, true);
++      }
++      return generation;
++    });
++    this._target = connecting.then((result) => result.ok ? result.value : void 0);
++    return this._target.then((generation) => generation === void 0 ? void 0 : this);
++  }
++  async _listen() {
++    const generation = this._generation;
++    if (generation === void 0) throw new Error("Socket has no reader");
++    return this._pump(generation, false);
++  }
++  async _listenOnce() {
++    const generation = this._generation;
++    if (generation === void 0) throw new Error("Socket has no reader");
++    return this._pump(generation, true);
++  }
++  async _pump(generation, once) {
++    do {
++      const { done, value } = await this._read(generation);
++      if (done) return;
++      this.emit("data", Buffer.from(value));
++    } while (!once);
++  }
++  async _read(generation) {
++    try {
++      return await generation.reader.read();
++    } catch (cause) {
++      if (this._isCancellation(cause, generation.cancelReason)) return { done: true, value: void 0 };
++      throw cause;
+     }
+-    setNoDelay() {
+-        return this;
++  }
++  _isCancellation(cause, reason) {
++    var _a, _b;
++    if (reason === void 0 || cause === null || typeof cause !== "object") return false;
++    try {
++      const kind = (_a = Object.getOwnPropertyDescriptor(cause, "kind")) == null ? void 0 : _a.value;
++      const nonce = (_b = Object.getOwnPropertyDescriptor(cause, "nonce")) == null ? void 0 : _b.value;
++      return kind === reason.kind && nonce === reason.nonce;
++    } catch {
++      return false;
+     }
+-    setKeepAlive() {
+-        return this;
++  }
++  write(data, encoding = "utf8", callback) {
++    const complete = typeof encoding === "function" ? encoding : callback;
++    if (this._ending) {
++      const error = new Error("Cannot write to an ending socket");
++      if (complete === void 0) throw error;
++      complete(error);
++      return;
+     }
+-    ref() {
+-        return this;
++    const bytes = typeof data === "string" ? Buffer.from(data, typeof encoding === "function" ? "utf8" : encoding) : data;
++    if (bytes.length === 0) {
++      this._callback(complete);
++      return;
+     }
+-    unref() {
+-        return this;
++    const target = this._target;
++    const writing = this._track(async () => {
++      try {
++        const generation = await target;
++        if (generation === void 0) throw new Error("Socket has no writable transport");
++        const ready = await generation.readyTask;
++        if (!ready.ok) throw ready.cause;
++        await generation.writer.write(bytes);
++      } catch (cause) {
++        this._report(cause);
++        this._callback(complete, { cause });
++        throw cause;
++      }
++      this._callback(complete);
++    });
++    this._writes.add(writing);
++    const forget = () => {
++      this._writes.delete(writing);
++    };
++    void writing.then(forget, forget);
++    return true;
++  }
++  end(data = Buffer.alloc(0), encoding = "utf8", callback) {
++    if (this._closed) {
++      if (callback) {
++        if (this._firstFailure) callback(this._firstFailure.cause);
++        else callback();
++      }
++      return this;
+     }
+-    async connect(port, host, connectListener) {
+-        try {
+-            log('connecting');
+-            if (connectListener)
+-                this.once('connect', connectListener);
+-            const options = this.ssl ? { secureTransport: 'starttls' } : {};
+-            const mod = await import('cloudflare:sockets');
+-            const connect = mod.connect;
+-            this._cfSocket = connect(`${host}:${port}`, options);
+-            this._cfWriter = this._cfSocket.writable.getWriter();
+-            this._addClosedHandler();
+-            this._cfReader = this._cfSocket.readable.getReader();
+-            if (this.ssl) {
+-                this._listenOnce().catch((e) => this.emit('error', e));
+-            }
+-            else {
+-                this._listen().catch((e) => this.emit('error', e));
+-            }
+-            await this._cfWriter.ready;
+-            log('socket ready');
+-            this.writable = true;
+-            this.emit('connect');
+-            return this;
+-        }
+-        catch (e) {
+-            this.emit('error', e);
+-        }
++    if (callback) this._endCallbacks.push(callback);
++    if (!this._ending && data.length !== 0) this.write(data, encoding);
++    this._finish("ordered");
++    return this;
++  }
++  destroy(reason) {
++    this.destroyed = true;
++    if (this._closed) return this;
++    if (reason !== void 0) this._report(reason);
++    this._finish("forced");
++    return this;
++  }
++  startTls(options) {
++    if (this._closed) throw new Error("Cannot upgrade a closed socket");
++    if (this._upgraded || this._ending) {
++      this._report(new Error("Cannot call `startTls()` again or on an ending socket"));
++      this._finish("forced");
++      return;
+     }
+-    async _listen() {
+-        // eslint-disable-next-line no-constant-condition
+-        while (true) {
+-            log('awaiting receive from CF socket');
+-            const { done, value } = await this._cfReader.read();
+-            log('CF socket received:', done, value);
+-            if (done) {
+-                log('done');
+-                break;
+-            }
+-            this.emit('data', Buffer.from(value));
+-        }
++    this._upgraded = true;
++    const previousTarget = this._target;
++    const previous = this._generation;
++    if (previous) previous.retired = true;
++    const previousWrites = [...this._writes];
++    const transition = this._track(async () => {
++      const generation = await previousTarget;
++      if (generation === void 0) throw new Error("Socket has no transport to upgrade");
++      if (this._forced) return void 0;
++      generation.retired = true;
++      const written = await Promise.all(previousWrites);
++      for (const result of written) if (!result.ok) throw result.cause;
++      if (this._forced) return void 0;
++      const read = await generation.readerTask;
++      if (!read.ok) throw read.cause;
++      if (this._forced) return void 0;
++      generation.reader.releaseLock();
++      generation.readerReleased = true;
++      generation.writer.releaseLock();
++      const socket = generation.socket.startTls(options);
++      generation.transferred = true;
++      const next = this._openGeneration(socket, false);
++      const ready = await next.readyTask;
++      if (!ready.ok) throw ready.cause;
++      return next;
++    });
++    this._target = transition.then((result) => result.ok ? result.value : void 0);
++  }
++  _addClosedHandler(generation = this._generation) {
++    if (generation === void 0 || generation.closedObserved) return;
++    generation.closedObserved = true;
++    this._track(async () => {
++      try {
++        await generation.socket.closed;
++        generation.closed = true;
++      } finally {
++        if (!generation.retired) this._finish("remote");
++      }
++    });
++  }
++  _openGeneration(socket, once, deferReader = false) {
++    let reader;
++    let writer;
++    let acquiredReader;
++    try {
++      reader = socket.readable.getReader();
++      acquiredReader = reader;
++      writer = socket.writable.getWriter();
++    } catch (cause) {
++      this._report(cause);
++      this._track(async () => {
++        await socket.closed;
++      });
++      const readerToCancel = acquiredReader;
++      if (readerToCancel) this._track(async () => {
++        await readerToCancel.cancel();
++      });
++      this._track(async () => {
++        await socket.close();
++      });
++      throw cause;
+     }
+-    async _listenOnce() {
+-        log('awaiting first receive from CF socket');
+-        const { done, value } = await this._cfReader.read();
+-        log('First CF socket received:', done, value);
+-        this.emit('data', Buffer.from(value));
++    const generation = {
++      socket,
++      reader,
++      writer,
++      readerTask: Promise.resolve({ ok: true, value: void 0 }),
++      readerStarted: false,
++      readyTask: Promise.resolve({ ok: true, value: void 0 }),
++      retired: false,
++      readerReleased: false,
++      transferred: false,
++      closeStarted: false,
++      closed: false,
++      closedObserved: false
++    };
++    this._generation = generation;
++    if (!deferReader && !this._forced) this._startReader(generation, once);
++    generation.readyTask = this._track(async () => {
++      await generation.writer.ready;
++    });
++    this._addClosedHandler(generation);
++    if (this._forced) this._closeGeneration(generation);
++    return generation;
++  }
++  _startReader(generation, once) {
++    if (generation.readerStarted || generation.retired) return;
++    generation.readerStarted = true;
++    generation.readerTask = this._track(() => this._pump(generation, once));
++  }
++  /** Observed tasks never detach their failures from the terminal barrier. */
++  _track(operation) {
++    const task = Promise.resolve().then(operation).then(
++      (value) => ({ ok: true, value }),
++      (cause) => {
++        this._report(cause);
++        this._finish("forced");
++        return { ok: false, cause };
++      }
++    );
++    this._tasks.add(task);
++    const forget = () => {
++      this._tasks.delete(task);
++    };
++    void task.then(forget, forget);
++    return task;
++  }
++  _report(cause) {
++    var _a;
++    if (this._reported.has(cause)) return;
++    this._reported.add(cause);
++    (_a = this._firstFailure) != null ? _a : this._firstFailure = { cause };
++    this.emit("error", cause);
++  }
++  _callback(callback, failure) {
++    if (callback === void 0) return;
++    try {
++      if (failure === void 0) callback();
++      else callback(failure.cause);
++    } catch (cause) {
++      this._report(cause);
++      this._finish("forced");
+     }
+-    write(data, encoding = 'utf8', callback = () => { }) {
+-        if (data.length === 0)
+-            return callback();
+-        if (typeof data === 'string')
+-            data = Buffer.from(data, encoding);
+-        log('sending data direct:', data);
+-        this._cfWriter.write(data).then(() => {
+-            log('data sent');
+-            callback();
+-        }, (err) => {
+-            log('send error', err);
+-            callback(err);
++  }
++  async _drainWrites() {
++    while (this._writes.size !== 0) await Promise.allSettled([...this._writes]);
++  }
++  _closeGeneration(generation) {
++    if (generation.closeStarted || generation.transferred) return;
++    generation.closeStarted = true;
++    if (!generation.readerReleased) {
++      this._track(async () => {
++        const reason = Object.freeze({
++          kind: "pg-cloudflare/reader-cancel",
++          nonce: crypto.randomUUID()
+         });
+-        return true;
++        generation.cancelReason = reason;
++        await generation.reader.cancel(reason);
++      });
+     }
+-    end(data = Buffer.alloc(0), encoding = 'utf8', callback = () => { }) {
+-        log('ending CF socket');
+-        this.write(data, encoding, (err) => {
+-            this._cfSocket.close();
+-            if (callback)
+-                callback(err);
+-        });
+-        return this;
+-    }
+-    destroy(reason) {
+-        log('destroying CF socket', reason);
+-        this.destroyed = true;
+-        return this.end();
++    if (!generation.closed) this._track(async () => {
++      await generation.socket.close();
++    });
++  }
++  _finish(mode) {
++    if (this._closed) return;
++    this._ending = true;
++    this.writable = false;
++    if (mode === "forced") {
++      this._forced = true;
++      if (this._generation) this._closeGeneration(this._generation);
+     }
+-    startTls(options) {
+-        if (this._upgraded) {
+-            // Don't try to upgrade again.
+-            this.emit('error', 'Cannot call `startTls()` more than once on a socket');
+-            return;
+-        }
+-        this._cfWriter.releaseLock();
+-        this._cfReader.releaseLock();
+-        this._upgrading = true;
+-        this._cfSocket = this._cfSocket.startTls(options);
+-        this._cfWriter = this._cfSocket.writable.getWriter();
+-        this._cfReader = this._cfSocket.readable.getReader();
+-        this._addClosedHandler();
+-        this._listen().catch((e) => this.emit('error', e));
++    if (mode === "ordered" && !this._orderedEndStarted && !this._forced) {
++      this._orderedEndStarted = true;
++      this._track(async () => {
++        const generation = await this._target;
++        if (generation === void 0 || this._forced) return;
++        await this._drainWrites();
++        if (this._forced) return;
++        this._closeGeneration(generation);
++      });
+     }
+-    _addClosedHandler() {
+-        this._cfSocket.closed.then(() => {
+-            if (!this._upgrading) {
+-                log('CF socket closed');
+-                this._cfSocket = null;
+-                this.emit('close');
+-            }
+-            else {
+-                this._upgrading = false;
+-                this._upgraded = true;
+-            }
+-        }).catch((e) => this.emit('error', e));
+-    }
+-}
+-exports.CloudflareSocket = CloudflareSocket;
+-const debug = false;
+-function dump(data) {
+-    if (data instanceof Uint8Array || data instanceof ArrayBuffer) {
+-        // workaround https://github.com/microsoft/TypeScript/issues/63447
+-        const buf = data instanceof Uint8Array ? Buffer.from(data) : Buffer.from(data);
+-        const hex = buf.toString('hex');
+-        const str = new TextDecoder().decode(data);
+-        return `\n>>> STR: "${str.replace(/\n/g, '\\n')}"\n>>> HEX: ${hex}\n`;
+-    }
+-    else {
+-        return data;
+-    }
+-}
+-function log(...args) {
+-    debug && console.log(...args.map(dump));
++    if (this._terminal !== void 0) return;
++    this._terminal = (async () => {
++      while (this._tasks.size !== 0) await Promise.allSettled([...this._tasks]);
++      this._closed = true;
++      while (this._endCallbacks.length !== 0) this._callback(this._endCallbacks.shift(), this._firstFailure);
++      this.emit("close");
++    })();
++  }
+ }
+-//# sourceMappingURL=index.js.map
+\ No newline at end of file
++// Annotate the CommonJS export names for ESM import in node:
++0 && (module.exports = {
++  CloudflareSocket
++});
+diff --git a/esm/index.d.mts b/esm/index.d.mts
+new file mode 100644
+index 0000000000000000000000000000000000000000..508083faa89e998fba38655225c79c8b1f69de19
+--- /dev/null
++++ b/esm/index.d.mts
+@@ -0,0 +1 @@
++export { CloudflareSocket } from '../dist/index.js';
+diff --git a/src/index.ts b/src/index.ts
+index 9b1e517ba3881462144cd1f9ecb825b957094327..79a66f5acc8ffe48abe22e7a6caa90f2a07fadb4 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1,169 +1,353 @@
+ import { SocketOptions, Socket, TlsOptions } from 'cloudflare:sockets'
+ import { EventEmitter } from 'events'
+ 
+-/**
+- * Wrapper around the Cloudflare built-in socket that can be used by the `Connection`.
+- */
++type Completion<Value> = { ok: true; value: Value } | { ok: false; cause: unknown }
++type Callback = (...args: unknown[]) => void
++type ReaderCancellation = Readonly<{ kind: 'pg-cloudflare/reader-cancel'; nonce: string }>
++interface Generation {
++  socket: Socket
++  reader: ReadableStreamDefaultReader<Uint8Array>
++  writer: WritableStreamDefaultWriter<Uint8Array>
++  readerTask: Promise<Completion<void>>
++  readerStarted: boolean
++  readyTask: Promise<Completion<void>>
++  retired: boolean
++  readerReleased: boolean
++  transferred: boolean
++  closeStarted: boolean
++  closed: boolean
++  closedObserved: boolean
++  cancelReason?: ReaderCancellation
++}
++
++/** PostgreSQL stream facade. Every transport task belongs to the socket's
++ * terminal barrier, including tasks from the plaintext STARTTLS generation. */
+ export class CloudflareSocket extends EventEmitter {
+   writable = false
+   destroyed = false
+ 
+-  private _upgrading = false
+   private _upgraded = false
+-  private _cfSocket: Socket | null = null
+-  private _cfWriter: WritableStreamDefaultWriter | null = null
+-  private _cfReader: ReadableStreamDefaultReader | null = null
++  private _generation: Generation | undefined
++  private _target: Promise<Generation | undefined> | undefined
++  private _tasks = new Set<Promise<Completion<unknown>>>()
++  private _writes = new Set<Promise<Completion<void>>>()
++  private _reported = new Set<unknown>()
++  private _firstFailure: { cause: unknown } | undefined
++  private _ending = false
++  private _closed = false
++  private _orderedEndStarted = false
++  private _forced = false
++  private _terminal: Promise<void> | undefined
++  private _endCallbacks: Callback[] = []
+ 
+   constructor(readonly ssl: boolean) {
+     super()
+   }
+ 
+-  setNoDelay() {
+-    return this
+-  }
+-  setKeepAlive() {
+-    return this
+-  }
+-  ref() {
+-    return this
+-  }
+-  unref() {
+-    return this
+-  }
+-
+-  async connect(port: number, host: string, connectListener?: (...args: unknown[]) => void) {
+-    try {
+-      log('connecting')
+-      if (connectListener) this.once('connect', connectListener)
++  setNoDelay() { return this }
++  setKeepAlive() { return this }
++  ref() { return this }
++  unref() { return this }
+ 
++  connect(port: number, host: string, connectListener?: Callback) {
++    if (this._ending) throw new Error('Cannot connect an ending socket')
++    if (connectListener) this.once('connect', connectListener)
++    const connecting = this._track(async () => {
+       const options: SocketOptions = this.ssl ? { secureTransport: 'starttls' } : {}
+       const mod = await import('cloudflare:sockets')
+-      const connect = mod.connect
+-      this._cfSocket = connect(`${host}:${port}`, options)
+-      this._cfWriter = this._cfSocket.writable.getWriter()
+-      this._addClosedHandler()
+-
+-      this._cfReader = this._cfSocket.readable.getReader()
+-      if (this.ssl) {
+-        this._listenOnce().catch((e) => this.emit('error', e))
+-      } else {
+-        this._listen().catch((e) => this.emit('error', e))
++      const generation = this._openGeneration(mod.connect(`${host}:${port}`, options), this.ssl, this.ssl)
++      const ready = await generation.readyTask
++      if (!ready.ok) return undefined
++      if (!this._ending) {
++        this.writable = true
++        this.emit('connect')
++        // pg selects direct TLS synchronously in this event. Only its ordinary
++        // SSLRequest negotiation needs a plaintext response reader afterward.
++        if (this.ssl && !this._ending && !generation.retired) this._startReader(generation, true)
+       }
++      return generation
++    })
++    this._target = connecting.then(result => result.ok ? result.value : undefined)
++    return this._target.then(generation => generation === undefined ? undefined : this)
++  }
+ 
+-      await this._cfWriter!.ready
+-      log('socket ready')
+-      this.writable = true
+-      this.emit('connect')
++  async _listen() {
++    const generation = this._generation
++    if (generation === undefined) throw new Error('Socket has no reader')
++    return this._pump(generation, false)
++  }
+ 
+-      return this
+-    } catch (e) {
+-      this.emit('error', e)
+-    }
++  async _listenOnce() {
++    const generation = this._generation
++    if (generation === undefined) throw new Error('Socket has no reader')
++    return this._pump(generation, true)
+   }
+ 
+-  async _listen() {
+-    // eslint-disable-next-line no-constant-condition
+-    while (true) {
+-      log('awaiting receive from CF socket')
+-      const { done, value } = await this._cfReader!.read()
+-      log('CF socket received:', done, value)
+-      if (done) {
+-        log('done')
+-        break
+-      }
++  private async _pump(generation: Generation, once: boolean) {
++    do {
++      const { done, value } = await this._read(generation)
++      if (done) return
++      // Data decoding and callbacks are not cancellation classification.
+       this.emit('data', Buffer.from(value))
++    } while (!once)
++  }
++
++  private async _read(generation: Generation): Promise<ReadableStreamReadResult<Uint8Array>> {
++    try {
++      return await generation.reader.read()
++    } catch (cause) {
++      if (this._isCancellation(cause, generation.cancelReason)) return { done: true, value: undefined }
++      throw cause
+     }
+   }
+ 
+-  async _listenOnce() {
+-    log('awaiting first receive from CF socket')
+-    const { done, value } = await this._cfReader!.read()
+-    log('First CF socket received:', done, value)
+-    this.emit('data', Buffer.from(value))
+-  }
+-
+-  write(
+-    data: Uint8Array | string,
+-    encoding: BufferEncoding = 'utf8',
+-    callback: (...args: unknown[]) => void = () => {}
+-  ) {
+-    if (data.length === 0) return callback()
+-    if (typeof data === 'string') data = Buffer.from(data, encoding)
+-
+-    log('sending data direct:', data)
+-    this._cfWriter!.write(data).then(
+-      () => {
+-        log('data sent')
+-        callback()
+-      },
+-      (err) => {
+-        log('send error', err)
+-        callback(err)
++  private _isCancellation(cause: unknown, reason: ReaderCancellation | undefined): boolean {
++    if (reason === undefined || cause === null || typeof cause !== 'object') return false
++    // Native workerd clones object cancellation reasons. Match only our own
++    // generation's private data, without invoking a foreign getter or matching
++    // messages/codes. A failed inspection preserves the original read failure.
++    try {
++      const kind: unknown = Object.getOwnPropertyDescriptor(cause, 'kind')?.value
++      const nonce: unknown = Object.getOwnPropertyDescriptor(cause, 'nonce')?.value
++      return kind === reason.kind && nonce === reason.nonce
++    } catch {
++      return false
++    }
++  }
++
++  write(data: Uint8Array | string, callback?: Callback): true | void
++  write(data: Uint8Array | string, encoding?: BufferEncoding, callback?: Callback): true | void
++  write(data: Uint8Array | string, encoding: BufferEncoding | Callback = 'utf8', callback?: Callback): true | void {
++    const complete = typeof encoding === 'function' ? encoding : callback
++    if (this._ending) {
++      const error = new Error('Cannot write to an ending socket')
++      if (complete === undefined) throw error
++      complete(error)
++      return
++    }
++    const bytes = typeof data === 'string' ? Buffer.from(data, typeof encoding === 'function' ? 'utf8' : encoding) : data
++    if (bytes.length === 0) {
++      this._callback(complete)
++      return
++    }
++    const target = this._target
++    const writing = this._track(async () => {
++      try {
++        const generation = await target
++        if (generation === undefined) throw new Error('Socket has no writable transport')
++        const ready = await generation.readyTask
++        if (!ready.ok) throw ready.cause
++        await generation.writer.write(bytes)
++      } catch (cause) {
++        this._report(cause)
++        this._callback(complete, { cause })
++        throw cause
+       }
+-    )
++      this._callback(complete)
++    })
++    this._writes.add(writing)
++    const forget = () => { this._writes.delete(writing) }
++    void writing.then(forget, forget)
+     return true
+   }
+ 
+-  end(data = Buffer.alloc(0), encoding: BufferEncoding = 'utf8', callback: (...args: unknown[]) => void = () => {}) {
+-    log('ending CF socket')
+-    this.write(data, encoding, (err) => {
+-      this._cfSocket!.close()
+-      if (callback) callback(err)
+-    })
++  end(data = Buffer.alloc(0), encoding: BufferEncoding = 'utf8', callback?: Callback) {
++    if (this._closed) {
++      if (callback) {
++        if (this._firstFailure) callback(this._firstFailure.cause)
++        else callback()
++      }
++      return this
++    }
++    if (callback) this._endCallbacks.push(callback)
++    if (!this._ending && data.length !== 0) this.write(data, encoding)
++    this._finish('ordered')
+     return this
+   }
+ 
+-  destroy(reason: string) {
+-    log('destroying CF socket', reason)
++  destroy(reason?: unknown) {
+     this.destroyed = true
+-    return this.end()
++    if (this._closed) return this
++    if (reason !== undefined) this._report(reason)
++    this._finish('forced')
++    return this
+   }
+ 
+   startTls(options: TlsOptions) {
+-    if (this._upgraded) {
+-      // Don't try to upgrade again.
+-      this.emit('error', 'Cannot call `startTls()` more than once on a socket')
++    if (this._closed) throw new Error('Cannot upgrade a closed socket')
++    if (this._upgraded || this._ending) {
++      this._report(new Error('Cannot call `startTls()` again or on an ending socket'))
++      this._finish('forced')
+       return
+     }
+-    this._cfWriter!.releaseLock()
+-    this._cfReader!.releaseLock()
+-    this._upgrading = true
+-    this._cfSocket = this._cfSocket!.startTls(options)
+-    this._cfWriter = this._cfSocket.writable.getWriter()
+-    this._cfReader = this._cfSocket.readable.getReader()
+-    this._addClosedHandler()
+-    this._listen().catch((e) => this.emit('error', e))
+-  }
+-
+-  _addClosedHandler() {
+-    this._cfSocket!.closed.then(() => {
+-      if (!this._upgrading) {
+-        log('CF socket closed')
+-        this._cfSocket = null
+-        this.emit('close')
+-      } else {
+-        this._upgrading = false
+-        this._upgraded = true
++    this._upgraded = true
++    const previousTarget = this._target
++    const previous = this._generation
++    // Retire synchronously from either direct connect or the plaintext S event.
++    if (previous) previous.retired = true
++    const previousWrites = [...this._writes]
++    const transition = this._track(async () => {
++      const generation = await previousTarget
++      if (generation === undefined) throw new Error('Socket has no transport to upgrade')
++      if (this._forced) return undefined
++      generation.retired = true
++      const written = await Promise.all(previousWrites)
++      for (const result of written) if (!result.ok) throw result.cause
++      if (this._forced) return undefined
++      const read = await generation.readerTask
++      if (!read.ok) throw read.cause
++      if (this._forced) return undefined
++      generation.reader.releaseLock()
++      generation.readerReleased = true
++      generation.writer.releaseLock()
++      const socket = generation.socket.startTls(options)
++      generation.transferred = true
++      const next = this._openGeneration(socket, false)
++      const ready = await next.readyTask
++      if (!ready.ok) throw ready.cause
++      return next
++    })
++    // pg writes its startup frame immediately after startTls returns. Those
++    // writes wait for this new transport, never the released plaintext writer.
++    this._target = transition.then(result => result.ok ? result.value : undefined)
++  }
++
++  _addClosedHandler(generation = this._generation) {
++    if (generation === undefined || generation.closedObserved) return
++    generation.closedObserved = true
++    this._track(async () => {
++      try {
++        await generation.socket.closed
++        // Rejection reports a fault; it does not prove native teardown.
++        generation.closed = true
++      } finally {
++        if (!generation.retired) this._finish('remote')
+       }
+-    }).catch((e) => this.emit('error', e))
++    })
++  }
++
++  private _openGeneration(socket: Socket, once: boolean, deferReader = false): Generation {
++    let reader: ReadableStreamDefaultReader<Uint8Array>
++    let writer: WritableStreamDefaultWriter<Uint8Array>
++    let acquiredReader: ReadableStreamDefaultReader<Uint8Array> | undefined
++    try {
++      reader = socket.readable.getReader()
++      acquiredReader = reader
++      writer = socket.writable.getWriter()
++    } catch (cause) {
++      // The socket already exists even if acquiring one of its locks fails.
++      // Preserve the acquisition failure before observing and draining cleanup.
++      this._report(cause)
++      this._track(async () => { await socket.closed })
++      const readerToCancel = acquiredReader
++      if (readerToCancel) this._track(async () => { await readerToCancel.cancel() })
++      this._track(async () => { await socket.close() })
++      throw cause
++    }
++    const generation: Generation = {
++      socket, reader, writer,
++      readerTask: Promise.resolve({ ok: true, value: undefined }),
++      readerStarted: false,
++      readyTask: Promise.resolve({ ok: true, value: undefined }),
++      retired: false, readerReleased: false,
++      transferred: false, closeStarted: false,
++      closed: false, closedObserved: false,
++    }
++    this._generation = generation
++    if (!deferReader && !this._forced) this._startReader(generation, once)
++    generation.readyTask = this._track(async () => { await generation.writer.ready })
++    this._addClosedHandler(generation)
++    if (this._forced) this._closeGeneration(generation)
++    return generation
+   }
+-}
+ 
+-const debug = false
++  private _startReader(generation: Generation, once: boolean) {
++    if (generation.readerStarted || generation.retired) return
++    generation.readerStarted = true
++    generation.readerTask = this._track(() => this._pump(generation, once))
++  }
+ 
+-function dump(data: unknown) {
+-  if (data instanceof Uint8Array || data instanceof ArrayBuffer) {
+-    // workaround https://github.com/microsoft/TypeScript/issues/63447
+-    const buf = data instanceof Uint8Array ? Buffer.from(data) : Buffer.from(data)
++  /** Observed tasks never detach their failures from the terminal barrier. */
++  private _track<Value>(operation: () => Promise<Value>): Promise<Completion<Value>> {
++    const task: Promise<Completion<Value>> = Promise.resolve().then(operation).then(
++      value => ({ ok: true, value }),
++      cause => {
++        this._report(cause)
++        this._finish('forced')
++        return { ok: false, cause }
++      },
++    )
++    this._tasks.add(task)
++    const forget = () => { this._tasks.delete(task) }
++    void task.then(forget, forget)
++    return task
++  }
+ 
+-    const hex = buf.toString('hex')
+-    const str = new TextDecoder().decode(data)
+-    return `\n>>> STR: "${str.replace(/\n/g, '\\n')}"\n>>> HEX: ${hex}\n`
+-  } else {
+-    return data
++  private _report(cause: unknown) {
++    if (this._reported.has(cause)) return
++    this._reported.add(cause)
++    this._firstFailure ??= { cause }
++    this.emit('error', cause)
++  }
++
++  private _callback(callback: Callback | undefined, failure?: { cause: unknown }) {
++    if (callback === undefined) return
++    try {
++      if (failure === undefined) callback()
++      else callback(failure.cause)
++    } catch (cause) {
++      this._report(cause)
++      this._finish('forced')
++    }
+   }
+-}
+ 
+-function log(...args: unknown[]) {
+-  debug && console.log(...args.map(dump))
++  private async _drainWrites() {
++    while (this._writes.size !== 0) await Promise.allSettled([...this._writes])
++  }
++
++  private _closeGeneration(generation: Generation) {
++    if (generation.closeStarted || generation.transferred) return
++    generation.closeStarted = true
++    // Request both operations independently. Neither initiation waits for a
++    // held write, a pending TLS transition, or the other cleanup operation.
++    if (!generation.readerReleased) {
++      this._track(async () => {
++        const reason: ReaderCancellation = Object.freeze({
++          kind: 'pg-cloudflare/reader-cancel', nonce: crypto.randomUUID(),
++        })
++        generation.cancelReason = reason
++        await generation.reader.cancel(reason)
++      })
++    }
++    if (!generation.closed) this._track(async () => { await generation.socket.close() })
++  }
++
++  private _finish(mode: 'ordered' | 'forced' | 'remote') {
++    if (this._closed) return
++    this._ending = true
++    this.writable = false
++    if (mode === 'forced') {
++      this._forced = true
++      if (this._generation) this._closeGeneration(this._generation)
++    }
++    if (mode === 'ordered' && !this._orderedEndStarted && !this._forced) {
++      this._orderedEndStarted = true
++      this._track(async () => {
++        const generation = await this._target
++        if (generation === undefined || this._forced) return
++        await this._drainWrites()
++        if (this._forced) return
++        this._closeGeneration(generation)
++      })
++    }
++    if (this._terminal !== undefined) return
++    this._terminal = (async () => {
++      // Includes both TLS generations, pending writes, the reader, cancellation,
++      // close() and closed. New tracked work is rechecked after every join.
++      while (this._tasks.size !== 0) await Promise.allSettled([...this._tasks])
++      this._closed = true
++      while (this._endCallbacks.length !== 0) this._callback(this._endCallbacks.shift(), this._firstFailure)
++      this.emit('close')
++    })()
++  }
+ }

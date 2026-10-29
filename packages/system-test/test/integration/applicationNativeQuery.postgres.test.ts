@@ -14,7 +14,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import { APPLICATION_NATIVE_QUERY_FIXTURE_OPTIONS, APPLICATION_NATIVE_QUERY_CACHE_FIXTURE_OPTIONS } from
-  "../../support/applicationNativeQueryHarness";
+  "../../support/applicationNativeQueryDefinitions";
 import { defineApplicationNativeQueryContract } from
   "../contracts/applicationNativeQueryContract";
 import {

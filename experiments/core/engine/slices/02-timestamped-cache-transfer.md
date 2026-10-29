@@ -29,7 +29,7 @@ adaptations.
 | Same-key updates still change cached bodies | [IndexRegistry::index_keys_for_index and document_index_keys](../../../../../../crates/indexing/src/index_registry.rs) emit database updates when either old or new exists, including equal keys. The backend's `apply_write` removes the old key, replaces the body and inserts only inside complete coverage. Existing TypeScript `populate` assumes one immutable snapshot and cannot replace this operation. |
 | Existing feed is necessary but insufficient as a refresh API | [commitFeed.ts](../../../../packages/persistence-postgres/src/commit/commitFeed.ts) validates contiguous headers and fact-to-revision identity, but exposes row identities, no upper target and no old/new bodies. Add one bounded protected capture; do not apply a future observed head to an operation already admitted at S. |
 | Writer proof is bounded to supported trusted producers | Point, finite, CMS, logical commerce and cross-domain publication contribute app-row facts and advance the clock in the same outer transaction. The low-level row append has only a testing caller; `appendAppIndexEntryRevisionsInTransactionEffect` has no production caller. Runtime SQL permissions do not enforce the converse revision-to-fact rule. Preserve untrusted capability confinement and exclude arbitrary raw SQL/fixture writes from the supported coherence claim. |
-| Full native/metadata logging is not an automatic prerequisite | This slice reuses only Application app-row data and retains fresh selection, grant, history and index gates. Missing native physical facts exclude those caches; they do not prohibit a proved app-row transfer. Metadata checks cannot be removed merely because data has timestamp S. |
+| Full native/metadata logging is not an automatic prerequisite | This slice reuses only Application app-row data and retains fresh selection, authority, history and index gates. Missing native physical facts exclude those caches; they do not prohibit a proved app-row transfer. Metadata checks cannot be removed merely because data has timestamp S. |
 | Cache state includes absence and receiving limits | `State.missing` is separate from the ordered component. Discard or correctly refresh negative evidence; never carry old absence across an insertion. A transferred cache must fit the receiving operation's admitted limits and definition identities. No new global cache defaults are implied. |
 
 ## Supported producer closure
@@ -106,7 +106,7 @@ reinsert; partial coverage; capacity/receiving-budget refusal; changed index or
 generation identity; history gaps; and a publication newer than admitted S.
 An old operation and a refreshed operation must remain independent. Cover
 cancellation during refresh and lease return, and retain current warm
-revocation/history/build and logical-accounting protections.
+active-target/history/build and logical-accounting protections.
 
 Run owner and actual query-consumer cases on PGlite and ordinary-role PostgreSQL.
 Use genuine supported publication paths for write-to-refresh witnesses, not raw

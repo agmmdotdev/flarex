@@ -249,7 +249,8 @@ export class ApplicationQueryCompositionError extends Data.TaggedError(
     | "invalidTarget"
     | "invalidSourceIdentity"
     | "sourceReadFailed"
-    | "workerDefinitionFailed";
+    | "workerDefinitionFailed"
+    | "requestResourceFailed";
   readonly cause?: unknown;
 }> {}
 
@@ -311,17 +312,58 @@ export const invokeApplicationQuery = Effect.fn(
 export function makeApplicationQuerySystemLayer(
   live: ApplicationQuerySystemLive,
 ): Layer.Layer<ApplicationQuerySystem> {
+  return Layer.effect(ApplicationQuerySystem, makeApplicationQuerySystem(live))
+    .pipe(Layer.provide(ScopeExecutionLive));
+}
+
+/** Capture static ports now; construct the API in the supplied execution context. */
+export function makeApplicationQuerySystem(
+  live: ApplicationQuerySystemLive,
+): Effect.Effect<ApplicationQuerySystemApi, never, ScopeExecution> {
   const captured = captureLive(live);
-  return Layer.effect(
-    ApplicationQuerySystem,
-    Effect.gen(function* () {
-      const selectionQuery = yield* makeApplicationSelectionQueryPort(captured);
-      return ApplicationQuerySystem.of({
-        selectionQuery,
-        invoke: makeInvoke(captured.activation, selectionQuery),
-      });
-    }),
-  ).pipe(Layer.provide(ScopeExecutionLive));
+  return constructApplicationQueryPorts(captured).pipe(Effect.map(ports =>
+    ApplicationQuerySystem.of({
+      selectionQuery: ports.selectionQuery,
+      invoke: makeInvoke(Effect.succeed(ports)),
+    })));
+}
+
+type ApplicationQueryPorts = Pick<ApplicationQuerySystemLive, "activation"> &
+  Pick<ApplicationQuerySystemApi, "selectionQuery">;
+
+const constructApplicationQueryPorts = Effect.fn(
+  "ApplicationQuerySystem.make",
+)(function* (captured: ApplicationQuerySystemLive) {
+  const selectionQuery = yield* makeApplicationSelectionQueryPort(captured);
+  return Object.freeze({ activation: captured.activation, selectionQuery });
+});
+
+/** The acquisition runs in the invoking query's Scope, never the Layer's Scope. */
+export function makeApplicationQuerySystemFactoryLayer(
+  acquire: Effect.Effect<
+    ApplicationQuerySystemLive,
+    ApplicationQueryCompositionError,
+    Scope.Scope
+  >,
+): Layer.Layer<ApplicationQuerySystem> {
+  return Layer.effect(ApplicationQuerySystem, Effect.gen(function* () {
+    const execution = yield* ScopeExecution;
+    const ports = acquire.pipe(
+      Effect.flatMap(live => constructApplicationQueryPorts(captureLive(live))),
+      Effect.provideService(ScopeExecution, execution),
+    );
+    return ApplicationQuerySystem.of({
+      selectionQuery: Object.freeze({
+        runQuery: Effect.fn("ApplicationQuerySystem.factorySelection")(function* (
+          ...args: Parameters<ApplicationQuerySystemApi["selectionQuery"]["runQuery"]>
+        ) {
+          const current = yield* ports;
+          return yield* current.selectionQuery.runQuery(...args);
+        }),
+      }),
+      invoke: makeInvoke(ports),
+    });
+  })).pipe(Layer.provide(ScopeExecutionLive));
 }
 
 function captureLive(live: ApplicationQuerySystemLive): ApplicationQuerySystemLive {
@@ -391,9 +433,10 @@ function captureSelectionLive(
 }
 
 function makeInvoke(
-  activation: ApplicationQuerySystemLive["activation"],
-  selectionQuery: ApplicationSelectionQueryPort<
-    InvokeApplicationSelectionQueryError
+  acquire: Effect.Effect<
+    ApplicationQueryPorts,
+    ApplicationQueryCompositionError,
+    Scope.Scope
   >,
 ): ApplicationQuerySystemApi["invoke"] {
   return Effect.fn("ApplicationQuerySystem.invoke")(function* (
@@ -416,8 +459,9 @@ function makeInvoke(
         cause,
       })),
     );
-    const active = yield* activation.readActive();
-    return yield* selectionQuery.runQuery(
+    const current = yield* acquire;
+    const active = yield* current.activation.readActive();
+    return yield* current.selectionQuery.runQuery(
       active.selection,
       functionRef,
       normalizedArguments.value,

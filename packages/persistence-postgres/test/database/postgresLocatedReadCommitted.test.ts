@@ -1,15 +1,29 @@
 import { Client, type PoolClient } from "pg";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   classifyPostgresLocatedReadCommittedSettlementV1,
   createPostgresLocatedReadCommittedTransactionRunnerV1,
   createPostgresClientLocatedReadCommittedTransactionRunnerV1,
   createHistoricalPostgresLocatedReadCommittedTransactionRunnerV1,
+  type PostgresClientLocatedReadCommittedRunnerOptionsV1,
 } from "../../src/database/postgresLocatedReadCommitted";
+import { observePostgresClientErrors, type PostgresClientErrorObservation } from "../../src/database/postgresClientLifetime";
 import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../../src/execution/readCommittedTransactionFailure";
+
+const observedClients = new Set<PostgresClientErrorObservation>();
+afterEach(() => {
+  for (const observation of observedClients) observation.close();
+  observedClients.clear();
+});
+
+function createObservedClientRunner(client: Client, options: Omit<PostgresClientLocatedReadCommittedRunnerOptionsV1, "connectionErrors">) {
+  const connectionErrors = observePostgresClientErrors(client);
+  observedClients.add(connectionErrors);
+  return createPostgresClientLocatedReadCommittedTransactionRunnerV1(client, { ...options, connectionErrors });
+}
 
 describe("Postgres located READ COMMITTED settlement provenance", () => {
   it("returns only a fully settled success", () => {
@@ -199,10 +213,44 @@ describe.each([
 });
 
 describe("connected Client located READ COMMITTED runner", () => {
+  it("refuses a latched idle disconnect before SQL and quarantines only once", async () => {
+    const events: string[] = [];
+    const client = fakeClient(events);
+    const connectionCause = new Error("idle connection disconnected");
+    const run = createObservedClientRunner(client, { quarantine: () => { events.push("quarantine"); } });
+    await expect(run(async () => "healthy")).resolves.toBe("healthy");
+    events.length = 0;
+    expect(client.emit("error", connectionCause)).toBe(true);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await expect(run(async () => { events.push("forbidden callback"); })).rejects.toMatchObject({
+        issue: { kind: "infrastructureFailure", phase: "acquire", cause: { connectionCause } },
+      });
+    }
+    expect(events).toEqual(["quarantine"]);
+  });
+
+  it("retains connection and callback failures instead of claiming an exact rollback", async () => {
+    const events: string[] = [];
+    const client = fakeClient(events);
+    const connectionCause = new Error("connection disconnected during callback");
+    const callbackCause = new Error("callback failed");
+    const run = createObservedClientRunner(client, { quarantine: () => { events.push("quarantine"); } });
+    await expect(run(async () => {
+      expect(client.emit("error", connectionCause)).toBe(true);
+      throw callbackCause;
+    })).rejects.toMatchObject({
+      issue: {
+        kind: "callbackCleanupFailed", callbackCause,
+        transactionCause: { connectionCause, settlementCause: callbackCause },
+      },
+    });
+    expect(events).toEqual(["begin", "set transaction isolation level read committed", "installation gate", "rollback", "quarantine"]);
+  });
+
   it("uses the supplied Client without acquiring or ending it", async () => {
     const events: string[] = [];
     const client = fakeClient(events);
-    const run = createPostgresClientLocatedReadCommittedTransactionRunnerV1(
+    const run = createObservedClientRunner(
       client,
       {
         quarantine: () => {
@@ -227,7 +275,7 @@ describe("connected Client located READ COMMITTED runner", () => {
   it("preserves an exact callback rollback without quarantining", async () => {
     const events: string[] = [];
     const callbackCause = new Error("callback rejected");
-    const run = createPostgresClientLocatedReadCommittedTransactionRunnerV1(
+    const run = createObservedClientRunner(
       fakeClient(events),
       {
         quarantine: () => {
@@ -261,7 +309,7 @@ describe("connected Client located READ COMMITTED runner", () => {
     const firstCanComplete = new Promise<void>((resolve) => {
       releaseFirst = resolve;
     });
-    const run = createPostgresClientLocatedReadCommittedTransactionRunnerV1(
+    const run = createObservedClientRunner(
       fakeClient(events),
       { quarantine: () => undefined },
     );
@@ -308,7 +356,7 @@ describe("connected Client located READ COMMITTED runner", () => {
     const events: string[] = [];
     const commitCause = new Error("commit response lost");
     const quarantineCause = new Error("quarantine callback failed");
-    const run = createPostgresClientLocatedReadCommittedTransactionRunnerV1(
+    const run = createObservedClientRunner(
       fakeClient(events, { commitCause }),
       {
         quarantine: (discard) => {
@@ -363,7 +411,7 @@ describe("connected Client located READ COMMITTED runner", () => {
     const commitCanFail = new Promise<void>((resolve) => {
       releaseCommit = resolve;
     });
-    const run = createPostgresClientLocatedReadCommittedTransactionRunnerV1(
+    const run = createObservedClientRunner(
       fakeClient(events, {
         beforeCommit: async () => {
           enterCommit?.();
@@ -413,7 +461,7 @@ describe("connected Client located READ COMMITTED runner", () => {
     const events: string[] = [];
     const callbackCause = new Error("callback rejected");
     const rollbackCause = new Error("rollback response lost");
-    const run = createPostgresClientLocatedReadCommittedTransactionRunnerV1(
+    const run = createObservedClientRunner(
       fakeClient(events, { rollbackCause }),
       {
         quarantine: (discard) => {

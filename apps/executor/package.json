@@ -24,17 +24,23 @@
     "@flarex/executor": "workspace:*",
     "@flarex/executor-http": "workspace:*",
     "@flarex/persistence-postgres": "workspace:*",
+    "@flarex/standard-application-invocation": "workspace:*",
     "@flarex/utils": "workspace:*",
     "effect": "catalog:",
+    "flarex-backend": "workspace:*",
     "flarex-protocol": "workspace:*",
     "pg": "^8.22.0"
   },
   "devDependencies": {
+    "@flarex/application-definition": "workspace:*",
+    "@flarex/application-invocation": "workspace:*",
     "@types/node": "catalog:",
     "@types/pg": "^8.20.0",
     "miniflare": "catalog:",
+    "pg-cloudflare": "1.4.0",
     "tsx": "catalog:",
     "typescript": "catalog:",
+    "vite": "catalog:",
     "vitest": "catalog:",
     "wrangler": "catalog:"
   }

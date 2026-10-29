@@ -16,6 +16,10 @@ import {
 import type {
   RunLocatedReadCommittedTransactionV1,
 } from "./locatedTransactionIdentity";
+import {
+  observePostgresClientErrors,
+  type PostgresClientErrorObservation,
+} from "./postgresClientLifetime";
 
 const access = makePhysicalSessionAccess(flarexSchema);
 
@@ -47,6 +51,7 @@ export interface PostgresLocatedReadCommittedRunnerOptionsV1 {
  */
 export interface PostgresClientLocatedReadCommittedRunnerOptionsV1 {
   readonly quarantine: (discardError: Error) => void | Promise<void>;
+  readonly connectionErrors: PostgresClientErrorObservation;
 }
 
 export type PostgresLocatedReadCommittedTransactionResultV1<Value> =
@@ -68,20 +73,6 @@ export interface PostgresLocatedReadCommittedPoolV1 {
       client: PoolClient | undefined,
     ) => void,
   ): void;
-}
-
-export class PostgresLocatedReadCommittedConnectionErrorV1 extends Error {
-  readonly name = "PostgresLocatedReadCommittedConnectionErrorV1";
-
-  constructor(
-    readonly connectionCause: unknown,
-    readonly settlementCause: unknown,
-  ) {
-    super(
-      "PostgreSQL connection failed while a located transaction was active.",
-      { cause: connectionCause },
-    );
-  }
 }
 
 export function createPostgresLocatedReadCommittedTransactionRunnerV1(
@@ -264,12 +255,26 @@ export function createPostgresClientLocatedReadCommittedTransactionRunnerV1(
           cause: unusable.cause,
         });
       }
+      const connectionFailure = options.connectionErrors.failure();
+      if (connectionFailure !== undefined) {
+        unusable = Object.freeze({ cause: connectionFailure });
+        const quarantine = await quarantineConnectedClient(connectionFailure, options);
+        throw locatedFailure({
+          kind: "infrastructureFailure",
+          phase: "acquire",
+          cause: connectionFailure,
+          // Only a quarantine failure adds this field.
+          ...(quarantine.kind === "failed" && quarantine.quarantineCause !== undefined
+            ? { quarantineCause: quarantine.quarantineCause }
+            : {}),
+        });
+      }
 
       const state: {
         phase: PostgresLocatedReadCommittedPhaseV1;
         callbackCause: unknown;
       } = { phase: "beforeCallback", callbackCause: undefined };
-      const transaction = await settleOperation(() => database.transaction(
+      const settledTransaction = await settleOperation(() => database.transaction(
         async (tx): Promise<Result> => {
           state.phase = "configuring";
           await tx.setTransaction({ isolationLevel: "read committed" });
@@ -288,6 +293,7 @@ export function createPostgresClientLocatedReadCommittedTransactionRunnerV1(
           }
         },
       ));
+      const transaction = options.connectionErrors.captureTransaction(settledTransaction);
 
       const requiresQuarantine = transaction.kind === "failed" &&
         !(
@@ -387,17 +393,9 @@ export function classifyPostgresLocatedReadCommittedSettlementV1<Result>(
   });
 }
 
-interface CheckedOutClientErrorObservationV1 {
-  readonly capture: (settlementCause: unknown) => unknown;
-  readonly captureTransaction: <Value>(
-    transaction: PostgresLocatedReadCommittedTransactionResultV1<Value>,
-  ) => PostgresLocatedReadCommittedTransactionResultV1<Value>;
-  readonly close: () => void;
-}
-
 interface CheckedOutPoolClientV1 {
   readonly client: PoolClient;
-  readonly connectionErrors: CheckedOutClientErrorObservationV1;
+  readonly connectionErrors: PostgresClientErrorObservation;
 }
 
 function acquireObservedPoolClient(
@@ -415,44 +413,9 @@ function acquireObservedPoolClient(
       }
       resolve(Object.freeze({
         client,
-        connectionErrors: observeCheckedOutClientErrors(client),
+        connectionErrors: observePostgresClientErrors(client),
       }));
     });
-  });
-}
-
-function observeCheckedOutClientErrors(
-  client: PoolClient,
-): CheckedOutClientErrorObservationV1 {
-  let first: Readonly<{ readonly cause: unknown }> | undefined;
-  const onError = (cause: Error): void => {
-    first ??= Object.freeze({ cause });
-  };
-  client.on("error", onError);
-
-  const capture = (settlementCause: unknown): unknown =>
-    first === undefined
-      ? settlementCause
-      : new PostgresLocatedReadCommittedConnectionErrorV1(
-        first.cause,
-        settlementCause,
-      );
-
-  return Object.freeze({
-    capture,
-    captureTransaction: <Value>(
-      transaction: PostgresLocatedReadCommittedTransactionResultV1<Value>,
-    ): PostgresLocatedReadCommittedTransactionResultV1<Value> =>
-      first === undefined
-        ? transaction
-        : Object.freeze({
-          kind: "failed" as const,
-          cause: new PostgresLocatedReadCommittedConnectionErrorV1(
-            first.cause,
-            transaction.kind === "failed" ? transaction.cause : undefined,
-          ),
-        }),
-    close: () => client.removeListener("error", onError),
   });
 }
 

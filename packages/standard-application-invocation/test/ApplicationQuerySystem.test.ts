@@ -30,7 +30,7 @@ import { decodeAppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import { SOURCE_ARTIFACT_V2_ROLE_EXECUTION } from
   "flarex-protocol/internal/declarative-v2-source-artifact-v2";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApplicationExecutionHostError } from
   "flarex-backend/internal/application-execution-host";
 import {
@@ -43,6 +43,7 @@ const operations = vi.hoisted(() => ({
   revalidate: vi.fn(),
   readPoint: vi.fn(),
   readIndex: vi.fn(),
+  complete: vi.fn(),
 }));
 
 vi.mock("cloudflare:workers", () => ({
@@ -58,6 +59,7 @@ vi.mock(
     revalidateApplicationQuerySnapshot: operations.revalidate,
     readApplicationQueryPoint: operations.readPoint,
     readApplicationQueryIndex: operations.readIndex,
+    completeApplicationQuerySnapshot: operations.complete,
   }),
 );
 
@@ -65,12 +67,63 @@ import {
   makeApplicationSelectionQueryPort,
   makeApplicationSelectionQueryEvaluationPort,
   makeApplicationQuerySystemLayer,
+  makeApplicationQuerySystemFactoryLayer,
+  ApplicationQuerySystem,
+  ApplicationQueryCompositionError,
   invokeApplicationQuery,
   type ApplicationQuerySystemLive,
   type ApplicationSelectionQueryLive,
 } from "../src/ApplicationQuerySystem";
 
 describe("Application query system", () => {
+  beforeEach(() => {
+    operations.complete.mockReset().mockReturnValue(Effect.void);
+  });
+
+  it("acquires factory resources in each invocation scope rather than the service scope", async () => {
+    const events: string[] = [];
+    const unavailable = new ApplicationQueryCompositionError({ reason: "requestResourceFailed" });
+    const acquire = Effect.gen(function* () {
+      yield* Effect.acquireRelease(
+        Effect.sync(() => { events.push("acquire"); }),
+        () => Effect.sync(() => { events.push("release"); }),
+      );
+      return yield* unavailable;
+    });
+    await Effect.runPromise(Effect.gen(function* () {
+      yield* ApplicationQuerySystem;
+      expect(events).toEqual([]);
+      const invalid = yield* Effect.scoped(invokeApplicationQuery("", {})).pipe(Effect.result);
+      expect(Result.isFailure(invalid) && invalid.failure).toMatchObject({
+        _tag: "ApplicationQueryInputError", reason: "invalidFunction",
+      });
+      expect(events).toEqual([]);
+      const invalidIdentity = {
+        kind: "user" as const,
+        user: { tokenIdentifier: "test", subject: "test", issuer: "test", invalidJsonClaim: Number.NaN },
+      };
+      const invalidArguments = yield* Effect.scoped(invokeApplicationQuery(
+        "users:get", () => undefined, invalidIdentity,
+      )).pipe(Effect.result);
+      expect(Result.isFailure(invalidArguments) && invalidArguments.failure).toMatchObject({
+        _tag: "ApplicationQueryInputError", reason: "invalidArguments",
+      });
+      const invalidPrincipal = yield* Effect.scoped(invokeApplicationQuery(
+        "users:get", {}, invalidIdentity,
+      )).pipe(Effect.result);
+      expect(Result.isFailure(invalidPrincipal) && invalidPrincipal.failure).toMatchObject({
+        _tag: "ApplicationQueryInputError", reason: "invalidIdentity",
+      });
+      expect(events).toEqual([]);
+      for (let invocation = 0; invocation < 2; invocation += 1) {
+        const result = yield* Effect.scoped(invokeApplicationQuery("users:get", {}))
+          .pipe(Effect.result);
+        expect(Result.isFailure(result) && result.failure).toBe(unavailable);
+        expect(events).toEqual(Array.from({ length: invocation + 1 }, () => ["acquire", "release"]).flat());
+      }
+    }).pipe(Effect.provide(makeApplicationQuerySystemFactoryLayer(acquire))));
+  });
+
   it("reuses the query core against one supplied opaque selection", async () => {
     const manifest = applicationManifest();
     const selection = Object.freeze({}) as ApplicationActiveSelection;
@@ -163,9 +216,30 @@ describe("Application query system", () => {
       selection,
       "users:get",
       live.snapshotBudget,
-      live.snapshot,
+      {
+        ...live.snapshot,
+        cacheHandoff: {
+          take: expect.any(Function), put: expect.any(Function), dispose: expect.any(Function),
+        },
+      },
     );
     expect(operations.open.mock.calls[0]).toHaveLength(4);
+    expect(operations.complete).toHaveBeenCalledWith(snapshot);
+    const completionFailure = new ApplicationQuerySnapshotError({
+      operation: "complete", reason: "invalidComposition", retryable: false,
+    });
+    operations.complete.mockReturnValue(Effect.fail(completionFailure));
+    const refused = await Effect.runPromise(Effect.result(Effect.scoped(port.runQuery(
+      selection, "users:get", { value: 1 }, {
+        kind: "user",
+        user: {
+          tokenIdentifier: "task-query-user", subject: "user-1", issuer: "https://issuer.example",
+        },
+      },
+    ))));
+    expect(Result.isFailure(refused) && refused.failure).toBe(completionFailure);
+    expect(operations.open.mock.calls.at(-1)?.[3]?.cacheHandoff)
+      .toBe(operations.open.mock.calls[0]?.[3]?.cacheHandoff);
   });
 
   it("produces one coherent private evaluation receipt and portable projection", async () => {
@@ -317,11 +391,19 @@ describe("Application query system", () => {
     ]);
     expect(receipt.result.value).toEqual({ ok: true });
     expect(operations.finalize).toHaveBeenCalledWith(snapshot);
+    expect(operations.complete).toHaveBeenCalledWith(snapshot);
+    expect(operations.finalize.mock.invocationCallOrder.at(-1))
+      .toBeLessThan(operations.complete.mock.invocationCallOrder[0]!);
     expect(operations.open).toHaveBeenLastCalledWith(
       selection,
       "users:get",
       live.snapshotBudget,
-      live.snapshot,
+      {
+        ...live.snapshot,
+        cacheHandoff: {
+          take: expect.any(Function), put: expect.any(Function), dispose: expect.any(Function),
+        },
+      },
       { dependencyCapture: "evaluation" },
     );
     const projected = captureScopeSyncQueryEvaluationProjectionV1Result({
@@ -529,7 +611,12 @@ describe("Application query system", () => {
       selection,
       "users:get",
       live.snapshotBudget,
-      live.snapshot,
+      {
+        ...live.snapshot,
+        cacheHandoff: {
+          take: expect.any(Function), put: expect.any(Function), dispose: expect.any(Function),
+        },
+      },
     );
     expect(sourceRead).toHaveBeenCalledWith("1".repeat(64));
     expect(hostRun).toHaveBeenCalledOnce();
@@ -708,6 +795,7 @@ describe("Application query system", () => {
     expect(Result.isFailure(result)).toBe(true);
     expect(businessReads).toBe(0);
     expect(operations.readPoint).not.toHaveBeenCalled();
+    expect(operations.complete).not.toHaveBeenCalled();
     if (Result.isFailure(result)) {
       expect(result.failure).toBe(readBoundaryError);
       expect(result.failure).toMatchObject({

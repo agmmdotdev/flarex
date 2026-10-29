@@ -61,7 +61,7 @@ bytes; it is not a strict SQL-byte limit.
 
 Match scope/generation/epoch and relevant definitions. Prune unavailable or
 changed index identities instead of invalidating unrelated definitions by an
-unrelated global schema stamp. Retain fresh selection, grant, history and build
+unrelated global schema stamp. Retain fresh selection, authority, history and build
 checks until the separately proved versioned-owner protocol can replace them.
 Fixed data timestamp alone supplies no such authority.
 

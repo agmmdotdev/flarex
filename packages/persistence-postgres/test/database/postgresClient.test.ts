@@ -40,7 +40,7 @@ describe("createPostgresClientPersistence boundary", () => {
 
 describePostgres("real Postgres request-scoped Client persistence", () => {
   it("uses one caller-owned connection for repositories and transactions", async () => {
-    await withTemporaryPostgresClientPersistence(async (persistence, client) => {
+    await withTemporaryPostgresClientPersistence(async (persistence, client, observation) => {
       expect(await persistence.check()).toEqual({ status: "ok" });
       for (const forbidden of [
         "client",
@@ -150,6 +150,7 @@ describePostgres("real Postgres request-scoped Client persistence", () => {
       const quarantine: Error[] = [];
       const run = createPostgresClientLocatedReadCommittedTransactionRunnerV1(client, {
         quarantine: cause => { quarantine.push(cause); },
+        connectionErrors: observation.connectionErrors,
       });
       const marker = new Error("serialized Client rollback");
       const observed = await observeTransactionDepth(client, async () => {
