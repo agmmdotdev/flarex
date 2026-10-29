@@ -81,6 +81,7 @@
     "@typescript/typescript6": "catalog:",
     "oxlint": "1.78.0",
     "tsc-rs": "catalog:",
+    "tsrs": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
