@@ -86,9 +86,12 @@ the genuine query path with default local workerd and ordinary PostgreSQL.
 The [mutation pending-state replacement](./slices/04-mutation-pending-state.md)
 records independent source challenge and peer convergence. Its first
 [range-evidence prerequisite](./slices/04a-range-completion-evidence.md) is
-implemented for newly executed operations. Incremental shared-root indexes, the
-real Standard cutover and stored-profile disposition remain open; a producer
-correction does not repair older journal readsets or complete that milestone.
+implemented for newly executed operations. The next
+[incremental shared-root index contract](./slices/04b-incremental-pending-indexes.md)
+records source challenge and the necessary lowering/suppression adaptation;
+runtime implementation remains open. The real Standard cutover and stored-profile
+disposition also remain open; a producer correction does not repair older journal
+readsets or complete that milestone.
 
 ## Mandatory challenge before each slice
 

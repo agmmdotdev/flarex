@@ -7,7 +7,8 @@ The [goal](../GOAL.md) remains unchanged. The bounded
 [actual DO query host](./03-application-query-do-host.md) is implemented.
 
 Initial source checkpoint: Flarex `a1ec642f772fc5a8fd93cf8b8aa033b0b97cdae2`,
-rechecked at `526182cf05c6f42a0aa874a12db31d80a7a9134c`; Convex
+rechecked at `526182cf05c6f42a0aa874a12db31d80a7a9134c` and
+`d1002bae4` for the incremental-index preflight; Convex
 `84fbb0e70b4e857913673871cb847ad11a55f3d5`. These are source findings, not new
 database, timing or upstream-test evidence.
 
@@ -64,11 +65,12 @@ with a failing witness before activation.
 ## Exact page completion is part of the current result
 
 Flarex computes `isDone` using N+1 membership and exposes it to the Worker. For
-snapshot `[A,B]`, limit `1` returns `[A], false`. Source inspection finds its
-retained interval can stop at `A`, with point evidence only for selected rows.
-A concurrent deletion/key move of `B` can change that exact verdict outside the
-retained evidence. Preserve a failing owner-level witness and correct the real
-evidence producer; this finding is not runtime reproduced yet.
+snapshot `[A,B]`, limit `1` returns `[A], false`. The original retained interval
+could stop at `A`, with point evidence only for selected rows. A concurrent
+deletion/key move of `B` could change that exact verdict outside the retained
+evidence. [04A](./04a-range-completion-evidence.md) reproduced this acceptance
+gap on both database lanes and corrected the real finite/durable producer for
+newly executed operations. Older saved readsets remain a cutover obligation.
 
 The pinned Convex paginator stops at page size and can conservatively return
 false on a full final page. Its consumed-prefix rule does not establish
@@ -127,10 +129,13 @@ or finite-only helper does not complete the real Standard cutover.
    for newly executed indexed operations. Keep returned-body point dependencies,
    current pagination results and accounting. Existing journal receipts are not
    repaired by replay; their cutover remains a separate required disposition.
-2. Incremental pending indexes: adapt the existing shared root evaluator and
+2. [Incremental pending indexes](./04b-incremental-pending-indexes.md): adapt the
+   existing shared root evaluator and
    both its Application and borrowed native write paths. Maintain per-index
    pending changes instead of relowering and sorting every staged table point on
-   every range. Private pending state remains separate from committed query cache.
+   every ordinary range. The challenged contract retains eligibility-first private
+   reference paging with its named removal gate and preserves native validation
+   and accounting. Private pending state remains separate from committed query cache.
 3. Actual Standard mutation cutover: route new requests through the shared
    evaluator, existing finite Worker runner, immutable freeze and publication
    owners. Remove displaced Standard durable-journal/seal/loader construction.

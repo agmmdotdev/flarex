@@ -36,9 +36,14 @@ deployment gating and query admission. Follow the accepted
 [timestamped cache-transfer slice](./slices/02-timestamped-cache-transfer.md)
 implements the active Convex handoff/write-log mechanism for supported
 Application app-row query data. The wider portable
-snapshot/DO composition remains open. The next selected
-[actual-DO query host slice](./slices/03-application-query-do-host.md) records the
-independent challenge, local-reference and invocation-resource boundaries.
+snapshot/DO composition remains open. The bounded
+[actual-DO query host slice](./slices/03-application-query-do-host.md) is implemented
+with actual local workerd and ordinary PostgreSQL proof. The
+[range-evidence correction](./slices/04a-range-completion-evidence.md) is also
+implemented for newly executed mutations. The next
+[incremental pending-index slice](./slices/04b-incremental-pending-indexes.md)
+records the challenged contract; its runtime implementation and the wider
+Standard/native mutation migration remain open.
 Resumable backfill remains open in Q07. [Pinned references](../REFERENCES.md#engine-mechanism-reference-map)
 anchor each concept and later implementation in actual Convex owners.
 
