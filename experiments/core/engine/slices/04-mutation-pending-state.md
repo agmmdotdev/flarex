@@ -1,13 +1,13 @@
 # Application mutation pending state and read evidence
 
-Status: **Independent source challenge and peer exchange complete; replacement
-contract and stored-profile disposition pending; no runtime implementation**.
-The [goal](../GOAL.md) remains unchanged. This preflight prepares the next concept
-while [actual DO hosting](./03-application-query-do-host.md) finishes dependency
-integration and its final acceptance gates.
+Status: **Independent source challenge and peer exchange complete; range-evidence
+producer contract selected; broader pending replacement and stored-profile
+cutover remain open**. No runtime implementation is established by this note.
+The [goal](../GOAL.md) remains unchanged. The bounded
+[actual DO query host](./03-application-query-do-host.md) is implemented.
 
-Source checkpoint: Flarex `a1ec642f772fc5a8fd93cf8b8aa033b0b97cdae2`, rechecking
-later shared commits before implementation; Convex
+Initial source checkpoint: Flarex `a1ec642f772fc5a8fd93cf8b8aa033b0b97cdae2`,
+rechecked at `526182cf05c6f42a0aa874a12db31d80a7a9134c`; Convex
 `84fbb0e70b4e857913673871cb847ad11a55f3d5`. These are source findings, not new
 database, timing or upstream-test evidence.
 
@@ -116,3 +116,42 @@ late asynchronous results; and uncertain outcomes. Reuse current point/range,
 publication/concurrency and native Application contracts on both database lanes.
 Both final reviews, removal of displaced paths and any required actual-host
 proof remain implementation gates. Replication stays deferred.
+
+## Connected implementation order
+
+These substeps retain the complete pending-state milestone. A producer correction
+or finite-only helper does not complete the real Standard cutover.
+
+1. [Range completion evidence](./04a-range-completion-evidence.md): preserve the
+   already fetched membership lookahead and retain sufficient logical OCC evidence
+   for newly executed indexed operations. Keep returned-body point dependencies,
+   current pagination results and accounting. Existing journal receipts are not
+   repaired by replay; their cutover remains a separate required disposition.
+2. Incremental pending indexes: adapt the existing shared root evaluator and
+   both its Application and borrowed native write paths. Maintain per-index
+   pending changes instead of relowering and sorting every staged table point on
+   every range. Private pending state remains separate from committed query cache.
+3. Actual Standard mutation cutover: route new requests through the shared
+   evaluator, existing finite Worker runner, immutable freeze and publication
+   owners. Remove displaced Standard durable-journal/seal/loader construction.
+   Preserve authoritative outcomes and require explicit old-anchor disposition.
+
+The existing finite preparation is not sufficient for the last step. Standard
+accepts legacy selections and relation manifests V2/V3, public and authenticated
+internal callbacks, while composite finite preparation currently assumes a
+relation selection, V3 and empty relations. Preserve the already selected target
+and visibility rather than preparing an unrelated active head. Retain genuine
+activation repository identity and bounded host-preparation lifetime.
+
+Required relation-integrity algorithms already reach finite publication, but
+the Application metadata write-closure projection currently emits empty source,
+extension and incoming relation evidence. Close its schema, relation binding,
+semantic/edge and publication identity proof through the existing metadata
+owners before removing that preparation gate. Adding a second edge engine or
+merely deleting the refusal would not establish this guarantee.
+
+Existing/busy activation must be handled before entering a new finite body.
+Matching stored durable requests must not become fresh finite executions or false
+request-key conflicts. Preserve authenticated retry tickets, full outcome
+reconciliation and native non-replay rules. Retained old readers need a named
+anchor obligation and removal gate; no durable-data deletion is selected here.
