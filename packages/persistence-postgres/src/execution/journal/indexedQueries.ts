@@ -1,3 +1,5 @@
+import { decodeIndexedQueryOperationResult } from "./operationInput";
+import type { makePointOperations } from "./pointOperations";
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
 import type { SessionJournalStorePersistence } from "./contracts";
 import {
@@ -19,7 +21,7 @@ import type { StoredCommitAuthorityEvidenceLoaderPortsV1 } from "../../commit/au
 import { bytesEqualFullScan as bytesEqual } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { and, asc, eq, inArray, ne } from "drizzle-orm";
-import { Effect, Option, Result, Schema } from "effect";
+import { Cause, Effect, Option, Result, Schema } from "effect";
 import { appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
 import {
   CommitFinalSyscallSequenceV1Schema,
@@ -135,6 +137,7 @@ import {
   finiteRootState,
   finitePointObservation,
   recordFiniteApplicationDemandMetadataEffect,
+  withFiniteApplicationOperation,
 } from "./finiteRoot";
 import type { FiniteRootAttemptState } from "./finiteRoot";
 import { logicalDocumentRootWrittenCount, readLogicalDocumentRootPendingIndex,
@@ -151,6 +154,10 @@ import {
 import type { SessionJournalStorePersistenceOptionsV1 } from "../sessionJournalStore";
 import type { JournalAttemptOwner } from "./attemptOwner";
 import type { JournalTargetResolver } from "./targetAdmission";
+
+const decodeDeveloperIndexDescriptorEffect = Schema.decodeUnknownEffect(
+  Schema.toType(SchemaManifestAppIndexDescriptorSchema),
+);
 
 /**
  * Keep duplicate JSONB/canonical-byte materialization below the attempt-wide
@@ -197,7 +204,6 @@ const runFiniteIndexedQueryEffect = Effect.fnUntraced(
     AppliedSessionJournalOperationV1,
     SessionJournalRunIndexedQueryV1Error
   > {
-    finite.inFlightOperations += 1;
     return yield* Effect.gen(function* () {
       if (
         !kernelContextMatchesAttempt(context, index.attempt) ||
@@ -299,7 +305,7 @@ const runFiniteIndexedQueryEffect = Effect.fnUntraced(
           tableId: index.tableId,
           indexDefinitionId: index.definition.indexDefinitionId,
         },
-      ).pipe(Effect.mapError(mapRunIndexedQueryFailure));
+      ).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapRunIndexedQueryFailure))));
       const snapshotPage = yield* decodeCapturedAppIndexSnapshotPageEffect(
         membership.prepared,
         membership.rawRows,
@@ -477,7 +483,7 @@ const runFiniteIndexedQueryEffect = Effect.fnUntraced(
                   },
                 },
                 { kind: "rows", tableId: index.tableId },
-              ).pipe(Effect.mapError(mapRunIndexedQueryFailure));
+              ).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapRunIndexedQueryFailure))));
               const consumed = yield* consumeCapturedAppRowsAtSnapshotEffect<
                 SessionJournalRunIndexedQueryV1Error | MaterializationLimit,
                 never
@@ -625,13 +631,7 @@ const runFiniteIndexedQueryEffect = Effect.fnUntraced(
           Effect.succeed(limitOutcome(failure.issue)),
         ),
       );
-    }).pipe(
-      Effect.ensuring(
-        Effect.sync(() => {
-          finite.inFlightOperations -= 1;
-        }),
-      ),
-    );
+    });
   },
   (work) => observeExecution("SessionJournalStore.runFiniteIndexedQuery", work),
 );
@@ -915,14 +915,14 @@ const runIndexedQueryInTransactionEffect = Effect.fn(
         tx,
         context.scopeClock,
       ).pipe(
-        Effect.mapError((cause) =>
+        Effect.catchCause(fullCause => Effect.failCause(Cause.map(fullCause, cause =>
           cause.reason === "resourceFailure"
             ? new SessionJournalPersistenceV1Error({
                 operation: "runIndexedQuery",
                 cause,
               })
             : corruption(index.attempt, "indexMaintenanceInvalid", cause),
-        ),
+        ))),
       ),
     ).pipe(
       Effect.catchTag("IndexMaintenanceError", (cause) =>
@@ -1538,92 +1538,107 @@ export function makeIndexedQueries(
   ports: StoredCommitAuthorityEvidenceLoaderPortsV1,
   indexedQueryPortState: ReturnType<typeof inspectAppDeveloperIndexQueryPortV1>,
   faultAfter: SessionJournalStorePersistenceOptionsV1["faultAfter"],
+  pointOperations: Pick<ReturnType<typeof makePointOperations>, "capturePointTableInput" | "resolvePointTableAdmittedEffect">,
 ) {
-  const resolveDeveloperIndexEffect: SessionJournalStorePersistence["resolveDeveloperIndexEffect"] =
-    Effect.fnUntraced(
-      function* (table, indexDescriptorInput) {
-        const tableState =
-          typeof table === "object" && table !== null
-            ? owner.readPointTable(table)
-            : undefined;
-        if (tableState === undefined) {
-          return yield* Effect.fail(
-            new InvalidSessionJournalCapabilityV1Error({
-              capability: "pointTable",
-            }),
-          );
-        }
-        const descriptor = yield* Schema.decodeUnknownEffect(
-          Schema.toType(SchemaManifestAppIndexDescriptorSchema),
-        )(indexDescriptorInput).pipe(
-          Effect.mapError(
-            (cause) =>
-              new InvalidSessionJournalInputV1Error({
-                operation: "resolveDeveloperIndex",
-                reason: "invalidIndexDescriptor",
-                cause,
-              }),
-          ),
-        );
-        if (
-          indexedQueryPortState === undefined ||
-          indexedQueryPortState.authority !== ports
-        ) {
-          return yield* Effect.fail(
-            new SessionJournalDeveloperIndexUnavailableV1Error({
-              reason: "invalidComposition",
-            }),
-          );
-        }
-        const resolved = yield* resolveJournalTargetEffect(tableState.attempt);
-        const logicalIndexId = yield* resolved.target[
-          RESOLVE_PINNED_DEVELOPER_INDEX_ID_EFFECT_V1
-        ]({
-          deploymentId: tableState.attempt.selector.deploymentId,
-          schemaVersionId: tableState.attempt.schemaVersionId,
-          tableId: tableState.tableId,
-          descriptor,
-        }).pipe(Effect.mapError(mapDeveloperIndexResolutionFailure));
-        const definitions = yield* indexedQueryPortState.definitions.locate({
-          deploymentId: tableState.attempt.selector.deploymentId,
-          scopeId: tableState.attempt.selector.scopeId,
-          schemaVersionId: tableState.attempt.schemaVersionId,
-          tableIds: Object.freeze([tableState.tableId]),
-          maximumDefinitions: MAX_SCHEMA_MANIFEST_APP_INDEXES_PER_TABLE,
-        });
-        const matches =
-          definitions?.filter(
-            (definition) =>
-              definition.access.kind === "developer" &&
-              definition.access.logicalIndexId === logicalIndexId &&
-              definition.access.tableId === tableState.tableId,
-          ) ?? [];
-        if (matches.length !== 1) {
-          return yield* Effect.fail(
-            new SessionJournalDeveloperIndexUnavailableV1Error({
-              reason:
-                matches.length === 0
-                  ? "definitionNotFound"
-                  : "definitionMismatch",
-            }),
-          );
-        }
-        const state = Object.freeze({
-          attempt: tableState.attempt,
-          tableId: tableState.tableId,
-          tableName: tableState.tableName,
-          logicalIndexId,
-          definition: matches[0]!,
-        } satisfies PinnedDeveloperIndexStateV1);
-        return owner.issueDeveloperIndex(state);
-      },
-      (work) =>
-        observeExecution("SessionJournalStore.resolveDeveloperIndex", work),
+  const captureDeveloperIndexInput = Effect.fn("SessionJournalStore.captureDeveloperIndexInput")(function* (
+    table: Parameters<SessionJournalStorePersistence["resolveDeveloperIndexEffect"]>[0], indexDescriptorInput: unknown) {
+    const tableState =
+      typeof table === "object" && table !== null
+        ? owner.readPointTable(table)
+        : undefined;
+    if (tableState === undefined) {
+      return yield* Effect.fail(
+        new InvalidSessionJournalCapabilityV1Error({
+          capability: "pointTable",
+        }),
+      );
+    }
+    const descriptor = yield* decodeDeveloperIndexDescriptorEffect(indexDescriptorInput).pipe(
+      Effect.mapError(
+        (cause) =>
+          new InvalidSessionJournalInputV1Error({
+            operation: "resolveDeveloperIndex",
+            reason: "invalidIndexDescriptor",
+            cause,
+          }),
+      ),
     );
+    if (
+      indexedQueryPortState === undefined ||
+      indexedQueryPortState.authority !== ports
+    ) {
+      return yield* Effect.fail(
+        new SessionJournalDeveloperIndexUnavailableV1Error({
+          reason: "invalidComposition",
+        }),
+      );
+    }
+    return { tableState, descriptor, queryPort: indexedQueryPortState };
+  });
+  const resolveDeveloperIndexAdmittedEffect = Effect.fn("SessionJournalStore.resolveDeveloperIndexAdmitted")(function* (
+    tableState: NonNullable<ReturnType<JournalAttemptOwner["readPointTable"]>>,
+    descriptor: Effect.Success<ReturnType<typeof captureDeveloperIndexInput>>["descriptor"],
+    queryPort: NonNullable<typeof indexedQueryPortState>) {
+    const finite = owner.readFiniteRoot(tableState.attempt);
+    if (finite !== undefined && finite.status !== "open")
+      return yield* Effect.fail(corruption(tableState.attempt, "journalStateInvalid"));
+    const resolved = yield* resolveJournalTargetEffect(tableState.attempt);
+    const logicalIndexId = yield* resolved.target[
+      RESOLVE_PINNED_DEVELOPER_INDEX_ID_EFFECT_V1
+    ]({
+      deploymentId: tableState.attempt.selector.deploymentId,
+      schemaVersionId: tableState.attempt.schemaVersionId,
+      tableId: tableState.tableId,
+      descriptor,
+    }).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapDeveloperIndexResolutionFailure))));
+    const definitions = yield* queryPort.definitions.locate({
+      deploymentId: tableState.attempt.selector.deploymentId,
+      scopeId: tableState.attempt.selector.scopeId,
+      schemaVersionId: tableState.attempt.schemaVersionId,
+      tableIds: Object.freeze([tableState.tableId]),
+      maximumDefinitions: MAX_SCHEMA_MANIFEST_APP_INDEXES_PER_TABLE,
+    });
+    const matches =
+      definitions?.filter(
+        (definition) =>
+          definition.access.kind === "developer" &&
+          definition.access.logicalIndexId === logicalIndexId &&
+          definition.access.tableId === tableState.tableId,
+      ) ?? [];
+    if (matches.length !== 1) {
+      return yield* Effect.fail(
+        new SessionJournalDeveloperIndexUnavailableV1Error({
+          reason:
+            matches.length === 0
+              ? "definitionNotFound"
+              : "definitionMismatch",
+        }),
+      );
+    }
+    const state = Object.freeze({
+      attempt: tableState.attempt,
+      tableId: tableState.tableId,
+      tableName: tableState.tableName,
+      logicalIndexId,
+      definition: matches[0]!,
+    } satisfies PinnedDeveloperIndexStateV1);
+    if (finite !== undefined && finite.status !== "open")
+      return yield* Effect.fail(corruption(tableState.attempt, "journalStateInvalid"));
+    return owner.issueDeveloperIndex(state);
+  });
+  const resolveDeveloperIndexEffect: SessionJournalStorePersistence["resolveDeveloperIndexEffect"] =
+    Effect.fn("SessionJournalStore.resolveDeveloperIndex")(function* (table, indexDescriptorInput) {
+      const { tableState, descriptor, queryPort } = yield* captureDeveloperIndexInput(table, indexDescriptorInput);
+      const work = resolveDeveloperIndexAdmittedEffect(tableState, descriptor, queryPort);
+      const finite = owner.readFiniteRoot(tableState.attempt);
+      return yield* finite === undefined ? work :
+        withFiniteApplicationOperation(finite, tableState.attempt, work, "resolveDeveloperIndex");
+    });
 
-  const runIndexedQueryEffect: SessionJournalStorePersistence["runIndexedQueryEffect"] =
+  const runIndexedQuery =
     Effect.fnUntraced(
-      function* (index, operation) {
+      function* (index: Parameters<SessionJournalStorePersistence["runIndexedQueryEffect"]>[0],
+        operation: Parameters<SessionJournalStorePersistence["runIndexedQueryEffect"]>[1], admitted = false) {
         const state =
           typeof index === "object" && index !== null
             ? owner.readDeveloperIndex(index)
@@ -1639,72 +1654,87 @@ export function makeIndexedQueries(
           captureIndexedQueryRequestResult(state, operation),
         );
         const requestEvidence = yield* canonicalizeStoredRequestEffect(request);
-        const resolved = yield* resolveJournalTargetEffect(state.attempt);
-        if (!isLocatedExactRunningAttemptReadSyscallKernelV1(resolved.target)) {
-          return yield* Effect.fail(
-            new SessionJournalTargetUnavailableV1Error({
-              scopeId: state.attempt.selector.scopeId,
-            }),
-          );
-        }
         const finite = owner.readFiniteRoot(state.attempt);
-        const checked =
-          finite === undefined
-            ? resolved.target[
-                RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1
-              ](
-                {
-                  selector: state.attempt.selector,
-                  preliminaryAuthority: resolved.authority,
-                  executionClaim: state.attempt.executionClaim,
-                },
-                (tx, context) =>
-                  runIndexedQueryInTransactionEffect(
-                    tx,
-                    context,
+        const evaluate = Effect.gen(function* () {
+          // Preserve the finite evaluator's closed-root verdict before metadata or storage work.
+          if (finite !== undefined && finite.status !== "open") {
+            return projectIndexedQueryResult(yield* runFiniteIndexedQueryEffect(
+              finiteApplicationCapture(finite, state.attempt), finite.initialContext,
+              state, request, requestEvidence, finite));
+          }
+          const resolved = yield* resolveJournalTargetEffect(state.attempt);
+          if (!isLocatedExactRunningAttemptReadSyscallKernelV1(resolved.target)) {
+            return yield* Effect.fail(
+              new SessionJournalTargetUnavailableV1Error({
+                scopeId: state.attempt.selector.scopeId,
+              }),
+            );
+          }
+          const checked =
+            finite === undefined
+              ? resolved.target[
+                  RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1
+                ](
+                  {
+                    selector: state.attempt.selector,
+                    preliminaryAuthority: resolved.authority,
+                    executionClaim: state.attempt.executionClaim,
+                  },
+                  (tx, context) =>
+                    runIndexedQueryInTransactionEffect(
+                      tx,
+                      context,
+                      state,
+                      request,
+                      requestEvidence,
+                      faultAfter,
+                    ),
+                )
+              : Effect.gen(function* () {
+                  yield* recordFiniteApplicationDemandMetadataEffect(
+                    state.attempt,
+                    finite,
+                    state.tableId,
+                    false,
+                    state.definition.indexDefinitionId,
+                  );
+                  return yield* runFiniteIndexedQueryEffect(
+                    finiteApplicationCapture(finite, state.attempt),
+                    finite.initialContext,
                     state,
                     request,
                     requestEvidence,
-                    faultAfter,
-                  ),
-              )
-            : Effect.gen(function* () {
-                yield* recordFiniteApplicationDemandMetadataEffect(
-                  state.attempt,
-                  finite,
-                  state.tableId,
-                  false,
-                  state.definition.indexDefinitionId,
-                );
-                return yield* runFiniteIndexedQueryEffect(
-                  finiteApplicationCapture(finite, state.attempt),
-                  finite.initialContext,
-                  state,
-                  request,
-                  requestEvidence,
-                  finite,
-                );
-              });
-        const applied = yield* checked.pipe(
-          Effect.onError(() =>
-            Effect.sync(() => {
-              const currentFinite = owner.readFiniteRoot(state.attempt);
-              if (currentFinite !== undefined) {
-                currentFinite.status = "aborted";
-                discardFiniteRootEvidence(currentFinite);
-              }
-            }),
-          ),
-          Effect.mapError((error) =>
-            error instanceof ExactRunningAttemptTransactionV1Error
-              ? mapExactRunningIndexedQueryFailure(error)
-              : error,
-          ),
-        );
-        if (finite?.status === "aborted") discardFiniteRootEvidence(finite);
-        return projectIndexedQueryResult(applied);
+                    finite,
+                  );
+                });
+          const applied = yield* checked.pipe(
+            Effect.catchCause(cause => Effect.failCause(Cause.map(cause, error =>
+              error instanceof ExactRunningAttemptTransactionV1Error
+                ? mapExactRunningIndexedQueryFailure(error)
+                : error))),
+          );
+          if (finite?.status === "aborted") discardFiniteRootEvidence(finite);
+          return projectIndexedQueryResult(applied);
+        });
+        return yield* finite === undefined || admitted || finite.status !== "open" ? evaluate :
+          withFiniteApplicationOperation(finite, state.attempt, evaluate, "runIndexedQuery");
       },
       (work) => observeExecution("SessionJournalStore.runIndexedQuery", work),
     );
-  return Object.freeze({ resolveDeveloperIndexEffect, runIndexedQueryEffect });
+  const runIndexedQueryEffect: SessionJournalStorePersistence["runIndexedQueryEffect"] =
+    (index, operation) => runIndexedQuery(index, operation);
+  const runApplicationIndexedQueryEffect: SessionJournalStorePersistence["runApplicationIndexedQueryEffect"] =
+    Effect.fn("SessionJournalStore.runApplicationIndexedQuery")(function* (attempt, tableNameInput, indexDescriptorInput, input) {
+      const { attemptState, tableName } = yield* pointOperations.capturePointTableInput(attempt, tableNameInput);
+      const work = Effect.gen(function* () {
+        const table = yield* pointOperations.resolvePointTableAdmittedEffect(attemptState, tableName);
+        const { tableState, descriptor, queryPort } = yield* captureDeveloperIndexInput(table, indexDescriptorInput);
+        const index = yield* resolveDeveloperIndexAdmittedEffect(tableState, descriptor, queryPort);
+        const operation = yield* Effect.fromResult(decodeIndexedQueryOperationResult(input));
+        return yield* runIndexedQuery(index, operation, true);
+      });
+      const finite = owner.readFiniteRoot(attemptState);
+      return yield* finite === undefined ? work : withFiniteApplicationOperation(finite, attemptState, work, "runIndexedQuery");
+    });
+  return Object.freeze({ resolveDeveloperIndexEffect, runIndexedQueryEffect, runApplicationIndexedQueryEffect });
 }

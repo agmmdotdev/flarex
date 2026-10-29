@@ -7,7 +7,7 @@ import { newTestPGlite } from "../support/pgliteSearchExtensions";
 import { finiteFrontierPopulatedMigration, withFiniteFrontierPredecessor } from "./finiteCaptureFrontierMigrationScenario";
 
 describe("finite scalar frontier PGlite installation", () => {
-  it.each([140, 141, 142, 143] as const)("replaces populated predecessor %i through actual maintenance without changing sessions or history", async through => {
+  it.each([140, 141, 142, 143, 154] as const)("replaces populated predecessor %i through actual maintenance without changing sessions or history", async through => {
     await withFiniteFrontierPredecessor(async (migrationsFolder, restoreCurrentJournal) => {
       const db = newTestPGlite();
       const persistence = await createPGlitePersistence({ db, migrationsFolder });

@@ -17,19 +17,21 @@ import type {
   RunSessionJournalRelationIncomingV1Result,
   RunSessionJournalIndexedQueryV1Result,
   RunSessionJournalPointOperationV1Result,
-  SessionJournalIndexedQueryOperationV1,
   SessionJournalIndexedQuerySuccessV1,
   SessionJournalRelationConflictV1,
   SessionJournalRelationIncomingRequestEvidenceV1,
   SessionJournalRelationIncomingOperationV1,
   SessionJournalPointSuccessV1,
   SessionJournalAttempt,
-  SessionJournalPointOperationV1,
   SessionJournalStorePersistence,
   ConfirmedFiniteRootEntryCapture,
   PreparedFiniteSessionJournalEntry,
   FrozenFiniteAttempt,
 } from "@flarex/persistence-postgres/internal/session-journal";
+import {
+  decodePointOperation,
+  decodeIndexedQueryOperationResult,
+} from "@flarex/persistence-postgres/internal/session-journal-operation-input";
 import {
   InvalidSessionJournalCapabilityV1Error,
   ApplicationTableWriteDeniedError,
@@ -69,7 +71,7 @@ import {
   LogicalParticipantAdmissionError,
   LogicalParticipantInvocationError,
 } from "@flarex/persistence-postgres/internal/logical-participant-errors";
-import { Effect, Result, Schema, Semaphore, type Scope } from "effect";
+import { Cause, Effect, Result, Schema, Semaphore, type Scope } from "effect";
 
 import {
   canonicalizeSessionJournalEffect,
@@ -81,15 +83,7 @@ import {
 } from "flarex-protocol/commit-protocol";
 import type { AdmittedFrameworkOperationV1 } from "flarex-protocol/internal/admitted-framework-operation-v1";
 import type { Json } from "flarex-protocol/json";
-import {
-  OrderedIndexBoundHexV1Schema,
-  type OrderedIndexBoundsV1,
-} from "flarex-protocol/ordered-index";
-import {
-  AppDocumentIdV1Schema,
-  type AppDocumentIdV1,
-  decodeAppDocumentIdV1,
-} from "flarex-protocol/app-document-id";
+import { AppDocumentIdV1Schema } from "flarex-protocol/app-document-id";
 
 import {
   inspectLoadedPointMutationSessionAttemptV1,
@@ -231,6 +225,17 @@ export interface PointMutationJournalV1 {
     attempt: PointMutationJournalAttemptV1,
     input: PointMutationJournalAdmittedOperationInputV1,
   ) => Effect.Effect<Json, PointMutationJournalBoundaryV1Error>;
+  readonly runApplicationPointOperation: (
+    attempt: PointMutationJournalAttemptV1,
+    tableName: unknown,
+    operation: unknown,
+  ) => Effect.Effect<RunSessionJournalPointOperationV1Result, PointMutationJournalBoundaryV1Error>;
+  readonly runApplicationIndexedQuery: (
+    attempt: PointMutationJournalAttemptV1,
+    tableName: unknown,
+    indexDescriptor: unknown,
+    operation: unknown,
+  ) => Effect.Effect<RunSessionJournalIndexedQueryV1Result, PointMutationJournalBoundaryV1Error>;
   readonly resolvePointTable: (
     attempt: PointMutationJournalAttemptV1,
     tableName: unknown,
@@ -341,17 +346,11 @@ interface JournalRelationState {
   readonly persistenceRelation: PinnedApplicationRelationRead;
 }
 
-const decodeSyscallSequence = Schema.decodeUnknownSync(
-  Schema.toType(CommitSyscallSequenceV1Schema),
-);
 const decodeSyscallSequenceResult = Schema.decodeUnknownResult(
   Schema.toType(CommitSyscallSequenceV1Schema),
 );
 const decodeAppDocumentIdResult = Schema.decodeUnknownResult(
   AppDocumentIdV1Schema,
-);
-const decodeOrderedIndexBoundResult = Schema.decodeUnknownResult(
-  OrderedIndexBoundHexV1Schema,
 );
 
 // Trusted input capture owns eager field access, detached arrays and nominal
@@ -511,12 +510,12 @@ export function createPointMutationJournalV1(
       schemaVersionId: inspection.schemaVersionId,
       executionClaim: claimState.observation,
       executionProfile,
-    }).pipe(Effect.mapError(mapAdmittedFailure));
+    }).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapAdmittedFailure))));
     const participantAdmissions = new Map<string, Effect.Success<ReturnType<
       SessionJournalStorePersistence["admitLogicalParticipantsEffect"]>>>();
     for (const participant of durableSelections) {
       const admission = yield* persistence.admitLogicalParticipantsEffect(persistenceAttempt,
-        participant).pipe(Effect.mapError(mapAdmittedFailure));
+        participant).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapAdmittedFailure))));
       participantAdmissions.set(participant.participant, admission);
     }
     const state = Object.freeze({
@@ -538,7 +537,7 @@ export function createPointMutationJournalV1(
     function* (participants: ReadonlyMap<string, PointMutationJournalAdmittedParticipantV1>) {
       const preparation = yield* persistence.prepareFiniteEntryEffect([...participants.values()].map(participant => ({
         ...participant.admission, sources: participant.admission.sources.map(source => ({ selection: source.selection, methods: source.methods })),
-      }))).pipe(Effect.mapError(mapAdmittedFailure));
+      }))).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapAdmittedFailure))));
       finitePreparations.set(preparation, participants);
       return preparation;
     });
@@ -582,7 +581,7 @@ export function createPointMutationJournalV1(
         return yield* Effect.fail(new InvalidPointMutationJournalCapabilityV1Error({ capability: "attempt" }));
       const claimState = yield* Effect.fromResult(executionClaims.inspectOriginalStoredAttempt(executionClaim, originalClaim));
       if (claimState.mode !== "execute") return yield* Effect.fail(new InvalidPointMutationExecutionClaimV1Error({ reason: "modeUnavailable" }));
-      const confirmed = yield* Effect.fromResult(persistence.confirmedFiniteEntryAttempt(capture, preparation)).pipe(Effect.mapError(mapAdmittedFailure));
+      const confirmed = yield* Effect.fromResult(persistence.confirmedFiniteEntryAttempt(capture, preparation)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapAdmittedFailure))));
       const context = confirmed.context;
       if (!attemptSelectorEquals(context.anchor, claimState.selector) || context.executionClaim.claimOwner !== claimState.observation.claimOwner ||
         context.executionClaim.claimFence !== claimState.observation.claimFence)
@@ -623,7 +622,7 @@ export function createPointMutationJournalV1(
       }, borrow).pipe(
         Effect.flatMap(result => result.kind === "completed" ? Effect.succeed(result.result)
           : Effect.fail(new PointMutationJournalAdmittedOperationRejectedV1Error({ result }))),
-        Effect.mapError(mapAdmittedFailure),
+        Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapAdmittedFailure))),
       ),
     );
   });
@@ -677,6 +676,35 @@ export function createPointMutationJournalV1(
         }) });
     });
 
+  const runApplicationPointOperation: PointMutationJournalV1["runApplicationPointOperation"] =
+    Effect.fn("PointMutationJournal.runApplicationPointOperation")(function* (attempt, tableName, operation) {
+      const state = yield* Effect.try({
+        try: () => requireAttempt(attempt),
+        catch: mapPersistenceFailure,
+      });
+      return yield* state.coordinator.semaphore.withPermit(
+        Effect.uninterruptible(
+          persistence.runApplicationPointOperationEffect(
+            state.persistenceAttempt, tableName, operation, syscallValidator,
+          ).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure)))),
+        ),
+      );
+    });
+  const runApplicationIndexedQuery: PointMutationJournalV1["runApplicationIndexedQuery"] =
+    Effect.fn("PointMutationJournal.runApplicationIndexedQuery")(function* (attempt, tableName, descriptor, operation) {
+      const state = yield* Effect.try({
+        try: () => requireAttempt(attempt),
+        catch: mapPersistenceFailure,
+      });
+      return yield* state.coordinator.semaphore.withPermit(
+        Effect.uninterruptible(
+          persistence.runApplicationIndexedQueryEffect(
+            state.persistenceAttempt, tableName, descriptor, operation,
+          ).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure)))),
+        ),
+      );
+    });
+
   const resolvePointTable: PointMutationJournalV1["resolvePointTable"] =
     Effect.fn("PointMutationJournal.resolvePointTable")(
       function* (attempt, tableName) {
@@ -689,7 +717,7 @@ export function createPointMutationJournalV1(
             persistence.resolvePointTableEffect(
               state.persistenceAttempt,
               tableName,
-            ).pipe(Effect.mapError(mapPersistenceFailure)),
+            ).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure)))),
           ),
         );
         const handle = Object.freeze({
@@ -730,7 +758,7 @@ export function createPointMutationJournalV1(
               captured.operation,
               syscallValidator,
             ).pipe(
-              Effect.mapError(mapPersistenceFailure),
+              Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure))),
             ),
           ),
         );
@@ -761,7 +789,7 @@ export function createPointMutationJournalV1(
             persistence.resolveDeveloperIndexEffect(
               tableState.persistenceTable,
               indexDescriptor,
-            ).pipe(Effect.mapError(mapPersistenceFailure)),
+            ).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure)))),
           ),
         );
       const handle = Object.freeze({
@@ -800,7 +828,7 @@ export function createPointMutationJournalV1(
             persistence.runIndexedQueryEffect(
               state.persistenceIndex,
               operation,
-            ).pipe(Effect.mapError(mapPersistenceFailure)),
+            ).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure)))),
           ),
         );
       },
@@ -819,7 +847,7 @@ export function createPointMutationJournalV1(
           persistence.resolveApplicationRelationReadEffect(
             state.persistenceAttempt,
             capability,
-          ).pipe(Effect.mapError(mapPersistenceFailure)),
+          ).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure)))),
         ),
       );
       const handle = Object.freeze({
@@ -856,7 +884,7 @@ export function createPointMutationJournalV1(
             persistence.runApplicationRelationIncomingReadEffect(
               state.persistenceRelation,
               operation,
-            ).pipe(Effect.mapError(mapPersistenceFailure)),
+            ).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure)))),
           ),
         );
       if (result.kind !== "conflicted") return result;
@@ -917,7 +945,7 @@ export function createPointMutationJournalV1(
             const prepared = yield* Effect.uninterruptible(
               persistence
                 .prepareSealEffect(state.persistenceAttempt)
-                .pipe(Effect.mapError(mapPersistenceFailure)),
+                .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure)))),
             );
             const journal = yield* canonicalizeSessionJournalEffect(
               prepared.journal,
@@ -927,7 +955,7 @@ export function createPointMutationJournalV1(
             return yield* Effect.uninterruptible(
               persistence
                 .completeSealEffect(prepared.preparation, journal, result)
-                .pipe(Effect.mapError(mapPersistenceFailure)),
+                .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure)))),
             );
           }),
         );
@@ -942,7 +970,7 @@ export function createPointMutationJournalV1(
       });
       return yield* state.coordinator.semaphore.withPermit(
         persistence.discardFiniteRootEffect(state.persistenceAttempt).pipe(
-          Effect.mapError(mapPersistenceFailure),
+          Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure))),
         ),
       );
     });
@@ -953,9 +981,9 @@ export function createPointMutationJournalV1(
         new InvalidPointMutationJournalCapabilityV1Error({ capability: "attempt" }));
       const state = yield* Effect.try({ try: () => requireAttempt(attempt), catch: mapPersistenceFailure });
       return yield* state.coordinator.semaphore.withPermit(Effect.gen(function* () {
-        const result = yield* canonicalizeSuccessfulResultV1Effect(successfulResult === undefined ? null : successfulResult).pipe(Effect.mapError(mapPersistenceFailure));
+        const result = yield* canonicalizeSuccessfulResultV1Effect(successfulResult === undefined ? null : successfulResult).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure))));
         return yield* persistence.freezeFiniteRootEffect(state.persistenceAttempt, result).pipe(
-          Effect.mapError(mapPersistenceFailure));
+          Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure))));
       }));
     });
 
@@ -963,6 +991,8 @@ export function createPointMutationJournalV1(
     openAttempt,
     ...(executionProfile === "finiteRoot" ? { prepareInitialFiniteEntry, prepareFiniteEntry, openConfirmedFiniteEntry, inspectFiniteExecutionEntry, freezeFiniteAttempt, bindPrivateReferenceSave, bindPrivateReverseReferenceRead } : {}),
     ...(selectedParticipants.size === 0 ? {} : { runAdmittedOperation }),
+    runApplicationPointOperation,
+    runApplicationIndexedQuery,
     resolvePointTable,
     runPointOperation,
     resolveDeveloperIndex,
@@ -975,104 +1005,6 @@ export function createPointMutationJournalV1(
     discardTentativeRoot,
   });
   return journal;
-}
-
-function decodeIndexedQueryOperationResult(
-  input: unknown,
-): Result.Result<
-  SessionJournalIndexedQueryOperationV1,
-  UnsupportedPointMutationJournalOperationV1Error
-> {
-  return Result.gen(function* () {
-    const record = yield* Result.try({
-      try: () => isPlainRecord(input) ? input : null,
-      catch: (cause) => indexedOperationFieldError(undefined, cause),
-    });
-    if (record === null) {
-      return yield* Result.fail(
-        new UnsupportedPointMutationJournalOperationV1Error({
-          reason: "notPlainObject",
-        }),
-      );
-    }
-    const kind = yield* readIndexedDataPropertyResult(record, "kind");
-    if (kind !== "indexRange") {
-      return yield* Result.fail(
-        new UnsupportedPointMutationJournalOperationV1Error({
-          reason: "invalidKind",
-          operationKind: kind,
-        }),
-      );
-    }
-    const captured = yield* Result.try({
-      try: () => {
-        const expectedFields = new Set([
-          "kind",
-          "syscallSequence",
-          "bounds",
-          "limit",
-        ]);
-        const actualFields = Reflect.ownKeys(record);
-        if (
-          actualFields.length !== expectedFields.size ||
-          actualFields.some((field) =>
-            typeof field !== "string" || !expectedFields.has(field))
-        ) {
-          throw new UnsupportedPointMutationJournalOperationV1Error({
-            reason: "unexpectedFields",
-            operationKind: kind,
-          });
-        }
-        const boundsInput = readDataProperty(record, "bounds");
-        const boundsRecord = isPlainRecord(boundsInput) ? boundsInput : null;
-        if (boundsRecord === null) throw new Error("Invalid bounds.");
-        const boundsKeys = Reflect.ownKeys(boundsRecord);
-        if (boundsKeys.some((field) =>
-          field !== "startInclusive" && field !== "endExclusive")) {
-          throw new Error("Invalid bounds fields.");
-        }
-        return Object.freeze({
-          syscallSequenceInput: readDataProperty(record, "syscallSequence"),
-          start: Object.hasOwn(boundsRecord, "startInclusive")
-            ? readDataProperty(boundsRecord, "startInclusive")
-            : undefined,
-          end: Object.hasOwn(boundsRecord, "endExclusive")
-            ? readDataProperty(boundsRecord, "endExclusive")
-            : undefined,
-          limit: readDataProperty(record, "limit"),
-        });
-      },
-      catch: (cause) => cause instanceof UnsupportedPointMutationJournalOperationV1Error
-        ? cause
-        : indexedOperationFieldError(kind, cause),
-    });
-    const syscallSequence = yield* decodeSyscallSequenceResult(
-      captured.syscallSequenceInput,
-    ).pipe(Result.mapError((cause) => indexedOperationFieldError(kind, cause)));
-    const start = captured.start === undefined
-      ? undefined
-      : yield* decodeOrderedIndexBoundResult(captured.start).pipe(
-          Result.mapError((cause) => indexedOperationFieldError(kind, cause)),
-        );
-    const end = captured.end === undefined
-      ? undefined
-      : yield* decodeOrderedIndexBoundResult(captured.end).pipe(
-          Result.mapError((cause) => indexedOperationFieldError(kind, cause)),
-        );
-    if (!Number.isSafeInteger(captured.limit) || Number(captured.limit) <= 0) {
-      return yield* Result.fail(indexedOperationFieldError(kind));
-    }
-    const bounds: OrderedIndexBoundsV1 = Object.freeze({
-      ...(start === undefined ? {} : { startInclusive: start }),
-      ...(end === undefined ? {} : { endExclusive: end }),
-    });
-    return Object.freeze({
-      kind,
-      syscallSequence,
-      bounds,
-      limit: Number(captured.limit),
-    });
-  });
 }
 
 function decodeRelationIncomingOperationResult(
@@ -1185,27 +1117,6 @@ function relationOperationFieldError(
   });
 }
 
-function readIndexedDataPropertyResult(
-  input: Readonly<Record<string, unknown>>,
-  field: string,
-): Result.Result<unknown, UnsupportedPointMutationJournalOperationV1Error> {
-  return Result.try({
-    try: () => readDataProperty(input, field),
-    catch: (cause) => indexedOperationFieldError(undefined, cause),
-  });
-}
-
-function indexedOperationFieldError(
-  operationKind?: unknown,
-  cause?: unknown,
-): UnsupportedPointMutationJournalOperationV1Error {
-  return new UnsupportedPointMutationJournalOperationV1Error({
-    reason: "invalidFieldShape",
-    ...(operationKind === undefined ? {} : { operationKind }),
-    ...(cause === undefined ? {} : { cause }),
-  });
-}
-
 function attemptSelectorEquals(
   left: LoadedPointMutationSessionAttemptInspectionV1["selector"],
   right: LoadedPointMutationSessionAttemptInspectionV1["selector"],
@@ -1240,116 +1151,6 @@ function immutableAttemptPinsEqual(
     left.snapshotToken.commitSeq === right.snapshotToken.commitSeq;
 }
 
-function decodePointOperation(input: unknown): SessionJournalPointOperationV1 {
-  if (!isPlainRecord(input)) {
-    throw new UnsupportedPointMutationJournalOperationV1Error({
-      reason: "notPlainObject",
-    });
-  }
-  const kind = readDataProperty(input, "kind");
-  if (
-    kind !== "get" &&
-    kind !== "insert" &&
-    kind !== "patch" &&
-    kind !== "replace" &&
-    kind !== "delete"
-  ) {
-    throw new UnsupportedPointMutationJournalOperationV1Error({
-      reason: "invalidKind",
-      operationKind: kind,
-    });
-  }
-  const expectedFields = fieldsForOperation(kind);
-  const actualFields = Reflect.ownKeys(input);
-  if (
-    actualFields.length !== expectedFields.size ||
-    actualFields.some((field) =>
-      typeof field !== "string" || !expectedFields.has(field))
-  ) {
-    throw new UnsupportedPointMutationJournalOperationV1Error({
-      reason: "unexpectedFields",
-      operationKind: kind,
-    });
-  }
-  let syscallSequence: SessionJournalPointOperationV1["syscallSequence"];
-  try {
-    syscallSequence = decodeSyscallSequence(
-      readDataProperty(input, "syscallSequence"),
-    );
-  } catch (cause) {
-    throw new UnsupportedPointMutationJournalOperationV1Error({
-      reason: "invalidSequence",
-      operationKind: kind,
-      cause,
-    });
-  }
-  switch (kind) {
-    case "get":
-      return Object.freeze({
-        kind,
-        syscallSequence,
-        documentId: decodeOperationDocumentId(input, kind),
-      });
-    case "insert":
-      return Object.freeze({
-        kind,
-        syscallSequence,
-        fields: readDataProperty(input, "fields"),
-      });
-    case "patch":
-      return Object.freeze({
-        kind,
-        syscallSequence,
-        documentId: decodeOperationDocumentId(input, kind),
-        patch: readDataProperty(input, "patch"),
-      });
-    case "replace":
-      return Object.freeze({
-        kind,
-        syscallSequence,
-        documentId: decodeOperationDocumentId(input, kind),
-        fields: readDataProperty(input, "fields"),
-      });
-    case "delete":
-      return Object.freeze({
-        kind,
-        syscallSequence,
-        documentId: decodeOperationDocumentId(input, kind),
-      });
-  }
-}
-
-function decodeOperationDocumentId(
-  input: Readonly<Record<string, unknown>>,
-  operationKind: SessionJournalPointOperationV1["kind"],
-): AppDocumentIdV1 {
-  try {
-    return decodeAppDocumentIdV1(readDataProperty(input, "documentId"));
-  } catch (cause) {
-    throw new UnsupportedPointMutationJournalOperationV1Error({
-      reason: "invalidFieldShape",
-      operationKind,
-      cause,
-    });
-  }
-}
-
-function fieldsForOperation(
-  kind: SessionJournalPointOperationV1["kind"],
-): ReadonlySet<string> {
-  switch (kind) {
-    case "get":
-    case "delete":
-      return new Set(["kind", "syscallSequence", "documentId"]);
-    case "insert":
-      return new Set(["kind", "syscallSequence", "fields"]);
-    case "patch":
-      return new Set(["kind", "syscallSequence", "documentId", "patch"]);
-    case "replace":
-      return new Set(["kind", "syscallSequence", "documentId", "fields"]);
-  }
-}
-
 function readDataProperty(
   input: Readonly<Record<string, unknown>>,
   field: string,
@@ -1373,6 +1174,7 @@ function mapPersistenceFailure(
   if (cause instanceof SessionJournalAttemptUnavailableV1Error) {
     return new PointMutationJournalAttemptUnavailableV1Error({
       issue: cause.issue,
+      cause,
     });
   }
   if (cause instanceof SessionJournalPersistenceV1Error) {

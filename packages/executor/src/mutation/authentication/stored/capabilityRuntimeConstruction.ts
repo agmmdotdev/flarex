@@ -172,6 +172,8 @@ export function isPointMutationJournalV1(
   return (
     isNonArrayRecord(value) &&
     typeof value.openAttempt === "function" &&
+    typeof value.runApplicationPointOperation === "function" &&
+    typeof value.runApplicationIndexedQuery === "function" &&
     typeof value.resolvePointTable === "function" &&
     typeof value.runPointOperation === "function" &&
     typeof value.resolveDeveloperIndex === "function" &&

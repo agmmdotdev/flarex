@@ -6,9 +6,11 @@ import {
   ApplicationPointMutationRunnerHostV1Error,
   PointMutationOccApplicationErrorV1,
   PointMutationOccUserCodeV1Error,
-  type PointMutationOccRuntimeNeutralRunnerInputV1,
-  type PointMutationOccRuntimeNeutralRunnerV1,
-  type PointMutationOccRuntimeNeutralRunnerV1Error,
+} from "@flarex/executor/internal/point-mutation-runner-errors";
+import type {
+  PointMutationOccRuntimeNeutralRunnerInputV1,
+  PointMutationOccRuntimeNeutralRunnerV1,
+  PointMutationOccRuntimeNeutralRunnerV1Error,
 } from "@flarex/executor/internal/application-point-mutation-runner";
 import {
   bytesEqualFullScan,

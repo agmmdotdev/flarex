@@ -5,6 +5,8 @@ import {
 } from "@flarex/utils/bytes";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { Data, Effect, Exit, Result, Schema } from "effect";
+import { PointMutationOccApplicationErrorV1, PointMutationOccUserCodeV1Error,
+  type ApplicationPointMutationRunnerHostV1Error } from "../../runtime/pointMutationRunnerErrors";
 
 import {
   type PointCommitOutcomeResolutionV1Error,
@@ -60,7 +62,6 @@ import {
   getLoadedPointMutationSessionAttemptOccRerunInspectionV1,
 } from "../../session/pointMutationSessionAttemptState";
 import type {
-  ApplicationPointMutationRunnerHostV1Error,
   CommitInputVerificationV1Error,
   PointCommitFinishingExecutionV1Error,
   PointCommitPlanningV1Error,
@@ -113,20 +114,7 @@ export class PointMutationOccExecutionContextV1Error extends Data.TaggedError(
     | "invalidRandomSeed";
 }> {}
 
-export class PointMutationOccUserCodeV1Error extends Data.TaggedError(
-  "PointMutationOccUserCodeV1Error",
-)<{
-  readonly cause: unknown;
-}> {}
-
-
-export class PointMutationOccApplicationErrorV1 extends Data.TaggedError(
-  "PointMutationOccApplicationErrorV1",
-)<{
-  readonly code: string;
-  readonly message: string;
-  readonly data?: CanonicalFlarexRuntimeValueV1;
-}> {}
+export { PointMutationOccApplicationErrorV1, PointMutationOccUserCodeV1Error } from "../../runtime/pointMutationRunnerErrors";
 
 export type PointMutationAuthenticatedAttemptExecutionV1Error =
   | PointMutationOccExecutionEvidencePersistenceV1Error
@@ -536,6 +524,10 @@ export function bindPointMutationOccJournal(
       runAdmittedOperation: (input: Parameters<NonNullable<PointMutationJournalV1["runAdmittedOperation"]>>[1]) =>
         admitted(attempt, input),
     }),
+    runApplicationPointOperation: (tableName: unknown, operation: unknown) =>
+      journal.runApplicationPointOperation(attempt, tableName, operation),
+    runApplicationIndexedQuery: (tableName: unknown, descriptor: unknown, operation: unknown) =>
+      journal.runApplicationIndexedQuery(attempt, tableName, descriptor, operation),
     resolvePointTable: (tableName: unknown) =>
       journal.resolvePointTable(attempt, tableName),
     runPointOperation: (

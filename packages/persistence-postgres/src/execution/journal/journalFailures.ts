@@ -1,3 +1,4 @@
+import type { FiniteStorageCaptureError } from "../finiteStorageCapture";
 import {
   InvalidSessionJournalCapabilityV1Error,
   InvalidSessionJournalInputV1Error,
@@ -426,4 +427,27 @@ export function corruption(
     reason,
     ...(cause === undefined ? {} : { cause }),
   });
+}
+
+/** Finite admission projects authenticated session facts once, retaining capture provenance. */
+export function mapFiniteApplicationAdmissionFailure(attempt: SessionJournalAttemptStateV1,
+  cause: FiniteStorageCaptureError, operation: SessionJournalPersistenceV1Error["operation"]): SessionJournalAttemptUnavailableV1Error |
+    SessionJournalStorageCorruptionV1Error | SessionJournalPersistenceV1Error {
+  const unavailable = (issue: SessionJournalAttemptUnavailableV1Error["issue"]) =>
+    new SessionJournalAttemptUnavailableV1Error({ issue, cause });
+  switch (cause.reason) {
+    case "attemptMissing": return unavailable({ reason: "sessionMissing" });
+    case "attemptReplaced": return unavailable({ reason: "staleAttemptFence" });
+    case "ownershipChanged": return unavailable({ reason: "executionClaimUnavailable" });
+    case "expired": return unavailable({ reason: "activeAttemptExpired" });
+    case "lifecycleChanged": return cause.lifecycle === undefined
+      ? corruption(attempt, "sessionRecordInvalid", cause)
+      : unavailable({ reason: "attemptNotRunning", lifecycle: cause.lifecycle });
+    case "unsupportedStorageGeneration":
+    case "storageGenerationFenceChanged":
+    case "scopeEpochChanged":
+    case "authorizationRevocationEpochChanged": return unavailable({ reason: cause.reason });
+    case "storedCorruption": return corruption(attempt, "sessionRecordInvalid", cause);
+    default: return new SessionJournalPersistenceV1Error({ operation, cause });
+  }
 }

@@ -4,7 +4,7 @@ import type {
 } from "@flarex/persistence-postgres/internal/session-journal";
 import {
   ApplicationTableWriteDeniedError,
-} from "@flarex/persistence-postgres/internal/session-journal";
+} from "@flarex/persistence-postgres/internal/session-journal-errors";
 import { RpcTarget, type RpcStub } from "cloudflare:workers";
 import { Cause, Data, Effect, Exit, Schema } from "effect";
 import {

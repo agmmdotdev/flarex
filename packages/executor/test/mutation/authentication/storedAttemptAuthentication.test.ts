@@ -978,6 +978,8 @@ describe("C04A stored-attempt authentication", () => {
           },
           journal: {
             openAttempt: () => neverRun("open a journal"),
+            runApplicationPointOperation: () => neverRun("run an Application point operation"),
+            runApplicationIndexedQuery: () => neverRun("run an Application indexed query"),
             resolvePointTable: () => neverRun("resolve a point table"),
             runPointOperation: () => neverRun("run a point operation"),
             resolveDeveloperIndex: () => neverRun("resolve an index"),
@@ -1032,6 +1034,23 @@ describe("C04A stored-attempt authentication", () => {
         TEST_EXECUTION_CLAIMS,
       )
     ).not.toThrow();
+    expect(redispatchReads).toBe(0);
+    const journal = configuration.pointMutationOccRerun.journal;
+    for (const method of ["runApplicationPointOperation", "runApplicationIndexedQuery"] as const) {
+      const operation = journal[method];
+      Reflect.deleteProperty(journal, method);
+      try {
+        expect(() => createStoredPointMutationOccRerunExecutionV1({
+          loadEffect: () => Effect.succeed(loaded(current.fixture.evidence)),
+          loadFinishingEffect: () => Effect.succeed(loaded(current.fixture.evidence)),
+        }, unsafeOccRerunExecutionConfigurationForTest(configuration), TEST_EXECUTION_CLAIMS))
+          .toThrowError(expect.objectContaining({
+            _tag: "StoredPointMutationCapabilityConfigurationV1Defect",
+            stage: "occRerunExecution",
+            missing: "pointMutationOccJournal",
+          }));
+      } finally { Reflect.set(journal, method, operation); }
+    }
     expect(redispatchReads).toBe(0);
   });
 
@@ -2340,6 +2359,8 @@ describe("C04A stored-attempt authentication", () => {
       attemptLoading,
       journal: {
         openAttempt: () => Effect.succeed(Object.freeze({}) as never),
+        runApplicationPointOperation: () => Effect.die("runner must not read or write"),
+        runApplicationIndexedQuery: () => Effect.die("runner must not query"),
         resolvePointTable: () => Effect.die("runner must not read"),
         runPointOperation: () => Effect.die("runner must not write"),
         resolveDeveloperIndex: () => Effect.die("runner must not query"),
@@ -2481,6 +2502,8 @@ describe("C04A stored-attempt authentication", () => {
         attemptLoading,
         journal: {
           openAttempt: () => Effect.succeed(Object.freeze({}) as never),
+          runApplicationPointOperation: () => Effect.die("runner must not read or write"),
+          runApplicationIndexedQuery: () => Effect.die("runner must not query"),
           resolvePointTable: () => Effect.die("runner must not read"),
           runPointOperation: () => Effect.die("runner must not write"),
           resolveDeveloperIndex: () => Effect.die("runner must not query"),
@@ -2662,6 +2685,8 @@ describe("C04A stored-attempt authentication", () => {
       attemptLoading,
       journal: {
         openAttempt: () => Effect.succeed(Object.freeze({}) as never),
+        runApplicationPointOperation: () => Effect.die("runner must not read or write a point"),
+        runApplicationIndexedQuery: () => Effect.die("runner must not query an index"),
         resolvePointTable: () => Effect.die("runner must not read a point"),
         runPointOperation: () => Effect.die("runner must not write a point"),
         resolveDeveloperIndex: () => Effect.die("runner must not query an index"),

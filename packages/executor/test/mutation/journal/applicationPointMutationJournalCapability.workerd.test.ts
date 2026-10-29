@@ -32,6 +32,9 @@ describe("Application point-mutation journal capability", () => {
     expect(result).toMatchObject({
       close: "success",
       maximumActive: 1,
+      compoundPointCalls: 11,
+      compoundIndexCalls: 1,
+      rawCalls: 0,
       lateName: "FlarexApplicationJournalCapabilityStopped",
       validationName: "ApplicationRevisionSyscallDocumentValidationV1Error",
       deniedNames: Array(4).fill("ApplicationTableWriteDeniedError"),

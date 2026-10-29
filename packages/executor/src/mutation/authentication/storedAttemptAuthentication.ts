@@ -1,5 +1,6 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { Data, Effect } from "effect";
+import { Effect } from "effect";
+import { ApplicationPointMutationRunnerHostV1Error } from "../runtime/pointMutationRunnerErrors";
 
 import type {
   VerifiedApplicationMutationGrantInspectionV1,
@@ -414,6 +415,10 @@ export interface PointMutationOccBoundJournalV1 {
   readonly runAdmittedOperation?: (
     input: Parameters<NonNullable<PointMutationJournalV1["runAdmittedOperation"]>>[1],
   ) => ReturnType<NonNullable<PointMutationJournalV1["runAdmittedOperation"]>>;
+  readonly runApplicationPointOperation: (tableName: unknown, operation: unknown) =>
+    ReturnType<PointMutationJournalV1["runApplicationPointOperation"]>;
+  readonly runApplicationIndexedQuery: (tableName: unknown, descriptor: unknown, operation: unknown) =>
+    ReturnType<PointMutationJournalV1["runApplicationIndexedQuery"]>;
   readonly resolvePointTable: (
     tableName: unknown,
   ) => ReturnType<PointMutationJournalV1["resolvePointTable"]>;
@@ -488,24 +493,8 @@ export type PointMutationOccRuntimeNeutralRunnerV1Error =
   | PointMutationExactRuntimeRunnerHostV1Error
   | ApplicationPointMutationRunnerHostV1Error;
 
-export type ApplicationPointMutationRunnerHostV1ErrorReason =
-  | "sourceReadFailed"
-  | "workerDefinitionFailed"
-  | "runtimeHostMismatch"
-  | "requestProjectionInvalid"
-  | "workerLoadFailed"
-  | "readBoundaryFailed"
-  | "journalBoundaryFailed"
-  | "terminalFailed"
-  | "invalidResult"
-  | "timedOut";
-
-export class ApplicationPointMutationRunnerHostV1Error extends Data.TaggedError(
-  "ApplicationPointMutationRunnerHostV1Error",
-)<{
-  readonly reason: ApplicationPointMutationRunnerHostV1ErrorReason;
-  readonly cause?: unknown;
-}> {}
+export { ApplicationPointMutationRunnerHostV1Error,
+  type ApplicationPointMutationRunnerHostV1ErrorReason } from "../runtime/pointMutationRunnerErrors";
 
 export interface PointMutationOccRuntimeNeutralRunnerV1 {
   readonly run: (

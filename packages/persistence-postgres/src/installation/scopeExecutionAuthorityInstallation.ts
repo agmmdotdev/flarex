@@ -374,7 +374,7 @@ export const FINITE_STORAGE_CAPTURE_FUNCTION_SQL = `    CREATE OR REPLACE FUNCTI
             AND h.commit_seq <= p_snapshot_commit_seq) INTO historical_change;
         END IF;
       END IF;
-      IF s.lifecycle <> 'running' THEN reason := 'lifecycleChanged'; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, retained_floor, session_row, body_eligible); END IF;
+      IF s.lifecycle <> 'running' THEN session_row.lifecycle := s.lifecycle; reason := 'lifecycleChanged'; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, retained_floor, session_row, body_eligible); END IF;
       IF current_time_ms >= floor(extract(epoch FROM s.finite_lease_expires_at)*1000)
         OR current_time_ms >= floor(extract(epoch FROM s.finite_claim_expires_at)*1000)
         OR current_time_ms >= floor(extract(epoch FROM s.authorization_grant_expires_at)*1000)

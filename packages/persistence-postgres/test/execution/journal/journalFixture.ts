@@ -88,6 +88,26 @@ import {
 } from "./journalTestSupport";
 import { createTestPGlite } from "../../support/pgliteSearchExtensions";
 
+import {
+  createPostgresLocatedPointMutationSessionActivationTargetV1,
+  createPostgresSharedScopeAuthorityProvisioner,
+} from "../../../src/database/postgres";
+import type { FlarexPersistence } from "../../../src/index";
+import type { FlarexMetadataDatabase } from "../../../src/application/deployments";
+import type { SharedDatabaseScopePhysicalLocator, ScopePhysicalLocator } from "../../../src/scope/scopeMetadataTypes";
+import { createFileScopedPostgresFixture } from "../../support/postgresHelpers";
+
+interface JournalFixturePersistence extends FlarexPersistence {
+  readonly drizzle: FlarexMetadataDatabase;
+}
+interface JournalFixtureDriver<Persistence extends JournalFixturePersistence> {
+  readonly physicalLocator: SharedDatabaseScopePhysicalLocator;
+  readonly makeProvisioner: (options: Parameters<typeof createPGliteSharedScopeAuthorityProvisioner>[1]) =>
+    ReturnType<typeof createPGliteSharedScopeAuthorityProvisioner>;
+  readonly makeTarget: (persistence: Persistence, locator: ScopePhysicalLocator,
+    options: LocatedPointMutationSessionActivationTargetOptionsV1) => LocatedScopeClockReader;
+  readonly close: () => Promise<void>;
+}
 const SECOND_CREATION_TIME = decodeAppCreationTimeV1(1_725_000_000_001.25);
 
 interface ScenarioOptions {
@@ -182,7 +202,7 @@ function requirePublishedTableId(
 }
 
 export async function seedSnapshotDocument(
-  persistence: PGliteFlarexPersistence,
+  persistence: JournalFixturePersistence,
   scopeId: JournalScenario["anchor"]["scopeId"],
   tableId: CatalogTableId,
   schemaVersionId: CatalogSchemaVersionId,
@@ -234,6 +254,29 @@ export async function createSessionJournalStorePGliteFixture() {
     await db.close();
     throw error;
   }
+  return composeSessionJournalStoreFixture(persistence, {
+    physicalLocator: sharedLocator,
+    makeProvisioner: options => createPGliteSharedScopeAuthorityProvisioner(persistence, options),
+    makeTarget: (selected, locator, options) => createPGliteLocatedPointMutationSessionActivationTargetV1(selected, locator, options),
+    close: () => db.close(),
+  });
+}
+
+/** Same genuine schema/index/session construction with the ordinary PostgreSQL adapters. */
+export async function createSessionJournalStorePostgresFixture() {
+  const owner = await createFileScopedPostgresFixture();
+  return composeSessionJournalStoreFixture(owner.persistence, {
+    physicalLocator: { ...sharedLocator, schemaName: owner.schemaName },
+    makeProvisioner: options => createPostgresSharedScopeAuthorityProvisioner(owner.persistence, options),
+    makeTarget: (selected, locator, options) => createPostgresLocatedPointMutationSessionActivationTargetV1(selected, locator, options),
+    close: owner.dispose,
+  });
+}
+
+/** Test composition only; scenario behavior and authority remain with their existing owners. */
+function composeSessionJournalStoreFixture<Persistence extends JournalFixturePersistence>(
+  persistence: Persistence, composition: JournalFixtureDriver<Persistence>,
+) {
   let infrastructureUuidCounter = 1;
 
   function nextInfrastructureUuid(): string {
@@ -252,13 +295,10 @@ export async function createSessionJournalStorePGliteFixture() {
     const schemaVersionId = CatalogSchemaVersionIdSchema.make(
       `schema_session_journal_${label}`,
     );
-    const provisioned = await createPGliteSharedScopeAuthorityProvisioner(
-      persistence,
-      {
-        physicalLocator: sharedLocator,
-        randomUuid: () => nextInfrastructureUuid(),
-      },
-    ).ensure({
+    const provisioned = await composition.makeProvisioner({
+      physicalLocator: composition.physicalLocator,
+      randomUuid: () => nextInfrastructureUuid(),
+    }).ensure({
       deploymentId,
       projectId: `project_session_journal_${label}`,
     });
@@ -482,7 +522,7 @@ export async function createSessionJournalStorePGliteFixture() {
   }
 
   function resolutionPorts(
-    selectedPersistence: PGliteFlarexPersistence,
+    selectedPersistence: Persistence,
     targetOptions: LocatedPointMutationSessionActivationTargetOptionsV1 = {},
   ): PointMutationSessionAuthorityResolutionPortsV1 {
     return {
@@ -496,7 +536,7 @@ export async function createSessionJournalStorePGliteFixture() {
       },
       scopeSessionTargets: {
         resolve: async (physicalLocator): Promise<LocatedScopeClockReader> =>
-          createPGliteLocatedPointMutationSessionActivationTargetV1(
+          composition.makeTarget(
             selectedPersistence,
             physicalLocator,
             targetOptions,
@@ -580,7 +620,7 @@ export async function createSessionJournalStorePGliteFixture() {
     journalCounts,
     journalRoot,
     eventEvidenceByteLengths,
-    close: () => db.close(),
+    close: composition.close,
   };
 }
 

@@ -1,7 +1,8 @@
 # Standard mutation cutover to the shared root
 
 Status: **Independent source challenge and peer exchange complete; genuine current
-nested-failure prerequisite implemented; connected cutover not implemented**.
+nested-failure and operation-admission prerequisites implemented; connected
+cutover not implemented**.
 The [goal](../GOAL.md) remains the complete single-owner
 refactor. This record does not narrow that goal to a test or private finite helper.
 
@@ -92,9 +93,11 @@ opaque roots and Effect.void admission fixtures do not prove this boundary.
 
 The [operation-admission divergence](../divergences/application-operation-admission.md)
 records the selected compound owner, existing header-only capture path, exact
-lifecycle refusal evidence and forward function-body migration. Its runtime
-implementation remains open. Removing the fresh check later needs the complete
+lifecycle refusal evidence and forward function-body migration. Its connected
+runtime replacement is implemented. Removing the fresh check later needs the complete
 fenced-writer proof, not only a local cache or owner lease.
+The [04C1 contract](./04c1-application-operation-admission.md) scopes the connected
+capture, migration, journal/executor and genuine-Worker replacement.
 
 ## Stored requests, outcomes and recovery
 
@@ -147,7 +150,7 @@ target compatibility nor finite Standard activation or mutation DO hosting.
 ## Remaining cutover and acceptance gates
 
 The full slice still requires exact-selection finite preparation and metadata
-closure, ordered Application admission, authenticated old-profile disposition,
+closure, authenticated old-profile disposition,
 new Standard finite activation/runner/freeze/publication and connected outcome
 recovery. Complete each prerequisite before enabling the ordinary new-request
 path; do not advertise a helper or prerequisite as the Standard cutover.

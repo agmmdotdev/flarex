@@ -20,6 +20,11 @@ RC.112 specifics:
 
 - Use Result/Effect.result, not v3 Either/Effect.either. Option.gen, Result.gen
   and Effect.gen exist; Exit has map/match but no gen/all/flatMap.
+- RC.112 Effect.mapError recovers a typed failure through catch and can discard
+  other reasons in a mixed Cause. At resource/journal projections that promise
+  full Cause preservation, use Cause.map inside catchCause/failCause and test a
+  typed failure together with a defect and interruption. Single typed-failure
+  mapping and pure Result.mapError remain appropriate at their own boundaries.
 - Broad recovery uses Effect.catch/catchCause/catchDefect, not v3 catchAll names;
   catchTag/catchTags remain. Effect.option discards every typed error reason;
   use catchNoSuchElement when only missing-value failure means absence.

@@ -16,7 +16,7 @@ import { createCoLocatedReadInstallationFixture, createFileScopedPostgresFixture
   createProtectedFileScopedPostgresFixture, postgresUrl, withTemporaryPostgresSchema } from "../support/postgresHelpers";
 
 describe.skipIf(postgresUrl === null)("finite scalar frontier PostgreSQL installation", () => {
-  it.each([140, 141, 142, 143] as const)("replaces populated predecessor %i through actual maintenance without changing sessions or history", async through => {
+  it.each([140, 141, 142, 143, 154] as const)("replaces populated predecessor %i through actual maintenance without changing sessions or history", async through => {
     await withFiniteFrontierPredecessor(async (migrationsFolder, restoreCurrentJournal) => {
       await withTemporaryPostgresSchema(async options => {
         const persistence = await createPostgresPersistence({ ...options, migrationsFolder });

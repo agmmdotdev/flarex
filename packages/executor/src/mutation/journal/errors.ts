@@ -24,20 +24,7 @@ export class PointMutationJournalRelationConflictError extends Data.TaggedError(
 }> {}
 
 
-export class UnsupportedPointMutationJournalOperationV1Error
-  extends Data.TaggedError(
-    "UnsupportedPointMutationJournalOperationV1Error",
-  )<{
-    readonly reason:
-      | "notPlainObject"
-      | "invalidKind"
-      | "unexpectedFields"
-      | "invalidFieldShape"
-      | "invalidSequence";
-    readonly operationKind?: unknown;
-    readonly cause?: unknown;
-  }> {}
-
+export { UnsupportedPointMutationJournalOperationV1Error } from "@flarex/persistence-postgres/internal/session-journal-operation-input";
 
 export class PointMutationJournalPersistenceV1Error extends Data.TaggedError(
   "PointMutationJournalPersistenceV1Error",
@@ -80,4 +67,5 @@ export class PointMutationJournalAttemptPinsV1Error extends Data.TaggedError(
 export class PointMutationJournalAttemptUnavailableV1Error
   extends Data.TaggedError("PointMutationJournalAttemptUnavailableV1Error")<{
     readonly issue: SessionJournalAttemptUnavailableV1Error["issue"];
+    readonly cause?: unknown;
   }> {}

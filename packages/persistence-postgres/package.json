@@ -100,6 +100,8 @@
     "./finite-attempt-anchor": "./src/execution/finiteAttemptAnchor.ts",
     "./session-journal-store": "./src/execution/sessionJournalStore.ts",
     "./internal/session-journal": "./src/execution/journal/api.ts",
+    "./internal/session-journal-errors": "./src/execution/journal/errors.ts",
+    "./internal/session-journal-operation-input": "./src/execution/journal/operationInput.ts",
     "./internal/session-journal-construction": "./src/execution/journal/construction.ts",
     "./internal/system-test/session-journal-inspection": "./src/testing/sessionJournalInspection.ts",
     "./stored-occ-execution": "./src/execution/storedOccExecution.ts",

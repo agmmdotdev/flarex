@@ -43,12 +43,12 @@ export const FINITE_INDEXED_QUERY_OPTIONS = {
 type Fixture = ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>;
 
 export const makeFiniteIndexedQueriesHarness = Effect.fn("FiniteIndexedQueries.harness")(
-  function* (native: Fixture) {
+  function* (native: Fixture, functionPath = "users:create") {
     const context = Object.freeze({ deploymentId: native.deploymentId, controlDb: native.control.drizzle,
       authority: native.authorityPorts, schema: native.schema });
     const retained = yield* Effect.acquireRelease(retainPreparedHost(preparedHostTestRuntime(native.target.drizzle),
       Effect.gen(function* () {
-        const preparation = yield* prepareFiniteApplicationMutationAdmission(native.activation, "users:create", context);
+        const preparation = yield* prepareFiniteApplicationMutationAdmission(native.activation, functionPath, context);
         const candidateSchemaWriteGuard = yield* prepareFiniteAppSchemaCandidateWriteGuardPortEffect({
           candidateValidation: native.candidateValidation, pointCommitAuthority: native.sessionAuthority,
         }, { deploymentId: native.deploymentId, scopeId: native.authority.scopeId, profile: "fullArtifactProof" });
@@ -68,8 +68,7 @@ export const makeFiniteIndexedQueriesHarness = Effect.fn("FiniteIndexedQueries.h
       uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(native.control.drizzle),
       uniqueConstraintEligibility: native.uniqueConstraintEligibility, candidateSchemaWriteGuard,
     });
-    const open = Effect.fn("FiniteIndexedQueries.open")(function* () {
-      const entry = yield* store.prepareFiniteEntryEffect([]);
+    const prepareEvidence = Effect.fn("FiniteIndexedQueries.prepareEvidence")(function* (validatedArgsJson?: Readonly<{ body: string }>) {
       const authorizationRevocationEpoch = yield* runEffectTransaction<
         Effect.Success<ReturnType<typeof requireScopeAuthorizationRevocationEpochInTransactionEffect>>,
         Effect.Error<ReturnType<typeof requireScopeAuthorizationRevocationEpochInTransactionEffect>>,
@@ -79,9 +78,15 @@ export const makeFiniteIndexedQueriesHarness = Effect.fn("FiniteIndexedQueries.h
       const evidence = yield* Effect.tryPromise(() => applicationMutationActivationEvidenceFixture({
         deploymentId: TransactionGrantDeploymentIdV1Schema.make(native.deploymentId), executionAuthority: prepared.executionAuthority,
         authorizationRevocationEpoch, requestKey: randomUUID(), grantId: randomUUID(),
+        ...(validatedArgsJson === undefined ? {} : { validatedArgsJson }),
       }));
+      return evidence;
+    });
+    const open = Effect.fn("FiniteIndexedQueries.open")(function* (options: Readonly<{ executionClaimDurationMilliseconds?: number }> = {}) {
+      const entry = yield* store.prepareFiniteEntryEffect([]);
+      const evidence = yield* prepareEvidence();
       const activated = yield* retained.use(host => createApplicationMutationSessionActivationPersistenceV1(native.sessionAuthority,
-        { leaseDurationMilliseconds: 240_000, randomUuid: randomUUID }).activateFiniteEffect({
+        { leaseDurationMilliseconds: 240_000, randomUuid: randomUUID, ...options }).activateFiniteEffect({
         deploymentId: TransactionGrantDeploymentIdV1Schema.make(native.deploymentId), scopeId: evidence.scopeId,
         preparedAdmission: host.preparation, admissionContext: context, evidence: evidence.evidence,
       }, entry));
@@ -106,7 +111,9 @@ export const makeFiniteIndexedQueriesHarness = Effect.fn("FiniteIndexedQueries.h
         session: pointCommitSessionFromStoredSessionV1(session, "running"), executionClaim: entry.activation.executionClaim, frozenAttempt } };
     });
 
-    return Object.freeze({ store, open, freeze, publisher, alphaId, betaId, tableId: users.tableId });
+    const preparedAdmission = yield* retained.use(host => Effect.succeed(host.preparation));
+    return Object.freeze({ store, open, freeze, publisher, alphaId, betaId, tableId: users.tableId,
+      preparedAdmission, admissionContext: context, prepared, prepareEvidence });
   },
 );
 

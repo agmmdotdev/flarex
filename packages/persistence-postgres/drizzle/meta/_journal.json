@@ -1086,6 +1086,13 @@
       "when": 1793200000000,
       "tag": "0154_snapshot_index_position_cuts",
       "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "7",
+      "when": 1793300000000,
+      "tag": "0155_application_operation_admission",
+      "breakpoints": true
     }
   ]
 }

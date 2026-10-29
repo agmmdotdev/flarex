@@ -58,9 +58,11 @@ import type {
 } from "./session/contracts";
 import type { TransactionExecutionClaimPinV1 } from "./claims/transactionExecutionClaimModel";
 import { CommitSeqSchema } from "flarex-protocol/storage-authority";
+import { TransactionSessionLifecycleV1Schema, type TransactionSessionLifecycleV1 } from "flarex-protocol/transaction-session";
 
 
 export type FiniteStorageCaptureOperation =
+  | Readonly<{ kind: "admission" }>
   | Readonly<{ kind: "rows"; input: ReadAppRowsAtSnapshotV1Input; maximumTotalValueBytes?: number; settlementWindow?: true }>
   | Readonly<{ kind: "indexPage"; input: ScanAppIndexAtSnapshotV1Input; tableId: CatalogTableId }>
   | Readonly<{ kind: "relationalPredicate"; tableId: CatalogTableId; batch: PostgresRelationalPredicateBatch }>
@@ -71,6 +73,7 @@ export type FiniteStorageCaptureOperation =
   | Readonly<{ kind: "retirement"; selector: PointMutationSessionAttemptSelectorV1; executionClaim: TransactionExecutionClaimPinV1 }>;
 
 export interface FiniteStorageCaptureEnvelopes {
+  readonly admission: Readonly<{ kind: "admission" }>;
   readonly relationalReal: Readonly<{ kind: "relationalReal"; rows: readonly JsonObject[]; bytes: number }>;
   readonly relationalPredicate: Readonly<{ kind: "relationalPredicate"; rawRows: readonly unknown[];
     matches: readonly (boolean | null)[]; bytes: number }>;
@@ -93,6 +96,7 @@ const HeaderReasonSchema = Schema.Literals(["accepted", "invalidAuthority", "res
   "attemptReplaced", "ownershipChanged", "lifecycleChanged", "expired", "unsupportedStorageGeneration",
   "storageGenerationFenceChanged", "scopeEpochChanged", "authorizationRevocationEpochChanged", "notReady"]);
 const decodeReason = Schema.decodeUnknownEffect(HeaderReasonSchema);
+const decodeLifecycle = Schema.decodeUnknownEffect(TransactionSessionLifecycleV1Schema);
 const decodeSequenceText = Schema.decodeUnknownEffect(CommitSeqSchema);
 const decodeTransactionTimestamp = Schema.decodeUnknownEffect(Schema.String);
 
@@ -257,7 +261,7 @@ function compileFiniteStorageCapturePlan(database: FlarexMetadataDatabase, locat
         ${parameter("revisionId")}::text,${parameter("remainingRecords")}::integer,${parameter("remainingBytes")}::integer)` :
     kind === "ownershipUniqueClosure" ? sql`select * from ${sql.identifier(installed?.controlSchemaName ?? locator.schemaName)}.fx_read_application_ownership_unique_closure(
       ${parameter("catalogDeploymentId")}::text,${parameter("catalogSchemaVersionId")}::text,
-      ${parameter("remainingRecords")}::integer,${parameter("remainingBytes")}::integer)` : sql`select 0 as ordinal`;
+      ${parameter("remainingRecords")}::integer,${parameter("remainingBytes")}::integer)` : kind === "admission" ? sql`select null::integer as ordinal where false` : sql`select 0 as ordinal`;
     const rawFields = kind === "relationalPredicate" ? ["ordinal", "matched"] : kind === "rows" ? rowFields : kind === "indexPage" ? indexFields : kind === "ownership" ? ownershipFields :
       kind === "ownershipPolicyManifest" ? manifestFields : kind === "ownershipUniqueClosure" ? closureFields : ["ordinal"];
     const storageOrder = kind === "ownership" || kind === "ownershipUniqueClosure" ? sql`s.kind,s.ordinal` :
@@ -265,6 +269,8 @@ function compileFiniteStorageCapturePlan(database: FlarexMetadataDatabase, locat
     const fields = { reason: sql<string>`case when coalesce(storage._capture_header_ordinal,1) = 1 then capture.reason else null end`, databaseNow: sql<string>`case when coalesce(storage._capture_header_ordinal,1) = 1 then capture.database_now_epoch_milliseconds else null end`,
       servingCommitSeq: sql<string>`case when coalesce(storage._capture_header_ordinal,1) = 1 then capture.serving_commit_seq::text else null end`, retainedFloor: sql<string>`case when coalesce(storage._capture_header_ordinal,1) = 1 then capture.retained_floor::text else null end`,
       frontier: frontierFields,
+      refusedLifecycle: sql`case when capture.reason = 'lifecycleChanged' and coalesce(storage._capture_header_ordinal,1) = 1
+        then (capture.session_row).${sql.identifier(fxSystemTransactionSessions.lifecycle.name)} else null end`.mapWith(fxSystemTransactionSessions.lifecycle),
       targetMetadataEpoch: installed === undefined ? sql<string | null>`(select generation::text from ${namespace}.fx_system_prepared_metadata_epoch where singleton_id=1)` : sql<string | null>`case when coalesce(storage._capture_header_ordinal,1) = 1 then ${installed.targetMetadataEpoch} else null end`,
       controlMetadataEpoch: installed === undefined ? sql<string | null>`(select generation::text from ${namespace}.fx_system_prepared_metadata_epoch where singleton_id=1)` : sql<string | null>`case when coalesce(storage._capture_header_ordinal,1) = 1 then ${installed.controlMetadataEpoch} else null end`,
       storagePresent: kind === "ownershipPolicyManifest" ? sql<boolean>`storage."evidenceLength" is not null` : sql<boolean>`storage.ordinal is not null`,
@@ -281,6 +287,7 @@ function compileFiniteStorageCapturePlan(database: FlarexMetadataDatabase, locat
         retainedFloor: fields.retainedFloor })
         .map(([name, field]) => ({ path: [name], field })),
       ...Object.entries(fields.frontier).map(([name, field]) => ({ path: ["frontier", name], field })),
+      { path: ["refusedLifecycle"], field: fields.refusedLifecycle },
       { path: ["targetMetadataEpoch"], field: fields.targetMetadataEpoch }, { path: ["controlMetadataEpoch"], field: fields.controlMetadataEpoch },
       { path: ["storagePresent"], field: fields.storagePresent },
       ...Object.entries(fields.raw).map(([name, field]) => ({ path: ["raw", name], field })),
@@ -296,7 +303,7 @@ function compileFiniteStorageCapturePlan(database: FlarexMetadataDatabase, locat
   };
   const shapes = new Map<InternalCaptureOperation["kind"], ReturnType<typeof compile>>();
   if (relationalBody !== undefined) shapes.set("relationalPredicate", compile({ kind: "relationalPredicate", body: relationalBody }));
-  else for (const kind of ["rows", "indexPage", "ownership", "historicalIdentity", "transactionTime", "retirement",
+  else for (const kind of ["admission", "rows", "indexPage", "ownership", "historicalIdentity", "transactionTime", "retirement",
     "ownershipPolicyManifest", "ownershipUniqueClosure", "ownershipFence"] as const) shapes.set(kind, compile({ kind }));
   const plan: ReadonlyMap<InternalCaptureOperation["kind"], ReturnType<typeof compile>> = shapes;
   return plan;
@@ -397,6 +404,8 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
       const application = input.finiteApplicationReadDemand === undefined ? undefined :
         yield* Effect.fromResult(inspectFiniteApplicationStorageDemand(input.finiteApplicationReadDemand)).pipe(Effect.mapError(cause => refused("invalidAuthority", cause)));
       if (participant !== undefined && application !== undefined) return yield* Effect.fail(refused("invalidAuthority"));
+      if (operation.kind === "admission" && (participant !== undefined || application?.demand.kind !== "clock"))
+        return yield* Effect.fail(refused("invalidAuthority"));
       const selected = participant ?? application;
       if (selected !== undefined && (selected.root.scopeId !== input.selector.scopeId || selected.root.sessionId !== input.selector.sessionId ||
         selected.root.attemptFence !== input.selector.attemptFence || selected.root.snapshotCommitSeq !== expected.snapshotToken.commitSeq))
@@ -434,7 +443,7 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
           .pipe(Result.mapError(cause => refused("invalidInput", cause))) : undefined;
         const preparedIndex = operation.kind === "indexPage" ? yield* prepareAppIndexSnapshotReadResult(operation.input)
           .pipe(Result.mapError(cause => refused("invalidInput", cause))) : undefined;
-        const selectedTable = preparedRows?.tableId ?? (operation.kind === "indexPage" || operation.kind === "ownership" ||
+        const selectedTable = operation.kind === "admission" ? null : preparedRows?.tableId ?? (operation.kind === "indexPage" || operation.kind === "ownership" ||
           operation.kind === "historicalIdentity" || operation.kind === "relationalPredicate" || operation.kind === "relationalReal" ? operation.tableId : selected?.demand.kind !== "clock" ? selected?.demand.tableId ?? null : null);
         const selectedSnapshot = preparedRows?.snapshotCommitSeq ?? preparedIndex?.snapshotCommitSeq ?? expected.snapshotToken.commitSeq;
         if (selectedSnapshot !== expected.snapshotToken.commitSeq || preparedRows !== undefined && preparedRows.scopeId !== input.selector.scopeId ||
@@ -466,8 +475,8 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
           return yield* Result.fail(refused("invalidAuthority"));
         return { rows: preparedRows, index: preparedIndex, tableId: selectedTable, snapshot: selectedSnapshot };
       }));
-      const selectedIndexId = selected?.definition?.indexDefinitionId ?? null;
-      const unique = participant?.uniqueDefinition;
+      const selectedIndexId = operation.kind === "admission" ? null : selected?.definition?.indexDefinitionId ?? null;
+      const unique = operation.kind === "admission" ? undefined : participant?.uniqueDefinition;
       // Query-specific bodies remain local to this capture. They are never
       // retained in the static topology cache or named on pooled connections.
       const operationShapes = operation.kind === "relationalPredicate" ? compileFiniteStorageCapturePlan(database, locator, installed,
@@ -486,7 +495,7 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
         readHeadSha256: retained?.basis.headSha256 ?? null, readActivationSha256: retained?.basis.activationSha256 ?? null,
         readIndexPhysicalSpecSha256: selected?.definition?.physicalSpecSha256Hex ?? null,
         readUniquePhysicalSpecSha256: unique?.physicalSpecSha256Hex ?? null,
-        acceptReadiness: selected !== undefined && operation.kind !== "retirement",
+        acceptReadiness: selected !== undefined && operation.kind !== "retirement" && operation.kind !== "admission",
         rowIds: rows?.rowIds ?? [],
         settlementWindow: operation.kind === "rows" && operation.settlementWindow === true,
         transferBudget: operation.kind === "rows" ? operation.maximumTotalValueBytes ?? 1_048_576 : 1_048_576,
@@ -509,9 +518,14 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
         // Replacement validates its fresh native anchor before refusal or
         // retirement. Success never constructs or consumes that frontier.
         if (reason === "attemptReplaced") return { kind: "attemptReplaced" as const, first };
+        const lifecycle = reason === "lifecycleChanged" ? yield* decodeLifecycle(first.refusedLifecycle).pipe(
+          Effect.mapError(cause => refused("storedCorruption", cause))) : undefined;
+        if (lifecycle === "running") return yield* Effect.fail(refused("storedCorruption"));
         if (operation.kind === "retirement" && ["attemptMissing", "ownershipChanged", "lifecycleChanged", "expired"].includes(reason))
           return { kind: "retired" as const };
-        if (reason !== "accepted") return yield* Effect.fail(refused(reason));
+        if (reason !== "accepted") return yield* Effect.fail(new FiniteStorageCaptureError({
+          reason, ...(lifecycle === undefined ? {} : { lifecycle }),
+        }));
         const timeText = yield* decodeTime(first.databaseNow).pipe(Effect.mapError(cause => refused("storedCorruption", cause)));
         if (!Number.isSafeInteger(Number(timeText))) return yield* Effect.fail(refused("storedCorruption"));
         const serving = yield* decodeSequenceText(first.servingCommitSeq).pipe(Effect.mapError(cause => refused("storedCorruption", cause)));
@@ -625,6 +639,9 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
       const { first, observedEpoch } = accepted;
       const rawRows = result.rawRows;
       switch (operation.kind) {
+        case "admission":
+          if (rawRows.length !== 0) return yield* Effect.fail(refused("storedCorruption"));
+          return Object.freeze({ kind: "admission" as const });
         case "rows": {
           if (rows === undefined) return yield* Effect.die("Prepared rows missing");
           return Object.freeze({ kind: "rows" as const, prepared: rows, rawRows });
@@ -713,6 +730,7 @@ export class FiniteStorageCaptureError extends Data.TaggedError("FiniteStorageCa
   readonly reason: "invalidInput" | "invalidAuthority" | "unsupportedProfile" | "documentInvalid" | "limitExceeded" | "resourceFailure" | "storedCorruption" | "attemptMissing" |
     "attemptReplaced" | "ownershipChanged" | "lifecycleChanged" | "expired" | "unsupportedStorageGeneration" |
     "storageGenerationFenceChanged" | "scopeEpochChanged" | "authorizationRevocationEpochChanged" | "notReady";
+  readonly lifecycle?: Exclude<TransactionSessionLifecycleV1, "running">;
   readonly cause?: unknown;
 }> {}
 

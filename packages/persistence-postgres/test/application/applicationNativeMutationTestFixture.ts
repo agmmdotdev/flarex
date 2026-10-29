@@ -230,6 +230,7 @@ export interface ApplicationNativeMutationFixtureOptions {
   readonly includeUserNameIndex?: boolean;
   /** Finite genuine Worker query/patch source for snapshot-cache conformance. */
   readonly includeQueryCacheProbe?: boolean;
+  readonly includeAdmissionReadTwice?: boolean;
   /** Caller-prepared artifact data, including a genuine finalized R2 root when
    * exercising the actual artifact host. It does not supply authority. */
   readonly sourceBundle?: ApplicationNativeMutationSourceBundle;
@@ -578,7 +579,7 @@ async function createApplicationNativeMutationFixture<
   } as const));
   const source = options.analysis?.source ?? options.sourceBundle ?? await createApplicationNativeMutationSourceBundle(options.includeProductLaunch === true,
     options.acceptanceScale?.extraFunctions ?? 0, options.acceptanceScale?.functionPaddingBytes ?? 0,
-    options.includeInternalCalls === true, options.includeQueryCacheProbe === true);
+    options.includeInternalCalls === true, options.includeQueryCacheProbe === true, options.includeAdmissionReadTwice === true);
   const fixtureManifest = {
       format: "flarex.application-manifest",
       version: 1,
@@ -668,7 +669,10 @@ async function createApplicationNativeMutationFixture<
         args: { type: "any" },
         returns: { type: "any" },
         partition: null,
-      }, ...(options.includeQueryCacheProbe === true ? [
+      }, ...(options.includeAdmissionReadTwice === true ? [
+        { path: "users:readTwice", moduleName: "users", exportName: "readTwice",
+          kind: "mutation", visibility: "public", args: { type: "any" }, returns: { type: "any" }, partition: null },
+      ] as const : []), ...(options.includeQueryCacheProbe === true ? [
         { path: "users:cacheProbe", moduleName: "users", exportName: "cacheProbe",
           kind: "query", visibility: "public", args: { type: "any" }, returns: { type: "any" }, partition: null },
         { path: "users:renameCacheProbe", moduleName: "users", exportName: "renameCacheProbe",
@@ -1346,7 +1350,7 @@ function resolveTaskPublication(
 }
 
 export async function createApplicationNativeMutationSourceBundle(includeProductLaunch = false, extraFunctionCount = 0,
-  functionPaddingBytes = 0, includeInternalCalls = false, includeQueryCacheProbe = false): Promise<ApplicationNativeMutationSourceBundle> {
+  functionPaddingBytes = 0, includeInternalCalls = false, includeQueryCacheProbe = false, includeAdmissionReadTwice = false): Promise<ApplicationNativeMutationSourceBundle> {
   const execution = [
     'import { query } from "flarex/server";',
     'import { mutation } from "flarex/server";',
@@ -1361,6 +1365,9 @@ export async function createApplicationNativeMutationSourceBundle(includeProduct
     "  create: mutation({ handler: users.create }),",
     "  createInternal: internalMutation({ handler: users.createInternal }),",
     "  notify: action({ handler: users.notify }),",
+    ...(includeAdmissionReadTwice ? [
+      "  readTwice: mutation({ handler: users.readTwice }),",
+    ] : []),
     ...(includeQueryCacheProbe ? [
       "  cacheProbe: query({ handler: users.cacheProbe }),",
       "  renameCacheProbe: mutation({ handler: users.renameCacheProbe }),",
@@ -1410,6 +1417,14 @@ export async function createApplicationNativeMutationSourceBundle(includeProduct
       "export async function renameCacheProbe(ctx, args) {",
       "  await ctx.db.patch(args.id, { name: args.name, ...(args.padding === undefined ? {} : { padding: args.padding }) });",
       "  return await ctx.db.get(args.id);",
+      "}",
+    ] : []),
+    ...(includeAdmissionReadTwice ? [
+      "export async function readTwice(ctx, args) {",
+      "  const first = await ctx.db.get(args.body);",
+      "  const second = await ctx.db.get(args.body);",
+      "  await ctx.db.patch(args.body, { name: 'after-second-read' });",
+      "  return { first, second };",
       "}",
     ] : []),
     "export async function create(ctx, args) {",

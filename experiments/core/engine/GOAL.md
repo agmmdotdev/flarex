@@ -1,8 +1,8 @@
 # Single-owner core refactor goal
 
 Status: **Active implementation goal; bounded Application cache/read replacement,
-local query DO composition and shared pending indexes implemented; wider core
-milestones open**.
+local query DO composition, shared pending indexes and operation admission
+implemented; wider core milestones open**.
 The owner has requested the complete single-owner refactor, delivered through
 bounded connected milestones. This authorization supersedes earlier statements
 that this work is documentation-only. It does not decide unresolved guarantees,
@@ -96,8 +96,7 @@ these replacements do not repair older journal readsets or complete that milesto
 The [Standard cutover contract](./slices/04c-standard-mutation-cutover.md) records
 the connected preparation, ordered admission, stored-request and recovery
 requirements. Its genuine current nested-failure prerequisite is implemented;
-the ordinary Standard cutover and operation-admission replacement remain
-unimplemented.
+the connected [operation-admission replacement](./slices/04c1-application-operation-admission.md)
 
 ## Mandatory challenge before each slice
 

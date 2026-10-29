@@ -391,7 +391,7 @@ export class MiniflareApplicationWorkerLoader implements WorkerLoader {
   readonly #disposals: Array<Promise<PromiseSettledResult<void>[]>> = [];
   #nextInvocationBlock: InvocationBlock | undefined;
 
-  constructor(private readonly onCapability: (method: string, argumentsValue: readonly unknown[]) => void = () => undefined) {}
+  constructor(private readonly onCapability: (method: string, argumentsValue: readonly unknown[]) => void | Promise<void> = () => undefined) {}
 
   blockNextInvocation(): Readonly<{
     readonly started: Promise<void>;
@@ -421,8 +421,8 @@ export class MiniflareApplicationWorkerLoader implements WorkerLoader {
     return new MiniflareApplicationWorkerStub(this, code);
   }
 
-  observeCapability(method: string, argumentsValue: readonly unknown[]): void {
-    this.onCapability(method, argumentsValue);
+  async observeCapability(method: string, argumentsValue: readonly unknown[]): Promise<void> {
+    await this.onCapability(method, argumentsValue);
     if (method === "revalidate") this.revalidations += 1;
     if (method === "takeIncomingRelationSources") this.incomingRelationReads += 1;
     if (method !== "readPointDocument") return;
@@ -573,7 +573,7 @@ function deferred<A>(): Deferred<A> {
 async function invokeCapability(
   input: Request,
   capability: object,
-  observe: (method: string, argumentsValue: readonly unknown[]) => void,
+  observe: (method: string, argumentsValue: readonly unknown[]) => void | Promise<void>,
 ): Promise<Response> {
   try {
     const request = decodeBridgeValue(JSON.parse(await input.text()));
@@ -581,7 +581,7 @@ async function invokeCapability(
       !isRecord(request) || typeof request.method !== "string" ||
       !Array.isArray(request.arguments)
     ) throw new Error("Application capability request is invalid.");
-    observe(request.method, request.arguments);
+    await observe(request.method, request.arguments);
     const method = Reflect.get(capability, request.method);
     if (typeof method !== "function") {
       throw new Error("Application capability method is unavailable.");

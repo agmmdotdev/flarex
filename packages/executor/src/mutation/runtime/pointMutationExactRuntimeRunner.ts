@@ -30,7 +30,7 @@ import type {
 import {
   PointMutationOccApplicationErrorV1,
   PointMutationOccUserCodeV1Error,
-} from "../authentication/stored/exactPointMutationExecutionOperations";
+} from "./pointMutationRunnerErrors";
 
 export type PointMutationExactRuntimeRunnerHostV1ErrorReason =
   | "requestProjectionInvalid"

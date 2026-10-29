@@ -71,6 +71,7 @@ export class SessionJournalAttemptUnavailableV1Error extends Data.TaggedError(
   "SessionJournalAttemptUnavailableV1Error",
 )<{
   readonly issue: PointMutationSessionAttemptLoadIssueV1;
+  readonly cause?: unknown;
 }> {}
 
 export class SessionJournalPersistenceV1Error extends Data.TaggedError(
@@ -126,6 +127,8 @@ export class SessionJournalDeveloperIndexUnavailableV1Error
   }> {}
 
 export type SessionJournalResolveDeveloperIndexV1Error =
+  | SessionJournalAttemptUnavailableV1Error
+  | SessionJournalStorageCorruptionV1Error
   | InvalidSessionJournalCapabilityV1Error
   | InvalidSessionJournalInputV1Error
   | SessionJournalDeveloperIndexUnavailableV1Error

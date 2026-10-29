@@ -7,7 +7,7 @@ import type {
   ResolvedJournalTargetV1,
 } from "./state";
 import type { StoredCommitAuthorityEvidenceLoaderPortsV1 } from "../../commit/authority/postgresLoader";
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import {
   resolveLocatedTrustedScopeAuthorityByIdEffect,
   TrustedScopeAuthorityPortError,
@@ -57,8 +57,8 @@ export function makeJournalTargetResolver(
         scopeClockTargets: ports.scopeSessionTargets,
       },
     ).pipe(
-      Effect.mapError(
-        (cause) =>
+      Effect.catchCause(fullCause => Effect.failCause(Cause.map(fullCause,
+        cause =>
           new SessionJournalPersistenceV1Error({
             operation: "resolveJournalTarget",
             cause:
@@ -66,7 +66,7 @@ export function makeJournalTargetResolver(
                 ? cause.cause
                 : cause,
           }),
-      ),
+      ))),
     );
     if (
       located.authority.scopeId !== attempt.selector.scopeId ||
@@ -117,11 +117,10 @@ export const admitExactRunningAttemptEffect = Effect.fn(
         ? Effect.void
         : Effect.fail(corruption(attempt, "journalStateInvalid")),
   ).pipe(
-    Effect.mapError((cause) =>
+    Effect.catchCause(fullCause => Effect.failCause(Cause.map(fullCause, cause =>
       cause instanceof ExactRunningAttemptTransactionV1Error
         ? mapExactAdmissionFailure(operation, cause)
-        : cause,
-    ),
+        : cause))),
   );
 });
 

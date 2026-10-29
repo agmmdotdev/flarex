@@ -60,7 +60,7 @@ import type {
 } from "../../../src/mutation/authentication/storedAttemptAuthentication";
 import {
   PointMutationOccApplicationErrorV1,
-} from "../../../src/mutation/authentication/storedAttemptAuthentication";
+} from "../../../src/mutation/runtime/pointMutationRunnerErrors";
 
 const DEPLOYMENT_ID = TransactionGrantDeploymentIdV1Schema.make(
   "deployment_p02c2",
@@ -284,6 +284,8 @@ async function journalPrecedenceScenario() {
   const input = await makeInput(
     { kind: "anonymous" },
     Object.freeze({
+      runApplicationPointOperation: () => Effect.die("Historical raw runtime must not call a compound operation"),
+      runApplicationIndexedQuery: () => Effect.die("Historical raw runtime must not call a compound operation"),
       resolvePointTable: () => Effect.fail(journalFailure),
       runPointOperation: () =>
         Effect.die(new Error("table operation must not run")),
@@ -328,6 +330,8 @@ async function interruptionScenario() {
   const input = await makeInput(
     { kind: "anonymous" },
     Object.freeze({
+      runApplicationPointOperation: () => Effect.die("Historical raw runtime must not call a compound operation"),
+      runApplicationIndexedQuery: () => Effect.die("Historical raw runtime must not call a compound operation"),
       resolvePointTable: () => {
         resolveCalls += 1;
         return Effect.succeed(table);
@@ -483,6 +487,8 @@ async function makeInput(
 
 function inertJournal(): PointMutationOccBoundJournalV1 {
   return Object.freeze({
+    runApplicationPointOperation: () => Effect.die("journal must not be called"),
+    runApplicationIndexedQuery: () => Effect.die("journal must not be called"),
     resolvePointTable: () =>
       Effect.die(new Error("journal must not be called")),
     runPointOperation: () =>

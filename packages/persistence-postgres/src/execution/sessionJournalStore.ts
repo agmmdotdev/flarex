@@ -123,16 +123,17 @@ export function createSessionJournalStorePersistence(
     owner,
     resolveJournalTargetEffect,
   );
-  const { resolvePointTableEffect, runPointOperationEffect, preparePrivateApplicationCommandEffect,
-    readPrivateReferencePermissionsEffect, readPrivateReverseReferencePermissionsEffect } =
-    makePointOperations(owner, resolveJournalTargetEffect, randomUuid);
-  const { resolveDeveloperIndexEffect, runIndexedQueryEffect } =
+  const pointOperations = makePointOperations(owner, resolveJournalTargetEffect, randomUuid);
+  const { resolvePointTableEffect, runPointOperationEffect, runApplicationPointOperationEffect, preparePrivateApplicationCommandEffect,
+    readPrivateReferencePermissionsEffect, readPrivateReverseReferencePermissionsEffect } = pointOperations;
+  const { resolveDeveloperIndexEffect, runIndexedQueryEffect, runApplicationIndexedQueryEffect } =
     makeIndexedQueries(
       owner,
       resolveJournalTargetEffect,
       ports,
       indexedQueryPortState,
       faultAfter,
+      pointOperations,
     );
   const {
     resolveApplicationRelationReadEffect,
@@ -374,6 +375,8 @@ export function createSessionJournalStorePersistence(
     openAttemptEffect,
     resolvePointTableEffect,
     runPointOperationEffect,
+    runApplicationPointOperationEffect,
+    runApplicationIndexedQueryEffect,
     preparePrivateApplicationCommandEffect,
     readPrivateReferencePermissionsEffect,
     readPrivateReverseReferencePermissionsEffect,

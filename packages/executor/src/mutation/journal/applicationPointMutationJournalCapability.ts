@@ -4,7 +4,7 @@ import type {
 } from "@flarex/persistence-postgres/internal/session-journal";
 import {
   ApplicationTableWriteDeniedError,
-} from "@flarex/persistence-postgres/internal/session-journal";
+} from "@flarex/persistence-postgres/internal/session-journal-errors";
 import {
   ApplicationRevisionSyscallDocumentValidationV1Error,
 } from "@flarex/persistence-postgres/internal/application-syscall-errors";
@@ -121,8 +121,7 @@ class ApplicationPointMutationJournalCapabilityTarget
     documentId: string,
   ): Promise<unknown> {
     return this.#state.run(async (syscallSequence) => {
-      const table = await this.#state.resolvePointTable(tableName);
-      return await this.#state.runPointOperation(table, {
+      return await this.#state.runApplicationPointOperation(tableName, {
         kind: "get",
         syscallSequence,
         documentId,
@@ -137,12 +136,7 @@ class ApplicationPointMutationJournalCapabilityTarget
     limit: number,
   ): Promise<unknown> {
     return this.#state.run(async (syscallSequence) => {
-      const table = await this.#state.resolvePointTable(tableName);
-      const index = await this.#state.resolveDeveloperIndex(
-        table,
-        indexDescriptor,
-      );
-      const result = await this.#state.runIndexedQuery(index, {
+      const result = await this.#state.runApplicationIndexedQuery(tableName, indexDescriptor, {
         kind: "indexRange",
         syscallSequence,
         bounds,
@@ -160,8 +154,7 @@ class ApplicationPointMutationJournalCapabilityTarget
     value: unknown,
   ): Promise<unknown> {
     return this.#state.run(async (syscallSequence) => {
-      const table = await this.#state.resolvePointTable(tableName);
-      const result = await this.#state.runPointOperation(table, {
+      const result = await this.#state.runApplicationPointOperation(tableName, {
         kind: "insert",
         syscallSequence,
         fields: value,
@@ -198,8 +191,7 @@ class ApplicationPointMutationJournalCapabilityTarget
   ): Promise<void> {
     return this.#state.run(async (syscallSequence) => {
       const tableName = this.#state.tableNameForDocument(documentId);
-      const table = await this.#state.resolvePointTable(tableName);
-      const result = await this.#state.runPointOperation(table, {
+      const result = await this.#state.runApplicationPointOperation(tableName, {
         ...operation,
         syscallSequence,
         documentId,
@@ -257,35 +249,24 @@ class ApplicationPointMutationJournalCapabilityStateV1 {
     return logicalName;
   }
 
-  resolvePointTable(tableName: unknown) {
-    return runJournalEffect(this.#journal.resolvePointTable(tableName));
-  }
-
-  resolveDeveloperIndex(table: Parameters<
-    PointMutationOccBoundJournalV1["resolveDeveloperIndex"]
-  >[0], indexDescriptor: unknown) {
-    return runJournalEffect(
-      this.#journal.resolveDeveloperIndex(table, indexDescriptor),
-    );
-  }
-
-  runPointOperation(
-    table: Parameters<PointMutationOccBoundJournalV1["runPointOperation"]>[0],
+  runApplicationPointOperation(
+    tableName: unknown,
     operation: unknown,
   ): Promise<PointMutationJournalLogicalOutcomeV1> {
     return runJournalEffect(
-      this.#journal.runPointOperation(table, operation).pipe(
+      this.#journal.runApplicationPointOperation(tableName, operation).pipe(
         Effect.flatMap(projectPointOutcome),
       ),
     );
   }
 
-  runIndexedQuery(
-    index: Parameters<PointMutationOccBoundJournalV1["runIndexedQuery"]>[0],
+  runApplicationIndexedQuery(
+    tableName: unknown,
+    descriptor: unknown,
     operation: unknown,
   ): Promise<PointMutationJournalIndexedQueryLogicalOutcomeV1> {
     return runJournalEffect(
-      this.#journal.runIndexedQuery(index, operation).pipe(
+      this.#journal.runApplicationIndexedQuery(tableName, descriptor, operation).pipe(
         Effect.flatMap(projectIndexOutcome),
       ),
     );

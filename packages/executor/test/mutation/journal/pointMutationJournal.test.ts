@@ -878,6 +878,106 @@ describe("C03 executor point-mutation journal boundary", () => {
     expect(enteredSequences).toEqual([1n, 1n, 2n]);
   });
 
+  it("forwards compound inputs unchanged under one exact-attempt permit", async () => {
+    const pointSettled = deferred<void>();
+    const events: string[] = [];
+    const pointInput = Object.freeze({ kind: "get", syscallSequence: 1n, documentId: "decoded by persistence" });
+    const indexedInput = Object.freeze({ kind: "indexRange", syscallSequence: 2n, bounds: {}, limit: 10 });
+    const harness = createHarness({
+      resolvePointTable: async () => { throw new Error("Compound forwarding must not resolve a raw table"); },
+      runApplicationPointOperation: (tableName, operation) => Effect.gen(function* () {
+        expect(tableName).toBe("users");
+        expect(operation).toBe(pointInput);
+        events.push("point:entered");
+        yield* Effect.promise(() => pointSettled.promise);
+        events.push("point:settled");
+        return EXECUTED_MISSING;
+      }),
+      runApplicationIndexedQuery: (tableName, descriptor, operation) => Effect.sync(() => {
+        expect(tableName).toBe("users");
+        expect(descriptor).toBe("by_email");
+        expect(operation).toBe(indexedInput);
+        events.push("index:entered");
+        return EXECUTED_INDEX_PAGE;
+      }),
+    });
+    const attempt = await runEffect(harness.journal.openAttempt(
+      await loadedAttempt(), executionScopeForJournal(harness.journal),
+    ));
+    const point = runEffect(harness.journal.runApplicationPointOperation(attempt, "users", pointInput));
+    await waitFor(() => events.length === 1);
+    const indexed = runEffect(harness.journal.runApplicationIndexedQuery(attempt, "users", "by_email", indexedInput));
+    await yieldToScheduler();
+    expect(events).toEqual(["point:entered"]);
+    pointSettled.resolve();
+    await expect(point).resolves.toEqual(EXECUTED_MISSING);
+    await expect(indexed).resolves.toEqual(EXECUTED_INDEX_PAGE);
+    expect(events).toEqual(["point:entered", "point:settled", "index:entered"]);
+    expect(harness.operations).toEqual([]);
+    expect(harness.indexedOperations).toEqual([]);
+  });
+
+  it("retains the compound refusal provenance and combined defect and interruption Cause", async () => {
+    const refusal = new SessionJournalAttemptUnavailableV1Error({ issue: { reason: "activeAttemptExpired" } });
+    const defect = new Error("compound diagnostic defect");
+    const interrupted = Cause.interrupt(917);
+    const produced = Cause.combine(Cause.fail(refusal), Cause.combine(Cause.die(defect), interrupted));
+    expect(produced.reasons).toHaveLength(3);
+    const harness = createHarness({
+      runApplicationPointOperation: () => Effect.failCause(produced),
+    });
+    const attempt = await runEffect(harness.journal.openAttempt(
+      await loadedAttempt(), executionScopeForJournal(harness.journal),
+    ));
+    const exit = await Effect.runPromiseExit(harness.journal.runApplicationPointOperation(attempt, "users", {}));
+    if (Exit.isSuccess(exit)) throw new Error("Expected the compound refusal");
+    const failures = exit.cause.reasons.filter(Cause.isFailReason).map(reason => reason.error);
+    expect(failures).toHaveLength(1);
+    const failure = failures[0];
+    if (!(failure instanceof PointMutationJournalAttemptUnavailableV1Error))
+      throw new Error("Expected the mapped exact-attempt refusal");
+    expect(failure.issue).toBe(refusal.issue);
+    expect(failure.cause).toBe(refusal);
+    const defects = exit.cause.reasons.filter(Cause.isDieReason);
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.defect).toBe(defect);
+    const interruptions = exit.cause.reasons.filter(Cause.isInterruptReason);
+    expect(interruptions).toHaveLength(1);
+    expect(interruptions.map(reason => reason.fiberId)).toEqual(
+      interrupted.reasons.filter(Cause.isInterruptReason).map(reason => reason.fiberId),
+    );
+  });
+
+  it("retains the raw point refusal provenance and combined defect and interruption Cause", async () => {
+    const refusal = new SessionJournalAttemptUnavailableV1Error({ issue: { reason: "activeAttemptExpired" } });
+    const defect = new Error("raw point diagnostic defect");
+    const interrupted = Cause.interrupt(918);
+    const produced = Cause.combine(Cause.fail(refusal), Cause.combine(Cause.die(defect), interrupted));
+    const harness = createHarness({
+      runPointOperationEffect: () => Effect.failCause(produced),
+    });
+    const { table } = await openResolvedTable(harness.journal);
+    const operation = getOperation(1n);
+    const exit = await Effect.runPromiseExit(harness.journal.runPointOperation(table, operation));
+    if (Exit.isSuccess(exit)) throw new Error("Expected the raw point refusal");
+    expect(harness.operations).toEqual([operation]);
+    const failures = exit.cause.reasons.filter(Cause.isFailReason).map(reason => reason.error);
+    expect(failures).toHaveLength(1);
+    const failure = failures[0];
+    if (!(failure instanceof PointMutationJournalAttemptUnavailableV1Error))
+      throw new Error("Expected the mapped exact-attempt refusal");
+    expect(failure.issue).toBe(refusal.issue);
+    expect(failure.cause).toBe(refusal);
+    const defects = exit.cause.reasons.filter(Cause.isDieReason);
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.defect).toBe(defect);
+    const interruptions = exit.cause.reasons.filter(Cause.isInterruptReason);
+    expect(interruptions).toHaveLength(1);
+    expect(interruptions.map(reason => reason.fiberId)).toEqual(
+      interrupted.reasons.filter(Cause.isInterruptReason).map(reason => reason.fiberId),
+    );
+  });
+
   it("preserves typed capability and persistence failures at the Effect boundary", async () => {
     const invalidPins = new InvalidSessionJournalInputV1Error({
       operation: "openAttempt",
@@ -1106,6 +1206,10 @@ interface HarnessOptions {
   readonly prepareFiniteEntry?: (participants: Parameters<SessionJournalStorePersistence["prepareFiniteEntryEffect"]>[0]) =>
     Effect.Effect<never, Effect.Error<ReturnType<SessionJournalStorePersistence["prepareFiniteEntryEffect"]>>>;
   readonly openAttemptFailure?: InvalidSessionJournalInputV1Error;
+  readonly runApplicationPointOperation?: (tableName: unknown, operation: unknown) =>
+    ReturnType<SessionJournalStorePersistence["runApplicationPointOperationEffect"]>;
+  readonly runApplicationIndexedQuery?: (tableName: unknown, descriptor: unknown, operation: unknown) =>
+    ReturnType<SessionJournalStorePersistence["runApplicationIndexedQueryEffect"]>;
   readonly resolvePointTable?: (
     persistenceAttempt: unknown,
     tableName: unknown,
@@ -1183,6 +1287,30 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
     openAttemptEffect: () => options.openAttemptFailure === undefined
       ? Effect.succeed(persistenceAttempt)
       : Effect.fail(options.openAttemptFailure),
+    runApplicationPointOperationEffect: (
+      attempt: unknown,
+      tableName: unknown,
+      operation: unknown,
+      validator: unknown,
+    ) => {
+      if (attempt !== persistenceAttempt || validator !== syscallValidator)
+        return Effect.die("Compound point operation lost its exact attempt or validator");
+      return options.runApplicationPointOperation === undefined
+        ? Effect.die("Unexpected compound point operation")
+        : options.runApplicationPointOperation(tableName, operation);
+    },
+    runApplicationIndexedQueryEffect: (
+      attempt: unknown,
+      tableName: unknown,
+      descriptor: unknown,
+      operation: unknown,
+    ) => {
+      if (attempt !== persistenceAttempt)
+        return Effect.die("Compound indexed query lost its exact attempt");
+      return options.runApplicationIndexedQuery === undefined
+        ? Effect.die("Unexpected compound indexed query")
+        : options.runApplicationIndexedQuery(tableName, descriptor, operation);
+    },
     resolvePointTableEffect: (
       attempt: unknown,
       tableName: unknown,

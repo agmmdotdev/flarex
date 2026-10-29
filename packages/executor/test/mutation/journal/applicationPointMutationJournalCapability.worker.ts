@@ -6,17 +6,13 @@ import type {
 } from "@flarex/persistence-postgres/internal/session-journal";
 import {
   ApplicationTableWriteDeniedError,
-} from "@flarex/persistence-postgres/internal/session-journal";
+} from "@flarex/persistence-postgres/internal/session-journal-errors";
 import {
   ApplicationRevisionSyscallDocumentValidationV1Error,
 } from "@flarex/persistence-postgres/internal/application-syscall-errors";
 import {
   makeApplicationPointMutationJournalCapabilitySessionV1,
 } from "@flarex/executor/internal/application-point-mutation-journal-capability";
-import type {
-  PointMutationJournalIndexV1,
-  PointMutationJournalTableV1,
-} from "../../../src/mutation/journal/pointMutationJournal";
 import type {
   PointMutationOccBoundJournalV1,
 } from "../../../src/mutation/authentication/storedAttemptAuthentication";
@@ -28,36 +24,34 @@ const MANAGED_ID = decodeAppDocumentIdV1("2:00000000-0000-4000-8000-000000000001
 
 export default {
   async fetch(): Promise<Response> {
-    const table = Object.freeze({}) as PointMutationJournalTableV1;
-    const managedTable = Object.freeze({}) as PointMutationJournalTableV1;
-    const index = Object.freeze({}) as PointMutationJournalIndexV1;
     const operations: Array<Record<string, unknown>> = [];
     let active = 0;
     let maximumActive = 0;
+    let compoundPointCalls = 0;
+    let compoundIndexCalls = 0;
+    let rawCalls = 0;
+    const unexpectedRawCall = () => {
+      rawCalls += 1;
+      return Effect.die("Current Application calls must use the compound journal operations");
+    };
     const journal = Object.freeze({
-      resolvePointTable: (tableName: unknown) => {
-        if (tableName === "posts") return Effect.succeed(managedTable);
-        if (tableName !== "users") return Effect.die("wrong table");
-        return Effect.succeed(table);
-      },
-      resolveDeveloperIndex: (
-        receivedTable: PointMutationJournalTableV1,
-        descriptor: unknown,
-      ) => receivedTable === table && descriptor === "by_email"
-        ? Effect.succeed(index)
-        : Effect.die("wrong index"),
-      runPointOperation: (
-        receivedTable: PointMutationJournalTableV1,
+      resolvePointTable: unexpectedRawCall,
+      resolveDeveloperIndex: unexpectedRawCall,
+      runPointOperation: unexpectedRawCall,
+      runIndexedQuery: unexpectedRawCall,
+      runApplicationPointOperation: (
+        tableName: unknown,
         operation: unknown,
       ) => Effect.gen(function* () {
-        if ((receivedTable !== table && receivedTable !== managedTable) || typeof operation !== "object" ||
+        compoundPointCalls += 1;
+        if ((tableName !== "users" && tableName !== "posts") || typeof operation !== "object" ||
           operation === null) return yield* Effect.die("wrong point input");
         active += 1;
         maximumActive = Math.max(maximumActive, active);
         yield* Effect.promise(() => Promise.resolve());
         active -= 1;
         const record = operation as Record<string, unknown>;
-        if (receivedTable === managedTable && (record.kind === "insert" || record.kind === "patch" || record.kind === "replace" || record.kind === "delete")) {
+        if (tableName === "posts" && (record.kind === "insert" || record.kind === "patch" || record.kind === "replace" || record.kind === "delete")) {
           return yield* new ApplicationTableWriteDeniedError({ operation: record.kind, tableName: "posts",
             message: "Ordinary Application mutations cannot write this managed table." });
         }
@@ -79,11 +73,13 @@ export default {
         });
         return pointResult(record.kind);
       }),
-      runIndexedQuery: (
-        receivedIndex: PointMutationJournalIndexV1,
+      runApplicationIndexedQuery: (
+        tableName: unknown,
+        descriptor: unknown,
         operation: unknown,
       ) => Effect.gen(function* () {
-        if (receivedIndex !== index || typeof operation !== "object" ||
+        compoundIndexCalls += 1;
+        if (tableName !== "users" || descriptor !== "by_email" || typeof operation !== "object" ||
           operation === null) return yield* Effect.die("wrong index input");
         active += 1;
         maximumActive = Math.max(maximumActive, active);
@@ -155,6 +151,9 @@ export default {
       deniedNames,
       validAfterValidation,
       maximumActive,
+      compoundPointCalls,
+      compoundIndexCalls,
+      rawCalls,
       lateName,
     });
   },

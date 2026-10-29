@@ -492,6 +492,14 @@ export interface SessionJournalStorePersistence {
       LogicalParticipantAdmissionError | LogicalJournalContributionError |
       LogicalParticipantEvidenceError | LogicalParticipantInvocationError
   >;
+  readonly runApplicationPointOperationEffect: (attempt: SessionJournalAttempt, tableName: unknown,
+    operation: unknown, validator: ApplicationRevisionSyscallValidatorV1) => Effect.Effect<
+      RunSessionJournalPointOperationV1Result, SessionJournalResolvePointTableV1Error |
+      SessionJournalRunPointOperationV1Error | import("./operationInput").UnsupportedPointMutationJournalOperationV1Error>;
+  readonly runApplicationIndexedQueryEffect: (attempt: SessionJournalAttempt, tableName: unknown,
+    indexDescriptor: unknown, operation: unknown) => Effect.Effect<RunSessionJournalIndexedQueryV1Result,
+      SessionJournalResolvePointTableV1Error | SessionJournalResolveDeveloperIndexV1Error |
+      SessionJournalRunIndexedQueryV1Error | import("./operationInput").UnsupportedPointMutationJournalOperationV1Error>;
   readonly resolvePointTableEffect: (
     attempt: SessionJournalAttempt,
     tableName: unknown,

@@ -74,9 +74,9 @@ async function installationFixture() {
 }
 
 describe("database-owned finite storage preparation", () => {
-  it("decodes all nine actual installed and full-artifact projections into one header and final bodies, refusing malformed layouts", async () => {
+  it("decodes all ten actual installed and full-artifact projections into one header and final bodies, refusing malformed layouts", async () => {
     const fixture = await installationFixture();
-    const kinds = ["rows", "indexPage", "ownership", "historicalIdentity", "transactionTime", "retirement",
+    const kinds = ["admission", "rows", "indexPage", "ownership", "historicalIdentity", "transactionTime", "retirement",
       "ownershipPolicyManifest", "ownershipUniqueClosure", "ownershipFence"] as const;
     try {
       const installation = await fixture.pair();
@@ -114,6 +114,33 @@ describe("database-owned finite storage preparation", () => {
             first[index("storagePresent")] = true;
             first[index("transactionTimestamp")] = "2026-10-08 00:00:00+00";
             first[index("exists")] = layout.historicalIdentity;
+            if (kind === "admission") {
+              first[index("storagePresent")] = false;
+              first[index("transactionTimestamp")] = null;
+              const accepted = mapper([first]);
+              expect(accepted).toMatchObject({ layoutFailure: undefined, rawRows: [],
+                header: { reason: "accepted", servingCommitSeq: "2", retainedFloor: "0" } });
+              expect(accepted.header).not.toHaveProperty("frontier");
+              expect(accepted.header).not.toHaveProperty("refusedLifecycle");
+              expect(accepted.header?.transactionTimestamp).toBeNull();
+              const lifecycle = [...first];
+              lifecycle[index("reason")] = "lifecycleChanged";
+              lifecycle[index("refusedLifecycle")] = "aborted";
+              expect(mapper([lifecycle])).toMatchObject({ layoutFailure: undefined, rawRows: [],
+                header: { reason: "lifecycleChanged", refusedLifecycle: "aborted" } });
+              expect(mapper([lifecycle]).header).not.toHaveProperty("frontier");
+              const repeated = [...lifecycle];
+              repeated[index("reason")] = null;
+              repeated[index("databaseNow")] = null;
+              repeated[index("servingCommitSeq")] = null;
+              repeated[index("retainedFloor")] = null;
+              if (!layout.fullArtifact) {
+                repeated[index("targetMetadataEpoch")] = null;
+                repeated[index("controlMetadataEpoch")] = null;
+              }
+              expect(mapper([lifecycle, repeated]).layoutFailure).toBe("Finite capture header repetition changed");
+              continue;
+            }
             if (kind === "rows") {
               first[index("raw", "insertionCommitSeq")] = "2";
               first[index("raw", "insertionAttemptOrdinal")] = "0";
@@ -135,6 +162,12 @@ describe("database-owned finite storage preparation", () => {
             expect(accepted.layoutFailure, profile.kind + ":" + kind).toBeUndefined();
             expect(accepted.header).toMatchObject({ reason: "accepted", servingCommitSeq: "2", retainedFloor: "0" });
             expect(accepted.header).not.toHaveProperty("frontier");
+            expect(accepted.header).not.toHaveProperty("refusedLifecycle");
+            const lifecycle = [...first];
+            lifecycle[index("reason")] = "lifecycleChanged";
+            lifecycle[index("refusedLifecycle")] = "expired";
+            expect(mapper([lifecycle]).header).toMatchObject({ reason: "lifecycleChanged", refusedLifecycle: "expired" });
+            expect(mapper([lifecycle]).header).not.toHaveProperty("frontier");
             for (const displaced of ["build", "uniqueBuild", "indexMaintenance", "uniqueMaintenance", "tableFrontier", "historicalChange"])
               expect(fields.some(field => field.path[0] === displaced)).toBe(false);
             const replacement = [...first]; replacement[index("reason")] = "attemptReplaced";
@@ -173,7 +206,7 @@ describe("database-owned finite storage preparation", () => {
     const database = nodeDrizzle.mock({ schema: flarexSchema });
     const select = vi.spyOn(database, "select");
     createLocatedPointMutationSessionActivationTargetV1(database, locator);
-    expect(select).toHaveBeenCalledTimes(9);
+    expect(select).toHaveBeenCalledTimes(10);
     select.mockClear();
     createLocatedPointMutationSessionActivationTargetV1(database, { ...locator });
     expect(select).not.toHaveBeenCalled();
@@ -186,12 +219,12 @@ describe("database-owned finite storage preparation", () => {
     ]) {
       select.mockClear();
       createLocatedPointMutationSessionActivationTargetV1(database, changed);
-      expect(select).toHaveBeenCalledTimes(9);
+      expect(select).toHaveBeenCalledTimes(10);
     }
     const otherDatabase = nodeDrizzle.mock({ schema: flarexSchema });
     const otherSelect = vi.spyOn(otherDatabase, "select");
     createLocatedPointMutationSessionActivationTargetV1(otherDatabase, locator);
-    expect(otherSelect).toHaveBeenCalledTimes(9);
+    expect(otherSelect).toHaveBeenCalledTimes(10);
   });
 
   it("authenticates genuine installed preparation before reuse and isolates each installation issuer", async () => {
@@ -201,7 +234,7 @@ describe("database-owned finite storage preparation", () => {
       const profile = { kind: "installed", installation, driver: constructionDriver } as const;
       const select = vi.spyOn(fixture.database, "select");
       const first = Result.getOrThrow(bindFiniteStorageCaptureOwner(fixture.database, locator, profile));
-      expect(select).toHaveBeenCalledTimes(9);
+      expect(select).toHaveBeenCalledTimes(10);
       select.mockClear();
       const next = Result.getOrThrow(bindFiniteStorageCaptureOwner(fixture.database, { ...locator }, profile));
       expect(select).not.toHaveBeenCalled();
@@ -226,7 +259,7 @@ describe("database-owned finite storage preparation", () => {
       const otherInstallation = await fixture.pair();
       select.mockClear();
       Result.getOrThrow(bindFiniteStorageCaptureOwner(fixture.database, locator, { ...profile, installation: otherInstallation }));
-      expect(select).toHaveBeenCalledTimes(9);
+      expect(select).toHaveBeenCalledTimes(10);
     } finally { await fixture.client.close(); }
   });
 
@@ -305,7 +338,7 @@ describe("database-owned finite storage preparation", () => {
         // targets retain their original immutable plan rather than a cache lookup.
         select.mockClear();
         rebind({ ...physicalLocator, databaseKey: `${physicalLocator.databaseKey}-displaced` });
-        expect(compiledCaptures()).toBe(9);
+        expect(compiledCaptures()).toBe(10);
         expect(compiledAuthorities()).toBe(driver === "postgres" ? 2 : 0);
         select.mockRestore();
         if (resource.kind === "postgres") {

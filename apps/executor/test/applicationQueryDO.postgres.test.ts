@@ -115,6 +115,9 @@ describe.skipIf(postgresUrl === null)("Application core in an actual workerd que
       };
       const invoke = (operation = "probe", path = "alpha/query") => request(activeRuntime(), path, { operation, args });
       const mutate = await makeMutation(fixture, mutationLoader, args.repeatId);
+      // Execute the actual first Worker load/compilation before priming the query cache.
+      // Later warm-refresh assertions independently require the same resident query DO.
+      await mutate("Bea", "mutation-runtime-preparation");
 
       const unauthorized = await runtime.dispatchFetch("https://query-do.test/alpha/query", {
         method: "POST", body: JSON.stringify({ operation: "probe", args }),
@@ -153,16 +156,29 @@ describe.skipIf(postgresUrl === null)("Application core in an actual workerd que
       expect(combined.defects).toContain("query-host-fixture-client-cleanup");
       expect(combined.resources).toEqual({ constructed: 1, connected: 1, ended: 1 });
       expect((await success(await invoke())).counts.indexReads).toBeGreaterThan(0);
+      let beforeMutation = cold;
+      let beforeMutationAt = Date.now();
       for (const operation of ["constructorFailure", "connectFailure"]) {
         const rejected = await failure(await invoke(operation));
         expect(rejected.failure).toMatchObject({ kind: "typed", tag: "QueryInvocationError", reason: "unavailable" });
         expect(rejected.resources.ended).toBe(operation === "connectFailure" ? 1 : 0);
-        expect((await success(await invoke())).value).toEqual(cold.value);
+        beforeMutation = await success(await invoke());
+        beforeMutationAt = Date.now();
+        expect(beforeMutation.value).toEqual(cold.value);
       }
 
       await mutate("Bea", "same-key-in-actual-do");
       const sameKey = await success(await invoke());
+      const afterMutationAt = Date.now();
+      const residency = {
+        before: { boot: beforeMutation.boot, at: beforeMutationAt, counts: beforeMutation.counts },
+        after: { boot: sameKey.boot, at: afterMutationAt, counts: sameKey.counts },
+        elapsedMilliseconds: afterMutationAt - beforeMutationAt,
+      };
+      lifecycle("warm-refresh-residency", residency);
       expect(sameKey.value.first).toMatchObject({ name: "Bea", padding: "same-key-in-actual-do" });
+      expect(sameKey.boot, `Warm refresh requires the same resident DO: ${JSON.stringify(residency)}`)
+        .toBe(beforeMutation.boot);
       expect(sameKey.counts.refreshes).toBe(1);
       expect(sameKey.counts.refreshRows).toBeGreaterThan(0);
       expect(sameKey.counts.indexReads).toBe(0);

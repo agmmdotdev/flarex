@@ -24,7 +24,8 @@ import type {
 } from "../../src/execution/journal/api";
 import { makeLogicalDocumentRootEvaluator, attachLogicalDocumentRootEvaluator,
   recordLogicalDocumentRootMetadataDependency, consumeLogicalDocumentRootMetadataDependency, takeLogicalDocumentRootSnapshot,
-  borrowClosedLogicalDocumentRoot, consumeClosedLogicalDocumentRoot } from "../../src/storage/documents/logicalDocuments/rootEvaluator";
+  borrowClosedLogicalDocumentRoot, consumeClosedLogicalDocumentRoot,
+  LOGICAL_DOCUMENT_ROOT_WRITTEN_IDENTITY_BYTES, LOGICAL_DOCUMENT_ROOT_WRITTEN_TABLE_BYTES } from "../../src/storage/documents/logicalDocuments/rootEvaluator";
 import { makeLogicalDocumentWorkingSet, prepareLogicalWriteMechanics, combineLogicalWriteMechanics } from "../../src/storage/documents/logicalDocuments/workingSet";
 import type { PreparedLogicalDocumentWriteMechanics } from "../../src/storage/documents/logicalDocuments/model";
 import { runEffect } from "../support/effectTestRuntime";
@@ -40,8 +41,8 @@ import {
 import { ExecutionDiagnostics } from "../../src/execution/diagnostics/operation";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
 import { isJsonObject } from "flarex-protocol/json";
-import { prepareLogicalCanonicalDocumentSemantics } from "../../src/storage/documents/logicalDocuments/relationalRows";
-import { decodeStoredAppRowRevisionEvidenceEffect, inspectStoredAppDocumentEvidence } from "../../src/storage/documents/appRowCanonicalEvidence";
+import { prepareLogicalCanonicalDocumentSemantics, detachLogicalCanonicalDocument } from "../../src/storage/documents/logicalDocuments/relationalRows";
+import { decodeStoredAppRowRevisionEvidenceEffect, inspectStoredAppDocumentEvidence, detachStoredAppDocumentEvidence } from "../../src/storage/documents/appRowCanonicalEvidence";
 import { detachLogicalDocumentChanges } from "../../src/storage/documents/logicalDocuments/detachChanges";
 import { validateLogicalDocumentChanges } from "../../src/storage/documents/logicalDocuments/contribution";
 import { bindLogicalInsertionRoot, hasLogicalInsertionEvidence } from "../../src/storage/documents/logicalDocuments/insertionOrder";
@@ -633,7 +634,10 @@ it("transfers authentic source semantics into private root revisions while publi
     const refused = makeLogicalDocumentRootEvaluator(pins, { identities: 4, workingBytes: 1 });
     const foreignRoot = makeLogicalDocumentRootEvaluator(pins, { identities: 4, workingBytes: 16_000 });
     try {
-      expect(refused.observePoint("items", observation, revision)).toMatchObject({ _tag: "Failure", failure: "limitExceeded" });
+      expect(refused.observePoint("items", observation, revision)).toMatchObject({ _tag: "Failure", failure: {
+        _tag: "LogicalDocumentRootLimitError", resource: "workingBytes",
+        observed: 256 + document.canonicalBytes.byteLength, maximum: 1,
+      } });
       expect(refused.point(tableId, rowId)).toBeUndefined();
       yield* Effect.fromResult(foreignRoot.observePoint("items", observation, { ...revision }));
       const foreignState = attachLogicalDocumentRootEvaluator(foreignRoot, pins);
@@ -661,11 +665,16 @@ it("transfers authentic source semantics into private root revisions while publi
       yield* Effect.fromResult(root.writePoint("items", observation, { kind: "live", creationTime, document: replacement }, "replace"));
       const current = state.rows.get(documentId)?.current;
       if (current == null) throw new Error("Missing owned current revision");
-      expect(state.workingBytes).toBe(originalBytes + 128 + replacement.canonicalBytes.byteLength);
+      expect(state.workingBytes).toBe(originalBytes + 128 + replacement.canonicalBytes.byteLength +
+        LOGICAL_DOCUMENT_ROOT_WRITTEN_IDENTITY_BYTES + LOGICAL_DOCUMENT_ROOT_WRITTEN_TABLE_BYTES);
       yield* Effect.fromResult(semantics.validate(current));
       expect(validator).toHaveBeenCalledTimes(2);
       current.canonicalBytes.fill(0);
-      expect(semantics.inspect(current)).toMatchObject({ _tag: "Failure", failure: new Error("storedCorruption") });
+      expect(Result.getOrThrow(semantics.inspect(current))).toMatchObject({ name: "replacement" });
+      const mutableCurrent = detachLogicalCanonicalDocument(current);
+      mutableCurrent.canonicalBytes.fill(0);
+      expect(semantics.inspect(mutableCurrent)).toMatchObject({ _tag: "Failure", failure: new Error("storedCorruption") });
+      expect(Result.getOrThrow(semantics.inspect(current))).toMatchObject({ name: "replacement" });
       expect(Result.getOrThrow(semantics.inspect(original))).toMatchObject({ name: "original" });
     } finally { foreignRoot.close(); refused.close(); yield* lifetime.close; root.close(); }
   })));
@@ -733,7 +742,11 @@ it("transfers only actual stored decoder evidence at root ingestion and preserve
       document.canonicalBytes.fill(0);
       expect(Result.getOrThrow(inspectStoredAppDocumentEvidence(owned))?.runtime).toBe(owned.value);
       owned.sha256.fill(0);
-      expect(inspectStoredAppDocumentEvidence(owned)).toMatchObject({ _tag: "Failure", failure: { issue: { reason: "sha256Mismatch" } } });
+      expect(Result.getOrThrow(inspectStoredAppDocumentEvidence(owned))?.runtime).toBe(owned.value);
+      const mutableOwned = detachStoredAppDocumentEvidence(owned);
+      mutableOwned.sha256.fill(0);
+      expect(inspectStoredAppDocumentEvidence(mutableOwned)).toMatchObject({ _tag: "Failure", failure: { issue: { reason: "sha256Mismatch" } } });
+      expect(Result.getOrThrow(inspectStoredAppDocumentEvidence(owned))?.runtime).toBe(owned.value);
       foreignRoot.forgetUnwrittenPoint(tableId, rowId);
       yield* Effect.fromResult(foreignRoot.observePoint("items", observation, revision));
       const changed = foreignState?.rows.get(documentId)?.current;

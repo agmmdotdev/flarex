@@ -120,6 +120,8 @@ export class PointMutationJournalRpcTestProvider extends WorkerEntrypoint {
     const index = Object.freeze({}) as PointMutationJournalIndexV1;
     let record: ScenarioRecord;
     const journal = Object.freeze({
+      runApplicationPointOperation: () => Effect.die("Historical raw RPC must not call a compound operation"),
+      runApplicationIndexedQuery: () => Effect.die("Historical raw RPC must not call a compound operation"),
       resolvePointTable: () => Effect.succeed(table),
       runPointOperation: (_table, operation) => {
         record.operationCalls += 1;

@@ -156,7 +156,6 @@ async function proveInterruptibleJournalSettlement(
     const hostEntered = yield* Deferred.make<void>();
     const operationEntered = yield* Deferred.make<void>();
     const releaseOperation = yield* Deferred.make<void>();
-    const table = Object.freeze({}) as PointMutationJournalTableV1;
     let admittedOperationDrained = false;
     let capturedCapability:
       | Readonly<{
@@ -205,8 +204,10 @@ async function proveInterruptibleJournalSettlement(
     const fiber = yield* runner.run(Object.freeze({
       ...input,
       journal: Object.freeze({
-        resolvePointTable: () => Effect.succeed(table),
-        runPointOperation: () => Deferred.succeed(
+        resolvePointTable: () => Effect.die("Current Application must not resolve a raw table"),
+        runPointOperation: () => Effect.die("Current Application must not run a raw point operation"),
+        runApplicationIndexedQuery: () => Effect.die("index must not run"),
+        runApplicationPointOperation: () => Deferred.succeed(
           operationEntered,
           undefined,
         ).pipe(
@@ -357,6 +358,8 @@ function failureReceipt(exit: Exit.Exit<unknown, unknown>): unknown {
 function inertJournal(): PointMutationOccBoundJournalV1 {
   const table = Object.freeze({}) as PointMutationJournalTableV1;
   return Object.freeze({
+    runApplicationPointOperation: () => Effect.die("journal must not run"),
+    runApplicationIndexedQuery: () => Effect.die("journal must not run"),
     resolvePointTable: () => Effect.succeed(table),
     runPointOperation: () => Effect.die("journal must not run"),
     resolveDeveloperIndex: () => Effect.die("journal must not run"),

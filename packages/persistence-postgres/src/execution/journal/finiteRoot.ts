@@ -1,3 +1,4 @@
+import type { ApplicationRevisionSyscallDocumentValidationV1Error } from "../../application/revision/applicationRevisionSyscallValidatorErrors";
 import type {
   SessionJournalAttempt,
   SessionJournalParticipantSelection,
@@ -22,7 +23,7 @@ import type { CapturedFiniteAttemptAnchor } from "../finiteAttemptAnchor";
 import { materializeFiniteApplicationExecutionEvidence } from "../../commit/authority/materialization";
 import type { AppSchemaCandidateWriteGuardPlanningHead } from "../../storage/catalog/appSchemaCandidateValidation";
 import { bytesEqualFullScan as bytesEqual } from "@flarex/utils/bytes";
-import { Effect, Result } from "effect";
+import { Cause, Effect, Result } from "effect";
 import { decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import { appDocumentIdV1FromRowIdentity } from "flarex-protocol/app-document-id";
@@ -113,7 +114,7 @@ import type {
   PreparedLogicalWriteEventV1,
   LogicalPointReadV1,
 } from "./operationModel";
-import { kernelContextMatchesAttempt, corruption } from "./journalFailures";
+import { kernelContextMatchesAttempt, corruption, mapFiniteApplicationAdmissionFailure } from "./journalFailures";
 import type { JournalAttemptOwner } from "./attemptOwner";
 import type {
   FiniteEntryRun,
@@ -254,6 +255,43 @@ export function finiteApplicationCapture(
             operation,
           ),
     );
+}
+
+/** One operation owns the header wait, catalog verdict and local evaluation. */
+export function withFiniteApplicationOperation<A, E, R>(finite: FiniteRootAttemptState,
+  attempt: SessionJournalAttemptStateV1, work: Effect.Effect<A, E, R>,
+  operation: SessionJournalPersistenceV1Error["operation"],
+  catchableDocumentRejection?: () => ApplicationRevisionSyscallDocumentValidationV1Error | undefined,
+  privateCommandEligibilityRejection?: () => InvalidSessionJournalCapabilityV1Error | undefined) {
+  return Effect.suspend(() => {
+    // Closed roots cannot acquire another operation or alter frozen evidence.
+    if (finite.status !== "open") return Effect.fail(corruption(attempt, "journalStateInvalid"));
+    return Effect.acquireUseRelease(
+      Effect.sync(() => { finite.inFlightOperations += 1; }),
+      () => Effect.gen(function* () {
+        yield* finiteApplicationCapture(finite, attempt)({ kind: "admission" }, { kind: "clock" })
+          .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause,
+            error => mapFiniteApplicationAdmissionFailure(attempt, error, operation)))));
+        // The lexical owner retains its own late-closure verdict/error.
+        return yield* work;
+      }).pipe(Effect.onError(cause => Effect.sync(() => {
+        // Worker operations retain only their exact pre-stage document refusal.
+        // Trusted command preparation separately retains its local eligibility refusal.
+        // Neither exception includes authority failures, defects or combined Causes.
+        const documentRejection = catchableDocumentRejection?.();
+        const eligibilityRejection = privateCommandEligibilityRejection?.();
+        const reason = cause.reasons.length === 1 ? cause.reasons[0] : undefined;
+        if (reason !== undefined && Cause.isFailReason(reason) &&
+          ((documentRejection !== undefined && reason.error === documentRejection) ||
+            (eligibilityRejection !== undefined && reason.error === eligibilityRejection))) return;
+        if (finite.status === "open") {
+          finite.status = "aborted";
+          discardFiniteRootEvidence(finite);
+        }
+      }))),
+      () => Effect.sync(() => { finite.inFlightOperations -= 1; }),
+    );
+  });
 }
 
 export function discardFiniteRootEvidence(

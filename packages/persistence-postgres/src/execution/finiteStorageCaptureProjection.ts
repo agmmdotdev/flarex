@@ -33,7 +33,9 @@ export function compileFiniteCaptureResultMapper<Header>(fields: readonly Captur
       continue;
     }
     let assign: (header: HeaderRecord, value: unknown) => void;
-    if (path.length === 1) assign = (header, value) => { header[name] = value; };
+    if (path.length === 1) assign = (header, value) => {
+      if (name !== "refusedLifecycle" || header.reason === "lifecycleChanged") header[name] = value;
+    };
     else {
       const group = path[0]!;
       if (group !== "frontier")
@@ -87,8 +89,9 @@ export function compileFiniteCaptureResultMapper<Header>(fields: readonly Captur
       if (body !== undefined) rawRows.push(Object.freeze(body));
     }
     // SAFETY: The fixed descriptor retains the declared native scalar decoders.
-    // Only replacement constructs the optional foreign anchor frontier; its
-    // authoritative Schema/anchor owner validates it before consumption.
+    // Lifecycle refusal retains only its scalar; replacement constructs the
+    // optional foreign anchor frontier. Their authoritative owners validate
+    // these before consumption; neither supplies accepted-header evidence.
     return { header: header as (Omit<Header, "frontier"> & Readonly<{ frontier?: Record<string, unknown> }>) | undefined, rawRows: Object.freeze(rawRows),
       layoutFailure };
   };
