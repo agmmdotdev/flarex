@@ -152,7 +152,7 @@ export function makeActivePreparationReader<SchemaFailure, ColdFailure>(captured
     }));
     const head = yield* decodeHead(raw.head, "read");
     if (head.readinessKind !== "legacy") return Object.freeze({ kind: "relation" as const,
-      authority: located.authority, revisionId: head.revisionId });
+      authority: located.authority, revisionId: head.revisionId, head });
     if (raw.readiness === undefined) return yield* activationFailure("read", "invalidComposition");
     const prepared = yield* prepareCapturedApplicationReadiness(captured.readiness, raw.readiness, preparationProfile, originalGenerationProtection).pipe(
       Effect.mapError(error => mapPreparationReadinessError(profile, error)));
@@ -270,11 +270,13 @@ export function makeCompositeBindingPreparationReader<SchemaFailure, ColdFailure
       if (prepared.kind === "legacy") return yield* issueLegacyBindingPreparation(prepared);
       const readiness = yield* prepareApplicationRelationActiveRead(captured.relationReadiness,
         { deploymentId: captured.deploymentId, scopeId: captured.scopeId, revisionId: prepared.revisionId }, profile);
-      if (lifetime !== undefined) yield* chargeHostPreparation({ authority: prepared.authority, revisionId: prepared.revisionId }).pipe(
+      if (lifetime !== undefined) yield* chargeHostPreparation({ authority: prepared.authority, revisionId: prepared.revisionId,
+        head: prepared.head }).pipe(
         Effect.mapError(cause => activationError("read", "resourceFailure", prepared.revisionId, false, cause)),
       );
       const token: ApplicationBindingPreparation = Object.freeze({ [bindingPreparationBrand]: true as const });
-      registerRelationApplicationBindingPreparation(token, Object.freeze({ authority: prepared.authority, revisionId: prepared.revisionId, readiness, lifetime }));
+      registerRelationApplicationBindingPreparation(token, Object.freeze({ authority: prepared.authority, revisionId: prepared.revisionId,
+        head: prepared.head, readiness, lifetime }));
       if (lifetime !== undefined) yield* registerHostPreparationDisposal(() => { closeRelationApplicationBindingPreparation(token); }).pipe(
         Effect.mapError(cause => activationError("read", "resourceFailure", prepared.revisionId, false, cause)));
       return token;

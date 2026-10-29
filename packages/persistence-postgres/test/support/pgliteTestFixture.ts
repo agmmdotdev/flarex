@@ -28,12 +28,13 @@ export function migratedPGliteDataDir(): Promise<Blob | File> {
  * its owning test finishes.
  */
 export async function createMigratedPGlitePersistence(registerCleanup: (cleanup: () => Promise<void>) => void = onTestFinished,
-  transport: "ordinary" | "finiteCapture" = "ordinary"): Promise<PGlitePersistence> {
+  transport: "ordinary" | "finiteCapture" = "ordinary",
+  options: Pick<NonNullable<Parameters<typeof createPGlitePersistence>[0]>, "immutableCatalog"> = {}): Promise<PGlitePersistence> {
   const db = await createTestPGlite({ loadDataDir: await migratedPGliteDataDir(),
     ...(transport === "finiteCapture" ? { startParams: [...PGlite.defaultStartParams, "-c", "statement_timeout=30000"] } : {}) });
 
   try {
-    const persistence = await createPGlitePersistence({ db });
+    const persistence = await createPGlitePersistence({ db, ...options });
     await openPreparedHostTestRuntime(persistence.drizzle);
     registerCleanup(async () => { await closePreparedHostTestRuntime(persistence.drizzle); await db.close(); });
     return persistence;

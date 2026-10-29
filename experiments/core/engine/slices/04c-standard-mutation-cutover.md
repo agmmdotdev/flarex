@@ -1,8 +1,8 @@
 # Standard mutation cutover to the shared root
 
 Status: **Independent source challenge and peer exchange complete; genuine current
-nested-failure and operation-admission prerequisites implemented; connected
-cutover not implemented**.
+nested-failure, operation-admission and exact-preparation prerequisites
+implemented; connected cutover not implemented**.
 The [goal](../GOAL.md) remains the complete single-owner
 refactor. This record does not narrow that goal to a test or private finite helper.
 
@@ -98,6 +98,11 @@ runtime replacement is implemented. Removing the fresh check later needs the com
 fenced-writer proof, not only a local cache or owner lease.
 The [04C1 contract](./04c1-application-operation-admission.md) scopes the connected
 capture, migration, journal/executor and genuine-Worker replacement.
+
+The [04C2 contract](./04c2-exact-selection-preparation.md) records the implemented
+exact original finite preparation and execution-group catalog coverage, including
+explicit installation reconciliation. It replaces existing finite consumer work; Standard configuration
+capture, stored-profile dispatch and ordinary finite activation remain later gates.
 
 ## Stored requests, outcomes and recovery
 

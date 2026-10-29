@@ -24,6 +24,8 @@ import { decodeActivation, decodeHead } from "./headCapture";
 import { UTF8_FATAL } from "./limits";
 import { prepareApplicationExecutionMetadataProjection } from "./metadataProjection";
 import { canonicalizeApplicationManifest } from "@flarex/analysis/application-analysis";
+import { applicationFunctionCatalogPublicationFrameV1 } from "@flarex/analysis/internal/application-publication-v1";
+import { applicationFunctionCatalogPublicationFrameV2 } from "@flarex/analysis/internal/application-publication-v2";
 import { bytesEqualFullScan, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { and, asc, eq, gt, sql } from "drizzle-orm";
 import { Effect } from "effect";
@@ -124,6 +126,14 @@ export const backfillStandaloneApplicationBindings = Effect.fn("ApplicationActiv
           if (!bytesEqualFullScan(manifest.canonicalBytes, analysis.manifestBytes) ||
             !bytesEqualFullScan(yield* sha256(manifest.canonicalBytes), parent.manifestSha256))
             return yield* activationFailure("activate", "storedState", row.revisionId);
+          const catalogFrame = manifest.manifest.version === 1
+            ? yield* Effect.fromResult(applicationFunctionCatalogPublicationFrameV1(manifest.manifest)).pipe(
+                Effect.mapError(cause => activationError("activate", "storedState", row.revisionId, false, cause)))
+            : yield* Effect.fromResult(applicationFunctionCatalogPublicationFrameV2(manifest.manifest)).pipe(
+                Effect.mapError(cause => activationError("activate", "storedState", row.revisionId, false, cause)));
+          const functionCatalogSha256 = yield* sha256(catalogFrame);
+          if (!bytesEqualFullScan(functionCatalogSha256, parent.functionCatalogSha256))
+            return yield* activationFailure("activate", "storedState", row.revisionId);
           const readCatalog = (catalogTx: AppRowTransaction) => Effect.gen(function* () {
             const snapshot = yield* loadPublishedPhysicalRequirementSnapshotV1(controlDb,
               { deploymentId: parent.deploymentId, schemaVersionId: parent.schemaVersionId }, catalogTx).pipe(
@@ -137,6 +147,7 @@ export const backfillStandaloneApplicationBindings = Effect.fn("ApplicationActiv
               { deploymentId: parent.deploymentId, schemaVersionId: parent.schemaVersionId, profile: "nativeApplication" }, snapshot, unique?.members ?? []).pipe(
               Effect.mapError(cause => activationError("activate", "storedState", row.revisionId, false, cause)));
             const execution = yield* prepareApplicationExecutionMetadataProjection({ manifest: manifest.manifest,
+              functionCatalogSha256,
               runtimeHostIdentity: parent.runtimeHostIdentity, compatibilityDate: parent.compatibilityDate }).pipe(
               Effect.mapError(cause => activationError("activate", "storedState", row.revisionId, false, cause)));
             const projection = yield* Effect.fromResult(mergeFiniteMetadataProjections(logical === null ? [execution] : [execution, logical])).pipe(

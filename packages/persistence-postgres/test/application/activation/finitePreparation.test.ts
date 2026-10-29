@@ -7,7 +7,8 @@ import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { useFileScopedPersistence } from "../../support/fileScopedPersistenceFixture";
-import { migratedPGliteDataDir } from "../../support/pgliteTestFixture";
+import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../../support/pgliteTestFixture";
+import { exactSelectionPreparationScenario } from "./exactSelectionPreparationScenario";
 import {
   prepareFiniteApplicationMutationAdmission,
   readPreparedFiniteApplicationMutationInputs,
@@ -93,6 +94,12 @@ beforeAll(async () => {
 
 describe("Application activation/finitePreparation", { timeout: 30_000, concurrent: false }, () => {
   const withControl = useFileScopedPersistence(createFileScopedReadinessControlFixture, false);
+
+  for (const profile of ["legacy", "boundedV3"] as const) it(`retains exact ${profile} originals across issuer, lifetime, budget and head-race controls`, async () => {
+    const control = await createMigratedPGlitePersistence();
+    const target = await createMigratedPGlitePersistence();
+    await exactSelectionPreparationScenario(control, target, profile);
+  }, 120_000);
 
   it("prepares private finite mutation inputs with detached getters and fresh unprotected acceptance", async () => {
     return withControl(async control => {

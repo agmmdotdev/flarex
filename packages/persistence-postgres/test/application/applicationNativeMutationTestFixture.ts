@@ -1423,7 +1423,7 @@ export async function createApplicationNativeMutationSourceBundle(includeProduct
       "export async function readTwice(ctx, args) {",
       "  const first = await ctx.db.get(args.body);",
       "  const second = await ctx.db.get(args.body);",
-      "  await ctx.db.patch(args.body, { name: 'after-second-read' });",
+      "  if (args.readOnly !== true) await ctx.db.patch(args.body, { name: 'after-second-read' });",
       "  return { first, second };",
       "}",
     ] : []),

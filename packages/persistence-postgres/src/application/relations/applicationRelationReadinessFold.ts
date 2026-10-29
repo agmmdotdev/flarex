@@ -52,7 +52,7 @@ import {
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { DrizzleQueryError } from "drizzle-orm/errors";
-import { Cause, Data, Effect, Result } from "effect";
+import { Cause, Data, Effect, Exit, Result } from "effect";
 import { appSchemaCandidateManifestSha256HexV1FromBytes } from
   "flarex-protocol/internal/app-schema-candidate-validation-v1";
 import { encodeCanonicalJson, isJson, type Json } from "flarex-protocol/json";
@@ -506,9 +506,10 @@ export const prepareApplicationRelationActiveRead = Effect.fn("ApplicationRelati
 
 export const acceptPreparedApplicationRelationActiveRead = Effect.fn("ApplicationRelationReadinessFold.acceptPreparedActiveRead")(
   function* (prepared: PreparedApplicationRelationActiveRead, tx: AppRowTransaction, clock: ScopeClockRecord,
-    protection?: ApplicationRelationReadinessProtection) {
+    protection?: ApplicationRelationReadinessProtection, preparationProfile: "binding" | "finitePreparation" = "binding") {
     const state = preparedActiveReads.get(prepared);
-    if (state === undefined) return yield* failure("invalidComposition");
+    if (state === undefined || (preparationProfile === "finitePreparation" && state.lifetime === undefined))
+      return yield* failure("invalidComposition");
     yield* Effect.fromResult(state.lifetime?.checkOpen() ?? Result.succeed(undefined)).pipe(
       Effect.mapError(cause => failureValue("invalidComposition", false, cause)));
     if (protection !== undefined) yield* Effect.fromResult(authenticateProtectedReadinessMetadataPair(
@@ -536,7 +537,8 @@ export const acceptPreparedApplicationRelationActiveRead = Effect.fn("Applicatio
         retained.validated.physical.physicalReadinessSha256) ||
         BigInt(retained.validated.relations.receipt.frontierCommitSeq) > clock.lastCommitSeq)
         return yield* failure("authorityChanged");
-      return yield* issueActiveReadBasis(state.repository, retained.validated, retained.replay);
+      return yield* issueActiveRead(state.repository, retained.validated, retained.replay,
+        preparationProfile === "finitePreparation" ? state.lifetime : undefined);
     }
     const current = Object.freeze({ ...state.prepared, ownershipBudget: new ApplicationWriteOwnershipHistoryBudget() });
     yield* requireExactAuthority(current.bundle.authority, clock);
@@ -578,18 +580,40 @@ export const acceptPreparedApplicationRelationActiveRead = Effect.fn("Applicatio
         return yield* failure("authorityChanged");
       }
     }
-    return yield* issueActiveReadBasis(state.repository, validated, replay);
-  }, Effect.mapError(error => exposeFoldIssue("validate", error)),
+    return yield* issueActiveRead(state.repository, validated, replay,
+      preparationProfile === "finitePreparation" ? state.lifetime : undefined);
+  }, Effect.catchCause(cause => Effect.failCause(Cause.map(cause, error => exposeFoldIssue("validate", error)))),
 );
 
-const issueActiveReadBasis = Effect.fnUntraced(function* (repository: FoldRepositoryState,
-  validated: ValidatedPreparedFold, replay: StoredRelationReadinessReplay) {
+const issueActiveRead = Effect.fnUntraced(function* (repository: FoldRepositoryState,
+  validated: ValidatedPreparedFold, replay: StoredRelationReadinessReplay,
+  lifetime?: PreparedHostPreparationLifetime) {
   const ready = yield* issueReadyResult("active", "replayed", repository, validated.prepared,
     replay.readinessSha256, replay.readinessBytes, validated.relations, replay.readyAt, validated.writeOwnership);
-  const issued = issuedReadyResults.get(ready);
-  const definitions = getPreparedApplicationRelationReadinessDefinitions(repository.context.relations, validated.prepared.relations);
-  if (issued === undefined || definitions === null) return yield* failure("invalidComposition");
-  return yield* relationActivationBasis(issued, definitions);
+  return yield* Effect.gen(function* () {
+    const issued = issuedReadyResults.get(ready);
+    const definitions = getPreparedApplicationRelationReadinessDefinitions(repository.context.relations, validated.prepared.relations);
+    if (issued === undefined || definitions === null) return yield* failure("invalidComposition");
+    const basis = yield* relationActivationBasis(issued, definitions);
+    if (lifetime !== undefined) {
+      // The original prepared fold already owns its bundle, schema and
+      // definition capabilities. Charge only the newly retained ready payload
+      // through that same lifetime, including across a SQL callback runner.
+      yield* Effect.fromResult(lifetime.charge({ candidate: issued.prepared.candidate,
+        unique: appUniqueConstraintEligibilityFrame(issued.prepared.unique), uniqueSha256: issued.prepared.uniqueSha256,
+        readinessBytes: issued.readinessBytes, readinessSha256: issued.readinessSha256,
+        relations: { receipt: issued.relationEvidence.receipt, canonicalBytes: issued.relationEvidence.canonicalBytes,
+          sha256: issued.relationEvidence.sha256 }, readyAt: issued.readyAt.getTime(),
+        writeOwnership: issued.writeOwnership === null ? null : { frame: issued.writeOwnership.frame,
+          canonicalBytes: issued.writeOwnership.canonicalBytes, sha256: issued.writeOwnership.sha256,
+          sha256Hex: issued.writeOwnership.sha256Hex },
+      }).pipe(Result.mapError(cause => failureValue("resourceFailure", false, cause))));
+      yield* Effect.fromResult(lifetime.onDispose(() => { issuedReadyResults.delete(ready); }).pipe(
+        Result.mapError(cause => failureValue("resourceFailure", false, cause))));
+    }
+    return Object.freeze({ basis, readiness: ready });
+  }).pipe(Effect.onExit(exit => Exit.isFailure(exit)
+    ? Effect.sync(() => { issuedReadyResults.delete(ready); }) : Effect.void));
 });
 
 interface ApplicationRelationSetReadinessEvidenceSnapshot {

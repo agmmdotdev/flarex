@@ -38,7 +38,7 @@ for (const driver of ["PGlite", "PostgreSQL"] as const) {
       const accept = () => retained.use(prepared => runEffectTransaction(
         work => resource.drizzle.transaction(work), "Unique catalog admission rollback", tx => Effect.gen(function* () {
           const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, fixture.authority.scopeId);
-          const basis = yield* acceptPreparedApplicationRelationActiveRead(prepared, tx, clock);
+          const { basis } = yield* acceptPreparedApplicationRelationActiveRead(prepared, tx, clock);
           callbacks++;
           return basis;
         }), cause => new Error("Unique catalog transaction failed", { cause })));

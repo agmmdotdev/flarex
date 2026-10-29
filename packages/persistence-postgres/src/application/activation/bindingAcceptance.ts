@@ -266,7 +266,7 @@ export const validateApplicationBindingBasisOwned = Effect.fnUntraced(function* 
     if (active === null || active.head.revisionId !== preparation.revisionId || active.head.readinessKind === "legacy") {
       return yield* activationFailure("validateSelection", "concurrentHead", preparation.revisionId);
     }
-    const validated = yield* acceptPreparedApplicationRelationActiveRead(preparation.readiness, tx, currentClock,
+    const { basis: validated } = yield* acceptPreparedApplicationRelationActiveRead(preparation.readiness, tx, currentClock,
       preparation.currentPreparation);
     if (!headMatchesValidatedReadiness(active.head, { kind: "relation", basis: validated })) {
       return yield* activationFailure("validateSelection", "concurrentHead", preparation.revisionId);

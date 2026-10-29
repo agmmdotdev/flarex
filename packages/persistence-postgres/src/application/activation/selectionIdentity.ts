@@ -8,7 +8,7 @@ import {
 import type { ProtectedTargetMetadataEvidence } from "../../execution/preparation/preparedMetadataEpoch";
 import type { TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
 import type { ScopeClockRecord } from "../../scope/scopeClock";
-import type { PreparedApplicationActiveHeadStructure } from "../activeHead/contracts";
+import type { DecodedApplicationActiveHead, PreparedApplicationActiveHeadStructure } from "../activeHead/contracts";
 import type { StandaloneApplicationBinding } from "../applicationStandaloneBinding";
 import type { ApplicationReadinessProtection, ApplicationReadinessResult } from "../readiness/contracts";
 import { readApplicationReadinessTargetProtection } from "../readiness/identity";
@@ -65,6 +65,7 @@ export interface RelationSelectionState {
     { readonly status: "ready" }
   >;
   readonly lifetime?: LegacySelectionState["lifetime"];
+  readonly currentPreparation?: RetainedBindingMetadata;
   readonly finitePreparation?: LegacySelectionState["finitePreparation"];
 }
 
@@ -107,7 +108,7 @@ export function readApplicationBindingTargetProtection(input: ApplicationBinding
   }
   if (state.kind !== "legacy") return (state.lifetime?.checkOpen() ?? Result.succeed(undefined)).pipe(
     Result.mapError(cause => activationError("validateSelection", "invalidComposition", state.basis.revisionId, false, cause)),
-    Result.map(() => Object.freeze({ protection: undefined, lifetime: state.lifetime, readinessProtection: undefined })));
+    Result.map(() => Object.freeze({ protection: undefined, lifetime: state.lifetime, readinessProtection: state.currentPreparation })));
   const protection = readApplicationReadinessTargetProtection(state.readinessRepository, state.readiness);
   return (state.lifetime?.checkOpen() ?? Result.succeed(undefined)).pipe(
     Result.mapError(cause => activationError("validateSelection", "invalidComposition", state.basis.revisionId, false, cause)),
@@ -181,6 +182,7 @@ export function closeLegacyApplicationBindingPreparation(token: PreparedApplicat
 
 const bindingPreparations = new WeakMap<object, Readonly<{
   authority: TrustedScopeAuthority; revisionId: string; readiness: PreparedApplicationRelationActiveRead;
+  head: Extract<DecodedApplicationActiveHead, { readonly readinessKind: "relation" }>;
   lifetime: LegacySelectionState["lifetime"];
   currentPreparation?: RetainedBindingMetadata;
 }>>();

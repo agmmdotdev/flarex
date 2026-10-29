@@ -28,8 +28,8 @@ import { readApplicationRelationMetadataUniqueRequirements, type ApplicationRela
 import type { LocatedApplicationRelationBinding } from "../relations/binding/Model";
 import { activationError, activationFailure } from "./errors";
 import { readApplicationBindingTargetProtection, readApplicationSelectionState } from "./selectionIdentity";
-import type { canonicalizeApplicationManifest } from "@flarex/analysis/application-analysis";
-import { Effect, type Result, Schema } from "effect";
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { Effect, Schema } from "effect";
 import {
   MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1,
 } from "flarex-protocol/internal/app-unique-constraint-set-v1";
@@ -37,12 +37,13 @@ import { decodeReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 
 export const prepareApplicationExecutionMetadataProjection = Effect.fn("ApplicationActivation.prepareExecutionMetadataProjection")(function* (
-  basis: Readonly<{ manifest: Result.Result.Success<ReturnType<typeof canonicalizeApplicationManifest>>["manifest"];
-    runtimeHostIdentity: string; compatibilityDate: string }>,
+  basis: Pick<ApplicationExecutableActiveSelection["basis"],
+    "manifest" | "functionCatalogSha256" | "runtimeHostIdentity" | "compatibilityDate">,
 ) {
   return yield* prepareFiniteMetadataProjection({ indexes: [], unique: [], application: {
     functions: basis.manifest.functions.map(fn => ({ path: fn.path, semantic: { ...fn } })),
     groups: [{ group: "legacy_dynamic_worker_v1", semantic: { sourceArtifact: basis.manifest.sourceArtifact,
+      functionCatalogSha256: encodeBytesToLowercaseHex(basis.functionCatalogSha256),
       runtimeHostIdentity: basis.runtimeHostIdentity, compatibilityDate: basis.compatibilityDate } }],
   } });
 });

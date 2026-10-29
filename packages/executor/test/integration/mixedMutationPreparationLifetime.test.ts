@@ -99,10 +99,13 @@ describe.each(drivers)("frozen preparation generation on %s", driver => {
         const frozen = await Effect.runPromise(fixture.freeze(value));
         const functionIdentity = { namespace: "execution", ownerKey: "application",
           contractKey: finiteMetadataContractKey("function", "users:create") };
+        const executionGroupIdentity = { namespace: "execution", ownerKey: "application",
+          contractKey: finiteMetadataContractKey("executionGroup", "legacy_dynamic_worker_v1") };
         const captured = readFrozenFiniteAttempt(frozen);
         if (captured === undefined) throw new Error("Missing authentic frozen root");
         expect(captured.graph.metadataDependencies).toEqual(expect.arrayContaining([
           expect.objectContaining({ ...functionIdentity, observed: expect.objectContaining({ kind: "present" }) }),
+          expect.objectContaining({ ...executionGroupIdentity, observed: expect.objectContaining({ kind: "present" }) }),
         ]));
         const originalActive = await Effect.runPromise(fixture.application.activation.readActive());
         if (change === "unrelatedMetadata") {
@@ -129,7 +132,9 @@ describe.each(drivers)("frozen preparation generation on %s", driver => {
         } else {
           const outcome = Effect.runPromise(publication);
           await expect(outcome).rejects.toBeInstanceOf(PointCommitConflictV1Error);
-          await expect(outcome).rejects.toMatchObject({ conflict: { kind: "metadata", ...functionIdentity } });
+          // Catalog changes affect both retained dependencies. The ordered
+          // comparator reports the execution group before the root function.
+          await expect(outcome).rejects.toMatchObject({ conflict: { kind: "metadata", ...executionGroupIdentity } });
           expect(await publicationState()).toEqual(original);
         }
         expect(inspectLogicalParticipantCommitAuthoritySource(fixture.participantAuthority)).not.toBeNull();

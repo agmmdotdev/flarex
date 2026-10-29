@@ -1,8 +1,8 @@
 # Single-owner core refactor goal
 
 Status: **Active implementation goal; bounded Application cache/read replacement,
-local query DO composition, shared pending indexes and operation admission
-implemented; wider core milestones open**.
+local query DO composition, shared pending indexes, operation admission and
+exact original finite preparation implemented; wider core milestones open**.
 The owner has requested the complete single-owner refactor, delivered through
 bounded connected milestones. This authorization supersedes earlier statements
 that this work is documentation-only. It does not decide unresolved guarantees,
@@ -98,6 +98,10 @@ the connected preparation, ordered admission, stored-request and recovery
 requirements. Its genuine current nested-failure prerequisite is implemented;
 the connected [operation-admission replacement](./slices/04c1-application-operation-admission.md)
 is implemented. The ordinary Standard cutover remains unimplemented.
+The [exact-original preparation prerequisite](./slices/04c2-exact-selection-preparation.md)
+is implemented for existing finite Product/Payload consumers, including full
+callable-catalog coverage and explicit installation reconciliation. Ordinary
+Standard finite activation and recovery remain open.
 
 ## Mandatory challenge before each slice
 
