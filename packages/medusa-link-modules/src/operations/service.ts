@@ -2,7 +2,7 @@ import type { Context, LinkOperationCompensation, LinkOperationResult } from "@m
 import { moduleEventData } from "@medusajs/utils/modules-sdk/event-builder-factory"
 import { generateEntityId } from "@medusajs/utils/common/generate-entity-id"
 import { MedusaError } from "@medusajs/utils/common/errors"
-import { decodeLinkOperationHandle, decodeLinkOperationRequest, linkOperationConflict,
+import { decodeLinkOperationHandle, decodeLinkOperationRequest, isLinkOperationRecord, linkOperationConflict,
   linkOperationRequestKey, linkPairRevisionId, type LinkOperationPair, type LinkOperationRecord } from "./contracts"
 import type { LinkOperationStore } from "./store"
 
@@ -51,6 +51,7 @@ export class LinkOperationService {
     return await this.store.withTransaction(context, async owned => {
       const existing = await this.store.operation(request.operationId, owned)
       if (existing !== undefined) {
+        if (!isLinkOperationRecord(existing.value)) throw linkOperationConflict("Native Link operation identity belongs to another protocol")
         if (linkOperationRequestKey(existing.value.request) !== linkOperationRequestKey(request)) {
           throw linkOperationConflict("Native Link operation identity was reused with a different request")
         }
@@ -100,6 +101,7 @@ export class LinkOperationService {
           request: handle.request, state: "cancelled", changes: [], events: [], compensation_events: [] }, owned)
         return { result: { ...identity, status: "notApplied", changedPairs: 0 }, events: [] }
       }
+      if (!isLinkOperationRecord(found.value)) throw linkOperationConflict("Native Link operation identity belongs to another protocol")
       if (linkOperationRequestKey(found.value.request) !== linkOperationRequestKey(handle.request)) {
         throw linkOperationConflict("Native Link compensation request differs from its retained operation")
       }

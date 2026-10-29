@@ -444,6 +444,47 @@ remain separate from commit authority.
    Present-row locks and absent-pair races, existing ADD, REPLACE, supersession,
    retries and native event sequences require separate genuine witnesses.
 
+The existing durable Link membership protocol is not this preimage contract.
+At the genuine native Link repository, adding an already-active pair replaces
+its ID and timestamps while the membership protocol records zero changed pairs;
+its inverse reports compensation without restoring the prior row. Preserve
+that mismatch separately from the original workflow residuals. Cart REPLACE
+also dismisses before creating, including overlapping pairs; the membership
+protocol's create-then-dismiss request cannot substitute for that order.
+
+The selected native correction extends the existing Link operation/revision
+owner with an explicitly tagged ordered-mutation frame. Existing membership
+frames, request identities and default publication behavior retain their
+contracts. Exact snapshots are captured under that owner's real serialization,
+including absent pairs and all managed timestamp precision. The selected
+preimage profile must invoke genuine public mutation methods inside the native
+transaction, retaining native event timing and event-failure limits. It cannot
+silently inherit membership operations' deferred native publication. Native
+restoration needs a scoped exact-value persistence seam; the logical port must
+use authenticated existing exclusion and recorded-row replay. Every target
+retains a fence even when its values do not change, and completed inverse
+replay checks its retained resulting generation before reporting success.
+The native module-level preimage owner and its bounded logical resource are
+implemented. The physical port borrows the existing SERIALIZABLE lifetime,
+acquires revision heads before actual Link rows, and releases only clean,
+scalar Link identity-map entries between genuine native calls. Native DAL writes
+queue ORM state, so sorted method calls alone cannot establish physical lock
+order. The Link owner writes, rereads and verifies each cold head before
+advancing; only an entirely held cohort may batch its later updates. Exact native
+timestamp text is restored without ordinary timestamp hooks. The logical port
+uses existing authenticated scope exclusion and recorded-row replay; closed
+receipts bind complete target reads, exact rows, revisions, lifecycle and native
+events. Four old and four new pairs select a named 128-call profile; the default
+64-call refusal remains. Existing membership frames and publication stay with
+their original profile.
+
+This is a fresh three-table Cart-Promotion source, not a migration of populated
+one-table checkout sources. Native precommit event delivery remains observable
+when a later native failure rolls database work back; logical publication stays
+with its outer settlement owner. Arbitrary writers that bypass revision heads
+remain outside retained-generation admission. The native Cart step and complete
+Cart creation root still require integration with this resource.
+
 A workflow-level precheck followed by independent deletes is insufficient for
 Address safety or partial-inverse recovery. Pair-only Link dismissal cannot
 protect a later generation. No generic DAL redesign, create-if-absent forward

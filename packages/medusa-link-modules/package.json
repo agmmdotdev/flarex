@@ -14,7 +14,8 @@
     "@medusajs/framework": "workspace:*",
     "@medusajs/types": "workspace:*",
     "@medusajs/utils": "workspace:*",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "@medusajs/deps": "workspace:*"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

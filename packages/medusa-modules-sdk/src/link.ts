@@ -6,6 +6,8 @@ import type {
   LinkOperationHandle,
   LinkOperationRequest,
   LinkOperationResult,
+  LinkPreimageOperationHandle,
+  LinkPreimageOperationRequest,
   LoadedModule,
   ModuleJoinerRelationship,
 } from "@medusajs/types"
@@ -182,6 +184,26 @@ export class Link {
       throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Selected native Link family does not support durable compensation")
     }
     return await selected.compensateOperation(handle, sharedContext)
+  }
+
+  async applyPreimageOperation(serviceName: string, request: LinkPreimageOperationRequest,
+    @MedusaContext() sharedContext: Context = {}): Promise<LinkOperationResult> {
+    const selected = this.modulesMap.get(serviceName)
+    if (selected?.__joinerConfig.isLink !== true || selected.__joinerConfig.serviceName !== serviceName ||
+      typeof selected.applyPreimageOperation !== "function") {
+      throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Selected native Link family does not support preimage operations")
+    }
+    return await selected.applyPreimageOperation(request, sharedContext)
+  }
+
+  async compensatePreimageOperation(handle: LinkPreimageOperationHandle,
+    @MedusaContext() sharedContext: Context = {}): Promise<LinkOperationCompensation> {
+    const selected = this.modulesMap.get(handle.serviceName)
+    if (selected?.__joinerConfig.isLink !== true || selected.__joinerConfig.serviceName !== handle.serviceName ||
+      typeof selected.compensatePreimageOperation !== "function") {
+      throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Selected native Link family does not support preimage compensation")
+    }
+    return await selected.compensatePreimageOperation(handle, sharedContext)
   }
 
   private getLinkableKeys(mod: LoadedLinkModule) {

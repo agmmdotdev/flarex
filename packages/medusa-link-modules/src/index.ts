@@ -30,3 +30,8 @@ export { CartProduct } from "./definitions/readonly/cart-product"
 export { CartPromotion } from "./definitions/cart-promotion"
 
 export { CustomerAccountHolder } from "./definitions/customer-account-holder"
+
+export { LinkPreimageOperationRequest as LinkPreimageOperationRequestSchema, LinkPreimageOperationHandle as LinkPreimageOperationHandleSchema,
+  LinkPreimageOperationRecord as LinkPreimageOperationRecordSchema, LinkPreimageRow as LinkPreimageRowSchema,
+  linkPreimageRequestKey, linkPreimageRowKey } from "./operations/preimage-contracts"
+export type { LinkPreimageStorage } from "./operations/preimage-storage"

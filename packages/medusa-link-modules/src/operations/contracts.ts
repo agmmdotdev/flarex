@@ -15,17 +15,17 @@ export const LinkOperationCompensation = Schema.Struct({ operationId: Id, servic
 const Change = Schema.Struct({ primary: Id, foreign: Id, beforeActive: Schema.Boolean,
   afterActive: Schema.Boolean, afterRevision: Id })
 export const LinkOperationEventIntent = Schema.Struct({ event_id: Id, id: Schema.Union([Id, Schema.Array(Id).check(Schema.isMinLength(2))]), action: Schema.Literals(["attached", "detached"]) })
-const Managed = { created_at: Schema.optionalKey(Schema.Unknown), updated_at: Schema.optionalKey(Schema.Unknown),
+export const LinkOperationManagedFields = { created_at: Schema.optionalKey(Schema.Unknown), updated_at: Schema.optionalKey(Schema.Unknown),
   deleted_at: Schema.optionalKey(Schema.Null) }
 
 /** Managed timestamps remain with native DML. Only the protocol fields below
  * participate in replay, arbitration and compensation ownership. */
 export const LinkOperationRecord = Schema.Union([
-  Schema.Struct({ ...Managed, id: Id, service_name: Id, request: LinkOperationRequest,
+  Schema.Struct({ ...LinkOperationManagedFields, id: Id, service_name: Id, request: LinkOperationRequest,
     state: Schema.Literal("applied"), changes: Schema.Array(Change), events: Schema.Array(LinkOperationEventIntent), compensation_events: Schema.Tuple([]) }),
-  Schema.Struct({ ...Managed, id: Id, service_name: Id, request: LinkOperationRequest,
+  Schema.Struct({ ...LinkOperationManagedFields, id: Id, service_name: Id, request: LinkOperationRequest,
     state: Schema.Literal("compensated"), changes: Schema.Array(Change), events: Schema.Array(LinkOperationEventIntent), compensation_events: Schema.Array(LinkOperationEventIntent) }),
-  Schema.Struct({ ...Managed, id: Id, service_name: Id, request: LinkOperationRequest,
+  Schema.Struct({ ...LinkOperationManagedFields, id: Id, service_name: Id, request: LinkOperationRequest,
     state: Schema.Literal("cancelled"), changes: Schema.Tuple([]), events: Schema.Tuple([]), compensation_events: Schema.Tuple([]) }),
 ]).check(Schema.makeFilter(record => {
   const key = (pair: typeof LinkOperationPair.Type) => JSON.stringify([pair.primary, pair.foreign])
@@ -37,10 +37,10 @@ export const LinkOperationRecord = Schema.Union([
     new Set(record.changes.map(key)).size === record.changes.length &&
     new Set([...record.events, ...record.compensation_events].map(event => event.event_id)).size === record.events.length + record.compensation_events.length
 }))
-export const LinkPairRevisionRecord = Schema.Struct({ ...Managed, id: Id, service_name: Id,
+export const LinkPairRevisionRecord = Schema.Struct({ ...LinkOperationManagedFields, id: Id, service_name: Id,
   primary_value: Id, foreign_value: Id, revision: Id })
 
-function decoder<S extends Schema.ConstraintDecoder<unknown>>(schema: S, kind: "input" | "stored", excess: "error" | "ignore" = "error") {
+export function decoder<S extends Schema.ConstraintDecoder<unknown>>(schema: S, kind: "input" | "stored", excess: "error" | "ignore" = "error") {
   const decode = Schema.decodeUnknownResult(schema, { onExcessProperty: excess, propertyOrder: "original" })
   return (value: unknown): S["Type"] => Result.match(decode(value), {
     onSuccess: result => result,
@@ -56,6 +56,7 @@ function decoder<S extends Schema.ConstraintDecoder<unknown>>(schema: S, kind: "
 export const decodeLinkOperationRequest = decoder(LinkOperationRequest, "input")
 export const decodeLinkOperationHandle = decoder(LinkOperationHandle, "input")
 export const decodeLinkOperationRecord = decoder(LinkOperationRecord, "stored")
+export const isLinkOperationRecord = Schema.is(LinkOperationRecord)
 export const decodeLinkPairRevisionRecord = decoder(LinkPairRevisionRecord, "stored")
 export const decodeLinkPairRevisionRows = decoder(Schema.Array(LinkPairRevisionRecord), "stored")
 export const decodeLinkOperationRows = decoder(Schema.Array(Schema.Struct({ id: Id })), "stored", "ignore")

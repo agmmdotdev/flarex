@@ -106,3 +106,6 @@ export const taxRuleReplacementResources = Object.freeze({ ...defaultCommerceRes
 /** Four additions and four removals retain durable native Link fencing,
  * receipts and genuine compensation within one trusted root lifetime. */
 export const apiKeyAssociationResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
+/** Native Cart Link replacement covers four old and four new pairs, exact
+ * snapshots, revision arbitration and retained-row compensation. */
+export const cartPromotionPreimageResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });

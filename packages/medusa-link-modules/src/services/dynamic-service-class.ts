@@ -42,6 +42,10 @@ export function getModuleService(
       } else if (store !== undefined) {
         throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Native Link operation storage requires explicit metadata admission")
       }
+      if (databaseConfig?.preimageOperations === true ? databaseConfig.workflowOperations !== true || store?.supportsPreimages !== true
+        : store?.supportsPreimages === true) {
+        throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Native Link preimages require explicit matching metadata and storage")
+      }
       this.#operationStore = store
     }
 

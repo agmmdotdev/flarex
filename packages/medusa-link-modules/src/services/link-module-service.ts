@@ -31,6 +31,9 @@ import {
 import LinkService from "./link"
 import { LinkOperationService } from "../operations/service"
 import { decodeLinkOperationRows, type LinkOperationEventIntent } from "../operations/contracts"
+import type { LinkPreimageOperationHandle, LinkPreimageOperationRequest } from "@medusajs/types"
+import { LinkPreimageOperationService } from "../operations/preimage-service"
+import type { LinkPreimageRow } from "../operations/preimage-contracts"
 
 type InjectedDependencies = {
   baseRepository: DAL.RepositoryService
@@ -53,6 +56,7 @@ export default class LinkModuleService implements ILinkModule {
   protected foreignKey_: string
   protected extraFields_: string[]
   protected readonly linkOperationService_?: LinkOperationService
+  protected readonly linkPreimageOperationService_?: LinkPreimageOperationService
 
   constructor(
     {
@@ -92,6 +96,12 @@ export default class LinkModuleService implements ILinkModule {
           return await serialize(rows)
         },
       })
+      if (store.supportsPreimages) this.linkPreimageOperationService_ = new LinkPreimageOperationService(store, {
+        create: (pairs, context) => this.create(pairs.map((pair): [string, string, Record<string, unknown>] =>
+          [pair.primary, pair.foreign, {}]), undefined, undefined, context),
+        dismiss: (pairs, context) => this.dismiss(pairs.map((pair): [string, string] => [pair.primary, pair.foreign]), undefined, context),
+        restore: (rows, context) => this.restoreLinkPreimages_(rows, context),
+      })
     }
   }
 
@@ -118,6 +128,28 @@ export default class LinkModuleService implements ILinkModule {
     const outcome = await this.linkOperationService_.compensate(handle, sharedContext)
     this.operationEvents(outcome.events, sharedContext)
     return outcome.result
+  }
+
+  async applyPreimageOperation(request: LinkPreimageOperationRequest, @MedusaContext() sharedContext: Context = {}): Promise<LinkOperationResult> {
+    if (this.linkPreimageOperationService_ === undefined) throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Native Link preimages are not enabled")
+    return this.linkPreimageOperationService_.apply(request, sharedContext)
+  }
+
+  async compensatePreimageOperation(handle: LinkPreimageOperationHandle, @MedusaContext() sharedContext: Context = {}): Promise<LinkOperationCompensation> {
+    if (this.linkPreimageOperationService_ === undefined) throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Native Link preimages are not enabled")
+    return this.linkPreimageOperationService_.compensate(handle, sharedContext)
+  }
+
+  @EmitEvents()
+  protected async restoreLinkPreimages_(rows: readonly (typeof LinkPreimageRow.Type)[], @MedusaContext() sharedContext: Context = {}) {
+    const store = this.linkService_.linkOperationStore
+    if (store === undefined) throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Native Link preimages are not enabled")
+    const restored = await store.restorePreimages(rows, sharedContext)
+    moduleEventBuilderFactory({ action: CommonEvents.ATTACHED, object: this.entityName_, source: this.serviceName_,
+      eventName: this.entityName_ + "." + CommonEvents.ATTACHED })({
+      data: restored.filter(row => row.deleted_at === null).map(row => ({ id: row.id })), sharedContext,
+    })
+    return restored
   }
 
   __joinerConfig(): ModuleJoinerConfig {

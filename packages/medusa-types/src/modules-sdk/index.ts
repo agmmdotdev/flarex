@@ -246,6 +246,8 @@ export type ModuleJoinerConfig = Omit<
   databaseConfig?: {
     /** Native durable Link operations require their selected receipt store. */
     workflowOperations?: true
+    /** Exact ordered preimages require the native storage/publication profile. */
+    preimageOperations?: true
     /**
      * Name of the pivot table. If not provided it is auto generated
      */

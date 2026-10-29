@@ -3,10 +3,13 @@ import { RestoreReturn, SoftDeleteReturn } from "../dal"
 import { IModuleService } from "../modules-sdk"
 import { Context } from "../shared-context"
 import type { LinkOperationCompensation, LinkOperationHandle, LinkOperationRequest, LinkOperationResult } from "./operations"
+import type { LinkPreimageOperationHandle, LinkPreimageOperationRequest } from "./preimages"
 
 export interface ILinkModule extends IModuleService {
   applyOperation(request: LinkOperationRequest, sharedContext?: Context): Promise<LinkOperationResult>
   compensateOperation(handle: LinkOperationHandle, sharedContext?: Context): Promise<LinkOperationCompensation>
+  applyPreimageOperation?(request: LinkPreimageOperationRequest, sharedContext?: Context): Promise<LinkOperationResult>
+  compensatePreimageOperation?(handle: LinkPreimageOperationHandle, sharedContext?: Context): Promise<LinkOperationCompensation>
 
   list(
     filters?: Record<string, unknown>,

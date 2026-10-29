@@ -1161,6 +1161,9 @@ importers:
 
   packages/medusa-link-modules:
     dependencies:
+      '@medusajs/deps':
+        specifier: workspace:*
+        version: link:../medusa-deps
       '@medusajs/framework':
         specifier: workspace:*
         version: link:../medusa-framework

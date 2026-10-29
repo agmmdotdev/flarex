@@ -5,9 +5,14 @@ import { buildQuery } from "@medusajs/utils/modules-sdk/build-query"
 import { Result, Schema } from "effect"
 import { decodeLinkOperationRecord, decodeLinkPairRevisionRows, linkPairRevisionId,
   type LinkOperationPair, type LinkOperationRecord, type LinkPairRevisionRecord } from "./contracts"
+import { StoredLinkOperationRecord, decodeStoredLinkOperationRecord } from "./stored-contracts"
+import { decodeLinkPreimageRecord, decodeLinkPreimageRows, linkPreimageRecordKey,
+  type LinkPreimageOperationRecord, type LinkPreimageRow } from "./preimage-contracts"
+import type { LinkPreimageStorage } from "./preimage-storage"
 
 type Pair = typeof LinkOperationPair.Type
-type Operation = typeof LinkOperationRecord.Type
+type Operation = typeof StoredLinkOperationRecord.Type
+type CompletedPreimage = Extract<typeof LinkPreimageOperationRecord.Type, { readonly state: "compensated" }>
 type Revision = typeof LinkPairRevisionRecord.Type
 type StoredRevision = { entity: unknown; value: Revision }
 type ActiveTransaction = { publications: Array<() => Promise<void>>; revisions: Map<string, StoredRevision> }
@@ -29,13 +34,14 @@ export class LinkOperationStore {
   readonly #revisions: NativeRepository
   readonly #transactionRepository: Pick<DAL.RepositoryService, "transaction">
   readonly #borrowedOwner: BorrowedLinkOperationOwner | undefined
+  readonly #preimages: LinkPreimageStorage | undefined
   readonly #activeTransactions = new Map<unknown, ActiveTransaction>()
   readonly #decodePair: (value: unknown) => Pair
 
   constructor(input: { serviceName: string; primaryKey: string; foreignKey: string;
     operations: NativeRepository; revisions: NativeRepository;
     transactionRepository: Pick<DAL.RepositoryService, "transaction">;
-    borrowedOwner?: BorrowedLinkOperationOwner }) {
+    borrowedOwner?: BorrowedLinkOperationOwner; preimages?: LinkPreimageStorage }) {
     if (input.primaryKey === input.foreignKey || input.primaryKey.includes(",") || input.foreignKey.includes(",")) {
       throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Link operations require two scalar endpoint keys")
     }
@@ -46,6 +52,7 @@ export class LinkOperationStore {
     this.#revisions = input.revisions
     this.#transactionRepository = input.transactionRepository
     this.#borrowedOwner = input.borrowedOwner
+    this.#preimages = input.preimages
     const decode = Schema.decodeUnknownResult(Schema.Struct({
       [input.primaryKey]: Schema.String.check(Schema.isLengthBetween(1, 256)),
       [input.foreignKey]: Schema.String.check(Schema.isLengthBetween(1, 256)),
@@ -67,8 +74,13 @@ export class LinkOperationStore {
   }
 
   pairs(rows: readonly unknown[]): Pair[] { return rows.map(this.#decodePair) }
+  get supportsPreimages(): boolean { return this.#preimages !== undefined }
 
   deferPublication(context: Context, publish: () => Promise<void>): boolean {
+    // The explicit preimage profile calls genuine public native mutations.
+    // Preserve their in-transaction event timing and event-failure limits;
+    // existing membership profiles keep their deferred publication behavior.
+    if (this.#preimages !== undefined) return false
     const active = this.#activeTransactions.get(context.transactionManager)
     if (active === undefined) return false
     active.publications.push(publish)
@@ -127,7 +139,7 @@ export class LinkOperationStore {
   }
 
   async operation(id: string, context: Context) {
-    const found = await this.load(this.#operations, id, decodeLinkOperationRecord, context)
+    const found = await this.load(this.#operations, id, decodeStoredLinkOperationRecord, context)
     if (found !== undefined && (found.value.id !== id || found.value.service_name !== this.serviceName)) {
       throw new MedusaError(MedusaError.Types.UNEXPECTED_STATE, "Mismatched native Link operation owner")
     }
@@ -136,18 +148,24 @@ export class LinkOperationStore {
 
   async insert(operation: OperationWrite, context: Context): Promise<void> {
     this.requireTransaction(context)
-    const checked = decodeLinkOperationRecord(operation)
+    const checked = decodeStoredLinkOperationRecord(operation)
     if (checked.service_name !== this.serviceName) {
       throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Mismatched native Link operation owner")
     }
     await this.#operations.create([{ ...checked }], context)
     const stored = await this.operation(checked.id, context)
     if (stored === undefined) throw new MedusaError(MedusaError.Types.UNEXPECTED_STATE, "Native Link operation was not stored")
+    if ("kind" in checked.request) {
+      const expected = decodeLinkPreimageRecord(checked), actual = decodeLinkPreimageRecord(stored.value)
+      if (linkPreimageRecordKey(expected) !== linkPreimageRecordKey(actual))
+        throw new MedusaError(MedusaError.Types.UNEXPECTED_STATE, "Native Link preimage record changed while storing")
+    }
   }
 
   async complete(operation: NonNullable<Awaited<ReturnType<LinkOperationStore["operation"]>>>,
-    events: Operation["compensation_events"], context: Context): Promise<void> {
+    events: (typeof LinkOperationRecord.Type)["compensation_events"], context: Context): Promise<void> {
     this.requireTransaction(context)
+    decodeLinkOperationRecord(operation.value)
     if (operation.value.state !== "applied") {
       throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Only an applied native Link operation may be compensated")
     }
@@ -156,6 +174,43 @@ export class LinkOperationStore {
     if (stored?.value.state !== "compensated") {
       throw new MedusaError(MedusaError.Types.UNEXPECTED_STATE, "Native Link compensation outcome was not stored")
     }
+  }
+
+  async capturePreimages(pairs: readonly Pair[], context: Context): Promise<readonly (typeof LinkPreimageRow.Type)[]> {
+    this.requireTransaction(context)
+    if (this.#preimages === undefined) throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Native Link preimages are not enabled")
+    await this.#preimages.require(context)
+    const rows = decodeLinkPreimageRows(await this.#preimages.capture(pairs, context))
+    const expected = new Set(pairs.map(pair => JSON.stringify([pair.primary, pair.foreign]))), observed = new Set<string>()
+    for (const row of rows) {
+      const key = JSON.stringify([row.primary, row.foreign])
+      if (!expected.has(key) || observed.has(key)) throw new MedusaError(MedusaError.Types.UNEXPECTED_STATE, "Native Link preimage changed its target cohort")
+      observed.add(key)
+    }
+    return rows
+  }
+
+  async restorePreimages(rows: readonly (typeof LinkPreimageRow.Type)[], context: Context): Promise<readonly (typeof LinkPreimageRow.Type)[]> {
+    const active = this.requireTransaction(context)
+    if (this.#preimages === undefined) throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Native Link preimages are not enabled")
+    const checked = decodeLinkPreimageRows(rows)
+    for (const row of checked) if (!active.revisions.has(await linkPairRevisionId(this.serviceName, row)))
+      throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Native Link restoration requires its held revision cohort")
+    await this.#preimages.require(context)
+    return decodeLinkPreimageRows(await this.#preimages.restore(checked, context))
+  }
+
+  async completePreimage(operation: NonNullable<Awaited<ReturnType<LinkOperationStore["operation"]>>>,
+    changes: CompletedPreimage["changes"], context: Context): Promise<void> {
+    this.requireTransaction(context)
+    const before = decodeLinkPreimageRecord(operation.value)
+    if (this.#preimages === undefined || before.state !== "applied")
+      throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Only an applied native preimage operation may be compensated")
+    const expected = decodeLinkPreimageRecord({ ...before, state: "compensated", changes })
+    await this.#operations.update([{ entity: operation.entity, update: { state: "compensated", changes, compensation_events: [] } }], context)
+    const stored = await this.operation(before.id, context)
+    if (stored === undefined || linkPreimageRecordKey(decodeLinkPreimageRecord(stored.value)) !== linkPreimageRecordKey(expected))
+      throw new MedusaError(MedusaError.Types.UNEXPECTED_STATE, "Native Link preimage compensation outcome was not stored")
   }
 
   /** Batch reads retain one authoritative decoder and the selected DAL owner.
@@ -224,6 +279,16 @@ export class LinkOperationStore {
         await this.#revisions.update([{ entity: found.entity, update: { revision } }], context)
       }
       written.set(id, revision)
+      if (!held) {
+        // Native DAL writes queue ORM state. This authoritative read forces
+        // that single cold head to flush before the next acquisition; a later
+        // batch flush could reorder inserts/updates and physical row locks.
+        const acquired = await this.revision(pair, context)
+        if (acquired?.value.revision !== revision) {
+          throw new MedusaError(MedusaError.Types.UNEXPECTED_STATE, "Native Link pair revision was not acquired")
+        }
+        active.revisions.set(id, acquired)
+      }
     }
     // The entire hot cohort has been invalidated before this first await.
     if (updates.length !== 0) await this.#revisions.update(updates, context)

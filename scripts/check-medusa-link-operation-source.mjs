@@ -8,10 +8,27 @@ export const nativeLinkOperationSourcePairs = Object.freeze([
   ["packages/medusa-utils/src/modules-sdk/event-builder-factory.ts", "packages/core/utils/src/modules-sdk/event-builder-factory.ts"],
   ["packages/medusa-types/src/link-modules/service.ts", "packages/core/types/src/link-modules/service.ts"],
   ["packages/medusa-types/src/modules-sdk/index.ts", "packages/core/types/src/modules-sdk/index.ts"],
+  ["packages/medusa-link-modules/src/services/link-module-service.ts", "packages/modules/link-modules/src/services/link-module-service.ts"],
+  ["packages/medusa-link-modules/src/services/dynamic-service-class.ts", "packages/modules/link-modules/src/services/dynamic-service-class.ts"],
+  // The SDK router retains its existing exact cascade-source selection and
+  // first-failure contract in check-medusa-currency-promotion.mjs.
 ].map(([target, source]) => Object.freeze({ target, source: native + source, classification: "linkFork" })));
+
+export const nativeLinkPreimageAuthoredTargets = Object.freeze([
+  "packages/medusa-link-modules/src/operations/preimage-contracts.ts",
+  "packages/medusa-link-modules/src/operations/preimage-service.ts",
+  "packages/medusa-link-modules/src/operations/preimage-storage.ts",
+  "packages/medusa-link-modules/src/operations/preimage-postgres.ts",
+  "packages/medusa-link-modules/src/operations/stored-contracts.ts",
+  "packages/medusa-types/src/link-modules/preimages.ts",
+]);
 
 /** @param {readonly {target: string,source?: string,classification: string}[]} files */
 export function verifyNativeLinkOperationSelection(files) {
+  for (const target of nativeLinkPreimageAuthoredTargets) {
+    if (files.filter(file => file.target === target && file.source === undefined && file.classification === "authored").length !== 1)
+      throw new Error("Changed native Link preimage source selection");
+  }
   for (const pair of nativeLinkOperationSourcePairs) {
     if (files.filter(file => file.target === pair.target && file.source === pair.source && file.classification === pair.classification).length !== 1)
       throw new Error("Changed native Link operation source selection");

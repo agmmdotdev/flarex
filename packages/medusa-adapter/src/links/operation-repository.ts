@@ -21,9 +21,9 @@ const decodeUpdates = commerceDecoder(Schema.Array(Schema.Struct({ entity: Schem
 /** Selected native protocol models use normal scalar DAL mechanics. Replay,
  * revision comparison and compensation remain entirely in native Link code;
  * these records produce no independent business-module events. */
-export function prepareLinkOperationRepository(table: Table, modelName: string) {
+export function prepareLinkOperationRepository(table: Table, modelName: string, preimages?: true) {
   return Result.gen(function* () {
-    const mutable = table.name === "link_workflow_operation" ? ["state", "compensation_events"]
+    const mutable = table.name === "link_workflow_operation" ? ["state", "compensation_events", ...(preimages === true ? ["changes"] : [])]
       : table.name === "link_pair_revision" ? ["revision"] : undefined;
     if (mutable === undefined || table.relationships.length !== 0 || table.foreignKeys.length !== 0 ||
       table.cascades.delete.length !== 0 || table.cascades.detach.length !== 0)

@@ -140,3 +140,5 @@ export type { LinkOperationPair, LinkOperationRequest, LinkOperationHandle, Link
 
 export type { CreateCustomerAddressDTO, UpdateCustomerAddressDTO } from "./customer/mutations";
 export type { FilterableCustomerAddressProps } from "./customer/common";
+
+export type { LinkPreimageOperationRequest, LinkPreimageOperationHandle } from "./link-modules/preimages"
