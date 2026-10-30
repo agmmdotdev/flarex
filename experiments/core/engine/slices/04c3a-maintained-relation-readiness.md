@@ -1,127 +1,94 @@
 # Maintained relation readiness for a new revision
 
-Status: **Independent current-core, pinned-Convex and accepted-direction challenge
-and peer exchange complete; connected prerequisites identified; runtime replacement
-not started**. This is a prerequisite of
+Status: **Independent current-core, accepted-direction and pinned-Convex
+challenge and peer exchange complete; A1/A2 boundaries selected; runtime
+replacement unstarted**. This is a prerequisite of
 [ordinary Standard execution](./04c3-standard-finite-execution.md), not completion
 of that cutover. Replication remains deferred.
 
-Flarex source checkpoint: `dde48c281`, with the uncommitted 04C3 replacement.
 Convex pin: `84fbb0e70b4e857913673871cb847ad11a55f3d5`.
+The [mechanism record](../divergences/maintained-relation-readiness.md) explains
+why the existing owners need serving certification and historical recovery.
 
-## Problem and source challenge
+## One concept at a time
 
-An app has a serving relation schema A and its physical receipt at frontier S.
-Business writes advance the app to T while maintaining that relation. Deploying
-a new function revision with the same immutable schema currently requires a
-physical receipt at T. Rebuilding its serving sidecar is correctly forbidden.
-Neither forging a newer receipt frontier nor relaxing every readiness comparison
-is an acceptable fix.
+1. [A1: serving certification and maintained reuse](./04c3a1-serving-certification.md)
+   owns semantic codec 2, genuine initial/current proof, fresh revision and atomic
+   final issuance, cheap certified same-current reuse, and incoming-read floor U.
+2. [A2: selected maintenance baseline recovery](./04c3a2-maintenance-baseline-recovery.md)
+   owns destructive serving repair, the durable per-scope obligation, actual
+   maintenance capabilities, uncertain settlement and every reopen gate.
 
-The independent challenges converged on these distinctions:
+A1 ordinary nondestructive validation can proceed independently of A2's private
+maintenance constructors. Do not require an installer lane for an ordinary
+clean audit or add an unnecessary scan to a complete initial physical proof.
 
-| Responsibility | Pinned mechanism and Flarex disposition |
+## Problem and accepted distinctions
+
+A serving relation's immutable physical proof is at S. Business writes advance
+the app. A new function revision with the same schema should reuse actual
+maintained validity, while rollback to overwritten A must validate A again.
+Neither stamping an old receipt with the latest frontier nor allowing every
+historical receipt to satisfy readiness is sound.
+
+| Responsibility | Selected owner boundary |
 | --- | --- |
-| Unchanged current schema | Convex reuses the exact currently active schema document. Flarex may derive a new revision's readiness from its exact currently serving immutable relation schema only after proving maintained coverage. |
-| Current index eligibility | Convex separately compares actual current index metadata, retaining identical enabled physical identities. Keep all ordinary-index, unique, candidate, ownership and execution-authority checks; active-schema equality does not replace them. |
-| Maintenance after the original receipt | Convex applies document/index/schema-registry updates atomically for every relevant write. Prove the equivalent supported-writer closure before deriving maintained relation evidence. |
-| Historical A after B | Convex does not resurrect overwritten schema validity. Flarex rollback must freshly validate A against current data; A's historical semantic receipt is insufficient. |
-| Current physical identity | Authenticate enabled attempt, fence, physical specification, digest, storage generation and epoch. Historical receipt lineage and an active head alone are insufficient. |
-| Final activation | Rederive or revalidate the genuine serving reference under the final scope lock and activation CAS. A borrowed reference must not regain validity through active-root ABA. |
+| Initial baseline | Complete genuine current physical target set at S = locked U and authentic absent head may issue Serving2 certification; otherwise audit at fixed U. |
+| Unchanged current schema | Only an actually active certified baseline lends maintained validity; preserve truthful children/frontier and authenticate current physical identity again. |
+| Historical A after B | Fresh current semantic validation, a genuine new revision and final CAS; old validity is not resurrected. |
+| Physical identity | Keep exact enabled attempt, fence, specification, digest, storage generation and epoch checks distinct from historical lineage. |
+| Legacy active head | Reuse the existing legacy/relation/policy readiness commitment; Legacy-to-R02 is already admitted and must not receive a fabricated relation digest. |
+| Final issuance | Reuse the private fold settle/issue body and existing activation finalizer in the accepting transaction, with catalog-before-scope ordering. |
+| Historical reads | Preserve physical S and actual coverage U; refuse snapshots below U before incoming data, cache or receipt exposure. |
+| Repair | Normal serving rebuild refusal remains; only the actual maintenance owner may perform selected destructive reconstruction and reopen after its durable duty is discharged. |
 
-Pinned owners are [schema submission](../../../../../../crates/database/src/bootstrap_model/schema/mod.rs),
-[index preparation](../../../../../../crates/database/src/bootstrap_model/index.rs),
-[document/index application](../../../../../../crates/database/src/transaction.rs),
-[index updates](../../../../../../crates/indexing/src/index_registry.rs),
-[backfill](../../../../../../crates/database/src/database_index_workers/mod.rs),
-and their executing [deployment caller](../../../../../../crates/application/src/deploy_config.rs).
-The inspected source is at the pin; this is not an upstream runtime-test claim.
-Convex's ID validator does not enforce our live foreign-row/adjacency semantics;
-the necessary difference belongs in the
-[mechanism record](../divergences/maintained-relation-readiness.md).
+All new semantic receipts use codec 2 with evolution/serving purpose. Codec-1
+bytes and historical decoder remain unchanged. Evolution provenance stays
+strict; Serving2 has an authentic absent/active basis using the existing
+Application activation readiness commitment union. No duplicate activation
+codec or fake predecessor is selected.
 
-## Existing owners and truthful representation
+Readiness roots are immutable per `(scopeId, revisionId)`. A fresh target uses
+real analysis begin/settle, candidate, publication and task registration, even
+when the source root and canonical manifest are unchanged. Candidate/analysis
+identities are not shared with another revision. Do not invent source changes.
 
-[Serving inspection](../../../../packages/persistence-postgres/src/application/relations/applicationRelationServing.ts)
-authenticates a coherent current active root and canonical dense child set.
-[Readiness](../../../../packages/persistence-postgres/src/application/relations/readiness/Repository.ts)
-authenticates historical receipt lineage.
-[Current physical projection validation](../../../../packages/persistence-postgres/src/application/relations/build/Repository.ts)
-separately checks the enabled exact physical attempt and authority.
-These checks have different responsibilities and must be composed by their
-existing owners.
+## Writer closure and remaining gates
 
-The [fold](../../../../packages/persistence-postgres/src/application/relations/applicationRelationReadinessFold.ts)
-already persists an independent `relationFrontierCommitSeq`. Child replay
-authenticates the physical child at that exact relation frontier. A new parent
-must not claim T while retaining a child certified at S. A private maintained
-serving reference can preserve the truthful historical relation frontier while
-deriving the new target revision's canonical manifest/binding correlation.
-Historical-frontier acceptance must require that genuine owner-issued reference;
-it must not become a global `frontier <= current` rule. Existing persisted replay
-and new-target canonical correlation still require connected proof. A durable
-format change is not yet demonstrated necessary for this same-current case.
+The [standalone source CMS writer](./04c3b-source-cms-relation-maintenance.md)
+and [joint Application/Payload/Currency writer](./04c3e-cross-domain-relation-maintenance.md)
+carry the original genuine relation pair through their existing single publisher.
+The [empty Application projection](./04c3c-empty-application-source-projection.md)
+keeps genuine empty evidence without inventing a serving table. Ordinary
+Application writes retain their own integrity path; actual source/table identity,
+not framework labels alone, establishes other writer exclusion.
 
-## Writer closure prerequisite
+These corrections preserve future maintenance. They cannot certify prior missed
+add/delete cycles or reconstruct R03 history. A current audit establishes U and
+requires a genuine new baseline head to fence prior saved observations. Old
+snapshots making their first incoming read still require the capability floor.
+Keep committed facts and headers byte-for-byte.
 
-Application publication derives relation transitions from all merged row intents
-and atomically applies rows, edges and adjacency. This includes native effects
-merged into an Application finite root. Full-proof CMS publication also supplies
-the genuine Application relation pair.
+Implementation must preserve all independent ordinary-index, unique, candidate,
+write-ownership, execution-authority and native lifecycle checks. Same-schema
+equality does not replace them. Existing source/semantic/version validators,
+current physical projection, fold, active-head and final activation owners are
+the reuse boundary; do not introduce a second readiness or repair engine.
 
-Source-bound standalone CMS publication is a distinct executing path. Its former
-source template passed `relations: null` and directly published its lowered
-delta. V3 Payload admission intentionally permits ownership of the same bound
-Application relation endpoint tables, so namespace or profile labels cannot prove
-disjointness. Its native-reference protocol does not by itself maintain the
-Application relation sidecars. Trusted serving composition already provides the
-genuine relation port, and the current Application binding can lend the exact
-definitions. The connected correction belongs to that core preparation and
-materialization handoff, with Application and logical-source schema authorities
-kept distinct. The bounded [source CMS maintenance replacement](./04c3b-source-cms-relation-maintenance.md)
-now carries the genuine pair through that existing publisher. This proves future
-supported writes, not repair of already-missed historical sidecars. Historical
-coverage and bootstrap disposition remain prerequisites of maintained reuse.
+Required proofs remain cold initial/zero-set certification, same-current reuse,
+original-create rollback, Legacy transitions, frontier/head/physical ABA,
+pre-first-read floor enforcement, native writers, historical bytes, and A2
+crash/reopen/retention/uncertainty cases. Both database drivers, host/consumer
+checks, both mandated reviews, cleanup and the parent commit remain gates. This
+record establishes neither busy-app deployment throughput nor complete-flow
+performance.
 
-Logical Commerce has a different exclusion proof: admitted Medusa ownership,
-single qualified-table definition ownership, retained-history ownership checks,
-the V3 Application/Payload-only exception, and current exact Application binding
-correlation together prevent taking these Application endpoint identities.
-Preserve those gates; a namespace label alone is not an exclusion proof.
-
-## Rollback prerequisite
-
-Original A may have immutable evolution `create`. After A -> B, calling the
-existing semantic `advance(A)` does not validate it anew: the current semantic
-state/receipt protocol only admits immutable `preserve + reuse` origins and
-rejects an origin equal to the target schema. Changing A's immutable plan or
-reusing its old semantic receipt would be false evidence.
-
-The existing semantic-page kernel can scan a genuine target definition set
-against a current fixed frontier and physical projection without rewriting
-sidecars. The remaining contract must distinguish fresh serving revalidation
-from immutable evolution, bind progress and completion to the target A and
-observed current serving head/physical attempt, and retain bounded lifecycle,
-concurrent-write and final-acceptance rules. Its provenance/receipt representation
-is still open. Do not substitute historical pointer reversal.
-
-## Required connected evidence
-
-- A new revision with the exact current schema after source insert/update/delete
-  and target restrictions, including business writes between settle and activation.
-- Changed semantics with the same physical index use current semantic validation.
-  A -> B -> A validates current data, including data B accepts and A rejects.
-- Actual standalone V3 Payload writes maintain incoming relation results and
-  target-delete restrictions; a mixed Application-root control remains covered.
-- Missing or mismatched active roots, dense children, receipt lineage, physical
-  attempts, fences, generations, epochs, target/control composition and copied
-  capabilities refuse through their existing owners.
-- Activation races and active-root ABA cannot revive a borrowed reference.
-  Receipt retention, cold reconstruction and stored-active replay stay valid.
-- PGlite and ordinary-role PostgreSQL owner/consumer proof, affected checks,
-  both read-only reviews, cleanup and a scoped commit remain required.
-
-The unchanged-serving optimization is not enabled until writer closure and the
-truthful representation are proven. The current physical builder and unrelated
-readiness/admission gates remain strict. This record does not contract supported
-Payload behavior or select a permanent exclusion in place of its repair.
+Pinned source: schema submission and overwrite handling in
+[database schema](../../../../../../crates/database/src/bootstrap_model/schema/mod.rs),
+actual [index selection](../../../../../../crates/database/src/bootstrap_model/index.rs),
+[index maintenance](../../../../../../crates/indexing/src/index_registry.rs),
+[writer metadata dependencies](../../../../../../crates/database/src/writes.rs),
+and [backfill](../../../../../../crates/database/src/database_index_workers/mod.rs).
+The forward revision-stream helper has no executing caller at the pin; it is
+not a proven catch-up path. These are inspected source facts, not upstream test
+runs.
