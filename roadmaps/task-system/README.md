@@ -18,6 +18,8 @@ caller contracts are inputs to the replacement, verified against current code.
 
 - [Accepted FlarexDB authority](../../design-notes/flarex-db-accepted-design.md)
   and [shared logical storage](../../design-notes/flarexdb-shared-logical-storage.md).
+- [Shared schema installation/evolution](../../design-notes/flarexdb-shared-schema-lifecycle.md)
+  owns common core lifecycle APIs for Application, Payload, Medusa and Tasks.
 - [Engine and integration](../../design-notes/task-system/01-engine-and-integration.md),
   [logical storage](../../design-notes/task-system/02-logical-storage.md),
   [host adapters](../../design-notes/task-system/03-host-adapters.md) and
@@ -66,6 +68,11 @@ is part of this destination: Task schemas declare indexes, shared core owners
 maintain/query them, and eligible Task reads reuse the core cache through its
 DO adapter. Integrate Task writers with shared publication/refresh. Build no
 separate Task database, index engine or cache layer; Trigger remains the engine.
+Task schemas use the same shared core admission, installation, migration/build,
+validation, progress/recovery and activation owners as Application, Payload and
+Medusa. Platform Task definitions and conversion meaning are producer-owned;
+there is no Task installer or independently authoritative migration engine.
+System bootstrap must not require app code analysis or the Task engine to run.
 Cloudflare delivery/timer/compute adapters are first; AWS is an extension point.
 Cloudflare Workflows does not become a second lifecycle owner.
 
@@ -110,6 +117,10 @@ Shared core query cache reuse and bounded DO RAM composition exist, but Task
 read/write/cache integration is pending. Persistent DO SQLite caching is not
 an implemented Task capability. Cache eligibility must preserve Task visibility,
 fresh claims, private scope access and atomic settlement.
+Shared schema lifecycle consolidation and authenticated platform installation
+remain pending. The current `system` source label does not remove mandatory
+Application-analysis coordinates or establish a system serving capability.
+Task schema versions/lifetimes must remain independent of app code redeployment.
 
 ## Target Direction
 
@@ -125,6 +136,7 @@ installation has no custom parallel lifecycle or Task-specific physical tables.
 | --- | --- | --- |
 | Source and contract admission | Exact adopted methods/tests/dependencies, private package boundaries, finite store operations, transaction/claim/visibility contract and numeric bounds are specified against current consumers | Pending |
 | Logical state and discovery | Both database lanes prove private scope/platform system-table installation over shared storage, no per-app Task DDL, atomic indexed claims, directory repair, fencing and bounded progress without Task-specific physical tables | Pending |
+| Shared schema lifecycle | Core APIs install/evolve Task definitions with authenticated system authority, no fabricated Application analysis, bootstrap/restart before engine execution, replay-safe progress, dependency/readiness/activation checks and no Task-specific installer | Pending |
 | Shared core indexes and DO cache | Task point/range reads, index maintenance and every admitted writer use core owners; warm/cold reads, invalidation/refresh, scope isolation and DO restart preserve freshness and claim authority without a separate Task database/cache layer | Pending |
 | Connected fork proof | Adopted methods execute enqueue through terminal/retry/cancel and fresh-host recovery, with required wait/resume behavior and injected hosts | Pending |
 | Framework cutover | Application, Payload and a real Medusa consumer share the engine; enqueue rollback/crash/replay and native contexts/child outcomes are proven; displaced paths are removed | Pending |

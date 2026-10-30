@@ -6,6 +6,15 @@ activation remain pending
 
 Last reviewed: 2026-09-14
 
+The accepted [shared schema lifecycle](./flarexdb-shared-schema-lifecycle.md)
+places Medusa logical installation/evolution on the same core APIs as Flarex
+Application, Payload and Tasks. Medusa retains model/module/Link compilation and
+explicit business-conversion meaning. Shared core owns admission, planning,
+build/validation, durable progress/recovery, readiness and activation. The older
+physical coordinator below is source/consumer evidence for consolidation, not
+a separate permanent Medusa migration engine. Full lifecycle consolidation and
+advanced populated-data upgrades retain their pending/deferred gates.
+
 This note owns the intended mapping from Medusa's persistence, repository,
 module-link, transaction, workflow, and locking contracts onto FlarexDB. It
 does not redefine Medusa commerce behavior or the native FlarexDB application

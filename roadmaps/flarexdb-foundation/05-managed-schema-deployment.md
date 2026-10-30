@@ -1,5 +1,19 @@
 # Managed Schema Deployment And Migrationless DX
 
+## Shared Core Lifecycle Direction
+
+The accepted [shared schema lifecycle](../../design-notes/flarexdb-shared-schema-lifecycle.md)
+extends the installation/evolution destination to Application, Payload, Medusa
+and platform Tasks through common internal core APIs. The private Application
+planner/apply/build/activation owners below are foundations to consolidate with
+logical catalog and framework installation guarantees, not a finished universal
+engine. Developer schema authoring and push/deploy compose this shared core;
+platform Task definitions use trusted system admission independent of app code
+analysis. Native compilation/conversion meaning stays producer-owned. Current
+private capability status and deferred general evolution gates remain literal.
+
+## Implemented Foundation Status
+
 Status: Accepted deferred foundation contract with `M01-A`, `M01-B`, `M02`,
 and production-inert `M03-A` through `M03-C` complete. The private
 managed-schema compatibility, read-only planning, candidate-document policy,

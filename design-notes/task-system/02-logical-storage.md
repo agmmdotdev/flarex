@@ -132,6 +132,15 @@ cacheable; those retain their execution and replay contracts.
 
 ## Installation, Access And Lifetime
 
+Use the [central schema installation and evolution APIs](../flarexdb-shared-schema-lifecycle.md)
+shared by Application, Payload, Medusa and Tasks. Task code supplies authenticated
+platform definitions, dependencies, version requirements and explicit conversion
+meaning. Core owners perform candidate admission, identity allocation, logical
+planning, index/constraint builds, validation, durable progress/recovery,
+readiness and activation. Extend existing owners when a required guarantee is
+missing; no Task installer, private migration journal or parallel planner is
+introduced. Generic core catalog/progress infrastructure remains core-owned.
+
 The platform installs and evolves Task schemas independently of app-written
 schemas, Payload configuration and Medusa module choices. Apps cannot redefine
 these tables or change lifecycle fields through ordinary `ctx.db`, collection
@@ -149,6 +158,15 @@ Provision a platform logical scope through existing core catalog/installation
 owners. Prove bootstrap and discoverability without depending on the Task engine
 to run its own first installation. Platform capabilities are unavailable to
 application code and must not grant arbitrary access to unrelated scopes.
+
+The current candidate protocol admits a `system` producer label but still
+requires Application-analysis coordinates; shared admission is deployment/scope
+bound. Neither establishes platform Task installation. Generalize authenticated
+system producer/target admission at the shared owner instead of inventing app
+source, mislabeling Tasks as framework models or calling a public developer CLI.
+This is a pending core integration gate. Advanced populated-data transitions
+follow the shared lifecycle's deferred-evolution boundary; unsupported changes
+must preserve the active schema and fail explicitly.
 
 ## Store Contract And Settlement
 

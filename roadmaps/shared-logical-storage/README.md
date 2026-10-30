@@ -2,6 +2,15 @@
 
 ## Status And Scope
 
+The accepted [shared schema lifecycle](../../design-notes/flarexdb-shared-schema-lifecycle.md)
+puts Flarex Application, Payload, Medusa and platform Tasks on common internal
+admission, installation, planning/builds, validation, progress/recovery,
+readiness and activation APIs. Native producers retain definitions and explicit
+conversion meaning. Shared foundations exist; complete consolidation and Task
+system admission are pending. This roadmap retains its existing three-consumer
+completion scope; Task integration belongs to the Task roadmap and advanced
+evolution keeps its separate gate. Do not create per-consumer migration engines.
+
 The separate [Task System replacement](../task-system/README.md) adopts
 [Convex-style private system tables](../../design-notes/task-system/02-logical-storage.md#convex-storage-reference)
 over these shared storage mechanics, keeping its independent Trigger fork as

@@ -96,6 +96,12 @@ lifecycle and the entire Task-specific physical schema.
   second app/scope creates no dedicated Task SQL schema, table or index. Prove
   mutation rollback and committed enqueue recovery through the selected durable
   publication owner; the Convex storage precedent alone proves neither property.
+- Task installation and schema changes use the shared core lifecycle used by
+  Application, Payload and Medusa. Prove authenticated system scope/producer
+  admission without fabricated app analysis, bootstrap and interrupted-install
+  recovery before the Task engine runs, idempotent replay, index/constraint
+  readiness, dependency/activation races and schema survival across app code
+  redeployment. No separate Task installer or migration authority remains.
 - Task reads and writers execute through shared core indexing/cache owners,
   with warm/cold Task point/range witnesses, index-key changes, cached absence,
   deletion, scope/privacy isolation and refresh after every admitted writer.

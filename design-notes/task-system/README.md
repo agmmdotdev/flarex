@@ -57,6 +57,14 @@ an integration adapter, not a separate database, index engine or cache layer.
 Postgres remains authoritative; Task cache admission and writer integration
 must be proved before activation.
 
+Task schema installation and evolution use the
+[shared schema lifecycle core](../flarexdb-shared-schema-lifecycle.md), alongside
+Flarex apps, Payload and Medusa. The platform supplies private Task definitions
+and version/conversion requirements; common core APIs own admission, planning,
+builds, validation, progress/recovery, readiness and activation. Bootstrap uses
+trusted system authority independently of app code deployment and Task execution.
+There is no Task-specific installation or migration engine.
+
 The engine is host-neutral. Inject wake delivery, timer/repair triggers and
 compute capabilities. Cloudflare is the first host; another host can implement
 the same admitted contracts. The fork owns task policy, FlarexDB owns durable
@@ -71,6 +79,7 @@ truth, and host services wake or execute work.
 | [Host adapters](./03-host-adapters.md) | Redis replacement, queues, timers, compute and host portability |
 | [Cutover and retirement](./04-cutover-and-retirement.md) | Isolated proof, consumers, development-data disposition, complete physical retirement and validation |
 | [Living roadmap](../../roadmaps/task-system/README.md) | Current baseline, open gates and implementation status |
+| [Shared schema lifecycle](../flarexdb-shared-schema-lifecycle.md) | Core installation/evolution APIs shared by Application, Payload, Medusa and Tasks |
 
 ## Target Shape
 

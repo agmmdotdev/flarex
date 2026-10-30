@@ -2,6 +2,16 @@
 
 ## Status And Scope
 
+The accepted [shared schema lifecycle](../../design-notes/flarexdb-shared-schema-lifecycle.md)
+owns the logical destination: Application, Payload, Medusa and Tasks all use
+shared core installation/evolution APIs. Native schema compilation and explicit
+business conversions remain producer-owned. The physical coordinator and
+checkpoints recorded below are existing mechanisms/consumer evidence to compare,
+reuse and retire by responsibility; they do not select a permanent framework-
+only migration authority. Generic physical-core upgrades remain distinct.
+Full consolidation and Task system admission are pending; advanced transitions
+retain the [deferred evolution boundary](../shared-logical-storage/deferred-framework-schema-evolution.md).
+
 Status: value-only relational schema and checkpoints 1 and 2 of the private
 physical/coordination/lifecycle program are complete and production-inert. The
 additive coordinator metadata DDL, source-private topological restoration, all

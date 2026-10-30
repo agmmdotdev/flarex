@@ -212,6 +212,22 @@ state remain scoped/plain multi-instance values created by the host; they do
 not become module-global Context services. The host owns the only runtime
 bridge.
 
+### Shared Schema Lifecycle Boundary
+
+The [shared schema lifecycle design](../design-notes/flarexdb-shared-schema-lifecycle.md)
+governs internal installation/evolution APIs for Application, Payload, Medusa
+and Tasks. Producer/compiler owners retain schema source and explicit conversion
+meaning. Existing protocol/analysis/catalog/planning/build/readiness/activation
+owners supply shared mechanics, scoped authority, progress and recovery; host
+entry points compose them. Developer push/deploy is one consumer-facing entry.
+Platform Tasks need authenticated system installation independent of mandatory
+Application code analysis. No producer owns a parallel installer or migration
+engine, and consolidation is not a facade over retained duplicate authorities.
+Generic physical-core upgrades remain platform maintenance. Exact API/package
+shapes follow connected implementation; this direction creates no speculative
+registry, package, universal authoring DSL or transaction API. Partial existing
+capabilities and deferred advanced evolution keep their recorded boundaries.
+
 ### Accepted Task Fork Boundary
 
 The [Task System design](../design-notes/task-system/README.md) and

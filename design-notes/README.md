@@ -84,6 +84,18 @@ replacement does not change those guarantees. The new service is not yet
 implemented or activated. Exact breaks and implementation gates are recorded in
 [the redesign preflight](../roadmaps/query-sync-engine/preflight/15-live-query-service-redesign.md).
 
+## Shared Schema Lifecycle Authority
+
+[Shared schema installation and evolution](./flarexdb-shared-schema-lifecycle.md)
+owns the accepted common internal APIs for Flarex Application, Payload, Medusa
+and platform Tasks. Each supplies native definitions and conversion meaning;
+the core supplies admission, planning, logical installation/builds, validation,
+progress/recovery, readiness and activation. Extend/consolidate current owners;
+do not add consumer-specific installers or migration authorities. Developer
+schema deployment composes this core, while platform schemas use authenticated
+system installation. Existing capabilities remain bounded and full consolidation
+and advanced evolution are pending/separately scoped.
+
 ## Task System Replacement Authority
 
 For Task engine, storage, scheduling, compute and migration work, start with
@@ -104,6 +116,11 @@ folder are legacy/superseded direction. Preserve applicable baseline behavior
 and source evidence, but do not resume their old next-step instructions.
 
 ## Notes
+
+- [Shared schema installation and evolution](./flarexdb-shared-schema-lifecycle.md)
+  - Accepted four-consumer core API direction, producer/core responsibilities,
+    Task bootstrap and current implementation gaps. Generic physical upgrades
+    remain platform-owned and advanced evolution retains its separate gate.
 
 - [Shared framework integration direction](./flarexdb-framework-integration-direction.md)
   - Accepted core transaction/commit ownership with distinct native OCC and

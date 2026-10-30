@@ -84,6 +84,12 @@ adapter through the host composition. Keep host SDKs and cache representation
 out of the Trigger fork. Necessary core improvements belong with their existing
 owners and must preserve the Task transaction profile.
 
+The [shared schema lifecycle](../flarexdb-shared-schema-lifecycle.md) owns
+installation/evolution mechanics for all four consumers. The Task producer owns
+its platform definitions and admitted record-conversion meaning. The Trigger
+fork depends on ready Task store capabilities; it does not install its own
+schema, own migration progress/activation or require a second migration service.
+
 ## Framework And Execution Semantics
 
 Application, Payload and Medusa use one Task lifecycle in an admitted scope.

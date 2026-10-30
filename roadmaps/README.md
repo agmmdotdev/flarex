@@ -65,6 +65,20 @@ index/constraint/query proofs and retirement. Existing physical implementation
 receipts remain baseline evidence, not the target. Read this decision before
 new framework storage or runtime scalability work.
 
+## Shared Schema Lifecycle Authority
+
+The [shared schema lifecycle design](../design-notes/flarexdb-shared-schema-lifecycle.md)
+puts Application, Payload, Medusa and platform Tasks on shared internal
+installation/evolution APIs. Producers own definitions and conversion meaning;
+the core owns admission, planning/builds, validation, progress/recovery,
+readiness and activation. Shared-storage, managed-schema and framework records
+provide existing foundations; complete consolidation is pending. The
+[shared storage roadmap](./shared-logical-storage/README.md),
+[Task roadmap](./task-system/README.md) and
+[deferred evolution boundary](./shared-logical-storage/deferred-framework-schema-evolution.md)
+retain their own implementation scopes. No per-consumer installer/migration
+engine or new runtime implementation is authorized by this documentation.
+
 ## Task System Replacement Authority
 
 The [Task System roadmap](./task-system/README.md) and

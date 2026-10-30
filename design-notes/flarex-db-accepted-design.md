@@ -1061,6 +1061,22 @@ Postgres references for this policy:
 
 ## Catalog And Schema Evolution
 
+The accepted [shared schema lifecycle](./flarexdb-shared-schema-lifecycle.md)
+serves Flarex Application, Payload, Medusa and platform Tasks through common
+internal admission, installation, planning, build/validation, progress/recovery,
+readiness and activation APIs. Each consumer retains native schema compilation
+and explicit conversion meaning. Developer schema push/deploy APIs compose
+these core mechanisms. Extend/consolidate existing owners rather than creating
+consumer-specific installers or preserving parallel migration authorities behind
+a facade. Platform Tasks require authenticated system installation independent
+of app code analysis/deployment. Their execution engine remains the Trigger fork.
+
+This is accepted architecture with partial foundations, not completed
+four-consumer runtime support. Generic physical PostgreSQL upgrades remain
+platform maintenance; [advanced logical evolution](../roadmaps/shared-logical-storage/deferred-framework-schema-evolution.md)
+retains its separate implementation boundary. Task-specific physical retirement
+and shared indexing/DO cache requirements remain in force.
+
 Catalog identity must survive schema activation. Separate stable identities
 from immutable versioned definitions:
 

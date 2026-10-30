@@ -431,6 +431,13 @@ authorization and integrity acceptance.
 
 ## Schema Evolution And Admission
 
+The [shared schema lifecycle design](./flarexdb-shared-schema-lifecycle.md)
+owns the accepted installation/evolution direction for Flarex Application,
+Payload, Medusa and platform Tasks. All four build on shared core APIs; their
+producers retain native definitions and conversion meaning. The Task engine
+remains the independent Trigger fork and consumes the same installation,
+index/readiness and cache/publication owners as other admitted consumers.
+
 Implementation sequence: [advanced cross-framework evolution](../roadmaps/shared-logical-storage/deferred-framework-schema-evolution.md)
 is deferred to separate sessions after the core redesign. The contracts below
 state the eventual guarantees. Core work prepares shared owners and preserves
@@ -452,14 +459,22 @@ No cached prepared plan is current execution authority. Select the integrity
 contract explicitly before reducing current evidence checks.
 
 Logical evolution must converge on shared definitions, planning, validation,
-index/constraint builds, progress/recovery and readiness mechanics for all three
-consumers. Begin with the Application evolution owners and compare the existing
-framework coordinator's guarantees. Redesign inadequate contracts instead of
-retaining overlapping engines behind a facade or adding framework-name branches
+index/constraint builds, progress/recovery, readiness and activation mechanics
+for Application, Payload, Medusa and Tasks. Begin with the Application evolution
+owners and compare the existing framework coordinator's guarantees. Redesign
+inadequate contracts instead of retaining overlapping engines behind a facade
+or adding framework-name branches
 to the Application planner. Native schema compilation and business conversion
 meaning remain framework-owned. Data conversions execute through admitted,
 bounded operations with shared progress and settlement; they are not arbitrary
 migration callbacks or one long database transaction.
+
+Platform Task definitions use authenticated core system-installation authority
+without fabricated Application analysis or a separate Task installer. Keep
+their logical schema lifetime independent of app code deployment and avoid a
+bootstrap dependency on the not-yet-installed Task engine. Task integration
+retains its own roadmap scope; the existing three-consumer storage completion
+plan and advanced-evolution sequencing are not expanded by this decision.
 
 Current Application evolution is not a ready-made universal engine. Its
 `managed-schema` planner and persistence apply/build/activation owners need a
