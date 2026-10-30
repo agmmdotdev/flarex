@@ -5,6 +5,7 @@ import { projectBoundedRequestLifetime, type BoundedRequestLifetime } from "../.
 import { makeSourceApplicationInsertParticipant, ApplicationCommandError,
   applicationCommandError } from "../../storage/materialization/insertParticipant";
 import { makeSourceCmsDocuments, consumeSourceCmsDocumentClosure } from "../cmsTransaction/documents";
+import type { PreparedSourceCmsDocumentMaterialization } from "../cmsTransaction/contribution";
 import { makeCmsCommandContext } from "../cmsTransaction/context";
 import type { CmsCommandContext } from "../cmsTransaction/commands";
 import { cmsError, CmsTransactionError } from "../cmsTransaction/model";
@@ -32,6 +33,7 @@ interface LogicalParticipantInput {
   readonly application: LogicalApplicationSourceAdmission;
   readonly payload: LogicalDocumentSourceAdmission;
   readonly currency: LogicalRelationalAdmission;
+  readonly sourceTemplate: PreparedSourceCmsDocumentMaterialization;
   readonly lifetime: BoundedRequestLifetime<CompositeFailure>;
   readonly transactionId: string;
   readonly applicationTable: string;
@@ -45,7 +47,7 @@ interface LogicalParticipantInput {
 export const makeCurrencyAnnouncementParticipants = Effect.fn("CurrencyAnnouncement.makeParticipants")(
   function* (input: LogicalParticipantInput, hooks?: CurrencyAnnouncementTestHooks) {
     const { tx, authority, application, payload, currency, lifetime, transactionId,
-      applicationTable, currencyCommand, cmsCommand, materialization } = input;
+      applicationTable, currencyCommand, cmsCommand, materialization, sourceTemplate } = input;
     const testHooks = hooks === undefined ? undefined : Object.freeze({ ...hooks });
     const cmsLifetime = projectBoundedRequestLifetime(lifetime, error => error instanceof CmsTransactionError
       ? error : cmsError("rollbackOnly", error));
@@ -101,7 +103,7 @@ export const makeCurrencyAnnouncementParticipants = Effect.fn("CurrencyAnnouncem
       const applicationChanges = yield* app.consume(appClosure);
       const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, authority.scopeId);
       const delta = yield* prepareJointLogicalMaterialization({ tx, clock, application, payload, currency,
-        applicationChanges, payloadChanges, currencyChanges, options: materialization });
+        applicationChanges, payloadChanges, currencyChanges, sourceTemplate, options: materialization });
       return Object.freeze({ changes: delta.changes, relationalFacts: Object.freeze([]), delta, clock });
     });
     return Object.freeze({ execute, close });

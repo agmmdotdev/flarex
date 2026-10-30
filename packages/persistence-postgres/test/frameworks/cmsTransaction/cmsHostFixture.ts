@@ -28,7 +28,7 @@ export async function cmsHostFixture(persistence: PGliteFlarexPersistence | Post
   options: Parameters<typeof relationReadinessFixture>[0] = {}, compiled?: CompiledPayloadCollections) {
   const fixture = await relationReadinessFixture({ persistence, writePolicy: true, bindingAdmission: true, cmsIndexes: true,
     cmsFields: [{ name: "title", kind: "text", unique: true }], ...options,
-    ...(compiled === undefined ? {} : { cmsManifest: await compiledPayloadManifest(compiled) }) });
+    ...(compiled === undefined ? {} : { cmsManifest: options.cmsManifest ?? await compiledPayloadManifest(compiled) }) });
   await prepareReadinessEvidence(fixture);
   await runEffect(fixture.fold.settle(fixture.input));
   await runEffect(fixture.relationActivation.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }));

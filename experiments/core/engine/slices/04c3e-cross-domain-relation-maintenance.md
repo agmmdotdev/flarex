@@ -1,7 +1,7 @@
 # Maintain Application relations in the joint native command
 
-Status: **Independent current-core, accepted-direction and pinned-Convex challenge
-and peer exchange complete; bounded replacement selected; runtime unstarted**.
+Status: **Bounded writer replacement implemented. Historical coverage,
+maintained-serving readiness and the wider Standard cutover remain open**.
 This is a writer-closure prerequisite of
 [maintained relation readiness](./04c3a-maintained-relation-readiness.md), not
 proof of historical coverage or completion of Standard cutover.
@@ -15,7 +15,7 @@ owns the necessary native-profile adaptation.
 The joint command admits Application, Payload and Currency sources and merges
 their contributions into one materialization. Its
 [materializer](../../../../packages/persistence-postgres/src/frameworks/crossDomainCommand/materialization.ts)
-currently supplies `relations: null`. Source-table disjointness prevents duplicate
+previously supplied `relations: null`. Source-table disjointness prevents duplicate
 owners; it does not prove disjointness from Application relation endpoints.
 
 The host accepts a genuine `payload.content-relations` source. Native create
@@ -24,11 +24,11 @@ reference-replacement or set-null intent. The joint refusal of those intents
 therefore does not exclude this writer. Native strong-reference validation does
 not maintain Application edges, incoming adjacency and R03 facts.
 
-A genuine overlapping V3/R02 fixture must demonstrate this path before claiming
-runtime closure: native authors/articles, an Application-owned scalar audit
-table and Currency, with a joint article create referencing a seeded author.
-The source predicts a committed article without Application sidecars. This is
-an unexecuted witness at selection, not a measured failure or passing result.
+The genuine overlapping V3/R02 fixture combines native authors/articles, an
+Application-owned scalar audit table and Currency. Its preserved counterexample
+commits all three sources while omitting Application sidecars. The corrected
+[scenario](../../../../packages/persistence-postgres/test/frameworks/crossDomainCommand/jointApplicationRelationsScenario.ts)
+checks the complete relation and publication through both database drivers.
 
 ## Selected replacement and ownership
 
@@ -58,7 +58,7 @@ an unexecuted witness at selection, not a measured failure or passing result.
   timeout, native callbacks, failure latches and outer-only settlement. Existing
   relation-free/Legacy absence remains issuer-authenticated.
 
-The host/materialization worker owns the three joint runtime files and necessary
+The host/materialization replacement owns the joint runtime files and necessary
 same-owner types. The witness worker owns genuine fixture composition and
 connected tests, reusing native compiler, analysis, candidate, build, binding and
 Currency/Payload execution owners. They coordinate the prepared-template handoff
@@ -80,8 +80,15 @@ records, integration checks, review and the eventual connected scoped commit.
   their current behavior.
 - Verify current-binding refresh, exact original generation and all three source
   admissions; remove the displaced request-only selection/null handoff.
-- PGlite and ordinary-role PostgreSQL, affected Oxc checks, source/compatibility
-  guards, lint, both mandatory reviews, cleanup and scoped commit remain gates.
+- Current-binding preparation resource failures retain their classification
+  and original cause through the joint projection. Other activation refusals
+  remain authority failures; the focused model tests cover that distinction.
 
 This corrects future joint writes. Historical gaps, serving validation, read
 coverage floors and baseline activation remain with 04C3A. Replication is deferred.
+
+The existing direct materialization caller now supplies a genuine retained
+generation and template. The CMS fixture honors an explicitly authored complete
+manifest, preserving the default compiled manifest for ordinary consumers.
+Relation-bearing replay and late-fault rollback are bounded correctness proofs;
+complete-flow performance and production activation remain outside this slice.

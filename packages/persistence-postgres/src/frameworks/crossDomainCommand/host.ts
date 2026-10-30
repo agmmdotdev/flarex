@@ -14,14 +14,15 @@ import type {
 } from "../../application/activation/contracts";
 import {
   hasApplicationBindingComposition,
-  prepareApplicationBindingSelection,
 } from "../../application/activation/repositoryIdentity";
+import { prepareCurrentApplicationBinding } from "../../application/activation/currentBinding";
 import type { ApplicationParticipantOptions } from "../../storage/materialization/participant";
 import { makeBoundedRequestLifetime } from "../../execution/preparation/boundedRequestLifetime";
 import type { CmsHostInput } from "../cmsTransaction/host";
 import type { CmsCommand } from "../cmsTransaction/commands";
 import { getCmsCommand } from "../cmsTransaction/commands";
 import { cmsLimits } from "../cmsTransaction/model";
+import { prepareSourceCmsDocumentMaterialization } from "../cmsTransaction/contribution";
 import type { CommerceCommand } from "../commerceTransaction/commands";
 import { getCommerceCommand } from "../commerceTransaction/commands";
 import { captureLogicalCommerceSelection, prepareLogicalCommerceContract,
@@ -53,22 +54,15 @@ import {
 } from "../../execution/preparation/preparedHostRuntime";
 import {
   hasRelationalSessionDatabase,
+  readRelationalSessionCoLocatedInstallation,
   runRelationalSession,
   type RelationalSession,
 } from "../../database/relationalTransaction/session";
 import { runWithRequestRecovery } from "../../database/relationalTransaction/requestRecovery";
-import { captureTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityByIdEffect,
-  type TrustedScopeAuthorityResolutionPorts } from "../../scope/scopeAuthorityResolution";
-import {
-  makeInstallationProtectedScopeAuthorityControlReader,
-} from "../../scope/scopeAuthorityControlRead";
+import type { TrustedScopeAuthorityResolutionPorts } from "../../scope/scopeAuthorityResolution";
 import type { ScopeId } from "flarex-protocol/storage-authority";
-import { lockScopeClockForSnapshotReadInTransactionEffect } from "../../scope/scopeClock";
 import type {
   LocatedReadCommittedAttemptTargetV1,
-} from "../../database/locatedTransactionIdentity";
-import {
-  hasLocatedReadCommittedTargetDatabaseV1,
 } from "../../database/locatedTransactionIdentity";
 import { makeCurrencyAnnouncementParticipants } from "./participants";
 import { compositeError, projectCompositeFailure, type CompositeFailure } from "./model";
@@ -110,7 +104,6 @@ const captureLogicalHostInput = <Failure>(input: CurrencyAnnouncementHostInput<F
     application: input.application,
     applicationTable: input.applicationTable,
     bindingMatches: hasApplicationBindingComposition(input.application, input.authority),
-    authority: captureTrustedScopeAuthorityResolutionPorts(input.authority),
     currencySelectionInput: captureLogicalCommerceSelection(input.currency),
     applicationSourceInput: capturePrivateJsonData(input.applicationSource,
       MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES, compositeError),
@@ -137,7 +130,7 @@ export const makeCurrencyAnnouncementHost = Effect.fn("CurrencyAnnouncement.make
 const composeLogicalCurrencyAnnouncementHost = Effect.fn("CurrencyAnnouncement.composeLogical")(
   function* <Failure>(input: ReturnType<typeof captureLogicalHostInput<Failure>>) {
     const { database, controlDatabase, session, deploymentId, scopeId, application, applicationTable } = input;
-    const { authority, currencySelectionInput, applicationSourceInput, payloadSourceInput,
+    const { currencySelectionInput, applicationSourceInput, payloadSourceInput,
       accessPolicyInput, expectedContent, materialization, testHooks, currencyCommand, cmsCommand } = input;
     if (currencyCommand?.name !== "currencyAnnouncementWrite" || currencyCommand.mode !== "write" ||
       cmsCommand?.name !== "payload-create" || cmsCommand.mode !== "write" ||
@@ -154,21 +147,23 @@ const composeLogicalCurrencyAnnouncementHost = Effect.fn("CurrencyAnnouncement.c
     const identity = yield* canonicalizeSuccessfulResultV1Effect(accessPolicy);
     const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(
       yield* hashCurrencyAnnouncement(identity.canonicalBytes));
-    const exactAuthority = { ...authority,
-      ...makeInstallationProtectedScopeAuthorityControlReader(controlDatabase) };
-    const locatedAtPreparation = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
-      { deploymentId, scopeId }, exactAuthority);
-    const coordinates = { deploymentId, scopeId: locatedAtPreparation.authority.scopeId,
-      schemaVersionId: selection.schemaVersionId };
-    const catalog = yield* prepareLogicalStorageReadiness(selection.ports, selection.unique, coordinates);
-    if (catalog.status !== "prepared") return yield* Effect.fail(compositeError("invalidAuthority"));
-    const construction = { kind: "prepared" as const, catalog };
-    const preparedApplication = yield* prepareLogicalApplicationSourceAdmission(selection.ports,
-      selection.unique, coordinates, applicationSource, construction);
-    const preparedPayload = yield* prepareLogicalDocumentSourceAdmission(selection.ports,
-      selection.unique, coordinates, payloadSource, construction);
-    const preparedCurrency = yield* prepareLogicalRelationalAdmission(selection.ports,
-      selection.unique, coordinates, selection.source, construction);
+    const currentPreparation = yield* prepareCurrentApplicationBinding(application, database, (binding, context) => Effect.gen(function* () {
+      // Sources and relation mechanics borrow this original generation's lifetime.
+      const coordinates = { deploymentId, scopeId: context.authority.scopeId, schemaVersionId: selection.schemaVersionId };
+      const catalog = yield* prepareLogicalStorageReadiness(selection.ports, selection.unique, coordinates, binding);
+      if (catalog.status !== "prepared") return yield* Effect.fail(compositeError("invalidAuthority"));
+      const construction = { kind: "prepared" as const, catalog };
+      const preparedApplication = yield* prepareLogicalApplicationSourceAdmission(selection.ports,
+        selection.unique, coordinates, applicationSource, construction);
+      const preparedPayload = yield* prepareLogicalDocumentSourceAdmission(selection.ports,
+        selection.unique, coordinates, payloadSource, construction);
+      const preparedCurrency = yield* prepareLogicalRelationalAdmission(selection.ports,
+        selection.unique, coordinates, selection.source, construction);
+      const sourceTemplate = yield* prepareSourceCmsDocumentMaterialization(
+        yield* preparedPayload.lendPreparation(), materialization, binding, controlDatabase);
+      return Object.freeze({ application: preparedApplication, payload: preparedPayload, currency: preparedCurrency, sourceTemplate });
+    }), { selection: { deploymentId, scopeId },
+      installation: yield* Effect.fromResult(readRelationalSessionCoLocatedInstallation(session, database)) });
     const owner = Object.freeze({ hostId: Symbol("currency.announcement") });
     yield* chargeHostPreparation({ deploymentId, applicationTable, identityDigest,
       expectedContent, contractSha256: contract.sha256Hex });
@@ -176,19 +171,15 @@ const composeLogicalCurrencyAnnouncementHost = Effect.fn("CurrencyAnnouncement.c
     const run = Effect.fn("CurrencyAnnouncement.runLogical")(function* (requestKey: string, args: Json) {
       const request = yield* captureCurrencyAnnouncementRequest(requestKey, args);
       const attempt = Effect.fn("CurrencyAnnouncement.attemptLogical")(function* (recoverOnly: boolean) {
-        const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
-          { deploymentId, scopeId }, exactAuthority);
-        if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database))
-          return yield* Effect.fail(compositeError("invalidAuthority"));
-        const active = yield* prepareApplicationBindingSelection(application);
-        return yield* runRelationalSession(session, "command", tx => Effect.scoped(Effect.gen(function* () {
+        return yield* currentPreparation.withEntry(({ binding: active, payload: prepared }, enter) => runRelationalSession(session,
+          "command", { enter: (tx, requireInstallation) => enter(tx, requireInstallation, Effect.gen(function* () {
           yield* runDrizzleStatementEffect(tx.execute(sql`select set_config('statement_timeout', ${`${cmsLimits.statementMs}ms`}, true),
             set_config('lock_timeout', ${`${cmsLimits.lockMs}ms`}, true)`), cause => compositeError("resourceFailure", cause));
-          yield* lockCommerceRequest(tx, located.authority.scopeId, request.key);
-          const snapshot = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, located.authority.scopeId);
-          return yield* preparedApplication.withAdmission(active, tx, located.authority, snapshot,
-            applicationAdmission => preparedPayload.withAdmission(active, tx, located.authority, snapshot,
-              payloadAdmission => preparedCurrency.withAdmission(active, tx, located.authority, snapshot,
+          yield* lockCommerceRequest(tx, scopeId, request.key);
+          }), ({ authority: entryAuthority, clock: snapshot, checked }) => Effect.scoped(Effect.gen(function* () {
+          return yield* prepared.application.withAdmission(active, tx, entryAuthority, snapshot,
+            applicationAdmission => prepared.payload.withAdmission(active, tx, entryAuthority, snapshot,
+              payloadAdmission => prepared.currency.withAdmission(active, tx, entryAuthority, snapshot,
                 currencyAdmission => Effect.gen(function* () {
                   const app = yield* requireLogicalApplicationSourceAdmission(applicationAdmission, tx);
                   const payload = yield* requireLogicalDocumentSourceAdmission(payloadAdmission, tx);
@@ -201,10 +192,10 @@ const composeLogicalCurrencyAnnouncementHost = Effect.fn("CurrencyAnnouncement.c
                     payload.contentIdentity.provenanceSha256 !== expectedContent.provenanceSha256)
                     return yield* Effect.fail(compositeError("invalidAuthority"));
                   yield* requireLogicalCommerceInitialization(currencyAdmission, tx, selection.initialization);
-                  const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(located.authority.scopeId));
+                  const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(entryAuthority.scopeId));
                   const evidence = yield* canonicalizeSuccessfulResultV1Effect({
                     domain: "flarex.private.currency-announcement", version: 2,
-                    deploymentId, scopeId: located.authority.scopeId, epoch: snapshot.epoch,
+                    deploymentId, scopeId: entryAuthority.scopeId, epoch: snapshot.epoch,
                     generation: snapshot.storageGeneration, fence: snapshot.storageGenerationFence.toString(),
                     binding: payload.frame, head: payload.head, currencyContractSha256: contract.sha256Hex,
                     applicationTable, args: request.captured.value,
@@ -225,9 +216,9 @@ const composeLogicalCurrencyAnnouncementHost = Effect.fn("CurrencyAnnouncement.c
                   return yield* Effect.gen(function* () {
                     yield* lifetime.fromResult(lifetime.charge(request.captured.bytes + evidence.canonicalBytes.byteLength));
                     const participants = yield* makeCurrencyAnnouncementParticipants({ tx,
-                      authority: located.authority, application: applicationAdmission, payload: payloadAdmission,
+                      authority: entryAuthority, application: applicationAdmission, payload: payloadAdmission,
                       currency: currencyAdmission, lifetime, transactionId, applicationTable,
-                      currencyCommand, cmsCommand, materialization }, testHooks);
+                      currencyCommand, cmsCommand, materialization, sourceTemplate: prepared.sourceTemplate }, testHooks);
                     const result = yield* participants.execute(request.argumentsValue);
                     yield* lifetime.fromResult(lifetime.charge(result.canonicalBytes.byteLength));
                     const resultSha256 = yield* hashCurrencyAnnouncement(result.canonicalBytes);
@@ -239,8 +230,8 @@ const composeLogicalCurrencyAnnouncementHost = Effect.fn("CurrencyAnnouncement.c
                       materialization, identity: lookup, closed, result, resultSha256 });
                   }).pipe(Effect.timeoutOrElse({ duration: cmsLimits.commandMs,
                     orElse: () => Effect.fail(compositeError("deadlineExceeded")) }), Effect.ensuring(lifetime.close));
-                }))));
-        })));
+                }), checked), checked));
+        }))) }));
       });
       return yield* runWithRequestRecovery(attempt, { hasRequestKey: true,
         projectFailure: projectCompositeFailure,

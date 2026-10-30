@@ -1,7 +1,6 @@
 import { detachLogicalDocumentChanges } from "../../storage/documents/logicalDocuments/detachChanges";
 import { Effect } from "effect";
-import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
-import { projectScopeIdUuidV1Result, type CommitSeq } from "flarex-protocol/storage-authority";
+import type { CommitSeq } from "flarex-protocol/storage-authority";
 import type { ApplicationDocumentMaterializationOptions } from "../../storage/materialization/model";
 import type { PreparedPointCommitRowIntentV1 } from "../../storage/materialization/model";
 import { applicationCommandError } from "../../storage/materialization/insertParticipant";
@@ -11,7 +10,8 @@ import { requireLogicalRelationalAdmission, type LogicalRelationalAdmission } fr
 import type { LogicalDocumentChanges } from "../../storage/documents/logicalDocuments/workingSet";
 import { validateLogicalDocumentChanges } from "../../storage/documents/logicalDocuments/contribution";
 import { enterLogicalDocumentMaterialization, type LogicalDocumentMaterializationInput } from "../../storage/documents/logicalDocuments/materialization";
-import { validateSourceCmsDocumentContribution } from "../cmsTransaction/contribution";
+import { requireSourceCmsDocumentMaterialization, validateSourceCmsDocumentContribution,
+  type PreparedSourceCmsDocumentMaterialization } from "../cmsTransaction/contribution";
 import { cmsError } from "../cmsTransaction/model";
 import { commerceError } from "../commerceTransaction/model";
 import { logicalCommerceError } from "../commerceTransaction/model";
@@ -26,6 +26,7 @@ interface JointSourceInput {
   readonly application: LogicalApplicationSourceAdmission;
   readonly payload: LogicalDocumentSourceAdmission;
   readonly currency: LogicalRelationalAdmission;
+  readonly sourceTemplate: PreparedSourceCmsDocumentMaterialization;
   readonly applicationChanges: readonly PreparedPointCommitRowIntentV1[];
   readonly payloadChanges: LogicalDocumentChanges;
   readonly currencyChanges: LogicalDocumentChanges;
@@ -50,6 +51,7 @@ export const prepareJointLogicalMaterialization = Effect.fn("CurrencyAnnouncemen
   const application = yield* requireLogicalApplicationSourceAdmission(applicationAdmission, tx);
   const payload = yield* requireLogicalDocumentSourceAdmission(payloadAdmission, tx);
   const currency = yield* requireLogicalRelationalAdmission(currencyAdmission, tx);
+  const template = yield* requireSourceCmsDocumentMaterialization(input.sourceTemplate, payloadAdmission, tx);
   const sourceClock = application.clock;
   if (payloadChanges.setNull.length !== 0 || currencyChanges.setNull.length !== 0 ||
     payloadChanges.referenceReplacements.length !== 0 || currencyChanges.referenceReplacements.length !== 0 ||
@@ -100,7 +102,9 @@ export const prepareJointLogicalMaterialization = Effect.fn("CurrencyAnnouncemen
     yield* requireLogicalDocumentSourceAdmission(payloadAdmission, tx);
     yield* requireLogicalRelationalAdmission(currencyAdmission, tx);
   }).pipe(Effect.mapError(cause => compositeError("invalidAuthority", cause)));
-  const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(application.authority.scopeId));
+  const sourceSchemaVersionByTable = new Map(application.tables.map(table => [table.tableId, application.schemaVersionId]));
+  for (const table of payload.tables) sourceSchemaVersionByTable.set(table.tableId, payload.schemaVersionId);
+  for (const table of currency.tables) sourceSchemaVersionByTable.set(table.tableId, currency.schemaVersionId);
   const indexes = [...application.indexes, ...payload.indexes, ...currency.indexes];
   const validateRow = (row: PreparedPointCommitRowIntentV1): Effect.Effect<void, CompositeFailure> => {
     const app = appTables.get(row.tableId);
@@ -125,14 +129,14 @@ export const prepareJointLogicalMaterialization = Effect.fn("CurrencyAnnouncemen
   const prepared: LogicalDocumentMaterializationInput<CompositeFailure> = {
     coverage: { kind: "mixedSelectedSources", activeApplicationTables: new Set(appTables.keys()),
       activeApplicationDeveloperIndexDefinitionIds: application.activeDeveloperIndexDefinitionIds },
-    command: { authorityPins: { deploymentId: TransactionGrantDeploymentIdV1Schema.make(application.authority.deploymentId),
-      scopeId: scope.scopeId, schemaVersionId: application.schemaVersionId },
+    command: { authorityPins: template.input.command.authorityPins,
     rowIntents: tableIds.map(tableId => ({ tableId })) },
+    sourceSchemaVersionByTable,
     intrinsic: indexes.filter(index => index.access.kind === "by_creation_time"),
     developer: indexes.filter(index => index.access.kind === "developer"),
     unique: [...application.unique, ...payload.unique, ...currency.unique],
     search: currency.search,
-    relations: null, options, requireAdmission,
+    relations: template.input.relations, options, requireAdmission,
     validateWrites: (_commitSeq: CommitSeq, rows) => Effect.forEach(rows, validateRow, { discard: true }),
   };
   const core = yield* enterLogicalDocumentMaterialization(prepared, tx, application.authority, clock);

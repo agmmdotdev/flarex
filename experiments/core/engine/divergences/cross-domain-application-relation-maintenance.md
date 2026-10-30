@@ -1,7 +1,7 @@
 # Application relation maintenance for the joint native publisher
 
-Status: **Independent three-way challenge and peer exchange complete /
-Replacement selected, runtime unstarted / Unmeasured**. The
+Status: **Implemented for the supported private joint writer. Historical
+coverage, maintained readiness and complete-flow performance remain open**. The
 [bounded slice](../slices/04c3e-cross-domain-relation-maintenance.md) owns the
 executing closure and proof gates.
 
@@ -23,8 +23,8 @@ execution nor live target, incoming membership and delete-restriction semantics.
 Flarex's existing relation owner must therefore participate in its existing
 joint native transaction as well as its ordinary Application writer.
 
-The current joint materializer supplies no Application relation plan. A genuine
-relation-bearing Payload create can reach it without emitting the explicit
+The displaced joint materializer supplied no Application relation plan. A genuine
+relation-bearing Payload create could reach it without emitting the explicit
 replacement/set-null intents that it refuses. Strong native reference checks
 and disjoint participant table ownership are insufficient substitutes.
 
@@ -54,5 +54,7 @@ fact is rewritten. Correct future writes do not repair earlier omissions.
 
 Costs are bounded generation preparation/accounting and existing relation
 planning/target/adjacency work inside the current transaction. The overlapping
-V3/R02 native witness is proposed but unexecuted; complete-flow performance and
-historical coverage are not established by this record.
+[V3/R02 native witness](../../../../packages/persistence-postgres/test/frameworks/crossDomainCommand/jointApplicationRelationsScenario.ts)
+checks exact source/index/relation provenance, replay, native callback counts,
+late-fault rollback and stale-binding refusal on PGlite and ordinary-role
+PostgreSQL. It does not establish historical coverage or complete-flow capacity.

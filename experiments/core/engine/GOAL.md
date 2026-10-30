@@ -107,6 +107,12 @@ has completed independent challenge and peer exchange. Its connected runtime
 implementation remains unstarted; the affected historical-data path requires the
 [stored-attempt disposition](./05-stored-attempt-disposition.md).
 
+The bounded [joint Application/Payload/Currency relation writer](./slices/04c3e-cross-domain-relation-maintenance.md)
+uses one current preparation generation and the existing combined publisher.
+It preserves native execution and maintains Application edges, adjacency and
+facts. Like standalone source CMS, it corrects future writes without certifying
+historical sidecar coverage or closing maintained-serving readiness.
+
 ## Mandatory challenge before each slice
 
 Before implementation, independent sub-agents inspect and challenge:

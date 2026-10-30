@@ -1,4 +1,5 @@
 import { Data } from "effect";
+import { ApplicationActivationError } from "../../application/activation/errors";
 import { PreparedHostRuntimeError } from "../../execution/preparation/preparedHostRuntime";
 import type { RequestFailureReason } from "../../execution/preparation/boundedRequestLifetime";
 import { CmsTransactionError } from "../cmsTransaction/model";
@@ -42,6 +43,8 @@ export const projectCompositePublicationFailure = (cause: unknown): CompositeCom
 /** One root projection for authority and physical/retained-outcome boundaries. */
 export function projectCompositeFailure(cause: unknown): CompositeFailure {
   if (cause instanceof CompositeCommandError || cause instanceof CmsTransactionError || cause instanceof CommerceTransactionError || cause instanceof ApplicationCommandError || cause instanceof LogicalDocumentMaterializationError) return cause;
+  if (cause instanceof ApplicationActivationError && cause.reason === "resourceFailure")
+    return compositeError("resourceFailure", cause);
   if ((cause instanceof IndexBuildReconciliationCatalogV1Error || cause instanceof LogicalStorageDefinitionError ||
     cause instanceof LogicalSchemaAdmissionEvidenceError || cause instanceof IndexMaintenanceError ||
     cause instanceof DataBindingError || cause instanceof LogicalDocumentSourceAdmissionError) &&

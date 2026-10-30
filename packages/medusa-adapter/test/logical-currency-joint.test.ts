@@ -6,6 +6,11 @@ import { compilePayloadCollections } from "../../payload-adapter/src/collections
 import { prepareLogicalApplicationSourceAdmission } from "../../persistence-postgres/src/storage/documents/logicalDocuments/applicationAdmission";
 import { prepareLogicalDocumentSourceAdmission } from "../../persistence-postgres/src/storage/documents/logicalDocuments/documentAdmission";
 import { prepareLogicalRelationalAdmission } from "../../persistence-postgres/src/storage/documents/logicalDocuments/relationalAdmission";
+import { prepareLogicalStorageReadiness } from "../../persistence-postgres/src/storage/catalog/logicalStorageReadiness";
+import { prepareCurrentApplicationBinding } from "../../persistence-postgres/src/application/activation/currentBinding";
+import { prepareSourceCmsDocumentMaterialization } from "../../persistence-postgres/src/frameworks/cmsTransaction/contribution";
+import { retainPreparedHost } from "../../persistence-postgres/src/execution/preparation/preparedHostRuntime";
+import { preparedHostTestRuntime } from "../../persistence-postgres/test/execution/preparation/preparedHostRuntimeTestSupport";
 import { makeSourceApplicationInsertParticipant, ApplicationCommandError, applicationCommandError } from
   "../../persistence-postgres/src/storage/materialization/insertParticipant";
 import { makeSourceCmsDocuments, consumeSourceCmsDocumentClosure } from "../../persistence-postgres/src/frameworks/cmsTransaction/documents";
@@ -18,12 +23,10 @@ import { getCommerceCommand } from "../../persistence-postgres/src/frameworks/co
 import { makeBoundedRequestLifetime, projectBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
 import { prepareJointLogicalMaterialization } from "../../persistence-postgres/src/frameworks/crossDomainCommand/materialization";
 import { compositeError, type CompositeFailure } from "../../persistence-postgres/src/frameworks/crossDomainCommand/model";
-import { runEffectTransaction } from "../../persistence-postgres/src/database/effectTransaction";
+import { runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
 import { runDrizzleStatementEffect } from "../../persistence-postgres/src/database/drizzleStatementEffect";
 import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/database/metadataTransaction";
-import { resolveLocatedTrustedScopeAuthorityEffect } from "../../persistence-postgres/src/scope/scopeAuthorityResolution";
-import { lockScopeClockForSnapshotReadInTransactionEffect,
-  lockScopeClockForOrdinaryWriteInTransactionEffect } from "../../persistence-postgres/src/scope/scopeClock";
+import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../../persistence-postgres/src/scope/scopeClock";
 import { fxAppRowCurrent } from "../../persistence-postgres/src/database/schema";
 import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
 import { currencyAnnouncementWrite } from "../src/modules/currency/service";
@@ -38,32 +41,39 @@ describe("joint selected logical sources", () => {
         const fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close));
         const db = fixture.persistence.drizzle;
         const before = await logicalCurrencyInventory(fixture);
-        await Effect.runPromise(Effect.fn("JointLogicalSources.rollback")(function* () {
+        await Effect.runPromise(Effect.scoped(Effect.fn("JointLogicalSources.rollback")(function* () {
         const compiled = yield* compilePayloadCollections([{ slug: "news", fields: [
           { name: "title", type: "text", required: true, unique: true },
         ] }]);
         const ports = { controlDb: fixture.control.drizzle, authority: fixture.application.authorityPorts };
         const input = { deploymentId: fixture.deploymentId, scopeId: fixture.application.authority.scopeId,
           schemaVersionId: fixture.schemaVersionId };
-        const prepared = yield* Effect.all({
-          application: prepareLogicalApplicationSourceAdmission(ports,
-            fixture.application.uniqueConstraintEligibility, input, fixture.applicationSource, { kind: "standalone" }),
-          payload: prepareLogicalDocumentSourceAdmission(ports,
-            fixture.application.uniqueConstraintEligibility, input, compiled.sourceContract, { kind: "standalone" }),
-          currency: prepareLogicalRelationalAdmission(ports,
-            fixture.application.uniqueConstraintEligibility, input, fixture.hostInput.logicalStorage.source, { kind: "standalone" }),
-        });
-        const active = yield* fixture.application.activation.readActive();
-        const located = yield* resolveLocatedTrustedScopeAuthorityEffect(fixture.deploymentId,
-          fixture.application.authorityPorts);
+        const retained = yield* Effect.acquireRelease(retainPreparedHost(preparedHostTestRuntime(db),
+          prepareCurrentApplicationBinding(fixture.application.activation, db, binding => Effect.gen(function* () {
+            const catalog = yield* prepareLogicalStorageReadiness(ports,
+              fixture.application.uniqueConstraintEligibility, input, binding);
+            if (catalog.status !== "prepared") return yield* Effect.die(new Error("Missing joint source catalog"));
+            const construction = { kind: "prepared" as const, catalog };
+            const application = yield* prepareLogicalApplicationSourceAdmission(ports,
+              fixture.application.uniqueConstraintEligibility, input, fixture.applicationSource, construction);
+            const payload = yield* prepareLogicalDocumentSourceAdmission(ports,
+              fixture.application.uniqueConstraintEligibility, input, compiled.sourceContract, construction);
+            const currency = yield* prepareLogicalRelationalAdmission(ports,
+              fixture.application.uniqueConstraintEligibility, input, fixture.hostInput.logicalStorage.source, construction);
+            const sourceTemplate = yield* prepareSourceCmsDocumentMaterialization(yield* payload.lendPreparation(),
+              {}, binding, fixture.control.drizzle);
+            return { application, payload, currency, sourceTemplate };
+          }), { selection: { deploymentId: fixture.deploymentId, scopeId: fixture.application.authority.scopeId },
+            candidateIssuer: fixture.application.sessionAuthority })), value => value.close);
         let lowered = false;
         const deliberateRollback = new Error("Deliberate joint lowering rollback");
-        const rolledBack = yield* Effect.exit(runEffectTransaction(work => db.transaction(work),
-          "Joint logical source rollback", (tx: FlarexMetadataTransaction) => Effect.scoped(Effect.gen(function* () {
-            const snapshot = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, located.authority.scopeId);
-            return yield* prepared.application.withAdmission(active.selection, tx, located.authority, snapshot,
-              application => prepared.payload.withAdmission(active.selection, tx, located.authority, snapshot,
-                payload => prepared.currency.withAdmission(active.selection, tx, located.authority, snapshot,
+        const rolledBack = yield* Effect.exit(retained.use(current => current.withEntry(({ binding, payload: prepared }, enter) =>
+          runRelationalSession(fixture.session, "command", {
+            enter: (tx: FlarexMetadataTransaction, requireInstallation) => enter(tx, requireInstallation, Effect.void,
+              ({ authority, clock: snapshot, checked }) => Effect.scoped(Effect.gen(function* () {
+            return yield* prepared.application.withAdmission(binding, tx, authority, snapshot,
+              application => prepared.payload.withAdmission(binding, tx, authority, snapshot,
+                payload => prepared.currency.withAdmission(binding, tx, authority, snapshot,
                   currency => Effect.scoped(Effect.gen(function* () {
                     const transactionId = "joint-logical";
                     const rootLifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(
@@ -98,14 +108,15 @@ describe("joint selected logical sources", () => {
                     const { changes: payloadChanges, preferenceIntents } = yield* consumeSourceCmsDocumentClosure(yield* cms.close(), payload, tx, cmsLifetime);
                     expect(preferenceIntents).toEqual([]);
                     const currencyChanges = (yield* consumeLogicalCommerceClosure(yield* commerce.close(), commerceLifetime)).changes;
-                    const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, located.authority.scopeId);
+                    const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, authority.scopeId);
                     const jointInput = { tx, clock, application, payload, currency,
-                      applicationChanges: appChanges, payloadChanges, currencyChanges, options: {} };
+                      applicationChanges: appChanges, payloadChanges, currencyChanges, options: {},
+                      sourceTemplate: prepared.sourceTemplate };
                     const delta = yield* prepareJointLogicalMaterialization(jointInput);
                     expect(delta.changes).toHaveLength(3);
                     expect(delta.changes.flatMap(row => row.insertionOrder?.kind === "pending" ? [row.insertionOrder.attemptOrdinal] : [])
                       .toSorted((left, right) => left - right)).toEqual([0, 1]);
-                    yield* prepared.application.withAdmission(active.selection, tx, located.authority, snapshot,
+                    yield* prepared.application.withAdmission(binding, tx, authority, snapshot,
                       replacement => Effect.sync(() => { jointInput.application = replacement; }));
                     yield* delta.lower(CommitSeqSchema.make(clock.lastCommitSeq + 1n));
                     expect((yield* runDrizzleStatementEffect(tx.select().from(fxAppRowCurrent), cause =>
@@ -113,15 +124,15 @@ describe("joint selected logical sources", () => {
                       .toBe(before.rows.length + 3);
                     lowered = true;
                     return yield* Effect.fail(deliberateRollback);
-                  })))));
-          })), cause => new Error("Joint logical transaction", { cause })));
+                  })), checked), checked));
+          }))) }))));
         expect(lowered, Exit.isFailure(rolledBack) ? Cause.pretty(rolledBack.cause) : "Unexpected successful settlement").toBe(true);
         expect(Exit.isFailure(rolledBack)).toBe(true);
         if (Exit.isFailure(rolledBack)) {
           expect(rolledBack.cause.reasons).toHaveLength(1);
           expect(rolledBack.cause.reasons.find(Cause.isFailReason)?.error).toBe(deliberateRollback);
         }
-        })());
+        })()));
         expect(await logicalCurrencyInventory(fixture)).toEqual(before);
       } finally {
         const failures: unknown[] = [];
