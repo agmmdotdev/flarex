@@ -1,7 +1,7 @@
 # First Task Source And Installation Contract
 
 Status: **independent challenge and peer exchange complete;
-runtime contract not yet admitted**.
+connected runtime contract not yet admitted**.
 The [goal](../GOAL.md), [workflow](../WORKFLOW.md) and
 [source map](../REFERENCES.md) govern. Baseline inspection starts at Flarex
 `cfe917c795ee3684df89a9b7a03c7c54a5234904` plus the actual shared working graph;

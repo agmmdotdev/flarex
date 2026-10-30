@@ -1,0 +1,197 @@
+{
+  "format": "flarex.trigger-source-map",
+  "version": 1,
+  "repository": "https://github.com/triggerdotdev/trigger.dev",
+  "commit": "f10bc23785e569e5d917318cf2033aabdbe96a0b",
+  "sourceRoot": "../../third_party/trigger.dev/upstream",
+  "originalPaths": [
+    "src/borrowedAttemptStart.ts",
+    "src/runAttempt.ts"
+  ],
+  "sources": [
+    {
+      "path": "internal-packages/run-engine/src/engine/systems/runAttemptSystem.ts",
+      "sha256": "98071807cd629d7a93ed66883374c5c6ef8a78e8b766cd4ea0202f968f03bada",
+      "ranges": [
+        {
+          "start": 297,
+          "end": 645,
+          "symbol": "RunAttemptSystem.startRunAttempt"
+        },
+        {
+          "start": 882,
+          "end": 1020,
+          "symbol": "RunAttemptSystem.attemptFailed reached permanent-failure branch"
+        },
+        {
+          "start": 1598,
+          "end": 1751,
+          "symbol": "RunAttemptSystem.permanentlyFailRun"
+        },
+        {
+          "start": 1756,
+          "end": 1763,
+          "symbol": "RunAttemptSystem.finalizeRun"
+        }
+      ],
+      "promotedPaths": [
+        "src/runAttemptSystem.ts",
+        "src/model.ts",
+        "test/runAttemptSystem.test.ts"
+      ],
+      "adaptations": [
+        "Retain source validation order, next ordinal, first-execution timestamp selection, cap branch and start/snapshot orchestration.",
+        "Replace runLock, generated Prisma queries and nested transaction ownership with an already-live single-run borrowed Effect operation.",
+        "Use operation database time and record tentative durable heartbeat, expiry, notices, queue release and wait/finalization requests for the outer owner.",
+        "Specialize only the synthetic max-attempt failure closure; remove product environment hydration, usage/billing/machine reads, caches and unsupported batch/Task-hierarchy branches.",
+        "Preserve the synthetic cap call argument boundary: start worker/runner bindings are not forwarded to attemptFailed or its FINISHED snapshot.",
+        "Return terminalized-then-refused tentative Outcome for confirmed outer settlement; retain ordinary typed failures and precise store failure/defect/interruption channels.",
+        "Define Schema-derived used data projections without a Prisma emulator or legacy aggregate decision callback."
+      ]
+    },
+    {
+      "path": "internal-packages/run-engine/src/engine/systems/executionSnapshotSystem.ts",
+      "sha256": "643d183bb7c6e349dac109f33da5ddabc32f0f4807087946854f288d0714e3ed",
+      "ranges": [
+        {
+          "start": 432,
+          "end": 524,
+          "symbol": "ExecutionSnapshotSystem.createExecutionSnapshot"
+        },
+        {
+          "start": 635,
+          "end": 658,
+          "symbol": "ExecutionSnapshotSystem.getHeartbeatIntervalMs"
+        }
+      ],
+      "promotedPaths": [
+        "src/executionSnapshotSystem.ts",
+        "src/model.ts",
+        "test/executionSnapshotSystem.test.ts"
+      ],
+      "adaptations": [
+        "Retain snapshot write, error suppression, heartbeat status dispatch and snapshot-created order.",
+        "Replace Redis enqueue and EventEmitter delivery with finite tentative durable requests sharing the borrowed outer operation.",
+        "Use operation database time and remove product friendly IDs and environment/organization metadata from the private projection."
+      ]
+    },
+    {
+      "path": "internal-packages/run-engine/src/engine/statuses.ts",
+      "sha256": "2757dfdf5821ed862169d85b693211139cdea3b6f2032f5d89f89ad14f37551e",
+      "ranges": [
+        {
+          "start": 34,
+          "end": 37,
+          "symbol": "isFinishedOrPendingFinished"
+        }
+      ],
+      "promotedPaths": [
+        "src/statuses.ts",
+        "test/runAttemptSystem.test.ts"
+      ],
+      "adaptations": [
+        "Replace generated database status types with the Schema-derived portable union; retain FINISHED and PENDING_CANCEL predicate."
+      ]
+    },
+    {
+      "path": "internal-packages/run-engine/src/engine/consts.ts",
+      "sha256": "b8f466f2c2013b765e9bade5a507a80ace29deeb4c7f5e3d6eb39fb7a3cdf65d",
+      "ranges": [
+        {
+          "start": 1,
+          "end": 1,
+          "symbol": "MAX_TASK_RUN_ATTEMPTS"
+        }
+      ],
+      "promotedPaths": [
+        "src/consts.ts",
+        "test/runAttemptSystem.test.ts"
+      ],
+      "adaptations": [
+        "Retain the fixed source global attempt cap of 250."
+      ]
+    },
+    {
+      "path": "internal-packages/run-engine/src/engine/retrying.ts",
+      "sha256": "ceccb71c6689401969f9ba6fa8f2218e853f38101ae02b015643a0181738f54a",
+      "ranges": [
+        {
+          "start": 46,
+          "end": 155,
+          "symbol": "retryOutcomeFromCompletion reached synthetic-error fail_run classification"
+        }
+      ],
+      "promotedPaths": [
+        "src/runAttemptSystem.ts"
+      ],
+      "adaptations": [
+        "Specialize the reached no-retry synthetic TASK_RUN_CRASHED completion; do not expose general retry selection as adapter policy.",
+        "Remove unreachable cancellation/OOM/retry settings and machine/usage hydration from this admitted start-only component."
+      ]
+    },
+    {
+      "path": "internal-packages/run-engine/src/engine/errors.ts",
+      "sha256": "8e276e753b42b5f114c584281af7811cc5f325f1c56c2ba333a51345aaf57ffc",
+      "ranges": [
+        {
+          "start": 5,
+          "end": 46,
+          "symbol": "runStatusFromError TASK_RUN_CRASHED classification"
+        }
+      ],
+      "promotedPaths": [
+        "src/runAttemptSystem.ts"
+      ],
+      "adaptations": [
+        "Retain CRASHED for the only admitted synthetic cap error; unrelated error profiles remain outside this component."
+      ]
+    },
+    {
+      "path": "packages/core/src/v3/errors.ts",
+      "sha256": "3f6ecadbcf97e716085bfb65e2bb32983311b543f80671ba64d9c475961b850d",
+      "ranges": [
+        {
+          "start": 415,
+          "end": 443,
+          "symbol": "shouldLookupRetrySettings default false for TASK_RUN_CRASHED"
+        }
+      ],
+      "promotedPaths": [
+        "src/runAttemptSystem.ts"
+      ],
+      "adaptations": [
+        "Retain the reached classification: absent retry settings do not trigger configuration lookup for the cap error."
+      ]
+    },
+    {
+      "path": "internal-packages/run-engine/src/engine/systems/runAttemptSystem.test.ts",
+      "sha256": "47ba832be247445305856b75da22be5c39fc850b2a26eba17fdcd95cc9d3a7d0",
+      "ranges": [
+        {
+          "start": 194,
+          "end": 267,
+          "symbol": "startRunAttempt routes the run write through the store"
+        }
+      ],
+      "promotedPaths": [
+        "test/runAttemptSystem.test.ts"
+      ],
+      "adaptations": [
+        "Port selected method-routing, EXECUTING status and first-ordinal assertions; expand request/failure-channel coverage with scripted finite primitives.",
+        "Do not claim original Docker/database suite parity, atomic rollback, authority or core runtime integration."
+      ]
+    }
+  ],
+  "licenses": [
+    {
+      "sourcePath": "LICENSE",
+      "path": "licenses/trigger-apache-2.0.txt",
+      "sha256": "9e9e22db5ae77f7ce1119294d0386cbbab2791cc77fb68d97c90627d7d96c5e1"
+    },
+    {
+      "sourcePath": "packages/core/LICENSE",
+      "path": "licenses/trigger-core-mit.txt",
+      "sha256": "08ba90c393a607a7dc83a3dbf6db16a31617925f27b378cd6f959640c3bfa59f"
+    }
+  ]
+}

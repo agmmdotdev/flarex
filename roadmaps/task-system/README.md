@@ -2,15 +2,16 @@
 
 ## Status And Scope
 
-Status: **active implementation goal; first source challenge complete;
-runtime contract refinement in progress**.
+Status: **active implementation goal; portable adopted attempt-start component
+implemented; shared-core integration remains open**.
 The [independent Trigger fork design](../../design-notes/task-system/README.md)
 owns architecture. The [goal](./GOAL.md) authorizes bounded implementation using
 the [challenge/worker/review workflow](./WORKFLOW.md). This roadmap owns current
 status and gates. The current task
 implementation remains operational for admitted private consumers until cutover.
-No fork package, logical Task schema, runtime migration, data reset or hosted
-activation is established by these documents.
+The new fork package has a portable attempt-start component. Logical Task
+installation, a live core borrower, runtime migration, data reset and hosted
+activation remain unimplemented.
 
 Start at the [source map](./REFERENCES.md), [consumer baseline](./baseline/README.md),
 [decisions](./DECISIONS.md), [question queue](./OPEN-QUESTIONS.md) and
@@ -106,7 +107,14 @@ finite framework support remain explicit divergences.
 
 ## Implemented Capabilities
 
-Only the legacy baseline is implemented. Existing witnesses include
+The new [portable component](./slices/02-adopted-attempt-start.md) adopts actual
+Trigger start/snapshot methods and their reached cap-failure closure in
+[`@flarex/trigger-run-engine`](../../packages/trigger-run-engine/README.md).
+It uses finite borrowed Effect primitives and tentative outcomes; no production
+database/host consumes it yet. Its primitive-port tests establish source policy
+and failure channels, not database settlement or runtime integration.
+
+The operational implementation remains the legacy baseline. Its witnesses include
 [connected Application Task execution](../../packages/system-test/test/integration/applicationTaskSystemConnected.test.ts),
 [PostgreSQL execution](../../packages/system-test/test/integration/applicationTaskSystemConnected.postgres.test.ts)
 and [workflow continuation behavior](../../packages/durable-task/test/workflow-continuation.test.ts).

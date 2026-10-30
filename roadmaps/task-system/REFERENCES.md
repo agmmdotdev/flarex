@@ -1,6 +1,7 @@
 # Task Source And Ownership References
 
-Status: **source map inspected; promotion graph and runtime contract under refinement**. Source
+Status: **portable attempt-start closure promoted; remaining lifecycle graph and
+connected runtime contract under refinement**. Source
 identity and symbols are evidence, not runtime support. The [design](../../design-notes/task-system/README.md)
 and [goal](./GOAL.md) govern use of these references.
 
@@ -9,8 +10,11 @@ and [goal](./GOAL.md) govern use of these references.
 The frozen [Trigger source receipt](../../third_party/trigger.dev/SOURCE.json)
 pins `f10bc23785e569e5d917318cf2033aabdbe96a0b`. Preserve its
 [manifest](../../third_party/trigger.dev/SOURCE_SHA256SUMS), original notices and
-reference island. Root-owned adopted code will live in
-`packages/trigger-run-engine`; no runtime import may reach the frozen workspace.
+reference island. Adopted code lives in
+[`packages/trigger-run-engine`](../../packages/trigger-run-engine/README.md);
+its [source map](../../packages/trigger-run-engine/trigger-source-map.json) records
+the current start/snapshot/reached cap-failure closure. No runtime import may
+reach the frozen workspace.
 Verify the source with the repository's `trigger:source:verify` command before
 promotion. Record exact promoted source/tests/dependencies and adaptations in
 the admitted slice; retain original test assertions and label deliberate changes.
@@ -25,7 +29,9 @@ the admitted slice; retain original test assertions and label deliberate changes
 | [RunStore contract](../../third_party/trigger.dev/upstream/internal-packages/run-store/src/types.ts) and [PostgresRunStore](../../third_party/trigger.dev/upstream/internal-packages/run-store/src/PostgresRunStore.ts) | Semantic operation inventory and compound persistence units; Prisma client/query/result shapes are coupling to narrow, not the Flarex adapter contract |
 | [Legacy query inventory](../durable-task-engine/preflight/73-trigger-source-and-run-store-query-closure.md) | Source/query evidence only; refresh actual retained closure and do not inherit former infrastructure options |
 
-The promoted dependency/test graph remains unadmitted. Replacing only the outer
+The remaining connected lifecycle dependency/test graph still needs admission.
+The [portable component](./slices/02-adopted-attempt-start.md) establishes its own
+bounded adopted methods and primitive-port assertions only. Replacing only the outer
 constructor or RunStore misses inner construction and effects. Inspect reads
 protected by the source Redis lock before inner transactions; revalidate their
 snapshot/fence under the new authoritative lock. Snapshot creation emits and

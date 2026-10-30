@@ -51,6 +51,9 @@ dependencies and validation. Tell every worker that others share the codebase:
 preserve their edits, coordinate shared types/contracts and never revert others'
 work. Parallelize independent owners and serialize overlapping changes/handoffs.
 Do not use a worker assignment to bypass the preceding read-only challenge.
+Use the current shared checkout. The owner explicitly excludes creating a
+worktree to bypass conflicts; communicate with the other session and resolve
+ownership and integration directly before overlapping edits.
 
 Retain actual Trigger method/control flow and relevant original assertions.
 Adapt constructor/resource/store/coordination seams directly. No fake Prisma
@@ -59,6 +62,11 @@ database/cache/installer may stand in for shared-owner correctness.
 
 Root AGENTS.md governs skills, checkers, lint, both-driver and actual-host
 validation. Apply Effect patterns/error guidance to contracts and implementation.
+Typecheck with Oxc `tsrs --fast --noEmit`; do not substitute native `tsc` or
+`tsgo`. For the new engine run
+`pnpm --dir packages/trigger-run-engine exec tsrs -p tsconfig.json --fast --noEmit`.
+Use the equivalent scoped Oxc command for affected existing packages, including
+when their older package scripts still select native TypeScript.
 Bound tests by their claimed evidence, not by weakening failures or mirroring
 the shared implementation in a harness. Stop owned runtime resources and avoid
 competing heavy work in the shared checkout.

@@ -6,11 +6,93 @@ import { describe, expect, it } from "vitest";
 import {
   analyzeDurableTaskManifest,
   analyzeDurableTaskTsconfig,
+  analyzeTriggerRunEngineManifest,
+  analyzeTriggerRunEngineTsconfig,
   analyzeTriggerCompatibilityBoundary,
   collectFiles,
   discoverWorkspaceManifests,
   discoverWorkspaceSources,
 } from "./check-trigger-compatibility-boundary.mjs";
+
+describe("adopted Trigger engine admission", () => {
+  const manifest = {
+    name: "@flarex/trigger-run-engine", version: "0.0.1", private: true, type: "module",
+    files: ["src", "README.md", "THIRD_PARTY_NOTICES.md", "trigger-source-map.json", "licenses"],
+    exports: { "./internal/run-attempt": "./src/runAttempt.ts" },
+    scripts: { typecheck: "tsrs -p tsconfig.json --fast --noEmit", test: "vitest run" },
+    dependencies: { effect: "catalog:" },
+    devDependencies: { tsrs: "catalog:", vitest: "catalog:" },
+  };
+  const tsconfig = {
+    extends: "../../tsconfig.base.json",
+    compilerOptions: { lib: ["ES2022"], types: [], noUncheckedIndexedAccess: true },
+    include: ["src", "test"],
+  };
+
+  it("admits the private portable component and Oxc checker", () => {
+    expect(analyzeTriggerRunEngineManifest(manifest)).toEqual([]);
+    expect(analyzeTriggerRunEngineTsconfig(tsconfig)).toEqual([]);
+    expect(analyzeTriggerCompatibilityBoundary([
+      { relativePath: "packages/trigger-run-engine/package.json", manifest },
+    ], [{
+      relativePath: "packages/trigger-run-engine/src/runAttempt.ts",
+      text: 'import { Effect } from "effect"; export { RunAttemptSystem } from "./runAttemptSystem.js";',
+    }]).errors).toEqual([]);
+  });
+
+  it("refuses public exports, host dependencies, native checkers and host ambient types", () => {
+    expect(analyzeTriggerRunEngineManifest({ ...manifest, exports: { ".": "./src/runAttempt.ts" } }))
+      .not.toEqual([]);
+    expect(analyzeTriggerRunEngineManifest({ ...manifest, dependencies: { ...manifest.dependencies, redis: "*" } }))
+      .not.toEqual([]);
+    expect(analyzeTriggerRunEngineManifest({ ...manifest, scripts: { ...manifest.scripts, typecheck: "tsc --noEmit" } }))
+      .not.toEqual([]);
+    expect(analyzeTriggerRunEngineTsconfig({ ...tsconfig, compilerOptions: { ...tsconfig.compilerOptions, types: ["node"] } }))
+      .not.toEqual([]);
+  });
+
+  it.each([
+    "@flarex/durable-task/internal/run-attempt-v1", "@prisma/client", "ioredis",
+    "node:fs", "cloudflare:workers", "../../persistence-postgres/src/index.js",
+    "../../../third_party/trigger.dev/upstream/internal-packages/run-engine/src/index.ts",
+    "../test/fakeStore.js",
+  ])("refuses the engine's non-portable import %s", (specifier) => {
+    const report = analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/trigger-run-engine/src/runAttempt.ts",
+      text: `import * as runtime from ${JSON.stringify(specifier)};`,
+    }]);
+    expect(report.errors.some((error) => error.includes("non-portable trigger-run-engine"))).toBe(true);
+  });
+
+  it.each(["Date.now()", "new Date()", "Math.random()", "fetch('https://example.com')", "globalThis.crypto"])(
+    "refuses host authority from %s", (expression) => {
+      expect(analyzeTriggerCompatibilityBoundary([], [{
+        relativePath: "packages/trigger-run-engine/src/runAttempt.ts", text: `${expression};`,
+      }]).errors.some((error) => error.includes("prohibited trigger-run-engine global"))).toBe(true);
+    },
+  );
+
+  it.each([
+    "@flarex/trigger-run-engine/internal/run-attempt",
+    "../../trigger-run-engine/src/runAttempt.js",
+  ])("refuses premature production activation through %s", (specifier) => {
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/executor/src/task.ts", text: `import * as engine from ${JSON.stringify(specifier)};`,
+    }]).errors.some((error) => error.includes("before shared-core admission"))).toBe(true);
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/executor/test/task.test.ts", text: `import * as engine from ${JSON.stringify(specifier)};`,
+    }]).errors).toEqual([]);
+  });
+
+  it.each([
+    "workspace:@flarex/trigger-run-engine@*", "npm:@flarex/trigger-run-engine@0.0.1",
+    "file:../trigger-run-engine", "link:../trigger-run-engine/src", "workspace:../trigger-run-engine",
+  ])("refuses premature manifest activation through %s", (reference) => {
+    expect(analyzeTriggerCompatibilityBoundary([{
+      relativePath: "packages/executor/package.json", manifest: { dependencies: { engine: reference } },
+    }], []).errors.some((error) => error.includes("before shared-core admission"))).toBe(true);
+  });
+});
 
 describe("Trigger compatibility boundary checker", () => {
   const trustedWorkflowContracts = [

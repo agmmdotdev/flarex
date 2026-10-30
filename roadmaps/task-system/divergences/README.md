@@ -22,3 +22,4 @@ authority. No runtime adaptation is admitted merely by listing it here.
 | [Transactions and effects](./trigger-transactions-and-effects.md) | Replace Redis outer-lock assumptions and pre-settlement publication with authoritative borrowed operations and durable intents |
 | [Ownership and heartbeats](./trigger-ownership-and-heartbeats.md) | Preserve live fence/subject/lease checks while replacing Redis ownership and heartbeat scheduling |
 | [Native checkpoints](./trigger-native-checkpoints.md) | Map process checkpoints to admitted native serialized waits, original deadlines and winner receipts |
+| [Post-settlement refusals](./trigger-post-settlement-refusals.md) | Preserve the source's max-attempt terminalization before exposing its expected refused-start outcome |

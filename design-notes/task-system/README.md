@@ -113,7 +113,10 @@ The current `@flarex/durable-task` custom lifecycle, Task-specific physical
 tables and existing host integrations still serve their admitted private
 consumers. Trusted workflow continuation/checkpoint work and the bounded native
 inline Product import have landed; they are migration inputs, not hypothetical
-future consumers. The new fork package and logical Task store do not exist yet.
+future consumers. The new private fork package now contains a portable adopted
+attempt-start/snapshot/cap-failure component; see its
+[slice and integration limits](../../roadmaps/task-system/slices/02-adopted-attempt-start.md).
+Logical Task installation/storage and a live core borrower remain pending.
 
 Start with one new private `@flarex/trigger-run-engine` package. Leave existing
 callers operational during the isolated proof. Each migrated capability must

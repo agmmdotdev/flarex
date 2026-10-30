@@ -1,7 +1,7 @@
 # Trigger-Derived Task Replacement Goal
 
-Status: **active implementation goal; first source challenge complete;
-runtime contract under refinement; replacement runtime not implemented**.
+Status: **active implementation goal; portable attempt-start component
+implemented; connected replacement runtime not implemented**.
 The owner authorized this goal after
 accepting the independent Trigger fork and shared-core direction. This goal
 supersedes the earlier documentation-only implementation boundary for this
@@ -76,6 +76,9 @@ overlap before assigning shared-owner changes; establish explicit ownership
 handoff or an independent boundary before editing another session's work. Never
 revert, stage or commit unrelated changes. Shared core defects are corrected at
 their owner, not hidden by Task SQL, extra transactions or adapter recovery.
+The owner requires the shared checkout: do not create a worktree to avoid
+conflicts. Communicate directly with the active session, agree file/contract
+ownership and resolve integration in place while preserving its work.
 
 Postgres remains sole durable authority. Keep operation profiles distinct; no
 transaction spans untrusted handler execution, remote effects or suspension.

@@ -10,6 +10,9 @@ const sourceExtensions = new Set([".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts",
 const dependencyFields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
 const durableTaskManifestPath = "packages/durable-task/package.json";
 const durableTaskSourcePrefix = "packages/durable-task/";
+const triggerRunEnginePackage = "@flarex/trigger-run-engine";
+const triggerRunEnginePrefix = "packages/trigger-run-engine/";
+const triggerRunEngineManifestPath = `${triggerRunEnginePrefix}package.json`;
 const taskPrincipalContractPath =
   "packages/durable-task/src/runCreation/TaskExecutionPrincipalObject.ts";
 const standardApplicationDefinitionManifestPath =
@@ -1520,6 +1523,16 @@ if (isCliEntrypoint()) {
       }
     }
   }
+  const triggerRunEngineRoot = path.join(repoRoot, triggerRunEnginePrefix);
+  if (existsSync(triggerRunEngineRoot)) {
+    try {
+      report.errors.push(...analyzeTriggerRunEngineTsconfig(
+        JSON.parse(readFileSync(path.join(triggerRunEngineRoot, "tsconfig.json"), "utf8")),
+      ));
+    } catch (error) {
+      report.errors.push(`${triggerRunEnginePrefix}tsconfig.json must exist and be valid JSON: ${errorMessage(error)}.`);
+    }
+  }
 
   if (report.errors.length > 0) {
     console.error(report.errors.join("\n"));
@@ -1548,6 +1561,11 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
       if (!isRecord(dependencies)) continue;
 
       for (const [name, value] of Object.entries(dependencies)) {
+        if (relativePath !== triggerRunEngineManifestPath
+          && (isTriggerRunEngineSpecifier(name, relativePath)
+            || (typeof value === "string" && isTriggerRunEngineDependencyReference(value, relativePath)))) {
+          errors.push(`${relativePath}: ${field} must not activate ${triggerRunEnginePackage} before shared-core admission.`);
+        }
         if (isForbiddenModuleSpecifier(name) || (typeof value === "string" && isForbiddenDependencyReference(value))) {
           errors.push(`${relativePath}: ${field} must not reference Trigger compatibility dependency "${name}".`);
         }
@@ -1568,6 +1586,9 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
 
     if (relativePath === durableTaskManifestPath) {
       errors.push(...analyzeDurableTaskManifest(manifest));
+    }
+    if (relativePath === triggerRunEngineManifestPath) {
+      errors.push(...analyzeTriggerRunEngineManifest(manifest));
     }
   }
 
@@ -1593,6 +1614,26 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         errors.push(`${relativePath}:${line} production source must not re-export an admitted compatibility binding beyond its owning file.`);
       }
       const specifier = moduleSpecifierForNode(node);
+      if (specifier !== undefined && isProductionSource(relativePath)) {
+        const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+        if (relativePath.startsWith(triggerRunEnginePrefix)) {
+          const normalized = specifier.replaceAll("\\", "/");
+          const resolved = resolveRepositorySpecifier(specifier, relativePath);
+          if (normalized !== "effect" && !normalized.startsWith("effect/")
+            && !(normalized.startsWith(".") && resolved.startsWith(`${triggerRunEnginePrefix}src/`))) {
+            errors.push(`${relativePath}:${line} must not import non-portable trigger-run-engine module "${specifier}".`);
+          }
+        } else if (isTriggerRunEngineSpecifier(specifier, relativePath)) {
+          errors.push(`${relativePath}:${line} must not activate ${triggerRunEnginePackage} before shared-core admission.`);
+        }
+      }
+      if (relativePath.startsWith(triggerRunEnginePrefix) && isProductionSource(relativePath)) {
+        const prohibitedGlobal = prohibitedDurableTaskGlobalForNode(node);
+        if (prohibitedGlobal !== undefined) {
+          const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+          errors.push(`${relativePath}:${line} must not use prohibited trigger-run-engine global "${prohibitedGlobal}".`);
+        }
+      }
       if (specifier !== undefined && isForbiddenModuleSpecifier(specifier)) {
         const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
         errors.push(`${relativePath}:${line} must not import Trigger compatibility module "${specifier}".`);
@@ -2198,7 +2239,16 @@ export function analyzeDurableTaskManifest(manifest) {
 
 /** @param {unknown} tsconfig */
 export function analyzeDurableTaskTsconfig(tsconfig) {
-  const label = "packages/durable-task/tsconfig.json";
+  return analyzePortableTaskTsconfig(tsconfig, "packages/durable-task/tsconfig.json");
+}
+
+/** @param {unknown} tsconfig */
+export function analyzeTriggerRunEngineTsconfig(tsconfig) {
+  return analyzePortableTaskTsconfig(tsconfig, `${triggerRunEnginePrefix}tsconfig.json`);
+}
+
+/** @param {unknown} tsconfig @param {string} label */
+function analyzePortableTaskTsconfig(tsconfig, label) {
   if (!isRecord(tsconfig)) return [`${label} must be an object.`];
   /** @type {string[]} */
   const errors = [];
@@ -2229,6 +2279,58 @@ export function analyzeDurableTaskTsconfig(tsconfig) {
     errors.push(`${label} compilerOptions.noUncheckedIndexedAccess must be true.`);
   }
   return errors;
+}
+
+/** @param {unknown} manifest */
+export function analyzeTriggerRunEngineManifest(manifest) {
+  if (!isRecord(manifest)) return [`${triggerRunEngineManifestPath}: manifest must be an object.`];
+  /** @type {string[]} */
+  const errors = [];
+  if (manifest.name !== triggerRunEnginePackage || manifest.version !== "0.0.1"
+    || manifest.private !== true || manifest.type !== "module") {
+    errors.push(`${triggerRunEngineManifestPath}: package must remain private ${triggerRunEnginePackage}@0.0.1 with type module.`);
+  }
+  /** @type {Readonly<Record<string, Readonly<Record<string, string>>>>} */
+  const admittedFields = {
+    exports: { "./internal/run-attempt": "./src/runAttempt.ts" },
+    dependencies: { effect: "catalog:" },
+    devDependencies: { tsrs: "catalog:", vitest: "catalog:" },
+    scripts: { typecheck: "tsrs -p tsconfig.json --fast --noEmit", test: "vitest run" },
+  };
+  for (const [field, expected] of Object.entries(admittedFields)) {
+    if (!hasExactStringRecord(manifest[field], expected)) {
+      errors.push(`${triggerRunEngineManifestPath}: ${field} must exactly match the portable attempt-start admission.`);
+    }
+  }
+  for (const field of ["optionalDependencies", "peerDependencies"]) {
+    if (manifest[field] !== undefined && !hasExactStringRecord(manifest[field], {})) {
+      errors.push(`${triggerRunEngineManifestPath}: ${field} must be absent or empty.`);
+    }
+  }
+  const expectedFiles = ["src", "README.md", "THIRD_PARTY_NOTICES.md", "trigger-source-map.json", "licenses"];
+  if (JSON.stringify(manifest.files) !== JSON.stringify(expectedFiles)) {
+    errors.push(`${triggerRunEngineManifestPath}: files must exactly match the admitted distribution list.`);
+  }
+  return errors;
+}
+
+/** @param {string} specifier @param {string} relativePath */
+function isTriggerRunEngineSpecifier(specifier, relativePath) {
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  return resolved === triggerRunEnginePackage || resolved.startsWith(`${triggerRunEnginePackage}/`)
+    || resolved === triggerRunEnginePrefix.slice(0, -1) || resolved.startsWith(triggerRunEnginePrefix);
+}
+
+/** @param {string} reference @param {string} manifestPath */
+function isTriggerRunEngineDependencyReference(reference, manifestPath) {
+  if (packageNameFromDependencyReference(reference) === triggerRunEnginePackage) return true;
+  let target = reference.replaceAll("\\", "/");
+  while (target.startsWith("workspace:")) target = target.slice("workspace:".length);
+  if (target.startsWith("file:") || target.startsWith("link:")) target = target.slice(target.indexOf(":") + 1);
+  const resolved = resolveRepositorySpecifier(target, manifestPath).toLowerCase();
+  const root = triggerRunEnginePrefix.slice(0, -1);
+  return resolved === root || resolved.startsWith(`${root}/`)
+    || resolved.endsWith(`/${root}`) || resolved.includes(`/${root}/`);
 }
 
 /** @returns {{ relativePath: string; manifest: unknown }[]} */
