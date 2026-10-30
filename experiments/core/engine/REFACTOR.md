@@ -30,6 +30,11 @@ deferred.
 
 ## Keep, adapt, replace and add
 
+The [Convex alignment findings](./CONVEX-ALIGNMENT.md) supply the source-grounded
+keep/replace assessment and recommended priorities. They distinguish existing
+finite/prepared-state reuse from remaining SQL interactions and unimplemented
+coordination, without changing accepted guarantees or claiming a measured gain.
+
 | Area | Treatment | Boundary |
 | --- | --- | --- |
 | Native Medusa services, workflow graphs, normalization and business rules | Keep reusable implementations and meaningful behavioral tests | Preserve the supported native result, error, hook and compensation behavior |

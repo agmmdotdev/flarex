@@ -14,6 +14,9 @@ bounded implementation after the required source challenge. Implementation,
 measurement and production activation remain separate claims.
 
 Read the [refactor direction](./REFACTOR.md) for what we keep, replace and remove.
+The [Convex alignment findings](./CONVEX-ALIGNMENT.md) compare necessary native/host
+requirements with replaceable execution, cache, commit and schema machinery,
+including current working-tree corrections and performance evidence limits.
 The [supported-profile baseline](./baseline/README.md) fixes the existing
 consumer families and source/status boundaries for the goal.
 The [decision register](./DECISIONS.md) tracks accepted/proposed status; the
