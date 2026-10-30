@@ -15,8 +15,16 @@ chronological implementation history.
 
 ## Portable Core Refactor Direction
 
-Accepted design direction: evolve the existing core and reuse the existing
-Medusa/Payload integrations through connected owner replacements. The
+Accepted design direction: translate the pinned Convex database core into
+portable TypeScript, including its physical persistence schema through Drizzle,
+and migrate the existing core and Medusa/Payload integrations through connected
+owner replacements. Convex supplies the default algorithms, transaction boundary,
+versioned storage, metadata, indexing, OCC, commit and recovery mechanisms.
+Depart only where the DO runtime or required native behavior demands it; record
+the concrete requirement and replacement. Existing Flarex layouts, private APIs,
+optimizations and product-policy choices do not independently justify a
+divergence. An unresolved observable guarantee change remains a scoped decision
+before affected runtime edits. The
 [refactor record](../experiments/core/engine/REFACTOR.md) owns the keep/adapt/replace
 map and migration principles. `experiments/core` is the design and proof area,
 not a requirement to rebuild all framework coverage in a permanent second engine.
@@ -30,9 +38,9 @@ or reset disposition. Migrate callers and remove displaced code and planning
 guidance together. No unspecified durable-data deletion follows from this policy.
 
 Keep the core portable and inject runtime/storage/coordination mechanisms, with
-Cloudflare as the first host family. Use pinned Convex mechanisms as the primary
-engine reference during design and development, recording necessary runtime,
-framework and product differences under the
+Cloudflare as the first host family. Use pinned Convex mechanisms as the engine
+specification during design and development, recording necessary DO/runtime and
+native-behavior differences under the
 [source and divergence rules](../experiments/core/REFERENCES.md#source-and-divergence-rules).
 The reference pin is `84fbb0e70b4e857913673871cb847ad11a55f3d5`; inspect its owners
 and relevant tests before each implementation slice and justify every difference.
@@ -49,6 +57,14 @@ TypeScript can own RAM caches;
 choose its structures, libraries and SQLite indexes by required semantics and
 cost rather than copying Rust types. PostgreSQL remains durable authority and
 Application, Payload and Medusa retain explicit execution profiles.
+
+The [translation plan](../experiments/core/engine/REFACTOR.md#core-and-physical-schema-translation-plan)
+connects transaction/snapshot owners to document/index persistence, safe
+publication and caller retirement. Physical document/index versioning, key
+encoding, hydration, catalog representation and current projections are in scope.
+Preserve PostgreSQL authority, supported native behavior and named durable-data
+obligations through each replacement. Accepting this target does not run
+migrations, reset data, decide every policy difference or establish parity.
 
 Use the accepted [replacement workflow](../experiments/core/engine/REFACTOR.md#convex-guided-replacement-workflow):
 organize work by existing responsibility, using pinned Convex mechanisms as the

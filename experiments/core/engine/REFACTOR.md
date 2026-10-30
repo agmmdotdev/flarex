@@ -1,8 +1,14 @@
-# Existing core refactor direction
+# Convex core translation and existing-core refactor
 
 Status: **Accepted design and migration direction; goal execution authorized**.
-Refactor the existing Flarex core toward the portable engine and proposed DO
-placement, carrying forward the Medusa and Payload integration investment.
+Translate the pinned Convex database core into portable TypeScript, including
+its physical persistence schema through Drizzle. Use its mechanisms as the
+default; diverge only where the DO runtime or required native behavior demands
+it, with a concrete requirement and dedicated divergence record. Existing private
+APIs, layouts, optimizations and product-policy choices are not independent
+exceptions. Preserve supported guarantees until a conflicting policy is resolved
+for the affected slice. Refactor existing Flarex owners and callers into that
+engine, carrying forward the Medusa and Payload integration investment.
 `experiments/core` is the design/proof area; the destination is the existing
 system with migrated consumers and removed displaced internals. Rebuilding a
 permanent parallel engine or reproducing all framework coverage here is not the
@@ -71,7 +77,7 @@ Retaining current PostgreSQL tables initially is a possible sequencing choice,
 not a requirement. If their shape causes the targeted cost, redesign them too.
 State the migration or reset disposition for actual retained data before changing
 it. Breaking-change permission does not authorize deleting unspecified data.
-The current documentation task performs no runtime, schema or data changes.
+Recording the plan performs no runtime, schema or data changes.
 
 ## Existing seams and limits
 
@@ -127,6 +133,100 @@ do not each need a package, service, transaction or RPC. Host adapters supply
 platform mechanisms; portable owners retain validity, visibility and acceptance
 rules. Record the pinned revision, source paths and relevant symbols for adapted
 mechanisms. Implementation follows the goal's challenged bounded slices.
+
+## Core and physical-schema translation plan
+
+The destination is the current core in `packages/` and `apps/`. The earlier
+`experiments/core/src` candidate and its Drizzle schema are retained comparison
+material, outside workspace membership, not the engine to extend or wrap in a
+DO. Current cache/index replacements execute in existing package owners; they do
+not import that candidate. Reuse sound pieces and behavioral witnesses after
+audit, without rebuilding a permanent second engine or preserving old execution
+sequences. The [alignment findings](./CONVEX-ALIGNMENT.md#physical-schema-and-engine-translation-findings)
+record the inspected differences and remaining policy choices.
+
+### Engine responsibilities
+
+| Convex responsibility to translate | Flarex destination contract |
+| --- | --- |
+| SnapshotManager and versioned table/schema/index registries | One portable app owner supplies a safe published snapshot, exact metadata dependencies, bounded history and retained-view eligibility. |
+| Transaction, TransactionReadSet, Writes and TransactionIndex | One operation owns reads, first-original/final pending values, ordered pending index deltas, nested checkpoints and accounting; finalization closes it and hands one final transaction to the committer. |
+| WriteLog and PendingWrites | Retain committed conflict history and accepted-but-unpublished writes; check both before acceptance. Publication also supplies local cache changes. |
+| Committer | Order acceptance, derive document/index changes, overlap eligible persistence, then publish/acknowledge in order; stop unsafe work and reconcile uncertainty. |
+| Persistence reader/writer and lease protection | Exact historical reads and bounded index pages, bootstrap/retention access, atomic fenced batches and authoritative outcomes. Drizzle/SQL stay below the engine boundary. |
+| Runtime adapter | DO lifecycle, scheduling, transport and optional local cache storage; no extra committed-data authority or SQL transaction across untrusted execution, workflow pauses or remote effects. |
+
+These are responsibilities, not mandatory new classes, packages, services or
+RPCs. Reuse correct existing owners/types and replace obstructing handoffs
+together. Required native result/event/effect obligations join the actual outer
+settlement; adapters do not acquire a second transaction or publisher.
+
+### Physical persistence is in scope
+
+Start the Drizzle design from pinned Convex document/index version logs and their
+reader/writer contract. A conceptual mapping is:
+
+```text
+documents(scope, ts, table_id, id, value_bytes, deleted, prev_ts)
+indexes(scope, index_id, key_prefix, key_suffix, key_sha256,
+        ts, deleted, table_id, document_id)
+```
+
+This is a mapping, not final DDL. Preserve required scope confinement and native
+identities, exact timestamp/value/key ordering, long-key handling, atomic durable
+outcomes and PostgreSQL fencing. Translate engine catalog meaning into private
+logical records and versioned registries by default; keep genuinely external
+deployment/artifact authority at its own boundary. Bootstrap and native constraint
+requirements still need their correct owners.
+
+Default ordinary-index maintenance to Convex's final live index entry at the
+document's commit timestamp, including unchanged keys, with same-timestamp body
+hydration. This replaces the independent membership/no-op-proof direction unless
+a DO/native requirement justifies a recorded departure. More index writes are a
+cost to measure, not grounds to retain the old optimization automatically.
+Reassess lazy pending-index maintenance against Convex's eager old/new deltas:
+fallible key lowering and observable native error timing need a concrete
+disposition, not an assumption that TypeScript requires lazy maintenance.
+
+Audit current pointers, per-revision schema/hash/codec/epoch columns, per-entry
+specification evidence, normalized catalog copies, durable syscall journals and
+duplicate change directories against the translated contract. Move their real
+authority/integrity/recovery duties to the correct owner and remove displaced
+representations. A retained accelerator needs a DO/native justification and must
+remain snapshot-safe, rebuildable and compatible with overlapping saves.
+No table/column removal occurs without connected writer/reader, cache, backfill,
+retention, outcome and named-data migration or reset disposition.
+
+### Connected implementation sequence and conformance
+
+1. Map pinned engine/persistence responsibilities to current executing owners,
+   native requirements, actual data and removed mechanisms. Complete or safely
+   hand off in-flight finite/stored-attempt work; do not reset its status or
+   create another engine to avoid it.
+2. Define the translated transaction-to-persistence batch, physical schema and
+   bootstrap/fencing/retention boundary together. Select a connected vertical
+   slice; the field mapping alone is not an executable design.
+3. Establish versioned snapshot/catalog ownership and exact historical misses,
+   reusing the translated interval cache. Cover relevant writers before local
+   state replaces live database work.
+4. Translate transaction dependencies, coalesced writes, pending index deltas,
+   nested state/accounting and finalization, then committed/pending conflict
+   checks, fenced batch persistence and ordered publication/recovery. Choose
+   slice boundaries that prove these connections, not disconnected modules.
+5. Migrate Application and admitted native callers, schema installation and feed
+   consumers; retire displaced code/layouts after durable-data disposition.
+   Prove actual DO/native operation and complete-request performance separately.
+
+Derive executable conformance traces from pinned source and tests where present:
+conflict against an accepted unsaved write; independent saves completing out of
+order; durable B hidden before the safe published prefix; missing/empty ranges,
+key moves and same-key body changes; first-original/final-write coalescing with
+per-call accounting; nested handler rollback; ownership replacement and unknown
+commit recovery. Run equivalent abstract Rust/TypeScript traces where harnesses
+exist and both database lanes plus required host proofs for Flarex adaptations.
+Name policy-sensitive cases and resolve their Application/native disposition
+before changing observable behavior; a retained policy difference is not parity.
+Matching names or SQL text is not algorithm conformance or a measured speedup.
 
 ## Convex-guided replacement workflow
 

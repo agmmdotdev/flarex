@@ -6,6 +6,12 @@ owns accepted/proposed status; [REFACTOR.md](./REFACTOR.md) owns the accepted
 existing-core migration direction. Focused notes explain the current candidate
 without maintaining another independent question list.
 
+The accepted target is [Convex core and physical-schema translation](./REFACTOR.md#core-and-physical-schema-translation-plan)
+into the existing TypeScript core. DO/runtime constraints and required native
+behavior are the divergence grounds. Remaining questions concern the concrete
+mapping and guarantee/data dispositions, not whether old Flarex interfaces or
+physical layouts must be preserved.
+
 The first bounded [operation-local snapshot cache](./slices/01-snapshot-reads.md)
 is implemented. The connected
 [timestamped cache-transfer slice](./slices/02-timestamped-cache-transfer.md)
@@ -192,6 +198,11 @@ local coverage remains Q05. No runtime change is authorized by this acceptance.
 
 ## Q04 - Values, IDs and ordered representations
 
+The translation must map Convex value/key/timestamp semantics to the physical
+Drizzle layout and local comparators together, including long-key handling,
+ID tie-breakers and native exact-decimal extensions. Current encoded-key/row-ID
+tuples and key-limit failures are mechanisms to challenge, not DO necessities.
+
 **Queued, concept 03.** Which value, ordering, timestamp and identity semantics
 must remain equivalent, and what TypeScript/SQLite representations provide them?
 Choose structures by required operations and budgets. Neither a Rust type name
@@ -206,6 +217,12 @@ Required examples: boundary values, stable ordering/tie-breakers, historical
 versions and encoding comparisons across PostgreSQL and local cache execution.
 
 ## Q05 - Local rows, indexes and cache coverage
+
+The full snapshot/catalog/write-log owner and its PostgreSQL miss contract remain
+to be connected. Reuse the interval-cache translation in the current packages;
+wrapping the old experiment's per-read SQL checks in a DO is not this replacement.
+Any retained current projection must preserve the safe published prefix while
+independent accepted saves overlap.
 
 **Direction partly accepted; details queued, concept 04.** Demand population,
 publication-driven invalidation, validated concurrent fills and bounded cache size
@@ -240,6 +257,14 @@ invalidation/replacement, budget eviction and equivalent native count/population
 
 ## Q06 - Pending state, framework visibility and replay
 
+Compare eager Convex pending-index deltas with the current lazy key-lowering
+adaptation; identify any required native failure timing before retaining it.
+Duplicate-body suppression, original signed-program retry and invocation-sticky
+caught-child failure are existing Application policy choices, not consequences
+of DO hosting. Resolve any change to their observable guarantees explicitly;
+keep native replay/visibility policy at its own boundary. Nested rollback must
+follow the pin's handler-error and accounting behavior, not generic undo-all.
+
 **Ownership/retry policy partly accepted; details queued, concept 05.** Follow the
 [operation-lifetime boundary](./02-operation-lifetime.md). Which state belongs to a private attempt versus a shared
 committed cache? Which native commands may execute speculatively and which may
@@ -270,6 +295,13 @@ Required examples: two add-one operations, phantom cart items, nested-hook failu
 one-time external effects and unknown-COMMIT recovery without native reexecution.
 
 ## Q07 - Schema, index lifecycle and retention
+
+The accepted default is the pinned versioned document/index layout and ordinary
+same-timestamp index/body hydration. Plan current-pointer, independent-membership,
+per-row/per-entry evidence, catalog and feed/journal retirement together with
+reader/writer/backfill/cache/retention migration and named-data disposition.
+The [physical findings](./CONVEX-ALIGNMENT.md#physical-schema-and-engine-translation-findings)
+map the remaining work; this records no completed schema migration.
 
 **Partially answered; remaining mechanisms open, concept 07.** Follow the
 [separate cache/history bounds](./02-timestamped-snapshots.md#accepted-cache-and-retention-direction).

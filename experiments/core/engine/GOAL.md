@@ -15,8 +15,18 @@ remain the owning records for architecture, status and unresolved decisions.
 
 ## Finish line
 
+Translate pinned Convex core logic and its physical persistence schema into
+TypeScript/Drizzle through the [connected translation plan](./REFACTOR.md#core-and-physical-schema-translation-plan).
+Depart only for a demonstrated DO/runtime or required native-behavior constraint,
+with the reason, replacement and proof in its divergence record. Existing private
+interfaces, physical layouts, optimizations or product-policy choices do not
+supply an automatic exception; unresolved observable guarantees retain their
+scoped decision gate. The current core in `packages/` and `apps/` is the
+destination; the older `experiments/core/src` candidate is retained baseline
+material, not a runtime dependency or a permanent second engine.
+
 Complete the existing core's supported Application, Medusa and Payload paths
-through portable TypeScript owners with injected Cloudflare Worker/DO adapters
+through that engine with portable owners and injected Cloudflare Worker/DO adapters
 and PostgreSQL as the sole durable authority. One independent app has one logical
 owner shared by these profiles. Reuse native business behavior and sound core
 logic, migrate consumers and remove the displaced machinery.
@@ -34,6 +44,11 @@ coverage while the refactor proceeds.
 
 The goal is complete only when:
 
+- Transaction finalization, snapshot/metadata ownership, pending/committed conflict
+  checks, index maintenance/hydration and physical persistence follow the pinned
+  mechanisms or have a demonstrated DO/native divergence. Connected conformance
+  traces and schema/data cutover prove the translation; a new facade over the
+  displaced SQL-command engine does not complete it.
 - Supported reads, indexed ranges, misses, absence and pending-state results
   obey their selected snapshot, ordering, authorization and dependency contracts.
 - Relevant writers preserve integrity and accepted conflict/retry rules. Bounded
@@ -67,6 +82,7 @@ those consumers.
 | Milestone | Required outcome |
 | --- | --- |
 | Establish the baseline and challenge the first slice | Record supported consumers and compare current owners, the accepted direction and pinned Convex mechanisms; select the exact point/range path, writer connections and cleanup boundary. |
+| Translate the core/persistence contract and physical schema | Map transaction finalization, versioned document/index logs, same-timestamp ordinary-index hydration, private metadata, fenced batches, outcomes and retention to current owners; resolve necessary DO/native adaptations and named-data disposition before connected cutover. |
 | Snapshot reads and cache/index adapters | Replace a real existing point/range read with a portable snapshot owner, timestamp-preserving PostgreSQL misses and injected local storage; prove actual DO composition and cache coherence before enabling reuse. |
 | Pending state, dependencies and acceptance | Preserve profile-correct read-your-writes, exact dependencies, native visibility and outer settlement while replacing the affected attempt/validation machinery. |
 | Persistence, publication and recovery | Implement the accepted save/publication order, fencing, durable outcome reconciliation and cache/bootstrap recovery through the correct owners. |
@@ -97,14 +113,15 @@ The [Standard cutover contract](./slices/04c-standard-mutation-cutover.md) recor
 the connected preparation, ordered admission, stored-request and recovery
 requirements. Its genuine current nested-failure prerequisite is implemented;
 the connected [operation-admission replacement](./slices/04c1-application-operation-admission.md)
-is implemented. The ordinary Standard cutover remains unimplemented.
+is implemented. The ordinary Standard cutover is in progress; complete acceptance
+remains open.
 The [exact-original preparation prerequisite](./slices/04c2-exact-selection-preparation.md)
 is implemented for existing finite Product/Payload consumers, including full
 callable-catalog coverage and explicit installation reconciliation. Ordinary
 Standard finite activation and recovery remain open.
 The [ordinary Standard replacement](./slices/04c3-standard-finite-execution.md)
 has completed independent challenge and peer exchange. Its connected runtime
-implementation remains unstarted; the affected historical-data path requires the
+implementation is in progress; the affected historical-data path requires the
 [stored-attempt disposition](./05-stored-attempt-disposition.md).
 
 The bounded [joint Application/Payload/Currency relation writer](./slices/04c3e-cross-domain-relation-maintenance.md)

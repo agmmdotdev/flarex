@@ -1,11 +1,16 @@
 # Convex alignment findings
 
-Status: **Source comparison and replacement recommendations; no new runtime
-implementation or performance acceptance**. These findings support the existing
+Status: **Source comparison supporting the accepted Convex core/physical-schema
+translation target; connected implementation and performance acceptance open**.
+These findings support the existing
 [refactor direction](./REFACTOR.md) and [goal](./GOAL.md). Accepted architecture,
 individual divergence records and the [question queue](./OPEN-QUESTIONS.md)
 retain their authority. Recording a recommendation does not settle an unresolved
-guarantee or replace the required pre-slice challenge.
+guarantee or replace the required pre-slice challenge. The
+[translation plan](./REFACTOR.md#core-and-physical-schema-translation-plan)
+now fixes the target: translate the pin into the current TypeScript core,
+including physical persistence, departing only for DO/runtime constraints or
+required native behavior.
 
 ## Source boundary
 
@@ -51,6 +56,9 @@ or SQL-table count does not establish a bottleneck.
 
 Convex itself uses durable persistence leases and a final shared lease-row lock.
 Its OCC design is not a promise that the engine or SQL adapter contains no locks.
+The request/claim and original-program row above describes current contract
+preservation during migration. Those policies are not unavoidable DO/native
+requirements; their disposition is separated below.
 
 ## Replacement priorities
 
@@ -125,6 +133,85 @@ analysis or lifetime coupling to app code deployment. The current working tree
 already introduces explicit Application/system roots and initial system
 installation; these are in progress, not wholly absent or completed.
 
+## Physical-schema and engine translation findings
+
+### Current-core destination versus the retained experiment
+
+The refactor changes the existing core in `packages/` and `apps/`. The older
+`experiments/core/src` candidate and its Drizzle schema remain isolated runnable
+comparison material. Current runtime-source inspection found no imports of that
+folder or `@flarex/experimental-core` in those packages/apps. Its own test and
+benchmark setup may still execute it independently; it has not been deleted.
+
+The newer interval cache, root evaluator and query DO live in existing package/app
+owners. The interval cache closely translates Convex coverage/cut rules. The
+older candidate still uses current JSONB documents plus history and separate
+numeric/equality membership versions; point/range operations reload snapshot
+authority through SQL. Neither that layout nor wrapping its API in a DO is the
+target engine. Reuse its behavioral witnesses and sound pieces after audit.
+
+### Physical representation and the translated persistence contract
+
+Convex finalizes an operation into tracked reads and coalesced writes. The engine
+then derives `DocumentLogEntry { ts, id, value, prev_ts }` and
+`PersistenceIndexEntry { ts, index_id, key, value }`. Its PostgreSQL adapter
+writes document/index batches in one fenced SQL transaction. A close Drizzle
+mapping is the [plan's versioned log shape](./REFACTOR.md#physical-persistence-is-in-scope),
+with scope adapted from the persistence instance identity.
+
+| Area | Current Flarex difference | Translation disposition |
+| --- | --- | --- |
+| Document revisions | Separate schema version, creation time, codec/hash and write epoch evidence on each revision. | Map real duties to versioned metadata, document serialization, trusted system fields and the persistence/fencing owner. Exact current columns are not inherent OCC requirements. Preserve integrity and history guarantees through replacement. |
+| Ordinary index revisions | Encoded key plus separate row-ID ordering; membership sequence can differ from body revision; per-entry codec/spec evidence. | Default to pinned key ordering and same-timestamp index/body hydration. Translate PostgreSQL long-key handling and native exact-value extensions explicitly. |
+| Current projections | Current-row/current-index pointer families support existing readers and constraints. | They are not part of the minimum Convex version-log design. Retain only for a justified DO/native requirement, with safe-prefix visibility, rebuildability and overlapping-save proof. |
+| Engine catalogs | Normalized control families plus JSON/canonical bytes/digests for definitions. | Default engine meaning to private logical system records and versioned registries. Keep external deployment/artifact and cross-trust authority at its actual owner; do not collapse genuine split-placement boundaries. |
+| Executing operations and change directories | Session/attempt profiles, transient journals, commit headers/facts and outcome machinery. | Keep transient read/write state in the translated transaction. Preserve atomic durable outcomes, native events and recovery; replace duplicate journal/feed machinery only after common-log reconstruction and retained-data disposition. |
+
+These are connected replacement targets. Deleting a verified column or index
+without replacing its readers, writers, cache, builds, retention and recovery
+would not implement the translation. Drizzle itself imposes none of these
+current representation choices.
+
+### Same-timestamp index hydration versus independent membership
+
+Convex's `IndexRegistry::index_updates` emits a final live ordinary-index entry
+even when its key is unchanged. Its PostgreSQL range scan joins the document
+revision at the index entry's exact timestamp. Flarex currently versions
+membership independently and authenticates membership heads before omitting an
+unchanged write.
+
+For a description-only Product patch at commit 42, with category unchanged:
+
+- Convex writes document 42 and live category-index entry 42. Hydration uses
+  their shared timestamp.
+- Flarex may retain category membership 17 while writing document 42. It must
+  resolve independent body history and prove the skipped membership update.
+
+The accepted translation default follows Convex here. More index writes are the
+tradeoff for simpler update interpretation/hydration, not a measured win. Migrate
+maintenance, read hydration, cache changes, OCC, backfill and retention together;
+do not preserve no-op membership proofs solely because they already exist.
+
+### Pending indexes and observable Application policies
+
+Convex `TransactionIndex` eagerly maintains old/new private key deltas and
+tombstones; `Writes` separately preserves first-original/final state and per-call
+accounting. Our selected adaptation lazily updates chosen indexes and suppresses
+snapshot rows by written ID. Its fallible decimal/key-limit lowering and error
+timing are explicit in the [pending-index divergence](./divergences/incremental-pending-indexes.md).
+This is not forced by TypeScript or DO. Establish which supported native behavior
+really requires it before retaining a departure from the eager mechanism.
+
+| Existing Application policy | Convex comparison | Required disposition |
+| --- | --- | --- |
+| A durable claim suppresses duplicate bodies and returns `inProgress`. | Eligible pure duplicates may execute; tracked request absence and an atomic stored outcome select one committed success. | Keep durable outcome identity/fencing; decide duplicate-execution policy separately from the shared engine. |
+| Retry uses the originally signed program/schema. | A fresh transaction validates current function metadata. | Resolve grant authority explicitly before changing retry resolution; an older grant must not silently authorize newer code. |
+| A caught admitted child failure poisons the root. | Nested handler-error rollback restores checkpointed writes/index/metadata state, with specific retained reads/accounting. | Translate the actual checkpoint/error distinction if selected; do not implement generic undo-all or apply Application semantics to native hooks implicitly. |
+
+These are chosen observable contracts, not DO necessities. The translation target
+does not silently decide all three. Q06 in the [question queue](./OPEN-QUESTIONS.md#q06---pending-state-framework-visibility-and-replay)
+owns their resolution alongside required native replay/visibility policy.
+
 ## Source map for the findings
 
 Links target local executing owners and symbols; line numbers can drift with
@@ -140,6 +227,9 @@ shared work. Inspect callers and tests again for an implementation slice.
 | Logical versus physical storage | [PostgreSQL SQL](../../../../../crates/postgres/src/sql.rs) | [row revisions/current pointers](../../../packages/persistence-postgres/src/database/schema/documents.ts), [physical schema naming](../../../packages/persistence-postgres/src/storage/relationalSchema/physical/canonical.ts), [storage completion owner](../../../roadmaps/shared-logical-storage/03-completion-plan.md) |
 | ID validation versus native constraints | [validator.rs](../../../../../crates/common/src/schemas/validator.rs), [query implementation](../../../../../npm-packages/convex/src/server/impl/query_impl.ts), `unique` | [logical schema sources](../../../packages/flarex-protocol/src/logical-schema-candidate.ts), [shared definitions](../../../packages/persistence-postgres/src/storage/catalog/logicalStorageDefinitions.ts) |
 | Borrowed native lifetime and finite workflows | [transaction.rs](../../../../../crates/database/src/transaction.rs), nested working state | [borrowed Payload attempt](../../../packages/persistence-postgres/src/frameworks/cmsTransaction/borrowedLogicalAttempt.ts), [Medusa repository context](../../../packages/medusa-adapter/src/repository/context.ts), [finite atomic child](../../../packages/medusa-workflows-sdk/src/durable/engine/finite-atomic-child.ts) |
+| Same-timestamp ordinary-index hydration | [index_registry.rs](../../../../../crates/indexing/src/index_registry.rs), `index_updates`; [PostgreSQL scan](../../../../../crates/postgres/src/sql.rs), `D.ts = A.ts` | [independent membership schema](../../../packages/persistence-postgres/src/database/schema/documentIndexes.ts), [membership-head proofs](../../../packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts) |
+| Persistence batch and transaction finalization | [persistence contracts](../../../../../crates/common/src/persistence.rs), [PostgreSQL writer](../../../../../crates/postgres/src/lib.rs), [transaction finalization](../../../../../crates/database/src/transaction.rs) | [older candidate schema](../src/schema.ts), [candidate storage](../src/application-storage.ts), [actual query DO](../../../apps/executor/src/applicationQueryDO.ts) |
+| Pending and nested state | [TransactionIndex](../../../../../crates/database/src/transaction_index.rs), [nested syscall](../../../../../crates/isolate/src/environment/udf/async_syscall.rs) | [root evaluator](../../../packages/persistence-postgres/src/storage/documents/logicalDocuments/rootEvaluator.ts), [nested-failure policy](./divergences/application-nested-failure.md) |
 
 ## Performance limits and next selection
 
@@ -158,9 +248,10 @@ Existing metadata-key and fixed demand-vector work must not be proposed again
 as absent; broad pure-preparation cleanup was already rejected as the next
 performance implementation in the [cost inventory](../../../packages/medusa-adapter/benchmarks/core-performance/native-business/cost-inventory-proposal.md).
 
-Recommended selection order is to finish finite execution/retirement, establish
-shared snapshot and publication ownership, then implement overlapping saves.
-Schema retirement follows its consumers and need not wait for all engine work.
+The [connected translation plan](./REFACTOR.md#connected-implementation-sequence-and-conformance)
+owns next selection: complete or safely hand off in-flight finite/retirement work,
+define transaction and physical persistence together, then connect snapshot,
+transaction, commit and recovery owners. Schema retirement follows its consumers.
 Use the existing question and divergence owners for unresolved protocols. Each
 runtime slice still needs its independent challenge, exact writer coverage,
 relevant PGlite/ordinary-role PostgreSQL and host validation, and complete-request

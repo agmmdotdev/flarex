@@ -11,9 +11,14 @@ The reference is Convex revision
 `84fbb0e70b4e857913673871cb847ad11a55f3d5`. Follow the
 [source and divergence rules](../../REFERENCES.md#source-and-divergence-rules)
 and [replacement workflow](../REFACTOR.md#convex-guided-replacement-workflow).
-Read its actual owner, callers and relevant tests. Preserve its mechanism unless
-runtime constraints, required native semantics or accepted product obligations
-establish a concrete reason to differ.
+Read its actual owner, callers and relevant tests. The accepted
+[translation target](../REFACTOR.md#core-and-physical-schema-translation-plan)
+includes the physical persistence schema. Preserve the pinned mechanism unless
+DO/runtime constraints or required native behavior establish a concrete reason
+to differ. Existing optimizations, layouts or product-policy choices are not
+automatic exceptions; resolve an observable guarantee conflict at its scoped
+decision owner before affected runtime edits. Earlier divergence records retain
+their current-runtime gates while their mechanisms are reassessed for translation.
 
 ## When a record is required
 

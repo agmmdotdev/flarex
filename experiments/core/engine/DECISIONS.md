@@ -16,7 +16,7 @@ The Convex-guided replacement workflow is accepted: refactor existing
 responsibilities in bounded slices and raise unresolved changes to guarantees
 when encountered. Full-goal implementation is authorized with mandatory
 independent pre-slice challenges, coordinated workers and focused divergence
-records. The first snapshot/read/cache boundary is under challenge. Resumable index
+records. Named slice owners record current implementation status. Resumable index
 backfill, remaining concept-02 protocols, ownership, fencing and recovery details
 stay open.
 Replication is explicitly deferred. This register records decisions, not execution
@@ -37,6 +37,18 @@ An accepted design can remain unimplemented; a prototype can remain unaccepted;
 passing correctness does not establish performance acceptance.
 
 ## Accepted discussion direction
+
+The owner explicitly selects translating Convex's pinned database core into
+TypeScript, including the physical persistence schema through Drizzle. Algorithms,
+transaction/persistence boundaries, versioned metadata, indexes, OCC, publication
+and recovery follow the pin by default. Diverge only where DO/runtime constraints
+or required native behavior demand it; existing Flarex optimizations, private
+layouts and product-policy choices are not independent justifications.
+The [translation plan](./REFACTOR.md#core-and-physical-schema-translation-plan)
+and [physical-schema findings](./CONVEX-ALIGNMENT.md#physical-schema-and-engine-translation-findings)
+own the mapping and source assessment. This selects the target, not implemented
+parity, migration/reset authority or a measured gain. Individual observable policy
+changes and concrete data dispositions remain with their scoped decision owners.
 
 The owner requested a fresh, modular engine-design discussion using Convex as
 the primary reference, proceeding one concept at a time and updating the notes

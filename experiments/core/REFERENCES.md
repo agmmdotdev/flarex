@@ -55,6 +55,11 @@ a moving branch, silently refresh the pin or infer upstream publication from a
 local commit ID. A deliberate pin update records changed mechanisms and refreshes
 the affected source hashes and design comparisons together.
 
+The accepted target is [core and physical-schema translation](./engine/REFACTOR.md#core-and-physical-schema-translation-plan)
+into the existing TypeScript core. Include the PostgreSQL document/index layout,
+key representation, hydration and private metadata owners when comparing a
+mechanism. Drizzle does not require the current Flarex schema or SQL sequence.
+
 Before each concept and implementation slice, inspect the pinned owner, its
 callers and relevant tests where available. Record the source path and symbols,
 required invariants, concurrency/visibility order and failure behavior. Translate
@@ -67,8 +72,10 @@ Each necessary mechanism divergence gets its own Markdown file under the
 [divergence index](./engine/divergences/README.md) before affected implementation.
 It records the reference mechanism, our replacement, the necessary
 reason, effects on behavior/cost, affected consumers/data, and correctness and
-performance evidence required. Runtime constraints, framework semantics and
-product requirements can justify a difference. Retaining old internal plumbing
+performance evidence required. Only demonstrated DO/runtime constraints or
+required native behavior justify a mechanism difference under the current target.
+Existing product policies need explicit disposition when they conflict with
+the translation; they are not automatic runtime exceptions. Retaining old internal plumbing
 or implementation convenience alone cannot. Keep a hypothesis marked unproved;
 never claim performance equivalence from structural similarity.
 

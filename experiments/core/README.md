@@ -9,7 +9,7 @@ one connected responsibility at a time, resolving only its required questions
 from the [open-question queue](./engine/OPEN-QUESTIONS.md);
 snapshot boundaries, expiry policy, the read-authorization split and read-after-write
 freshness and index-readiness direction are accepted. The
-[starting slice under challenge](./engine/REFACTOR.md#recommended-starting-slice) replaces
+[starting-slice record](./engine/REFACTOR.md#recommended-starting-slice) describes
 snapshot-correct point/index reads with injected cache/storage adapters.
 Resumable index backfill, numerical budgets
 and concrete recovery/client protocols remain open.
@@ -17,6 +17,20 @@ The [goal contract](./engine/GOAL.md) authorizes bounded implementation with
 independent three-way challenges, coordinated workers and dedicated
 [divergence records](./engine/divergences/README.md). Copy pinned Convex
 mechanisms as closely as possible; findings decide each exact slice boundary.
+
+The accepted target includes translating Convex's physical persistence schema
+through Drizzle, with departures only for required DO/runtime or native behavior.
+Use the [connected translation plan](./engine/REFACTOR.md#core-and-physical-schema-translation-plan).
+The refactor destination is the current core in `packages/` and `apps/`.
+
+`src/` and its schema are the earlier isolated experimental candidate. They are
+retained for runnable comparisons and behavioral evidence, not the engine to
+extend or a dependency of current package-based DO/cache/index replacements.
+Those replacements live in the existing
+[interval cache](../../packages/persistence-postgres/src/storage/indexes/snapshotIndexCache.ts),
+[pending root](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/rootEvaluator.ts)
+and [query DO](../../apps/executor/src/applicationQueryDO.ts). Reuse sound work
+there; no deletion of the retained experiment follows from this clarification.
 
 ## Current state
 
@@ -103,11 +117,12 @@ TypeScript and Drizzle remain requirements. New engine mechanisms need explicit
 decisions, connected correctness evidence and complete-request measurements.
 
 Any later experimental database work uses explicitly owned disposable resources.
-This documentation task leaves runtime packages, ongoing integration, schemas and
-data untouched. Future selected replacements target their actual existing owners
+Recording this direction leaves runtime packages, ongoing integration, schemas and
+data untouched. Selected replacements target their actual existing owners
 and include connected consumer migration, verification and retirement. Keeping
 an old layout is optional; resetting actual data requires an explicit disposition.
-No production routing, data deletion or implementation is authorized now.
+The goal authorizes runtime implementation through its slice gates; this note
+does not activate production routing or authorize unspecified data deletion.
 
 The [accepted design](../../design-notes/flarex-db-accepted-design.md) retains
 production authority, execution-profile and host obligations. The

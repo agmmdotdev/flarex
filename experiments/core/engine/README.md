@@ -14,6 +14,11 @@ bounded implementation after the required source challenge. Implementation,
 measurement and production activation remain separate claims.
 
 Read the [refactor direction](./REFACTOR.md) for what we keep, replace and remove.
+The accepted goal is to translate Convex's core logic and physical persistence
+schema into TypeScript/Drizzle, departing only for DO/runtime constraints or
+required native behavior. The [connected translation plan](./REFACTOR.md#core-and-physical-schema-translation-plan)
+targets the current `packages/` and `apps/` core. The older `experiments/core/src`
+candidate remains baseline evidence, not the DO/cache/index runtime dependency.
 The [Convex alignment findings](./CONVEX-ALIGNMENT.md) compare necessary native/host
 requirements with replaceable execution, cache, commit and schema machinery,
 including current working-tree corrections and performance evidence limits.
