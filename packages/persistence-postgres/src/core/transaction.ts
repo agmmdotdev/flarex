@@ -11,22 +11,18 @@ import { captureDocumentObject, captureDocumentPatch, encodeDocumentValue, type 
 import { encodeIndexKey } from "flarex-protocol/index-key";
 import { captureLogicalQuery, compileIndexRange, fingerprintQuery, splitIndexRangeAfter } from "flarex-protocol/index-range";
 import { validateValidatorValueV1 } from "flarex-protocol/validator-engine";
-import { isCanonicalFlarexRuntimeObjectV1 } from "flarex-protocol/internal/value-runtime-core";
 import { CoreQueryInputError, CoreTransactionError, issueFinalizedTransaction, type CoreError, type CoreFinalizedTransaction,
   type CoreIndexDefinition, type CoreTableDefinition, type CoreTransaction, type CoreTransactionLimits, type CoreTransactionUsage,
   type CoreReadToken, type CoreProgramDefinition } from "./api";
-import type { CoreDocumentLogEntry, CoreInterval, CorePersistenceSnapshot, CoreWriteBatch } from "./contracts";
+import { CorePersistenceError, type CoreDocumentLogEntry, type CoreIndexPage, type CoreIndexScan, type CoreInterval, type CorePersistenceSnapshot, type CoreWriteBatch } from "./contracts";
 import { CoreRegistry, TABLES, PROGRAMS, publicDocumentId, readDocumentObject } from "./registry";
 import { CoreReadSetBuilder, pointInterval, type CoreReadSet } from "./writeLog";
 import { CORE_TRANSACTION_REFERENCE_LIMITS, CoreAccounting } from "./accounting";
 import { captureCoreDocument, captureCoreObject } from "./document";
 import { addIndexMetadataDependency, addTableWriteDependencies } from "./dependencies";
 import { createCoreQuery } from "./query";
-
-interface Observation {
-  readonly original: CoreDocumentLogEntry | undefined;
-  readonly document: DocumentObject | null;
-}
+import { createCoreIndexSnapshot } from "./indexSnapshot";
+import { documentIndexKey } from "./documentIndex";
 
 export interface CoreDocumentChange {
   readonly table: CoreTableDefinition;
@@ -82,24 +78,11 @@ function nextUp(value: number): number {
   return view.getFloat64(0);
 }
 
-function field(document: DocumentObject, path: string): DocumentValue | undefined {
-  let value: DocumentValue | undefined = document;
-  for (const part of path.split(".")) {
-    if (value === undefined || !isCanonicalFlarexRuntimeObjectV1(value) || !Object.hasOwn(value, part)) return undefined;
-    value = value[part];
-  }
-  return value;
-}
-
-export function documentIndexKey(index: CoreIndexDefinition, document: DocumentObject): Result.Result<Uint8Array, CoreTransactionError> {
-  const id = document._id;
-  if (typeof id !== "string") return Result.fail(invalid());
-  return Result.mapError(encodeIndexKey(index.fields.map(path => field(document, path)), id), invalid);
-}
-
 /** One operation, one metadata/data snapshot. No SQL or host object enters its state. */
 export function createCoreTransaction(input: Readonly<{
   snapshot: CorePersistenceSnapshot;
+  residentReader?: (request: CoreIndexScan) => CoreIndexPage | undefined;
+  operationCacheMaxBytes?: number;
   registry: CoreRegistry;
   now: bigint;
   newInternalId: Effect.Effect<Uint8Array>;
@@ -111,8 +94,10 @@ export function createCoreTransaction(input: Readonly<{
   onClosed?: () => void;
 }>): CoreTransactionInternals {
   const { snapshot, registry } = input;
+  const indexSnapshot = createCoreIndexSnapshot({ snapshot, registry,
+    ...(input.residentReader === undefined ? {} : { resident: input.residentReader }),
+    ...(input.operationCacheMaxBytes === undefined ? {} : { maxBytes: input.operationCacheMaxBytes }) });
   const reads = new CoreReadSetBuilder();
-  const observations = new Map<string, Observation>();
   const writes = new Map<string, CoreDocumentChange>();
   const pendingIndexes = new Map<string, BTree<Uint8Array, DocumentObject | null>>();
   const accounting = new CoreAccounting(input.limits ?? CORE_TRANSACTION_REFERENCE_LIMITS);
@@ -191,17 +176,20 @@ export function createCoreTransaction(input: Readonly<{
   const observe = Effect.fn("CoreTransaction.observe")(function* (table: CoreTableDefinition, id: Uint8Array) {
     yield* assertOpen();
     const developerId = yield* Effect.fromResult(publicDocumentId(table, id));
-    const cached = observations.get(developerId);
-    if (cached !== undefined) return cached;
+    const pending = writes.get(developerId);
+    if (pending !== undefined) return { original: pending.original, document: pending.originalDocument };
     const byId = table.indexes.find(index => index.name === "by_id");
     if (byId === undefined || !byId.enabled) return yield* Effect.fail(new CoreTransactionError({ reason: "indexUnavailable" }));
     const key = yield* Effect.fromResult(Result.mapError(encodeIndexKey([], developerId), invalid));
     reads.add(byId.ref.id, pointInterval(key));
-    const found = yield* snapshot.get(table.tabletId, id);
+    const page = yield* indexSnapshot.scan({ index: byId.ref, tableId: table.tabletId,
+      interval: pointInterval(key), order: "asc", maxResults: 2 });
+    if (page.entries.length > 1 || page.cursor.kind !== "end")
+      return yield* new CorePersistenceError({ reason: "corruptData" });
+    const found = page.entries[0]?.document;
     yield* assertOpen();
-    const borrowed = Option.getOrUndefined(found);
-    const original = borrowed === undefined ? undefined : Object.freeze({ ...borrowed,
-      tableId: borrowed.tableId.slice(), id: borrowed.id.slice(), jsonValue: borrowed.jsonValue.slice() });
+    const original = found === undefined ? undefined : Object.freeze({ ...found,
+      tableId: found.tableId.slice(), id: found.id.slice(), jsonValue: found.jsonValue.slice() });
     let document: DocumentObject | null = null;
     if (original !== undefined && !original.deleted) {
       const decoded = yield* Effect.fromResult(readDocumentObject(original, table));
@@ -209,9 +197,7 @@ export function createCoreTransaction(input: Readonly<{
       document = measured.value;
       documentSizes.set(document, measured.semanticSizeBytes);
     }
-    const observed = { original, document };
-    observations.set(developerId, observed);
-    return observed;
+    return { original, document };
   });
 
   const read = Effect.fn("CoreTransaction.read")(function* (table: CoreTableDefinition, id: Uint8Array) {
@@ -224,8 +210,9 @@ export function createCoreTransaction(input: Readonly<{
   const stage = Effect.fn("CoreTransaction.stage")(function* (table: CoreTableDefinition, id: Uint8Array, document: DocumentObject | null) {
     if (input.readonly) return yield* new CoreTransactionError({ reason: "readonly" });
     const developerId = yield* Effect.fromResult(publicDocumentId(table, id));
-    const previous = yield* read(table, id);
+    const pending = writes.get(developerId);
     const original = yield* observe(table, id);
+    const previous = pending === undefined ? original.document : pending.finalDocument;
     yield* assertOpen();
     const captured = document === null ? null : yield* Effect.fromResult(Result.mapError(captureCoreDocument(document, table.name.startsWith("_")), invalid));
     const next = captured?.value ?? null;
@@ -284,7 +271,7 @@ export function createCoreTransaction(input: Readonly<{
   const scanner = (table: CoreTableDefinition, index: CoreIndexDefinition, interval: CoreInterval,
     order: import("./contracts").CoreOrder, limit?: number, queryFingerprint: Uint8Array = new Uint8Array(),
     initialPosition?: import("./contracts").CoreIndexCursor, withinOperation = false) => createCoreQuery({
-    snapshot, table, index, interval, order, ...(limit === undefined ? {} : { limit }), queryFingerprint,
+    snapshot: indexSnapshot, table, index, interval, order, ...(limit === undefined ? {} : { limit }), queryFingerprint,
     ...(initialPosition === undefined ? {} : { initialPosition }),
     pendingIndex: () => pendingIndexes.get(encodeBytesToLowercaseHex(index.ref.id)),
     recordRead: consumed => { reads.add(index.ref.id, consumed); return accounting.query(index.ref.id, consumed); },

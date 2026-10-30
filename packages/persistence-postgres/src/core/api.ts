@@ -201,6 +201,10 @@ export interface CoreDatabaseOptions {
   readonly batchWriteThreshold?: number;
   readonly maxConcurrentPrevalidations?: number;
   readonly transactionLimits?: Partial<CoreTransactionLimits>;
+  /** Source defaults: 512 MiB shared pages and 100 percent verification. */
+  readonly indexCache?: Readonly<{ maxBytes?: number; verifyPercent?: number }>;
+  /** Source operation cache default is 16 MiB, separate from user read limits. */
+  readonly operationCacheMaxBytes?: number;
 }
 
 /** Identity issuance stays internal; structural objects do not gain authority. */

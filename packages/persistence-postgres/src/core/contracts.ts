@@ -98,6 +98,18 @@ export interface CorePersistenceSnapshot {
   readonly scan: (request: CoreIndexScan) => Effect.Effect<CoreIndexPage, CorePersistenceError>;
 }
 
+/** Durable deletion floors loaded while holding this persistence owner's lease. */
+export interface CoreRetentionBounds {
+  readonly indexMinimumTimestamp: CoreTimestamp;
+  readonly documentMinimumTimestamp: CoreTimestamp;
+}
+
+/** A leader reads synchronized local bounds; a standalone reader reloads SQL. */
+export interface CoreRetentionValidator {
+  readonly validateIndex: (at: CoreTimestamp) => Effect.Effect<void, CorePersistenceError>;
+  readonly validateDocument: (at: CoreTimestamp) => Effect.Effect<void, CorePersistenceError>;
+}
+
 /** Trusted, instance-bound port; never lent to user code or framework callbacks. */
 export interface CorePersistence {
   readonly acquireLease: () => Effect.Effect<CorePersistenceLease, CorePersistenceError>;
@@ -107,8 +119,13 @@ export interface CorePersistence {
   ) => Effect.Effect<CoreTimestamp, CorePersistenceError>;
   /** Fresh document/index namespace under this lease; bootstrap-global remnants alone are harmless. */
   readonly isFresh: (lease: CorePersistenceLease) => Effect.Effect<boolean, CorePersistenceError>;
+  /** Both floors are captured under the same fenced bootstrap lifetime. */
+  readonly readRetentionBounds: (
+    lease: CorePersistenceLease,
+  ) => Effect.Effect<CoreRetentionBounds, CorePersistenceError>;
   readonly readSnapshot: (
     at: CoreTimestamp,
+    retention?: CoreRetentionValidator,
   ) => Effect.Effect<CorePersistenceSnapshot, CorePersistenceError>;
   /** One fenced SQL transaction; a logical member is never split across writes. */
   readonly write: (

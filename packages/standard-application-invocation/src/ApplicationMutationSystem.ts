@@ -151,6 +151,10 @@ import { CoreApplicationMutationError, makeCoreApplicationMutationPort } from
   "@flarex/persistence-postgres/internal/core-application-mutation";
 import { normalizeFlarexValueV1 } from "flarex-protocol/value";
 import { makeCoreApplicationMutationRunner } from "./CoreApplicationMutationRunner";
+import { type CoreApplicationAdmission, type CoreApplicationAdmissionError } from "./CoreApplicationAdmission";
+export { makeCoreApplicationAdmission, CoreApplicationAdmissionError,
+  CoreApplicationAdmissionConfigurationSchema, type CoreApplicationAdmission,
+  type CoreApplicationAdmissionConfiguration } from "./CoreApplicationAdmission";
 import type { QueryCursorBroker } from "flarex-protocol/query-cursor";
 
 type OccContextFactory = StoredPointMutationOccRerunExecutionConfigV1[
@@ -205,6 +209,7 @@ export interface ApplicationMutationSystemLive {
 
 /** Trusted fresh-target composition; no legacy SQL capability is accepted. */
 export interface ApplicationCoreMutationSystemLive {
+  readonly admission: CoreApplicationAdmission;
   readonly coreDatabase: CoreDatabase;
   readonly deploymentId: TransactionGrantDeploymentIdV1;
   readonly grantIssuer: ApplicationMutationGrantIssuer;
@@ -215,7 +220,7 @@ export interface ApplicationCoreMutationSystemLive {
   readonly queryCursor: Readonly<{ scopeUuid: string; broker: QueryCursorBroker }>;
 }
 
-type InvokeCoreApplicationMutationError = CoreError | CoreApplicationMutationError |
+type InvokeCoreApplicationMutationError = CoreError | CoreApplicationMutationError | CoreApplicationAdmissionError |
   Effect.Error<ReturnType<ApplicationMutationGrantIssuer["issue"]>> |
   Effect.Error<ReturnType<ReturnType<typeof makeCoreApplicationMutationRunner>>>;
 
@@ -625,10 +630,10 @@ function makeCoreApplicationMutationSystemLayer(live: ApplicationCoreMutationSys
   const port = makeCoreApplicationMutationPort({ database: live.coreDatabase, deploymentId: live.deploymentId,
     maximumAttempts: live.maximumAttempts, issueGrant: live.grantIssuer.issue,
     sha256: live.applicationRunner.sha256, execute: makeCoreApplicationMutationRunner(live) });
-  const invoke = Effect.fn("ApplicationMutationSystem.invokeCore")(function* (
+  const invoke = Effect.fn("ApplicationMutationSystem.invokeCore")((
     functionRef: TransactionFunctionPathV1, args: unknown, requestKey: TransactionRequestKeyV1,
     policy?: CanonicalTransactionGrantIdentityAccessPolicyV1,
-  ) {
+  ) => live.admission.withPermit("mutation", Effect.gen(function* () {
     const input = yield* prepareApplicationMutationInvocationInput(functionRef, requestKey);
     const identity = policy ?? (yield* canonicalizeTransactionGrantIdentityAccessPolicyV1Effect({
       policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
@@ -638,7 +643,7 @@ function makeCoreApplicationMutationSystemLayer(live: ApplicationCoreMutationSys
     return Object.freeze({ status: "committed" as const, disposition: outcome.disposition,
       scopeUuid: outcome.scopeUuid, epochUuid: outcome.epochUuid, commitSeq: outcome.timestamp,
       value: normalizeFlarexValueV1(outcome.value).valueJson });
-  });
+  })));
   return Layer.succeed(ApplicationMutationSystem, ApplicationMutationSystem.of({
     invoke,
     invokeAuthenticated: Effect.fn("ApplicationMutationSystem.invokeCoreAuthenticated")(function* (functionRef, args, requestKey, identity) {

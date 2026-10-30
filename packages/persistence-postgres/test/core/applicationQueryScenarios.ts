@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { bytesEqual } from "@flarex/utils/bytes";
 import { Cause, Deferred, Effect, Exit, Fiber, Option, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { encodeDocumentId } from "flarex-protocol/document-id";
@@ -149,10 +150,14 @@ describe(name, () => {
       const release = yield* Deferred.make<void>();
       let held = false;
       const persistence: CorePersistence = { ...fixture.persistence,
-        readSnapshot: timestamp => fixture.persistence.readSnapshot(timestamp).pipe(Effect.map(snapshot => ({ ...snapshot,
-          get: (tableId, internalId) => Effect.gen(function* () {
-            if (held) { yield* Deferred.succeed(entered, undefined); yield* Deferred.await(release); }
-            return yield* snapshot.get(tableId, internalId);
+        readSnapshot: (timestamp, retention) => fixture.persistence.readSnapshot(timestamp, retention).pipe(Effect.map(snapshot => ({ ...snapshot,
+          scan: request => Effect.gen(function* () {
+            if (held && bytesEqual(request.index.id, byId)) {
+              expect(request).toMatchObject({ order: "asc", maxResults: 2 });
+              yield* Deferred.succeed(entered, undefined);
+              yield* Deferred.await(release);
+            }
+            return yield* snapshot.scan(request);
           }),
         }))),
       };
@@ -220,18 +225,21 @@ describe(name, () => {
   it("disposes failed operation admissions on every Exit while preserving successfully transferred borrows", async () => {
     const fixture = await createFixture();
     const created: transactionOwner.CoreTransactionInternals[] = [];
+    let fault: Effect.Effect<never, CorePersistenceError> | undefined;
     const construct = transactionOwner.createCoreTransaction;
     // Observe real owner-issued capabilities, without adding a production
     // retention counter or replacing their validation/disposal behavior.
     const capture = vi.spyOn(transactionOwner, "createCoreTransaction").mockImplementation(input => {
       const context = construct(input);
       created.push(context);
-      return context;
+      // Metadata may be resident. Inject after the real factory returns, at
+      // the private read capability used during admission, so make() has
+      // registered its borrow before the injected Exit is observed.
+      return { ...context, readPrivate: (table, internalId) => fault ?? context.readPrivate(table, internalId) };
     });
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-      let fault: Effect.Effect<never, CorePersistenceError> | undefined;
       const persistence: CorePersistence = { ...fixture.persistence,
-        readSnapshot: timestamp => fixture.persistence.readSnapshot(timestamp).pipe(Effect.map(snapshot => ({ ...snapshot,
+        readSnapshot: (timestamp, retention) => fixture.persistence.readSnapshot(timestamp, retention).pipe(Effect.map(snapshot => ({ ...snapshot,
           get: (tableId, internalId) => fault ?? snapshot.get(tableId, internalId),
           scan: request => fault ?? snapshot.scan(request),
         }))),

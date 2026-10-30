@@ -155,6 +155,8 @@ export function projectQueryInvocationError(
       return queryInvocationError(projectCoreTransactionReason(error), error);
     case "CorePersistenceError":
       return queryInvocationError(projectCorePersistenceReason(error), error);
+    case "CoreApplicationAdmissionError":
+      return queryInvocationError(projectCoreAdmissionReason(error), error);
     case "CoreQueryInputError":
       return queryInvocationError("invalidInput", error);
     default: {
@@ -538,5 +540,16 @@ function projectTransactionFailureReason(
     case "infrastructureFailure":
     case "callbackRolledBack":
       return "unavailable";
+  }
+}
+
+function projectCoreAdmissionReason(error: Extract<InvokeApplicationQueryError, { readonly _tag: "CoreApplicationAdmissionError" }>): QueryInvocationErrorReason {
+  switch (error.reason) {
+    case "invalidConfiguration": return "invalidConfiguration";
+    case "overloaded":
+    case "waitExpired": return "transient";
+    case "closed": return "unavailable";
+    case "callbackCapacity":
+    case "queryCapacity": return "budgetExceeded";
   }
 }

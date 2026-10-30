@@ -1,6 +1,7 @@
 import type { InvokeApplicationQueryError } from
   "@flarex/standard-application-invocation/internal/application-query-system";
 import { Data } from "effect";
+import { CoreApplicationAdmissionError } from "@flarex/standard-application-invocation/internal/application-mutation-system";
 import { CoreApplicationQueryError } from "@flarex/standard-application-invocation/internal/application-query-system";
 import { describe, expect, it } from "vitest";
 
@@ -728,4 +729,18 @@ describe("clean Query invocation-error projection", () => {
     expect(projected.reason).toBe(reason);
     expect(projected.cause).toBe(source);
   });
+});
+
+it.each([
+  ["invalidConfiguration", "invalidConfiguration"],
+  ["overloaded", "transient"],
+  ["waitExpired", "transient"],
+  ["closed", "unavailable"],
+  ["callbackCapacity", "budgetExceeded"],
+  ["queryCapacity", "budgetExceeded"],
+] as const)("projects admission reason %s and retains the owning error", (sourceReason, reason) => {
+  const source = new CoreApplicationAdmissionError({ reason: sourceReason, kind: "query" });
+  const projected = projectQueryInvocationError(source);
+  expect(projected.reason).toBe(reason);
+  expect(projected.cause).toBe(source);
 });

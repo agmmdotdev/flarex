@@ -49,7 +49,7 @@ function observeReads(database: CoreDatabase, tokens: CoreReadToken[]): CoreData
 async function queryLayer(fixture: ApplicationCoreFixture, loader: MiniflareApplicationWorkerLoader,
   tokens: CoreReadToken[] = []) {
   const live = await makeApplicationMutationTestLive(fixture, loader);
-  return makeApplicationQuerySystemLayer({ coreDatabase: observeReads(fixture.database, tokens),
+  return makeApplicationQuerySystemLayer({ coreDatabase: observeReads(fixture.database, tokens), admission: live.admission,
     applicationRunner: live.applicationRunner, executionContextFactory: live.executionContextFactory,
     queryCursor: live.queryCursor });
 }
@@ -211,7 +211,7 @@ export async function proveCoreApplicationStandaloneMetadata(fixture: Applicatio
       const definition = [fixture, nextDefinition].find(candidate => candidate.source.sourceArtifact.rootSha256 === root);
       return definition === undefined ? Effect.die("Metadata query selected a foreign source root") : Effect.succeed(definition.source);
     } } });
-    const layer = makeApplicationQuerySystemLayer({ coreDatabase: observeReads(fixture.database, tokens),
+    const layer = makeApplicationQuerySystemLayer({ coreDatabase: observeReads(fixture.database, tokens), admission: live.admission,
       applicationRunner: live.applicationRunner, executionContextFactory: live.executionContextFactory, queryCursor: live.queryCursor });
     const block = loader.blockNextInvocation();
     const held = runSystemTestEffectV1(runQuery(typedReference, { id: fixture.documentId }).pipe(Effect.provide(layer)));

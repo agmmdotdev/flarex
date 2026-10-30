@@ -48,7 +48,7 @@ describe("shared Core Application read session", () => {
     const session = makeCoreApplicationReadSession({ transaction: transaction({
       startQuery: () => Effect.succeed(query),
       get: () => Effect.sync(() => { events.push("get"); return Option.none(); }),
-    }), tables: [{ tableId: 1, logicalName: "users" }], revalidate: Effect.void }, Context.empty(), broker);
+    }), tables: [{ tableId: 1, logicalName: "users" }], revalidate: Effect.void }, Context.empty(), broker, { maxPendingCallbacks: 128, maxOpenQueries: 128 });
     const started = await session.target.queryStart(queryRequest, { kind: "collect" });
     if (started.kind !== "ok") throw new Error("Expected admitted query");
     const page = session.target.queryNext(started.value.queryId, 1);
@@ -70,7 +70,7 @@ describe("shared Core Application read session", () => {
     const session = makeCoreApplicationReadSession({ transaction: transaction({
       startQuery: () => { starts += 1; return Effect.fail(new CoreQueryInputError({ reason: "invalidQuery" })); },
       get: () => Effect.succeed(Option.none()),
-    }), tables: [{ tableId: 1, logicalName: "users" }], revalidate: Effect.void }, Context.empty(), broker);
+    }), tables: [{ tableId: 1, logicalName: "users" }], revalidate: Effect.void }, Context.empty(), broker, { maxPendingCallbacks: 128, maxOpenQueries: 128 });
     expect(await session.target.queryStart(queryRequest, { kind: "collect" }))
       .toEqual({ kind: "queryError", message: "Invalid database query." });
     expect(await session.target.queryStart({ ...queryRequest, cursor: "malformed" }, { kind: "collect" }))
@@ -93,7 +93,7 @@ describe("shared Core Application read session", () => {
     const session = makeCoreApplicationReadSession({ transaction: transaction({
       startQuery: () => Effect.succeed(query),
       get: () => Effect.sync(() => { laterReads += 1; return Option.none(); }),
-    }), tables: [{ tableId: 1, logicalName: "users" }], revalidate: Effect.void }, Context.empty(), broker);
+    }), tables: [{ tableId: 1, logicalName: "users" }], revalidate: Effect.void }, Context.empty(), broker, { maxPendingCallbacks: 128, maxOpenQueries: 128 });
     const started = await session.target.queryStart(queryRequest, { kind: "collect" });
     if (started.kind !== "ok") throw new Error("Expected admitted query");
     await expect(session.target.queryNext(started.value.queryId, 1)).rejects.toThrow("unavailable");

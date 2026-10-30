@@ -3,15 +3,22 @@
  * at db914cf06e2b06ee985646611b9e12ed7a770318. Upstream source:
  * Copyright 2026 Convex, Inc., FSL-1.1-Apache-2.0 (convex-backend/LICENSE.md).
  */
-import { Cause, Clock, Deferred, Duration, Effect, Exit, Option, Queue, Schema, Semaphore } from "effect";
+import { Cause, Clock, Deferred, Duration, Effect, Exit, Option, Queue, Result, Schema, Semaphore } from "effect";
 import { BTreeEx as BTree } from "sorted-btree/extended/index.js";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { CoreTransactionError, type CoreDatabaseOptions, type CoreError } from "./api";
-import type { CoreDocumentLogEntry, CoreInterval, CorePersistence, CorePersistenceIndexEntry, CorePersistenceLease, CoreWriteBatch } from "./contracts";
+import { CorePersistenceError, type CoreDocumentLogEntry, type CoreInterval, type CorePersistence, type CorePersistenceIndexEntry, type CorePersistenceLease, type CoreWriteBatch } from "./contracts";
 import { CoreRegistry } from "./registry";
 import { deriveCoreWriteBatch, type CoreFinalizedState } from "./transaction";
 import { CorePendingWrites, CoreWriteLog, indexKeysFromWrites, type CoreIndexKeys } from "./writeLog";
 import { metadataConflictKeys } from "./dependencies";
+import { makeCoreIndexCache, type CoreIndexCache } from "./indexCache";
+import type { CoreResidentIndexes } from "./residentIndex";
+
+interface CorePublishedSnapshot {
+  readonly registry: CoreRegistry;
+  readonly resident: CoreResidentIndexes;
+}
 
 interface AcceptedCommit {
   readonly timestamp: bigint;
@@ -36,7 +43,8 @@ const decodeCommitterConfig = Schema.decodeUnknownEffect(CommitterConfig);
 export interface CoreCommitter {
   readonly submit: (transaction: CoreFinalizedState) => Effect.Effect<bigint, CoreError>;
   readonly publishedTimestamp: Effect.Effect<bigint>;
-  readonly registryAt: (at: bigint) => CoreRegistry | undefined;
+  readonly selectSnapshot: (at?: bigint) => Result.Result<CorePublishedSnapshot & Readonly<{ timestamp: bigint }>, CoreError>;
+  readonly indexCache: CoreIndexCache;
   readonly currentRegistry: () => CoreRegistry;
   readonly assertReady: Effect.Effect<void, CoreError>;
   /** Trusted request discovery only: accepted records remain unpublished and confer no body authority. */
@@ -48,6 +56,7 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
   lease: CorePersistenceLease,
   initialTimestamp: bigint,
   initialRegistry: CoreRegistry,
+  initialResident: CoreResidentIndexes,
   options: CoreDatabaseOptions,
 ) {
   const config = yield* decodeCommitterConfig({ maxInflight: options.maxInflight ?? 512,
@@ -64,10 +73,13 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
   const ownerScope = yield* Effect.scope;
   const queue = yield* Queue.bounded<AcceptedCommit>(maxInflight);
   const log = new CoreWriteLog(initialTimestamp);
+  const indexCache = yield* makeCoreIndexCache(options.indexCache ?? {}, Effect.sync(() => log.snapshot()));
+  yield* Effect.addFinalizer(() => Effect.sync(() => { indexCache.close(); }));
   const pending = new CorePendingWrites();
   const accepted = new BTree<bigint, AcceptedCommit>();
-  const snapshots = new BTree<bigint, CoreRegistry>([[initialTimestamp, initialRegistry]]);
+  const snapshots = new BTree<bigint, CorePublishedSnapshot>([[initialTimestamp, { registry: initialRegistry, resident: initialResident }]]);
   let registry = initialRegistry;
+  let resident = initialResident;
   let published = initialTimestamp;
   let assigned = initialTimestamp;
   let jobs = 0;
@@ -90,13 +102,17 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
         yield* stop(first.result.cause);
         return;
       }
-      pending.pop(first.timestamp);
-      log.append(first.timestamp, first.changes, batchBytes(first.batch));
-      if (first.transaction.registryAfter !== undefined) registry = applyRegistryChanges(
+      const nextRegistry = first.transaction.registryAfter === undefined ? registry : applyRegistryChanges(
         first.transaction.registry, first.transaction.registryAfter, registry, first.timestamp,
       );
+      const nextResident = yield* Effect.fromResult(resident.apply(nextRegistry, first.batch.documents));
+      pending.pop(first.timestamp);
+      log.append(first.timestamp, first.changes, batchBytes(first.batch));
+      indexCache.invalidate(first.batch, registry, nextRegistry);
+      registry = nextRegistry;
+      resident = nextResident;
       published = first.timestamp;
-      snapshots.set(published, registry);
+      snapshots.set(published, Object.freeze({ registry, resident }));
       // Retain a version until its successor has left the pinned 10-second window.
       while (snapshots.size > 1) {
         const oldest = snapshots.minKey();
@@ -109,7 +125,7 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
       jobs -= 1;
       yield* Deferred.succeed(first.ack, first.timestamp);
     }
-  });
+  }).pipe(Effect.catchCause(cause => Effect.andThen(stop(cause), Effect.failCause(cause))));
 
   const saveBatch = Effect.fn("CoreWriteBatcher.save")(function* (members: readonly AcceptedCommit[]) {
     const batch: CoreWriteBatch = {
@@ -223,10 +239,14 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
   return {
     submit,
     publishedTimestamp: Effect.sync(() => published),
-    registryAt: (at: bigint) => {
-      const exact = snapshots.get(at);
-      return exact ?? snapshots.nextLowerPair(at)?.[1];
+    selectSnapshot: (at?: bigint): Result.Result<CorePublishedSnapshot & Readonly<{ timestamp: bigint }>, CoreError> => {
+      const timestamp = at ?? published;
+      if (timestamp < 0n || timestamp > published) return Result.fail(new CoreTransactionError({ reason: "invalidValue" }));
+      const selected = snapshots.get(timestamp) ?? snapshots.nextLowerPair(timestamp)?.[1];
+      return selected === undefined ? Result.fail(new CorePersistenceError({ reason: "outOfRetention" }))
+        : Result.succeed({ timestamp, ...selected });
     },
+    indexCache,
     currentRegistry: () => registry,
     assertReady: Effect.suspend(() => stopped === undefined ? Effect.void : Effect.failCause(stopped)),
     pendingDocuments: (indexId: Uint8Array, interval: CoreInterval) => mutex.withPermits(1)(Effect.suspend(() => {

@@ -103,3 +103,8 @@ and **how** our replacement is or will be implemented. After implementation,
 replace plans with exact executing owners/symbols and link the relevant source
 and Git evidence. Keep validation receipts and chronology in Git rather than
 maintaining a competing completion log here.
+
+## Snapshot and page-cache translation
+
+- [Synchronous TypeScript weighted page-cache maintenance](./typescript-weighted-page-cache.md): pinned TinyLFU policy with synchronous JS maintenance.
+- [Explicit DO cache and admission budgets](./do-cache-and-admission-budgets.md): private workload settings; production capacity remains unselected.

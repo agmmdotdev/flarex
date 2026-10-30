@@ -10,7 +10,7 @@ import { decodeDocumentValue, type DocumentObject } from "flarex-protocol/docume
 import { decodeDocumentId, encodeDocumentId } from "flarex-protocol/document-id";
 import { ValidatorJsonV1, validatorJsonAdmissionIssueV1 } from "flarex-protocol/validator-json";
 import { encodeCanonicalJson } from "flarex-protocol/json";
-import { CoreProgramIdentitySchema, CoreTransactionError, type CoreProgramDefinition, type CoreProgramIdentity, type CoreTableDefinition } from "./api";
+import { CoreProgramIdentitySchema, CoreTransactionError, type CoreIndexDefinition, type CoreProgramDefinition, type CoreProgramIdentity, type CoreTableDefinition } from "./api";
 import { CorePersistenceError, type CoreDocumentLogEntry, type CoreIndexPage, type CorePersistenceSnapshot } from "./contracts";
 import { captureCoreDocument, captureCoreObject } from "./document";
 
@@ -73,19 +73,40 @@ export interface CoreProgramRecord { readonly definition: CoreProgramDefinition;
 export interface CoreProgramHead { readonly identity: CoreProgramIdentity; readonly id: Uint8Array; readonly ts: bigint | null }
 export interface CoreAuthorityRecord { readonly epoch: bigint; readonly id: Uint8Array; readonly ts: bigint | null }
 
+interface CoreRegistryTableLookups {
+  readonly byNumber: ReadonlyMap<number, CoreTableRecord>;
+  readonly byTablet: ReadonlyMap<string, CoreTableRecord>;
+  readonly byIndex: ReadonlyMap<string, Readonly<{ table: CoreTableDefinition; index: CoreIndexDefinition }>>;
+}
+
+function tableLookups(tables: ReadonlyMap<string, CoreTableRecord>): CoreRegistryTableLookups {
+  return Object.freeze({
+    byNumber: new Map([...tables.values()].map(record => [record.definition.number, record])),
+    byTablet: new Map([...tables.values()].map(record => [encodeBytesToLowercaseHex(record.definition.tabletId), record])),
+    byIndex: new Map([...tables.values()].flatMap(record => record.definition.indexes.map(index =>
+      [encodeBytesToLowercaseHex(index.ref.id), { table: record.definition, index }] as const))),
+  });
+}
+
 /** Published immutable metadata view. Mutations create a replacement, never edit an admitted view. */
 export class CoreRegistry {
-  private readonly byNumber: ReadonlyMap<number, CoreTableRecord>;
   constructor(
     readonly tables: ReadonlyMap<string, CoreTableRecord>,
     readonly programs: ReadonlyMap<string, CoreProgramRecord> = new Map(),
     readonly heads: ReadonlyMap<string, CoreProgramHead> = new Map(),
     readonly authority?: CoreAuthorityRecord,
-  ) { this.byNumber = new Map([...tables.values()].map(record => [record.definition.number, record])); }
+    private readonly lookups: CoreRegistryTableLookups = tableLookups(tables),
+  ) {}
 
   table(name: string): CoreTableRecord | undefined { return this.tables.get(name); }
   tableByNumber(number: number): CoreTableRecord | undefined {
-    return this.byNumber.get(number);
+    return this.lookups.byNumber.get(number);
+  }
+  tableByTablet(tabletId: Uint8Array): CoreTableRecord | undefined {
+    return this.lookups.byTablet.get(encodeBytesToLowercaseHex(tabletId));
+  }
+  indexById(id: Uint8Array): Readonly<{ table: CoreTableDefinition; index: CoreIndexDefinition }> | undefined {
+    return this.lookups.byIndex.get(encodeBytesToLowercaseHex(id));
   }
   program(identity: CoreProgramIdentity): CoreProgramRecord | undefined { return this.programs.get(programKey(identity)); }
   head(path: string): CoreProgramHead | undefined { return this.heads.get(path); }
@@ -98,15 +119,15 @@ export class CoreRegistry {
   withProgram(record: CoreProgramRecord): CoreRegistry {
     const programs = new Map(this.programs);
     programs.set(programKey(record.definition.identity), record);
-    return new CoreRegistry(this.tables, programs, this.heads, this.authority);
+    return new CoreRegistry(this.tables, programs, this.heads, this.authority, this.lookups);
   }
   withHead(record: CoreProgramHead): CoreRegistry {
     const heads = new Map(this.heads);
     heads.set(record.identity.functionPath, record);
-    return new CoreRegistry(this.tables, this.programs, heads, this.authority);
+    return new CoreRegistry(this.tables, this.programs, heads, this.authority, this.lookups);
   }
   withAuthority(authority: CoreAuthorityRecord): CoreRegistry {
-    return new CoreRegistry(this.tables, this.programs, this.heads, authority);
+    return new CoreRegistry(this.tables, this.programs, this.heads, authority, this.lookups);
   }
 }
 
@@ -148,7 +169,9 @@ export const readDocumentObject = (entry: CoreDocumentLogEntry,
   });
 
 /** Bootstrap discovery reads only trusted built-in by-ID indexes at this snapshot. */
-export const loadCoreRegistry = Effect.fn("CoreRegistry.load")(function* (snapshot: CorePersistenceSnapshot, bootstrap: CoreRegistry) {
+export const loadCoreRegistry = Effect.fn("CoreRegistry.load")(function* (
+  snapshot: CorePersistenceSnapshot, bootstrap: CoreRegistry, observe?: (entry: CoreDocumentLogEntry) => void,
+) {
   let registry = bootstrap;
   let foundTables = 0;
   for (const name of [TABLES, INDEXES, PROGRAMS]) {
@@ -160,6 +183,7 @@ export const loadCoreRegistry = Effect.fn("CoreRegistry.load")(function* (snapsh
       const page: CoreIndexPage = yield* snapshot.scan({ index: byId.ref, tableId: builtin.definition.tabletId,
         interval: { start, end: null }, order: "asc", maxResults: 128 });
       for (const entry of page.entries) {
+        observe?.(entry.document);
         const document = yield* Effect.fromResult(readDocumentObject(entry.document, builtin.definition));
         if (name === TABLES) {
           const definition = yield* Effect.fromResult(decodeTableDocument(document));

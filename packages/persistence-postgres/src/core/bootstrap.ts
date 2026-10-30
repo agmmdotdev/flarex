@@ -7,10 +7,12 @@ import { Effect, Option, Result, Schema } from "effect";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { decodeDocumentValue, encodeDocumentValue } from "flarex-protocol/document-value";
 import { CoreTransactionError, type CoreDatabaseOptions, type CoreIndexDefinition, type CoreTableDefinition } from "./api";
-import { CorePersistenceError, type CorePersistence, type CorePersistenceLease, type CorePersistenceSnapshot } from "./contracts";
+import { CorePersistenceError, type CoreDocumentLogEntry, type CorePersistence, type CorePersistenceLease, type CorePersistenceSnapshot } from "./contracts";
 import { CORE_BUILTIN_TABLE_NUMBERS, INDEXES, PROGRAMS, REQUESTS, TABLES,
   initialRegistry, loadCoreRegistry, readDocumentObject, tableDocument } from "./registry";
 import { CoreFinalizationVault, createCoreTransaction, deriveCoreWriteBatch } from "./transaction";
+import { makeCoreLeaderRetention } from "./retention";
+import { CoreResidentIndexes } from "./residentIndex";
 
 const HexId = Schema.String.check(Schema.makeFilter(value => /^[0-9a-f]{32}$/.test(value) ? undefined : "Expected a canonical internal ID"));
 const decodeHexId = Schema.decodeUnknownResult(HexId);
@@ -121,10 +123,19 @@ export const initializeCorePersistence = Effect.fn("CoreBootstrap.initialize")(f
 export const bootstrapCore = Effect.fn("CoreBootstrap.open")(function* (
   persistence: CorePersistence, lease: CorePersistenceLease, options: CoreDatabaseOptions,
 ) {
-  if (yield* persistence.isFresh(lease)) yield* initializeCorePersistence(persistence, lease, options);
+  const retention = makeCoreLeaderRetention(yield* persistence.readRetentionBounds(lease));
+  if (yield* persistence.isFresh(lease)) {
+    yield* retention.validateIndex(0n);
+    yield* retention.validateDocument(0n);
+    yield* initializeCorePersistence(persistence, lease, options);
+  }
   const timestamp = yield* persistence.latestTimestamp(lease);
-  const snapshot = yield* persistence.readSnapshot(timestamp);
+  yield* retention.validateIndex(timestamp);
+  yield* retention.validateDocument(timestamp);
+  const snapshot = yield* persistence.readSnapshot(timestamp, retention);
   const bootstrap = yield* loadBootstrapRegistry(persistence, snapshot);
-  const registry = yield* loadCoreRegistry(snapshot, bootstrap);
-  return { timestamp, registry };
+  const revisions: CoreDocumentLogEntry[] = [];
+  const registry = yield* loadCoreRegistry(snapshot, bootstrap, entry => { revisions.push(entry); });
+  const resident = yield* Effect.fromResult(CoreResidentIndexes.create(registry, revisions));
+  return { timestamp, registry, retention, resident };
 });

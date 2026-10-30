@@ -2,13 +2,15 @@ import { randomBytes } from "node:crypto";
 import { Clock, Deferred, Effect, Fiber, Option, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { openCoreDatabase } from "../../src/core/database";
+import { bootstrapCore } from "../../src/core/bootstrap";
+import { bytesEqual } from "@flarex/utils/bytes";
 import { issueFinalizedTransaction, type CoreDatabaseOptions, type CoreFinalizedTransaction, type CoreInstallation, type CoreRequestClaim, type CoreTableDefinition } from "../../src/core/api";
 import { CorePersistenceError, type CoreDocumentLogEntry, type CorePersistence } from "../../src/core/contracts";
 import { captureDocumentObject, captureDocumentObjectWithSize, captureDocumentValue, encodeDocumentValue, type DocumentObject, type DocumentValue } from "flarex-protocol/document-value";
-import { readDocumentObject, validateTableDefinition } from "../../src/core/registry";
+import { PROGRAMS, readDocumentObject, validateTableDefinition } from "../../src/core/registry";
 import { decodeDocumentId, encodeDocumentId } from "flarex-protocol/document-id";
 import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
-import type { CorePersistenceFixture } from "./fixture";
+import type { CorePersistenceFixture, CorePersistenceFixtureOptions } from "./fixture";
 
 const id = (last: number) => { const bytes = new Uint8Array(16); bytes[15] = last; return bytes; };
 const options: CoreDatabaseOptions = { now: Effect.succeed(1_000_000_000n), newInternalId: Effect.sync(() => randomBytes(16)) };
@@ -19,8 +21,157 @@ const installation: CoreInstallation = { authorityEpoch: 1n, tables: [{
   } }, indexes: [{ name: "by_name", ref: { id: id(101) }, fields: ["name"], enabled: true }],
 }], programs: [{ identity, metadata: { artifact: "immutable-source" } }] };
 
-export function registerCoreBootstrapScenarios(name: string, createFixture: (options?: Readonly<{ sqlPageSize?: number }>) => Promise<CorePersistenceFixture>) {
+export function registerCoreBootstrapScenarios(name: string, createFixture: (options?: CorePersistenceFixtureOptions) => Promise<CorePersistenceFixture>) {
 describe(name, () => {
+  it.each([0, 100])("uses resident metadata and local leader retention with shared verification at %i percent", async verifyPercent => {
+    const statements: string[] = [];
+    const fixture = await createFixture({ wrapRuntimeDriver: driver => ({ ...driver,
+      query: (statement, parameters) => Effect.andThen(Effect.sync(() => { statements.push(statement); }), driver.query(statement, parameters)),
+    }) });
+    try {
+      await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const database = yield* openCoreDatabase(fixture.persistence, { ...options,
+          indexCache: { maxBytes: 1024 * 1024, verifyPercent }, operationCacheMaxBytes: 1024 * 1024 });
+        yield* database.install(installation);
+        const writer = yield* database.begin();
+        const created = yield* writer.insert("users", { name: "resident-boundary" });
+        yield* database.commit(yield* writer.finalize());
+
+        statements.length = 0;
+        const first = yield* database.beginQuery(identity.functionPath);
+        expect(first.program.identity).toEqual(identity);
+        expect(statements).toEqual([]);
+        expect(Option.getOrThrow(yield* first.transaction.get(created)).name).toBe("resident-boundary");
+        expect(statements).toHaveLength(1);
+        expect(statements[0]).toContain("SELECT a.ts::text");
+        statements.length = 0;
+        yield* first.transaction.get(created);
+        expect(statements).toEqual([]);
+        yield* first.finish();
+
+        const second = yield* database.beginQuery(identity.functionPath);
+        expect(statements).toEqual([]);
+        yield* second.transaction.get(created);
+        expect(statements).toHaveLength(verifyPercent === 0 ? 0 : 1);
+        expect(statements.every(statement => !statement.includes("persistence_globals"))).toBe(true);
+        yield* second.finish();
+
+        const old = yield* database.beginQuery(identity.functionPath);
+        const replacement = { ...identity, programHash: "new-resident-program" };
+        yield* database.install({ tables: [], programs: [{ identity: replacement, metadata: { artifact: "new-source" } }] });
+        statements.length = 0;
+        expect((yield* old.transaction.selectProgram(identity.functionPath)).identity).toEqual(identity);
+        const fresh = yield* database.beginQuery(identity.functionPath);
+        expect(fresh.program.identity).toEqual(replacement);
+        expect(statements).toEqual([]);
+        yield* old.finish();
+        yield* fresh.finish();
+      })));
+    } finally { await fixture.close(); }
+  }, 30_000);
+
+  it.each(["min_snapshot_ts", "document_min_snapshot_ts"])("refuses cold bootstrap below the durable %s floor", async floorName => {
+    const fixture = await createFixture();
+    try {
+      await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const database = yield* openCoreDatabase(fixture.persistence, options);
+        yield* database.install(installation);
+      })));
+      const maintenance = await fixture.reopen();
+      await Effect.runPromise(Effect.gen(function* () {
+        const lease = yield* maintenance.acquireLease();
+        const timestamp = yield* maintenance.latestTimestamp(lease);
+        yield* maintenance.putGlobal(lease, floorName, new TextEncoder().encode(String(timestamp + 1n)));
+      }));
+      const reopened = await fixture.reopen();
+      const refused = await Effect.runPromise(Effect.result(Effect.scoped(openCoreDatabase(reopened, options))));
+      expect(Result.isFailure(refused) && refused.failure).toMatchObject({ reason: "outOfRetention" });
+    } finally { await fixture.close(); }
+  }, 30_000);
+
+  it("retains a predecessor until its successor leaves the window and keeps already-borrowed snapshots usable", async () => {
+    const fixture = await createFixture();
+    let now = 1_000_000_000n;
+    try {
+      await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const database = yield* openCoreDatabase(fixture.persistence, { ...options, now: Effect.sync(() => now) });
+        yield* database.install(installation);
+        const installedAt = yield* database.publishedTimestamp;
+        const borrowedBeforeInsert = yield* database.beginQuery(identity.functionPath);
+        const writer = yield* database.begin();
+        const created = yield* writer.insert("users", { name: "before-gap" });
+        const insertedAt = yield* database.commit(yield* writer.finalize());
+
+        now = 100_000_000_000n;
+        const change = yield* database.begin();
+        yield* change.patch(created, { name: "after-gap" });
+        yield* database.commit(yield* change.finalize());
+        const pruned = yield* Effect.result(database.begin({ at: installedAt }));
+        expect(Result.isFailure(pruned) && pruned.failure).toMatchObject({ reason: "outOfRetention" });
+        const exactPredecessor = yield* database.begin({ at: insertedAt });
+        expect(Option.getOrThrow(yield* exactPredecessor.get(created)).name).toBe("before-gap");
+        yield* exactPredecessor.abort();
+        const between = yield* database.begin({ at: 50_000_000_000n });
+        expect(Option.getOrThrow(yield* between.get(created)).name).toBe("before-gap");
+        expect(Option.isNone(yield* borrowedBeforeInsert.transaction.get(created))).toBe(true);
+        expect((yield* borrowedBeforeInsert.transaction.selectProgram(identity.functionPath)).identity).toEqual(identity);
+
+        now = 111_000_000_000n;
+        const later = yield* database.begin();
+        yield* later.patch(created, { name: "latest" });
+        yield* database.commit(yield* later.finalize());
+        const oldPredecessor = yield* Effect.result(database.begin({ at: 50_000_000_000n }));
+        expect(Result.isFailure(oldPredecessor) && oldPredecessor.failure).toMatchObject({ reason: "outOfRetention" });
+        expect(Option.getOrThrow(yield* between.get(created)).name).toBe("before-gap");
+        yield* between.abort();
+        yield* borrowedBeforeInsert.finish();
+      })));
+    } finally { await fixture.close(); }
+  }, 30_000);
+  it("publishes resident row deltas with exact revisions while preserving old index roots and detached bytes", async () => {
+    const fixture = await createFixture();
+    try {
+      await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const database = yield* openCoreDatabase(fixture.persistence, options);
+        yield* database.install(installation);
+      })));
+      await Effect.runPromise(Effect.gen(function* () {
+        const lease = yield* fixture.persistence.acquireLease();
+        const initial = yield* bootstrapCore(fixture.persistence, lease, options);
+        const programs = initial.registry.table(PROGRAMS)?.definition;
+        const head = initial.registry.head(identity.functionPath);
+        const byIdentity = programs?.indexes.find(index => index.name === "by_identity");
+        if (programs === undefined || head === undefined || byIdentity === undefined) throw new Error("Missing resident program index");
+        const request = { index: byIdentity.ref, tableId: programs.tabletId, interval: { start: null, end: null },
+          order: "asc" as const, maxResults: 128 };
+        const before = initial.resident.scan(request);
+        const oldEntry = before?.entries.find(entry => bytesEqual(entry.document.id, head.id));
+        if (before === undefined || oldEntry === undefined) throw new Error("Missing resident head revision");
+        const oldDocument = Result.getOrThrow(readDocumentObject(oldEntry.document, programs));
+        const replacement = { ...identity, programHash: "changed-head-key" };
+        const revision: CoreDocumentLogEntry = { ...oldEntry.document, ts: initial.timestamp + 1n, prevTs: oldEntry.document.ts,
+          jsonValue: Result.getOrThrow(encodeDocumentValue({ ...oldDocument, identity: replacement })) };
+        const next = yield* Effect.fromResult(initial.resident.apply(initial.registry.withHead({ ...head,
+          identity: replacement, ts: revision.ts }), [revision]));
+        const after = next.scan(request);
+        const newEntry = after?.entries.find(entry => bytesEqual(entry.document.id, head.id));
+        if (after === undefined || newEntry === undefined) throw new Error("Missing updated resident head revision");
+        expect(after.entries).toHaveLength(before.entries.length);
+        expect(newEntry.key).not.toEqual(oldEntry.key);
+        expect(newEntry.document.ts).toBe(revision.ts);
+        expect(newEntry.document.prevTs).toBe(oldEntry.document.ts);
+        expect(Result.getOrThrow(readDocumentObject(newEntry.document, programs)).identity).toEqual(replacement);
+        expect(Result.getOrThrow(readDocumentObject(oldEntry.document, programs)).identity).toEqual(identity);
+        revision.jsonValue.fill(0);
+        oldEntry.document.jsonValue.fill(0);
+        const oldAgain = initial.resident.scan(request)?.entries.find(entry => bytesEqual(entry.document.id, head.id));
+        const newAgain = next.scan(request)?.entries.find(entry => bytesEqual(entry.document.id, head.id));
+        if (oldAgain === undefined || newAgain === undefined) throw new Error("Resident roots lost their revision");
+        expect(Result.getOrThrow(readDocumentObject(oldAgain.document, programs)).identity).toEqual(identity);
+        expect(Result.getOrThrow(readDocumentObject(newAgain.document, programs)).identity).toEqual(replacement);
+      }));
+    } finally { await fixture.close(); }
+  }, 30_000);
   it("packs admitted nested validators while retaining the document nesting limit and cold schema enforcement", async () => {
     const fixture = await createFixture();
     let validator: ValidatorJsonV1 = { type: "string" };
@@ -147,13 +298,13 @@ describe(name, () => {
     } finally { await fixture.close(); }
   }, 30_000);
 
-  it("rejects malformed, missing and non-string packed outcomes as corrupt stored records", async () => {
+  it("rejects malformed, missing and non-string packed outcomes after fenced reconstruction", async () => {
     const fixture = await createFixture();
     const request = { key: "corrupt-packed-result", requestHash: "packed-request", program: identity };
+    let stored: CoreDocumentLogEntry | undefined;
     try {
       await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         let observeOutcome = false;
-        let stored: CoreDocumentLogEntry | undefined;
         const persistence: CorePersistence = { ...fixture.persistence, write: (lease, batch) => Effect.gen(function* () {
           yield* fixture.persistence.write(lease, batch);
           if (observeOutcome) {
@@ -168,33 +319,34 @@ describe(name, () => {
         const transaction = yield* database.begin({ claim: acquisition.claim });
         observeOutcome = true;
         yield* database.commit(yield* transaction.finalize(), { claim: acquisition.claim, result: "valid-result" });
-        const entry = stored;
-        if (entry === undefined) throw new Error("Missing observed outcome revision");
-        const document = Result.getOrThrow(readDocumentObject(entry));
-        const corruptions = [
-          { ...document, result: "{" },
-          { ...document, result: '{"$integer":"invalid-base64"}' },
-          { ...document, result: 42 },
-          Object.fromEntries(Object.entries(document).filter(([name]) => name !== "result")),
-        ];
-        for (const corruption of corruptions) {
-          const bytes = Result.getOrThrow(encodeDocumentValue(corruption));
-          yield* Effect.tryPromise(() => fixture.query(`UPDATE "${fixture.namespace}".documents SET json_value=$1
-            WHERE instance_name=$2 AND table_id=$3 AND id=$4 AND ts=$5`,
-          [bytes, fixture.instanceName, entry.tableId, entry.id, entry.ts.toString()]));
+      })));
+      const entry = stored;
+      if (entry === undefined) throw new Error("Missing observed outcome revision");
+      const document = Result.getOrThrow(readDocumentObject(entry));
+      const corruptions = [
+        { ...document, result: "{" },
+        { ...document, result: '{"$integer":"invalid-base64"}' },
+        { ...document, result: 42 },
+        Object.fromEntries(Object.entries(document).filter(([name]) => name !== "result")),
+      ];
+      // SQL maintenance runs only after the serving scope is closed. Every
+      // malformed revision is then read through a newly fenced owner.
+      for (const corruption of corruptions) {
+        const bytes = Result.getOrThrow(encodeDocumentValue(corruption));
+        await fixture.query(`UPDATE "${fixture.namespace}".documents SET json_value=$1
+          WHERE instance_name=$2 AND table_id=$3 AND id=$4 AND ts=$5`,
+        [bytes, fixture.instanceName, entry.tableId, entry.id, entry.ts.toString()]);
+        const reopened = await fixture.reopen();
+        await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+          const database = yield* openCoreDatabase(reopened, options);
           const resolution = yield* Effect.result(database.resolveRequest(request));
           expect(Result.isFailure(resolution) && resolution.failure).toMatchObject({ reason: "corruptData" });
-        }
-      })));
-      const reopened = await fixture.reopen();
-      await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-        const database = yield* openCoreDatabase(reopened, options);
-        const resolution = yield* Effect.result(database.recoverRequest(request));
-        expect(Result.isFailure(resolution) && resolution.failure).toMatchObject({ reason: "corruptData" });
-      })));
+          const recovery = yield* Effect.result(database.recoverRequest(request));
+          expect(Result.isFailure(recovery) && recovery.failure).toMatchObject({ reason: "corruptData" });
+        })));
+      }
     } finally { await fixture.close(); }
   }, 30_000);
-
   it("classifies only pre-stage document validator refusals and permits a caught refusal followed by valid writes", async () => {
     const fixture = await createFixture();
     try {
@@ -326,8 +478,8 @@ describe(name, () => {
         const scanned = yield* Deferred.make<void>();
         const release = yield* Deferred.make<void>();
         let pause = false;
-        const persistence: CorePersistence = { ...fixture.persistence, readSnapshot: at => Effect.gen(function* () {
-          const snapshot = yield* fixture.persistence.readSnapshot(at);
+        const persistence: CorePersistence = { ...fixture.persistence, readSnapshot: (at, retention) => Effect.gen(function* () {
+          const snapshot = yield* fixture.persistence.readSnapshot(at, retention);
           return { ...snapshot, scan: query => Effect.gen(function* () {
             const page = yield* snapshot.scan(query);
             if (pause && query.tableId[15] === 100 && query.maxResults === 1) {
@@ -414,7 +566,7 @@ describe(name, () => {
     } finally { await fixture.close(); }
   }, 30_000);
 
-  it("bootstraps logical metadata, hydrates same-key revisions and preserves old snapshots on reopen", async () => {
+  it("retains live old snapshots and rejects cold metadata history while physical revisions remain readable", async () => {
     const fixture = await createFixture({ sqlPageSize: 2 });
     let created = "";
     let oldTimestamp = 0n;
@@ -444,9 +596,15 @@ describe(name, () => {
         expect(yield* database.publishedTimestamp).toBe(beforeReplay);
         expect((yield* database.selectProgram(identity.functionPath)).metadata.artifact).toBe("immutable-source");
         expect(yield* database.readAuthorityEpoch).toBe(1n);
-        const older = yield* database.begin({ at: oldTimestamp });
-        expect((yield* older.scan("users", "by_name"))).toMatchObject([{ padding: "before" }]);
-        yield* older.abort();
+        const refused = yield* Effect.result(database.begin({ at: oldTimestamp }));
+        expect(Result.isFailure(refused) && refused.failure).toMatchObject({ reason: "outOfRetention" });
+        const physical = yield* reopened.readSnapshot(oldTimestamp);
+        const page = yield* physical.scan({ index: { id: id(101) }, tableId: id(100),
+          interval: { start: null, end: null }, order: "asc", maxResults: 128 });
+        expect(page.entries).toHaveLength(1);
+        const row = page.entries[0];
+        if (row === undefined) throw new Error("Expected retained historical physical revision");
+        expect(yield* Effect.fromResult(readDocumentObject(row.document))).toMatchObject({ padding: "before" });
       })));
     } finally { await fixture.close(); }
   }, 30_000);
@@ -698,11 +856,11 @@ describe(name, () => {
         const started = yield* Deferred.make<void>();
         const release = yield* Deferred.make<void>();
         let pause = false;
-        const persistence: CorePersistence = { ...fixture.persistence, readSnapshot: at => Effect.gen(function* () {
-          const snapshot = yield* fixture.persistence.readSnapshot(at);
-          return { ...snapshot, get: (table, document) => Effect.gen(function* () {
+        const persistence: CorePersistence = { ...fixture.persistence, readSnapshot: (at, retention) => Effect.gen(function* () {
+          const snapshot = yield* fixture.persistence.readSnapshot(at, retention);
+          return { ...snapshot, scan: request => Effect.gen(function* () {
             if (pause) { pause = false; yield* Deferred.succeed(started, undefined); yield* Deferred.await(release); }
-            return yield* snapshot.get(table, document);
+            return yield* snapshot.scan(request);
           }) };
         }) };
         const database = yield* openCoreDatabase(persistence, options);
@@ -769,11 +927,11 @@ describe(name, () => {
         const started = yield* Deferred.make<void>();
         const release = yield* Deferred.make<void>();
         let pause = false;
-        const persistence: CorePersistence = { ...fixture.persistence, readSnapshot: at => Effect.gen(function* () {
-          const snapshot = yield* fixture.persistence.readSnapshot(at);
-          return { ...snapshot, get: (table, document) => Effect.gen(function* () {
+        const persistence: CorePersistence = { ...fixture.persistence, readSnapshot: (at, retention) => Effect.gen(function* () {
+          const snapshot = yield* fixture.persistence.readSnapshot(at, retention);
+          return { ...snapshot, scan: request => Effect.gen(function* () {
             if (pause) { pause = false; yield* Deferred.succeed(started, undefined); yield* Deferred.await(release); }
-            return yield* snapshot.get(table, document);
+            return yield* snapshot.scan(request);
           }) };
         }) };
         const database = yield* openCoreDatabase(persistence, options);
@@ -874,35 +1032,40 @@ describe(name, () => {
     } finally { await fixture.close(); }
   }, 30_000);
 
-  it("fails closed on corrupted stored system fields through both point and index readers", async () => {
+  it("fails closed on corrupted stored system fields after reconstruction through point and index readers", async () => {
     const fixture = await createFixture();
+    let created = "";
     try {
       await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const database = yield* openCoreDatabase(fixture.persistence, options);
         yield* database.install(installation);
         const seed = yield* database.begin();
-        const created = yield* seed.insert("users", { name: "one" });
+        created = yield* seed.insert("users", { name: "one" });
         yield* database.commit(yield* seed.finalize());
-        const decoded = Result.getOrThrow(decodeDocumentId(created));
-        const corruptions = [
-          { name: "one" },
-          { name: "one", _id: "invalid", _creationTime: 1 },
-          { name: "one", _id: created, _creationTime: 0 },
-          { name: "one", _id: created, _creationTime: Number.NaN },
-          { name: "one", _id: Result.getOrThrow(encodeDocumentId(10001, decoded.internalId)), _creationTime: 1 },
-        ];
-        for (const corruption of corruptions) {
-          const value = Result.getOrThrow(encodeDocumentValue(corruption));
-          yield* Effect.tryPromise(() => fixture.query(`UPDATE "${fixture.namespace}".documents SET json_value=$1
-            WHERE instance_name=$2 AND table_id=$3 AND id=$4`, [value, fixture.instanceName, id(100), decoded.internalId]));
+      })));
+      const decoded = Result.getOrThrow(decodeDocumentId(created));
+      const corruptions = [
+        { name: "one" },
+        { name: "one", _id: "invalid", _creationTime: 1 },
+        { name: "one", _id: created, _creationTime: 0 },
+        { name: "one", _id: created, _creationTime: Number.NaN },
+        { name: "one", _id: Result.getOrThrow(encodeDocumentId(10001, decoded.internalId)), _creationTime: 1 },
+      ];
+      for (const corruption of corruptions) {
+        const value = Result.getOrThrow(encodeDocumentValue(corruption));
+        await fixture.query(`UPDATE "${fixture.namespace}".documents SET json_value=$1
+          WHERE instance_name=$2 AND table_id=$3 AND id=$4`, [value, fixture.instanceName, id(100), decoded.internalId]);
+        const reopened = await fixture.reopen();
+        await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+          const database = yield* openCoreDatabase(reopened, options);
           const transaction = yield* database.begin();
           const point = yield* Effect.result(transaction.get(created));
           expect(Result.isFailure(point) && point.failure).toMatchObject({ reason: "corruptData" });
           const index = yield* Effect.result(transaction.scan("users", "by_name"));
           expect(Result.isFailure(index) && index.failure).toMatchObject({ reason: "corruptData" });
           yield* transaction.abort();
-        }
-      })));
+        })));
+      }
     } finally { await fixture.close(); }
   }, 30_000);
 });

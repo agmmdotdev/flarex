@@ -29,9 +29,12 @@ import {
   invokeApplicationMutation,
   type InvokeApplicationMutationError,
   makeApplicationMutationSystemLayer,
+  makeCoreApplicationAdmission,
+  type CoreApplicationAdmission,
 } from
   "@flarex/standard-application-invocation/internal/application-mutation-system";
 import { Effect, Result, Scope, Clock, Context, Option, Schema } from "effect";
+import type { CoreDatabase } from "@flarex/persistence-postgres/internal/core";
 import type { ApplicationCoreFixture } from "@flarex/persistence-postgres/internal/system-test/core-application-fixture";
 import {
   APPLICATION_RUNTIME_HOST_IDENTITY,
@@ -75,6 +78,8 @@ import {
 import { runSystemTestEffectV1 } from "./systemTestEffectBoundaryV1";
 
 import { MiniflareApplicationWorkerLoader } from "./applicationNativeQueryHarness";
+
+const coreFixtureAdmissions = new WeakMap<CoreDatabase, Promise<CoreApplicationAdmission>>();
 
 const COMPATIBILITY_DATE = "2026-06-14";
 export const APPLICATION_NESTED_MUTATION_FIXTURE_OPTIONS = Object.freeze({
@@ -1109,12 +1114,9 @@ export async function proveApplicationNestedMutation(fixture: ApplicationCoreFix
     const coldFixture = Object.freeze({ ...fixture, database: cold });
     const coldReplay = await invoke(await makeApplicationNativeMutationTestLayer(coldFixture, loader));
     const coldCurrent = await readApplicationCoreMutationState(coldFixture);
-    const old = await runSystemTestEffectV1(cold.begin({ at: fixture.initialTimestamp }));
-    let historical;
-    try { historical = { document: Option.getOrNull(await runSystemTestEffectV1(old.get(fixture.documentId))),
-      indexed: await runSystemTestEffectV1(old.scan("users", "by_name")) }; }
-    finally { await runSystemTestEffectV1(old.abort()); }
-    return { published, replayed, coldReplay, before, after, coldCurrent, historical,
+    const historicalAdmission = await runSystemTestEffectV1(Effect.exit(cold.begin({ at: fixture.initialTimestamp })));
+    const historical = await fixture.initialPhysicalState();
+    return { published, replayed, coldReplay, before, after, coldCurrent, historical, historicalAdmission,
       workerLoads: loader.loads, storageTables: await fixture.storageTables() };
   } finally { await loader.dispose(); }
 }
@@ -1590,8 +1592,19 @@ export async function makeApplicationMutationTestLive(
         });
       }),
   });
-  if ("database" in fixture) return Object.freeze({ coreDatabase: fixture.database, deploymentId, grantIssuer,
-    applicationRunner, executionContextFactory, maximumAttempts: 3, queryCursor: fixture.queryCursor }) satisfies ApplicationCoreMutationSystemLive;
+  if ("database" in fixture) {
+    let admission = coreFixtureAdmissions.get(fixture.database);
+    if (admission === undefined) {
+      admission = fixture.runInOwnerScope(makeCoreApplicationAdmission({
+        query: { maxActive: 4, maxQueued: 8, waitMilliseconds: 5_000 },
+        mutation: { maxActive: 4, maxQueued: 8, waitMilliseconds: 5_000 },
+        maxPendingCallbacks: 512, maxOpenQueries: 128,
+      }));
+      coreFixtureAdmissions.set(fixture.database, admission);
+    }
+    return Object.freeze({ coreDatabase: fixture.database, admission: await admission, deploymentId, grantIssuer,
+      applicationRunner, executionContextFactory, maximumAttempts: 3, queryCursor: fixture.queryCursor }) satisfies ApplicationCoreMutationSystemLive;
+  }
   return Object.freeze({
     deploymentId,
     activation: fixture.activation,

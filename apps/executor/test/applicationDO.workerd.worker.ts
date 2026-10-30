@@ -31,7 +31,7 @@ interface FixtureEnv extends ApplicationDurableObjectEnv {
   readonly APPS: DurableObjectNamespace;
   readonly UPLOADS: DurableObjectNamespace;
 }
-const RequestBody = Schema.Struct({ operation: Schema.Literals(["typed", "query", "mutate", "lostAck", "republish"]),
+const RequestBody = Schema.Struct({ operation: Schema.Literals(["typed", "query", "mutate", "lostAck", "republish", "hostHold"]),
   args: Schema.Unknown, key: Schema.optionalKey(Schema.NonEmptyString) });
 const decodeRequest = Schema.decodeUnknownEffect(Schema.fromJsonString(RequestBody));
 const SCOPE = "45000000-0000-4000-8000-000000000001";
@@ -47,7 +47,7 @@ const sha256 = (bytes: Uint8Array) => Effect.promise(async () => new Uint8Array(
   await crypto.subtle.digest("SHA-256", copyBytesToArrayBuffer(bytes))));
 
 function options() {
-  const resources = { pools: 0, connections: 0, ended: 0, checkouts: 0, released: 0, bodies: 0 };
+  const resources = { pools: 0, connections: 0, ended: 0, checkouts: 0, released: 0, bodies: 0, hostHeld: 0 };
   const backends: Array<Readonly<{ pid: number; applicationName: string }>> = [];
   let loseOnBody = false;
   let loseCommitAcknowledgement = false;
@@ -56,6 +56,12 @@ function options() {
     namespace: env.APPS, canonicalName: CANONICAL });
   return {
     configuration,
+    workload: {
+      indexCache: { maxBytes: 2 * 1024 * 1024, verifyPercent: 0 }, operationCacheMaxBytes: 1024 * 1024,
+      admission: { query: { maxActive: 2, maxQueued: 2, waitMilliseconds: 5_000 },
+        mutation: { maxActive: 1, maxQueued: 2, waitMilliseconds: 5_000 }, maxPendingCallbacks: 128, maxOpenQueries: 128 },
+      maxRequests: 8,
+    },
     coreOptions: { now: Clock.currentTimeMillis.pipe(Effect.map(value => BigInt(Math.floor(value)) * 1_000_000n)),
       newInternalId: Effect.sync(() => crypto.getRandomValues(new Uint8Array(16))), maxConcurrentSaves: 1 },
     createPool(connectionString) {
@@ -139,6 +145,11 @@ function options() {
     }),
     dispatch: Effect.fn("ApplicationDOFixture.dispatch")(function* (request) {
       const input = yield* decodeRequest(yield* readFixtureText(request, 16_384));
+      // Hold the trusted dispatch edge to witness the real HTTP request map cap,
+      // independently of query/mutation permits and without copying their logic.
+      if (input.operation === "hostHold") return yield* Effect.acquireUseRelease(
+        Effect.sync(() => { resources.hostHeld++; }), () => Effect.never,
+        () => Effect.sync(() => { resources.hostHeld--; }));
       const typedArguments = input.operation === "typed" ? yield* Schema.decodeUnknownEffect(Schema.Struct({
         id: Schema.String, invalidReturn: Schema.optionalKey(Schema.Boolean),
       }))(input.args) : undefined;
@@ -171,27 +182,37 @@ const hostOptions = options();
 const Base = makeApplicationDurableObject(hostOptions);
 export class ApplicationFixtureDO extends Base {
   readonly #boot = crypto.randomUUID();
-  readonly #gate: { hold: boolean; entered: boolean; release?: () => void };
+  readonly #gate: { hold: boolean; all: boolean; entered: boolean; blocked: number; releases: Set<() => void> };
   constructor(ctx: DurableObjectState, env: FixtureEnv) {
-    const gate: { hold: boolean; entered: boolean; release?: () => void } = { hold: false, entered: false };
+    const gate = { hold: false, all: false, entered: false, blocked: 0, releases: new Set<() => void>() };
     const artifacts = env.ARTIFACTS;
     super(ctx, { ...env, ARTIFACTS: { ...artifacts, get: async key => {
-      if (gate.hold) {
+      if (gate.hold || gate.all) {
         gate.hold = false;
         gate.entered = true;
-        await new Promise<void>(resolve => { gate.release = resolve; });
+        gate.blocked++;
+        await new Promise<void>(resolve => { gate.releases.add(resolve); });
+        gate.blocked--;
       }
       return artifacts.get(key);
     } } });
     this.#gate = gate;
   }
+  #releaseSourceReads(): void {
+    this.#gate.hold = false;
+    this.#gate.all = false;
+    this.#gate.entered = false;
+    for (const release of this.#gate.releases) release();
+    this.#gate.releases.clear();
+  }
   override async fetch(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
-    if (path === "/status") return Response.json({ boot: this.#boot, gateEntered: this.#gate.entered,
+    if (path === "/status") return Response.json({ boot: this.#boot, gateEntered: this.#gate.entered, blockedSourceReads: this.#gate.blocked,
       resources: hostOptions.resources, backends: hostOptions.backends });
-    if (path === "/release") { this.#gate.release?.(); this.#gate.entered = false; return Response.json({ released: true }); }
-    if (path === "/close") { this.#gate.release?.(); await this.close(); return Response.json({ closed: true, resources: hostOptions.resources }); }
+    if (path === "/release") { this.#releaseSourceReads(); return Response.json({ released: true }); }
+    if (path === "/close") { this.#releaseSourceReads(); await this.close(); return Response.json({ closed: true, resources: hostOptions.resources }); }
     if (path === "/hold") this.#gate.hold = true;
+    if (path === "/hold-all") this.#gate.all = true;
     try {
       const response = await super.fetch(request);
       response.headers.set("x-app-do-boot", this.#boot);

@@ -3,7 +3,8 @@ import { openCoreDatabase, type CoreDatabase, type CoreDatabaseOptions, type Cor
   "@flarex/persistence-postgres/internal/core";
 import { createCorePersistence, loadCorePersistenceTarget, makeCorePostgresDriver, type CorePostgresPool } from
   "@flarex/persistence-postgres/internal/core-persistence";
-import { makeApplicationMutationSystemLayer, type ApplicationCoreMutationSystemLive,
+import { makeApplicationMutationSystemLayer, makeCoreApplicationAdmission, CoreApplicationAdmissionConfigurationSchema,
+  type CoreApplicationAdmissionError, type ApplicationCoreMutationSystemLive,
   type ApplicationMutationSystem } from
   "@flarex/standard-application-invocation/internal/application-mutation-system";
 import { makeApplicationQuerySystemLayer, type ApplicationQuerySystem } from
@@ -12,7 +13,7 @@ import { makeApplicationAnalysisR2SourceReader } from
   "flarex-backend/internal/application-analysis-source-reader";
 import { makeApplicationExecutionHost } from
   "flarex-backend/internal/application-execution-host";
-import { Data, Effect, Layer, ManagedRuntime, Result, type Scope } from "effect";
+import { Data, Effect, Layer, ManagedRuntime, Result, Schema, type Scope } from "effect";
 import { Client, Pool, type ClientConfig, type PoolConfig } from "pg";
 
 import { admitExecutorRequest, type ExecutorWorkerEnv } from "./requestLifecycle";
@@ -30,7 +31,19 @@ export interface ApplicationDurableObjectConfiguration {
 }
 
 type ApplicationServices = ApplicationQuerySystem | ApplicationMutationSystem;
-type ApplicationComposition = Omit<ApplicationCoreMutationSystemLive, "coreDatabase">;
+type ApplicationComposition = Omit<ApplicationCoreMutationSystemLive, "coreDatabase" | "admission">;
+
+const NonnegativeCount = Schema.Int.check(Schema.makeFilter(value => Number.isSafeInteger(value) && value >= 0
+  ? undefined : "Expected a nonnegative safe count"));
+const ApplicationWorkload = Schema.Struct({
+  indexCache: Schema.Struct({ maxBytes: NonnegativeCount,
+    verifyPercent: NonnegativeCount.check(Schema.isLessThanOrEqualTo(100)) }),
+  operationCacheMaxBytes: NonnegativeCount,
+  admission: CoreApplicationAdmissionConfigurationSchema,
+  /** Retained HTTP requests during boot/dispatch, separate from function permits. */
+  maxRequests: NonnegativeCount.check(Schema.isGreaterThan(0)),
+});
+export type ApplicationDurableObjectWorkload = typeof ApplicationWorkload.Type;
 
 export interface ApplicationPostgresPool extends CorePostgresPool {
   readonly end: () => Promise<void>;
@@ -83,7 +96,9 @@ export class ApplicationOwnerHostError extends Data.TaggedError("ApplicationOwne
 export interface ApplicationDurableObjectOptions<Env extends ApplicationDurableObjectEnv, Failure> {
   /** Trusted topology and canonical routing identity; never derived from a request. */
   readonly configuration: (env: Env) => ApplicationDurableObjectConfiguration;
-  readonly coreOptions: CoreDatabaseOptions;
+  readonly coreOptions: Omit<CoreDatabaseOptions, "indexCache" | "operationCacheMaxBytes">;
+  /** Explicit private workload settings; no Rust server cache allocation is inherited. */
+  readonly workload: ApplicationDurableObjectWorkload;
   readonly application: (env: Env, infrastructure: Readonly<{
     /** Trusted composition may install/publish only through this retained owner. */
     coreDatabase: CoreDatabase;
@@ -114,7 +129,16 @@ export function resolveApplicationDurableObject(configuration: Pick<
 export function makeApplicationDurableObject<Env extends ApplicationDurableObjectEnv, Failure>(
   options: ApplicationDurableObjectOptions<Env, Failure>,
 ): ApplicationDurableObjectClass<Env> {
+  // Trusted synchronous composition boundary. The authoritative admission schema
+  // is shared with its scoped factory; invalid settings allocate no pool.
+  const decoded = Schema.decodeUnknownSync(ApplicationWorkload)(options.workload);
+  const workload = Object.freeze({ ...decoded,
+    indexCache: Object.freeze({ ...decoded.indexCache }),
+    admission: Object.freeze({ ...decoded.admission,
+      query: Object.freeze({ ...decoded.admission.query }), mutation: Object.freeze({ ...decoded.admission.mutation }) }),
+  });
   const coreOptions = Object.freeze({ ...options.coreOptions,
+    indexCache: workload.indexCache, operationCacheMaxBytes: workload.operationCacheMaxBytes,
     ...(options.coreOptions.transactionLimits === undefined ? {}
       : { transactionLimits: Object.freeze({ ...options.coreOptions.transactionLimits }) }) });
   const createPool = options.createPool ?? ((connectionString: string) =>
@@ -124,7 +148,7 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
     readonly #canonical: boolean;
     readonly #configuration: ApplicationDurableObjectConfiguration;
     readonly #requests = new Map<Promise<Response>, AbortController>();
-    #runtime: ManagedRuntime.ManagedRuntime<ApplicationServices, Failure | CoreError | ApplicationOwnerHostError> | undefined;
+    #runtime: ManagedRuntime.ManagedRuntime<ApplicationServices, Failure | CoreError | CoreApplicationAdmissionError | ApplicationOwnerHostError> | undefined;
     #database: CoreDatabase | undefined;
     #failure: ApplicationOwnerHostError | undefined;
     #closing: Promise<void> | undefined;
@@ -155,6 +179,7 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
         const driver = makeCorePostgresDriver(pool);
         const target = yield* loadCorePersistenceTarget(driver, configuration.persistenceNamespace);
         const persistence = yield* createCorePersistence(target, configuration.instanceName);
+        const admission = yield* makeCoreApplicationAdmission(workload.admission);
         // Opening includes the PostgreSQL fence and complete bootstrap. Layer
         // construction cannot disclose an invocation before this succeeds.
         const coreDatabase = yield* openCoreDatabase(persistence, coreOptions);
@@ -165,7 +190,7 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
           source: makeApplicationAnalysisR2SourceReader(env.ARTIFACTS),
           host: makeApplicationExecutionHost(env.LOADER),
         });
-        const live = { ...application, coreDatabase };
+        const live = { ...application, coreDatabase, admission };
         return Layer.mergeAll(makeApplicationQuerySystemLayer(live), makeApplicationMutationSystemLayer(live));
       });
       this.#runtime = ManagedRuntime.make(Layer.unwrap(acquire));
@@ -179,6 +204,10 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
       if (!this.#canonical) return Response.json({ error: "noncanonical_application_owner" }, { status: 421 });
       if (this.#failure !== undefined) throw this.#failure;
       if (this.#closing !== undefined) return Response.json({ error: "application_owner_closed" }, { status: 503 });
+      // Bound retained requests before runtime bootstrap. This is a host map
+      // reservation, not a second query/mutation execution permit.
+      if (this.#requests.size >= workload.maxRequests)
+        return Response.json({ error: "application_owner_overloaded" }, { status: 503 });
       const runtime = this.#getRuntime(admission.success.connectionString);
       const controller = new AbortController();
       const invocation = runtime.runPromise(options.dispatch(request), {

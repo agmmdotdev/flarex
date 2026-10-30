@@ -114,7 +114,7 @@ describe(name, () => {
     const fixture = await createFixture();
     const requests: number[] = [];
     let tracing = false;
-    const persistence: CorePersistence = { ...fixture.persistence, readSnapshot: at => Effect.map(fixture.persistence.readSnapshot(at), snapshot => ({
+    const persistence: CorePersistence = { ...fixture.persistence, readSnapshot: (at, retention) => Effect.map(fixture.persistence.readSnapshot(at, retention), snapshot => ({
       ...snapshot, scan: request => { if (tracing) requests.push(request.maxResults); return snapshot.scan(request); },
     })) };
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
@@ -622,7 +622,7 @@ describe(name, () => {
       const entered = yield* Deferred.make<void>();
       const release = yield* Deferred.make<void>();
       let pause = false;
-      const persistence: CorePersistence = { ...fixture.persistence, readSnapshot: at => Effect.map(fixture.persistence.readSnapshot(at), snapshot => ({
+      const persistence: CorePersistence = { ...fixture.persistence, readSnapshot: (at, retention) => Effect.map(fixture.persistence.readSnapshot(at, retention), snapshot => ({
         ...snapshot, scan: request => Effect.gen(function* () {
           if (pause) { yield* Deferred.succeed(entered, undefined); yield* Deferred.await(release); }
           return yield* snapshot.scan(request);

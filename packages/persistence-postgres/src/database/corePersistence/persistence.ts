@@ -10,6 +10,7 @@ import {
   type CorePersistence,
   type CorePersistenceIndexEntry,
   type CorePersistenceLease,
+  type CoreRetentionValidator,
   type CoreWriteBatch,
 } from "../../core/contracts";
 import type { CoreSqlConnection, CoreSqlParameter } from "./driver";
@@ -126,6 +127,10 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
         if (at < floor) return yield* Effect.fail(new CorePersistenceError({ reason: "outOfRetention" }));
       },
     );
+    const sqlRetention: CoreRetentionValidator = Object.freeze({
+      validateIndex: (at: bigint) => validateRetention(at),
+      validateDocument: (at: bigint) => validateRetention(at, "document_min_snapshot_ts"),
+    });
     const fence = Effect.fn("CorePersistence.fence")(
       function* (connection: CoreSqlConnection, lease: CorePersistenceLease, lock: boolean) {
         const rows = yield* connection.query(`SELECT 1 FROM ${table("leases")}
@@ -191,7 +196,7 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
     );
 
     const scan = Effect.fn("CorePersistence.indexPage")(
-      function* (at: bigint, input: CoreIndexScan): Effect.fn.Return<CoreIndexPage, CorePersistenceError> {
+      function* (at: bigint, input: CoreIndexScan, retention: CoreRetentionValidator): Effect.fn.Return<CoreIndexPage, CorePersistenceError> {
         const decoded = yield* decodeScan(input).pipe(Effect.mapError(invalid));
         const request = Object.freeze({ ...decoded,
           index: Object.freeze({ ...decoded.index, id: copyBytes(decoded.index.id) }),
@@ -199,7 +204,7 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
           interval: Object.freeze({ start: decoded.interval.start === null ? null : copyBytes(decoded.interval.start),
             end: decoded.interval.end === null ? null : copyBytes(decoded.interval.end) }),
         });
-        yield* validateRetention(at);
+        yield* retention.validateIndex(at);
         const { start, end } = request.interval;
         if (start !== null && end !== null && compareBytesLexicographically(start, end) >= 0) {
           return Object.freeze({ entries: [], cursor: Object.freeze({ kind: "end" as const }) });
@@ -272,7 +277,7 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
           }
           // Do not release a page after retention could have deleted anchors
           // used by this read. The same validation covers buffered prefix groups.
-          yield* validateRetention(at);
+          yield* retention.validateIndex(at);
           exhausted = parsed.length < pageSize;
           if (exhausted) flush();
         }
@@ -325,9 +330,16 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
           return latest > repeatable ? latest : repeatable;
         }),
       )),
-      readSnapshot: Effect.fn("CorePersistence.readSnapshot")(function* (at: bigint) {
+      readRetentionBounds: Effect.fn("CorePersistence.readRetentionBounds")((lease: CorePersistenceLease) => fenced(lease,
+        connection => Effect.gen(function* () {
+          const indexMinimumTimestamp = yield* globalTimestamp(connection, "min_snapshot_ts");
+          const documentMinimumTimestamp = yield* globalTimestamp(connection, "document_min_snapshot_ts");
+          return Object.freeze({ indexMinimumTimestamp, documentMinimumTimestamp });
+        }),
+      )),
+      readSnapshot: Effect.fn("CorePersistence.readSnapshot")(function* (at: bigint, retention: CoreRetentionValidator = sqlRetention) {
         yield* decodeTimestamp(at).pipe(Effect.mapError(invalid));
-        yield* validateRetention(at);
+        yield* retention.validateIndex(at);
         return Object.freeze({ timestamp: at,
           get: Effect.fn("CorePersistence.get")(function* (tableId: Uint8Array, id: Uint8Array) {
             const decoded = yield* decodePoint({ tableId, id })
@@ -336,10 +348,10 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
               FROM ${table("documents")} WHERE instance_name = $1 AND table_id = $2 AND id = $3 AND ts <= $4
               ORDER BY ts DESC LIMIT 1`, [instance, copyBytes(decoded.tableId), copyBytes(decoded.id), at]);
             const stored = yield* decodeDocumentRows(rows);
-            yield* validateRetention(at, "document_min_snapshot_ts");
+            yield* retention.validateDocument(at);
             return stored[0] === undefined ? Option.none<CoreDocumentLogEntry>() : Option.some(documentFromRow(stored[0]));
           }),
-          scan: (request: CoreIndexScan) => scan(at, request),
+          scan: (request: CoreIndexScan) => scan(at, request, retention),
         });
       }),
       write: (lease, batch) => writeBatch(lease, batch),

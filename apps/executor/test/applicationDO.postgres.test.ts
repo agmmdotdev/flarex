@@ -23,11 +23,11 @@ const UPLOADED = Schema.Struct({ source: Schema.Struct({ sourceArtifact: Schema.
   modules: Schema.Array(SOURCE_MODULE),
 }), modules: Schema.Array(Schema.Struct({ ...SOURCE_MODULE.fields, source: Schema.String })) }) });
 const Resources = Schema.Struct({ pools: Schema.Int, connections: Schema.Int, ended: Schema.Int,
-  checkouts: Schema.Int, released: Schema.Int, bodies: Schema.Int });
+  checkouts: Schema.Int, released: Schema.Int, bodies: Schema.Int, hostHeld: Schema.Int });
 const ResultBody = Schema.Struct({ ok: Schema.Boolean, value: Schema.optionalKey(Schema.Unknown),
   cause: Schema.optionalKey(Schema.String), resources: Resources,
   failures: Schema.optionalKey(Schema.Array(Schema.Struct({ tag: Schema.NullOr(Schema.String), reason: Schema.NullOr(Schema.String) }))) });
-const Status = Schema.Struct({ boot: Schema.String, gateEntered: Schema.Boolean, resources: Resources,
+const Status = Schema.Struct({ boot: Schema.String, gateEntered: Schema.Boolean, blockedSourceReads: Schema.Int, resources: Resources,
   backends: Schema.Array(Schema.Struct({ pid: Schema.Int, applicationName: Schema.String })) });
 const Page = Schema.Struct({ page: Schema.Array(Schema.Struct({ name: Schema.String })),
   continueCursor: Schema.String, isDone: Schema.Boolean });
@@ -94,15 +94,43 @@ describe.runIf(endpoints !== undefined)("canonical app owner in actual workerd",
           if (Exit.isFailure(fenced)) expect(fenced.cause.reasons.filter(Cause.isFailReason).map(reason => reason.error))
             .toContainEqual(expect.objectContaining({ _tag: "CorePersistenceError", reason: "leaseLost" }));
 
-          const oldQuery = invoke(active(), "typed", args, "/hold");
-          await expect.poll(async () => (await status(active())).gateEntered, { timeout: 20_000 }).toBe(true);
-          const mutation = await invoke(active(), "mutate", { ...args, fail: false }, "/invoke", "actual-app:acknowledged");
-          expect(Schema.decodeUnknownSync(Mutation)(mutation.body.value).disposition).toBe("published");
-          expect((await invoke(active(), "typed", args)).body.value).toBe("parent-after-success");
-          await invoke(active(), "republish", {});
-          await request(active(), "/release", {});
-          expect((await oldQuery).body.value).toBe("Ada");
-          expect((await invoke(active(), "typed", args)).body.value).toBe("parent-after-success");
+          // The configured query channel admits two active roots and two queued
+          // roots. Nested function execution in each root borrows that permit.
+          await withSourceReadGate(active(), close, async own => {
+            const heldFirst = own(invoke(active(), "typed", args, "/hold-all"));
+            await expect.poll(async () => (await status(active())).blockedSourceReads, { timeout: 20_000 }).toBe(1);
+            const heldSecond = own(invoke(active(), "typed", args));
+            await expect.poll(async () => (await status(active())).blockedSourceReads, { timeout: 20_000 }).toBe(2);
+            const completed: Awaited<ReturnType<typeof invoke>>[] = [];
+            const saturated = Array.from({ length: 5 }, () => own(invoke(active(), "typed", args, "/invoke", undefined, false)
+              .then(result => { completed.push(result); return result; })));
+            await expect.poll(() => completed.length, { timeout: 20_000 }).toBe(3);
+            // This endpoint runs the public typed query facade. Its owning
+            // projection exposes temporary overload as QueryInvocationError.
+            expect(completed.map(result => result.body.failures)).toEqual(Array.from({ length: 3 }, () =>
+              expect.arrayContaining([{ tag: "QueryInvocationError", reason: "transient" }])));
+            expect((await status(active())).blockedSourceReads).toBe(2);
+            await request(active(), "/release", {});
+            expect(await Promise.allSettled([heldFirst, heldSecond]))
+              .toEqual(Array.from({ length: 2 }, () => expect.objectContaining({ status: "fulfilled" })));
+            const resumed = await Promise.allSettled(saturated);
+            expect(resumed).toEqual(Array.from({ length: 5 }, () => expect.objectContaining({ status: "fulfilled" })));
+            expect(resumed.flatMap(result => result.status === "fulfilled" && result.value.body.ok ? [result.value] : []))
+              .toHaveLength(2);
+            expect((await status(active())).blockedSourceReads).toBe(0);
+          });
+
+          await withSourceReadGate(active(), close, async own => {
+            const oldQuery = own(invoke(active(), "typed", args, "/hold"));
+            await expect.poll(async () => (await status(active())).gateEntered, { timeout: 20_000 }).toBe(true);
+            const mutation = await invoke(active(), "mutate", { ...args, fail: false }, "/invoke", "actual-app:acknowledged");
+            expect(Schema.decodeUnknownSync(Mutation)(mutation.body.value).disposition).toBe("published");
+            expect((await invoke(active(), "typed", args)).body.value).toBe("parent-after-success");
+            await invoke(active(), "republish", {});
+            await request(active(), "/release", {});
+            expect((await oldQuery).body.value).toBe("Ada");
+            expect((await invoke(active(), "typed", args)).body.value).toBe("parent-after-success");
+          });
 
           const firstPage = Schema.decodeUnknownSync(Page)((await invoke(active(), "query", {
             terminal: "paginate", count: 2,
@@ -176,6 +204,23 @@ describe.runIf(endpoints !== undefined)("canonical app owner in actual workerd",
           const cancellationState = await status(active());
           expect(cancellationState.resources.ended).toBe(cancellationState.resources.connections);
           expect(cancellationState.resources.checkouts).toBe(cancellationState.resources.released);
+
+          await close();
+          await start();
+          const heldDispatches = Promise.allSettled(Array.from({ length: 8 }, () =>
+            request(active(), "/invoke", { operation: "hostHold", args: {} })));
+          await expect.poll(async () => (await status(active())).resources.hostHeld, { timeout: 20_000 }).toBe(8);
+          const overflow = await request(active(), "/invoke", { operation: "typed", args });
+          expect(overflow.status).toBe(503);
+          expect(await overflow.json()).toEqual({ error: "application_owner_overloaded" });
+          const drainedDispatches = await request(active(), "/close", {});
+          expect(drainedDispatches.status).toBe(200);
+          for (const result of await heldDispatches)
+            if (result.status === "fulfilled") expect(result.value.status).not.toBe(200);
+          const afterDispatchClose = await status(active());
+          expect(afterDispatchClose.resources.hostHeld).toBe(0);
+          expect(afterDispatchClose.resources.ended).toBe(afterDispatchClose.resources.connections);
+          expect(afterDispatchClose.resources.checkouts).toBe(afterDispatchClose.resources.released);
         } finally { await close(); }
       });
 
@@ -193,6 +238,30 @@ describe.runIf(endpoints !== undefined)("canonical app owner in actual workerd",
     }
   }, 300_000);
 });
+
+type SourceGateInvocationOwner = <A>(invocation: Promise<A>) => Promise<A>;
+
+/** Each background call receives an immediate rejection observer. On any body
+ * assertion failure, release and join all calls before reporting every failure. */
+async function withSourceReadGate(runtime: Miniflare, close: () => Promise<void>,
+  work: (own: SourceGateInvocationOwner) => Promise<void>) {
+  const observed: Array<Promise<PromiseSettledResult<unknown>[]>> = [];
+  const own: SourceGateInvocationOwner = invocation => {
+    observed.push(Promise.allSettled([invocation]));
+    return invocation;
+  };
+  const body = await Promise.allSettled([Promise.resolve().then(() => work(own))]);
+  const released = await Promise.allSettled([request(runtime, "/release", {}).then(response => {
+    expect(response.status).toBe(200);
+  })]);
+  // If the release transport fails, controlled owner close also releases the
+  // fixture gate; the outer close owns runtime disposal even when close fails.
+  const closed = released.some(result => result.status === "rejected") ? await Promise.allSettled([close()]) : [];
+  const joined = (await Promise.all(observed)).flat();
+  const failures = [...body, ...released, ...closed, ...joined]
+    .flatMap(result => result.status === "rejected" ? [result.reason] : []);
+  if (failures.length > 0) throw new AggregateError(failures, "Source-gated Application invocations failed.");
+}
 
 function request(runtime: Miniflare, path: string, body: unknown, signal?: AbortSignal) {
   return runtime.dispatchFetch(`https://application-owner.test${path}`, { method: "POST",

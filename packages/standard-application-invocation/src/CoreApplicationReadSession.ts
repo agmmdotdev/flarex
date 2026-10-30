@@ -16,6 +16,7 @@ import {
   APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1,
   APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1,
 } from "flarex-protocol/internal/application-revision-syscall-validation-v1";
+import { CoreApplicationAdmissionError, type CoreApplicationAdmission } from "./CoreApplicationAdmission";
 
 const SafeCount = Schema.Int.check(Schema.makeFilter(value => Number.isSafeInteger(value) && value >= 0
   ? undefined : "Expected a nonnegative safe query count"));
@@ -53,16 +54,24 @@ export function makeCoreApplicationReadSession<RevalidationError>(
   }>,
   callbackContext: Context.Context<never>,
   broker: QueryCursorBroker,
+  limits: Pick<CoreApplicationAdmission, "maxPendingCallbacks" | "maxOpenQueries">,
 ) {
-  type CapabilityFailure = CoreError | RevalidationError;
+  type CapabilityFailure = CoreError | RevalidationError | CoreApplicationAdmissionError;
   let open = true;
   let tail = Promise.resolve();
   let firstCause: Cause.Cause<CapabilityFailure> | undefined;
   const queries = new Map<string, CoreQuery>();
   let querySequence = 0;
+  let pendingCallbacks = 0;
   const stopped = () => new Error("The Application database capability is unavailable.");
-  const run = <A>(work: () => Effect.Effect<A, CoreError>): Promise<A> => {
-    if (!open) return Promise.reject(stopped());
+  const run = <A>(work: () => Effect.Effect<A, CoreError | CoreApplicationAdmissionError>): Promise<A> => {
+    if (!open || firstCause !== undefined) return Promise.reject(stopped());
+    if (pendingCallbacks >= limits.maxPendingCallbacks) {
+      // Latch before exposing rejection: untrusted code can catch an RPC error.
+      firstCause = Cause.fail(new CoreApplicationAdmissionError({ reason: "callbackCapacity" }));
+      return Promise.reject(stopped());
+    }
+    pendingCallbacks += 1;
     const admitted = tail.then(async () => {
       if (firstCause !== undefined) throw stopped();
       // This is the real foreign RPC callback edge. Every admitted operation is
@@ -76,12 +85,12 @@ export function makeCoreApplicationReadSession<RevalidationError>(
           refusal.name = APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1;
           throw refusal;
         }
-        firstCause = exit.cause;
+        firstCause = firstCause === undefined ? exit.cause : Cause.combine(firstCause, exit.cause);
         throw stopped();
       }
       return exit.value;
     });
-    tail = admitted.then(() => undefined, () => undefined);
+    tail = admitted.then(() => { pendingCallbacks -= 1; }, () => { pendingCallbacks -= 1; });
     return admitted;
   };
   const requireTable = (table: string, id: string) => Effect.fromResult(decodeDocumentId(id).pipe(
@@ -92,7 +101,7 @@ export function makeCoreApplicationReadSession<RevalidationError>(
     Result.mapError(cause => cause instanceof CoreTransactionError ? cause
       : new CoreTransactionError({ reason: "invalidDocumentId", cause })),
   ));
-  const queryResult = <A>(work: Effect.Effect<A, CoreError>) => work.pipe(
+  const queryResult = <A>(work: Effect.Effect<A, CoreError | CoreApplicationAdmissionError>) => work.pipe(
     Effect.map(value => ({ kind: "ok" as const, value })),
     Effect.catchTag("CoreQueryInputError", error => Effect.succeed({ kind: "queryError" as const,
       message: error.reason === "invalidCursor" ? "Invalid query cursor." : "Invalid database query." })),
@@ -118,6 +127,8 @@ export function makeCoreApplicationReadSession<RevalidationError>(
       const cursor = captured.cursor === undefined ? undefined
         : yield* Effect.fromResult(broker.decode(captured.cursor)).pipe(Effect.mapError(cause =>
           new CoreQueryInputError({ reason: "invalidCursor", cause })));
+      if (queries.size >= limits.maxOpenQueries)
+        return yield* new CoreApplicationAdmissionError({ reason: "queryCapacity" });
       const query = yield* input.transaction.startQuery({ query: {
         source: captured.index === undefined
           ? { type: "FullTableScan", tableName: captured.table, order: captured.order ?? "asc" }

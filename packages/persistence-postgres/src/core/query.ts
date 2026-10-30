@@ -10,8 +10,9 @@ import { encodeDocumentValue, type DocumentObject } from "flarex-protocol/docume
 import { indexRangeIsEmpty, splitIndexRangeAfter } from "flarex-protocol/index-range";
 import { CoreTransactionError, type CoreError, type CoreIndexDefinition, type CoreQuery,
   type CoreQueryPage, type CoreTableDefinition } from "./api";
-import type { CoreIndexCursor, CoreInterval, CoreOrder, CorePersistenceSnapshot } from "./contracts";
+import type { CoreIndexCursor, CoreInterval, CoreOrder } from "./contracts";
 import { captureCoreDocument } from "./document";
+import type { CoreIndexSnapshot } from "./indexSnapshot";
 import { readDocumentObject } from "./registry";
 import { copyInterval, keyInInterval } from "./writeLog";
 
@@ -22,7 +23,7 @@ const copyPosition = (position: CoreIndexCursor | null): CoreIndexCursor | null 
 
 /** The transaction supplies the sole operation owner and live pending index; no SQL transaction survives a call. */
 export function createCoreQuery(input: Readonly<{
-  snapshot: CorePersistenceSnapshot;
+  snapshot: CoreIndexSnapshot;
   table: CoreTableDefinition;
   index: CoreIndexDefinition;
   interval: CoreInterval;

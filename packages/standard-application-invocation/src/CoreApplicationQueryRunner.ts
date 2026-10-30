@@ -19,7 +19,7 @@ import type { ApplicationCoreMutationSystemLive } from "./ApplicationMutationSys
 
 /** Trusted app-lifetime composition shared with fresh mutation execution. */
 export type ApplicationCoreQuerySystemLive = Pick<ApplicationCoreMutationSystemLive,
-  "coreDatabase" | "applicationRunner" | "executionContextFactory" | "queryCursor">;
+  "coreDatabase" | "admission" | "applicationRunner" | "executionContextFactory" | "queryCursor">;
 
 export class CoreApplicationQueryError extends Data.TaggedError("CoreApplicationQueryError")<{
   readonly reason: "functionUnsupported" | "invalidComposition" | "sourceReadFailed"
@@ -37,7 +37,7 @@ export function makeCoreApplicationQueryRunner(configuration: ApplicationCoreQue
     argumentSemanticBytes: number,
     auth: ApplicationWorkerAuthV1,
   ) {
-    return yield* Effect.acquireUseRelease(database.beginQuery(functionPath), operation => Effect.gen(function* () {
+    return yield* configuration.admission.withPermit("query", Effect.acquireUseRelease(database.beginQuery(functionPath), operation => Effect.gen(function* () {
       const program = yield* readCoreApplicationProgram(operation.program, runner.sha256);
       const target = program.runtimeTarget;
       if (program.kind !== "query" || target.function.visibility !== "public")
@@ -66,7 +66,7 @@ export function makeCoreApplicationQueryRunner(configuration: ApplicationCoreQue
         captureExecutionDiagnosticContext(fiber), Clock.Clock, Context.get(fiber.context, Clock.Clock),
       )));
       const session = makeCoreApplicationReadSession({ transaction: operation.transaction, tables,
-        revalidate: database.assertOpen }, callbackContext, configuration.queryCursor.broker);
+        revalidate: database.assertOpen }, callbackContext, configuration.queryCursor.broker, configuration.admission);
       const value = yield* Effect.uninterruptibleMask(restore => Effect.gen(function* () {
         const host = yield* Effect.exit(restore(runner.host.runTransaction({ definition, request, capability: session.target })));
         const drained = yield* Effect.exit(session.closeAndDrain);
@@ -77,6 +77,6 @@ export function makeCoreApplicationQueryRunner(configuration: ApplicationCoreQue
       }));
       yield* operation.finish();
       return value;
-    }), operation => operation.abort());
+    }), operation => operation.abort()));
   });
 }

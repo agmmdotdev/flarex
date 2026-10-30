@@ -21,6 +21,7 @@ import {
 
 import type { ApplicationMutationSystemLive } from "./ApplicationMutationSystem";
 import { makeCoreApplicationReadSession } from "./CoreApplicationReadSession";
+import type { CoreApplicationAdmission } from "./CoreApplicationAdmission";
 
 type CoreBodyInput = Parameters<CoreApplicationMutationConfiguration<never, never>["execute"]>[0];
 /** Host projection and RPC lifetime, separate from shared transaction authority. */
@@ -28,6 +29,7 @@ export function makeCoreApplicationMutationRunner(configuration: Readonly<{
   applicationRunner: ApplicationMutationSystemLive["applicationRunner"];
   executionContextFactory: ApplicationMutationSystemLive["executionContextFactory"];
   queryCursor: Readonly<{ scopeUuid: string; broker: QueryCursorBroker }>;
+  admission: CoreApplicationAdmission;
 }>) {
   const execute = Effect.fn("CoreApplicationMutationRunner.execute")(function* (input: CoreBodyInput) {
     const runner = configuration.applicationRunner;
@@ -57,7 +59,8 @@ export function makeCoreApplicationMutationRunner(configuration: Readonly<{
     const callbackContext = yield* Effect.withFiber(fiber => Effect.succeed(Context.add(
       captureExecutionDiagnosticContext(fiber), Clock.Clock, Context.get(fiber.context, Clock.Clock),
     )));
-    const session = makeCoreApplicationReadSession(input, callbackContext, configuration.queryCursor.broker);
+    const session = makeCoreApplicationReadSession(input, callbackContext, configuration.queryCursor.broker,
+      configuration.admission);
     const capability = Object.freeze({
       ...session.target,
       insertPointDocument: (table: string, value: unknown) => session.run(() => input.transaction.insert(table, value)),

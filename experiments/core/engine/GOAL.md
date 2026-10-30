@@ -183,6 +183,16 @@ read-only completion. Local actual-host and both-driver evidence cover the
 selected configured app; managed-host, broader writer/profile and full goal
 gates remain open. A second query database is not the destination.
 
+The [snapshot and shared page translation](./slices/06d-snapshot-index-cache.md)
+now connects retained snapshot selection, local leader retention validation,
+versioned resident metadata, operation coverage and exact shared index pages to
+this fresh owner. Normal points use ById singleton ranges; publication invalidates
+pages before exposing the next snapshot. Standard invocation owns separately
+bounded root query/mutation admission; the DO requires explicit workload settings.
+The bounded implementation is validated in both database lanes and the actual local host. Retain-all mode has no live GC
+writer; production memory/capacity, full GC, native/schema cutover and managed
+hosting remain open gates. Its TypeScript weighted-cache maintenance and DO
+resource configuration are recorded as focused necessary runtime adaptations.
 The current acyclic internal-call profile remains a recorded translation item:
 the pin permits depth-bounded recursive calls, while the existing kernel rejects
 an active ordinal. Its current supported restriction is not a demonstrated

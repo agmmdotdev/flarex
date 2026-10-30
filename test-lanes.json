@@ -1380,7 +1380,7 @@
     {
       "id": "application-query-do-postgres",
       "category": "workerd",
-      "proof": "Bounded private Application query core in a local actual Durable Object, nested WorkerLoader, real source artifacts and ordinary PostgreSQL; includes socket shutdown conformance. Does not establish hosted Hyperdrive, commit ownership, production routing or capacity.",
+      "proof": "Bounded fresh Application query/mutation owner in local actual workerd with exact shared pages, explicit admission, nested WorkerLoader, source artifacts and ordinary PostgreSQL; includes fencing, replay and native socket drain. Does not establish managed Hyperdrive/eviction, native-profile cutover, live GC, production routing or capacity.",
       "prerequisites": [
         { "name": "FLAREX_POSTGRES_DATABASE_URL" },
         { "name": "FLAREX_POSTGRES_PROVISIONING_DATABASE_URL" }

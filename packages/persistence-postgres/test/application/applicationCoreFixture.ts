@@ -26,6 +26,8 @@ export interface ApplicationCoreDefinition {
 
 export interface ApplicationCoreFixture {
   readonly database: CoreDatabase;
+  /** Trusted test resource acquisition, tied to the current owner lifetime. */
+  readonly runInOwnerScope: <A, E>(effect: Effect.Effect<A, E, Scope.Scope>) => Promise<A>;
   readonly physical: CorePersistenceFixture;
   readonly deploymentId: string;
   readonly source: ApplicationNativeMutationSourceBundle;
@@ -38,6 +40,8 @@ export interface ApplicationCoreFixture {
   readonly reopen: () => Promise<CoreDatabase>;
   /** Host maintenance barrier; leaves the owned physical target intact. */
   readonly closeOwner: () => Promise<void>;
+  /** Historical persistence remains testable below normal retained-snapshot admission. */
+  readonly initialPhysicalState: () => Promise<Readonly<{ document: DocumentValue | null; indexed: readonly DocumentValue[] }>>;
   readonly history: () => Promise<readonly Readonly<{ timestamp: bigint; deleted: boolean; value: DocumentValue | null }>[]>;
   readonly storageTables: () => Promise<readonly string[]>;
   readonly durableState: () => Promise<readonly Readonly<{ table: string; count: string }>[]>;
@@ -106,7 +110,7 @@ export async function withApplicationCoreFixture<A>(
     const seed = await run(database.begin());
     const documentId = await run(seed.insert("users", { name: "Ada" }));
     const initialTimestamp = await run(database.commit(await run(seed.finalize())));
-    return await work(Object.freeze({ database, physical, deploymentId: "deployment_application_core_mutation",
+    return await work(Object.freeze({ database, runInOwnerScope: run, physical, deploymentId: "deployment_application_core_mutation",
       source, manifest, programs, documentId, initialTimestamp, queryCursor, coldAnalysisLoads: definition.coldAnalysisLoads,
       reopen: async () => {
         await Effect.runPromise(Scope.close(scope, Exit.void));
@@ -115,6 +119,16 @@ export async function withApplicationCoreFixture<A>(
         return currentDatabase;
       },
       closeOwner: () => Effect.runPromise(Scope.close(scope, Exit.void)),
+      initialPhysicalState: async () => {
+        const selected = await run(physical.persistence.readSnapshot(initialTimestamp));
+        const internalId = Result.getOrThrow(decodeDocumentId(documentId)).internalId;
+        const point = await run(selected.get(bytes(0x11), internalId));
+        const indexed = await run(selected.scan({ index: { id: bytes(0x23) }, tableId: bytes(0x11),
+          interval: { start: null, end: null }, order: "asc", maxResults: 128 }));
+        const document = point._tag === "Some" && !point.value.deleted
+          ? Result.getOrThrow(decodeDocumentValue(point.value.jsonValue)) : null;
+        return { document, indexed: indexed.entries.map(entry => Result.getOrThrow(decodeDocumentValue(entry.document.jsonValue))) };
+      },
       history: async () => {
         const id = Result.getOrThrow(decodeDocumentId(documentId));
         const rows = await physical.query(`SELECT ts::text AS timestamp, deleted, json_value AS value

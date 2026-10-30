@@ -10,10 +10,10 @@ import { encodeIndexValue } from "flarex-protocol/index-key";
 import { CoreProgramIdentitySchema, CoreTransactionLimitsSchema, CoreTransactionError, issueCoreClaim, type CoreDatabase, type CoreDatabaseOptions, type CoreError,
   type CoreInstallation, type CoreProgramDefinition, type CoreRequestAcquisition,
   type CoreRequestClaim, type CoreRequestIdentity, type CoreRequestResolution, type CoreTableDefinition } from "./api";
-import { CorePersistenceError, type CoreDocumentLogEntry, type CoreInterval, type CorePersistence } from "./contracts";
-import { allocateInternalId, bootstrapCore, loadBootstrapRegistry } from "./bootstrap";
+import { CorePersistenceError, type CoreDocumentLogEntry, type CoreIndexScan, type CoreInterval, type CorePersistence, type CorePersistenceSnapshot } from "./contracts";
+import { allocateInternalId, bootstrapCore } from "./bootstrap";
 import { makeCoreCommitter } from "./committer";
-import { INDEXES, PROGRAMS, REQUESTS, TABLES, loadCoreRegistry, programKey, readDocumentObject,
+import { INDEXES, PROGRAMS, REQUESTS, TABLES, programKey, readDocumentObject,
   tableDefinitionValue, tableDocument, validateTableDefinition, type CoreRegistry } from "./registry";
 import { CoreFinalizationVault, createCoreTransaction, type CoreDocumentChange, type CoreFinalizedState,
   type CoreTransactionInternals } from "./transaction";
@@ -30,6 +30,8 @@ const RequestRecord = Schema.Union([
 ]);
 const decodeRequestRecord = Schema.decodeUnknownResult(RequestRecord);
 const decodeProgramIdentity = Schema.decodeUnknownResult(CoreProgramIdentitySchema);
+const decodeOperationCacheBytes = Schema.decodeUnknownEffect(Schema.Int.check(Schema.makeFilter(value =>
+  Number.isSafeInteger(value) && value >= 0 ? undefined : "Expected a nonnegative safe cache size")));
 const utf8 = new TextEncoder();
 const utf8Decoder = new TextDecoder();
 
@@ -125,9 +127,11 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
   const limits = yield* Schema.decodeUnknownEffect(CoreTransactionLimitsSchema)({
     ...CORE_TRANSACTION_REFERENCE_LIMITS, ...options.transactionLimits,
   }).pipe(Effect.mapError(invalid));
+  const operationCacheMaxBytes = yield* decodeOperationCacheBytes(options.operationCacheMaxBytes ?? 16 * 1024 * 1024)
+    .pipe(Effect.mapError(invalid));
   const lease = yield* persistence.acquireLease();
   const initial = yield* bootstrapCore(persistence, lease, options);
-  const committer = yield* makeCoreCommitter(persistence, lease, initial.timestamp, initial.registry, options);
+  const committer = yield* makeCoreCommitter(persistence, lease, initial.timestamp, initial.registry, initial.resident, options);
   const vault = new CoreFinalizationVault();
   const claims = new WeakMap<CoreRequestClaim, ClaimData>();
   const borrowed = new Set<CoreTransactionInternals>();
@@ -137,6 +141,7 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
     ? Effect.fail(new CoreTransactionError({ reason: "closed" })) : committer.assertReady);
   const close = Effect.fn("CoreDatabase.close")(() => closing.withPermits(1)(Effect.gen(function* () {
     closed = true;
+    committer.indexCache.close();
     const sessions = [...borrowed];
     for (const context of sessions) yield* context.transaction.abort();
   })));
@@ -144,14 +149,13 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
 
   const start = Effect.fn("CoreDatabase.start")(function* (at?: bigint) {
     yield* assertOpen;
-    const latest = yield* committer.publishedTimestamp;
-    const timestamp = at ?? latest;
-    if (timestamp < 0n || timestamp > latest) return yield* Effect.fail(invalid());
-    const snapshot = yield* persistence.readSnapshot(timestamp);
-    let registry = committer.registryAt(timestamp);
-    if (registry === undefined) registry = yield* loadCoreRegistry(snapshot, yield* loadBootstrapRegistry(persistence, snapshot));
+    const { timestamp, registry, resident } = yield* Effect.fromResult(committer.selectSnapshot(at));
+    const physicalSnapshot = yield* persistence.readSnapshot(timestamp, initial.retention);
+    const snapshot: CorePersistenceSnapshot = Object.freeze({ ...physicalSnapshot,
+      scan: (request: CoreIndexScan) => committer.indexCache.scan({ snapshot: physicalSnapshot, registry, request }),
+    });
     yield* assertOpen;
-    return { timestamp, snapshot, registry };
+    return { timestamp, snapshot, registry, resident };
   });
 
   const make = Effect.fn("CoreDatabase.transaction")(function* (at?: bigint, claim?: CoreRequestClaim, readonly = false) {
@@ -159,6 +163,7 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
     const now = yield* options.now;
     yield* assertOpen;
     const context = createCoreTransaction({ snapshot: selected.snapshot, registry: selected.registry,
+      residentReader: request => selected.resident.scan(request), operationCacheMaxBytes,
       now, newInternalId: options.newInternalId, vault, limits, readonly, assertOwnerOpen: assertOpen,
       onClosed: () => borrowed.delete(context), ...(claim === undefined ? {} : { claim }) });
     borrowed.add(context);

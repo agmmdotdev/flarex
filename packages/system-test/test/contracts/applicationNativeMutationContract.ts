@@ -30,6 +30,10 @@ export function defineApplicationNestedMutationContract(adapter: Readonly<{
     expect(proof.after.document).toBeNull();
     expect(proof.after.indexed).toEqual([]);
     expect(proof.coldCurrent).toEqual(proof.after);
+    expect(Exit.isFailure(proof.historicalAdmission)).toBe(true);
+    if (Exit.isFailure(proof.historicalAdmission)) expect(Result.getOrThrow(Cause.findError(proof.historicalAdmission.cause))).toMatchObject({
+      _tag: "CorePersistenceError", reason: "outOfRetention",
+    });
     expect(proof.historical.document).toMatchObject({ name: "Ada" });
     expect(proof.historical.indexed).toEqual([proof.historical.document]);
     expect(proof.storageTables).toEqual(storageTables);
