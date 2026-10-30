@@ -50,6 +50,20 @@ own the mapping and source assessment. This selects the target, not implemented
 parity, migration/reset authority or a measured gain. Individual observable policy
 changes and concrete data dispositions remain with their scoped decision owners.
 
+The owner clarifies total rewrite scope for core and integration internals:
+current APIs, physical schemas, adapters, installers and migration contracts can
+be replaced wholesale. Reuse is conditional on fitting the target mechanism,
+not a compatibility constraint. Payload and Medusa sit above the translated core
+as native schema producers and runtime adapters; native behavior remains theirs.
+One shared lifecycle owns logical installation/evolution, builds, validation,
+progress/recovery, readiness and activation. Platform physical-storage upgrades
+and explicit producer-defined data conversion are distinct migration layers,
+using common lower authority/execution where appropriate. The
+[framework/lifecycle plan](./REFACTOR.md#framework-adapters-and-shared-schema-installation)
+and [schema lifecycle owner](../../../design-notes/flarexdb-shared-schema-lifecycle.md)
+record this architecture; implementation and concrete transition proofs remain
+open. No separate framework migration engine or retained internal API is required.
+
 The owner requested a fresh, modular engine-design discussion using Convex as
 the primary reference, proceeding one concept at a time and updating the notes
 after each decision. TypeScript and Drizzle remain requirements. Preserve the

@@ -212,6 +212,35 @@ These are chosen observable contracts, not DO necessities. The translation targe
 does not silently decide all three. Q06 in the [question queue](./OPEN-QUESTIONS.md#q06---pending-state-framework-visibility-and-replay)
 owns their resolution alongside required native replay/visibility policy.
 
+## Total rewrite and native integration layering
+
+The accepted scope allows replacing current core APIs, adapter contracts,
+Drizzle schemas, installation/migration plumbing and execution sequences
+wholesale. Reuse only mechanisms that fit the translated target. The current
+`packages/` and `apps/` core remains the destination; neither preserving its
+architecture nor extending the older isolated experiment is required.
+
+Payload and Medusa can sit above the translated engine despite having no direct
+counterpart in Convex. Each supplies a schema compiler and runtime translation.
+Payload retains native access/validation/hooks/population; Medusa retains native
+commerce rules, events, workflow grouping and compensation. Their adapters use
+shared query/index, exact-value, unique/relation and transaction/persistence
+owners. Framework behavior may require a documented extension, not a separate
+database, installer, recovery or publication engine.
+
+The [schema lifecycle owner](../../../design-notes/flarexdb-shared-schema-lifecycle.md#logical-evolution-and-physical-core-upgrades)
+separates platform Drizzle upgrades, logical schema installation/evolution and
+explicit producer-defined data conversion. Adding a collection/model normally
+changes logical definitions over shared physical storage; it does not create
+per-consumer SQL tables. Shared planning, builds, validation, progress/recovery
+and activation serve all producers. A field rename or changed representation
+needs explicit conversion meaning; a schema diff cannot infer it.
+
+The [refactor plan](./REFACTOR.md#framework-adapters-and-shared-schema-installation)
+includes these responsibilities and their connected implementation gates.
+Complete framework query/lifecycle compatibility and general populated-data
+conversion support are not established by this architectural decision.
+
 ## Source map for the findings
 
 Links target local executing owners and symbols; line numbers can drift with

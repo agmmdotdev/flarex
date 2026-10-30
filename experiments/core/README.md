@@ -22,6 +22,11 @@ The accepted target includes translating Convex's physical persistence schema
 through Drizzle, with departures only for required DO/runtime or native behavior.
 Use the [connected translation plan](./engine/REFACTOR.md#core-and-physical-schema-translation-plan).
 The refactor destination is the current core in `packages/` and `apps/`.
+This is total rewrite scope for core and integration internals. The
+[framework and migration plan](./engine/REFACTOR.md#framework-adapters-and-shared-schema-installation)
+places native schema compilers/runtime adapters above one translated engine and
+shared logical installation/build/activation lifecycle. Physical Drizzle storage
+upgrades and explicit native data conversions remain separate responsibilities.
 
 `src/` and its schema are the earlier isolated experimental candidate. They are
 retained for runnable comparisons and behavioral evidence, not the engine to

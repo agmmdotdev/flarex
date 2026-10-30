@@ -61,9 +61,15 @@ because it exists.
 
 ## Breaking changes and cleanup
 
-The project is early and not in production. Necessary internal API, type,
-schema, codec, identity and integration-contract breaks are accepted for this
-redesign. Do not add compatibility wrappers, fallback engines, dual writes or
+The scope is a total rewrite of current core and integration internals around
+the translated Convex mechanisms. "Refactor" names the current-codebase
+destination, not a requirement to preserve existing architecture. Current core
+and adapter APIs, types, schemas, codecs, installation/migration contracts and
+execution sequences may be replaced wholesale. Reuse sound code only where it
+fits that target; previous effort or an existing test of internal choreography
+does not require retention. Intended native behavior and correctness remain
+requirements. The project is early and not in production.
+Do not add compatibility wrappers, fallback engines, dual writes or
 duplicate execution paths just to keep unshipped internals working. Reuse does
 not mean retaining every current adapter signature.
 
@@ -197,15 +203,55 @@ remain snapshot-safe, rebuildable and compatible with overlapping saves.
 No table/column removal occurs without connected writer/reader, cache, backfill,
 retention, outcome and named-data migration or reset disposition.
 
+### Framework adapters and shared schema installation
+
+Payload and Medusa are consumers above the translated core. Convex need not
+contain those frameworks for its engine mechanisms to serve them. Rewrite the
+Flarex adapter/compiler seams where required; preserve the intended admitted
+native behavior rather than current SQL/repository/transaction-token internals.
+
+| Layer | Target responsibility |
+| --- | --- |
+| Application schema producer | Compile developer declarations and authenticated analysis into logical definitions and executable dependencies. |
+| Payload producer/adapter | Compile collections and translate native query/write operations. Keep native access, validation, hooks, population and request ownership. |
+| Medusa producer/adapter | Compile models/modules/Links and translate native repository/query operations. Keep native business rules, exact values, events, grouping and compensation. |
+| Shared schema lifecycle | Stable identities, versions/dependencies, change planning, index/constraint builds, validation, progress/recovery, readiness, activation and retirement. |
+| Translated engine/persistence | Shared snapshots, index/query mechanics, constraints/relations, operation state, OCC, atomic persistence, outcomes and publication. |
+
+Required exact-value, conditional-unique and relation behavior extends shared
+capabilities with a concrete native witness. Do not create module-specific
+database engines, duplicate migration authorities or a universal transaction API
+that erases native boundaries. Query translation and native transaction/replay
+rules need real conformance; representable metadata alone is not integration.
+
+The [shared schema lifecycle](../../../design-notes/flarexdb-shared-schema-lifecycle.md#logical-evolution-and-physical-core-upgrades)
+owns three distinct migration layers: platform Drizzle upgrades of physical
+engine storage, per-scope logical schema installation/evolution, and explicitly
+producer-defined data conversions using common progress/recovery machinery.
+For example, adding Payload `articles` or installing Medusa Product creates
+logical definitions/index requirements over shared storage, not dedicated
+per-app/collection/module SQL tables. Ordinary framework startup consumes ready
+bindings; it does not run hidden DDL or migrations.
+
+Include fresh install/replay, compatible changes, required builds, unsupported
+change refusal, interrupted progress, dependent activation and necessary storage
+cutover migrations in each connected lifecycle slice. Data conversion must name
+its old/new schema, native meaning, retained readers, concurrent-write policy,
+recovery and rollback/forward-repair disposition. General populated-data
+transitions retain their [sequencing owner](../../../roadmaps/shared-logical-storage/deferred-framework-schema-evolution.md);
+this does not preserve old installers or exclude shared lifecycle replacement.
+
 ### Connected implementation sequence and conformance
 
 1. Map pinned engine/persistence responsibilities to current executing owners,
    native requirements, actual data and removed mechanisms. Complete or safely
    hand off in-flight finite/stored-attempt work; do not reset its status or
    create another engine to avoid it.
-2. Define the translated transaction-to-persistence batch, physical schema and
-   bootstrap/fencing/retention boundary together. Select a connected vertical
-   slice; the field mapping alone is not an executable design.
+2. Define the translated transaction-to-persistence batch, physical schema,
+   shared installation/migration lifecycle and bootstrap/fencing/retention
+   boundary together. Include native schema/runtime translation requirements.
+   Select a connected vertical slice; the field mapping alone is not an
+   executable design.
 3. Establish versioned snapshot/catalog ownership and exact historical misses,
    reusing the translated interval cache. Cover relevant writers before local
    state replaces live database work.
@@ -213,8 +259,9 @@ retention, outcome and named-data migration or reset disposition.
    nested state/accounting and finalization, then committed/pending conflict
    checks, fenced batch persistence and ordered publication/recovery. Choose
    slice boundaries that prove these connections, not disconnected modules.
-5. Migrate Application and admitted native callers, schema installation and feed
-   consumers; retire displaced code/layouts after durable-data disposition.
+5. Rewrite/rebind Application and admitted native callers, schema compilers,
+   runtime adapters, shared installation/migration and feed consumers; retire
+   displaced code/layouts after durable-data disposition.
    Prove actual DO/native operation and complete-request performance separately.
 
 Derive executable conformance traces from pinned source and tests where present:

@@ -19,6 +19,11 @@ schema into TypeScript/Drizzle, departing only for DO/runtime constraints or
 required native behavior. The [connected translation plan](./REFACTOR.md#core-and-physical-schema-translation-plan)
 targets the current `packages/` and `apps/` core. The older `experiments/core/src`
 candidate remains baseline evidence, not the DO/cache/index runtime dependency.
+Total rewrite scope permits replacing current core, adapter, schema and installer
+internals. The [framework and migration plan](./REFACTOR.md#framework-adapters-and-shared-schema-installation)
+places Payload/Medusa compilers and runtime adapters above the translated core,
+with one shared schema lifecycle and distinct physical/logical/data-conversion
+migration responsibilities.
 The [Convex alignment findings](./CONVEX-ALIGNMENT.md) compare necessary native/host
 requirements with replaceable execution, cache, commit and schema machinery,
 including current working-tree corrections and performance evidence limits.

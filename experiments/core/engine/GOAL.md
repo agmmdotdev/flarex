@@ -25,6 +25,16 @@ scoped decision gate. The current core in `packages/` and `apps/` is the
 destination; the older `experiments/core/src` candidate is retained baseline
 material, not a runtime dependency or a permanent second engine.
 
+This is total rewrite scope for current core and integration internals. Existing
+APIs, physical schemas, adapter/installer contracts and SQL/lifetime choreography
+need no compatibility layer; retain code only where it fits the translated
+mechanisms. Payload and Medusa remain schema producers and runtime adapters
+above that engine, with intended native behavior and explicit execution profiles.
+One shared lifecycle handles logical schema installation/evolution, builds,
+validation, progress/recovery and activation. Platform Drizzle storage upgrades
+and producer-defined data conversions have distinct responsibilities within the
+[installation/migration plan](./REFACTOR.md#framework-adapters-and-shared-schema-installation).
+
 Complete the existing core's supported Application, Medusa and Payload paths
 through that engine with portable owners and injected Cloudflare Worker/DO adapters
 and PostgreSQL as the sole durable authority. One independent app has one logical
@@ -63,6 +73,10 @@ The goal is complete only when:
   Application OCC mutations or one universal transaction API.
 - Core correctness is independent of Cloudflare bindings. Adapters supply host,
   local storage, transport and persistence mechanisms through responsible owners.
+- Required schema compilers, native runtime adapters and installation/migration
+  consumers use shared owners above/below the translated engine as specified.
+  Physical upgrades, logical changes and admitted conversions retain explicit
+  meaning and recovery; no old per-framework installer survives as a fallback.
 - Every in-scope consumer uses the replacement path, and displaced code, exports,
   dependencies, fixtures and obsolete planning guidance are removed. Retained
   paths need a named obligation and removal gate.
@@ -87,6 +101,7 @@ those consumers.
 | Pending state, dependencies and acceptance | Preserve profile-correct read-your-writes, exact dependencies, native visibility and outer settlement while replacing the affected attempt/validation machinery. |
 | Persistence, publication and recovery | Implement the accepted save/publication order, fencing, durable outcome reconciliation and cache/bootstrap recovery through the correct owners. |
 | Required index lifecycle and integration migration | Prove the lifecycle/build/readiness paths required by the recorded inventory and migrate remaining Application, Medusa and Payload consumers without rewriting native business algorithms. |
+| Shared installation/migrations and framework adapters | Rewrite schema producers and runtime translation over the shared engine; prove required physical upgrades, fresh logical installs/replay, builds/activation and named conversions/cutover migrations through common progress/recovery owners. General populated-data evolution keeps its sequencing boundary. |
 | Retirement and complete-flow acceptance | Remove displaced paths, run the full relevant workload/host/scale comparisons and close every required correctness, performance, review and cleanup gate. |
 
 The [starting-slice record](./REFACTOR.md#recommended-starting-slice) is the first

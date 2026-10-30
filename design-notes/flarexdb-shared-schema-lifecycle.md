@@ -15,9 +15,12 @@ remains a separately scoped follow-on after the core redesign.
 ## One Shared Internal Lifecycle
 
 All four consumers build on shared core APIs for logical schema admission,
-installation and evolution. Extend and consolidate the existing owners. Do not
-create an installer or independently authoritative migration engine for each
-framework or for Tasks, or preserve overlapping engines behind one facade.
+installation and evolution above the Convex core translated into TypeScript.
+The rewrite may replace current lifecycle APIs, catalog/storage representations,
+installation choreography and adapter contracts completely. Reuse mechanisms
+only where they fit the target; existing interfaces are not compatibility duties.
+Do not create an installer or independently authoritative migration engine for
+each framework or for Tasks, or preserve overlapping engines behind one facade.
 
 ```text
 Flarex app schema / authenticated analysis ----\
@@ -28,6 +31,15 @@ Platform-owned Task schema definitions -------/       |
                                       shared indexes and DO cache machinery
                                       PostgreSQL durable authority
 ```
+
+Payload and Medusa each have a native schema compiler and a runtime adapter.
+Their compilers translate collections/models/Links into admitted logical
+definitions. Their runtime adapters translate native queries, reads and writes
+into the shared engine. Payload retains access, validation, hooks and population;
+Medusa retains business rules, events, workflow grouping and compensation.
+Neither adapter owns a second installer, database, recovery protocol or publisher.
+The engine provides shared exact-value, query, uniqueness and relationship
+capabilities where required by the admitted native behavior.
 
 "Shared core APIs" describes one set of responsible mechanisms and contracts;
 it does not require a new package, service registry, universal authoring DSL or
@@ -101,6 +113,21 @@ is not ready. Later background work may use admitted execution capabilities
 without moving schema progress, activation or settlement ownership into Trigger.
 
 ## Logical Evolution And Physical Core Upgrades
+
+The rewrite includes the common architecture for all three migration layers:
+
+| Layer | Owner and operation | What triggers it |
+| --- | --- | --- |
+| Physical engine storage | Platform-owned Drizzle migrations install/upgrade shared PostgreSQL document/index/catalog infrastructure. | A platform storage-format or engine-version change, not each new logical table. |
+| Logical schema installation/evolution | The shared lifecycle admits stable identities and versioned definitions, plans changes, builds/backfills indexes and constraints, validates and activates ready schema/execution bindings. | Application schema, Payload collection or Medusa model/Link definitions changing. |
+| Data conversion | The producer supplies explicit old-to-new meaning; common admitted execution/progress/recovery and activation machinery applies and verifies the bounded conversion. | A transition that needs records transformed, such as a field rename or changed value representation. A definition diff alone does not infer its meaning. |
+
+No successful no-op migration substitutes for a required build or conversion.
+Unsupported transitions retain the previous active combination and refuse safely.
+Concrete populated-data transitions remain under their
+[sequencing owner](../roadmaps/shared-logical-storage/deferred-framework-schema-evolution.md);
+that boundary does not defer shared installation, platform upgrades, required
+core cutover migrations or retirement of displaced migration machinery.
 
 Logical tables, indexes and constraints use the shared physical families. Adding
 an app, Payload collection, Medusa module or Task index does not create a

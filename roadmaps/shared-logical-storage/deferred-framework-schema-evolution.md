@@ -15,6 +15,15 @@ populated-data transitions deferred here or expand the current core completion s
 
 ## Core First, Advanced Evolution Later
 
+The accepted [total core rewrite](../../experiments/core/engine/REFACTOR.md#framework-adapters-and-shared-schema-installation)
+includes shared schema installation/migration architecture and Payload/Medusa
+schema producers/runtime adapters over the translated Convex core. This
+sequencing boundary applies to general populated-data transition capabilities;
+it does not freeze current installers/APIs or defer shared lifecycle replacement,
+physical engine upgrades, required storage cutover migrations or duplicate-engine
+retirement. Producer conversion meaning and concrete transition proofs remain
+necessary; architecture acceptance does not infer every native upgrade's meaning.
+
 The owner prioritizes generic shared storage, three-producer schema composition,
 cross-framework relationships, indexed queries, trusted settlement and core
 cleanup. Prepare those owners so a later cohesive evolution module can use them.

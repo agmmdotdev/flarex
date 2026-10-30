@@ -296,6 +296,14 @@ one-time external effects and unknown-COMMIT recovery without native reexecution
 
 ## Q07 - Schema, index lifecycle and retention
 
+Total rewrite scope includes the [shared installation/migration lifecycle](./REFACTOR.md#framework-adapters-and-shared-schema-installation)
+above/below the translated engine. Map platform Drizzle upgrades, logical schema
+installation/evolution and producer-defined conversion separately. Determine
+the concrete old/new transitions, build/concurrency policy, durable progress,
+activation dependencies and repair/recovery; current installers and adapter
+contracts do not constrain the solution. General populated-data evolution keeps
+its sequencing owner while required installation and core cutover work proceeds.
+
 The accepted default is the pinned versioned document/index layout and ordinary
 same-timestamp index/body hydration. Plan current-pointer, independent-membership,
 per-row/per-entry evidence, catalog and feed/journal retirement together with

@@ -29,6 +29,26 @@ before affected runtime edits. The
 map and migration principles. `experiments/core` is the design and proof area,
 not a requirement to rebuild all framework coverage in a permanent second engine.
 
+This is a total rewrite scope for the current core and its integration internals.
+Current engine/adapter APIs, execution sequences, Drizzle layouts, installers and
+migration contracts impose no compatibility requirement. Reuse correct code only
+where it fits the translated mechanisms; migrate callers and remove displaced
+internals rather than retaining them behind compatibility wrappers. Intended
+native behavior and correctness remain requirements, not the old plumbing.
+
+Payload and Medusa sit above the translated core as schema producers and runtime
+adapters. Application declarations, Payload collections and Medusa models/Links
+feed one shared logical catalog and installation/build/validation/activation
+lifecycle. Runtime adapters lower admitted native queries and writes into the
+same snapshot/index/transaction/persistence owners while their frameworks retain
+access, hooks, business rules and workflow/effect semantics. Required common
+capabilities such as exact values, uniqueness and relationships belong to shared
+core owners, not separate framework database or migration engines.
+The [schema lifecycle](./flarexdb-shared-schema-lifecycle.md) separates physical
+platform upgrades, logical schema installation/evolution and producer-defined
+data conversion. These responsibilities are part of the rewrite architecture;
+concrete transition support still requires its own implementation and proof.
+
 The project is early and not in production. Necessary internal API, type,
 schema, codec, identity and integration-contract breaks remain accepted. Preserve
 required native behavior and correctness guarantees, not expensive old execution
