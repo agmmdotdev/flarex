@@ -43,10 +43,12 @@ the genuine reference again and retains all fresh candidate, ordinary-index,
 unique, ownership and execution-authority gates.
 
 Every relevant writer must atomically maintain the sidecars. Application and
-full-proof CMS already use that owner; source-bound standalone V3 Payload needs
-the connected genuine relation preparation/materialization handoff. This is a
+full-proof CMS already used that owner; the bounded
+[source-bound standalone V3 Payload replacement](./native-application-relation-maintenance.md)
+now carries its genuine relation preparation/materialization handoff. This is a
 core correction, not adapter SQL or a permanent profile exclusion. Mixed-root
-maintenance alone does not prove standalone publication.
+maintenance alone did not prove standalone publication, and correct future
+writes do not prove historical sidecar coverage or repair.
 
 Changed semantics and rollback require fresh current-data validation. The exact
 provenance and bounded receipt contract for revalidating an original `create`

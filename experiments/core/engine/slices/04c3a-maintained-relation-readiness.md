@@ -69,8 +69,8 @@ and atomically applies rows, edges and adjacency. This includes native effects
 merged into an Application finite root. Full-proof CMS publication also supplies
 the genuine Application relation pair.
 
-Source-bound standalone CMS publication is a distinct executing path. Its source
-template currently passes `relations: null` and directly publishes its lowered
+Source-bound standalone CMS publication is a distinct executing path. Its former
+source template passed `relations: null` and directly published its lowered
 delta. V3 Payload admission intentionally permits ownership of the same bound
 Application relation endpoint tables, so namespace or profile labels cannot prove
 disjointness. Its native-reference protocol does not by itself maintain the
@@ -78,7 +78,10 @@ Application relation sidecars. Trusted serving composition already provides the
 genuine relation port, and the current Application binding can lend the exact
 definitions. The connected correction belongs to that core preparation and
 materialization handoff, with Application and logical-source schema authorities
-kept distinct. The connected [source CMS maintenance contract](./04c3b-source-cms-relation-maintenance.md) records its independent challenge and selected replacement before runtime edits.
+kept distinct. The bounded [source CMS maintenance replacement](./04c3b-source-cms-relation-maintenance.md)
+now carries the genuine pair through that existing publisher. This proves future
+supported writes, not repair of already-missed historical sidecars. Historical
+coverage and bootstrap disposition remain prerequisites of maintained reuse.
 
 Logical Commerce has a different exclusion proof: admitted Medusa ownership,
 single qualified-table definition ownership, retained-history ownership checks,

@@ -44,9 +44,11 @@ it is not permission to retire every persisted execution profile.
 
 Retire affected old, uncommitted Standard Application attempts after authoritative
 PostgreSQL settlement reconciliation. Preserve all committed outcomes and
-historical evidence bytes. Use existing authenticated expiry/abort/terminal-result
-owners where their preconditions hold; do not invent a finalizer, reset tables or
-automatically enter a fresh body. A fresh request requires conclusive old
+historical evidence bytes. Refactor the existing authenticated lifecycle and
+terminal-result owners for an in-place retained retirement transition. Ordinary
+abort/expiry deletes evidence and cannot be reused unchanged. Do not invent a
+second finalizer, reset tables or automatically enter a fresh body. A fresh
+request requires conclusive old
 nonacceptance and its own valid authority.
 
 The selected order is:
@@ -68,12 +70,16 @@ committed results. Historical `systemV1` and native command obligations remain
 separate; unaffected evidence requires its actual classification rather than a
 blanket age cutoff.
 
-Before runtime edits, the required source challenge must record classification,
-in-flight fencing, uncertain-outcome reconciliation, terminal projection and
-removal boundaries. Reuse existing terminal-result owners; record any necessary
-public-contract difference explicitly. Implementation must exercise the real
-lifecycle writers and recovery on both databases. The policy is accepted; these
-implementation gates are not yet proven. No data reset is authorized.
+The [retained-retirement source challenge](./slices/04c3d-retained-application-attempt-retirement.md)
+records independent findings and peer convergence on classification, final
+publication fencing, retained lifecycle/schema handling, uncertainty and actual
+consumer closure. Exact fields/codecs and the terminal projection must be recorded
+before runtime edits. Reuse the existing settlement owner; record any necessary
+public-contract difference explicitly. Existing result-expiry/tombstone semantics
+remain committed outcomes, never permission to retire or execute them again.
+Implementation must exercise the real lifecycle writers and recovery on both
+databases. The policy is accepted; these implementation gates are not yet proven.
+No data reset is authorized.
 
 ## References
 
