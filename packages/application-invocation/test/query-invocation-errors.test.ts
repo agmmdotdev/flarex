@@ -1,12 +1,23 @@
 import type { InvokeApplicationQueryError } from
   "@flarex/standard-application-invocation/internal/application-query-system";
 import { Data } from "effect";
+import { CoreApplicationQueryError } from "@flarex/standard-application-invocation/internal/application-query-system";
 import { describe, expect, it } from "vitest";
 
 import {
   projectQueryInvocationError,
   type QueryInvocationErrorReason,
 } from "../src/QueryInvocationError.js";
+
+class CoreTransactionFailure extends Data.TaggedError("CoreTransactionError")<Pick<
+  Extract<InvokeApplicationQueryError, { readonly _tag: "CoreTransactionError" }>, "reason" | "cause"
+>> {}
+class CorePersistenceFailure extends Data.TaggedError("CorePersistenceError")<Pick<
+  Extract<InvokeApplicationQueryError, { readonly _tag: "CorePersistenceError" }>, "reason" | "cause"
+>> {}
+class CoreProgramFailure extends Data.TaggedError("CoreApplicationProgramError")<Pick<
+  Extract<InvokeApplicationQueryError, { readonly _tag: "CoreApplicationProgramError" }>, "reason" | "cause"
+>> {}
 
 class QueryInputFailure extends Data.TaggedError("ApplicationQueryInputError")<{
   readonly reason: "invalidFunction" | "invalidArguments" | "invalidIdentity";
@@ -295,6 +306,25 @@ class LocatedTransactionFailure extends Error {
 }
 
 describe("clean Query invocation-error projection", () => {
+  it.each([
+    [new CoreTransactionFailure({ reason: "programUnavailable" }), "queryNotFound"],
+    [new CoreTransactionFailure({ reason: "capacity" }), "budgetExceeded"],
+    [new CoreTransactionFailure({ reason: "indexUnavailable" }), "indexUnavailable"],
+    [new CoreTransactionFailure({ reason: "authorityRevoked" }), "staleScopeAuthority"],
+    [new CoreTransactionFailure({ reason: "closed" }), "unavailable"],
+    [new CorePersistenceFailure({ reason: "outOfRetention" }), "historyUnavailable"],
+    [new CorePersistenceFailure({ reason: "corruptData" }), "corruptData"],
+    [new CoreProgramFailure({ reason: "metadataInvalid" }), "corruptData"],
+    [new CoreProgramFailure({ reason: "argumentsInvalid" }), "invalidInput"],
+    [new CoreApplicationQueryError({ reason: "functionUnsupported" }), "incompatibleRuntime"],
+  ] as const satisfies readonly (readonly [InvokeApplicationQueryError, QueryInvocationErrorReason])[])(
+    "preserves fresh owner refusal $0 as %s", (source, reason) => {
+      expect(projectQueryInvocationError(source)).toMatchObject({
+        _tag: "QueryInvocationError", reason, cause: source,
+      });
+    },
+  );
+
   it.each(Object.entries(DIRECT_QUERY_OWNER_REASON))(
     "maps direct owner tag %s",
     (sourceTag, reason) => {

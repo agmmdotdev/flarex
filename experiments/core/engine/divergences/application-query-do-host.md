@@ -1,7 +1,8 @@
 # Read-only Application query host in a Durable Object
 
 Design status: **Accepted bounded host adaptation within the authorized goal**.
-Implementation status: **Bounded local DO composition implemented**.
+Implementation status: **Historical bounded local composition; fresh replacement
+selected in [slice 06c](../slices/06c-shared-application-owner.md)**.
 Measurement status: **Unmeasured**.
 Owner: [third slice](../slices/03-application-query-do-host.md).
 This refines the accepted [runtime adaptation](./app-owner-runtime.md); it does
@@ -72,15 +73,20 @@ request resource owners; remove only construction superseded in this scope.
 Do not relabel the old SQLite-authoritative `PartitionDO` or retain a parallel
 query algorithm in the test host.
 
-[`makeApplicationQueryDurableObject`](../../../../apps/executor/src/applicationQueryDO.ts)
-owns the host lifetime and composes
+The original `makeApplicationQueryDurableObject` owned the host lifetime and composed
 [`makeApplicationQuerySystemFactoryLayer`](../../../../packages/standard-application-invocation/src/ApplicationQuerySystem.ts)
 with the shared `constructApplicationQueryPorts` implementation.
 [`createPostgresClientApplicationQueryServing`](../../../../packages/persistence-postgres/src/application/applicationQueryServing.ts)
-reuses the existing serving graph, target registration and active-selection
-issuer. The [actual-host scenario](../../../../apps/executor/test/applicationQueryDO.postgres.test.ts)
-uses real DO/Worker/PostgreSQL execution for cache refresh, failed cleanup,
+reused the existing serving graph, target registration and active-selection
+issuer. Its actual-host scenario used real DO/Worker/PostgreSQL execution for cache refresh, failed cleanup,
 concurrent ownership, authority refusal, isolation and cold reconstruction.
+
+That source and scenario are historical at Flarex 22930f93c; inspect them with
+`git show 22930f93c:apps/executor/src/applicationQueryDO.ts` and the corresponding
+test path. The current [shared app host](../../../../apps/executor/src/applicationDO.ts)
+and [scenario](../../../../apps/executor/test/applicationDO.postgres.test.ts)
+follow slice 06c. Earlier cache-handoff evidence does not establish the new
+five-table owner's cache or lifecycle guarantees.
 
 PGlite and Node evidence retain their stated scopes; local workerd is not hosted
 Hyperdrive or managed-eviction evidence. Full coordinator fencing/recovery, native hosting,

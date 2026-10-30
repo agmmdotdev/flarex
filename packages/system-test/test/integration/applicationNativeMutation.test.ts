@@ -4,22 +4,23 @@ import { defineApplicationCoreQueryContract } from "../contracts/applicationCore
 import { createMigratedSplitPGlitePersistence } from "../support/databaseFixturesV1";
 import { describe, expect, it } from "vitest";
 import { createCorePGliteFixture } from "@flarex/persistence-postgres/internal/system-test/core-persistence-fixture";
-import { withApplicationCoreMutationFixture } from "@flarex/persistence-postgres/internal/system-test/core-application-mutation-fixture";
+import { withApplicationCoreFixture } from "@flarex/persistence-postgres/internal/system-test/core-application-fixture";
 
-import { APPLICATION_NESTED_MUTATION_FIXTURE_OPTIONS, createCoreApplicationMutationDefinition, proveApplicationNativeMutation } from
+import { APPLICATION_NESTED_MUTATION_FIXTURE_OPTIONS, proveApplicationNativeMutation } from
   "../../support/applicationNativeMutationHarness";
+import { createCoreApplicationDefinition } from "../../support/applicationCoreDefinition";
 
 describe("Application-native Standard mutation - PGlite", () => {
   defineApplicationCoreQueryContract({
     runScenario: async scenario => {
-      const definition = await createCoreApplicationMutationDefinition();
-      return withApplicationCoreMutationFixture(await createCorePGliteFixture(), definition, scenario);
+      const definition = await createCoreApplicationDefinition();
+      return withApplicationCoreFixture(await createCorePGliteFixture(), definition, scenario);
     },
   });
   defineApplicationNestedMutationContract({
     runScenario: async scenario => {
-      const definition = await createCoreApplicationMutationDefinition();
-      return withApplicationCoreMutationFixture(await createCorePGliteFixture(), definition, scenario);
+      const definition = await createCoreApplicationDefinition();
+      return withApplicationCoreFixture(await createCorePGliteFixture(), definition, scenario);
     },
   });
   it("composes active Application authority through the shared commit tail", async () => {

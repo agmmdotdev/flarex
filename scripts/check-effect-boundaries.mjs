@@ -174,9 +174,9 @@ const allowedRunPromiseExitSites = new Map([
 
 /** @type {Map<string, number>} */
 const allowedRunPromiseExitWithSites = new Map([
-  // Operation-owned Worker RPC preserves its diagnostic context and grant Clock;
+  // Operation-owned Worker RPC preserves its diagnostic context and invocation Clock;
   // the trusted invocation closes and drains every admitted callback.
-  [siteKey("packages/standard-application-invocation/src/CoreApplicationMutationRunner.ts", "run"), 1],
+  [siteKey("packages/standard-application-invocation/src/CoreApplicationReadSession.ts", "run"), 1],
   // The existing native Promise owner transports full Exit/Cause with its captured context.
   [siteKey("packages/medusa-adapter/src/module/promise-owner.ts", "run"), 1],
   // Existing transaction bridges lend only the captured diagnostic policy,

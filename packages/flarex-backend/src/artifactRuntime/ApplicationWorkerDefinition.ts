@@ -99,8 +99,7 @@ export function makeApplicationWorkerDefinition(input: {
   );
   const internalFunctionCatalog = Object.freeze(
     input.manifest.functions.flatMap((fn, ordinal) =>
-      fn.visibility === "internal" &&
-          (fn.kind === "query" || fn.kind === "mutation")
+      fn.kind === "query" || fn.kind === "mutation"
         ? [runtimeFunction(fn, ordinal)]
         : []
     ),

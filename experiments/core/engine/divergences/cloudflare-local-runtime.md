@@ -49,7 +49,7 @@ DO restart still discards optional RAM cache state and reconstructs from Postgre
 
 The default Miniflare lookup selects the installed September executable; the
 executor and node-postgres resolve the same patched socket package. The
-[DO scenario](../../../../apps/executor/test/applicationQueryDO.postgres.test.ts),
+[DO scenario](../../../../apps/executor/test/applicationDO.postgres.test.ts),
 [native cancellation witness](../../../../apps/executor/test/pgCloudflareSocket.native.test.ts)
 and [STARTTLS witness](../../../../apps/executor/test/pgCloudflareSocket.postgres.test.ts)
 exercise that selected runtime. Existing Application query, mutation, action and

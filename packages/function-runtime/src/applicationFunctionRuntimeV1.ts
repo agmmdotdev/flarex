@@ -509,7 +509,7 @@ export async function executeApplicationFunctionTransactionRuntimeV1(
     if (candidate === undefined) return terminal("internalTargetInvalid");
     let childHandler: QueryHandler | MutationHandler;
     try {
-      childHandler = exactHandler(candidate, callee.kind, "internal");
+      childHandler = exactHandler(candidate, callee.kind, callee.visibility);
     } catch (cause) {
       return terminal("internalTargetInvalid", cause);
     }
@@ -874,7 +874,6 @@ function requireInternalCatalog(
   for (const definition of definitions) {
     requireFunctionContract(definition);
     if (
-      definition.visibility !== "internal" ||
       (definition.kind !== "query" && definition.kind !== "mutation") ||
       catalog.has(definition.path) ||
       ordinals.has(definition.ordinal) ||
@@ -892,20 +891,15 @@ function requireInternalCatalog(
   }
   const matchingRoot = catalog.get(root.path);
   if (
-    root.visibility === "internal" &&
-    (matchingRoot === undefined || matchingRoot.ordinal !== root.ordinal ||
-      matchingRoot.kind !== root.kind)
+    (root.visibility === "internal" && matchingRoot === undefined) ||
+    (matchingRoot !== undefined && (matchingRoot.ordinal !== root.ordinal ||
+      matchingRoot.kind !== root.kind || matchingRoot.visibility !== root.visibility))
   ) {
     throw new ApplicationFunctionRuntimeContractV1Error(
       "functionMetadataInvalid",
     );
   }
-  if (root.visibility === "public" && matchingRoot !== undefined) {
-    throw new ApplicationFunctionRuntimeContractV1Error(
-      "functionMetadataInvalid",
-    );
-  }
-  if (root.visibility === "public" && ordinals.has(root.ordinal)) {
+  if (matchingRoot === undefined && ordinals.has(root.ordinal)) {
     throw new ApplicationFunctionRuntimeContractV1Error(
       "functionMetadataInvalid",
     );

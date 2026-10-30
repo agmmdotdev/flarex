@@ -175,6 +175,20 @@ peer exchange are complete; the bounded fresh mutation path is implemented.
 Standalone query functions, native predicate migration and actual app-DO
 ownership remain separate gates.
 
+The [shared Application owner](./slices/06c-shared-application-owner.md) has
+completed independent source/current-owner/design challenge and peer exchange.
+Its bounded implementation joins standalone query functions and fresh
+mutations in one canonical app DO, with coherent metadata/snapshot selection and
+read-only completion. Local actual-host and both-driver evidence cover the
+selected configured app; managed-host, broader writer/profile and full goal
+gates remain open. A second query database is not the destination.
+
+The current acyclic internal-call profile remains a recorded translation item:
+the pin permits depth-bounded recursive calls, while the existing kernel rejects
+an active ordinal. Its current supported restriction is not a demonstrated
+DO/native necessity or a permanent source-parity exception; follow its explicit
+disposition in slice 06c before closing the overall translation goal.
+
 ## Mandatory challenge before each slice
 
 Before implementation, independent sub-agents inspect and challenge:

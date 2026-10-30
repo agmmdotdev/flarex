@@ -84,6 +84,30 @@ describe("@flarex/function-runtime/internal/application-function-runtime-v1", ()
     )).rejects.toMatchObject({ reason: "functionMetadataInvalid" });
   });
 
+  it.each(["query", "mutation"] as const)("lets a %s call captured public and internal queries", async kind => {
+    const events: string[] = [];
+    const root = definition({ kind });
+    const publicQuery = definition({ ordinal: 1, path: "users:publicChild", exportName: "publicChild" });
+    const internalQuery = definition({ ordinal: 2, path: "users:internalChild", exportName: "internalChild", visibility: "internal" });
+    const result = await executeApplicationFunctionTransactionRuntimeV1(
+      transactionInput({ function: root, internalFunctionCatalog: [root, publicQuery, internalQuery] }),
+      registry({
+        "users:get": registered(kind, "public", async (
+          context: ApplicationFunctionRuntimeQueryContextV1 | ApplicationFunctionRuntimeMutationContextV1,
+        ) => await context.runQuery("users:publicChild")),
+        "users:publicChild": registered("query", "public", async context => {
+          expect(Object.keys(context)).toEqual(["auth", "db", "runQuery"]);
+          expect(context).not.toHaveProperty("runMutation");
+          return await context.runQuery("users:internalChild");
+        }),
+        "users:internalChild": registered("query", "internal", async context => await context.db.get(DOCUMENT_ID)),
+      }),
+      invocation(events),
+    );
+    expect(result).toMatchObject({ _id: DOCUMENT_ID });
+    expect(events).toEqual([`open:${kind}`, "frame:0:1:1:1", "frame:1:2:2:2", "get", "close", "drain"]);
+  });
+
   it("consumes the protocol-decoded 4096-byte execution ID without narrowing it", async () => {
     await expect(executeApplicationFunctionTransactionRuntimeV1(
       transactionInput({ executionId: "x".repeat(4_096) }),

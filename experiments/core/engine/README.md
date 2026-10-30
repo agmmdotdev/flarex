@@ -22,6 +22,12 @@ The current SDK query extension is the
 independent challenge and peer exchange. It connects logical ranges, streaming
 terminals and opaque cursors to the translated owner. Full goal gates remain.
 
+The current connected slice is the [shared Application owner](./slices/06c-shared-application-owner.md):
+standalone queries and mutations share the same database and canonical app DO.
+Independent challenge and peer exchange are complete; the bounded fresh path is
+implemented. Managed hosting, wider profile/writer migration and full acceptance
+remain open.
+
 The preceding connected implementation is the
 [fresh Application transaction/persistence cutover](./slices/06a-application-persistence-cutover.md),
 following completed current-pin source challenge and peer exchange. Its scope

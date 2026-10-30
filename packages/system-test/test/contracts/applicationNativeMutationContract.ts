@@ -7,15 +7,15 @@ import { APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1,
 import { compileCoreApplicationIndexes, installCoreApplicationSchema } from "@flarex/persistence-postgres/internal/core-application-schema";
 import { CorePersistenceError } from "@flarex/persistence-postgres/internal/core";
 import { CoreApplicationMutationError } from "@flarex/persistence-postgres/internal/core-application-mutation";
-import type { ApplicationCoreMutationFixture } from
-  "@flarex/persistence-postgres/internal/system-test/core-application-mutation-fixture";
+import type { ApplicationCoreFixture } from
+  "@flarex/persistence-postgres/internal/system-test/core-application-fixture";
 import { proveApplicationNestedMutation, proveApplicationNestedMutationFailure, proveCoreApplicationAuthority, proveCoreApplicationColdClaim, proveCoreApplicationBusyClaim, proveCoreApplicationIndexOrder, proveCoreApplicationClock, proveCoreApplicationAdmissionExpiry, proveCoreApplicationDocumentValidation, proveCoreApplicationArgumentProfile, proveCoreApplicationArgumentRefusal } from
   "../../support/applicationNativeMutationHarness";
 
 const storageTables = ["documents", "indexes", "leases", "persistence_globals", "read_only"];
 
 export function defineApplicationNestedMutationContract(adapter: Readonly<{
-  runScenario: <A>(scenario: (fixture: ApplicationCoreMutationFixture) => Promise<A>) => Promise<A>;
+  runScenario: <A>(scenario: (fixture: ApplicationCoreFixture) => Promise<A>) => Promise<A>;
 }>): void {
   it("shares staged deletes across nested calls and reconstructs exact history and replay", async () => {
     const proof = await adapter.runScenario(proveApplicationNestedMutation);

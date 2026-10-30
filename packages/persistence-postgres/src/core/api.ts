@@ -4,6 +4,7 @@ import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
 import type {
   CoreIndexCursor, CoreIndexRef, CoreInterval, CoreOrder, CorePersistenceError, CoreTimestamp,
 } from "./contracts";
+import type { CoreReadSet } from "./writeLog";
 
 export interface CoreIndexDefinition {
   readonly name: string;
@@ -63,7 +64,7 @@ export class CoreTransactionError extends Data.TaggedError("CoreTransactionError
   readonly reason: "closed" | "inflight" | "foreignFinalization" | "conflict"
     | "invalidValue" | "documentValidation" | "missingTable" | "missingIndex" | "indexUnavailable"
     | "missingDocument" | "invalidDocumentId" | "programUnavailable"
-    | "requestMismatch" | "foreignClaim" | "capacity" | "unavailable" | "authorityRevoked" | "admissionExpired";
+    | "requestMismatch" | "foreignClaim" | "capacity" | "unavailable" | "authorityRevoked" | "admissionExpired" | "readonly";
   readonly cause?: unknown;
 }> {}
 
@@ -133,6 +134,8 @@ export interface CoreTransaction {
   readonly tableNumber: (name: string) => Effect.Effect<number, CoreError>;
   readonly normalizeId: (table: string, id: unknown) => Effect.Effect<Option.Option<string>, CoreError>;
   readonly usage: Effect.Effect<CoreTransactionUsage>;
+  /** Resolve and track metadata in this operation's captured registry, including nested calls. */
+  readonly selectProgram: (functionPath: string) => Effect.Effect<CoreProgramDefinition, CoreError>;
   readonly get: (id: string) => Effect.Effect<Option.Option<DocumentObject>, CoreError>;
   readonly insert: (table: string, value: unknown) => Effect.Effect<string, CoreError>;
   readonly patch: (id: string, value: unknown) => Effect.Effect<void, CoreError>;
@@ -147,7 +150,29 @@ export interface CoreTransaction {
   readonly abort: () => Effect.Effect<void>;
 }
 
+/** Borrowed reads have neither write methods nor a mutation finalizer. */
+export type CoreReadTransaction = Pick<CoreTransaction, "timestamp" | "unixTime" | "usage" | "selectProgram"
+  | "tableNumber" | "normalizeId" | "get" | "startQuery" | "scan">;
+
+/** Trusted completion evidence only; it cannot enter CoreDatabase.commit. */
+export interface CoreReadToken {
+  readonly timestamp: CoreTimestamp;
+  readonly reads: CoreReadSet;
+}
+
+export interface CoreQueryOperation {
+  readonly program: CoreProgramDefinition;
+  readonly transaction: CoreReadTransaction;
+  /** Consumes the read operation after every terminal and stream has drained. */
+  readonly finish: () => Effect.Effect<CoreReadToken, CoreError>;
+  readonly abort: () => Effect.Effect<void>;
+}
+
 export interface CoreDatabase {
+  readonly assertOpen: Effect.Effect<void, CoreError>;
+  /** Blocks admission and results, then closes and drains every borrowed operation. */
+  readonly close: () => Effect.Effect<void>;
+  readonly beginQuery: (functionPath: string) => Effect.Effect<CoreQueryOperation, CoreError>;
   readonly install: (installation: CoreInstallation) => Effect.Effect<void, CoreError>;
   readonly selectProgram: (functionPath: string) => Effect.Effect<CoreProgramDefinition, CoreError>;
   readonly lookupProgram: (identity: CoreProgramIdentity) => Effect.Effect<CoreProgramDefinition, CoreError>;

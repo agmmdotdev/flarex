@@ -3,14 +3,14 @@ import { Cause, Exit } from "effect";
 import { CoreTransactionError } from "@flarex/persistence-postgres/internal/core";
 import { CoreApplicationMutationError } from "@flarex/persistence-postgres/internal/core-application-mutation";
 import { ApplicationPointMutationRunnerHostV1Error } from "@flarex/executor/internal/point-mutation-runner-errors";
-import type { ApplicationCoreMutationFixture } from "@flarex/persistence-postgres/internal/system-test/core-application-mutation-fixture";
+import type { ApplicationCoreFixture } from "@flarex/persistence-postgres/internal/system-test/core-application-fixture";
 import { proveCoreApplicationMissingQueryBridge, proveCoreApplicationQueryByteBudgets,
   proveCoreApplicationQuerySemanticByteBudgets,
   proveCoreApplicationQueryPagination, proveCoreApplicationQueryPendingAndDropped,
   proveCoreApplicationQueryTerminals, proveCoreApplicationQueryPageRevocation } from "../../support/applicationCoreQueryHarness";
 
 export function defineApplicationCoreQueryContract(adapter: Readonly<{
-  runScenario: <A>(scenario: (fixture: ApplicationCoreMutationFixture) => Promise<A>) => Promise<A>;
+  runScenario: <A>(scenario: (fixture: ApplicationCoreFixture) => Promise<A>) => Promise<A>;
 }>): void {
   it("executes all SDK terminals and both orders over more than one transport chunk from cold Analysis metadata", async () => {
     const proof = await adapter.runScenario(proveCoreApplicationQueryTerminals);

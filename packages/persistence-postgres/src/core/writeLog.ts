@@ -3,7 +3,7 @@
  * at db914cf06e2b06ee985646611b9e12ed7a770318. Upstream source:
  * Copyright 2026 Convex, Inc., FSL-1.1-Apache-2.0 (convex-backend/LICENSE.md).
  */
-import BTree from "sorted-btree";
+import { BTreeEx as BTree } from "sorted-btree/extended/index.js";
 import { Result } from "effect";
 import { compareBytesLexicographically, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { CorePersistenceError, type CoreInterval, type CorePersistenceIndexEntry, type CoreTimestamp } from "./contracts";

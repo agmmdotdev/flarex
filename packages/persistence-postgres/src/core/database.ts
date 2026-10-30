@@ -3,7 +3,7 @@
  * at db914cf06e2b06ee985646611b9e12ed7a770318: JsonPackedValue is stored as an internal-JSON string.
  * Copyright 2026 Convex, Inc., FSL-1.1-Apache-2.0 (convex-backend/LICENSE.md).
  */
-import { Effect, Option, Result, Schema } from "effect";
+import { Cause, Effect, Exit, Option, Result, Schema, Semaphore } from "effect";
 import { bytesEqual, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { decodeDocumentValue, encodeDocumentValue, type DocumentObject, type DocumentValue } from "flarex-protocol/document-value";
 import { encodeIndexValue } from "flarex-protocol/index-key";
@@ -130,23 +130,50 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
   const committer = yield* makeCoreCommitter(persistence, lease, initial.timestamp, initial.registry, options);
   const vault = new CoreFinalizationVault();
   const claims = new WeakMap<CoreRequestClaim, ClaimData>();
+  const borrowed = new Set<CoreTransactionInternals>();
+  let closed = false;
+  const closing = Semaphore.makeUnsafe(1);
+  const assertOpen = Effect.suspend(() => closed
+    ? Effect.fail(new CoreTransactionError({ reason: "closed" })) : committer.assertReady);
+  const close = Effect.fn("CoreDatabase.close")(() => closing.withPermits(1)(Effect.gen(function* () {
+    closed = true;
+    const sessions = [...borrowed];
+    for (const context of sessions) yield* context.transaction.abort();
+  })));
+  yield* Effect.addFinalizer(() => close());
 
   const start = Effect.fn("CoreDatabase.start")(function* (at?: bigint) {
-    yield* committer.assertReady;
+    yield* assertOpen;
     const latest = yield* committer.publishedTimestamp;
     const timestamp = at ?? latest;
     if (timestamp < 0n || timestamp > latest) return yield* Effect.fail(invalid());
     const snapshot = yield* persistence.readSnapshot(timestamp);
     let registry = committer.registryAt(timestamp);
     if (registry === undefined) registry = yield* loadCoreRegistry(snapshot, yield* loadBootstrapRegistry(persistence, snapshot));
+    yield* assertOpen;
     return { timestamp, snapshot, registry };
   });
 
-  const make = Effect.fn("CoreDatabase.transaction")(function* (at?: bigint, claim?: CoreRequestClaim) {
+  const make = Effect.fn("CoreDatabase.transaction")(function* (at?: bigint, claim?: CoreRequestClaim, readonly = false) {
     const selected = yield* start(at);
-    return { ...selected, context: createCoreTransaction({ snapshot: selected.snapshot, registry: selected.registry,
-      now: yield* options.now, newInternalId: options.newInternalId, vault, limits, ...(claim === undefined ? {} : { claim }) }) };
+    const now = yield* options.now;
+    yield* assertOpen;
+    const context = createCoreTransaction({ snapshot: selected.snapshot, registry: selected.registry,
+      now, newInternalId: options.newInternalId, vault, limits, readonly, assertOwnerOpen: assertOpen,
+      onClosed: () => borrowed.delete(context), ...(claim === undefined ? {} : { claim }) });
+    borrowed.add(context);
+    return { ...selected, context };
   });
+
+  // make registers a borrow before validation. Dispose every non-transferred
+  // operation on its full Exit, including defects and interruption. Disposal
+  // never changes a durable request/outcome, even after an uncertain save.
+  const useTransaction = Effect.fn("CoreDatabase.useTransaction")(<Value>(
+    acquire: ReturnType<typeof make>,
+    use: (selected: Effect.Success<ReturnType<typeof make>>) => Effect.Effect<Value, CoreError>,
+    transferOnSuccess = false,
+  ) => Effect.acquireUseRelease(acquire, use, (selected, exit) =>
+    transferOnSuccess && Exit.isSuccess(exit) ? Effect.void : selected.context.transaction.abort()));
 
   const findRequest = Effect.fn("CoreDatabase.findRequest")(function* (
     selected: Effect.Success<ReturnType<typeof start>>, identity: CoreRequestIdentity, transaction?: CoreTransactionInternals,
@@ -170,117 +197,128 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
     return record === undefined ? Effect.fail(new CoreTransactionError({ reason: "foreignFinalization" })) : Effect.succeed(record);
   };
 
-  const install = Effect.fn("CoreDatabase.install")(function* (installation: CoreInstallation) {
-    const selected = yield* make();
-    let registry = selected.registry;
-    const seenNumbers = new Set<number>();
-    const seenNames = new Set<string>();
-    const seenIds = new Set<string>();
-    for (const inputTable of installation.tables) {
-      const table = yield* Effect.fromResult(validateTableDefinition(inputTable));
-      if (table.number < 10000 || table.name.startsWith("_") || seenNumbers.has(table.number) || seenNames.has(table.name))
-        return yield* Effect.fail(invalid());
-      seenNumbers.add(table.number);
-      seenNames.add(table.name);
-      const existing = registry.table(table.name);
-      const numberOwner = registry.tableByNumber(table.number);
-      if (numberOwner !== undefined && numberOwner.definition.name !== table.name) return yield* Effect.fail(invalid());
-      for (const record of registry.tables.values()) if (record.definition.name !== table.name
-        && bytesEqual(record.definition.tabletId, table.tabletId)) return yield* Effect.fail(invalid());
-      yield* Effect.fromResult(trackMetadataEquality(selected.context, registry, TABLES, "by_name", [table.name]));
-      yield* Effect.fromResult(trackMetadataEquality(selected.context, registry, TABLES, "by_number", [table.number]));
-      const indexes = [...table.indexes];
-      for (const intrinsic of ["by_id", "by_creation_time"]) {
-        const supplied = indexes.find(index => index.name === intrinsic);
-        const expectedFields = intrinsic === "by_id" ? [] : ["_creationTime"];
-        if (supplied !== undefined && (supplied.fields.join("\u0000") !== expectedFields.join("\u0000") || !supplied.enabled))
+  const install = Effect.fn("CoreDatabase.install")((installation: CoreInstallation) =>
+    useTransaction(make(), selected => Effect.gen(function* () {
+      let registry = selected.registry;
+      const seenNumbers = new Set<number>();
+      const seenNames = new Set<string>();
+      const seenIds = new Set<string>();
+      for (const inputTable of installation.tables) {
+        const table = yield* Effect.fromResult(validateTableDefinition(inputTable));
+        if (table.number < 10000 || table.name.startsWith("_") || seenNumbers.has(table.number) || seenNames.has(table.name))
           return yield* Effect.fail(invalid());
-        if (supplied === undefined) {
-          const previous = existing?.definition.indexes.find(index => index.name === intrinsic);
-          indexes.push(previous ?? { name: intrinsic, ref: { id: yield* allocateInternalId(options.newInternalId) }, fields: expectedFields, enabled: true });
+        seenNumbers.add(table.number);
+        seenNames.add(table.name);
+        const existing = registry.table(table.name);
+        const numberOwner = registry.tableByNumber(table.number);
+        if (numberOwner !== undefined && numberOwner.definition.name !== table.name) return yield* Effect.fail(invalid());
+        for (const record of registry.tables.values()) if (record.definition.name !== table.name
+          && bytesEqual(record.definition.tabletId, table.tabletId)) return yield* Effect.fail(invalid());
+        yield* Effect.fromResult(trackMetadataEquality(selected.context, registry, TABLES, "by_name", [table.name]));
+        yield* Effect.fromResult(trackMetadataEquality(selected.context, registry, TABLES, "by_number", [table.number]));
+        const indexes = [...table.indexes];
+        for (const intrinsic of ["by_id", "by_creation_time"]) {
+          const supplied = indexes.find(index => index.name === intrinsic);
+          const expectedFields = intrinsic === "by_id" ? [] : ["_creationTime"];
+          if (supplied !== undefined && (supplied.fields.join("\u0000") !== expectedFields.join("\u0000") || !supplied.enabled))
+            return yield* Effect.fail(invalid());
+          if (supplied === undefined) {
+            const previous = existing?.definition.indexes.find(index => index.name === intrinsic);
+            indexes.push(previous ?? { name: intrinsic, ref: { id: yield* allocateInternalId(options.newInternalId) }, fields: expectedFields, enabled: true });
+          }
+        }
+        const definition: CoreTableDefinition = { ...table, indexes: Object.freeze(indexes) };
+        for (const index of indexes) {
+          const id = encodeBytesToLowercaseHex(index.ref.id);
+          if (seenIds.has(id)) return yield* Effect.fail(invalid());
+          seenIds.add(id);
+          for (const other of registry.tables.values()) if (other.definition.name !== table.name
+            && other.definition.indexes.some(candidate => bytesEqual(candidate.ref.id, index.ref.id)))
+            return yield* Effect.fail(invalid());
+        }
+        if (existing !== undefined) {
+          if (!bytesEqual(existing.definition.tabletId, definition.tabletId) || existing.definition.number !== definition.number)
+            return yield* Effect.fail(invalid());
+          const previous = yield* Effect.fromResult(Result.mapError(encodeDocumentValue(tableDefinitionValue(existing.definition)), invalid));
+          const next = yield* Effect.fromResult(Result.mapError(encodeDocumentValue(tableDefinitionValue(definition)), invalid));
+          if (bytesEqual(previous, next)) continue;
+          {
+            // Populated index/schema evolution needs the common backfill/staged-validation owner.
+            const byId = existing.definition.indexes.find(index => index.name === "by_id");
+            if (byId === undefined) return yield* Effect.fail(corrupt());
+            selected.context.addIndexRead(byId.ref.id, { start: null, end: null });
+            const page = yield* selected.snapshot.scan({ index: byId.ref, tableId: existing.definition.tabletId,
+              interval: { start: null, end: null }, order: "asc", maxResults: 1 });
+            if (page.entries.length !== 0) return yield* Effect.fail(new CoreTransactionError({ reason: "indexUnavailable" }));
+          }
+          for (const oldIndex of existing.definition.indexes) if (!indexes.some(index => bytesEqual(index.ref.id, oldIndex.ref.id)))
+            yield* selected.context.writePrivate(INDEXES, oldIndex.ref.id, null);
+        }
+        yield* selected.context.writePrivate(TABLES, definition.tabletId, tableDocument(definition));
+        for (const index of indexes) yield* selected.context.writePrivate(INDEXES, index.ref.id, {
+          name: index.name, tableNumber: definition.number, fields: [...index.fields], enabled: index.enabled,
+          ...(index.ref.persistenceIndexId === undefined ? {} : { persistenceIndexId: index.ref.persistenceIndexId }),
+        });
+        registry = registry.withTable({ definition, id: definition.tabletId.slice(), ts: null });
+      }
+      for (const inputProgram of installation.programs) {
+        const definition = yield* Effect.fromResult(ownedProgram(inputProgram));
+        yield* Effect.fromResult(trackMetadataEquality(selected.context, registry, PROGRAMS, "by_identity", [
+          "revision", definition.identity.functionPath, definition.identity.programHash, definition.identity.schemaHash,
+        ]));
+        yield* Effect.fromResult(trackMetadataEquality(selected.context, registry, PROGRAMS, "by_head_path", ["head", definition.identity.functionPath]));
+        const existing = registry.program(definition.identity);
+        const id = existing?.id ?? (yield* allocateInternalId(options.newInternalId));
+        const previous = existing === undefined ? undefined
+          : yield* Effect.fromResult(Result.mapError(encodeDocumentValue(existing.definition.metadata), invalid));
+        const next = yield* Effect.fromResult(Result.mapError(encodeDocumentValue(definition.metadata), invalid));
+        if (previous === undefined || !bytesEqual(previous, next)) {
+          yield* selected.context.writePrivate(PROGRAMS, id, { kind: "revision", identity: { ...definition.identity }, metadata: utf8Decoder.decode(next) });
+          registry = registry.withProgram({ definition, id, ts: null });
+        }
+        const oldHead = registry.head(definition.identity.functionPath);
+        if (oldHead === undefined || programKey(oldHead.identity) !== programKey(definition.identity)) {
+          const headId = oldHead?.id ?? (yield* allocateInternalId(options.newInternalId));
+          yield* selected.context.writePrivate(PROGRAMS, headId, { kind: "head", identity: { ...definition.identity } });
+          registry = registry.withHead({ identity: definition.identity, id: headId, ts: null });
         }
       }
-      const definition: CoreTableDefinition = { ...table, indexes: Object.freeze(indexes) };
-      for (const index of indexes) {
-        const id = encodeBytesToLowercaseHex(index.ref.id);
-        if (seenIds.has(id)) return yield* Effect.fail(invalid());
-        seenIds.add(id);
-        for (const other of registry.tables.values()) if (other.definition.name !== table.name
-          && other.definition.indexes.some(candidate => bytesEqual(candidate.ref.id, index.ref.id)))
-          return yield* Effect.fail(invalid());
-      }
-      if (existing !== undefined) {
-        if (!bytesEqual(existing.definition.tabletId, definition.tabletId) || existing.definition.number !== definition.number)
-          return yield* Effect.fail(invalid());
-        const previous = yield* Effect.fromResult(Result.mapError(encodeDocumentValue(tableDefinitionValue(existing.definition)), invalid));
-        const next = yield* Effect.fromResult(Result.mapError(encodeDocumentValue(tableDefinitionValue(definition)), invalid));
-        if (bytesEqual(previous, next)) continue;
-        {
-          // Populated index/schema evolution needs the common backfill/staged-validation owner.
-          const byId = existing.definition.indexes.find(index => index.name === "by_id");
-          if (byId === undefined) return yield* Effect.fail(corrupt());
-          selected.context.addIndexRead(byId.ref.id, { start: null, end: null });
-          const page = yield* selected.snapshot.scan({ index: byId.ref, tableId: existing.definition.tabletId,
-            interval: { start: null, end: null }, order: "asc", maxResults: 1 });
-          if (page.entries.length !== 0) return yield* Effect.fail(new CoreTransactionError({ reason: "indexUnavailable" }));
+      if (installation.authorityEpoch !== undefined) {
+        const authority = registry.authority;
+        const epoch = installation.authorityEpoch;
+        if (authority === undefined) return yield* Effect.fail(corrupt());
+        if (epoch < authority.epoch || epoch > 0x7fff_ffff_ffff_ffffn) return yield* Effect.fail(invalid());
+        if (epoch !== authority.epoch) {
+          yield* selected.context.writePrivate(PROGRAMS, authority.id, { kind: "authority", epoch });
+          registry = registry.withAuthority({ id: authority.id, epoch, ts: null });
         }
-        for (const oldIndex of existing.definition.indexes) if (!indexes.some(index => bytesEqual(index.ref.id, oldIndex.ref.id)))
-          yield* selected.context.writePrivate(INDEXES, oldIndex.ref.id, null);
       }
-      yield* selected.context.writePrivate(TABLES, definition.tabletId, tableDocument(definition));
-      for (const index of indexes) yield* selected.context.writePrivate(INDEXES, index.ref.id, {
-        name: index.name, tableNumber: definition.number, fields: [...index.fields], enabled: index.enabled,
-        ...(index.ref.persistenceIndexId === undefined ? {} : { persistenceIndexId: index.ref.persistenceIndexId }),
-      });
-      registry = registry.withTable({ definition, id: definition.tabletId.slice(), ts: null });
-    }
-    for (const inputProgram of installation.programs) {
-      const definition = yield* Effect.fromResult(ownedProgram(inputProgram));
-      yield* Effect.fromResult(trackMetadataEquality(selected.context, registry, PROGRAMS, "by_identity", [
-        "revision", definition.identity.functionPath, definition.identity.programHash, definition.identity.schemaHash,
-      ]));
-      yield* Effect.fromResult(trackMetadataEquality(selected.context, registry, PROGRAMS, "by_head_path", ["head", definition.identity.functionPath]));
-      const existing = registry.program(definition.identity);
-      const id = existing?.id ?? (yield* allocateInternalId(options.newInternalId));
-      const previous = existing === undefined ? undefined
-        : yield* Effect.fromResult(Result.mapError(encodeDocumentValue(existing.definition.metadata), invalid));
-      const next = yield* Effect.fromResult(Result.mapError(encodeDocumentValue(definition.metadata), invalid));
-      if (previous === undefined || !bytesEqual(previous, next)) {
-        yield* selected.context.writePrivate(PROGRAMS, id, { kind: "revision", identity: { ...definition.identity }, metadata: utf8Decoder.decode(next) });
-        registry = registry.withProgram({ definition, id, ts: null });
-      }
-      const oldHead = registry.head(definition.identity.functionPath);
-      if (oldHead === undefined || programKey(oldHead.identity) !== programKey(definition.identity)) {
-        const headId = oldHead?.id ?? (yield* allocateInternalId(options.newInternalId));
-        yield* selected.context.writePrivate(PROGRAMS, headId, { kind: "head", identity: { ...definition.identity } });
-        registry = registry.withHead({ identity: definition.identity, id: headId, ts: null });
-      }
-    }
-    if (installation.authorityEpoch !== undefined) {
-      const authority = registry.authority;
-      const epoch = installation.authorityEpoch;
-      if (authority === undefined) return yield* Effect.fail(corrupt());
-      if (epoch < authority.epoch || epoch > 0x7fff_ffff_ffff_ffffn) return yield* Effect.fail(invalid());
-      if (epoch !== authority.epoch) {
-        yield* selected.context.writePrivate(PROGRAMS, authority.id, { kind: "authority", epoch });
-        registry = registry.withAuthority({ id: authority.id, epoch, ts: null });
-      }
-    }
-    selected.context.setRegistryAfter(registry);
-    yield* committer.submit(yield* consume(yield* selected.context.transaction.finalize()));
-  });
+      selected.context.setRegistryAfter(registry);
+      yield* committer.submit(yield* consume(yield* selected.context.transaction.finalize()));
+    })));
 
   const readAuthorityEpoch = Effect.gen(function* () {
-    yield* committer.assertReady;
+    yield* assertOpen;
     const authority = committer.currentRegistry().authority;
     if (authority === undefined) return yield* Effect.fail(corrupt());
     return authority.epoch;
   });
 
   const database: CoreDatabase = {
+    assertOpen,
+    close,
+    beginQuery: Effect.fn("CoreDatabase.beginQuery")((path) =>
+      useTransaction(make(undefined, undefined, true), selected => Effect.gen(function* () {
+        const transaction = selected.context.transaction;
+        const program = yield* transaction.selectProgram(path);
+        const { timestamp, unixTime, usage, selectProgram, tableNumber, normalizeId, get, startQuery, scan } = transaction;
+        return Object.freeze({ program,
+          transaction: Object.freeze({ timestamp, unixTime, usage, selectProgram, tableNumber, normalizeId, get, startQuery, scan }),
+          finish: selected.context.finishRead, abort: transaction.abort });
+      }), true)),
     install,
     selectProgram: Effect.fn("CoreDatabase.selectProgram")(function* (path) {
-      yield* committer.assertReady;
+      yield* assertOpen;
       const registry = committer.currentRegistry();
       const head = registry.head(path);
       const program = head === undefined ? undefined : registry.program(head.identity);
@@ -288,7 +326,7 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
       return yield* Effect.fromResult(ownedProgram(program.definition));
     }),
     lookupProgram: Effect.fn("CoreDatabase.lookupProgram")(function* (identity) {
-      yield* committer.assertReady;
+      yield* assertOpen;
       const program = committer.currentRegistry().program(identity);
       if (program === undefined) return yield* Effect.fail(new CoreTransactionError({ reason: "programUnavailable" }));
       return yield* Effect.fromResult(ownedProgram(program.definition));
@@ -296,72 +334,69 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
     resolveRequest: Effect.fn("CoreDatabase.resolveRequest")(function* (identity) {
       return yield* Effect.fromResult(resolution(yield* findRequest(yield* start(), identity)));
     }),
-    recoverRequest: Effect.fn("CoreDatabase.recoverRequest")(function* (identity) {
-      const selected = yield* make();
-      const record = yield* findRequest(selected, identity, selected.context);
-      if (record === undefined || record.state !== "claimed") {
-        yield* selected.context.transaction.abort();
-        return yield* Effect.fromResult(resolution(record));
-      }
-      if (record.leaseToken === lease.token) {
-        yield* selected.context.transaction.abort();
-        return { kind: "busy" as const };
-      }
-      if (record.leaseToken > lease.token) return yield* Effect.fail(new CorePersistenceError({ reason: "leaseLost" }));
-      // New owner was fenced before start(): all predecessor writes have settled,
-      // and the single request revision proves no committed outcome exists.
-      // Discovery uses authenticated path/request correlation, as replay does;
-      // terminalization preserves the stored original program and mints no body authority.
-      yield* selected.context.writePrivate(REQUESTS, record.id, { ...withoutSystemFields(record.document),
-        state: "failed", abandonedByLease: lease.token });
-      yield* committer.submit(yield* consume(yield* selected.context.transaction.finalize()));
-      return { kind: "failed" as const };
-    }),
-    claimRequest: Effect.fn("CoreDatabase.claimRequest")(function* (identity): Generator<Effect.Effect<unknown, CoreError>, CoreRequestAcquisition, unknown> {
-      const selected = yield* make();
-      const program = selected.registry.program(identity.program);
-      if (program === undefined) return yield* Effect.fail(new CoreTransactionError({ reason: "programUnavailable" }));
-      const existing = yield* findRequest(selected, identity, selected.context);
-      if (existing !== undefined) {
-        yield* selected.context.transaction.abort();
-        return yield* Effect.fromResult(existingResolution(existing));
-      }
-      const id = yield* allocateInternalId(options.newInternalId);
-      yield* selected.context.writePrivate(REQUESTS, id, { key: identity.key, requestHash: identity.requestHash,
-        program: { ...identity.program }, state: "claimed", leaseToken: lease.token });
-      const body = yield* selected.context.readPrivate(REQUESTS, id);
-      if (Option.isNone(body)) return yield* Effect.fail(corrupt());
-      const finalized = yield* consume(yield* selected.context.transaction.finalize());
-      const table = selected.registry.table(REQUESTS)?.definition;
-      if (table === undefined) return yield* Effect.fail(corrupt());
-      const submitted = yield* Effect.result(committer.submit(finalized));
-      return yield* Result.match(submitted, { onFailure: failure => Effect.gen(function* () {
-        // Only this claim's proven nonacceptance can consult pending request data.
-        // An accepted request is never retried or turned into another body claim.
-        if (failure._tag !== "CoreTransactionError" || failure.reason !== "conflict") return yield* Effect.fail(failure);
-        const byKey = table.indexes.find(index => index.name === "by_key");
-        if (byKey === undefined || !byKey.enabled) return yield* Effect.fail(corrupt());
-        const prefix = yield* Effect.fromResult(Result.mapError(encodeIndexValue(identity.key), invalid));
-        const pending = yield* committer.pendingDocuments(byKey.ref.id, equalityInterval(prefix));
-        if (pending.length > 1) return yield* Effect.fail(corrupt());
-        const pendingEntry = pending[0];
-        if (pendingEntry !== undefined) {
-          yield* Effect.fromResult(requestRecord(pendingEntry, table, identity));
+    recoverRequest: Effect.fn("CoreDatabase.recoverRequest")((identity) =>
+      useTransaction(make(), selected => Effect.gen(function* () {
+        const record = yield* findRequest(selected, identity, selected.context);
+        if (record === undefined || record.state !== "claimed") {
+          return yield* Effect.fromResult(resolution(record));
+        }
+        if (record.leaseToken === lease.token) {
           return { kind: "busy" as const };
         }
-        const published = yield* findRequest(yield* start(), identity);
-        if (published !== undefined) return yield* Effect.fromResult(existingResolution(published));
-        return yield* Effect.fail(failure);
-      }), onSuccess: timestamp => Effect.gen(function* () {
-        const jsonValue = yield* Effect.fromResult(Result.mapError(encodeDocumentValue(body.value), invalid));
-        const claim = issueCoreClaim();
-        claims.set(claim, { identity: { ...identity, program: { ...identity.program } }, active: true, record: {
-          id, document: body.value, state: "claimed", leaseToken: lease.token, revision: { ts: timestamp, tableId: table.tabletId.slice(), id: id.slice(),
-            jsonValue, deleted: false, prevTs: null },
-        } });
-        return { kind: "claimed" as const, claim };
-      }) });
-    }),
+        if (record.leaseToken > lease.token) return yield* Effect.fail(new CorePersistenceError({ reason: "leaseLost" }));
+        // New owner was fenced before start(): all predecessor writes have settled,
+        // and the single request revision proves no committed outcome exists.
+        // Discovery uses authenticated path/request correlation, as replay does;
+        // terminalization preserves the stored original program and mints no body authority.
+        yield* selected.context.writePrivate(REQUESTS, record.id, { ...withoutSystemFields(record.document),
+          state: "failed", abandonedByLease: lease.token });
+        yield* committer.submit(yield* consume(yield* selected.context.transaction.finalize()));
+        return { kind: "failed" as const };
+      }))),
+    claimRequest: Effect.fn("CoreDatabase.claimRequest")((identity) =>
+      useTransaction(make(), selected => Effect.gen(function* (): Generator<Effect.Effect<unknown, CoreError>, CoreRequestAcquisition, unknown> {
+        const program = selected.registry.program(identity.program);
+        if (program === undefined) return yield* Effect.fail(new CoreTransactionError({ reason: "programUnavailable" }));
+        const existing = yield* findRequest(selected, identity, selected.context);
+        if (existing !== undefined) {
+          return yield* Effect.fromResult(existingResolution(existing));
+        }
+        const id = yield* allocateInternalId(options.newInternalId);
+        yield* selected.context.writePrivate(REQUESTS, id, { key: identity.key, requestHash: identity.requestHash,
+          program: { ...identity.program }, state: "claimed", leaseToken: lease.token });
+        const body = yield* selected.context.readPrivate(REQUESTS, id);
+        if (Option.isNone(body)) return yield* Effect.fail(corrupt());
+        const finalized = yield* consume(yield* selected.context.transaction.finalize());
+        const table = selected.registry.table(REQUESTS)?.definition;
+        if (table === undefined) return yield* Effect.fail(corrupt());
+        const submitted = yield* Effect.result(committer.submit(finalized));
+        return yield* Result.match(submitted, { onFailure: failure => Effect.gen(function* () {
+          // Only this claim's proven nonacceptance can consult pending request data.
+          // An accepted request is never retried or turned into another body claim.
+          if (failure._tag !== "CoreTransactionError" || failure.reason !== "conflict") return yield* Effect.fail(failure);
+          const byKey = table.indexes.find(index => index.name === "by_key");
+          if (byKey === undefined || !byKey.enabled) return yield* Effect.fail(corrupt());
+          const prefix = yield* Effect.fromResult(Result.mapError(encodeIndexValue(identity.key), invalid));
+          const pending = yield* committer.pendingDocuments(byKey.ref.id, equalityInterval(prefix));
+          if (pending.length > 1) return yield* Effect.fail(corrupt());
+          const pendingEntry = pending[0];
+          if (pendingEntry !== undefined) {
+            yield* Effect.fromResult(requestRecord(pendingEntry, table, identity));
+            return { kind: "busy" as const };
+          }
+          const published = yield* findRequest(yield* start(), identity);
+          if (published !== undefined) return yield* Effect.fromResult(existingResolution(published));
+          return yield* Effect.fail(failure);
+        }), onSuccess: timestamp => Effect.gen(function* () {
+          const jsonValue = yield* Effect.fromResult(Result.mapError(encodeDocumentValue(body.value), invalid));
+          const claim = issueCoreClaim();
+          claims.set(claim, { identity: { ...identity, program: { ...identity.program } }, active: true, record: {
+            id, document: body.value, state: "claimed", leaseToken: lease.token, revision: { ts: timestamp, tableId: table.tabletId.slice(), id: id.slice(),
+              jsonValue, deleted: false, prevTs: null },
+          } });
+          return { kind: "claimed" as const, claim };
+        }) });
+      }))),
     begin: Effect.fn("CoreDatabase.begin")(function* (beginOptions = {}) {
       const claimData = beginOptions.claim === undefined ? undefined : claims.get(beginOptions.claim);
       if (beginOptions.claim !== undefined && (claimData === undefined || !claimData.active))
@@ -369,29 +404,31 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
       if (claimData !== undefined && beginOptions.program !== undefined
         && programKey(claimData.identity.program) !== programKey(beginOptions.program))
         return yield* Effect.fail(new CoreTransactionError({ reason: "requestMismatch" }));
-      const selected = yield* make(beginOptions.at, beginOptions.claim);
-      const programIdentity = claimData?.identity.program ?? beginOptions.program;
-      if (programIdentity !== undefined) {
-        const program = selected.registry.program(programIdentity);
-        const head = selected.registry.head(programIdentity.functionPath);
-        if (program === undefined || head === undefined) return yield* Effect.fail(new CoreTransactionError({ reason: "programUnavailable" }));
-        yield* selected.context.readPrivate(PROGRAMS, program.id);
-        yield* selected.context.readPrivate(PROGRAMS, head.id);
-      }
-      if (beginOptions.authorityEpoch !== undefined) {
-        const authority = selected.registry.authority;
-        if (authority === undefined) return yield* Effect.fail(corrupt());
-        if (authority.epoch !== beginOptions.authorityEpoch) return yield* Effect.fail(new CoreTransactionError({ reason: "authorityRevoked" }));
-        yield* selected.context.readPrivate(PROGRAMS, authority.id);
-      }
-      if (claimData !== undefined) {
-        if (selected.timestamp < claimData.record.revision.ts) return yield* Effect.fail(new CoreTransactionError({ reason: "foreignClaim" }));
-        const record = yield* selected.context.readPrivate(REQUESTS, claimData.record.id);
-        if (Option.isNone(record) || record.value.state !== "claimed") return yield* Effect.fail(new CoreTransactionError({ reason: "foreignClaim" }));
-      }
-      return selected.context.transaction;
+      return yield* useTransaction(make(beginOptions.at, beginOptions.claim), selected => Effect.gen(function* () {
+        const programIdentity = claimData?.identity.program ?? beginOptions.program;
+        if (programIdentity !== undefined) {
+          const program = selected.registry.program(programIdentity);
+          const head = selected.registry.head(programIdentity.functionPath);
+          if (program === undefined || head === undefined) return yield* Effect.fail(new CoreTransactionError({ reason: "programUnavailable" }));
+          yield* selected.context.readPrivate(PROGRAMS, program.id);
+          yield* selected.context.readPrivate(PROGRAMS, head.id);
+        }
+        if (beginOptions.authorityEpoch !== undefined) {
+          const authority = selected.registry.authority;
+          if (authority === undefined) return yield* Effect.fail(corrupt());
+          if (authority.epoch !== beginOptions.authorityEpoch) return yield* Effect.fail(new CoreTransactionError({ reason: "authorityRevoked" }));
+          yield* selected.context.readPrivate(PROGRAMS, authority.id);
+        }
+        if (claimData !== undefined) {
+          if (selected.timestamp < claimData.record.revision.ts) return yield* Effect.fail(new CoreTransactionError({ reason: "foreignClaim" }));
+          const record = yield* selected.context.readPrivate(REQUESTS, claimData.record.id);
+          if (Option.isNone(record) || record.value.state !== "claimed") return yield* Effect.fail(new CoreTransactionError({ reason: "foreignClaim" }));
+        }
+        return selected.context.transaction;
+      }), true);
     }),
     commit: Effect.fn("CoreDatabase.commit")(function* (handle, commitOptions = {}) {
+      yield* assertOpen;
       let finalized = yield* consume(handle);
       const admissionDeadlineUnixMilliseconds = commitOptions.admissionDeadlineUnixMilliseconds;
       if (admissionDeadlineUnixMilliseconds !== undefined) {
@@ -419,31 +456,36 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
         finalized = { ...finalized, reads: reads.snapshot(), changes: Object.freeze([...finalized.changes, outcomeChange]), usage: accounting.snapshot() };
       }
       const timestamp = yield* committer.submit(finalized);
+      // A closed owner cannot disclose success; its already committed correlated
+      // outcome remains authoritative and must be reconciled, never aborted.
+      yield* assertOpen.pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause,
+        failure => new CorePersistenceError({ reason: "uncertainWrite", cause: failure })))));
       if (claimData !== undefined) claimData.active = false;
       return timestamp;
     }),
     abortRequest: Effect.fn("CoreDatabase.abortRequest")(function* (claim) {
       const data = claims.get(claim);
       if (data === undefined || !data.active) return yield* Effect.fail(new CoreTransactionError({ reason: "foreignClaim" }));
-      const selected = yield* make();
-      const current = yield* selected.context.readPrivate(REQUESTS, data.record.id);
-      if (Option.isNone(current) || current.value.state !== "claimed") return yield* Effect.fail(new CoreTransactionError({ reason: "foreignClaim" }));
-      yield* selected.context.writePrivate(REQUESTS, data.record.id, { ...withoutSystemFields(current.value), state: "failed" });
-      yield* committer.submit(yield* consume(yield* selected.context.transaction.finalize()));
-      data.active = false;
+      return yield* useTransaction(make(), selected => Effect.gen(function* () {
+        const current = yield* selected.context.readPrivate(REQUESTS, data.record.id);
+        if (Option.isNone(current) || current.value.state !== "claimed") return yield* Effect.fail(new CoreTransactionError({ reason: "foreignClaim" }));
+        yield* selected.context.writePrivate(REQUESTS, data.record.id, { ...withoutSystemFields(current.value), state: "failed" });
+        yield* committer.submit(yield* consume(yield* selected.context.transaction.finalize()));
+        data.active = false;
+      }));
     }),
     publishedTimestamp: committer.publishedTimestamp,
     readAuthorityEpoch,
-    advanceAuthorityEpoch: Effect.fn("CoreDatabase.advanceAuthorityEpoch")(function* (epoch) {
-      const selected = yield* make();
-      const authority = selected.registry.authority;
-      if (authority === undefined) return yield* Effect.fail(corrupt());
-      if (epoch < authority.epoch || epoch < 0n || epoch > 0x7fff_ffff_ffff_ffffn) return yield* Effect.fail(invalid());
-      if (epoch === authority.epoch) { yield* selected.context.transaction.abort(); return; }
-      yield* selected.context.writePrivate(PROGRAMS, authority.id, { kind: "authority", epoch });
-      selected.context.setRegistryAfter(selected.registry.withAuthority({ id: authority.id, epoch, ts: null }));
-      yield* committer.submit(yield* consume(yield* selected.context.transaction.finalize()));
-    }),
+    advanceAuthorityEpoch: Effect.fn("CoreDatabase.advanceAuthorityEpoch")((epoch) =>
+      useTransaction(make(), selected => Effect.gen(function* () {
+        const authority = selected.registry.authority;
+        if (authority === undefined) return yield* Effect.fail(corrupt());
+        if (epoch < authority.epoch || epoch < 0n || epoch > 0x7fff_ffff_ffff_ffffn) return yield* Effect.fail(invalid());
+        if (epoch === authority.epoch) return;
+        yield* selected.context.writePrivate(PROGRAMS, authority.id, { kind: "authority", epoch });
+        selected.context.setRegistryAfter(selected.registry.withAuthority({ id: authority.id, epoch, ts: null }));
+        yield* committer.submit(yield* consume(yield* selected.context.transaction.finalize()));
+      }))),
   };
   return Object.freeze(database);
 });

@@ -3,7 +3,7 @@
  * at db914cf06e2b06ee985646611b9e12ed7a770318. Upstream source:
  * Copyright 2026 Convex, Inc., FSL-1.1-Apache-2.0 (convex-backend/LICENSE.md).
  */
-import BTree from "sorted-btree";
+import { BTreeEx as BTree } from "sorted-btree/extended/index.js";
 import { Effect, Option, Result, Semaphore } from "effect";
 import { bytesEqual, compareBytesLexicographically, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { decodeDocumentId } from "flarex-protocol/document-id";
@@ -13,12 +13,13 @@ import { captureLogicalQuery, compileIndexRange, fingerprintQuery, splitIndexRan
 import { validateValidatorValueV1 } from "flarex-protocol/validator-engine";
 import { isCanonicalFlarexRuntimeObjectV1 } from "flarex-protocol/internal/value-runtime-core";
 import { CoreQueryInputError, CoreTransactionError, issueFinalizedTransaction, type CoreError, type CoreFinalizedTransaction,
-  type CoreIndexDefinition, type CoreTableDefinition, type CoreTransaction, type CoreTransactionLimits, type CoreTransactionUsage } from "./api";
+  type CoreIndexDefinition, type CoreTableDefinition, type CoreTransaction, type CoreTransactionLimits, type CoreTransactionUsage,
+  type CoreReadToken, type CoreProgramDefinition } from "./api";
 import type { CoreDocumentLogEntry, CoreInterval, CorePersistenceSnapshot, CoreWriteBatch } from "./contracts";
-import { CoreRegistry, TABLES, publicDocumentId, readDocumentObject } from "./registry";
+import { CoreRegistry, TABLES, PROGRAMS, publicDocumentId, readDocumentObject } from "./registry";
 import { CoreReadSetBuilder, pointInterval, type CoreReadSet } from "./writeLog";
 import { CORE_TRANSACTION_REFERENCE_LIMITS, CoreAccounting } from "./accounting";
-import { captureCoreDocument } from "./document";
+import { captureCoreDocument, captureCoreObject } from "./document";
 import { addIndexMetadataDependency, addTableWriteDependencies } from "./dependencies";
 import { createCoreQuery } from "./query";
 
@@ -48,6 +49,7 @@ export interface CoreFinalizedState {
 
 export interface CoreTransactionInternals {
   readonly transaction: CoreTransaction;
+  readonly finishRead: () => Effect.Effect<CoreReadToken, CoreError>;
   readonly readPrivate: (table: string, id: Uint8Array) => Effect.Effect<Option.Option<DocumentObject>, CoreError>;
   readonly writePrivate: (table: string, id: Uint8Array, body: DocumentObject | null) => Effect.Effect<void, CoreError>;
   readonly setRegistryAfter: (registry: CoreRegistry) => void;
@@ -104,6 +106,9 @@ export function createCoreTransaction(input: Readonly<{
   vault: CoreFinalizationVault;
   claim?: import("./api").CoreRequestClaim;
   limits?: CoreTransactionLimits;
+  readonly?: boolean;
+  assertOwnerOpen?: Effect.Effect<void, CoreError>;
+  onClosed?: () => void;
 }>): CoreTransactionInternals {
   const { snapshot, registry } = input;
   const reads = new CoreReadSetBuilder();
@@ -121,17 +126,15 @@ export function createCoreTransaction(input: Readonly<{
   let creationTime = Math.max(snapshotCeilMillis, Number(input.now) / 1_000_000);
   const unixTime = Math.floor(creationTime);
 
-  const assertOpen = () => closed
-    ? Effect.fail(new CoreTransactionError({ reason: "closed" })) : Effect.void;
+  const assertOpen = () => Effect.suspend(() => closed
+    ? Effect.fail(new CoreTransactionError({ reason: "closed" })) : input.assertOwnerOpen ?? Effect.void);
+  const markClosed = () => { closed = true; };
   const operation = <A>(body: Effect.Effect<A, CoreError>): Effect.Effect<A, CoreError> => Effect.acquireUseRelease(
-    Effect.suspend(() => {
-      if (closed) return Effect.fail(new CoreTransactionError({ reason: "closed" }));
+    Effect.andThen(assertOpen(), Effect.sync(() => {
       inflight += 1;
-      return Effect.void;
-    }),
-    () => operations.withPermits(1)(Effect.flatMap(Effect.suspend(() => closed
-      ? Effect.fail(new CoreTransactionError({ reason: "closed" })) : body), value => Effect.suspend(() => closed
-      ? Effect.fail(new CoreTransactionError({ reason: "closed" })) : Effect.succeed(value)))),
+    })),
+    () => operations.withPermits(1)(Effect.andThen(assertOpen(), body).pipe(
+      Effect.tap(() => assertOpen()))),
     () => Effect.sync(() => { inflight -= 1; }),
   );
 
@@ -219,6 +222,7 @@ export function createCoreTransaction(input: Readonly<{
   });
 
   const stage = Effect.fn("CoreTransaction.stage")(function* (table: CoreTableDefinition, id: Uint8Array, document: DocumentObject | null) {
+    if (input.readonly) return yield* new CoreTransactionError({ reason: "readonly" });
     const developerId = yield* Effect.fromResult(publicDocumentId(table, id));
     const previous = yield* read(table, id);
     const original = yield* observe(table, id);
@@ -291,6 +295,20 @@ export function createCoreTransaction(input: Readonly<{
   const transaction: CoreTransaction = Object.freeze({
     timestamp: snapshot.timestamp, unixTime,
     usage: Effect.sync(() => accounting.snapshot()),
+    selectProgram: Effect.fn("CoreTransaction.selectProgram")((path: string) => operation(Effect.gen(function* () {
+      const head = registry.head(path);
+      const program = head === undefined ? undefined : registry.program(head.identity);
+      if (program === undefined || head === undefined)
+        return yield* new CoreTransactionError({ reason: "programUnavailable" });
+      const table = yield* Effect.fromResult(tableByName(PROGRAMS, true));
+      for (const id of [head.id, program.id]) {
+        yield* Effect.fromResult(chargePointQuery(table, id));
+        yield* Effect.fromResult(chargeDocument(table, yield* read(table, id)));
+      }
+      return Object.freeze({ identity: Object.freeze({ ...program.definition.identity }),
+        metadata: (yield* Effect.fromResult(Result.mapError(captureCoreObject(program.definition.metadata, true), invalid))).value,
+      }) satisfies CoreProgramDefinition;
+    }))),
     tableNumber: Effect.fn("CoreTransaction.tableNumber")((name: string) => operation(Effect.gen(function* () {
       return (yield* Effect.fromResult(tableByName(name, false))).number;
     }))),
@@ -326,6 +344,8 @@ export function createCoreTransaction(input: Readonly<{
       yield* Effect.fromResult(chargeDocument(selected.table, document));
       if (document === null) return yield* Effect.fail(new CoreTransactionError({ reason: "missingDocument" }));
       const { _id: originalId, _creationTime: originalTime, ...remainingFields } = document;
+      if (originalId === undefined || originalTime === undefined)
+        return yield* Effect.die(new Error("Validated core document lost its system fields"));
       const body = Object.fromEntries(Object.entries(remainingFields));
       for (const [key, next] of Object.entries(patch)) {
         if (next === undefined) delete body[key];
@@ -341,7 +361,10 @@ export function createCoreTransaction(input: Readonly<{
       const previous = yield* read(selected.table, selected.internalId);
       yield* Effect.fromResult(chargeDocument(selected.table, previous));
       if (previous === null) return yield* Effect.fail(new CoreTransactionError({ reason: "missingDocument" }));
-      yield* stage(selected.table, selected.internalId, { ...body, _id: previous._id, _creationTime: previous._creationTime });
+      const { _id: originalId, _creationTime: originalTime } = previous;
+      if (originalId === undefined || originalTime === undefined)
+        return yield* Effect.die(new Error("Validated core document lost its system fields"));
+      yield* stage(selected.table, selected.internalId, { ...body, _id: originalId, _creationTime: originalTime });
     }))),
     delete: Effect.fn("CoreTransaction.delete")((id: string) => operation(Effect.gen(function* () {
       const selected = yield* Effect.fromResult(resolve(id, false));
@@ -400,20 +423,32 @@ export function createCoreTransaction(input: Readonly<{
       }
       return Object.freeze(results);
     }))),
-    finalize: Effect.fn("CoreTransaction.finalize")(() => Effect.suspend(() => {
-      if (closed) return Effect.fail(new CoreTransactionError({ reason: "closed" }));
-      if (inflight !== 0) return Effect.fail(new CoreTransactionError({ reason: "inflight" }));
-      closed = true;
-      return Effect.succeed(input.vault.issue(Object.freeze({ timestamp: snapshot.timestamp, reads: reads.snapshot(),
+    finalize: Effect.fn("CoreTransaction.finalize")(() => Effect.gen(function* () {
+      yield* assertOpen();
+      if (input.readonly) return yield* new CoreTransactionError({ reason: "readonly" });
+      if (inflight !== 0) return yield* new CoreTransactionError({ reason: "inflight" });
+      markClosed();
+      input.onClosed?.();
+      return input.vault.issue(Object.freeze({ timestamp: snapshot.timestamp, reads: reads.snapshot(),
         changes: Object.freeze([...writes.values()]), registry,
         ...(registryAfter === undefined ? {} : { registryAfter }),
-        ...(input.claim === undefined ? {} : { claim: input.claim }), usage: accounting.snapshot() })));
+        ...(input.claim === undefined ? {} : { claim: input.claim }), usage: accounting.snapshot() }));
     })),
-    abort: () => Effect.sync(() => { closed = true; }),
+    abort: Effect.fn("CoreTransaction.abort")(() => Effect.andThen(Effect.sync(markClosed),
+      operations.withPermits(1)(Effect.sync(() => input.onClosed?.())))),
   });
 
   return {
     transaction,
+    finishRead: Effect.fn("CoreTransaction.finishRead")(() => Effect.gen(function* () {
+      yield* assertOpen();
+      if (inflight !== 0) return yield* new CoreTransactionError({ reason: "inflight" });
+      if (writes.size !== 0 || registryAfter !== undefined || input.claim !== undefined)
+        return yield* new CoreTransactionError({ reason: "readonly" });
+      markClosed();
+      input.onClosed?.();
+      return Object.freeze({ timestamp: snapshot.timestamp, get reads() { return reads.snapshot(); } });
+    })),
     readPrivate: (tableName, id) => operation(Effect.gen(function* () {
       const table = yield* Effect.fromResult(tableByName(tableName, true));
       yield* Effect.fromResult(chargePointQuery(table, id));

@@ -246,6 +246,9 @@ importers:
       '@flarex/application-invocation':
         specifier: workspace:*
         version: link:../../packages/application-invocation
+      '@flarex/system-test':
+        specifier: workspace:*
+        version: link:../../packages/system-test
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.2
@@ -437,6 +440,9 @@ importers:
         specifier: workspace:*
         version: link:../flarex-protocol
     devDependencies:
+      '@flarex/persistence-postgres':
+        specifier: workspace:*
+        version: link:../persistence-postgres
       typescript:
         specifier: 'catalog:'
         version: 7.1.0-beta

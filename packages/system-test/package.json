@@ -8,6 +8,7 @@
     "support"
   ],
   "exports": {
+    "./internal/application-core-definition": "./support/applicationCoreDefinition.ts",
     "./environment": "./src/environment/index.ts",
     "./inspection": "./src/inspection/index.ts",
     "./lanes": "./src/lanes/index.ts",

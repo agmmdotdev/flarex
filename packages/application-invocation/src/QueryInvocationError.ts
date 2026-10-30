@@ -147,12 +147,85 @@ export function projectQueryInvocationError(
       );
     case "ApplicationExecutionHostError":
       return queryInvocationError(projectExecutionHostReason(error), error);
+    case "CoreApplicationProgramError":
+      return queryInvocationError(projectCoreProgramReason(error), error);
+    case "CoreApplicationQueryError":
+      return queryInvocationError(projectCoreQueryReason(error), error);
+    case "CoreTransactionError":
+      return queryInvocationError(projectCoreTransactionReason(error), error);
+    case "CorePersistenceError":
+      return queryInvocationError(projectCorePersistenceReason(error), error);
+    case "CoreQueryInputError":
+      return queryInvocationError("invalidInput", error);
     default: {
       const unhandledError: never = error;
       throw new TypeError(
         `Unhandled Query invocation error: ${String(unhandledError)}`,
       );
     }
+  }
+}
+
+function projectCoreProgramReason(
+  error: Extract<InvokeApplicationQueryError, { readonly _tag: "CoreApplicationProgramError" }>,
+): QueryInvocationErrorReason {
+  switch (error.reason) {
+    case "metadataInvalid": return "corruptData";
+    case "argumentsInvalid": return "invalidInput";
+    case "hashFailure": return "unavailable";
+    case "unsupportedSelection": return "incompatibleRuntime";
+  }
+}
+
+function projectCoreQueryReason(
+  error: Extract<InvokeApplicationQueryError, { readonly _tag: "CoreApplicationQueryError" }>,
+): QueryInvocationErrorReason {
+  switch (error.reason) {
+    case "functionUnsupported": return "incompatibleRuntime";
+    case "invalidComposition":
+    case "invalidExecutionContext": return "invalidConfiguration";
+    case "sourceReadFailed":
+    case "workerDefinitionFailed": return "unavailable";
+  }
+}
+
+function projectCoreTransactionReason(
+  error: Extract<InvokeApplicationQueryError, { readonly _tag: "CoreTransactionError" }>,
+): QueryInvocationErrorReason {
+  switch (error.reason) {
+    case "programUnavailable": return "queryNotFound";
+    case "missingIndex":
+    case "indexUnavailable": return "indexUnavailable";
+    case "capacity": return "budgetExceeded";
+    case "invalidValue":
+    case "documentValidation":
+    case "invalidDocumentId": return "invalidInput";
+    case "readonly": return "incompatibleRuntime";
+    case "authorityRevoked": return "staleScopeAuthority";
+    case "admissionExpired": return "terminal";
+    case "closed":
+    case "unavailable": return "unavailable";
+    case "conflict": return "transient";
+    case "missingTable":
+    case "missingDocument": return "corruptData";
+    case "inflight":
+    case "foreignFinalization":
+    case "requestMismatch":
+    case "foreignClaim": return "invalidConfiguration";
+  }
+}
+
+function projectCorePersistenceReason(
+  error: Extract<InvokeApplicationQueryError, { readonly _tag: "CorePersistenceError" }>,
+): QueryInvocationErrorReason {
+  switch (error.reason) {
+    case "outOfRetention": return "historyUnavailable";
+    case "corruptData": return "corruptData";
+    case "invalidTarget": return "invalidConfiguration";
+    case "uncertainWrite": return "settlementUncertain";
+    case "leaseLost":
+    case "readOnly":
+    case "unavailable": return "unavailable";
   }
 }
 

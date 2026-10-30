@@ -12,7 +12,7 @@ import {
   withApplicationQueryCompletion,
 } from
   "@flarex/standard-application-invocation/internal/application-query-system";
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import type { ExecutionIdentity } from "flarex-protocol/auth";
 
 import {
@@ -55,7 +55,7 @@ export const runQuery = Effect.fn("Application.runQuery")(function* <
       inspected.path,
       args,
       options.identity,
-    ).pipe(Effect.mapError(projectQueryInvocationError));
+    ).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectQueryInvocationError))));
     const validated = yield* validateResultContract(
       inspected,
       value,

@@ -72,6 +72,11 @@ not answers to remaining host/data choices. The affected slice must resolve:
 - Which shared-page verification policy and separate transaction/page cache
   budgets fit the host, with row and index-metadata fill validation. The upstream
   100% verification default does not prove a SQL shortcut or select our budgets.
+- How the current acyclic internal-call profile translates to the pin's
+  depth-bounded recursive calls, with shared transaction/time/accounting and
+  current safety budgets. [Slice 06c](./slices/06c-shared-application-owner.md)
+  records the accepted current-profile evidence and the remaining translation;
+  the old guard alone is not a necessary DO divergence.
 
 These are connected implementation questions, not permission to retain old
 mechanisms by default or to adopt MySQL V6's alternative tables implicitly.

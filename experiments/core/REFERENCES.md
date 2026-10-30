@@ -31,6 +31,7 @@ the current checkout; use `git show <pin>:<path>` for immutable inspection.
 | Schema metadata | [crates/database/src/bootstrap_model/schema/mod.rs](../../../../crates/database/src/bootstrap_model/schema/mod.rs); [crates/database/src/bootstrap_model/next_persistence_index_id/mod.rs](../../../../crates/database/src/bootstrap_model/next_persistence_index_id/mod.rs) | Private staged schema validation and persistence-index identity; copy the current transactional lifecycle, not only state names. |
 | Logical query ranges and streams | [range compiler](../../../../crates/common/src/query.rs), [range JSON](../../../../crates/common/src/json/query.rs), [stream](../../../../crates/database/src/query/index_range.rs), [limits](../../../../crates/database/src/query/limit.rs), [SDK terminals](../../../../npm-packages/convex/src/server/impl/query_impl.ts), [SDK range builder](../../../../npm-packages/convex/src/server/impl/index_range_builder_impl.ts) | Snapshot-selected fields, implicit developer ID, consumed interval cursors, source prefix behavior, consuming SDK builders and no-lookahead stream terminals. |
 | Cursor identity and encoding | [keybroker](../../../../crates/keybroker/src/broker.rs), [encryptor](../../../../crates/keybroker/src/encryptor.rs), [secret](../../../../crates/keybroker/src/secret.rs), [protobuf](../../../../crates/pb/protos/convex_cursor.proto) | Ordered query/field fingerprint, instance binding, stable purpose-derived key and deterministic version-7 AES-128-GCM-SIV tokens. |
+| Standalone queries and app ownership | [query execution/cache](../../../../crates/application/src/cache/mod.rs), [ordinary query API](../../../../crates/application/src/api.rs), [isolate completion](../../../../crates/isolate/src/environment/udf/mod.rs), [process shutdown](../../../../crates/local_backend/src/main.rs) | Begin before metadata validation, read-only into_token, same-snapshot nested queries, resident published read admission and fatal process loss. PostgreSQL leases fence writes rather than every read. |
 | Retry, nesting and deterministic time | [crates/application/src/application_function_runner/mod.rs](../../../../crates/application/src/application_function_runner/mod.rs); [crates/isolate/src/environment/udf/async_syscall.rs](../../../../crates/isolate/src/environment/udf/async_syscall.rs); [crates/common/src/document.rs](../../../../crates/common/src/document.rs) | Permit-before-snapshot ordering, outcome-before-new-body, handler-error rollback and snapshot-derived time. Optional capabilities require explicit admission. |
 | Alternative upstream storage | [crates/mysql/src/v6/sql.rs](../../../../crates/mysql/src/v6/sql.rs) | Selectable MySQL V6 latest/backfill-delete/bucketed history exists. It is not the selected PostgreSQL layout or a deployment-status claim. |
 
@@ -102,6 +103,12 @@ crates/value/src/json/float.rs f3433a07d5b1a001671f52e7d8e7f5d4117c1dbf586a6d73e
 npm-packages/convex/src/server/impl/query_impl.ts 18deadd486a3c701d534a739057b3fd3b9fd8a38a42942b9d4f91e5fe387bf99
 npm-packages/convex/src/server/impl/index_range_builder_impl.ts c1af2c16a787cdc687cc969c9e5b8e4e26366ee649d12ef2971dfa0a6fb8e134
 npm-packages/convex/src/server/index_range_builder.ts 9429697380faf0028aefb643fd5851fca49268dad2302026ebec6e810a23f7d4
+crates/application/src/cache/mod.rs 3989a74218a8dd1f2d69c6778d7eee86a9e15d866cbf71a9d389572798c77cf2
+crates/application/src/api.rs 0167d37ec910deaa1b15dcfb8734e6e01a61341b1f92fa993821a450a09c7711
+crates/local_backend/src/main.rs 544b26f44ff55ffff4a9ba91393337b42b99deb561508baaf4ad1da7880a51b4
+crates/isolate/src/environment/udf/mod.rs ef49457c9f92caefe4f165f317b2e93f709a668a0e608675c131281b79bda345
+crates/udf/src/validation.rs a91e6fb6d5606aae5162a8a615562d2765b1e5f29a095df1af96ff1c71abb7e5
+crates/postgres/src/connection.rs 9f683ec611a08bfac85bdc41aab996384d35adb7d18ac27778de2a29626b3b79
 ```
 
 ## Source and divergence rules

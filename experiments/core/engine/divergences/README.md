@@ -66,6 +66,7 @@ evidence, retaining the accepted decision link.
 
 | Record | Current scope |
 | --- | --- |
+| [Canonical app DO routing](./single-app-owner-routing.md) | Bounded shared fresh query/mutation owner implemented; canonical admission and writer closure adapt process ownership to DO lifecycle. Managed-host and wider profile gates remain open. |
 | [Application query RPC transport](./application-query-stream-transport.md) | Finite Worker chunks preserve one snapshot query and complete terminal lifetime; source logical bounds and authenticated cursors remain translated. Required host/capacity gates remain open. |
 | [Transaction operation exclusion](./transaction-operation-exclusion.md) | TypeScript adaptation of Rust exclusive mutable transaction access; concurrent patches and unfinished finalization controls, host admission limits still open. |
 | [Private signed-grant authority](./application-grant-authority.md) | Selected fresh-target adaptation / Implemented / Unmeasured. One logical scope epoch and profile enforcement over translated core; actual app-DO readiness remains gated. |

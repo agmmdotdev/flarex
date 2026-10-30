@@ -64,10 +64,36 @@ own the shared first-error latch and scoped observation. The
 consume that observation; the
 [host client lifetime](../../../../apps/executor/src/requestLifecycle.ts)
 owns their shared release. The
-[DO acquisition scope](../../../../apps/executor/src/applicationQueryDO.ts)
-installs observation before connect and retains the rejecting finalizer outcome
-through query completion. Rejected release retains the observer until an actual
-terminal driver event; shutdown is never inferred from rejection alone.
+historical query-only DO acquisition scope installed observation before connect
+and retained the rejecting finalizer outcome through query completion. The
+current [app host](../../../../apps/executor/src/applicationDO.ts) owns the pool;
+the core PostgreSQL driver owns each checkout's observation and release.
+Rejected release retains the observer until an actual terminal driver event;
+shutdown is never inferred from rejection alone.
+
+## Shared app pool completion
+
+Slice 06c rechecks this adaptation against Convex
+db914cf06e2b06ee985646611b9e12ed7a770318. Its connection poll tasks report errors;
+ConvexPgPool::shutdown closes admission, drops idle clients and aborts the idle
+worker. It does not join every connection task. Complete Cloudflare socket
+shutdown remains this accepted host-resource adaptation, not literal Rust join
+parity.
+
+Installed pg-pool 3.14.0 removes a client from its tracked collection before that
+client's end callback completes, and resolves pool.end when that collection is
+empty. The actual DO witness observed zero completed ends for four connections
+after bare pool.end. The physical createApplicationPostgresPool owner therefore
+retains each exact native Client.end Promise and drains those operations after
+pool.end, preserving rejected outcomes and the callback form. Pool error
+observation stays installed through the final drain. One client has one memoized
+close, and completed idle clients are released from the retained set.
+
+The core driver explicitly leaves pool lifetime to its caller. This aggregate
+barrier belongs to host construction; it adds no SQL probe, transaction,
+settlement or recovery path. Individual transport completion remains with the
+[socket adaptation](./pg-cloudflare-shutdown.md). Require actual socket counts,
+idle failure, cancellation and restart controls before declaring cleanup.
 
 No connection event test alone proves commit uncertainty recovery, fencing or
 managed Hyperdrive behavior. Actual local socket and DO scenarios retain only

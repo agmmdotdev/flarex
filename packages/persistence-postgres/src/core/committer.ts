@@ -4,7 +4,7 @@
  * Copyright 2026 Convex, Inc., FSL-1.1-Apache-2.0 (convex-backend/LICENSE.md).
  */
 import { Cause, Clock, Deferred, Duration, Effect, Exit, Option, Queue, Schema, Semaphore } from "effect";
-import BTree from "sorted-btree";
+import { BTreeEx as BTree } from "sorted-btree/extended/index.js";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { CoreTransactionError, type CoreDatabaseOptions, type CoreError } from "./api";
 import type { CoreDocumentLogEntry, CoreInterval, CorePersistence, CorePersistenceIndexEntry, CorePersistenceLease, CoreWriteBatch } from "./contracts";

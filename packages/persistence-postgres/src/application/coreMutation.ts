@@ -1,19 +1,10 @@
-import {
-  canonicalizeApplicationManifest,
-  type ApplicationManifest,
-} from "@flarex/analysis/application-analysis";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { Cause, Clock, Data, Effect, Exit, Result, Schema } from "effect";
-import { decodeDocumentId } from "flarex-protocol/document-id";
+import { Cause, Clock, Data, Effect, Exit, Result } from "effect";
 import {
   captureDocumentValueWithSize,
   type DocumentObject,
   type DocumentValue,
 } from "flarex-protocol/document-value";
-import {
-  canonicalizeApplicationMutationExecutionAuthorityV1,
-  type CanonicalApplicationMutationExecutionAuthorityV1,
-} from "flarex-protocol/internal/application-mutation-authority-v1";
 import {
   inspectVerifiedApplicationMutationGrantV1,
   type PrepareApplicationMutationGrantV1Input,
@@ -24,7 +15,6 @@ import {
   canonicalizePointMutationRequestV1,
   requirePointMutationArgumentSemanticSizeV1,
 } from "flarex-protocol/point-mutation-start";
-import { projectScopeIdUuidV1Result, ScopeEpochUuidV1Schema, ScopeUuidV1Schema } from "flarex-protocol/storage-authority";
 import {
   TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
   type CanonicalTransactionGrantIdentityAccessPolicyV1,
@@ -36,19 +26,20 @@ import {
   type TransactionFunctionPathV1,
   type TransactionRequestKeyV1,
 } from "flarex-protocol/transaction-session";
-import { validateValidatorValueV1 } from "flarex-protocol/validator-engine";
 import { canonicalizeFlarexValueJsonV1, FlarexValueCodecVersionSchema, isCanonicalFlarexRuntimeObjectV1 } from "flarex-protocol/value";
 import { canonicalFlarexRuntimeValueToJsonV1 } from "flarex-protocol/internal/value-runtime-core";
 
 import {
   CoreTransactionError,
   type CoreDatabase,
-  type CoreError,
   type CoreProgramDefinition,
+  type CoreError,
   type CoreRequestClaim,
   type CoreTransaction,
 } from "../core/api";
 import { CorePersistenceError } from "../core/contracts";
+import { readCoreApplicationProgram, readCoreApplicationTableBindings, validateCoreApplicationArguments,
+  type CoreApplicationProgram as SharedCoreApplicationProgram, type CoreApplicationTableBinding } from "./coreProgram";
 
 /** Application policy above the shared engine, never a second publisher. */
 export class CoreApplicationMutationError extends Data.TaggedError("CoreApplicationMutationError")<{
@@ -57,35 +48,14 @@ export class CoreApplicationMutationError extends Data.TaggedError("CoreApplicat
   readonly cause?: unknown;
 }> {}
 
-const metadataSchema = Schema.Struct({
-  executionAuthority: Schema.Unknown,
-  manifest: Schema.Unknown,
-  compatibilityDate: Schema.String,
-  scopeUuid: ScopeUuidV1Schema,
-  epochUuid: ScopeEpochUuidV1Schema,
-});
-const decodeMetadata = Schema.decodeUnknownEffect(metadataSchema);
-
-export interface CoreApplicationProgram {
-  readonly definition: CoreProgramDefinition;
-  readonly executionAuthority: CanonicalApplicationMutationExecutionAuthorityV1;
-  readonly manifest: ApplicationManifest;
-  readonly compatibilityDate: string;
-  readonly scopeUuid: string;
-  readonly epochUuid: string;
-}
-
+export type CoreApplicationProgram = Extract<SharedCoreApplicationProgram, { kind: "mutation" }>;
+export type { CoreApplicationTableBinding } from "./coreProgram";
 export interface CoreApplicationMutationOutcome {
   readonly disposition: "published" | "replayed";
   readonly timestamp: bigint;
   readonly value: DocumentValue;
   readonly scopeUuid: string;
   readonly epochUuid: string;
-}
-
-export interface CoreApplicationTableBinding {
-  readonly tableId: number;
-  readonly logicalName: string;
 }
 
 type GrantInput = Omit<PrepareApplicationMutationGrantV1Input, "kid" | "grantId" | "issuedAt" | "expiresAt">;
@@ -118,36 +88,11 @@ export function makeCoreApplicationMutationPort<GrantFailure, ExecutionFailure>(
     throw new Error("Application mutation attempt budget must be a positive integer.");
 
   const readProgram = Effect.fn("CoreApplicationMutation.readProgram")(function* (definition: CoreProgramDefinition) {
-    const metadata = yield* decodeMetadata(definition.metadata).pipe(
-      Effect.mapError(cause => new CoreApplicationMutationError({ reason: "metadataInvalid", cause })),
-    );
-    const executionAuthority = yield* canonicalizeApplicationMutationExecutionAuthorityV1(metadata.executionAuthority).pipe(
-      Effect.mapError(cause => new CoreApplicationMutationError({ reason: "metadataInvalid", cause })),
-    );
-    const manifest = yield* Effect.fromResult(canonicalizeApplicationManifest(metadata.manifest)).pipe(
-      Effect.mapError(cause => new CoreApplicationMutationError({ reason: "metadataInvalid", cause })),
-    );
-    const authority = executionAuthority.authority;
-    const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(authority.runtimeTarget.scopeId)).pipe(
-      Effect.mapError(cause => new CoreApplicationMutationError({ reason: "metadataInvalid", cause })),
-    );
-    const manifestSha256 = yield* configuration.sha256(manifest.canonicalBytes).pipe(
-      Effect.map(encodeBytesToLowercaseHex),
-      Effect.mapError(cause => new CoreApplicationMutationError({ reason: "hashFailure", cause })),
-    );
-    if (definition.identity.functionPath !== authority.runtimeTarget.function.path ||
-      definition.identity.programHash !== encodeBytesToLowercaseHex(executionAuthority.sha256) ||
-      definition.identity.schemaHash !== authority.runtimeTarget.schemaSha256 ||
-      manifestSha256 !== authority.runtimeTarget.manifestSha256 ||
-      manifest.manifest.sourceArtifact.rootSha256 !== authority.runtimeTarget.sourceArtifactRootSha256 ||
-      scope.scopeUuid !== metadata.scopeUuid)
-      return yield* new CoreApplicationMutationError({ reason: "metadataInvalid" });
-    return Object.freeze({ definition, executionAuthority, manifest: manifest.manifest,
-      compatibilityDate: metadata.compatibilityDate, scopeUuid: metadata.scopeUuid,
-      epochUuid: metadata.epochUuid,
-    }) satisfies CoreApplicationProgram;
+    const program = yield* readCoreApplicationProgram(definition, configuration.sha256).pipe(Effect.mapError(cause =>
+      new CoreApplicationMutationError({ reason: cause.reason, cause })));
+    if (program.kind !== "mutation") return yield* new CoreApplicationMutationError({ reason: "unsupportedSelection" });
+    return program;
   });
-
   const requireAuthority = Effect.fn("CoreApplicationMutation.requireAuthority")(
     function* (grant: VerifiedApplicationMutationGrantV1) {
       const payload = inspectVerifiedApplicationMutationGrantV1(grant).payload;
@@ -278,22 +223,7 @@ export type CoreApplicationMutationPort<GrantFailure, ExecutionFailure> = Return
 export type CoreApplicationMutationFailure<GrantFailure, ExecutionFailure> =
   CoreError | CoreApplicationMutationError | GrantFailure | ExecutionFailure;
 
-const readTableBindings = Effect.fn("CoreApplicationMutation.readTableBindings")(
-  (transaction: CoreTransaction, manifest: ApplicationManifest) => Effect.forEach(manifest.schema.tables,
-    table => transaction.tableNumber(table.name).pipe(Effect.map(tableId => Object.freeze({ tableId, logicalName: table.name }))),
-    { concurrency: 1 }),
-);
-
-function validateArguments(
-  validator: ApplicationManifest["functions"][number]["args"],
-  value: DocumentObject,
-  bindings: readonly CoreApplicationTableBinding[],
-) {
-  const numbers = new Map(bindings.map(binding => [binding.logicalName, binding.tableId]));
-  return validateValidatorValueV1(validator, value, { path: "$args", idPolicy: { mode: "tableAware", check: (name, id) => {
-    const number = numbers.get(name);
-    if (number === undefined) return "unavailable";
-    return decodeDocumentId(id).pipe(Result.match({ onFailure: () => "invalid" as const,
-      onSuccess: identity => identity.tableNumber === number ? "valid" as const : "invalid" as const }));
-  } } }).pipe(Result.mapError(cause => new CoreApplicationMutationError({ reason: "argumentsInvalid", cause })));
-}
+const readTableBindings = readCoreApplicationTableBindings;
+const validateArguments = (...input: Parameters<typeof validateCoreApplicationArguments>) =>
+  validateCoreApplicationArguments(...input).pipe(Result.mapError(cause =>
+    new CoreApplicationMutationError({ reason: cause.reason, cause })));

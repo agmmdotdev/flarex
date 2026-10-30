@@ -10,7 +10,6 @@ import {
 } from "@flarex/executor/transaction-grant";
 import {
   createApplicationNativeMutationPGliteFixture,
-  createApplicationNativeMutationSourceBundle,
   type ApplicationNativeMutationFixture,
   type ApplicationNativeMutationPersistence,
   type ApplicationNativeMutationSourceBundle,
@@ -33,10 +32,7 @@ import {
 } from
   "@flarex/standard-application-invocation/internal/application-mutation-system";
 import { Effect, Result, Scope, Clock, Context, Option, Schema } from "effect";
-import type { ApplicationCoreMutationDefinition, ApplicationCoreMutationFixture } from "@flarex/persistence-postgres/internal/system-test/core-application-mutation-fixture";
-import { APPLICATION_ANALYSIS_ANALYZER_IDENTITY, APPLICATION_ANALYSIS_POLICY_IDENTITY,
-  applicationAnalysisHostEffectWithCapabilities } from "@flarex/source-analyzer-v2/internal/application-analysis-host";
-import { MiniflareApplicationAnalysisWorkerLoader } from "./standardApplicationCurrentAnalysisHarness";
+import type { ApplicationCoreFixture } from "@flarex/persistence-postgres/internal/system-test/core-application-fixture";
 import {
   APPLICATION_RUNTIME_HOST_IDENTITY,
 } from "flarex-backend/artifact-runtime";
@@ -1097,28 +1093,7 @@ export async function proveApplicationNativeMutation(
   });
 }
 
-/** Genuine current cold registration supplies the exact executing schema/catalog. */
-export async function createCoreApplicationMutationDefinition(): Promise<ApplicationCoreMutationDefinition> {
-  const source = await createApplicationNativeMutationSourceBundle(false, 0, 0, true, false, false, true, true);
-  const loader = new MiniflareApplicationAnalysisWorkerLoader();
-  try {
-    const analysis = await runSystemTestEffectV1(applicationAnalysisHostEffectWithCapabilities({
-      source: { read: rootSha256 => rootSha256 === source.sourceArtifact.rootSha256
-        ? Effect.succeed(source) : Effect.die("Core query analysis requested a foreign source artifact.") },
-      loader,
-    }, { format: "flarex.application-analysis-host-request", version: 1,
-      sourceArtifactRootSha256: source.sourceArtifact.rootSha256,
-      analyzerIdentity: APPLICATION_ANALYSIS_ANALYZER_IDENTITY,
-      analyzerPolicyIdentity: APPLICATION_ANALYSIS_POLICY_IDENTITY,
-    }));
-    if (analysis.kind !== "analyzed") throw new Error("Core Application cold registration was rejected.", { cause: analysis });
-    if (analysis.manifest.version !== 1)
-      throw new Error("The core query fixture requires a relation-free Application Manifest V1.");
-    return Object.freeze({ source, manifest: analysis.manifest, coldAnalysisLoads: loader.loads });
-  } finally { await loader.dispose(); }
-}
-
-export async function proveApplicationNestedMutation(fixture: ApplicationCoreMutationFixture) {
+export async function proveApplicationNestedMutation(fixture: ApplicationCoreFixture) {
   const before = await readApplicationCoreMutationState(fixture);
   const loader = new MiniflareApplicationWorkerLoader();
   try {
@@ -1144,7 +1119,7 @@ export async function proveApplicationNestedMutation(fixture: ApplicationCoreMut
   } finally { await loader.dispose(); }
 }
 
-export async function proveApplicationNestedMutationFailure(fixture: ApplicationCoreMutationFixture) {
+export async function proveApplicationNestedMutationFailure(fixture: ApplicationCoreFixture) {
   const calls: Array<Readonly<{ method: string; arguments: readonly unknown[] }>> = [];
   const completed: Array<Readonly<{ method: string; arguments: readonly unknown[]; result: unknown }>> = [];
   const loader = new MiniflareApplicationWorkerLoader((method, argumentsValue) => {
@@ -1186,7 +1161,7 @@ export async function proveApplicationNestedMutationFailure(fixture: Application
   } finally { await loader.dispose(); }
 }
 
-export async function proveCoreApplicationIndexOrder(fixture: ApplicationCoreMutationFixture) {
+export async function proveCoreApplicationIndexOrder(fixture: ApplicationCoreFixture) {
   // Keep creation order opposite public ID order without manufacturing rows or
   // index bytes: control only the trusted allocator at the actual insert syscall.
   const internalIds = [new Uint8Array(16).fill(0xf0), new Uint8Array(16).fill(0x10)];
@@ -1207,7 +1182,7 @@ export async function proveCoreApplicationIndexOrder(fixture: ApplicationCoreMut
       ).pipe(Effect.provide(layer))));
       ids.push(Schema.decodeUnknownSync(Schema.String)(outcome.value));
     }
-    const read = async (database: ApplicationCoreMutationFixture["database"]) => {
+    const read = async (database: ApplicationCoreFixture["database"]) => {
       const transaction = await runSystemTestEffectV1(database.begin());
       try {
         const asc = await runSystemTestEffectV1(transaction.scan("users", "by_name"));
@@ -1221,7 +1196,7 @@ export async function proveCoreApplicationIndexOrder(fixture: ApplicationCoreMut
   } finally { await loader.dispose(); }
 }
 
-export async function proveCoreApplicationDocumentValidation(fixture: ApplicationCoreMutationFixture) {
+export async function proveCoreApplicationDocumentValidation(fixture: ApplicationCoreFixture) {
   const calls: Array<Readonly<{ method: string; arguments: readonly unknown[] }>> = [];
   const loader = new MiniflareApplicationWorkerLoader((method, argumentsValue) => {
     calls.push({ method, arguments: structuredClone(argumentsValue) });
@@ -1237,7 +1212,7 @@ export async function proveCoreApplicationDocumentValidation(fixture: Applicatio
   } finally { await loader.dispose(); }
 }
 
-export async function proveCoreApplicationArgumentProfile(fixture: ApplicationCoreMutationFixture) {
+export async function proveCoreApplicationArgumentProfile(fixture: ApplicationCoreFixture) {
   const loader = new MiniflareApplicationWorkerLoader();
   try {
     const layer = await makeApplicationNativeMutationTestLayer(fixture, loader);
@@ -1261,7 +1236,7 @@ export async function proveCoreApplicationArgumentProfile(fixture: ApplicationCo
   } finally { await loader.dispose(); }
 }
 
-export async function proveCoreApplicationArgumentRefusal(fixture: ApplicationCoreMutationFixture) {
+export async function proveCoreApplicationArgumentRefusal(fixture: ApplicationCoreFixture) {
   let claims = 0;
   const observed = Object.freeze({ ...fixture.database,
     claimRequest: (identity: Parameters<typeof fixture.database.claimRequest>[0]) => Effect.sync(() => { claims += 1; })
@@ -1293,7 +1268,7 @@ function nestedApplicationArgument(depth: number): unknown {
   return value;
 }
 
-export async function proveCoreApplicationClock(fixture: ApplicationCoreMutationFixture) {
+export async function proveCoreApplicationClock(fixture: ApplicationCoreFixture) {
   const loader = new MiniflareApplicationWorkerLoader();
   let clockReads = 0;
   const epochReadTimes: number[] = [];
@@ -1313,7 +1288,7 @@ export async function proveCoreApplicationClock(fixture: ApplicationCoreMutation
   } finally { await loader.dispose(); }
 }
 
-export async function proveCoreApplicationAdmissionExpiry(fixture: ApplicationCoreMutationFixture) {
+export async function proveCoreApplicationAdmissionExpiry(fixture: ApplicationCoreFixture) {
   let now = 1234;
   let deadline: number | undefined;
   const clock = applicationMutationTestClock(() => now);
@@ -1350,7 +1325,7 @@ function applicationMutationTestClock(currentTimeMillis: () => number): Clock.Cl
   };
 }
 
-export async function proveCoreApplicationAuthority(fixture: ApplicationCoreMutationFixture,
+export async function proveCoreApplicationAuthority(fixture: ApplicationCoreFixture,
   mode: "beforeBody" | "duringBody" | "benignHead") {
   const before = await readApplicationCoreMutationState(fixture);
   const loader = new MiniflareApplicationWorkerLoader();
@@ -1386,7 +1361,7 @@ export async function proveCoreApplicationAuthority(fixture: ApplicationCoreMuta
   } finally { await loader.dispose(); }
 }
 
-export async function proveCoreApplicationColdClaim(fixture: ApplicationCoreMutationFixture) {
+export async function proveCoreApplicationColdClaim(fixture: ApplicationCoreFixture) {
   const loader = new MiniflareApplicationWorkerLoader();
   const before = await readApplicationCoreMutationState(fixture);
   try {
@@ -1407,7 +1382,7 @@ export async function proveCoreApplicationColdClaim(fixture: ApplicationCoreMuta
   } finally { await loader.dispose(); }
 }
 
-export async function proveCoreApplicationBusyClaim(fixture: ApplicationCoreMutationFixture) {
+export async function proveCoreApplicationBusyClaim(fixture: ApplicationCoreFixture) {
   const loader = new MiniflareApplicationWorkerLoader();
   try {
     const layer = await makeApplicationNativeMutationTestLayer(fixture, loader);
@@ -1426,7 +1401,7 @@ export async function proveCoreApplicationBusyClaim(fixture: ApplicationCoreMuta
   } finally { await loader.dispose(); }
 }
 
-async function readApplicationCoreMutationState(fixture: ApplicationCoreMutationFixture) {
+async function readApplicationCoreMutationState(fixture: ApplicationCoreFixture) {
   const transaction = await runSystemTestEffectV1(fixture.database.begin());
   try { return Object.freeze({ document: Option.getOrNull(await runSystemTestEffectV1(transaction.get(fixture.documentId))),
     indexed: await runSystemTestEffectV1(transaction.scan("users", "by_name")), history: await fixture.history() }); }
@@ -1452,7 +1427,7 @@ function observeApplicationMutationConfiguration(
 }
 
 export async function makeApplicationNativeMutationTestLayer(
-  fixture: ApplicationMutationTestLiveFixture | ApplicationCoreMutationFixture,
+  fixture: ApplicationMutationTestLiveFixture | ApplicationCoreFixture,
   loader: WorkerLoader,
   options: Readonly<{
     readonly source?: ApplicationMutationSystemLive["applicationRunner"]["source"];
@@ -1466,7 +1441,7 @@ export async function makeApplicationNativeMutationTestLayer(
   );
 }
 
-export function makeApplicationMutationTestLive(fixture: ApplicationCoreMutationFixture, loader: WorkerLoader, options?: Readonly<{
+export function makeApplicationMutationTestLive(fixture: ApplicationCoreFixture, loader: WorkerLoader, options?: Readonly<{
     readonly source?: ApplicationMutationSystemLive["applicationRunner"]["source"];
     readonly onExecution?: () => void;
     readonly afterRuntime?: () => Effect.Effect<void, never>;
@@ -1478,14 +1453,14 @@ export function makeApplicationMutationTestLive(fixture: ApplicationMutationTest
     readonly afterRuntime?: () => Effect.Effect<void, never>;
     readonly uuidSequenceStart?: number;
   }>): Promise<ApplicationMutationSystemLive>;
-export function makeApplicationMutationTestLive(fixture: ApplicationMutationTestLiveFixture | ApplicationCoreMutationFixture, loader: WorkerLoader, options?: Readonly<{
+export function makeApplicationMutationTestLive(fixture: ApplicationMutationTestLiveFixture | ApplicationCoreFixture, loader: WorkerLoader, options?: Readonly<{
     readonly source?: ApplicationMutationSystemLive["applicationRunner"]["source"];
     readonly onExecution?: () => void;
     readonly afterRuntime?: () => Effect.Effect<void, never>;
     readonly uuidSequenceStart?: number;
   }>): Promise<ApplicationMutationSystemLive | ApplicationCoreMutationSystemLive>;
 export async function makeApplicationMutationTestLive(
-  fixture: ApplicationMutationTestLiveFixture | ApplicationCoreMutationFixture,
+  fixture: ApplicationMutationTestLiveFixture | ApplicationCoreFixture,
   loader: WorkerLoader,
   options: Readonly<{
     readonly source?: ApplicationMutationSystemLive["applicationRunner"]["source"];

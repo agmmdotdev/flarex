@@ -34,7 +34,7 @@ extend or a dependency of current package-based DO/cache/index replacements.
 Those replacements live in the existing
 [interval cache](../../packages/persistence-postgres/src/storage/indexes/snapshotIndexCache.ts),
 [pending root](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/rootEvaluator.ts)
-and [query DO](../../apps/executor/src/applicationQueryDO.ts). Reuse sound work
+and [app DO](../../apps/executor/src/applicationDO.ts). Reuse sound work
 there; no deletion of the retained experiment follows from this clarification.
 
 ## Current state

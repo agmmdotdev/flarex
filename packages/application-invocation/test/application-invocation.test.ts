@@ -178,6 +178,27 @@ describe("clean Application invocation primitives", () => {
     }
   });
 
+  it("projects a query refusal while preserving defects and interruption in the same Cause", async () => {
+    const refusal = new ApplicationQueryCompositionError({ reason: "invalidTarget" });
+    const defect = new Error("query callback defect");
+    const original = Cause.combine(Cause.fail(refusal), Cause.combine(Cause.die(defect), Cause.interrupt(712)));
+    const system = ApplicationQuerySystem.of({
+      selectionQuery: { runQuery: () => Effect.die("selection query must not run") },
+      invoke: () => Effect.failCause(original),
+    });
+    const outcome = await Effect.runPromiseExit(runQuery(getMessage, { id: "message-1" }).pipe(
+      Effect.provideService(ApplicationQuerySystem, system),
+    ));
+    expect(Exit.isFailure(outcome)).toBe(true);
+    if (Exit.isFailure(outcome)) {
+      expect(outcome.cause.reasons).toMatchObject([
+        { _tag: "Fail", error: { _tag: "QueryInvocationError", reason: "invalidConfiguration", cause: refusal } },
+        { _tag: "Die", defect },
+        { _tag: "Interrupt", fiberId: 712 },
+      ]);
+    }
+  });
+
   it("projects the typed value without losing authoritative mutation evidence", async () => {
     const outcome = Object.freeze({
       status: "committed" as const,

@@ -1,0 +1,165 @@
+import { canonicalizeApplicationManifest, type ApplicationManifest, type ApplicationManifestV1 } from "@flarex/analysis/application-analysis";
+import { applicationFunctionCatalogPublicationFrameV1, applicationFunctionEntryPublicationFrameV1,
+  applicationPublicationCommitmentFrameV1, applicationSchemaPublicationFrameV1 } from "@flarex/analysis/internal/application-publication-v1";
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { Data, Effect, Result, Schema } from "effect";
+import { decodeDocumentId } from "flarex-protocol/document-id";
+import type { DocumentObject } from "flarex-protocol/document-value";
+import { canonicalizeApplicationMutationExecutionAuthorityV1,
+  type CanonicalApplicationMutationExecutionAuthorityV1 } from "flarex-protocol/internal/application-mutation-authority-v1";
+import { canonicalizeApplicationRuntimeTargetV1, type ApplicationRuntimeTargetV1 } from "flarex-protocol/internal/application-runtime-target-v1";
+import { projectScopeIdUuidV1Result, ScopeEpochUuidV1Schema, ScopeUuidV1Schema } from "flarex-protocol/storage-authority";
+import { validateValidatorValueV1 } from "flarex-protocol/validator-engine";
+import type { CoreProgramDefinition, CoreReadTransaction } from "../core/api";
+import { captureCoreObject } from "../core/document";
+
+export class CoreApplicationProgramError extends Data.TaggedError("CoreApplicationProgramError")<{
+  readonly reason: "metadataInvalid" | "argumentsInvalid" | "hashFailure" | "unsupportedSelection";
+  readonly cause?: unknown;
+}> {}
+
+interface CoreApplicationProgramBase {
+  readonly definition: CoreProgramDefinition;
+  readonly runtimeTarget: ApplicationRuntimeTargetV1;
+  readonly manifest: ApplicationManifestV1;
+  readonly compatibilityDate: string;
+  readonly scopeUuid: string;
+  readonly epochUuid: string;
+}
+export type CoreApplicationProgram = CoreApplicationProgramBase & (
+  | Readonly<{ kind: "query" }>
+  | Readonly<{ kind: "mutation"; executionAuthority: CanonicalApplicationMutationExecutionAuthorityV1 }>
+);
+export interface CoreApplicationTableBinding { readonly tableId: number; readonly logicalName: string }
+type Hash = (bytes: Uint8Array) => Effect.Effect<Uint8Array, unknown>;
+const utf8 = new TextEncoder();
+const MetadataFields = { manifest: Schema.Unknown, compatibilityDate: Schema.NonEmptyString,
+  scopeUuid: ScopeUuidV1Schema, epochUuid: ScopeEpochUuidV1Schema };
+const Metadata = Schema.Union([
+  Schema.Struct({ ...MetadataFields, kind: Schema.Literal("query"), runtimeTarget: Schema.Unknown }),
+  Schema.Struct({ ...MetadataFields, kind: Schema.Literal("mutation"), executionAuthority: Schema.Unknown }),
+]);
+const decodeMetadata = Schema.decodeUnknownEffect(Metadata);
+const ProducerIdentity = Schema.Struct({ scopeUuid: ScopeUuidV1Schema, epochUuid: ScopeEpochUuidV1Schema,
+  compatibilityDate: Schema.NonEmptyString, generation: Schema.Int.check(Schema.makeFilter(value =>
+    Number.isSafeInteger(value) && value > 0 ? undefined : "Expected a positive safe generation")) });
+const invalid = (cause?: unknown) => new CoreApplicationProgramError({ reason: "metadataInvalid", cause });
+const hashHex = Effect.fn("CoreApplicationProgram.hash")((hash: Hash, bytes: Uint8Array) => hash(bytes).pipe(
+  Effect.mapError(cause => new CoreApplicationProgramError({ reason: "hashFailure", cause })),
+  Effect.flatMap(value => value.length === 32 ? Effect.succeed(encodeBytesToLowercaseHex(value)) : Effect.fail(invalid())),
+));
+const frameHash = Effect.fn("CoreApplicationProgram.frameHash")((hash: Hash,
+  frame: Result.Result<Uint8Array, unknown>) => Effect.fromResult(frame).pipe(
+    Effect.mapError(invalid), Effect.flatMap(bytes => hashHex(hash, bytes)),
+  ));
+
+/** Actual verified Analysis output enters once at this production owner, never a fixture-local compiler. */
+export const makeCoreApplicationPrograms = Effect.fn("makeCoreApplicationPrograms")(function* (input: Readonly<{
+  manifest: unknown; scopeUuid: string; epochUuid: string; compatibilityDate: string; generation?: number; sha256: Hash;
+}>) {
+  const identity = yield* Schema.decodeUnknownEffect(ProducerIdentity)({ ...input, generation: input.generation ?? 1 }).pipe(Effect.mapError(invalid));
+  const canonical = yield* Effect.fromResult(canonicalizeApplicationManifest(input.manifest)).pipe(Effect.mapError(invalid));
+  if (canonical.manifest.version !== 1) return yield* new CoreApplicationProgramError({ reason: "unsupportedSelection" });
+  const manifest = canonical.manifest;
+  const hash = input.sha256;
+  const manifestSha256 = yield* hashHex(hash, canonical.canonicalBytes);
+  const schemaSha256 = yield* frameHash(hash, applicationSchemaPublicationFrameV1(manifest));
+  const functionCatalogSha256 = yield* frameHash(hash, applicationFunctionCatalogPublicationFrameV1(manifest));
+  const frame = { scopeId: `scope_${identity.scopeUuid}`, revisionId: `core_revision_${manifestSha256}`,
+    candidateId: `core_candidate_${manifestSha256}`, analysisId: `core_analysis_${manifestSha256}`,
+    sourceArtifactRootSha256: manifest.sourceArtifact.rootSha256, manifestSha256, schemaSha256, functionCatalogSha256 };
+  const publicationSha256 = yield* frameHash(hash, applicationPublicationCommitmentFrameV1(frame));
+  const activeHeadSha256 = identity.generation === 1 ? publicationSha256
+    : yield* hashHex(hash, utf8.encode(`head:${identity.generation}:${publicationSha256}`));
+  const definitions: CoreProgramDefinition[] = [];
+  for (const fn of manifest.functions) {
+    if (fn.kind !== "query" && fn.kind !== "mutation") continue;
+    const target = yield* Effect.fromResult(canonicalizeApplicationRuntimeTargetV1({
+      format: "flarex.application-runtime-target", version: 1, ...frame, publicationSha256,
+      executionModulePath: manifest.sourceArtifact.executionModulePath,
+      function: { ...fn, entrySha256: yield* frameHash(hash, applicationFunctionEntryPublicationFrameV1(fn)) },
+    })).pipe(Effect.mapError(invalid));
+    const runtimeTargetSha256 = yield* hashHex(hash, target.canonicalBytes);
+    const executionAuthority = fn.kind === "mutation" ? yield* canonicalizeApplicationMutationExecutionAuthorityV1({
+      format: "flarex.application-mutation-execution-authority", version: 1, runtimeTarget: target.target,
+      runtimeTargetSha256, activationSequence: identity.generation.toString(), activeHeadSha256,
+      schemaVersionId: `core_schema_${schemaSha256}`,
+    }).pipe(Effect.mapError(invalid)) : undefined;
+    const metadata = yield* Effect.fromResult(captureCoreObject({ manifest, compatibilityDate: identity.compatibilityDate,
+      scopeUuid: identity.scopeUuid, epochUuid: identity.epochUuid,
+      ...(executionAuthority === undefined ? { kind: "query", runtimeTarget: target.target }
+        : { kind: "mutation", executionAuthority: executionAuthority.authority }),
+    }, true)).pipe(Effect.mapError(invalid));
+    definitions.push(Object.freeze({ identity: Object.freeze({ functionPath: fn.path, schemaHash: schemaSha256,
+      programHash: executionAuthority === undefined ? runtimeTargetSha256 : encodeBytesToLowercaseHex(executionAuthority.sha256) }),
+      metadata: metadata.value }));
+  }
+  return Object.freeze(definitions);
+});
+
+/** Decode and verify the selected immutable program; no latest-head observation occurs here. */
+export const readCoreApplicationProgram = Effect.fn("readCoreApplicationProgram")(function* (
+  definition: CoreProgramDefinition, hash: Hash,
+) {
+  const captured = yield* Effect.fromResult(captureCoreObject(definition.metadata, true)).pipe(Effect.mapError(invalid));
+  const metadata = yield* decodeMetadata(captured.value).pipe(Effect.mapError(invalid));
+  const canonical = yield* Effect.fromResult(canonicalizeApplicationManifest(metadata.manifest)).pipe(Effect.mapError(invalid));
+  if (canonical.manifest.version !== 1) return yield* new CoreApplicationProgramError({ reason: "unsupportedSelection" });
+  const manifest = canonical.manifest;
+  const authority = metadata.kind === "mutation"
+    ? yield* canonicalizeApplicationMutationExecutionAuthorityV1(metadata.executionAuthority).pipe(Effect.mapError(invalid)) : undefined;
+  const target = yield* Effect.fromResult(canonicalizeApplicationRuntimeTargetV1(metadata.kind === "query"
+    ? metadata.runtimeTarget : authority?.authority.runtimeTarget)).pipe(Effect.mapError(invalid));
+  const runtimeTarget = target.target;
+  const fn = manifest.functions.find(candidate => candidate.path === definition.identity.functionPath);
+  if (fn === undefined || fn.kind !== metadata.kind || runtimeTarget.function.kind !== metadata.kind)
+    return yield* invalid();
+  const manifestSha256 = yield* hashHex(hash, canonical.canonicalBytes);
+  const schemaSha256 = yield* frameHash(hash, applicationSchemaPublicationFrameV1(manifest));
+  const catalogSha256 = yield* frameHash(hash, applicationFunctionCatalogPublicationFrameV1(manifest));
+  const entrySha256 = yield* frameHash(hash, applicationFunctionEntryPublicationFrameV1(fn));
+  const selectedEntrySha256 = yield* frameHash(hash, applicationFunctionEntryPublicationFrameV1({
+    path: runtimeTarget.function.path, moduleName: runtimeTarget.function.moduleName,
+    exportName: runtimeTarget.function.exportName, kind: runtimeTarget.function.kind,
+    visibility: runtimeTarget.function.visibility, args: runtimeTarget.function.args,
+    returns: runtimeTarget.function.returns, partition: runtimeTarget.function.partition,
+  }));
+  const publicationSha256 = yield* frameHash(hash, applicationPublicationCommitmentFrameV1({
+    scopeId: runtimeTarget.scopeId, revisionId: runtimeTarget.revisionId, candidateId: runtimeTarget.candidateId,
+    analysisId: runtimeTarget.analysisId, sourceArtifactRootSha256: runtimeTarget.sourceArtifactRootSha256,
+    manifestSha256: runtimeTarget.manifestSha256, schemaSha256: runtimeTarget.schemaSha256,
+    functionCatalogSha256: runtimeTarget.functionCatalogSha256,
+  }));
+  const programHash = authority === undefined ? yield* hashHex(hash, target.canonicalBytes) : encodeBytesToLowercaseHex(authority.sha256);
+  const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(runtimeTarget.scopeId)).pipe(Effect.mapError(invalid));
+  if (runtimeTarget.function.path !== definition.identity.functionPath || definition.identity.programHash !== programHash
+    || definition.identity.schemaHash !== schemaSha256 || runtimeTarget.schemaSha256 !== schemaSha256
+    || runtimeTarget.manifestSha256 !== manifestSha256 || runtimeTarget.functionCatalogSha256 !== catalogSha256
+    || runtimeTarget.function.entrySha256 !== entrySha256 || selectedEntrySha256 !== entrySha256
+    || runtimeTarget.publicationSha256 !== publicationSha256 || scope.scopeUuid !== metadata.scopeUuid
+    || runtimeTarget.sourceArtifactRootSha256 !== manifest.sourceArtifact.rootSha256
+    || runtimeTarget.executionModulePath !== manifest.sourceArtifact.executionModulePath)
+    return yield* invalid();
+  const base = { definition, runtimeTarget, manifest, compatibilityDate: metadata.compatibilityDate,
+    scopeUuid: metadata.scopeUuid, epochUuid: metadata.epochUuid };
+  return authority === undefined ? Object.freeze({ ...base, kind: "query" as const })
+    : Object.freeze({ ...base, kind: "mutation" as const, executionAuthority: authority });
+});
+
+export const readCoreApplicationTableBindings = Effect.fn("readCoreApplicationTableBindings")((
+  transaction: CoreReadTransaction, manifest: ApplicationManifest,
+) => Effect.forEach(manifest.schema.tables, table => transaction.tableNumber(table.name).pipe(
+  Effect.map(tableId => Object.freeze({ tableId, logicalName: table.name }))), { concurrency: 1 }));
+
+export function validateCoreApplicationArguments(
+  validator: ApplicationManifest["functions"][number]["args"], value: DocumentObject,
+  bindings: readonly CoreApplicationTableBinding[],
+) {
+  const numbers = new Map(bindings.map(binding => [binding.logicalName, binding.tableId]));
+  return validateValidatorValueV1(validator, value, { path: "$args", idPolicy: { mode: "tableAware", check: (name, id) => {
+    const number = numbers.get(name);
+    if (number === undefined) return "unavailable";
+    return decodeDocumentId(id).pipe(Result.match({ onFailure: () => "invalid" as const,
+      onSuccess: identity => identity.tableNumber === number ? "valid" as const : "invalid" as const }));
+  } } }).pipe(Result.mapError(cause => new CoreApplicationProgramError({ reason: "argumentsInvalid", cause })));
+}

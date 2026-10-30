@@ -80,13 +80,17 @@ export interface ApplicationWorkerTableV1 {
   readonly logicalName: SchemaManifestAppTableName;
 }
 
-export interface ApplicationTransactionQueryContextV1 {
+interface ApplicationTransactionQueryContextBaseV1 {
   readonly mode: "query";
   readonly executionId: string;
   readonly randomSeed: Uint8Array;
   readonly executionTime: number;
-  readonly snapshotCommitSeq: bigint;
 }
+
+export type ApplicationTransactionQueryContextV1 = ApplicationTransactionQueryContextBaseV1 & (
+  | Readonly<{ snapshotCommitSeq: bigint; snapshotTimestamp?: never }>
+  | Readonly<{ snapshotTimestamp: bigint; snapshotCommitSeq?: never }>
+);
 
 export interface ApplicationTransactionWriteContextV1 {
   readonly mode: "write";
@@ -877,74 +881,81 @@ function decodeTables(
   );
 }
 
-function decodeTransactionContext(
+const decodeTransactionContext = Effect.fn("ApplicationWorker.decodeTransactionContext")(function* (
   value: unknown,
   boundary: "transactionRequest",
-): Effect.Effect<
+): Effect.fn.Return<
   ApplicationTransactionWorkerContextV1,
   ApplicationWorkerProtocolV1Error
 > {
-  return Effect.gen(function* () {
-    const context = yield* decodeRecordUnion(value, [[
-      "mode",
-      "executionId",
-      "randomSeed",
-      "executionTime",
-      "snapshotCommitSeq",
-    ], [
-      "mode",
-      "executionId",
-      "logScopeId",
-      "randomSeed",
-      "executionTime",
-      "initialCreationTimeCursor",
-    ]], boundary, "context");
-    if (context.mode === "query") {
-      const randomSeed = yield* decodeBytes(
-        context.randomSeed,
-        APPLICATION_WORKER_RANDOM_SEED_BYTES_V1,
-        boundary,
-        "context.randomSeed",
-      );
-      if (
-        !isBoundedText(context.executionId) ||
-        !isFiniteNumber(context.executionTime) ||
-        typeof context.snapshotCommitSeq !== "bigint" ||
-        context.snapshotCommitSeq < 0n
-      ) return yield* fail(boundary, "invalidShape", "context");
-      return Object.freeze({
-        mode: "query" as const,
-        executionId: context.executionId,
-        randomSeed,
-        executionTime: context.executionTime,
-        snapshotCommitSeq: context.snapshotCommitSeq,
-      });
-    }
-    if (context.mode !== "write") {
-      return yield* fail(boundary, "invalidShape", "context.mode");
-    }
+  const context = yield* decodeRecordUnion(value, [[
+    "mode",
+    "executionId",
+    "randomSeed",
+    "executionTime",
+    "snapshotCommitSeq",
+  ], [
+    "mode",
+    "executionId",
+    "randomSeed",
+    "executionTime",
+    "snapshotTimestamp",
+  ], [
+    "mode",
+    "executionId",
+    "logScopeId",
+    "randomSeed",
+    "executionTime",
+    "initialCreationTimeCursor",
+  ]], boundary, "context");
+  if (context.mode === "query") {
     const randomSeed = yield* decodeBytes(
       context.randomSeed,
       APPLICATION_WORKER_RANDOM_SEED_BYTES_V1,
       boundary,
       "context.randomSeed",
     );
+    const snapshot = "snapshotTimestamp" in context
+      ? context.snapshotTimestamp : context.snapshotCommitSeq;
     if (
       !isBoundedText(context.executionId) ||
-      !isBoundedText(context.logScopeId) ||
-      !isAppCreationTime(context.executionTime) ||
-      !isAppCreationTime(context.initialCreationTimeCursor)
+      !isFiniteNumber(context.executionTime) ||
+      typeof snapshot !== "bigint" ||
+      snapshot < 0n
     ) return yield* fail(boundary, "invalidShape", "context");
     return Object.freeze({
-      mode: "write" as const,
+      mode: "query" as const,
       executionId: context.executionId,
-      logScopeId: context.logScopeId,
       randomSeed,
       executionTime: context.executionTime,
-      initialCreationTimeCursor: context.initialCreationTimeCursor,
+      ...("snapshotTimestamp" in context
+        ? { snapshotTimestamp: snapshot } : { snapshotCommitSeq: snapshot }),
     });
+  }
+  if (context.mode !== "write") {
+    return yield* fail(boundary, "invalidShape", "context.mode");
+  }
+  const randomSeed = yield* decodeBytes(
+    context.randomSeed,
+    APPLICATION_WORKER_RANDOM_SEED_BYTES_V1,
+    boundary,
+    "context.randomSeed",
+  );
+  if (
+    !isBoundedText(context.executionId) ||
+    !isBoundedText(context.logScopeId) ||
+    !isAppCreationTime(context.executionTime) ||
+    !isAppCreationTime(context.initialCreationTimeCursor)
+  ) return yield* fail(boundary, "invalidShape", "context");
+  return Object.freeze({
+    mode: "write" as const,
+    executionId: context.executionId,
+    logScopeId: context.logScopeId,
+    randomSeed,
+    executionTime: context.executionTime,
+    initialCreationTimeCursor: context.initialCreationTimeCursor,
   });
-}
+});
 
 function decodeActionContext(
   value: unknown,

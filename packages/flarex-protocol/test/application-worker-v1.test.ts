@@ -47,6 +47,21 @@ describe("Application worker V1 protocol", () => {
     expect(Object.isFrozen(decoded.tables)).toBe(true);
   });
 
+  it("keeps fresh snapshot timestamps distinct from legacy query commit sequences", async () => {
+    const input = transactionRequest("query", "public");
+    const { snapshotCommitSeq: _legacy, ...context } = queryContext();
+    const fresh = { ...input, context: { ...context, snapshotTimestamp: 1_900_000_000_000_000_000n } };
+    const decoded = await Effect.runPromise(decodeApplicationTransactionWorkerRequestV1Effect(fresh));
+    expect(decoded.context).toMatchObject({ mode: "query", snapshotTimestamp: fresh.context.snapshotTimestamp });
+    expect(decoded.context).not.toHaveProperty("snapshotCommitSeq");
+    await expect(Effect.runPromise(decodeApplicationTransactionWorkerRequestV1Effect({
+      ...fresh, context: { ...fresh.context, snapshotCommitSeq: 9n },
+    }))).rejects.toMatchObject({ reason: "invalidShape", path: "context" });
+    await expect(Effect.runPromise(decodeApplicationTransactionWorkerRequestV1Effect({
+      ...fresh, context: { ...fresh.context, snapshotTimestamp: -1n },
+    }))).rejects.toMatchObject({ reason: "invalidShape", path: "context" });
+  });
+
   it.each([
     ["query", "internal"],
     ["mutation", "public"],

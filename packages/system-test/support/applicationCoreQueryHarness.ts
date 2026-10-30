@@ -1,4 +1,4 @@
-import type { ApplicationCoreMutationFixture } from "@flarex/persistence-postgres/internal/system-test/core-application-mutation-fixture";
+import type { ApplicationCoreFixture } from "@flarex/persistence-postgres/internal/system-test/core-application-fixture";
 import { CORE_TRANSACTION_REFERENCE_LIMITS } from "@flarex/persistence-postgres/internal/core";
 import { Effect, Option, Result, Schema } from "effect";
 import { createQueryCursorBroker } from "flarex-protocol/query-cursor";
@@ -17,7 +17,7 @@ const pageSchema = Schema.Struct({ page: Schema.Array(Schema.Struct({ _id: Schem
   isDone: Schema.Boolean, continueCursor: Schema.String });
 const decodePage = Schema.decodeUnknownSync(pageSchema);
 
-async function seed(fixture: ApplicationCoreMutationFixture, values: readonly DocumentObject[]) {
+async function seed(fixture: ApplicationCoreFixture, values: readonly DocumentObject[]) {
   const transaction = await runSystemTestEffectV1(fixture.database.begin());
   try {
     const ids: string[] = [];
@@ -33,7 +33,7 @@ function invoke(layer: Awaited<ReturnType<typeof makeApplicationNativeMutationTe
   ).pipe(Effect.provide(layer))));
 }
 
-export async function proveCoreApplicationQueryTerminals(fixture: ApplicationCoreMutationFixture) {
+export async function proveCoreApplicationQueryTerminals(fixture: ApplicationCoreFixture) {
   const expected = rows(260).map(row => row.name);
   await seed(fixture, rows(260));
   const calls: Array<{ method: string; arguments: readonly unknown[] }> = [];
@@ -70,7 +70,7 @@ export async function proveCoreApplicationQueryTerminals(fixture: ApplicationCor
   } finally { await loader.dispose(); }
 }
 
-export async function proveCoreApplicationQueryPagination(fixture: ApplicationCoreMutationFixture) {
+export async function proveCoreApplicationQueryPagination(fixture: ApplicationCoreFixture) {
   const ids = await seed(fixture, rows(5));
   const loader = new MiniflareApplicationWorkerLoader();
   try {
@@ -127,7 +127,7 @@ export async function proveCoreApplicationQueryPagination(fixture: ApplicationCo
   } finally { await loader.dispose(); }
 }
 
-export async function proveCoreApplicationQueryPendingAndDropped(fixture: ApplicationCoreMutationFixture) {
+export async function proveCoreApplicationQueryPendingAndDropped(fixture: ApplicationCoreFixture) {
   const ids = await seed(fixture, rows(260));
   const calls: string[] = [];
   const pages: number[] = [];
@@ -155,7 +155,7 @@ export async function proveCoreApplicationQueryPendingAndDropped(fixture: Applic
   } finally { await loader.dispose(); }
 }
 
-export async function proveCoreApplicationQueryByteBudgets(fixture: ApplicationCoreMutationFixture) {
+export async function proveCoreApplicationQueryByteBudgets(fixture: ApplicationCoreFixture) {
   await seed(fixture, rows(10).map(row => ({ ...row, padding: "p".repeat(900_000) })));
   const counts: number[] = [];
   const loader = new MiniflareApplicationWorkerLoader(undefined, (method, _args, result) => {
@@ -180,7 +180,7 @@ export async function proveCoreApplicationQueryByteBudgets(fixture: ApplicationC
 }
 
 /** Compact JSON can still exceed the Worker's semantic frame budget. */
-export async function proveCoreApplicationQuerySemanticByteBudgets(fixture: ApplicationCoreMutationFixture) {
+export async function proveCoreApplicationQuerySemanticByteBudgets(fixture: ApplicationCoreFixture) {
   const expected = rows(128).map(row => row.name);
   await seed(fixture, rows(128).map((row, ordinal) => ({ ...row,
     values: ordinal < 64 ? Array<number>(8192).fill(0)
@@ -209,7 +209,7 @@ export async function proveCoreApplicationQuerySemanticByteBudgets(fixture: Appl
   } finally { await loader.dispose(); }
 }
 
-export async function proveCoreApplicationMissingQueryBridge(fixture: ApplicationCoreMutationFixture) {
+export async function proveCoreApplicationMissingQueryBridge(fixture: ApplicationCoreFixture) {
   const loader = new MiniflareApplicationWorkerLoader(undefined, undefined, true);
   try {
     const layer = await makeApplicationNativeMutationTestLayer(fixture, loader);
@@ -224,7 +224,7 @@ export async function proveCoreApplicationMissingQueryBridge(fixture: Applicatio
   } finally { await loader.dispose(); }
 }
 
-export async function proveCoreApplicationQueryPageRevocation(fixture: ApplicationCoreMutationFixture) {
+export async function proveCoreApplicationQueryPageRevocation(fixture: ApplicationCoreFixture) {
   await seed(fixture, rows(260));
   let requestedPages = 0;
   let completedPages = 0;

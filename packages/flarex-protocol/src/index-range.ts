@@ -144,7 +144,7 @@ export function compileIndexRange(
     ranked.sort((a, b) => a.rank - b.rank);
     if (inequalityField !== undefined && !rank.has(inequalityField)) return yield* Result.fail(new IndexRangeError({ reason: "fieldNotInIndex", field: inequalityField }));
     const used = [...ranked.map(expression => expression.field), ...(inequalityField === undefined ? [] : [inequalityField])];
-    for (let i = 0; i < used.length; i += 1) if (used[i] !== fields[i]) return yield* Result.fail(new IndexRangeError({ reason: "invalidIndexRange", field: used[i] }));
+    for (const [i, field] of used.entries()) if (field !== fields[i]) return yield* Result.fail(new IndexRangeError({ reason: "invalidIndexRange", field }));
     const prefix = ranked.map(expression => expression.value);
     const startKey = encodeValues(lower === undefined ? prefix : [...prefix, lower.value]);
     const start = lower === undefined || lower.inclusive ? startKey : incrementIndexKeyPrefix(startKey);

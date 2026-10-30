@@ -122,6 +122,11 @@ import {
 import { RpcTarget } from "cloudflare:workers";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { isNonBlankString } from "@flarex/utils/strings";
+import {
+  makeCoreApplicationQueryRunner,
+  type ApplicationCoreQuerySystemLive,
+} from "./CoreApplicationQueryRunner";
+export { CoreApplicationQueryError, type ApplicationCoreQuerySystemLive } from "./CoreApplicationQueryRunner";
 
 const QUERY_POLICY_ENCODING_BUDGET = Object.freeze({
   maximumOrigins: 1,
@@ -257,7 +262,8 @@ export class ApplicationQueryCompositionError extends Data.TaggedError(
 export type InvokeApplicationQueryError =
   | Effect.Error<ReturnType<ApplicationQuerySystemLive["activation"]["readActive"]>>
   | ApplicationQueryInputError
-  | InvokeApplicationSelectionQueryError;
+  | InvokeApplicationSelectionQueryError
+  | Effect.Error<ReturnType<ReturnType<typeof makeCoreApplicationQueryRunner>>>;
 
 export type InvokeApplicationSelectionQueryError =
   | OpenApplicationQuerySnapshotError
@@ -310,22 +316,39 @@ export const invokeApplicationQuery = Effect.fn(
 });
 
 export function makeApplicationQuerySystemLayer(
-  live: ApplicationQuerySystemLive,
+  live: ApplicationQuerySystemLive | ApplicationCoreQuerySystemLive,
 ): Layer.Layer<ApplicationQuerySystem> {
+  if ("coreDatabase" in live) return Layer.succeed(ApplicationQuerySystem, makeCoreApplicationQuerySystem(live));
   return Layer.effect(ApplicationQuerySystem, makeApplicationQuerySystem(live))
     .pipe(Layer.provide(ScopeExecutionLive));
 }
 
 /** Capture static ports now; construct the API in the supplied execution context. */
 export function makeApplicationQuerySystem(
-  live: ApplicationQuerySystemLive,
+  live: ApplicationQuerySystemLive | ApplicationCoreQuerySystemLive,
 ): Effect.Effect<ApplicationQuerySystemApi, never, ScopeExecution> {
+  if ("coreDatabase" in live) return Effect.succeed(makeCoreApplicationQuerySystem(live));
   const captured = captureLive(live);
   return constructApplicationQueryPorts(captured).pipe(Effect.map(ports =>
     ApplicationQuerySystem.of({
       selectionQuery: ports.selectionQuery,
       invoke: makeInvoke(Effect.succeed(ports)),
     })));
+}
+
+function makeCoreApplicationQuerySystem(live: ApplicationCoreQuerySystemLive): ApplicationQuerySystemApi {
+  const execute = makeCoreApplicationQueryRunner(live);
+  return ApplicationQuerySystem.of({
+    // Legacy opaque selections retain their original consumers and authority.
+    selectionQuery: { runQuery: () => Effect.fail(new ApplicationQueryCompositionError({ reason: "invalidTarget" })) },
+    invoke: Effect.fn("ApplicationQuerySystem.invokeCore")(function* (
+      functionRef, args, identity = ANONYMOUS_IDENTITY,
+    ) {
+      const prepared = yield* prepareSelectionQueryInput(functionRef, args, identity);
+      return yield* execute(prepared.functionRef, prepared.normalizedArguments.value,
+        prepared.normalizedArguments.semanticSizeBytes, prepared.auth);
+    }),
+  });
 }
 
 type ApplicationQueryPorts = Pick<ApplicationQuerySystemLive, "activation"> &
@@ -563,7 +586,7 @@ const prepareSelectionQueryInput = Effect.fn(
   "ApplicationSelectionQuery.prepareInput",
 )(function* (
   functionRef: string,
-  argumentsValue: CanonicalFlarexRuntimeValueV1,
+  argumentsValue: unknown,
   identity: ExecutionIdentity,
 ): Effect.fn.Return<PreparedSelectionQueryInput, ApplicationQueryInputError> {
   if (!isNonBlankString(functionRef)) {

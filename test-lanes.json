@@ -1402,7 +1402,7 @@
           "id": "actual-do-query",
           "cwd": "apps/executor",
           "command": "pnpm",
-          "args": ["exec", "vitest", "run", "test/applicationQueryDO.postgres.test.ts", "--maxWorkers=1", "--no-file-parallelism"]
+          "args": ["exec", "vitest", "run", "test/applicationDO.postgres.test.ts", "--maxWorkers=1", "--no-file-parallelism"]
         }
       ]
     },

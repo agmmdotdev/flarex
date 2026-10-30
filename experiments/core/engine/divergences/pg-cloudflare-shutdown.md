@@ -130,9 +130,11 @@ handoff; destruction during transition; and exactly one final close with no late
 driver events. Fakes may supply primitive socket I/O and peer outcomes; they
 must not implement the driver's state machine.
 
-The [actual DO scenario](../../../../apps/executor/test/applicationQueryDO.postgres.test.ts)
-exercises normal shutdown, real idle disconnect, complete failure Causes and
-cold reconnect with ordinary PostgreSQL. The separate
+The earlier query-only DO scenario at Flarex 22930f93c exercised normal shutdown,
+idle disconnect, complete failure Causes and cold reconnect. Its
+[shared app successor](../../../../apps/executor/test/applicationDO.postgres.test.ts)
+has its own scope in slice 06c; earlier evidence is not automatically a new-core
+certificate. The separate
 [STARTTLS scenario](../../../../apps/executor/test/pgCloudflareSocket.postgres.test.ts)
 uses that database's TLS listener and the actual Cloudflare socket, without
 Hyperdrive's Node TLS proxy. Explicit fixture CA trust belongs only to the

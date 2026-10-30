@@ -9,8 +9,10 @@
   "exports": {
     "./internal/core-application-schema": "./src/application/coreSchema.ts",
     "./internal/core-application-mutation": "./src/application/coreMutation.ts",
-    "./internal/system-test/core-application-mutation-fixture": "./test/application/applicationCoreMutationFixture.ts",
+    "./internal/system-test/core-application-fixture": "./test/application/applicationCoreFixture.ts",
     "./internal/core": "./src/core/index.ts",
+    "./internal/core-persistence": "./src/database/corePersistence/index.ts",
+    "./internal/core-application-program": "./src/application/coreProgram.ts",
     "./internal/system-test/core-persistence-fixture": "./test/core/fixture.ts",
     "./internal/trusted-workflow-checkpoint": "./src/tasks/trustedWorkflowCheckpoint.ts",
     "./internal/trusted-workflow-continuation": "./src/tasks/trustedWorkflowContinuationStore.ts",
