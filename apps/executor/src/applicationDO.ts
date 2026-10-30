@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { openCoreDatabase, type CoreDatabase, type CoreDatabaseOptions, type CoreError } from
+import { CoreSchemaWorkBudgetSchema, CoreSchemaWorkerOptionsSchema, CoreTransactionError, openCoreDatabase, type CoreDatabase, type CoreDatabaseOptions, type CoreError } from
   "@flarex/persistence-postgres/internal/core";
 import { createCorePersistence, loadCorePersistenceTarget, makeCorePostgresDriver, type CorePostgresPool } from
   "@flarex/persistence-postgres/internal/core-persistence";
@@ -13,10 +13,10 @@ import { makeApplicationAnalysisR2SourceReader } from
   "flarex-backend/internal/application-analysis-source-reader";
 import { makeApplicationExecutionHost } from
   "flarex-backend/internal/application-execution-host";
-import { Data, Effect, Layer, ManagedRuntime, Result, Schema, type Scope } from "effect";
+import { Cause, Clock, Data, Deferred, Effect, Exit, Layer, ManagedRuntime, Result, Schema, Semaphore, type Scope } from "effect";
 import { Client, Pool, type ClientConfig, type PoolConfig } from "pg";
 
-import { admitExecutorRequest, type ExecutorWorkerEnv } from "./requestLifecycle";
+import { admitExecutorConfiguration, admitExecutorRequest, type ExecutorWorkerEnv } from "./requestLifecycle";
 
 export interface ApplicationDurableObjectEnv extends ExecutorWorkerEnv {
   readonly LOADER: WorkerLoader;
@@ -39,6 +39,10 @@ const ApplicationWorkload = Schema.Struct({
   indexCache: Schema.Struct({ maxBytes: NonnegativeCount,
     verifyPercent: NonnegativeCount.check(Schema.isLessThanOrEqualTo(100)) }),
   operationCacheMaxBytes: NonnegativeCount,
+  schemaWorker: CoreSchemaWorkerOptionsSchema,
+  schemaScheduler: Schema.Struct({ work: CoreSchemaWorkBudgetSchema,
+    wakeDelayMilliseconds: NonnegativeCount.check(Schema.isGreaterThan(0)),
+    continuationDelayMilliseconds: NonnegativeCount.check(Schema.isGreaterThan(0)) }),
   admission: CoreApplicationAdmissionConfigurationSchema,
   /** Retained HTTP requests during boot/dispatch, separate from function permits. */
   maxRequests: NonnegativeCount.check(Schema.isGreaterThan(0)),
@@ -96,7 +100,7 @@ export class ApplicationOwnerHostError extends Data.TaggedError("ApplicationOwne
 export interface ApplicationDurableObjectOptions<Env extends ApplicationDurableObjectEnv, Failure> {
   /** Trusted topology and canonical routing identity; never derived from a request. */
   readonly configuration: (env: Env) => ApplicationDurableObjectConfiguration;
-  readonly coreOptions: Omit<CoreDatabaseOptions, "indexCache" | "operationCacheMaxBytes">;
+  readonly coreOptions: Omit<CoreDatabaseOptions, "indexCache" | "operationCacheMaxBytes" | "schemaWorker">;
   /** Explicit private workload settings; no Rust server cache allocation is inherited. */
   readonly workload: ApplicationDurableObjectWorkload;
   readonly application: (env: Env, infrastructure: Readonly<{
@@ -113,6 +117,7 @@ export interface ApplicationDurableObjectOptions<Env extends ApplicationDurableO
 export type ApplicationDurableObjectClass<Env extends ApplicationDurableObjectEnv> =
   new (ctx: DurableObjectState, env: Env) => DurableObject<Env> & {
     fetch(request: Request): Promise<Response>;
+    alarm(): Promise<void>;
     /** Controlled maintenance/test barrier; managed eviction has no shutdown hook. */
     close(): Promise<void>;
   };
@@ -134,11 +139,14 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
   const decoded = Schema.decodeUnknownSync(ApplicationWorkload)(options.workload);
   const workload = Object.freeze({ ...decoded,
     indexCache: Object.freeze({ ...decoded.indexCache }),
+    schemaWorker: Object.freeze({ ...decoded.schemaWorker }),
+    schemaScheduler: Object.freeze({ ...decoded.schemaScheduler, work: Object.freeze({ ...decoded.schemaScheduler.work }) }),
     admission: Object.freeze({ ...decoded.admission,
       query: Object.freeze({ ...decoded.admission.query }), mutation: Object.freeze({ ...decoded.admission.mutation }) }),
   });
   const coreOptions = Object.freeze({ ...options.coreOptions,
     indexCache: workload.indexCache, operationCacheMaxBytes: workload.operationCacheMaxBytes,
+    schemaWorker: workload.schemaWorker,
     ...(options.coreOptions.transactionLimits === undefined ? {}
       : { transactionLimits: Object.freeze({ ...options.coreOptions.transactionLimits }) }) });
   const createPool = options.createPool ?? ((connectionString: string) =>
@@ -152,6 +160,11 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
     #database: CoreDatabase | undefined;
     #failure: ApplicationOwnerHostError | undefined;
     #closing: Promise<void> | undefined;
+    readonly #alarmStorageLock = Semaphore.makeUnsafe(1);
+    #schemaGeneration = 0;
+    readonly #coreReady = Deferred.makeUnsafe<CoreDatabase, unknown>();
+    #bootstrap: Readonly<{ controller: AbortController; result: Promise<Exit.Exit<void, unknown>> }> | undefined;
+    #schemaAlarm: Readonly<{ controller: AbortController; result: Promise<Exit.Exit<void, unknown>> }> | undefined;
 
     constructor(ctx: DurableObjectState, env: Env) {
       super(ctx, env);
@@ -165,6 +178,10 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
       const env = this.env;
       const owner = this;
       const acquire = Effect.gen(function* () {
+        if (owner.#closing !== undefined) return yield* new ApplicationOwnerHostError({ reason: "closed" });
+        // Only an admitted request or an existing internal alarm can reach boot.
+        // A fresh unauthorized constructor schedules nothing and opens no pool.
+        yield* owner.#notifySchemaWork();
         const onPoolError = (cause: Error) => {
           owner.#failure ??= new ApplicationOwnerHostError({ reason: "resourceUnavailable", cause });
           // A pool event is a real foreign lifecycle edge. Its retained failure
@@ -184,19 +201,119 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
         // construction cannot disclose an invocation before this succeeds.
         const coreDatabase = yield* openCoreDatabase(persistence, coreOptions);
         owner.#database = coreDatabase;
+        yield* Deferred.succeed(owner.#coreReady, coreDatabase);
+        if (owner.#closing !== undefined) return yield* new ApplicationOwnerHostError({ reason: "closed" });
+        const hostedDatabase: CoreDatabase = Object.freeze({ ...coreDatabase,
+          prepareSchema: (input: Parameters<CoreDatabase["prepareSchema"]>[0]) => owner.#withSchemaWake(coreDatabase.prepareSchema(input)),
+          activateSchema: (proposal: Parameters<CoreDatabase["activateSchema"]>[0], publication: Parameters<CoreDatabase["activateSchema"]>[1]) => owner.#withSchemaWake(coreDatabase.activateSchema(proposal, publication)),
+        });
         if (owner.#failure !== undefined) return yield* Effect.fail(owner.#failure);
         const application = yield* options.application(env, {
-          coreDatabase,
+          coreDatabase: hostedDatabase,
           source: makeApplicationAnalysisR2SourceReader(env.ARTIFACTS),
           host: makeApplicationExecutionHost(env.LOADER),
         });
-        const live = { ...application, coreDatabase, admission };
+        const live = { ...application, coreDatabase: hostedDatabase, admission };
         return Layer.mergeAll(makeApplicationQuerySystemLayer(live), makeApplicationMutationSystemLayer(live));
-      });
+      }).pipe(Effect.onExit(exit => Exit.isFailure(exit)
+        ? Deferred.failCause(owner.#coreReady, exit.cause).pipe(Effect.asVoid) : Effect.void));
       this.#runtime = ManagedRuntime.make(Layer.unwrap(acquire));
+      const controller = new AbortController();
+      const result = this.#runtime.runPromiseExit(Effect.void, { signal: controller.signal });
+      // The retained bootstrap is independent of a single HTTP call. Native
+      // promise rejection is observed immediately and still joined on close.
+      void result.catch(() => undefined);
+      this.#bootstrap = { controller, result };
       return this.#runtime;
     }
 
+    // The storage alarm is a wake hint. All work discovery, progress and outcome
+    // decisions remain in the fenced core owner and its durable PostgreSQL data.
+    #alarmStorage<A>(operation: () => Promise<A>) {
+      return Effect.uninterruptible(Effect.tryPromise({ try: operation,
+        catch: cause => new CoreTransactionError({ reason: "unavailable",
+          cause: new ApplicationOwnerHostError({ reason: "resourceUnavailable", cause }) }) }));
+    }
+
+    readonly #ensureAlarm = Effect.fn("ApplicationDurableObject.ensureAlarm")((delay: number): Effect.Effect<void, CoreError> => {
+      const owner = this;
+      return Effect.gen(function* () {
+        const deadline = (yield* Clock.currentTimeMillis) + delay;
+        if (!Number.isSafeInteger(deadline)) return yield* new CoreTransactionError({ reason: "invalidValue" });
+        const previous = yield* owner.#alarmStorage(() => owner.ctx.storage.getAlarm());
+        // Never postpone a pre-existing notification, including an alarm which
+        // reconstructed the owner. Cloudflare consumes its hint before delivery.
+        if (previous === null || previous > deadline)
+          yield* owner.#alarmStorage(() => owner.ctx.storage.setAlarm(deadline));
+      });
+    });
+
+    readonly #notifySchemaWork = Effect.fn("ApplicationDurableObject.notifySchemaWork")((): Effect.Effect<void, CoreError> =>
+      Effect.suspend(() => {
+        if (this.#closing !== undefined) return Effect.void;
+        this.#schemaGeneration++;
+        return this.#alarmStorageLock.withPermits(1)(Effect.suspend(() => this.#closing !== undefined
+          ? Effect.void : this.#ensureAlarm(workload.schemaScheduler.wakeDelayMilliseconds)));
+      }));
+    #withSchemaWake<A>(work: Effect.Effect<A, CoreError>): Effect.Effect<A, CoreError> {
+      const owner = this;
+      return Effect.uninterruptibleMask(restore => Effect.gen(function* () {
+        yield* owner.#notifySchemaWork();
+        const outcome = yield* Effect.exit(restore(work));
+        // The first hint may run before publication. Always notify after the
+        // actual owner settles, including interruption or a failed proposal.
+        const wake = yield* Effect.exit(owner.#notifySchemaWork());
+        if (Exit.isFailure(outcome)) return yield* Effect.failCause(Exit.isFailure(wake)
+          ? Cause.combine(outcome.cause, wake.cause) : outcome.cause);
+        if (Exit.isFailure(wake)) return yield* Effect.failCause(wake.cause);
+        return outcome.value;
+      }));
+    }
+
+    readonly #finishSchemaStep = Effect.fn("ApplicationDurableObject.finishSchemaStep")((
+      generation: number, hasMore: boolean,
+    ): Effect.Effect<void, CoreError> => this.#alarmStorageLock.withPermits(1)(Effect.suspend(() => {
+      if (this.#closing !== undefined) return Effect.void;
+      return hasMore || this.#schemaGeneration !== generation
+        ? this.#ensureAlarm(hasMore ? workload.schemaScheduler.continuationDelayMilliseconds
+          : workload.schemaScheduler.wakeDelayMilliseconds)
+        : this.#alarmStorage(() => this.ctx.storage.deleteAlarm());
+    })));
+    #runSchemaAlarm(controller: AbortController): Promise<Exit.Exit<void, unknown>> {
+      if (this.#closing !== undefined) return Promise.resolve(Exit.void);
+      const admitted = admitExecutorConfiguration(this.env);
+      if (Result.isFailure(admitted)) return Promise.resolve(Exit.fail(new ApplicationOwnerHostError({
+        reason: "resourceUnavailable", cause: admitted.failure })));
+      this.#getRuntime(admitted.success.connectionString);
+      const owner = this;
+      // Core workers do not require ApplicationServices. In particular they must
+      // progress a schema while trusted application composition waits for it.
+      return Effect.runPromiseExit(Effect.gen(function* () {
+        const database = yield* Deferred.await(owner.#coreReady);
+        if (owner.#closing !== undefined) return;
+        const generation = owner.#schemaGeneration;
+        const progress = yield* database.advanceSchemaWork(workload.schemaScheduler.work);
+        yield* owner.#finishSchemaStep(generation, progress.hasMore);
+      }), { signal: controller.signal });
+    }
+    override async alarm(): Promise<void> {
+      if (!this.#canonical || this.#closing !== undefined || this.#failure !== undefined) return;
+      let running = this.#schemaAlarm;
+      if (running === undefined) {
+        const controller = new AbortController();
+        running = { controller, result: Promise.resolve().then(() => this.#runSchemaAlarm(controller)) };
+        this.#schemaAlarm = running;
+      }
+      try {
+        const exit = await running.result;
+        // Controlled close joins and reports any non-interruption Cause itself;
+        // it must not request a platform retry which could revive this instance.
+        if (Exit.isFailure(exit) && this.#closing === undefined)
+          await Effect.runPromise(Effect.failCause(exit.cause));
+      } finally {
+        if (this.#schemaAlarm === running) this.#schemaAlarm = undefined;
+      }
+    }
     override async fetch(request: Request): Promise<Response> {
       const admission = admitExecutorRequest(request, this.env);
       if (Result.isFailure(admission)) return admission.failure;
@@ -225,17 +342,38 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
     }
 
     close(): Promise<void> {
-      return this.#closing ??= Promise.resolve().then(async () => {
-        // The flag is installed synchronously before another request can enter.
-        // Each admitted invocation owns its Worker/callback drain; dispose then
-        // closes CoreDatabase before the pool by reverse scope acquisition.
+      if (this.#closing !== undefined) return this.#closing;
+      const alarm = this.#schemaAlarm;
+      const bootstrap = this.#bootstrap;
+      return this.#closing = Promise.resolve().then(async () => {
+        // Install the closed flag synchronously, then cancel and join every
+        // admitted invocation and the actual bounded alarm operation.
         for (const controller of this.#requests.values()) controller.abort("application-owner-closing");
+        alarm?.controller.abort("application-owner-closing");
+        bootstrap?.controller.abort("application-owner-closing");
+        // ManagedRuntime retains its build fiber independently of its callers.
+        // Start disposal now so an interruptible factory cannot hold close.
+        const runtime = this.#runtime;
+        const dispose = Promise.allSettled(runtime === undefined ? [] : [runtime.dispose()]);
         const database = this.#database;
         const coreClose = await Promise.allSettled(database === undefined ? [] : [Effect.runPromise(database.close())]);
         await Promise.allSettled([...this.#requests.keys()]);
-        const runtime = this.#runtime;
-        const dispose = await Promise.allSettled(runtime === undefined ? [] : [runtime.dispose()]);
-        const failures = [...coreClose, ...dispose].flatMap(result => result.status === "rejected" ? [result.reason] : []);
+        const backgroundDrain = await Promise.allSettled([
+          ...(alarm === undefined ? [] : [alarm.result]), ...(bootstrap === undefined ? [] : [bootstrap.result]),
+        ]);
+        const alarmFailure = backgroundDrain.flatMap(result => {
+          if (result.status === "rejected") return [new ApplicationOwnerHostError({ reason: "resourceUnavailable", cause: result.reason })];
+          const exit = result.value;
+          return Exit.isFailure(exit) && exit.cause.reasons.some(reason => !Cause.isInterruptReason(reason))
+            ? [new ApplicationOwnerHostError({ reason: "resourceUnavailable", cause: exit.cause })] : [];
+        });
+        // Serialized after every admitted hint write and the drained step, so a
+        // concurrent completion cannot re-arm after this final delete.
+        const hint = await Effect.runPromiseExit(this.#alarmStorageLock.withPermits(1)(
+          this.#alarmStorage(() => this.ctx.storage.deleteAlarm())));
+        const failures = [...coreClose, ...await dispose].flatMap(result => result.status === "rejected" ? [result.reason] : []);
+        if (Exit.isFailure(hint)) failures.push(new ApplicationOwnerHostError({ reason: "resourceUnavailable", cause: hint.cause }));
+        failures.push(...alarmFailure);
         if (failures.length > 0) throw new AggregateError(failures, "Application owner cleanup failed.");
       });
     }

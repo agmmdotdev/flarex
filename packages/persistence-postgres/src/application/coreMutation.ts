@@ -128,7 +128,7 @@ export function makeCoreApplicationMutationPort<GrantFailure, ExecutionFailure>(
     yield* Effect.try({ try: () => requirePointMutationArgumentSemanticSizeV1(captured.semanticSizeBytes),
       catch: cause => new CoreApplicationMutationError({ reason: "argumentsInvalid", cause }) });
     const admission = yield* database.begin({ program: program.definition.identity });
-    const tables = yield* readTableBindings(admission, program.manifest).pipe(Effect.ensuring(admission.abort()));
+    const tables = yield* readTableBindings(admission).pipe(Effect.ensuring(admission.abort()));
     yield* Effect.fromResult(validateArguments(target.function.args, argumentsValue, tables));
     const canonical = yield* Effect.tryPromise({ try: () => canonicalizeFlarexValueJsonV1(
       canonicalFlarexRuntimeValueToJsonV1(argumentsValue)),
@@ -177,7 +177,7 @@ export function makeCoreApplicationMutationPort<GrantFailure, ExecutionFailure>(
         const transaction = yield* database.begin({ program: program.definition.identity, claim,
           authorityEpoch: inspectVerifiedApplicationMutationGrantV1(grant).payload.authorizationRevocationEpoch });
         return yield* Effect.gen(function* () {
-          const bodyTables = yield* readTableBindings(transaction, program.manifest);
+          const bodyTables = yield* readTableBindings(transaction);
           yield* Effect.fromResult(validateArguments(target.function.args, argumentsValue, bodyTables));
           const value = yield* configuration.execute({ program, transaction, grant,
             arguments: argumentsValue, argumentSemanticBytes: captured.semanticSizeBytes,

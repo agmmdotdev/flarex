@@ -192,8 +192,12 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "db:check": "drizzle-kit check --config drizzle.config.ts",
-    "db:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "db:check": "pnpm db:core:check",
+    "db:generate": "pnpm db:core:layout",
+    "db:core:layout": "tsx scripts/buildCorePersistenceLayout.ts",
+    "db:core:check": "tsx scripts/buildCorePersistenceLayout.ts check",
+    "db:generate:legacy": "drizzle-kit generate --config drizzle.legacy.config.ts",
+    "db:check:legacy": "drizzle-kit check --config drizzle.legacy.config.ts",
     "typecheck": "tsc -p tsconfig.json",
     "typecheck:rust": "tsc-rs -p tsconfig.json",
     "typecheck:rust:fast": "tsc-rs -p tsconfig.json --fast",
@@ -316,6 +320,7 @@
   },
   "devDependencies": {
     "drizzle-kit": "^0.31.10",
+    "tsx": "catalog:",
     "miniflare": "catalog:",
     "payload": "3.88.0",
     "typescript": "catalog:",

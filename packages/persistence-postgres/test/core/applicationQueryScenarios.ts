@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { encodeDocumentId } from "flarex-protocol/document-id";
 import { encodeIndexKey } from "flarex-protocol/index-key";
 import { openCoreDatabase } from "../../src/core/database";
-import type { CoreDatabaseOptions, CoreInstallation } from "../../src/core/api";
+import type { CoreDatabaseOptions, CoreProgramPublication } from "../../src/core/api";
 import { CorePersistenceError, type CorePersistence } from "../../src/core/contracts";
 import { keyInInterval } from "../../src/core/writeLog";
 import { loadBootstrapRegistry } from "../../src/core/bootstrap";
@@ -13,25 +13,24 @@ import { loadCoreRegistry, PROGRAMS, TABLES, INDEXES } from "../../src/core/regi
 import { CoreFinalizationVault, createCoreTransaction } from "../../src/core/transaction";
 import * as transactionOwner from "../../src/core/transaction";
 import type { CorePersistenceFixture } from "./fixture";
+import { activateCoreSchema, CORE_SCHEMA_WORKER_TEST_OPTIONS } from "./schemaFixture";
+import { captureCoreSchema } from "../../src/core/schemaTypes";
 
 const id = (value: number) => new Uint8Array(16).fill(value);
-const options: CoreDatabaseOptions = { now: Effect.succeed(1_000_000_000n), newInternalId: Effect.sync(() => randomBytes(16)) };
-const byId = id(101);
-const byValue = id(102);
+const options: CoreDatabaseOptions = { schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS, now: Effect.succeed(1_000_000_000n), newInternalId: Effect.sync(() => randomBytes(16)) };
 const path = "items:read";
-const installation: CoreInstallation = { tables: [{ name: "items", number: 10000, tabletId: id(100),
-  validator: { type: "object", value: { value: { fieldType: { type: "number" }, optional: false } } },
-  indexes: [{ name: "by_id", ref: { id: byId }, fields: [], enabled: true },
-    { name: "by_value", ref: { id: byValue }, fields: ["value"], enabled: true }] }],
+const schema = Result.getOrThrow(captureCoreSchema({ schemaValidation: true, tables: [{ tableName: "items",
+  documentType: { type: "object", value: { value: { fieldType: { type: "number" }, optional: false } } },
+  indexes: [{ indexDescriptor: "by_value", fields: ["value"] }], stagedDbIndexes: [] }] }));
+const publication: CoreProgramPublication = {
   programs: [{ identity: { functionPath: path, programHash: "old", schemaHash: "schema" }, metadata: { visibility: "public" } }] };
-
 export function registerCoreApplicationQueryScenarios(name: string, createFixture: () => Promise<CorePersistenceFixture>) {
 describe(name, () => {
   it("holds query metadata, nested selection, data and time at S across publication, with no query write", async () => {
     const fixture = await createFixture();
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const database = yield* openCoreDatabase(fixture.persistence, options);
-      yield* database.install(installation);
+      yield* activateCoreSchema(database, schema, publication);
       const writer = yield* database.begin();
       const documentId = yield* writer.insert("items", { value: 1 });
       yield* database.commit(yield* writer.finalize());
@@ -42,7 +41,7 @@ describe(name, () => {
       const update = yield* database.begin();
       yield* update.patch(documentId, { value: 2 });
       yield* database.commit(yield* update.finalize());
-      yield* database.install({ tables: [], programs: [{ identity: { functionPath: path,
+      yield* database.publishPrograms({ programs: [{ identity: { functionPath: path,
         programHash: "new", schemaHash: "schema" }, metadata: { visibility: "internal" } }] });
       expect((yield* query.transaction.selectProgram(path)).identity.programHash).toBe("old");
       expect(Option.getOrThrow(yield* query.transaction.get(documentId)).value).toBe(1);
@@ -68,12 +67,16 @@ describe(name, () => {
     const fixture = await createFixture();
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const database = yield* openCoreDatabase(fixture.persistence, options);
-      yield* database.install(installation);
+      const activated = yield* activateCoreSchema(database, schema, publication);
+      const table = activated.tables.find(table => table.name === "items");
+      const byId = table?.indexes.find(index => index.name === "by_id")?.ref.id;
+      const byValue = table?.indexes.find(index => index.name === "by_value")?.ref.id;
+      if (table === undefined || byId === undefined || byValue === undefined) throw new Error("Missing actual item identities");
       const writer = yield* database.begin();
       const first = yield* writer.insert("items", { value: 1 });
       const second = yield* writer.insert("items", { value: 2 });
       yield* database.commit(yield* writer.finalize());
-      const absent = Result.getOrThrow(encodeDocumentId(10000, id(222)));
+      const absent = Result.getOrThrow(encodeDocumentId(table.number, id(222)));
       const query = yield* database.beginQuery(path);
       expect(Option.isSome(yield* query.transaction.get(first))).toBe(true);
       expect(Option.isNone(yield* query.transaction.get(absent))).toBe(true);
@@ -120,7 +123,7 @@ describe(name, () => {
       const tableById = tables?.indexes.find(index => index.name === "by_id");
       const tableRead = token.reads.find(read => tableById !== undefined
         && read.indexId.every((byte, index) => byte === tableById.ref.id[index]));
-      expect(tableRead?.intervals).toHaveLength(2);
+      expect(tableRead?.intervals).toEqual([{ start: null, end: null }]);
       expect(token.reads).toHaveLength(5);
       const readonly = createCoreTransaction({ snapshot, registry, now: 1_000_000_000n,
         newInternalId: options.newInternalId, vault: new CoreFinalizationVault(), readonly: true });
@@ -149,10 +152,11 @@ describe(name, () => {
       const entered = yield* Deferred.make<void>();
       const release = yield* Deferred.make<void>();
       let held = false;
+      let byId: Uint8Array | undefined;
       const persistence: CorePersistence = { ...fixture.persistence,
         readSnapshot: (timestamp, retention) => fixture.persistence.readSnapshot(timestamp, retention).pipe(Effect.map(snapshot => ({ ...snapshot,
           scan: request => Effect.gen(function* () {
-            if (held && bytesEqual(request.index.id, byId)) {
+            if (held && byId !== undefined && bytesEqual(request.index.id, byId)) {
               expect(request).toMatchObject({ order: "asc", maxResults: 2 });
               yield* Deferred.succeed(entered, undefined);
               yield* Deferred.await(release);
@@ -162,7 +166,9 @@ describe(name, () => {
         }))),
       };
       const database = yield* openCoreDatabase(persistence, options);
-      yield* database.install(installation);
+      const activated = yield* activateCoreSchema(database, schema, publication);
+      byId = activated.tables.find(table => table.name === "items")?.indexes.find(index => index.name === "by_id")?.ref.id;
+      if (byId === undefined) throw new Error("Missing actual item by_id identity");
       const writer = yield* database.begin();
       const documentId = yield* writer.insert("items", { value: 1 });
       yield* database.commit(yield* writer.finalize());
@@ -199,7 +205,7 @@ describe(name, () => {
         };
         const database = yield* openCoreDatabase(persistence, options);
         close = database.close();
-        yield* database.install(installation);
+        yield* activateCoreSchema(database, schema, publication);
         const acquisition = yield* database.claimRequest(identity);
         if (acquisition.kind !== "claimed") throw new Error("Expected original request claim");
         const transaction = yield* database.begin({ program: identity.program, claim: acquisition.claim });
@@ -235,7 +241,11 @@ describe(name, () => {
       // Metadata may be resident. Inject after the real factory returns, at
       // the private read capability used during admission, so make() has
       // registered its borrow before the injected Exit is observed.
-      return { ...context, readPrivate: (table, internalId) => fault ?? context.readPrivate(table, internalId) };
+      return new Proxy(context, {
+        get: (target, property) => property === "readPrivate"
+          ? (table: string, internalId: Uint8Array) => fault ?? target.readPrivate(table, internalId)
+          : Reflect.get(target, property, target),
+      });
     });
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const persistence: CorePersistence = { ...fixture.persistence,
@@ -245,8 +255,10 @@ describe(name, () => {
         }))),
       };
       const database = yield* openCoreDatabase(persistence, options);
-      yield* database.install({ ...installation, authorityEpoch: 1n });
-      const program = installation.programs[0]?.identity;
+      const activated = yield* activateCoreSchema(database, schema, { ...publication, authorityEpoch: 1n });
+      const itemsNumber = activated.tables.find(table => table.name === "items")?.number;
+      if (itemsNumber === undefined) throw new Error("Missing actual item table number");
+      const program = publication.programs[0]?.identity;
       if (program === undefined) throw new Error("Missing installed program");
       const request = { key: "failed-admissions", requestHash: "original-request", program };
       const acquisition = yield* database.claimRequest(request);
@@ -263,7 +275,7 @@ describe(name, () => {
         database.begin({ program: missing }),
         database.begin({ program, authorityEpoch: 0n }),
         database.beginQuery("missing:program"),
-        database.install({ tables: [], programs: [], authorityEpoch: -1n }),
+        database.publishPrograms({ programs: [], authorityEpoch: -1n }),
         database.claimRequest({ ...request, program: missing }),
         database.advanceAuthorityEpoch(-1n),
       ]) {
@@ -294,10 +306,10 @@ describe(name, () => {
       fault = undefined;
       expect(yield* database.resolveRequest(request)).toEqual({ kind: "busy" });
       const transaction = yield* database.begin({ program, authorityEpoch: 1n });
-      expect(yield* transaction.tableNumber("items")).toBe(10000);
+      expect(yield* transaction.tableNumber("items")).toBe(itemsNumber);
       yield* transaction.abort();
       const query = yield* database.beginQuery(path);
-      expect(yield* query.transaction.tableNumber("items")).toBe(10000);
+      expect(yield* query.transaction.tableNumber("items")).toBe(itemsNumber);
       yield* query.finish();
       yield* database.abortRequest(acquisition.claim);
       expect(yield* database.resolveRequest(request)).toEqual({ kind: "failed" });

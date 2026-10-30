@@ -44,7 +44,7 @@ export function makeCoreApplicationQueryRunner(configuration: ApplicationCoreQue
         return yield* new CoreApplicationQueryError({ reason: "functionUnsupported" });
       if (program.scopeUuid !== configuration.queryCursor.scopeUuid)
         return yield* new CoreApplicationQueryError({ reason: "invalidComposition" });
-      const tables = yield* readCoreApplicationTableBindings(operation.transaction, program.manifest);
+      const tables = yield* readCoreApplicationTableBindings(operation.transaction);
       yield* Effect.fromResult(validateCoreApplicationArguments(target.function.args, argumentsValue, tables));
       const source = yield* runner.source.read(target.sourceArtifactRootSha256).pipe(
         Effect.mapError(cause => new CoreApplicationQueryError({ reason: "sourceReadFailed", cause })),
@@ -61,11 +61,11 @@ export function makeCoreApplicationQueryRunner(configuration: ApplicationCoreQue
         target, auth, arguments: argumentsValue, argumentSemanticBytes, tables,
         context: { mode: "query", executionId: context.executionId, randomSeed: context.randomSeed,
           executionTime: operation.transaction.unixTime, snapshotTimestamp: operation.transaction.timestamp },
-      }).pipe(Effect.mapError(cause => new CoreApplicationQueryError({ reason: "invalidExecutionContext", cause })));
+      }, "convex").pipe(Effect.mapError(cause => new CoreApplicationQueryError({ reason: "invalidExecutionContext", cause })));
       const callbackContext = yield* Effect.withFiber(fiber => Effect.succeed(Context.add(
         captureExecutionDiagnosticContext(fiber), Clock.Clock, Context.get(fiber.context, Clock.Clock),
       )));
-      const session = makeCoreApplicationReadSession({ transaction: operation.transaction, tables,
+      const session = makeCoreApplicationReadSession({ transaction: operation.transaction,
         revalidate: database.assertOpen }, callbackContext, configuration.queryCursor.broker, configuration.admission);
       const value = yield* Effect.uninterruptibleMask(restore => Effect.gen(function* () {
         const host = yield* Effect.exit(restore(runner.host.runTransaction({ definition, request, capability: session.target })));

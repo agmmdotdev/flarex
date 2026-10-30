@@ -45,6 +45,9 @@ export function makeStoredRowsDecoder<S extends Schema.Top>(schema: S) {
 }
 
 export const decodeDocumentRows = makeStoredRowsDecoder(documentRowsSchema);
+export const decodePreviousRevisionRows = makeStoredRowsDecoder(Schema.Array(Schema.Struct({
+  ...documentShape, query_ts: timestampSchema,
+})));
 export const decodeIndexRows = makeStoredRowsDecoder(indexRowsSchema);
 
 export function documentFromRow(row: typeof documentRowSchema.Type): CoreDocumentLogEntry {

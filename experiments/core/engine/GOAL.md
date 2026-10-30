@@ -1,8 +1,8 @@
 # Single-owner core refactor goal
 
-Status: **Active implementation goal; bounded Application cache/read replacement,
-local query DO composition, shared pending indexes, operation admission and
-exact original finite preparation implemented; wider core milestones open**.
+Status: **Active implementation goal; bounded Application transactions, snapshots,
+caches, shared schema/index lifecycle and five-table physical maintenance
+implemented; native, retention, managed-hosting and performance gates open**.
 The owner has requested the complete single-owner refactor, delivered through
 bounded connected milestones. This authorization supersedes earlier statements
 that this work is documentation-only. It does not decide unresolved guarantees,
@@ -199,6 +199,15 @@ an active ordinal. Its current supported restriction is not a demonstrated
 DO/native necessity or a permanent source-parity exception; follow its explicit
 disposition in slice 06c before closing the overall translation goal.
 
+The [shared schema lifecycle](./slices/07-shared-schema-lifecycle.md) is implemented
+and validated locally after independent challenge: logical proposal/validation, versioned table
+counts, full historical iteration/backfill, enabled/pending index generations
+and atomic schema/index/program activation, with real Application caller and
+Worker table-mapping migration. Its parallel platform lane consolidates the
+five-table Drizzle definition and explicit physical maintenance. Native
+activation still requires shared authenticated write ownership, exact values,
+uniqueness and references; current producer representability is not cutover.
+
 ## Mandatory challenge before each slice
 
 Before implementation, independent sub-agents inspect and challenge:
@@ -273,3 +282,10 @@ Replication remains explicitly deferred. Arbitrary new framework coverage,
 complete Convex feature parity and production rollout are outside this goal.
 Single-owner correctness, required hosting proof and migration of the recorded
 supported scope remain inside it.
+
+The shared schema milestone does not complete [validator parity](./slices/08-validator-literal-parity.md). Translate the
+remaining source int64/negative-zero literal representations through protocol,
+SDK, manifest compilation, hashing and runtime validation in a connected slice;
+existing private validator limits are replacement inputs, not permanent runtime
+exceptions. Preserve explicit search/vector and shape-inference status while
+closing the supported consumer and full-core gates.

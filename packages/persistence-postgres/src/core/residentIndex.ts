@@ -62,7 +62,7 @@ function buildTable(definition: CoreTableDefinition,
   documents: BTree<string, CoreDocumentLogEntry>): Result.Result<ResidentTable, CorePersistenceError> {
   return Result.gen(function* () {
     const indexes = new Map<string, ResidentIndex>();
-    for (const index of definition.indexes) if (index.enabled)
+    for (const index of definition.indexes)
       indexes.set(encodeBytesToLowercaseHex(index.ref.id), yield* buildIndex(definition, index, documents));
     return Object.freeze({ definition, documents, indexes });
   });
@@ -77,7 +77,6 @@ function updateTable(previous: ResidentTable, definition: CoreTableDefinition,
     const unchanged: Array<Readonly<{ definition: CoreIndexDefinition; resident: ResidentIndex }>> = [];
     const rebuild: CoreIndexDefinition[] = [];
     for (const index of definition.indexes) {
-      if (!index.enabled) continue;
       const id = encodeBytesToLowercaseHex(index.ref.id);
       const old = previous.indexes.get(id);
       if (old !== undefined && sameIndex(index, old) && definition.number === previous.definition.number) {
@@ -139,7 +138,7 @@ export class CoreResidentIndexes {
     return Result.gen(function* () {
       let next: Map<string, ResidentTable> | undefined;
       for (const [tableId, previous] of tables) {
-        const definition = registry.table(previous.definition.name)?.definition;
+        const definition = registry.table(previous.definition.name, previous.definition.namespace)?.definition;
         if (definition === undefined || !bytesEqual(definition.tabletId, previous.definition.tabletId))
           return yield* Result.fail(corrupt());
         const changed = revisions.filter(revision => bytesEqual(revision.tableId, definition.tabletId));

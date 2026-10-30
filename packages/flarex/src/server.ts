@@ -41,6 +41,10 @@ type FunctionPartitionInput = FunctionPartitionInputPolicy;
 type TableFromId<Identifier> = Identifier extends Id<infer Table> ? Table : never;
 
 export type DatabaseReader<DataModel extends GenericDataModel = AnyDataModel> = {
+  normalizeId<Table extends TableNamesInDataModel<DataModel>>(
+    table: Table,
+    id: string,
+  ): Id<Table> | null;
   get<Identifier extends Id<TableNamesInDataModel<DataModel>>>(
     id: Identifier,
   ): Promise<DocumentByName<DataModel, TableFromId<Identifier>> | null>;

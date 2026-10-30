@@ -12,21 +12,21 @@ import { CoreFinalizationVault, createCoreTransaction } from "../../src/core/tra
 import { keyInInterval, pointInterval } from "../../src/core/writeLog";
 
 const internalId = (last: number) => { const bytes = new Uint8Array(16); bytes[15] = last; return bytes; };
-const table: CoreTableDefinition = { name: "items", number: 10000, tabletId: internalId(100), validator: { type: "any" }, indexes: [
-  { name: "by_id", ref: { id: internalId(101) }, fields: [], enabled: true },
-  { name: "by_value", ref: { id: internalId(102) }, fields: ["value"], enabled: true },
+const table: CoreTableDefinition = { name: "items", number: 10000, tabletId: internalId(100), namespace: null, state: "active", indexes: [
+  { name: "by_id", ref: { id: internalId(101) }, fields: [] },
+  { name: "by_value", ref: { id: internalId(102) }, fields: ["value"] },
 ] };
 const byId = table.indexes[0];
 const byValue = table.indexes[1];
 if (byId === undefined || byValue === undefined) throw new Error("Missing index fixture");
-const registry = initialRegistry([
-  { name: "_tables", number: 513, tabletId: internalId(1), validator: { type: "any" }, indexes: [
-    { name: "by_id", ref: { id: internalId(2) }, fields: [], enabled: true },
+const registry = Result.getOrThrow(initialRegistry([
+  { name: "_tables", number: 513, tabletId: internalId(1), namespace: null, state: "active", indexes: [
+    { name: "by_id", ref: { id: internalId(2) }, fields: [] },
   ] },
-  { name: "_index", number: 514, tabletId: internalId(3), validator: { type: "any" }, indexes: [
-    { name: "by_id", ref: { id: internalId(4) }, fields: [], enabled: true },
+  { name: "_index", number: 514, tabletId: internalId(3), namespace: null, state: "active", indexes: [
+    { name: "by_id", ref: { id: internalId(4) }, fields: [] },
   ] }, table,
-]);
+]));
 
 function documents(count: number) {
   return Array.from({ length: count }, (_, value) => {

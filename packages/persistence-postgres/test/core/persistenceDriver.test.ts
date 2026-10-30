@@ -151,7 +151,7 @@ it("retains the callback cause if the foreign transaction replaces it with a set
 it("rolls back interrupted physical installation and refuses to adopt an already installed namespace", async () => {
   const database = new PGlite();
   const driver = makeCorePGliteDriver(database);
-  const interrupted: CoreSqlDriver = { query: driver.query,
+  const interrupted: CoreSqlDriver = { query: driver.query, withConnection: driver.withConnection,
     transaction: run => driver.transaction(connection => run({
       query: (statement, parameters) => statement.includes('CREATE TABLE "core_install"."indexes"')
         ? Effect.fail(new CorePersistenceError({ reason: "unavailable" })) : connection.query(statement, parameters),

@@ -1,24 +1,26 @@
 import { Data, Schema, type Effect, type Option } from "effect";
 import type { DocumentObject, DocumentValue } from "flarex-protocol/document-value";
-import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
+import type { CoreTableNamespace } from "./namespace";
+import type { CoreSchemaError } from "./schemaTypes";
 import type {
   CoreIndexCursor, CoreIndexRef, CoreInterval, CoreOrder, CorePersistenceError, CoreTimestamp,
 } from "./contracts";
 import type { CoreReadSet } from "./writeLog";
+import { CoreTableIteratorResourceBudgetSchema, CoreIteratorPositiveBudgetSchema } from "./iteratorBudget";
 
 export interface CoreIndexDefinition {
   readonly name: string;
   readonly ref: CoreIndexRef;
   /** Fully normalized installed fields; producers add their suffixes. Engine appends only the developer-ID tie. */
   readonly fields: readonly string[];
-  readonly enabled: boolean;
 }
 
 export interface CoreTableDefinition {
   readonly name: string;
   readonly number: number;
   readonly tabletId: Uint8Array;
-  readonly validator: ValidatorJsonV1;
+  readonly namespace: CoreTableNamespace;
+  readonly state: "active" | "hidden" | "deleting";
   readonly indexes: readonly CoreIndexDefinition[];
 }
 
@@ -32,10 +34,22 @@ export interface CoreProgramDefinition {
   readonly metadata: DocumentObject;
 }
 
-export interface CoreInstallation {
-  readonly tables: readonly CoreTableDefinition[];
+export interface CoreProgramPublication {
   readonly programs: readonly CoreProgramDefinition[];
   readonly authorityEpoch?: bigint;
+  readonly namespace?: CoreTableNamespace;
+}
+export interface CoreSchemaProposal { readonly namespace: CoreTableNamespace; readonly id: string }
+export interface CoreSchemaStatus {
+  readonly proposal: CoreSchemaProposal;
+  readonly state: "pending" | "validated" | "active" | "failed" | "overwritten";
+  readonly indexesReady: boolean;
+  readonly error?: string;
+  readonly tableName?: string;
+}
+export interface CoreSchemaActivation {
+  readonly timestamp: CoreTimestamp;
+  readonly tables: readonly CoreTableDefinition[];
 }
 
 export interface CoreRequestIdentity {
@@ -64,7 +78,7 @@ export class CoreTransactionError extends Data.TaggedError("CoreTransactionError
   readonly reason: "closed" | "inflight" | "foreignFinalization" | "conflict"
     | "invalidValue" | "documentValidation" | "missingTable" | "missingIndex" | "indexUnavailable"
     | "missingDocument" | "invalidDocumentId" | "programUnavailable"
-    | "requestMismatch" | "foreignClaim" | "capacity" | "unavailable" | "authorityRevoked" | "admissionExpired" | "readonly";
+    | "requestMismatch" | "foreignClaim" | "tooManyTables" | "capacity" | "unavailable" | "authorityRevoked" | "admissionExpired" | "readonly";
   readonly cause?: unknown;
 }> {}
 
@@ -74,7 +88,7 @@ export class CoreQueryInputError extends Data.TaggedError("CoreQueryInputError")
   readonly cause?: unknown;
 }> {}
 
-export type CoreError = CoreTransactionError | CorePersistenceError | CoreQueryInputError;
+export type CoreError = CoreTransactionError | CorePersistenceError | CoreQueryInputError | CoreSchemaError;
 
 export interface CoreQueryRequest {
   /** Captured once by the protocol query owner, then resolved against this transaction's registry. */
@@ -132,6 +146,7 @@ export interface CoreTransaction {
   /** Fixed epoch milliseconds for the operation, from max(wall time, ceil(snapshot ns / 1e6)). */
   readonly unixTime: number;
   readonly tableNumber: (name: string) => Effect.Effect<number, CoreError>;
+  readonly tableMappings: Effect.Effect<readonly Readonly<{ tableId: number; logicalName: string }>[], CoreError>;
   readonly normalizeId: (table: string, id: unknown) => Effect.Effect<Option.Option<string>, CoreError>;
   readonly usage: Effect.Effect<CoreTransactionUsage>;
   /** Resolve and track metadata in this operation's captured registry, including nested calls. */
@@ -152,7 +167,7 @@ export interface CoreTransaction {
 
 /** Borrowed reads have neither write methods nor a mutation finalizer. */
 export type CoreReadTransaction = Pick<CoreTransaction, "timestamp" | "unixTime" | "usage" | "selectProgram"
-  | "tableNumber" | "normalizeId" | "get" | "startQuery" | "scan">;
+  | "tableNumber" | "tableMappings" | "normalizeId" | "get" | "startQuery" | "scan">;
 
 /** Trusted completion evidence only; it cannot enter CoreDatabase.commit. */
 export interface CoreReadToken {
@@ -173,7 +188,12 @@ export interface CoreDatabase {
   /** Blocks admission and results, then closes and drains every borrowed operation. */
   readonly close: () => Effect.Effect<void>;
   readonly beginQuery: (functionPath: string) => Effect.Effect<CoreQueryOperation, CoreError>;
-  readonly install: (installation: CoreInstallation) => Effect.Effect<void, CoreError>;
+  readonly prepareSchema: (input: Readonly<{ namespace?: CoreTableNamespace; schema: unknown }>) => Effect.Effect<CoreSchemaProposal, CoreError>;
+  readonly schemaStatus: (proposal: CoreSchemaProposal) => Effect.Effect<CoreSchemaStatus, CoreError>;
+  readonly advanceSchemaWork: (work:CoreSchemaWorkBudget)=>Effect.Effect<Readonly<{hasMore:boolean}>,CoreError>;
+  readonly advanceSchema: (proposal: CoreSchemaProposal, work: Readonly<{ pageSize: number; maxPages: number }>) => Effect.Effect<CoreSchemaStatus, CoreError>;
+  readonly activateSchema: (proposal: CoreSchemaProposal, publication: CoreProgramPublication) => Effect.Effect<CoreSchemaActivation, CoreError>;
+  readonly publishPrograms: (publication: CoreProgramPublication) => Effect.Effect<CoreSchemaActivation, CoreError>;
   readonly selectProgram: (functionPath: string) => Effect.Effect<CoreProgramDefinition, CoreError>;
   readonly lookupProgram: (identity: CoreProgramIdentity) => Effect.Effect<CoreProgramDefinition, CoreError>;
   readonly resolveRequest: (identity: CoreRequestIdentity) => Effect.Effect<CoreRequestResolution, CoreError>;
@@ -182,7 +202,7 @@ export interface CoreDatabase {
   readonly claimRequest: (identity: CoreRequestIdentity) => Effect.Effect<CoreRequestAcquisition, CoreError>;
   readonly abortRequest: (claim: CoreRequestClaim) => Effect.Effect<void, CoreError>;
   readonly begin: (options?: Readonly<{
-    program?: CoreProgramIdentity; claim?: CoreRequestClaim; at?: CoreTimestamp; authorityEpoch?: bigint;
+    program?: CoreProgramIdentity; claim?: CoreRequestClaim; at?: CoreTimestamp; authorityEpoch?: bigint; namespace?: CoreTableNamespace;
   }>) => Effect.Effect<CoreTransaction, CoreError>;
   readonly commit: (transaction: CoreFinalizedTransaction, options?: CoreCommitOptions) => Effect.Effect<CoreTimestamp, CoreError>;
   readonly publishedTimestamp: Effect.Effect<CoreTimestamp>;
@@ -190,7 +210,14 @@ export interface CoreDatabase {
   readonly advanceAuthorityEpoch: (epoch: bigint) => Effect.Effect<void, CoreError>;
 }
 
+export const CoreSchemaWorkBudgetSchema=Schema.Struct({pageSize:CoreIteratorPositiveBudgetSchema,maxPages:CoreIteratorPositiveBudgetSchema});
+export type CoreSchemaWorkBudget=typeof CoreSchemaWorkBudgetSchema.Type;
+export const CoreSchemaWorkerOptionsSchema=Schema.Struct({...CoreTableIteratorResourceBudgetSchema.fields,
+  physicalChunkSize:CoreIteratorPositiveBudgetSchema,physicalConcurrency:CoreIteratorPositiveBudgetSchema});
+export type CoreSchemaWorkerOptions=typeof CoreSchemaWorkerOptionsSchema.Type;
+
 export interface CoreDatabaseOptions {
+  readonly schemaWorker:CoreSchemaWorkerOptions;
   readonly now: Effect.Effect<CoreTimestamp>;
   readonly newInternalId: Effect.Effect<Uint8Array>;
   readonly maxInflight?: number;
@@ -200,6 +227,7 @@ export interface CoreDatabaseOptions {
   readonly maxBatchDelayMilliseconds?: number;
   readonly batchWriteThreshold?: number;
   readonly maxConcurrentPrevalidations?: number;
+  /** Application call ceilings; trusted lifecycle work starts with the source system defaults. */
   readonly transactionLimits?: Partial<CoreTransactionLimits>;
   /** Source defaults: 512 MiB shared pages and 100 percent verification. */
   readonly indexCache?: Readonly<{ maxBytes?: number; verifyPercent?: number }>;

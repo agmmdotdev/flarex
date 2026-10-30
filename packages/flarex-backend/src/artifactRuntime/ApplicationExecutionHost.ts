@@ -98,6 +98,7 @@ export function makeApplicationExecutionHost(
   )(function* (input) {
     const request = yield* decodeApplicationTransactionWorkerRequestV1Effect(
       input.request,
+      input.definition.documentIdFormat,
     ).pipe(Effect.mapError(cause => hostError(
       "transaction",
       "invalidRequest",

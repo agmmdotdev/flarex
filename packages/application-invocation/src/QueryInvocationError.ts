@@ -155,6 +155,8 @@ export function projectQueryInvocationError(
       return queryInvocationError(projectCoreTransactionReason(error), error);
     case "CorePersistenceError":
       return queryInvocationError(projectCorePersistenceReason(error), error);
+    case "CoreSchemaError":
+      return queryInvocationError(projectCoreSchemaReason(error), error);
     case "CoreApplicationAdmissionError":
       return queryInvocationError(projectCoreAdmissionReason(error), error);
     case "CoreQueryInputError":
@@ -198,6 +200,7 @@ function projectCoreTransactionReason(
     case "programUnavailable": return "queryNotFound";
     case "missingIndex":
     case "indexUnavailable": return "indexUnavailable";
+    case "tooManyTables":
     case "capacity": return "budgetExceeded";
     case "invalidValue":
     case "documentValidation":
@@ -226,8 +229,24 @@ function projectCorePersistenceReason(
     case "invalidTarget": return "invalidConfiguration";
     case "uncertainWrite": return "settlementUncertain";
     case "leaseLost":
+    case "timeout":
     case "readOnly":
     case "unavailable": return "unavailable";
+  }
+}
+
+function projectCoreSchemaReason(
+  error: Extract<InvokeApplicationQueryError, { readonly _tag: "CoreSchemaError" }>,
+): QueryInvocationErrorReason {
+  switch (error.reason) {
+    case "invalidSchema":
+    case "stagedEnforcedConflict": return "invalidInput";
+    case "unsupportedCapability": return "incompatibleRuntime";
+    case "hashFailure": return "unavailable";
+    case "schemaNotFound":
+    case "schemaFailed":
+    case "schemaOverwritten":
+    case "notValidated": return "applicationUnavailable";
   }
 }
 

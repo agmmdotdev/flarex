@@ -5,65 +5,60 @@
  * Copyright 2026 Convex, Inc., FSL-1.1-Apache-2.0 (convex-backend/LICENSE.md).
  */
 import { Effect, Result, Schema } from "effect";
+import { BTreeEx as BTree } from "sorted-btree/extended/index.js";
 import { bytesEqual, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { decodeDocumentValue, type DocumentObject } from "flarex-protocol/document-value";
 import { decodeDocumentId, encodeDocumentId } from "flarex-protocol/document-id";
-import { ValidatorJsonV1, validatorJsonAdmissionIssueV1 } from "flarex-protocol/validator-json";
-import { encodeCanonicalJson } from "flarex-protocol/json";
-import { CoreProgramIdentitySchema, CoreTransactionError, type CoreIndexDefinition, type CoreProgramDefinition, type CoreProgramIdentity, type CoreTableDefinition } from "./api";
+import { SchemaManifestAppIdentifierSchema } from "flarex-protocol/schema-manifest";
+
+
+import { CoreProgramIdentitySchema, CoreTransactionError, type CoreProgramDefinition, type CoreProgramIdentity, type CoreTableDefinition } from "./api";
 import { CorePersistenceError, type CoreDocumentLogEntry, type CoreIndexPage, type CorePersistenceSnapshot } from "./contracts";
 import { captureCoreDocument, captureCoreObject } from "./document";
+import { CoreTableNamespaceSchema, coreNamespaceKey, type CoreTableNamespace } from "./namespace";
+import { CoreIndexRegistry } from "./indexRegistry";
+import { parseCoreIndexRecord, type CoreIndexRecord } from "./indexState";
+import { CoreSchemaRegistry } from "./schemaRegistry";
+import type { CoreSystemDocument } from "./transaction";
 
 export const TABLES = "_tables";
 export const INDEXES = "_index";
 export const PROGRAMS = "_programs";
 export const REQUESTS = "_session_requests";
 
+import { SCHEMAS, SCHEMA_VALIDATIONS, SCHEMA_VALIDATION_PROGRESS } from "./schemaTypes";
+export { SCHEMAS, SCHEMA_VALIDATIONS, SCHEMA_VALIDATION_PROGRESS } from "./schemaTypes";
+export const INDEX_BACKFILLS = "_index_backfills";
+export const DATABASE_GLOBALS = "_db";
 export const CORE_BUILTIN_TABLE_NUMBERS = new Map([
-  [TABLES, 513], [INDEXES, 514], [PROGRAMS, 9999], [REQUESTS, 9998],
+  [TABLES, 513], [INDEXES, 514], [SCHEMAS, 532], [INDEX_BACKFILLS, 548],
+  [DATABASE_GLOBALS, 520], [SCHEMA_VALIDATIONS, 555], [SCHEMA_VALIDATION_PROGRESS, 549],
+  [PROGRAMS, 9999], [REQUESTS, 9998],
 ]);
-
-const BytesHex = Schema.String.check(Schema.makeFilter(value => /^[0-9a-f]{32}$/.test(value)
-  ? undefined : "Expected a 16-byte canonical hex identity"));
-const StoredIndexSchema = Schema.Struct({ name: Schema.String, id: BytesHex,
-  persistenceIndexId: Schema.optional(Schema.BigInt), fields: Schema.Array(Schema.String), enabled: Schema.Boolean });
-const TableFields = { name: Schema.String, number: Schema.Int, tabletId: BytesHex };
-const StoredTableSchema = Schema.Struct({ ...TableFields, validator: Schema.String });
-const FullTableDefinitionSchema = Schema.Struct({ ...TableFields, indexes: Schema.Array(StoredIndexSchema) });
-const IndexMetadataSchema = Schema.Struct({ name: Schema.String, tableNumber: Schema.Int, fields: Schema.Array(Schema.String),
-  enabled: Schema.Boolean, persistenceIndexId: Schema.optional(Schema.BigInt) });
+const TableName = SchemaManifestAppIdentifierSchema;
+const StoredTableSchema = Schema.Struct({ name: TableName, number: Schema.BigInt.check(Schema.makeFilter(value =>
+  value > 0n && value <= 0xffff_ffffn ? undefined : "Expected a table number")),
+  state: Schema.Literals(["active", "hidden", "deleting"]), namespace: Schema.optionalKey(CoreTableNamespaceSchema),
+});
 const StoredProgramSchema = Schema.Struct({ kind: Schema.Literal("revision"), identity: CoreProgramIdentitySchema, metadata: Schema.String });
 const StoredHeadSchema = Schema.Struct({ kind: Schema.Literal("head"), identity: CoreProgramIdentitySchema });
 const StoredAuthoritySchema = Schema.Struct({ kind: Schema.Literal("authority"), epoch: Schema.BigInt });
 const decodeStoredTable = Schema.decodeUnknownResult(StoredTableSchema);
-const decodeFullTableDefinition = Schema.decodeUnknownResult(FullTableDefinitionSchema);
-const decodeIndexMetadata = Schema.decodeUnknownResult(IndexMetadataSchema);
 const decodeStoredProgram = Schema.decodeUnknownResult(StoredProgramSchema);
 const decodeStoredHead = Schema.decodeUnknownResult(StoredHeadSchema);
 const decodeStoredAuthority = Schema.decodeUnknownResult(StoredAuthoritySchema);
-const decodeValidator = Schema.decodeUnknownResult(ValidatorJsonV1);
 const utf8 = new TextEncoder();
 
-function fromHex(value: string): Uint8Array {
-  const bytes = new Uint8Array(value.length / 2);
-  for (let index = 0; index < bytes.length; index += 1) bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
-  return bytes;
-}
-
 export function tableDocument(table: CoreTableDefinition): DocumentObject {
-  const validator = encodeCanonicalJson(table.validator, issue => {
-    throw new Error(`Validated table validator lost its canonical JSON contract: ${issue.reason}`);
-  });
-  return { name: table.name, number: table.number, tabletId: encodeBytesToLowercaseHex(table.tabletId), validator };
+  return { name: table.name, number: BigInt(table.number), state: table.state,
+    ...(table.namespace === null ? {} : { namespace: table.namespace }) };
 }
-
-/** Ephemeral physical comparison value; index specifications are persisted only in _index. */
-export function tableDefinitionValue(table: CoreTableDefinition): DocumentObject {
-  return { ...tableDocument(table), indexes: table.indexes.toSorted((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0).map(index => ({ name: index.name,
-      id: encodeBytesToLowercaseHex(index.ref.id), fields: [...index.fields], enabled: index.enabled,
-      ...(index.ref.persistenceIndexId === undefined ? {} : { persistenceIndexId: index.ref.persistenceIndexId }) })) };
+export function coreQualifiedTableKey(namespace: CoreTableNamespace, name: string): string {
+  return JSON.stringify([coreNamespaceKey(namespace), name]);
 }
-
+function qualifiedNumber(namespace: CoreTableNamespace, number: number): string {
+  return JSON.stringify([coreNamespaceKey(namespace), number]);
+}
 export function programKey(identity: CoreProgramIdentity): string {
   return JSON.stringify([identity.functionPath, identity.programHash, identity.schemaHash]);
 }
@@ -73,89 +68,135 @@ export interface CoreProgramRecord { readonly definition: CoreProgramDefinition;
 export interface CoreProgramHead { readonly identity: CoreProgramIdentity; readonly id: Uint8Array; readonly ts: bigint | null }
 export interface CoreAuthorityRecord { readonly epoch: bigint; readonly id: Uint8Array; readonly ts: bigint | null }
 
+export type CoreTableRecords = Pick<BTree<string, CoreTableRecord>, "get" | "has" | "values" | "entries" | "keys" | "size">;
 interface CoreRegistryTableLookups {
-  readonly byNumber: ReadonlyMap<number, CoreTableRecord>;
-  readonly byTablet: ReadonlyMap<string, CoreTableRecord>;
-  readonly byIndex: ReadonlyMap<string, Readonly<{ table: CoreTableDefinition; index: CoreIndexDefinition }>>;
+  readonly byNumber: BTree<string, CoreTableRecord>;
+  readonly byTablet: BTree<string, CoreTableRecord>;
 }
-
-function tableLookups(tables: ReadonlyMap<string, CoreTableRecord>): CoreRegistryTableLookups {
-  return Object.freeze({
-    byNumber: new Map([...tables.values()].map(record => [record.definition.number, record])),
-    byTablet: new Map([...tables.values()].map(record => [encodeBytesToLowercaseHex(record.definition.tabletId), record])),
-    byIndex: new Map([...tables.values()].flatMap(record => record.definition.indexes.map(index =>
-      [encodeBytesToLowercaseHex(index.ref.id), { table: record.definition, index }] as const))),
-  });
+function tableLookups(tables: CoreTableRecords): CoreRegistryTableLookups {
+  return { byNumber: new BTree([...tables.values()].filter(record => record.definition.state === "active")
+      .map(record => [qualifiedNumber(record.definition.namespace, record.definition.number), record])),
+    byTablet: new BTree([...tables.values()].map(record => [encodeBytesToLowercaseHex(record.definition.tabletId), record])) };
 }
-
-/** Published immutable metadata view. Mutations create a replacement, never edit an admitted view. */
+function tableStorageKey(table: CoreTableDefinition): string {
+  return table.state === "active" ? coreQualifiedTableKey(table.namespace, table.name)
+    : `tablet:${encodeBytesToLowercaseHex(table.tabletId)}`;
+}
+/** Published immutable metadata view. Full index state is independent from enabled read selection. */
 export class CoreRegistry {
-  constructor(
-    readonly tables: ReadonlyMap<string, CoreTableRecord>,
+  private readonly lookups: CoreRegistryTableLookups;
+  readonly tables: CoreTableRecords;
+  private readonly tableRoot: BTree<string, CoreTableRecord>;
+  constructor(tables: CoreTableRecords,
     readonly programs: ReadonlyMap<string, CoreProgramRecord> = new Map(),
     readonly heads: ReadonlyMap<string, CoreProgramHead> = new Map(),
     readonly authority?: CoreAuthorityRecord,
-    private readonly lookups: CoreRegistryTableLookups = tableLookups(tables),
-  ) {}
-
-  table(name: string): CoreTableRecord | undefined { return this.tables.get(name); }
-  tableByNumber(number: number): CoreTableRecord | undefined {
-    return this.lookups.byNumber.get(number);
+    readonly indexes: CoreIndexRegistry = CoreIndexRegistry.empty(),
+    readonly schemas: CoreSchemaRegistry = CoreSchemaRegistry.empty(),
+    captured?: Readonly<{ tables: BTree<string, CoreTableRecord>; lookups: CoreRegistryTableLookups }>) {
+    this.tableRoot = captured?.tables ?? new BTree([...tables.values()].map(record => {
+      const enabled = indexes.forTablet(record.definition.tabletId).filter(index => index.state.type === "Enabled")
+        .map(index => Object.freeze({ name: index.name, ref: index.ref, fields: index.fields }));
+      const selected = { ...record, definition: Object.freeze({ ...record.definition, indexes: Object.freeze(enabled) }) };
+      return [tableStorageKey(selected.definition), selected];
+    }));
+    this.tables = this.tableRoot;
+    this.lookups = captured?.lookups ?? tableLookups(this.tables);
   }
-  tableByTablet(tabletId: Uint8Array): CoreTableRecord | undefined {
-    return this.lookups.byTablet.get(encodeBytesToLowercaseHex(tabletId));
+  table(name: string, namespace: CoreTableNamespace = null): CoreTableRecord | undefined {
+    return this.tables.get(coreQualifiedTableKey(namespace, name));
   }
-  indexById(id: Uint8Array): Readonly<{ table: CoreTableDefinition; index: CoreIndexDefinition }> | undefined {
-    return this.lookups.byIndex.get(encodeBytesToLowercaseHex(id));
+  tableByNumber(number: number, namespace: CoreTableNamespace = null): CoreTableRecord | undefined {
+    return this.lookups.byNumber.get(qualifiedNumber(namespace, number));
   }
+  tableByTablet(id: Uint8Array): CoreTableRecord | undefined { return this.lookups.byTablet.get(encodeBytesToLowercaseHex(id)); }
+  indexById(id: Uint8Array): Readonly<{ table: CoreTableDefinition; index: CoreIndexRecord }> | undefined {
+    const index = this.indexes.byId(id);
+    const table = index === undefined ? undefined : this.tableByTablet(index.tableId)?.definition;
+    return index === undefined || table === undefined ? undefined : { table, index };
+  }
+  indexesForTablet(id: Uint8Array): readonly CoreIndexRecord[] { return this.indexes.forTablet(id); }
   program(identity: CoreProgramIdentity): CoreProgramRecord | undefined { return this.programs.get(programKey(identity)); }
   head(path: string): CoreProgramHead | undefined { return this.heads.get(path); }
-
+  private replaceTableRoot(tables: BTree<string, CoreTableRecord>, lookups: CoreRegistryTableLookups,
+    indexes = this.indexes): CoreRegistry {
+    return new CoreRegistry(tables, this.programs, this.heads, this.authority, indexes, this.schemas, { tables, lookups });
+  }
   withTable(record: CoreTableRecord): CoreRegistry {
-    const tables = new Map(this.tables);
-    tables.set(record.definition.name, record);
-    return new CoreRegistry(tables, this.programs, this.heads, this.authority);
+    const tables = this.tableRoot.clone(), byNumber = this.lookups.byNumber.clone(), byTablet = this.lookups.byTablet.clone();
+    const previous = this.tableByTablet(record.id);
+    if (previous !== undefined) {
+      tables.delete(tableStorageKey(previous.definition));
+      if (previous.definition.state === "active") byNumber.delete(qualifiedNumber(previous.definition.namespace, previous.definition.number));
+    }
+    const definition = Object.freeze({ ...record.definition, indexes: Object.freeze(this.indexes.forTablet(record.definition.tabletId)
+      .filter(index => index.state.type === "Enabled").map(index => ({ name: index.name, fields: index.fields, ref: index.ref }))) });
+    const selected = { ...record, definition };
+    tables.set(tableStorageKey(definition), selected); byTablet.set(encodeBytesToLowercaseHex(record.id), selected);
+    if (definition.state === "active") byNumber.set(qualifiedNumber(definition.namespace, definition.number), selected);
+    return this.replaceTableRoot(tables, { byNumber, byTablet });
+  }
+  withoutTable(id: Uint8Array): CoreRegistry {
+    const previous = this.tableByTablet(id);
+    if (previous === undefined) return this;
+    const tables = this.tableRoot.clone(), byNumber = this.lookups.byNumber.clone(), byTablet = this.lookups.byTablet.clone();
+    tables.delete(tableStorageKey(previous.definition)); byTablet.delete(encodeBytesToLowercaseHex(id));
+    if (previous.definition.state === "active") byNumber.delete(qualifiedNumber(previous.definition.namespace, previous.definition.number));
+    return this.replaceTableRoot(tables, { byNumber, byTablet });
+  }
+  withIndexes(indexes: CoreIndexRegistry): CoreRegistry {
+    let registry = this.replaceTableRoot(this.tableRoot, this.lookups, indexes);
+    for (const tablet of indexes.changedTabletsFrom(this.indexes)) {
+      const record = registry.tableByTablet(tablet);
+      if (record !== undefined) registry = registry.withTable(record);
+    }
+    return registry;
+  }
+  withIndex(record: CoreIndexRecord): Result.Result<CoreRegistry, CorePersistenceError> {
+    const target = this.tableByTablet(record.tableId)?.definition;
+    if (target?.namespace === null && target.name === INDEXES && record.name !== "by_id")
+      return Result.fail(corrupt("The global index metadata table supports only by_id"));
+    return Result.map(this.indexes.apply({ removed: [], added: [record] }), indexes => this.withIndexes(indexes));
+  }
+  withoutIndex(id: Uint8Array): CoreRegistry { return this.withIndexes(this.indexes.without(id)); }
+  withSchemas(schemas: CoreSchemaRegistry): CoreRegistry {
+    return new CoreRegistry(this.tables, this.programs, this.heads, this.authority, this.indexes, schemas, { tables: this.tableRoot, lookups: this.lookups });
   }
   withProgram(record: CoreProgramRecord): CoreRegistry {
-    const programs = new Map(this.programs);
-    programs.set(programKey(record.definition.identity), record);
-    return new CoreRegistry(this.tables, programs, this.heads, this.authority, this.lookups);
+    const programs = new Map(this.programs); programs.set(programKey(record.definition.identity), record);
+    return new CoreRegistry(this.tables, programs, this.heads, this.authority, this.indexes, this.schemas, { tables: this.tableRoot, lookups: this.lookups });
   }
   withHead(record: CoreProgramHead): CoreRegistry {
-    const heads = new Map(this.heads);
-    heads.set(record.identity.functionPath, record);
-    return new CoreRegistry(this.tables, this.programs, heads, this.authority, this.lookups);
+    const heads = new Map(this.heads); heads.set(record.identity.functionPath, record);
+    return new CoreRegistry(this.tables, this.programs, heads, this.authority, this.indexes, this.schemas, { tables: this.tableRoot, lookups: this.lookups });
   }
   withAuthority(authority: CoreAuthorityRecord): CoreRegistry {
-    return new CoreRegistry(this.tables, this.programs, this.heads, authority, this.lookups);
+    return new CoreRegistry(this.tables, this.programs, this.heads, authority, this.indexes, this.schemas, { tables: this.tableRoot, lookups: this.lookups });
   }
 }
-
-export function initialRegistry(definitions: readonly CoreTableDefinition[]): CoreRegistry {
-  return new CoreRegistry(new Map(definitions.map(definition => [definition.name, {
-    definition, id: definition.tabletId.slice(), ts: 0n,
-  }])));
+export function initialRegistry(definitions: readonly CoreTableDefinition[]): Result.Result<CoreRegistry, CorePersistenceError> {
+  const records: CoreIndexRecord[] = definitions.flatMap(table => table.indexes.map(index => ({
+    ...index, tableId: table.tabletId, state: { type: "Enabled" as const }, ts: 0n })));
+  return Result.map(CoreIndexRegistry.empty().apply({ removed: [], added: records }), indexes =>
+    new CoreRegistry(new Map(definitions.map(definition => [tableStorageKey(definition), {
+      definition, id: definition.tabletId.slice(), ts: 0n }])), new Map(), new Map(), undefined, indexes));
 }
 
 function corrupt(cause?: unknown): CorePersistenceError {
   return new CorePersistenceError({ reason: "corruptData", ...(cause === undefined ? {} : { cause }) });
 }
 
-export const decodeTableDocument = (document: DocumentObject): Result.Result<CoreTableDefinition, CorePersistenceError> =>
-  Result.gen(function* () {
-    const table = yield* Result.mapError(decodeStoredTable(document), corrupt);
-    if (table.number <= 0 || table.number > 0xffff_ffff) return yield* Result.fail(corrupt());
-    const parsed = yield* Result.try({ try: (): unknown => JSON.parse(table.validator), catch: (cause: unknown) => {
-      if (cause instanceof SyntaxError) return corrupt(cause);
-      throw cause;
-    } });
-    const issue = validatorJsonAdmissionIssueV1(parsed);
-    if (issue !== undefined) return yield* Result.fail(corrupt(issue));
-    const validator = yield* Result.mapError(decodeValidator(parsed), corrupt);
-    return Object.freeze({ name: table.name, number: table.number, tabletId: fromHex(table.tabletId), validator,
-      indexes: Object.freeze([]) });
+export const parseCoreTableRecord = (document: CoreSystemDocument, ts: bigint | null)
+  : Result.Result<CoreTableRecord, CorePersistenceError> => Result.gen(function* () {
+    const metadata = yield* Result.mapError(decodeStoredTable(document.value), corrupt);
+    const id = yield* Result.mapError(decodeDocumentId(document.id), corrupt);
+    return { id: id.internalId.slice(), ts, definition: Object.freeze({ name: metadata.name, number: Number(metadata.number),
+      state: metadata.state, namespace: metadata.namespace ?? null, tabletId: id.internalId.slice(), indexes: Object.freeze([]) }) };
   });
-
+export interface CoreRegistryDecoders {
+  readonly table: typeof parseCoreTableRecord;
+  readonly index: (document: CoreSystemDocument, ts: bigint | null, registry: CoreRegistry) => Result.Result<CoreIndexRecord, CorePersistenceError>;
+}
 export const readDocumentObject = (entry: CoreDocumentLogEntry,
   expected?: Pick<CoreTableDefinition, "number" | "tabletId">): Result.Result<DocumentObject, CorePersistenceError> =>
   Result.gen(function* () {
@@ -171,8 +212,10 @@ export const readDocumentObject = (entry: CoreDocumentLogEntry,
 /** Bootstrap discovery reads only trusted built-in by-ID indexes at this snapshot. */
 export const loadCoreRegistry = Effect.fn("CoreRegistry.load")(function* (
   snapshot: CorePersistenceSnapshot, bootstrap: CoreRegistry, observe?: (entry: CoreDocumentLogEntry) => void,
+  decoders: CoreRegistryDecoders = { table: parseCoreTableRecord, index: parseCoreIndexRecord },
 ) {
-  let registry = bootstrap;
+  // Bootstrap identities discover the catalogs; only rows present at S enter the loaded roots.
+  let registry = new CoreRegistry(new Map());
   let foundTables = 0;
   for (const name of [TABLES, INDEXES, PROGRAMS]) {
     const builtin = (name === TABLES || name === INDEXES ? bootstrap : registry).table(name);
@@ -186,23 +229,18 @@ export const loadCoreRegistry = Effect.fn("CoreRegistry.load")(function* (
         observe?.(entry.document);
         const document = yield* Effect.fromResult(readDocumentObject(entry.document, builtin.definition));
         if (name === TABLES) {
-          const definition = yield* Effect.fromResult(decodeTableDocument(document));
+          const record = yield* Effect.fromResult(decoders.table({ id: String(document._id), creationTime: Number(document._creationTime), value: document }, entry.document.ts));
+          const definition = record.definition;
           if (!bytesEqual(definition.tabletId, entry.document.id)) return yield* Effect.fail(corrupt());
-          const existingName = registry.table(definition.name);
+          const existingName = definition.state === "active" ? registry.table(definition.name, definition.namespace) : undefined;
           if (existingName !== undefined && !bytesEqual(existingName.id, entry.document.id)) return yield* Effect.fail(corrupt());
-          const existingNumber = registry.tableByNumber(definition.number);
+          const existingNumber = definition.state === "active" ? registry.tableByNumber(definition.number, definition.namespace) : undefined;
           if (existingNumber !== undefined && existingNumber.definition.name !== definition.name) return yield* Effect.fail(corrupt());
-          registry = registry.withTable({ definition, id: entry.document.id.slice(), ts: entry.document.ts });
-          foundTables += 1;
+          registry = registry.withTable(record); foundTables += 1;
         } else if (name === INDEXES) {
-          const metadata = yield* Effect.fromResult(Result.mapError(decodeIndexMetadata(document), corrupt));
-          const target = registry.tableByNumber(metadata.tableNumber);
-          if (target === undefined || target.definition.indexes.some(index => index.name === metadata.name))
-            return yield* Effect.fail(corrupt());
-          registry = registry.withTable({ ...target, definition: { ...target.definition, indexes: Object.freeze([
-            ...target.definition.indexes, Object.freeze({ name: metadata.name, fields: metadata.fields, enabled: metadata.enabled,
-              ref: Object.freeze({ id: entry.document.id.slice(), ...(metadata.persistenceIndexId === undefined ? {} : { persistenceIndexId: metadata.persistenceIndexId }) }) }),
-          ]) } });
+          const record = yield* Effect.fromResult(decoders.index({ id: String(document._id), creationTime: Number(document._creationTime), value: document }, entry.document.ts, registry));
+          if (registry.tableByTablet(record.tableId) === undefined) return yield* Effect.fail(corrupt());
+          registry = yield* Effect.fromResult(registry.withIndex(record));
         } else if (document.kind === "revision") {
           const stored = yield* Effect.fromResult(Result.mapError(decodeStoredProgram(document), corrupt));
           if (registry.program(stored.identity) !== undefined) return yield* Effect.fail(corrupt());
@@ -227,29 +265,37 @@ export const loadCoreRegistry = Effect.fn("CoreRegistry.load")(function* (
       start.set(page.cursor.key);
     }
   }
-  if (foundTables < CORE_BUILTIN_TABLE_NUMBERS.size || registry.authority === undefined) return yield* Effect.fail(corrupt());
-  for (const table of registry.tables.values()) {
-    if (!table.definition.indexes.some(index => index.name === "by_id" && index.enabled)) return yield* Effect.fail(corrupt());
+  if (foundTables < 2 || registry.authority === undefined) return yield* Effect.fail(corrupt());
+  for (const name of [TABLES, INDEXES]) {
+    const expected = bootstrap.table(name)?.definition, loaded = registry.table(name)?.definition;
+    if (expected === undefined || loaded === undefined || expected.number !== loaded.number
+      || !bytesEqual(expected.tabletId, loaded.tabletId)) return yield* Effect.fail(corrupt("Missing bootstrap catalog identity"));
   }
-  return registry;
+  for (const table of registry.tables.values()) {
+    if (!table.definition.indexes.some(index => index.name === "by_id")) return yield* Effect.fail(corrupt());
+  }
+  let schemas = CoreSchemaRegistry.empty();
+  for (const record of registry.tables.values()) {
+    if (record.definition.name !== SCHEMAS || record.definition.state !== "active") continue;
+    const byId = record.definition.indexes.find(index => index.name === "by_id");
+    if (byId === undefined) return yield* Effect.fail(corrupt());
+    let start: Uint8Array | null = null;
+    while (true) {
+      const page: CoreIndexPage = yield* snapshot.scan({ index: byId.ref, tableId: record.definition.tabletId, interval: { start, end: null }, order: "asc", maxResults: 128 });
+      for (const entry of page.entries) {
+        observe?.(entry.document);
+        const document = yield* Effect.fromResult(readDocumentObject(entry.document, record.definition));
+        const { _id, _creationTime, ...value } = document;
+        if (typeof _id !== "string" || typeof _creationTime !== "number") return yield* Effect.fail(corrupt());
+        schemas = yield* Effect.fromResult(schemas.withDocument(record.definition.namespace, undefined, { id: _id, creationTime: _creationTime, value }));
+      }
+      if (page.cursor.kind === "end") break;
+      start = new Uint8Array(page.cursor.key.length + 1); start.set(page.cursor.key);
+    }
+  }
+  return registry.withSchemas(schemas);
 });
 
 export function publicDocumentId(table: CoreTableDefinition, internalId: Uint8Array): Result.Result<string, CoreTransactionError> {
   return Result.mapError(encodeDocumentId(table.number, internalId), cause => new CoreTransactionError({ reason: "invalidDocumentId", cause }));
 }
-
-export const validateTableDefinition = (table: CoreTableDefinition): Result.Result<CoreTableDefinition, CoreTransactionError> =>
-  Result.gen(function* () {
-    const issue = validatorJsonAdmissionIssueV1(table.validator);
-    if (issue !== undefined) return yield* Result.fail(new CoreTransactionError({ reason: "invalidValue", cause: issue }));
-    const validator = yield* Result.mapError(decodeValidator(table.validator), cause => new CoreTransactionError({ reason: "invalidValue", cause }));
-    const decoded = yield* Result.mapError(decodeFullTableDefinition(tableDefinitionValue({ ...table, validator })),
-      cause => new CoreTransactionError({ reason: "invalidValue", cause }));
-    if (decoded.number <= 0 || decoded.number > 0xffff_ffff) return yield* Result.fail(new CoreTransactionError({ reason: "invalidValue" }));
-    if (new Set(decoded.indexes.map(index => index.name)).size !== decoded.indexes.length)
-      return yield* Result.fail(new CoreTransactionError({ reason: "invalidValue" }));
-    return Object.freeze({ name: decoded.name, number: decoded.number, tabletId: fromHex(decoded.tabletId), validator,
-      indexes: Object.freeze(decoded.indexes.map(index => Object.freeze({ name: index.name,
-        ref: Object.freeze({ id: fromHex(index.id), ...(index.persistenceIndexId === undefined ? {} : { persistenceIndexId: index.persistenceIndexId }) }),
-        fields: Object.freeze([...index.fields]), enabled: index.enabled }))) });
-  });

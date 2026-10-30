@@ -75,7 +75,7 @@ export const decodeSchemaManifestCodecVersion = Schema.decodeUnknownSync(
   SchemaManifestCodecVersionSchema,
 );
 
-const SchemaManifestAppIdentifierSchema = Schema.String.check(
+export const SchemaManifestAppIdentifierSchema = Schema.String.check(
   Schema.makeFilter((value) =>
     isValidSchemaManifestAppIdentifier(value)
       ? undefined

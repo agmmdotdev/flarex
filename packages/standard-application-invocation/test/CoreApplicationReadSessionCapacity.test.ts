@@ -12,7 +12,7 @@ const broker = Result.getOrThrow(createQueryCursorBroker({
 function transaction(): CoreReadTransaction {
   const unexpected = () => Effect.die("Unexpected transaction operation");
   return {
-    timestamp: 10n, unixTime: 20,
+    timestamp: 10n, unixTime: 20, tableMappings: Effect.succeed([]),
     tableNumber: unexpected, normalizeId: unexpected, selectProgram: unexpected,
     get: unexpected, startQuery: unexpected, scan: unexpected,
     usage: Effect.succeed({ user: { documentsRead: 0, bytesRead: 0, documentsWritten: 0, bytesWritten: 0 },
@@ -27,7 +27,7 @@ describe("Core Application foreign callback capacity", () => {
     let release = () => {};
     const gate = new Promise<void>(resolve => { release = resolve; });
     let callbacks = 0;
-    const session = makeCoreApplicationReadSession({ transaction: transaction(), tables: [], revalidate: Effect.void },
+    const session = makeCoreApplicationReadSession({ transaction: transaction(), revalidate: Effect.void },
       Context.empty(), broker, { maxPendingCallbacks: 2, maxOpenQueries: 1 });
     const first = session.run(() => Effect.promise(async () => { callbacks += 1; entered(); await gate; return "first"; }));
     await started;
@@ -49,7 +49,7 @@ describe("Core Application foreign callback capacity", () => {
   });
 
   it("releases successful outstanding slots for subsequent callbacks", async () => {
-    const session = makeCoreApplicationReadSession({ transaction: transaction(), tables: [], revalidate: Effect.void },
+    const session = makeCoreApplicationReadSession({ transaction: transaction(), revalidate: Effect.void },
       Context.empty(), broker, { maxPendingCallbacks: 1, maxOpenQueries: 1 });
     expect(await session.run(() => Effect.succeed("first"))).toBe("first");
     expect(await session.run(() => Effect.succeed("second"))).toBe("second");
@@ -64,7 +64,7 @@ describe("Core Application foreign callback capacity", () => {
       close: () => Effect.sync(() => { closed++; }),
     };
     const session = makeCoreApplicationReadSession({ transaction: { ...transaction(),
-      startQuery: () => Effect.sync(() => { started++; return query; }) }, tables: [], revalidate: Effect.void },
+      startQuery: () => Effect.sync(() => { started++; return query; }) }, revalidate: Effect.void },
     Context.empty(), broker, { maxPendingCallbacks: 2, maxOpenQueries: 1 });
     expect((await session.target.queryStart({ table: "users" }, { kind: "collect" })).kind).toBe("ok");
     await expect(session.target.queryStart({ table: "users" }, { kind: "collect" })).rejects.toThrow("unavailable");
@@ -81,7 +81,7 @@ describe("Core Application foreign callback capacity", () => {
     let release = () => {};
     const gate = new Promise<void>(resolve => { release = resolve; });
     const original = Cause.combine(Cause.fail(new CoreTransactionError({ reason: "capacity" })), Cause.combine(Cause.die("active defect"), Cause.interrupt(314)));
-    const session = makeCoreApplicationReadSession({ transaction: transaction(), tables: [], revalidate: Effect.void },
+    const session = makeCoreApplicationReadSession({ transaction: transaction(), revalidate: Effect.void },
       Context.empty(), broker, { maxPendingCallbacks: 1, maxOpenQueries: 1 });
     const active = session.run(() => Effect.promise(async () => { entered(); await gate; })
       .pipe(Effect.andThen(Effect.failCause(original))));

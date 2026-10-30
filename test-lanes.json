@@ -1378,12 +1378,37 @@
       ]
     },
     {
+      "id": "core-schema-pglite",
+      "category": "pglite",
+      "proof": "Translated core and shared logical schema/index lifecycle, generated physical baseline and authentic c554 cutover on PGlite; no ordinary-role, managed-host or production capacity claim.",
+      "prerequisites": [],
+      "steps": [{
+        "id": "core-pglite",
+        "cwd": "packages/persistence-postgres",
+        "command": "pnpm",
+        "args": ["exec","vitest","run","test/core/applicationQuery.test.ts","test/core/bootstrap.test.ts","test/core/history.test.ts","test/core/indexCache.pglite.test.ts","test/core/indexCache.test.ts","test/core/indexCachePolicy.test.ts","test/core/indexLifecycle.test.ts","test/core/indexSnapshot.test.ts","test/core/persistence.test.ts","test/core/persistenceDriver.test.ts","test/core/physicalMaintenance.test.ts","test/core/query.test.ts","test/core/requestClaimFailure.test.ts","test/core/schemaModels.test.ts","test/core/schemaWorker.test.ts","test/core/tableIterator.test.ts","test/core/tableNamespace.test.ts","test/core/tableSummary.test.ts","test/core/writeLog.test.ts","--no-file-parallelism"]
+      }]
+    },
+    {
+      "id": "core-schema-postgres",
+      "category": "postgres",
+      "proof": "Focused translated core, schema/index lifecycle, historical ports, generated baseline and populated c554 adoption/reopen with separate maintenance and restricted serving roles. Managed hosting, native cutover, general GC and production capacity remain open.",
+      "prerequisites": [{ "name": "FLAREX_CORE_POSTGRES_ENDPOINTS_FILE" }],
+      "steps": [{
+        "id": "core-postgres",
+        "cwd": "packages/persistence-postgres",
+        "command": "pnpm",
+        "args": ["exec", "vitest", "run", "test/core/applicationQuery.postgres.test.ts", "test/core/bootstrap.postgres.test.ts", "test/core/history.postgres.test.ts", "test/core/indexCache.postgres.test.ts", "test/core/persistence.postgres.test.ts", "test/core/physicalMaintenance.postgres.test.ts", "test/core/query.postgres.test.ts", "test/core/schemaWorker.postgres.test.ts", "--no-file-parallelism"]
+      }]
+    },
+    {
       "id": "application-query-do-postgres",
       "category": "workerd",
       "proof": "Bounded fresh Application query/mutation owner in local actual workerd with exact shared pages, explicit admission, nested WorkerLoader, source artifacts and ordinary PostgreSQL; includes fencing, replay and native socket drain. Does not establish managed Hyperdrive/eviction, native-profile cutover, live GC, production routing or capacity.",
       "prerequisites": [
         { "name": "FLAREX_POSTGRES_DATABASE_URL" },
-        { "name": "FLAREX_POSTGRES_PROVISIONING_DATABASE_URL" }
+        { "name": "FLAREX_POSTGRES_PROVISIONING_DATABASE_URL" },
+        { "name": "FLAREX_CORE_POSTGRES_ENDPOINTS_FILE" }
       ],
       "steps": [
         {

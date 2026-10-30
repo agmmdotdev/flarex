@@ -100,26 +100,30 @@ export function createExecutorClientLifetime(
   });
 }
 
-/** Existing private token/config admission, before any database allocation. */
-export function admitExecutorRequest(
-  request: Request,
-  env: ExecutorWorkerEnv,
-): Result.Result<
-  Readonly<{ capabilityToken: string; connectionString: string }>,
-  Response
-> {
-  const capabilityToken = env.FLAREX_EXECUTOR_TOKEN;
-  if (!hasConfiguredValue(capabilityToken)) {
-    return Result.fail(configurationErrorResponse(new HostedExecutorMissingCapabilityTokenError()));
-  }
-  if (!hasBearerCapability(request, capabilityToken)) return Result.fail(unauthorizedResponse());
-  const connectionString = env.HYPERDRIVE_CACHE_DISABLED?.connectionString;
-  if (!hasConfiguredValue(connectionString)) {
-    return Result.fail(configurationErrorResponse(new HostedExecutorMissingHyperdriveError()));
-  }
-  return Result.succeed(Object.freeze({ capabilityToken, connectionString }));
+type ExecutorConfiguration = Readonly<{ capabilityToken: string; connectionString: string }>;
+
+/** Trusted internal events share configuration checks, without bypassing HTTP authentication. */
+export function admitExecutorConfiguration(env: ExecutorWorkerEnv): Result.Result<ExecutorConfiguration, Response> {
+  return configuredCapabilityToken(env).pipe(Result.flatMap(token => configuredConnection(env, token)));
 }
 
+/** Existing private token/config admission, before any database allocation. */
+export function admitExecutorRequest(request: Request, env: ExecutorWorkerEnv): Result.Result<ExecutorConfiguration, Response> {
+  return Result.gen(function* () {
+    const token = yield* configuredCapabilityToken(env);
+    if (!hasBearerCapability(request, token)) return yield* Result.fail(unauthorizedResponse());
+    return yield* configuredConnection(env, token);
+  });
+}
+function configuredCapabilityToken(env: ExecutorWorkerEnv): Result.Result<string, Response> {
+  return hasConfiguredValue(env.FLAREX_EXECUTOR_TOKEN) ? Result.succeed(env.FLAREX_EXECUTOR_TOKEN)
+    : Result.fail(configurationErrorResponse(new HostedExecutorMissingCapabilityTokenError()));
+}
+function configuredConnection(env: ExecutorWorkerEnv, capabilityToken: string): Result.Result<ExecutorConfiguration, Response> {
+  const connectionString = env.HYPERDRIVE_CACHE_DISABLED?.connectionString;
+  return hasConfiguredValue(connectionString) ? Result.succeed(Object.freeze({ capabilityToken, connectionString }))
+    : Result.fail(configurationErrorResponse(new HostedExecutorMissingHyperdriveError()));
+}
 export function createRequestScopedExecutorWorker<
   Client extends ExecutorDatabaseClient,
 >(

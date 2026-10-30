@@ -3,6 +3,8 @@ import { PGlite } from "@electric-sql/pglite";
 import { Effect, Schema } from "effect";
 import { Pool } from "pg";
 import type { CorePersistence } from "../../src/core/contracts";
+import { loadBootstrapRegistry } from "../../src/core/bootstrap";
+import { loadCoreRegistry } from "../../src/core/registry";
 import { createCorePersistence } from "../../src/database/corePersistence/persistence";
 import { makeCorePGliteDriver, makeCorePostgresDriver, type CoreSqlDriver, type CoreSqlParameter } from "../../src/database/corePersistence/driver";
 import { installCorePersistence, loadCorePersistenceTarget } from "../../src/database/corePersistence/target";
@@ -17,6 +19,13 @@ export interface CorePersistenceFixture {
   readonly close: () => Promise<void>;
 }
 
+/** Test observation through actual metadata owners; never a readiness implementation. */
+export const readCoreFixtureRegistry = Effect.fn("CoreFixture.readRegistry")(function* (
+  fixture: Pick<CorePersistenceFixture, "persistence">, timestamp: bigint,
+) {
+  const snapshot = yield* fixture.persistence.readSnapshot(timestamp);
+  return yield* loadCoreRegistry(snapshot, yield* loadBootstrapRegistry(fixture.persistence, snapshot));
+});
 export interface CorePersistenceFixtureOptions {
   readonly instanceName?: string;
   readonly sqlPageSize?: number;

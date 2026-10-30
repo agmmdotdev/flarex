@@ -108,3 +108,13 @@ maintaining a competing completion log here.
 
 - [Synchronous TypeScript weighted page-cache maintenance](./typescript-weighted-page-cache.md): pinned TinyLFU policy with synchronous JS maintenance.
 - [Explicit DO cache and admission budgets](./do-cache-and-admission-budgets.md): private workload settings; production capacity remains unselected.
+
+## Shared schema translation
+
+- [Bounded schema/index worker lifetime](./cloudflare-schema-worker-lifetime.md).
+- [Live Worker table mapping](./worker-table-mapping.md).
+- [Drizzle physical maintenance](./drizzle-physical-maintenance.md).
+
+- [Local model migration lineage](./model-migration-lineage.md).
+
+- [Effect stack tracing in the hardened Worker](./worker-effect-stack-trace.md).

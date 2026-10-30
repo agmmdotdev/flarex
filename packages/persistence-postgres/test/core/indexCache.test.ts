@@ -11,12 +11,12 @@ import type { CoreTableDefinition } from "../../src/core/api";
 const id = (value: number) => { const bytes = new Uint8Array(16); bytes[15] = value; return bytes; };
 const byte = (value: number) => Uint8Array.of(value);
 const utf8 = new TextEncoder();
-const metadata: CoreTableDefinition = { name: INDEXES, number: 514, tabletId: id(1), validator: { type: "any" },
-  indexes: [{ name: "by_id", ref: { id: id(2) }, fields: [], enabled: true }] };
-const items: CoreTableDefinition = { name: "items", number: 10000, tabletId: id(3), validator: { type: "any" },
-  indexes: [{ name: "by_id", ref: { id: id(4) }, fields: [], enabled: true },
-    { name: "by_value", ref: { id: id(5) }, fields: ["value"], enabled: true }] };
-const registry = initialRegistry([metadata, items]);
+const metadata: CoreTableDefinition = { name: INDEXES, number: 514, tabletId: id(1), namespace: null, state: "active",
+  indexes: [{ name: "by_id", ref: { id: id(2) }, fields: [] }] };
+const items: CoreTableDefinition = { name: "items", number: 10000, tabletId: id(3), namespace: null, state: "active",
+  indexes: [{ name: "by_id", ref: { id: id(4) }, fields: [] },
+    { name: "by_value", ref: { id: id(5) }, fields: ["value"] }] };
+const registry = Result.getOrThrow(initialRegistry([metadata, items]));
 const rangeIndex = { id: id(5) };
 const request: CoreIndexScan = { index: rangeIndex, tableId: items.tabletId,
   interval: { start: null, end: null }, order: "asc", maxResults: 2 };
@@ -322,8 +322,9 @@ describe("translated shared exact index pages", () => {
       const foreign = { ...request, index: { id: id(5), persistenceIndexId: 999n } };
       yield* scan(cache, snapshot(0n, page(2)), foreign);
       expect(yield* scan(cache, snapshot(0n, page(3)), foreign)).toEqual(page(3));
-      const disabled = registry.withTable({ id: items.tabletId, ts: 1n, definition: { ...items,
-        indexes: items.indexes.map(index => ({ ...index, enabled: false })) } });
+      const selected = registry.indexById(rangeIndex.id);
+      if (selected === undefined) throw new Error("Missing cache fixture index");
+      const disabled = yield* Effect.fromResult(registry.withIndex({ ...selected.index, state: { type: "Backfilled2", staged: true } }));
       yield* cache.scan({ snapshot: snapshot(0n, page(2)), registry: disabled, request });
       expect(yield* cache.scan({ snapshot: snapshot(0n, page(3)), registry: disabled, request })).toEqual(page(3));
     }));

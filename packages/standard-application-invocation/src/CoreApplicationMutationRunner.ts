@@ -10,6 +10,7 @@ import {
   type CoreApplicationMutationConfiguration,
 } from "@flarex/persistence-postgres/internal/core-application-mutation";
 import { Cause, Clock, Context, Effect, Exit } from "effect";
+import { CoreTransactionError } from "@flarex/persistence-postgres/internal/core";
 import { captureExecutionDiagnosticContext } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import type { QueryCursorBroker } from "flarex-protocol/query-cursor";
 import { inspectVerifiedApplicationMutationGrantV1 } from "flarex-protocol/internal/application-mutation-grant-v1";
@@ -55,7 +56,7 @@ export function makeCoreApplicationMutationRunner(configuration: Readonly<{
       context: { mode: "write", executionId: context.executionId, logScopeId: context.logScopeId,
         randomSeed: context.randomSeed, executionTime: input.transaction.unixTime,
         initialCreationTimeCursor: input.transaction.unixTime },
-    }).pipe(Effect.mapError(cause => new CoreApplicationMutationError({ reason: "metadataInvalid", cause })));
+    }, "convex").pipe(Effect.mapError(cause => new CoreApplicationMutationError({ reason: "metadataInvalid", cause })));
     const callbackContext = yield* Effect.withFiber(fiber => Effect.succeed(Context.add(
       captureExecutionDiagnosticContext(fiber), Clock.Clock, Context.get(fiber.context, Clock.Clock),
     )));
@@ -63,7 +64,25 @@ export function makeCoreApplicationMutationRunner(configuration: Readonly<{
       configuration.admission);
     const capability = Object.freeze({
       ...session.target,
-      insertPointDocument: (table: string, value: unknown) => session.run(() => input.transaction.insert(table, value)),
+      insertPointDocument: (table: string, value: unknown) => session.run(() => {
+        const binding = input.transaction.tableNumber(table).pipe(
+          Effect.map(tableId => ({ tableId, logicalName: table })),
+        );
+        return input.transaction.insert(table, value).pipe(
+          Effect.flatMap(id => binding.pipe(Effect.map(table => ({ kind: "inserted" as const, id, table })))),
+          Effect.catchCause(cause => Effect.gen(function* () {
+            const reason = cause.reasons.length === 1 ? cause.reasons[0] : undefined;
+            if (reason !== undefined && Cause.isFailReason(reason) && reason.error instanceof CoreTransactionError) {
+              if (reason.error.reason === "documentValidation") {
+                const table = yield* binding;
+                return { kind: "documentValidation" as const, table };
+              }
+              if (reason.error.reason === "tooManyTables") return { kind: "tooManyTables" as const };
+            }
+            return yield* Effect.failCause(cause);
+          })),
+        );
+      }),
       patchPointDocument: (id: string, value: unknown) => session.run(() => input.transaction.patch(id, value)),
       replacePointDocument: (id: string, value: unknown) => session.run(() => input.transaction.replace(id, value)),
       deletePointDocument: (id: string) => session.run(() => input.transaction.delete(id)),

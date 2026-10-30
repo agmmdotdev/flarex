@@ -42,6 +42,7 @@ export const APPLICATION_TRANSACTION_WORKER_CPU_MILLISECONDS = 10_000;
 export const APPLICATION_TRANSACTION_WORKER_WALL_MILLISECONDS = 30_000;
 
 export interface ApplicationWorkerDefinition {
+  readonly documentIdFormat?: "convex";
   readonly targetCanonicalText: string;
   readonly hostPolicySha256Hex: string;
   readonly transactionWallMilliseconds: number;
@@ -124,6 +125,7 @@ export function makeApplicationWorkerDefinition(input: {
     ),
   });
   return Object.freeze({
+    ...(input.documentIdFormat === undefined ? {} : { documentIdFormat: input.documentIdFormat }),
     targetCanonicalText: canonicalTarget.canonicalText,
     hostPolicySha256Hex: hex(input.hostPolicySha256),
     transactionWallMilliseconds:

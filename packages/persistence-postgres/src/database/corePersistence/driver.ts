@@ -14,6 +14,8 @@ export interface CoreSqlConnection {
 
 /** Physical transport only. No global installation/session protocol is entered. */
 export interface CoreSqlDriver extends CoreSqlConnection {
+  readonly withConnection: <A, E>(run: (connection: CoreSqlConnection) => Effect.Effect<A, E>)
+    => Effect.Effect<A, E | CorePersistenceError>;
   readonly transaction: <A, E>(
     run: (connection: CoreSqlConnection) => Effect.Effect<A, E>,
   ) => Effect.Effect<A, E | CorePersistenceError>;
@@ -21,6 +23,14 @@ export interface CoreSqlDriver extends CoreSqlConnection {
 
 function unavailable(cause: unknown): CorePersistenceError {
   return new CorePersistenceError({ reason: "unavailable", cause });
+}
+
+/** Only a settled server statement timeout is the accepted native timeout analogue.
+ * User cancellation and unknown/localized 57014 errors retain their ordinary failure. */
+export function classifyCoreQueryFailure(cause: unknown): CorePersistenceError {
+  return new CorePersistenceError({ reason: typeof cause === "object" && cause !== null
+    && "code" in cause && cause.code === "57014" && "message" in cause
+    && cause.message === "canceling statement due to statement timeout" ? "timeout" : "unavailable", cause });
 }
 
 export interface CorePostgresClient extends Pick<ClientBase, "on" | "removeListener"> {
@@ -44,7 +54,7 @@ function pgConnection(client: CorePostgresClient): CoreSqlConnection {
     query: Effect.fn("CorePostgres.query")((statement: string, parameters: readonly CoreSqlParameter[] = []) =>
       Effect.uninterruptible(Effect.tryPromise({
         try: () => client.query<Record<string, unknown>>(statement, [...parameters]),
-        catch: unavailable,
+        catch: classifyCoreQueryFailure,
       }).pipe(Effect.map(result => result.rows))),
     ),
   });
@@ -68,6 +78,13 @@ export function makeCorePostgresDriver(pool: CorePostgresPool): CoreSqlDriver {
     Effect.map(client => ({ client, errors: observePostgresClientErrors(client), quarantine: false })),
   );
   return Object.freeze({
+    withConnection: <A, E>(run: (connection: CoreSqlConnection) => Effect.Effect<A, E>) =>
+      Effect.acquireUseRelease(acquire, owned => Effect.gen(function* () {
+        const value = yield* Effect.suspend(() => run(pgConnection(owned.client)));
+        const failure = owned.errors.failure();
+        if (failure !== undefined) return yield* Effect.fail(unavailable(failure));
+        return value;
+      }), releasePostgresCheckout),
     query: Effect.fn("CorePostgres.read")((statement: string, parameters: readonly CoreSqlParameter[] = []) =>
       Effect.acquireUseRelease(acquire, owned => Effect.gen(function* () {
         const rows = yield* pgConnection(owned.client).query(statement, parameters);
@@ -130,7 +147,7 @@ function pgliteConnection(client: CorePGliteConnection): CoreSqlConnection {
     query: Effect.fn("CorePGlite.query")((statement: string, parameters: readonly CoreSqlParameter[] = []) =>
       Effect.uninterruptible(Effect.tryPromise({
         try: () => client.query(statement, [...parameters]),
-        catch: unavailable,
+        catch: classifyCoreQueryFailure,
       }).pipe(Effect.map(result => result.rows))),
     ),
   });
@@ -140,6 +157,8 @@ function pgliteConnection(client: CorePGliteConnection): CoreSqlConnection {
 export function makeCorePGliteDriver(client: CorePGliteClient): CoreSqlDriver {
   return Object.freeze({
     ...pgliteConnection(client),
+    withConnection: <A, E>(run: (connection: CoreSqlConnection) => Effect.Effect<A, E>) =>
+      Effect.suspend(() => run(pgliteConnection(client))),
     transaction: <A, E>(run: (connection: CoreSqlConnection) => Effect.Effect<A, E>): Effect.Effect<A, E | CorePersistenceError> =>
       Effect.uninterruptibleMask(restore => Effect.gen(function* () {
         const context = yield* Effect.context<never>();

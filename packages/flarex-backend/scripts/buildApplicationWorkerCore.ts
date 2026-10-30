@@ -8,9 +8,11 @@ import { writeOrCheckGeneratedFile } from "./runtimeKernelBuilder";
 const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const ENTRY_PATH = path.join(
   PACKAGE_ROOT,
-  "src",
-  "artifactRuntime",
-  "ApplicationWorkerCore.ts",
+  "scripts",
+  "ApplicationWorkerCoreEntry.ts",
+);
+const STACK_TRACE_PRELUDE_PATH = path.join(
+  PACKAGE_ROOT, "scripts", "ApplicationWorkerStackTracePrelude.ts",
 );
 const GENERATED_PATH = path.join(
   PACKAGE_ROOT,
@@ -36,7 +38,7 @@ if (
   if (mode !== "update" && mode !== "check") {
     throw new Error("Usage: buildApplicationWorkerCore.ts <update|check>");
   }
-  const receipt = await buildTwice();
+  const receipt = await buildApplicationWorkerCoreTwice();
   const rendered = renderGenerated(receipt);
   await writeOrCheckGeneratedFile(
     GENERATED_PATH,
@@ -50,7 +52,7 @@ if (
   );
 }
 
-async function buildTwice(): Promise<CoreBuildReceipt> {
+export async function buildApplicationWorkerCoreTwice(): Promise<CoreBuildReceipt> {
   const first = await buildOnce();
   const second = await buildOnce();
   if (first.source !== second.source || first.sha256 !== second.sha256) {
@@ -94,6 +96,11 @@ async function buildOnce(): Promise<CoreBuildReceipt> {
   }
   if (chunk.imports.length !== 0 || chunk.dynamicImports.length !== 0) {
     throw new Error("Application Worker core retained runtime imports.");
+  }
+  const prelude = Object.entries(chunk.modules).find(([id]) =>
+    id.replaceAll("\\", "/") === STACK_TRACE_PRELUDE_PATH.replaceAll("\\", "/"));
+  if (prelude === undefined || prelude[1].renderedLength === 0) {
+    throw new Error("Application Worker core omitted its trusted stack-trace prelude.");
   }
   const missingFrameworkExports = Array.from(new Set([
     ...serverExports,

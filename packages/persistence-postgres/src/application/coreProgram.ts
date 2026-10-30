@@ -12,6 +12,7 @@ import { projectScopeIdUuidV1Result, ScopeEpochUuidV1Schema, ScopeUuidV1Schema }
 import { validateValidatorValueV1 } from "flarex-protocol/validator-engine";
 import type { CoreProgramDefinition, CoreReadTransaction } from "../core/api";
 import { captureCoreObject } from "../core/document";
+import { requireCoreApplicationSchemaSupport } from "./coreSchema";
 
 export class CoreApplicationProgramError extends Data.TaggedError("CoreApplicationProgramError")<{
   readonly reason: "metadataInvalid" | "argumentsInvalid" | "hashFailure" | "unsupportedSelection";
@@ -59,8 +60,8 @@ export const makeCoreApplicationPrograms = Effect.fn("makeCoreApplicationProgram
 }>) {
   const identity = yield* Schema.decodeUnknownEffect(ProducerIdentity)({ ...input, generation: input.generation ?? 1 }).pipe(Effect.mapError(invalid));
   const canonical = yield* Effect.fromResult(canonicalizeApplicationManifest(input.manifest)).pipe(Effect.mapError(invalid));
-  if (canonical.manifest.version !== 1) return yield* new CoreApplicationProgramError({ reason: "unsupportedSelection" });
-  const manifest = canonical.manifest;
+  const manifest = yield* Effect.fromResult(requireCoreApplicationSchemaSupport(canonical.manifest)).pipe(
+    Effect.mapError(cause => new CoreApplicationProgramError({ reason: "unsupportedSelection", cause })));
   const hash = input.sha256;
   const manifestSha256 = yield* hashHex(hash, canonical.canonicalBytes);
   const schemaSha256 = yield* frameHash(hash, applicationSchemaPublicationFrameV1(manifest));
@@ -104,8 +105,8 @@ export const readCoreApplicationProgram = Effect.fn("readCoreApplicationProgram"
   const captured = yield* Effect.fromResult(captureCoreObject(definition.metadata, true)).pipe(Effect.mapError(invalid));
   const metadata = yield* decodeMetadata(captured.value).pipe(Effect.mapError(invalid));
   const canonical = yield* Effect.fromResult(canonicalizeApplicationManifest(metadata.manifest)).pipe(Effect.mapError(invalid));
-  if (canonical.manifest.version !== 1) return yield* new CoreApplicationProgramError({ reason: "unsupportedSelection" });
-  const manifest = canonical.manifest;
+  const manifest = yield* Effect.fromResult(requireCoreApplicationSchemaSupport(canonical.manifest)).pipe(
+    Effect.mapError(cause => new CoreApplicationProgramError({ reason: "unsupportedSelection", cause })));
   const authority = metadata.kind === "mutation"
     ? yield* canonicalizeApplicationMutationExecutionAuthorityV1(metadata.executionAuthority).pipe(Effect.mapError(invalid)) : undefined;
   const target = yield* Effect.fromResult(canonicalizeApplicationRuntimeTargetV1(metadata.kind === "query"
@@ -147,9 +148,8 @@ export const readCoreApplicationProgram = Effect.fn("readCoreApplicationProgram"
 });
 
 export const readCoreApplicationTableBindings = Effect.fn("readCoreApplicationTableBindings")((
-  transaction: CoreReadTransaction, manifest: ApplicationManifest,
-) => Effect.forEach(manifest.schema.tables, table => transaction.tableNumber(table.name).pipe(
-  Effect.map(tableId => Object.freeze({ tableId, logicalName: table.name }))), { concurrency: 1 }));
+  transaction: CoreReadTransaction,
+) => transaction.tableMappings);
 
 export function validateCoreApplicationArguments(
   validator: ApplicationManifest["functions"][number]["args"], value: DocumentObject,

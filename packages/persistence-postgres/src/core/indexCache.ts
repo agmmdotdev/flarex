@@ -128,7 +128,7 @@ export const makeCoreIndexCache = Effect.fn("CoreIndexCache.make")(function* (
     const weight = pageWeight(key, request, fetched);
     if (weight > configuration.maxBytes) return;
     const metadataTable = registry.table(INDEXES)?.definition;
-    const metadataById = metadataTable?.indexes.find(index => index.name === "by_id" && index.enabled);
+    const metadataById = metadataTable?.indexes.find(index => index.name === "by_id");
     if (metadataTable === undefined || metadataById === undefined) return;
     const metadataKey = yield* Effect.fromResult(publicDocumentId(metadataTable, request.index.id).pipe(
       Result.flatMap(id => Result.mapError(encodeIndexKey([], id), cause => new CoreTransactionError({ reason: "invalidValue", cause }))),
@@ -165,7 +165,7 @@ export const makeCoreIndexCache = Effect.fn("CoreIndexCache.make")(function* (
   const scan: CoreIndexCache["scan"] = Effect.fn("CoreIndexCache.scan")(function* (input) {
     const request = copyRequest(input.request);
     const selected = input.registry.indexById(request.index.id);
-    const known = selected !== undefined && selected.index.enabled
+    const known = selected !== undefined && selected.index.state.type === "Enabled"
       && bytesEqual(selected.table.tabletId, request.tableId)
       && selected.index.ref.persistenceIndexId === request.index.persistenceIndexId;
     const key = cacheKey(request);

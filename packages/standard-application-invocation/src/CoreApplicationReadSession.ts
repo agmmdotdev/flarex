@@ -6,8 +6,7 @@ import {
   type CoreQuery,
   type CoreReadTransaction,
 } from "@flarex/persistence-postgres/internal/core";
-import { Cause, Context, Effect, Exit, Option, Result, Schema } from "effect";
-import { decodeDocumentId } from "flarex-protocol/document-id";
+import { Cause, Context, Effect, Exit, Option, Schema } from "effect";
 import { MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1 } from "flarex-protocol/commit-protocol";
 import { normalizeFlarexValueV1 } from "flarex-protocol/value";
 import type { QueryCursorBroker } from "flarex-protocol/query-cursor";
@@ -49,7 +48,6 @@ const QUERY_TRANSPORT_PAGE_SEMANTIC_BYTES = normalizeFlarexValueV1(QUERY_TRANSPO
 export function makeCoreApplicationReadSession<RevalidationError>(
   input: Readonly<{
     transaction: CoreReadTransaction;
-    tables: readonly Readonly<{ tableId: number; logicalName: string }>[];
     revalidate: Effect.Effect<void, RevalidationError>;
   }>,
   callbackContext: Context.Context<never>,
@@ -93,14 +91,6 @@ export function makeCoreApplicationReadSession<RevalidationError>(
     tail = admitted.then(() => { pendingCallbacks -= 1; }, () => { pendingCallbacks -= 1; });
     return admitted;
   };
-  const requireTable = (table: string, id: string) => Effect.fromResult(decodeDocumentId(id).pipe(
-    Result.flatMap(identity => input.tables.some(candidate =>
-      candidate.logicalName === table && candidate.tableId === identity.tableNumber)
-      ? Result.succeed(undefined)
-      : Result.fail(new CoreTransactionError({ reason: "invalidDocumentId" }))),
-    Result.mapError(cause => cause instanceof CoreTransactionError ? cause
-      : new CoreTransactionError({ reason: "invalidDocumentId", cause })),
-  ));
   const queryResult = <A>(work: Effect.Effect<A, CoreError | CoreApplicationAdmissionError>) => work.pipe(
     Effect.map(value => ({ kind: "ok" as const, value })),
     Effect.catchTag("CoreQueryInputError", error => Effect.succeed({ kind: "queryError" as const,
@@ -112,8 +102,7 @@ export function makeCoreApplicationReadSession<RevalidationError>(
   };
   const target = Object.freeze({
     revalidate: () => run(() => Effect.void),
-    readPointDocument: (table: string, id: string) => run(() => requireTable(table, id).pipe(
-      Effect.andThen(input.transaction.get(id)),
+    readPointDocument: (id: string) => run(() => input.transaction.get(id).pipe(
       Effect.map(Option.match({ onNone: () => ({ kind: "missing" as const }),
         onSome: document => ({ kind: "present" as const, document: structuredClone(document) }) })),
     )),

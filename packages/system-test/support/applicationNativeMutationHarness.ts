@@ -1214,6 +1214,35 @@ export async function proveCoreApplicationDocumentValidation(fixture: Applicatio
   } finally { await loader.dispose(); }
 }
 
+/** Actual Analysis -> program -> Worker -> core lifecycle and nested mapping witness. */
+export async function proveCoreApplicationSchemaMappings(fixture: ApplicationCoreFixture) {
+  const seed = await runSystemTestEffectV1(fixture.database.begin());
+  const unlistedId = await runSystemTestEffectV1(seed.insert("unlisted", { value: "kept outside manifest" }));
+  await runSystemTestEffectV1(fixture.database.commit(await runSystemTestEffectV1(seed.finalize())));
+  const proposal = await runSystemTestEffectV1(fixture.database.prepareSchema({ schema: { schemaValidation: true, tables: [{ tableName: "staging", indexes: [],
+    stagedDbIndexes: [{ indexDescriptor: "by_value", fields: ["value", "_creationTime"] }] }] } }));
+  let status = await runSystemTestEffectV1(fixture.database.schemaStatus(proposal));
+  for (let step = 0; step < 64 && (status.state === "pending" || !status.indexesReady); step++)
+    status = await runSystemTestEffectV1(fixture.database.advanceSchema(proposal, { pageSize: 32, maxPages: 16 }));
+  await runSystemTestEffectV1(fixture.database.activateSchema(proposal, { programs: fixture.programs }));
+  const calls: string[] = [];
+  const loader = new MiniflareApplicationWorkerLoader(method => { calls.push(method); });
+  try {
+    const layer = await makeApplicationNativeMutationTestLayer(fixture, loader);
+    const outcome = await runSystemTestEffectV1(Effect.scoped(invokeApplicationMutation(
+      TransactionFunctionPathV1Schema.make("users:validationRecovery"), { mapping: true, id: fixture.documentId, unlistedId },
+      TransactionRequestKeyV1Schema.make("core-schema:mappings"),
+    ).pipe(Effect.provide(layer))));
+    const read = await runSystemTestEffectV1(fixture.database.begin());
+    try {
+      const tables = await runSystemTestEffectV1(read.tableMappings);
+      const unlisted = await runSystemTestEffectV1(read.get(unlistedId));
+      const omittedValidator = await runSystemTestEffectV1(read.insert("users", { formerlyRejected: true }));
+      await runSystemTestEffectV1(fixture.database.commit(await runSystemTestEffectV1(read.finalize())));
+      return { outcome, unlistedId, documentId: fixture.documentId, tables, unlisted, omittedValidator, calls, workerLoads: loader.loads };
+    } finally { await runSystemTestEffectV1(read.abort()); }
+  } finally { await loader.dispose(); }
+}
 export async function proveCoreApplicationArgumentProfile(fixture: ApplicationCoreFixture) {
   const loader = new MiniflareApplicationWorkerLoader();
   try {

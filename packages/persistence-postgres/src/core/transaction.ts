@@ -4,24 +4,29 @@
  * Copyright 2026 Convex, Inc., FSL-1.1-Apache-2.0 (convex-backend/LICENSE.md).
  */
 import { BTreeEx as BTree } from "sorted-btree/extended/index.js";
-import { Effect, Option, Result, Semaphore } from "effect";
+import { Effect, Option, Result, Schema, Semaphore } from "effect";
 import { bytesEqual, compareBytesLexicographically, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { decodeDocumentId } from "flarex-protocol/document-id";
+import { SchemaManifestAppTableNameSchema } from "flarex-protocol/schema-manifest";
+import { decodeDocumentId, normalizeDocumentId } from "flarex-protocol/document-id";
 import { captureDocumentObject, captureDocumentPatch, encodeDocumentValue, type DocumentObject, type DocumentValue } from "flarex-protocol/document-value";
-import { encodeIndexKey } from "flarex-protocol/index-key";
+import { encodeIndexKey, encodeIndexValue } from "flarex-protocol/index-key";
 import { captureLogicalQuery, compileIndexRange, fingerprintQuery, splitIndexRangeAfter } from "flarex-protocol/index-range";
-import { validateValidatorValueV1 } from "flarex-protocol/validator-engine";
 import { CoreQueryInputError, CoreTransactionError, issueFinalizedTransaction, type CoreError, type CoreFinalizedTransaction,
   type CoreIndexDefinition, type CoreTableDefinition, type CoreTransaction, type CoreTransactionLimits, type CoreTransactionUsage,
   type CoreReadToken, type CoreProgramDefinition } from "./api";
 import { CorePersistenceError, type CoreDocumentLogEntry, type CoreIndexPage, type CoreIndexScan, type CoreInterval, type CorePersistenceSnapshot, type CoreWriteBatch } from "./contracts";
-import { CoreRegistry, TABLES, PROGRAMS, publicDocumentId, readDocumentObject } from "./registry";
+import { CoreRegistry, TABLES, INDEXES, SCHEMAS, PROGRAMS, publicDocumentId, readDocumentObject, tableDocument, parseCoreTableRecord } from "./registry";
+import { coreNamespaceKey, type CoreTableNamespace } from "./namespace";
+import { CoreSchemaModel } from "./schemaModel";
+import type { CoreSchemaRegistry } from "./schemaRegistry";
+import { coreIndexMetadataValue, coreIndexWriteMode, parseCoreIndexRecord, type CoreIndexRecord } from "./indexState";
 import { CoreReadSetBuilder, pointInterval, type CoreReadSet } from "./writeLog";
 import { CORE_TRANSACTION_REFERENCE_LIMITS, CoreAccounting } from "./accounting";
 import { captureCoreDocument, captureCoreObject } from "./document";
 import { addIndexMetadataDependency, addTableWriteDependencies } from "./dependencies";
-import { createCoreQuery } from "./query";
+import { createCoreEmptyQuery, createCoreQuery } from "./query";
 import { createCoreIndexSnapshot } from "./indexSnapshot";
+import type { CoreTableCounts } from "./tableCounts";
 import { documentIndexKey } from "./documentIndex";
 
 export interface CoreDocumentChange {
@@ -44,12 +49,40 @@ export interface CoreFinalizedState {
 }
 
 export interface CoreTransactionInternals {
+  readonly namespace: CoreTableNamespace;
+  readonly timestamp: bigint;
+  readonly registry: CoreRegistry;
+  readonly schemaRegistry: CoreSchemaRegistry;
   readonly transaction: CoreTransaction;
+  readonly count: (tableId:Uint8Array) => Effect.Effect<Option.Option<bigint>,CoreError>;
+  readonly runSystem: <A>(body: Effect.Effect<A, CoreError>) => Effect.Effect<A, CoreError>;
+  readonly getSystem: (table: string, id: string) => Effect.Effect<Option.Option<CoreSystemDocument>, CoreError>;
+  readonly querySystem: (table: string, index: string, eqValues: readonly DocumentValue[]) => Effect.Effect<readonly CoreSystemDocument[], CoreError>;
+  readonly insertSystem: (table: string, body: DocumentObject) => Effect.Effect<string, CoreError>;
+  readonly replaceSystem: (table: string, id: string, body: DocumentObject) => Effect.Effect<void, CoreError>;
+  readonly deleteSystem: (table: string, id: string) => Effect.Effect<void, CoreError>;
+  readonly ensureUserTable: (name: string) => Effect.Effect<CoreTableDefinition, CoreError>;
+  readonly tableExists: (name: string) => boolean;
+  readonly schemaTableStateIndex: () => import("./contracts").CoreIndexRef;
   readonly finishRead: () => Effect.Effect<CoreReadToken, CoreError>;
   readonly readPrivate: (table: string, id: Uint8Array) => Effect.Effect<Option.Option<DocumentObject>, CoreError>;
   readonly writePrivate: (table: string, id: Uint8Array, body: DocumentObject | null) => Effect.Effect<void, CoreError>;
   readonly setRegistryAfter: (registry: CoreRegistry) => void;
   readonly addIndexRead: (indexId: Uint8Array, interval: CoreInterval) => void;
+}
+
+/** Parsed system document; value contains the body without intrinsic fields. */
+export interface CoreSystemDocument {
+  readonly id: string;
+  readonly creationTime: number;
+  readonly value: DocumentObject;
+}
+
+function systemDocument(document: DocumentObject): Result.Result<CoreSystemDocument, CorePersistenceError> {
+  const { _id, _creationTime, ...value } = document;
+  return typeof _id === "string" && typeof _creationTime === "number"
+    ? Result.succeed({ id: _id, creationTime: _creationTime, value })
+    : Result.fail(new CorePersistenceError({ reason: "corruptData" }));
 }
 
 export class CoreFinalizationVault {
@@ -84,6 +117,8 @@ export function createCoreTransaction(input: Readonly<{
   residentReader?: (request: CoreIndexScan) => CoreIndexPage | undefined;
   operationCacheMaxBytes?: number;
   registry: CoreRegistry;
+  namespace?: CoreTableNamespace;
+  counts?: CoreTableCounts;
   now: bigint;
   newInternalId: Effect.Effect<Uint8Array>;
   vault: CoreFinalizationVault;
@@ -93,7 +128,9 @@ export function createCoreTransaction(input: Readonly<{
   assertOwnerOpen?: Effect.Effect<void, CoreError>;
   onClosed?: () => void;
 }>): CoreTransactionInternals {
-  const { snapshot, registry } = input;
+  const { snapshot } = input;
+  let registry = input.registry;
+  const namespace = input.namespace ?? null;
   const indexSnapshot = createCoreIndexSnapshot({ snapshot, registry,
     ...(input.residentReader === undefined ? {} : { resident: input.residentReader }),
     ...(input.operationCacheMaxBytes === undefined ? {} : { maxBytes: input.operationCacheMaxBytes }) });
@@ -123,23 +160,23 @@ export function createCoreTransaction(input: Readonly<{
     () => Effect.sync(() => { inflight -= 1; }),
   );
 
-  function metadataRead(table: CoreTableDefinition): Result.Result<void, CoreTransactionError> {
-    const tables = registry.table(TABLES);
-    const index = tables?.definition.indexes.find(value => value.name === "by_id");
-    const record = registry.table(table.name);
-    if (tables === undefined || index === undefined || record === undefined) return Result.fail(invalid());
-    return Result.gen(function* () {
-      const id = yield* publicDocumentId(tables.definition, record.id);
-      const key = yield* Result.mapError(encodeIndexKey([], id), invalid);
-      reads.add(index.ref.id, pointInterval(key));
-    });
-  }
 
   const tableByName = (name: string, privateAccess: boolean): Result.Result<CoreTableDefinition, CoreTransactionError> => {
-    const record = registry.table(name);
+    const record = registry.table(name, systemNamespace(name));
     if (record === undefined || (!privateAccess && name.startsWith("_"))) return Result.fail(new CoreTransactionError({ reason: "missingTable" }));
-    return Result.map(metadataRead(record.definition), () => record.definition);
+    return Result.map(mappingRead(), () => record.definition);
   };
+
+  function systemNamespace(name: string): CoreTableNamespace {
+    return [TABLES, INDEXES, PROGRAMS, "_session_requests", "_index_backfills", "_db"].includes(name) ? null : namespace;
+  }
+
+  function mappingRead(): Result.Result<void, CoreTransactionError> {
+    const index = registry.table(TABLES)?.definition.indexes.find(value => value.name === "by_id");
+    if (index === undefined) return Result.fail(invalid());
+    reads.add(index.ref.id, { start: null, end: null });
+    return Result.succeed(undefined);
+  }
 
   function chargePointQuery(table: CoreTableDefinition, id: Uint8Array): Result.Result<void, CoreTransactionError> {
     return Result.gen(function* () {
@@ -167,7 +204,7 @@ export function createCoreTransaction(input: Readonly<{
 
   const resolve = (id: string, privateAccess: boolean) => Result.gen(function* () {
     const decoded = yield* Result.mapError(decodeDocumentId(id), cause => new CoreTransactionError({ reason: "invalidDocumentId", cause }));
-    const record = registry.tableByNumber(decoded.tableNumber);
+    const record = registry.tableByNumber(decoded.tableNumber, namespace);
     if (record === undefined) return yield* Result.fail(new CoreTransactionError({ reason: "missingTable" }));
     const table = yield* tableByName(record.definition.name, privateAccess);
     return { table, internalId: decoded.internalId };
@@ -179,7 +216,7 @@ export function createCoreTransaction(input: Readonly<{
     const pending = writes.get(developerId);
     if (pending !== undefined) return { original: pending.original, document: pending.originalDocument };
     const byId = table.indexes.find(index => index.name === "by_id");
-    if (byId === undefined || !byId.enabled) return yield* Effect.fail(new CoreTransactionError({ reason: "indexUnavailable" }));
+    if (byId === undefined) return yield* Effect.fail(new CoreTransactionError({ reason: "indexUnavailable" }));
     const key = yield* Effect.fromResult(Result.mapError(encodeIndexKey([], developerId), invalid));
     reads.add(byId.ref.id, pointInterval(key));
     const page = yield* indexSnapshot.scan({ index: byId.ref, tableId: table.tabletId,
@@ -219,7 +256,7 @@ export function createCoreTransaction(input: Readonly<{
     if (captured !== null) documentSizes.set(captured.value, captured.semanticSizeBytes);
     yield* Effect.fromResult(addTableWriteDependencies(reads, registry, table));
     const pendingUpdates: Array<Readonly<{ index: CoreIndexDefinition; oldKey?: Uint8Array; newKey?: Uint8Array }>> = [];
-    for (const index of table.indexes) {
+    for (const index of registry.indexesForTablet(table.tabletId)) {
       const oldKey = previous === null ? undefined : yield* Effect.fromResult(documentIndexKey(index, previous));
       const newKey = next === null ? undefined : yield* Effect.fromResult(documentIndexKey(index, next));
       pendingUpdates.push({ index, ...(oldKey === undefined ? {} : { oldKey }), ...(newKey === undefined ? {} : { newKey }) });
@@ -243,27 +280,24 @@ export function createCoreTransaction(input: Readonly<{
     });
   });
 
-  function validateUserBody(table: CoreTableDefinition, value: unknown): Result.Result<DocumentObject, CoreTransactionError> {
-    return Result.gen(function* () {
-      const body = yield* Result.mapError(captureDocumentObject(value), invalid);
-      if (Object.hasOwn(body, "_id") || Object.hasOwn(body, "_creationTime")) return yield* Result.fail(invalid());
-      yield* Result.mapError(validateValidatorValueV1(table.validator, body, { idPolicy: {
+  const validateUserBody = Effect.fn("CoreTransaction.validateDocument")(function* (table: CoreTableDefinition, value: unknown) {
+      const body = yield* Effect.fromResult(Result.mapError(captureDocumentObject(value), invalid));
+      if (Object.hasOwn(body, "_id") || Object.hasOwn(body, "_creationTime")) return yield* invalid();
+      yield* new CoreSchemaModel(internals).enforceDocument(table.name, body, {
         mode: "tableAware", check: (name, id) => {
-          const expected = registry.table(name);
+          const expected = registry.table(name, namespace);
           if (expected === undefined) return "unavailable";
           return Result.match(decodeDocumentId(id), { onFailure: () => "invalid" as const,
             onSuccess: decoded => decoded.tableNumber === expected.definition.number ? "valid" as const : "invalid" as const });
         },
-      } }), cause => new CoreTransactionError({ reason: "documentValidation", cause }));
+      });
       return body;
-    });
-  }
+  });
 
   const selectIndex = (tableName: string, indexName: string) => Result.gen(function* () {
     const table = yield* tableByName(tableName, false);
     const index = table.indexes.find(value => value.name === indexName);
-    if (index === undefined) return yield* Result.fail(new CoreTransactionError({ reason: "missingIndex" }));
-    if (!index.enabled) return yield* Result.fail(new CoreTransactionError({ reason: "indexUnavailable" }));
+    if (index === undefined) return yield* Result.fail(new CoreTransactionError({ reason: registry.indexes.byName(table.tabletId,indexName).pending===undefined?"missingIndex":"indexUnavailable" }));
     yield* addIndexMetadataDependency(reads, registry, index);
     return { table, index };
   });
@@ -275,13 +309,103 @@ export function createCoreTransaction(input: Readonly<{
     ...(initialPosition === undefined ? {} : { initialPosition }),
     pendingIndex: () => pendingIndexes.get(encodeBytesToLowercaseHex(index.ref.id)),
     recordRead: consumed => { reads.add(index.ref.id, consumed); return accounting.query(index.ref.id, consumed); },
-    chargeDocument: (document, size) => { documentSizes.set(document, size); return accounting.read(false, size); }, assertOpen,
+    chargeDocument: (document, size) => { documentSizes.set(document, size); return accounting.read(table.name.startsWith("_"), size); }, assertOpen,
     operation: withinOperation ? body => body : operation,
+  });
+
+  const writeSystem = Effect.fn("CoreTransaction.writeSystem")(function* (name: string, id: Uint8Array, body: DocumentObject | null) {
+    const table = yield* Effect.fromResult(tableByName(name, true));
+    const developerId = yield* Effect.fromResult(publicDocumentId(table, id));
+    const previous = yield* read(table, id);
+    const document = body === null ? null : { ...body, _id: developerId,
+      _creationTime: previous?._creationTime ?? creationTime };
+    if (previous === null && document !== null) creationTime = nextUp(creationTime);
+    yield* stage(table, id, document);
+    if (name === TABLES && document !== null) {
+      registry = registry.withTable(yield* Effect.fromResult(parseCoreTableRecord(yield* Effect.fromResult(systemDocument(document)), null)));
+    } else if (name === INDEXES) {
+      registry = registry.withoutIndex(id);
+      if (document !== null) registry = yield* Effect.fromResult(registry.withIndex(
+        yield* Effect.fromResult(parseCoreIndexRecord(yield* Effect.fromResult(systemDocument(document)), null))));
+    } else if (name === SCHEMAS) {
+      registry = registry.withSchemas(yield* Effect.fromResult(registry.schemas.withDocument(namespace,
+        previous === null ? undefined : yield* Effect.fromResult(systemDocument(previous)),
+        document === null ? undefined : yield* Effect.fromResult(systemDocument(document)))));
+    }
+    if(name===TABLES||name===INDEXES||name===SCHEMAS)registryAfter = registry;
+  });
+
+  const ensureUserTable = Effect.fn("CoreTransaction.ensureUserTable")(function* (name: string) {
+    yield* Schema.decodeUnknownEffect(SchemaManifestAppTableNameSchema)(name).pipe(Effect.mapError(invalid));
+    yield* Effect.fromResult(mappingRead());
+    const existing = registry.table(name, namespace);
+    if (existing !== undefined) return existing.definition;
+    const active = [...registry.tables.values()].filter(record => record.definition.state === "active"
+      && !record.definition.name.startsWith("_"));
+    if (active.length >= 10000) return yield* new CoreTransactionError({ reason: "tooManyTables", cause: { limit: 10000 } });
+    let number = 10001;
+    for (const record of registry.tables.values()) if (coreNamespaceKey(record.definition.namespace) === coreNamespaceKey(namespace)
+      && record.definition.number >= number) number = record.definition.number + 1;
+    if (number > 0xffff_ffff) return yield* new CoreTransactionError({ reason: "capacity" });
+    const tabletId = (yield* input.newInternalId).slice();
+    const definition: CoreTableDefinition = { name, number, tabletId, namespace, state: "active", indexes: [] };
+    registry = registry.withTable({ definition, id: tabletId.slice(), ts: null });
+    const created: CoreIndexRecord[] = [];
+    for (const [indexName, fields] of [["by_id", []], ["by_creation_time", ["_creationTime"]]] as const) {
+      const record: CoreIndexRecord = { ref: { id: (yield* input.newInternalId).slice() }, tableId: tabletId,
+        name: indexName, fields, state: { type: "Enabled" }, ts: null };
+      created.push(record);
+      registry = yield* Effect.fromResult(registry.withIndex(record));
+    }
+    yield* writeSystem(TABLES, tabletId, tableDocument(definition));
+    for (const index of created) yield* writeSystem(INDEXES, index.ref.id, coreIndexMetadataValue(index));
+    registryAfter = registry;
+    const selected = registry.table(name, namespace);
+    if (selected === undefined) return yield* new CorePersistenceError({ reason: "corruptData" });
+    return selected.definition;
+  });
+
+  const getSystem = Effect.fn("CoreTransaction.getSystem")(function* (name: string, id: string) {
+    const table = yield* Effect.fromResult(tableByName(name, true));
+    const decoded = yield* Effect.fromResult(Result.mapError(decodeDocumentId(id), invalid));
+    if (decoded.tableNumber !== table.number) return yield* invalid();
+    yield* Effect.fromResult(chargePointQuery(table, decoded.internalId));
+    const document = yield* read(table, decoded.internalId);
+    return document === null ? Option.none<CoreSystemDocument>() : Option.some(yield* Effect.fromResult(systemDocument(document)));
+  });
+
+  const querySystem = Effect.fn("CoreTransaction.querySystem")(function* (name: string, indexName: string, eqValues: readonly DocumentValue[]) {
+    const table = yield* Effect.fromResult(tableByName(name, true));
+    const index = table.indexes.find(candidate => candidate.name === indexName);
+    if (index === undefined) return yield* new CorePersistenceError({ reason: "corruptData" });
+    const parts: Uint8Array[] = [];
+    for (const value of eqValues) parts.push(yield* Effect.fromResult(Result.mapError(encodeIndexValue(value), invalid)));
+    const start = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+    let offset = 0;
+    for (const part of parts) { start.set(part, offset); offset += part.length; }
+    let last = start.length - 1;
+    while (last >= 0 && start[last] === 255) last -= 1;
+    const end = last < 0 ? null : start.slice(0, last + 1);
+    if (end !== null) end[last] = (end[last] ?? 0) + 1;
+    const query = scanner(table, index, { start, end }, "asc", undefined, undefined, undefined, true);
+    const rows: CoreSystemDocument[] = [];
+    while (true) {
+      const page = yield* query.nextPage({ maxResults: 128, maxBytes: Number.MAX_SAFE_INTEGER });
+      for (const document of page.documents) rows.push(yield* Effect.fromResult(systemDocument(document)));
+      if (page.done) break;
+    }
+    return rows;
   });
 
   const transaction: CoreTransaction = Object.freeze({
     timestamp: snapshot.timestamp, unixTime,
     usage: Effect.sync(() => accounting.snapshot()),
+    tableMappings: operation(Effect.gen(function* () {
+      yield* Effect.fromResult(mappingRead());
+      return Object.freeze([...registry.tables.values()].filter(record => record.definition.state === "active"
+        && !record.definition.name.startsWith("_") && coreNamespaceKey(record.definition.namespace) === coreNamespaceKey(namespace))
+        .map(record => Object.freeze({ tableId: record.definition.number, logicalName: record.definition.name })));
+    })),
     selectProgram: Effect.fn("CoreTransaction.selectProgram")((path: string) => operation(Effect.gen(function* () {
       const head = registry.head(path);
       const program = head === undefined ? undefined : registry.program(head.identity);
@@ -300,11 +424,15 @@ export function createCoreTransaction(input: Readonly<{
       return (yield* Effect.fromResult(tableByName(name, false))).number;
     }))),
     normalizeId: Effect.fn("CoreTransaction.normalizeId")((name: string, id: unknown) => operation(Effect.gen(function* () {
-      const table = yield* Effect.fromResult(tableByName(name, false));
-      return Result.match(decodeDocumentId(id), { onFailure: () => Option.none<string>(),
-        onSuccess: decoded => decoded.tableNumber === table.number ? Option.some(decoded.id) : Option.none<string>() });
+      yield* Effect.fromResult(mappingRead());
+      const table = registry.table(name,namespace)?.definition;
+      if(table===undefined)return Option.none<string>();
+      return yield* Effect.fromResult(Result.mapError(normalizeDocumentId(table.number, id), invalid));
     }))),
     get: Effect.fn("CoreTransaction.get")((id: string) => operation(Effect.gen(function* () {
+      const decoded = yield* Effect.fromResult(Result.mapError(decodeDocumentId(id), cause => new CoreTransactionError({ reason: "invalidDocumentId", cause })));
+      yield* Effect.fromResult(mappingRead());
+      if (registry.tableByNumber(decoded.tableNumber, namespace) === undefined) return Option.none();
       const selected = yield* Effect.fromResult(resolve(id, false));
       yield* Effect.fromResult(chargePointQuery(selected.table, selected.internalId));
       const document = yield* read(selected.table, selected.internalId);
@@ -312,8 +440,8 @@ export function createCoreTransaction(input: Readonly<{
       return document === null ? Option.none() : Option.some(yield* Effect.fromResult(Result.mapError(captureDocumentObject(document), invalid)));
     }))),
     insert: Effect.fn("CoreTransaction.insert")((tableName: string, value: unknown) => operation(Effect.gen(function* () {
-      const table = yield* Effect.fromResult(tableByName(tableName, false));
-      const body = yield* Effect.fromResult(validateUserBody(table, value));
+      const table = yield* ensureUserTable(tableName);
+      const body = yield* validateUserBody(table, value);
       const internalId = (yield* input.newInternalId).slice();
       const id = yield* Effect.fromResult(publicDocumentId(table, internalId));
       if ((yield* read(table, internalId)) !== null) return yield* Effect.fail(new CoreTransactionError({ reason: "conflict" }));
@@ -338,13 +466,13 @@ export function createCoreTransaction(input: Readonly<{
         if (next === undefined) delete body[key];
         else body[key] = next;
       }
-      const captured = yield* Effect.fromResult(validateUserBody(selected.table, body));
+      const captured = yield* validateUserBody(selected.table, body);
       yield* stage(selected.table, selected.internalId, { ...captured, _id: originalId, _creationTime: originalTime });
     }))),
     replace: Effect.fn("CoreTransaction.replace")((id: string, value: unknown) => operation(Effect.gen(function* () {
       const selected = yield* Effect.fromResult(resolve(id, false));
       yield* Effect.fromResult(chargePointQuery(selected.table, selected.internalId));
-      const body = yield* Effect.fromResult(validateUserBody(selected.table, value));
+      const body = yield* validateUserBody(selected.table, value);
       const previous = yield* read(selected.table, selected.internalId);
       yield* Effect.fromResult(chargeDocument(selected.table, previous));
       if (previous === null) return yield* Effect.fail(new CoreTransactionError({ reason: "missingDocument" }));
@@ -368,8 +496,15 @@ export function createCoreTransaction(input: Readonly<{
         return yield* Effect.fail(new CoreQueryInputError({ reason: "invalidQuery" }));
       const tableName = source.type === "FullTableScan" ? source.tableName : source.indexName.slice(0, separator);
       const indexName = source.type === "FullTableScan" ? "by_creation_time" : source.indexName.slice(separator + 1);
+      if(source.type==="FullTableScan"&&registry.table(tableName,namespace)===undefined){
+        yield* Effect.fromResult(mappingRead());
+        const queryFingerprint=fingerprintQuery(query,["_creationTime"]);
+        if(request.cursor!==undefined&&!bytesEqual(request.cursor.queryFingerprint,queryFingerprint))return yield* new CoreQueryInputError({reason:"invalidCursor"});
+        return createCoreEmptyQuery({queryFingerprint,operation,...(request.cursor===undefined?{}:{initialPosition:request.cursor.position}),
+          ...(query.operators.length===0?{}:{limit:Math.min(...query.operators.map(operator=>operator.limit))})});
+      }
       const { table, index } = yield* Effect.fromResult(Result.mapError(selectIndex(tableName, indexName), error =>
-        error.reason === "missingTable" || error.reason === "missingIndex"
+        error.reason === "missingTable" || error.reason === "missingIndex" || error.reason === "indexUnavailable"
           ? new CoreQueryInputError({ reason: "invalidQuery", cause: error }) : error));
       const original = source.type === "FullTableScan" ? { start: new Uint8Array(), end: null }
         : yield* Effect.fromResult(Result.mapError(compileIndexRange(source.range, index.fields),
@@ -417,7 +552,7 @@ export function createCoreTransaction(input: Readonly<{
       markClosed();
       input.onClosed?.();
       return input.vault.issue(Object.freeze({ timestamp: snapshot.timestamp, reads: reads.snapshot(),
-        changes: Object.freeze([...writes.values()]), registry,
+        changes: Object.freeze([...writes.values()]), registry: input.registry,
         ...(registryAfter === undefined ? {} : { registryAfter }),
         ...(input.claim === undefined ? {} : { claim: input.claim }), usage: accounting.snapshot() }));
     })),
@@ -425,8 +560,46 @@ export function createCoreTransaction(input: Readonly<{
       operations.withPermits(1)(Effect.sync(() => input.onClosed?.())))),
   });
 
-  return {
+  const internals: CoreTransactionInternals = {
+    namespace, timestamp: snapshot.timestamp,
+    get registry() { return registry; },
+    get schemaRegistry() { return registry.schemas; },
     transaction,
+    count: Effect.fn("CoreTransaction.count")(function*(tableId:Uint8Array){
+      const table=registry.tableByTablet(tableId)?.definition;
+      const byId=table?.indexes.find(index=>index.name==="by_id");
+      if(table===undefined||byId===undefined)return yield* invalid();
+      reads.add(byId.ref.id,{start:null,end:null});
+      if(input.counts===undefined)return Option.none<bigint>();
+      let count=input.counts.count(tableId);
+      for(const change of writes.values())if(bytesEqual(change.table.tabletId,tableId)) count+=BigInt(change.finalDocument===null?0:1)-BigInt(change.originalDocument===null?0:1);
+      if(count<0n||count>0xffff_ffff_ffff_ffffn)return yield* new CorePersistenceError({reason:"corruptData",cause:"Table count overflow or underflow"});
+      return Option.some(count);
+    }),
+    runSystem: operation,
+    getSystem, querySystem,
+    insertSystem: Effect.fn("CoreTransaction.insertSystem")(function* (name: string, body: DocumentObject) {
+      const id = (yield* input.newInternalId).slice();
+      yield* writeSystem(name, id, body);
+      return yield* Effect.fromResult(publicDocumentId(yield* Effect.fromResult(tableByName(name, true)), id));
+    }),
+    replaceSystem: Effect.fn("CoreTransaction.replaceSystem")(function* (name: string, id: string, body: DocumentObject) {
+      const decoded = yield* Effect.fromResult(Result.mapError(decodeDocumentId(id), invalid));
+      if (decoded.tableNumber !== (yield* Effect.fromResult(tableByName(name, true))).number) return yield* invalid();
+      yield* writeSystem(name, decoded.internalId, body);
+    }),
+    deleteSystem: Effect.fn("CoreTransaction.deleteSystem")(function* (name: string, id: string) {
+      const decoded = yield* Effect.fromResult(Result.mapError(decodeDocumentId(id), invalid));
+      if (decoded.tableNumber !== (yield* Effect.fromResult(tableByName(name, true))).number) return yield* invalid();
+      yield* writeSystem(name, decoded.internalId, null);
+    }),
+    ensureUserTable,
+    tableExists: name => { const result=mappingRead(); if(Result.isFailure(result))throw new Error("Missing table mapping index"); return registry.table(name, namespace) !== undefined; },
+    schemaTableStateIndex: () => {
+      const index = registry.table(SCHEMAS, namespace)?.definition.indexes.find(candidate => candidate.name === "by_state");
+      if (index === undefined) throw new Error("Schema system table is not initialized");
+      return index.ref;
+    },
     finishRead: Effect.fn("CoreTransaction.finishRead")(() => Effect.gen(function* () {
       yield* assertOpen();
       if (inflight !== 0) return yield* new CoreTransactionError({ reason: "inflight" });
@@ -443,18 +616,11 @@ export function createCoreTransaction(input: Readonly<{
       yield* Effect.fromResult(chargeDocument(table, document));
       return Option.fromNullOr(document);
     })),
-    writePrivate: (tableName, id, body) => operation(Effect.gen(function* () {
-      const table = yield* Effect.fromResult(tableByName(tableName, true));
-      const developerId = yield* Effect.fromResult(publicDocumentId(table, id));
-      const previous = yield* read(table, id);
-      const document = body === null ? null : { ...body, _id: developerId,
-        _creationTime: previous?._creationTime ?? creationTime };
-      if (previous === null && document !== null) creationTime = nextUp(creationTime);
-      yield* stage(table, id, document);
-    })),
-    setRegistryAfter: value => { registryAfter = value; },
+    writePrivate: (tableName, id, body) => operation(writeSystem(tableName, id, body)),
+    setRegistryAfter: value => { registry = value; registryAfter = value; },
     addIndexRead: (indexId, interval) => reads.add(indexId, interval),
   };
+  return internals;
 }
 
 /** Coalesced first-original/final writes; unchanged ordinary keys still get a live revision. */
@@ -468,11 +634,11 @@ export function deriveCoreWriteBatch(transaction: CoreFinalizedState, timestamp:
         : yield* Result.mapError(encodeDocumentValue(change.finalDocument), invalid);
       documents.push(Object.freeze({ ts: timestamp, tableId: change.table.tabletId.slice(), id: change.id.slice(),
         jsonValue, deleted: change.finalDocument === null, prevTs: change.original?.ts ?? null }));
-      for (const index of change.table.indexes) {
+      for (const index of (transaction.registryAfter ?? transaction.registry).indexesForTablet(change.table.tabletId)) {
         if (change.originalDocument !== null) {
           const key = yield* documentIndexKey(index, change.originalDocument);
           indexes.set(`${encodeBytesToLowercaseHex(index.ref.id)}:${encodeBytesToLowercaseHex(key)}`, Object.freeze({
-            mode: "scanComplete", ts: timestamp, index: index.ref, key, value: null,
+            mode: coreIndexWriteMode(index), ts: timestamp, index: index.ref, key, value: null,
             prev: change.original === undefined ? null : { ts: change.original.ts, documentId: change.id.slice() },
           }));
         }
@@ -480,7 +646,7 @@ export function deriveCoreWriteBatch(transaction: CoreFinalizedState, timestamp:
           const key = yield* documentIndexKey(index, change.finalDocument);
           const identity = `${encodeBytesToLowercaseHex(index.ref.id)}:${encodeBytesToLowercaseHex(key)}`;
           const old = indexes.get(identity);
-          indexes.set(identity, Object.freeze({ mode: "scanComplete", ts: timestamp, index: index.ref, key,
+          indexes.set(identity, Object.freeze({ mode: coreIndexWriteMode(index), ts: timestamp, index: index.ref, key,
             value: { tableId: change.table.tabletId.slice(), documentId: change.id.slice() }, prev: old?.prev ?? null }));
         }
       }

@@ -174,6 +174,7 @@ export function registerCorePersistenceScenarios(
       let armed = false;
       let fetchedRows = 0;
       const fixture = await create({ wrapRuntimeDriver: driver => ({
+        withConnection: driver.withConnection,
         transaction: driver.transaction,
         query: (statement, parameters) => driver.query(statement, parameters).pipe(Effect.tap(rows => {
           const matches = kind === "point"

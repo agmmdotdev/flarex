@@ -73,11 +73,12 @@ import type {
 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
 import type { CanonicalTaskManifestV1 } from
   "@flarex/standard-application-definition/internal/task-definition-v1";
-import { Effect, Result, Schema } from "effect";
+import { Effect, Option, Result, Schema } from "effect";
 import { decodeAppDocumentIdentityV1Result } from
   "flarex-protocol/app-document-id";
-import { decodeDocumentId as decodeCoreDocumentId } from "flarex-protocol/document-id";
+import { decodeDocumentId as decodeCoreDocumentId, normalizeDocumentId } from "flarex-protocol/document-id";
 import { captureIndexRangeExpressions } from "flarex-protocol/index-range";
+import { SchemaManifestAppIdentifierSchema } from "flarex-protocol/schema-manifest";
 import { MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1 } from
   "flarex-protocol/commit-protocol";
 import { RELATION_INCOMING_PAGE_MAXIMUM_IDENTITIES_V1 } from
@@ -86,9 +87,11 @@ import {
   APPLICATION_WORKER_RESULT_FORMAT_V1,
   APPLICATION_WORKER_RESULT_VERSION_V1,
   MAX_APPLICATION_WORKER_RESULT_SEMANTIC_BYTES_V1,
+  MAX_CORE_APPLICATION_WORKER_TABLES,
   ApplicationWorkerProtocolV1Error,
   decodeApplicationActionWorkerRequestV1Effect,
   decodeApplicationTransactionWorkerRequestV1Effect,
+  decodeCoreApplicationInsertResult,
   type ApplicationActionWorkerRequestV1,
   type ApplicationTransactionWorkerRequestV1,
   type ApplicationWorkerResultV1,
@@ -185,7 +188,9 @@ const NATIVE_PERFORMANCE = globalThis.performance;
 const NATIVE_SCHEDULER = globalThis.scheduler;
 const NATIVE_WEB_ASSEMBLY = globalThis.WebAssembly;
 const NAMED_ERRORS = new WeakSet<object>();
+const TABLE_LIMIT_FAILURES = new WEAK_SET<Error>();
 const MAXIMUM_INDEX_PAGE_SEMANTIC_BYTES = 8 * 1_048_576;
+const decodeTableName = Schema.decodeUnknownSync(SchemaManifestAppIdentifierSchema);
 const decodeManagedQueryResponse = Schema.decodeUnknownSync(Schema.Union([
   Schema.Struct({ kind: Schema.Literal("ok"), value: Schema.Unknown }),
   Schema.Struct({ kind: Schema.Literal("queryError"), message: Schema.String }),
@@ -295,8 +300,7 @@ interface TransactionCapability {
   readonly receiver: object;
   readonly revalidate: () => unknown | PromiseLike<unknown>;
   readonly readPointDocument: (
-    tableName: string,
-    documentId: string,
+    ...argumentsValue: readonly string[]
   ) => unknown | PromiseLike<unknown>;
   readonly queryIndexRange: ((
     tableName: string,
@@ -358,7 +362,7 @@ export async function executeApplicationTransactionWorkerV1(
   let capabilityBoundary = "ApplicationWorkerReadBoundaryV1Error";
   try {
     admitSingleRun();
-    const request = await decodeTransactionRequest(input.request);
+    const request = await decodeTransactionRequest(input.request, input.definition.documentIdFormat);
     requireTarget(request.target, input.definition);
     installRuntimeGlobals(
       request.context.executionTime,
@@ -376,6 +380,7 @@ export async function executeApplicationTransactionWorkerV1(
     }
     const registry = await loadRegistry(input.loadExecution);
     const state: BoundaryState = { open: true, pending: new SET() };
+    const coreTables = input.definition.documentIdFormat === "convex" ? coreWorkerTables(request.tables) : undefined;
     const boundaryKind = request.context.mode === "query" ? "read" : "journal";
     const invocations = transactionInvocations(
       request,
@@ -383,6 +388,7 @@ export async function executeApplicationTransactionWorkerV1(
       state,
       boundaryKind,
       input.definition.documentIdFormat,
+      coreTables,
     );
     let value: ApplicationWorkerSuccessResultV1["value"];
     try {
@@ -394,7 +400,7 @@ export async function executeApplicationTransactionWorkerV1(
           callBudget: INTERNAL_CALL_BUDGET,
           arguments: request.arguments,
           tables: request.tables,
-          ...(input.definition.documentIdFormat === "convex" ? { idPolicy: coreWorkerIdPolicy(request.tables) } : {}),
+          ...(coreTables === undefined ? {} : { idPolicy: coreTables.idPolicy }),
         }),
         registry,
         invocations,
@@ -1201,6 +1207,7 @@ function transactionInvocations(
   state: BoundaryState,
   boundaryKind: BoundaryKind,
   documentIdFormat: "convex" | undefined,
+  coreTables: ReturnType<typeof coreWorkerTables> | undefined,
 ): ApplicationFunctionRuntimeInvocationFactoryV1 {
   let opened = false;
   return OBJECT_FREEZE({
@@ -1215,7 +1222,7 @@ function transactionInvocations(
           () => invokeCapability(
             capability.readPointDocument,
             capability.receiver,
-            [tableNameForDocument(request.tables, documentId, documentIdFormat), documentId],
+            coreTables === undefined ? [tableNameForDocument(request.tables, documentId), documentId] : [documentId],
           ).then(decodePointRead),
         ),
       );
@@ -1269,7 +1276,8 @@ function transactionInvocations(
                 capability.insertPointDocument,
                 capability.receiver,
                 [tableName, value] as const,
-              ).then(value => decodeDocumentId(value, documentIdFormat))),
+              ).then(value => coreTables === undefined ? decodeDocumentId(value, documentIdFormat)
+                : coreTables.insertResult(tableName, value))),
           patchPointDocument: (documentId: string, value: unknown) =>
             trackBoundaryOperation(state, boundaryKind, () =>
               invokeRequiredCapability(
@@ -1303,12 +1311,13 @@ function transactionInvocations(
           operation => trackBoundaryOperation(state, boundaryKind, operation, true),
         ),
       );
-      const database = documentIdFormat === "convex"
-        ? OBJECT_FREEZE({ ...pointDatabase, ...logicalQueryReader })
+      const database = coreTables !== undefined
+        ? OBJECT_FREEZE({ ...pointDatabase, ...logicalQueryReader, normalizeId: coreTables.normalizeId })
         : OBJECT_FREEZE({ ...pointDatabase, queryIndexRange: indexReader.queryIndexRange });
-      const queryDatabase = documentIdFormat === "convex" ? OBJECT_FREEZE({
+      const queryDatabase = coreTables !== undefined ? OBJECT_FREEZE({
         get: reader.get,
         query: logicalQueryReader.query,
+        normalizeId: coreTables.normalizeId,
         takeIncomingRelationSources: relationReader.takeIncomingRelationSources,
       }) : OBJECT_FREEZE({
         get: reader.get,
@@ -1372,7 +1381,8 @@ function trackBoundaryOperation<Value>(
       if (!state.open) state.failure ??= boundaryError(kind, cause);
       throw cause;
     }
-    if (kind === "journal" && isApplicationDocumentValidationFailure(cause)) {
+    if (kind === "journal" && (isApplicationDocumentValidationFailure(cause)
+      || (cause instanceof ERROR && TABLE_LIMIT_FAILURES.has(cause)))) {
       throw cause;
     }
     const failure = boundaryError(kind, cause);
@@ -1504,10 +1514,11 @@ function isApplicationDocumentValidationFailure(cause: unknown): boolean {
 
 async function decodeTransactionRequest(
   input: unknown,
+  documentIdFormat?: "convex",
 ): Promise<ApplicationTransactionWorkerRequestV1> {
   try {
     return await runWorkerProtocolDecoder(
-      decodeApplicationTransactionWorkerRequestV1Effect(input),
+      decodeApplicationTransactionWorkerRequestV1Effect(input, documentIdFormat),
     );
   } catch (cause) {
     throw cause instanceof ApplicationWorkerProtocolV1Error
@@ -2212,26 +2223,56 @@ function decodeVoid(value: unknown): void {
 function tableNameForDocument(
   tables: ReadonlyArray<ApplicationFunctionRuntimeTableV1>,
   documentId: string,
-  documentIdFormat?: "convex",
 ): string {
-  if (documentIdFormat === "convex") return decodeCoreDocumentId(documentId).pipe(Result.match({
-    onFailure: () => "",
-    onSuccess: identity => tables.find(candidate => candidate.tableId === identity.tableNumber)?.logicalName ?? "",
-  }));
   const separator = documentId.indexOf(":");
   const tableId = NUMBER(documentId.slice(0, separator));
   const table = tables.find(candidate => candidate.tableId === tableId);
   return separator > 0 && table !== undefined ? table.logicalName : "";
 }
 
-function coreWorkerIdPolicy(tables: ReadonlyArray<ApplicationFunctionRuntimeTableV1>): Extract<ValidatorIdPolicyV1, { readonly mode: "tableAware" }> {
+function coreWorkerTables(tables: ReadonlyArray<ApplicationFunctionRuntimeTableV1>) {
   const numbers = new MAP(tables.map(table => [table.logicalName, table.tableId] as const));
-  return OBJECT_FREEZE({ mode: "tableAware", check: (tableName: string, value: string) => {
+  const names = new MAP(tables.map(table => [table.tableId, table.logicalName] as const));
+  const idPolicy: Extract<ValidatorIdPolicyV1, { readonly mode: "tableAware" }> = OBJECT_FREEZE({
+    mode: "tableAware", check: (tableName: string, value: string) => {
     const number = numbers.get(tableName);
     if (number === undefined) return "unavailable";
     return decodeCoreDocumentId(value).pipe(Result.match({ onFailure: () => "invalid" as const,
       onSuccess: identity => identity.tableNumber === number ? "valid" as const : "invalid" as const }));
   } });
+  return OBJECT_FREEZE({
+    idPolicy,
+    normalizeId: (tableName: string, value: string): string | null => {
+      decodeTableName(tableName);
+      if (typeof value !== "string") throw new ERROR("Invalid normalizeId arguments.");
+      const number = numbers.get(tableName);
+      if (number === undefined) return null;
+      return normalizeDocumentId(number, value).pipe(Result.getOrThrow, Option.getOrNull);
+    },
+    insertResult: (tableName: string, value: unknown): string => {
+      const frame = decodeCoreApplicationInsertResult(
+        detachCapabilityValue(value, "ApplicationWorkerJournalBoundaryV1Error"),
+      ).pipe(Result.getOrThrow);
+      if (frame.kind === "tooManyTables") {
+        const failure = new ERROR(`Number of tables cannot exceed ${MAX_CORE_APPLICATION_WORKER_TABLES}.`);
+        // Error.prototype.name is frozen; an own property preserves the intended refusal.
+        OBJECT_DEFINE_PROPERTY(failure, "name", { value: "TooManyTables" });
+        TABLE_LIMIT_FAILURES.add(failure);
+        throw failure;
+      }
+      if (frame.table.logicalName !== tableName) throw new ERROR("Insert result table mismatch.");
+      const previous = numbers.get(tableName);
+      if (previous !== undefined && previous !== frame.table.tableId) throw new ERROR("Insert result table identity changed.");
+      const previousName = names.get(frame.table.tableId);
+      if (previousName !== undefined && previousName !== tableName) throw new ERROR("Insert result table identity is ambiguous.");
+      numbers.set(tableName, frame.table.tableId);
+      names.set(frame.table.tableId, tableName);
+      if (frame.kind === "inserted") return frame.id;
+      const refusal = new ERROR(APPLICATION_DOCUMENT_VALIDATION_ERROR_MESSAGE);
+      OBJECT_DEFINE_PROPERTY(refusal, "name", { value: APPLICATION_DOCUMENT_VALIDATION_ERROR_NAME });
+      throw refusal;
+    },
+  });
 }
 
 function tableIdForLogicalName(

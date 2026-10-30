@@ -50,7 +50,7 @@ export function defineCorePersistenceSchema(namespace: string) {
     key: text("key").notNull(),
     jsonValue: bytea("json_value").notNull(),
   }, table => [primaryKey({ columns: [table.instanceName, table.key] })]);
-  return Object.freeze({ documents, indexes, leases, readOnly, persistenceGlobals });
+  return Object.freeze({ namespace: schema, documents, indexes, leases, readOnly, persistenceGlobals });
 }
 
 export const corePersistenceSchema = defineCorePersistenceSchema("flarex_core");

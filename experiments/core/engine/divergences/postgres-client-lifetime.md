@@ -98,3 +98,28 @@ idle failure, cancellation and restart controls before declaring cleanup.
 No connection event test alone proves commit uncertainty recovery, fencing or
 managed Hyperdrive behavior. Actual local socket and DO scenarios retain only
 their declared host and failure guarantees.
+
+## TableIterator timeout classification
+
+The schema/index slice translates the source iterator's narrow retry rule.
+Pinned postgres/connection.rs110-136 races the native query future against
+POSTGRES_TIMEOUT and emits DatabaseTimeoutError; handle_error208-218 poisons
+that connection. Flarex retains its existing settled-query/drain boundary and
+server statement_timeout instead of dropping a still-running native Promise.
+
+Classify only an actually settled driver rejection with PostgreSQL57014 AND
+message `canceling statement due to statement timeout` as the typed database
+timeout equivalent. User-request cancellation, unknown/localized messages and
+other unavailable failures stay un-retried. Preserve their raw diagnostic cause
+and the existing public unavailable projection. Iterator retry remains bounded
+by the source count and obtains a new safe timestamp; it never retries all SQL
+errors, interruption, corruption or uncertain writes. Prove timeout versus user
+cancellation at the adapter plus ordinary PostgreSQL, and retain native drain
+before checkout reuse. This is a necessary consequence of the already accepted
+JavaScript/PG lifetime adaptation, not a new generic retry owner.
+Exact predecessor batches use one trusted physical read connection, acquired
+and drained without BEGIN/COMMIT. The port never spans an untrusted callback or
+logical worker lifetime. Native pg queues queries on that connection; preserve
+bounded exact-query batches and one checkout rather than adding a database
+transaction just to retain a socket. Source Rust pipelining is not claimed
+identical to native pg queueing, and latency equivalence needs measurement.

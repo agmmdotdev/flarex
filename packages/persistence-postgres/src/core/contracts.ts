@@ -1,7 +1,9 @@
-import { Data, type Effect, type Option } from "effect";
+import { Data, Schema, type Effect, type Option } from "effect";
 
 /** Pinned source: convex-backend db914cf06, common/src/persistence/mod.rs. */
 export type CoreTimestamp = bigint;
+export const CoreTimestampSchema = Schema.BigInt.check(Schema.makeFilter(value => value >= 0n && value <= 0x7fff_ffff_ffff_ffffn
+  ? undefined : "Expected a nonnegative persistence timestamp"));
 export type CoreInternalId = Uint8Array;
 
 export interface CoreIndexRef {
@@ -80,7 +82,7 @@ export interface CoreIndexScan {
 
 export class CorePersistenceError extends Data.TaggedError("CorePersistenceError")<{
   readonly reason: "leaseLost" | "readOnly" | "outOfRetention" | "corruptData"
-    | "unavailable" | "uncertainWrite" | "invalidTarget";
+    | "unavailable" | "timeout" | "uncertainWrite" | "invalidTarget";
   readonly cause?: unknown;
 }> {}
 
@@ -110,8 +112,47 @@ export interface CoreRetentionValidator {
   readonly validateDocument: (at: CoreTimestamp) => Effect.Effect<void, CorePersistenceError>;
 }
 
+/** Document-log ordering is the source tuple (timestamp, tablet, internal ID). */
+export interface CoreDocumentLogCursor {
+  readonly ts: CoreTimestamp;
+  readonly tableId: CoreInternalId;
+  readonly id: CoreInternalId;
+}
+export interface CoreDocumentLogRequest {
+  /** Timestamp endpoints are inclusive, as in the source document log reader. */
+  readonly start: CoreTimestamp;
+  readonly end: CoreTimestamp;
+  readonly order: CoreOrder;
+  readonly maxResults: number;
+  readonly after?: CoreDocumentLogCursor;
+  readonly tableId?: CoreInternalId;
+}
+export interface CoreDocumentLogPage {
+  readonly documents: readonly CoreDocumentLogEntry[];
+  readonly cursor: CoreDocumentLogCursor | null;
+  readonly done: boolean;
+}
+export interface CorePreviousRevisionQuery {
+  readonly tableId: CoreInternalId;
+  readonly id: CoreInternalId;
+  /** Retention witness; this is not the row selected from storage. */
+  readonly ts: CoreTimestamp;
+  /** Exact predecessor timestamp. No latest-before fallback is permitted. */
+  readonly prevTs: CoreTimestamp;
+}
+export interface CorePreviousRevision {
+  readonly query: CorePreviousRevisionQuery;
+  readonly document: CoreDocumentLogEntry;
+}
+
 /** Trusted, instance-bound port; never lent to user code or framework callbacks. */
 export interface CorePersistence {
+  /** One bounded timestamp-log SQL page; the document floor is checked after I/O, including empty pages. */
+  readonly loadDocuments: (request: CoreDocumentLogRequest, retention?: CoreRetentionValidator)
+    => Effect.Effect<CoreDocumentLogPage, CorePersistenceError>;
+  /** Exact predecessor fetches share one read connection, without opening a SQL transaction. */
+  readonly previousRevisionsOfDocuments: (queries: readonly CorePreviousRevisionQuery[], retention?: CoreRetentionValidator)
+    => Effect.Effect<readonly CorePreviousRevision[], CorePersistenceError>;
   readonly acquireLease: () => Effect.Effect<CorePersistenceLease, CorePersistenceError>;
   /** Must be read after acquiring the owner lease, before admitting snapshots. */
   readonly latestTimestamp: (

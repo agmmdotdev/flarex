@@ -20,6 +20,7 @@ import {
   APPLICATION_TRANSACTION_WORKER_REQUEST_VERSION_V1,
 } from "flarex-protocol/internal/application-worker-v1";
 import { normalizeFlarexValueV1 } from "flarex-protocol/value";
+import { encodeDocumentId } from "flarex-protocol/document-id";
 import { Result } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -47,6 +48,79 @@ afterEach(async () => {
 });
 
 describe("Application Worker definition", () => {
+  it("normalizes source developer IDs synchronously through the actual fresh Worker SDK", async () => {
+    const fixture = applicationFixture("query", "normalize");
+    const definition = makeApplicationWorkerDefinition({ ...fixture, hostPolicy: hostPolicy(),
+      hostPolicySha256: digestBytes(), documentIdFormat: "convex" });
+    const current = Result.getOrThrow(encodeDocumentId(1, Uint8Array.from({ length: 16 }, (_, index) => index)));
+    const wrong = Result.getOrThrow(encodeDocumentId(2, new Uint8Array(16)));
+    const response = await executeDefinition(definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { current, wrong }, "query", 7), "query", { capabilityMembers: sdkCapabilityMembers() });
+    expect(response).toMatchObject({ value: { current, old: current, wrong: null, absent: null, system: null,
+      invalidTable: true, invalidId: true, oldBase62: expect.any(String) } });
+  });
+
+  it("lets a fresh UDF catch the source table-limit refusal and continue with an existing table", async () => {
+    const fixture = applicationFixture("mutation", "catchTableLimit");
+    const definition = makeApplicationWorkerDefinition({ ...fixture, hostPolicy: hostPolicy(),
+      hostPolicySha256: digestBytes(), documentIdFormat: "convex" });
+    const id = Result.getOrThrow(encodeDocumentId(1, new Uint8Array(16)));
+    const response = await executeDefinition(definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, {}, "write", 7), "mutation", { capabilityMembers: sdkCapabilityMembers() + `
+        insertPointDocument(tableName) {
+          if (tableName === "excess") return { kind: "tooManyTables" };
+          return { kind: "inserted", id: ${JSON.stringify(id)}, table: { tableId: 1, logicalName: "users" } };
+        }
+      ` });
+    expect(response).toMatchObject({ value: { id,
+      failure: { name: "TooManyTables", message: "Number of tables cannot exceed 10000." } } });
+  });
+
+  it("lets a fresh UDF catch the source document-validation frame and continue writing", async () => {
+    const fixture = applicationFixture("mutation", "catchValidation");
+    const definition = makeApplicationWorkerDefinition({ ...fixture, hostPolicy: hostPolicy(),
+      hostPolicySha256: digestBytes(), documentIdFormat: "convex" });
+    const id = Result.getOrThrow(encodeDocumentId(1, new Uint8Array(16)));
+    const response = await executeDefinition(definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, {}, "write", 8), "mutation", { capabilityMembers: sdkCapabilityMembers() + `
+        insertPointDocument(_tableName, value) {
+          const table = { tableId: 1, logicalName: "users" };
+          if (value.invalid === true) return { kind: "documentValidation", table };
+          return { kind: "inserted", id: ${JSON.stringify(id)}, table };
+        }
+      ` });
+    expect(response).toMatchObject({ value: id });
+  });
+
+  it("keeps a malformed insert frame terminal when application code catches its rejection", async () => {
+    const fixture = applicationFixture("mutation", "catchTableLimit");
+    const definition = makeApplicationWorkerDefinition({ ...fixture, hostPolicy: hostPolicy(),
+      hostPolicySha256: digestBytes(), documentIdFormat: "convex" });
+    const id = Result.getOrThrow(encodeDocumentId(1, new Uint8Array(16)));
+    await expect(executeDefinition(definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, {}, "write", 7), "mutation", { capabilityMembers: sdkCapabilityMembers() + `
+        insertPointDocument(tableName) {
+          if (tableName === "excess") return { kind: "tooManyTables", unexpected: true };
+          return { kind: "inserted", id: ${JSON.stringify(id)}, table: { tableId: 1, logicalName: "users" } };
+        }
+      ` })).rejects.toThrow("ApplicationWorkerJournalBoundaryV1Error");
+  });
+  it("preserves native u64 JSON lexemes on the actual Worker compatibility date", async () => {
+    const fixture = applicationFixture("query");
+    const definition = makeApplicationWorkerDefinition({ ...fixture, hostPolicy: hostPolicy(), hostPolicySha256: digestBytes() });
+    const runtime = new Miniflare({ compatibilityDate: definition.compatibilityDate, modules: true, script: `
+      export default { fetch() {
+        const parsed = JSON.parse('{"numValues":18446744073709551615}', (key, value, context) =>
+          key === "numValues" ? BigInt(context.source) : value);
+        const serialized = JSON.stringify({ numValues: JSON.rawJSON(String(parsed.numValues)) });
+        return Response.json({ count: String(parsed.numValues), serialized });
+      } };
+    ` });
+    instances.push(runtime);
+    expect(await (await runtime.dispatchFetch("https://application.test/")).json()).toEqual({
+      count: "18446744073709551615", serialized: '{"numValues":18446744073709551615}',
+    });
+  });
   it.each(["asc", "desc"] as const)("runs all SDK terminals through finite chunks in %s order", async order => {
     const fixture = applicationFixture("query", "sdk");
     const definition = makeApplicationWorkerDefinition({
@@ -824,11 +898,53 @@ describe("Application Worker definition", () => {
       value: "denied:users:lookup:Ada",
     });
   });
+
+  it("allows a 12 KiB action result within the configured host byte limit", async () => {
+    const fixture = applicationFixture("action");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture,
+      hostPolicy: hostPolicy(),
+      hostPolicySha256: digestBytes(),
+    });
+    const prefix = "denied:users:lookup:";
+    const expected = prefix + "x".repeat(12 * 1_024 - prefix.length);
+    const argumentsValue = { value: expected.slice(prefix.length) };
+    const response = await executeDefinition(
+      definition,
+      definition.actionEntrypoint,
+      {
+        format: APPLICATION_ACTION_WORKER_REQUEST_FORMAT_V1,
+        version: APPLICATION_ACTION_WORKER_REQUEST_VERSION_V1,
+        target: fixture.target,
+        auth: { kind: "anonymous" },
+        arguments: argumentsValue,
+        argumentSemanticBytes: normalizeFlarexValueV1(argumentsValue)
+          .semanticSizeBytes,
+        context: {
+          executionId: "large-action-execution",
+          invocationId: "large-action-invocation",
+          executionGeneration: 1n,
+          executionTime: 1_800_000_000_000,
+          executionDeadline: 1_800_000_030_000,
+          randomSeed: new Uint8Array(32).fill(9),
+          hostPolicySha256: digestBytes(),
+        },
+      },
+      "action",
+    );
+
+    expect(response).toEqual({
+      format: "flarex.application-worker-result",
+      version: 1,
+      value: expected,
+    });
+  });
 });
 
 type FunctionKind = "query" | "mutation" | "action";
 type ApplicationSourceScenario =
   | "sdk"
+  | "normalize"
   | "normal"
   | "tamper"
   | "caughtTamper"
@@ -838,6 +954,7 @@ type ApplicationSourceScenario =
   | "closedRead"
   | "applicationError"
   | "catchValidation"
+  | "catchTableLimit"
   | "iteratorTamper";
 
 function applicationFixture(
@@ -1058,7 +1175,19 @@ function applicationSources(
       "} };",
       "",
     ].join("\n"),
-    handlers: scenario === "sdk"
+    handlers: scenario === "normalize"
+      ? [
+          "export function get(context, args) {",
+          "  let invalidTable = false, invalidId = false;",
+          "  try { context.db.normalizeId('___', args.current); } catch { invalidTable = true; }",
+          "  try { context.db.normalizeId('users', 1); } catch { invalidId = true; }",
+          "  return { current: context.db.normalizeId('users', args.current), old: context.db.normalizeId('users', 'AAECAwQFBgcICQoLDA0ODw'),",
+          "    oldBase62: context.db.normalizeId('users', 'sJ4KfQiVw3VptW3x9I3ZcAW'), wrong: context.db.normalizeId('users', args.wrong),",
+          "    absent: context.db.normalizeId('absent', args.current), system: context.db.normalizeId('_tables', args.current), invalidTable, invalidId };",
+          "}",
+          "export function lookup() { return null; }",
+        ].join("\n")
+      : scenario === "sdk"
       ? [
           "export async function get(context, args) {",
           '  if ("queryIndexRange" in context.db) throw new Error("raw range leaked");',
@@ -1191,7 +1320,16 @@ function applicationSources(
       "} };",
       "",
     ].join("\n"),
-    handlers: scenario === "catchValidation"
+    handlers: scenario === "catchTableLimit"
+      ? [
+          "export async function create(context) {",
+          "  let failure = null;",
+          "  try { await context.db.insert('excess', {}); } catch (error) { failure = { name: error.name, message: error.message }; }",
+          "  const id = await context.db.insert('users', { name: 'valid after table limit' });",
+          "  return { failure, id };",
+          "}",
+        ].join("\n")
+      : scenario === "catchValidation"
       ? [
           "export async function create(context) {",
           "  try { await context.db.insert(\"users\", { invalid: true }); } catch {}",

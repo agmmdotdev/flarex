@@ -56,22 +56,8 @@ export function createCoreQuery(input: Readonly<{
     if (failure !== undefined) return yield* Effect.fail(failure);
     if (!Number.isSafeInteger(options.maxResults) || options.maxResults < 0
       || !Number.isSafeInteger(options.maxBytes) || options.maxBytes < 0) return yield* Effect.fail(invalid());
-    const pageOverflow = (nextPosition: CoreIndexCursor | null, encodedBytes: number, semanticBytes: number): Result.Result<
-      Option.Option<CoreTransactionError>, CoreTransactionError
-    > => {
-      const size = options.positionSize?.(copyPosition(nextPosition)) ?? { encodedBytes: 0, semanticBytes: 0 };
-      if (!Number.isSafeInteger(size.encodedBytes) || size.encodedBytes < 0
-        || !Number.isSafeInteger(size.semanticBytes) || size.semanticBytes < 0) return Result.fail(invalid());
-      const totalBytes = encodedBytes + size.encodedBytes;
-      if (totalBytes > options.maxBytes) return Result.succeed(Option.some(new CoreTransactionError({
-        reason: "capacity", cause: { budget: "queryPageBytes", actual: totalBytes, limit: options.maxBytes },
-      })));
-      const totalSemanticBytes = semanticBytes + size.semanticBytes;
-      if (totalSemanticBytes > options.maxBytes) return Result.succeed(Option.some(new CoreTransactionError({
-        reason: "capacity", cause: { budget: "queryPageSemanticBytes", actual: totalSemanticBytes, limit: options.maxBytes },
-      })));
-      return Result.succeed(Option.none());
-    };
+    const pageOverflow=(nextPosition:CoreIndexCursor|null,encodedBytes:number,semanticBytes:number)=>
+      queryPageOverflow(options,nextPosition,encodedBytes,semanticBytes);
     const documents: DocumentObject[] = [];
     let candidates: Array<Readonly<{ key: Uint8Array; document: DocumentObject }>> | undefined;
     let bytes = 2; // JSON array brackets; each document uses the authoritative internal JSON encoding.
@@ -177,4 +163,46 @@ export function createCoreQuery(input: Readonly<{
     nextPage: (options: Parameters<CoreQuery["nextPage"]>[0]) => input.operation(next(options).pipe(Effect.tapError(error => Effect.sync(() => { failure ??= error; })))),
     close: () => input.operation(Effect.sync(() => { closed = true; buffer = undefined; })),
   });
+}
+
+function queryPageOverflow(options:Parameters<CoreQuery["nextPage"]>[0],nextPosition:CoreIndexCursor|null,encodedBytes:number,semanticBytes:number):Result.Result<Option.Option<CoreTransactionError>,CoreTransactionError> {
+      const size = options.positionSize?.(copyPosition(nextPosition)) ?? { encodedBytes: 0, semanticBytes: 0 };
+      if (!Number.isSafeInteger(size.encodedBytes) || size.encodedBytes < 0
+        || !Number.isSafeInteger(size.semanticBytes) || size.semanticBytes < 0) return Result.fail(invalid());
+      const totalBytes = encodedBytes + size.encodedBytes;
+      if (totalBytes > options.maxBytes) return Result.succeed(Option.some(new CoreTransactionError({
+        reason: "capacity", cause: { budget: "queryPageBytes", actual: totalBytes, limit: options.maxBytes },
+      })));
+      const totalSemanticBytes = semanticBytes + size.semanticBytes;
+      if (totalSemanticBytes > options.maxBytes) return Result.succeed(Option.some(new CoreTransactionError({
+        reason: "capacity", cause: { budget: "queryPageSemanticBytes", actual: totalSemanticBytes, limit: options.maxBytes },
+      })));
+      return Result.succeed(Option.none());
+}
+
+/** An absent table is an empty source; the transaction already captured its full mapping dependency. */
+export function createCoreEmptyQuery(input:Readonly<{
+  queryFingerprint:Uint8Array;initialPosition?:CoreIndexCursor;limit?:number;
+  operation:<A>(effect:Effect.Effect<A,CoreError>)=>Effect.Effect<A,CoreError>;
+}>):CoreQuery {
+  let position:CoreIndexCursor|null=copyPosition(input.initialPosition??null);
+  let done=input.initialPosition?.kind==="end"||input.limit===0,closed=false;
+  let failure:CoreError|undefined;
+  const next=Effect.fn("CoreEmptyQuery.nextPage")(function*(options:Parameters<CoreQuery["nextPage"]>[0]){
+    if(closed)return yield* new CoreTransactionError({reason:"closed"});
+    if(failure!==undefined)return yield* failure;
+    if(!Number.isSafeInteger(options.maxResults)||options.maxResults<0||!Number.isSafeInteger(options.maxBytes)||options.maxBytes<0)return yield* invalid();
+    const initial=yield* Effect.fromResult(queryPageOverflow(options,position,2,2));
+    if(Option.isSome(initial))return yield* initial.value;
+    if(!done&&options.maxResults>0){
+      const end:CoreIndexCursor={kind:"end"};
+      const final=yield* Effect.fromResult(queryPageOverflow(options,end,2,2));
+      if(Option.isSome(final))return yield* final.value;
+      position=end;done=true;
+    }
+    return Object.freeze({documents:Object.freeze([]),position:copyPosition(position),done});
+  });
+  return Object.freeze({get queryFingerprint(){return input.queryFingerprint.slice();},
+    nextPage:(options:Parameters<CoreQuery["nextPage"]>[0])=>input.operation(next(options).pipe(Effect.tapError(error=>Effect.sync(()=>{failure??=error;})))),
+    close:()=>input.operation(Effect.sync(()=>{closed=true;}))});
 }

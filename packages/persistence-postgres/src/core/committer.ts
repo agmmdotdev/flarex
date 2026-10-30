@@ -8,7 +8,10 @@ import { BTreeEx as BTree } from "sorted-btree/extended/index.js";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { CoreTransactionError, type CoreDatabaseOptions, type CoreError } from "./api";
 import { CorePersistenceError, type CoreDocumentLogEntry, type CoreInterval, type CorePersistence, type CorePersistenceIndexEntry, type CorePersistenceLease, type CoreWriteBatch } from "./contracts";
-import { CoreRegistry } from "./registry";
+import { CoreRegistry, SCHEMAS } from "./registry";
+import { CoreTableCounts, type CoreTableCountDelta } from "./tableCounts";
+import type { CoreSchemaRegistryUpdate } from "./schemaRegistry";
+import type { CoreSystemDocument } from "./transaction";
 import { deriveCoreWriteBatch, type CoreFinalizedState } from "./transaction";
 import { CorePendingWrites, CoreWriteLog, indexKeysFromWrites, type CoreIndexKeys } from "./writeLog";
 import { metadataConflictKeys } from "./dependencies";
@@ -18,6 +21,8 @@ import type { CoreResidentIndexes } from "./residentIndex";
 interface CorePublishedSnapshot {
   readonly registry: CoreRegistry;
   readonly resident: CoreResidentIndexes;
+  readonly counts?: CoreTableCounts;
+  readonly countDelta?:CoreTableCountDelta;
 }
 
 interface AcceptedCommit {
@@ -46,6 +51,7 @@ export interface CoreCommitter {
   readonly selectSnapshot: (at?: bigint) => Result.Result<CorePublishedSnapshot & Readonly<{ timestamp: bigint }>, CoreError>;
   readonly indexCache: CoreIndexCache;
   readonly currentRegistry: () => CoreRegistry;
+  readonly publishCounts: (at:bigint,counts:CoreTableCounts) => Effect.Effect<boolean,CoreError>;
   readonly assertReady: Effect.Effect<void, CoreError>;
   /** Trusted request discovery only: accepted records remain unpublished and confer no body authority. */
   readonly pendingDocuments: (indexId: Uint8Array, interval: CoreInterval) => Effect.Effect<readonly CoreDocumentLogEntry[], CoreError>;
@@ -78,6 +84,7 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
   const pending = new CorePendingWrites();
   const accepted = new BTree<bigint, AcceptedCommit>();
   const snapshots = new BTree<bigint, CorePublishedSnapshot>([[initialTimestamp, { registry: initialRegistry, resident: initialResident }]]);
+  let counts: CoreTableCounts | undefined;
   let registry = initialRegistry;
   let resident = initialResident;
   let published = initialTimestamp;
@@ -102,17 +109,20 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
         yield* stop(first.result.cause);
         return;
       }
-      const nextRegistry = first.transaction.registryAfter === undefined ? registry : applyRegistryChanges(
-        first.transaction.registry, first.transaction.registryAfter, registry, first.timestamp,
-      );
+      const nextRegistry = first.transaction.registryAfter === undefined ? registry : yield* Effect.fromResult(applyRegistryChanges(
+        first.transaction, registry, first.timestamp,
+      ));
+      const countDelta=yield* Effect.fromResult(CoreTableCounts.changes(nextRegistry,first.transaction.changes));
+      const nextCounts = counts === undefined ? undefined : yield* Effect.fromResult(counts.applyDelta(countDelta));
       const nextResident = yield* Effect.fromResult(resident.apply(nextRegistry, first.batch.documents));
       pending.pop(first.timestamp);
       log.append(first.timestamp, first.changes, batchBytes(first.batch));
       indexCache.invalidate(first.batch, registry, nextRegistry);
       registry = nextRegistry;
+      counts = nextCounts;
       resident = nextResident;
       published = first.timestamp;
-      snapshots.set(published, Object.freeze({ registry, resident }));
+      snapshots.set(published, Object.freeze({ registry, resident, countDelta, ...(counts === undefined ? {} : { counts }) }));
       // Retain a version until its successor has left the pinned 10-second window.
       while (snapshots.size > 1) {
         const oldest = snapshots.minKey();
@@ -248,6 +258,22 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
     },
     indexCache,
     currentRegistry: () => registry,
+    publishCounts: (at:bigint, initialCounts:CoreTableCounts) => mutex.withPermits(1)(Effect.gen(function* () {
+      if(stopped !== undefined) return yield* Effect.failCause(stopped);
+      const base = snapshots.get(at) ?? snapshots.nextLowerPair(at)?.[1];
+      if(base === undefined || at > published) return false;
+      let current = initialCounts;
+      for(const [ts, state] of snapshots.entries(at)) {
+        if(ts > at) {
+          const delta=state.countDelta;
+          if(delta === undefined) return yield* Effect.die(new Error("Missing retained count publication delta"));
+          current=yield* Effect.fromResult(current.applyDelta(delta));
+        }
+        snapshots.set(ts,Object.freeze({...state,counts:current}));
+      }
+      counts=current;
+      return true;
+    })),
     assertReady: Effect.suspend(() => stopped === undefined ? Effect.void : Effect.failCause(stopped)),
     pendingDocuments: (indexId: Uint8Array, interval: CoreInterval) => mutex.withPermits(1)(Effect.suspend(() => {
       if (stopped !== undefined) return Effect.failCause(stopped);
@@ -273,17 +299,31 @@ function indexEntryIdentity(indexId: Uint8Array, key: Uint8Array): string {
   return `${encodeBytesToLowercaseHex(indexId)}:${encodeBytesToLowercaseHex(key)}`;
 }
 
-function applyRegistryChanges(base: CoreRegistry, changes: CoreRegistry, current: CoreRegistry, timestamp: bigint): CoreRegistry {
-  let next = current;
-  for (const [name, record] of changes.tables) if (base.tables.get(name) !== record)
-    next = next.withTable({ ...record, ts: timestamp });
-  for (const [name, record] of changes.programs) if (base.programs.get(name) !== record)
-    next = next.withProgram({ ...record, ts: timestamp });
-  for (const [name, record] of changes.heads) if (base.heads.get(name) !== record)
-    next = next.withHead({ ...record, ts: timestamp });
-  if (changes.authority !== undefined && changes.authority !== base.authority)
-    next = next.withAuthority({ ...changes.authority, ts: timestamp });
-  return next;
+const parseSchemaDocument=(document:import("flarex-protocol/document-value").DocumentObject):CoreSystemDocument=>{
+      const {_id,_creationTime,...value}=document;
+      if(typeof _id!=="string"||typeof _creationTime!=="number")throw new Error("Validated schema document lost intrinsic fields");
+      return {id:_id,creationTime:_creationTime,value};
+    };
+
+function applyRegistryChanges(transaction:CoreFinalizedState,current:CoreRegistry,timestamp:bigint):Result.Result<CoreRegistry,CoreError> {
+  return Result.gen(function*(){
+    const base=transaction.registry,changes=transaction.registryAfter;
+    if(changes === undefined)return current;
+    let next=current;
+    for(const record of changes.tables.values()) if(record.ts === null) next=next.withTable({...record,ts:timestamp});
+    const removed=[...base.indexes.records.values()].filter(index=>!changes.indexes.records.has(encodeBytesToLowercaseHex(index.ref.id))).map(index=>index.ref.id);
+    const added=[...changes.indexes.records.values()].filter(index=>index.ts===null).map(index=>({...index,ts:timestamp}));
+    next=next.withIndexes(yield* current.indexes.apply({removed,added}));
+    const schemaUpdates:CoreSchemaRegistryUpdate[]=[];
+    for(const change of transaction.changes)if(change.table.name===SCHEMAS) schemaUpdates.push({namespace:change.table.namespace,
+      ...(change.originalDocument===null?{}:{oldDocument:parseSchemaDocument(change.originalDocument)}),
+      ...(change.finalDocument===null?{}:{newDocument:parseSchemaDocument(change.finalDocument)})});
+    if(schemaUpdates.length>0)next=next.withSchemas(yield* current.schemas.apply(schemaUpdates));
+    for(const [name,record]of changes.programs)if(base.programs.get(name)!==record)next=next.withProgram({...record,ts:timestamp});
+    for(const [name,record]of changes.heads)if(base.heads.get(name)!==record)next=next.withHead({...record,ts:timestamp});
+    if(changes.authority!==undefined&&changes.authority!==base.authority)next=next.withAuthority({...changes.authority,ts:timestamp});
+    return next;
+  });
 }
 
 function batchBytes(batch: CoreWriteBatch): number {

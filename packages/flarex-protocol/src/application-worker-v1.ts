@@ -15,7 +15,8 @@ import {
   decodeUserIdentityEffect,
   type UserIdentity,
 } from "./auth";
-import { CatalogTableIdSchema, type CatalogTableId } from "./catalog";
+import { CatalogTableIdSchema } from "./catalog";
+import { decodeDocumentId, DeveloperDocumentIdSchema, DocumentTableNumberSchema } from "./document-id";
 import {
   SchemaManifestAppTableNameSchema,
   type SchemaManifestAppTableName,
@@ -56,6 +57,8 @@ export const MAX_APPLICATION_WRITE_ARGUMENT_SEMANTIC_BYTES_V1 =
   POINT_MUTATION_ARGUMENT_ARRAY_OVERHEAD_SEMANTIC_BYTES_V1;
 export const MAX_APPLICATION_WORKER_RESULT_SEMANTIC_BYTES_V1 = 8 * 1_048_576;
 export const MAX_APPLICATION_WORKER_TABLES_V1 = 1_024;
+/** Source active-user-table cap, selected only by the trusted fresh-core host. */
+export const MAX_CORE_APPLICATION_WORKER_TABLES = 10_000;
 export const MAX_APPLICATION_WORKER_VALUE_NODES_V1 = 65_536;
 export const MAX_APPLICATION_WORKER_MEMBER_INSPECTIONS_V1 = 131_072;
 
@@ -67,6 +70,7 @@ const ARRAY_BUFFER_BYTE_LENGTH_GETTER = Object.getOwnPropertyDescriptor(
 const VALUE_BUDGET_EXCEEDED = Symbol("applicationWorkerValueBudgetExceeded");
 class ApplicationWorkerProtocolV1Defect extends Error {}
 const decodeCatalogTableId = Schema.decodeUnknownResult(CatalogTableIdSchema);
+const decodeCoreTableNumber = Schema.decodeUnknownResult(DocumentTableNumberSchema);
 const decodeAppTableName = Schema.decodeUnknownResult(
   SchemaManifestAppTableNameSchema,
 );
@@ -76,10 +80,31 @@ export type ApplicationWorkerAuthV1 =
   | Readonly<{ readonly kind: "user"; readonly user: UserIdentity }>;
 
 export interface ApplicationWorkerTableV1 {
-  readonly tableId: CatalogTableId;
+  readonly tableId: number;
   readonly logicalName: SchemaManifestAppTableName;
 }
 
+const CoreInsertTable = Schema.Struct({ tableId: DocumentTableNumberSchema, logicalName: SchemaManifestAppTableNameSchema });
+const CoreInsertResult = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("tooManyTables") }),
+  Schema.Struct({ kind: Schema.Literal("inserted"), id: DeveloperDocumentIdSchema, table: CoreInsertTable }),
+  Schema.Struct({ kind: Schema.Literal("documentValidation"), table: CoreInsertTable }),
+]);
+export type CoreApplicationInsertResult = typeof CoreInsertResult.Type;
+const decodeCoreInsertResult = Schema.decodeUnknownResult(CoreInsertResult, { onExcessProperty: "error" });
+
+/** Trusted insert mapping delta; no table or transaction capability crosses it. */
+export function decodeCoreApplicationInsertResult(value: unknown) {
+  return Result.gen(function* () {
+    const frame = yield* decodeCoreInsertResult(value);
+    if (frame.kind === "inserted") {
+      const identity = yield* decodeDocumentId(frame.id);
+      if (identity.tableNumber !== frame.table.tableId)
+        return yield* Result.fail(new TypeError("Insert result table identity mismatch."));
+    }
+    return frame;
+  });
+}
 interface ApplicationTransactionQueryContextBaseV1 {
   readonly mode: "query";
   readonly executionId: string;
@@ -200,6 +225,7 @@ export const decodeApplicationTransactionWorkerRequestV1Effect = Effect.fn(
   "ApplicationWorkerProtocol.decodeTransactionRequestV1",
 )(function* (
   input: unknown,
+  documentIdFormat?: "convex",
 ): Effect.fn.Return<
   ApplicationTransactionWorkerRequestV1,
   ApplicationWorkerProtocolV1Error
@@ -248,7 +274,7 @@ export const decodeApplicationTransactionWorkerRequestV1Effect = Effect.fn(
     normalizedArguments.semanticSizeBytes,
     boundary,
   );
-  const tables = yield* decodeTables(request.tables, boundary);
+  const tables = yield* decodeTables(request.tables, boundary, documentIdFormat);
 
   return Object.freeze({
     format: APPLICATION_TRANSACTION_WORKER_REQUEST_FORMAT_V1,
@@ -827,11 +853,13 @@ function verifyArgumentSize(
 function decodeTables(
   value: unknown,
   boundary: "transactionRequest",
+  documentIdFormat?: "convex",
 ): Effect.Effect<
   ReadonlyArray<ApplicationWorkerTableV1>,
   ApplicationWorkerProtocolV1Error
 > {
-  return Effect.fromResult(captureExactArray(value, MAX_APPLICATION_WORKER_TABLES_V1)).pipe(
+  return Effect.fromResult(captureExactArray(value, documentIdFormat === "convex"
+    ? MAX_CORE_APPLICATION_WORKER_TABLES : MAX_APPLICATION_WORKER_TABLES_V1)).pipe(
     Effect.mapError(cause =>
       protocolError(boundary, "invalidShape", "tables", cause)
     ),
@@ -847,7 +875,7 @@ function decodeTables(
           `tables[${index}]`,
         );
         const tableId = yield* Effect.fromResult(
-          decodeCatalogTableId(table.tableId).pipe(
+          (documentIdFormat === "convex" ? decodeCoreTableNumber : decodeCatalogTableId)(table.tableId).pipe(
             Result.mapError(cause => protocolError(
               boundary,
               "invalidShape",

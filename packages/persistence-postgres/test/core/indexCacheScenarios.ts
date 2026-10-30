@@ -7,16 +7,18 @@ import type { DocumentObject } from "flarex-protocol/document-value";
 import { openCoreDatabase } from "../../src/core/database";
 import type { CoreDatabase, CoreDatabaseOptions, CoreReadTransaction } from "../../src/core/api";
 import type { CorePersistenceFixture, CorePersistenceFixtureOptions } from "./fixture";
+import { activateCoreSchema, CORE_SCHEMA_WORKER_TEST_OPTIONS } from "./schemaFixture";
 
 const id = (value: number) => new Uint8Array(16).fill(value);
-const definition = { tables: [{ name: "items", number: 10000, tabletId: id(100),
-  validator: { type: "object" as const, value: {
-    value: { fieldType: { type: "number" as const }, optional: false },
-    label: { fieldType: { type: "string" as const }, optional: true },
-  } }, indexes: [{ name: "by_value", ref: { id: id(101) }, fields: ["value"], enabled: true }] }],
-  programs: [{ identity: { functionPath: "items:read", programHash: "read", schemaHash: "items" }, metadata: {} }],
+const definition = { schemaValidation: true, tables: [{ tableName: "items",
+  documentType: { type: "object", value: {
+    value: { fieldType: { type: "number" }, optional: false },
+    label: { fieldType: { type: "string" }, optional: true },
+  } }, indexes: [{ indexDescriptor: "by_value", fields: ["value"] }] }],
 };
+const publication = { programs: [{ identity: { functionPath: "items:read", programHash: "read", schemaHash: "items" }, metadata: {} }] };
 const options = (verifyPercent = 0, maxBytes = 2 * 1024 * 1024): CoreDatabaseOptions => ({
+  schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS,
   now: Effect.succeed(1_000_000_000n), newInternalId: Effect.sync(() => randomBytes(16)),
   indexCache: { maxBytes, verifyPercent }, operationCacheMaxBytes: 1024 * 1024,
 });
@@ -48,7 +50,7 @@ export function registerCoreIndexCacheScenarios(name: string,
       }) });
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const database = yield* openCoreDatabase(fixture.persistence, options());
-        yield* database.install(definition);
+        yield* activateCoreSchema(database, definition, publication);
         const documentId = yield* insert(database, 1);
         statements.length = 0;
         const first = yield* database.beginQuery("items:read");
@@ -84,7 +86,7 @@ export function registerCoreIndexCacheScenarios(name: string,
       }) });
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const database = yield* openCoreDatabase(fixture.persistence, options());
-        yield* database.install(definition);
+        yield* activateCoreSchema(database, definition, publication);
         const documentId = yield* insert(database, 1);
         const old = yield* database.beginQuery("items:read");
         holdNext = true;
@@ -107,7 +109,7 @@ export function registerCoreIndexCacheScenarios(name: string,
       const fixture = await createFixture();
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const database = yield* openCoreDatabase(fixture.persistence, options(verifyPercent));
-        yield* database.install(definition);
+        yield* activateCoreSchema(database, definition, publication);
         const readValues = Effect.fn("IndexCacheScenario.readValues")(function* () {
           const query = yield* database.beginQuery("items:read");
           const result = yield* page(query.transaction);
@@ -141,7 +143,7 @@ export function registerCoreIndexCacheScenarios(name: string,
       const fixture = await createFixture();
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const database = yield* openCoreDatabase(fixture.persistence, options());
-        yield* database.install(definition);
+        yield* activateCoreSchema(database, definition, publication);
         for (const value of [1, 2, 3]) yield* insert(database, value);
         const old = yield* database.beginQuery("items:read");
         const writer = yield* database.begin();
@@ -158,10 +160,12 @@ export function registerCoreIndexCacheScenarios(name: string,
         yield* latest.finish();
         yield* old.finish();
         const other = yield* openCoreDatabase(yield* Effect.tryPromise({ try: () => fixture.reopen("other-app"), catch: cause => cause }), options());
-        yield* other.install(definition);
+        const otherInstallation = yield* activateCoreSchema(other, definition, publication);
+        const otherTable = otherInstallation.tables.find(table => table.name === "items");
+        if (otherTable === undefined) return yield* Effect.die(new Error("Other-app fixture table is absent."));
         const otherRead = yield* other.beginQuery("items:read");
         expect((yield* page(otherRead.transaction)).documents).toEqual([]);
-        expect(Option.isNone(yield* otherRead.transaction.get(Result.getOrThrow(encodeDocumentId(10000, id(200)))))).toBe(true);
+        expect(Option.isNone(yield* otherRead.transaction.get(Result.getOrThrow(encodeDocumentId(otherTable.number, id(200)))))).toBe(true);
         yield* otherRead.finish();
       }))); } finally { await fixture.close(); }
     }, 30_000);
@@ -173,7 +177,7 @@ export function registerCoreIndexCacheScenarios(name: string,
       }) });
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const database = yield* openCoreDatabase(fixture.persistence, options(100));
-        yield* database.install(definition);
+        yield* activateCoreSchema(database, definition, publication);
         const documentId = yield* insert(database, 7);
         for (let ordinal = 0; ordinal < 2; ordinal++) {
           statements.length = 0;

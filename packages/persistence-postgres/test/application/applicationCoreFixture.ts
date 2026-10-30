@@ -6,11 +6,12 @@ import { decodeDocumentValue, type DocumentValue } from "flarex-protocol/documen
 import { createQueryCursorBroker, type QueryCursorBroker } from "flarex-protocol/query-cursor";
 
 import { openCoreDatabase } from "../../src/core/database";
-import { installCoreApplicationSchema } from "../../src/application/coreSchema";
+import { compileCoreApplicationSchema } from "../../src/application/coreSchema";
 import { makeCoreApplicationPrograms } from "../../src/application/coreProgram";
 import type { CoreDatabase, CoreProgramDefinition } from "../../src/core/api";
 import { CorePersistenceError, type CorePersistence, type CorePersistenceLease, type CoreWriteBatch } from "../../src/core/contracts";
 import type { CorePersistenceFixture } from "../core/fixture";
+import { CORE_SCHEMA_WORKER_TEST_OPTIONS } from "../core/schemaFixture";
 import type { ApplicationNativeMutationSourceBundle } from "./applicationNativeMutationTestFixture";
 
 export const CORE_APPLICATION_SCOPE_UUID = "45000000-0000-4000-8000-000000000001";
@@ -62,6 +63,7 @@ export async function withApplicationCoreFixture<A>(
     Effect.runPromise(effect.pipe(Scope.provide(scope)));
   let nextInternalId: Uint8Array | undefined;
   const options = {
+    schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS,
     now: Clock.currentTimeMillis.pipe(Effect.map(value => BigInt(Math.floor(value)) * 1_000_000n)),
     newInternalId: Effect.sync(() => {
       const selected = nextInternalId;
@@ -100,13 +102,17 @@ export async function withApplicationCoreFixture<A>(
     const programs = await producePrograms();
     const users = manifest.schema.tables.find(table => table.name === "users");
     if (users === undefined) throw new Error("Core users fixture schema is missing.");
-    await run(installCoreApplicationSchema(database, { authorityEpoch: 1n,
-      tables: [{ name: "users", number: 10000, tabletId: bytes(0x11), validator: users.validator,
-        intrinsicIndexes: { byId: { id: bytes(0x21) }, byCreationTime: { id: bytes(0x22) } },
-        indexes: manifest.schema.indexes.map(index => ({
-          name: index.name, ref: { id: bytes(0x23) }, fields: index.fields, enabled: true,
-        })),
-      }], programs }));
+    const schema = Result.getOrThrow(compileCoreApplicationSchema(manifest));
+    const proposal = await run(database.prepareSchema({ schema }));
+    let status = await run(database.schemaStatus(proposal));
+    while (status.state === "pending" || !status.indexesReady) {
+      if (status.state === "failed" || status.state === "overwritten") throw new Error("Application fixture schema failed: " + status.error);
+      status = await run(database.advanceSchema(proposal, { pageSize: 128, maxPages: 8 }));
+    }
+    const activated = await run(database.activateSchema(proposal, { programs, authorityEpoch: 1n }));
+    const userTable = activated.tables.find(table => table.name === "users");
+    const nameIndex = userTable?.indexes.find(index => index.name === "by_name");
+    if (userTable === undefined || nameIndex === undefined) throw new Error("Application fixture activation is missing user bindings.");
     const seed = await run(database.begin());
     const documentId = await run(seed.insert("users", { name: "Ada" }));
     const initialTimestamp = await run(database.commit(await run(seed.finalize())));
@@ -122,8 +128,8 @@ export async function withApplicationCoreFixture<A>(
       initialPhysicalState: async () => {
         const selected = await run(physical.persistence.readSnapshot(initialTimestamp));
         const internalId = Result.getOrThrow(decodeDocumentId(documentId)).internalId;
-        const point = await run(selected.get(bytes(0x11), internalId));
-        const indexed = await run(selected.scan({ index: { id: bytes(0x23) }, tableId: bytes(0x11),
+        const point = await run(selected.get(userTable.tabletId, internalId));
+        const indexed = await run(selected.scan({ index: nameIndex.ref, tableId: userTable.tabletId,
           interval: { start: null, end: null }, order: "asc", maxResults: 128 }));
         const document = point._tag === "Some" && !point.value.deleted
           ? Result.getOrThrow(decodeDocumentValue(point.value.jsonValue)) : null;
@@ -133,7 +139,7 @@ export async function withApplicationCoreFixture<A>(
         const id = Result.getOrThrow(decodeDocumentId(documentId));
         const rows = await physical.query(`SELECT ts::text AS timestamp, deleted, json_value AS value
           FROM "${physical.namespace.replaceAll('"', '""')}".documents
-          WHERE instance_name=$1 AND table_id=$2 AND id=$3 ORDER BY ts`, [physical.instanceName, bytes(0x11), id.internalId]);
+          WHERE instance_name=$1 AND table_id=$2 AND id=$3 ORDER BY ts`, [physical.instanceName, userTable.tabletId, id.internalId]);
         return Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ timestamp: Schema.String,
           deleted: Schema.Boolean, value: Schema.Uint8Array })))(rows).map(row => Object.freeze({
             timestamp: BigInt(row.timestamp), deleted: row.deleted,
@@ -154,7 +160,7 @@ export async function withApplicationCoreFixture<A>(
         }
         return Object.freeze(rows);
       },
-      advanceProgramHead: async () => { await run(currentDatabase.install({ tables: [], programs: await producePrograms(2) })); },
+      advanceProgramHead: async () => { await run(currentDatabase.publishPrograms({ programs: await producePrograms(2) })); },
       loseNextWriteAcknowledgement: () => { loseNextAcknowledgement = true; },
       useNextInternalId: (id: Uint8Array) => {
         if (nextInternalId !== undefined) throw new Error("Fixture internal ID is already armed.");
@@ -176,5 +182,3 @@ export async function withApplicationCoreFixture<A>(
       "Application core fixture owner cleanup failed");
   }
 }
-
-function bytes(value: number): Uint8Array { return new Uint8Array(16).fill(value); }

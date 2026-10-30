@@ -55,6 +55,7 @@ describe.runIf(endpoints !== undefined)("ordinary-role PostgreSQL", () => {
     const paused = await Effect.runPromise(Deferred.make<void>());
     const released = await Effect.runPromise(Deferred.make<void>());
     const pausing: CoreSqlDriver = {
+      withConnection: driver.withConnection,
       query: driver.query,
       transaction: run => driver.transaction(connection => run({
         query: (statement, parameters) => connection.query(statement, parameters).pipe(Effect.tap(() =>

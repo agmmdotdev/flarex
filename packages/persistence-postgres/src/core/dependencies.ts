@@ -9,6 +9,7 @@ import { compareBytesLexicographically, encodeBytesToLowercaseHex } from "@flare
 import { encodeIndexKey, encodeIndexValue } from "flarex-protocol/index-key";
 import { CoreTransactionError, type CoreIndexDefinition, type CoreTableDefinition } from "./api";
 import { INDEXES, TABLES, publicDocumentId, type CoreRegistry } from "./registry";
+import { decodeCoreIndexMetadata } from "./indexState";
 import type { CoreDocumentChange } from "./transaction";
 import { CoreReadSetBuilder, pointInterval, type CoreIndexKeys } from "./writeLog";
 
@@ -57,7 +58,7 @@ export function addTableWriteDependencies(reads: CoreReadSetBuilder, registry: C
     }
     const metadata = registry.table(TABLES)?.definition;
     const byId = metadata?.indexes.find(index => index.name === "by_id");
-    const record = registry.table(table.name);
+    const record = registry.table(table.name, table.namespace);
     if (metadata === undefined || byId === undefined || record === undefined)
       return yield* Result.fail(new CoreTransactionError({ reason: "invalidValue" }));
     const tableId = yield* publicDocumentId(metadata, record.id);
@@ -74,13 +75,12 @@ export function metadataConflictKeys(registry: CoreRegistry,
   return Result.gen(function* () {
     const keys = new BTree<Uint8Array, true>(undefined, compareBytesLexicographically);
     for (const change of changes) {
-      if (change.table.name !== INDEXES) continue;
+      const catalog = registry.table(INDEXES);
+      if (catalog === undefined || encodeBytesToLowercaseHex(change.table.tabletId) !== encodeBytesToLowercaseHex(catalog.definition.tabletId)) continue;
       for (const document of [change.originalDocument, change.finalDocument]) {
         if (document === null) continue;
-        const number = document.tableNumber;
-        const target = typeof number === "number" ? registry.tableByNumber(number) : undefined;
-        if (target === undefined) return yield* Result.fail(new CoreTransactionError({ reason: "invalidValue" }));
-        const key = yield* Result.mapError(encodeIndexValue(encodeBytesToLowercaseHex(target.definition.tabletId)), cause => new CoreTransactionError({ reason: "invalidValue", cause }));
+        const metadata = yield* Result.mapError(decodeCoreIndexMetadata(document), cause => new CoreTransactionError({ reason: "invalidValue", cause }));
+        const key = yield* Result.mapError(encodeIndexValue(metadata.table_id), cause => new CoreTransactionError({ reason: "invalidValue", cause }));
         keys.set(key, true);
       }
     }

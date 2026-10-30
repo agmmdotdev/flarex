@@ -3,6 +3,7 @@ import { Cause, Effect, Exit, Result } from "effect";
 
 import {
   createRequestScopedExecutorWorker,
+  admitExecutorConfiguration,
   createExecutorClientLifetime,
   HostedExecutorErrorResponse,
   type ExecutorCleanupErrorInput,
@@ -25,6 +26,19 @@ const validEnv = {
 } satisfies ExecutorWorkerEnv;
 
 describe("request-scoped executor Worker lifecycle", () => {
+  it("shares trusted event configuration while checking HTTP authorization before Hyperdrive", async () => {
+    expect(Result.getOrThrow(admitExecutorConfiguration(validEnv))).toEqual({ capabilityToken: "executor-secret",
+      connectionString: "postgres://hyperdrive.internal/flarex" });
+    const worker = createRequestScopedExecutorWorker({
+      createClient: () => { throw new Error("Unauthorized request allocated a client"); },
+      createHandler: () => { throw new Error("Unauthorized request constructed a handler"); },
+    });
+    const refused = await worker.fetch(new Request("https://flarex-executor.internal/invoke/start"), {
+      FLAREX_EXECUTOR_TOKEN: "executor-secret",
+    });
+    expect(refused.status).toBe(401);
+    expect(Result.isFailure(admitExecutorConfiguration({ FLAREX_EXECUTOR_TOKEN: "executor-secret" }))).toBe(true);
+  });
   it("shares one real close operation between quarantine and request cleanup", async () => {
     let ends = 0;
     let finish!: () => void;

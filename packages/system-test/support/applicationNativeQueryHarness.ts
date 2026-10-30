@@ -431,7 +431,8 @@ export class MiniflareApplicationWorkerLoader implements WorkerLoader {
     if (method === "takeIncomingRelationSources") this.incomingRelationReads += 1;
     if (method !== "readPointDocument") return;
     this.pointDocumentReads += 1;
-    const documentId = argumentsValue[1];
+    // Fresh and legacy point-read ABIs both carry their document ID last.
+    const documentId = argumentsValue.at(-1);
     if (typeof documentId !== "string") {
       throw new Error("Application Worker supplied an invalid document ID.");
     }
@@ -640,8 +641,8 @@ class Capability extends RpcTarget {
     return envelope.result;
   }
   revalidate() { return this.call("revalidate", []); }
-  readPointDocument(tableName, documentId) {
-    return this.call("readPointDocument", [tableName, documentId]);
+  readPointDocument(...argumentsValue) {
+    return this.call("readPointDocument", argumentsValue);
   }
   queryIndexRange(tableName, indexDescriptor, bounds, limit) {
     return this.call("queryIndexRange", [tableName, indexDescriptor, bounds, limit]);

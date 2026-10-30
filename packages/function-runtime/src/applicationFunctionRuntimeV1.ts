@@ -105,7 +105,9 @@ export interface ApplicationFunctionRuntimeQueryDatabaseV1
       string,
       string,
       string
-    > {}
+    > {
+  readonly normalizeId: (table: string, id: string) => string | null;
+}
 
 export interface ApplicationFunctionRuntimeMutationDatabaseV1
   extends FunctionRuntimePointDatabaseWriterV1<
@@ -116,14 +118,16 @@ export interface ApplicationFunctionRuntimeMutationDatabaseV1
       unknown,
       unknown
     >,
-    FunctionRuntimeQueryReaderV1<object> {}
+    FunctionRuntimeQueryReaderV1<object> {
+  readonly normalizeId: (table: string, id: string) => string | null;
+}
 
 export interface LegacyApplicationFunctionRuntimeQueryDatabaseV1
-  extends Omit<ApplicationFunctionRuntimeQueryDatabaseV1, "query">,
+  extends Omit<ApplicationFunctionRuntimeQueryDatabaseV1, "query" | "normalizeId">,
     FunctionRuntimeIndexRangeReaderV1<string, unknown, unknown, CanonicalFlarexRuntimeObjectV1> {}
 
 export interface LegacyApplicationFunctionRuntimeMutationDatabaseV1
-  extends Omit<ApplicationFunctionRuntimeMutationDatabaseV1, "query">,
+  extends Omit<ApplicationFunctionRuntimeMutationDatabaseV1, "query" | "normalizeId">,
     FunctionRuntimeIndexRangeReaderV1<string, unknown, unknown, CanonicalFlarexRuntimeObjectV1> {}
 
 export type ApplicationFunctionRuntimeRunQueryV1 = (

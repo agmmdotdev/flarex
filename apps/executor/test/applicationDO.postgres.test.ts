@@ -1,7 +1,8 @@
-import { createCorePostgresFixture } from "@flarex/persistence-postgres/internal/system-test/core-persistence-fixture";
+import { createCorePostgresFixture, readCoreFixtureRegistry } from "@flarex/persistence-postgres/internal/system-test/core-persistence-fixture";
 import { withApplicationCoreFixture } from "@flarex/persistence-postgres/internal/system-test/core-application-fixture";
 import { createCoreApplicationDefinition } from "@flarex/system-test/internal/application-core-definition";
-import { Cause, Effect, Exit, Schema } from "effect";
+import { Cause, Effect, Exit, Result, Schema } from "effect";
+import { decodeDocumentValue } from "flarex-protocol/document-value";
 import { Miniflare, type MiniflareOptions } from "miniflare";
 import { builtinModules } from "node:module";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -29,6 +30,10 @@ const ResultBody = Schema.Struct({ ok: Schema.Boolean, value: Schema.optionalKey
   failures: Schema.optionalKey(Schema.Array(Schema.Struct({ tag: Schema.NullOr(Schema.String), reason: Schema.NullOr(Schema.String) }))) });
 const Status = Schema.Struct({ boot: Schema.String, gateEntered: Schema.Boolean, blockedSourceReads: Schema.Int, resources: Resources,
   backends: Schema.Array(Schema.Struct({ pid: Schema.Int, applicationName: Schema.String })) });
+const SchemaSchedulerStatus = Schema.Struct({ boot: Schema.String, holdAlarms: Schema.Boolean, holdConnections: Schema.Boolean,
+  blockedConnections: Schema.Int, alarms: Schema.Int, completedAlarms: Schema.Int, activeAlarms: Schema.Int,
+  closing: Schema.Boolean, bootWaiting: Schema.Boolean, alarmsDuringBoot: Schema.Int,
+  bootInitialState: Schema.NullOr(Schema.String), bootValidationState: Schema.NullOr(Schema.String), bootStatusReads: Schema.Int, alarm: Schema.NullOr(Schema.Number), resources: Resources });
 const Page = Schema.Struct({ page: Schema.Array(Schema.Struct({ name: Schema.String })),
   continueCursor: Schema.String, isDone: Schema.Boolean });
 const Mutation = Schema.Struct({ disposition: Schema.Literals(["published", "replayed"]), commitSeq: Schema.String });
@@ -43,6 +48,11 @@ describe.runIf(endpoints !== undefined)("canonical app owner in actual workerd",
     let runtime: Miniflare | undefined;
     try {
       runtime = makeRuntime(worker, directory, { persistenceNamespace: "unconfigured", instanceName: "application" });
+      const summary = Schema.decodeUnknownSync(Schema.Struct({ timestamp: Schema.String, count: Schema.String,
+        serialized: Schema.String }))(await (await runtime.dispatchFetch("https://application-owner.test/summary-codec")).json());
+      expect(summary.timestamp).toBe("1");
+      expect(summary.count).toBe("18446744073709551615");
+      expect(summary.serialized).toContain('"numValues":18446744073709551615');
       const uploaded = await request(runtime, "/source", { modules: rawDefinition.source.modules });
       expect(uploaded.status, await uploaded.clone().text()).toBe(200);
       const finalizedSource = Schema.decodeUnknownSync(UPLOADED)(await uploaded.json()).source;
@@ -66,10 +76,19 @@ describe.runIf(endpoints !== undefined)("canonical app owner in actual workerd",
           if (runtime === undefined) throw new Error("Actual app-owner runtime is closed.");
           return runtime;
         };
-        const start = async () => { runtime = makeRuntime(worker, directory, configuration); };
+        const start = async (waitForSchemaOnBoot = false) => {
+          runtime = makeRuntime(worker, directory, { ...configuration, waitForSchemaOnBoot });
+        };
         const close = async () => {
-          if (runtime === undefined) return;
-          try { await request(runtime, "/close", {}); } finally { await runtime.dispose(); runtime = undefined; }
+          const owner = runtime;
+          if (owner === undefined) return;
+          runtime = undefined;
+          const closed = await Promise.allSettled([request(owner, "/close-cleanup", {}).then(async response => {
+            if (!response.ok) throw new Error(await response.text());
+          })]);
+          const disposed = await Promise.allSettled([owner.dispose()]);
+          const failures = [...closed, ...disposed].flatMap(result => result.status === "rejected" ? [result.reason] : []);
+          if (failures.length > 0) throw new AggregateError(failures, "Actual Application owner cleanup failed");
         };
         try {
           await start();
@@ -83,6 +102,11 @@ describe.runIf(endpoints !== undefined)("canonical app owner in actual workerd",
             method: "POST", body: JSON.stringify({ operation: "typed", args }),
           });
           expect(unauthorized.status).toBe(401);
+          const rejectedScheduler = await schemaSchedulerStatus(active());
+          expect(rejectedScheduler.alarm).toBeNull();
+          expect(rejectedScheduler.resources.pools).toBe(0);
+          await invoke(active(), "schemaInspect", {});
+          await waitForSchemaIdle(active());
           const beforeQueries = await fixture.durableState();
           const concurrent = await Promise.all(Array.from({ length: 4 }, () => invoke(active(), "typed", args)));
           expect(concurrent.map(result => result.body.value)).toEqual(["Ada", "Ada", "Ada", "Ada"]);
@@ -221,6 +245,80 @@ describe.runIf(endpoints !== undefined)("canonical app owner in actual workerd",
           expect(afterDispatchClose.resources.hostHeld).toBe(0);
           expect(afterDispatchClose.resources.ended).toBe(afterDispatchClose.resources.connections);
           expect(afterDispatchClose.resources.checkouts).toBe(afterDispatchClose.resources.released);
+
+          await close();
+          await start();
+          await invoke(active(), "schemaInspect", {});
+          await waitForSchemaIdle(active());
+          const stagedBoot = (await schemaSchedulerStatus(active())).boot;
+          let stageFailed = false;
+          let stageFailure: unknown;
+          try {
+            const staged = await invoke(active(), "stageSchema", {}, "/stage-hold");
+            const activatedAt = BigInt(Schema.decodeUnknownSync(Schema.Struct({ timestamp: Schema.String }))(staged.body.value).timestamp);
+            await expect.poll(async () => (await schemaSchedulerStatus(active())).blockedConnections, { timeout: 20_000 }).toBeGreaterThan(0);
+            const initialRegistry = await Effect.runPromise(readCoreFixtureRegistry(physical, activatedAt));
+            const initialTable = initialRegistry.table("users")?.definition;
+            const initialIndex = initialTable === undefined ? undefined : initialRegistry.indexes.byName(initialTable.tabletId, "by_background").pending;
+            expect(initialIndex?.state).toMatchObject({ type: "Backfilling", backfillState: { staged: true } });
+            let closeSettled = false;
+            const closing = request(active(), "/close", {}).then(response => { closeSettled = true; return response; });
+            const observedClose = Promise.allSettled([closing]);
+            await expect.poll(async () => (await schemaSchedulerStatus(active())).closing).toBe(true);
+            expect(closeSettled).toBe(false);
+            await request(active(), "/schema-release", {});
+            const [closedAlarm] = await observedClose;
+            if (closedAlarm?.status !== "fulfilled") throw new AggregateError(
+              closedAlarm?.status === "rejected" ? [closedAlarm.reason] : [], "Actual alarm close did not settle");
+            expect(closedAlarm.value.status, await closedAlarm.value.clone().text()).toBe(200);
+            await expect.poll(async () => (await schemaSchedulerStatus(active())).activeAlarms).toBe(0);
+            const stoppedScheduler = await schemaSchedulerStatus(active());
+            expect(stoppedScheduler.alarm).toBeNull();
+            expect(stoppedScheduler.resources.checkouts).toBe(stoppedScheduler.resources.released);
+            expect(stoppedScheduler.resources.ended).toBe(stoppedScheduler.resources.connections);
+          } catch (cause) {
+            stageFailed = true;
+            stageFailure = cause;
+            throw cause;
+          } finally {
+            const released = await Promise.allSettled([request(active(), "/schema-release", {}).then(async response => {
+              if (!response.ok) throw new Error(await response.text());
+            })]);
+            const closed = await Promise.allSettled([close()]);
+            const failures = [...released, ...closed].flatMap(result => result.status === "rejected" ? [result.reason] : []);
+            if (failures.length > 0) throw new AggregateError(stageFailed ? [stageFailure, ...failures] : failures,
+              "Actual staged schema witness and cleanup failed");
+          }
+          // This is controlled close/reconstruction in actual workerd, not a
+          // claim that production-managed eviction or alarm timing was tested.
+          await start(true);
+          await invoke(active(), "schemaInspect", {});
+          await waitForSchemaIdle(active());
+          const recoveredScheduler = await schemaSchedulerStatus(active());
+          expect(recoveredScheduler.boot).not.toBe(stagedBoot);
+          expect(recoveredScheduler.bootWaiting).toBe(false);
+          expect(recoveredScheduler.alarmsDuringBoot).toBeGreaterThan(0);
+          expect(recoveredScheduler.bootInitialState).toBe("pending");
+          expect(recoveredScheduler.bootValidationState).toBe("validated");
+          expect(recoveredScheduler.bootStatusReads).toBeGreaterThan(0);
+          expect(recoveredScheduler.bootStatusReads).toBeLessThanOrEqual(6000);
+          const recoveredAt = BigInt(Schema.decodeUnknownSync(Schema.String)((await invoke(active(), "schemaInspect", {})).body.value));
+          const recoveredRegistry = await Effect.runPromise(readCoreFixtureRegistry(physical, recoveredAt));
+          const recoveredTable = recoveredRegistry.table("users")?.definition;
+          const recoveredIndex = recoveredTable === undefined ? undefined : recoveredRegistry.indexes.byName(recoveredTable.tabletId, "by_background").pending;
+          expect(recoveredIndex?.state).toEqual({ type: "Backfilled2", staged: true });
+          if (recoveredTable === undefined || recoveredIndex === undefined) throw new Error("Recovered staged index metadata is missing");
+          const snapshot = await Effect.runPromise(physical.persistence.readSnapshot(recoveredAt));
+          const indexRows = await Effect.runPromise(snapshot.scan({ index: recoveredIndex.ref, tableId: recoveredTable.tabletId,
+            interval: { start: null, end: null }, order: "asc", maxResults: 128 }));
+          expect(Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ name: Schema.String })))(indexRows.entries.map(entry =>
+            Result.getOrThrow(decodeDocumentValue(entry.document.jsonValue)))).map(row => row.name).toSorted())
+            .toEqual(["parent-after-success", "row000", "row001", "row002"]);
+          const idleCheckouts = recoveredScheduler.resources.checkouts;
+          await new Promise<void>(resolve => setTimeout(resolve, 150));
+          const stillIdle = await schemaSchedulerStatus(active());
+          expect(stillIdle.alarm).toBeNull();
+          expect(stillIdle.resources.checkouts).toBe(idleCheckouts);
         } finally { await close(); }
       });
 
@@ -268,6 +366,15 @@ function request(runtime: Miniflare, path: string, body: unknown, signal?: Abort
     headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: JSON.stringify(body),
     ...(signal === undefined ? {} : { signal }) });
 }
+async function schemaSchedulerStatus(runtime: Miniflare) {
+  return Schema.decodeUnknownSync(SchemaSchedulerStatus)(await (await request(runtime, "/schema-status", {})).json());
+}
+async function waitForSchemaIdle(runtime: Miniflare) {
+  await expect.poll(async () => {
+    const state = await schemaSchedulerStatus(runtime);
+    return state.completedAlarms > 0 && state.activeAlarms === 0 && state.alarm === null;
+  }, { timeout: 60_000 }).toBe(true);
+}
 async function status(runtime: Miniflare) { return Schema.decodeUnknownSync(Status)(await (await request(runtime, "/status", {})).json()); }
 async function invoke(runtime: Miniflare, operation: string, args: unknown, path = "/invoke", key?: string, expectSuccess = true) {
   const response = await request(runtime, path, { operation, args, ...(key === undefined ? {} : { key }) });
@@ -277,7 +384,7 @@ async function invoke(runtime: Miniflare, operation: string, args: unknown, path
   if (expectSuccess) expect(body.ok, text).toBe(true);
   return { body, boot: response.headers.get("x-app-do-boot") };
 }
-function makeRuntime(worker: string, directory: string, configuration: Readonly<{ persistenceNamespace: string; instanceName: string }>) {
+function makeRuntime(worker: string, directory: string, configuration: Readonly<{ persistenceNamespace: string; instanceName: string; waitForSchemaOnBoot?: boolean }>) {
   if (endpoints === undefined) throw new Error("Missing app-host PostgreSQL endpoints.");
   return new Miniflare({ modules: [{ type: "ESModule", path: "worker.js", contents: worker }],
     compatibilityDate: "2026-06-14", compatibilityFlags: ["nodejs_compat"],

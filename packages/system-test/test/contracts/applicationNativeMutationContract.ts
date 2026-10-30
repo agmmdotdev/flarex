@@ -4,12 +4,12 @@ import { decodeDocumentId } from "flarex-protocol/document-id";
 import { APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1,
   APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1,
 } from "flarex-protocol/internal/application-revision-syscall-validation-v1";
-import { compileCoreApplicationIndexes, installCoreApplicationSchema } from "@flarex/persistence-postgres/internal/core-application-schema";
+import { compileCoreApplicationIndexes, compileCoreApplicationSchema } from "@flarex/persistence-postgres/internal/core-application-schema";
 import { CorePersistenceError } from "@flarex/persistence-postgres/internal/core";
 import { CoreApplicationMutationError } from "@flarex/persistence-postgres/internal/core-application-mutation";
 import type { ApplicationCoreFixture } from
   "@flarex/persistence-postgres/internal/system-test/core-application-fixture";
-import { proveApplicationNestedMutation, proveApplicationNestedMutationFailure, proveCoreApplicationAuthority, proveCoreApplicationColdClaim, proveCoreApplicationBusyClaim, proveCoreApplicationIndexOrder, proveCoreApplicationClock, proveCoreApplicationAdmissionExpiry, proveCoreApplicationDocumentValidation, proveCoreApplicationArgumentProfile, proveCoreApplicationArgumentRefusal } from
+import { proveApplicationNestedMutation, proveApplicationNestedMutationFailure, proveCoreApplicationAuthority, proveCoreApplicationColdClaim, proveCoreApplicationBusyClaim, proveCoreApplicationIndexOrder, proveCoreApplicationClock, proveCoreApplicationAdmissionExpiry, proveCoreApplicationDocumentValidation, proveCoreApplicationSchemaMappings, proveCoreApplicationArgumentProfile, proveCoreApplicationArgumentRefusal } from
   "../../support/applicationNativeMutationHarness";
 
 const storageTables = ["documents", "indexes", "leases", "persistence_globals", "read_only"];
@@ -60,7 +60,7 @@ export function defineApplicationNestedMutationContract(adapter: Readonly<{
       method: "patchPointDocument", arguments: [proof.documentId, { name }], result: undefined,
     })));
     expect(proof.failure.results.filter(result => result.method === "readPointDocument")).toMatchObject(
-      ["child-patched", "parent-after-catch"].map(name => ({ method: "readPointDocument", arguments: ["users", proof.documentId],
+      ["child-patched", "parent-after-catch"].map(name => ({ method: "readPointDocument", arguments: [proof.documentId],
         result: { kind: "present", document: { _id: proof.documentId, _creationTime: expect.any(Number), name } },
       })),
     );
@@ -105,32 +105,79 @@ export function defineApplicationNestedMutationContract(adapter: Readonly<{
   it("rejects declared system, repeated and excessive index fields before schema installation", async () => {
     await adapter.runScenario(async fixture => {
       let installations = 0;
-      const observed = { ...fixture.database, install: (input: Parameters<typeof fixture.database.install>[0]) => {
+      const observed = { ...fixture.database, prepareSchema: (input: Parameters<typeof fixture.database.prepareSchema>[0]) => {
         installations += 1;
-        return fixture.database.install(input);
+        return fixture.database.prepareSchema(input);
       } };
       const before = await Effect.runPromise(fixture.database.publishedTimestamp);
       for (const fields of [["_creationTime"], ["_id"], ["address._secret"], ["name", "name"],
         Array.from({ length: 16 }, (_, ordinal) => "field" + ordinal)]) {
-        const outcome = await Effect.runPromise(Effect.exit(installCoreApplicationSchema(observed, { programs: [],
-          tables: [{ name: "must_not_install", number: 10001, tabletId: new Uint8Array(16).fill(0x51),
-            validator: { type: "any" },
-            intrinsicIndexes: { byId: { id: new Uint8Array(16).fill(0x52) },
-              byCreationTime: { id: new Uint8Array(16).fill(0x53) } },
-            indexes: [{ name: "by_declared", ref: { id: new Uint8Array(16).fill(0x54) }, fields, enabled: true }],
-          }],
-        })));
+        const outcome = await Effect.runPromise(Effect.exit(Effect.fromResult(compileCoreApplicationSchema({ ...fixture.manifest,
+          schema: { ...fixture.manifest.schema, indexes: fixture.manifest.schema.indexes.map(index => ({ ...index, fields })) },
+        })).pipe(Effect.flatMap(schema => observed.prepareSchema({ schema })))));
         expect(Exit.isFailure(outcome)).toBe(true);
       }
       expect(installations).toBe(0);
       expect(await Effect.runPromise(fixture.database.publishedTimestamp)).toBe(before);
       const maximum = Array.from({ length: 15 }, (_, ordinal) => "field" + ordinal);
       const installed = Result.getOrThrow(compileCoreApplicationIndexes([{ name: "by_maximum",
-        ref: { id: new Uint8Array(16).fill(0x55) }, fields: maximum, enabled: true }]));
+        fields: maximum }]));
       expect(installed[0]?.fields).toEqual([...maximum, "_creationTime"]);
     });
   }, 120_000);
 
+  it("refuses native schema profiles and exact-value indexes before prepare without changing active code or data", async () => {
+    await adapter.runScenario(async fixture => {
+      let preparations = 0;
+      const prepare = (schema: unknown) => { preparations++; return fixture.database.prepareSchema({ schema }); };
+      const before = await Effect.runPromise(fixture.database.publishedTimestamp);
+      const active = await Effect.runPromise(fixture.database.selectProgram("users:create"));
+      const manifest = fixture.manifest;
+      const relationalTables = manifest.schema.tables.map(table => {
+        if (table.name !== "users") return table;
+        if (table.validator.type !== "object") throw new Error("Expected object users validator");
+        return { ...table, validator: { ...table.validator, value: { ...table.validator.value,
+          manager: { fieldType: { type: "id", tableName: "users" }, optional: true } } } };
+      });
+      for (const unsupported of [
+        { ...manifest, version: 2, schema: { ...manifest.schema, version: 2, tables: relationalTables, relations: [{
+          relationOrdinal: 1, sourceTableOrdinal: 1, targetTableOrdinal: 1,
+          declaration: { format: "flarex.relation-declaration", version: 1,
+            source: { table: "users", path: [{ kind: "field", name: "manager" }], forwardName: "manager" },
+            target: { table: "users" }, value: { cardinality: "one", required: false },
+            inverse: { cardinality: "many", name: "reports" }, localized: false, onTargetDelete: "restrict" },
+        }] } },
+        { ...manifest, schema: { ...manifest.schema,
+          indexes: manifest.schema.indexes.map(index => ({ ...index, decimalFields: index.fields })) } },
+      ]) {
+        const result = await Effect.runPromise(Effect.result(Effect.fromResult(compileCoreApplicationSchema(unsupported)).pipe(
+          Effect.flatMap(prepare))));
+        expect(result).toMatchObject({ _tag: "Failure", failure: { _tag: "CoreSchemaError", reason: "unsupportedCapability" } });
+      }
+      expect(preparations).toBe(0);
+      expect(await Effect.runPromise(fixture.database.publishedTimestamp)).toBe(before);
+      expect(await Effect.runPromise(fixture.database.selectProgram("users:create"))).toEqual(active);
+    });
+  }, 120_000);
+  it("uses source schema omission and shares implicit table mappings with typed nested functions", async () => {
+    const proof = await adapter.runScenario(proveCoreApplicationSchemaMappings);
+    expect(proof.outcome).toMatchObject({ disposition: "published", value: {
+      before: null, old: { _id: proof.documentId, name: "Ada" },
+      unlisted: { _id: proof.unlistedId, value: "kept outside manifest" }, normalizedUnlisted: proof.unlistedId,
+      missing: [], missingIndex: true, unreadyIndex: true,
+      parent: { value: "parent" }, child: { parent: expect.any(String) },
+    } });
+    if (proof.outcome.disposition !== "published") throw new Error("Expected published mapping witness");
+    const value = Schema.decodeUnknownSync(Schema.Struct({ parentId: Schema.String, childId: Schema.String,
+      normalizedParent: Schema.String, normalizedChild: Schema.String }))(proof.outcome.value);
+    expect(value.normalizedParent).toBe(value.parentId);
+    expect(value.normalizedChild).toBe(value.childId);
+    expect(proof.tables.map(table => table.logicalName).toSorted()).toEqual(["implicit_child", "implicit_parent", "staging", "unlisted", "users"]);
+    expect(proof.unlisted._tag).toBe("Some");
+    expect(proof.calls).not.toContain("tableMappings");
+    expect(proof.calls).not.toContain("tableNumber");
+    expect(proof.workerLoads).toBe(1);
+  }, 120_000);
   it("lets actual Worker code catch pre-stage schema refusals and commit subsequent valid writes", async () => {
     const proof = await adapter.runScenario(proveCoreApplicationDocumentValidation);
     expect(proof.outcome).toMatchObject({ disposition: "published", value: {

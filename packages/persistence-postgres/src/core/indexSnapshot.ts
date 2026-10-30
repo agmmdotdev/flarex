@@ -112,7 +112,7 @@ export function createCoreIndexSnapshot(input: Readonly<{
         // keys. The source charges document value size only through ById.
         const owned = copyEntry(entry).document;
         for (const index of table.indexes) {
-          if (!index.enabled || cacheBytes > maxBytes) continue;
+          if (cacheBytes > maxBytes) continue;
           if (index.name === "by_id") cacheBytes += measured.semanticSizeBytes;
           const key = yield* documentIndexKey(index, measured.value);
           const docs = indexDocuments(index.ref.id);
@@ -130,7 +130,7 @@ export function createCoreIndexSnapshot(input: Readonly<{
   const scan = Effect.fn("CoreIndexSnapshot.scan")(function* (request: CoreIndexScan) {
     const selected = input.registry.tableByTablet(request.tableId);
     const index = selected?.definition.indexes.find(candidate => bytesEqual(candidate.ref.id, request.index.id));
-    if (selected === undefined || index === undefined || !index.enabled) {
+    if (selected === undefined || index === undefined) {
       // An index created by the current transaction has no committed rows in
       // its starting registry. The bootstrap _index index must always exist.
       if (selected?.definition.name === INDEXES) return yield* new CorePersistenceError({ reason: "corruptData" });

@@ -222,7 +222,7 @@ export async function proveCoreApplicationStandaloneMetadata(fixture: Applicatio
         compatibilityDate: CORE_APPLICATION_COMPATIBILITY_DATE, generation: 2,
         sha256: bytes => Effect.promise(async () => new Uint8Array(await crypto.subtle.digest("SHA-256", copyBytesToArrayBuffer(bytes)))),
       }));
-      await runSystemTestEffectV1(fixture.database.install({ tables: [], programs }));
+      await runSystemTestEffectV1(fixture.database.publishPrograms({ programs }));
     } finally { block.release(); }
     const old = await held;
     const badArguments = await runSystemTestEffectV1(Effect.scoped(Effect.exit(invokeApplicationQuery("users:typedQuery",

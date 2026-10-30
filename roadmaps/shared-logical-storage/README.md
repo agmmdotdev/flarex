@@ -524,3 +524,22 @@ paths. Distinguish matched-layout orchestration cost from a separately labeled
 relational-layout comparison. A bare UPDATE or rollback-only test does not
 represent complete OCC, constraint, publication, durability and replay work.
 Benchmark code must never become production dispatch or a fallback storage lane.
+
+## Translated Core Consumer Acceptance
+
+The [active core goal](../../experiments/core/engine/GOAL.md) replaces the
+existing Application engine through the [shared schema milestone](../../experiments/core/engine/slices/07-shared-schema-lifecycle.md).
+The generated five-table target, ordinary logical schema/index lifecycle and
+bounded core workers do not establish native adapter cutover or complete
+connected acceptance. Named old native targets retain their migration gates.
+
+Fresh core point reads use one document ID; retained legacy calls use a table
+name and ID. The HTTP-backed Worker test bridge forwards the actual argument
+list unchanged and records its final document-ID argument. This replaces its
+old fixed two-argument wrapper, which fabricated an undefined argument and
+rejected valid fresh mutation reads before core execution. Both connected
+database lanes and retained legacy query coverage validate the correction.
+The bridge owns transport observation only: it neither reconstructs bindings nor
+issues SQL, changes validation or supplies a fallback lifetime. The executing
+owner is `packages/system-test/support/applicationNativeQueryHarness.ts`.
+Broader native adapter and complete-goal acceptance retain their existing gates.

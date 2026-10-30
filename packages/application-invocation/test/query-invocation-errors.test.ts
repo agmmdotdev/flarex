@@ -16,6 +16,9 @@ class CoreTransactionFailure extends Data.TaggedError("CoreTransactionError")<Pi
 class CorePersistenceFailure extends Data.TaggedError("CorePersistenceError")<Pick<
   Extract<InvokeApplicationQueryError, { readonly _tag: "CorePersistenceError" }>, "reason" | "cause"
 >> {}
+class CoreSchemaFailure extends Data.TaggedError("CoreSchemaError")<Pick<
+  Extract<InvokeApplicationQueryError, { readonly _tag: "CoreSchemaError" }>, "reason" | "message" | "cause"
+>> {}
 class CoreProgramFailure extends Data.TaggedError("CoreApplicationProgramError")<Pick<
   Extract<InvokeApplicationQueryError, { readonly _tag: "CoreApplicationProgramError" }>, "reason" | "cause"
 >> {}
@@ -310,11 +313,21 @@ describe("clean Query invocation-error projection", () => {
   it.each([
     [new CoreTransactionFailure({ reason: "programUnavailable" }), "queryNotFound"],
     [new CoreTransactionFailure({ reason: "capacity" }), "budgetExceeded"],
+    [new CoreTransactionFailure({ reason: "tooManyTables" }), "budgetExceeded"],
     [new CoreTransactionFailure({ reason: "indexUnavailable" }), "indexUnavailable"],
     [new CoreTransactionFailure({ reason: "authorityRevoked" }), "staleScopeAuthority"],
     [new CoreTransactionFailure({ reason: "closed" }), "unavailable"],
     [new CorePersistenceFailure({ reason: "outOfRetention" }), "historyUnavailable"],
     [new CorePersistenceFailure({ reason: "corruptData" }), "corruptData"],
+    [new CorePersistenceFailure({ reason: "timeout" }), "unavailable"],
+    [new CoreSchemaFailure({ reason: "invalidSchema", message: "invalid" }), "invalidInput"],
+    [new CoreSchemaFailure({ reason: "unsupportedCapability", message: "unsupported" }), "incompatibleRuntime"],
+    [new CoreSchemaFailure({ reason: "hashFailure", message: "hash" }), "unavailable"],
+    [new CoreSchemaFailure({ reason: "schemaNotFound", message: "missing" }), "applicationUnavailable"],
+    [new CoreSchemaFailure({ reason: "schemaFailed", message: "failed" }), "applicationUnavailable"],
+    [new CoreSchemaFailure({ reason: "schemaOverwritten", message: "overwritten" }), "applicationUnavailable"],
+    [new CoreSchemaFailure({ reason: "notValidated", message: "pending" }), "applicationUnavailable"],
+    [new CoreSchemaFailure({ reason: "stagedEnforcedConflict", message: "staged" }), "invalidInput"],
     [new CoreProgramFailure({ reason: "metadataInvalid" }), "corruptData"],
     [new CoreProgramFailure({ reason: "argumentsInvalid" }), "invalidInput"],
     [new CoreApplicationQueryError({ reason: "functionUnsupported" }), "incompatibleRuntime"],

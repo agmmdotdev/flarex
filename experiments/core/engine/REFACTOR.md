@@ -298,6 +298,15 @@ this does not preserve old installers or exclude shared lifecycle replacement.
    displaced code/layouts after durable-data disposition.
    Prove actual DO/native operation and complete-request performance separately.
 
+The [shared schema milestone](./slices/07-shared-schema-lifecycle.md) supplies the
+bounded Application lifecycle and five-table generated platform baseline in this
+sequence. Its native activation guard preserves the previous ready combination
+when shared native constraints are unsupported; it does not wrap or fall back to
+old framework installers. The [remaining literal translation](./slices/08-validator-literal-parity.md)
+connects validator semantics through authoring, analysis, manifests, hashing and
+actual runtime consumers before claiming source literal parity. Managed hosting,
+native/GC, supported-data and complete-flow performance gates remain separate.
+
 Derive executable conformance traces from pinned source and tests where present:
 conflict against an accepted unsaved write; independent saves completing out of
 order; durable B hidden before the safe published prefix; missing/empty ranges,

@@ -5,17 +5,19 @@ import { captureDocumentValueWithSize, encodeDocumentValue, type DocumentObject 
 import { encodeIndexKey } from "flarex-protocol/index-key";
 import { captureLogicalQuery, fingerprintQuery, type IndexRangeExpression, type LogicalQuery } from "flarex-protocol/index-range";
 import { openCoreDatabase } from "../../src/core/database";
-import { CoreQueryInputError, type CoreDatabase, type CoreDatabaseOptions, type CoreInstallation, type CoreQuery } from "../../src/core/api";
+import { CoreQueryInputError, type CoreDatabase, type CoreDatabaseOptions, type CoreQuery } from "../../src/core/api";
 import type { CoreIndexCursor, CorePersistence } from "../../src/core/contracts";
 import type { CorePersistenceFixture } from "./fixture";
+import { activateCoreSchema, CORE_SCHEMA_WORKER_TEST_OPTIONS } from "./schemaFixture";
+import { captureCoreSchema } from "../../src/core/schemaTypes";
 
-const id = (last: number) => { const bytes = new Uint8Array(16); bytes[15] = last; return bytes; };
-const options: CoreDatabaseOptions = { now: Effect.succeed(1_000_000_000n), newInternalId: Effect.sync(() => randomBytes(16)) };
-const installation: CoreInstallation = { tables: [{
-  name: "items", number: 10000, tabletId: id(100), validator: { type: "object", value: {
+
+const options: CoreDatabaseOptions = { schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS, now: Effect.succeed(1_000_000_000n), newInternalId: Effect.sync(() => randomBytes(16)) };
+const schema = Result.getOrThrow(captureCoreSchema({ schemaValidation: true, tables: [{
+  tableName: "items", documentType: { type: "object", value: {
     value: { fieldType: { type: "number" }, optional: false }, text: { fieldType: { type: "string" }, optional: true },
-  } }, indexes: [{ name: "by_value", ref: { id: id(101) }, fields: ["value", "_creationTime"], enabled: true }],
-}], programs: [] };
+  } }, indexes: [{ indexDescriptor: "by_value", fields: ["value", "_creationTime"] }],
+  stagedDbIndexes: [] }] }));
 const logical = (order: "asc" | "desc" = "asc", range: readonly IndexRangeExpression[] = [], limit?: number): LogicalQuery =>
   Result.getOrThrow(captureLogicalQuery({ source: { type: "IndexRange", indexName: "items.by_value", range, order },
     operators: limit === undefined ? [] : [{ limit }] }));
@@ -39,7 +41,7 @@ describe(name, () => {
     const fixture = await createFixture();
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const database = yield* openCoreDatabase(fixture.persistence, options);
-      yield* database.install(installation);
+      yield* activateCoreSchema(database, schema);
       const writer = yield* database.begin();
       const ids: string[] = [];
       for (const value of [5, -2, 1]) ids.push(yield* writer.insert("items", { value }));
@@ -63,11 +65,11 @@ describe(name, () => {
     const fixture = await createFixture();
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const database = yield* openCoreDatabase(fixture.persistence, options);
-      const table = installation.tables[0];
+      const table = schema.tables[0];
       if (table === undefined) throw new Error("Missing table fixture");
-      yield* database.install({ tables: [{ ...table, indexes: [...table.indexes,
-        { name: "by_text", ref: { id: id(102) }, fields: ["text", "_creationTime"], enabled: true },
-      ] }], programs: [] });
+      yield* activateCoreSchema(database, { schemaValidation: true, tables: [{ ...table, indexes: [...table.indexes,
+        { indexDescriptor: "by_text", fields: ["text", "_creationTime"] },
+      ] }] });
       const writer = yield* database.begin();
       yield* writer.insert("items", { value: 0, text: "a" });
       yield* writer.insert("items", { value: 1, text: "a\u0000" });
@@ -87,7 +89,7 @@ describe(name, () => {
     const fixture = await createFixture();
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const database = yield* openCoreDatabase(fixture.persistence, options);
-      yield* database.install(installation);
+      yield* activateCoreSchema(database, schema);
       yield* seed(database, 260);
       for (const order of ["asc", "desc"] as const) {
         const transaction = yield* database.begin();
@@ -119,7 +121,7 @@ describe(name, () => {
     })) };
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const database = yield* openCoreDatabase(persistence, options);
-      yield* database.install(installation);
+      yield* activateCoreSchema(database, schema);
       yield* seed(database, 5);
       tracing = true;
       for (const limit of [0, 1, 2]) {
@@ -140,7 +142,7 @@ describe(name, () => {
     const fixture = await createFixture();
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const database = yield* openCoreDatabase(fixture.persistence, options);
-      yield* database.install(installation);
+      yield* activateCoreSchema(database, schema);
       yield* seed(database, 3, "padding".repeat(30));
       const transaction = yield* database.begin();
       const sample = yield* transaction.scan("items", "by_value", { limit: 1 });
@@ -164,7 +166,7 @@ describe(name, () => {
     const fixture = await createFixture();
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const database = yield* openCoreDatabase(fixture.persistence, options);
-      yield* database.install(installation);
+      yield* activateCoreSchema(database, schema);
       yield* seed(database, 1, "large payload");
       const transaction = yield* database.begin();
       const query = yield* transaction.startQuery({ query: logical() });
@@ -181,7 +183,7 @@ describe(name, () => {
     const fixture = await createFixture();
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const database = yield* openCoreDatabase(fixture.persistence, options);
-      yield* database.install(installation);
+      yield* activateCoreSchema(database, schema);
       yield* seed(database, 3, "boundary document");
       const sampleTransaction = yield* database.begin();
       const sample = yield* sampleTransaction.scan("items", "by_value", { limit: 2 });
@@ -211,7 +213,7 @@ describe(name, () => {
     const fixture = await createFixture();
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const database = yield* openCoreDatabase(fixture.persistence, options);
-      yield* database.install(installation);
+      yield* activateCoreSchema(database, schema);
       yield* seed(database, 1);
       const ceiling = 1000;
       for (const metric of ["encoded", "semantic"] as const) for (const offset of [-1, 0, 1]) {
@@ -245,7 +247,7 @@ describe(name, () => {
     const fixture = await createFixture();
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const database = yield* openCoreDatabase(fixture.persistence, options);
-      yield* database.install(installation);
+      yield* activateCoreSchema(database, schema);
       const inverted = logical("asc", [{ op: "gt", field: "value", value: 2 }, { op: "lt", field: "value", value: 1 }]);
       for (const source of [logical(), inverted]) for (const metric of ["encoded", "semantic", "both"] as const) {
         const transaction = yield* database.begin();
@@ -299,11 +301,11 @@ describe(name, () => {
     const fixture = await createFixture();
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const database = yield* openCoreDatabase(fixture.persistence, options);
-      const table = installation.tables[0];
-      if (table === undefined || table.validator.type !== "object") throw new Error("Missing object table fixture");
-      yield* database.install({ tables: [{ ...table, validator: { ...table.validator, value: { ...table.validator.value,
+      const table = schema.tables[0];
+      if (table === undefined || table.documentType?.type !== "object") throw new Error("Missing object table fixture");
+      yield* activateCoreSchema(database, { schemaValidation: true, tables: [{ ...table, documentType: { ...table.documentType, value: { ...table.documentType.value,
         values: { fieldType: { type: "array", value: { type: "number" } }, optional: false },
-      } } }], programs: [] });
+      } } }] });
       const writer = yield* database.begin();
       const ids: string[] = [];
       const numbers = Array<number>(8192).fill(0);
@@ -348,7 +350,7 @@ describe(name, () => {
     const fixture = await createFixture();
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const database = yield* openCoreDatabase(fixture.persistence, options);
-      yield* database.install(installation);
+      yield* activateCoreSchema(database, schema);
       const ids = yield* seed(database, 5);
       for (const order of ["asc", "desc"] as const) {
         const transaction = yield* database.begin();
@@ -373,7 +375,7 @@ describe(name, () => {
     try {
       await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const database = yield* openCoreDatabase(fixture.persistence, options);
-        yield* database.install(installation);
+        yield* activateCoreSchema(database, schema);
         const ids = yield* seed(database, 4);
         const transaction = yield* database.begin();
         const query = yield* transaction.startQuery({ query: logical() });
@@ -405,7 +407,7 @@ describe(name, () => {
     const fixture = await createFixture();
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const database = yield* openCoreDatabase(fixture.persistence, options);
-      yield* database.install(installation);
+      yield* activateCoreSchema(database, schema);
       yield* seed(database, 3);
       const transaction = yield* database.begin();
       const query = yield* transaction.startQuery({ query: logical() });
@@ -427,7 +429,7 @@ describe(name, () => {
     const fixture = await createFixture();
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const database = yield* openCoreDatabase(fixture.persistence, options);
-      yield* database.install(installation);
+      yield* activateCoreSchema(database, schema);
       const ids = yield* seed(database, 3);
       for (const witness of ["outside", "phantom", "same-key", "move"] as const) {
         const reader = yield* database.begin();
@@ -458,7 +460,7 @@ describe(name, () => {
     const fixture = await createFixture();
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const database = yield* openCoreDatabase(fixture.persistence, { ...options, transactionLimits: { documentsRead: 3, databaseQueries: 1 } });
-      yield* database.install(installation);
+      yield* activateCoreSchema(database, schema);
       yield* seed(database, 4);
       const transaction = yield* database.begin();
       const query = yield* transaction.startQuery({ query: logical() });
@@ -480,7 +482,7 @@ describe(name, () => {
     try {
       await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const database = yield* openCoreDatabase(fixture.persistence, options);
-        yield* database.install(installation);
+        yield* activateCoreSchema(database, schema);
         yield* seed(database, 4, "x".repeat(200));
       })));
       const persistence = await fixture.reopen();
@@ -508,7 +510,7 @@ describe(name, () => {
     const fixture = await createFixture();
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const database = yield* openCoreDatabase(fixture.persistence, options);
-      yield* database.install(installation);
+      yield* activateCoreSchema(database, schema);
       const ids = yield* seed(database, 3);
       const removeMiddle = yield* database.begin();
       yield* removeMiddle.delete(ids[1] ?? "");
@@ -546,21 +548,22 @@ describe(name, () => {
     const fixture = await createFixture();
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const database = yield* openCoreDatabase(fixture.persistence, options);
-      yield* database.install(installation);
+      yield* activateCoreSchema(database, schema);
       const reader = yield* database.begin();
       const query = yield* reader.startQuery({ query: logical() });
-      const table = installation.tables[0];
+      const table = schema.tables[0];
       if (table === undefined) throw new Error("Missing table fixture");
-      yield* database.install({ tables: [{ ...table,
-        indexes: [{ name: "by_value", ref: { id: id(101) }, fields: ["text", "_creationTime"], enabled: false }],
-      }], programs: [] });
+      yield* activateCoreSchema(database, { schemaValidation: true, tables: [{ ...table,
+        indexes: [], stagedDbIndexes: [{ indexDescriptor: "by_value", fields: ["text", "_creationTime"] }],
+      }] });
       expect((yield* next(query, 10)).done).toBe(true);
       yield* reader.insert("items", { value: 100 });
       const refused = yield* Effect.result(database.commit(yield* reader.finalize()));
       expect(Result.isFailure(refused) && refused.failure).toMatchObject({ reason: "conflict" });
       const current = yield* database.begin();
       const unavailable = yield* Effect.result(current.startQuery({ query: logical() }));
-      expect(Result.isFailure(unavailable) && unavailable.failure).toMatchObject({ reason: "indexUnavailable" });
+      expect(Result.isFailure(unavailable) && unavailable.failure).toMatchObject({ _tag: "CoreQueryInputError", reason: "invalidQuery",
+        cause: { _tag: "CoreTransactionError", reason: "indexUnavailable" } });
       yield* current.abort();
     }))); } finally { await fixture.close(); }
   }, 30_000);
@@ -576,7 +579,7 @@ describe(name, () => {
         yield* fixture.persistence.write(lease, batch);
       }) };
       const database = yield* openCoreDatabase(persistence, options);
-      yield* database.install(installation);
+      yield* activateCoreSchema(database, schema);
       yield* seed(database, 2);
       const reader = yield* database.begin();
       const query = yield* reader.startQuery({ query: logical("asc", [], 1) });
@@ -599,7 +602,7 @@ describe(name, () => {
     const fixture = await createFixture();
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const database = yield* openCoreDatabase(fixture.persistence, options);
-      yield* database.install(installation);
+      yield* activateCoreSchema(database, schema);
       yield* seed(database, 3);
       const transaction = yield* database.begin();
       const query = yield* transaction.startQuery({ query: logical("asc", [
@@ -629,7 +632,7 @@ describe(name, () => {
         }),
       })) };
       const database = yield* openCoreDatabase(persistence, options);
-      yield* database.install(installation);
+      yield* activateCoreSchema(database, schema);
       yield* seed(database, 1);
       const transaction = yield* database.begin();
       const query = yield* transaction.startQuery({ query: logical() });

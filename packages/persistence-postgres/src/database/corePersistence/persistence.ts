@@ -4,6 +4,9 @@ import { MAX_INDEX_KEY_PREFIX_BYTES, splitIndexKey } from "flarex-protocol/index
 import {
   CorePersistenceError,
   type CoreDocumentLogEntry,
+  type CoreDocumentLogRequest,
+  type CorePreviousRevisionQuery,
+  type CorePreviousRevision,
   type CoreHydratedIndexEntry,
   type CoreIndexPage,
   type CoreIndexScan,
@@ -16,7 +19,7 @@ import {
 import type { CoreSqlConnection, CoreSqlParameter } from "./driver";
 import { coreTableName, inspectCorePersistenceTarget, type CorePersistenceTarget } from "./target";
 import {
-  decodeDocumentRows, decodeIndexRows, documentFromRow, makeStoredRowsDecoder,
+  decodeDocumentRows, decodePreviousRevisionRows, decodeIndexRows, documentFromRow, makeStoredRowsDecoder,
   internalIdSchema, timestampSchema,
 } from "./rows";
 
@@ -53,6 +56,14 @@ const decodeTimestamp = Schema.decodeUnknownEffect(timestampSchema);
 const decodeScan = Schema.decodeUnknownEffect(scanSchema);
 const decodeBatch = Schema.decodeUnknownEffect(batchSchema);
 const decodePoint = Schema.decodeUnknownEffect(pointSchema);
+const decodeDocumentLogRequest = Schema.decodeUnknownEffect(Schema.Struct({
+  start: timestampSchema, end: timestampSchema, order: Schema.Literals(["asc", "desc"]), maxResults: countSchema,
+  after: Schema.optionalKey(Schema.Struct({ ts: timestampSchema, tableId: internalIdSchema, id: internalIdSchema })),
+  tableId: Schema.optionalKey(internalIdSchema),
+}));
+const decodePreviousQueries = Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({
+  ...pointSchema.fields, ts: timestampSchema, prevTs: timestampSchema,
+})));
 const decodeGlobals = makeStoredRowsDecoder(globalsSchema);
 const decodeLatest = makeStoredRowsDecoder(latestSchema);
 const decodeFreshness = makeStoredRowsDecoder(freshnessSchema);
@@ -293,6 +304,68 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
     );
 
     const persistence: CorePersistence = {
+      loadDocuments: Effect.fn("CorePersistence.loadDocuments")(function* (input: CoreDocumentLogRequest,
+        retention: CoreRetentionValidator = sqlRetention) {
+        const request = yield* decodeDocumentLogRequest(input).pipe(Effect.mapError(invalid));
+        if (request.start > request.end) return yield* Effect.fail(invalid("Reversed timestamp range"));
+        const parameters: CoreSqlParameter[] = [instance, request.start, request.end];
+        const predicates = ["instance_name = $1", "ts >= $2", "ts <= $3"];
+        if (request.tableId !== undefined) { parameters.push(copyBytes(request.tableId)); predicates.push(`table_id = $${parameters.length}`); }
+        if (request.after !== undefined) {
+          parameters.push(request.after.ts, copyBytes(request.after.tableId), copyBytes(request.after.id));
+          const n = parameters.length;
+          predicates.push(`(ts, table_id, id) ${request.order === "asc" ? ">" : "<"} ($${n - 2}, $${n - 1}, $${n})`);
+        }
+        parameters.push(Math.min(request.maxResults, sqlPageSize ?? request.maxResults));
+        const order = request.order === "asc" ? "ASC" : "DESC";
+        const rows = yield* driver.query(`SELECT ts::text AS ts, table_id, id, json_value, deleted, prev_ts::text AS prev_ts
+          FROM ${table("documents")} WHERE ${predicates.join(" AND ")}
+          ORDER BY ts ${order}, table_id ${order}, id ${order} LIMIT $${parameters.length}`, parameters);
+        const decoded = yield* decodeDocumentRows(rows);
+        // The oldest requested timestamp witnesses retention, even when SQL returned no rows.
+        yield* retention.validateDocument(request.start);
+        const documents = decoded.map(documentFromRow);
+        const last = documents.at(-1);
+        return Object.freeze({ documents: Object.freeze(documents), done: documents.length < Number(parameters.at(-1)),
+          cursor: last === undefined ? null : Object.freeze({ ts: last.ts, tableId: last.tableId.slice(), id: last.id.slice() }) });
+      }),
+      previousRevisionsOfDocuments: Effect.fn("CorePersistence.previousRevisionsOfDocuments")(function* (
+        input: readonly CorePreviousRevisionQuery[], retention: CoreRetentionValidator = sqlRetention) {
+        const queries = (yield* decodePreviousQueries(input).pipe(Effect.mapError(invalid)))
+          .map(query => ({ ...query, tableId: copyBytes(query.tableId), id: copyBytes(query.id) }));
+        if (queries.some(query => query.prevTs >= query.ts)) return yield* Effect.fail(invalid("Predecessor must precede its retention witness"));
+        return yield* driver.withConnection(connection => Effect.gen(function* () {
+          const result: CorePreviousRevision[] = [];
+          // Source batches eight exact lookups; this read lifetime never opens a SQL transaction.
+          for (let offset = 0; offset < queries.length; offset += 8) {
+            const chunk = queries.slice(offset, offset + 8);
+            const parameters: CoreSqlParameter[] = [instance];
+            const selects = chunk.map(query => {
+              parameters.push(query.ts, query.tableId, query.id, query.prevTs);
+              const n = parameters.length;
+              return `(SELECT $${n - 3}::bigint::text AS query_ts, ts::text AS ts, table_id, id, json_value, deleted, prev_ts::text AS prev_ts
+                FROM ${table("documents")} WHERE instance_name = $1 AND table_id = $${n - 2} AND id = $${n - 1} AND ts = $${n})`;
+            });
+            const rows = yield* connection.query(selects.join(" UNION ALL "), parameters);
+            const decoded = yield* decodePreviousRevisionRows(rows);
+            for (const row of decoded) {
+              const query = chunk.find(value => value.ts === row.query_ts && value.prevTs === row.ts
+                && bytesEqual(value.tableId, row.table_id) && bytesEqual(value.id, row.id));
+              if (query === undefined) return yield* Effect.fail(new CorePersistenceError({ reason: "corruptData" }));
+              result.push(Object.freeze({ query, document: documentFromRow(row) }));
+            }
+          }
+          if (queries.length > 0) {
+            const witness = queries.reduce((min, query) => query.ts < min ? query.ts : min, queries[0]?.ts ?? 0n);
+            if (retention === sqlRetention) {
+              // Validate the minimum witness after ALL exact fetches, reusing this checkout even in a size-one pool.
+              const floor = yield* globalTimestamp(connection, "document_min_snapshot_ts");
+              if (witness < floor) return yield* Effect.fail(new CorePersistenceError({ reason: "outOfRetention" }));
+            } else yield* retention.validateDocument(witness);
+          }
+          return Object.freeze(result);
+        }));
+      }),
       acquireLease: Effect.fn("CorePersistence.acquireLease")(function* () {
         const token = yield* options.leaseTimestamp ?? Clock.currentTimeNanos;
         yield* decodeTimestamp(token).pipe(Effect.mapError(invalid));

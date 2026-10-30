@@ -28,7 +28,7 @@ Independent challenge and peer exchange are complete; the bounded fresh path is
 implemented. Managed hosting, wider profile/writer migration and full acceptance
 remain open.
 
-The current [snapshot and shared page slice](./slices/06d-snapshot-index-cache.md)
+The preceding [snapshot and shared page slice](./slices/06d-snapshot-index-cache.md)
 connects source-style snapshot selection, resident metadata, ById points,
 operation coverage and exact shared page invalidation. Independent challenge
 and peer exchange are complete; the bounded fresh path is implemented and validated locally. The DO
@@ -37,6 +37,16 @@ The preceding connected implementation is the
 [fresh Application transaction/persistence cutover](./slices/06a-application-persistence-cutover.md),
 following completed current-pin source challenge and peer exchange. Its scope
 and remaining host/native/data gates are explicit; no completion is implied.
+
+The current [shared schema slice](./slices/07-shared-schema-lifecycle.md) replaces
+one-shot installation with source schema proposals, validation, staged/pending
+ordinary indexes and atomic activation. It also connects the canonical Drizzle
+layout, explicit physical baseline adoption and named logical data cutover.
+The bounded Application path is implemented and validated locally; wider goal
+gates remain open.
+The [literal translation gate](./slices/08-validator-literal-parity.md) records
+remaining int64/negative-zero protocol, SDK, hashing and runtime work. Native
+constraints/adapters, general retention and complete-flow capacity stay open.
 
 Read the [refactor direction](./REFACTOR.md) for what we keep, replace and remove.
 The accepted goal is to translate Convex's core logic and physical persistence

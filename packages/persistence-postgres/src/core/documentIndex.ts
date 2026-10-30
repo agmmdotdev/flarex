@@ -20,7 +20,7 @@ function field(document: DocumentObject, path: string): DocumentValue | undefine
 }
 
 /** Full ordered key, including the developer-ID tie breaker. */
-export function documentIndexKey(index: CoreIndexDefinition, document: DocumentObject): Result.Result<Uint8Array, CoreTransactionError> {
+export function documentIndexKey(index: Pick<CoreIndexDefinition, "fields">, document: DocumentObject): Result.Result<Uint8Array, CoreTransactionError> {
   const id = document._id;
   if (typeof id !== "string") return Result.fail(new CoreTransactionError({ reason: "invalidValue" }));
   return Result.mapError(encodeIndexKey(index.fields.map(path => field(document, path)), id),

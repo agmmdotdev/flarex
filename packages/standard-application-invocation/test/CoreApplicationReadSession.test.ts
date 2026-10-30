@@ -20,7 +20,7 @@ const queryRequest = { table: "users" };
 function transaction(overrides: Partial<CoreReadTransaction> = {}): CoreReadTransaction {
   const unsupported = () => Effect.die(new Error("Unexpected test operation"));
   return {
-    timestamp: 10n, unixTime: 20,
+    timestamp: 10n, unixTime: 20, tableMappings: Effect.succeed([]),
     tableNumber: () => Effect.succeed(1),
     normalizeId: () => Effect.succeed(Option.none()),
     usage: Effect.succeed({ user: { documentsRead: 0, bytesRead: 0, documentsWritten: 0, bytesWritten: 0 },
@@ -48,12 +48,12 @@ describe("shared Core Application read session", () => {
     const session = makeCoreApplicationReadSession({ transaction: transaction({
       startQuery: () => Effect.succeed(query),
       get: () => Effect.sync(() => { events.push("get"); return Option.none(); }),
-    }), tables: [{ tableId: 1, logicalName: "users" }], revalidate: Effect.void }, Context.empty(), broker, { maxPendingCallbacks: 128, maxOpenQueries: 128 });
+    }), revalidate: Effect.void }, Context.empty(), broker, { maxPendingCallbacks: 128, maxOpenQueries: 128 });
     const started = await session.target.queryStart(queryRequest, { kind: "collect" });
     if (started.kind !== "ok") throw new Error("Expected admitted query");
     const page = session.target.queryNext(started.value.queryId, 1);
     await pageEntered;
-    const read = session.target.readPointDocument("users", documentId);
+    const read = session.target.readPointDocument(documentId);
     const drained = Effect.runPromise(session.closeAndDrain);
     await Promise.resolve();
     expect(events).toEqual(["page-start"]);
@@ -70,13 +70,13 @@ describe("shared Core Application read session", () => {
     const session = makeCoreApplicationReadSession({ transaction: transaction({
       startQuery: () => { starts += 1; return Effect.fail(new CoreQueryInputError({ reason: "invalidQuery" })); },
       get: () => Effect.succeed(Option.none()),
-    }), tables: [{ tableId: 1, logicalName: "users" }], revalidate: Effect.void }, Context.empty(), broker, { maxPendingCallbacks: 128, maxOpenQueries: 128 });
+    }), revalidate: Effect.void }, Context.empty(), broker, { maxPendingCallbacks: 128, maxOpenQueries: 128 });
     expect(await session.target.queryStart(queryRequest, { kind: "collect" }))
       .toEqual({ kind: "queryError", message: "Invalid database query." });
     expect(await session.target.queryStart({ ...queryRequest, cursor: "malformed" }, { kind: "collect" }))
       .toEqual({ kind: "queryError", message: "Invalid query cursor." });
     expect(starts).toBe(1);
-    expect(await session.target.readPointDocument("users", documentId)).toEqual({ kind: "missing" });
+    expect(await session.target.readPointDocument(documentId)).toEqual({ kind: "missing" });
     await Effect.runPromise(session.closeAndDrain);
   });
 
@@ -93,11 +93,11 @@ describe("shared Core Application read session", () => {
     const session = makeCoreApplicationReadSession({ transaction: transaction({
       startQuery: () => Effect.succeed(query),
       get: () => Effect.sync(() => { laterReads += 1; return Option.none(); }),
-    }), tables: [{ tableId: 1, logicalName: "users" }], revalidate: Effect.void }, Context.empty(), broker, { maxPendingCallbacks: 128, maxOpenQueries: 128 });
+    }), revalidate: Effect.void }, Context.empty(), broker, { maxPendingCallbacks: 128, maxOpenQueries: 128 });
     const started = await session.target.queryStart(queryRequest, { kind: "collect" });
     if (started.kind !== "ok") throw new Error("Expected admitted query");
     await expect(session.target.queryNext(started.value.queryId, 1)).rejects.toThrow("unavailable");
-    await expect(session.target.readPointDocument("users", documentId)).rejects.toThrow("unavailable");
+    await expect(session.target.readPointDocument(documentId)).rejects.toThrow("unavailable");
     expect(laterReads).toBe(0);
     const drained = await Effect.runPromiseExit(session.closeAndDrain);
     expect(Exit.isFailure(drained) && drained.cause).toEqual(Cause.combine(original, Cause.die(cleanup)));
