@@ -11,6 +11,7 @@ import { prepareLogicalDocumentSourceAdmission, requireLogicalDocumentSourceAdmi
 import { makeSourceCmsDocuments, consumeSourceCmsDocumentClosure } from "../../persistence-postgres/src/frameworks/cmsTransaction/documents";
 import { prepareSourceCmsDocumentDelta, prepareSourceCmsDocumentMaterialization, validateSourceCmsDocumentContribution } from "../../persistence-postgres/src/frameworks/cmsTransaction/contribution";
 import { retainPreparedHost } from "../../persistence-postgres/src/execution/preparation/preparedHostRuntime";
+import { prepareRetainedApplicationBindingSelection } from "../../persistence-postgres/src/application/activation/repositoryIdentity";
 import { cmsError, cmsLimits } from "../../persistence-postgres/src/frameworks/cmsTransaction/model";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
 import { defineCmsCommand } from "../../persistence-postgres/src/frameworks/cmsTransaction/commands";
@@ -112,6 +113,7 @@ describe("native Currency on the selected shared logical schema", () => {
           const mutableInput = { ...input };
           const select = fixture.control.drizzle.select.bind(fixture.control.drizzle);
           const sourceLease = yield* Effect.acquireRelease(retainPreparedHost(preparedHostTestRuntime(db), Effect.gen(function* () {
+            const originalBinding = yield* prepareRetainedApplicationBindingSelection(fixture.application.activation);
             const prepared = yield* Effect.acquireUseRelease(
               Effect.sync(() => vi.spyOn(fixture.control.drizzle, "select").mockImplementationOnce(fields => {
                 mutablePorts.controlDb = db;
@@ -122,7 +124,8 @@ describe("native Currency on the selected shared logical schema", () => {
               () => prepareLogicalDocumentSourceAdmission(mutablePorts,
                 fixture.application.uniqueConstraintEligibility, mutableInput, source, { kind: "standalone" }),
               firstRead => Effect.sync(() => firstRead.mockRestore()));
-            const sourceTemplate = yield* prepareSourceCmsDocumentMaterialization(yield* prepared.lendPreparation(), {});
+            const sourceTemplate = yield* prepareSourceCmsDocumentMaterialization(yield* prepared.lendPreparation(), {},
+              originalBinding, fixture.control.drizzle);
             return { prepared, sourceTemplate };
           })), lease => lease.close);
           const { prepared, sourceTemplate } = yield* sourceLease.use(value => Effect.succeed(value));

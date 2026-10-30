@@ -124,6 +124,12 @@ export const publishLogicalReadMetadata = Effect.fn("LogicalReadMetadata.publish
   const deploymentId = artifact.deploymentId, schemaVersionId = artifact.schemaVersionId;
   const bindings = new Map(evidence.tableBindings.map(binding => [logicalTableKey(binding.table), binding.tableId]));
   for (const source of evidence.candidate.sources) {
+    // An admitted empty Application source retains its evidence without owning
+    // a serving projection. Native sources still require their policy checks.
+    if (source.owner === "application" && source.writeProfile === "application.occ" &&
+      source.definition.kind === "documents" && source.bindings.length === 0 &&
+      source.definition.tables.length === 0 && source.definition.indexes.length === 0 &&
+      source.definition.uniqueConstraints.length === 0 && source.definition.relations.length === 0) continue;
     const bound = source.bindings.filter(binding => binding.kind === "definition");
     // Admitted views retain their candidate evidence but own no serving table
     // definitions. A projection must not turn a view into read authority.

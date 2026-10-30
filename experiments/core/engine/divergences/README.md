@@ -69,6 +69,9 @@ evidence, retaining the accepted decision link.
 | [Application operation admission](./application-operation-admission.md) | Selected existing guarantee / Bounded connected replacement implemented / Unmeasured. Genuine header-only admission precedes local values, replay and evaluation; compound ownership, minimal lifecycle evidence and complete failures preserve existing profile contracts. |
 | [Exact original finite preparation](./finite-preparation-handoff.md) | Selected adaptation / Implemented for existing finite consumers / Unmeasured. Preserve genuine original binding/head/selection identity through existing executing finite consumers; remove active reselection. |
 | [Execution-group catalog coverage](./application-execution-group.md) | Selected correction / Implemented for existing finite consumers / Unmeasured. Add the verified canonical function-catalog digest to the existing group; reconcile existing observations through maintenance and preserve stored attempts/outcomes. |
+| [Maintained relation readiness](./maintained-relation-readiness.md) | Source challenge complete / Replacement not started / Unmeasured. Reuse exact current maintained identities with truthful historical children; standalone Payload writer closure and fresh rollback provenance remain prerequisites. |
+| [Native Application relation maintenance](./native-application-relation-maintenance.md) | Bounded source-CMS replacement implemented / Unmeasured. Original Application relation authority joins native publication while logical data schema, existing locks and single publisher remain distinct. |
+| [Empty Application source projection](./empty-application-source-projection.md) | Bounded publisher correction implemented / Unmeasured. Keep canonical empty Application evidence without inventing a serving table; native policy and missing-root refusals remain. |
 
 | Record | Design / implementation / measurement status |
 | --- | --- |

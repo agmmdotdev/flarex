@@ -217,7 +217,8 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
         (yield* Effect.fromResult(logicalSelection.source)).value, { kind: "standalone", application: binding }, preferences).pipe(
           Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))));
       const sourceTemplate = yield* prepareSourceCmsDocumentMaterialization(
-        yield* source.lendPreparation().pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure)))), materialization).pipe(
+        yield* source.lendPreparation().pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure)))),
+        materialization, binding, controlDatabase).pipe(
           Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))));
       return Object.freeze({ kind: "source" as const, source, sourceTemplate });
     }

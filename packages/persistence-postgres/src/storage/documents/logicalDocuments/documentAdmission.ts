@@ -147,6 +147,8 @@ export interface LogicalDocumentSourceAdmissionState {
 
 /** Original source mechanics only; no transaction or Application acceptance. */
 export interface LogicalDocumentSourcePreparation {
+  readonly requireControlDatabase: (database: AppUniqueConstraintSetBuildPortsV1["controlDb"]) =>
+    Effect.Effect<void, LogicalParticipantAdmissionError>;
   readonly preferenceCleanup?: SourcePayloadPreferenceCleanup;
   readonly deploymentId: string;
   readonly scopeId: ScopeId;
@@ -353,6 +355,10 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
     yield* Effect.fromResult(lifetime.checkOpen()).pipe(Effect.mapError(cause =>
       new LogicalDocumentSourceAdmissionError({ reason: "invalidAuthority", cause })));
     const preparation: LogicalDocumentSourcePreparation = Object.freeze({
+      requireControlDatabase: (database: AppUniqueConstraintSetBuildPortsV1["controlDb"]) => selected.requirePrepared.pipe(
+        Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectAttemptFailure))),
+        Effect.andThen(() => database === capturedPorts.controlDb ? Effect.void :
+          Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" })))),
       deploymentId: capturedInput.deploymentId, scopeId: capturedInput.scopeId, schemaVersionId: capturedInput.schemaVersionId,
       sourceKey: selected.source.key, sourceSha256: selected.source.sourceSha256,
       tables: selectedTables, indexes: selected.indexes, unique: selected.unique, tableIds, tablesById,

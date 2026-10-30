@@ -71,12 +71,12 @@ export interface RelationSelectionState {
 
 export type SelectionState = LegacySelectionState | RelationSelectionState;
 
-const selectionStates = new WeakMap<ApplicationActiveSelection, SelectionState>();
+const selectionStates = new WeakMap<object, SelectionState>();
 
 const bindingHeadPreparations = new WeakMap<object, PreparedApplicationActiveHeadStructure>();
 
 /** Source-private lookup of the original issued selection; no structural claim is made. */
-export function readApplicationSelectionState(selection: ApplicationActiveSelection) {
+export function readApplicationSelectionState(selection: ApplicationBindingInput) {
   return selectionStates.get(selection);
 }
 

@@ -14,8 +14,13 @@ import { cmsError, cmsLimits } from "./model";
 import { captureHostPreparationLifetime } from "../../execution/preparation/preparedHostRuntime";
 import type { LogicalDocumentMaterializationInput } from "../../storage/documents/logicalDocuments/materialization";
 import type { CmsTransactionError } from "./model";
+import { lendApplicationBindingRelations } from "../../application/activation/bindingPreparation";
+import { readApplicationBindingTargetProtection } from "../../application/activation/selectionIdentity";
+import type { ApplicationBindingInput } from "../../application/activation/contracts";
+import type { FlarexMetadataDatabase } from "../../application/deployments";
 
 interface SourceCmsTemplate {
+  readonly application: ApplicationBindingInput;
   readonly source: LogicalDocumentSourcePreparation;
   readonly input: Omit<LogicalDocumentMaterializationInput<CmsTransactionError>, "requireAdmission">;
 }
@@ -30,27 +35,40 @@ function sourceTemplateLoan(cell: { value: SourceCmsTemplate | undefined }): Pre
   return Object.freeze({ read: Effect.suspend(() => {
     const retained = cell.value;
     return retained === undefined ? Effect.fail(cmsError("invalidAuthority")) : retained.source.requirePrepared.pipe(
+      Effect.andThen(Effect.suspend(() => Effect.fromResult(readApplicationBindingTargetProtection(retained.application)))),
       Effect.catchCause(cause => Effect.failCause(Cause.map(cause, sourceFailure))), Effect.as(retained));
   }) });
 }
 export const prepareSourceCmsDocumentMaterialization = Effect.fn("CmsCommit.prepareSourceMaterialization")(function* (
   source: LogicalDocumentSourcePreparation,
   options: Pick<ApplicationDocumentMaterializationOptions, "afterTransactionStep" | "observeQuery">,
+  application: ApplicationBindingInput,
+  controlDb: FlarexMetadataDatabase,
 ) {
   yield* source.requirePrepared.pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, sourceFailure))));
   const allocation = yield* captureHostPreparationLifetime();
   if (allocation === undefined || allocation.charge !== source.lifetime.charge || allocation.onDispose !== source.lifetime.onDispose)
     return yield* Effect.fail(cmsError("invalidAuthority"));
+  yield* source.requireControlDatabase(controlDb).pipe(
+    Effect.catchCause(cause => Effect.failCause(Cause.map(cause, sourceFailure))));
+  const original = yield* lendApplicationBindingRelations(application, controlDb).pipe(
+    Effect.catchCause(cause => Effect.failCause(Cause.map(cause, sourceFailure))));
+  if (original.deploymentId !== source.deploymentId || original.scopeId !== source.scopeId ||
+    original.lifetime.charge !== source.lifetime.charge || original.lifetime.onDispose !== source.lifetime.onDispose)
+    return yield* Effect.fail(cmsError("invalidAuthority"));
   const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(source.scopeId)).pipe(Effect.mapError(sourceFailure));
+  const sourceSchemaVersionByTable = original.kind === "relation"
+    ? new Map(source.tables.map(table => [table.tableId, source.schemaVersionId])) : undefined;
   const input: SourceCmsTemplate["input"] = Object.freeze({
     coverage: "sourceBound", command: Object.freeze({
       authorityPins: Object.freeze({ deploymentId: TransactionGrantDeploymentIdV1Schema.make(source.deploymentId),
-        scopeId: scope.scopeId, schemaVersionId: source.schemaVersionId }),
+        scopeId: scope.scopeId, schemaVersionId: original.kind === "relation" ? original.schemaVersionId : source.schemaVersionId }),
       rowIntents: Object.freeze(source.tables.map(table => Object.freeze({ tableId: table.tableId }))),
     }),
+    ...(sourceSchemaVersionByTable === undefined ? {} : { sourceSchemaVersionByTable }),
     intrinsic: Object.freeze(source.indexes.filter(index => index.access.kind === "by_creation_time")),
     developer: Object.freeze(source.indexes.filter(index => index.access.kind === "developer")),
-    unique: source.unique, relations: null, options,
+    unique: source.unique, relations: original.kind === "relation" ? original.relations : null, options,
     validateWrites: (_, changes) => Effect.forEach(changes, change => {
       if (change.kind === "deleted") return Effect.void;
       const table = source.tablesById.get(change.tableId);
@@ -62,9 +80,10 @@ export const prepareSourceCmsDocumentMaterialization = Effect.fn("CmsCommit.prep
     }, { discard: true }),
   });
   yield* Effect.fromResult(allocation.charge({ command: input.command,
+    sourceSchemaVersionByTable: [...(sourceSchemaVersionByTable?.entries() ?? [])],
     intrinsic: input.intrinsic.map(index => index.indexDefinitionId), developer: input.developer.map(index => index.indexDefinitionId) }))
     .pipe(Effect.mapError(cause => cmsError("resourceFailure", cause)));
-  const cell = { value: Object.freeze({ source, input }) } satisfies Parameters<typeof sourceTemplateDisposal>[0];
+  const cell = { value: Object.freeze({ application, source, input }) } satisfies Parameters<typeof sourceTemplateDisposal>[0];
   const dispose = sourceTemplateDisposal(cell);
   const registered = allocation.onDispose(dispose);
   if (Result.isFailure(registered)) dispose();

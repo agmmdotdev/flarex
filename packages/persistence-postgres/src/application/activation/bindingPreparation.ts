@@ -29,6 +29,7 @@ import {
   hasApplicationReadinessComposition,
   readApplicationReadinessPreparationProtection,
   readApplicationReadinessTargetProtection,
+  readApplicationReadinessCapturePorts,
 } from "../readiness/identity";
 import {
   captureApplicationReadinessInTransaction,
@@ -68,7 +69,10 @@ import {
   closeRelationApplicationBindingPreparation,
   copySelectionBasis,
   readApplicationBindingTargetProtection,
+  readApplicationSelectionState,
+  readLegacyApplicationBindingPreparation,
   readRelationApplicationBindingPreparation,
+  readStandaloneApplicationBindingPreparation,
   registerApplicationBindingHeadPreparation,
   registerLegacyApplicationBindingPreparation,
   registerRelationApplicationBindingPreparation,
@@ -95,6 +99,40 @@ export const lendApplicationBindingPreparationInputs = Effect.fn("ApplicationAct
     if (state === undefined) return yield* activationFailure("validateSelection", "invalidComposition");
     yield* Effect.fromResult(readApplicationBindingTargetProtection(input));
     return yield* lendPreparedApplicationRelationInputs(state.readiness, controlDb);
+  });
+
+/** Original relation mechanics, or issuer-proven absence, in the same retained
+ * generation. This lends no fresh Application acceptance or settlement. */
+export const lendApplicationBindingRelations = Effect.fn("ApplicationActivation.lendBindingRelations")(
+  function* (input: ApplicationBindingInput, controlDb: FlarexMetadataDatabase) {
+    const protection = yield* Effect.fromResult(readApplicationBindingTargetProtection(input));
+    const lifetime = yield* captureHostPreparationLifetime();
+    const bindingLifetime = protection.lifetime;
+    if (lifetime === undefined || bindingLifetime === undefined || bindingLifetime.charge !== lifetime.charge ||
+      bindingLifetime.onDispose !== lifetime.onDispose)
+      return yield* activationFailure("validateSelection", "invalidComposition");
+    const relation = readRelationApplicationBindingPreparation(input);
+    if (relation !== undefined) {
+      const inputs = yield* lendApplicationBindingPreparationInputs(input, controlDb);
+      return Object.freeze({ kind: "relation" as const, deploymentId: inputs.schema.deploymentId,
+        scopeId: inputs.authority.scopeId, schemaVersionId: inputs.schema.schemaVersionId,
+        relations: inputs.relations, lifetime });
+    }
+    const selected = readApplicationSelectionState(input);
+    const legacy = readLegacyApplicationBindingPreparation(input) ?? (selected?.kind === "legacy" ? selected : undefined);
+    if (legacy !== undefined) {
+      const { controlDb: database } = yield* Effect.fromResult(readApplicationReadinessCapturePorts(legacy.readinessRepository, legacy.readiness)).pipe(
+        Effect.mapError(cause => activationError("validateSelection", "invalidComposition", legacy.basis.revisionId, false, cause)));
+      if (database !== controlDb) return yield* activationFailure("validateSelection", "invalidComposition");
+      return Object.freeze({ kind: "absent" as const, deploymentId: legacy.basis.deploymentId,
+        scopeId: legacy.basis.authority.scopeId, lifetime });
+    }
+    const standalone = readStandaloneApplicationBindingPreparation(input);
+    if (standalone === undefined || standalone.frame.readiness.kind === "relation" ||
+      standalone.frame.readiness.kind === "policy" && standalone.frame.readiness.relationCount !== 0)
+      return yield* activationFailure("validateSelection", "invalidComposition");
+    return Object.freeze({ kind: "absent" as const, deploymentId: standalone.frame.deploymentId,
+      scopeId: standalone.authority.scopeId, lifetime });
   });
 
 export function hasApplicationActivationPlanningComposition(
