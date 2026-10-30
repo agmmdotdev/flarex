@@ -296,6 +296,13 @@ one-time external effects and unknown-COMMIT recovery without native reexecution
 
 ## Q07 - Schema, index lifecycle and retention
 
+The five-table physical starting point and logical framework/schema/migration
+storage are now accepted in the [storage owner](../../../design-notes/flarexdb-shared-logical-storage.md#five-table-physical-starting-point).
+Remaining questions are concrete identity/encoding/bootstrap mappings, private
+logical record definitions, native constraint enforcement, build/progress
+recovery and data cutover. Existing specialized physical catalogs/receipts are
+replacement inputs, not an automatic exception to the target.
+
 Total rewrite scope includes the [shared installation/migration lifecycle](./REFACTOR.md#framework-adapters-and-shared-schema-installation)
 above/below the translated engine. Map platform Drizzle upgrades, logical schema
 installation/evolution and producer-defined conversion separately. Determine

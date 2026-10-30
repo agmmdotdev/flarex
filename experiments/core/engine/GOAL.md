@@ -35,6 +35,13 @@ validation, progress/recovery and activation. Platform Drizzle storage upgrades
 and producer-defined data conversions have distinct responsibilities within the
 [installation/migration plan](./REFACTOR.md#framework-adapters-and-shared-schema-installation).
 
+The physical starting point is Convex's five core tables: `documents`, `indexes`,
+`leases`, `read_only` and `persistence_globals`. Payload/Medusa storage, private
+schema/catalog records, logical installation/build/activation and migration
+progress sit logically above them. Shared core owners supply required native
+constraints; any additional physical family needs a proved DO/native divergence.
+Platform Drizzle upgrades of the base storage remain physical maintenance.
+
 Complete the existing core's supported Application, Medusa and Payload paths
 through that engine with portable owners and injected Cloudflare Worker/DO adapters
 and PostgreSQL as the sole durable authority. One independent app has one logical
@@ -77,6 +84,10 @@ The goal is complete only when:
   consumers use shared owners above/below the translated engine as specified.
   Physical upgrades, logical changes and admitted conversions retain explicit
   meaning and recovery; no old per-framework installer survives as a fallback.
+- The five-table starting point and logical framework/lifecycle representation
+  are proved through initial installation, index/build and constraint semantics,
+  restart/recovery and required data cutover; extra physical storage has a named
+  DO/native justification. A table-count reduction alone does not satisfy this.
 - Every in-scope consumer uses the replacement path, and displaced code, exports,
   dependencies, fixtures and obsolete planning guidance are removed. Retained
   paths need a named obligation and removal gate.

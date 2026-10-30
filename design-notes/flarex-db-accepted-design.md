@@ -49,6 +49,19 @@ platform upgrades, logical schema installation/evolution and producer-defined
 data conversion. These responsibilities are part of the rewrite architecture;
 concrete transition support still requires its own implementation and proof.
 
+The accepted physical starting point is the pinned Convex PostgreSQL adapter's
+five core tables: `documents`, `indexes`, `leases`, `read_only` and
+`persistence_globals`, expressed through Drizzle with required scope adaptation.
+Payload/Medusa records, native internal records, engine schema/catalog metadata,
+logical installation/build state and migration progress default to logical
+records/indexes over that storage. Required native constraint/relation behavior
+uses shared core enforcement, not dedicated physical framework families.
+The [physical/logical mapping](./flarexdb-shared-logical-storage.md#five-table-physical-starting-point)
+owns this target. Extra core physical storage needs a demonstrated DO/native
+requirement and recorded divergence. Platform upgrades of these base tables stay
+physical; app/framework schema installation and data migration operate logically
+above them. This selects a starting design, not completed DDL or migration.
+
 The project is early and not in production. Necessary internal API, type,
 schema, codec, identity and integration-contract breaks remain accepted. Preserve
 required native behavior and correctness guarantees, not expensive old execution

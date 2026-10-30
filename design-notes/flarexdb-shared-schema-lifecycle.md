@@ -14,6 +14,13 @@ remains a separately scoped follow-on after the core redesign.
 
 ## One Shared Internal Lifecycle
 
+The accepted [five-table persistence baseline](./flarexdb-shared-logical-storage.md#five-table-physical-starting-point)
+is `documents`, `indexes`, `leases`, `read_only` and `persistence_globals`.
+Application, Payload and Medusa schemas and records are logical over it, including
+private schema definitions, installation/build/validation/activation state and
+migration progress. These do not require dedicated physical catalog or migration
+tables. Logical records remain durable PostgreSQL data, not RAM-only metadata.
+
 All four consumers build on shared core APIs for logical schema admission,
 installation and evolution above the Convex core translated into TypeScript.
 The rewrite may replace current lifecycle APIs, catalog/storage representations,
@@ -113,6 +120,14 @@ is not ready. Later background work may use admitted execution capabilities
 without moving schema progress, activation or settlement ownership into Trigger.
 
 ## Logical Evolution And Physical Core Upgrades
+
+Bootstrap/upgrade the five base tables and their shared SQL access paths through
+platform-owned Drizzle maintenance. Above that boundary, install app/framework
+definitions as private logical records, build logical indexes, validate and
+activate. Track conversions and restart progress logically through the same
+core owners. Adding a Payload collection or Medusa model does not run per-model
+SQL DDL; adopting the five-table target does not automatically perform or prove
+every populated-data transition.
 
 The rewrite includes the common architecture for all three migration layers:
 

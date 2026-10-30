@@ -78,6 +78,62 @@ Fewer physical objects do not prove faster queries or unlimited scale. The
 replacement must demonstrate indexed selective work, bounded write amplification,
 concurrent correctness and fair resource use across different tenant sizes.
 
+## Five-table physical starting point
+
+Start the rewritten Drizzle persistence schema from the five core tables in
+Convex's pinned [PostgreSQL adapter](../../../crates/postgres/src/sql.rs):
+
+| Physical table | Role and conceptual fields |
+| --- | --- |
+| `documents` | Versioned application and private system documents: scope/instance, timestamp, table ID, document ID, value bytes, deletion marker and previous timestamp. |
+| `indexes` | Versioned ordinary-index entries: scope/instance, index ID, key prefix/suffix/hash, timestamp, deletion marker and live document reference. |
+| `leases` | Persistence ownership/fencing state scoped to the database instance/app owner. |
+| `read_only` | Persistence-level write-disable marker. |
+| `persistence_globals` | Small persistence-level values/checkpoints outside ordinary versioned documents; not a second application catalog. |
+
+Translate the pinned primary/secondary access paths, binary value/key semantics,
+long-key handling and atomic document/index batch writer with required scope
+adaptation. Timestamps remain exact; the index key includes its document-ID
+tie-breaker. Ordinary index entries and document revisions use the selected
+same-timestamp hydration mechanism. Five tables still have physical PostgreSQL
+indexes; a newly declared logical index adds definitions/entries, not a dedicated
+SQL index for every app or framework collection. This is the base persistence
+layout, not a count of every external platform/control or object-storage system.
+
+Payload and Medusa do not inherently require additional physical table families.
+Their content, commerce records, versions/drafts, preferences, Links/pivots and
+admitted workflow/event state are logical data over `documents` and `indexes`.
+Private engine logical records hold table/index/schema definitions, producer
+ownership/dependencies, install/build/activation state, migration progress and
+required durable outcomes. Exact logical names and supported native features
+remain part of their concrete compilation and execution contracts.
+Private logical metadata retains core-controlled access; sharing physical tables
+does not grant ordinary application/framework code access to it. Bootstrap and
+recovery must establish trusted system identities before consuming that metadata,
+without depending on the framework/schema being installed to install itself.
+
+Uniqueness, reference/deletion policies, exact decimals and native visibility are
+shared core capabilities, not guarantees supplied merely by storing documents.
+Translate their enforcement through the shared transaction/index owners; private
+logical claims/relations are possible representations to prove. Existing
+physical unique/edge/catalog/journal families are not automatically retained.
+An additional physical family requires a demonstrated DO/runtime or required
+native-behavior constraint and its own divergence record, not a framework name
+or an existing reader that expects it.
+
+App and framework schema installation/migrations operate logically through the
+[shared lifecycle](./flarexdb-shared-schema-lifecycle.md). A new collection/model
+allocates logical identities/definitions and required index entries/builds.
+Data conversions transform logical documents with explicit producer meaning and
+common progress/recovery. Only platform changes to the shared persistence format
+require physical Drizzle upgrades. Upload binaries may use configured object
+storage while their metadata remains logical data.
+
+This is accepted target architecture, not an implemented five-table cutover.
+Current logical consumers and specialized physical catalogs/installers still
+coexist. Preserve their real obligations through connected replacement and
+explicit retained-data disposition; do not delete tables/checks in isolation.
+
 ## Physical And Logical Model
 
 ```text
@@ -91,7 +147,7 @@ Application definitions    Payload collections    Medusa DML and Module Links
                               |
          one trusted transaction and publication authority
                               |
-             shared physical families in Postgres
+       documents / indexes + persistence ownership/globals
 ```
 
 The existing `fx_app_row_rev`, `fx_app_row_current`,
@@ -99,8 +155,9 @@ The existing `fx_app_row_rev`, `fx_app_row_current`,
 `fx_app_edge_current` and `fx_app_edge_adjacency_version` are reuse candidates,
 not immutable target spellings or proof of full commerce support. Their current
 row bodies use canonical value bytes; this design is not a request to restore a
-redundant JSON copy. Additional or replacement generic families require an
-identified capability and storage-cost justification. Do not create a family
+redundant JSON copy. The five-table translation target supersedes any reading
+that requires those current families to survive. Additional physical families
+require the demonstrated DO/native justification above. Do not create a family
 per framework, module, deployment or shop under a supposedly generic API.
 
 Logical identities distinguish deployment/schema definition, scope, table,
@@ -184,8 +241,10 @@ without importing framework implementations or dispatching on module names.
 Logical indexes are metadata plus entries in shared indexed physical families.
 An index definition is not a new Postgres index for each tenant. The existing
 ordered entry key `(scope_uuid, index_definition_id, encoded_key, row_id)` is a
-starting point. Row history and snapshot requirements must remain correct if
-the physical representation is replaced.
+current implementation baseline, not the new physical target. Translate the
+pinned full-key/timestamp representation under the five-table starting point;
+preserve row history, exact range boundaries and snapshot requirements through
+the connected replacement.
 
 | Logical requirement | Required target behavior |
 | --- | --- |

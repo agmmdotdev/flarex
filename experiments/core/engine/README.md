@@ -24,6 +24,11 @@ internals. The [framework and migration plan](./REFACTOR.md#framework-adapters-a
 places Payload/Medusa compilers and runtime adapters above the translated core,
 with one shared schema lifecycle and distinct physical/logical/data-conversion
 migration responsibilities.
+The [five-table physical baseline](../../../design-notes/flarexdb-shared-logical-storage.md#five-table-physical-starting-point)
+starts from `documents`, `indexes`, `leases`, `read_only` and
+`persistence_globals`; framework data, schema installation and migration
+progress are logical above it. Platform base-storage upgrades remain physical
+DDL; extra core physical families need a demonstrated DO/native divergence.
 The [Convex alignment findings](./CONVEX-ALIGNMENT.md) compare necessary native/host
 requirements with replaceable execution, cache, commit and schema machinery,
 including current working-tree corrections and performance evidence limits.

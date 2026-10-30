@@ -169,14 +169,28 @@ settlement; adapters do not acquire a second transaction or publisher.
 
 ### Physical persistence is in scope
 
-Start the Drizzle design from pinned Convex document/index version logs and their
-reader/writer contract. A conceptual mapping is:
+Start the Drizzle design from the pinned Convex PostgreSQL adapter's five core
+tables and reader/writer contract. The
+[physical/logical storage owner](../../../design-notes/flarexdb-shared-logical-storage.md#five-table-physical-starting-point)
+records their roles and the framework mapping. A conceptual mapping is:
 
 ```text
 documents(scope, ts, table_id, id, value_bytes, deleted, prev_ts)
 indexes(scope, index_id, key_prefix, key_suffix, key_sha256,
         ts, deleted, table_id, document_id)
+leases(scope, ts)
+read_only(scope)
+persistence_globals(scope, key, value_bytes)
 ```
+
+Payload/Medusa data and native internal records use logical tables over the
+document/index logs. Engine catalog/schema definitions, installation/build and
+activation state, migration progress and durable outcomes likewise default to
+private logical records. Do not add separate physical framework, catalog or
+migration families by default. Native constraints need shared enforcement;
+logical representation alone does not supply uniqueness or reference integrity.
+An extra physical family needs a demonstrated DO/native requirement and recorded
+divergence. Configured blob/control systems remain distinct from this base layout.
 
 This is a mapping, not final DDL. Preserve required scope confinement and native
 identities, exact timestamp/value/key ordering, long-key handling, atomic durable
@@ -250,6 +264,8 @@ this does not preserve old installers or exclude shared lifecycle replacement.
 2. Define the translated transaction-to-persistence batch, physical schema,
    shared installation/migration lifecycle and bootstrap/fencing/retention
    boundary together. Include native schema/runtime translation requirements.
+   Begin with the five-table layout and an inventory mapping current physical
+   framework/catalog/installation/migration records to logical definitions/data.
    Select a connected vertical slice; the field mapping alone is not an
    executable design.
 3. Establish versioned snapshot/catalog ownership and exact historical misses,

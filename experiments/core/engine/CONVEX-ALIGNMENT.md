@@ -241,6 +241,34 @@ includes these responsibilities and their connected implementation gates.
 Complete framework query/lifecycle compatibility and general populated-data
 conversion support are not established by this architectural decision.
 
+## Accepted five-table baseline and logical framework storage
+
+The selected Drizzle starting point is the pinned PostgreSQL adapter's complete
+five-table core list: `documents`, `indexes`, `leases`, `read_only` and
+`persistence_globals`. The [storage owner](../../../design-notes/flarexdb-shared-logical-storage.md#five-table-physical-starting-point)
+maps their roles. The binary document/index version logs remain physical; their
+ordinary logical tables and private system records share those logs.
+
+Payload/Medusa content, commerce records, versions, Links and supported internal
+state do not inherently require another physical family. Schema definitions,
+installation/build/activation records and migration progress also default to
+private logical storage. Required uniqueness, relationships, exact values and
+native lifecycle still need shared core mechanisms and connected validation.
+Object binaries and genuine external platform/control storage are separate
+concerns, not a reason to add per-framework SQL tables.
+
+Current Flarex is mixed: generic storage and logical definition admission already
+exist alongside normalized physical catalogs and retained structural installers
+that generate SQL DDL. Convex likewise has physical persistence bootstrap, with
+app-schema creation handled through logical metadata. The new target removes
+the remaining physical-per-framework/lifecycle representation as its consumers
+migrate. Base-storage upgrades stay physical Drizzle operations; logical schema
+installation and data transformation operate through the shared lifecycle.
+
+This decision fixes the starting architecture, not migration-ready DDL, completed
+native compatibility or measured performance. An additional physical family
+needs a demonstrated DO/native requirement and recorded divergence.
+
 ## Source map for the findings
 
 Links target local executing owners and symbols; line numbers can drift with

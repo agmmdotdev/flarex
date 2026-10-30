@@ -64,6 +64,16 @@ and [schema lifecycle owner](../../../design-notes/flarexdb-shared-schema-lifecy
 record this architecture; implementation and concrete transition proofs remain
 open. No separate framework migration engine or retained internal API is required.
 
+The owner selects the five physical core tables from the pinned Convex PostgreSQL
+adapter as the Drizzle starting point: `documents`, `indexes`, `leases`,
+`read_only` and `persistence_globals`. Payload/Medusa storage, private schema
+metadata and installation/build/migration progress are logical records/indexes
+above that base. Native uniqueness/relationship/exact-value semantics use shared
+core enforcement. Extra physical families require demonstrated DO/native need
+and a divergence record; platform storage upgrades remain physical. The
+[storage mapping](../../../design-notes/flarexdb-shared-logical-storage.md#five-table-physical-starting-point)
+owns the detailed target. Implementation, exact DDL and migrations remain open.
+
 The owner requested a fresh, modular engine-design discussion using Convex as
 the primary reference, proceeding one concept at a time and updating the notes
 after each decision. TypeScript and Drizzle remain requirements. Preserve the
