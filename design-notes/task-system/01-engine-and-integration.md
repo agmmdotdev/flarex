@@ -1,7 +1,9 @@
 # Task Engine And Integration
 
-Status: **accepted design; not implemented**. The [folder index](./README.md)
-owns authority; the [roadmap](../../roadmaps/task-system/README.md) owns status.
+Status: **accepted design; implementation goal active; fork runtime pending**.
+The [folder index](./README.md) owns architecture;
+the [roadmap](../../roadmaps/task-system/README.md) owns status and the
+[goal/workflow](../../roadmaps/task-system/GOAL.md) owns authorized implementation.
 
 ## Source Adoption
 

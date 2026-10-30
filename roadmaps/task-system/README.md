@@ -2,12 +2,20 @@
 
 ## Status And Scope
 
-Status: **active replacement authority; design accepted; implementation pending**.
+Status: **active implementation goal; first source challenge complete;
+runtime contract refinement in progress**.
 The [independent Trigger fork design](../../design-notes/task-system/README.md)
-owns architecture. This roadmap owns current status and gates. The current task
+owns architecture. The [goal](./GOAL.md) authorizes bounded implementation using
+the [challenge/worker/review workflow](./WORKFLOW.md). This roadmap owns current
+status and gates. The current task
 implementation remains operational for admitted private consumers until cutover.
 No fork package, logical Task schema, runtime migration, data reset or hosted
 activation is established by these documents.
+
+Start at the [source map](./REFERENCES.md), [consumer baseline](./baseline/README.md),
+[decisions](./DECISIONS.md), [question queue](./OPEN-QUESTIONS.md) and
+[first slice](./slices/01-source-and-installation-contract.md). Source challenge
+does not itself admit a runtime contract or close the connected engine gate.
 
 The entire [older DTE folder](../durable-task-engine/README.md) is legacy Task
 initiative evidence. Do not resume its backlogs or use its approvals to extend
@@ -134,7 +142,7 @@ installation has no custom parallel lifecycle or Task-specific physical tables.
 
 | Gate | Observable exit criterion | Status |
 | --- | --- | --- |
-| Source and contract admission | Exact adopted methods/tests/dependencies, private package boundaries, finite store operations, transaction/claim/visibility contract and numeric bounds are specified against current consumers | Pending |
+| Source and contract admission | Exact adopted methods/tests/dependencies, private package boundaries, finite store operations, transaction/claim/visibility contract and numeric bounds are specified against current consumers | In progress: independent challenge and peer exchange complete; exact runtime contract still open |
 | Logical state and discovery | Both database lanes prove private scope/platform system-table installation over shared storage, no per-app Task DDL, atomic indexed claims, directory repair, fencing and bounded progress without Task-specific physical tables | Pending |
 | Shared schema lifecycle | Core APIs install/evolve Task definitions with authenticated system authority, no fabricated Application analysis, bootstrap/restart before engine execution, replay-safe progress, dependency/readiness/activation checks and no Task-specific installer | Pending |
 | Shared core indexes and DO cache | Task point/range reads, index maintenance and every admitted writer use core owners; warm/cold reads, invalidation/refresh, scope isolation and DO restart preserve freshness and claim authority without a separate Task database/cache layer | Pending |
@@ -145,5 +153,7 @@ installation has no custom parallel lifecycle or Task-specific physical tables.
 
 These gates describe connected outcomes, not a requirement for one commit or
 package per row. An isolated fork proof precedes caller migration; each activated
-cutover includes its own cleanup. Future implementation needs an explicit task
-scope; this documentation request authorizes no runtime changes or data deletion.
+cutover includes its own cleanup. The active goal authorizes bounded runtime
+work after source convergence, explicit worker scope and ownership coordination.
+General advanced evolution, public/production activation and unspecified data
+deletion remain outside that authorization.

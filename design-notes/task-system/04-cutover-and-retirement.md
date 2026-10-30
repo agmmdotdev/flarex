@@ -2,6 +2,8 @@
 
 Status: **accepted migration direction; no runtime cutover or data reset yet**.
 The [Task roadmap](../../roadmaps/task-system/README.md) owns current gates.
+The active [goal](../../roadmaps/task-system/GOAL.md) authorizes coordinated,
+challenged implementation; source proof alone is not consumer cutover.
 
 ## Isolated Fork First
 

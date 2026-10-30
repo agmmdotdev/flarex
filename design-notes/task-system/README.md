@@ -2,10 +2,13 @@
 
 ## Status And Authority
 
-Status: **accepted replacement direction; implementation pending**. This folder
+Status: **accepted replacement direction; implementation goal active;
+replacement runtime pending**. This folder
 owns the Task architecture. The [Task roadmap](../../roadmaps/task-system/README.md)
-owns implementation status and correctness gates. This documentation change
-does not create packages, change runtime routing or reset a database.
+owns implementation status and correctness gates. The [Task goal](../../roadmaps/task-system/GOAL.md)
+now authorizes bounded implementation through its source-challenge and coordinated
+worker gates. Design acceptance does not establish runtime support, alter routing
+or authorize unspecified database resets.
 
 Read this folder before using the older Task documents. It supersedes
 [the earlier shared-task proposal](../flarexdb-shared-task-system.md),

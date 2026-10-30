@@ -93,6 +93,9 @@ with writer/freshness proofs; it builds no separate database or cache layer.
 The old `durable-task-engine` folder is legacy baseline/source evidence,
 including its replacement preflights. Its historical next steps are not active
 work. The new direction is accepted; runtime implementation remains pending.
+The [Task goal](./task-system/GOAL.md) is now active, using independent source
+challenges, peer exchange, explicitly owned workers and required code reviews.
+Its first runtime contract is under refinement; the old engine remains active.
 
 ## Start Here
 
