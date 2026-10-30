@@ -96,6 +96,13 @@ lifecycle and the entire Task-specific physical schema.
   second app/scope creates no dedicated Task SQL schema, table or index. Prove
   mutation rollback and committed enqueue recovery through the selected durable
   publication owner; the Convex storage precedent alone proves neither property.
+- Task reads and writers execute through shared core indexing/cache owners,
+  with warm/cold Task point/range witnesses, index-key changes, cached absence,
+  deletion, scope/privacy isolation and refresh after every admitted writer.
+  Database lanes prove atomic state and freshness; actual DO composition proves
+  cache reuse, eviction/restart recovery and that stale candidates cannot claim
+  work. The fork/store/host graph contains no separate Task database, index
+  maintenance or cache/invalidation implementation.
 - Competing and stale workers, lost queue hints, unavailable transport, expired
   leases, duplicate completions, native cancellation/compensation and cold
   recovery preserve the designated owners and observable outcomes.

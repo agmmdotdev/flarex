@@ -74,6 +74,8 @@ independently, use [Convex-style private logical system tables](../design-notes/
 for all Task-owned state, inject host adapters, and retire the entire
 Task-specific physical schema after cutover. Trigger remains the engine;
 Convex supplies the storage precedent.
+Task integration [reuses shared core indexing and DO caching](../design-notes/task-system/02-logical-storage.md#shared-core-indexing-and-do-cache)
+with writer/freshness proofs; it builds no separate database or cache layer.
 The old `durable-task-engine` folder is legacy baseline/source evidence,
 including its replacement preflights. Its historical next steps are not active
 work. The new direction is accepted; runtime implementation remains pending.

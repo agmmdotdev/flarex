@@ -9,6 +9,11 @@ the engine. This covers all Task-owned scope and platform records, including
 scheduler/discovery/repair state, and retires its entire physical Task schema.
 Its design is accepted and implementation pending. It does not silently add
 Task migration to the existing shared-storage completion scope below.
+Its [core-reuse contract](../../design-notes/task-system/02-logical-storage.md#shared-core-indexing-and-do-cache)
+also requires shared logical indexing and the DO cache system, with Task writer
+publication, freshness and isolation proofs. These are Task integration gates;
+there is no separate Task database/cache implementation or automatic cache
+admission from using shared physical tables.
 
 The active [completion plan](./03-completion-plan.md) owns the finite shared-storage
 cutover goal under standing approval, following the completed core execution work.

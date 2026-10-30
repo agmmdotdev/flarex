@@ -67,7 +67,7 @@ semantic differences; do not weaken a witness to match a new implementation.
 | --- | --- |
 | New private `@flarex/trigger-run-engine` | Adopted engine and required portable helpers; finite semantic store/coordination contracts initially live here |
 | Existing `@flarex/durable-task` | Legacy lifecycle during proof; retain only justified integration contracts at cutover, or migrate/delete the package if no owner remains |
-| Existing `@flarex/persistence-postgres` | Logical Task store adapters and trusted transaction composition using shared core owners |
+| Existing `@flarex/persistence-postgres` and shared core owners | Logical Task store adapters, core index/read/cache integration and trusted transaction composition; no Task-specific database or cache implementation |
 | Existing executor/backend/runtime owners | Durable delivery, authenticated definition resolution, host composition and compute adapters |
 | Application/Payload/Medusa adapters | Their definitions, authorization, enqueue intent and native handler context |
 
@@ -76,6 +76,13 @@ reason, not one package per injected interface. Avoid cycles when migrating
 contracts from `@flarex/durable-task`; give each contract one owner. Reconcile
 existing package/source guards with the admitted fork during implementation,
 without weakening their isolation or importing the frozen workspace wholesale.
+
+The [shared core indexing/cache contract](./02-logical-storage.md#shared-core-indexing-and-do-cache)
+applies to the store adapter and every Task writer. Reuse core index maintenance,
+versioned reads, publication and cache validity; inject the shared DO cache
+adapter through the host composition. Keep host SDKs and cache representation
+out of the Trigger fork. Necessary core improvements belong with their existing
+owners and must preserve the Task transaction profile.
 
 ## Framework And Execution Semantics
 

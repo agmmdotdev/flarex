@@ -93,6 +93,9 @@ actual Trigger methods once, maintains the fork independently, stores all
 Task-owned state in [Convex-style private logical system tables](./task-system/02-logical-storage.md#convex-storage-reference)
 (including platform scheduler and repair data), and injects host adapters.
 Convex supplies the storage precedent; the Trigger fork remains the engine.
+Tasks [reuse shared core indexing and the DO cache system](./task-system/02-logical-storage.md#shared-core-indexing-and-do-cache),
+with explicit writer/freshness integration and no separate Task database or
+cache layer.
 Full Task-specific physical retirement is required after cutover. Runtime
 implementation remains pending.
 

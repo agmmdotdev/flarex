@@ -33,6 +33,9 @@ with [Convex-style internal logical storage](../../design-notes/task-system/02-l
 Flarex-owned coordination and injected host capabilities. This storage choice
 keeps the independent Trigger fork as the engine; it does not import Convex's
 scheduler or Workflow/Workpool components into the runtime.
+The fork's store adapter [reuses shared core indexing and DO caching](../../design-notes/task-system/02-logical-storage.md#shared-core-indexing-and-do-cache)
+through admitted capabilities. It does not introduce another database, index
+engine or cache layer; Task writer/refresh integration remains to be proved.
 Trusted identity and artifact projections must be verified before execution.
 Compute providers keep infrastructure capabilities out of user code; no
 specific external compute product is required by the new Task direction.

@@ -70,6 +70,66 @@ Flarex's partitioned placement, private platform discovery and bounded repair
 are explicit adaptations: Convex's namespace enumeration is source evidence,
 not permission to scan every Flarex application on each scheduler wake.
 
+## Shared Core Indexing And DO Cache
+
+Tasks are consumers of the shared FlarexDB logical database core, including the
+indexing and cache system being developed for Application and framework data.
+Keep the independent Trigger fork as the Task engine. Its semantic store adapter
+uses shared core operations; it must not grow a separate Task database, index
+implementation, cache store, invalidation protocol or Redis-like replica.
+Missing generic support is work for the responsible core owner.
+
+Task schema definitions declare the required indexes for run/request identity,
+due work, active expiry, reservations and pending effects. Shared core owners
+compile/install the definitions, maintain row/index/history changes, enforce
+index readiness and provide bounded point/range access. Task lifecycle code
+selects operations and predicates; it does not maintain its own index entries
+or replace missing indexes with full scans.
+
+The [core cache contract](../../experiments/core/engine/02-timestamped-snapshots.md#accepted-cache-and-retention-direction)
+and [read-after-write policy](../../experiments/core/engine/02-read-after-write.md)
+govern eligible Task data reuse. The pinned
+[Convex scheduler](../../../../crates/application/src/scheduled_jobs/mod.rs)
+also reuses database cache machinery: `run_once` refreshes its retained index
+cache through `fast_forward_index_cache`, begins with `begin_with_index_cache`
+and returns it through `into_token_and_index_cache`. This is a shared database
+mechanism used by scheduling, not a separate scheduler cache algorithm.
+
+- Eligible Task rows and complete index ranges reuse the shared core cache
+  through its DO host/storage adapter. Populate on demand within core budgets;
+  logical storage does not require every Task row to be resident or cached.
+- Keep scope, definition/index identity, authorization and version eligibility
+  in the core's cache admission. App/environment and private platform records
+  retain their own authority boundaries; sharing machinery does not grant
+  cross-scope reads or make one app DO an owner of all platform Task state.
+  Scope-bound cache instances may be distinct; their implementation, validity
+  and lifecycle rules belong to the shared core.
+- All relevant Task writers, including create, heartbeat, retry, cancellation,
+  completion and logical record deletion, must participate in shared row/index
+  history and committed publication so core refresh/invalidation sees their
+  changes. Prove that closure before enabling reuse; no adapter-local
+  invalidation publisher or TTL may substitute for it. History pruning follows
+  the shared core's retention and cache-eligibility rules.
+- Cache misses, eviction, restart or unprovable coverage use the shared
+  persistence path under the operation's required view and freshness contract.
+  Unavailable required history fails or uses an explicitly eligible restart;
+  it never permits serving a different version silently. Core bootstrap and
+  uncertainty recovery gates remain in force.
+- A cached status or due-work candidate is not execution authority. Claims,
+  capacity reservations, lease renewals and terminal writes retain fresh checks,
+  database time, fencing and atomic settlement. The short READ COMMITTED Task
+  profile below is not replaced with an Application snapshot merely to reuse a
+  cache. Ineligible reads use shared profile-correct persistence; they do not
+  justify another Task database/cache path.
+
+The current bounded [Application query DO composition](../../experiments/core/engine/slices/03-application-query-do-host.md#selected-implementation-contract)
+retains cache state in DO RAM and reconstructs from PostgreSQL after restart.
+Persistent DO SQLite cache support remains a shared-core follow-on, not an
+existing Task capability or a Task-specific implementation requirement. Task
+integration with these owners is pending. Reuse data/index machinery without
+assuming arbitrary handler results, effects or native workflow steps are
+cacheable; those retain their execution and replay contracts.
+
 ## Installation, Access And Lifetime
 
 The platform installs and evolves Task schemas independently of app-written

@@ -231,6 +231,11 @@ The following destination is accepted but not implemented:
   All Task-owned scope/platform state is logical, including discovery,
   scheduler and repair records. Retire the entire old
   Task-specific physical schema; no new physical Task table set is admitted.
+- Task reads, index maintenance and writers reuse the
+  [shared core indexing/cache owners](../design-notes/task-system/02-logical-storage.md#shared-core-indexing-and-do-cache).
+  Hosts compose the same DO cache adapter with private scope and freshness
+  enforcement. No separate Task database, index engine, cache store or
+  invalidation layer belongs in the fork, persistence adapter or host.
 - Existing executor/backend/runtime owners implement delivery, timers, trusted
   definition resolution and compute adapters. Cloudflare is first; another
   provider needs its own admitted runtime contract, not a second task engine.

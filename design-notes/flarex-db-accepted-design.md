@@ -144,6 +144,13 @@ state uses private logical schemas bound to app/environment or platform scopes,
 including discovery, scheduler ownership and repair progress. Business writes
 and enqueue obligations share settlement through the admitted publication owner;
 separate Task creation and external execution do not become implicitly atomic.
+Tasks also [reuse shared core indexing and the DO cache system](./task-system/02-logical-storage.md#shared-core-indexing-and-do-cache):
+core owners maintain logical indexes, serve eligible cached reads and refresh
+them through committed publication. The Trigger fork and its store adapter do
+not own a separate database or cache layer. Task integration must prove writer
+coverage, scope/privacy isolation, profile-correct freshness and recovery;
+cached candidates do not replace authoritative claim/lease checks. This is an
+accepted integration direction, not evidence that Task caching is implemented.
 The full current Task-specific physical schema is a retirement target;
 there is no routing/control/repair exception or new dedicated physical Task
 table set. General shared storage/catalog/settlement infrastructure remains.

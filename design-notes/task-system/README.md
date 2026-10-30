@@ -49,6 +49,14 @@ physical table is a permanent exception, and no replacement Task-specific
 physical table set is the target.** General Flarex storage/catalog/settlement
 tables serve all consumers and are outside this Task-only retirement.
 
+Tasks reuse the [shared FlarexDB core's indexing and DO cache system](./02-logical-storage.md#shared-core-indexing-and-do-cache).
+Task schemas declare their required logical indexes; core owners maintain and
+query them. Eligible Task rows and index ranges use the same cache machinery
+and Cloudflare DO adapter as other admitted core consumers. The Task store is
+an integration adapter, not a separate database, index engine or cache layer.
+Postgres remains authoritative; Task cache admission and writer integration
+must be proved before activation.
+
 The engine is host-neutral. Inject wake delivery, timer/repair triggers and
 compute capabilities. Cloudflare is the first host; another host can implement
 the same admitted contracts. The fork owns task policy, FlarexDB owns durable
@@ -59,7 +67,7 @@ truth, and host services wake or execute work.
 | Document | Owns |
 | --- | --- |
 | [Engine and integration](./01-engine-and-integration.md) | Adopted source, core feature scope, package boundaries and framework ownership |
-| [Logical storage](./02-logical-storage.md) | Convex source precedent, private system tables, per-scope and platform state, atomic enqueue and discovery guarantees |
+| [Logical storage](./02-logical-storage.md) | Convex source precedent, private system tables, shared core indexes/DO cache, per-scope and platform state, atomic enqueue and discovery guarantees |
 | [Host adapters](./03-host-adapters.md) | Redis replacement, queues, timers, compute and host portability |
 | [Cutover and retirement](./04-cutover-and-retirement.md) | Isolated proof, consumers, development-data disposition, complete physical retirement and validation |
 | [Living roadmap](../../roadmaps/task-system/README.md) | Current baseline, open gates and implementation status |
@@ -73,11 +81,13 @@ Application / Payload / Medusa adapters
                     |
        independently maintained Trigger fork
               /                 \
-  Flarex logical Task store     host capabilities
+  Flarex Task store adapter     host capabilities
               |              /       |        \
-   shared core transactions  wake    timer    compute
-              |
-           Postgres
+   shared logical DB core    wake    timer    compute
+   (rows, indexes, transactions, cache validity)
+              /                    \
+   shared DO cache adapter       Postgres
+   (eligible read reuse)     (durable authority)
 ```
 
 Keep Application OCC, native framework transactions and the trusted Task

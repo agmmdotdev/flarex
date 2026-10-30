@@ -19,6 +19,13 @@ owns the separate pending Task cutover. No Task-specific physical table is
 retained as a control-plane exception. General core physical infrastructure
 remains; Task scope does not expand the existing framework completion plan.
 
+The [Task core-reuse contract](./task-system/02-logical-storage.md#shared-core-indexing-and-do-cache)
+requires the same logical index maintenance, read machinery and DO cache adapter
+as other admitted core consumers. Task writes participate in shared publication
+and cache refresh; claims and leases retain their own fresh atomic checks.
+No separate Task database, index engine or cache layer is selected. Task cache
+integration and its runtime proofs remain with the Task roadmap.
+
 Application, Payload content and Medusa commerce use framework-neutral logical
 tables over shared Postgres physical storage families. Creating a shop,
 deployment, logical table or logical index must not create a dedicated physical

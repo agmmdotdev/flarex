@@ -25,12 +25,26 @@ Neither a logical table nor a queue alone supplies the complete execution engine
 | Message transport and immediate wake-up | Injected delivery adapter, initially Cloudflare Queues |
 | Time-based wake-up and missed-message repair | Injected timer/scheduled host entry point and bounded durable repair |
 | Runtime launch and cancellation delivery | Existing compute/session owners behind an admitted provider contract |
-| Product caches | Delete unused caches; any retained cache is non-authoritative |
+| Product caches | Delete unused caches; eligible Task data/index reuse uses the shared FlarexDB core cache and remains non-authoritative |
 
 Replace each complete operation, not each Redis primitive. Splitting an atomic
 queue reservation into independent logical reads and writes would change its
 correctness. Remove Prisma/Redis/Redlock runtime dependencies from the admitted
 fork; isolated upstream reference tests can still require them.
+
+## Shared DO Cache Composition
+
+The Cloudflare host composes the [shared core cache adapter](./02-logical-storage.md#shared-core-indexing-and-do-cache)
+for admitted Task reads and indexed discovery. It does not introduce a Task-only
+DO database/cache, cache protocol or secondary state authority. Reuse the core's
+scope isolation, cache budgets, publication/refresh and restart rules; the
+Trigger fork continues to own Task lifecycle decisions.
+
+The bounded core query host currently uses DO RAM; durable SQLite cache reuse
+is not established. Any future DO SQLite cache is an implementation of the
+shared core storage adapter with its own proof, not a Task-store replacement.
+Task cache integration remains pending, and wake delivery/timers remain separate
+capabilities. Cache residency or a queue message never authorizes a Task claim.
 
 ## Delivery And Timers
 

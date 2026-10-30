@@ -61,6 +61,11 @@ metadata. The Trigger fork remains the engine. Each app/environment binds the
 platform-maintained Task definitions alongside its app/framework logical data;
 installation creates no dedicated Task SQL schema/table/index family. Retire
 all Task-specific physical schemas after cutover.
+The [shared core indexing and DO cache contract](../../design-notes/task-system/02-logical-storage.md#shared-core-indexing-and-do-cache)
+is part of this destination: Task schemas declare indexes, shared core owners
+maintain/query them, and eligible Task reads reuse the core cache through its
+DO adapter. Integrate Task writers with shared publication/refresh. Build no
+separate Task database, index engine or cache layer; Trigger remains the engine.
 Cloudflare delivery/timer/compute adapters are first; AWS is an extension point.
 Cloudflare Workflows does not become a second lifecycle owner.
 
@@ -101,6 +106,10 @@ installation/privacy, lock graph, capacity claims, directory reconciliation,
 checkpoint envelope, native failure budgets, consumer/data inventory and
 performance acceptance remain open. No retained-code percentage or runtime
 parity is claimed. Old logical CRUD support alone proves none of these gates.
+Shared core query cache reuse and bounded DO RAM composition exist, but Task
+read/write/cache integration is pending. Persistent DO SQLite caching is not
+an implemented Task capability. Cache eligibility must preserve Task visibility,
+fresh claims, private scope access and atomic settlement.
 
 ## Target Direction
 
@@ -116,6 +125,7 @@ installation has no custom parallel lifecycle or Task-specific physical tables.
 | --- | --- | --- |
 | Source and contract admission | Exact adopted methods/tests/dependencies, private package boundaries, finite store operations, transaction/claim/visibility contract and numeric bounds are specified against current consumers | Pending |
 | Logical state and discovery | Both database lanes prove private scope/platform system-table installation over shared storage, no per-app Task DDL, atomic indexed claims, directory repair, fencing and bounded progress without Task-specific physical tables | Pending |
+| Shared core indexes and DO cache | Task point/range reads, index maintenance and every admitted writer use core owners; warm/cold reads, invalidation/refresh, scope isolation and DO restart preserve freshness and claim authority without a separate Task database/cache layer | Pending |
 | Connected fork proof | Adopted methods execute enqueue through terminal/retry/cancel and fresh-host recovery, with required wait/resume behavior and injected hosts | Pending |
 | Framework cutover | Application, Payload and a real Medusa consumer share the engine; enqueue rollback/crash/replay and native contexts/child outcomes are proven; displaced paths are removed | Pending |
 | Complete retirement | Concrete development-data disposition is executed, no old lifecycle or Task-specific physical objects remain on supported installs, and guards/setup/tests match the new owner | Pending |
