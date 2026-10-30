@@ -128,23 +128,31 @@ request handler or automatic DO restart alone does not establish the contract.
 
 ## Pinned Convex mechanism and necessary differences
 
-Reference revision: `84fbb0e70b4e857913673871cb847ad11a55f3d5`.
+Reference revision: `db914cf06e2b06ee985646611b9e12ed7a770318`.
 Use [REFERENCES.md](../REFERENCES.md#convex-source-identity) for file hashes,
 provenance and the [source and divergence rules](../REFERENCES.md#source-and-divergence-rules).
 
 | Convex owner / symbol | Mechanism to preserve or deliberately adapt |
 | --- | --- |
-| [committer.rs](../../../../../crates/database/src/committer.rs): `validate_commit`, `commit_has_conflict`, `pending_writes` | Serialize acceptance and include accepted pending changes in conflict checks |
-| Same file: `persistence_writes: FuturesOrdered`, `start_commit`, `write_to_persistence`, `publish_commit` | Overlap saves, consume results in order, persist before publication/acknowledgement |
-| Same file: `go`, `start`, persistence error branch | Escaping persistence failure stops the committer and signals shutdown; classified transient storage errors have a separate retry path |
-| [database.rs](../../../../../crates/database/src/database.rs): `Database::load` | Reconstruct state from persistence under ownership, not from presumed success in old memory |
-| [PostgreSQL driver](../../../../../crates/postgres/src/lib.rs): `Lease::transact` | Fence durable writes and resynchronize after ownership loss |
+| [committer.rs](../../../../../crates/database/src/committer.rs): `pre_validate_batch`, `validated_through`, `validate_commit`, `commit_has_conflict` | Bound staged prevalidation, then check the residual published suffix and all accepted pending writes before acceptance |
+| [write_log.rs](../../../../../crates/database/src/write_log.rs): `WriteLogSnapshot`, `PendingKeysInIndex`, `PendingWrites` | Immutable per-index committed history and ordered pending-key/range overlap with FIFO removal; preserve text-search fallback separately |
+| [committer.rs](../../../../../crates/database/src/committer.rs): `track_and_write_to_persistence`, `publish_commit`; [write_batcher.rs](../../../../../crates/database/src/write_batcher.rs) | Bound inflight work and grouped saves by row/byte/delay/concurrency; several logical timestamps can share one SQL transaction. Persist before ordered publication/acknowledgement |
+| Same committer: `go`, `start`, persistence error branch | Escaping persistence failure stops the committer and signals shutdown; classified transient storage errors have a separate retry path |
+| [database.rs](../../../../../crates/database/src/database.rs): `Database::load` | Reconstruct state from persistence under ownership, not presumed success in old memory |
+| [PostgreSQL driver](../../../../../crates/postgres/src/lib.rs): `Lease::transact`; [lease SQL](../../../../../crates/postgres/src/sql.rs) | Fence durable writes, enforce read-only-aware acquisition atomically, acquire before freshness checks and resynchronize after ownership loss |
+
+The [reference upgrade](./CONVEX-REFERENCE-UPGRADE.md) replaces the earlier
+single-stage source description. Grouped persistence must preserve every logical
+outcome and reconcile the whole SQL batch after an unknown COMMIT response.
+An empty user write set does not permit bypassing required outcome/system writes.
 
 Accepted adaptations and their reasons:
 
 - Portable TypeScript owners with Cloudflare adapters replace Rust runtime
   mechanisms because the selected initial host is a DO. Preserve the observable
   ordering/recovery guarantees; exact data structures and scheduling remain open.
+  Rust prevalidation threads are not JavaScript CPU parallelism; bound work and
+  document the host adaptation without weakening final conflict checks.
 - App-owner recovery replaces reliance on restarting a Rust backend process
   because a DO host has different lifecycle controls. The replacement must fence
   old work and rebuild state; it is not a weaker catch-and-continue policy.

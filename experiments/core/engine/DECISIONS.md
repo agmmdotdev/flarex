@@ -38,6 +38,12 @@ passing correctness does not establish performance acceptance.
 
 ## Accepted discussion direction
 
+The active source baseline is `db914cf06e2b06ee985646611b9e12ed7a770318`.
+The [reference upgrade](./CONVEX-REFERENCE-UPGRADE.md) updates commit batching,
+conflict indexes, persistence/index lifecycle and cache contracts. Prior slice
+and divergence evidence retains its original pin and requires reassessment
+before affected runtime work; pin replacement alone does not establish parity.
+
 The owner explicitly selects translating Convex's pinned database core into
 TypeScript, including the physical persistence schema through Drizzle. Algorithms,
 transaction/persistence boundaries, versioned metadata, indexes, OCC, publication
@@ -169,7 +175,7 @@ The [commit-coordination record](./01-commit-coordination.md),
 | New ordinary reads use the ready app owner's latest published snapshot; startup/recovery gates new reads with bounded waits or explicit failure | Accepted; cold caches miss to PostgreSQL at that same timestamp; no per-query timestamp-fetch request or mandatory minimum-timestamp token for the initial single-owner ordinary-read path; concrete ownership/readiness protocols remain open |
 | Reactive clients retain commit/query timestamps, resolve successful mutation promises after applied query-state progress and check reconnect progress | Accepted direction following pinned Convex backend/client code; exact protocol and subscription implementation remain open; no native replay is enabled |
 | Ordinary database indexes move through Backfilling, Backfilled and Enabled; required builds gate deployment and queries require enabled metadata at their snapshot | Accepted Convex-style lifecycle; staged builds require later enablement, no runtime waiting/partial reads/implicit scan fallback; local cache coverage is separate; backfill, activation and recovery details remain open |
-| Convex revision `84fbb0e70b4e857913673871cb847ad11a55f3d5`, source-first inspection and justified divergences | Accepted development rule; adapted mechanisms retain exact source provenance |
+| Convex revision `db914cf06e2b06ee985646611b9e12ed7a770318`, source-first inspection and justified divergences | Accepted development rule; adapted mechanisms retain exact source provenance |
 | Execution replicas, their synchronization and scaling topology | Open and explicitly deferred; not a prerequisite for the first single-owner design |
 
 The [placement companion](./01-do-execution-and-replicas.md) retains the wider

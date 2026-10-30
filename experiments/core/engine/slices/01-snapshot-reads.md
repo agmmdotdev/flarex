@@ -1,5 +1,10 @@
 # First slice: snapshot reader and operation-local coverage
 
+Reference upgrade: the active pin is now `db914cf06e2b06ee985646611b9e12ed7a770318`; see
+[the upgrade assessment](../CONVEX-REFERENCE-UPGRADE.md). The original source challenge and
+implementation evidence below retain their old pin and are not new-pin
+conformance. Revalidate affected contracts before dispatching runtime work.
+
 Status: **Bounded Application operation-local replacement implemented; wider
 portable snapshot/DO milestone open**. The [goal](../GOAL.md) remains active.
 This note records scope and decisions; Git owns validation receipts.
@@ -18,7 +23,7 @@ page-cache finding below. The coordinator's dispositions are:
 
 | Finding | Evidence and disposition |
 | --- | --- |
-| Three different cache paths were being blended in the starting proposal | [DatabaseIndexSnapshot::start_range_fetch, range_batch and DatabaseIndexSnapshotCache](../../../../../../crates/indexing/src/backend_in_memory_indexes.rs) distinguish selected resident indexes, operation-local coverage and shared page machinery. Translate the operation-local mechanism first; the broader DO cache milestone remains separate. |
+| Three different cache paths were being blended in the starting proposal | [DatabaseIndexSnapshot::start_range_fetch, range_batch and DatabaseIndexSnapshotCache](https://github.com/get-convex/convex-backend/blob/8636d94dffb494a8b963550ab36da1877a068001/crates/indexing/src/backend_in_memory_indexes.rs) distinguish selected resident indexes, operation-local coverage and shared page machinery. Translate the operation-local mechanism first; the broader DO cache milestone remains separate. |
 | The pinned shared page reader does not serve cached pages | `IndexCacheReader::index_page` in the same file fetches and returns persistence data, compares an existing cached page, and invalidates/repopulates it only on mismatch. A cold miss does not populate through that method. Our source map and snapshot note are corrected. A shared-page fast-serving path would require its own divergence record and writer/publication proof before implementation. |
 | Active-target/source checks are separate from storage observations | [readApplicationQueryPoint, readApplicationQueryIndex and runLocatedRead](../../../../packages/persistence-postgres/src/application/applicationQuerySnapshot.ts) enforce lifecycle, checked reads, accounting and dependencies. Keep their current required checks on cache hits in this slice; memoization does not grant authority or extend history. Classify and replace obsolete current-head choreography separately with its actual writer proof. |
 | Current read-only range dependencies are broad | `readIndex` records an `appTable` dependency. This is not exact mutation range OCC evidence, nor is broad invalidation by itself an unsoundness defect. Preserve the external read-only receipt until its consumers are migrated; do not claim that translating cache intervals also migrates the dependency protocol. |

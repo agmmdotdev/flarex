@@ -57,6 +57,25 @@ All Convex links below use the [recorded source pin](../REFERENCES.md#convex-sou
 not an implicit moving upstream revision. Source inspection is evidence for a
 mechanism, not performance parity.
 
+## Current-pin translation questions
+
+The active pin is `db914cf06e2b06ee985646611b9e12ed7a770318`; the
+[upgrade assessment](./CONVEX-REFERENCE-UPGRADE.md) supplies changed contracts,
+not answers to remaining host/data choices. The affected slice must resolve:
+
+- How staged prevalidation, final suffix/pending checks, ordered-key structures,
+  bounded group commit and batch-wide uncertain-outcome recovery map to DO
+  scheduling and existing native outcome obligations (Q02).
+- How historical IndexRef identity, write modes/predecessors, idempotent backfill,
+  reconciliation and document-pair-driven reclamation map to the selected
+  five-table PostgreSQL layout (index/retention owners below).
+- Which shared-page verification policy and separate transaction/page cache
+  budgets fit the host, with row and index-metadata fill validation. The upstream
+  100% verification default does not prove a SQL shortcut or select our budgets.
+
+These are connected implementation questions, not permission to retain old
+mechanisms by default or to adopt MySQL V6's alternative tables implicitly.
+
 ## Q01 - Scope ownership and routing
 
 **Partially answered, concept 01.** Accepted: one independent app has one logical
@@ -210,7 +229,7 @@ nor a JavaScript Map proves ordered or persistent behavior. Identify supported
 library reuse and any intentional public or durable-format break.
 
 References: [Convex source map](../REFERENCES.md#convex-source-identity),
-[selected in-memory indexes](../../../../../crates/indexing/src/backend_in_memory_indexes.rs),
+[selected in-memory indexes](../../../../../crates/indexing/src/in_memory_indexes.rs),
 [existing Application contracts](../APPLICATION.md) and
 [ordered-query requirements](../DESIGN.md#complete-query-operations).
 Required examples: boundary values, stable ordering/tie-breakers, historical
@@ -245,7 +264,7 @@ retain an eligible historical answer locally or miss to PostgreSQL at the same
 timestamp. It does not select local version retention or a cache data structure.
 
 References: Convex [index cache](../../../../../crates/indexing/src/index_cache/mod.rs),
-[in-memory indexes](../../../../../crates/indexing/src/backend_in_memory_indexes.rs),
+[in-memory indexes](../../../../../crates/indexing/src/in_memory_indexes.rs),
 [write log](../../../../../crates/database/src/write_log.rs) and the
 [pinned cache/retention evidence](./02-timestamped-snapshots.md#pinned-cache-and-retention-evidence);
 Flarex [working-set model](../../../packages/persistence-postgres/src/storage/documents/logicalDocuments/model.ts);

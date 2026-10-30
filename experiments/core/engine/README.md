@@ -13,6 +13,10 @@ replication is explicitly deferred. The [goal contract](./GOAL.md) authorizes
 bounded implementation after the required source challenge. Implementation,
 measurement and production activation remain separate claims.
 
+Active Convex pin: `db914cf06e2b06ee985646611b9e12ed7a770318`. The
+[reference upgrade](./CONVEX-REFERENCE-UPGRADE.md) records changed mechanisms,
+source moves and the revalidation gates for existing slices/divergences.
+
 Read the [refactor direction](./REFACTOR.md) for what we keep, replace and remove.
 The accepted goal is to translate Convex's core logic and physical persistence
 schema into TypeScript/Drizzle, departing only for DO/runtime constraints or

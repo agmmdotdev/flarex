@@ -12,12 +12,29 @@ now fixes the target: translate the pin into the current TypeScript core,
 including physical persistence, departing only for DO/runtime constraints or
 required native behavior.
 
+## Current reference upgrade
+
+The active specification is now `db914cf06e2b06ee985646611b9e12ed7a770318`.
+The [upgrade assessment](./CONVEX-REFERENCE-UPGRADE.md) and
+[current source map](../REFERENCES.md) supersede old-pin mechanism descriptions
+where changed: staged prevalidation/final suffix checks, indexed pending conflicts,
+group commit, richer index persistence/backfill/retention, split cache owners and
+cached-page serving with 100% default persistence verification. No runtime proof
+or performance status is upgraded merely by changing the source pin.
+
+The five-table physical starting point is still the selected PostgreSQL adapter.
+Current MySQL V6 has latest/backfill-delete/bucketed index structures, so claims
+about absent current projections are scoped to the selected PostgreSQL baseline.
+Existing Flarex heads still need connected justification or replacement under
+that baseline. Payload/Medusa and shared logical lifecycle decisions are unchanged.
+
 ## Source boundary
 
-The comparison inspected both local repositories on 2026-10-30: Convex at
+The original comparison inspected both local repositories on 2026-10-30: Convex at
 `84fbb0e70b4e857913673871cb847ad11a55f3d5`, and Flarex at `0d7f85662` plus its
-current shared-worktree changes. The [reference map](../REFERENCES.md) owns the
-Convex pin. Four independent investigations covered OCC/commit, schema/storage,
+current shared-worktree changes. The [historical reference map](../REFERENCES-84fbb0e.md)
+owns that original source evidence. The current map and upgrade above own the
+active pin. Four independent investigations covered OCC/commit, schema/storage,
 runtime/cache and native framework requirements, then exchanged challenges.
 Working-tree observations below are not claims of a committed or deployed cutover.
 Recheck the actual callers when selecting implementation.
@@ -108,7 +125,10 @@ not a complete general shared-page cache.
 ### 4. Separate commit ordering from waiting for independent saves
 
 Convex validates against both committed and accepted pending writes, overlaps
-persistence through `FuturesOrdered`, then publishes and acknowledges in order.
+persistence through ordered completion, then publishes and acknowledges in order.
+The active pin additionally stages prevalidation, indexes pending conflicts and
+groups bounded persistence batches; the [current commit contract](./01-commit-coordination.md)
+now owns those details.
 Current Flarex finite publication holds the scope-clock lock across metadata/OCC
 checks and materialization, coupling independent saves through SQL serialization.
 
@@ -154,7 +174,8 @@ target engine. Reuse its behavioral witnesses and sound pieces after audit.
 
 Convex finalizes an operation into tracked reads and coalesced writes. The engine
 then derives `DocumentLogEntry { ts, id, value, prev_ts }` and
-`PersistenceIndexEntry { ts, index_id, key, value }`. Its PostgreSQL adapter
+`PersistenceIndexEntry` with timestamp, IndexRef, key/value, write mode and
+predecessor evidence at the active pin. Its PostgreSQL adapter
 writes document/index batches in one fenced SQL transaction. A close Drizzle
 mapping is the [plan's versioned log shape](./REFACTOR.md#physical-persistence-is-in-scope),
 with scope adapted from the persistence instance identity.
@@ -163,7 +184,7 @@ with scope adapted from the persistence instance identity.
 | --- | --- | --- |
 | Document revisions | Separate schema version, creation time, codec/hash and write epoch evidence on each revision. | Map real duties to versioned metadata, document serialization, trusted system fields and the persistence/fencing owner. Exact current columns are not inherent OCC requirements. Preserve integrity and history guarantees through replacement. |
 | Ordinary index revisions | Encoded key plus separate row-ID ordering; membership sequence can differ from body revision; per-entry codec/spec evidence. | Default to pinned key ordering and same-timestamp index/body hydration. Translate PostgreSQL long-key handling and native exact-value extensions explicitly. |
-| Current projections | Current-row/current-index pointer families support existing readers and constraints. | They are not part of the minimum Convex version-log design. Retain only for a justified DO/native requirement, with safe-prefix visibility, rebuildability and overlapping-save proof. |
+| Current projections | Current-row/current-index pointer families support existing readers and constraints. | They are not part of the selected Convex PostgreSQL five-table baseline; upstream MySQL V6 has different projection/history structures. Retain only for a justified DO/native requirement, with safe-prefix visibility, rebuildability and overlapping-save proof. |
 | Engine catalogs | Normalized control families plus JSON/canonical bytes/digests for definitions. | Default engine meaning to private logical system records and versioned registries. Keep external deployment/artifact and cross-trust authority at its actual owner; do not collapse genuine split-placement boundaries. |
 | Executing operations and change directories | Session/attempt profiles, transient journals, commit headers/facts and outcome machinery. | Keep transient read/write state in the translated transaction. Preserve atomic durable outcomes, native events and recovery; replace duplicate journal/feed machinery only after common-log reconstruction and retained-data disposition. |
 
@@ -285,7 +306,7 @@ shared work. Inspect callers and tests again for an implementation slice.
 | ID validation versus native constraints | [validator.rs](../../../../../crates/common/src/schemas/validator.rs), [query implementation](../../../../../npm-packages/convex/src/server/impl/query_impl.ts), `unique` | [logical schema sources](../../../packages/flarex-protocol/src/logical-schema-candidate.ts), [shared definitions](../../../packages/persistence-postgres/src/storage/catalog/logicalStorageDefinitions.ts) |
 | Borrowed native lifetime and finite workflows | [transaction.rs](../../../../../crates/database/src/transaction.rs), nested working state | [borrowed Payload attempt](../../../packages/persistence-postgres/src/frameworks/cmsTransaction/borrowedLogicalAttempt.ts), [Medusa repository context](../../../packages/medusa-adapter/src/repository/context.ts), [finite atomic child](../../../packages/medusa-workflows-sdk/src/durable/engine/finite-atomic-child.ts) |
 | Same-timestamp ordinary-index hydration | [index_registry.rs](../../../../../crates/indexing/src/index_registry.rs), `index_updates`; [PostgreSQL scan](../../../../../crates/postgres/src/sql.rs), `D.ts = A.ts` | [independent membership schema](../../../packages/persistence-postgres/src/database/schema/documentIndexes.ts), [membership-head proofs](../../../packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts) |
-| Persistence batch and transaction finalization | [persistence contracts](../../../../../crates/common/src/persistence.rs), [PostgreSQL writer](../../../../../crates/postgres/src/lib.rs), [transaction finalization](../../../../../crates/database/src/transaction.rs) | [older candidate schema](../src/schema.ts), [candidate storage](../src/application-storage.ts), [actual query DO](../../../apps/executor/src/applicationQueryDO.ts) |
+| Persistence batch and transaction finalization | [persistence contracts](../../../../../crates/common/src/persistence/mod.rs), [PostgreSQL writer](../../../../../crates/postgres/src/lib.rs), [transaction finalization](../../../../../crates/database/src/transaction.rs) | [older candidate schema](../src/schema.ts), [candidate storage](../src/application-storage.ts), [actual query DO](../../../apps/executor/src/applicationQueryDO.ts) |
 | Pending and nested state | [TransactionIndex](../../../../../crates/database/src/transaction_index.rs), [nested syscall](../../../../../crates/isolate/src/environment/udf/async_syscall.rs) | [root evaluator](../../../packages/persistence-postgres/src/storage/documents/logicalDocuments/rootEvaluator.ts), [nested-failure policy](./divergences/application-nested-failure.md) |
 
 ## Performance limits and next selection

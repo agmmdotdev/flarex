@@ -8,7 +8,7 @@ and the [_template.md](./_template.md) fields; link it from the owning slice and
 this index.
 
 The reference is Convex revision
-`84fbb0e70b4e857913673871cb847ad11a55f3d5`. Follow the
+`db914cf06e2b06ee985646611b9e12ed7a770318`. Follow the
 [source and divergence rules](../../REFERENCES.md#source-and-divergence-rules)
 and [replacement workflow](../REFACTOR.md#convex-guided-replacement-workflow).
 Read its actual owner, callers and relevant tests. The accepted
@@ -19,6 +19,11 @@ to differ. Existing optimizations, layouts or product-policy choices are not
 automatic exceptions; resolve an observable guarantee conflict at its scoped
 decision owner before affected runtime edits. Earlier divergence records retain
 their current-runtime gates while their mechanisms are reassessed for translation.
+
+The [reference upgrade](../CONVEX-REFERENCE-UPGRADE.md) changes active source
+contracts and owners. Existing records retain their inspected pin, implementation
+status and current-runtime gates. Reassess affected mechanisms and update their
+source mapping before the next slice; this index does not re-certify old findings.
 
 ## When a record is required
 

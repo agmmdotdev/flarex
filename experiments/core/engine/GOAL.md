@@ -13,6 +13,11 @@ The [accepted architecture](../../../design-notes/flarex-db-accepted-design.md#p
 [decision register](./DECISIONS.md) and [question queue](./OPEN-QUESTIONS.md)
 remain the owning records for architecture, status and unresolved decisions.
 
+Active source baseline: `db914cf06e2b06ee985646611b9e12ed7a770318`, with
+[upgrade requirements](./CONVEX-REFERENCE-UPGRADE.md). Affected runtime slices
+must refresh their independent source challenge and divergence assessment;
+previous checks retain their original source identity and status.
+
 ## Finish line
 
 Translate pinned Convex core logic and its physical persistence schema into
@@ -35,8 +40,8 @@ validation, progress/recovery and activation. Platform Drizzle storage upgrades
 and producer-defined data conversions have distinct responsibilities within the
 [installation/migration plan](./REFACTOR.md#framework-adapters-and-shared-schema-installation).
 
-The physical starting point is Convex's five core tables: `documents`, `indexes`,
-`leases`, `read_only` and `persistence_globals`. Payload/Medusa storage, private
+The physical starting point is the Convex PostgreSQL adapter's five core tables:
+`documents`, `indexes`, `leases`, `read_only` and `persistence_globals`. Payload/Medusa storage, private
 schema/catalog records, logical installation/build/activation and migration
 progress sit logically above them. Shared core owners supply required native
 constraints; any additional physical family needs a proved DO/native divergence.
@@ -168,7 +173,7 @@ Before implementation, independent sub-agents inspect and challenge:
    counterexamples, identify retained bottlenecks, missing writer participation,
    unnecessary abstractions and changes to supported behavior.
 
-Use Convex revision `84fbb0e70b4e857913673871cb847ad11a55f3d5`, the
+Use Convex revision `db914cf06e2b06ee985646611b9e12ed7a770318`, the
 [source map](../REFERENCES.md#convex-source-identity) and the actual source files;
 do not substitute remembered behavior. Agents first form independent findings,
 then exchange evidence and challenge each other's conclusions. The coordinator

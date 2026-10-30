@@ -89,7 +89,7 @@ operations remain part of the unresolved recovery protocol.
 
 ## Pinned Convex mechanism
 
-Reference revision: `84fbb0e70b4e857913673871cb847ad11a55f3d5`. The
+Reference revision: `db914cf06e2b06ee985646611b9e12ed7a770318`. The
 [source map and hashes](../REFERENCES.md#engine-mechanism-reference-map) identify
 the inspected local files. These are source observations, not measured parity.
 
@@ -97,22 +97,27 @@ the inspected local files. These are source observations, not measured parity.
 | --- | --- |
 | [Database](../../../../../crates/database/src/database.rs): `now_ts_for_reads`, `begin_with_usage`, `begin_with_repeatable_ts`, `wait_for_write_ts` | Choose the snapshot manager's safe timestamp, construct snapshot-backed transaction state and a persistence reader fixed to that timestamp; waiting for a write concerns visibility, not merely its presence in storage. |
 | [Snapshot manager](../../../../../crates/database/src/snapshot_manager.rs): `latest`, `latest_ts`; [committer](../../../../../crates/database/src/committer.rs): `publish_commit` | Ordered publication advances the usable engine snapshot. Repeatable timestamps exclude later-arriving writes within the admitted view. |
-| [Persistence](../../../../../crates/common/src/persistence.rs): `RepeatablePersistence::read_snapshot`, `PersistenceSnapshot::index_scan`, `index_get` | Retain a fixed `at` timestamp and pass it through persistence reads, with retention validation. This is explicit engine history, not one long SQL transaction. |
+| [Persistence](../../../../../crates/common/src/persistence/mod.rs): `RepeatablePersistence::read_snapshot`, `PersistenceSnapshot::index_scan`, `index_get` | Retain a fixed `at` timestamp and pass it through persistence reads, with retention validation. This is explicit engine history, not one long SQL transaction. |
 | [Index cache](../../../../../crates/indexing/src/index_cache/mod.rs): `get`, `populate`, `apply_writes`, `index_page_at_ts` | Cached ranges have timestamp eligibility and write invalidation. A page newer than the requested timestamp is a miss; population must account for writes racing with its fetch before the page is usable. The cache need not retain every historical page. |
-| [In-memory indexes](../../../../../crates/indexing/src/backend_in_memory_indexes.rs): `DatabaseIndexSnapshot::range_batch`, `fetch_cache_misses` | Combine versioned local index state with misses fetched through the snapshot's persistence reader. Cache coverage and historical membership matter as well as row bodies. |
+| [In-memory indexes](../../../../../crates/indexing/src/database_index_snapshot.rs): `DatabaseIndexSnapshot::range_batch`, `fetch_cache_misses` | Combine versioned local index state with misses fetched through the snapshot's persistence reader. Cache coverage and historical membership matter as well as row bodies. |
 | [PostgreSQL queries](../../../../../crates/postgres/src/sql.rs): `INDEX_QUERIES`; [reader](../../../../../crates/postgres/src/lib.rs): `_index_scan_inner` | Filter index history by the requested timestamp, select the latest eligible entry per key including deletion markers, and join its matching document revision. Validate retention before yielding results. A physically saved future version is excluded. |
 
 Convex's selected resident indexes, operation-local coverage cache and shared
-index-page cache are different mechanisms. At the pin,
-`IndexCacheReader::index_page` in
-[backend_in_memory_indexes.rs](../../../../../crates/indexing/src/backend_in_memory_indexes.rs)
-always fetches and returns persistence data, compares an existing cached page,
-and invalidates/repopulates it only on mismatch. A cold miss does not populate
-through that method. Shared eligibility APIs alone do not establish an active read shortcut.
-Selected resident indexes and the operation-local cache do avoid persistence
-reads. Matching the read contract does not require every DO cache to keep every
-revision in RAM or SQLite. The [first slice challenge](./slices/01-snapshot-reads.md)
-separates these paths and the additional proof needed before shared-page serving.
+index-page cache remain distinct mechanisms. At this pin,
+[IndexCacheReader::index_page](../../../../../crates/indexing/src/database_index_snapshot.rs)
+returns an eligible cached page; a miss fetches persistence and participates in
+population. `INDEX_CACHE_VERIFY_PERCENT` defaults to 100, so the shared hit path
+also verifies against persistence by default. This updates the historical
+comparison-only description; it does not establish default SQL avoidance or
+measured Flarex performance. Resident structures now live in
+[in_memory_indexes.rs](../../../../../crates/indexing/src/in_memory_indexes.rs),
+with operation coverage in `database_index_snapshot.rs`.
+
+Fill validation includes both ordinary document writes and index-metadata changes
+through `_index.by_id`, with modified-index eviction. A historical IndexRef must
+resolve physical identity from the same metadata revision. Matching this contract
+does not require every DO cache to retain every revision. Earlier slice challenges
+retain their old pin and require the [upgrade reassessment](./CONVEX-REFERENCE-UPGRADE.md).
 
 ## Accepted cache and retention direction
 
@@ -124,7 +129,7 @@ Follow the inspected Convex mechanisms at the portable core boundary:
 - Coordinate relevant range invalidation with ordered commit publication.
   Unrelated ranges can remain usable. A time-to-live alone cannot establish
   validity or replace write participation and ownership fencing.
-- Validate fills against intervening published writes before making the entry
+- Validate fills against intervening published row and index-metadata writes before making the entry
   reusable. If the necessary change history is unavailable, refuse that fill.
   Losing invalidation tracking must turn the entry into a miss.
 - Bound retained cache memory/storage and permit eviction of valid entries.
@@ -146,9 +151,9 @@ stores instead of assigning one expiry policy to everything:
 
 | Store | Pinned source and behavior |
 | --- | --- |
-| Resident metadata and selected indexes | [Database::load](../../../../../crates/database/src/database.rs) loads bootstrap table/index metadata; [BackendInMemoryIndexes](../../../../../crates/indexing/src/backend_in_memory_indexes.rs) maintains selected loaded indexes. Snapshot structures use immutable/copy-on-write state. This is not proof that all application data is resident. |
-| Operation-local document/range cache | [DatabaseIndexSnapshot::range_batch and DatabaseIndexSnapshotCache](../../../../../crates/indexing/src/backend_in_memory_indexes.rs) populate fetched documents and mark complete intervals after their rows are available. Repeated point reads and covered subranges can reuse that operation's observations. |
-| Shared index-page cache machinery | [IndexCache::new, get, populate, apply_writes](../../../../../crates/indexing/src/index_cache/mod.rs) provide timestamp-aware ranges, write invalidation and weighted capacity eviction. The pinned `IndexCacheReader` still fetches persistence and compares the cache rather than serving the cached page. Its constructor sets no fixed TTL. |
+| Resident metadata and selected indexes | [Database::load](../../../../../crates/database/src/database.rs) loads bootstrap table/index metadata; [BackendInMemoryIndexes](../../../../../crates/indexing/src/in_memory_indexes.rs) maintains selected loaded indexes. Snapshot structures use immutable/copy-on-write state. This is not proof that all application data is resident. |
+| Operation-local document/range cache | [DatabaseIndexSnapshot::range_batch and DatabaseIndexSnapshotCache](../../../../../crates/indexing/src/database_index_snapshot.rs) populate fetched documents and mark complete intervals after their rows are available. Repeated point reads and covered subranges can reuse that operation's observations. |
+| Shared index-page cache machinery | [IndexCache::new, get, populate, apply_writes](../../../../../crates/indexing/src/index_cache/mod.rs) provide timestamp-aware ranges, write invalidation and weighted capacity eviction. The pinned `IndexCacheReader` serves eligible cached pages and fetches/populates misses; default 100% persistence verification prevents inferring a SQL shortcut. Fill validation also includes index metadata and modified-index eviction. Its constructor sets no fixed TTL. |
 | Recent snapshot lookup history | [SnapshotManager::push and snapshot](../../../../../crates/database/src/snapshot_manager.rs) retain a bounded window, dropping an old version only when its successor leaves that window. A timestamp older than the retained versions produces `OutOfRetention`. Retaining an existing snapshot object does not pin PostgreSQL history indefinitely. |
 | In-memory write history | [WriteLogManager::enforce_retention_policy, WriteLog::is_stale and refresh_token](../../../../../crates/database/src/write_log.rs) bound change history by time and size. Lost history prevents validating an old dependency token or cache fill; it cannot be treated as proof that no write occurred. |
 | Durable document/index history | [candidate_min_snapshot_ts, advance_timestamp and RetentionValidator](../../../../../crates/database/src/retention.rs) advance boundaries from safe persisted repeatable progress, then remove obsolete revisions. Publish the boundary to persistence before advancing the in-memory deletion bound. Document cleanup is constrained by index-cleanup progress. Reads outside the supported boundary fail explicitly. |
@@ -176,6 +181,8 @@ and query-result reuse remain under the queued concepts and native contracts.
    at `100` continues to use `100`, through an eligible local answer or history.
 
 Range tracking covers both old and new index keys, including inserts and deletes.
+Index-definition writes also invalidate affected coverage; checking rows alone
+does not make a fill safe across index identity/lifecycle changes.
 This matters for cached empty ranges, counts and membership changes, not just
 updates to a row already present in the cache. Population validation and future
 invalidation close different sides of the race. The source calls population
@@ -191,6 +198,8 @@ The pinned [configuration knobs](../../../../../crates/common/src/knobs.rs) defi
 | `INDEX_RETENTION_DELAY` | 4 minutes | Delay behind safe persisted repeatable progress for index-history retention |
 | `DOCUMENT_RETENTION_DELAY` | 14 days | Document-revision history delay; does not make arbitrary 14-day-old indexed snapshots available |
 | `INDEX_CACHE_SIZE` | 512 MiB | Configurable shared index-page cache capacity; not a per-app/DO allocation or a confirmed Convex Cloud setting |
+| `MAX_TRANSACTION_CACHE_SIZE_BYTES` | 16 MiB | Separate transaction interval-cache budget; no longer derived from the read limit |
+| `INDEX_CACHE_VERIFY_PERCENT` | 100 | Persistence verification sampling for cached pages; default reads do not prove SQL avoidance |
 
 These values are overridable source defaults, not production observations or
 chosen engine limits. Background deletion and safety dependencies can retain data

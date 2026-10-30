@@ -75,7 +75,7 @@ Cloudflare as the first host family. Use pinned Convex mechanisms as the engine
 specification during design and development, recording necessary DO/runtime and
 native-behavior differences under the
 [source and divergence rules](../experiments/core/REFERENCES.md#source-and-divergence-rules).
-The reference pin is `84fbb0e70b4e857913673871cb847ad11a55f3d5`; inspect its owners
+The reference pin is `db914cf06e2b06ee985646611b9e12ed7a770318`; inspect its owners
 and relevant tests before each implementation slice and justify every difference.
 Copy the mechanism as closely as possible, including algorithm, ordering,
 invariants and failure behavior. Before each slice, independent sub-agents must
@@ -90,6 +90,16 @@ TypeScript can own RAM caches;
 choose its structures, libraries and SQLite indexes by required semantics and
 cost rather than copying Rust types. PostgreSQL remains durable authority and
 Application, Payload and Medusa retain explicit execution profiles.
+
+The [reference upgrade](../experiments/core/engine/CONVEX-REFERENCE-UPGRADE.md)
+requires staged prevalidation with final suffix/pending checks, bounded group
+commit, indexed conflict history and current index persistence/backfill/retention
+contracts. Shared-page serving now has persistence verification enabled by default;
+no SQL or performance gain follows from the pin update. The five-table baseline
+is the selected PostgreSQL adapter, not a universal upstream storage claim.
+Prior slice/divergence evidence keeps its original pin and must be reassessed
+before affected runtime implementation. This changes the source specification,
+not the status of existing proof, native obligations or data-reset authority.
 
 The [translation plan](../experiments/core/engine/REFACTOR.md#core-and-physical-schema-translation-plan)
 connects transaction/snapshot owners to document/index persistence, safe

@@ -1,5 +1,10 @@
 # Operation-local cache storage in TypeScript
 
+Reference upgrade: the active pin is now `db914cf06e2b06ee985646611b9e12ed7a770318`; see
+[the upgrade assessment](../CONVEX-REFERENCE-UPGRADE.md). The original source challenge and
+implementation evidence below retain their old pin and are not new-pin
+conformance. Revalidate affected contracts before dispatching runtime work.
+
 Design status: **Accepted implementation adaptation within the selected slice**.
 Implementation status: **Connected Application operation-local reader implemented**.
 Measurement status: **Complete-request performance unmeasured**.
@@ -10,7 +15,7 @@ not change snapshot, authority, ordering or absence guarantees.
 ## Pinned mechanism and reason
 
 At Convex `84fbb0e70b4e857913673871cb847ad11a55f3d5`,
-[DatabaseIndexSnapshotCache and range_batch](../../../../../../crates/indexing/src/backend_in_memory_indexes.rs)
+[DatabaseIndexSnapshotCache and range_batch](https://github.com/get-convex/convex-backend/blob/8636d94dffb494a8b963550ab36da1877a068001/crates/indexing/src/backend_in_memory_indexes.rs)
 keep ordered documents per index and complete intervals. Bodies populate before
 coverage. Lookup splits covered and missing components, limiting cached ranges
 per request to three. Cache size charges canonical bodies through the by-ID

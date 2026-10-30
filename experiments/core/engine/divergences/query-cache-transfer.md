@@ -1,5 +1,10 @@
 # Completed Application query cache handoff
 
+Reference upgrade: the active pin is now `db914cf06e2b06ee985646611b9e12ed7a770318`; see
+[the upgrade assessment](../CONVEX-REFERENCE-UPGRADE.md). The original source challenge and
+implementation evidence below retain their old pin and are not new-pin
+conformance. Revalidate affected contracts before dispatching runtime work.
+
 Design status: **Accepted bounded translation contract; activation requires the
 owning slice's writer, history and consumer proofs**.
 Implementation status: **Bounded Application query path implemented**.
@@ -22,7 +27,7 @@ idle cache after its configured transaction window.
 requires complete `(begin, end]` log coverage, drops unavailable indexes and
 applies writes. Missing retained log returns no reusable cache.
 
-[DatabaseIndexSnapshotCache::apply_write](../../../../../../crates/indexing/src/backend_in_memory_indexes.rs)
+[DatabaseIndexSnapshotCache::apply_write](https://github.com/get-convex/convex-backend/blob/8636d94dffb494a8b963550ab36da1877a068001/crates/indexing/src/backend_in_memory_indexes.rs)
 removes the old key, inserts the new body only inside previously complete
 coverage, preserves proven intervals and clears reuse on capacity failure.
 Same-key body changes still generate updates through

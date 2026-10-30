@@ -1,5 +1,10 @@
 # PostgreSQL-backed timestamped cache refresh
 
+Reference upgrade: the active pin is now `db914cf06e2b06ee985646611b9e12ed7a770318`; see
+[the upgrade assessment](../CONVEX-REFERENCE-UPGRADE.md). The original source challenge and
+implementation evidence below retain their old pin and are not new-pin
+conformance. Revalidate affected contracts before dispatching runtime work.
+
 Design status: **Accepted bounded translation contract; activation requires
 writer and connected-consumer proofs**. Implementation status: **Bounded Application query path implemented**.
 Measurement status: **Unmeasured**.
@@ -17,7 +22,7 @@ is unavailable. Its `index_keys_from_full_documents` derives those writes from
 full old/new document inputs through the
 [index registry](../../../../../../crates/indexing/src/index_registry.rs)
 derive old/new keys, including unchanged keys with changed document bodies.
-The [backend cache](../../../../../../crates/indexing/src/backend_in_memory_indexes.rs)
+The [backend cache](https://github.com/get-convex/convex-backend/blob/8636d94dffb494a8b963550ab36da1877a068001/crates/indexing/src/backend_in_memory_indexes.rs)
 applies these changes only to already complete intervals and clears on capacity
 failure. The source pin and active caller are recorded in the owning slice.
 

@@ -134,6 +134,15 @@ Current logical consumers and specialized physical catalogs/installers still
 coexist. Preserve their real obligations through connected replacement and
 explicit retained-data disposition; do not delete tables/checks in isolation.
 
+The active Convex pin is `db914cf06e2b06ee985646611b9e12ed7a770318`; see the
+[reference upgrade](../experiments/core/engine/CONVEX-REFERENCE-UPGRADE.md).
+The five-table selection is PostgreSQL-specific: selectable upstream MySQL V6
+also has latest/backfill-delete/bucketed index storage. It does not change our
+accepted starting point or justify extra physical families automatically.
+Translate the current engine's IndexRef, index write modes/predecessor evidence,
+idempotent backfill/reconciliation and document-pair retention through the shared
+persistence owner. A schema/table list alone does not supply those algorithms.
+
 ## Physical And Logical Model
 
 ```text

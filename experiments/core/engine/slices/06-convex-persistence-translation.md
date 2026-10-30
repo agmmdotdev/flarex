@@ -1,5 +1,10 @@
 # Translate finalized operations and versioned persistence
 
+Reference upgrade: the active pin is now `db914cf06e2b06ee985646611b9e12ed7a770318`; see
+[the upgrade assessment](../CONVEX-REFERENCE-UPGRADE.md). The original source challenge and
+implementation evidence below retain their old pin and are not new-pin
+conformance. Revalidate affected contracts before dispatching runtime work.
+
 Status: **Independent current-core, accepted-direction and pinned-Convex
 challenge plus peer exchange complete; connected contract preparation selected;
 runtime replacement unstarted**. Concrete caller/data conversion and native

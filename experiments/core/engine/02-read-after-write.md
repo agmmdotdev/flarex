@@ -1,5 +1,10 @@
 # Concept 02: read-after-write freshness
 
+Reference upgrade: the active pin is now `db914cf06e2b06ee985646611b9e12ed7a770318`; see
+[the upgrade assessment](CONVEX-REFERENCE-UPGRADE.md). The original source challenge and
+implementation evidence below retain their old pin and are not new-pin
+conformance. Revalidate affected contracts before dispatching runtime work.
+
 Status: **Accepted design direction; no implementation**. Ordinary new reads use
 the current ready app owner's latest fully published snapshot. New ordinary reads
 wait within a bounded deadline or fail explicitly during recovery. Cache warming
@@ -109,7 +114,7 @@ inspected files. No source translation or runtime change is authorized here.
 | [Committer persistence completion and publish_commit](../../../../../crates/database/src/committer.rs) | Apply change tracking/cache invalidation and publish the snapshot before sending the successful commit timestamp. |
 | [execute_public_query](../../../../../crates/application/src/api.rs), [ordinary HTTP query](../../../../../crates/local_backend/src/public_api.rs), [HTTP client query](../../../../../npm-packages/convex/src/browser/http_client.ts) | The ordinary path requests the latest server read timestamp without an additional timestamp-fetch call. Explicit historical queries are a distinct path. |
 | [Database::now_ts_for_reads and load](../../../../../crates/database/src/database.rs), [SnapshotManager::latest_ts](../../../../../crates/database/src/snapshot_manager.rs) | New reads use the safe published snapshot. Startup loads database state and initializes its snapshot manager before the database is ready. |
-| [new_idle_repeatable_ts](../../../../../crates/common/src/persistence.rs) | Establish a safe startup timestamp while holding the persistence lease with no concurrent persistence writes; future commits must be later. Do not copy only the maximum-timestamp calculation without its ownership conditions. |
+| [new_idle_repeatable_ts](https://github.com/get-convex/convex-backend/blob/8636d94dffb494a8b963550ab36da1877a068001/crates/common/src/persistence.rs) | Establish a safe startup timestamp while holding the persistence lease with no concurrent persistence writes; future commits must be later. Do not copy only the maximum-timestamp calculation without its ownership conditions. |
 | [RequestManager::onResponse and removeCompleted](../../../../../npm-packages/convex/src/browser/sync/request_manager.ts), [client transition handling](../../../../../npm-packages/convex/src/browser/sync/client.ts) | Successful mutation promises wait for applied query-state progress through the mutation timestamp. |
 | [sync Connect and MutationResponse handling](../../../../../crates/sync/src/worker.rs), [client reconnect](../../../../../npm-packages/convex/src/browser/sync/client.ts) | Mutation responses carry timestamps; reconnect carries highest observed progress and the server rejects a backwards view. |
 | [React client documentation](https://docs.convex.dev/client/react/overview) | Reactive queries receive updated results; pinned code establishes the exact promise/transition ordering used here. |

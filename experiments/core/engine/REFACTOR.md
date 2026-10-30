@@ -34,6 +34,11 @@ deployment gating and snapshot-based query admission. Numerical budgets,
 concrete fencing and storage/cache representation remain open; replication is explicitly
 deferred.
 
+Active Convex pin: `db914cf06e2b06ee985646611b9e12ed7a770318`.
+The [reference upgrade](./CONVEX-REFERENCE-UPGRADE.md) is part of this plan:
+revalidate affected earlier source challenges/divergences before runtime edits.
+Current owners and raw source identities are in [REFERENCES.md](../REFERENCES.md).
+
 ## Keep, adapt, replace and add
 
 The [Convex alignment findings](./CONVEX-ALIGNMENT.md) supply the source-grounded
@@ -155,12 +160,18 @@ record the inspected differences and remaining policy choices.
 
 | Convex responsibility to translate | Flarex destination contract |
 | --- | --- |
-| SnapshotManager and versioned table/schema/index registries | One portable app owner supplies a safe published snapshot, exact metadata dependencies, bounded history and retained-view eligibility. |
-| Transaction, TransactionReadSet, Writes and TransactionIndex | One operation owns reads, first-original/final pending values, ordered pending index deltas, nested checkpoints and accounting; finalization closes it and hands one final transaction to the committer. |
-| WriteLog and PendingWrites | Retain committed conflict history and accepted-but-unpublished writes; check both before acceptance. Publication also supplies local cache changes. |
-| Committer | Order acceptance, derive document/index changes, overlap eligible persistence, then publish/acknowledge in order; stop unsafe work and reconcile uncertainty. |
-| Persistence reader/writer and lease protection | Exact historical reads and bounded index pages, bootstrap/retention access, atomic fenced batches and authoritative outcomes. Drizzle/SQL stay below the engine boundary. |
+| SnapshotManager and versioned table/schema/index registries | One portable app owner supplies a safe published snapshot, exact metadata dependencies, versioned TableCounts, bounded history and retained-view eligibility. |
+| Transaction, TransactionReadSet, Writes and TransactionIndex | One operation owns reads, first-original/final pending values, cursor-bounded pending-page merge, nested checkpoints including TableCounts and accounting; finalization hands one final transaction to the committer. Preserve snapshot-derived time and commit-timestamp resolution at the correct phases. |
+| WriteLog and PendingWrites | Translate immutable per-index WriteLogSnapshot batches and FIFO PendingWrites with ordered PendingKeysInIndex overlap. Final acceptance checks residual committed history and every accepted pending write; publication also supplies local cache changes. |
+| Committer and WriteBatcher | Bound staged prevalidation/inflight work, carry validated_through, recheck the final published suffix and pending writes, assign logical timestamps and derive changes. Translate bounded group commit, eligible overlapping persistence and ordered publication/acknowledgement; reconcile batch-wide uncertainty with each logical outcome intact. |
+| Persistence reader/writer and lease protection | Exact historical reads, snapshot-consistent IndexRef identity, index write modes/predecessors, idempotent backfill/reconciliation, document-pair reclamation, read-only-aware leases and atomic fenced batches/outcomes. Drizzle/SQL stay below the engine boundary. |
 | Runtime adapter | DO lifecycle, scheduling, transport and optional local cache storage; no extra committed-data authority or SQL transaction across untrusted execution, workflow pauses or remote effects. |
+
+Rust background prevalidation/destruction threads do not translate to parallel
+JavaScript CPU work through promises. Choose DO scheduling and ordered/versioned
+structures with bounded work; record necessary adaptations while preserving final
+validation and recovery. Read-only bypass requires a finalized empty write set,
+including required outcome/system writes, not merely no user document changes.
 
 These are responsibilities, not mandatory new classes, packages, services or
 RPCs. Reuse correct existing owners/types and replace obstructing handoffs
@@ -191,6 +202,13 @@ migration families by default. Native constraints need shared enforcement;
 logical representation alone does not supply uniqueness or reference integrity.
 An extra physical family needs a demonstrated DO/native requirement and recorded
 divergence. Configured blob/control systems remain distinct from this base layout.
+
+This is the selected PostgreSQL adapter layout, not a universal Convex table
+count: selectable MySQL V6 now has latest/backfill-delete/bucketed index tables.
+Keep the PostgreSQL baseline. Current engine IndexRef/write-mode/predecessor,
+backfill reconciliation and storage-owned reclamation contracts must be mapped
+through it; richer engine metadata does not automatically require MySQL's tables.
+Do not remove current heads solely by claiming no upstream adapter has them.
 
 This is a mapping, not final DDL. Preserve required scope confinement and native
 identities, exact timestamp/value/key ordering, long-key handling, atomic durable
@@ -285,7 +303,13 @@ conflict against an accepted unsaved write; independent saves completing out of
 order; durable B hidden before the safe published prefix; missing/empty ranges,
 key moves and same-key body changes; first-original/final-write coalescing with
 per-call accounting; nested handler rollback; ownership replacement and unknown
-commit recovery. Run equivalent abstract Rust/TypeScript traces where harnesses
+commit recovery. Also cover prevalidation/final-acceptance races, multiple logical
+commits in one SQL batch with unknown outcomes, lease/read-only races, cursor-
+bounded short-page pending merges in both directions, TableCounts rollback,
+repeatable-timestamp race re-arming and historical index identity/backfill/
+reclamation. Schema validation and cache fills must handle index-metadata writes
+as well as row changes. See the [source-derived cases](./CONVEX-REFERENCE-UPGRADE.md#updated-correctness-cases-and-implementation-gates).
+Run equivalent abstract Rust/TypeScript traces where harnesses
 exist and both database lanes plus required host proofs for Flarex adaptations.
 Name policy-sensitive cases and resolve their Application/native disposition
 before changing observable behavior; a retained policy difference is not parity.
@@ -427,7 +451,7 @@ state remain request-owned. Shared cache lifetime does not extend an operation's
 deadline, snapshot eligibility or mutation authority.
 
 Inspect pinned [SnapshotManager](../../../../../crates/database/src/snapshot_manager.rs),
-[DatabaseIndexSnapshot::range_batch and fetch_cache_misses](../../../../../crates/indexing/src/backend_in_memory_indexes.rs),
+[DatabaseIndexSnapshot::range_batch and fetch_cache_misses](../../../../../crates/indexing/src/database_index_snapshot.rs),
 [IndexCache::get, populate and apply_writes](../../../../../crates/indexing/src/index_cache/mod.rs)
 and their relevant tests before implementation. The
 [reference map](../REFERENCES.md#engine-mechanism-reference-map) records the pin
