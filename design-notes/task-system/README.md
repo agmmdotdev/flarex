@@ -35,8 +35,15 @@ Do not implement another state machine from scratch after reading Trigger, or
 wrap the current custom decisions in a new package. The current code is a
 regression and integration baseline, not the new engine's implementation.
 
+Use **Convex-style internal logical system tables for storage and the independent
+Trigger fork for the engine**. The [storage reference](./02-logical-storage.md#convex-storage-reference)
+records the inspected Convex mechanism and its limits. Convex supplies the
+storage precedent; retained Trigger methods own Task lifecycle decisions.
+
 All Task-owned database state moves to private Flarex logical schemas over
-shared Postgres storage. This includes per-scope runs and platform-level Task
+shared Postgres storage. Each app/environment execution scope has private Task
+tables alongside its application/framework logical tables, installed and
+controlled by the platform. This includes per-scope runs and platform-level Task
 discovery, scheduler ownership and repair progress. **No current Task-specific
 physical table is a permanent exception, and no replacement Task-specific
 physical table set is the target.** General Flarex storage/catalog/settlement
@@ -52,7 +59,7 @@ truth, and host services wake or execute work.
 | Document | Owns |
 | --- | --- |
 | [Engine and integration](./01-engine-and-integration.md) | Adopted source, core feature scope, package boundaries and framework ownership |
-| [Logical storage](./02-logical-storage.md) | Private schemas, per-scope and platform state, transaction and discovery guarantees |
+| [Logical storage](./02-logical-storage.md) | Convex source precedent, private system tables, per-scope and platform state, atomic enqueue and discovery guarantees |
 | [Host adapters](./03-host-adapters.md) | Redis replacement, queues, timers, compute and host portability |
 | [Cutover and retirement](./04-cutover-and-retirement.md) | Isolated proof, consumers, development-data disposition, complete physical retirement and validation |
 | [Living roadmap](../../roadmaps/task-system/README.md) | Current baseline, open gates and implementation status |

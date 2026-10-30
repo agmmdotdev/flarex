@@ -29,7 +29,10 @@ older DTE documents are legacy evidence. No executable fork is activated here.
   entrypoints are not imported.
 
 Future integration retains and changes actual engine methods in the fork,
-with Flarex-owned logical storage, coordination and injected host capabilities.
+with [Convex-style internal logical storage](../../design-notes/task-system/02-logical-storage.md#convex-storage-reference),
+Flarex-owned coordination and injected host capabilities. This storage choice
+keeps the independent Trigger fork as the engine; it does not import Convex's
+scheduler or Workflow/Workpool components into the runtime.
 Trusted identity and artifact projections must be verified before execution.
 Compute providers keep infrastructure capabilities out of user code; no
 specific external compute product is required by the new Task direction.

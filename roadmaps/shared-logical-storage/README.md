@@ -2,8 +2,10 @@
 
 ## Status And Scope
 
-The separate [Task System replacement](../task-system/README.md) adopts these
-storage mechanics for all Task-owned scope and platform records, including
+The separate [Task System replacement](../task-system/README.md) adopts
+[Convex-style private system tables](../../design-notes/task-system/02-logical-storage.md#convex-storage-reference)
+over these shared storage mechanics, keeping its independent Trigger fork as
+the engine. This covers all Task-owned scope and platform records, including
 scheduler/discovery/repair state, and retires its entire physical Task schema.
 Its design is accepted and implementation pending. It does not silently add
 Task migration to the existing shared-storage completion scope below.

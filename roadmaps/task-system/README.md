@@ -55,15 +55,30 @@ workflow and compensation ownership.
 Adopt actual Trigger source once and maintain an independent fork; upstream
 sync and full feature parity are not goals. Start with one new private
 `@flarex/trigger-run-engine` package and adapt existing infrastructure owners.
-All Task-owned state, including platform discovery and repair metadata, uses
-logical storage. Retire all Task-specific physical schemas after cutover.
+Use Convex-style private logical system tables over shared FlarexDB physical
+storage for all Task-owned state, including platform discovery and repair
+metadata. The Trigger fork remains the engine. Each app/environment binds the
+platform-maintained Task definitions alongside its app/framework logical data;
+installation creates no dedicated Task SQL schema/table/index family. Retire
+all Task-specific physical schemas after cutover.
 Cloudflare delivery/timer/compute adapters are first; AWS is an extension point.
 Cloudflare Workflows does not become a second lifecycle owner.
 
 ## Convex Compatibility And Flarex Divergences
 
+The [pinned storage reference](../../design-notes/task-system/02-logical-storage.md#convex-storage-reference)
+traces Convex's internal job/argument tables through shared document persistence
+and due-time indexes. Adopt that storage ownership model while keeping the
+Trigger fork's lifecycle methods. Convex's scheduler/Workflow/Workpool are not
+replacement engines. Flarex uses bounded partition discovery and repair rather
+than copying an unrestricted scan of application namespaces.
+
 Preserve server-side scheduled work, private runtime artifacts and mutation
-publication semantics. The native [Convex scheduler](../../../../npm-packages/convex/src/server/scheduler.ts)
+publication semantics. The [atomic enqueue contract](../../design-notes/task-system/02-logical-storage.md#atomic-enqueue-and-external-effects)
+requires business writes and their enqueue obligation to settle together;
+idempotent run creation may follow from durable intent. It does not imply that
+the run record shares the business transaction or that remote effects are atomic.
+The native [Convex scheduler](../../../../npm-packages/convex/src/server/scheduler.ts)
 distinguishes scheduled mutations and actions. Explicit durable Tasks add retry
 and continuation behavior through their own definition/attempt contract; do not
 change ordinary Action semantics. Flarex scope/Postgres/host boundaries and
@@ -100,7 +115,7 @@ installation has no custom parallel lifecycle or Task-specific physical tables.
 | Gate | Observable exit criterion | Status |
 | --- | --- | --- |
 | Source and contract admission | Exact adopted methods/tests/dependencies, private package boundaries, finite store operations, transaction/claim/visibility contract and numeric bounds are specified against current consumers | Pending |
-| Logical state and discovery | Both database lanes prove private scope/platform installation, atomic indexed claims, directory repair, fencing and bounded progress without Task-specific physical tables | Pending |
+| Logical state and discovery | Both database lanes prove private scope/platform system-table installation over shared storage, no per-app Task DDL, atomic indexed claims, directory repair, fencing and bounded progress without Task-specific physical tables | Pending |
 | Connected fork proof | Adopted methods execute enqueue through terminal/retry/cancel and fresh-host recovery, with required wait/resume behavior and injected hosts | Pending |
 | Framework cutover | Application, Payload and a real Medusa consumer share the engine; enqueue rollback/crash/replay and native contexts/child outcomes are proven; displaced paths are removed | Pending |
 | Complete retirement | Concrete development-data disposition is executed, no old lifecycle or Task-specific physical objects remain on supported installs, and guards/setup/tests match the new owner | Pending |

@@ -9,9 +9,12 @@ implementation acceptance criteria, not completed capabilities or measured gains
 
 ## Decision And Authority
 
-The [Task System design](./task-system/README.md) extends this shared-storage
-destination to every Task-owned record, including private platform-level
-discovery and scheduler/repair state. Its [roadmap](../roadmaps/task-system/README.md)
+The [Task System design](./task-system/README.md) adopts
+[Convex-style internal system tables](./task-system/02-logical-storage.md#convex-storage-reference)
+over this shared-storage destination, with its independent Trigger fork as the
+engine. Platform-maintained logical definitions cover each app/environment's
+Task records and private platform discovery and scheduler/repair state; they
+create no dedicated Task SQL schema/table/index family. Its [roadmap](../roadmaps/task-system/README.md)
 owns the separate pending Task cutover. No Task-specific physical table is
 retained as a control-plane exception. General core physical infrastructure
 remains; Task scope does not expand the existing framework completion plan.

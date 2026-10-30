@@ -70,8 +70,10 @@ new framework storage or runtime scalability work.
 The [Task System roadmap](./task-system/README.md) and
 [independent Trigger fork design](../design-notes/task-system/README.md) own
 current Task direction. Adopt the existing engine source once, maintain it
-independently, use private logical storage for all Task-owned state, inject host
-adapters, and retire the entire Task-specific physical schema after cutover.
+independently, use [Convex-style private logical system tables](../design-notes/task-system/02-logical-storage.md#convex-storage-reference)
+for all Task-owned state, inject host adapters, and retire the entire
+Task-specific physical schema after cutover. Trigger remains the engine;
+Convex supplies the storage precedent.
 The old `durable-task-engine` folder is legacy baseline/source evidence,
 including its replacement preflights. Its historical next steps are not active
 work. The new direction is accepted; runtime implementation remains pending.
@@ -135,7 +137,7 @@ with domain rationale in
 | [`35-commit-compiler-and-session-intent.md`](./35-commit-compiler-and-session-intent.md) | Logical session journal, trusted planner/executor split, exact snapshots, idempotency, and conditional SessionDO journaling. |
 | [`42-standard-application-apis.md`](./42-standard-application-apis.md) and [`50-clean-application-apis.md`](./50-clean-application-apis.md) | Stable workspace-internal application stages plus the accepted clean API migration. `CAPI-A` provides the private unversioned Application Definition facade, `CAPI-B` moves developer and reusable system-test definition/source producers onto it, and `CAPI-C` adds separate clean query, mutation, and Action invocation primitives; system-test facade migration, public, and production gates remain pending. Concrete wire and persisted contracts keep versions where exact compatibility requires them. |
 | [`relational-standard-apis/`](./relational-standard-apis/README.md) | Active focused plan and capability ledger for raising the implemented private native relation core through typed Standard Application definition and function-runtime APIs, then composing those same APIs in the system-test facade. It records the supported initial profile, every deliberately unsupported capability and rationale, and the gates required before public or reactive claims. |
-| [`task-system/`](./task-system/README.md) | Active Task replacement authority: independently maintained Trigger fork, all Task-owned state in logical schemas, injected hosts and complete legacy/physical retirement. Design accepted; implementation pending. |
+| [`task-system/`](./task-system/README.md) | Active Task replacement authority: independently maintained Trigger engine fork, Convex-style private logical system tables, injected hosts and complete legacy/physical retirement. Design accepted; implementation pending. |
 
 ## Cross-Cutting Engineering Guidance
 

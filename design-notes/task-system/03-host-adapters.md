@@ -10,6 +10,13 @@ The fork decides task transitions. FlarexDB retains durable truth. Host services
 wake or execute work; their acknowledgements do not commit Task outcomes.
 Retain/adapt useful current host mechanics while removing duplicated task policy.
 
+The [Convex-style storage decision](./02-logical-storage.md#convex-storage-reference)
+makes logical job state and due indexes durable in FlarexDB. A queue or timer
+wakes a bounded handler, which resolves scope, reads due work and invokes the
+Trigger fork through authoritative claims. The database retains the obligation
+through lost wakes and host restarts; bounded repair supplies eventual discovery.
+Neither a logical table nor a queue alone supplies the complete execution engine.
+
 | Trigger/Redis responsibility | Replacement owner |
 | --- | --- |
 | Queue eligibility, sorted pending work and capacity reservations | Logical indexed Task records plus atomic core-backed claims/releases |

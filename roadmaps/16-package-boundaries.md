@@ -226,8 +226,10 @@ The following destination is accepted but not implemented:
   Redis, Redlock, host SDKs, backend/apps or the frozen source island. Adapted
   source belongs in the root-owned fork, with provenance and notices preserved.
 - Existing persistence owners implement private logical Task storage and core
-  transaction integration. All Task-owned scope/platform state is logical,
-  including discovery, scheduler and repair records. Retire the entire old
+  transaction integration using the [Convex-style system-table model](../design-notes/task-system/02-logical-storage.md#convex-storage-reference).
+  Convex is the storage reference; the Trigger fork remains the Task engine.
+  All Task-owned scope/platform state is logical, including discovery,
+  scheduler and repair records. Retire the entire old
   Task-specific physical schema; no new physical Task table set is admitted.
 - Existing executor/backend/runtime owners implement delivery, timers, trusted
   definition resolution and compute adapters. Cloudflare is first; another

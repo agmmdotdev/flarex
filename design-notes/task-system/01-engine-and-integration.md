@@ -106,6 +106,13 @@ arbitrary process suspension on Cloudflare Workers.
 
 ## Convex Developer Model
 
+The [Convex storage reference](./02-logical-storage.md#convex-storage-reference)
+governs how Task state uses internal logical system tables over shared physical
+storage. This is a storage adoption, not a switch to Convex's scheduler,
+Workflow or Workpool implementation. The independently maintained Trigger fork
+remains the sole Task lifecycle engine; its store adapter maps retained engine
+operations to private Flarex logical records.
+
 The repository's [Convex scheduler](../../../../npm-packages/convex/src/server/scheduler.ts)
 is the reference for server-side scheduled invocation and cancellation. It
 distinguishes retried scheduled mutations from at-most-once scheduled actions.
@@ -113,3 +120,6 @@ The Trigger-derived Task primitive deliberately adds independently bound attempt
 retry policy and workflow continuations; do not silently change Action or
 mutation semantics to match Tasks. Backend analysis continues to own deployed
 function metadata and managed execution artifacts stay private.
+The [atomic enqueue contract](./02-logical-storage.md#atomic-enqueue-and-external-effects)
+preserves mutation commit/rollback coupling without asserting cross-scope
+atomicity or exactly-once external effects.

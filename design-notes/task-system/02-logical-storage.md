@@ -3,6 +3,8 @@
 Status: **accepted storage destination; schema and runtime proofs pending**.
 The [Task design index](./README.md) and
 [shared logical storage design](../flarexdb-shared-logical-storage.md) govern.
+The accepted pairing is Convex-style internal logical storage with the
+independently maintained Trigger fork as the Task engine.
 
 ## All Task-Owned State Is Logical
 
@@ -29,6 +31,44 @@ directory may reference the existing general Flarex locator/catalog; it must
 not duplicate that authority. Generic physical storage, core catalog, core
 settlement and other genuinely shared infrastructure remain with their owners.
 This does not authorize deleting all physical system tables in Flarex.
+
+## Convex Storage Reference
+
+The inspected source is the enclosing Convex checkout at
+`84fbb0e70b4e857913673871cb847ad11a55f3d5`, matching the
+[core source identity](../../experiments/core/REFERENCES.md#convex-source-identity).
+The inspected files match that local revision. This identifies the
+open-source mechanism; it is not a claim about Convex Cloud's private deployment
+or a requirement to copy Convex's SQL layout or system-table names.
+
+| Convex source | Mechanism | Flarex decision |
+| --- | --- | --- |
+| [Scheduler model](../../../../crates/model/src/scheduled_jobs/mod.rs) and [argument table](../../../../crates/model/src/scheduled_jobs/args.rs) | `_scheduled_jobs` and `_scheduled_job_args` are internal logical system tables; `SchedulerModel::schedule` inserts their records in its supplied transaction | Register platform-owned Task logical definitions and records through existing Flarex catalog, storage and settlement owners |
+| [System metadata model](../../../../crates/database/src/bootstrap_model/system_metadata.rs) | `SystemMetadataModel::insert_metadata` resolves a namespaced table identity and calls the shared transaction's document insertion path | Reuse shared logical persistence with trusted private capabilities; no separate Task SQL persistence family |
+| [Virtual table mapping](../../../../crates/model/src/scheduled_jobs/virtual_table.rs) | `_scheduled_functions` exposes a developer-facing projection of internal job records | Preserve admitted Task status/cancel APIs; storage sharing does not expose raw lifecycle writes or automatically add a `db.system` API |
+| [PostgreSQL persistence](../../../../crates/postgres/src/sql.rs) | Shared physical `documents` and `indexes` carry logical table/index identities; multitenant mode also uses `instance_name` | Keep Flarex's shared physical storage families and authenticated scope identities; per-app Task schemas do not create PostgreSQL schemas, tables or indexes |
+| [Scheduler execution](../../../../crates/application/src/scheduled_jobs/mod.rs) | `ScheduledJobContext::stream_jobs_to_run` queries the logical `by_next_ts` index across known namespaces | Discover due work through bounded indexed logical reads; the Trigger fork drives admitted claims and transitions, with host wake-ups injected |
+
+Convex's PostgreSQL adapter still creates a general SQL namespace and shared
+infrastructure tables. The relevant property is the absence of a dedicated SQL
+table family for scheduled jobs. Flarex likewise retains generic physical
+storage/catalog/settlement infrastructure while retiring every Task-specific
+physical object.
+
+For Flarex, a Task logical schema is a platform-maintained set of table, index
+and constraint definitions bound to a private execution or platform scope.
+It is installed alongside app/framework logical data without app-authored
+schema definitions or per-app SQL DDL. Shared backing tables do not collapse
+those scopes, permissions or transaction profiles.
+
+This storage decision does not adopt Convex's scheduler implementation, Workflow
+component or Workpool as another Task engine. The Trigger fork retains the
+required attempt, retry, cancellation, waitpoint and recovery methods. The
+Convex action/mutation distinction remains a separate
+[developer contract](./01-engine-and-integration.md#convex-developer-model).
+Flarex's partitioned placement, private platform discovery and bounded repair
+are explicit adaptations: Convex's namespace enumeration is source evidence,
+not permission to scan every Flarex application on each scheduler wake.
 
 ## Installation, Access And Lifetime
 
@@ -104,10 +144,27 @@ bodies require an explicit storage design, never an automatic fallback. Existing
 general artifact/input/result object-storage owners may be reused where admitted;
 their Task-owned database references still follow the logical-storage rule.
 
-Business operations record enqueue intent through their existing durable
-publication/outbox owner; idempotent Task creation follows. Direct enlisted
-creation requires proved shared settlement and placement. Colocation alone
-does not make two independently committed calls atomic.
+## Atomic Enqueue And External Effects
+
+Preserve Convex's mutation scheduling property: a committed business mutation
+must also durably commit its enqueue obligation, and rollback must leave no
+obligation. In Convex, `SchedulerModel::schedule` writes through the mutation's
+transaction. In Flarex, business operations record enqueue intent through their
+existing durable publication/outbox owner in the business transaction;
+idempotent Task creation follows. This commits the obligation atomically, not
+necessarily the final Task run record in that same transaction.
+
+Direct enlisted Task creation requires proved shared settlement and placement.
+Colocation alone does not make two independently committed calls atomic. A
+business commit followed only by a queue send or a separate best-effort Task
+insert is insufficient. Prove rollback, crash after commit before delivery,
+duplicate delivery and lost commit-response recovery through the selected owner.
+
+External actions/handlers run after settlement. They may enqueue further work
+in separately committed operations; a later handler failure does not roll back
+those commits. Trigger retry policy applies only to explicitly admitted Task
+attempts. Logical persistence does not make external side effects exactly once
+or silently change ordinary Application action semantics.
 
 ## Acceptance And Cost
 

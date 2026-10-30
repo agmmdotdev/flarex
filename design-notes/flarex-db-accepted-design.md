@@ -137,9 +137,14 @@ connected replacement and its cutover are separately selected and proved.
 The accepted [independent Trigger fork design](./task-system/README.md) owns
 Task-specific architecture and the [Task roadmap](../roadmaps/task-system/README.md)
 owns its pending implementation gates. Adopt actual Trigger engine source and
-maintain the fork independently. All Task-owned database state uses private
-logical schemas, including platform discovery, scheduler ownership and repair
-progress. The full current Task-specific physical schema is a retirement target;
+maintain the fork independently. Adopt the [Convex-style storage model](./task-system/02-logical-storage.md#convex-storage-reference):
+platform-owned internal logical tables and indexes over shared physical storage,
+with the Trigger fork retaining Task lifecycle ownership. All Task-owned database
+state uses private logical schemas bound to app/environment or platform scopes,
+including discovery, scheduler ownership and repair progress. Business writes
+and enqueue obligations share settlement through the admitted publication owner;
+separate Task creation and external execution do not become implicitly atomic.
+The full current Task-specific physical schema is a retirement target;
 there is no routing/control/repair exception or new dedicated physical Task
 table set. General shared storage/catalog/settlement infrastructure remains.
 The old Task designs and DTE folder are legacy evidence. This decision does

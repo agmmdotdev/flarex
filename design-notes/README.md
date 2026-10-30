@@ -90,9 +90,11 @@ For Task engine, storage, scheduling, compute and migration work, start with
 [Task System: Independent Trigger Fork](./task-system/README.md) and the
 [current roadmap](../roadmaps/task-system/README.md). The accepted target adopts
 actual Trigger methods once, maintains the fork independently, stores all
-Task-owned state in private logical schemas (including platform scheduler and
-repair data), and injects host adapters. Full Task-specific physical retirement
-is required after cutover. Runtime implementation remains pending.
+Task-owned state in [Convex-style private logical system tables](./task-system/02-logical-storage.md#convex-storage-reference)
+(including platform scheduler and repair data), and injects host adapters.
+Convex supplies the storage precedent; the Trigger fork remains the engine.
+Full Task-specific physical retirement is required after cutover. Runtime
+implementation remains pending.
 
 The two earlier Task design notes and the entire `durable-task-engine` roadmap
 folder are legacy/superseded direction. Preserve applicable baseline behavior
@@ -134,7 +136,8 @@ and source evidence, but do not resume their old next-step instructions.
 
 - [Task System: Independent Trigger Fork](./task-system/README.md)
   - Current accepted Task architecture. Focused documents own engine adoption,
-    all-logical storage, injected host adapters and complete cutover/retirement.
+    Convex-style logical storage, injected host adapters and complete
+    cutover/retirement.
     The [Task roadmap](../roadmaps/task-system/README.md) owns pending gates.
 
 - [Legacy shared-task replacement proposal](./flarexdb-shared-task-system.md)
