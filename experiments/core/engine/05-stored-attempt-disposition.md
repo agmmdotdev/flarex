@@ -1,9 +1,11 @@
 # Stored Application attempt disposition
 
-Status: **Open owner decision for Standard cutover**. The
+Status: **Accepted retirement policy; implementation and connected proof open**. The
 [04C3 source challenge](./slices/04c3-standard-finite-execution.md) established this
-specific historical-data gap. It does not authorize deletion, retirement, a new
-body, or publication of an unproven seal.
+specific historical-data gap. The owner selected retirement of affected unfinished
+Application attempts after PostgreSQL reconciles their outcome. This authorizes
+that bounded lifecycle transition, not deletion, a new body or publication of an
+unproven seal.
 
 ## Evidence and boundary
 
@@ -30,33 +32,48 @@ Keep separate:
   PostgreSQL result. Do not reject it because its old producer cannot run now.
 - **Uncertain settlement:** reconcile through the existing owner. A missing
   acknowledgement does not establish absence or permit another body.
-- **Uncommitted old attempt:** its continuation/retirement needs a safe policy.
-  Never publish missing range evidence, synthesize a newer readset, or replay
-  native hooks to hide the gap.
+- **Affected uncommitted old attempt:** retire it through authenticated lifecycle
+  owners after conclusive reconciliation. Never publish missing range evidence,
+  synthesize a newer readset, or replay native hooks to hide the gap.
 
 This decision concerns old Standard Application attempts. Historical `systemV1`
 and native command consumers require their own actual obligation and authority;
 it is not permission to retire every persisted execution profile.
 
-## Proposed disposition for owner review
+## Accepted disposition
 
-Prefer explicit retirement of affected old, uncommitted Standard Application
-attempts after authoritative settlement reconciliation. Preserve all committed
-outcomes and historical bytes. Use existing authenticated expiry/abort owners
-where their preconditions hold; do not invent a finalizer, reset tables or
+Retire affected old, uncommitted Standard Application attempts after authoritative
+PostgreSQL settlement reconciliation. Preserve all committed outcomes and
+historical evidence bytes. Use existing authenticated expiry/abort/terminal-result
+owners where their preconditions hold; do not invent a finalizer, reset tables or
 automatically enter a fresh body. A fresh request requires conclusive old
 nonacceptance and its own valid authority.
 
-Alternatively, retain a bounded compatibility recovery path only for cases whose
-persisted evidence proves safe continuation; unproven cases remain refused.
-Name those consumers, the proof, and the eventual removal gate. Neither option
-permits finishing an unsafe seal.
+The selected order is:
 
-The owner still needs to choose the retention/retirement policy. Reuse existing
-terminal-result owners; a required public-contract change needs its own explicit
-record. Implementation must establish how affected attempts are
-identified, recover unknown commits first, and exercise the real lifecycle
-writers on both databases. This document supplies no implicit data reset.
+1. Authenticate the stored request, identity/profile and exact original evidence.
+2. Reconcile PostgreSQL settlement. A committed outcome remains replayable;
+   an uncertain outcome remains recovery-only and never grants another execution.
+3. Identify affected unfinished Application attempts whose old range evidence
+   cannot establish safe continuation. Refuse unsafe finishing and retire them
+   only after conclusive noncommit and the existing fencing/lifecycle preconditions.
+4. Preserve historical records and immutable evidence. A lifecycle terminal marker
+   does not authorize rewriting old reads, deleting receipts or resetting data.
+5. Project the retirement through the actual terminal-result owner. Do not
+   silently convert redispatch into a fresh mutation or replay native effects.
+
+The alternative of preserving a compatibility finisher for an unproven old seal
+is not selected. This does not retire every old profile or reject already
+committed results. Historical `systemV1` and native command obligations remain
+separate; unaffected evidence requires its actual classification rather than a
+blanket age cutoff.
+
+Before runtime edits, the required source challenge must record classification,
+in-flight fencing, uncertain-outcome reconciliation, terminal projection and
+removal boundaries. Reuse existing terminal-result owners; record any necessary
+public-contract difference explicitly. Implementation must exercise the real
+lifecycle writers and recovery on both databases. The policy is accepted; these
+implementation gates are not yet proven. No data reset is authorized.
 
 ## References
 

@@ -16,8 +16,9 @@ broader native integration remain open. The next
 [mutation pending-state replacement](./slices/04-mutation-pending-state.md) has
 completed independent source challenge. Range evidence, incremental shared-root
 indexes, operation admission and exact original finite preparation are implemented.
-The [ordinary Standard cutover](./slices/04c3-standard-finite-execution.md) and
-[stored-attempt disposition](./05-stored-attempt-disposition.md) remain open.
+The [ordinary Standard cutover](./slices/04c3-standard-finite-execution.md) remains
+open. The [stored-attempt retirement policy](./05-stored-attempt-disposition.md) is
+accepted; classification, reconciliation and retirement implementation remain gates.
 The accepted [replacement workflow](./REFACTOR.md#convex-guided-replacement-workflow)
 does not require this whole queue to be answered before a bounded slice can
 start. An unresolved guarantee pauses the affected path, not independent work;
@@ -255,8 +256,9 @@ owns incremental index maintenance, both Application/native write paths,
 untrusted syscall admission, nested-lifecycle witnesses and stored-profile
 cutover prerequisites. Native replay eligibility is unchanged. The next connected
 [Standard replacement](./slices/04c3-standard-finite-execution.md) has completed
-independent challenge and peer exchange; the concrete historical-data decision is
-[stored Application attempt disposition](./05-stored-attempt-disposition.md).
+independent challenge and peer exchange; the accepted historical-data policy is
+[stored Application attempt retirement](./05-stored-attempt-disposition.md). Its
+executing classification, recovery and lifecycle proofs remain open.
 
 References: Convex [reads](../../../../../crates/database/src/reads.rs),
 [writes](../../../../../crates/database/src/writes.rs) and

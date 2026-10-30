@@ -60,6 +60,16 @@ authorize production rollout. Agents must inspect active callers as well as
 mechanism definitions; dedicated [divergence records](./divergences/README.md)
 explain every necessary mechanism difference before affected implementation.
 
+## Accepted stored Application attempt disposition
+
+The owner selected [retirement of affected unfinished Application attempts](./05-stored-attempt-disposition.md)
+after PostgreSQL outcome reconciliation. Committed outcomes remain replayable;
+uncertain settlement remains recovery-only and never permits another body.
+Preserve historical evidence and use the actual authenticated lifecycle and
+terminal-result owners. This is not blanket retirement of systemV1/native
+profiles or authorization to delete/reset data. Classification, fencing,
+retirement routing and real recovery proofs remain implementation gates.
+
 ## Accepted refactor and development rules
 
 The owner selected [refactoring the existing core](./REFACTOR.md), retaining
