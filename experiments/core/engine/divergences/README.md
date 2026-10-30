@@ -73,6 +73,7 @@ evidence, retaining the accepted decision link.
 | [Native Application relation maintenance](./native-application-relation-maintenance.md) | Bounded source-CMS replacement implemented / Unmeasured. Original Application relation authority joins native publication while logical data schema, existing locks and single publisher remain distinct. |
 | [Empty Application source projection](./empty-application-source-projection.md) | Bounded publisher correction implemented / Unmeasured. Keep canonical empty Application evidence without inventing a serving table; native policy and missing-root refusals remain. |
 | [Retained Application attempt retirement](./retained-application-attempt-retirement.md) | Policy and three-way source challenge complete / Retained lifecycle direction selected; runtime unstarted / Unmeasured. Reconcile under existing fencing, retain original evidence and project explicit non-success only after settlement. |
+| [Cross-domain Application relation maintenance](./cross-domain-application-relation-maintenance.md) | Three-way source challenge and peer exchange complete / Replacement selected; runtime unstarted / Unmeasured. Carry one genuine retained relation pair through the existing joint Application/Payload/Currency materializer and publisher. |
 
 | Record | Design / implementation / measurement status |
 | --- | --- |
