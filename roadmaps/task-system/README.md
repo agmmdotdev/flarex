@@ -2,8 +2,8 @@
 
 ## Status And Scope
 
-Status: **active implementation goal; portable adopted attempt-start component
-implemented; shared-core integration remains open**.
+Status: **paused implementation goal; portable adopted attempt-start component
+implemented; storage work checkpointed for translated-core reconciliation**.
 The [independent Trigger fork design](../../design-notes/task-system/README.md)
 owns architecture. The [goal](./GOAL.md) authorizes bounded implementation using
 the [challenge/worker/review workflow](./WORKFLOW.md). This roadmap owns current
@@ -12,6 +12,11 @@ implementation remains operational for admitted private consumers until cutover.
 The new fork package has a portable attempt-start component. Logical Task
 installation, a live core borrower, runtime migration, data reset and hosted
 activation remain unimplemented.
+
+The [revised connected slice](./slices/04-translated-core-integration.md) targets
+the accepted Convex TypeScript/Drizzle rewrite, including physical persistence.
+Uncommitted candidate/source/provisioning/publication experiments are preserved
+as evidence; their current APIs and storage assumptions are not the target.
 
 Start at the [source map](./REFERENCES.md), [consumer baseline](./baseline/README.md),
 [decisions](./DECISIONS.md), [question queue](./OPEN-QUESTIONS.md) and
@@ -134,8 +139,9 @@ read/write/cache integration is pending. Persistent DO SQLite caching is not
 an implemented Task capability. Cache eligibility must preserve Task visibility,
 fresh claims, private scope access and atomic settlement.
 Shared schema lifecycle consolidation and authenticated platform installation
-remain pending. The current `system` source label does not remove mandatory
-Application-analysis coordinates or establish a system serving capability.
+remain pending. The committed baseline's `system` label does not remove mandatory
+Application-analysis coordinates. The preserved V3 experiment does not establish
+a usable system serving capability either.
 Task schema versions/lifetimes must remain independent of app code redeployment.
 
 ## Target Direction
@@ -150,7 +156,7 @@ installation has no custom parallel lifecycle or Task-specific physical tables.
 
 | Gate | Observable exit criterion | Status |
 | --- | --- | --- |
-| Source and contract admission | Exact adopted methods/tests/dependencies, private package boundaries, finite store operations, transaction/claim/visibility contract and numeric bounds are specified against current consumers | In progress: independent challenge and peer exchange complete; exact runtime contract still open |
+| Source and contract admission | Exact adopted methods/tests/dependencies, private package boundaries, finite store operations, transaction/claim/visibility contract and numeric bounds are specified against current consumers | Prior-pin challenge and peer exchange complete; active-pin refresh and exact runtime contract open; execution paused |
 | Logical state and discovery | Both database lanes prove private scope/platform system-table installation over shared storage, no per-app Task DDL, atomic indexed claims, directory repair, fencing and bounded progress without Task-specific physical tables | Pending |
 | Shared schema lifecycle | Core APIs install/evolve Task definitions with authenticated system authority, no fabricated Application analysis, bootstrap/restart before engine execution, replay-safe progress, dependency/readiness/activation checks and no Task-specific installer | Pending |
 | Shared core indexes and DO cache | Task point/range reads, index maintenance and every admitted writer use core owners; warm/cold reads, invalidation/refresh, scope isolation and DO restart preserve freshness and claim authority without a separate Task database/cache layer | Pending |
@@ -161,7 +167,7 @@ installation has no custom parallel lifecycle or Task-specific physical tables.
 
 These gates describe connected outcomes, not a requirement for one commit or
 package per row. An isolated fork proof precedes caller migration; each activated
-cutover includes its own cleanup. The active goal authorizes bounded runtime
+cutover includes its own cleanup. When resumed, the goal authorizes bounded runtime
 work after source convergence, explicit worker scope and ownership coordination.
 General advanced evolution, public/production activation and unspecified data
 deletion remain outside that authorization.

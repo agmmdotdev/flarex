@@ -1,7 +1,8 @@
 # Trigger-Derived Task Replacement Goal
 
-Status: **active implementation goal; portable attempt-start component
-implemented; connected replacement runtime not implemented**.
+Status: **paused implementation goal; portable attempt-start component
+implemented; storage integration checkpointed for translated-core reconciliation;
+connected replacement runtime not implemented**.
 The owner authorized this goal after
 accepting the independent Trigger fork and shared-core direction. This goal
 supersedes the earlier documentation-only implementation boundary for this
@@ -16,6 +17,15 @@ methods and tests. Migrate admitted consumers and remove the displaced lifecycle
 and every Task-specific physical database representation. Preserve named durable
 data and external identities through an explicit migration/reset disposition.
 Generic Flarex physical infrastructure remains with its existing owners.
+
+The [accepted total core rewrite](../../design-notes/flarex-db-accepted-design.md#portable-core-refactor-direction)
+governs the storage integration: translate pinned Convex mechanisms and physical
+persistence into the current TypeScript/Drizzle core. Task adapters/producers
+consume its shared logical schema/index/operation/persistence owners. Current
+internal APIs, layouts, installers and migration contracts are replaceable.
+The [revised integration slice](./slices/04-translated-core-integration.md) owns
+the next source challenge; the checkpointed current-code implementation does
+not freeze those old contracts or reduce this goal's finish line.
 
 The goal is complete only when:
 
@@ -71,7 +81,7 @@ worker ownership. Accepted routine adaptations and necessary internal breaks
 within scope may proceed without repeated approval. Record unresolved changes
 to guarantees and pause only the affected path; continue independent work.
 
-The existing core refactor is a separately owned active goal. Inspect status and
+The existing core refactor is a separately owned goal. Inspect status and
 overlap before assigning shared-owner changes; establish explicit ownership
 handoff or an independent boundary before editing another session's work. Never
 revert, stage or commit unrelated changes. Shared core defects are corrected at

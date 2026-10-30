@@ -1,11 +1,13 @@
 # Task Replacement Open Questions
 
-Status: **active unresolved queue within the authorized goal**. The first source
+Status: **open unresolved queue within the paused goal**. The first source
 challenge may refine these boundaries; do not treat an unproved recommendation
 as an accepted runtime guarantee. [DECISIONS](./DECISIONS.md) owns selected choices.
 
 | Question | Affected work | Required disposition |
 | --- | --- | --- |
+| Which translated core bootstrap/operation/persistence contract serves private Task schemas? | Next integration slice | Derive it from the pinned mechanisms and physical translation together; current candidate/envelope/clock APIs are replaceable, and no new Task authority may duplicate the core |
+| Does the selected cutover require old physical writers to coexist? | Fresh namespace admission | Preserve the actual orphan/racing-writer witnesses; current fresh-generation option is unproved. Choose shared target fencing and explicit old-writer/data disposition before extending a transitional lease-column proposal |
 | Which further lifecycle/source closures must be promoted? | Source promotion | Attempt start/snapshot/reached cap failure are adopted and mapped in the new package; independently challenge creation/claims/completion/retry/waits before extending it |
 | How does trusted system schema admission bootstrap without Application analysis? | Task installation | Extend existing authenticated producer/target/catalog/readiness owners; label/digest alone is insufficient |
 | Which shared core operations preserve fresh claims and waitpoint races? | Store/transaction integration | Prove locks, database time, fences, READ COMMITTED visibility and uncertain-outcome reconciliation without adopting Application OCC implicitly |

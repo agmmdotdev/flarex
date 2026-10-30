@@ -93,7 +93,7 @@ with writer/freshness proofs; it builds no separate database or cache layer.
 The old `durable-task-engine` folder is legacy baseline/source evidence,
 including its replacement preflights. Its historical next steps are not active
 work. The new direction is accepted; runtime implementation remains pending.
-The [Task goal](./task-system/GOAL.md) is now active, using independent source
+The [Task goal](./task-system/GOAL.md) is paused. Its workflow uses independent source
 challenges, peer exchange, explicitly owned workers and required code reviews.
 Its first runtime contract is under refinement; the old engine remains active.
 
@@ -156,7 +156,7 @@ with domain rationale in
 | [`35-commit-compiler-and-session-intent.md`](./35-commit-compiler-and-session-intent.md) | Logical session journal, trusted planner/executor split, exact snapshots, idempotency, and conditional SessionDO journaling. |
 | [`42-standard-application-apis.md`](./42-standard-application-apis.md) and [`50-clean-application-apis.md`](./50-clean-application-apis.md) | Stable workspace-internal application stages plus the accepted clean API migration. `CAPI-A` provides the private unversioned Application Definition facade, `CAPI-B` moves developer and reusable system-test definition/source producers onto it, and `CAPI-C` adds separate clean query, mutation, and Action invocation primitives; system-test facade migration, public, and production gates remain pending. Concrete wire and persisted contracts keep versions where exact compatibility requires them. |
 | [`relational-standard-apis/`](./relational-standard-apis/README.md) | Active focused plan and capability ledger for raising the implemented private native relation core through typed Standard Application definition and function-runtime APIs, then composing those same APIs in the system-test facade. It records the supported initial profile, every deliberately unsupported capability and rationale, and the gates required before public or reactive claims. |
-| [`task-system/`](./task-system/README.md) | Active Task replacement authority: independently maintained Trigger engine fork, Convex-style private logical system tables, injected hosts and complete legacy/physical retirement. Portable adopted attempt-start component implemented; shared-core/consumer integration pending. |
+| [`task-system/`](./task-system/README.md) | Task replacement authority: independently maintained Trigger engine fork, Convex-style private logical system tables, injected hosts and complete legacy/physical retirement. Portable adopted attempt-start component implemented; wider integration paused and aligned with translated core. |
 
 ## Cross-Cutting Engineering Guidance
 

@@ -2,6 +2,11 @@
 
 Status: implemented; continuous-maintenance activation remains subsequent work.
 
+This record covers the modern scope-publication legacy execution profile. The
+[old persistence namespace counterexample](../task-system/baseline/legacy-namespace-writer-closure.md)
+concerns separate `documents`/`indexes` and backend-lease writer owners; these
+CE2 witnesses do not establish safe fresh namespace bootstrap for that path.
+
 ## Outcome And Owner
 
 Close the legacy-generation bypass in the existing Application write-ownership

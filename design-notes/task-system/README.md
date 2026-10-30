@@ -2,7 +2,7 @@
 
 ## Status And Authority
 
-Status: **accepted replacement direction; implementation goal active;
+Status: **accepted replacement direction; broader implementation paused;
 replacement runtime pending**. This folder
 owns the Task architecture. The [Task roadmap](../../roadmaps/task-system/README.md)
 owns implementation status and correctness gates. The [Task goal](../../roadmaps/task-system/GOAL.md)
@@ -49,8 +49,10 @@ tables alongside its application/framework logical tables, installed and
 controlled by the platform. This includes per-scope runs and platform-level Task
 discovery, scheduler ownership and repair progress. **No current Task-specific
 physical table is a permanent exception, and no replacement Task-specific
-physical table set is the target.** General Flarex storage/catalog/settlement
-tables serve all consumers and are outside this Task-only retirement.
+physical table set is the target.** Shared persistence remains core-owned.
+Existing general catalog/settlement tables are outside this Task-only retirement
+but remain replaceable under the accepted shared-core physical translation;
+their private metadata and progress are logical by default.
 
 Tasks reuse the [shared FlarexDB core's indexing and DO cache system](./02-logical-storage.md#shared-core-indexing-and-do-cache).
 Task schemas declare their required logical indexes; core owners maintain and

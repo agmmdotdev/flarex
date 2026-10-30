@@ -88,6 +88,7 @@ evidence, retaining the accepted decision link.
 | Record | Design / implementation / measurement status |
 | --- | --- |
 | [App-owner execution and coordination runtime](./app-owner-runtime.md) | Accepted runtime placement design / Unstarted / Unmeasured; records the existing DO host adaptation and its CPU/concurrency limits. |
+| [System logical schema installation](./system-logical-schema-installation.md) | Current-code experiment checkpointed; target implementation contract superseded / Partial uncommitted / Required gates unmet. Reconcile its authority/readiness invariants with translated bootstrap and physical persistence. |
 
 No new mechanism divergence is accepted or claimed implemented by creating this
 index. Add each focused record here when the corresponding slice establishes

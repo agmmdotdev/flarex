@@ -10,7 +10,8 @@ register records implementation decisions without duplicating their full text.
 | --- | --- | --- |
 | One independently maintained Trigger core fork | Accepted | Adopt actual connected methods/tests into one private package; no full Trigger product or upstream-sync obligation |
 | Complete custom Task and physical Task retirement | Accepted | Goal completes only after consumer migration, explicit durable-data disposition and deletion of displaced lifecycle/storage/setup paths |
-| Shared logical DB and four-consumer schema lifecycle | Accepted | Existing core owners supply installation/evolution, indexes, eligible cache reuse, settlement and publication; no Task-specific DB/cache/installer |
+| Shared logical DB and four-consumer schema lifecycle | Accepted | Consume the translated Convex core and physical persistence; one shared installation/evolution/index/cache/settlement/publication owner, with current internals replaceable |
+| Storage integration after total core rewrite decision | Accepted direction; next connected contract under challenge | Keep Trigger methods and meaningful witnesses; adapt producers/store ports to the translated core and replace obsolete installer/generation/publication assumptions rather than preserving them as compatibility layers |
 | Goal/workflow modeled on current core coordination | Accepted | Independent challenges and evidence exchange precede owned workers; significant code still needs both project reviewers |
 | First engine proof profile | Accepted bounded proof direction | One queue/capacity policy, single-run transitions, zero explicit Task children, one manual/native wait and opaque checkpoint; not general Task hierarchy or workflow coverage |
 | First installation/engine runtime boundary | Under refinement | System-root issuer/target, coherent reader/subject migration, shared lock graph and numeric operation budgets must be specified before runtime assignments |

@@ -46,6 +46,13 @@ permission round. Missing evidence stays open rather than becoming an assumed pa
 
 ## Coordinated Implementation
 
+Reconcile each storage-facing slice against the accepted Convex
+[core and physical-schema translation](../../experiments/core/engine/REFACTOR.md#core-and-physical-schema-translation-plan).
+Current APIs, layouts, installation sequences and migration contracts are inputs
+to keep/adapt/replace, not compatibility obligations. Prove any required old
+writer or named retained data and its disposition before preserving coexistence
+plumbing. The Trigger fork keeps Task lifecycle ownership above shared core.
+
 Assign worker agents explicit file/responsibility ownership, exact contracts,
 dependencies and validation. Tell every worker that others share the codebase:
 preserve their edits, coordinate shared types/contracts and never revert others'
@@ -82,5 +89,6 @@ Rerun affected validation and reviews after substantive fixes as AGENTS.md requi
 Complete consumer migration and displaced-code cleanup in the same coherent
 capability. Retain an old path only for a named unmigrated consumer/durable
 obligation with an exit gate. Stage only owned paths/hunks and commit completed
-passing work. Keep the overall goal active until every finish-line condition is
-met; one bounded source/installation/engine proof is an intermediate milestone.
+passing work. Do not mark the overall goal complete until every finish-line
+condition is met, and honor an explicit pause. One bounded source/installation/
+engine proof is an intermediate milestone.

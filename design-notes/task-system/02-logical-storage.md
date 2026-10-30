@@ -6,6 +6,14 @@ The [Task design index](./README.md) and
 The accepted pairing is Convex-style internal logical storage with the
 independently maintained Trigger fork as the Task engine.
 
+The storage target is the
+[translated Convex core, including physical PostgreSQL persistence through Drizzle](../../experiments/core/engine/REFACTOR.md#physical-persistence-is-in-scope).
+Use its shared logical metadata, versioned documents/indexes, operation and
+commit owners. Current normalized catalogs, current projections, installation
+envelopes and storage-generation machinery are replaceable implementations.
+Do not expand them solely to preserve existing APIs or physical layouts.
+Any required old writer or retained data needs a concrete cutover disposition.
+
 ## All Task-Owned State Is Logical
 
 Use platform-installed private logical definitions over shared physical Flarex
@@ -34,26 +42,33 @@ This does not authorize deleting all physical system tables in Flarex.
 
 ## Convex Storage Reference
 
-The inspected source is the enclosing Convex checkout at
-`84fbb0e70b4e857913673871cb847ad11a55f3d5`, matching the
+The active source is the enclosing Convex checkout at
+`db914cf06e2b06ee985646611b9e12ed7a770318`, matching the
 [core source identity](../../experiments/core/REFERENCES.md#convex-source-identity).
-The inspected files match that local revision. This identifies the
-open-source mechanism; it is not a claim about Convex Cloud's private deployment
-or a requirement to copy Convex's SQL layout or system-table names.
+The storage mechanisms below were inspected at this revision. The
+[reference upgrade](../../experiments/core/engine/CONVEX-REFERENCE-UPGRADE.md)
+governs the affected translation gates; earlier experiment evidence retains its
+original pin. Translate the selected PostgreSQL five-table baseline through the
+shared core. This identifies an open-source adapter, not Convex Cloud's private
+deployment or a universal layout across upstream storage adapters. Exact private
+logical names remain an implementation choice.
 
 | Convex source | Mechanism | Flarex decision |
 | --- | --- | --- |
-| [Scheduler model](../../../../crates/model/src/scheduled_jobs/mod.rs) and [argument table](../../../../crates/model/src/scheduled_jobs/args.rs) | `_scheduled_jobs` and `_scheduled_job_args` are internal logical system tables; `SchedulerModel::schedule` inserts their records in its supplied transaction | Register platform-owned Task logical definitions and records through existing Flarex catalog, storage and settlement owners |
-| [System metadata model](../../../../crates/database/src/bootstrap_model/system_metadata.rs) | `SystemMetadataModel::insert_metadata` resolves a namespaced table identity and calls the shared transaction's document insertion path | Reuse shared logical persistence with trusted private capabilities; no separate Task SQL persistence family |
+| [Scheduler model](../../../../crates/model/src/scheduled_jobs/mod.rs) and [argument table](../../../../crates/model/src/scheduled_jobs/args.rs) | `_scheduled_jobs` and `_scheduled_job_args` are internal logical system tables; `SchedulerModel::schedule` inserts their records in its supplied transaction | Register platform-owned Task logical definitions and records through translated shared bootstrap, metadata, storage and settlement owners |
+| [System metadata model](../../../../crates/database/src/bootstrap_model/system_metadata.rs) | `SystemMetadataModel::insert_metadata` delegates to `insert_metadata_pending`, resolves a namespaced table identity and uses `tx.insert_pending_document` | Reuse shared pending-document and persistence mechanisms with trusted private capabilities; no separate Task SQL persistence family |
 | [Virtual table mapping](../../../../crates/model/src/scheduled_jobs/virtual_table.rs) | `_scheduled_functions` exposes a developer-facing projection of internal job records | Preserve admitted Task status/cancel APIs; storage sharing does not expose raw lifecycle writes or automatically add a `db.system` API |
-| [PostgreSQL persistence](../../../../crates/postgres/src/sql.rs) | Shared physical `documents` and `indexes` carry logical table/index identities; multitenant mode also uses `instance_name` | Keep Flarex's shared physical storage families and authenticated scope identities; per-app Task schemas do not create PostgreSQL schemas, tables or indexes |
+| [PostgreSQL persistence](../../../../crates/postgres/src/sql.rs) | Shared physical `documents` and `indexes` carry logical table/index identities; multitenant mode also uses `instance_name` | Translate the selected five-table PostgreSQL baseline with authenticated scope identities; per-app Task schemas do not create PostgreSQL schemas, tables or indexes |
 | [Scheduler execution](../../../../crates/application/src/scheduled_jobs/mod.rs) | `ScheduledJobContext::stream_jobs_to_run` queries the logical `by_next_ts` index across known namespaces | Discover due work through bounded indexed logical reads; the Trigger fork drives admitted claims and transitions, with host wake-ups injected |
 
-Convex's PostgreSQL adapter still creates a general SQL namespace and shared
-infrastructure tables. The relevant property is the absence of a dedicated SQL
-table family for scheduled jobs. Flarex likewise retains generic physical
-storage/catalog/settlement infrastructure while retiring every Task-specific
-physical object.
+Convex's PostgreSQL adapter creates a general SQL namespace and the shared
+`documents`, `indexes`, `leases`, `read_only` and `persistence_globals` tables.
+It has no dedicated SQL table family for scheduled jobs. Flarex translates this
+shared baseline while retiring every Task-specific physical object. Private
+catalog, installation, migration and outcome records are logical by default;
+genuine external deployment/artifact authority remains separately owned. Existing
+physical catalog/settlement families are replacement inputs, not automatically
+retained infrastructure.
 
 For Flarex, a Task logical schema is a platform-maintained set of table, index
 and constraint definitions bound to a private execution or platform scope.
@@ -88,12 +103,12 @@ or replace missing indexes with full scans.
 
 The [core cache contract](../../experiments/core/engine/02-timestamped-snapshots.md#accepted-cache-and-retention-direction)
 and [read-after-write policy](../../experiments/core/engine/02-read-after-write.md)
-govern eligible Task data reuse. The pinned
-[Convex scheduler](../../../../crates/application/src/scheduled_jobs/mod.rs)
-also reuses database cache machinery: `run_once` refreshes its retained index
-cache through `fast_forward_index_cache`, begins with `begin_with_index_cache`
-and returns it through `into_token_and_index_cache`. This is a shared database
-mechanism used by scheduling, not a separate scheduler cache algorithm.
+govern eligible Task data reuse, together with the active pin's
+[index/cache owner map](../../experiments/core/REFERENCES.md#engine-mechanism-reference-map).
+The scheduler's indexed database reads establish no separate scheduler cache
+algorithm. Translate shared page eligibility and fill validation against document
+and index-metadata writes. The pinned persistence-verification default is 100%;
+cache reuse alone establishes no SQL reduction or Task performance result.
 
 - Eligible Task rows and complete index ranges reuse the shared core cache
   through its DO host/storage adapter. Populate on demand within core budgets;
@@ -154,12 +169,12 @@ evolution must handle existing records explicitly; it is not ordinary deletion
 of an old app schema. Reuse shared installation/readiness and bounded evolution
 mechanics. A generic logical schema does not make data conversion unnecessary.
 
-Provision a platform logical scope through existing core catalog/installation
+Provision a platform logical scope through translated shared bootstrap/schema
 owners. Prove bootstrap and discoverability without depending on the Task engine
 to run its own first installation. Platform capabilities are unavailable to
 application code and must not grant arbitrary access to unrelated scopes.
 
-The current candidate protocol admits a `system` producer label but still
+The committed baseline candidate protocol admits a `system` producer label but still
 requires Application-analysis coordinates; shared admission is deployment/scope
 bound. Neither establishes platform Task installation. Generalize authenticated
 system producer/target admission at the shared owner instead of inventing app

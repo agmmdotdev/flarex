@@ -8,6 +8,13 @@ The [goal](../GOAL.md), [workflow](../WORKFLOW.md) and
 HEAD alone excludes substantial ongoing core work. Trigger and Convex pins are
 recorded in REFERENCES and must not drift silently.
 
+This challenge used Convex `84fbb0e70b4e857913673871cb847ad11a55f3d5`.
+Its findings retain that source identity; the
+[revised translated-core integration](./04-translated-core-integration.md)
+requires a refreshed challenge against the active pin before runtime work.
+Current catalog/clock/candidate interfaces below are baseline observations,
+not requirements to retain those implementations.
+
 ## Candidate Connected Outcome
 
 Derive finite store operations and logical definitions from the actual retained

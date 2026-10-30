@@ -19,6 +19,7 @@ authority. No runtime adaptation is admitted merely by listing it here.
 
 | Record | Necessary adaptation |
 | --- | --- |
+| [System logical installation experiment](../../../experiments/core/engine/divergences/system-logical-schema-installation.md) | Checkpointed current-code contract, superseded as a target implementation; retain authority/readiness witnesses and re-select against translated bootstrap/persistence |
 | [Transactions and effects](./trigger-transactions-and-effects.md) | Replace Redis outer-lock assumptions and pre-settlement publication with authoritative borrowed operations and durable intents |
 | [Ownership and heartbeats](./trigger-ownership-and-heartbeats.md) | Preserve live fence/subject/lease checks while replacing Redis ownership and heartbeat scheduling |
 | [Native checkpoints](./trigger-native-checkpoints.md) | Map process checkpoints to admitted native serialized waits, original deadlines and winner receipts |

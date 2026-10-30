@@ -1,9 +1,16 @@
 # Task Engine And Integration
 
-Status: **accepted design; implementation goal active; fork runtime pending**.
+Status: **accepted design; broader implementation paused; fork runtime pending**.
 The [folder index](./README.md) owns architecture;
 the [roadmap](../../roadmaps/task-system/README.md) owns status and the
 [goal/workflow](../../roadmaps/task-system/GOAL.md) owns authorized implementation.
+
+The store adapter, private schema producer and runtime wiring consume the
+[Convex core and physical persistence translated to TypeScript/Drizzle](../../experiments/core/engine/REFACTOR.md#core-and-physical-schema-translation-plan).
+Current catalog, installer, generation, transaction, publication and recovery
+interfaces may be replaced completely. Preserve Task behavior, fencing and
+durable outcomes; existing internal plumbing does not impose compatibility.
+Trigger remains the lifecycle/scheduling owner above that shared core.
 
 ## Source Adoption
 

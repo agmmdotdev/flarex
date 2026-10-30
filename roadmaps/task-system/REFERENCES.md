@@ -60,10 +60,15 @@ product feature is supported.
 
 The enclosing Convex checkout is pinned by the
 [core source identity](../../experiments/core/REFERENCES.md#convex-source-identity)
-to `84fbb0e70b4e857913673871cb847ad11a55f3d5`. Local links require that checkout;
-do not silently replace the pin with current upstream. The
+to `db914cf06e2b06ee985646611b9e12ed7a770318`. Local links navigate that checkout;
+use `git show <pin>:<path>` for immutable inspection. The
+[upgrade assessment](../../experiments/core/engine/CONVEX-REFERENCE-UPGRADE.md)
+owns changed commit, index, cache and lease gates. The earlier installation
+experiment and challenges retain their inspected `84fbb0e` evidence; they are
+not recertified against this pin. The
 [Task storage source map](../../design-notes/task-system/02-logical-storage.md#convex-storage-reference)
-records logical system-table persistence, due indexes and scheduler cache reuse.
+records logical system-table persistence and due indexes. The shared core source
+map owns current database/cache mechanisms and the selected PostgreSQL layout.
 Convex guides database mechanics, not replacement of Trigger's lifecycle.
 
 The pinned [system-table bootstrap](../../../../crates/model/src/lib.rs)
@@ -72,9 +77,16 @@ with system identity, shared table/index owners and idempotent index checks.
 [Scheduler storage](../../../../crates/model/src/scheduled_jobs/mod.rs) inserts
 system documents through its supplied transaction. The
 [scheduler runner](../../../../crates/application/src/scheduled_jobs/mod.rs)
-borrows/refreshes/returns database index cache and discovers due jobs through
-`by_next_ts`. Reuse these ownership principles without requiring Task execution
+discovers due jobs through `by_next_ts` across known namespaces. Reuse shared
+transaction, index and eligible cache owners without requiring Task execution
 for bootstrap or copying unbounded cross-namespace discovery into Flarex.
+The [revised integration slice](./slices/04-translated-core-integration.md)
+requires a refreshed runtime challenge and connected Task proofs.
+
+The current Flarex sources below are baseline inputs and guarantee inventories,
+not permanent API or physical-layout obligations. Translate their required
+meaning through shared core owners and migrate callers; do not retain a second
+installer, commit path or cache solely to preserve these interfaces.
 
 | Flarex source | Responsibility |
 | --- | --- |
