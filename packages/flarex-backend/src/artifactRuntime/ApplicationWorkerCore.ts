@@ -75,6 +75,7 @@ import type { CanonicalTaskManifestV1 } from
 import { Effect, Result } from "effect";
 import { decodeAppDocumentIdentityV1Result } from
   "flarex-protocol/app-document-id";
+import { decodeDocumentId as decodeCoreDocumentId } from "flarex-protocol/document-id";
 import { MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1 } from
   "flarex-protocol/commit-protocol";
 import { RELATION_INCOMING_PAGE_MAXIMUM_IDENTITIES_V1 } from
@@ -99,7 +100,7 @@ import {
   type CanonicalFlarexRuntimeObjectV1,
 } from "flarex-protocol/value";
 import { FlarexError } from "flarex/values";
-import { validateValidatorValueIssueV1 } from
+import { validateValidatorValueIssueV1, type ValidatorIdPolicyV1 } from
   "flarex-protocol/internal/validator-engine-core";
 
 export * from "flarex/server";
@@ -206,6 +207,7 @@ export interface ApplicationWorkerDefinitionV1 {
   >;
   readonly hostPolicy: EdgeActionHostPolicyFrameV1;
   readonly hostPolicySha256Hex: string;
+  readonly documentIdFormat?: "convex";
 }
 
 export interface ApplicationWorkerExecutionInputV1 {
@@ -357,6 +359,7 @@ export async function executeApplicationTransactionWorkerV1(
       capability,
       state,
       boundaryKind,
+      input.definition.documentIdFormat,
     );
     let value: ApplicationWorkerSuccessResultV1["value"];
     try {
@@ -368,6 +371,7 @@ export async function executeApplicationTransactionWorkerV1(
           callBudget: INTERNAL_CALL_BUDGET,
           arguments: request.arguments,
           tables: request.tables,
+          ...(input.definition.documentIdFormat === "convex" ? { idPolicy: coreWorkerIdPolicy(request.tables) } : {}),
         }),
         registry,
         invocations,
@@ -1173,6 +1177,7 @@ function transactionInvocations(
   capability: TransactionCapability,
   state: BoundaryState,
   boundaryKind: BoundaryKind,
+  documentIdFormat: "convex" | undefined,
 ): ApplicationFunctionRuntimeInvocationFactoryV1 {
   let opened = false;
   return OBJECT_FREEZE({
@@ -1187,7 +1192,7 @@ function transactionInvocations(
           () => invokeCapability(
             capability.readPointDocument,
             capability.receiver,
-            [tableNameForDocument(request.tables, documentId), documentId],
+            [tableNameForDocument(request.tables, documentId, documentIdFormat), documentId],
           ).then(decodePointRead),
         ),
       );
@@ -1241,7 +1246,7 @@ function transactionInvocations(
                 capability.insertPointDocument,
                 capability.receiver,
                 [tableName, value] as const,
-              ).then(decodeDocumentId)),
+              ).then(value => decodeDocumentId(value, documentIdFormat))),
           patchPointDocument: (documentId: string, value: unknown) =>
             trackBoundaryOperation(state, boundaryKind, () =>
               invokeRequiredCapability(
@@ -2017,7 +2022,12 @@ function decodeIndexPage(value: unknown): Readonly<{
   });
 }
 
-function decodeDocumentId(value: unknown): string {
+function decodeDocumentId(value: unknown, documentIdFormat?: "convex"): string {
+  if (documentIdFormat === "convex") return decodeCoreDocumentId(value).pipe(
+    Result.map(identity => identity.id),
+    Result.mapError(() => new ERROR("Journal capability returned an invalid document id.")),
+    Result.getOrThrow,
+  );
   return decodeAppDocumentIdentityV1Result(value).pipe(
     Result.map(identity => identity.id),
     Result.mapError(() =>
@@ -2036,11 +2046,26 @@ function decodeVoid(value: unknown): void {
 function tableNameForDocument(
   tables: ReadonlyArray<ApplicationFunctionRuntimeTableV1>,
   documentId: string,
+  documentIdFormat?: "convex",
 ): string {
+  if (documentIdFormat === "convex") return decodeCoreDocumentId(documentId).pipe(Result.match({
+    onFailure: () => "",
+    onSuccess: identity => tables.find(candidate => candidate.tableId === identity.tableNumber)?.logicalName ?? "",
+  }));
   const separator = documentId.indexOf(":");
   const tableId = NUMBER(documentId.slice(0, separator));
   const table = tables.find(candidate => candidate.tableId === tableId);
   return separator > 0 && table !== undefined ? table.logicalName : "";
+}
+
+function coreWorkerIdPolicy(tables: ReadonlyArray<ApplicationFunctionRuntimeTableV1>): Extract<ValidatorIdPolicyV1, { readonly mode: "tableAware" }> {
+  const numbers = new MAP(tables.map(table => [table.logicalName, table.tableId] as const));
+  return OBJECT_FREEZE({ mode: "tableAware", check: (tableName: string, value: string) => {
+    const number = numbers.get(tableName);
+    if (number === undefined) return "unavailable";
+    return decodeCoreDocumentId(value).pipe(Result.match({ onFailure: () => "invalid" as const,
+      onSuccess: identity => identity.tableNumber === number ? "valid" as const : "invalid" as const }));
+  } });
 }
 
 function tableIdForLogicalName(

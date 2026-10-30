@@ -1,12 +1,4 @@
-import {
-  decodeAppDocumentIdentityV1,
-  decodeAppRowIdHexV1,
-} from "flarex-protocol/app-document-id";
-import { decodeCanonicalAppDocumentEvidenceV1 } from "flarex-protocol/app-document";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
-import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
-import type { fxAppRowRevisions } from
-  "@flarex/persistence-postgres/internal/system-test/schema";
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import {
   createApplicationMutationGrantVerificationKernelV1,
@@ -33,12 +25,14 @@ import {
   ApplicationMutationSystem,
   type ApplicationSelectionMutationPort,
   type ApplicationMutationSystemLive,
+  type ApplicationCoreMutationSystemLive,
   invokeApplicationMutation,
   type InvokeApplicationMutationError,
   makeApplicationMutationSystemLayer,
 } from
   "@flarex/standard-application-invocation/internal/application-mutation-system";
-import { Effect, Result, Scope } from "effect";
+import { Effect, Result, Scope, Clock, Context, Option, Schema } from "effect";
+import type { ApplicationCoreMutationFixture } from "@flarex/persistence-postgres/internal/system-test/core-application-mutation-fixture";
 import {
   APPLICATION_RUNTIME_HOST_IDENTITY,
 } from "flarex-backend/artifact-runtime";
@@ -83,14 +77,9 @@ import { runSystemTestEffectV1 } from "./systemTestEffectBoundaryV1";
 import { MiniflareApplicationWorkerLoader } from "./applicationNativeQueryHarness";
 
 const COMPATIBILITY_DATE = "2026-06-14";
-const NESTED_USER_DOCUMENT_ID = "1:00000000-0000-0000-0000-000000000011";
 export const APPLICATION_NESTED_MUTATION_FIXTURE_OPTIONS = Object.freeze({
   runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
   compatibilityDate: COMPATIBILITY_DATE,
-  includeInternalCalls: true,
-  includeUserNameIndex: true,
-  // Build the initial row into intrinsic indexes before activation.
-  initialUserDocuments: [{ name: "Ada", rowId: decodeAppRowIdHexV1("00".repeat(15) + "11") }],
 });
 const RETENTION = Result.getOrThrow(makeGrantRetentionPolicyV1Result({
   maximumGrantLifetimeMilliseconds: 120_000,
@@ -1104,228 +1093,333 @@ export async function proveApplicationNativeMutation(
   });
 }
 
-export async function proveApplicationNestedMutation(fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>) {
-  const before = await durableCounts(fixture.target);
+export async function proveApplicationNestedMutation(fixture: ApplicationCoreMutationFixture) {
+  const before = await readApplicationCoreMutationState(fixture);
   const loader = new MiniflareApplicationWorkerLoader();
   try {
     const layer = await makeApplicationNativeMutationTestLayer(fixture, loader);
-    const invoke = () => runSystemTestEffectV1(Effect.scoped(invokeApplicationMutation(
+    const invoke = (selectedLayer = layer) => runSystemTestEffectV1(Effect.scoped(invokeApplicationMutation(
       TransactionFunctionPathV1Schema.make("users:deleteThroughInternal"),
-      { id: NESTED_USER_DOCUMENT_ID },
-      TransactionRequestKeyV1Schema.make("application-native:nested-delete"),
-    ).pipe(Effect.provide(layer))));
+      { id: fixture.documentId }, TransactionRequestKeyV1Schema.make("application-native:nested-delete"),
+    ).pipe(Effect.provide(selectedLayer))));
     const published = await invoke();
     const replayed = await invoke();
-    const after = await durableCounts(fixture.target);
-    const tombstones = await fixture.target.query<{ count: number }>(`
-      select count(*)::int as count from fx_app_row_current as current_row
-      join fx_app_row_rev as revision using (scope_uuid, table_id, row_id, commit_seq)
-      where revision.is_tombstone
-    `);
-    return { published, replayed, before, after, workerLoads: loader.loads,
-      tombstones: tombstones.rows[0]?.count };
-  } finally {
-    await loader.dispose();
-  }
+    const after = await readApplicationCoreMutationState(fixture);
+    const cold = await fixture.reopen();
+    const coldFixture = Object.freeze({ ...fixture, database: cold });
+    const coldReplay = await invoke(await makeApplicationNativeMutationTestLayer(coldFixture, loader));
+    const coldCurrent = await readApplicationCoreMutationState(coldFixture);
+    const old = await runSystemTestEffectV1(cold.begin({ at: fixture.initialTimestamp }));
+    let historical;
+    try { historical = { document: Option.getOrNull(await runSystemTestEffectV1(old.get(fixture.documentId))),
+      indexed: await runSystemTestEffectV1(old.scan("users", "by_name")) }; }
+    finally { await runSystemTestEffectV1(old.abort()); }
+    return { published, replayed, coldReplay, before, after, coldCurrent, historical,
+      workerLoads: loader.loads, storageTables: await fixture.storageTables() };
+  } finally { await loader.dispose(); }
 }
 
-export async function proveApplicationNestedMutationFailure(
-  fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
-) {
+export async function proveApplicationNestedMutationFailure(fixture: ApplicationCoreMutationFixture) {
   const calls: Array<Readonly<{ method: string; arguments: readonly unknown[] }>> = [];
+  const completed: Array<Readonly<{ method: string; arguments: readonly unknown[]; result: unknown }>> = [];
   const loader = new MiniflareApplicationWorkerLoader((method, argumentsValue) => {
     calls.push(Object.freeze({ method, arguments: structuredClone(argumentsValue) }));
+  }, (method, argumentsValue, result) => {
+    if (method === "patchPointDocument" || method === "readPointDocument") completed.push(Object.freeze({
+      method, arguments: structuredClone(argumentsValue), result: structuredClone(result),
+    }));
   });
   try {
-    const failureRequestKey = "application-native:nested-patch-failure";
-    let failureReceipts: Awaited<ReturnType<
-      typeof readApplicationNestedMutationReceipts
-    >> | undefined;
-    const layer = await makeApplicationNativeMutationTestLayer(fixture, loader, {
-      // Abort terminalization removes journals. Observe genuine stored receipts
-      // after the Worker has finished, while the actual runner still owns them.
-      afterRuntime: () => failureReceipts === undefined
-        ? Effect.promise(async () => {
-          failureReceipts = await readApplicationNestedMutationReceipts(
-            fixture, failureRequestKey,
-          );
-        })
-        : Effect.void,
-    });
+    const layer = await makeApplicationNativeMutationTestLayer(fixture, loader);
     const invoke = (fail: boolean, requestKey: string) => invokeApplicationMutation(
       TransactionFunctionPathV1Schema.make("users:patchThroughInternal"),
-      { id: NESTED_USER_DOCUMENT_ID, fail },
-      TransactionRequestKeyV1Schema.make(requestKey),
+      { id: fixture.documentId, fail }, TransactionRequestKeyV1Schema.make(requestKey),
     );
-    const before = await readApplicationNestedMutationState(fixture);
-    const failureOutcome = await runSystemTestEffectV1(Effect.scoped(
-      invoke(true, failureRequestKey).pipe(
-        Effect.map(outcome => Object.freeze({
-          disposition: "accepted" as const,
-          outcomeDisposition: outcome.disposition,
-          value: outcome.value,
-        })),
-        Effect.catchTag("PointMutationOccApplicationErrorV1", error =>
-          Effect.succeed(Object.freeze({
-            disposition: "rejected" as const,
-            errorTag: error._tag,
-            code: error.code,
-            message: error.message,
-            data: error.data,
-          }))),
-        Effect.provide(layer),
-      ),
-    ));
-    const afterFailure = await readApplicationNestedMutationState(fixture);
-    if (failureReceipts === undefined) {
-      throw new Error("Nested Application Worker did not reach its observation boundary.");
+    const before = await readApplicationCoreMutationState(fixture);
+    const failureOutcome = await runSystemTestEffectV1(Effect.scoped(invoke(true, "application-native:nested-patch-failure").pipe(
+      Effect.map(outcome => ({ disposition: "accepted" as const, value: outcome.value })),
+      Effect.catchTag("PointMutationOccApplicationErrorV1", error => Effect.succeed({
+        disposition: "rejected" as const, errorTag: error._tag, code: error.code, message: error.message, data: error.data,
+      })), Effect.provide(layer),
+    )));
+    const afterFailure = await readApplicationCoreMutationState(fixture);
+    const failureCalls = calls.splice(0), failureResults = completed.splice(0), failureWorkerLoads = loader.loads;
+    const successful = await runSystemTestEffectV1(Effect.scoped(invoke(false, "application-native:nested-patch-success")
+      .pipe(Effect.provide(layer))));
+    const afterSuccess = await readApplicationCoreMutationState(fixture), successWorkerLoads = loader.loads;
+    const subsequent = await runSystemTestEffectV1(Effect.scoped(invokeApplicationMutation(
+      TransactionFunctionPathV1Schema.make("users:create"), { name: "Independent after nested failure" },
+      TransactionRequestKeyV1Schema.make("application-native:after-nested-failure"),
+    ).pipe(Effect.provide(layer))));
+    const afterSubsequent = await readApplicationCoreMutationState(fixture);
+    return { documentId: fixture.documentId, before,
+      failure: { outcome: failureOutcome, state: afterFailure, results: failureResults, calls: failureCalls, workerLoads: failureWorkerLoads },
+      success: { outcome: successful, state: afterSuccess, workerLoads: successWorkerLoads - failureWorkerLoads },
+      subsequent: { outcome: subsequent, state: afterSubsequent, workerLoads: loader.loads - successWorkerLoads },
+      storageTables: await fixture.storageTables(),
+    };
+  } finally { await loader.dispose(); }
+}
+
+export async function proveCoreApplicationIndexOrder(fixture: ApplicationCoreMutationFixture) {
+  // Keep creation order opposite public ID order without manufacturing rows or
+  // index bytes: control only the trusted allocator at the actual insert syscall.
+  const internalIds = [new Uint8Array(16).fill(0xf0), new Uint8Array(16).fill(0x10)];
+  let inserted = 0;
+  const loader = new MiniflareApplicationWorkerLoader(method => {
+    if (method !== "insertPointDocument") return;
+    const id = internalIds[inserted++];
+    if (id === undefined) throw new Error("Unexpected Application ordering insert.");
+    fixture.useNextInternalId(id);
+  });
+  try {
+    const layer = await makeApplicationNativeMutationTestLayer(fixture, loader);
+    const ids: string[] = [];
+    for (const ordinal of [0, 1]) {
+      const outcome = await runSystemTestEffectV1(Effect.scoped(invokeApplicationMutation(
+        TransactionFunctionPathV1Schema.make("users:create"), { name: "Equal name" },
+        TransactionRequestKeyV1Schema.make("core-index-order:" + ordinal),
+      ).pipe(Effect.provide(layer))));
+      ids.push(Schema.decodeUnknownSync(Schema.String)(outcome.value));
     }
-    const failureCalls = calls.splice(0);
-    const failureWorkerLoads = loader.loads;
-    const successful = await runSystemTestEffectV1(Effect.scoped(
-      invoke(false, "application-native:nested-patch-success").pipe(
-        Effect.provide(layer),
-      ),
-    ));
-    const afterSuccess = await readApplicationNestedMutationState(fixture);
-    const successWorkerLoads = loader.loads;
-    const subsequent = await runSystemTestEffectV1(Effect.scoped(
-      invokeApplicationMutation(
-        TransactionFunctionPathV1Schema.make("users:create"),
-        { name: "Independent after nested failure" },
-        TransactionRequestKeyV1Schema.make("application-native:after-nested-failure"),
-      ).pipe(Effect.provide(layer)),
-    ));
-    const afterSubsequent = await readApplicationNestedMutationState(fixture);
-    return Object.freeze({
-      documentId: NESTED_USER_DOCUMENT_ID,
-      before,
-      failure: Object.freeze({
-        outcome: failureOutcome,
-        state: afterFailure,
-        receipts: failureReceipts,
-        calls: failureCalls,
-        workerLoads: failureWorkerLoads,
-      }),
-      success: Object.freeze({
-        outcome: successful,
-        state: afterSuccess,
-        workerLoads: successWorkerLoads - failureWorkerLoads,
-      }),
-      subsequent: Object.freeze({
-        outcome: subsequent,
-        state: afterSubsequent,
-        workerLoads: loader.loads - successWorkerLoads,
-      }),
-    });
-  } finally {
-    await loader.dispose();
-  }
+    const read = async (database: ApplicationCoreMutationFixture["database"]) => {
+      const transaction = await runSystemTestEffectV1(database.begin());
+      try {
+        const asc = await runSystemTestEffectV1(transaction.scan("users", "by_name"));
+        const desc = await runSystemTestEffectV1(transaction.scan("users", "by_name", { order: "desc" }));
+        return { asc: asc.filter(row => row.name === "Equal name"), desc: desc.filter(row => row.name === "Equal name") };
+      } finally { await runSystemTestEffectV1(transaction.abort()); }
+    };
+    const warm = await read(fixture.database);
+    const cold = await read(await fixture.reopen());
+    return { ids, warm, cold, workerLoads: loader.loads, inserts: inserted };
+  } finally { await loader.dispose(); }
 }
 
-async function readApplicationNestedMutationState(
-  fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
-) {
-  const scopeUuid = projectScopeIdUuidV1(fixture.authority.scopeId).scopeUuid;
-  const identity = decodeAppDocumentIdentityV1(NESTED_USER_DOCUMENT_ID);
-  const parameters = [scopeUuid, identity.tableId, identity.rowId];
-  const rows = await fixture.target.query<Pick<
-    typeof fxAppRowRevisions.$inferSelect,
-    "creationTime" | "valueCodecVersion" | "valueBytes" | "valueSha256"
-  > & { commitSeq: string; revision: unknown }>(`
-    select current_row.commit_seq::text as "commitSeq",
-      revision.creation_time as "creationTime",
-      revision.value_codec_version as "valueCodecVersion",
-      revision.value_bytes as "valueBytes", revision.value_sha256 as "valueSha256",
-      to_jsonb(revision) as revision
-    from fx_app_row_current as current_row
-    join fx_app_row_rev as revision using (scope_uuid, table_id, row_id, commit_seq)
-    where current_row.scope_uuid = $1 and current_row.table_id = $2
-      and current_row.row_id = decode($3, 'hex')`, parameters);
-  const row = rows.rows[0];
-  if (rows.rows.length !== 1 || row === undefined) {
-    throw new Error("Nested Application witness requires its exact current row.");
-  }
-  const document = await decodeCanonicalAppDocumentEvidenceV1({
-    tableId: identity.tableId, rowId: identity.rowId,
-    creationTime: row.creationTime, codecVersion: row.valueCodecVersion,
-    canonicalBytes: row.valueBytes, sha256: row.valueSha256,
+export async function proveCoreApplicationDocumentValidation(fixture: ApplicationCoreMutationFixture) {
+  const calls: Array<Readonly<{ method: string; arguments: readonly unknown[] }>> = [];
+  const loader = new MiniflareApplicationWorkerLoader((method, argumentsValue) => {
+    calls.push({ method, arguments: structuredClone(argumentsValue) });
   });
-  // Detached database projections are compared verbatim; they grant no capability.
-  const history = await fixture.target.query<{ revision: unknown }>(`
-    select to_jsonb(revision) as revision from fx_app_row_rev as revision
-    where scope_uuid = $1 and table_id = $2 and row_id = decode($3, 'hex')
-    order by commit_seq`, parameters);
-  const membership = await fixture.target.query<{ membership: unknown }>(`
-    select to_jsonb(current_entry) as membership
-    from fx_app_index_entry_current as current_entry
-    join fx_app_index_entry_rev as revision
-      using (scope_uuid, index_definition_id, encoded_key, row_id, commit_seq)
-    where current_entry.scope_uuid = $1 and revision.table_id = $2
-      and current_entry.row_id = decode($3, 'hex')
-    order by current_entry.index_definition_id, current_entry.encoded_key`, parameters);
-  const membershipHistory = await fixture.target.query<{ revision: unknown }>(`
-    select to_jsonb(revision) as revision from fx_app_index_entry_rev as revision
-    where scope_uuid = $1 and table_id = $2 and row_id = decode($3, 'hex')
-    order by index_definition_id, encoded_key, commit_seq`, parameters);
-  const counts = await fixture.target.query<{
-    commits: number; successfulOutcomes: number; feed: number; outbox: number;
-  }>(`select
-    (select count(*)::int from fx_system_commit where scope_uuid = $1) as commits,
-    (select count(*)::int from fx_system_idempotency where scope_uuid = $1) as "successfulOutcomes",
-    (select count(*)::int from fx_system_commit_app_row_change where scope_uuid = $1) as feed,
-    (select count(*)::int from fx_system_commit_wake where scope_uuid = $1) as outbox`,
-  [scopeUuid]);
-  const publication = counts.rows[0];
-  if (publication === undefined) throw new Error("Nested Application counts are missing.");
-  return Object.freeze({
-    scopeUuid,
-    tableId: identity.tableId,
-    rowId: identity.rowId,
-    document: document.valueJson,
-    commitSeq: BigInt(row.commitSeq),
-    currentRevision: row.revision,
-    history: history.rows.map(item => item.revision),
-    membership: membership.rows.map(item => item.membership),
-    membershipHistory: membershipHistory.rows.map(item => item.revision),
-    publication,
-  });
+  try {
+    const layer = await makeApplicationNativeMutationTestLayer(fixture, loader);
+    const outcome = await runSystemTestEffectV1(Effect.scoped(invokeApplicationMutation(
+      TransactionFunctionPathV1Schema.make("users:validationRecovery"), { id: fixture.documentId },
+      TransactionRequestKeyV1Schema.make("core-document-validation:recover"),
+    ).pipe(Effect.provide(layer))));
+    return { outcome, calls, documentId: fixture.documentId, workerLoads: loader.loads,
+      after: await readApplicationCoreMutationState(fixture) };
+  } finally { await loader.dispose(); }
 }
 
-async function readApplicationNestedMutationReceipts(
-  fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
-  requestKey: string,
-) {
-  const scopeUuid = projectScopeIdUuidV1(fixture.authority.scopeId).scopeUuid;
-  const receipts = await fixture.target.query<{
-    sequence: string; operationKind: string; outcomeKind: string;
-    requestBytes: Uint8Array; requestSha256: Uint8Array;
-    outcomeBytes: Uint8Array; outcomeSha256: Uint8Array;
-  }>(`select receipt.last_syscall_sequence::text as sequence,
-      receipt.operation_kind as "operationKind", receipt.outcome_kind as "outcomeKind",
-      receipt.request_bytes as "requestBytes", receipt.request_sha256 as "requestSha256",
-      receipt.outcome_bytes as "outcomeBytes", receipt.outcome_sha256 as "outcomeSha256"
-    from fx_system_tx_journal_receipt as receipt
-    join fx_system_tx_session as session using (scope_uuid, session_id, attempt_fence)
-    where session.scope_uuid = $1 and session.request_key = $2
-    order by receipt.last_syscall_sequence`, [scopeUuid, requestKey]);
-  const observations = [];
-  for (const receipt of receipts.rows) {
-    const request = await decodeCanonicalFlarexValueEvidenceV1({
-      canonicalBytes: receipt.requestBytes, sha256: receipt.requestSha256,
-    });
-    const outcome = await decodeCanonicalFlarexValueEvidenceV1({
-      canonicalBytes: receipt.outcomeBytes, sha256: receipt.outcomeSha256,
-    });
-    observations.push(Object.freeze({
-      sequence: BigInt(receipt.sequence),
-      operationKind: receipt.operationKind,
-      outcomeKind: receipt.outcomeKind,
-      request: request.valueJson,
-      outcome: outcome.valueJson,
-    }));
-  }
-  return observations;
+export async function proveCoreApplicationUnsupportedBounds(fixture: ApplicationCoreMutationFixture) {
+  const loader = new MiniflareApplicationWorkerLoader();
+  const before = await readApplicationCoreMutationState(fixture);
+  try {
+    const layer = await makeApplicationNativeMutationTestLayer(fixture, loader);
+    const outcome = await runSystemTestEffectV1(Effect.scoped(Effect.exit(invokeApplicationMutation(
+      TransactionFunctionPathV1Schema.make("users:validationRecovery"), { id: fixture.documentId, bounded: true },
+      TransactionRequestKeyV1Schema.make("core-index-bounds:unsupported"),
+    ).pipe(Effect.provide(layer)))));
+    return { outcome, before, after: await readApplicationCoreMutationState(fixture),
+      workerLoads: loader.loads, pointReads: loader.pointDocumentReads };
+  } finally { await loader.dispose(); }
+}
+
+export async function proveCoreApplicationArgumentProfile(fixture: ApplicationCoreMutationFixture) {
+  const loader = new MiniflareApplicationWorkerLoader();
+  try {
+    const layer = await makeApplicationNativeMutationTestLayer(fixture, loader);
+    const argumentsValues = [
+      { name: "large unused arguments", padding: "x".repeat(1_048_576 + 1_024) },
+      { name: "deep unused arguments", ignored: nestedApplicationArgument(20) },
+    ];
+    const outcomes = [];
+    for (const [ordinal, args] of argumentsValues.entries()) outcomes.push(await runSystemTestEffectV1(Effect.scoped(
+      invokeApplicationMutation(TransactionFunctionPathV1Schema.make("users:create"), args,
+        TransactionRequestKeyV1Schema.make("core-arguments:general-profile:" + ordinal)).pipe(Effect.provide(layer)),
+    )));
+    const read = await runSystemTestEffectV1(fixture.database.begin());
+    try {
+      const documents = [];
+      for (const outcome of outcomes) documents.push(Option.getOrThrow(await runSystemTestEffectV1(
+        read.get(Schema.decodeUnknownSync(Schema.String)(outcome.value)),
+      )));
+      return { outcomes, documents, workerLoads: loader.loads };
+    } finally { await runSystemTestEffectV1(read.abort()); }
+  } finally { await loader.dispose(); }
+}
+
+export async function proveCoreApplicationArgumentRefusal(fixture: ApplicationCoreMutationFixture) {
+  let claims = 0;
+  const observed = Object.freeze({ ...fixture.database,
+    claimRequest: (identity: Parameters<typeof fixture.database.claimRequest>[0]) => Effect.sync(() => { claims += 1; })
+      .pipe(Effect.andThen(() => fixture.database.claimRequest(identity))),
+  });
+  const loader = new MiniflareApplicationWorkerLoader();
+  const before = await readApplicationCoreMutationState(fixture);
+  const beforeTimestamp = await runSystemTestEffectV1(fixture.database.publishedTimestamp);
+  try {
+    const layer = await makeApplicationNativeMutationTestLayer({ ...fixture, database: observed }, loader);
+    const invalidArguments = [
+      { name: "over argument budget", padding: "x".repeat(16 * 1_048_576) },
+      { name: "over general nesting", ignored: nestedApplicationArgument(64) },
+      [], null,
+    ];
+    const outcomes = [];
+    for (const [ordinal, args] of invalidArguments.entries()) outcomes.push(await runSystemTestEffectV1(Effect.scoped(
+      Effect.exit(invokeApplicationMutation(TransactionFunctionPathV1Schema.make("users:create"), args,
+        TransactionRequestKeyV1Schema.make("core-arguments:refusal:" + ordinal)).pipe(Effect.provide(layer))),
+    )));
+    return { outcomes, claims, workerLoads: loader.loads, before, after: await readApplicationCoreMutationState(fixture),
+      beforeTimestamp, afterTimestamp: await runSystemTestEffectV1(fixture.database.publishedTimestamp) };
+  } finally { await loader.dispose(); }
+}
+
+function nestedApplicationArgument(depth: number): unknown {
+  let value: unknown = null;
+  for (let level = 0; level < depth; level += 1) value = { next: value };
+  return value;
+}
+
+export async function proveCoreApplicationClock(fixture: ApplicationCoreMutationFixture) {
+  const loader = new MiniflareApplicationWorkerLoader();
+  let clockReads = 0;
+  const epochReadTimes: number[] = [];
+  const observedDatabase = Object.freeze({ ...fixture.database, readAuthorityEpoch: Clock.currentTimeMillis.pipe(
+    Effect.tap(time => Effect.sync(() => { epochReadTimes.push(time); })),
+    Effect.andThen(fixture.database.readAuthorityEpoch),
+  ) });
+  const clock = applicationMutationTestClock(() => { clockReads += 1; return 1234; });
+  try {
+    const layer = await makeApplicationNativeMutationTestLayer({ ...fixture, database: observedDatabase }, loader);
+    const outcome = await runSystemTestEffectV1(Effect.scoped(invokeApplicationMutation(
+      TransactionFunctionPathV1Schema.make("users:patchThroughInternal"), { id: fixture.documentId, fail: false },
+      TransactionRequestKeyV1Schema.make("core-clock:operation-owned-rpc"),
+    ).pipe(Effect.provide(layer), Effect.provideService(Clock.Clock, clock))));
+    return { outcome, clockReads, epochReadTimes, pointReads: loader.pointDocumentReads, workerLoads: loader.loads,
+      after: await readApplicationCoreMutationState(fixture) };
+  } finally { await loader.dispose(); }
+}
+
+export async function proveCoreApplicationAdmissionExpiry(fixture: ApplicationCoreMutationFixture) {
+  let now = 1234;
+  let deadline: number | undefined;
+  const clock = applicationMutationTestClock(() => now);
+  const observedDatabase = Object.freeze({ ...fixture.database,
+    commit: (handle: Parameters<typeof fixture.database.commit>[0], options?: Parameters<typeof fixture.database.commit>[1]) =>
+      Effect.sync(() => {
+        deadline = options?.admissionDeadlineUnixMilliseconds;
+        if (deadline === undefined) throw new Error("Application commit omitted its signed grant deadline.");
+        now = deadline;
+      }).pipe(Effect.andThen(() => fixture.database.commit(handle, options))),
+  });
+  const before = await readApplicationCoreMutationState(fixture);
+  const loader = new MiniflareApplicationWorkerLoader();
+  try {
+    const layer = await makeApplicationNativeMutationTestLayer({ ...fixture, database: observedDatabase }, loader);
+    const invoke = () => invokeApplicationMutation(TransactionFunctionPathV1Schema.make("users:patchThroughInternal"),
+      { id: fixture.documentId, fail: false }, TransactionRequestKeyV1Schema.make("core-clock:admission-expiry"))
+      .pipe(Effect.provide(layer), Effect.provideService(Clock.Clock, clock));
+    const outcome = await runSystemTestEffectV1(Effect.scoped(Effect.exit(invoke())));
+    const replay = await runSystemTestEffectV1(Effect.scoped(Effect.exit(invoke())));
+    return { outcome, replay, before, after: await readApplicationCoreMutationState(fixture),
+      workerLoads: loader.loads, deadline, admissionTime: now };
+  } finally { await loader.dispose(); }
+}
+
+function applicationMutationTestClock(currentTimeMillis: () => number): Clock.Clock {
+  const live = Context.get(Context.empty(), Clock.Clock);
+  return {
+    currentTimeMillis: Effect.sync(currentTimeMillis), currentTimeMillisUnsafe: currentTimeMillis,
+    currentTimeNanos: Effect.sync(() => BigInt(currentTimeMillis()) * 1_000_000n),
+    currentTimeNanosUnsafe: () => BigInt(currentTimeMillis()) * 1_000_000n,
+    monotonicTimeNanos: live.monotonicTimeNanos,
+    monotonicTimeNanosUnsafe: () => live.monotonicTimeNanosUnsafe(), sleep: duration => live.sleep(duration),
+  };
+}
+
+export async function proveCoreApplicationAuthority(fixture: ApplicationCoreMutationFixture,
+  mode: "beforeBody" | "duringBody" | "benignHead") {
+  const before = await readApplicationCoreMutationState(fixture);
+  const loader = new MiniflareApplicationWorkerLoader();
+  try {
+    const original = await makeApplicationMutationTestLive(fixture, loader);
+    const live = mode === "beforeBody" ? Object.freeze({ ...original,
+      grantIssuer: { issue: (input: Parameters<typeof original.grantIssuer.issue>[0]) => original.grantIssuer.issue(input)
+        .pipe(Effect.tap(() => fixture.database.advanceAuthorityEpoch(2n).pipe(Effect.orDie))) },
+    }) : original;
+    const layer = makeApplicationMutationSystemLayer(live);
+    const key = TransactionRequestKeyV1Schema.make('core-authority:' + mode);
+    const invoke = () => invokeApplicationMutation(TransactionFunctionPathV1Schema.make("users:patchThroughInternal"),
+      { id: fixture.documentId, fail: false }, key).pipe(Effect.provide(layer));
+    const originalProgram = await runSystemTestEffectV1(fixture.database.selectProgram("users:patchThroughInternal"));
+    if (mode === "beforeBody") {
+      const outcome = await runSystemTestEffectV1(Effect.scoped(Effect.exit(invoke())));
+      return { outcome, before, after: await readApplicationCoreMutationState(fixture), workerLoads: loader.loads,
+        pointReads: loader.pointDocumentReads, originalProgramHash: originalProgram.identity.programHash,
+        currentProgramHash: originalProgram.identity.programHash };
+    }
+    const block = loader.blockNextInvocation();
+    const pending = runSystemTestEffectV1(Effect.scoped(Effect.exit(invoke())));
+    await block.started;
+    try {
+      if (mode === "duringBody") await runSystemTestEffectV1(fixture.database.advanceAuthorityEpoch(2n));
+      else await fixture.advanceProgramHead();
+    } finally { block.release(); }
+    const outcome = await pending;
+    const currentProgram = await runSystemTestEffectV1(fixture.database.selectProgram("users:patchThroughInternal"));
+    return { outcome, before, after: await readApplicationCoreMutationState(fixture), workerLoads: loader.loads,
+      pointReads: loader.pointDocumentReads, originalProgramHash: originalProgram.identity.programHash,
+      currentProgramHash: currentProgram.identity.programHash };
+  } finally { await loader.dispose(); }
+}
+
+export async function proveCoreApplicationColdClaim(fixture: ApplicationCoreMutationFixture) {
+  const loader = new MiniflareApplicationWorkerLoader();
+  const before = await readApplicationCoreMutationState(fixture);
+  try {
+    const firstLayer = await makeApplicationNativeMutationTestLayer(fixture, loader);
+    const key = TransactionRequestKeyV1Schema.make("core-claim:lost-acknowledgement");
+    const invoke = (layer: typeof firstLayer) => invokeApplicationMutation(
+      TransactionFunctionPathV1Schema.make("users:patchThroughInternal"), { id: fixture.documentId, fail: false }, key,
+    ).pipe(Effect.provide(layer));
+    fixture.loseNextWriteAcknowledgement();
+    const lost = await runSystemTestEffectV1(Effect.scoped(Effect.exit(invoke(firstLayer))));
+    const cold = await fixture.reopen();
+    await fixture.advanceProgramHead();
+    const coldFixture = Object.freeze({ ...fixture, database: cold });
+    const coldLayer = await makeApplicationNativeMutationTestLayer(coldFixture, loader);
+    const recovered = await runSystemTestEffectV1(Effect.scoped(Effect.exit(invoke(coldLayer))));
+    const replayed = await runSystemTestEffectV1(Effect.scoped(Effect.exit(invoke(coldLayer))));
+    return { lost, recovered, replayed, before, after: await readApplicationCoreMutationState(coldFixture), workerLoads: loader.loads };
+  } finally { await loader.dispose(); }
+}
+
+export async function proveCoreApplicationBusyClaim(fixture: ApplicationCoreMutationFixture) {
+  const loader = new MiniflareApplicationWorkerLoader();
+  try {
+    const layer = await makeApplicationNativeMutationTestLayer(fixture, loader);
+    const key = TransactionRequestKeyV1Schema.make("core-claim:same-owner");
+    const invoke = () => invokeApplicationMutation(TransactionFunctionPathV1Schema.make("users:patchThroughInternal"),
+      { id: fixture.documentId, fail: false }, key).pipe(Effect.provide(layer));
+    const block = loader.blockNextInvocation();
+    const pending = runSystemTestEffectV1(Effect.scoped(Effect.exit(invoke())));
+    await block.started;
+    let contender;
+    try { contender = await runSystemTestEffectV1(Effect.scoped(Effect.exit(invoke()))); }
+    finally { block.release(); }
+    const first = await pending;
+    const replay = await runSystemTestEffectV1(Effect.scoped(invoke()));
+    return { contender, first, replay, after: await readApplicationCoreMutationState(fixture), workerLoads: loader.loads };
+  } finally { await loader.dispose(); }
+}
+
+async function readApplicationCoreMutationState(fixture: ApplicationCoreMutationFixture) {
+  const transaction = await runSystemTestEffectV1(fixture.database.begin());
+  try { return Object.freeze({ document: Option.getOrNull(await runSystemTestEffectV1(transaction.get(fixture.documentId))),
+    indexed: await runSystemTestEffectV1(transaction.scan("users", "by_name")), history: await fixture.history() }); }
+  finally { await runSystemTestEffectV1(transaction.abort()); }
 }
 
 function observeApplicationMutationConfiguration(
@@ -1347,7 +1441,7 @@ function observeApplicationMutationConfiguration(
 }
 
 export async function makeApplicationNativeMutationTestLayer(
-  fixture: ApplicationMutationTestLiveFixture,
+  fixture: ApplicationMutationTestLiveFixture | ApplicationCoreMutationFixture,
   loader: WorkerLoader,
   options: Readonly<{
     readonly source?: ApplicationMutationSystemLive["applicationRunner"]["source"];
@@ -1361,8 +1455,26 @@ export async function makeApplicationNativeMutationTestLayer(
   );
 }
 
+export function makeApplicationMutationTestLive(fixture: ApplicationCoreMutationFixture, loader: WorkerLoader, options?: Readonly<{
+    readonly source?: ApplicationMutationSystemLive["applicationRunner"]["source"];
+    readonly onExecution?: () => void;
+    readonly afterRuntime?: () => Effect.Effect<void, never>;
+    readonly uuidSequenceStart?: number;
+  }>): Promise<ApplicationCoreMutationSystemLive>;
+export function makeApplicationMutationTestLive(fixture: ApplicationMutationTestLiveFixture, loader: WorkerLoader, options?: Readonly<{
+    readonly source?: ApplicationMutationSystemLive["applicationRunner"]["source"];
+    readonly onExecution?: () => void;
+    readonly afterRuntime?: () => Effect.Effect<void, never>;
+    readonly uuidSequenceStart?: number;
+  }>): Promise<ApplicationMutationSystemLive>;
+export function makeApplicationMutationTestLive(fixture: ApplicationMutationTestLiveFixture | ApplicationCoreMutationFixture, loader: WorkerLoader, options?: Readonly<{
+    readonly source?: ApplicationMutationSystemLive["applicationRunner"]["source"];
+    readonly onExecution?: () => void;
+    readonly afterRuntime?: () => Effect.Effect<void, never>;
+    readonly uuidSequenceStart?: number;
+  }>): Promise<ApplicationMutationSystemLive | ApplicationCoreMutationSystemLive>;
 export async function makeApplicationMutationTestLive(
-  fixture: ApplicationMutationTestLiveFixture,
+  fixture: ApplicationMutationTestLiveFixture | ApplicationCoreMutationFixture,
   loader: WorkerLoader,
   options: Readonly<{
     readonly source?: ApplicationMutationSystemLive["applicationRunner"]["source"];
@@ -1370,7 +1482,7 @@ export async function makeApplicationMutationTestLive(
     readonly afterRuntime?: () => Effect.Effect<void, never>;
     readonly uuidSequenceStart?: number;
   }> = {},
-): Promise<ApplicationMutationSystemLive> {
+): Promise<ApplicationMutationSystemLive | ApplicationCoreMutationSystemLive> {
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
     fixture.deploymentId,
   );
@@ -1467,6 +1579,33 @@ export async function makeApplicationMutationTestLive(
       });
   let uuidSequence = options.uuidSequenceStart ?? 0;
   let executionSequence = 0;
+  const applicationRunner = Object.freeze({
+      source: options.source ?? Object.freeze({
+        read: (rootSha256: string) => rootSha256 ===
+            fixture.source.sourceArtifact.rootSha256
+          ? Effect.succeed(
+            fixture.source satisfies ApplicationAnalysisSourceBundle,
+          )
+          : Effect.die("Application-native proof requested the wrong source root."),
+      }),
+      host,
+      hostPolicy,
+      hostPolicySha256,
+      sha256: (bytes: Uint8Array) => Effect.promise(() => sha256(bytes)),
+  });
+  const executionContextFactory = Object.freeze({
+      make: () => Effect.sync(() => {
+        executionSequence += 1;
+        options.onExecution?.();
+        return Object.freeze({
+          executionId: `application-native-execution-${executionSequence}`,
+          logScopeId: `application-native-log-${executionSequence}`,
+          randomSeed: new Uint8Array(32).fill(executionSequence),
+        });
+      }),
+  });
+  if ("database" in fixture) return Object.freeze({ coreDatabase: fixture.database, deploymentId, grantIssuer,
+    applicationRunner, executionContextFactory, maximumAttempts: 3 }) satisfies ApplicationCoreMutationSystemLive;
   return Object.freeze({
     deploymentId,
     activation: fixture.activation,
@@ -1495,35 +1634,12 @@ export async function makeApplicationMutationTestLive(
       : { applicationRelations: fixture.applicationRelations }),
     indexedQueries: fixture.indexedQueries,
     grantRetentionPolicy: RETENTION,
-    applicationRunner: {
-      source: options.source ?? Object.freeze({
-        read: (rootSha256: string) => rootSha256 ===
-            fixture.source.sourceArtifact.rootSha256
-          ? Effect.succeed(
-            fixture.source satisfies ApplicationAnalysisSourceBundle,
-          )
-          : Effect.die("Application-native proof requested the wrong source root."),
-      }),
-      host,
-      hostPolicy,
-      hostPolicySha256,
-      sha256: (bytes: Uint8Array) => Effect.promise(() => sha256(bytes)),
-    },
+    applicationRunner,
     randomUuid: () => {
       uuidSequence += 1;
       return `35000000-0000-4000-8000-${uuidSequence.toString().padStart(12, "0")}`;
     },
-    executionContextFactory: {
-      make: () => Effect.sync(() => {
-        executionSequence += 1;
-        options.onExecution?.();
-        return Object.freeze({
-          executionId: `application-native-execution-${executionSequence}`,
-          logScopeId: `application-native-log-${executionSequence}`,
-          randomSeed: new Uint8Array(32).fill(executionSequence),
-        });
-      }),
-    },
+    executionContextFactory,
     leaseDurationMilliseconds: 600_000,
     claimDurationMilliseconds: 600_000,
     leaseRenewalDurationMilliseconds: 600_000,

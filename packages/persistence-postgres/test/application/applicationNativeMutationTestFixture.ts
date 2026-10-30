@@ -40,6 +40,9 @@ import {
 } from
   "@flarex/standard-application-definition/internal/prepared-definition-v1";
 import { Effect, Result, Schema } from "effect";
+import { APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1,
+  APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1,
+} from "flarex-protocol/internal/application-revision-syscall-validation-v1";
 import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
   SOURCE_ARTIFACT_V2_ROLE_FUNCTION,
@@ -1350,7 +1353,8 @@ function resolveTaskPublication(
 }
 
 export async function createApplicationNativeMutationSourceBundle(includeProductLaunch = false, extraFunctionCount = 0,
-  functionPaddingBytes = 0, includeInternalCalls = false, includeQueryCacheProbe = false, includeAdmissionReadTwice = false): Promise<ApplicationNativeMutationSourceBundle> {
+  functionPaddingBytes = 0, includeInternalCalls = false, includeQueryCacheProbe = false, includeAdmissionReadTwice = false,
+  includeDocumentValidationProbe = false): Promise<ApplicationNativeMutationSourceBundle> {
   const execution = [
     'import { query } from "flarex/server";',
     'import { mutation } from "flarex/server";',
@@ -1365,6 +1369,7 @@ export async function createApplicationNativeMutationSourceBundle(includeProduct
     "  create: mutation({ handler: users.create }),",
     "  createInternal: internalMutation({ handler: users.createInternal }),",
     "  notify: action({ handler: users.notify }),",
+    ...(includeDocumentValidationProbe ? ["  validationRecovery: mutation({ handler: users.validationRecovery }),"] : []),
     ...(includeAdmissionReadTwice ? [
       "  readTwice: mutation({ handler: users.readTwice }),",
     ] : []),
@@ -1430,6 +1435,26 @@ export async function createApplicationNativeMutationSourceBundle(includeProduct
     "export async function create(ctx, args) {",
     "  return await ctx.db.insert(\"users\", { name: args.name });",
     "}",
+    ...(includeDocumentValidationProbe ? [
+      "export async function validationRecovery(ctx, args) {",
+      "  if (args.bounded === true) {",
+      "    try { await ctx.db.queryIndexRange('users', 'by_creation_time', { startInclusive: '0dc093480000000000', endExclusive: '0dc09348000000000000' }, 4); } catch {}",
+      "    await ctx.db.patch(args.id, { name: 'must not publish bounded read' });",
+      "    return null;",
+      "  }",
+      "  const failures = [];",
+      "  for (const operation of [() => ctx.db.insert('users', { name: 123 }), () => ctx.db.patch(args.id, { name: 123 })]) {",
+      "    try { await operation(); } catch (error) {",
+      "      if (error.name !== " + JSON.stringify(APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1) + " || error.message !== " + JSON.stringify(APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1) + ") throw error;",
+      "      failures.push({ name: error.name, message: error.message });",
+      "    }",
+      "  }",
+      "  const afterRefusal = await ctx.db.get(args.id);",
+      "  await ctx.db.patch(args.id, { name: 'valid after refusal' });",
+      "  const createdId = await ctx.db.insert('users', { name: 'independent valid' });",
+      "  return { failures, afterRefusal, createdId, after: await ctx.db.get(args.id) };",
+      "}",
+    ] : []),
     "export async function createInternal(ctx, args) {",
     "  return await ctx.db.insert(\"users\", { name: args.name });",
     "}",

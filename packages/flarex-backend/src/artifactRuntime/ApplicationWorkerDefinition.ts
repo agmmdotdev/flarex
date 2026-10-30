@@ -70,6 +70,8 @@ export function makeApplicationWorkerDefinition(input: {
   readonly hostPolicy: EdgeActionHostPolicyFrameV1;
   readonly hostPolicySha256: Uint8Array;
   readonly compatibilityDate?: string;
+  /** Selected by trusted storage composition and emitted into the definition. */
+  readonly documentIdFormat?: "convex";
 }): ApplicationWorkerDefinition {
   const compatibilityDate = input.compatibilityDate ??
     APPLICATION_WORKER_COMPATIBILITY_DATE;
@@ -109,6 +111,7 @@ export function makeApplicationWorkerDefinition(input: {
     internalFunctionCatalog,
     hostPolicy: input.hostPolicy,
     hostPolicySha256Hex: hex(input.hostPolicySha256),
+    ...(input.documentIdFormat === undefined ? {} : { documentIdFormat: input.documentIdFormat }),
   });
   const graph = makeApplicationRuntimeModuleGraph({
     source: input.source,
@@ -155,6 +158,7 @@ function entrypointSource(
     >;
     readonly hostPolicy: EdgeActionHostPolicyFrameV1;
     readonly hostPolicySha256Hex: string;
+    readonly documentIdFormat?: "convex";
   }>,
 ): string {
   return [

@@ -7,6 +7,11 @@
     "src"
   ],
   "exports": {
+    "./internal/core-application-schema": "./src/application/coreSchema.ts",
+    "./internal/core-application-mutation": "./src/application/coreMutation.ts",
+    "./internal/system-test/core-application-mutation-fixture": "./test/application/applicationCoreMutationFixture.ts",
+    "./internal/core": "./src/core/index.ts",
+    "./internal/system-test/core-persistence-fixture": "./test/core/fixture.ts",
     "./internal/trusted-workflow-checkpoint": "./src/tasks/trustedWorkflowCheckpoint.ts",
     "./internal/trusted-workflow-continuation": "./src/tasks/trustedWorkflowContinuationStore.ts",
     "./internal/trusted-workflow-callback": "./src/tasks/trustedWorkflowCallback.ts",

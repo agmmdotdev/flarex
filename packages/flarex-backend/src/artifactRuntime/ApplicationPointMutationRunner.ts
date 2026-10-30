@@ -230,7 +230,7 @@ const runWithJournalSettlement = Effect.fn(
       definition,
       request,
       capability: session.target,
-    }).pipe(Effect.mapError(mapHostFailure))).pipe(
+    }).pipe(Effect.mapError(mapApplicationPointMutationHostFailure))).pipe(
       Effect.exit,
       Effect.flatMap(hostExit =>
         session.closeAndDrain.pipe(
@@ -269,7 +269,7 @@ function resolveRunnerExits(
     : Effect.failCause(hostExit.cause);
 }
 
-function mapHostFailure(
+export function mapApplicationPointMutationHostFailure(
   error: ApplicationExecutionHostError,
 ):
   | ApplicationPointMutationRunnerHostV1Error

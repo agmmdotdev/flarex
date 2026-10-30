@@ -1,4 +1,4 @@
-import { validateValidatorValueIssueV1 } from
+import { validateValidatorValueIssueV1, type ValidatorIdPolicyV1 } from
   "flarex-protocol/internal/validator-engine-core";
 import type { UserIdentity } from "flarex-protocol/auth";
 import type {
@@ -75,6 +75,8 @@ export interface ApplicationFunctionTransactionRuntimeInputV1 {
   readonly callBudget: ApplicationFunctionRuntimeCallBudgetV1;
   readonly arguments: CanonicalFlarexRuntimeObjectV1;
   readonly tables: ReadonlyArray<ApplicationFunctionRuntimeTableV1>;
+  /** Trusted host representation policy; never sourced from user arguments. */
+  readonly idPolicy?: Extract<ValidatorIdPolicyV1, { readonly mode: "tableAware" }>;
 }
 
 export interface ApplicationFunctionActionRuntimeInputV1 {
@@ -361,6 +363,7 @@ export async function executeApplicationFunctionTransactionRuntimeV1(
     input.arguments,
     "$arguments",
     tableIdsByName,
+    input.idPolicy,
   );
   if (argumentIssue !== undefined) {
     throw new ApplicationFunctionRuntimeContractV1Error(
@@ -477,6 +480,7 @@ export async function executeApplicationFunctionTransactionRuntimeV1(
       capturedArguments.value,
       "$internal.arguments",
       tableIdsByName,
+      input.idPolicy,
     );
     if (childArgumentIssue !== undefined) {
       throw new ApplicationFunctionRuntimeApplicationV1Error(
@@ -544,6 +548,7 @@ export async function executeApplicationFunctionTransactionRuntimeV1(
         normalizedChild.value,
         "$internal.result",
         tableIdsByName,
+        input.idPolicy,
       );
       if (childResultIssue !== undefined) {
         throw new ApplicationFunctionRuntimeApplicationV1Error(
@@ -672,6 +677,7 @@ export async function executeApplicationFunctionTransactionRuntimeV1(
       normalizedRoot.value,
       "$result",
       tableIdsByName,
+      input.idPolicy,
     );
     if (rootResultIssue !== undefined) {
       throw new ApplicationFunctionRuntimeUserCodeV1Error(rootResultIssue);
@@ -995,7 +1001,9 @@ function validatorIssue(
   value: CanonicalFlarexRuntimeValueV1,
   path: string,
   tableIdsByName: ReadonlyMap<string, number>,
+  idPolicy?: Extract<ValidatorIdPolicyV1, { readonly mode: "tableAware" }>,
 ) {
+  if (idPolicy !== undefined) return validateValidatorValueIssueV1(validator, value, { path, idPolicy });
   return validatePointRuntimeValueIssueV1(
     validator,
     value,

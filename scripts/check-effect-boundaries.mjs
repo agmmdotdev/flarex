@@ -174,6 +174,9 @@ const allowedRunPromiseExitSites = new Map([
 
 /** @type {Map<string, number>} */
 const allowedRunPromiseExitWithSites = new Map([
+  // Operation-owned Worker RPC preserves its diagnostic context and grant Clock;
+  // the trusted invocation closes and drains every admitted callback.
+  [siteKey("packages/standard-application-invocation/src/CoreApplicationMutationRunner.ts", "run"), 1],
   // The existing native Promise owner transports full Exit/Cause with its captured context.
   [siteKey("packages/medusa-adapter/src/module/promise-owner.ts", "run"), 1],
   // Existing transaction bridges lend only the captured diagnostic policy,
@@ -187,6 +190,9 @@ const allowedRunPromiseExitWithSites = new Map([
 
 /** @type {Map<string, number>} */
 const allowedRunPromiseWithSites = new Map([
+  // PGlite's foreign transaction callback bridges owned latches and joins its
+  // supervised Effect child with the parent Context before foreign settlement.
+  [siteKey("packages/persistence-postgres/src/database/corePersistence/driver.ts", "transaction"), 1],
 
   // These existing Payload DAL/rollback edges preserve actual invocation
   // diagnostics and cancellation instead of starting a default runtime.

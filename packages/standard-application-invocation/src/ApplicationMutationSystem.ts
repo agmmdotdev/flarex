@@ -146,6 +146,12 @@ import {
   type ApplicationTaskQueryLaunchEvidence,
 } from "./ApplicationTaskQueryAuthority";
 
+import { type CoreDatabase, type CoreError } from "@flarex/persistence-postgres/internal/core";
+import { CoreApplicationMutationError, makeCoreApplicationMutationPort } from
+  "@flarex/persistence-postgres/internal/core-application-mutation";
+import { normalizeFlarexValueV1 } from "flarex-protocol/value";
+import { makeCoreApplicationMutationRunner } from "./CoreApplicationMutationRunner";
+
 type OccContextFactory = StoredPointMutationOccRerunExecutionConfigV1[
   "pointMutationOccRerun"
 ]["contextFactory"];
@@ -196,6 +202,20 @@ export interface ApplicationMutationSystemLive {
     PointCommitTransactionProofOptionsV1["afterTransactionStep"];
 }
 
+/** Trusted fresh-target composition; no legacy SQL capability is accepted. */
+export interface ApplicationCoreMutationSystemLive {
+  readonly coreDatabase: CoreDatabase;
+  readonly deploymentId: TransactionGrantDeploymentIdV1;
+  readonly grantIssuer: ApplicationMutationGrantIssuer;
+  readonly applicationRunner: ApplicationPointMutationRunnerConfig;
+  readonly executionContextFactory: OccContextFactory;
+  readonly maximumAttempts: number;
+}
+
+type InvokeCoreApplicationMutationError = CoreError | CoreApplicationMutationError |
+  Effect.Error<ReturnType<ApplicationMutationGrantIssuer["issue"]>> |
+  Effect.Error<ReturnType<ReturnType<typeof makeCoreApplicationMutationRunner>>>;
+
 export class ApplicationMutationInputError extends Data.TaggedError(
   "ApplicationMutationInputError",
 )<{
@@ -231,6 +251,7 @@ export class ApplicationTaskMutationLaunchError extends Data.TaggedError(
 )<{ readonly reason: "invalidLaunch" | "staleLaunch"; readonly cause?: unknown }> {}
 
 export type InvokeApplicationSelectionMutationError =
+  | InvokeCoreApplicationMutationError
   | SelectApplicationMutationAdmissionError
   | CurrentScopeAuthorizationEpochError
   | ApplicationMutationAuthorityChangedError
@@ -486,8 +507,9 @@ export function inspectApplicationMutationAuthenticatedIdentity(
 }
 
 export function makeApplicationMutationSystemLayer(
-  live: ApplicationMutationSystemLive,
+  live: ApplicationMutationSystemLive | ApplicationCoreMutationSystemLive,
 ): Layer.Layer<ApplicationMutationSystem> {
+  if ("coreDatabase" in live) return makeCoreApplicationMutationSystemLayer(live);
   const captured = captureLive(live);
   preflightApplicationMutationSystemConfiguration(captured);
   const invokeRootSelection = makeSelectionInvoke(
@@ -594,6 +616,37 @@ export function makeApplicationMutationSystemLayer(
       }),
     }),
   );
+}
+
+function makeCoreApplicationMutationSystemLayer(live: ApplicationCoreMutationSystemLive): Layer.Layer<ApplicationMutationSystem> {
+  const port = makeCoreApplicationMutationPort({ database: live.coreDatabase, deploymentId: live.deploymentId,
+    maximumAttempts: live.maximumAttempts, issueGrant: live.grantIssuer.issue,
+    sha256: live.applicationRunner.sha256, execute: makeCoreApplicationMutationRunner(live) });
+  const invoke = Effect.fn("ApplicationMutationSystem.invokeCore")(function* (
+    functionRef: TransactionFunctionPathV1, args: unknown, requestKey: TransactionRequestKeyV1,
+    policy?: CanonicalTransactionGrantIdentityAccessPolicyV1,
+  ) {
+    const input = yield* prepareApplicationMutationInvocationInput(functionRef, requestKey);
+    const identity = policy ?? (yield* canonicalizeTransactionGrantIdentityAccessPolicyV1Effect({
+      policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+      auth: { kind: "anonymous" }, capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
+    }));
+    const outcome = yield* port.invoke(input.functionRef, args, input.requestKey, identity);
+    return Object.freeze({ status: "committed" as const, disposition: outcome.disposition,
+      scopeUuid: outcome.scopeUuid, epochUuid: outcome.epochUuid, commitSeq: outcome.timestamp,
+      value: normalizeFlarexValueV1(outcome.value).valueJson });
+  });
+  return Layer.succeed(ApplicationMutationSystem, ApplicationMutationSystem.of({
+    invoke,
+    invokeAuthenticated: Effect.fn("ApplicationMutationSystem.invokeCoreAuthenticated")(function* (functionRef, args, requestKey, identity) {
+      const prepared = yield* Effect.fromResult(claimApplicationMutationAuthenticatedIdentity(identity));
+      return yield* invoke(functionRef, args, requestKey, prepared.identityAccessPolicy);
+    }),
+    // Selected callbacks/Task launch require their actual translated authority
+    // contracts. An old selection cannot authorize a new-target invocation.
+    selectionMutation: { runMutation: () => Effect.fail(new CoreApplicationMutationError({ reason: "unsupportedSelection" })) },
+    invokeAuthenticatedAtTaskLaunch: () => Effect.fail(new CoreApplicationMutationError({ reason: "unsupportedSelection" })),
+  }));
 }
 
 export function preflightApplicationMutationSystemConfiguration(

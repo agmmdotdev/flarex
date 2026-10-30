@@ -6,6 +6,8 @@ import {
 import { APPLICATION_RUNTIME_HOST_IDENTITY } from
   "flarex-backend/artifact-runtime";
 import { describe, expect, it } from "vitest";
+import { createCorePostgresFixture } from "@flarex/persistence-postgres/internal/system-test/core-persistence-fixture";
+import { withApplicationCoreMutationFixture } from "@flarex/persistence-postgres/internal/system-test/core-application-mutation-fixture";
 
 import { APPLICATION_NESTED_MUTATION_FIXTURE_OPTIONS, proveApplicationNativeMutation } from
   "../../support/applicationNativeMutationHarness";
@@ -28,11 +30,13 @@ describe("Application-native mutation PostgreSQL acceptance environment", () => 
 
 describePostgres("Application-native Standard mutation - PostgreSQL", () => {
   defineApplicationNestedMutationContract({
-    runScenario: scenario => withTemporarySplitPostgresPersistence(async persistence => scenario(
-      await createApplicationNativeMutationPostgresFixture(
-        APPLICATION_NESTED_MUTATION_FIXTURE_OPTIONS, persistence,
-      ),
-    )),
+    runScenario: async scenario => {
+      const provisioning = process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL;
+      if (postgresUrl === null || provisioning === undefined) throw new Error("Core PostgreSQL proof requires explicit serving and provisioning endpoints.");
+      return withApplicationCoreMutationFixture(await createCorePostgresFixture({
+        connectionString: postgresUrl, provisioningConnectionString: provisioning,
+      }), scenario);
+    },
   });
   it("composes active Application authority through the shared commit tail", async () => {
     await withTemporarySplitPostgresPersistence(async persistence => {

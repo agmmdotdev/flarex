@@ -17,7 +17,7 @@ combining independent authority or lifecycle decisions.
 
 ## Pinned Convex mechanism
 
-- Revision: `84fbb0e70b4e857913673871cb847ad11a55f3d5`.
+- Revision: `db914cf06e2b06ee985646611b9e12ed7a770318`.
 - Source paths, symbols and content identities:
 - Relevant executing callers and tests:
 - Algorithm/state, ownership, concurrency order and failure/recovery behavior:

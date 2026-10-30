@@ -161,6 +161,13 @@ It preserves native execution and maintains Application edges, adjacency and
 facts. Like standalone source CMS, it corrects future writes without certifying
 historical sidecar coverage or closing maintained-serving readiness.
 
+The [fresh Application transaction/persistence cutover](./slices/06a-application-persistence-cutover.md)
+now has a completed current-pin independent challenge and peer exchange, with
+a bounded translated core and connected consumer implemented. It connects the real Standard
+nested user Worker to the translated five-table owner on fresh data. Existing
+scopes/native consumers remain named migration inputs. This does not complete
+physical cutover, app-DO ownership or the broader goal.
+
 ## Mandatory challenge before each slice
 
 Before implementation, independent sub-agents inspect and challenge:

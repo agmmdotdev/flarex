@@ -391,7 +391,10 @@ export class MiniflareApplicationWorkerLoader implements WorkerLoader {
   readonly #disposals: Array<Promise<PromiseSettledResult<void>[]>> = [];
   #nextInvocationBlock: InvocationBlock | undefined;
 
-  constructor(private readonly onCapability: (method: string, argumentsValue: readonly unknown[]) => void | Promise<void> = () => undefined) {}
+  constructor(
+    private readonly onCapability: (method: string, argumentsValue: readonly unknown[]) => void | Promise<void> = () => undefined,
+    private readonly onCapabilityResult: (method: string, argumentsValue: readonly unknown[], result: unknown) => void | Promise<void> = () => undefined,
+  ) {}
 
   blockNextInvocation(): Readonly<{
     readonly started: Promise<void>;
@@ -432,6 +435,10 @@ export class MiniflareApplicationWorkerLoader implements WorkerLoader {
       throw new Error("Application Worker supplied an invalid document ID.");
     }
     this.documentIds.push(documentId);
+  }
+
+  async observeCapabilityResult(method: string, argumentsValue: readonly unknown[], result: unknown): Promise<void> {
+    await this.onCapabilityResult(method, argumentsValue, result);
   }
 
   attach(runtime: ApplicationWorkerRuntime): void {
@@ -515,6 +522,7 @@ class MiniflareApplicationWorkerStub implements WorkerStub {
           capability,
           (method, argumentsValue) =>
             this.owner.observeCapability(method, argumentsValue),
+          (method, argumentsValue, result) => this.owner.observeCapabilityResult(method, argumentsValue, result),
         ),
         ...(globalOutbound == null
           ? {}
@@ -574,6 +582,7 @@ async function invokeCapability(
   input: Request,
   capability: object,
   observe: (method: string, argumentsValue: readonly unknown[]) => void | Promise<void>,
+  observeResult: (method: string, argumentsValue: readonly unknown[], result: unknown) => void | Promise<void>,
 ): Promise<Response> {
   try {
     const request = decodeBridgeValue(JSON.parse(await input.text()));
@@ -587,6 +596,7 @@ async function invokeCapability(
       throw new Error("Application capability method is unavailable.");
     }
     const result = await Reflect.apply(method, capability, request.arguments);
+    await observeResult(request.method, request.arguments, result);
     return bridgeResponse({ ok: true, result });
   } catch (cause) {
     return bridgeResponse({

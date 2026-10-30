@@ -5,7 +5,12 @@ Reference upgrade: the active pin is now `db914cf06e2b06ee985646611b9e12ed7a7703
 implementation evidence below retain their old pin and are not new-pin
 conformance. Revalidate affected contracts before dispatching runtime work.
 
-Status: **Independent current-core, accepted-direction and pinned-Convex
+Current dispatch: the [fresh Application cutover](./06a-application-persistence-cutover.md)
+completed its independent db914cf06 challenge and peer exchange; connected
+fresh-target implementation is in place. The wider slice remains open. The original
+preparation checkpoint below retains its old source identity and proof limits.
+
+Original preparation status: **Independent current-core, accepted-direction and pinned-Convex
 challenge plus peer exchange complete; connected contract preparation selected;
 runtime replacement unstarted**. Concrete caller/data conversion and native
 enforcement contracts below remain prerequisites before dispatching runtime

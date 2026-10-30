@@ -98,7 +98,11 @@
     "./internal/schema-source": "./src/schema-source.ts",
     "./internal/logical-schema-candidate": "./src/logical-schema-candidate.ts",
     "./internal/logical-storage-requirements": "./src/logical-storage-requirements.ts",
-    "./internal/decoded-protocol-snapshot": "./src/decoded-protocol-snapshot.ts"
+    "./internal/decoded-protocol-snapshot": "./src/decoded-protocol-snapshot.ts",
+    "./document-id": "./src/document-id.ts",
+    "./document-value": "./src/document-value.ts",
+    "./index-key": "./src/index-key.ts",
+    "./internal/postgres-bigint": "./src/postgres-bigint.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
