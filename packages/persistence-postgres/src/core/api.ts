@@ -2,7 +2,7 @@ import { Data, Schema, type Effect, type Option } from "effect";
 import type { DocumentObject, DocumentValue } from "flarex-protocol/document-value";
 import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
 import type {
-  CoreIndexRef, CoreInterval, CoreOrder, CorePersistenceError, CoreTimestamp,
+  CoreIndexCursor, CoreIndexRef, CoreInterval, CoreOrder, CorePersistenceError, CoreTimestamp,
 } from "./contracts";
 
 export interface CoreIndexDefinition {
@@ -67,7 +67,39 @@ export class CoreTransactionError extends Data.TaggedError("CoreTransactionError
   readonly cause?: unknown;
 }> {}
 
-export type CoreError = CoreTransactionError | CorePersistenceError;
+/** Source query/cursor refusals are catchable; capacity, authority and corruption retain their owners. */
+export class CoreQueryInputError extends Data.TaggedError("CoreQueryInputError")<{
+  readonly reason: "invalidQuery" | "invalidCursor";
+  readonly cause?: unknown;
+}> {}
+
+export type CoreError = CoreTransactionError | CorePersistenceError | CoreQueryInputError;
+
+export interface CoreQueryRequest {
+  /** Captured once by the protocol query owner, then resolved against this transaction's registry. */
+  readonly query: unknown;
+  readonly cursor?: Readonly<{ position: CoreIndexCursor; queryFingerprint: Uint8Array }>;
+}
+
+export interface CoreQueryPage {
+  readonly documents: readonly DocumentObject[];
+  /** Null means no source position has been consumed, for example Limit(0). */
+  readonly position: CoreIndexCursor | null;
+  /** Logical limit or observed source exhaustion; a full page alone does not establish exhaustion. */
+  readonly done: boolean;
+}
+
+/** Trusted operation-owned capability. No SQL lifetime or operation lock spans page calls. */
+export interface CoreQuery {
+  readonly queryFingerprint: Uint8Array;
+  readonly nextPage: (options: Readonly<{
+    /** maxBytes independently bounds encoded JSON and normalized semantic bytes. */
+    maxResults: number; maxBytes: number;
+    /** Pure trusted projection of both transport envelope and protected cursor overhead measures. */
+    positionSize?: (position: CoreIndexCursor | null) => Readonly<{ encodedBytes: number; semanticBytes: number }>;
+  }>) => Effect.Effect<CoreQueryPage, CoreError>;
+  readonly close: () => Effect.Effect<void, CoreError>;
+}
 
 const NonnegativeLimit = Schema.Int.check(Schema.makeFilter(value => Number.isSafeInteger(value) && value >= 0
   ? undefined : "Expected a nonnegative safe resource limit"));
@@ -106,6 +138,7 @@ export interface CoreTransaction {
   readonly patch: (id: string, value: unknown) => Effect.Effect<void, CoreError>;
   readonly replace: (id: string, value: unknown) => Effect.Effect<void, CoreError>;
   readonly delete: (id: string) => Effect.Effect<void, CoreError>;
+  readonly startQuery: (request: CoreQueryRequest) => Effect.Effect<CoreQuery, CoreError>;
   readonly scan: (table: string, index: string, options?: Readonly<{
     interval?: CoreInterval; order?: CoreOrder; limit?: number;
   }>) => Effect.Effect<readonly DocumentObject[], CoreError>;

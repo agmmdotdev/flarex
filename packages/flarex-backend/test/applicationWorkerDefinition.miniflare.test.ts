@@ -47,6 +47,106 @@ afterEach(async () => {
 });
 
 describe("Application Worker definition", () => {
+  it.each(["asc", "desc"] as const)("runs all SDK terminals through finite chunks in %s order", async order => {
+    const fixture = applicationFixture("query", "sdk");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture, hostPolicy: hostPolicy(), hostPolicySha256: digestBytes(), documentIdFormat: "convex",
+    });
+    const execute = (args: Record<string, unknown>) => executeDefinition(
+      definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { ...args, order }, "query", 7), "query",
+      { capabilityMembers: sdkCapabilityMembers() },
+    );
+    const collect = await execute({ method: "collect" });
+    expect(collect).toMatchObject({ value: expect.arrayContaining([{ ordinal: order === "asc" ? 0 : 279, requested: 128, captured: "original" }]) });
+    expect((collect as { value: unknown[] }).value).toHaveLength(280);
+    const take = await execute({ method: "take", count: 260 });
+    expect((take as { value: unknown[] }).value).toHaveLength(260);
+    expect((take as { value: { requested: number }[] }).value.at(-1)?.requested).toBe(4);
+    await expect(execute({ method: "take", count: 0 })).resolves.toMatchObject({ value: [] });
+    await expect(execute({ method: "first" })).resolves.toMatchObject({ value: { ordinal: order === "asc" ? 0 : 279, requested: 1 } });
+    const paginated = await execute({ method: "paginate", count: 260 });
+    expect(paginated).toMatchObject({ value: { isDone: false, continueCursor: "cursor:260" } });
+    expect((paginated as { value: { page: unknown[] } }).value.page).toHaveLength(260);
+    await expect(execute({ method: "uniqueCaught" })).resolves.toMatchObject({ value: "caught" });
+    await expect(execute({ method: "capture" })).resolves.toMatchObject({ value: "original" });
+  }, 120_000);
+
+
+
+  it("consumes derived SDK queries and range builders while keeping initializers reusable", async () => {
+    const fixture = applicationFixture("query", "sdk");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture, hostPolicy: hostPolicy(), hostPolicySha256: digestBytes(), documentIdFormat: "convex",
+    });
+    await expect(executeDefinition(definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { method: "consumption" }, "query", 7), "query",
+      { capabilityMembers: sdkCapabilityMembers() },
+    )).resolves.toMatchObject({ value: {
+      sameTerminal: true, zeroConsumed: true, repeatedOrder: true,
+      consumedAfterOrderError: true, discarded: true, reusable: true,
+    } });
+  });
+
+  it("hides query capabilities from reflection and drains despite forged public slots", async () => {
+    const fixture = applicationFixture("query", "sdk");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture, hostPolicy: hostPolicy(), hostPolicySha256: digestBytes(), documentIdFormat: "convex",
+    });
+    await expect(executeDefinition(definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { method: "reflection" }, "query", 7), "query",
+      { capabilityMembers: sdkCapabilityMembers() },
+    )).resolves.toMatchObject({ value: { visible: [], forgedRefused: true, bypassed: false } });
+  });
+
+  it("drains a dropped multi-chunk collection after closure", async () => {
+    const fixture = applicationFixture("query", "sdk");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture, hostPolicy: hostPolicy(), hostPolicySha256: digestBytes(), documentIdFormat: "convex",
+    });
+    await expect(executeDefinition(definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { method: "dropped" }, "query", 7), "query",
+      { capabilityMembers: sdkCapabilityMembers() },
+    )).resolves.toMatchObject({ value: null });
+  });
+
+  it.each(["uniqueDropped", "late"])("rejects the complete %s terminal after boundary closure", async method => {
+    const fixture = applicationFixture("query", "sdk");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture, hostPolicy: hostPolicy(), hostPolicySha256: digestBytes(), documentIdFormat: "convex",
+    });
+    await expect(executeDefinition(definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { method }, "query", 7), "query",
+      { capabilityMembers: sdkCapabilityMembers() },
+    )).rejects.toThrow("ApplicationWorkerReadBoundaryV1Error");
+  });
+
+
+  it("keeps owned query refusals catchable while host failures stay sticky", async () => {
+    const fixture = applicationFixture("query", "sdk");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture, hostPolicy: hostPolicy(), hostPolicySha256: digestBytes(), documentIdFormat: "convex",
+    });
+    await expect(executeDefinition(definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { method: "inputCaught" }, "query", 7), "query",
+      { capabilityMembers: sdkCapabilityMembers() + '\nqueryStart() { return { kind: "queryError", message: "Invalid cursor." }; }' },
+    )).resolves.toMatchObject({ value: "caught" });
+    await expect(executeDefinition(definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { method: "inputCaught" }, "query", 7), "query",
+      { capabilityMembers: sdkCapabilityMembers() + '\nqueryStart() { throw new Error("host failed"); }' },
+    )).rejects.toThrow("ApplicationWorkerReadBoundaryV1Error");
+  });
+
+  it("requires the logical capability on a trusted core definition", async () => {
+    const fixture = applicationFixture("query", "sdk");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture, hostPolicy: hostPolicy(), hostPolicySha256: digestBytes(), documentIdFormat: "convex",
+    });
+    await expect(executeDefinition(definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { method: "take", count: 1 }, "query", 7), "query",
+    )).rejects.toThrow("ApplicationWorkerReadBoundaryV1Error");
+  });
+
   it("executes a relation-bearing Manifest V2 through the real Worker loader", async () => {
     const fixture = relationApplicationFixture();
     const definition = makeApplicationWorkerDefinition({
@@ -728,6 +828,7 @@ describe("Application Worker definition", () => {
 
 type FunctionKind = "query" | "mutation" | "action";
 type ApplicationSourceScenario =
+  | "sdk"
   | "normal"
   | "tamper"
   | "caughtTamper"
@@ -957,7 +1058,54 @@ function applicationSources(
       "} };",
       "",
     ].join("\n"),
-    handlers: scenario === "relationRead"
+    handlers: scenario === "sdk"
+      ? [
+          "export async function get(context, args) {",
+          '  if ("queryIndexRange" in context.db) throw new Error("raw range leaked");',
+          '  const operand = { token: "original" };',
+          '  const query = context.db.query("users").withIndex("by_name", q => q.eq("name", operand)).order(args.order ?? "asc");',
+          '  if (args.method === "capture") { operand.token = "changed before terminal"; const p = query.take(1); operand.token = "changed after terminal"; return (await p)[0].captured; }',
+          '  if (args.method === "consumption") {',
+          '    const initializer = context.db.query("users");',
+          '    const build = () => initializer.withIndex("by_name", q => q.eq("name", { token: "original" }));',
+          '    const consumed = build(); await consumed.take(1);',
+          '    let sameTerminal = false; try { await consumed.take(1); } catch { sameTerminal = true; }',
+          '    const zero = build(); await zero.take(0);',
+          '    let zeroConsumed = false; try { await zero.take(0); } catch { zeroConsumed = true; }',
+          '    const ordered = build().order("asc");',
+          '    let repeatedOrder = false; try { ordered.order("desc"); } catch { repeatedOrder = true; }',
+          '    let consumedAfterOrderError = false; try { await ordered.take(1); } catch { consumedAfterOrderError = true; }',
+          '    let discarded = false; try { initializer.withIndex("by_name", q => { q.eq("name", "Ada"); return q; }); } catch { discarded = true; }',
+          '    await build().take(1); await build().take(1);',
+          '    return { sameTerminal, zeroConsumed, repeatedOrder, consumedAfterOrderError, discarded, reusable: true };',
+          '  }',
+          '  if (args.method === "reflection") {',
+          '    const visible = Reflect.ownKeys(query);',
+          '    if (["executor", "request", "terminalExecution", "execute"].some(key => Reflect.get(query, key) !== undefined)) throw new Error("query capability exposed");',
+          '    let forgedRefused = false;',
+          '    try { Reflect.apply(query.collect, Object.create(Object.getPrototypeOf(query)), []); } catch { forgedRefused = true; }',
+          '    let bypassed = false;',
+          '    query.executor = () => { bypassed = true; throw new Error("executor bypass"); };',
+          '    query.terminalExecution = operation => { bypassed = true; return operation(); };',
+          '    query.execute = () => { bypassed = true; throw new Error("helper bypass"); };',
+          '    query.request = { table: "other" };',
+          '    void query.collect();',
+          '    return { visible, forgedRefused, bypassed };',
+          '  }',
+          '  if (args.method === "dropped") { void query.collect(); return null; }',
+          '  if (args.method === "uniqueDropped") { void query.unique(); return null; }',
+          '  if (args.method === "uniqueCaught") { try { await query.unique(); } catch { return "caught"; } }',
+          '  if (args.method === "inputCaught") { try { await query.collect(); } catch { return "caught"; } }',
+          '  if (args.method === "late") { void query.collect().then(() => query.take(1)).catch(() => undefined); return null; }',
+          '  if (args.method === "take") return query.take(args.count);',
+          '  if (args.method === "first") return query.first();',
+          '  if (args.method === "paginate") return query.paginate({ numItems: args.count, cursor: args.cursor ?? null });',
+          "  return query.collect();",
+          "}",
+          "export function lookup() { return null; }",
+          "",
+        ].join("\n")
+      : scenario === "relationRead"
       ? [
           "export function get(context, args) {",
           "  return context.db.takeIncomingRelationSources({",
@@ -1101,6 +1249,43 @@ function applicationSources(
       "",
     ].join("\n"),
   });
+}
+
+
+function sdkCapabilityMembers(): string {
+  return `
+    position = 0;
+    expected = 0;
+    descending = false;
+    captured = "";
+    queryStart(request, terminal) {
+      if ("limit" in request) throw new Error("legacy limit leaked");
+      if (request.table !== "users" || request.index !== "by_name") throw new Error("query request replaced");
+      this.position = 0;
+      this.descending = request.order === "desc";
+      this.captured = request.range.expressions[0].value.token;
+      this.expected = terminal.kind === "take" ? Math.min(280, terminal.count)
+        : terminal.kind === "paginate" ? Math.min(280, terminal.numItems) : 280;
+      this.total = terminal.kind === "take" ? this.expected : 280;
+      return { kind: "ok", value: { queryId: "query-1" } };
+    }
+    async queryNext(id, maxResults) {
+      await Promise.resolve();
+      if (id !== "query-1" || maxResults < 1 || maxResults > 128) throw new Error("invalid query next");
+      const count = Math.min(maxResults, this.total - this.position);
+      const page = Array.from({ length: count }, () => {
+        const ordinal = this.descending ? 279 - this.position : this.position;
+        this.position++;
+        return { ordinal, requested: maxResults, captured: this.captured };
+      });
+      return { kind: "ok", value: { page, isDone: count < maxResults,
+        continueCursor: "cursor:" + this.position } };
+    }
+    queryCleanup(id) {
+      if (id !== "query-1" || this.position !== this.expected) throw new Error("query did not drain");
+      return { kind: "ok", value: null };
+    }
+  `;
 }
 
 async function executeDefinition(

@@ -37,7 +37,11 @@ describe("typed schema data model", () => {
       role: "student" | "teacher";
     }>();
     expectTypeOf<NamedIndex<NamedTableInfo<DataModel, "users">, "by_name">>()
-      .toEqualTypeOf<readonly ["name"]>();
+      .toEqualTypeOf<readonly ["name", "_creationTime", "_id"]>();
+    expectTypeOf<NamedIndex<NamedTableInfo<DataModel, "users">, "by_creation_time">>()
+      .toEqualTypeOf<readonly ["_creationTime", "_id"]>();
+    expectTypeOf<NamedIndex<NamedTableInfo<DataModel, "users">, "by_id">>()
+      .toEqualTypeOf<readonly ["_id"]>();
   });
 
   it("exports Convex-style validator metadata", () => {

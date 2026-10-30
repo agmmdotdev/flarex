@@ -9,6 +9,9 @@ Current dispatch: the [fresh Application cutover](./06a-application-persistence-
 completed its independent db914cf06 challenge and peer exchange; connected
 fresh-target implementation is in place. The wider slice remains open. The original
 preparation checkpoint below retains its old source identity and proof limits.
+The [SDK query extension](./06b-application-sdk-queries.md) connects logical
+ranges, streams and cursors for fresh Standard mutations. Standalone query
+hosts and the wider translation remain open.
 
 Original preparation status: **Independent current-core, accepted-direction and pinned-Convex
 challenge plus peer exchange complete; connected contract preparation selected;

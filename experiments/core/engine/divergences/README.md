@@ -66,6 +66,7 @@ evidence, retaining the accepted decision link.
 
 | Record | Current scope |
 | --- | --- |
+| [Application query RPC transport](./application-query-stream-transport.md) | Finite Worker chunks preserve one snapshot query and complete terminal lifetime; source logical bounds and authenticated cursors remain translated. Required host/capacity gates remain open. |
 | [Transaction operation exclusion](./transaction-operation-exclusion.md) | TypeScript adaptation of Rust exclusive mutable transaction access; concurrent patches and unfinished finalization controls, host admission limits still open. |
 | [Private signed-grant authority](./application-grant-authority.md) | Selected fresh-target adaptation / Implemented / Unmeasured. One logical scope epoch and profile enforcement over translated core; actual app-DO readiness remains gated. |
 | [Operation-local cache storage](./operation-cache-storage.md) | Connected Application query cache implemented; complete-request performance and wider DO milestone open. |

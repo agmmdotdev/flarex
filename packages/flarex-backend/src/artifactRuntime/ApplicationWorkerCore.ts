@@ -13,8 +13,9 @@ import {
 import {
   createFunctionRuntimeAuthV1,
   createFunctionRuntimeIncomingRelationReaderV1,
-  createFunctionRuntimeIndexedPointDatabaseWriterV1,
   createFunctionRuntimePointReaderV1,
+  createFunctionRuntimePointDatabaseWriterV1,
+  createFunctionRuntimeQueryReaderV1,
   createFunctionRuntimeRunQueryContextV1,
   createMutationFunctionRuntimeContextV1,
 } from "@flarex/function-runtime/internal/function-api-core-v1";
@@ -72,10 +73,11 @@ import type {
 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
 import type { CanonicalTaskManifestV1 } from
   "@flarex/standard-application-definition/internal/task-definition-v1";
-import { Effect, Result } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { decodeAppDocumentIdentityV1Result } from
   "flarex-protocol/app-document-id";
 import { decodeDocumentId as decodeCoreDocumentId } from "flarex-protocol/document-id";
+import { captureIndexRangeExpressions } from "flarex-protocol/index-range";
 import { MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1 } from
   "flarex-protocol/commit-protocol";
 import { RELATION_INCOMING_PAGE_MAXIMUM_IDENTITIES_V1 } from
@@ -100,6 +102,14 @@ import {
   type CanonicalFlarexRuntimeObjectV1,
 } from "flarex-protocol/value";
 import { FlarexError } from "flarex/values";
+import {
+  createQueryInitializer,
+  databaseQueryError,
+  isDatabaseQueryError,
+  type DatabaseQueryRequest,
+  type DatabaseQueryResult,
+  type DatabaseQueryTerminal,
+} from "flarex/internal/query";
 import { validateValidatorValueIssueV1, type ValidatorIdPolicyV1 } from
   "flarex-protocol/internal/validator-engine-core";
 
@@ -176,6 +186,16 @@ const NATIVE_SCHEDULER = globalThis.scheduler;
 const NATIVE_WEB_ASSEMBLY = globalThis.WebAssembly;
 const NAMED_ERRORS = new WeakSet<object>();
 const MAXIMUM_INDEX_PAGE_SEMANTIC_BYTES = 8 * 1_048_576;
+const decodeManagedQueryResponse = Schema.decodeUnknownSync(Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("ok"), value: Schema.Unknown }),
+  Schema.Struct({ kind: Schema.Literal("queryError"), message: Schema.String }),
+]), { onExcessProperty: "error" });
+const decodeManagedQueryStart = Schema.decodeUnknownSync(Schema.Struct({
+  queryId: Schema.String.check(Schema.isMinLength(1)),
+}), { onExcessProperty: "error" });
+const decodeManagedQueryPageFrame = Schema.decodeUnknownSync(Schema.Struct({
+  page: Schema.Array(Schema.Unknown), isDone: Schema.Boolean, continueCursor: Schema.String,
+}), { onExcessProperty: "error" });
 const APPLICATION_DOCUMENT_VALIDATION_ERROR_NAME:
   typeof import("flarex-protocol/internal/application-revision-syscall-validation-v1")
     .APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1 =
@@ -278,12 +298,15 @@ interface TransactionCapability {
     tableName: string,
     documentId: string,
   ) => unknown | PromiseLike<unknown>;
-  readonly queryIndexRange: (
+  readonly queryIndexRange: ((
     tableName: string,
     indexDescriptor: unknown,
     bounds: unknown,
     limit: number,
-  ) => unknown | PromiseLike<unknown>;
+  ) => unknown | PromiseLike<unknown>) | undefined;
+  readonly queryStart: ((request: DatabaseQueryRequest, terminal: DatabaseQueryTerminal) => unknown | PromiseLike<unknown>) | undefined;
+  readonly queryNext: ((queryId: string, maxResults: number) => unknown | PromiseLike<unknown>) | undefined;
+  readonly queryCleanup: ((queryId: string) => unknown | PromiseLike<unknown>) | undefined;
   readonly takeIncomingRelationSources: ((
     input: unknown,
   ) => unknown | PromiseLike<unknown>) | undefined;
@@ -345,7 +368,7 @@ export async function executeApplicationTransactionWorkerV1(
     capabilityBoundary = request.context.mode === "query"
       ? "ApplicationWorkerReadBoundaryV1Error"
       : "ApplicationWorkerJournalBoundaryV1Error";
-    capability = transactionCapability(input.capability, request.context.mode);
+    capability = transactionCapability(input.capability, request.context.mode, input.definition.documentIdFormat);
     try {
       await invokeCapability(capability.revalidate, capability.receiver, []);
     } catch (cause) {
@@ -1205,7 +1228,7 @@ function transactionInvocations(
         ) => trackBoundaryOperation(
           state,
           boundaryKind,
-          () => invokeCapability(
+          () => invokeRequiredCapability(
             capability.queryIndexRange,
             capability.receiver,
             [tableName, indexDescriptor, bounds, limit],
@@ -1237,7 +1260,7 @@ function transactionInvocations(
           },
         ),
       );
-      const database = createFunctionRuntimeIndexedPointDatabaseWriterV1(
+      const pointDatabase = createFunctionRuntimePointDatabaseWriterV1(
         reader,
         OBJECT_FREEZE({
           insertPointDocument: (tableName: string, value: unknown) =>
@@ -1269,9 +1292,25 @@ function transactionInvocations(
                 [documentId] as const,
               ).then(decodeVoid)),
         }),
-        indexReader,
       );
-      const queryDatabase = OBJECT_FREEZE({
+      const logicalQueryReader = createFunctionRuntimeQueryReaderV1(
+        (tableName: string) => createQueryInitializer(
+          tableName,
+          (queryRequest, terminal) => {
+            if (terminal === undefined) throw new ERROR("Managed query terminal is missing.");
+            return executeManagedDatabaseQuery(capability, queryRequest, terminal);
+          },
+          operation => trackBoundaryOperation(state, boundaryKind, operation, true),
+        ),
+      );
+      const database = documentIdFormat === "convex"
+        ? OBJECT_FREEZE({ ...pointDatabase, ...logicalQueryReader })
+        : OBJECT_FREEZE({ ...pointDatabase, queryIndexRange: indexReader.queryIndexRange });
+      const queryDatabase = documentIdFormat === "convex" ? OBJECT_FREEZE({
+        get: reader.get,
+        query: logicalQueryReader.query,
+        takeIncomingRelationSources: relationReader.takeIncomingRelationSources,
+      }) : OBJECT_FREEZE({
         get: reader.get,
         queryIndexRange: indexReader.queryIndexRange,
         takeIncomingRelationSources:
@@ -1286,17 +1325,16 @@ function transactionInvocations(
           },
         }),
         createQueryContext: (runQuery: ApplicationFunctionRuntimeRunQueryV1) =>
-          createFunctionRuntimeRunQueryContextV1(auth, queryDatabase, runQuery),
+          "query" in queryDatabase
+            ? createFunctionRuntimeRunQueryContextV1(auth, queryDatabase, runQuery)
+            : createFunctionRuntimeRunQueryContextV1(auth, queryDatabase, runQuery),
         createMutationContext: (
           runQuery: ApplicationFunctionRuntimeRunQueryV1,
           runMutation: ApplicationFunctionRuntimeRunMutationV1,
         ) =>
-          createMutationFunctionRuntimeContextV1(
-            auth,
-            database,
-            runQuery,
-            runMutation,
-          ),
+          "query" in database
+            ? createMutationFunctionRuntimeContextV1(auth, database, runQuery, runMutation)
+            : createMutationFunctionRuntimeContextV1(auth, database, runQuery, runMutation),
         recordCallFrame: () => undefined,
         isApplicationError: isCoreApplicationError,
         isCoreApplicationError,
@@ -1313,6 +1351,7 @@ function trackBoundaryOperation<Value>(
   state: BoundaryState,
   kind: BoundaryKind,
   operation: () => Promise<Value>,
+  ordinaryQueryFailure = false,
 ): Promise<Value> {
   if (!state.open) {
     const failure = boundaryError(kind, new ERROR("Boundary is closed."));
@@ -1321,7 +1360,18 @@ function trackBoundaryOperation<Value>(
     void rejected.catch(() => undefined);
     return rejected;
   }
-  const pending = PROMISE.resolve().then(operation).catch(cause => {
+  // Terminal construction captures operands before developer code can mutate them.
+  let admitted: Promise<Value>;
+  try {
+    admitted = ordinaryQueryFailure ? PROMISE.resolve(operation()) : PROMISE.resolve().then(operation);
+  } catch (cause) {
+    admitted = PROMISE.reject(cause);
+  }
+  const pending = admitted.catch(cause => {
+    if (ordinaryQueryFailure && isDatabaseQueryError(cause)) {
+      if (!state.open) state.failure ??= boundaryError(kind, cause);
+      throw cause;
+    }
     if (kind === "journal" && isApplicationDocumentValidationFailure(cause)) {
       throw cause;
     }
@@ -1333,6 +1383,113 @@ function trackBoundaryOperation<Value>(
   const cleanup = () => state.pending.delete(pending);
   void pending.then(cleanup, cleanup);
   return pending;
+}
+
+async function executeManagedDatabaseQuery(
+  capability: TransactionCapability,
+  request: DatabaseQueryRequest,
+  terminal: DatabaseQueryTerminal,
+): Promise<DatabaseQueryResult> {
+  const logicalRequest = { ...request };
+  delete logicalRequest.limit;
+  if (logicalRequest.range !== undefined) {
+    const rangeObject = asObject(logicalRequest.range);
+    const expressions = rangeObject === undefined ? undefined : ownDataValue(rangeObject, "expressions");
+    if (expressions?.kind !== "value") throw databaseQueryError("Invalid query range.");
+    logicalRequest.range = {
+      expressions: captureIndexRangeExpressions(expressions.value).pipe(Result.match({
+        onFailure: cause => { throw databaseQueryError(cause.message); },
+        onSuccess: captured => captured,
+      })),
+    };
+  }
+  const started = decodeManagedQueryValue(await invokeRequiredCapability(
+    capability.queryStart,
+    capability.receiver,
+    [logicalRequest, terminal] as const,
+  ));
+  const { queryId: id } = decodeManagedQueryStart(captureManagedQueryFrame(started));
+  const maximum = terminal.kind === "collect" ? Infinity
+    : terminal.kind === "take" ? terminal.count : terminal.numItems;
+  const page: unknown[] = [];
+  let isDone = false;
+  let continueCursor = "";
+  let queryFailed = false;
+  let queryFailure: unknown;
+  try {
+    while (!isDone && page.length < maximum) {
+      const maxResults = MATH_MIN(MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1, maximum - page.length);
+      const chunk = decodeManagedQueryPage(decodeManagedQueryValue(
+        await invokeRequiredCapability(
+          capability.queryNext,
+          capability.receiver,
+          [id, maxResults] as const,
+        ),
+      ), maxResults);
+      for (const document of chunk.page) page[page.length] = document;
+      isDone = chunk.isDone;
+      continueCursor = chunk.continueCursor;
+    }
+    return { page, isDone, continueCursor };
+  } catch (cause) {
+    queryFailed = true;
+    queryFailure = cause;
+    throw cause;
+  } finally {
+    try {
+      const cleaned = decodeManagedQueryValue(await invokeRequiredCapability(
+        capability.queryCleanup,
+        capability.receiver,
+        [id] as const,
+      ));
+      if (cleaned !== null) throw new ERROR("Invalid managed query cleanup.");
+    } catch (cleanupFailure) {
+      if (queryFailed) throw namedError("ApplicationWorkerQueryCleanupV1Error", OBJECT_FREEZE({
+        queryFailure, cleanupFailure,
+      }));
+      throw cleanupFailure;
+    }
+  }
+}
+
+/** RPC frames are captured without invoking accessors before structural decoding. */
+function captureManagedQueryFrame(input: unknown): Readonly<Record<string, unknown>> {
+  const record = asRecord(input);
+  if (record === undefined) throw new ERROR("Invalid managed query response.");
+  const captured = OBJECT_CREATE(null) as Record<string, unknown>;
+  for (const key of REFLECT_OWN_KEYS(record)) {
+    // Cloudflare attaches local disposal metadata to RPC return objects.
+    if (key === SYMBOL_DISPOSE) continue;
+    if (typeof key !== "string") throw new ERROR("Invalid managed query response.");
+    const value = ownDataValue(record, key);
+    if (value.kind !== "value") throw new ERROR("Invalid managed query response.");
+    captured[key] = value.value;
+  }
+  return captured;
+}
+
+function decodeManagedQueryValue(input: unknown): unknown {
+  const response = decodeManagedQueryResponse(captureManagedQueryFrame(input));
+  switch (response.kind) {
+    case "ok": return response.value;
+    case "queryError": throw databaseQueryError(response.message);
+  }
+}
+
+function decodeManagedQueryPage(input: unknown, maxResults: number): DatabaseQueryResult {
+  const frame = captureManagedQueryFrame(input);
+  const normalized = normalizeFlarexValueV1(frame);
+  if (normalized.semanticSizeBytes > MAXIMUM_INDEX_PAGE_SEMANTIC_BYTES) {
+    throw new ERROR("Invalid managed query page.");
+  }
+  const page = decodeManagedQueryPageFrame(normalized.value);
+  const captured = normalized.value;
+  if (!isCanonicalFlarexRuntimeObjectV1(captured) || !ARRAY_IS_ARRAY(captured.page) ||
+      captured.page.length > maxResults || (captured.page.length === 0 && !page.isDone) ||
+      !captured.page.every(isCanonicalFlarexRuntimeObjectV1)) {
+    throw new ERROR("Invalid managed query page.");
+  }
+  return { page: ARRAY_FROM(captured.page), isDone: page.isDone, continueCursor: page.continueCursor };
 }
 
 function isApplicationDocumentValidationFailure(cause: unknown): boolean {
@@ -1506,6 +1663,7 @@ function runtimeIntrinsicsIntact(): boolean {
 function transactionCapability(
   input: unknown,
   mode: "query" | "write",
+  documentIdFormat: "convex" | undefined,
 ): TransactionCapability {
   const boundary = mode === "query"
     ? "ApplicationWorkerReadBoundaryV1Error"
@@ -1516,6 +1674,9 @@ function transactionCapability(
     const revalidate = method(record, "revalidate");
     const readPointDocument = method(record, "readPointDocument");
     const queryIndexRange = method(record, "queryIndexRange");
+    const queryStart = method(record, "queryStart");
+    const queryNext = method(record, "queryNext");
+    const queryCleanup = method(record, "queryCleanup");
     const takeIncomingRelationSources = method(
       record,
       "takeIncomingRelationSources",
@@ -1534,7 +1695,9 @@ function transactionCapability(
       : undefined;
     if (
       revalidate === undefined || readPointDocument === undefined ||
-      queryIndexRange === undefined ||
+      (documentIdFormat === "convex"
+        ? queryStart === undefined || queryNext === undefined || queryCleanup === undefined
+        : queryIndexRange === undefined) ||
       (mode === "write" && (
         insertPointDocument === undefined || patchPointDocument === undefined ||
         replacePointDocument === undefined || deletePointDocument === undefined
@@ -1545,6 +1708,9 @@ function transactionCapability(
       revalidate,
       readPointDocument,
       queryIndexRange,
+      queryStart,
+      queryNext,
+      queryCleanup,
       takeIncomingRelationSources,
       insertPointDocument,
       patchPointDocument,

@@ -14,6 +14,7 @@ import { decodeDocumentId, InternalDocumentIdSchema } from "flarex-protocol/docu
 import { decodeDocumentValue, type DocumentValue } from "flarex-protocol/document-value";
 import { canonicalizeApplicationMutationExecutionAuthorityV1 } from "flarex-protocol/internal/application-mutation-authority-v1";
 import { canonicalizeApplicationRuntimeTargetV1 } from "flarex-protocol/internal/application-runtime-target-v1";
+import { createQueryCursorBroker, type QueryCursorBroker } from "flarex-protocol/query-cursor";
 
 import { openCoreDatabase } from "../../src/core/database";
 import { captureCoreObject } from "../../src/core/document";
@@ -21,14 +22,18 @@ import { installCoreApplicationSchema } from "../../src/application/coreSchema";
 import type { CoreDatabase, CoreProgramDefinition } from "../../src/core/api";
 import { CorePersistenceError, type CorePersistence, type CorePersistenceLease, type CoreWriteBatch } from "../../src/core/contracts";
 import type { CorePersistenceFixture } from "../core/fixture";
-import {
-  createApplicationNativeMutationSourceBundle,
-  type ApplicationNativeMutationSourceBundle,
-} from "./applicationNativeMutationTestFixture";
+import type { ApplicationNativeMutationSourceBundle } from "./applicationNativeMutationTestFixture";
 
 const SCOPE_UUID = "45000000-0000-4000-8000-000000000001";
 const EPOCH_UUID = "45000000-0000-4000-8000-000000000002";
 export const CORE_APPLICATION_COMPATIBILITY_DATE = "2026-06-14";
+
+/** Relation-free V1 output of the actual cold Analysis host, supplied by the consumer. */
+export interface ApplicationCoreMutationDefinition {
+  readonly source: ApplicationNativeMutationSourceBundle;
+  readonly manifest: ApplicationManifestV1;
+  readonly coldAnalysisLoads: number;
+}
 
 export interface ApplicationCoreMutationFixture {
   readonly database: CoreDatabase;
@@ -36,6 +41,8 @@ export interface ApplicationCoreMutationFixture {
   readonly deploymentId: string;
   readonly source: ApplicationNativeMutationSourceBundle;
   readonly manifest: ApplicationManifestV1;
+  readonly coldAnalysisLoads: number;
+  readonly queryCursor: Readonly<{ scopeUuid: string; broker: QueryCursorBroker }>;
   readonly programs: readonly CoreProgramDefinition[];
   readonly documentId: string;
   readonly initialTimestamp: bigint;
@@ -51,6 +58,7 @@ export interface ApplicationCoreMutationFixture {
 /** A fresh installation and explicit owner lifetime; no old migrator or seed SQL. */
 export async function withApplicationCoreMutationFixture<A>(
   physical: CorePersistenceFixture,
+  definition: ApplicationCoreMutationDefinition,
   work: (fixture: ApplicationCoreMutationFixture) => Promise<A>,
 ): Promise<A> {
   let scope = await Effect.runPromise(Scope.make());
@@ -81,35 +89,13 @@ export async function withApplicationCoreMutationFixture<A>(
   try {
     const database = await run(openCoreDatabase(observedPersistence(physical.persistence), options));
     let currentDatabase = database;
-    const source = await createApplicationNativeMutationSourceBundle(false, 0, 0, true, false, false, true);
-    const manifest = Result.getOrThrow(canonicalizeApplicationManifestV1({
-      format: "flarex.application-manifest", version: 1, sourceArtifact: source.sourceArtifact,
-      schema: { version: 1, tables: [{ tableId: 1, name: "users", placement: { kind: "global" },
-        validator: { type: "object", value: {
-          name: { fieldType: { type: "string" }, optional: false },
-          padding: { fieldType: { type: "string" }, optional: true },
-        } } }], indexes: [{ indexId: 1, tableId: 1, name: "by_name", fields: ["name"] }] },
-      functions: [
-        { path: "users:create", moduleName: "users", exportName: "create", kind: "mutation", visibility: "public",
-          args: { type: "any" }, returns: null, partition: null },
-        { path: "users:createInternal", moduleName: "users", exportName: "createInternal", kind: "mutation", visibility: "internal",
-          args: { type: "any" }, returns: null, partition: null },
-        { path: "users:get", moduleName: "users", exportName: "get", kind: "query", visibility: "public",
-          args: { type: "any" }, returns: { type: "any" }, partition: null },
-        { path: "users:getInternal", moduleName: "users", exportName: "getInternal", kind: "query", visibility: "internal",
-          args: { type: "any" }, returns: { type: "any" }, partition: null },
-        { path: "users:deleteThroughInternal", moduleName: "users", exportName: "deleteThroughInternal", kind: "mutation", visibility: "public",
-          args: { type: "any" }, returns: { type: "any" }, partition: null },
-        { path: "users:deleteInternal", moduleName: "users", exportName: "deleteInternal", kind: "mutation", visibility: "internal",
-          args: { type: "any" }, returns: { type: "any" }, partition: null },
-        { path: "users:patchThroughInternal", moduleName: "users", exportName: "patchThroughInternal", kind: "mutation", visibility: "public",
-          args: nestedPatchArguments(), returns: { type: "any" }, partition: null },
-        { path: "users:patchInternal", moduleName: "users", exportName: "patchInternal", kind: "mutation", visibility: "internal",
-          args: nestedPatchArguments(), returns: { type: "any" }, partition: null },
-        { path: "users:validationRecovery", moduleName: "users", exportName: "validationRecovery", kind: "mutation", visibility: "public",
-          args: { type: "any" }, returns: { type: "any" }, partition: null },
-      ].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0),
-    })).manifest;
+    const { source, manifest } = definition;
+    // Explicit stable fixture-only secret: reuse the broker through cold reopen.
+    // The broker and secret are never part of source, manifest, grants or arguments.
+    const queryCursor = Object.freeze({ scopeUuid: SCOPE_UUID,
+      broker: Result.getOrThrow(createQueryCursorBroker({ instanceName: SCOPE_UUID,
+        deploymentSecret: Uint8Array.from({ length: 32 }, (_, index) => index + 1) })),
+    });
     const programs = await corePrograms(manifest);
     const users = manifest.schema.tables.find(table => table.name === "users");
     if (users === undefined) throw new Error("Core users fixture schema is missing.");
@@ -124,7 +110,7 @@ export async function withApplicationCoreMutationFixture<A>(
     const documentId = await run(seed.insert("users", { name: "Ada" }));
     const initialTimestamp = await run(database.commit(await run(seed.finalize())));
     return await work(Object.freeze({ database, physical, deploymentId: "deployment_application_core_mutation",
-      source, manifest, programs, documentId, initialTimestamp,
+      source, manifest, programs, documentId, initialTimestamp, queryCursor, coldAnalysisLoads: definition.coldAnalysisLoads,
       reopen: async () => {
         await Effect.runPromise(Scope.close(scope, Exit.void));
         scope = await Effect.runPromise(Scope.make());
@@ -166,13 +152,6 @@ export async function withApplicationCoreMutationFixture<A>(
     if (errors.length > 0) throw new AggregateError(failed ? [failure, ...errors] : errors,
       "Application core fixture owner cleanup failed");
   }
-}
-
-function nestedPatchArguments() {
-  return { type: "object", value: {
-    id: { fieldType: { type: "id", tableName: "users" }, optional: false },
-    fail: { fieldType: { type: "boolean" }, optional: false },
-  } } as const;
 }
 
 async function corePrograms(manifest: ApplicationManifestV1, generation = 1): Promise<readonly CoreProgramDefinition[]> {

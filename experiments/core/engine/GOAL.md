@@ -168,6 +168,13 @@ nested user Worker to the translated five-table owner on fresh data. Existing
 scopes/native consumers remain named migration inputs. This does not complete
 physical cutover, app-DO ownership or the broader goal.
 
+The [Application SDK query extension](./slices/06b-application-sdk-queries.md)
+connects the current Worker query builder and source-derived range/stream/cursor
+mechanisms through the selected snapshot owner. Its independent challenge and
+peer exchange are complete; the bounded fresh mutation path is implemented.
+Standalone query functions, native predicate migration and actual app-DO
+ownership remain separate gates.
+
 ## Mandatory challenge before each slice
 
 Before implementation, independent sub-agents inspect and challenge:

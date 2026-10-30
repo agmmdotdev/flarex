@@ -27,6 +27,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
     "@types/node": "catalog:",
+    "flarex": "workspace:*",
     "miniflare": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",

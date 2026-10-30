@@ -5,20 +5,22 @@
  */
 import BTree from "sorted-btree";
 import { Effect, Option, Result, Semaphore } from "effect";
-import { compareBytesLexicographically, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { bytesEqual, compareBytesLexicographically, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { decodeDocumentId } from "flarex-protocol/document-id";
 import { captureDocumentObject, captureDocumentPatch, encodeDocumentValue, type DocumentObject, type DocumentValue } from "flarex-protocol/document-value";
 import { encodeIndexKey } from "flarex-protocol/index-key";
+import { captureLogicalQuery, compileIndexRange, fingerprintQuery, splitIndexRangeAfter } from "flarex-protocol/index-range";
 import { validateValidatorValueV1 } from "flarex-protocol/validator-engine";
 import { isCanonicalFlarexRuntimeObjectV1 } from "flarex-protocol/internal/value-runtime-core";
-import { CoreTransactionError, issueFinalizedTransaction, type CoreError, type CoreFinalizedTransaction,
+import { CoreQueryInputError, CoreTransactionError, issueFinalizedTransaction, type CoreError, type CoreFinalizedTransaction,
   type CoreIndexDefinition, type CoreTableDefinition, type CoreTransaction, type CoreTransactionLimits, type CoreTransactionUsage } from "./api";
 import type { CoreDocumentLogEntry, CoreInterval, CorePersistenceSnapshot, CoreWriteBatch } from "./contracts";
-import { CoreRegistry, TABLES, INDEXES, publicDocumentId, readDocumentObject } from "./registry";
-import { CoreReadSetBuilder, copyInterval, keyInInterval, pointInterval, type CoreReadSet } from "./writeLog";
+import { CoreRegistry, TABLES, publicDocumentId, readDocumentObject } from "./registry";
+import { CoreReadSetBuilder, pointInterval, type CoreReadSet } from "./writeLog";
 import { CORE_TRANSACTION_REFERENCE_LIMITS, CoreAccounting } from "./accounting";
 import { captureCoreDocument } from "./document";
 import { addIndexMetadataDependency, addTableWriteDependencies } from "./dependencies";
+import { createCoreQuery } from "./query";
 
 interface Observation {
   readonly original: CoreDocumentLogEntry | undefined;
@@ -76,12 +78,6 @@ function nextUp(value: number): number {
   view.setFloat64(0, value);
   view.setBigUint64(0, view.getBigUint64(0) + 1n);
   return view.getFloat64(0);
-}
-
-function afterKey(key: Uint8Array): Uint8Array {
-  const next = new Uint8Array(key.length + 1);
-  next.set(key);
-  return next;
 }
 
 function field(document: DocumentObject, path: string): DocumentValue | undefined {
@@ -272,6 +268,26 @@ export function createCoreTransaction(input: Readonly<{
     });
   }
 
+  const selectIndex = (tableName: string, indexName: string) => Result.gen(function* () {
+    const table = yield* tableByName(tableName, false);
+    const index = table.indexes.find(value => value.name === indexName);
+    if (index === undefined) return yield* Result.fail(new CoreTransactionError({ reason: "missingIndex" }));
+    if (!index.enabled) return yield* Result.fail(new CoreTransactionError({ reason: "indexUnavailable" }));
+    yield* addIndexMetadataDependency(reads, registry, index);
+    return { table, index };
+  });
+
+  const scanner = (table: CoreTableDefinition, index: CoreIndexDefinition, interval: CoreInterval,
+    order: import("./contracts").CoreOrder, limit?: number, queryFingerprint: Uint8Array = new Uint8Array(),
+    initialPosition?: import("./contracts").CoreIndexCursor, withinOperation = false) => createCoreQuery({
+    snapshot, table, index, interval, order, ...(limit === undefined ? {} : { limit }), queryFingerprint,
+    ...(initialPosition === undefined ? {} : { initialPosition }),
+    pendingIndex: () => pendingIndexes.get(encodeBytesToLowercaseHex(index.ref.id)),
+    recordRead: consumed => { reads.add(index.ref.id, consumed); return accounting.query(index.ref.id, consumed); },
+    chargeDocument: (document, size) => { documentSizes.set(document, size); return accounting.read(false, size); }, assertOpen,
+    operation: withinOperation ? body => body : operation,
+  });
+
   const transaction: CoreTransaction = Object.freeze({
     timestamp: snapshot.timestamp, unixTime,
     usage: Effect.sync(() => accounting.snapshot()),
@@ -333,60 +349,54 @@ export function createCoreTransaction(input: Readonly<{
       yield* Effect.fromResult(chargeDocument(selected.table, yield* read(selected.table, selected.internalId)));
       yield* stage(selected.table, selected.internalId, null);
     }))),
+    startQuery: Effect.fn("CoreTransaction.startQuery")((request: import("./api").CoreQueryRequest) => operation(Effect.gen(function* () {
+      const query = yield* Effect.fromResult(Result.mapError(captureLogicalQuery(request.query),
+        cause => new CoreQueryInputError({ reason: "invalidQuery", cause })));
+      const source = query.source;
+      const separator = source.type === "IndexRange" ? source.indexName.indexOf(".") : -1;
+      if (source.type === "IndexRange" && (separator <= 0 || separator === source.indexName.length - 1))
+        return yield* Effect.fail(new CoreQueryInputError({ reason: "invalidQuery" }));
+      const tableName = source.type === "FullTableScan" ? source.tableName : source.indexName.slice(0, separator);
+      const indexName = source.type === "FullTableScan" ? "by_creation_time" : source.indexName.slice(separator + 1);
+      const { table, index } = yield* Effect.fromResult(Result.mapError(selectIndex(tableName, indexName), error =>
+        error.reason === "missingTable" || error.reason === "missingIndex"
+          ? new CoreQueryInputError({ reason: "invalidQuery", cause: error }) : error));
+      const original = source.type === "FullTableScan" ? { start: new Uint8Array(), end: null }
+        : yield* Effect.fromResult(Result.mapError(compileIndexRange(source.range, index.fields),
+          cause => new CoreQueryInputError({ reason: "invalidQuery", cause })));
+      const queryFingerprint = fingerprintQuery(query, index.fields);
+      const cursor = request.cursor;
+      if (cursor !== undefined && !bytesEqual(cursor.queryFingerprint, queryFingerprint))
+        return yield* Effect.fail(new CoreQueryInputError({ reason: "invalidCursor" }));
+      let interval: CoreInterval = original;
+      if (cursor?.position.kind === "end") interval = { start: new Uint8Array(), end: new Uint8Array() };
+      else if (cursor?.position.kind === "after") {
+        const key = cursor.position.key;
+        if (source.order === "asc") {
+          if (original.end !== null && compareBytesLexicographically(key, original.end) >= 0)
+            interval = { start: new Uint8Array(), end: new Uint8Array() };
+          else if (compareBytesLexicographically(key, original.start) >= 0)
+            interval = splitIndexRangeAfter(original, key, source.order).remaining;
+        } else if (compareBytesLexicographically(key, original.start) <= 0)
+          interval = { start: new Uint8Array(), end: new Uint8Array() };
+        else if (original.end === null || compareBytesLexicographically(key, original.end) < 0)
+          interval = splitIndexRangeAfter(original, key, source.order).remaining;
+      }
+      const limit = query.operators.length === 0 ? undefined : Math.min(...query.operators.map(operator => operator.limit));
+      return scanner(table, index, interval, source.order, limit, queryFingerprint, cursor?.position);
+    }))),
     scan: Effect.fn("CoreTransaction.scan")((tableName: string, indexName: string, options = {}) => operation(Effect.gen(function* () {
-      const table = yield* Effect.fromResult(tableByName(tableName, false));
-      const index = table.indexes.find(value => value.name === indexName);
-      if (index === undefined) return yield* Effect.fail(new CoreTransactionError({ reason: "missingIndex" }));
-      if (!index.enabled) return yield* Effect.fail(new CoreTransactionError({ reason: "indexUnavailable" }));
-      const indexTable = registry.table(INDEXES);
-      const byId = indexTable?.definition.indexes.find(value => value.name === "by_id");
-      if (indexTable === undefined || byId === undefined) return yield* Effect.fail(invalid());
-      const metadataId = yield* Effect.fromResult(publicDocumentId(indexTable.definition, index.ref.id));
-      const metadataKey = yield* Effect.fromResult(Result.mapError(encodeIndexKey([], metadataId), invalid));
-      reads.add(byId.ref.id, pointInterval(metadataKey));
+      const { table, index } = yield* Effect.fromResult(selectIndex(tableName, indexName));
       const order = options.order ?? "asc";
       const limit = options.limit ?? Math.min((input.limits ?? CORE_TRANSACTION_REFERENCE_LIMITS).documentsRead + 1, Number.MAX_SAFE_INTEGER);
       if (!Number.isSafeInteger(limit) || limit < 0) return yield* Effect.fail(invalid());
-      if (limit === 0) return Object.freeze([]);
-      const interval = copyInterval(options.interval ?? { start: null, end: null });
+      const query = scanner(table, index, options.interval ?? { start: null, end: null }, order,
+        limit, undefined, undefined, true);
       const results: DocumentObject[] = [];
-      let remainingInterval = interval;
-      while (results.length < limit) {
-        const page = yield* snapshot.scan({ index: index.ref, tableId: table.tabletId,
-          interval: remainingInterval, order, maxResults: Math.min(128, limit - results.length) });
-        yield* assertOpen();
-        const covered: CoreInterval = page.cursor.kind === "end" ? remainingInterval
-          : order === "asc" ? { start: remainingInterval.start, end: afterKey(page.cursor.key) }
-          : { start: page.cursor.key.slice(), end: remainingInterval.end };
-        const merged = new BTree<Uint8Array, DocumentObject | null>(undefined, compareBytesLexicographically);
-        for (const entry of page.entries) merged.set(entry.key, yield* Effect.fromResult(readDocumentObject(entry.document, table)));
-        const pending = pendingIndexes.get(encodeBytesToLowercaseHex(index.ref.id));
-        if (pending !== undefined) {
-          for (const [key, document] of pending.entries(covered.start ?? undefined)) {
-            if (covered.end !== null && compareBytesLexicographically(key, covered.end) >= 0) break;
-            if (keyInInterval(key, covered)) merged.set(key, document);
-          }
-        }
-        const entries = order === "asc" ? merged.entries() : merged.entriesReversed();
-        let stoppedAt: Uint8Array | undefined;
-        const selectedDocuments: DocumentObject[] = [];
-        for (const [key, document] of entries) {
-          if (document === null) continue;
-          selectedDocuments.push(document);
-          if (results.length + selectedDocuments.length === limit) { stoppedAt = key; break; }
-        }
-        const consumed = stoppedAt === undefined ? covered : order === "asc"
-          ? { start: covered.start, end: afterKey(stoppedAt) } : { start: stoppedAt.slice(), end: covered.end };
-        reads.add(index.ref.id, consumed);
-        yield* Effect.fromResult(accounting.query(index.ref.id, consumed));
-        for (const document of selectedDocuments) {
-          const measured = yield* Effect.fromResult(Result.mapError(captureCoreDocument(document, false), invalid));
-          yield* Effect.fromResult(accounting.read(false, measured.semanticSizeBytes));
-          results.push(measured.value);
-        }
-        if (stoppedAt !== undefined || page.cursor.kind === "end") break;
-        remainingInterval = order === "asc" ? { start: afterKey(page.cursor.key), end: interval.end }
-          : { start: interval.start, end: page.cursor.key.slice() };
+      while (true) {
+        const page = yield* query.nextPage({ maxResults: 128, maxBytes: Number.MAX_SAFE_INTEGER });
+        results.push(...page.documents);
+        if (page.done) break;
       }
       return Object.freeze(results);
     }))),

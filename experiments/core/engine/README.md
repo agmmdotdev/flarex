@@ -17,7 +17,12 @@ Active Convex pin: `db914cf06e2b06ee985646611b9e12ed7a770318`. The
 [reference upgrade](./CONVEX-REFERENCE-UPGRADE.md) records changed mechanisms,
 source moves and the revalidation gates for existing slices/divergences.
 
-The active connected implementation is the
+The current SDK query extension is the
+[Application SDK query slice](./slices/06b-application-sdk-queries.md), following
+independent challenge and peer exchange. It connects logical ranges, streaming
+terminals and opaque cursors to the translated owner. Full goal gates remain.
+
+The preceding connected implementation is the
 [fresh Application transaction/persistence cutover](./slices/06a-application-persistence-cutover.md),
 following completed current-pin source challenge and peer exchange. Its scope
 and remaining host/native/data gates are explicit; no completion is implied.

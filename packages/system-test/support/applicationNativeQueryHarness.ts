@@ -394,6 +394,7 @@ export class MiniflareApplicationWorkerLoader implements WorkerLoader {
   constructor(
     private readonly onCapability: (method: string, argumentsValue: readonly unknown[]) => void | Promise<void> = () => undefined,
     private readonly onCapabilityResult: (method: string, argumentsValue: readonly unknown[], result: unknown) => void | Promise<void> = () => undefined,
+    readonly omitManagedQueryBridge = false,
   ) {}
 
   blockNextInvocation(): Readonly<{
@@ -514,7 +515,7 @@ class MiniflareApplicationWorkerStub implements WorkerStub {
     const runtime = new Miniflare({
       compatibilityDate: COMPATIBILITY_DATE,
       modules: true,
-      script: applicationWorkerBridgeSource(this.code, name),
+      script: applicationWorkerBridgeSource(this.code, name, this.owner.omitManagedQueryBridge),
       workerLoaders: { LOADER: {} },
       serviceBindings: {
         CAPABILITY: (input: Request) => invokeCapability(
@@ -614,6 +615,7 @@ function bridgeResponse(value: unknown): Response {
 function applicationWorkerBridgeSource(
   code: WorkerLoaderWorkerCode,
   entrypoint: string,
+  omitManagedQueryBridge: boolean,
 ): string {
   const workerCode = Object.freeze({ ...code, globalOutbound: null });
   const globalOutbound = code.globalOutbound == null
@@ -644,6 +646,9 @@ class Capability extends RpcTarget {
   queryIndexRange(tableName, indexDescriptor, bounds, limit) {
     return this.call("queryIndexRange", [tableName, indexDescriptor, bounds, limit]);
   }
+  ${omitManagedQueryBridge ? "" : `queryStart(request, terminal) { return this.call("queryStart", [request, terminal]); }
+  queryNext(queryId, maxResults) { return this.call("queryNext", [queryId, maxResults]); }
+  queryCleanup(queryId) { return this.call("queryCleanup", [queryId]); }`}
   takeIncomingRelationSources(input) {
     return this.call("takeIncomingRelationSources", [input]);
   }

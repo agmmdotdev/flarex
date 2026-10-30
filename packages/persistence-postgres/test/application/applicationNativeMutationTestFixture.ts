@@ -1354,7 +1354,7 @@ function resolveTaskPublication(
 
 export async function createApplicationNativeMutationSourceBundle(includeProductLaunch = false, extraFunctionCount = 0,
   functionPaddingBytes = 0, includeInternalCalls = false, includeQueryCacheProbe = false, includeAdmissionReadTwice = false,
-  includeDocumentValidationProbe = false): Promise<ApplicationNativeMutationSourceBundle> {
+  includeDocumentValidationProbe = false, includeSdkQueries = false): Promise<ApplicationNativeMutationSourceBundle> {
   const execution = [
     'import { query } from "flarex/server";',
     'import { mutation } from "flarex/server";',
@@ -1370,6 +1370,7 @@ export async function createApplicationNativeMutationSourceBundle(includeProduct
     "  createInternal: internalMutation({ handler: users.createInternal }),",
     "  notify: action({ handler: users.notify }),",
     ...(includeDocumentValidationProbe ? ["  validationRecovery: mutation({ handler: users.validationRecovery }),"] : []),
+    ...(includeSdkQueries ? ["  queryProbe: mutation({ handler: users.queryProbe }),"] : []),
     ...(includeAdmissionReadTwice ? [
       "  readTwice: mutation({ handler: users.readTwice }),",
     ] : []),
@@ -1435,13 +1436,51 @@ export async function createApplicationNativeMutationSourceBundle(includeProduct
     "export async function create(ctx, args) {",
     "  return await ctx.db.insert(\"users\", { name: args.name });",
     "}",
+    ...(includeSdkQueries ? [
+      "export async function queryProbe(ctx, args) {",
+      "  for (const value of args.insert ?? []) await ctx.db.insert('users', value);",
+      "  for (const change of args.patch ?? []) await ctx.db.patch(change.id, change.value);",
+      "  for (const id of args.delete ?? []) await ctx.db.delete(id);",
+      "  const build = () => {",
+      "    let query = ctx.db.query(args.table ?? 'users');",
+      "    if (args.index !== null) query = query.withIndex(args.index ?? 'by_name', range => {",
+      "      for (const expression of args.expressions ?? []) range = range[expression.op](expression.field, expression.value);",
+      "      return range;",
+      "    });",
+      "    return query.order(args.order ?? 'asc');",
+      "  };",
+      "  const terminal = () => {",
+      "    const query = build();",
+      "    if (args.terminal === 'take') return query.take(args.count);",
+      "    if (args.terminal === 'first') return query.first();",
+      "    if (args.terminal === 'unique') return query.unique();",
+      "    if (args.terminal === 'paginate') return query.paginate({ numItems: args.count, cursor: args.cursor ?? null });",
+      "    return query.collect();",
+      "  };",
+      "  if (args.dropped === true) {",
+      "    const dropped = terminal();",
+      "    if (args.late === true) void dropped.then(() => terminal()).catch(() => {});",
+      "    return { dropped: true };",
+      "  }",
+      "  try {",
+      "    let result;",
+      "    for (let ordinal = 0; ordinal < (args.repeat ?? 1); ordinal++) result = await terminal();",
+      "    if (args.countOnly === true) return Array.isArray(result) ? result.length : result.page.length;",
+      "    return args.namesOnly === true && Array.isArray(result) ? result.map(row => row.name) : result;",
+      "  } catch (error) {",
+      "    if (args.catch !== true) throw error;",
+      "    await ctx.db.patch(args.id, { name: 'query input recovered' });",
+      "    return { caught: true, name: error.name, message: error.message };",
+      "  }",
+      "}",
+    ] : []),
     ...(includeDocumentValidationProbe ? [
       "export async function validationRecovery(ctx, args) {",
-      "  if (args.bounded === true) {",
+      ...(!includeSdkQueries ? ["  if (args.bounded === true) {",
       "    try { await ctx.db.queryIndexRange('users', 'by_creation_time', { startInclusive: '0dc093480000000000', endExclusive: '0dc09348000000000000' }, 4); } catch {}",
       "    await ctx.db.patch(args.id, { name: 'must not publish bounded read' });",
       "    return null;",
-      "  }",
+      "  }"] : []),
       "  const failures = [];",
       "  for (const operation of [() => ctx.db.insert('users', { name: 123 }), () => ctx.db.patch(args.id, { name: 123 })]) {",
       "    try { await operation(); } catch (error) {",
@@ -1514,7 +1553,12 @@ export async function createApplicationNativeMutationSourceBundle(includeProduct
     ...Array.from({ length: extraFunctionCount }, (_, index) =>
       `export async function scale${index.toString().padStart(3, "0")}(_ctx, _args) { return null; }`),
   ].join("\n");
-  const schema = "export default {};\n";
+  const schema = includeSdkQueries ? [
+    'import { defineGlobalTable, defineSchema } from "flarex/server";',
+    'import { v } from "flarex/values";',
+    'export default defineSchema({ users: defineGlobalTable({ name: v.string(), padding: v.optional(v.string()), values: v.optional(v.union(v.array(v.number()), v.array(v.array(v.number())))) }).index("by_name", ["name"]) });',
+    "",
+  ].join("\n") : "export default {};\n";
   const launchHandler = [
     "export async function launch(ctx, args) {",
     "  return await ctx.db.insert(\"productLaunch\", { productId: args.productId, phase: \"draft\" });",

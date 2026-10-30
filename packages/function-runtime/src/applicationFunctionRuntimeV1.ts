@@ -20,6 +20,7 @@ import type {
   FunctionRuntimeMutationContextV1,
   FunctionRuntimePointDatabaseWriterV1,
   FunctionRuntimePointReaderV1,
+  FunctionRuntimeQueryReaderV1,
   FunctionRuntimeRunQueryContextV1,
 } from "./functionApiCore";
 import {
@@ -98,12 +99,7 @@ export interface ApplicationFunctionRuntimeQueryDatabaseV1
       string,
       CanonicalFlarexRuntimeObjectV1
     >,
-    FunctionRuntimeIndexRangeReaderV1<
-      string,
-      unknown,
-      unknown,
-      CanonicalFlarexRuntimeObjectV1
-    >,
+    FunctionRuntimeQueryReaderV1<object>,
     FunctionRuntimeIncomingRelationReaderV1<
       string,
       string,
@@ -120,12 +116,15 @@ export interface ApplicationFunctionRuntimeMutationDatabaseV1
       unknown,
       unknown
     >,
-    FunctionRuntimeIndexRangeReaderV1<
-      string,
-      unknown,
-      unknown,
-      CanonicalFlarexRuntimeObjectV1
-    > {}
+    FunctionRuntimeQueryReaderV1<object> {}
+
+export interface LegacyApplicationFunctionRuntimeQueryDatabaseV1
+  extends Omit<ApplicationFunctionRuntimeQueryDatabaseV1, "query">,
+    FunctionRuntimeIndexRangeReaderV1<string, unknown, unknown, CanonicalFlarexRuntimeObjectV1> {}
+
+export interface LegacyApplicationFunctionRuntimeMutationDatabaseV1
+  extends Omit<ApplicationFunctionRuntimeMutationDatabaseV1, "query">,
+    FunctionRuntimeIndexRangeReaderV1<string, unknown, unknown, CanonicalFlarexRuntimeObjectV1> {}
 
 export type ApplicationFunctionRuntimeRunQueryV1 = (
   reference: unknown,
@@ -150,6 +149,19 @@ export interface ApplicationFunctionRuntimeMutationContextV1
     ApplicationFunctionRuntimeRunMutationV1
   > {}
 
+export interface LegacyApplicationFunctionRuntimeQueryContextV1
+  extends FunctionRuntimeRunQueryContextV1<
+    LegacyApplicationFunctionRuntimeQueryDatabaseV1,
+    ApplicationFunctionRuntimeRunQueryV1
+  > {}
+
+export interface LegacyApplicationFunctionRuntimeMutationContextV1
+  extends FunctionRuntimeMutationContextV1<
+    LegacyApplicationFunctionRuntimeMutationDatabaseV1,
+    ApplicationFunctionRuntimeRunQueryV1,
+    ApplicationFunctionRuntimeRunMutationV1
+  > {}
+
 export interface ApplicationFunctionRuntimeBoundaryV1 {
   readonly close: () => void;
   readonly drain: () => Promise<void>;
@@ -159,11 +171,11 @@ export interface ApplicationFunctionRuntimeInvocationV1 {
   readonly boundary: ApplicationFunctionRuntimeBoundaryV1;
   readonly createQueryContext: (
     runQuery: ApplicationFunctionRuntimeRunQueryV1,
-  ) => ApplicationFunctionRuntimeQueryContextV1;
+  ) => ApplicationFunctionRuntimeQueryContextV1 | LegacyApplicationFunctionRuntimeQueryContextV1;
   readonly createMutationContext: (
     runQuery: ApplicationFunctionRuntimeRunQueryV1,
     runMutation: ApplicationFunctionRuntimeRunMutationV1,
-  ) => ApplicationFunctionRuntimeMutationContextV1;
+  ) => ApplicationFunctionRuntimeMutationContextV1 | LegacyApplicationFunctionRuntimeMutationContextV1;
   readonly recordCallFrame: (frame: ApplicationFunctionRuntimeFrameV1) => void;
   readonly isApplicationError: (cause: unknown) => boolean;
   readonly isCoreApplicationError: (cause: unknown) => boolean;
@@ -318,12 +330,12 @@ export function inspectApplicationFunctionRuntimeFailureV1(
 }
 
 type QueryHandler = (
-  context: ApplicationFunctionRuntimeQueryContextV1,
+  context: ApplicationFunctionRuntimeQueryContextV1 | LegacyApplicationFunctionRuntimeQueryContextV1,
   argumentsValue: CanonicalFlarexRuntimeObjectV1,
 ) => unknown | PromiseLike<unknown>;
 
 type MutationHandler = (
-  context: ApplicationFunctionRuntimeMutationContextV1,
+  context: ApplicationFunctionRuntimeMutationContextV1 | LegacyApplicationFunctionRuntimeMutationContextV1,
   argumentsValue: CanonicalFlarexRuntimeObjectV1,
 ) => unknown | PromiseLike<unknown>;
 
@@ -415,7 +427,7 @@ export async function executeApplicationFunctionTransactionRuntimeV1(
   const queryContextFor = (
     parentOrdinal: number,
     ancestry: ReadonlyArray<number>,
-  ): ApplicationFunctionRuntimeQueryContextV1 =>
+  ): ApplicationFunctionRuntimeQueryContextV1 | LegacyApplicationFunctionRuntimeQueryContextV1 =>
     invocation.createQueryContext((reference, argumentsValue) =>
       runInternal(parentOrdinal, ancestry, "query", reference, argumentsValue)
     );
@@ -423,7 +435,7 @@ export async function executeApplicationFunctionTransactionRuntimeV1(
   const mutationContextFor = (
     parentOrdinal: number,
     ancestry: ReadonlyArray<number>,
-  ): ApplicationFunctionRuntimeMutationContextV1 =>
+  ): ApplicationFunctionRuntimeMutationContextV1 | LegacyApplicationFunctionRuntimeMutationContextV1 =>
     invocation.createMutationContext(
       (reference, argumentsValue) =>
         runInternal(parentOrdinal, ancestry, "query", reference, argumentsValue),

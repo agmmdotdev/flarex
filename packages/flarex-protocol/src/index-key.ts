@@ -22,12 +22,16 @@ export function encodeIndexValue(value: DocumentValue | undefined): Result.Resul
   if (value === undefined) return Result.succeed(Uint8Array.of(1));
   return captureDocumentValue(value).pipe(
     Result.mapError(cause => new IndexKeyError({ reason: "invalidValue", cause })),
-    Result.map(captured => {
-      const bytes: number[] = [];
-      writeValue(captured, bytes);
-      return Uint8Array.from(bytes);
-    }),
+    Result.map(encodeCapturedIndexValue),
   );
+}
+
+/** Internal established-value path: capture remains with the caller's boundary. */
+export function encodeCapturedIndexValue(value: DocumentValue | undefined): Uint8Array {
+  if (value === undefined) return Uint8Array.of(1);
+  const bytes: number[] = [];
+  writeValue(value, bytes);
+  return Uint8Array.from(bytes);
 }
 
 /** Full ordinary key: indexed field values followed by the developer-ID string. */

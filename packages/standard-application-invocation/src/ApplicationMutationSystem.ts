@@ -151,6 +151,7 @@ import { CoreApplicationMutationError, makeCoreApplicationMutationPort } from
   "@flarex/persistence-postgres/internal/core-application-mutation";
 import { normalizeFlarexValueV1 } from "flarex-protocol/value";
 import { makeCoreApplicationMutationRunner } from "./CoreApplicationMutationRunner";
+import type { QueryCursorBroker } from "flarex-protocol/query-cursor";
 
 type OccContextFactory = StoredPointMutationOccRerunExecutionConfigV1[
   "pointMutationOccRerun"
@@ -210,6 +211,8 @@ export interface ApplicationCoreMutationSystemLive {
   readonly applicationRunner: ApplicationPointMutationRunnerConfig;
   readonly executionContextFactory: OccContextFactory;
   readonly maximumAttempts: number;
+  /** Stable trusted instance secret stays in the broker, outside Worker artifacts. */
+  readonly queryCursor: Readonly<{ scopeUuid: string; broker: QueryCursorBroker }>;
 }
 
 type InvokeCoreApplicationMutationError = CoreError | CoreApplicationMutationError |

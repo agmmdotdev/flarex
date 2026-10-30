@@ -99,6 +99,8 @@
     "./internal/logical-schema-candidate": "./src/logical-schema-candidate.ts",
     "./internal/logical-storage-requirements": "./src/logical-storage-requirements.ts",
     "./internal/decoded-protocol-snapshot": "./src/decoded-protocol-snapshot.ts",
+    "./index-range": "./src/index-range.ts",
+    "./query-cursor": "./src/query-cursor.ts",
     "./document-id": "./src/document-id.ts",
     "./document-value": "./src/document-value.ts",
     "./index-key": "./src/index-key.ts",
@@ -112,6 +114,7 @@
   "dependencies": {
     "@flarex/time": "workspace:*",
     "@flarex/utils": "workspace:*",
+    "@noble/ciphers": "2.4.0",
     "@noble/hashes": "2.4.0",
     "effect": "catalog:"
   },

@@ -29,6 +29,8 @@ the current checkout; use `git show <pin>:<path>` for immutable inspection.
 | Application index installation | [crates/application/src/lib.rs](../../../../crates/application/src/lib.rs), _validate_user_defined_index_fields | Validate developer fields, append _creationTime, then the ordinary key encoder appends the developer ID. CoreIndexDefinition.fields stores the normalized installed fields. |
 | Packed private payloads | [session outcomes](../../../../crates/model/src/session_requests/types.rs), [schema metadata](../../../../crates/common/src/bootstrap_model/schema_metadata.rs), [analyzed function metadata](../../../../crates/model/src/modules/module_versions.rs) | Serialized value/schema payloads prevent metadata/outcome wrappers from consuming the admitted payload nesting budget; strict reconstruction keeps full-document depth limits. |
 | Schema metadata | [crates/database/src/bootstrap_model/schema/mod.rs](../../../../crates/database/src/bootstrap_model/schema/mod.rs); [crates/database/src/bootstrap_model/next_persistence_index_id/mod.rs](../../../../crates/database/src/bootstrap_model/next_persistence_index_id/mod.rs) | Private staged schema validation and persistence-index identity; copy the current transactional lifecycle, not only state names. |
+| Logical query ranges and streams | [range compiler](../../../../crates/common/src/query.rs), [range JSON](../../../../crates/common/src/json/query.rs), [stream](../../../../crates/database/src/query/index_range.rs), [limits](../../../../crates/database/src/query/limit.rs), [SDK terminals](../../../../npm-packages/convex/src/server/impl/query_impl.ts), [SDK range builder](../../../../npm-packages/convex/src/server/impl/index_range_builder_impl.ts) | Snapshot-selected fields, implicit developer ID, consumed interval cursors, source prefix behavior, consuming SDK builders and no-lookahead stream terminals. |
+| Cursor identity and encoding | [keybroker](../../../../crates/keybroker/src/broker.rs), [encryptor](../../../../crates/keybroker/src/encryptor.rs), [secret](../../../../crates/keybroker/src/secret.rs), [protobuf](../../../../crates/pb/protos/convex_cursor.proto) | Ordered query/field fingerprint, instance binding, stable purpose-derived key and deterministic version-7 AES-128-GCM-SIV tokens. |
 | Retry, nesting and deterministic time | [crates/application/src/application_function_runner/mod.rs](../../../../crates/application/src/application_function_runner/mod.rs); [crates/isolate/src/environment/udf/async_syscall.rs](../../../../crates/isolate/src/environment/udf/async_syscall.rs); [crates/common/src/document.rs](../../../../crates/common/src/document.rs) | Permit-before-snapshot ordering, outcome-before-new-body, handler-error rollback and snapshot-derived time. Optional capabilities require explicit admission. |
 | Alternative upstream storage | [crates/mysql/src/v6/sql.rs](../../../../crates/mysql/src/v6/sql.rs) | Selectable MySQL V6 latest/backfill-delete/bucketed history exists. It is not the selected PostgreSQL layout or a deployment-status claim. |
 
@@ -82,6 +84,24 @@ crates/application/src/lib.rs 455ce28470dd4fbbc312be1dbcff1a1e3e79486a586fd989ad
 crates/model/src/session_requests/types.rs 5bac8b67ae07c442e6252a37d798d656b77bbf823f45189df7bd8fe185cb0c71
 crates/common/src/bootstrap_model/schema_metadata.rs 4e5d827e79084cdcb20d500c88058fb807c0879677be70ed8dcec423a1fcfe46
 crates/model/src/modules/module_versions.rs acac5f1a5fe3caf20273b2fe59b4d95d66caaa3735c25adbfcf5f3cc77d37680
+crates/common/src/query.rs fbff175e8f4576712fcabb993131c7a4bf3144f4cd4b226167a67b6c166e8a37
+crates/common/src/json/query.rs b2ee0bcce9deb8c7e7a876c6bba456b015d3b94af2defdcd6b3b4f53e1bec452
+crates/common/src/interval/key.rs fc5c0d1182a7cf398074923d65ef9529d1560b2cc0769ddb2a517e6828410624
+crates/common/src/interval/bounds.rs f384303405965c0db9995eb538a7835321b661482fe84fb849a9917f42bf9ba7
+crates/common/src/interval/mod.rs bb9caf38bca60ce3cf4c25e2fc9e52ce473cbe927a52da6663430d61e0dc3c8d
+crates/common/src/bootstrap_model/index/database_index/indexed_fields.rs 445313967cc68daa23d196d15228f0b7ccb2f9cac04b918056048e858591ffd1
+crates/database/src/query/mod.rs 1c7f4ac005a7e47334e01d53a37ac072616b144fe7ee338c3257bd5c5bac580e
+crates/database/src/query/index_range.rs 901676d44397a0957af344808fd12bbca3d181ee80fe5b0d73be615ff470a1fc
+crates/database/src/query/limit.rs 80777b6671331392461744f1595f54c1b9fab1240bad063ef80026671c8f6d8e
+crates/keybroker/src/broker.rs 97f95961f5ce2114c0322b425036b4385ab0f3ad6a64fc75a1dae6f1e4a2ea9e
+crates/keybroker/src/encryptor.rs a425d26a34fa0dda6ba002d9df14d73f61b2631d50ff00e1b04e6b8f79e4a340
+crates/keybroker/src/secret.rs f1de1bdc7f4679f0b45e0d75858699cec16cb3f1aab641a45b8ef9fe225b416d
+crates/pb/protos/convex_cursor.proto 3ea65c9b72b3fb14c9203cfcc4fe3be12d74d213914cdc1c767594f38205df50
+crates/value/src/json/mod.rs 27626a4dce4e755597479add56047955226c4fc21421fd9743c69b257a86903c
+crates/value/src/json/float.rs f3433a07d5b1a001671f52e7d8e7f5d4117c1dbf586a6d73ee74fce6408fd2fc
+npm-packages/convex/src/server/impl/query_impl.ts 18deadd486a3c701d534a739057b3fd3b9fd8a38a42942b9d4f91e5fe387bf99
+npm-packages/convex/src/server/impl/index_range_builder_impl.ts c1af2c16a787cdc687cc969c9e5b8e4e26366ee649d12ef2971dfa0a6fb8e134
+npm-packages/convex/src/server/index_range_builder.ts 9429697380faf0028aefb643fd5851fca49268dad2302026ebec6e810a23f7d4
 ```
 
 ## Source and divergence rules
@@ -153,3 +173,16 @@ with the [operation-lifetime](./engine/02-operation-lifetime.md) and
 [authorization](./engine/02-read-authorization.md) decisions. Earlier construction
 references are [historical evidence](./REFERENCES-84fbb0e.md#standalone-application-construction-references),
 not permission to retain the old engine choreography.
+
+## Query protocol dependency evidence
+
+The query slice uses @noble/ciphers 2.4.0 for the same GCM-SIV mechanism; see
+[the library source](https://github.com/paulmillr/noble-ciphers/tree/2.4.0). The
+pinned AWS counter-KDF implementation is
+[AWS-LC 02561621](https://github.com/aws/aws-lc/blob/02561621ffa4cf17c0c4f70bc11a82df36b42ae9/crypto/fipsmodule/kdf/kbkdf.c).
+The isolated source probe executes unchanged pinned increment/escape function
+bodies in small wrappers, serde_json 1.0.151 with preserve_order and zmij 1.0.23,
+prost 0.14.3 and aes-gcm-siv 0.11.1. It establishes executable source-derived
+vectors, not execution of the full upstream crate. The translated tests retain
+representative float and exact query/protobuf/cipher goldens; no universal
+all-bit-pattern conformance or host capacity is inferred.

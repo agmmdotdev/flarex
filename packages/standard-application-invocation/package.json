@@ -46,6 +46,7 @@
     "@flarex/standard-application-definition": "workspace:*",
     "@flarex/utils": "workspace:*",
     "effect": "catalog:",
+    "flarex": "workspace:*",
     "flarex-backend": "workspace:*",
     "flarex-protocol": "workspace:*"
   },

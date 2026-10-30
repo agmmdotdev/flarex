@@ -5,11 +5,11 @@ import { APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1,
   APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1,
 } from "flarex-protocol/internal/application-revision-syscall-validation-v1";
 import { compileCoreApplicationIndexes, installCoreApplicationSchema } from "@flarex/persistence-postgres/internal/core-application-schema";
-import { CorePersistenceError, CoreTransactionError } from "@flarex/persistence-postgres/internal/core";
+import { CorePersistenceError } from "@flarex/persistence-postgres/internal/core";
 import { CoreApplicationMutationError } from "@flarex/persistence-postgres/internal/core-application-mutation";
 import type { ApplicationCoreMutationFixture } from
   "@flarex/persistence-postgres/internal/system-test/core-application-mutation-fixture";
-import { proveApplicationNestedMutation, proveApplicationNestedMutationFailure, proveCoreApplicationAuthority, proveCoreApplicationColdClaim, proveCoreApplicationBusyClaim, proveCoreApplicationIndexOrder, proveCoreApplicationClock, proveCoreApplicationAdmissionExpiry, proveCoreApplicationDocumentValidation, proveCoreApplicationUnsupportedBounds, proveCoreApplicationArgumentProfile, proveCoreApplicationArgumentRefusal } from
+import { proveApplicationNestedMutation, proveApplicationNestedMutationFailure, proveCoreApplicationAuthority, proveCoreApplicationColdClaim, proveCoreApplicationBusyClaim, proveCoreApplicationIndexOrder, proveCoreApplicationClock, proveCoreApplicationAdmissionExpiry, proveCoreApplicationDocumentValidation, proveCoreApplicationArgumentProfile, proveCoreApplicationArgumentRefusal } from
   "../../support/applicationNativeMutationHarness";
 
 const storageTables = ["documents", "indexes", "leases", "persistence_globals", "read_only"];
@@ -149,17 +149,6 @@ export function defineApplicationNestedMutationContract(adapter: Readonly<{
     expect(proof.after.history).toHaveLength(2);
     expect(proof.after.indexed.map(row => row.name)).toEqual(["independent valid", "valid after refusal"]);
     expect(proof.workerLoads).toBe(1);
-  }, 120_000);
-
-  it("refuses incompatible bounded index requests before scanning or publishing caught continuation writes", async () => {
-    const proof = await adapter.runScenario(proveCoreApplicationUnsupportedBounds);
-    expect(Exit.isFailure(proof.outcome)).toBe(true);
-    if (Exit.isSuccess(proof.outcome)) throw new Error("Unsupported index bounds were admitted.");
-    expect(proof.outcome.cause.reasons.some(reason => Cause.isFailReason(reason) &&
-      reason.error instanceof CoreTransactionError && reason.error.reason === "indexUnavailable")).toBe(true);
-    expect(proof.after).toEqual(proof.before);
-    expect(proof.workerLoads).toBe(1);
-    expect(proof.pointReads).toBe(0);
   }, 120_000);
 
   it("admits general argument values beyond stored-document size and nesting for actual Worker mutations", async () => {

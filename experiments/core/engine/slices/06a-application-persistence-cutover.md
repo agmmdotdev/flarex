@@ -15,11 +15,11 @@ and its caught-child-failure counterpart, using applicationNativeMutationHarness
 makeApplicationMutationTestLive and the actual MiniflareApplicationWorkerLoader.
 This loads emitted user code through LOADER; the trusted core initially runs in
 the test host. The separate handwritten broad Worker stub is not actual-host proof.
-The selected Worker RPC admits unbounded index scans. Nonempty legacy encoded
-bounds fail closed: their full-tuple row-ID sentinel does not include the new
-implicit developer-ID key. Translate the shared Application bound compiler and
-its equality/inclusive/exclusive controls before enabling bounded RPC reads.
-The portable engine's correctly encoded interval support is a separate layer.
+This initial cutover admitted unbounded raw index scans and refused legacy
+encoded bounds. The [SDK query extension](./06b-application-sdk-queries.md) now
+owns logical bounded reads, streaming and cursor activation. Old hexadecimal
+bounds are never reinterpreted as new keys; named legacy consumers remain on
+their selected old targets.
 App-DO lifecycle/coordination remains a later required gate. The initial trusted
 host closes its old instance before cold reopen. A SQL write fence alone does
 not notify an old RAM owner that new read admission is unsafe; concurrent owner-

@@ -246,9 +246,11 @@ export type DataModelFromSchemaDefinition<Schema extends SchemaDefinition<any>> 
           })[Field];
         };
         fieldPaths: DocumentValidator["fieldPaths"] | "_id" | "_creationTime";
-        indexes: TableIndexes & {
+        indexes: {
+          [IndexName in keyof TableIndexes]: readonly [...TableIndexes[IndexName], "_creationTime", "_id"];
+        } & {
           by_id: readonly ["_id"];
-          by_creation_time: readonly ["_creationTime"];
+          by_creation_time: readonly ["_creationTime", "_id"];
         };
       }
     : never;

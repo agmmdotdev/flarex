@@ -10,6 +10,7 @@ import {
 } from "@flarex/executor/transaction-grant";
 import {
   createApplicationNativeMutationPGliteFixture,
+  createApplicationNativeMutationSourceBundle,
   type ApplicationNativeMutationFixture,
   type ApplicationNativeMutationPersistence,
   type ApplicationNativeMutationSourceBundle,
@@ -32,7 +33,10 @@ import {
 } from
   "@flarex/standard-application-invocation/internal/application-mutation-system";
 import { Effect, Result, Scope, Clock, Context, Option, Schema } from "effect";
-import type { ApplicationCoreMutationFixture } from "@flarex/persistence-postgres/internal/system-test/core-application-mutation-fixture";
+import type { ApplicationCoreMutationDefinition, ApplicationCoreMutationFixture } from "@flarex/persistence-postgres/internal/system-test/core-application-mutation-fixture";
+import { APPLICATION_ANALYSIS_ANALYZER_IDENTITY, APPLICATION_ANALYSIS_POLICY_IDENTITY,
+  applicationAnalysisHostEffectWithCapabilities } from "@flarex/source-analyzer-v2/internal/application-analysis-host";
+import { MiniflareApplicationAnalysisWorkerLoader } from "./standardApplicationCurrentAnalysisHarness";
 import {
   APPLICATION_RUNTIME_HOST_IDENTITY,
 } from "flarex-backend/artifact-runtime";
@@ -1093,6 +1097,27 @@ export async function proveApplicationNativeMutation(
   });
 }
 
+/** Genuine current cold registration supplies the exact executing schema/catalog. */
+export async function createCoreApplicationMutationDefinition(): Promise<ApplicationCoreMutationDefinition> {
+  const source = await createApplicationNativeMutationSourceBundle(false, 0, 0, true, false, false, true, true);
+  const loader = new MiniflareApplicationAnalysisWorkerLoader();
+  try {
+    const analysis = await runSystemTestEffectV1(applicationAnalysisHostEffectWithCapabilities({
+      source: { read: rootSha256 => rootSha256 === source.sourceArtifact.rootSha256
+        ? Effect.succeed(source) : Effect.die("Core query analysis requested a foreign source artifact.") },
+      loader,
+    }, { format: "flarex.application-analysis-host-request", version: 1,
+      sourceArtifactRootSha256: source.sourceArtifact.rootSha256,
+      analyzerIdentity: APPLICATION_ANALYSIS_ANALYZER_IDENTITY,
+      analyzerPolicyIdentity: APPLICATION_ANALYSIS_POLICY_IDENTITY,
+    }));
+    if (analysis.kind !== "analyzed") throw new Error("Core Application cold registration was rejected.", { cause: analysis });
+    if (analysis.manifest.version !== 1)
+      throw new Error("The core query fixture requires a relation-free Application Manifest V1.");
+    return Object.freeze({ source, manifest: analysis.manifest, coldAnalysisLoads: loader.loads });
+  } finally { await loader.dispose(); }
+}
+
 export async function proveApplicationNestedMutation(fixture: ApplicationCoreMutationFixture) {
   const before = await readApplicationCoreMutationState(fixture);
   const loader = new MiniflareApplicationWorkerLoader();
@@ -1209,20 +1234,6 @@ export async function proveCoreApplicationDocumentValidation(fixture: Applicatio
     ).pipe(Effect.provide(layer))));
     return { outcome, calls, documentId: fixture.documentId, workerLoads: loader.loads,
       after: await readApplicationCoreMutationState(fixture) };
-  } finally { await loader.dispose(); }
-}
-
-export async function proveCoreApplicationUnsupportedBounds(fixture: ApplicationCoreMutationFixture) {
-  const loader = new MiniflareApplicationWorkerLoader();
-  const before = await readApplicationCoreMutationState(fixture);
-  try {
-    const layer = await makeApplicationNativeMutationTestLayer(fixture, loader);
-    const outcome = await runSystemTestEffectV1(Effect.scoped(Effect.exit(invokeApplicationMutation(
-      TransactionFunctionPathV1Schema.make("users:validationRecovery"), { id: fixture.documentId, bounded: true },
-      TransactionRequestKeyV1Schema.make("core-index-bounds:unsupported"),
-    ).pipe(Effect.provide(layer)))));
-    return { outcome, before, after: await readApplicationCoreMutationState(fixture),
-      workerLoads: loader.loads, pointReads: loader.pointDocumentReads };
   } finally { await loader.dispose(); }
 }
 
@@ -1605,7 +1616,7 @@ export async function makeApplicationMutationTestLive(
       }),
   });
   if ("database" in fixture) return Object.freeze({ coreDatabase: fixture.database, deploymentId, grantIssuer,
-    applicationRunner, executionContextFactory, maximumAttempts: 3 }) satisfies ApplicationCoreMutationSystemLive;
+    applicationRunner, executionContextFactory, maximumAttempts: 3, queryCursor: fixture.queryCursor }) satisfies ApplicationCoreMutationSystemLive;
   return Object.freeze({
     deploymentId,
     activation: fixture.activation,
