@@ -4,7 +4,7 @@ import { applicationSchemaDefinition, applicationTableDefinition, applicationTab
 import { applicationObjectValidatorJson } from "@flarex/application-schema-definition/validator-json";
 import { makeApplicationManifestV1, ApplicationManifestSchema } from "@flarex/analysis/application-analysis";
 import { captureLogicalSchemaSource, prepareLogicalSchemaCandidate, readPreparedLogicalSchemaCandidate } from "@flarex/analysis/internal/logical-schema-candidate";
-import { decodeLogicalSchemaCandidate } from "flarex-protocol/internal/logical-schema-candidate";
+import { decodeLogicalSchemaCandidate, encodeLogicalSchemaCandidate } from "flarex-protocol/internal/logical-schema-candidate";
 import { canonicalizeSchemaManifestV1, decodeCatalogSchemaVersion, decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { ScopeIdSchema, ScopeEpochSchema, StorageGenerationFenceSchema, FlarexDbV1StorageGenerationSchema } from "flarex-protocol/storage-authority";
 import { makeSchemaComposer } from "../src/composition/schema";
@@ -361,8 +361,9 @@ async function witness(
     expect((await persistence.drizzle.select().from(fxControlUniqueConstraintDefinitions)).length).toBeGreaterThanOrEqual(24);
     expect((await persistence.query("select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows)
       .toEqual(before.rows);
-    const forgedSource = { ...stored.artifact.manifestJson, candidate: { ...candidate,
-      sources: candidate.sources.map(source => source.key === "medusa.currency" ? { ...source, sourceSha256: "0".repeat(64) } : source) } };
+    const candidateWire = encodeLogicalSchemaCandidate(candidate);
+    const forgedSource = { ...stored.artifact.manifestJson, candidate: { ...candidateWire,
+      sources: candidateWire.sources.map(source => source.key === "medusa.currency" ? { ...source, sourceSha256: "0".repeat(64) } : source) } };
     expect(await Effect.runPromise(Effect.result(readSchemaVersionTableBindings(forgedSource, deploymentId)))).toMatchObject({
       _tag: "Failure", failure: { _tag: "SchemaVersionTableBindingsError" },
     });

@@ -297,3 +297,12 @@ SDK/Worker and physical-row witnesses keep current transport separate. Remaining
 external/native retained-store cutover, broader source features and full-goal
 acceptance stay explicit; existing private wire layouts are not permanent
 mechanism exceptions.
+
+The [managed scalar Payload replacement](./slices/10-payload-native-core-cutover.md)
+has converged on an existing native consumer through the three-way challenge.
+Its current-frame/shared-owner correction and direct-visibility characterization
+establish prerequisites; the minimum native observation/acceptance mechanism is selected,
+and native runtime replacement is not implemented or activated.
+Required ownership, selected uniqueness, shared installation and native outcomes
+must migrate together without weakening the Application-only support gate or
+fabricating developer Application metadata for native commands.

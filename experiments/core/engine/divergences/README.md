@@ -122,3 +122,9 @@ maintaining a competing completion log here.
 ## Source wire and retained identities
 
 - [Validator identity generations for retained Cloudflare artifacts](./validator-authenticated-identities.md): narrow stored CoreProgram byte projection and authenticated fresh encoding 2 implemented; external/native retained-store cutover gates remain.
+
+## Selected native extensions
+
+- [Authenticated native write ownership](./native-write-ownership.md): required native-policy extension through shared schema/transaction owners; slice 10 design and activation gates remain, runtime not implemented.
+- [Native declarative uniqueness](./native-unique-constraints.md): selected required-text subset reuses source indexes/dependencies/acceptance; implementation and native-profile proofs remain.
+- [Direct native read visibility](./native-direct-read-visibility.md): existing direct Payload behavior characterized and minimum observation/final-validation mechanism selected; replacement runtime not implemented.

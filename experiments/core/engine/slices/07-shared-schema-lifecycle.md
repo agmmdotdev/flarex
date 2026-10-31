@@ -150,12 +150,13 @@ finite work lifetime; spilling bodies to exact persisted references preserves
 source reconstruction. Never truncate observed predecessors or advance a cursor
 past uncompleted work. Retry follows the narrow settled-timeout adaptation in
 [the PG lifetime record](../divergences/postgres-client-lifetime.md#tableiterator-timeout-classification).
-The current Application validator protocol remains a bounded reused input:
-source int64 literals and negative-zero literals require a connected protocol,
-SDK, manifest and validator translation. They are a remaining parity gate, not
-a justified DO divergence or a claim of complete schema compatibility. Search,
-vector, exact shape inference and native constraints likewise retain their
-explicit gates. Physical cutover preserves old revisions; opening a pre-cutover
+The connected [literal translation](./08-validator-literal-parity.md) and
+[Source validator translation](./09-source-validator-wire-parity.md) now supply
+Int64/signed-zero literals, Source DTO parsing and document-root handling through
+the SDK, manifests, persistence and Workers. Reuse their owned semantic/wire
+projections; this does not establish complete schema compatibility. Search,
+vector, exact shape inference and native constraints retain their explicit gates.
+Physical cutover preserves old revisions; opening a pre-cutover
 logical transaction remains subject to the resident metadata/retention floor.
 
 Captured schema table lookups use a private weakly owned name index, matching

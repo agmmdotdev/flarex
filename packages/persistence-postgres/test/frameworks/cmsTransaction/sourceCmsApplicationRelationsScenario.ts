@@ -6,7 +6,7 @@ import { captureLogicalSchemaSource, prepareLogicalSchemaCandidate, readPrepared
 import { prepareApplicationLogicalSource } from "@flarex/analysis/internal/logical-application-source";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { decodeAppDocumentIdV1 } from "flarex-protocol/app-document-id";
-import { decodeCatalogSchemaVersion, decodeCatalogSchemaVersionId, decodeSchemaManifestAppTableDeclarationsV1Result } from "flarex-protocol/schema-manifest";
+import { decodeCatalogSchemaVersion, decodeCatalogSchemaVersionId, captureSchemaManifestAppTableDeclarationsV1Result } from "flarex-protocol/schema-manifest";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { RelationIdentityV1Schema } from "flarex-protocol/internal/relation-declaration-v1";
 import { compilePayloadCollections } from "../../../../payload-adapter/src/collections";
@@ -46,6 +46,7 @@ import { ensureLogicalStorageDefinitions } from "../../../src/storage/catalog/lo
 import { makeLogicalSchemaAdmission } from "../../../src/storage/catalog/logicalSchemaAdmission";
 import { prepareLogicalReadMetadata } from "../../../src/storage/documents/logicalReadMetadata";
 import { prepareLogicalDocumentSourceAdmission } from "../../../src/storage/documents/logicalDocuments/documentAdmission";
+import { prepareLogicalSourceEvidence } from "../../../src/storage/documents/logicalDocuments/sourceAdmission";
 import { reconcilePublishedIndexBuildsV1Effect } from "../../../src/storage/indexes/indexBuildReconciliation";
 import { locateAppIndexDefinitionByIdEffect } from "../../../src/storage/indexes/appIndexDefinitions";
 import { buildAppDeveloperOrderedIndexV1Effect, buildIntrinsicCreationTimeIndexV1Effect } from "../../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
@@ -100,7 +101,7 @@ async function sourceFixture(persistence: Persistence, session: RelationalSessio
   const articleTable = compiled.logicalDefinition.tables.find(table => table.logicalName === "articles");
   const relation = compiled.logicalDefinition.relations[0];
   if (articleTable === undefined || relation === undefined) throw new Error("Missing actual compiled article relation");
-  const auditTables = Result.getOrThrow(decodeSchemaManifestAppTableDeclarationsV1Result([
+  const auditTables = Result.getOrThrow(captureSchemaManifestAppTableDeclarationsV1Result([
     { ...articleTable, logicalName: "audit" },
   ]));
   // This is an explicitly unsupported candidate, never a fabricated successful
@@ -275,6 +276,19 @@ async function verifySourceGenerationLoans(tested: Awaited<ReturnType<typeof sou
   await runEffect(Effect.scoped(Effect.gen(function* () {
     const retained = yield* retainPreparedHost(sourceInput.hostRuntime,
       prepareCurrentApplicationBinding(fixture.relationActivation, fixture.persistence.drizzle, binding => Effect.gen(function* () {
+        for (const definition of [
+          { kind: "unknown" },
+          { ...tested.compiled.logicalDefinition, tables: tested.compiled.logicalDefinition.tables.map(table => ({
+            ...table, definition: { ...table.definition, documentType: { type: "unknown" } },
+          })) },
+        ]) {
+          expect(yield* Effect.result(prepareLogicalSourceEvidence(sourceInput.logicalStorage.ports,
+            sourceInput.logicalStorage.unique, { deploymentId: sourceInput.deploymentId, scopeId: sourceInput.scopeId,
+              schemaVersionId: tested.schemaVersionId }, { sourceKey: tested.compiled.sourceContract.sourceKey,
+              writeProfile: tested.compiled.sourceContract.writeProfile, evidence: tested.compiled.sourceContract.evidence, definition },
+            "payload", "documents", { kind: "standalone", application: binding })))
+            .toMatchObject({ _tag: "Failure", failure: { _tag: "LogicalSourceAdmissionError", reason: "invalidInput" } });
+        }
         const prepared = yield* prepareLogicalDocumentSourceAdmission(sourceInput.logicalStorage.ports,
           sourceInput.logicalStorage.unique, { deploymentId: sourceInput.deploymentId, scopeId: sourceInput.scopeId,
             schemaVersionId: tested.schemaVersionId }, tested.compiled.sourceContract, { kind: "standalone", application: binding });

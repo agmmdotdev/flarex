@@ -25,9 +25,11 @@ import {
 import { fxControlScopes, fxControlSchemaVersions } from "../../database/schema";
 import { locateApplicationRelationBindingForCommitEffect } from "../../application/relations/binding";
 import { applicationManifestWireV1, verifyApplicationManifestV3 } from "@flarex/analysis/application-analysis";
+import { applicationSchemaPublicationFrameV3 } from "@flarex/analysis/internal/application-publication-v3";
 import { ApplicationLogicalV3Evidence, prepareApplicationLogicalSource } from "@flarex/analysis/internal/logical-application-source";
 import { capturePrivateCanonicalValue } from "../../installation/frameworkSchema/privateCanonicalValue";
 import { prepareApplicationWritePolicyBinding } from "../../application/ownership/applicationWritePolicyBinding";
+import { sha256 } from "../../application/applicationAuthorityFrames";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { readLogicalSchemaAdmissionEvidence, isLogicalSchemaAdmissionManifest,
   MAX_LOGICAL_SCHEMA_HISTORY_RECORDS, MAX_LOGICAL_SCHEMA_HISTORY_BYTES,
@@ -221,14 +223,16 @@ const requireRetainedOwners = Effect.fn("LogicalSchemaAdmission.requireRetainedO
       const digestPolicy = { invalidInput: () => new LogicalSchemaAdmissionError({ reason: "ownershipChanged" }),
         hashFailure: (cause: unknown) => new LogicalSchemaAdmissionError({ reason: "resourceFailure", cause }) };
       const manifest = yield* capturePrivateCanonicalValue(manifestData, 1_048_576, digestPolicy);
-      const schema = yield* capturePrivateCanonicalValue({ format: "flarex.application-schema-publication", version: 3,
-        schema: manifestData.schema! }, 1_048_576, digestPolicy);
+      const schemaFrame = yield* Effect.fromResult(applicationSchemaPublicationFrameV3(verified.manifest)).pipe(
+        Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "ownershipChanged", cause })));
+      const schemaSha256 = yield* sha256(schemaFrame).pipe(
+        Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "resourceFailure", cause })));
       const policies = yield* prepareApplicationWritePolicyBinding(verified.manifest, bound.binding.tables).pipe(
         Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "ownershipChanged", cause })));
       const expected = yield* prepareApplicationLogicalSource(verified.manifest, evidence.manifestSha256, payload[0]).pipe(
         Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "ownershipChanged", cause })));
       if (manifest.sha256Hex !== evidence.manifestSha256 || candidate.applicationAnalysis.manifestSha256 !== evidence.manifestSha256 ||
-        schema.sha256Hex !== encodeBytesToLowercaseHex(bound.applicationSchemaSha256) ||
+        encodeBytesToLowercaseHex(schemaSha256) !== encodeBytesToLowercaseHex(bound.applicationSchemaSha256) ||
         policies === null || canonical(policies.writePolicies) !== canonical(bound.binding.writePolicies) ||
         canonical(encodeLogicalSchemaSource(expected)) !== canonical(encodeLogicalSchemaSource(app[0])))
         return yield* Effect.fail(new LogicalSchemaAdmissionError({ reason: "ownershipChanged" }));

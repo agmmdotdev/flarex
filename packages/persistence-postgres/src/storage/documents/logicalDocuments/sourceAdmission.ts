@@ -2,7 +2,7 @@ import { Data, Effect, Exit, Option, Result, Schema } from "effect";
 import { observeExecution } from "../../../execution/diagnostics/operation";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { applicationSchemaWireV1 } from "@flarex/analysis/application-analysis";
-import { encodeLogicalSchemaSourceDefinition } from "flarex-protocol/internal/logical-schema-candidate";
+import { encodeLogicalSchemaSourceDefinition, LogicalSchemaSourceSchema } from "flarex-protocol/internal/logical-schema-candidate";
 import { encodeSchemaManifestAppDocumentDefinition } from "flarex-protocol/schema-manifest";
 import { encodeCanonicalJson, isJson, isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import type { ApplicationManifest } from "@flarex/analysis/application-analysis";
@@ -147,7 +147,7 @@ export class LogicalSourceAdmissionError extends Data.TaggedError("LogicalSource
 
 const SourceContract = Schema.Struct({
   sourceKey: Schema.NonEmptyString, writeProfile: Schema.NonEmptyString,
-  definition: Schema.Json, evidence: Schema.Json,
+  definition: Schema.toType(LogicalSchemaSourceSchema.fields.definition), evidence: Schema.Json,
 }).annotate({ parseOptions: { onExcessProperty: "error" } });
 const decodeContract = Schema.decodeUnknownEffect(SourceContract);
 const decodeDeploymentId = Schema.decodeUnknownEffect(TransactionGrantDeploymentIdV1Schema);
@@ -684,7 +684,8 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
     return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
   const source = readiness.source(expected.sourceKey);
   if (source === undefined || source.owner !== expectedOwner || source.definition.kind !== expectedKind ||
-      source.writeProfile !== expected.writeProfile || canonical(encodeLogicalSchemaSourceDefinition(source.definition)) !== canonical(expected.definition) ||
+      source.writeProfile !== expected.writeProfile ||
+      canonical(encodeLogicalSchemaSourceDefinition(source.definition)) !== canonical(encodeLogicalSchemaSourceDefinition(expected.definition)) ||
       canonical(source.evidence) !== canonical(expected.evidence))
     return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
   const selectedTables = readiness.sourceDefinitionTables(source.key);

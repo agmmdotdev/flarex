@@ -1,4 +1,5 @@
 import type { ApplicationManifestWithRelations } from "@flarex/analysis/application-analysis";
+import { APPLICATION_PUBLICATION_MAXIMUM_FRAME_BYTES_V1 } from "@flarex/analysis/internal/application-publication-v1";
 import {
   verifyApplicationWritePolicies,
   type VerifiedApplicationWritePolicies,
@@ -48,15 +49,16 @@ export const verifyStoredApplicationWritePolicyBinding = Effect.fn("ApplicationW
     schemaBytes: Uint8Array,
   ): Effect.fn.Return<void, ApplicationWritePolicyBindingError> {
     if (binding.version === 2) return;
-    if (schemaBytes.byteLength > 1_048_576) {
+    if (schemaBytes.byteLength > APPLICATION_PUBLICATION_MAXIMUM_FRAME_BYTES_V1) {
       return yield* Effect.fail(new ApplicationWritePolicyBindingError({ reason: "invalidEvidence" }));
     }
     const frame = yield* Effect.try({
       try: (): unknown => JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(schemaBytes)),
       catch: cause => new ApplicationWritePolicyBindingError({ reason: "invalidEvidence", cause }),
     });
-    if (!hasExactOwnDataKeys(frame, ["format", "version", "schema"]) ||
+    if (!hasExactOwnDataKeys(frame, ["format", "version", "validatorIdentityEncoding", "schema"]) ||
       frame.format !== "flarex.application-schema-publication" || frame.version !== 3 ||
+      frame.validatorIdentityEncoding !== 2 ||
       !hasExactOwnDataKeys(frame.schema, ["version", "tables", "indexes", "relations", "writePolicies", "writePolicySetSha256"]) ||
       frame.schema.version !== 3) {
       return yield* Effect.fail(new ApplicationWritePolicyBindingError({ reason: "invalidEvidence" }));
