@@ -1,6 +1,6 @@
 # Source validator wire and parser parity
 
-Status: **Independent challenge and peer exchange complete; runtime contract and activation dispositions pending**.
+Status: **Independent challenge complete; connected runtime contract selected; implementation preparation**.
 This is a source-alignment requirement, not an accepted DO/native divergence.
 The numeric literal translation and ordered source-semantic record admission in
 [08](./08-validator-literal-parity.md) do not claim complete raw validator wire
@@ -180,14 +180,19 @@ Stored schema reads remain lazy; fresh finite construction policy is separate.
 
 ### Remaining evidence and completion
 
-Actual durable-data inventory and the selected correlated identity disposition
-remain open. Duplicate-known-field and tuple/sequence `FieldTypeJson` behavior
-also remain **unexecuted oracle questions**. Do not promote them to asserted
-vectors before running a matching derived-serde witness. The cached serializer
-oracle from 08 used serde_core 1.0.229; the pinned lockfile uses 1.0.228. That
-oracle proves its recorded finite serialization vectors, not exact derived DTO
-parsing. Use verbatim pinned DTO declarations and matching versions in a focused
-independent harness; a full Convex/toolchain build is not required.
+The exact pinned raw DTO derivation has now been executed with serde,
+serde_core and serde_derive 1.0.228, serde_json 1.0.151 and the pinned features.
+Both `FieldTypeJson` and internally tagged `ValidatorJson` accept sequence forms
+and serialize back to object forms. Duplicate known fields reject; duplicate
+object field-map names keep the last successfully parsed value; unknown members
+are ignored. Malformed earlier values can precede a later duplicate refusal.
+Lone surrogates and numeric overflow reject, and the observed nesting boundaries
+count raw containers. A 1,025-field object DTO accepts. This is raw DTO evidence,
+not execution of semantic conversion. The 08 finite serializer oracle keeps its
+original narrower claim; it is not substituted for this derived parser proof.
+
+The selected inventory and identity disposition below govern activation. No
+external-state absence or destructive migration is inferred from local findings.
 
 Required conformance includes raw-versus-semantic precedence, optional wrappers,
 source/strict positive-zero behavior, names/surrogates/aliases, root variants and
@@ -198,3 +203,93 @@ in PGlite and ordinary-role PostgreSQL separately. Cover actual Worker/DO module
 transport and restart, affected native producers, approved Oxc checks, lint and
 both mandatory post-change reviews. Managed hosting and full-request performance
 remain wider goal gates; existing Task provenance/host guards remain open.
+
+## Selected connected implementation contract
+
+### Identity generation and retained data
+
+Use `validatorIdentityEncoding: 2` for fresh authenticated manifest, runtime-target
+and independently hashed schema/catalog/function-entry projections. This encoding
+generation is separate from manifest feature versions 1/2/3; add no Manifest V4
+merely to change validator wire. Publication/authority commitments authenticate
+the marker through their existing digest chains. Source schema serialization and
+content hashes receive no marker.
+
+Fresh CoreProgram metadata has a closed `flarex.core-application-program` version
+1 envelope with encoding 2. It stores manifest/target/authority wire JSON as
+strings, then decodes them into semantic metadata on read. Do not embed declaration
+maps as general Convex value objects: their real 1,024-field/64-depth value limits
+are not validator-declaration limits. Keep the actual aggregate 32 MiB metadata
+value boundary instead of loosening the value codec. The existing five physical
+tables and outer `_programs`/head/request identities do not change.
+
+Unversioned stored CoreProgram metadata selects one narrow pre-09 `Legacy`
+canonical projection. It preserves all old manifest/schema/catalog/entry/
+publication/target/authority bytes. Unknown or inconsistent markers/formats fail
+without fallback. Fresh constructors cannot publish Legacy metadata. Retain
+historical object-only appDocument definition version 1 and introduce fresh
+version 2 for source document roots. Carry the verified identity generation into
+Worker/grant/request canonicalization; callers do not choose a historical mode.
+Worker validator transport uses the current Source DTO after authentication,
+including when the verified identity is historical.
+
+Preserve authentication-before-recovery and the original request/program/argument
+correlation. Committed outcomes replay; live claims stay busy; stale/uncertain
+claims follow existing fencing and reconciliation. No request rekeying, blanket
+retirement, result reexecution or duplicate engine is introduced. The
+[identity adaptation](../divergences/validator-authenticated-identities.md) owns
+why this Cloudflare artifact/retained-byte boundary needs a discriminator.
+
+The selected read-only inventory found no complete or partial five-table core
+family in the owned PostgreSQL test target. WAL-aware snapshots found retained
+local developer state: one analyzed legacy push with no installed functions,
+tables or indexes, and no record validators in its stored schema/function
+metadata. Preserve it unchanged. The snapshots are individually consistent, not
+a cross-database transaction. Shared/external/custom targets and resident
+uncertain execution were not inventoried; they are not declared absent. No
+migration, reset or deletion is selected. Historical program/head/outcome recovery
+still needs the frozen pre-change positive-record witness.
+
+### Validator and resource closure
+
+Include Function and CommitTs validator semantics in this replacement. Function
+matches ordinary strings with `function://` plus a canonical document ID;
+advisory fragments do not affect admission or alter the original value.
+Signature metadata is parsed/serialized/hashed but does not constrain runtime
+matching. Function validators are mutually subset-equivalent and string subtypes;
+IDs inside their signature metadata do not create foreign references. CommitTs
+matches ordinary Int64 and is subset-equivalent to bigint, while retaining its
+distinct tag/hash. Neither needs a new committed value tag, physical table,
+registry lookup or execution authority.
+
+Actual function-handle production/invocation and pending `db.vars.commitTs`
+construction/late resolution are separate unfinished mechanisms, not implied by
+validator matching. Do not claim them implemented or justify their absence as a
+DO necessity; keep them in the source-mechanism inventory for the wider goal.
+
+Remove arbitrary current per-declaration field/node limits through all connected
+owners. Preserve no-getter snapshots, cycles/depth protection, immutable ownership
+and work proportional to the owned input graph, including DAG memoization. The
+source text parser enforces actual raw serde nesting and source semantic rules;
+remove displaced recursive parsing. Keep genuine value-object limits at value
+owners and aggregate metadata limits at metadata persistence. Existing managed
+transport/signing budgets remain at their actual owners, with no new claim that
+they equal Convex limits or prove Cloudflare capacity. Any additional early host
+quota requires evidence and its own necessary-divergence assessment.
+
+### Coordinated ownership and handoff
+
+Protocol owns current Source text/DTO/semantic conversion, current wire projection,
+shared pure value/ID helpers and validator matching. Identity/publication owns
+current markers, the narrow frozen identity projector and every hash/grant/
+Worker selector consumer. Core schema owns native schema parsing/normalization,
+serializer/subset/reference behavior and metadata data-layout consequences.
+SDK/analysis owns authoring/inference, exporter ingestion, fresh admission,
+source emitters and supported native capability narrowing. Exchange the shared
+parser/type/projection APIs before dependent edits; no adapter-side repair.
+
+Freeze an authentic pre-change record program/head/committed-outcome fixture from
+the existing production owners before protocol runtime edits. Validate old
+identity recovery and new current identities separately. Preserve unrelated
+paused Main changes, generate only in the clean verification checkout, and rerun
+both required read-only reviews after connected implementation and checks.
