@@ -22,8 +22,9 @@ import type { CoreSchemaSelection } from "./schemaRegistry";
 import { isCoreIndexStaged } from "./indexState";
 
 import { CoreNativeIdentitySchema, CoreNativeUniqueConstraintSchema as Unique, type CoreNativeIdentity,
-  type CoreNativeTablePolicy } from "./nativePolicyTypes";
-export { CoreNativeIdentitySchema, CoreNativeTablePolicySchema } from "./nativePolicyTypes";
+  type CoreNativeTablePolicy, coreNativeConstraintFields, coreNativeConstraintNullsDistinct } from "./nativePolicyTypes";
+export { CoreNativeIdentitySchema, CoreNativeTablePolicySchema, coreNativeConstraintFields,
+  coreNativeConstraintNullsDistinct } from "./nativePolicyTypes";
 export type { CoreNativeIdentity, CoreNativeTablePolicy } from "./nativePolicyTypes";
 export interface CoreNativeDefinition {
   readonly identity: CoreNativeIdentity;
@@ -104,14 +105,14 @@ export const makeCoreNativeDefinition = Effect.fn("CoreNativeDefinition.make")(f
   for (const table of configuration.tables) {
     const uniqueConstraints: typeof Unique.Type[] = [];
     for (const constraint of constraints.filter(candidate => candidate.tableLogicalName === table.logicalTableName)) {
-      const field = constraint.fields[0];
-      const configured = table.fields.find(candidate => candidate.name === field);
       const index = documentDefinition.indexes.find(candidate => candidate.tableLogicalName === table.logicalTableName
-        && candidate.fields.length === 1 && candidate.fields[0] === field);
-      if (constraint.fields.length !== 1 || field === undefined || constraint.sparse || constraint.nullsDistinct
-        || constraint.predicate !== undefined || configured?.kind !== "text" || configured.nullable || index === undefined)
-        return yield* unsupported("Only required-text equality uniqueness is supported");
-      uniqueConstraints.push(Object.freeze({ descriptor: constraint.descriptor, field, indexName: index.descriptor }));
+        && candidate.fields.length === constraint.fields.length
+        && candidate.fields.every((field, position) => field === constraint.fields[position]));
+      if (constraint.fields.length === 0 || constraint.sparse || constraint.predicate !== undefined || index === undefined
+        || constraint.fields.some(field => !table.fields.some(configured => configured.name === field && configured.kind !== "relationship")))
+        return yield* unsupported("Native uniqueness requires a declared scalar index with no sparse or conditional policy");
+      uniqueConstraints.push(Object.freeze({ descriptor: constraint.descriptor,
+        fields: Object.freeze([...constraint.fields]), nullsDistinct: constraint.nullsDistinct, indexName: index.descriptor }));
     }
     tables.push(Object.freeze({ name: table.logicalTableName, uniqueConstraints: Object.freeze(uniqueConstraints) }));
   }
@@ -153,12 +154,22 @@ function nativePolicyMatches(policy: CoreNativeTablePolicy, definition: CoreNati
   const expected = definition.tables.find(table => table.name === tableName);
   return expected !== undefined && sameCoreNativeIdentity(policy.identity, definition.identity)
     && policy.applicationRead === definition.applicationRead
-    && policy.uniqueConstraints.length === expected.uniqueConstraints.length
-    && policy.uniqueConstraints.every((constraint, position) => {
-      const clause = expected.uniqueConstraints[position];
+    && sameNativeConstraints(policy.uniqueConstraints, expected.uniqueConstraints);
+}
+function sameNativeConstraints(left: CoreNativeTablePolicy["uniqueConstraints"], right: CoreNativeTablePolicy["uniqueConstraints"]): boolean {
+  return left.length === right.length && left.every((constraint, position) => {
+      const clause = right[position];
       return clause !== undefined && constraint.descriptor === clause.descriptor
-        && constraint.field === clause.field && constraint.indexName === clause.indexName;
+        && constraint.indexName === clause.indexName
+        && coreNativeConstraintNullsDistinct(constraint) === coreNativeConstraintNullsDistinct(clause)
+        && JSON.stringify(coreNativeConstraintFields(constraint)) === JSON.stringify(coreNativeConstraintFields(clause));
     });
+}
+/** Identity-preserving replay compares authenticated policy meaning, not object key order or the Legacy clause encoding. */
+export function sameCoreNativeTablePolicy(left: CoreNativeTablePolicy, right: CoreNativeTablePolicy): boolean {
+  return left.state === right.state && left.schemaId === right.schemaId
+    && left.applicationRead === right.applicationRead && sameCoreNativeIdentity(left.identity, right.identity)
+    && sameNativeConstraints(left.uniqueConstraints, right.uniqueConstraints);
 }
 export function checkCoreTableAccess(table: CoreTableDefinition, mode: "read" | "write",
   authority?: CoreNativeAuthority): Result.Result<void, CoreTransactionError> {

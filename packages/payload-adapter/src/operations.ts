@@ -1,5 +1,5 @@
 import { payloadPaginationPolicy } from "./query";
-import { Effect, type Result } from "effect";
+import { Effect, Exit, type Result } from "effect";
 import { captureExecutionDiagnosticContext, observeExecution } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import type { BasePayload, PayloadRequest } from "payload";
 import { cmsError, defineCmsCommand, type CmsCommandContext, type CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
@@ -17,6 +17,8 @@ type Bridge = ReturnType<typeof makePayloadDatabaseAdapter>;
 type ReadOptions = Pick<PayloadFindByIdInput, "depth" | "joins" | "joinRead">;
 const noJoins: PayloadJoinQuery = { referencedBy: false, referencedByMany: false };
 const noPopulation: ReadOptions = { depth: 0, joins: noJoins, joinRead: false };
+const restoreOutcome = (outcome: Exit.Exit<unknown, unknown>) =>
+  Exit.isFailure(outcome) ? Effect.failCause(outcome.cause) : Effect.succeed(outcome.value);
 
 /** Source-private observations and trusted request state; never operation input. */
 export interface PayloadOperationInstrumentation {
@@ -55,7 +57,7 @@ export function makePayloadOperations(payload: BasePayload, bridge: Bridge, prof
     instrumentation?.onExecute?.();
     const diagnostics = yield* Effect.withFiber(fiber => Effect.succeed(captureExecutionDiagnosticContext(fiber)));
     const result = yield* Effect.uninterruptibleMask(restore => {
-      let pending: Promise<unknown> | undefined;
+      let pending: Promise<Exit.Exit<unknown, unknown>> | undefined;
       return restore(Effect.tryPromise({
         try: signal => {
           pending = bridge.within(context, collection, req, signal, diagnostics, () => invoke(common), read.depth === 1, read.joins,
@@ -67,8 +69,9 @@ export function makePayloadOperations(payload: BasePayload, bridge: Bridge, prof
         const completion = pending;
         // Abort requests cancellation; the native Promise must actually settle
         // before its request, host or transaction owner may finish draining.
-        return completion === undefined ? Effect.void : Effect.tryPromise({ try: () => completion, catch: cause => cause }).pipe(Effect.asVoid);
-      })), Effect.catchCause(cause => Effect.failCause(projectPayloadCause(cause))));
+        return completion === undefined ? Effect.void : Effect.tryPromise({ try: () => completion, catch: cause => cause }).pipe(
+          Effect.flatMap(restoreOutcome), Effect.asVoid);
+      })), Effect.flatMap(restoreOutcome), Effect.catchCause(cause => Effect.failCause(projectPayloadCause(cause))));
     });
     return yield* Effect.fromResult(decode(result));
   }, work => observeExecution("PayloadAdapter.call", work));

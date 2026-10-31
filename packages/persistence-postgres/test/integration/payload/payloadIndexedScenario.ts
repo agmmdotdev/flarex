@@ -1,7 +1,6 @@
 import { inspectPayloadRuntimeForTest } from "../../../../payload-adapter/src/testing";
 import { Effect, Schema } from "effect";
 import { expect } from "vitest";
-import { makeCmsHost } from "../../../src/frameworks/cmsTransaction/host";
 import { defineCmsCommand } from "../../../src/frameworks/cmsTransaction/commands";
 import { cmsError, cmsLimits } from "../../../src/frameworks/cmsTransaction/model";
 import { decodeIndexedDocument, decodeIndexedPage, indexedFields, type IndexedPayloadFixture } from "./payloadIndexedFixture";
@@ -11,6 +10,7 @@ const decodeRollback = Schema.decodeUnknownEffect(Schema.Boolean);
 export async function payloadIndexedScenario(tested: IndexedPayloadFixture) {
   const { host, runtime } = tested;
   await signedZeroScenario(tested);
+  tested.resetObservations();
   for (let batch = 0; batch < 18; batch++) await runEffect(host.run(host.newRequestKey(), tested.seed, batch));
   expect((await tested.inventory()).rows.length).toBeGreaterThan(cmsLimits.identities);
   const create = async (title: string, category: string, amount: number) => decodeIndexedDocument(await runEffect(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(runtime).commands.create,
@@ -61,7 +61,7 @@ export async function payloadIndexedScenario(tested: IndexedPayloadFixture) {
       where: residual === true ? { _id: first.id, category: { gte: "\ud800" } } : { category: "\ud800" } });
     return null;
   }) });
-  const nested = await runEffect(makeCmsHost({ ...tested.input, commands: [...tested.input.commands, move, invalidQuery] }, tested.hooks));
+  const nested = await runEffect(tested.openHost([move, invalidQuery]));
   const before = await tested.inventory();
   for (const residual of [false, true]) {
     expect(await runEffectFailure(nested.run(nested.newRequestKey(), invalidQuery, residual))).toMatchObject({ reason: "invalidInput" });
@@ -73,14 +73,14 @@ export async function payloadIndexedScenario(tested: IndexedPayloadFixture) {
   const updated = await runEffect(nested.run(key, move, false));
   expect(updated).toMatchObject({ id: first.id, amount: 20 });
   const after = await tested.inventory();
-  expect(after.commits.length).toBe(before.commits.length + 1);
-  expect(after.facts.length).toBe(before.facts.length + 2);
+  expect(after.outcomes.length).toBe(before.outcomes.length + 1);
+  expect(after.revisions.length).toBe(before.revisions.length + 2);
   expect(await runEffect(nested.run(key, move, false))).toEqual(updated);
   expect(await tested.inventory()).toEqual(after);
   expect(executions).toBe(2);
   expect(await runEffect(host.read(inspectPayloadRuntimeForTest(runtime).commands.count, { collection: "items", where: { amount: { greater_than_equal: 10, less_than: 15 } } }))).toEqual({ totalDocs: 0 });
-  expect(tested.scans()).toBe(0);
-  expect(tested.plans.length).toBeGreaterThan(0);
+  expect(await tested.applicationTableQueries()).toHaveLength(0);
+  expect((await tested.applicationIndexQueries()).length).toBeGreaterThan(0);
   await runEffect(nested.close);
 }
 
@@ -131,7 +131,7 @@ async function signedZeroScenario(tested: IndexedPayloadFixture) {
     return null;
   }) });
   await runEffect(Effect.scoped(Effect.gen(function* () {
-    const checked = yield* Effect.acquireRelease(makeCmsHost({ ...tested.input, commands: [...tested.input.commands, pending, raw, core, clear] }), value => value.close);
+    const checked = yield* Effect.acquireRelease(tested.openHost([pending, raw, core, clear]), value => value.close);
     for (const command of [pending, core]) {
       if (command === core) yield* checked.run(checked.newRequestKey(), raw, null);
       const before = yield* Effect.promise(tested.inventory);

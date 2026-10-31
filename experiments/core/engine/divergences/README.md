@@ -64,6 +64,13 @@ evidence, retaining the accepted decision link.
 
 ## Focused implementation records
 
+The [native ordinary-index observation record](./native-ordinary-index-observations.md)
+defines the selected implemented and validated indexed Payload replacement. It keeps
+Source event dependencies intact and specifies the necessary direct-native
+capture/terminal-membership difference.
+The [native command budget record](./native-command-budgets.md) specifies shared
+request charging and bounded retained data for that same connected replacement.
+
 | Record | Current scope |
 | --- | --- |
 | [Canonical app DO routing](./single-app-owner-routing.md) | Bounded shared fresh query/mutation owner implemented; canonical admission and writer closure adapt process ownership to DO lifecycle. Managed-host and wider profile gates remain open. |

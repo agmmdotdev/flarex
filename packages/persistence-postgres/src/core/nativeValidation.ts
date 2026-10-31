@@ -2,24 +2,25 @@ import { Effect, Result } from "effect";
 import { bytesEqual, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { CoreTransactionError, type CoreError } from "./api";
 import { CorePersistenceError, type CorePersistenceSnapshot, type CoreWriteBatch } from "./contracts";
-import type { CoreNativeUniqueSlot } from "./nativeObservations";
+import type { CoreNativeIndexObservation } from "./nativeObservations";
 import { publicDocumentId, type CoreRegistry } from "./registry";
 import { isCoreIndexEnabled } from "./indexState";
 import { keyInInterval } from "./writeLog";
 
 /** Published full-key state, prepared outside the committer's ordering section. */
-export interface CorePreparedNativeSlot {
-  readonly observation: CoreNativeUniqueSlot;
+export interface CorePreparedNativeIndex {
+  readonly observation: CoreNativeIndexObservation;
   readonly entries: ReadonlyMap<string, string>;
 }
 
-export const prepareCoreNativeSlots = Effect.fn("CoreNativeValidation.prepare")(function* (
+export const prepareCoreNativeIndexes = Effect.fn("CoreNativeValidation.prepare")(function* (
   snapshot: CorePersistenceSnapshot,
   registry: CoreRegistry,
-  slots: readonly CoreNativeUniqueSlot[],
+  observations: readonly CoreNativeIndexObservation[],
+  maxIdentities: number,
 ) {
-  const prepared: CorePreparedNativeSlot[] = [];
-  for (const observation of slots) {
+  const prepared: CorePreparedNativeIndex[] = [];
+  for (const observation of observations) {
     const { table, index } = observation;
     const currentTable = registry.tableByTablet(table.tabletId)?.definition;
     const currentIndex = registry.indexes.records.get(encodeBytesToLowercaseHex(index.ref.id));
@@ -29,18 +30,24 @@ export const prepareCoreNativeSlots = Effect.fn("CoreNativeValidation.prepare")(
       || currentIndex.ref.persistenceIndexId !== index.ref.persistenceIndexId
       || currentIndex.fields.length !== index.fields.length
       || currentIndex.fields.some((field, position) => field !== index.fields[position]))
-      return yield* new CoreTransactionError({ reason: "conflict", cause: "Native unique index generation changed" });
+      return yield* new CoreTransactionError({ reason: "conflict", cause: "Native index generation changed" });
     const entries = new Map<string, string>();
     let interval = observation.interval;
     while (true) {
       const page = yield* snapshot.scan({ tableId: table.tabletId, index: index.ref,
-        interval, order: "asc", maxResults: 128 });
+        interval, order: "asc", maxResults: Math.min(128, maxIdentities + 1 - entries.size) });
       for (const entry of page.entries) {
         if (entry.document.deleted || !bytesEqual(entry.document.tableId, table.tabletId)
           || !keyInInterval(entry.key, interval))
           return yield* new CorePersistenceError({ reason: "corruptData" });
-        entries.set(encodeBytesToLowercaseHex(entry.key),
+        const key = encodeBytesToLowercaseHex(entry.key);
+        if (entries.has(key)) return yield* new CorePersistenceError({ reason: "corruptData" });
+        entries.set(key,
           yield* Effect.fromResult(publicDocumentId(table, entry.document.id)));
+        if (entries.size > maxIdentities)
+          return yield* new CoreTransactionError({ reason: "capacity", cause: {
+            budget: "nativeIdentities", actual: entries.size, limit: maxIdentities,
+          } });
       }
       if (page.cursor.kind === "end") break;
       const key = page.cursor.key;
@@ -54,7 +61,7 @@ export const prepareCoreNativeSlots = Effect.fn("CoreNativeValidation.prepare")(
   return prepared;
 });
 
-function applyBatch(slot: CoreNativeUniqueSlot, entries: Map<string, string>,
+function applyBatch(slot: CoreNativeIndexObservation, entries: Map<string, string>,
   batch: CoreWriteBatch): Result.Result<boolean, CoreError> {
   return Result.gen(function* () {
     let touched = false;
@@ -74,8 +81,8 @@ function applyBatch(slot: CoreNativeUniqueSlot, entries: Map<string, string>,
 }
 
 /** Every accepted batch participates, including removals absent from request discovery. */
-export function validateCoreNativeSlots(prepared: readonly CorePreparedNativeSlot[],
-  accepted: Iterable<CoreWriteBatch>, candidate: CoreWriteBatch): Result.Result<ReadonlySet<CoreWriteBatch>, CoreError> {
+export function validateCoreNativeIndexes(prepared: readonly CorePreparedNativeIndex[],
+  accepted: Iterable<CoreWriteBatch>, candidate: CoreWriteBatch, maxIdentities: number): Result.Result<ReadonlySet<CoreWriteBatch>, CoreError> {
   if (prepared.length === 0) return Result.succeed(new Set<CoreWriteBatch>());
   return Result.gen(function* () {
     // Materialize the iterable once: every slot must fold the complete ordered suffix.
@@ -84,13 +91,31 @@ export function validateCoreNativeSlots(prepared: readonly CorePreparedNativeSlo
     for (const slot of prepared) {
       const entries = new Map(slot.entries);
       for (const batch of batches) if (yield* applyBatch(slot.observation, entries, batch)) predecessors.add(batch);
-      const actual = new Set(entries.values());
-      const expected = new Set(slot.observation.owners);
-      if (actual.size !== expected.size || [...actual].some(owner => !expected.has(owner)))
-        return yield* Result.fail(new CoreTransactionError({ reason: "conflict", cause: "Native unique owner changed" }));
-      yield* applyBatch(slot.observation, entries, candidate);
-      if (new Set(entries.values()).size > 1)
-        return yield* Result.fail(new CoreTransactionError({ reason: "conflict", cause: "Native unique owner collision" }));
+      if (entries.size > maxIdentities) return yield* Result.fail(new CoreTransactionError({ reason: "capacity", cause: {
+        budget: "nativeIdentities", actual: entries.size, limit: maxIdentities,
+      } }));
+      switch (slot.observation.kind) {
+        case "unique": {
+          const actual = new Set(entries.values());
+          const expected = new Set(slot.observation.owners);
+          if (actual.size !== expected.size || [...actual].some(owner => !expected.has(owner)))
+            return yield* Result.fail(new CoreTransactionError({ reason: "conflict", cause: "Native unique owner changed" }));
+          yield* applyBatch(slot.observation, entries, candidate);
+          if (new Set(entries.values()).size > 1)
+            return yield* Result.fail(new CoreTransactionError({ reason: "conflict", cause: "Native unique owner collision" }));
+          break;
+        }
+        case "range": {
+          if (entries.size !== slot.observation.members.length || slot.observation.members.some(member =>
+            entries.get(encodeBytesToLowercaseHex(member.key)) !== member.id))
+            return yield* Result.fail(new CoreTransactionError({ reason: "conflict", cause: "Native index membership changed" }));
+          break;
+        }
+        default: {
+          const unhandled: never = slot.observation;
+          return yield* Result.fail(new CorePersistenceError({ reason: "corruptData", cause: unhandled }));
+        }
+      }
     }
     return predecessors;
   });

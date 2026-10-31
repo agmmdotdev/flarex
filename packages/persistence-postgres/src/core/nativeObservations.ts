@@ -1,11 +1,13 @@
 /** Native observation policy extends the source transaction, not its pending writes. */
 import type { DocumentObject } from "flarex-protocol/document-value";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import type { CoreIndexDefinition, CoreTableDefinition } from "./api";
+import { CoreTransactionError, type CoreIndexDefinition, type CoreNativeLimits, type CoreTableDefinition } from "./api";
+import { Result } from "effect";
 import type { CoreDocumentLogEntry, CoreInterval } from "./contracts";
 import { CoreReadSetBuilder, copyInterval, type CoreReadSet } from "./writeLog";
 
 export interface CoreNativeUniqueSlot {
+  readonly kind: "unique";
   readonly table: CoreTableDefinition;
   readonly index: CoreIndexDefinition;
   readonly interval: CoreInterval;
@@ -13,12 +15,24 @@ export interface CoreNativeUniqueSlot {
   readonly owners: readonly string[];
 }
 
+export interface CoreNativeRangeSlot {
+  readonly kind: "range";
+  readonly table: CoreTableDefinition;
+  readonly index: CoreIndexDefinition;
+  readonly interval: CoreInterval;
+  readonly members: readonly Readonly<{ id: string; key: Uint8Array }>[];
+}
+export type CoreNativeIndexObservation = CoreNativeUniqueSlot | CoreNativeRangeSlot;
+
 export interface CoreNativeObservations {
+  readonly limits: CoreNativeLimits;
   readonly dependencies: readonly Readonly<{ timestamp: bigint; reads: CoreReadSet }>[];
-  readonly uniqueSlots: readonly CoreNativeUniqueSlot[];
+  readonly indexes: readonly CoreNativeIndexObservation[];
 }
 
 export interface CoreNativeDocumentObservation {
+  /** Semantic capture frontier S, distinct from the original's revision R. */
+  readonly observedAt: bigint;
   readonly original: CoreDocumentLogEntry | undefined;
   readonly document: DocumentObject | null;
 }
@@ -26,15 +40,33 @@ export interface CoreNativeDocumentObservation {
 export interface CoreNativeMembership {
   readonly timestamp: bigint;
   /** Physical committed rows, before earlier semantic observations or pending writes. */
-  readonly rows: readonly Readonly<{ id: string; observation: CoreNativeDocumentObservation }>[];
+  readonly rows: readonly Readonly<{ id: string; key: Uint8Array; observation: CoreNativeDocumentObservation }>[];
+}
+
+/** The slot memo owns membership only; semantic bodies live in originals. */
+export interface CoreNativeSlotMembership {
+  readonly timestamp: bigint;
+  readonly members: readonly Readonly<{ id: string; key: Uint8Array }>[];
 }
 
 /** Only explicit native observations enter here; index-cache hydration has no authority. */
 export class CoreNativeObservationState {
   private readonly originals = new Map<string, Readonly<{ tablet: string; observation: CoreNativeDocumentObservation }>>();
   private readonly tables = new Set<string>();
-  private readonly slots = new Map<string, Readonly<{ slot: CoreNativeUniqueSlot; membership: CoreNativeMembership; observed: boolean }>>();
+  private readonly slots = new Map<string, Readonly<{ slot: CoreNativeUniqueSlot; membership: CoreNativeSlotMembership; observed: boolean }>>();
   private readonly dependencies = new Map<bigint, CoreReadSetBuilder>();
+  private readonly ranges = new Map<string, CoreNativeRangeSlot>();
+  private readonly identities = new Set<string>();
+
+  constructor(private readonly limits: CoreNativeLimits) {}
+
+  reserve(ids: readonly string[]): Result.Result<void, CoreTransactionError> {
+    const additions = new Set(ids.filter(id => !this.identities.has(id)));
+    if (this.identities.size + additions.size > this.limits.maxIdentities)
+      return Result.fail(new CoreTransactionError({ reason: "capacity", cause: "Native captured identity limit" }));
+    for (const id of additions) this.identities.add(id);
+    return Result.succeed(undefined);
+  }
 
   original(id: string): CoreNativeDocumentObservation | undefined { return this.originals.get(id)?.observation; }
 
@@ -59,22 +91,37 @@ export class CoreNativeObservationState {
     for (const row of membership.rows) this.remember(table, row.id, row.observation);
   }
 
-  slot(index: CoreIndexDefinition, interval: CoreInterval, releaseOnly = false): CoreNativeMembership | undefined {
-    const entry = this.slots.get(slotIdentity(index, interval));
+  slot(index: CoreIndexDefinition, interval: CoreInterval, releaseOnly = false): CoreNativeSlotMembership | undefined {
+    const entry = this.slots.get(slotIdentity("unique", index, interval));
     // A removed key participates in final validation without granting a native
     // query the membership of a key that the callback has never requested.
     return entry !== undefined && (entry.observed || releaseOnly) ? entry.membership : undefined;
   }
 
-  rememberSlot(slot: CoreNativeUniqueSlot, membership: CoreNativeMembership, observed = true): void {
-    const identity = slotIdentity(slot.index, slot.interval);
+  rememberSlot(slot: CoreNativeUniqueSlot, membership: CoreNativeSlotMembership, observed = true): void {
+    const identity = slotIdentity("unique", slot.index, slot.interval);
     const previous = this.slots.get(identity);
+    // Copy only membership evidence. Neither normal captures nor release-only
+    // upgrades retain an extra body/revision cache or invent absence observations.
+    const retained = Object.freeze({ timestamp: membership.timestamp,
+      members: Object.freeze(membership.members.map(member => Object.freeze({ id: member.id, key: member.key.slice() }))) });
     if (previous !== undefined) {
-      if (!previous.observed && observed) this.slots.set(identity, { ...previous, membership, observed });
+      if (!previous.observed && observed) this.slots.set(identity, { ...previous, membership: retained, observed });
       return;
     }
     this.slots.set(identity, { slot: Object.freeze({ ...slot, interval: copyInterval(slot.interval),
-      owners: Object.freeze([...slot.owners].toSorted()) }), membership, observed });
+      owners: Object.freeze([...slot.owners].toSorted()) }), membership: retained, observed });
+  }
+
+  range(index: CoreIndexDefinition, interval: CoreInterval): CoreNativeRangeSlot | undefined {
+    return this.ranges.get(slotIdentity("range", index, interval));
+  }
+
+  rememberRange(slot: CoreNativeRangeSlot): void {
+    const identity = slotIdentity("range", slot.index, slot.interval);
+    if (!this.ranges.has(identity)) this.ranges.set(identity, Object.freeze({ ...slot,
+      interval: copyInterval(slot.interval), members: Object.freeze(slot.members.map(member =>
+        Object.freeze({ id: member.id, key: member.key.slice() }))) }));
   }
 
   addReads(timestamp: bigint, reads: CoreReadSet): void {
@@ -87,12 +134,15 @@ export class CoreNativeObservationState {
   }
 
   snapshot(): CoreNativeObservations {
-    return Object.freeze({ dependencies: Object.freeze([...this.dependencies].map(([timestamp, reads]) =>
+    const indexes: CoreNativeIndexObservation[] = [...this.slots.values()].map(entry => entry.slot);
+    indexes.push(...this.ranges.values());
+    return Object.freeze({ limits: Object.freeze({ ...this.limits }),
+      dependencies: Object.freeze([...this.dependencies].map(([timestamp, reads]) =>
       Object.freeze({ timestamp, reads: reads.snapshot() }))),
-    uniqueSlots: Object.freeze([...this.slots.values()].map(entry => entry.slot)) });
+    indexes: Object.freeze(indexes) });
   }
 }
 
-function slotIdentity(index: CoreIndexDefinition, interval: CoreInterval): string {
-  return `${encodeBytesToLowercaseHex(index.ref.id)}:${interval.start === null ? "-" : encodeBytesToLowercaseHex(interval.start)}:${interval.end === null ? "+" : encodeBytesToLowercaseHex(interval.end)}`;
+function slotIdentity(kind: CoreNativeIndexObservation["kind"], index: CoreIndexDefinition, interval: CoreInterval): string {
+  return `${kind}:${encodeBytesToLowercaseHex(index.ref.id)}:${interval.start === null ? "-" : encodeBytesToLowercaseHex(interval.start)}:${interval.end === null ? "+" : encodeBytesToLowercaseHex(interval.end)}`;
 }

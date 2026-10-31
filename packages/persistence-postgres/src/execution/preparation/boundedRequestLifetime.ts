@@ -64,6 +64,18 @@ export interface BoundedRequestLifetime<Failure> {
 
 const requestRoots = new WeakMap<object, object>();
 const FailureOrigin = Context.Service<object>("Flarex/BoundedRequestFailureOrigin");
+/** Reclassification starts a new diagnostic origin; it grants no request authority
+ * and never clears the original request's sticky failure. RC112 can resurrect a
+ * deleted annotation from its Error cache, so overwrite it with a fresh token
+ * that no lifetime has issued. Unchanged reasons keep their authentic origin. */
+export function reclassifyBoundedRequestReason<From, To>(
+  original: Cause.Reason<From>, mapped: Cause.Reason<To>,
+): Cause.Reason<To> {
+  const unchanged = Cause.isFailReason(original) && Cause.isFailReason(mapped) && Object.is(original.error, mapped.error)
+    || Cause.isDieReason(original) && Cause.isDieReason(mapped) && Object.is(original.defect, mapped.defect)
+    || Cause.isInterruptReason(original) && Cause.isInterruptReason(mapped) && original.fiberId === mapped.fiberId;
+  return unchanged ? mapped : mapped.annotate(Context.make(FailureOrigin, Object.freeze({})), { overwrite: true });
+}
 /** Source-private authentic request identity; carries no storage authority. */
 export const boundedRequestRootIdentity = <Failure>(lifetime: BoundedRequestLifetime<Failure>): object | undefined => requestRoots.get(lifetime);
 
@@ -319,11 +331,12 @@ export const makeBoundedRequestLifetime = Effect.fnUntraced(function* <Failure, 
       const remaining = request.expiresAt - (yield* Clock.currentTimeMillis);
       if (remaining <= 0) return yield* refuse("deadlineExceeded");
       let completed: Cause.Cause<Failure> | undefined;
-      const native = work.pipe(Effect.onError(cause => Effect.sync(() => {
+      const native = Effect.uninterruptibleMask(restoreNative => restoreNative(work).pipe(Effect.catchCause(cause => {
         // The race joins interrupted native work but returns only its winner.
         // Keep the actual completed failure before that branch is discarded.
         completed = ownCause(cause);
         latch(completed);
+        return Effect.failCause(completed);
       })));
       // The deadline latches before cancelling native work. Race cancellation
       // is an internal interrupt; only the caller's own interruption is exposed.

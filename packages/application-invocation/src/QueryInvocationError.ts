@@ -162,6 +162,8 @@ export function projectQueryInvocationError(
     case "CoreQueryInputError":
       return queryInvocationError("invalidInput", error);
     case "CoreNativeUniqueConflict":
+    case "CoreNativeQueryError":
+    case "CoreNativeBudgetError":
       return queryInvocationError("invalidConfiguration", error);
     default: {
       const unhandledError: never = error;

@@ -1,6 +1,6 @@
 import { APIError, ValidationError } from "payload";
 import { Cause, Context } from "effect";
-import { cmsError, CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
+import { cmsError, CmsTransactionError, reclassifyBoundedRequestReason } from "@flarex/persistence-postgres/internal/cms-adapter";
 
 export class UnsupportedPayloadCapability extends APIError {
   constructor(readonly capability: string) {
@@ -21,5 +21,6 @@ export const projectPayloadCause = (cause: Cause.Cause<unknown>): Cause.Cause<Cm
     if (!Cause.isFailReason(reason)) return reason;
     const failure = payloadFailure(reason.error);
     const projected = failure === undefined ? Cause.makeDieReason(reason.error) : Cause.makeFailReason(failure);
-    return projected.annotate(Context.makeUnsafe(new Map(reason.annotations)), { overwrite: true });
+    return reclassifyBoundedRequestReason(reason,
+      projected.annotate(Context.makeUnsafe(new Map(reason.annotations)), { overwrite: true }));
   }));

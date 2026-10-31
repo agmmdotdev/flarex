@@ -10,19 +10,24 @@ import { checkCoreNativeAuthority, makeCoreNativeDefinition, type CoreNativeAuth
 import { initialRegistry, publicDocumentId, readDocumentObject, type CoreRegistry } from "../../src/core/registry";
 import { serializeCoreSchema } from "../../src/core/schemaJson";
 import { CoreFinalizationVault, createCoreTransaction } from "../../src/core/transaction";
-import { keyInInterval } from "../../src/core/writeLog";
+import { CoreWriteLog, keyInInterval, type CoreIndexKeys } from "../../src/core/writeLog";
+import { CoreAccounting, CORE_TRANSACTION_REFERENCE_LIMITS } from "../../src/core/accounting";
+import { CoreNativeObservationState } from "../../src/core/nativeObservations";
 
 const bytes = (value: number) => { const result = new Uint8Array(16); new DataView(result.buffer).setUint32(12, value); return result; };
 const managedTime = "2026-10-31T00:00:00.000Z";
-const body = (title: string) => ({ title, createdAt: managedTime, updatedAt: managedTime });
-interface Row { readonly id: number; readonly title: string; readonly ts?: bigint }
+const body = (title: string) => ({ title, amount: 15, category: "selected", createdAt: managedTime, updatedAt: managedTime });
+interface Row { readonly id: number; readonly title: string; readonly ts?: bigint; readonly amount?: number; readonly category?: string }
 
 /** Metadata is seeded through actual registry/codec owners; the reader supplies immutable test pages only. */
-async function fixture(visibility: "command" | "snapshot" = "command") {
+async function fixture(visibility: "command" | "snapshot" = "command", maxIdentities = 256,
+  maxDocumentBytes = 65536, retainedMaximum = 1 << 20) {
   const definition = await Effect.runPromise(Effect.gen(function* () {
     const compiled = yield* compilePayloadCollections([{ slug: "news", fields: [
       { name: "title", type: "text", required: true, unique: true },
-    ] }]);
+      { name: "amount", type: "number", required: true, index: true },
+      { name: "category", type: "text", required: true },
+    ], indexes: [{ fields: ["category", "amount"] }] }]);
     return yield* makeCoreNativeDefinition({ source: compiled.sourceContract,
       scopeUuid: "11111111-1111-4111-8111-111111111111", epochUuid: "22222222-2222-4222-8222-222222222222" });
   }));
@@ -58,7 +63,7 @@ async function fixture(visibility: "command" | "snapshot" = "command") {
   const id = (identity: number) => Result.getOrThrow(publicDocumentId(table, bytes(identity)));
   function selected(timestamp: bigint, rows: readonly Row[], selectedRegistry: CoreRegistry = registry) {
     const documents: readonly CoreDocumentLogEntry[] = rows.map(row => ({ ts: row.ts ?? timestamp, tableId: table.tabletId,
-      id: bytes(row.id), jsonValue: Result.getOrThrow(encodeDocumentValue({ ...body(row.title), _id: id(row.id), _creationTime: row.id })),
+      id: bytes(row.id), jsonValue: Result.getOrThrow(encodeDocumentValue({ ...body(row.title), amount: row.amount ?? 15, category: row.category ?? "selected", _id: id(row.id), _creationTime: row.id })),
       deleted: false, prevTs: null }));
     const snapshot: CorePersistenceSnapshot = { timestamp,
       get: () => Effect.die(new Error("Native point reads use the source ById index")),
@@ -78,19 +83,25 @@ async function fixture(visibility: "command" | "snapshot" = "command") {
     };
     return { snapshot, registry: selectedRegistry };
   }
-  const initial = selected(10n, [{ id: 201, title: "first" }, { id: 202, title: "second" }]);
+  const log = new CoreWriteLog(10n);
+  const initial = { ...selected(10n, [{ id: 201, title: "first" }, { id: 202, title: "second" }]), writeLog: log.snapshot() };
   let current = initial;
   let generated = 300;
   const vault = new CoreFinalizationVault();
+  const retained = new CoreAccounting({ ...CORE_TRANSACTION_REFERENCE_LIMITS, bytesRead: retainedMaximum });
   const assertOwnerOpen = Effect.suspend(() => Effect.fromResult(checkCoreNativeAuthority(current.registry, authority)));
   const context = createCoreTransaction({ ...initial, now: 10n, vault, readonly: visibility === "snapshot",
     newInternalId: Effect.sync(() => bytes(++generated)), assertOwnerOpen,
-    native: { authority, visibility, capture: () => Effect.andThen(assertOwnerOpen,
+    native: { authority, visibility, limits: { maxIdentities, maxDocumentBytes },
+      chargeRetained: bytesRead => Effect.fromResult(retained.read(false, bytesRead)), capture: () => Effect.andThen(assertOwnerOpen,
       Effect.sync(() => visibility === "snapshot" ? initial : current)) } });
   const operations = context.nativeOperations;
   if (operations === undefined) throw new Error("Native facade was not issued");
-  return { table, id, registry, authority, calls, context, operations, vault,
-    publish: (timestamp: bigint, rows: readonly Row[], selectedRegistry?: CoreRegistry) => { current = selected(timestamp, rows, selectedRegistry); },
+  return { table, id, registry, authority, calls, context, operations, vault, retained,
+    publish: (timestamp: bigint, rows: readonly Row[], selectedRegistry?: CoreRegistry, transitions: readonly CoreIndexKeys[] = []) => {
+      log.append(timestamp, [], undefined, transitions);
+      current = { ...selected(timestamp, rows, selectedRegistry), writeLog: log.snapshot() };
+    },
     finalized: async () => {
       const record = vault.take(await Effect.runPromise(context.transaction.finalize()));
       if (record === undefined) throw new Error("Missing finalized packet");
@@ -99,6 +110,181 @@ async function fixture(visibility: "command" | "snapshot" = "command") {
 }
 
 describe("native transaction observations over the source transaction", () => {
+  it("stores only detached key membership in unique-slot memos, including observed upgrades", async () => {
+    const tested = await fixture();
+    const index = tested.table.indexes.find(candidate => candidate.fields[0] === "title");
+    if (index === undefined) throw new Error("Missing title index");
+    const state = new CoreNativeObservationState({ maxIdentities: 256, maxDocumentBytes: 65536 });
+    const interval = { start: null, end: null };
+    const slot = { kind: "unique" as const, table: tested.table, index, interval, owners: [tested.id(220)] };
+    const rawMember = { id: tested.id(220), key: Uint8Array.of(1),
+      observation: { original: { jsonValue: Uint8Array.of(42) }, document: body("undisclosed") } };
+    state.rememberSlot(slot, { timestamp: 20n, members: [rawMember] }, false);
+    expect(state.slot(index, interval)).toBeUndefined();
+    expect(state.slot(index, interval, true)).toEqual({ timestamp: 20n, members: [{ id: tested.id(220), key: Uint8Array.of(1) }] });
+    rawMember.key[0] = 2;
+    state.rememberSlot(slot, { timestamp: 30n, members: [rawMember] });
+    const upgraded = state.slot(index, interval);
+    expect(upgraded).toEqual({ timestamp: 30n, members: [{ id: tested.id(220), key: Uint8Array.of(2) }] });
+    expect(upgraded?.members[0]).not.toBe(rawMember);
+    rawMember.key[0] = 3;
+    expect(upgraded?.members[0]?.key).toEqual(Uint8Array.of(2));
+    await Effect.runPromise(tested.context.transaction.abort());
+  });
+
+  it("does not charge or disclose a release-only owner as a semantic capture", async () => {
+    const tested = await fixture();
+    await Effect.runPromise(tested.operations.get(tested.id(201)));
+    tested.publish(20n, [{ id: 201, title: "competitor-moved" }, { id: 220, title: "first" }]);
+    await Effect.runPromise(tested.operations.patch(tested.id(201), { title: "own-move" }));
+    // Original A plus its staged version; release evidence for B owns no body.
+    expect(tested.retained.snapshot().user.documentsRead).toBe(2);
+    tested.publish(30n, [{ id: 201, title: "competitor-moved" }, { id: 220, title: "latest" }]);
+    expect(await Effect.runPromise(tested.operations.find(tested.table.name, { title: "first" }))).toEqual([]);
+    expect(tested.retained.snapshot().user.documentsRead).toBe(2);
+    expect(Option.getOrThrow(await Effect.runPromise(tested.operations.get(tested.id(220)))).title).toBe("latest");
+    expect(tested.retained.snapshot().user.documentsRead).toBe(3);
+    await tested.finalized();
+  });
+
+  it("charges each retained original once and every staged body version through the supplied owner", async () => {
+    const tested = await fixture();
+    await Effect.runPromise(tested.operations.get(tested.id(201)));
+    await Effect.runPromise(tested.operations.find(tested.table.name, { amount: 15 }));
+    expect(tested.retained.snapshot().user.documentsRead).toBe(2);
+    const captured = tested.retained.snapshot().user.bytesRead;
+    await Effect.runPromise(tested.operations.find(tested.table.name, { amount: 15 }));
+    await Effect.runPromise(tested.operations.get(tested.id(201)));
+    expect(tested.retained.snapshot().user.bytesRead).toBe(captured);
+    await Effect.runPromise(tested.operations.patch(tested.id(201), { amount: 16 }));
+    await Effect.runPromise(tested.operations.patch(tested.id(201), { amount: 17 }));
+    expect(tested.retained.snapshot().user.documentsRead).toBe(4);
+    const packet = (await tested.finalized()).nativeObservations;
+    expect(packet?.limits).toEqual({ maxIdentities: 256, maxDocumentBytes: 65536 });
+    expect(Object.hasOwn(packet ?? {}, "chargeRetained")).toBe(false);
+  });
+
+  it("refuses oversized originals before residual filtering can hide them", async () => {
+    const tested = await fixture("command", 256, 128);
+    expect(await Effect.runPromise(tested.operations.find(tested.table.name, { amount: 15, unindexed: false }).pipe(Effect.result)))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "capacity" } });
+    await Effect.runPromise(tested.context.transaction.abort());
+  });
+
+  it("uses the supplied cumulative byte owner even when a range has no returned rows", async () => {
+    const tested = await fixture("command", 256, 65536, 600);
+    Result.getOrThrow(tested.retained.read(false, 500));
+    expect(await Effect.runPromise(tested.operations.find(tested.table.name, { amount: 15, unindexed: false }).pipe(Effect.result)))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "capacity" } });
+    await Effect.runPromise(tested.context.transaction.abort());
+  });
+
+  it("refuses a staged body above the document bound before it enters the shared writes map", async () => {
+    const tested = await fixture();
+    expect(await Effect.runPromise(tested.operations.insert(tested.table.name, body("x".repeat(66000))).pipe(Effect.result)))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "capacity" } });
+    expect((await tested.finalized()).changes).toEqual([]);
+  });
+  it("keeps the earlier body after an ordinary-index same-key update, using capture S rather than row R", async () => {
+    const tested = await fixture();
+    tested.publish(20n, [{ id: 201, title: "captured", ts: 5n }]);
+    await Effect.runPromise(tested.operations.get(tested.id(201)));
+    tested.publish(30n, [{ id: 201, title: "later" }]);
+    expect((await Effect.runPromise(tested.operations.find(tested.table.name, { amount: { gte: 10, lt: 20 } })))
+      .map(row => row.title)).toEqual(["captured"]);
+    const packet = (await tested.finalized()).nativeObservations;
+    expect(packet?.dependencies.map(group => group.timestamp)).toEqual([20n, 30n]);
+    expect(packet?.indexes.find(slot => slot.kind === "range")).toMatchObject({ members: [{ id: tested.id(201) }] });
+  });
+
+  it.each([false, true])("certifies physical key ABA before a pending move can mask it: %s", async pending => {
+    const tested = await fixture();
+    const index = tested.table.indexes.find(candidate => candidate.fields.length === 1 && candidate.fields[0] === "amount");
+    if (index === undefined) throw new Error("Missing amount index");
+    const key = (amount: number) => Result.getOrThrow(documentIndexKey(index, { ...body("first"), amount, _id: tested.id(201) }));
+    const transitions = [{ indexId: index.ref.id, keys: [key(15), key(35)] }];
+    await Effect.runPromise(tested.operations.get(tested.id(201)));
+    if (pending) await Effect.runPromise(tested.operations.patch(tested.id(201), { amount: 25 }));
+    tested.publish(20n, [{ id: 201, title: "first", amount: 35 }], undefined, transitions);
+    tested.publish(30n, [{ id: 201, title: "first", amount: 15 }], undefined, transitions);
+    expect(await Effect.runPromise(tested.operations.find(tested.table.name, { amount: { gte: 10, lt: 20 } }).pipe(Effect.result)))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "conflict" } });
+    await Effect.runPromise(tested.context.transaction.abort());
+  });
+
+  it("does not certify an earlier original that is absent from the physical range", async () => {
+    const tested = await fixture();
+    await Effect.runPromise(tested.operations.get(tested.id(201)));
+    await Effect.runPromise(tested.operations.patch(tested.id(201), { amount: 25 }));
+    tested.publish(20n, [{ id: 201, title: "first", amount: 35 }]);
+    expect(await Effect.runPromise(tested.operations.find(tested.table.name, { amount: { gte: 10, lt: 20 } }))).toEqual([]);
+    await tested.finalized();
+  });
+
+  it.each(["point", "table"] as const)("keeps cached empty range membership after later %s observations", async demand => {
+    const tested = await fixture();
+    const where = { amount: { gte: 100, lt: 200 } };
+    expect(await Effect.runPromise(tested.operations.find(tested.table.name, where))).toEqual([]);
+    tested.publish(20n, [{ id: 220, title: "new", amount: 150 }]);
+    if (demand === "point") await Effect.runPromise(tested.operations.get(tested.id(220)));
+    else await Effect.runPromise(tested.operations.find(tested.table.name, {}));
+    expect(await Effect.runPromise(tested.operations.find(tested.table.name, where))).toEqual([]);
+    const own = await Effect.runPromise(tested.operations.insert(tested.table.name, { ...body("own"), amount: 150 }));
+    expect((await Effect.runPromise(tested.operations.find(tested.table.name, where))).map(row => row._id)).toEqual([own]);
+    await tested.finalized();
+  });
+
+  it("finishes physical overflow before an earlier row's incompatible-key checkpoint", async () => {
+    const tested = await fixture();
+    await Effect.runPromise(tested.operations.get(tested.id(201)));
+    tested.publish(20n, [{ id: 201, title: "first", amount: 16 },
+      ...Array.from({ length: 256 }, (_, position) => ({ id: 1000 + position, title: `other-${position}`, amount: 15 }))]);
+    expect(await Effect.runPromise(tested.operations.find(tested.table.name, { amount: { gte: 10, lt: 20 }, unindexed: false }).pipe(Effect.result)))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "capacity" } });
+    await Effect.runPromise(tested.context.transaction.abort());
+  });
+
+  it("counts remembered absence and complete physical candidates in one identity budget before coherence", async () => {
+    const tested = await fixture("command", 2);
+    await Effect.runPromise(tested.operations.get(tested.id(203)));
+    await Effect.runPromise(tested.operations.get(tested.id(201)));
+    tested.publish(20n, [{ id: 201, title: "first", amount: 16 }, { id: 202, title: "second" }]);
+    expect(await Effect.runPromise(tested.operations.find(tested.table.name, { amount: { gte: 10, lt: 20 } }).pipe(Effect.result)))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "capacity" } });
+    await Effect.runPromise(tested.context.transaction.abort());
+  });
+
+  it("fails closed when a physical member's earlier capture falls below frozen log coverage", async () => {
+    const tested = await fixture();
+    await Effect.runPromise(tested.operations.get(tested.id(201)));
+    tested.publish(20n, [{ id: 201, title: "same" }]);
+    tested.publish(400_000_000_000n, [{ id: 201, title: "same" }]);
+    expect(await Effect.runPromise(tested.operations.find(tested.table.name, { amount: 15 }).pipe(Effect.result)))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "outOfRetention" } });
+    await Effect.runPromise(tested.context.transaction.abort());
+  });
+
+  it("rejects a fresh physical member whose ID was previously observed absent", async () => {
+    const tested = await fixture();
+    await Effect.runPromise(tested.operations.get(tested.id(203)));
+    tested.publish(20n, [{ id: 203, title: "appeared" }]);
+    expect(await Effect.runPromise(tested.operations.find(tested.table.name, { amount: 15 }).pipe(Effect.result)))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "conflict" } });
+    await Effect.runPromise(tested.context.transaction.abort());
+  });
+
+  it("retains row guards for every physical member even when all are residual-excluded", async () => {
+    const tested = await fixture();
+    expect(await Effect.runPromise(tested.operations.find(tested.table.name, { amount: 15, unindexed: false }))).toEqual([]);
+    const packet = (await tested.finalized()).nativeObservations;
+    expect(packet?.indexes.find(slot => slot.kind === "range")).toMatchObject({ members: [
+      { id: tested.id(201) }, { id: tested.id(202) },
+    ] });
+    const byId = tested.table.indexes.find(index => index.name === "by_id");
+    expect(packet?.dependencies.find(group => group.timestamp === 10n)?.reads
+      .find(dependency => byId !== undefined && bytesEqual(dependency.indexId, byId.ref.id))?.intervals).toHaveLength(2);
+  });
+
   it("remembers first rows and absence while later untouched IDs advance without becoming writes", async () => {
     const tested = await fixture();
     expect(Option.getOrThrow(await Effect.runPromise(tested.operations.get(tested.id(201)))).title).toBe("first");
@@ -118,11 +304,11 @@ describe("native transaction observations over the source transaction", () => {
     await Effect.runPromise(tested.operations.get(tested.id(201)));
     await Effect.runPromise(tested.operations.get(tested.id(203)));
     tested.publish(20n, [{ id: 201, title: "changed" }, { id: 203, title: "was-absent" }, { id: 204, title: "fresh" }]);
-    expect((await Effect.runPromise(tested.operations.find(tested.table.name, { kind: "all" }))).map(row => row.title))
+    expect((await Effect.runPromise(tested.operations.find(tested.table.name, {}))).map(row => row.title))
       .toEqual(["first", "fresh"]);
     tested.publish(30n, [{ id: 205, title: "later" }]);
     expect(Option.isNone(await Effect.runPromise(tested.operations.get(tested.id(205))))).toBe(true);
-    expect((await Effect.runPromise(tested.operations.find(tested.table.name, { kind: "all" }))).map(row => row.title))
+    expect((await Effect.runPromise(tested.operations.find(tested.table.name, {}))).map(row => row.title))
       .toEqual(["first", "fresh"]);
     const packet = (await tested.finalized()).nativeObservations;
     const byId = tested.table.indexes.find(index => index.name === "by_id");
@@ -134,21 +320,21 @@ describe("native transaction observations over the source transaction", () => {
     const tested = await fixture();
     await Effect.runPromise(tested.operations.get(tested.id(201)));
     tested.publish(20n, [{ id: 201, title: "changed" }, { id: 202, title: "new-second" }]);
-    const found = await Effect.runPromise(tested.operations.find(tested.table.name, { kind: "equal", field: "title", value: "first" }));
+    const found = await Effect.runPromise(tested.operations.find(tested.table.name, { title: "first" }));
     expect(found.map(row => row.title)).toEqual([]);
     expect(Option.getOrThrow(await Effect.runPromise(tested.operations.get(tested.id(202)))).title).toBe("new-second");
     const packet = (await tested.finalized()).nativeObservations;
-    expect(packet?.uniqueSlots[0]?.owners).toEqual([]);
+    expect((packet?.indexes[0]?.kind === "unique" ? packet.indexes[0].owners : undefined)).toEqual([]);
     expect(packet?.dependencies.map(group => group.timestamp)).toEqual([10n, 20n]);
   });
 
   it.each(["point", "table"] as const)("retains an empty title membership after a later %s demand observes its new owner", async demand => {
     const tested = await fixture();
-    const key = { kind: "equal" as const, field: "title", value: "new-owner" };
+    const key = { title: "new-owner" };
     expect(await Effect.runPromise(tested.operations.find(tested.table.name, key))).toEqual([]);
     tested.publish(20n, [{ id: 220, title: "new-owner" }]);
     if (demand === "point") expect(Option.getOrThrow(await Effect.runPromise(tested.operations.get(tested.id(220)))).title).toBe("new-owner");
-    else expect((await Effect.runPromise(tested.operations.find(tested.table.name, { kind: "all" }))).map(row => row.title)).toEqual(["new-owner"]);
+    else expect((await Effect.runPromise(tested.operations.find(tested.table.name, {}))).map(row => row.title)).toEqual(["new-owner"]);
     expect(await Effect.runPromise(tested.operations.find(tested.table.name, key))).toEqual([]);
     expect(await Effect.runPromise(tested.operations.insert(tested.table.name, body("new-owner")).pipe(Effect.result)))
       .toMatchObject({ _tag: "Failure", failure: { _tag: "CoreNativeUniqueConflict" } });
@@ -160,7 +346,7 @@ describe("native transaction observations over the source transaction", () => {
     await Effect.runPromise(tested.operations.get(tested.id(201)));
     tested.publish(20n, [{ id: 201, title: "changed" }]);
     expect(await Effect.runPromise(tested.operations.find(tested.table.name,
-      { kind: "equal", field: "title", value: "changed" }).pipe(Effect.result)))
+      { title: "changed" }).pipe(Effect.result)))
       .toMatchObject({ _tag: "Failure", failure: { reason: "conflict" } });
     await Effect.runPromise(tested.context.transaction.abort());
   });
@@ -169,17 +355,17 @@ describe("native transaction observations over the source transaction", () => {
     const tested = await fixture();
     await Effect.runPromise(tested.operations.get(tested.id(201)));
     tested.publish(20n, [{ id: 201, title: "changed" }]);
-    await Effect.runPromise(tested.operations.find(tested.table.name, { kind: "all" }));
+    await Effect.runPromise(tested.operations.find(tested.table.name, {}));
     for (let repeat = 0; repeat < 2; repeat++) expect((await Effect.runPromise(tested.operations.find(tested.table.name,
-      { kind: "equal", field: "title", value: "first" }))).map(row => row.title)).toEqual(["first"]);
-    expect((await tested.finalized()).nativeObservations?.uniqueSlots).toEqual([]);
+      { title: "first" }))).map(row => row.title)).toEqual(["first"]);
+    expect((await tested.finalized()).nativeObservations?.indexes).toEqual([]);
   });
 
   it("keeps checkpoint owner captures separate from writes across release and reacquisition", async () => {
     const tested = await fixture();
     await Effect.runPromise(tested.operations.patch(tested.id(201), { title: "moved" }));
     const reclaimed = await Effect.runPromise(tested.operations.insert(tested.table.name, body("first")));
-    expect((await Effect.runPromise(tested.operations.find(tested.table.name, { kind: "equal", field: "title", value: "first" })))
+    expect((await Effect.runPromise(tested.operations.find(tested.table.name, { title: "first" })))
       .map(row => row._id)).toEqual([reclaimed]);
     const duplicate = await Effect.runPromise(tested.operations.insert(tested.table.name, body("moved")).pipe(Effect.result));
     expect(duplicate).toMatchObject({ _tag: "Failure", failure: { _tag: "CoreNativeUniqueConflict",
@@ -191,21 +377,21 @@ describe("native transaction observations over the source transaction", () => {
     expect(finalized.changes).toHaveLength(3);
     expect(finalized.changes.find(change => bytesEqual(change.id, bytes(201)))?.originalDocument?.title).toBe("first");
     expect(finalized.changes.find(change => bytesEqual(change.id, bytes(201)))?.finalDocument?.title).toBe("moved");
-    expect(finalized.nativeObservations?.uniqueSlots.some(slot => slot.owners.includes(tested.id(201)))).toBe(true);
+    expect(finalized.nativeObservations?.indexes.some(slot => slot.kind === "unique" && slot.owners.includes(tested.id(201)))).toBe(true);
     expect(finalized.changes.some(change => change.finalDocument?._id === reacquired)).toBe(true);
   });
 
   it("retains empty title owners across a committed claim/release ABA without adding title event dependencies", async () => {
     const tested = await fixture();
-    expect(await Effect.runPromise(tested.operations.find(tested.table.name, { kind: "equal", field: "title", value: "aba" }))).toEqual([]);
+    expect(await Effect.runPromise(tested.operations.find(tested.table.name, { title: "aba" }))).toEqual([]);
     const own = await Effect.runPromise(tested.operations.insert(tested.table.name, body("aba")));
     tested.publish(20n, [{ id: 220, title: "aba" }]);
     tested.publish(30n, [{ id: 220, title: "renamed" }]);
-    expect((await Effect.runPromise(tested.operations.find(tested.table.name, { kind: "equal", field: "title", value: "aba" })))
+    expect((await Effect.runPromise(tested.operations.find(tested.table.name, { title: "aba" })))
       .map(row => row._id)).toEqual([own]);
     const packet = (await tested.finalized()).nativeObservations;
-    expect(packet?.uniqueSlots).toHaveLength(1);
-    expect(packet?.uniqueSlots[0]?.owners).toEqual([]);
+    expect(packet?.indexes).toHaveLength(1);
+    expect((packet?.indexes[0]?.kind === "unique" ? packet.indexes[0].owners : undefined)).toEqual([]);
     const title = tested.table.indexes.find(index => index.name === tested.table.nativePolicy?.uniqueConstraints[0]?.indexName);
     expect(packet?.dependencies.some(group => group.reads.some(read => title !== undefined && bytesEqual(read.indexId, title.ref.id)))).toBe(false);
   });
@@ -225,7 +411,7 @@ describe("native transaction observations over the source transaction", () => {
       .toMatchObject({ _tag: "Failure", failure: { reason: "authorityRevoked" } });
     expect(tested.calls).toHaveLength(calls);
     await Effect.runPromise(tested.context.transaction.abort());
-    expect(await Effect.runPromise(tested.operations.find(tested.table.name, { kind: "all" }).pipe(Effect.result)))
+    expect(await Effect.runPromise(tested.operations.find(tested.table.name, {}).pipe(Effect.result)))
       .toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
   });
 

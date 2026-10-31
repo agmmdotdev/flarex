@@ -4,12 +4,13 @@ import type { PayloadCollectionRuntime } from "./collectionRuntime";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { ValidationError, type BaseDatabaseAdapter, type DatabaseAdapterObj,
   type PayloadRequest, type TypeWithID, type PaginatedDocs } from "payload";
-import { Cause, Clock, type Context, Effect, Result, Semaphore } from "effect";
+import { Cause, Clock, Context, Effect, Exit, Result, Semaphore } from "effect";
 import { isJsonObject, type Json } from "flarex-protocol/json";
 import {
   capturePrivateJsonData,
   cmsError,
   cmsLimits,
+  reclassifyBoundedRequestReason,
   type CmsCommandContext,
   type CmsPresentedTransactionId,
   type CmsTransactionError,
@@ -27,6 +28,7 @@ interface RequestBridge {
   readonly signal: AbortSignal;
   readonly population: ReturnType<typeof makePayloadPopulation> | null;
   readonly semaphore: Semaphore.Semaphore;
+  readonly rejections: Map<object, Cause.Cause<unknown>>;
   readonly joins: PayloadJoinQuery;
   readonly onCollection?: (collection: string) => void;
   live: boolean;
@@ -50,10 +52,28 @@ function projectUniqueFailure(state: RequestBridge, error: CmsTransactionError) 
     tableName: state.collection.collectionSlug, message: state.request.t?.("error:valueMustBeUnique") ?? "Value must be unique" })),
   req: state.request }, state.request.t);
 }
-const run = <Value>(state: RequestBridge, effect: Effect.Effect<Value, CmsTransactionError>): Promise<Value> =>
-  Effect.runPromiseWith(state.diagnostics)((state.population === null ? effect : state.semaphore.withPermits(1)(Effect.suspend(() =>
+const projectUniqueCause = (state: RequestBridge, cause: Cause.Cause<CmsTransactionError>) =>
+  Cause.fromReasons(cause.reasons.map(reason => {
+    if (!Cause.isFailReason(reason)) return reason;
+    const error = projectUniqueFailure(state, reason.error);
+    if (error === reason.error) return reason;
+    const mapped = Cause.makeFailReason(error).annotate(Context.makeUnsafe(new Map(reason.annotations)), { overwrite: true });
+    return reclassifyBoundedRequestReason(reason, mapped);
+  }));
+const run = async <Value>(state: RequestBridge, effect: Effect.Effect<Value, CmsTransactionError>): Promise<Value> => {
+  const outcome = await Effect.runPromiseExitWith(state.diagnostics)((state.population === null ? effect : state.semaphore.withPermits(1)(Effect.suspend(() =>
     state.live ? effect : Effect.fail(cmsError("closed"))))).pipe(Effect.catchCause(cause =>
-      Effect.failCause(Cause.map(cause, error => projectUniqueFailure(state, error))))), { signal: state.signal });
+      Effect.failCause(projectUniqueCause(state, cause)))), { signal: state.signal });
+  if (Exit.isSuccess(outcome)) return outcome.value;
+  // Payload must see its native ValidationError object. Keep the complete
+  // failure privately until this exact rejection leaves the Local API call.
+  const squashed = Cause.squash(outcome.cause);
+  const rejection = (typeof squashed === "object" && squashed !== null) || typeof squashed === "function"
+    ? squashed : new Error("Payload adapter operation failed", { cause: squashed });
+  const previous = state.rejections.get(rejection);
+  state.rejections.set(rejection, previous === undefined ? outcome.cause : Cause.combine(previous, outcome.cause));
+  throw rejection;
+};
 // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - Payload requires a throwing parser over the owned Result decoder.
 const capture = (value: unknown): Json => Result.getOrThrow(capturePrivateJsonData(value, cmsLimits.documentBytes, cmsError)).value;
 // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - Payload requires a throwing parser over its sanitized query decoder.
@@ -249,13 +269,26 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, colle
     updateGlobal: deferred, updateGlobalVersion: deferred, updateJobs: deferred, updateMany: deferred, updateVersion: deferred, upsert: deferred,
   } satisfies BaseDatabaseAdapter) };
   const within = async <Value>(context: CmsCommandContext, collection: PayloadCollectionRuntime, request: Partial<PayloadRequest>, signal: AbortSignal, diagnostics: Context.Context<never>, work: () => Promise<Value>, populate = false, joins: PayloadJoinQuery = { referencedBy: false, referencedByMany: false }, onCollection?: (collection: string) => void) => {
-    if (populate && (!context.populationRead || profile === "payload.scalar")) throw new UnsupportedPayloadCapability("population request");
-    const state: RequestBridge = { context, collection, request, signal, joins, diagnostics, live: !signal.aborted,
-      population: populate ? makePayloadPopulation(profile, collection) : null, semaphore: Semaphore.makeUnsafe(1),
-      ...(onCollection === undefined ? {} : { onCollection }) };
-    const abort = () => { state.live = false; };
-    signal.addEventListener("abort", abort, { once: true });
-    try { return await current.run(state, work); } finally { state.live = false; signal.removeEventListener("abort", abort); }
+    const rejections = new Map<object, Cause.Cause<unknown>>();
+    let active: RequestBridge | undefined;
+    const abort = () => { if (active !== undefined) active.live = false; };
+    try {
+      if (populate && (!context.populationRead || profile === "payload.scalar")) throw new UnsupportedPayloadCapability("population request");
+      const state: RequestBridge = { context, collection, request, signal, joins, diagnostics, live: !signal.aborted, rejections,
+        population: populate ? makePayloadPopulation(profile, collection) : null, semaphore: Semaphore.makeUnsafe(1),
+        ...(onCollection === undefined ? {} : { onCollection }) };
+      active = state;
+      signal.addEventListener("abort", abort, { once: true });
+      return Exit.succeed(await current.run(state, work));
+    } catch (rejection) {
+      const cause = ((typeof rejection === "object" && rejection !== null) || typeof rejection === "function")
+        ? rejections.get(rejection) : undefined;
+      return Exit.failCause(cause ?? Cause.fail(rejection));
+    } finally {
+      if (active !== undefined) active.live = false;
+      signal.removeEventListener("abort", abort);
+      rejections.clear();
+    }
   };
   return { adapter, within, unsupported };
 }

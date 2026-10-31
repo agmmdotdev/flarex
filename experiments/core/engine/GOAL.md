@@ -306,3 +306,10 @@ translated core. Application snapshot semantics and its unsupported-native
 manifest gate remain intact. Actual Local API, database reopen and cancellation
 proofs cover this bounded path; remaining native profiles, multi-source and
 retained-data cutover, native hosting and performance remain required goal gates.
+
+The next connected [indexed scalar Payload slice](./slices/11-payload-indexed-scalar.md)
+implements indexed queries, compound/null uniqueness and shared request capture
+limits after its independent mechanism challenge and old-profile concurrency
+characterization. Its bounded database/consumer verification, independent review
+and selected fixture retirement are complete. This does not close broader
+native, managed-host, retained-data or performance obligations.

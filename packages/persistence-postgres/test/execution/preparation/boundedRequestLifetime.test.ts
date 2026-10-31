@@ -1,12 +1,55 @@
 import { Cause, Context, Deferred, Effect, Exit, Fiber, Result } from "effect";
 import { TestClock } from "effect/testing";
 import { expect, it } from "vitest";
-import { makeBoundedRequestLifetime, projectBoundedRequestLifetime } from "../../../src/execution/preparation/boundedRequestLifetime";
+import { makeBoundedRequestLifetime, projectBoundedRequestLifetime, reclassifyBoundedRequestReason } from "../../../src/execution/preparation/boundedRequestLifetime";
 import { commerceError } from "../../../src/frameworks/commerceTransaction/model";
 import { runEffect } from "../../support/effectTestRuntime";
 
 const make = () => makeBoundedRequestLifetime(commerceError,
   { calls: 16, commandBytes: 100, commandMs: 10000 }, {}, {}, "request", "write");
+
+it("retires only changed classification origins across installed Error annotation cloning", () => runEffect(Effect.gen(function* () {
+  const lifetime = yield* make();
+  const original = commerceError("statementFailure"), native = commerceError("invalidInput");
+  const Marker = Context.Service<object>("test/native-error-classification");
+  const marker = Object.freeze({ native: true });
+  const captured = yield* Effect.exit(lifetime.operation(lifetime.context, "request", "read",
+    Effect.fail(original).pipe(Effect.annotateLogs("classification", "native"))));
+  if (Exit.isSuccess(captured)) throw new Error("Expected the original owned failure");
+  const origin = captured.cause.reasons.find(Cause.isFailReason);
+  if (origin === undefined) throw new Error("Expected an owned failure reason");
+  const originalToken = origin.annotations.get("Flarex/BoundedRequestFailureOrigin");
+  expect(originalToken).toBeTypeOf("object");
+  const same = Cause.map(Cause.fromReasons([origin]), value => value).reasons[0];
+  if (same === undefined) throw new Error("Expected an unchanged mapped reason");
+  expect(reclassifyBoundedRequestReason(origin, same)).toBe(same);
+  expect(same.annotations.get("Flarex/BoundedRequestFailureOrigin")).toBe(originalToken);
+  const changed = Cause.map(Cause.fromReasons([origin]), () => native).reasons[0];
+  if (changed === undefined) throw new Error("Expected a native classification");
+  const retired = reclassifyBoundedRequestReason(origin, changed.annotate(Context.make(Marker, marker)));
+  const cloned = Cause.map(Cause.fromReasons([retired]), value => value).reasons[0];
+  if (cloned === undefined || !Cause.isFailReason(cloned)) throw new Error("Expected the retained native failure");
+  expect(cloned.error).toBe(native);
+  expect(cloned.annotations.get(Marker.key)).toBe(marker);
+  expect(cloned.annotations.get("Flarex/BoundedRequestFailureOrigin")).not.toBe(originalToken);
+  const sealed = yield* Effect.exit(lifetime.seal);
+  if (Exit.isSuccess(sealed)) throw new Error("Reclassification must not clear the original failure latch");
+  expect(sealed.cause.reasons.some(reason => Cause.isFailReason(reason) && reason.error === original)).toBe(true);
+  yield* lifetime.close;
+})));
+
+it("owns a reused foreign failure once before the deadline race clones its Cause", () => runEffect(Effect.gen(function* () {
+  const original = commerceError("invalidInput");
+  const prior = yield* make();
+  const captured = yield* Effect.exit(prior.operation(prior.context, "request", "read", Effect.fail(original)));
+  if (Exit.isSuccess(captured)) throw new Error("Expected the first request's failure");
+  yield* prior.close;
+  const lifetime = yield* make();
+  const outcome = yield* Effect.exit(lifetime.withinDeadline(Effect.failCause(Cause.map(captured.cause, value => value))));
+  if (Exit.isSuccess(outcome)) throw new Error("Expected the reused foreign failure");
+  expect(outcome.cause.reasons.filter(reason => Cause.isFailReason(reason) && reason.error === original)).toHaveLength(1);
+  yield* lifetime.close;
+})));
 
 it("requires an owned ID for borrowed reads while retaining the default standalone read policy", () => runEffect(Effect.gen(function* () {
   const borrowed = yield* makeBoundedRequestLifetime(commerceError,

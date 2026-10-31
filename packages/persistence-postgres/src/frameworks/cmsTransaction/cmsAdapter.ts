@@ -14,6 +14,7 @@ export {
   type CmsPresentedTransactionId,
 } from "./model";
 export { capturePrivateJsonData } from "../../values/privateJsonData";
+export { reclassifyBoundedRequestReason } from "../../execution/preparation/boundedRequestLifetime";
 export { defaultCmsRequestBudget, type CmsRequestBudget } from "../../execution/preparation/frameworkExecutionPolicy";
 export {
   registerPayloadContentProfiles,

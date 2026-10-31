@@ -31,7 +31,12 @@ import { planCoreIndexes,prepareCoreIndexChanges,finishCoreIndexChanges,type Cor
 import { makeCoreSchemaWorker } from "./schemaWorker";
 import { makeCoreTableSummaryWorker } from "./tableSummary";
 import { CoreNativeIdentitySchema, checkCoreNativeAuthority, coreNativeMetadataReads, requireCoreNativeDefinition,
-  sameCoreNativeIdentity, type CoreNativeAuthority, type CoreNativeDefinition, type CoreNativeTablePolicy } from "./nativePolicy";
+  sameCoreNativeIdentity, sameCoreNativeTablePolicy, type CoreNativeAuthority, type CoreNativeDefinition, type CoreNativeTablePolicy } from "./nativePolicy";
+
+const NativeLimitsSchema = Schema.Struct({ maxIdentities: Schema.Int.check(Schema.isBetween({ minimum: 1,
+  maximum: CORE_TRANSACTION_REFERENCE_LIMITS.documentsRead })), maxDocumentBytes: Schema.Int.check(Schema.isBetween({ minimum: 1,
+  maximum: CORE_TRANSACTION_REFERENCE_LIMITS.bytesRead })) });
+const decodeNativeLimits = Schema.decodeUnknownEffect(NativeLimitsSchema);
 
 
 const RequestFields = { key: Schema.String, requestHash: Schema.String, leaseToken: Schema.BigInt,
@@ -184,15 +189,24 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
   })));
   yield* Effect.addFinalizer(() => close());
 
-  const start = Effect.fn("CoreDatabase.start")(function* (at?: bigint) {
-    yield* assertOpen;
-    const { timestamp, registry, resident, counts } = yield* Effect.fromResult(committer.selectSnapshot(at));
+  const openSnapshot = Effect.fn("CoreDatabase.openSnapshot")(function* (timestamp: bigint, registry: CoreRegistry) {
     const physicalSnapshot = yield* persistence.readSnapshot(timestamp, initial.retention);
     const snapshot: CorePersistenceSnapshot = Object.freeze({ ...physicalSnapshot,
       scan: (request: CoreIndexScan) => committer.indexCache.scan({ snapshot: physicalSnapshot, registry, request }),
     });
     yield* assertOpen;
-    return { timestamp, snapshot, registry, resident, counts };
+    return snapshot;
+  });
+  const start = Effect.fn("CoreDatabase.start")(function* (at?: bigint) {
+    yield* assertOpen;
+    const selected = yield* Effect.fromResult(committer.selectSnapshot(at));
+    return { ...selected, snapshot: yield* openSnapshot(selected.timestamp, selected.registry) };
+  });
+  const startNative = Effect.fn("CoreDatabase.startNative")(function* () {
+    yield* assertOpen;
+    // Registry, data timestamp and COW history are selected together before I/O.
+    const selected = yield* Effect.fromResult(committer.selectNativeSnapshot());
+    return { ...selected, snapshot: yield* openSnapshot(selected.timestamp, selected.registry) };
   });
 
   const make = Effect.fn("CoreDatabase.transaction")(function* (at?: bigint, claim?: CoreRequestClaim, readonly = false, namespace:CoreTableNamespace = null, system = false) {
@@ -375,7 +389,7 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
         const nativePolicy: CoreNativeTablePolicy = Object.freeze({ state: previous?.state ?? "reserved",
           schemaId: pendingProposal.id, identity: input.native.identity, applicationRead: input.native.applicationRead,
           uniqueConstraints: declaration.uniqueConstraints });
-        if (previous !== undefined && JSON.stringify(previous) === JSON.stringify(nativePolicy)) continue;
+        if (previous !== undefined && sameCoreNativeTablePolicy(previous, nativePolicy)) continue;
         const catalog = selected.context.registry.table(TABLES)?.definition;
         if (catalog === undefined) return yield* corrupt();
         yield* selected.context.replaceSystem(TABLES, yield* Effect.fromResult(publicDocumentId(catalog, table.tabletId)),
@@ -497,27 +511,30 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
       const authority = yield* nativeAuthority(binding);
       const command = authority.commands.find(candidate => candidate.name === beginOptions.commandName);
       if (command === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+      const nativeLimits = Object.freeze(yield* decodeNativeLimits(beginOptions.limits).pipe(Effect.mapError(invalid)));
+      if (typeof beginOptions.chargeRetained !== "function") return yield* invalid("Native retained-byte owner is required");
       const claimData = beginOptions.claim === undefined ? undefined : claims.get(beginOptions.claim);
       if (beginOptions.claim !== undefined && (claimData === undefined || !claimData.active
         || claimData.identity.kind !== "native" || !sameNativeCommand(claimData.identity.native, command.identity)))
         return yield* new CoreTransactionError({ reason: "foreignClaim" });
       if (command.mode === "read" && beginOptions.claim !== undefined) return yield* new CoreTransactionError({ reason: "foreignClaim" });
-      const selected = yield* start();
+      const selected = yield* startNative();
       yield* Effect.fromResult(checkCoreNativeAuthority(selected.registry, authority));
       const assertNativeOpen = Effect.andThen(assertOpen, Effect.suspend(() =>
         Effect.fromResult(checkCoreNativeAuthority(committer.currentRegistry(), authority))));
       const capture = Effect.fn("CoreDatabase.captureNative")(function* () {
         yield* assertNativeOpen;
-        const observed = command.mode === "read" ? selected : yield* start();
+        const observed = command.mode === "read" ? selected : yield* startNative();
         yield* Effect.fromResult(checkCoreNativeAuthority(observed.registry, authority));
-        return { snapshot: observed.snapshot, registry: observed.registry,
+        return { snapshot: observed.snapshot, registry: observed.registry, writeLog: observed.writeLog,
           residentReader: (request: CoreIndexScan) => observed.resident.scan(request) };
       });
       const now = yield* options.now;
       const context = createCoreTransaction({ snapshot: selected.snapshot, registry: selected.registry,
         residentReader: request => selected.resident.scan(request), operationCacheMaxBytes, now,
         newInternalId: options.newInternalId, vault, limits, namespace: authority.namespace,
-        readonly: command.mode === "read", native: { authority, visibility: command.mode === "read" ? "snapshot" : "command", capture },
+        readonly: command.mode === "read", native: { authority, visibility: command.mode === "read" ? "snapshot" : "command", capture,
+          limits: nativeLimits, chargeRetained: beginOptions.chargeRetained },
         assertOwnerOpen: assertNativeOpen, onClosed: () => borrowed.delete(context),
         ...(beginOptions.claim === undefined ? {} : { claim: beginOptions.claim }) });
       borrowed.add(context);

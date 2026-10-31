@@ -141,13 +141,29 @@ export function indexKeysFromWrites(writes: readonly CorePersistenceIndexEntry[]
   })));
 }
 
+/** A derived live entry retains prev exactly when its original/final full keys coincide; tombstones remove keys. */
+export function indexTransitionsFromWrites(writes: readonly CorePersistenceIndexEntry[]): readonly CoreIndexKeys[] {
+  return indexKeysFromWrites(writes.filter(write => write.value === null || write.prev === null));
+}
+
 /** COW B+tree clones share immutable index batches without copying document bodies. */
 export class CoreWriteLogSnapshot {
   constructor(
     readonly timestamp: CoreTimestamp,
     readonly minimumTimestamp: CoreTimestamp,
     private readonly indexes: ReadonlyMap<string, IndexedKeys>,
+    private readonly transitions: ReadonlyMap<string, IndexedKeys>,
   ) {}
+
+  /** Native first-capture coherence, distinct from Source's every-write conflicts. */
+  nativeKeyTransition(indexId: Uint8Array, key: Uint8Array, after: CoreTimestamp): Result.Result<CoreConflict | undefined, CorePersistenceError> {
+    if (after < this.minimumTimestamp) return Result.fail(new CorePersistenceError({ reason: "outOfRetention" }));
+    if (after > this.timestamp) return Result.fail(new CorePersistenceError({ reason: "invalidTarget" }));
+    const entry = this.transitions.get(encodeBytesToLowercaseHex(indexId));
+    const timestamp = entry?.tree.get(key);
+    return Result.succeed(entry !== undefined && timestamp !== undefined && timestamp > after
+      ? { indexId: entry.id.slice(), key: key.slice(), timestamp } : undefined);
+  }
 
   conflict(reads: CoreReadSet, after: CoreTimestamp): Result.Result<CoreConflict | undefined, CorePersistenceError> {
     if (after < this.minimumTimestamp) return Result.fail(new CorePersistenceError({ reason: "outOfRetention" }));
@@ -163,7 +179,10 @@ export class CoreWriteLogSnapshot {
 
 export class CoreWriteLog {
   private readonly indexes = new Map<string, IndexedKeys>();
-  private readonly batches = new BTree<CoreTimestamp, Readonly<{ changes: readonly CoreIndexKeys[]; bytes: number }>>();
+  private readonly transitions = new Map<string, IndexedKeys>();
+  private readonly batches = new BTree<CoreTimestamp, Readonly<{
+    changes: readonly CoreIndexKeys[]; transitions: readonly CoreIndexKeys[]; bytes: number;
+  }>>();
   private minimum: CoreTimestamp;
   private latest: CoreTimestamp;
   private size = 0;
@@ -179,26 +198,36 @@ export class CoreWriteLog {
   snapshot(): CoreWriteLogSnapshot {
     return new CoreWriteLogSnapshot(this.latest, this.minimum, new Map(
       [...this.indexes].map(([name, entry]) => [name, { id: entry.id, tree: entry.tree.clone() }]),
-    ));
+    ), new Map([...this.transitions].map(([name, entry]) => [name, { id: entry.id, tree: entry.tree.clone() }])));
   }
 
-  append(timestamp: CoreTimestamp, changes: readonly CoreIndexKeys[], retainedBytes?: number): void {
+  append(timestamp: CoreTimestamp, changes: readonly CoreIndexKeys[], retainedBytes?: number,
+    transitions: readonly CoreIndexKeys[] = []): void {
     if (timestamp <= this.latest) throw new Error("Write log publication must be increasing");
-    for (const change of changes) {
-      const name = encodeBytesToLowercaseHex(change.indexId);
-      let entry = this.indexes.get(name);
-      if (entry === undefined) {
-        entry = { id: change.indexId.slice(), tree: new BTree<Uint8Array, CoreTimestamp>(undefined, compareBytesLexicographically) };
-        this.indexes.set(name, entry);
-      }
-      for (const key of change.keys) entry.tree.set(key.slice(), timestamp);
-    }
-    const bytes = retainedBytes ?? changes.reduce((total, change) => total + change.indexId.length
-      + change.keys.reduce((keyBytes, key) => keyBytes + key.length + 8, 0), 0);
-    this.batches.set(timestamp, { changes, bytes });
+    this.appendKeys(this.indexes, timestamp, changes);
+    this.appendKeys(this.transitions, timestamp, transitions);
+    const bytes = (retainedBytes ?? this.keyBytes(changes)) + this.keyBytes(transitions);
+    this.batches.set(timestamp, { changes, transitions, bytes });
     this.size += bytes;
     this.latest = timestamp;
     this.enforceRetention(timestamp);
+  }
+
+  private appendKeys(indexes: Map<string, IndexedKeys>, timestamp: CoreTimestamp, changes: readonly CoreIndexKeys[]): void {
+    for (const change of changes) {
+      const name = encodeBytesToLowercaseHex(change.indexId);
+      let entry = indexes.get(name);
+      if (entry === undefined) {
+        entry = { id: change.indexId.slice(), tree: new BTree<Uint8Array, CoreTimestamp>(undefined, compareBytesLexicographically) };
+        indexes.set(name, entry);
+      }
+      for (const key of change.keys) entry.tree.set(key.slice(), timestamp);
+    }
+  }
+
+  private keyBytes(changes: readonly CoreIndexKeys[]): number {
+    return changes.reduce((total, change) => total + change.indexId.length
+      + change.keys.reduce((keyBytes, key) => keyBytes + key.length + 8, 0), 0);
   }
 
   /** Same time/soft-size decision as WriteLogManager::enforce_retention_policy. */
@@ -214,13 +243,18 @@ export class CoreWriteLog {
       this.batches.delete(oldest);
       this.minimum = oldest;
       this.size -= expired?.bytes ?? 0;
-      for (const change of expired?.changes ?? []) {
-        const name = encodeBytesToLowercaseHex(change.indexId);
-        const entry = this.indexes.get(name);
-        if (entry === undefined) continue;
-        for (const key of change.keys) if (entry.tree.get(key) === oldest) entry.tree.delete(key);
-        if (entry.tree.size === 0) this.indexes.delete(name);
-      }
+      this.removeKeys(this.indexes, oldest, expired?.changes ?? []);
+      this.removeKeys(this.transitions, oldest, expired?.transitions ?? []);
+    }
+  }
+
+  private removeKeys(indexes: Map<string, IndexedKeys>, timestamp: CoreTimestamp, changes: readonly CoreIndexKeys[]): void {
+    for (const change of changes) {
+      const name = encodeBytesToLowercaseHex(change.indexId);
+      const entry = indexes.get(name);
+      if (entry === undefined) continue;
+      for (const key of change.keys) if (entry.tree.get(key) === timestamp) entry.tree.delete(key);
+      if (entry.tree.size === 0) indexes.delete(name);
     }
   }
 }

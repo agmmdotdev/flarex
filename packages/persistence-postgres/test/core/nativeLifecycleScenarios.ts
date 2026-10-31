@@ -13,6 +13,7 @@ import { readDocumentObject, tableDocument } from "../../src/core/registry";
 import type { CoreDocumentLogEntry, CorePersistence } from "../../src/core/contracts";
 import { bootstrapCore } from "../../src/core/bootstrap";
 import { CoreFinalizationVault, createCoreTransaction } from "../../src/core/transaction";
+import { coreNativeTestBudget } from "./nativeTestBudget";
 
 const options = { now: Effect.succeed(1_000_000_000n), newInternalId: Effect.sync(() => randomBytes(16)),
   schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS, maxBatchDelayMilliseconds: 0 };
@@ -96,7 +97,7 @@ export function registerNativeLifecycleScenarios(label: string, createFixture: (
           }) };
           const database = yield* openCoreDatabase(persistence, options), proposal = yield* database.prepareSchema({ native: definition });
           yield* ready(database, proposal, definition);
-          const binding = yield* database.bindNative({ definition }), create = yield* database.beginNative(binding, { commandName: "payload-create" });
+          const binding = yield* database.bindNative({ definition }), create = yield* database.beginNative(binding, { ...coreNativeTestBudget(), commandName: "payload-create" });
           const id = yield* create.operations.insert(name, body("retained title"));
           yield* database.commit(yield* create.finalize());
           const table = (yield* database.readNativeBinding(binding)).tables[0];
@@ -139,7 +140,7 @@ export function registerNativeLifecycleScenarios(label: string, createFixture: (
                   yield* app.abort();
                 } else {
                   const binding = yield* database.bindNative({ definition: installed.definition });
-                  const create = yield* database.beginNative(binding, { commandName: "payload-create" });
+                  const create = yield* database.beginNative(binding, { ...coreNativeTestBudget(), commandName: "payload-create" });
                   yield* create.operations.insert(installed.table.name, body("retained title"));
                   yield* create.abort();
                 }
@@ -198,25 +199,25 @@ export function registerNativeLifecycleScenarios(label: string, createFixture: (
         const activation = yield* ready(reopened, proposal, definition);
         expect(activation.tables[0]?.tabletId).toEqual(table?.tabletId);
         const binding = yield* reopened.bindNative({ definition });
-        const create = yield* reopened.beginNative(binding, { commandName: "payload-create" });
+        const create = yield* reopened.beginNative(binding, { ...coreNativeTestBudget(), commandName: "payload-create" });
         const id = yield* create.operations.insert(table?.name ?? "missing", body("first"));
         yield* reopened.commit(yield* create.finalize());
-        const heldReplay = yield* reopened.beginNative(binding, { commandName: "payload-update" });
+        const heldReplay = yield* reopened.beginNative(binding, { ...coreNativeTestBudget(), commandName: "payload-update" });
         yield* heldReplay.operations.get(id);
         const heldReplayFinalized = yield* heldReplay.finalize(), priorReplayTimestamp = yield* reopened.publishedTimestamp;
         expect(yield* reopened.prepareSchema({ native: definition })).toEqual(proposal);
         yield* ready(reopened, proposal, definition);
         expect(yield* reopened.publishedTimestamp).toBe(priorReplayTimestamp);
         yield* reopened.commit(heldReplayFinalized);
-        const read = yield* reopened.beginNative(binding, { commandName: "payload-findByID" });
+        const read = yield* reopened.beginNative(binding, { ...coreNativeTestBudget(), commandName: "payload-findByID" });
         expect(yield* read.operations.get(id)).toMatchObject({ _tag: "Some", value: { title: "first" } });
         yield* read.finishRead();
         yield* reopened.close();
         const cold = yield* openCoreDatabase(yield* Effect.promise(() => fixture.reopen()), options);
         expect(failure(yield* Effect.result(cold.readNativeBinding(binding)))).toMatchObject({ reason: "authorityRevoked" });
         const rebuiltDefinition = yield* source(), coldBinding = yield* cold.bindNative({ definition: rebuiltDefinition });
-        const coldRead = yield* cold.beginNative(coldBinding, { commandName: "payload-find" });
-        expect(yield* coldRead.operations.find(table?.name ?? "missing", { kind: "all" })).toHaveLength(1);
+        const coldRead = yield* cold.beginNative(coldBinding, { ...coreNativeTestBudget(), commandName: "payload-find" });
+        expect(yield* coldRead.operations.find(table?.name ?? "missing", {})).toHaveLength(1);
         yield* coldRead.finishRead();
       }))); } finally { await fixture.close(); }
     }, 60_000);
@@ -238,7 +239,7 @@ export function registerNativeLifecycleScenarios(label: string, createFixture: (
         expect(failure(forgedBinding)).toMatchObject({ reason: "authorityRevoked" });
         const acquired = yield* database.claimRequest(request, binding);
         if (acquired.kind !== "claimed") return yield* Effect.die(new Error("Missing native claim"));
-        const create = yield* database.beginNative(binding, { commandName: command.name, claim: acquired.claim });
+        const create = yield* database.beginNative(binding, { ...coreNativeTestBudget(), commandName: command.name, claim: acquired.claim });
         const id = yield* create.operations.insert(definition.tables[0]?.name ?? "missing", body("durable"));
         yield* database.commit(yield* create.finalize(), { claim: acquired.claim, result: { id, title: "durable" } });
         expect(yield* database.resolveRequest(request)).toMatchObject({ kind: "committed", result: { id, title: "durable" } });
@@ -246,10 +247,10 @@ export function registerNativeLifecycleScenarios(label: string, createFixture: (
           ...definition.commands.map(({ name, mode }) => ({ name, mode })), { name: "native-held-command", mode: "write" },
         ] });
         expect((yield* database.readNativeBinding(extended)).commands.at(-1)?.name).toBe("native-held-command");
-        const held = yield* database.beginNative(extended, { commandName: "native-held-command" });
-        expect(yield* held.operations.find(definition.tables[0]?.name ?? "missing", { kind: "all" })).toHaveLength(1);
+        const held = yield* database.beginNative(extended, { ...coreNativeTestBudget(), commandName: "native-held-command" });
+        expect(yield* held.operations.find(definition.tables[0]?.name ?? "missing", {})).toHaveLength(1);
         yield* held.abort();
-        expect(failure(yield* Effect.result(database.beginNative(binding, { commandName: "native-held-command" })))).toMatchObject({ reason: "authorityRevoked" });
+        expect(failure(yield* Effect.result(database.beginNative(binding, { ...coreNativeTestBudget(), commandName: "native-held-command" })))).toMatchObject({ reason: "authorityRevoked" });
         yield* database.close();
         const cold = yield* openCoreDatabase(yield* Effect.promise(() => fixture.reopen()), options);
         const coldBinding = yield* cold.bindNative({ definition: yield* source() });
@@ -258,7 +259,7 @@ export function registerNativeLifecycleScenarios(label: string, createFixture: (
       }))); } finally { await fixture.close(); }
     }, 60_000);
 
-    it("rejects unsupported native constraints and forged source evidence before schema admission", async () => {
+    it("admits authenticated compound and nullable scalar clauses and rejects forged source evidence", async () => {
       const fixture = await createFixture();
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const database = yield* openCoreDatabase(fixture.persistence, options);
@@ -266,11 +267,11 @@ export function registerNativeLifecycleScenarios(label: string, createFixture: (
           const compiled = yield* compilePayloadCollections([{ slug: "news", fields, ...(indexes === undefined ? {} : { indexes }) }]);
           return yield* makeCoreNativeDefinition({ source: compiled.sourceContract, scopeUuid, epochUuid });
         });
-        const nullable = yield* Effect.result(compile([{ name: "title", type: "text", unique: true }]));
-        expect(Result.isFailure(nullable) && nullable.failure).toMatchObject({ reason: "unsupportedCapability" });
-        const compound = yield* Effect.result(compile([{ name: "title", type: "text", required: true },
-          { name: "summary", type: "text", required: true }], [{ fields: ["title", "summary"], unique: true }]));
-        expect(Result.isFailure(compound) && compound.failure).toMatchObject({ reason: "unsupportedCapability" });
+        const nullable = yield* compile([{ name: "title", type: "text", unique: true }]);
+        expect(nullable.tables[0]?.uniqueConstraints).toMatchObject([{ fields: ["title"], nullsDistinct: true }]);
+        const compound = yield* compile([{ name: "title", type: "text", required: true },
+          { name: "amount", type: "number", required: true }], [{ fields: ["title", "amount"], unique: true }]);
+        expect(compound.tables[0]?.uniqueConstraints).toMatchObject([{ fields: ["title", "amount"], nullsDistinct: false }]);
         const compiled = yield* compilePayloadCollections([{ slug: "news", fields: [{ name: "title", type: "text", required: true, unique: true }] }]);
         const forged = yield* Effect.result(makeCoreNativeDefinition({ scopeUuid, epochUuid, source: {
           ...compiled.sourceContract, evidence: { ...compiled.sourceContract.evidence, provenance: {
@@ -294,8 +295,8 @@ export function registerNativeLifecycleScenarios(label: string, createFixture: (
         const proposal = yield* database.prepareSchema({ native: definition });
         expect(failure(yield* Effect.result(database.commit(finalized)))).toMatchObject({ reason: "conflict" });
         yield* ready(database, proposal, definition);
-        const binding = yield* database.bindNative({ definition }), read = yield* database.beginNative(binding, { commandName: "payload-find" });
-        expect(yield* read.operations.find(name, { kind: "all" })).toEqual([]);
+        const binding = yield* database.bindNative({ definition }), read = yield* database.beginNative(binding, { ...coreNativeTestBudget(), commandName: "payload-find" });
+        expect(yield* read.operations.find(name, {})).toEqual([]);
         yield* read.finishRead();
       }))); } finally { await fixture.close(); }
       const existing = await createFixture();
@@ -330,7 +331,7 @@ export function registerNativeLifecycleScenarios(label: string, createFixture: (
           yield* app.abort();
         }
         yield* ready(database, proposal, definition);
-        const binding = yield* database.bindNative({ definition }), create = yield* database.beginNative(binding, { commandName: "payload-create" });
+        const binding = yield* database.bindNative({ definition }), create = yield* database.beginNative(binding, { ...coreNativeTestBudget(), commandName: "payload-create" });
         const id = yield* create.operations.insert(table.name, body("retained"));
         yield* database.commit(yield* create.finalize());
         const altered = yield* source(true);
@@ -341,7 +342,7 @@ export function registerNativeLifecycleScenarios(label: string, createFixture: (
         const app = yield* database.begin();
         expect(failure(yield* Effect.result(app.patch(id, { title: "bypass" })))).toMatchObject({ reason: "authorityRevoked" });
         yield* app.abort();
-        const read = yield* database.beginNative(binding, { commandName: "payload-findByID" });
+        const read = yield* database.beginNative(binding, { ...coreNativeTestBudget(), commandName: "payload-findByID" });
         expect(yield* read.operations.get(id)).toMatchObject({ _tag: "Some", value: { title: "retained" } });
         expect(failure(yield* Effect.result(read.operations.insert(table.name, body("readonly"))))).toMatchObject({ reason: "readonly" });
         yield* read.abort();
@@ -355,22 +356,22 @@ export function registerNativeLifecycleScenarios(label: string, createFixture: (
         const proposal = yield* database.prepareSchema({ native: definition });
         yield* ready(database, proposal, definition);
         const binding = yield* database.bindNative({ definition });
-        const held = yield* database.beginNative(binding, { commandName: "payload-create" });
+        const held = yield* database.beginNative(binding, { ...coreNativeTestBudget(), commandName: "payload-create" });
         yield* held.operations.insert(definition.tables[0]?.name ?? "missing", body("must not settle"));
         const finalized = yield* held.finalize();
-        const fixed = yield* database.beginNative(binding, { commandName: "payload-find" });
-        expect(yield* fixed.operations.find(definition.tables[0]?.name ?? "missing", { kind: "all" })).toEqual([]);
+        const fixed = yield* database.beginNative(binding, { ...coreNativeTestBudget(), commandName: "payload-find" });
+        expect(yield* fixed.operations.find(definition.tables[0]?.name ?? "missing", {})).toEqual([]);
         yield* database.advanceAuthorityEpoch(1n);
-        expect(failure(yield* Effect.result(fixed.operations.find(definition.tables[0]?.name ?? "missing", { kind: "all" })))).toMatchObject({ reason: "authorityRevoked" });
-        expect(failure(yield* Effect.result(database.beginNative(binding, { commandName: "payload-find" })))).toMatchObject({ reason: "authorityRevoked" });
+        expect(failure(yield* Effect.result(fixed.operations.find(definition.tables[0]?.name ?? "missing", {})))).toMatchObject({ reason: "authorityRevoked" });
+        expect(failure(yield* Effect.result(database.beginNative(binding, { ...coreNativeTestBudget(), commandName: "payload-find" })))).toMatchObject({ reason: "authorityRevoked" });
         expect(failure(yield* Effect.result(database.commit(finalized)))).toMatchObject({ reason: "conflict" });
         yield* fixed.abort();
-        const fresh = yield* database.bindNative({ definition }), read = yield* database.beginNative(fresh, { commandName: "payload-find" });
-        expect(yield* read.operations.find(definition.tables[0]?.name ?? "missing", { kind: "all" })).toEqual([]);
+        const fresh = yield* database.bindNative({ definition }), read = yield* database.beginNative(fresh, { ...coreNativeTestBudget(), commandName: "payload-find" });
+        expect(yield* read.operations.find(definition.tables[0]?.name ?? "missing", {})).toEqual([]);
         yield* read.finishRead();
         yield* database.close();
         expect(failure(yield* Effect.result(database.readNativeBinding(fresh)))).toMatchObject({ reason: "closed" });
-        expect(failure(yield* Effect.result(read.operations.find(definition.tables[0]?.name ?? "missing", { kind: "all" })))).toMatchObject({ reason: "closed" });
+        expect(failure(yield* Effect.result(read.operations.find(definition.tables[0]?.name ?? "missing", {})))).toMatchObject({ reason: "closed" });
       }))); } finally { await fixture.close(); }
     }, 60_000);
   });

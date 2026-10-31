@@ -1,7 +1,7 @@
 # Payload and Medusa capability migration map
 
-Status: **Planning only; source-inspected existing behavior and replacement gaps.**
-No runtime validation is claimed by this map. The accepted design, existing
+Status: **Source-inspected migration inventory; bounded scalar native cutover implemented, broader migration gaps open.**
+Runtime claims belong to the owning slices, not this map. The accepted design, existing
 goal and owning capability plans retain authority; the proposed sequence below
 does not authorize implementation or activate additional framework features.
 
@@ -28,10 +28,18 @@ Use three distinct statuses:
 The decisive current boundary is
 [requireCoreApplicationSchemaSupport](../../../../packages/persistence-postgres/src/application/coreSchema.ts):
 the translated caller refuses non-V1 native manifests and decimal index fields
-because native write ownership, exact values, uniqueness and references are not
-connected. Shared table namespaces and ordinary index readiness cannot bypass
+because that Application entry does not admit native ownership, exact values,
+uniqueness or references. Shared table namespaces and ordinary index readiness cannot bypass
 that gate. The [native activation boundary](../slices/07-shared-schema-lifecycle.md#native-boundary-and-retirement)
 records the same limitation.
+
+The separate [native scalar entry](../slices/10-payload-native-core-cutover.md)
+now connects the existing fresh source-backed Payload consumer, including shared
+ownership, required-text uniqueness, explicit observations, native outcomes and
+Local API lifetime. This bounded activation does not open the Application gate
+or complete the broader Payload/Medusa inventory. The
+[indexed continuation](../slices/11-payload-indexed-scalar.md) is implemented and
+validated for its selected fixture family; that family's old assembly is retired.
 
 Source identities are the [current Convex pin](../CONVEX-REFERENCE-UPGRADE.md),
 the [recorded Medusa fork](../../../../third_party/medusa/SOURCE.json) at
@@ -201,8 +209,10 @@ authority, concurrency and recovery obligations.
 ## Payload capability map
 
 The [Payload baseline](./payload.md) and executing contracts define separate
-profiles. Their union is not a new universal request shape. All existing native
-rows below require migration; none claims completed native five-table execution.
+profiles. Their union is not a new universal request shape. The fresh scalar
+consumer named in slice 10 is migrated; the broader capabilities below still
+require their connected translated-core proof and retirement work. A row may
+include both that admitted subset and remaining unsupported replacement work.
 
 | Capability | Existing admitted behavior | Replacement work and compatibility witness |
 | --- | --- | --- |

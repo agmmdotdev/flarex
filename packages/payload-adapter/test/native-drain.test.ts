@@ -3,7 +3,7 @@ import { Cause, Effect, Exit, Fiber } from "effect";
 import { expect, it } from "vitest";
 import { makePayloadNative } from "../src/runtime/native";
 import { bindPayloadDirect } from "../src/direct/binding";
-import { createCorePayloadFixture } from "../../medusa-adapter/test/support/core-payload-fixture";
+import { createCorePayloadFixture } from "./support/core-payload-fixture";
 import { barrier } from "../../persistence-postgres/test/integration/payload/payloadRelationScenario";
 
 it.each(["known", "defect"] as const)("drains the actual Local API Promise before closing and preserves its %s rejection with interruption", async kind => {
@@ -12,7 +12,7 @@ it.each(["known", "defect"] as const)("drains the actual Local API Promise befor
   let armed = false;
   let nativeFinished = false;
   const rejection = kind === "known" ? new APIError("late native rejection", 403) : new Error("late native defect");
-  const fixture = await createCorePayloadFixture("pglite", { makeRuntime: compiled => Effect.gen(function* () {
+  const fixture = await createCorePayloadFixture({ kind: "fresh", driver: "pglite" }, { makeRuntime: compiled => Effect.gen(function* () {
     const native = yield* makePayloadNative(compiled, { hooks: {
       afterRead: [async ({ doc }) => {
         if (!armed) return doc;

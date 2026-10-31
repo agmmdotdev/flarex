@@ -2,14 +2,14 @@ import { Effect, Result, Schema } from "effect";
 import { expect, it } from "vitest";
 import { inspectPayloadRuntimeForTest, PayloadValidationError } from "../../payload-adapter/src/testing";
 import { defineCmsCommand } from "../../persistence-postgres/src/frameworks/cmsTransaction/commands";
-import { createCorePayloadFixture } from "./support/core-payload-fixture";
+import { createCorePayloadFixture } from "../../payload-adapter/test/support/core-payload-fixture";
 
 const document = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String, title: Schema.String }));
 
 /** Actual Local API bodies, shared claims/outcomes and physical owner reopen. */
 export function registerCorePayloadNativeDurability(driver: "pglite" | "postgres"): void {
   it("replays the exact committed native result after owner replacement without another body", async () => {
-    const fixture = await createCorePayloadFixture(driver);
+    const fixture = await createCorePayloadFixture({ kind: "fresh", driver });
     try {
       let bodies = 0;
       const create = inspectPayloadRuntimeForTest(fixture.runtime).commands.create;
@@ -35,7 +35,7 @@ export function registerCorePayloadNativeDurability(driver: "pglite" | "postgres
   });
 
   it("reconciles a lost commit acknowledgement after reopen without executing native work again", async () => {
-    const fixture = await createCorePayloadFixture(driver);
+    const fixture = await createCorePayloadFixture({ kind: "fresh", driver });
     try {
       let bodies = 0;
       const create = inspectPayloadRuntimeForTest(fixture.runtime).commands.create;
@@ -64,7 +64,7 @@ export function registerCorePayloadNativeDurability(driver: "pglite" | "postgres
   });
 
   it("keeps a caught native uniqueness rejection rollback-only and permits pending key release", async () => {
-    const fixture = await createCorePayloadFixture(driver);
+    const fixture = await createCorePayloadFixture({ kind: "fresh", driver });
     try {
       const seeded = document(await fixture.run(fixture.writer.create(fixture.writer.newRequestKey(), {
         collection: "news", data: { title: "already-owned" },

@@ -10,7 +10,7 @@ import { encodeDocumentValue, type DocumentObject } from "flarex-protocol/docume
 import { indexRangeIsEmpty, splitIndexRangeAfter } from "flarex-protocol/index-range";
 import { CoreTransactionError, type CoreError, type CoreIndexDefinition, type CoreQuery,
   type CoreQueryPage, type CoreTableDefinition } from "./api";
-import type { CoreIndexCursor, CoreInterval, CoreOrder } from "./contracts";
+import type { CoreHydratedIndexEntry, CoreIndexCursor, CoreInterval, CoreOrder } from "./contracts";
 import { captureCoreDocument } from "./document";
 import type { CoreIndexSnapshot } from "./indexSnapshot";
 import { readDocumentObject } from "./registry";
@@ -20,6 +20,32 @@ const invalid = (cause?: unknown) => new CoreTransactionError({ reason: "invalid
 const boundedInterval = (interval: CoreInterval) => ({ start: interval.start ?? new Uint8Array(), end: interval.end });
 const copyPosition = (position: CoreIndexCursor | null): CoreIndexCursor | null => position?.kind === "after"
   ? Object.freeze({ kind: "after", key: position.key.slice() }) : position;
+
+/** Complete physical consumption for the bounded native profile, before pending masking.
+ * This is not logical Limit exhaustion and does not itself record semantic reads. */
+export const captureCoreIndexRange = Effect.fn("CoreQuery.captureIndexRange")(function* (input: Readonly<{
+  snapshot: CoreIndexSnapshot;
+  table: CoreTableDefinition;
+  index: CoreIndexDefinition;
+  interval: CoreInterval;
+  maxEntries: number;
+  assertOpen: () => Effect.Effect<void, CoreError>;
+}>) {
+  const entries: CoreHydratedIndexEntry[] = [];
+  let remaining = copyInterval(input.interval);
+  while (true) {
+    const page = yield* input.snapshot.scan({ index: input.index.ref, tableId: input.table.tabletId,
+      interval: remaining, order: "asc", maxResults: Math.min(128, input.maxEntries + 1 - entries.length) });
+    yield* input.assertOpen();
+    entries.push(...page.entries);
+    if (entries.length > input.maxEntries) return yield* new CoreTransactionError({ reason: "capacity",
+      cause: "Native complete index capture limit" });
+    if (page.cursor.kind === "end") return Object.freeze(entries);
+    const progress = splitIndexRangeAfter(boundedInterval(remaining), page.cursor.key, "asc");
+    if (indexRangeIsEmpty(progress.observed)) return yield* invalid("Persistence scan did not advance");
+    remaining = progress.remaining;
+  }
+});
 
 /** The transaction supplies the sole operation owner and live pending index; no SQL transaction survives a call. */
 export function createCoreQuery(input: Readonly<{

@@ -1,32 +1,34 @@
 import { inspectPayloadRuntimeForTest } from "../../../../payload-adapter/src/testing";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { makePostgresRelationalSession } from "../../../src/database/relationalTransaction/session";
-import { postgresUrl, useFileScopedPostgresPersistence } from "../../support/postgresHelpers";
-import { makeUniquePayloadFixture, payloadUniqueScenario, concurrentUniqueScenario, uniqueData } from "./payloadUniqueScenario";
+import { postgresUrl } from "../../support/postgresHelpers";
+import { assertNativeConstraintBinding, decodeIndexedDocument } from "./payloadIndexedFixture";
+import { makeUniquePayloadFixture, payloadUniqueScenario, concurrentUniqueScenario, uniqueData, assertUniqueOwners } from "./payloadUniqueScenario";
 import { runEffect } from "../../support/effectTestRuntime";
 
-describe.skipIf(postgresUrl === null)("Payload compound uniqueness (PostgreSQL)", () => {
-  const withPersistence = useFileScopedPostgresPersistence();
-  it("executes native constraint failures, pending key reuse and rollback as an ordinary role", () => withPersistence(persistence => runEffect(Effect.scoped(Effect.gen(function* () {
-    const tested = yield* makeUniquePayloadFixture(persistence, makePostgresRelationalSession(persistence));
-    const role = yield* Effect.promise(() => persistence.query<{ superuser: boolean }>("select rolsuper as superuser from pg_roles where rolname=current_user"));
-    expect(role.rows[0]?.superuser).toBe(false);
-    yield* payloadUniqueScenario(tested);
-  })))), 180_000);
-  it.each([true, false])("settles concurrent writes with same compound key = %s", sameKey => withPersistence(persistence => runEffect(Effect.scoped(Effect.gen(function* () {
-    const tested = yield* makeUniquePayloadFixture(persistence, makePostgresRelationalSession(persistence));
-    yield* concurrentUniqueScenario(tested, sameKey);
-  })))), 120_000);
-  it("isolates identical keys in separate scopes", () => withPersistence(persistence => runEffect(Effect.scoped(Effect.gen(function* () {
-    const first = yield* makeUniquePayloadFixture(persistence, makePostgresRelationalSession(persistence));
-    const second = yield* makeUniquePayloadFixture(persistence, makePostgresRelationalSession(persistence));
+const fresh = { kind: "fresh", driver: "postgres" } as const;
+describe.skipIf(postgresUrl === null || !process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)("Payload compound uniqueness (ordinary PostgreSQL)", () => {
+  it("executes native constraint failures, pending key reuse and rollback", () => runEffect(Effect.scoped(Effect.gen(function* () {
+    yield* payloadUniqueScenario(yield* makeUniquePayloadFixture(fresh));
+  }))), 180_000);
+  it.each([true, false])("settles concurrent writes with same compound key = %s", sameKey => runEffect(Effect.scoped(Effect.gen(function* () {
+    yield* concurrentUniqueScenario(yield* makeUniquePayloadFixture(fresh), sameKey);
+  }))), 120_000);
+  it("isolates identical keys in two app instances of the same physical target", () => runEffect(Effect.scoped(Effect.gen(function* () {
+    const first = yield* makeUniquePayloadFixture({ ...fresh, instanceName: "unique-first" },
+      { scopeUuid: "45000000-0000-4000-8000-000000000011", epochUuid: "45000000-0000-4000-8000-000000000012" });
+    const second = yield* makeUniquePayloadFixture({ kind: "physical", physical: first.core.physical,
+      installation: "fresh", instanceName: "unique-second" },
+      { scopeUuid: "45000000-0000-4000-8000-000000000021", epochUuid: "45000000-0000-4000-8000-000000000022" });
+    expect(second.core.physical).toBe(first.core.physical);
+    expect(second.core.instanceName).not.toBe(first.core.instanceName);
     for (const tested of [first, second]) {
-      yield* tested.host.run(tested.host.newRequestKey(), inspectPayloadRuntimeForTest(tested.runtime).commands.create,
-        { collection: "items", data: uniqueData("same", "same", 1) });
-      expect(yield* tested.host.read(inspectPayloadRuntimeForTest(tested.runtime).commands.count,
-        { collection: "items", where: { category: { equals: "same" }, amount: { equals: 1 } } })).toEqual({ totalDocs: 1 });
-      expect((yield* Effect.promise(tested.inventory)).claims).toHaveLength(3);
+      yield* assertNativeConstraintBinding(tested);
+      const data = uniqueData("same", "same", 1);
+      const created = decodeIndexedDocument(yield* tested.host.run(tested.host.newRequestKey(),
+        inspectPayloadRuntimeForTest(tested.runtime).commands.create, { collection: "items", data }));
+      yield* assertUniqueOwners(tested, [{ id: created.id, data }]);
+      expect((yield* Effect.tryPromise({ try: tested.inventory, catch: cause => cause })).rows).toHaveLength(1);
     }
-  })))), 120_000);
+  }))), 120_000);
 });

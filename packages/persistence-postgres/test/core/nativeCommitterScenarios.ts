@@ -10,6 +10,7 @@ import { bootstrapCore } from "../../src/core/bootstrap";
 import { makeCoreCommitter } from "../../src/core/committer";
 import { openCoreDatabase } from "../../src/core/database";
 import type { CoreNativeUniqueSlot } from "../../src/core/nativeObservations";
+import { coreNativeTestBudget, CORE_NATIVE_TEST_LIMITS } from "./nativeTestBudget";
 import { makeCoreNativeDefinition } from "../../src/core/nativePolicy";
 import { readDocumentObject } from "../../src/core/registry";
 import { compilePayloadCollections } from "../../../payload-adapter/src/collections";
@@ -62,11 +63,11 @@ function slot(table: CoreTableDefinition, title: string, owners: readonly string
   const index = table.indexes.find(candidate => candidate.name === "by_title");
   if (index === undefined) throw new Error("Missing installed title index");
   const prefix = Result.getOrThrow(encodeIndexValue(title));
-  return { table, index, interval: { start: prefix, end: incrementIndexKeyPrefix(prefix) }, owners };
+  return { kind: "unique", table, index, interval: { start: prefix, end: incrementIndexKeyPrefix(prefix) }, owners };
 }
 
 const observing = (state: CoreFinalizedState, ...uniqueSlots: readonly CoreNativeUniqueSlot[]): CoreFinalizedState => ({
-  ...state, nativeObservations: { dependencies: [], uniqueSlots },
+  ...state, nativeObservations: { dependencies: [], indexes: uniqueSlots, limits: CORE_NATIVE_TEST_LIMITS },
 });
 
 export function registerNativeCommitterScenarios(name: string, createFixture: () => Promise<CorePersistenceFixture>) {
@@ -157,9 +158,14 @@ export function registerNativeCommitterScenarios(name: string, createFixture: ()
       } finally { await fixture.close(); }
     }, 30_000);
 
-    it.each(["beforeWrite", "lostAcknowledgement", "dependentLostAcknowledgement", "success", "callerCancellation",
-      "atomicBeforeWrite", "atomicLostAcknowledgement", "atomicSuccess"] as const)(
-      "keeps dependent native rows and outcomes ordered through %s settlement", async fault => {
+    for (const profile of ["unique", "range"] as const) {
+      const rangeProfile = profile === "range";
+      const faults = rangeProfile ? ["beforeWrite", "lostAcknowledgement", "success"] as const
+        : ["beforeWrite", "lostAcknowledgement", "dependentLostAcknowledgement", "success", "callerCancellation",
+          "atomicBeforeWrite", "atomicLostAcknowledgement", "atomicSuccess"] as const;
+      it.each(faults)(rangeProfile
+        ? "keeps dependent native ordinary-range rows and outcomes ordered through %s settlement"
+        : "keeps dependent native rows and outcomes ordered through %s settlement", async fault => {
         const fixture = await createFixture();
         try {
           const atomic = fault.startsWith("atomic");
@@ -176,10 +182,12 @@ export function registerNativeCommitterScenarios(name: string, createFixture: ()
             let dependentSaved = false;
             let admissionMarker: "rename" | "candidate" | undefined;
             let atomicBatch = false;
+            let bodyExecutions = 0;
             const persistence: CorePersistence = { ...fixture.persistence, write: (lease, batch) => Effect.gen(function* () {
               const bodies = yield* Effect.forEach(batch.documents.filter(entry => !entry.deleted), entry =>
                 Effect.fromResult(readDocumentObject(entry)));
-              const rename = armed && bodies.some(document => document.title === "L");
+              const rename = armed && bodies.some(document => rangeProfile
+                ? document.title === "C" && document.amount === 25 : document.title === "L");
               if (rename) {
                 atomicBatch = bodies.some(document => document.title === "K");
                 yield* Deferred.succeed(renameStarted, undefined);
@@ -196,6 +204,7 @@ export function registerNativeCommitterScenarios(name: string, createFixture: ()
             }) };
             const compiled = yield* compilePayloadCollections([{ slug: "news", fields: [
               { name: "title", type: "text", required: true, unique: true },
+              ...(rangeProfile ? [{ name: "amount", type: "number", required: true, index: true }] : []),
             ] }]);
             const definition = yield* makeCoreNativeDefinition({ source: compiled.sourceContract,
               scopeUuid: "8f5545a4-cd38-4ae0-a421-12fe85dcb727", epochUuid: "1e8aa599-efb5-45da-9b24-8e48f115f250" });
@@ -226,15 +235,18 @@ export function registerNativeCommitterScenarios(name: string, createFixture: ()
               requestHash: "dependent-native-arguments", native: command.identity };
             const claim = yield* database.claimRequest(request, binding);
             if (claim.kind !== "claimed") return yield* Effect.die(new Error("Missing native fixture claim"));
-            const body = (title: string) => ({ title, createdAt: "2026-10-31T00:00:00.000Z", updatedAt: "2026-10-31T00:00:00.000Z" });
-            const held = yield* database.beginNative(binding, { commandName: command.name, claim: claim.claim });
+            const body = (title: string, amount = 5) => ({ title, ...(rangeProfile ? { amount } : {}),
+              createdAt: "2026-10-31T00:00:00.000Z", updatedAt: "2026-10-31T00:00:00.000Z" });
+            const held = yield* database.beginNative(binding, { ...coreNativeTestBudget(), commandName: command.name, claim: claim.claim });
+            bodyExecutions += 1;
+            if (rangeProfile) expect(yield* held.operations.find(tableName, { amount: { gte: 10, lt: 20 } })).toEqual([]);
             const dependentId = yield* held.operations.insert(tableName, body("K"));
             const heldFinalized = yield* held.finalize();
-            const competing = yield* database.beginNative(binding, { commandName: command.name });
-            const competingId = yield* competing.operations.insert(tableName, body("K"));
+            const competing = yield* database.beginNative(binding, { ...coreNativeTestBudget(), commandName: command.name });
+            const competingId = yield* competing.operations.insert(tableName, body(rangeProfile ? "C" : "K", 15));
             yield* database.commit(yield* competing.finalize());
-            const rename = yield* database.beginNative(binding, { commandName: "payload-update" });
-            yield* rename.operations.patch(competingId, { title: "L" });
+            const rename = yield* database.beginNative(binding, { ...coreNativeTestBudget(), commandName: "payload-update" });
+            yield* rename.operations.patch(competingId, rangeProfile ? { amount: 25 } : { title: "L" });
             const renameFinalized = yield* rename.finalize();
             return yield* Effect.ensuring(Effect.gen(function* () {
               armed = true;
@@ -263,14 +275,14 @@ export function registerNativeCommitterScenarios(name: string, createFixture: ()
               const dependentResult = fault === "callerCancellation" ? undefined : yield* Fiber.join(settling);
               if (savingIndependent !== undefined) yield* Fiber.join(savingIndependent);
               return { request, definition, dependentId, markerId, tableName, dependentSavedBeforeFailure,
-                renameResult, dependentResult, atomicBatch };
+                renameResult, dependentResult, atomicBatch, bodyExecutions };
             }).pipe(Effect.timeout("15 seconds")), Deferred.succeed(releaseRename, undefined));
           })));
           const cold = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
             const database = yield* openCoreDatabase(yield* Effect.promise(() => fixture.reopen()), options);
             const binding = yield* database.bindNative({ definition: observed.definition });
-            const read = yield* database.beginNative(binding, { commandName: "payload-find" });
-            const rows = yield* read.operations.find(observed.tableName, { kind: "all" });
+            const read = yield* database.beginNative(binding, { ...coreNativeTestBudget(), commandName: "payload-find" });
+            const rows = yield* read.operations.find(observed.tableName, {});
             yield* read.finishRead();
             const source = yield* database.begin();
             const marker = yield* source.get(observed.markerId);
@@ -282,15 +294,19 @@ export function registerNativeCommitterScenarios(name: string, createFixture: ()
             titleKCount: cold.rows.filter(document => document.title === "K").length,
             outcome: cold.outcome.kind, marker: cold.marker }).toMatchObject({
             dependentSavedBeforeFailure: false, dependentPresent: dependentCommits,
-            titleKCount: dependentCommits || failsBeforeWrite ? 1 : 0,
+            titleKCount: rangeProfile ? dependentCommits ? 1 : 0 : dependentCommits || failsBeforeWrite ? 1 : 0,
             outcome: dependentCommits ? "committed" : "failed",
             marker: { _tag: "Some", value: { marker: atomic ? "seed" : "independent-saved" } },
           });
+          expect(observed.bodyExecutions).toBe(1);
+          if (rangeProfile) expect(cold.rows.filter(document => typeof document.amount === "number"
+            && document.amount >= 10 && document.amount < 20)).toHaveLength(failsBeforeWrite ? 1 : 0);
           expect(observed.atomicBatch).toBe(atomic);
           if (failsBeforeWrite || losesPredecessorAcknowledgement)
             expect(observed.dependentResult).toEqual(observed.renameResult);
         } finally { await fixture.close(); }
       }, 60_000);
+    }
 
     it("validates each source dependency after its own observation timestamp", async () => {
       const fixture = await createFixture();
@@ -305,11 +321,11 @@ export function registerNativeCommitterScenarios(name: string, createFixture: ()
           const demand = yield* begin();
           yield* demand.get(id);
           const captured = yield* finish(demand);
-          const native = { ...held, nativeObservations: { uniqueSlots: [],
+          const native = { ...held, nativeObservations: { indexes: [], limits: CORE_NATIVE_TEST_LIMITS,
             dependencies: [{ timestamp: captured.timestamp, reads: captured.reads }] } };
           expect(yield* committer.submit(native)).toBe(held.timestamp);
           const source = yield* Effect.result(committer.submit({ ...held, reads: captured.reads,
-            nativeObservations: { uniqueSlots: [], dependencies: [] } }));
+            nativeObservations: { indexes: [], dependencies: [], limits: CORE_NATIVE_TEST_LIMITS } }));
           expect(Result.isFailure(source) && source.failure).toMatchObject({ reason: "conflict" });
           const update = yield* begin();
           yield* update.patch(id, { title: "L" });
@@ -349,12 +365,20 @@ export function registerNativeCommitterScenarios(name: string, createFixture: ()
           const table = yield* install(fixture);
           const started = yield* Deferred.make<void>();
           const release = yield* Deferred.make<void>();
+          const observerAdmitting = yield* Deferred.make<void>();
+          let markObserver = false;
           let delay = false;
           const persistence: CorePersistence = { ...fixture.persistence, write: (lease, batch) => Effect.gen(function* () {
             if (delay) { yield* Deferred.succeed(started, undefined); yield* Deferred.await(release); }
             yield* fixture.persistence.write(lease, batch);
           }) };
-          const { committer, begin, finish } = yield* open(persistence);
+          const { committer, begin, finish } = yield* open(persistence, { now: Effect.gen(function* () {
+            if (markObserver) {
+              markObserver = false;
+              yield* Deferred.succeed(observerAdmitting, undefined);
+            }
+            return 1_000_000_000n;
+          }) });
           const held = observing(yield* finish(yield* begin()), slot(table, "K"));
           const create = yield* begin();
           const id = yield* create.insert("news", { title: "K" });
@@ -367,7 +391,14 @@ export function registerNativeCommitterScenarios(name: string, createFixture: ()
               slot(table, "K", [id]), slot(table, "L"))));
             yield* Deferred.await(started);
             // Request-discovery pendingDocuments omits this key's tombstone.
+            markObserver = true;
             const observingRemoval = yield* Effect.forkChild(committer.submit(held));
+            yield* Deferred.await(observerAdmitting);
+            // The clock runs inside acceptance. This real mutex-protected read
+            // completes after that decision, while the rename is still unsaved.
+            // Merely forking first does not order PostgreSQL prevalidation I/O.
+            const observedSlot = slot(table, "K");
+            expect(yield* committer.pendingDocuments(observedSlot.index.ref.id, observedSlot.interval)).toEqual([]);
             const replacement = yield* begin();
             yield* replacement.insert("news", { title: "K" });
             const replacing = yield* Effect.forkChild(committer.submit(observing(yield* finish(replacement), slot(table, "K"))));

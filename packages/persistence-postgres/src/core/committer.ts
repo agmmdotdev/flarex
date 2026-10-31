@@ -13,11 +13,11 @@ import { CoreTableCounts, type CoreTableCountDelta } from "./tableCounts";
 import type { CoreSchemaRegistryUpdate } from "./schemaRegistry";
 import type { CoreSystemDocument } from "./transaction";
 import { deriveCoreWriteBatch, type CoreFinalizedState } from "./transaction";
-import { CorePendingWrites, CoreWriteLog, indexKeysFromWrites, type CoreIndexKeys } from "./writeLog";
+import { CorePendingWrites, CoreWriteLog, indexKeysFromWrites, indexTransitionsFromWrites, type CoreIndexKeys, type CoreWriteLogSnapshot } from "./writeLog";
 import { metadataConflictKeys } from "./dependencies";
 import { makeCoreIndexCache, type CoreIndexCache } from "./indexCache";
 import type { CoreResidentIndexes } from "./residentIndex";
-import { prepareCoreNativeSlots, validateCoreNativeSlots } from "./nativeValidation";
+import { prepareCoreNativeIndexes, validateCoreNativeIndexes } from "./nativeValidation";
 import { checkCoreNativeRegistryTransition } from "./nativePolicy";
 
 interface CorePublishedSnapshot {
@@ -37,6 +37,7 @@ interface AcceptedCommit {
   readonly transaction: CoreFinalizedState;
   readonly batch: CoreWriteBatch;
   readonly changes: readonly CoreIndexKeys[];
+  readonly keyTransitions: readonly CoreIndexKeys[];
   readonly documents: ReadonlyMap<string, CoreDocumentLogEntry>;
   readonly indexEntries: ReadonlyMap<string, CorePersistenceIndexEntry>;
   readonly ack: Deferred.Deferred<bigint, CoreError>;
@@ -74,6 +75,8 @@ export interface CoreCommitter {
   readonly submit: (transaction: CoreFinalizedState) => Effect.Effect<bigint, CoreError>;
   readonly publishedTimestamp: Effect.Effect<bigint>;
   readonly selectSnapshot: (at?: bigint) => Result.Result<CorePublishedSnapshot & Readonly<{ timestamp: bigint }>, CoreError>;
+  /** Freeze current native data and retained history in one synchronous selection. */
+  readonly selectNativeSnapshot: () => Result.Result<CorePublishedSnapshot & Readonly<{ timestamp: bigint; writeLog: CoreWriteLogSnapshot }>, CoreError>;
   readonly indexCache: CoreIndexCache;
   readonly currentRegistry: () => CoreRegistry;
   readonly publishCounts: (at:bigint,counts:CoreTableCounts) => Effect.Effect<boolean,CoreError>;
@@ -145,7 +148,7 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
       const nextCounts = counts === undefined ? undefined : yield* Effect.fromResult(counts.applyDelta(countDelta));
       const nextResident = yield* Effect.fromResult(resident.apply(nextRegistry, first.batch.documents));
       pending.pop(first.timestamp);
-      log.append(first.timestamp, first.changes, batchBytes(first.batch));
+      log.append(first.timestamp, first.changes, batchBytes(first.batch), first.keyTransitions);
       indexCache.invalidate(first.batch, registry, nextRegistry);
       registry = nextRegistry;
       counts = nextCounts;
@@ -268,8 +271,8 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
           : [{ timestamp: transaction.timestamp, reads: transaction.reads }]),
         ...transaction.nativeObservations?.dependencies ?? [],
       ];
-      const slots = transaction.nativeObservations?.uniqueSlots ?? [];
-      const slotReads = slots.map(slot => ({ indexId: slot.index.ref.id, intervals: [slot.interval] }));
+      const indexes = transaction.nativeObservations?.indexes ?? [];
+      const indexReads = indexes.map(observation => ({ indexId: observation.index.ref.id, intervals: [observation.interval] }));
       const checkDeadline = Effect.gen(function* () {
         const deadline = transaction.admissionDeadlineUnixMilliseconds;
         if (deadline !== undefined && (yield* Clock.currentTimeMillis) >= deadline)
@@ -288,10 +291,11 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
             const conflict = yield* Effect.fromResult(snapshot.conflict(group.reads, group.timestamp));
             if (conflict !== undefined) return yield* new CoreTransactionError({ reason: "conflict", cause: conflict });
           }
-          const nativeSlots = slots.length === 0 ? [] : yield* prepareCoreNativeSlots(
-            yield* persistence.readSnapshot(snapshot.timestamp, retention), publishedRegistry, slots);
+          const nativeIndexes = transaction.nativeObservations === undefined || indexes.length === 0 ? [] : yield* prepareCoreNativeIndexes(
+            yield* persistence.readSnapshot(snapshot.timestamp, retention), publishedRegistry, indexes,
+            transaction.nativeObservations.limits.maxIdentities);
           yield* Effect.yieldNow;
-          return { timestamp: snapshot.timestamp, nativeSlots };
+          return { timestamp: snapshot.timestamp, nativeIndexes };
         })));
         const acceptedHere = yield* mutex.withPermits(1)(Effect.gen(function* () {
           if (stopped !== undefined) return yield* Effect.failCause(stopped);
@@ -304,17 +308,19 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
             if (suffixConflict !== undefined || pendingConflict !== undefined)
               return yield* new CoreTransactionError({ reason: "conflict", cause: suffixConflict ?? pendingConflict });
           }
-          // A title event invalidates preparation, rather than establishing a
+          // A native index event invalidates preparation, rather than establishing a
           // conflict. Lost suffix history likewise needs fresh pure preparation.
-          if (slots.length > 0 && !Result.match(snapshot.conflict(slotReads, prepared.timestamp), {
+          if (indexes.length > 0 && !Result.match(snapshot.conflict(indexReads, prepared.timestamp), {
             onFailure: () => false, onSuccess: conflict => conflict === undefined,
           })) return false;
           const now = yield* options.now;
           const timestamp = now > assigned ? now : assigned + 1n;
           if (timestamp < 0n || timestamp > 0x7fff_ffff_ffff_ffffn) return yield* new CoreTransactionError({ reason: "capacity" });
           const batch = yield* Effect.fromResult(deriveCoreWriteBatch(transaction, timestamp));
-          const contributingBatches = yield* Effect.fromResult(validateCoreNativeSlots(prepared.nativeSlots,
-            (function* () { for (const [, commit] of accepted.entries()) yield commit.batch; })(), batch));
+          const contributingBatches = transaction.nativeObservations === undefined ? new Set<CoreWriteBatch>()
+            : yield* Effect.fromResult(validateCoreNativeIndexes(prepared.nativeIndexes,
+            (function* () { for (const [, commit] of accepted.entries()) yield commit.batch; })(), batch,
+            transaction.nativeObservations.limits.maxIdentities));
           const predecessors = [...accepted.values()].filter(commit => contributingBatches.has(commit.batch))
             .map(commit => commit.durability);
           if (batch.documents.length === 0) {
@@ -324,10 +330,11 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
           }
           const virtualKeys = yield* Effect.fromResult(metadataConflictKeys(transaction.registryAfter ?? transaction.registry, transaction.changes));
           const changes = [...indexKeysFromWrites(batch.indexes), ...virtualKeys];
+          const keyTransitions = yield* Effect.fromResult(nativeIndexTransitions(transaction.registryAfter ?? transaction.registry, batch));
           const documents = new Map(batch.documents.map(document => [documentIdentity(document.tableId, document.id), document]));
           const indexEntries = new Map(batch.indexes.map(entry => [indexEntryIdentity(entry.index.id, entry.key), entry]));
           const durability = { timestamp, completion: yield* Deferred.make<void, CoreError>() };
-          const commit: AcceptedCommit = { timestamp, transaction, batch, changes, documents, indexEntries, ack,
+          const commit: AcceptedCommit = { timestamp, transaction, batch, changes, keyTransitions, documents, indexEntries, ack,
             durability, predecessors };
           // The trusted profile's signed deadline governs acceptance, not save completion.
           yield* checkDeadline;
@@ -361,6 +368,11 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
       const selected = snapshots.get(timestamp) ?? snapshots.nextLowerPair(timestamp)?.[1];
       return selected === undefined ? Result.fail(new CorePersistenceError({ reason: "outOfRetention" }))
         : Result.succeed({ timestamp, ...selected });
+    },
+    selectNativeSnapshot: (): Result.Result<CorePublishedSnapshot & Readonly<{ timestamp: bigint; writeLog: CoreWriteLogSnapshot }>, CoreError> => {
+      const selected = snapshots.get(published);
+      return selected === undefined ? Result.fail(new CorePersistenceError({ reason: "outOfRetention" }))
+        : Result.succeed({ timestamp: published, ...selected, writeLog: log.snapshot() });
     },
     indexCache,
     currentRegistry: () => registry,
@@ -403,6 +415,26 @@ function documentIdentity(tableId: Uint8Array, id: Uint8Array): string {
 
 function indexEntryIdentity(indexId: Uint8Array, key: Uint8Array): string {
   return `${encodeBytesToLowercaseHex(indexId)}:${encodeBytesToLowercaseHex(key)}`;
+}
+
+/** Source-owned indexes need no native membership certificates or second retained key tree. */
+function nativeIndexTransitions(registry: CoreRegistry, batch: CoreWriteBatch): Result.Result<readonly CoreIndexKeys[], CoreError> {
+  return Result.gen(function* () {
+    const selected = new Map<string, boolean>();
+    const writes: CorePersistenceIndexEntry[] = [];
+    for (const entry of batch.indexes) {
+      const identity = encodeBytesToLowercaseHex(entry.index.id);
+      let native = selected.get(identity);
+      if (native === undefined) {
+        const index = registry.indexById(entry.index.id);
+        if (index === undefined) return yield* Result.fail(new CorePersistenceError({ reason: "corruptData" }));
+        native = index.table.nativePolicy?.state === "active";
+        selected.set(identity, native);
+      }
+      if (native) writes.push(entry);
+    }
+    return indexTransitionsFromWrites(writes);
+  });
 }
 
 const parseSchemaDocument=(document:import("flarex-protocol/document-value").DocumentObject):CoreSystemDocument=>{

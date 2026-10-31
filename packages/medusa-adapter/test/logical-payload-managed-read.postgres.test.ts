@@ -5,12 +5,12 @@ import { isJsonObject } from "flarex-protocol/json";
 import { decodeDocumentId, encodeDocumentId } from "flarex-protocol/document-id";
 import { CmsTransactionError } from "../../persistence-postgres/src/frameworks/cmsTransaction/model";
 import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
-import { createCorePayloadFixture } from "./support/core-payload-fixture";
+import { createCorePayloadFixture } from "../../payload-adapter/test/support/core-payload-fixture";
 
 for (const driver of ["pglite", "postgres"] as const) describe.skipIf(driver === "postgres" &&
   (postgresUrl === null || !process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL))(`core-native managed Payload Local API reads (${driver})`, () => {
   it("preserves native document and query results while refusing writes on the read host", async () => {
-    const fixture = await createCorePayloadFixture(driver);
+    const fixture = await createCorePayloadFixture({ kind: "fresh", driver });
     try {
       const escaped = await fixture.run(Effect.gen(function* () {
         const { writer, reader, runtime, accessRuntime } = fixture;

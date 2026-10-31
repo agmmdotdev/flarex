@@ -1,6 +1,6 @@
 # Native Promise completion and cancellation
 
-Status: **Necessary native/runtime adaptation; selected Payload boundary implemented and under review; general native hosting remains open.**
+Status: **Necessary native/runtime adaptation; selected Payload boundary implemented and validated; general native hosting remains open.**
 
 ## Source and reason
 
@@ -35,6 +35,39 @@ Native bodies are not replayed, and ambiguous persistence still uses the shared
 outcome/recovery owner.
 
 ## Required evidence and limits
+
+The indexed continuation additionally exposed the inverse foreign boundary:
+Effect's Promise runner can squash a complete Cause before the rejection returns
+through Payload. The [indexed slice](../slices/11-payload-indexed-scalar.md)
+records the failing mixed-budget witness and owning correction. Preserve native
+throwable identity/class where Payload depends on it, and transport the complete
+annotated Cause through the same request's private bridge. A matching native
+rejection must recover that request's authentic failure; unrelated errors and
+other requests must not borrow a receipt. Do not introduce a global carrier,
+second lifetime or commit-policy wrapper to repair this request boundary.
+
+The selected correction carries a private completed Exit from the existing
+request bridge. It records full annotated adapter failures against the exact
+native throwable within that request, after native uniqueness classification.
+The Local API still sees its expected Error/ValidationError; only a matching
+rejection recovers its complete Cause. Primitive-only failures receive a fresh
+private throwable rather than authenticating equal primitive values. Drain the
+same Promise before restoring its Exit, so a native interruption does not start
+another cancellation/drain cycle.
+
+Changing an error's native classification must not retain authentication for
+the old typed error. The bounded-lifetime owner supplies a narrow guarded Reason
+projection: unchanged kind/value preserves its origin, while a changed kind or
+value overwrites only the private origin annotation with a fresh unissued token.
+This leaves diagnostics and the first failure latch intact. Deletion alone is
+insufficient: the installed Effect runtime can resurrect a cached annotation
+when it clones a Reason for the same Error. Adapters do not manage private
+origin keys or receive lifetime authority.
+
+The deadline race also returns the owned completed Cause from its native
+branch, rather than only recording it as a side effect and returning an unowned
+clone. This keeps each actual failure once while preserving distinct late
+defects, caller interruption and the existing deadline-winner behavior.
 
 The actual native drain cases in
 `packages/payload-adapter/test/native-drain.test.ts` cover cancellation while a

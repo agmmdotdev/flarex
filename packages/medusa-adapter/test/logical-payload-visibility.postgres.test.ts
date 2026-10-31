@@ -6,13 +6,13 @@ import { payloadCachedKeyCoherenceScenario, payloadCapturedOwnerConflictScenario
   payloadDisjointVisibilityScenario, payloadPendingVisibilityScenario, payloadUniqueAbaVisibilityScenario,
   payloadVisibilityScenario } from
   "../../persistence-postgres/test/integration/payload/payloadVisibilityScenario";
-import { createCorePayloadFixture } from "./support/core-payload-fixture";
+import { createCorePayloadFixture } from "../../payload-adapter/test/support/core-payload-fixture";
 
 for (const driver of ["pglite", "postgres"] as const) describe.skipIf(driver === "postgres" &&
   (postgresUrl === null || !process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL))(`core-native Payload visibility (${driver})`, () => {
   it.each(driver === "pglite" ? ["pending"] as const : ["pending", "overlap", "disjoint", "unique-key-aba",
     "cached-key-point", "cached-key-table", "captured-owner-conflict"] as const)("preserves the actual source CMS binding: %s", async vector => {
-    const fixture = await createCorePayloadFixture(driver);
+    const fixture = await createCorePayloadFixture({ kind: "fresh", driver });
     const body = await Promise.allSettled([Promise.resolve().then(async () => {
       // createCorePostgresFixture verifies its runtime pool is an ordinary role.
       await fixture.run(Effect.gen(function* () {

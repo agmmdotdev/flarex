@@ -541,3 +541,11 @@ later untouched observations; standalone reads retain one snapshot. Broader
 native profiles, multi-source composition, retained-data cutover, native hosting
 and complete-flow performance remain open. The selected binding has no old-engine
 fallback; retained consumers and their removal gates are named in the slice.
+
+The [indexed scalar Payload continuation](./slices/11-payload-indexed-scalar.md)
+selects the existing indexed/compound-unique/nullable fixture family next. Its
+three-way challenge preserves raw Source event dependencies and records the
+necessary native ordinary-range observation and shared-budget differences
+separately. The selected replacement and its bounded database/consumer proofs
+are complete; its displaced fixture plumbing is retired. Broader native
+profiles, schema composition, retained data, hosting and performance remain open.

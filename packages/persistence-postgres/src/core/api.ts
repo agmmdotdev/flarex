@@ -6,6 +6,7 @@ import type {
   CoreIndexCursor, CoreIndexRef, CoreInterval, CoreOrder, CorePersistenceError, CoreTimestamp,
 } from "./contracts";
 import type { CoreReadSet } from "./writeLog";
+import type { JsonObject } from "flarex-protocol/json";
 import { CoreTableIteratorResourceBudgetSchema, CoreIteratorPositiveBudgetSchema } from "./iteratorBudget";
 import type { CoreNativeDefinition, CoreNativeIdentity, CoreNativeTablePolicy } from "./nativePolicy";
 
@@ -106,13 +107,21 @@ export class CoreQueryInputError extends Data.TaggedError("CoreQueryInputError")
   readonly reason: "invalidQuery" | "invalidCursor";
   readonly cause?: unknown;
 }> {}
+export class CoreNativeQueryError extends Data.TaggedError("CoreNativeQueryError")<{
+  readonly reason: "invalidInput";
+  readonly cause?: unknown;
+}> {}
+export class CoreNativeBudgetError extends Data.TaggedError("CoreNativeBudgetError")<{
+  readonly reason: "limitExceeded" | "closed" | "rollbackOnly" | "unexpectedFailure";
+  readonly cause?: unknown;
+}> {}
 export class CoreNativeUniqueConflict extends Data.TaggedError("CoreNativeUniqueConflict")<{
   readonly tableName: string;
   readonly descriptor: string;
   readonly fields: readonly string[];
 }> { readonly reason = "uniqueConflict"; }
 
-export type CoreError = CoreTransactionError | CorePersistenceError | CoreQueryInputError | CoreSchemaError | CoreNativeUniqueConflict;
+export type CoreError = CoreTransactionError | CorePersistenceError | CoreQueryInputError | CoreSchemaError | CoreNativeUniqueConflict | CoreNativeQueryError | CoreNativeBudgetError;
 
 export interface CoreQueryRequest {
   /** Captured once by the protocol query owner, then resolved against this transaction's registry. */
@@ -194,9 +203,9 @@ export type CoreReadTransaction = Pick<CoreTransaction, "timestamp" | "unixTime"
   | "tableNumber" | "tableMappings" | "normalizeId" | "get" | "startQuery" | "scan">;
 
 export type CoreNativeOperations = Pick<CoreTransaction, "get" | "insert" | "patch" | "replace" | "delete" | "normalizeId"> & {
-  readonly find: (table: string, selection: Readonly<{ kind: "all" }> | Readonly<{ kind: "id"; id: string }>
-    | Readonly<{ kind: "equal"; field: string; value: string }>) => Effect.Effect<readonly DocumentObject[], CoreError>;
+  readonly find: (table: string, where: JsonObject) => Effect.Effect<readonly DocumentObject[], CoreError>;
 };
+export interface CoreNativeLimits { readonly maxIdentities: number; readonly maxDocumentBytes: number }
 /** Trusted outer host owns this operation; only operations may enter a framework facade. */
 export interface CoreNativeOperation {
   readonly command: CoreNativeCommandDefinition;
@@ -236,7 +245,8 @@ export interface CoreDatabase {
   readonly bindNative: (input: Readonly<{ definition: CoreNativeDefinition; namespace?: CoreTableNamespace;
     commands?: readonly Readonly<{ name: string; mode: "read" | "write" }>[] }>) => Effect.Effect<CoreNativeBinding, CoreError>;
   readonly readNativeBinding: (binding: CoreNativeBinding) => Effect.Effect<CoreNativeBindingMetadata, CoreError>;
-  readonly beginNative: (binding: CoreNativeBinding, options: Readonly<{ commandName: string; claim?: CoreRequestClaim }>) => Effect.Effect<CoreNativeOperation, CoreError>;
+  readonly beginNative: (binding: CoreNativeBinding, options: Readonly<{ commandName: string; claim?: CoreRequestClaim;
+    limits: CoreNativeLimits; chargeRetained: (bytes: number) => Effect.Effect<void, CoreError> }>) => Effect.Effect<CoreNativeOperation, CoreError>;
   readonly resolveRequest: (identity: CoreRequestIdentity) => Effect.Effect<CoreRequestResolution, CoreError>;
   /** Fenced predecessor recovery; never executes another body or abandons a current-owner claim. */
   readonly recoverRequest: (identity: CoreRequestIdentity) => Effect.Effect<CoreRequestResolution, CoreError>;

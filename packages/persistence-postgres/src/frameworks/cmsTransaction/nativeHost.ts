@@ -3,7 +3,7 @@ import { encodeBytesToLowercaseHex, copyBytesToArrayBuffer } from "@flarex/utils
 import { canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import { encodeCanonicalJson, type Json } from "flarex-protocol/json";
 import { TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
-import { CoreTransactionError, type CoreNativeOperation, type CoreRequestClaim } from "../../core/api";
+import { CoreNativeBudgetError, CoreTransactionError, type CoreNativeOperation, type CoreRequestClaim } from "../../core/api";
 import { chargeHostPreparation, retainPreparedHost, PreparedHostRuntimeError } from "../../execution/preparation/preparedHostRuntime";
 import { capturePrivateJsonData } from "../../values/privateJsonData";
 import { getCmsCommand, type CmsCommand } from "./commands";
@@ -101,8 +101,16 @@ const compose = Effect.fn("CmsNativeHost.compose")(function* (input: NativeHostI
     const { command } = yield* select(token);
     const id = crypto.randomUUID();
     const lifetime = yield* makeCmsRequestLifetime(owner, { requestId: Symbol("cms.nativeRequest") }, id, command.mode, requestBudget);
+    const chargeRetained = (bytes: number) => lifetime.fromResult(lifetime.charge(bytes)).pipe(
+      Effect.catchCause(cause => Effect.failCause(Cause.map(cause, error => new CoreNativeBudgetError({
+        reason: error.reason === "limitExceeded" || error.reason === "closed" || error.reason === "rollbackOnly"
+          ? error.reason : "unexpectedFailure", cause: error,
+      })))),
+    );
     return yield* Effect.acquireUseRelease(
-      database.beginNative(binding, { commandName: command.name, ...(claim === undefined ? {} : { claim }) }).pipe(Effect.mapError(projectCoreCmsFailure)),
+      database.beginNative(binding, { commandName: command.name, limits: { maxIdentities: cmsLimits.identities,
+        maxDocumentBytes: cmsLimits.documentBytes }, chargeRetained,
+        ...(claim === undefined ? {} : { claim }) }).pipe(Effect.mapError(projectCoreCmsFailure)),
       operation => Effect.gen(function* () {
         const native = yield* invoke(operation, lifetime, id, token, args).pipe(lifetime.withinDeadline);
         const result = yield* canonicalizeSuccessfulResultV1Effect(native).pipe(Effect.mapError(cause => cmsError("invalidInput", cause)));
