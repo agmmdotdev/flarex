@@ -1,6 +1,7 @@
 import { Effect, type Scope } from "effect";
 import type { CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
 import type { CmsCommandBinding, CmsReadBinding } from "@flarex/persistence-postgres/internal/cms-execution";
+import type { CmsNativeBinding } from "@flarex/persistence-postgres/internal/cms-native";
 import type {
   LogicalParticipantBorrow,
   SessionJournalAttempt,
@@ -21,8 +22,11 @@ export interface PayloadAttemptRuntime {
   readonly borrowParticipant: LogicalParticipantBorrow;
 }
 export interface PayloadRuntime {
+  /** Retained full-proof, relationships and borrowed consumers migrate separately. */
   readonly bind: (binding: CmsCommandBinding) => Effect.Effect<PayloadHost, CmsTransactionError>;
   readonly bindRead: (binding: CmsReadBinding) => Effect.Effect<PayloadReadHost, CmsTransactionError>;
+  readonly bindNative: (binding: CmsNativeBinding) => Effect.Effect<PayloadHost, CmsTransactionError>;
+  readonly bindNativeRead: (binding: CmsNativeBinding) => Effect.Effect<PayloadReadHost, CmsTransactionError>;
   readonly makeAttempt: (attempt: SessionJournalAttempt) => Effect.Effect<PayloadAttemptRuntime, CmsTransactionError, Scope.Scope>;
 }
 /** Each checked configuration has its own scoped native instance. */

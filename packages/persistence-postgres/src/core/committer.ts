@@ -7,7 +7,7 @@ import { Cause, Clock, Deferred, Duration, Effect, Exit, Option, Queue, Result, 
 import { BTreeEx as BTree } from "sorted-btree/extended/index.js";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { CoreTransactionError, type CoreDatabaseOptions, type CoreError } from "./api";
-import { CorePersistenceError, type CoreDocumentLogEntry, type CoreInterval, type CorePersistence, type CorePersistenceIndexEntry, type CorePersistenceLease, type CoreWriteBatch } from "./contracts";
+import { CorePersistenceError, type CoreDocumentLogEntry, type CoreInterval, type CorePersistence, type CorePersistenceIndexEntry, type CorePersistenceLease, type CoreRetentionValidator, type CoreWriteBatch } from "./contracts";
 import { CoreRegistry, SCHEMAS } from "./registry";
 import { CoreTableCounts, type CoreTableCountDelta } from "./tableCounts";
 import type { CoreSchemaRegistryUpdate } from "./schemaRegistry";
@@ -17,12 +17,19 @@ import { CorePendingWrites, CoreWriteLog, indexKeysFromWrites, type CoreIndexKey
 import { metadataConflictKeys } from "./dependencies";
 import { makeCoreIndexCache, type CoreIndexCache } from "./indexCache";
 import type { CoreResidentIndexes } from "./residentIndex";
+import { prepareCoreNativeSlots, validateCoreNativeSlots } from "./nativeValidation";
+import { checkCoreNativeRegistryTransition } from "./nativePolicy";
 
 interface CorePublishedSnapshot {
   readonly registry: CoreRegistry;
   readonly resident: CoreResidentIndexes;
   readonly counts?: CoreTableCounts;
   readonly countDelta?:CoreTableCountDelta;
+}
+
+interface DurableCommit {
+  readonly timestamp: bigint;
+  readonly completion: Deferred.Deferred<void, CoreError>;
 }
 
 interface AcceptedCommit {
@@ -33,8 +40,26 @@ interface AcceptedCommit {
   readonly documents: ReadonlyMap<string, CoreDocumentLogEntry>;
   readonly indexEntries: ReadonlyMap<string, CorePersistenceIndexEntry>;
   readonly ack: Deferred.Deferred<bigint, CoreError>;
+  readonly durability: DurableCommit;
+  readonly predecessors: readonly DurableCommit[];
   result?: Exit.Exit<void, CoreError>;
 }
+
+function externalPredecessors(members: readonly AcceptedCommit[]): readonly DurableCommit[] {
+  const ownTimestamps = new Set(members.map(member => member.timestamp));
+  const predecessors = new Map<bigint, DurableCommit>();
+  for (const member of members) for (const predecessor of member.predecessors)
+    if (!ownTimestamps.has(predecessor.timestamp)) predecessors.set(predecessor.timestamp, predecessor);
+  return [...predecessors.values()];
+}
+const waitForDurability = Effect.fn("CoreWriteBatcher.waitForDurability")(function* (predecessors: readonly DurableCommit[]) {
+  for (const predecessor of predecessors) yield* Deferred.await(predecessor.completion);
+});
+const readyToSave = Effect.fn("CoreWriteBatcher.readyToSave")(function* (members: readonly AcceptedCommit[]) {
+  for (const predecessor of externalPredecessors(members))
+    if (!(yield* Deferred.isDone(predecessor.completion))) return false;
+  return true;
+});
 
 const PositiveLimit = Schema.Int.check(Schema.makeFilter(value => Number.isSafeInteger(value) && value > 0
   ? undefined : "Expected a positive safe limit"));
@@ -64,6 +89,7 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
   initialRegistry: CoreRegistry,
   initialResident: CoreResidentIndexes,
   options: CoreDatabaseOptions,
+  retention?: CoreRetentionValidator,
 ) {
   const config = yield* decodeCommitterConfig({ maxInflight: options.maxInflight ?? 512,
     maxConcurrentSaves: options.maxConcurrentSaves ?? 1, maxBatchDocuments: options.maxBatchDocuments ?? 64,
@@ -95,7 +121,10 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
 
   const stop = (cause: Cause.Cause<CoreError>) => Effect.gen(function* () {
     if (stopped === undefined) stopped = cause;
-    for (const [, commit] of accepted.entries()) yield* Deferred.failCause(commit.ack, stopped);
+    for (const [, commit] of accepted.entries()) {
+      yield* Deferred.failCause(commit.durability.completion, stopped);
+      yield* Deferred.failCause(commit.ack, stopped);
+    }
     accepted.clear();
     jobs = 0;
   });
@@ -137,28 +166,62 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
     }
   }).pipe(Effect.catchCause(cause => Effect.andThen(stop(cause), Effect.failCause(cause))));
 
-  const saveBatch = Effect.fn("CoreWriteBatcher.save")(function* (members: readonly AcceptedCommit[]) {
+  const saveBatch = Effect.fn("CoreWriteBatcher.save")(function* (members: readonly AcceptedCommit[], permitHeld: boolean) {
     const batch: CoreWriteBatch = {
       documents: members.flatMap(member => member.batch.documents),
       indexes: members.flatMap(member => member.batch.indexes),
     };
-    // Once foreign settlement starts, caller interruption cannot abandon it.
-    const result = yield* Effect.exit(Effect.uninterruptible(persistence.write(lease, batch)));
-    yield* mutex.withPermits(1)(Effect.gen(function* () {
-      if (stopped !== undefined) return;
-      for (const member of members) member.result = result;
-      if (Exit.isFailure(result)) yield* stop(result.cause);
-      else yield* publishReady;
+    let ownsPermit = permitHeld;
+    let saving = permitHeld;
+    yield* Effect.ensuring(Effect.uninterruptibleMask(restore => Effect.gen(function* () {
+      const result = yield* Effect.exit(Effect.gen(function* () {
+        // A dependency wait owns neither a save permit nor a SQL transaction.
+        // Same-batch predecessors settle atomically in this one fenced write.
+        yield* restore(waitForDurability(externalPredecessors(members)));
+        if (!ownsPermit) {
+          yield* restore(saveSlots.take(1));
+          ownsPermit = true;
+          activeSaves += 1;
+          saving = true;
+        }
+        if (stopped !== undefined) return yield* Effect.failCause(stopped);
+        // Once foreign settlement starts, caller interruption cannot abandon it.
+        yield* persistence.write(lease, batch);
+      }));
+      // Confirm actual persistence before publication, retaining every Cause.
+      for (const member of members) {
+        if (Exit.isFailure(result)) yield* Deferred.failCause(member.durability.completion, result.cause);
+        else yield* Deferred.succeed(member.durability.completion, undefined);
+      }
+      yield* mutex.withPermits(1)(Effect.gen(function* () {
+        if (stopped !== undefined) return;
+        for (const member of members) member.result = result;
+        if (Exit.isFailure(result)) yield* stop(result.cause);
+        else yield* publishReady;
+      }));
+    })), Effect.gen(function* () {
+      if (saving) activeSaves -= 1;
+      if (ownsPermit) yield* saveSlots.release(1);
     }));
   });
 
   const saveLoop = Effect.fn("CoreWriteBatcher.run")(function* () {
+    let lookahead: AcceptedCommit | undefined;
     while (true) {
       yield* saveSlots.take(1);
       let handedToSave = false;
       yield* Effect.ensuring(Effect.gen(function* () {
-        const first = yield* Queue.take(queue);
+        const first = lookahead ?? (yield* Queue.take(queue));
+        lookahead = undefined;
         if (stopped !== undefined) return;
+        if (!(yield* readyToSave([first]))) {
+          // Defer this FIFO singleton, never merge it into a later batch. This
+          // keeps an independent queued commit out of its predecessor wait.
+          yield* saveSlots.release(1);
+          handedToSave = true;
+          yield* Effect.forkIn(saveBatch([first], false), ownerScope);
+          return;
+        }
         const members = [first];
         let rows = first.batch.documents.length;
         let bytes = batchBytes(first.batch);
@@ -170,6 +233,10 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
             if (remaining <= 0n) break;
             const next = yield* Effect.timeoutOption(Queue.take(queue), Duration.nanos(remaining));
             if (Option.isNone(next)) break;
+            if (!(yield* readyToSave([...members, next.value]))) {
+              lookahead = next.value;
+              break;
+            }
             members.push(next.value);
             rows += next.value.batch.documents.length;
             bytes += batchBytes(next.value.batch);
@@ -177,10 +244,7 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
         }
         activeSaves += 1;
         handedToSave = true;
-        yield* Effect.forkIn(Effect.ensuring(saveBatch(members), Effect.gen(function* () {
-          activeSaves -= 1;
-          yield* saveSlots.release(1);
-        })), ownerScope);
+        yield* Effect.forkIn(saveBatch(members, true), ownerScope);
       }), Effect.gen(function* () { if (!handedToSave) yield* saveSlots.release(1); }));
       if (stopped !== undefined) return;
     }
@@ -194,51 +258,93 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
 
   const submit = Effect.fn("CoreCommitter.submit")(function* (transaction: CoreFinalizedState) {
     if (stopped !== undefined) return yield* Effect.failCause(stopped);
-    if (transaction.changes.length === 0) return transaction.timestamp;
+    if (transaction.changes.length === 0 && transaction.nativeObservations === undefined) return transaction.timestamp;
     if (jobs >= maxInflight) return yield* Effect.fail(new CoreTransactionError({ reason: "capacity" }));
     jobs += 1;
     let ownedBySave = false;
     const work = Effect.uninterruptibleMask(restore => Effect.gen(function* () {
-      // Frozen published-log prevalidation happens outside the ordering section.
-      const validatedThrough = yield* restore(prevalidationSlots.withPermits(1)(Effect.gen(function* () {
-        const snapshot = log.snapshot();
-        const conflict = yield* Effect.fromResult(snapshot.conflict(transaction.reads, transaction.timestamp));
-        if (conflict !== undefined) return yield* Effect.fail(new CoreTransactionError({ reason: "conflict", cause: conflict }));
-        yield* Effect.yieldNow;
-        return snapshot.timestamp;
-      })));
-      const ack = yield* Deferred.make<bigint, CoreError>();
-      yield* mutex.withPermits(1)(Effect.gen(function* () {
-        if (stopped !== undefined) return yield* Effect.failCause(stopped);
-        const suffixConflict = yield* Effect.fromResult(log.snapshot().conflict(transaction.reads, validatedThrough));
-        const pendingConflict = pending.conflict(transaction.reads);
-        if (suffixConflict !== undefined || pendingConflict !== undefined) return yield* Effect.fail(new CoreTransactionError({
-          reason: "conflict", cause: suffixConflict ?? pendingConflict,
-        }));
-        const now = yield* options.now;
-        const timestamp = now > assigned ? now : assigned + 1n;
-        if (timestamp < 0n || timestamp > 0x7fff_ffff_ffff_ffffn) return yield* Effect.fail(new CoreTransactionError({ reason: "capacity" }));
-        const batch = yield* Effect.fromResult(deriveCoreWriteBatch(transaction, timestamp));
-        if (batch.documents.length === 0) {
-          yield* Deferred.succeed(ack, transaction.timestamp);
-          return;
-        }
-        const virtualKeys = yield* Effect.fromResult(metadataConflictKeys(transaction.registryAfter ?? transaction.registry, transaction.changes));
-        const changes = [...indexKeysFromWrites(batch.indexes), ...virtualKeys];
-        const documents = new Map(batch.documents.map(document => [documentIdentity(document.tableId, document.id), document]));
-        const indexEntries = new Map(batch.indexes.map(entry => [indexEntryIdentity(entry.index.id, entry.key), entry]));
-        const commit: AcceptedCommit = { timestamp, transaction, batch, changes, documents, indexEntries, ack };
-        // The trusted profile's signed deadline governs acceptance, not save completion.
-        // Keep this after every await/work preparation and immediately before pending ownership.
+      const groups = [
+        ...(transaction.nativeObservations !== undefined && transaction.reads.length === 0 ? []
+          : [{ timestamp: transaction.timestamp, reads: transaction.reads }]),
+        ...transaction.nativeObservations?.dependencies ?? [],
+      ];
+      const slots = transaction.nativeObservations?.uniqueSlots ?? [];
+      const slotReads = slots.map(slot => ({ indexId: slot.index.ref.id, intervals: [slot.interval] }));
+      const checkDeadline = Effect.gen(function* () {
         const deadline = transaction.admissionDeadlineUnixMilliseconds;
         if (deadline !== undefined && (yield* Clock.currentTimeMillis) >= deadline)
-          return yield* Effect.fail(new CoreTransactionError({ reason: "admissionExpired" }));
-        pending.push(timestamp, changes);
-        accepted.set(timestamp, commit);
-        assigned = timestamp;
-        ownedBySave = true;
-        yield* Queue.offer(queue, commit);
-      }));
+          return yield* new CoreTransactionError({ reason: "admissionExpired" });
+      });
+      const ack = yield* Deferred.make<bigint, CoreError>();
+      let noWritePredecessors: readonly DurableCommit[] | undefined;
+      while (true) {
+        // Every refresh uses the original dependency timestamps and admission
+        // deadline. Only pure validation repeats; native callbacks never do.
+        const prepared = yield* restore(prevalidationSlots.withPermits(1)(Effect.gen(function* () {
+          yield* checkDeadline;
+          const snapshot = log.snapshot();
+          const publishedRegistry = registry;
+          for (const group of groups) {
+            const conflict = yield* Effect.fromResult(snapshot.conflict(group.reads, group.timestamp));
+            if (conflict !== undefined) return yield* new CoreTransactionError({ reason: "conflict", cause: conflict });
+          }
+          const nativeSlots = slots.length === 0 ? [] : yield* prepareCoreNativeSlots(
+            yield* persistence.readSnapshot(snapshot.timestamp, retention), publishedRegistry, slots);
+          yield* Effect.yieldNow;
+          return { timestamp: snapshot.timestamp, nativeSlots };
+        })));
+        const acceptedHere = yield* mutex.withPermits(1)(Effect.gen(function* () {
+          if (stopped !== undefined) return yield* Effect.failCause(stopped);
+          yield* checkDeadline;
+          const snapshot = log.snapshot();
+          for (const group of groups) {
+            const after = prepared.timestamp > group.timestamp ? prepared.timestamp : group.timestamp;
+            const suffixConflict = yield* Effect.fromResult(snapshot.conflict(group.reads, after));
+            const pendingConflict = pending.conflict(group.reads);
+            if (suffixConflict !== undefined || pendingConflict !== undefined)
+              return yield* new CoreTransactionError({ reason: "conflict", cause: suffixConflict ?? pendingConflict });
+          }
+          // A title event invalidates preparation, rather than establishing a
+          // conflict. Lost suffix history likewise needs fresh pure preparation.
+          if (slots.length > 0 && !Result.match(snapshot.conflict(slotReads, prepared.timestamp), {
+            onFailure: () => false, onSuccess: conflict => conflict === undefined,
+          })) return false;
+          const now = yield* options.now;
+          const timestamp = now > assigned ? now : assigned + 1n;
+          if (timestamp < 0n || timestamp > 0x7fff_ffff_ffff_ffffn) return yield* new CoreTransactionError({ reason: "capacity" });
+          const batch = yield* Effect.fromResult(deriveCoreWriteBatch(transaction, timestamp));
+          const contributingBatches = yield* Effect.fromResult(validateCoreNativeSlots(prepared.nativeSlots,
+            (function* () { for (const [, commit] of accepted.entries()) yield commit.batch; })(), batch));
+          const predecessors = [...accepted.values()].filter(commit => contributingBatches.has(commit.batch))
+            .map(commit => commit.durability);
+          if (batch.documents.length === 0) {
+            yield* checkDeadline;
+            noWritePredecessors = predecessors;
+            return true;
+          }
+          const virtualKeys = yield* Effect.fromResult(metadataConflictKeys(transaction.registryAfter ?? transaction.registry, transaction.changes));
+          const changes = [...indexKeysFromWrites(batch.indexes), ...virtualKeys];
+          const documents = new Map(batch.documents.map(document => [documentIdentity(document.tableId, document.id), document]));
+          const indexEntries = new Map(batch.indexes.map(entry => [indexEntryIdentity(entry.index.id, entry.key), entry]));
+          const durability = { timestamp, completion: yield* Deferred.make<void, CoreError>() };
+          const commit: AcceptedCommit = { timestamp, transaction, batch, changes, documents, indexEntries, ack,
+            durability, predecessors };
+          // The trusted profile's signed deadline governs acceptance, not save completion.
+          yield* checkDeadline;
+          pending.push(timestamp, changes);
+          accepted.set(timestamp, commit);
+          assigned = timestamp;
+          ownedBySave = true;
+          yield* Queue.offer(queue, commit);
+          return true;
+        }));
+        if (acceptedHere) break;
+      }
+      if (noWritePredecessors !== undefined) {
+        yield* restore(waitForDurability(noWritePredecessors));
+        if (stopped !== undefined) return yield* Effect.failCause(stopped);
+        yield* Deferred.succeed(ack, transaction.timestamp);
+      }
       return yield* restore(Deferred.await(ack));
     }));
     return yield* Effect.ensuring(Effect.catchCause(work, cause => Effect.gen(function* () {
@@ -322,6 +428,7 @@ function applyRegistryChanges(transaction:CoreFinalizedState,current:CoreRegistr
     for(const [name,record]of changes.programs)if(base.programs.get(name)!==record)next=next.withProgram({...record,ts:timestamp});
     for(const [name,record]of changes.heads)if(base.heads.get(name)!==record)next=next.withHead({...record,ts:timestamp});
     if(changes.authority!==undefined&&changes.authority!==base.authority)next=next.withAuthority({...changes.authority,ts:timestamp});
+    yield* checkCoreNativeRegistryTransition(next,current,changes);
     return next;
   });
 }

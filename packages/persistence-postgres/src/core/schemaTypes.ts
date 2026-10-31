@@ -42,7 +42,8 @@ export const CoreSchemaStateSchema = Schema.Union([
 ]);
 export type CoreSchemaState = typeof CoreSchemaStateSchema.Type;
 export type CoreSchemaUniqueState = "pending" | "validated" | "active";
-export const CoreSchemaMetadataSchema = Schema.Struct({ state: CoreSchemaStateSchema, schema: Schema.String });
+export const CoreSchemaMetadataSchema = Schema.Struct({ state: CoreSchemaStateSchema, schema: Schema.String,
+  native: Schema.optionalKey(Schema.String) });
 export type CoreSchemaMetadata = typeof CoreSchemaMetadataSchema.Type;
 export const decodeCoreSchemaMetadata = Schema.decodeUnknownResult(CoreSchemaMetadataSchema);
 

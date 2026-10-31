@@ -8,6 +8,7 @@ import type { CmsTransactionError } from "../../../src/frameworks/cmsTransaction
 
 const decodeCount = Schema.decodeUnknownSync(Schema.Struct({ totalDocs: Schema.Number }));
 const decodeDocument = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String, title: Schema.String }));
+const decodeDocuments = Schema.decodeUnknownSync(Schema.Struct({ docs: Schema.Array(Schema.Struct({ id: Schema.String, title: Schema.String })) }));
 
 export interface PayloadVisibilityTarget<Failure> {
   readonly collection: "items" | "news";
@@ -324,4 +325,80 @@ export const payloadUniqueAbaVisibilityScenario = Effect.fn("Payload.uniqueKeyAb
     expect({ heldBodies, insertBodies, renameBodies }).toEqual({ heldBodies: 1, insertBodies: 1, renameBodies: 1 });
     expect(durableRenamed.title).toBe(renamedTitle);
   }).pipe(Effect.ensuring(Deferred.interrupt(release)), Effect.timeout(20_000));
+});
+
+/** A later point/table demand does not broaden an earlier captured unique-key membership. */
+export const payloadCachedKeyCoherenceScenario = Effect.fn("Payload.cachedKeyCoherence")(function* <Failure>(
+  tested: PayloadVisibilityTarget<Failure>, demand: "point" | "table",
+) {
+  const { host, commands, collection } = tested;
+  const title = `cached-key-${demand}`;
+  const entered = yield* Deferred.make<void, CmsTransactionError>();
+  const published = yield* Deferred.make<string, CmsTransactionError>();
+  let bodies = 0;
+  let trace: Readonly<{ before: number; observed: string; after: number }> | undefined;
+  const held = defineCmsCommand({ name: `observeCachedKeyAfter${demand === "point" ? "Point" : "Table"}`, mode: "write",
+    run: Effect.fn(function* (ctx) {
+      bodies++;
+      const before = decodeCount(yield* ctx.nested(commands.count, { collection, where: { title: { equals: title } } })).totalDocs;
+      yield* Deferred.succeed(entered, undefined);
+      const id = yield* Deferred.await(published);
+      const observed = demand === "point" ? decodeDocument(yield* ctx.nested(commands.findByID, { collection, id })).title
+        : yield* Effect.gen(function* () {
+          const page = yield* ctx.nested(commands.find, { collection, where: {}, limit: 32, pagination: false });
+          const decoded = decodeDocuments(page);
+          expect(decoded.docs.some(document => document.id === id && document.title === title)).toBe(true);
+          return title;
+        });
+      const after = decodeCount(yield* ctx.nested(commands.count, { collection, where: { title: { equals: title } } })).totalDocs;
+      trace = { before, observed, after };
+      return null;
+    }) });
+  const pending = yield* Effect.acquireRelease(tested.openHost([held]), value => value.close);
+  yield* Effect.gen(function* () {
+    const heldFiber = yield* pending.run(pending.newRequestKey(), held, null).pipe(
+      Effect.onExit(exit => Exit.isFailure(exit) ? Deferred.failCause(entered, exit.cause) : Effect.void),
+      Effect.result, Effect.forkScoped);
+    yield* Deferred.await(entered).pipe(Effect.timeout(5_000));
+    const committed = decodeDocument(yield* host.run(host.newRequestKey(), commands.create, { collection, data: { title } }));
+    yield* Deferred.succeed(published, committed.id);
+    const result = yield* Fiber.join(heldFiber);
+    expect(trace).toEqual({ before: 0, observed: title, after: 0 });
+    expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "writeConflict" } });
+    expect(bodies).toBe(1);
+  }).pipe(Effect.ensuring(Deferred.interrupt(published)), Effect.timeout(20_000));
+});
+
+/** A newly captured slot must agree with the revision of its already observed owner. */
+export const payloadCapturedOwnerConflictScenario = Effect.fn("Payload.capturedOwnerConflict")(function* <Failure>(
+  tested: PayloadVisibilityTarget<Failure>,
+) {
+  const { host, commands, collection } = tested;
+  const seed = decodeDocument(yield* host.run(host.newRequestKey(), commands.create,
+    { collection, data: { title: "captured-owner-original" } }));
+  const entered = yield* Deferred.make<void, CmsTransactionError>();
+  const published = yield* Deferred.make<void, CmsTransactionError>();
+  let bodies = 0;
+  let checkpoint: unknown;
+  const held = defineCmsCommand({ name: "observeNewSlotForCapturedOwner", mode: "write", run: Effect.fn(function* (ctx) {
+    bodies++;
+    expect(decodeDocument(yield* ctx.nested(commands.findByID, { collection, id: seed.id })).title).toBe("captured-owner-original");
+    yield* Deferred.succeed(entered, undefined);
+    yield* Deferred.await(published);
+    checkpoint = yield* ctx.nested(commands.count, { collection, where: { title: { equals: "captured-owner-renamed" } } }).pipe(Effect.result);
+    return null;
+  }) });
+  const pending = yield* Effect.acquireRelease(tested.openHost([held]), value => value.close);
+  yield* Effect.gen(function* () {
+    const heldFiber = yield* pending.run(pending.newRequestKey(), held, null).pipe(
+      Effect.onExit(exit => Exit.isFailure(exit) ? Deferred.failCause(entered, exit.cause) : Effect.void),
+      Effect.result, Effect.forkScoped);
+    yield* Deferred.await(entered).pipe(Effect.timeout(5_000));
+    yield* host.run(host.newRequestKey(), commands.update, { collection, id: seed.id, data: { title: "captured-owner-renamed" } });
+    yield* Deferred.succeed(published, undefined);
+    const result = yield* Fiber.join(heldFiber);
+    expect(checkpoint).toMatchObject({ _tag: "Failure", failure: { reason: "writeConflict" } });
+    expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "rollbackOnly" } });
+    expect(bodies).toBe(1);
+  }).pipe(Effect.ensuring(Deferred.interrupt(published)), Effect.timeout(20_000));
 });

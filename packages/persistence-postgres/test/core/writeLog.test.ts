@@ -33,6 +33,24 @@ describe("translated indexed conflict history", () => {
     expect(pending.size).toBe(0);
   });
 
+  it("keeps every same-key pending writer until its own FIFO publication", () => {
+    const pending = new CorePendingWrites();
+    pending.push(1n, changes(2));
+    pending.push(2n, changes(2));
+    pending.push(3n, changes(2));
+    expect(pending.conflict(reads(2))).toMatchObject({ timestamp: 3n });
+    expect(pending.range(index, pointInterval(bytes(2)), 2)).toEqual([
+      { indexId: index, key: bytes(2), timestamp: 3n },
+    ]);
+    pending.pop(1n);
+    expect(pending.conflict(reads(2))).toMatchObject({ timestamp: 3n });
+    pending.pop(2n);
+    expect(pending.conflict(reads(2))).toMatchObject({ timestamp: 3n });
+    pending.pop(3n);
+    expect(pending.conflict(reads(2))).toBeUndefined();
+    expect(pending.range(index, pointInterval(bytes(2)), 2)).toEqual([]);
+  });
+
   it("preserves interval boundaries, unions coverage, and fails after history loss", () => {
     const builder = new CoreReadSetBuilder();
     builder.add(index, { start: bytes(2), end: bytes(4) });

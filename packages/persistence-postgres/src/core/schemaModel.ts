@@ -74,7 +74,7 @@ export class CoreSchemaModel {
       metadata: Object.freeze({ ...metadata, state: Object.freeze({ ...metadata.state }) }), schema }));
   }));
 
-  readonly submitPending = Effect.fn("CoreSchemaModel.submitPending")((input: CoreSchemaDefinition) => Effect.gen({ self: this }, function* () {
+  readonly submitPending = Effect.fn("CoreSchemaModel.submitPending")((input: CoreSchemaDefinition, native?: string) => Effect.gen({ self: this }, function* () {
     const schema = yield* Effect.fromResult(captureCoreSchema(input));
     const serialized = yield* Effect.fromResult(serializeCoreSchema(schema));
     const active = yield* this.active();
@@ -89,7 +89,7 @@ export class CoreSchemaModel {
         message: `Staged and enforced validation cannot walk the same tables: ${conflicts.map(table => table.tableName).join(", ")}` }));
     }
     for (const table of schema.tables) if (!this.tx.tableExists(table.tableName)) yield* this.tx.ensureUserTable(table.tableName);
-    if (Option.isSome(active) && (yield* Effect.fromResult(serializeCoreSchema(active.value.schema).pipe(Result.mapError(coreSchemaCorrupt)))) === serialized) {
+    if (Option.isSome(active) && active.value.metadata.native === native && (yield* Effect.fromResult(serializeCoreSchema(active.value.schema).pipe(Result.mapError(coreSchemaCorrupt)))) === serialized) {
       for (const state of ["pending", "validated"] as const) {
         const existing = yield* this.getByState(state);
         if (Option.isSome(existing)) yield* this.markOverwritten(existing.value.id);
@@ -104,14 +104,15 @@ export class CoreSchemaModel {
     if (Option.isSome(pending) && Option.isSome(validated)) return yield* Effect.fail(coreSchemaCorrupt("Pending and validated schemas coexist"));
     const existing = Option.orElse(pending, () => validated);
     if (Option.isSome(existing)) {
-      if ((yield* Effect.fromResult(serializeCoreSchema(existing.value.schema).pipe(Result.mapError(coreSchemaCorrupt)))) === serialized) {
+      if (existing.value.metadata.native === native && (yield* Effect.fromResult(serializeCoreSchema(existing.value.schema).pipe(Result.mapError(coreSchemaCorrupt)))) === serialized) {
         yield* this.validations.retryFailedStagedValidators(existing.value.id, schema);
         return { id: existing.value.id, state: existing.value.metadata.state };
       }
       if (hasStaged) carryOver.push(...(yield* this.validations.stagedValidationsWithProgress(existing.value.id, existing.value.schema)));
       yield* this.markOverwritten(existing.value.id);
     }
-    const id = yield* this.tx.insertSystem(SCHEMAS, { state: { state: "pending" }, schema: serialized });
+    const id = yield* this.tx.insertSystem(SCHEMAS, { state: { state: "pending" }, schema: serialized,
+      ...(native === undefined ? {} : { native }) });
     if (hasStaged) yield* this.validations.initializeStagedValidators(id, schema, carryOver);
     return { id, state: { state: "pending" } as const };
   }));

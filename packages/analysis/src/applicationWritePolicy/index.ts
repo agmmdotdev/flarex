@@ -4,3 +4,4 @@ export { captureApplicationWritePolicyData, decodeApplicationWritePolicies, appl
 export { verifyApplicationWritePolicies, digestApplicationWritePolicyFrame,
   ApplicationWritePolicyDigest, makeApplicationWritePolicyDigest } from "./verification.ts";
 export type { VerifiedApplicationWritePolicies } from "./verification.ts";
+export { validateApplicationWritePolicySchema } from "./schemaCompatibility.ts";

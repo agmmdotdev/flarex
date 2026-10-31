@@ -7,6 +7,7 @@ import type {
 } from "./contracts";
 import type { CoreReadSet } from "./writeLog";
 import { CoreTableIteratorResourceBudgetSchema, CoreIteratorPositiveBudgetSchema } from "./iteratorBudget";
+import type { CoreNativeDefinition, CoreNativeIdentity, CoreNativeTablePolicy } from "./nativePolicy";
 
 export interface CoreIndexDefinition {
   readonly name: string;
@@ -22,6 +23,7 @@ export interface CoreTableDefinition {
   readonly namespace: CoreTableNamespace;
   readonly state: "active" | "hidden" | "deleting";
   readonly indexes: readonly CoreIndexDefinition[];
+  readonly nativePolicy?: CoreNativeTablePolicy;
 }
 
 export const CoreProgramIdentitySchema = Schema.Struct({ functionPath: Schema.NonEmptyString,
@@ -38,6 +40,7 @@ export interface CoreProgramPublication {
   readonly programs: readonly CoreProgramDefinition[];
   readonly authorityEpoch?: bigint;
   readonly namespace?: CoreTableNamespace;
+  readonly native?: CoreNativeDefinition;
 }
 export interface CoreSchemaProposal { readonly namespace: CoreTableNamespace; readonly id: string }
 export interface CoreSchemaStatus {
@@ -52,11 +55,27 @@ export interface CoreSchemaActivation {
   readonly tables: readonly CoreTableDefinition[];
 }
 
-export interface CoreRequestIdentity {
+interface CoreRequestCorrelation {
   readonly key: string;
   /** Canonical profile correlation of request, arguments and authenticated identity. */
   readonly requestHash: string;
-  readonly program: CoreProgramIdentity;
+}
+export interface CoreNativeCommandIdentity { readonly source: CoreNativeIdentity; readonly name: string; readonly mode: "read" | "write" }
+export interface CoreNativeCommandDefinition { readonly name: string; readonly mode: "read" | "write"; readonly identity: CoreNativeCommandIdentity }
+export type CoreRequestIdentity = CoreRequestCorrelation & (
+  | Readonly<{ kind?: "application"; program: CoreProgramIdentity }>
+  | Readonly<{ kind: "native"; native: CoreNativeCommandIdentity }>
+);
+
+const nativeBindingBrand: unique symbol = Symbol("CoreNativeBinding");
+export interface CoreNativeBinding { readonly [nativeBindingBrand]: true }
+export interface CoreNativeBindingMetadata {
+  readonly definition: CoreNativeDefinition;
+  readonly namespace: CoreTableNamespace;
+  readonly schemaId: string;
+  readonly authorityEpoch: bigint;
+  readonly tables: readonly CoreTableDefinition[];
+  readonly commands: readonly CoreNativeCommandDefinition[];
 }
 
 const requestClaimBrand: unique symbol = Symbol("CoreRequestClaim");
@@ -87,8 +106,13 @@ export class CoreQueryInputError extends Data.TaggedError("CoreQueryInputError")
   readonly reason: "invalidQuery" | "invalidCursor";
   readonly cause?: unknown;
 }> {}
+export class CoreNativeUniqueConflict extends Data.TaggedError("CoreNativeUniqueConflict")<{
+  readonly tableName: string;
+  readonly descriptor: string;
+  readonly fields: readonly string[];
+}> { readonly reason = "uniqueConflict"; }
 
-export type CoreError = CoreTransactionError | CorePersistenceError | CoreQueryInputError | CoreSchemaError;
+export type CoreError = CoreTransactionError | CorePersistenceError | CoreQueryInputError | CoreSchemaError | CoreNativeUniqueConflict;
 
 export interface CoreQueryRequest {
   /** Captured once by the protocol query owner, then resolved against this transaction's registry. */
@@ -169,6 +193,19 @@ export interface CoreTransaction {
 export type CoreReadTransaction = Pick<CoreTransaction, "timestamp" | "unixTime" | "usage" | "selectProgram"
   | "tableNumber" | "tableMappings" | "normalizeId" | "get" | "startQuery" | "scan">;
 
+export type CoreNativeOperations = Pick<CoreTransaction, "get" | "insert" | "patch" | "replace" | "delete" | "normalizeId"> & {
+  readonly find: (table: string, selection: Readonly<{ kind: "all" }> | Readonly<{ kind: "id"; id: string }>
+    | Readonly<{ kind: "equal"; field: string; value: string }>) => Effect.Effect<readonly DocumentObject[], CoreError>;
+};
+/** Trusted outer host owns this operation; only operations may enter a framework facade. */
+export interface CoreNativeOperation {
+  readonly command: CoreNativeCommandDefinition;
+  readonly operations: CoreNativeOperations;
+  readonly finishRead: () => Effect.Effect<CoreReadToken, CoreError>;
+  readonly finalize: () => Effect.Effect<CoreFinalizedTransaction, CoreError>;
+  readonly abort: () => Effect.Effect<void>;
+}
+
 /** Trusted completion evidence only; it cannot enter CoreDatabase.commit. */
 export interface CoreReadToken {
   readonly timestamp: CoreTimestamp;
@@ -188,7 +225,7 @@ export interface CoreDatabase {
   /** Blocks admission and results, then closes and drains every borrowed operation. */
   readonly close: () => Effect.Effect<void>;
   readonly beginQuery: (functionPath: string) => Effect.Effect<CoreQueryOperation, CoreError>;
-  readonly prepareSchema: (input: Readonly<{ namespace?: CoreTableNamespace; schema: unknown }>) => Effect.Effect<CoreSchemaProposal, CoreError>;
+  readonly prepareSchema: (input: Readonly<{ namespace?: CoreTableNamespace; schema?: unknown; native?: CoreNativeDefinition }>) => Effect.Effect<CoreSchemaProposal, CoreError>;
   readonly schemaStatus: (proposal: CoreSchemaProposal) => Effect.Effect<CoreSchemaStatus, CoreError>;
   readonly advanceSchemaWork: (work:CoreSchemaWorkBudget)=>Effect.Effect<Readonly<{hasMore:boolean}>,CoreError>;
   readonly advanceSchema: (proposal: CoreSchemaProposal, work: Readonly<{ pageSize: number; maxPages: number }>) => Effect.Effect<CoreSchemaStatus, CoreError>;
@@ -196,10 +233,14 @@ export interface CoreDatabase {
   readonly publishPrograms: (publication: CoreProgramPublication) => Effect.Effect<CoreSchemaActivation, CoreError>;
   readonly selectProgram: (functionPath: string) => Effect.Effect<CoreProgramDefinition, CoreError>;
   readonly lookupProgram: (identity: CoreProgramIdentity) => Effect.Effect<CoreProgramDefinition, CoreError>;
+  readonly bindNative: (input: Readonly<{ definition: CoreNativeDefinition; namespace?: CoreTableNamespace;
+    commands?: readonly Readonly<{ name: string; mode: "read" | "write" }>[] }>) => Effect.Effect<CoreNativeBinding, CoreError>;
+  readonly readNativeBinding: (binding: CoreNativeBinding) => Effect.Effect<CoreNativeBindingMetadata, CoreError>;
+  readonly beginNative: (binding: CoreNativeBinding, options: Readonly<{ commandName: string; claim?: CoreRequestClaim }>) => Effect.Effect<CoreNativeOperation, CoreError>;
   readonly resolveRequest: (identity: CoreRequestIdentity) => Effect.Effect<CoreRequestResolution, CoreError>;
   /** Fenced predecessor recovery; never executes another body or abandons a current-owner claim. */
   readonly recoverRequest: (identity: CoreRequestIdentity) => Effect.Effect<CoreRequestResolution, CoreError>;
-  readonly claimRequest: (identity: CoreRequestIdentity) => Effect.Effect<CoreRequestAcquisition, CoreError>;
+  readonly claimRequest: (identity: CoreRequestIdentity, nativeBinding?: CoreNativeBinding) => Effect.Effect<CoreRequestAcquisition, CoreError>;
   readonly abortRequest: (claim: CoreRequestClaim) => Effect.Effect<void, CoreError>;
   readonly begin: (options?: Readonly<{
     program?: CoreProgramIdentity; claim?: CoreRequestClaim; at?: CoreTimestamp; authorityEpoch?: bigint; namespace?: CoreTableNamespace;
@@ -238,6 +279,9 @@ export interface CoreDatabaseOptions {
 /** Identity issuance stays internal; structural objects do not gain authority. */
 export function issueCoreClaim(): CoreRequestClaim {
   return Object.freeze({ [requestClaimBrand]: true as const });
+}
+export function issueCoreNativeBinding(): CoreNativeBinding {
+  return Object.freeze({ [nativeBindingBrand]: true as const });
 }
 
 export function issueFinalizedTransaction(): CoreFinalizedTransaction {

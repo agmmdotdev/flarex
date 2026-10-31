@@ -533,9 +533,11 @@ numeric slice. Treat canonical-byte changes as a named stored-identity migration
 responsibility; do not preserve the simplified private wire as a runtime exception.
 
 The [managed scalar Payload cutover](./slices/10-payload-native-core-cutover.md)
-selects an existing native consumer after independent source/current/design
-challenge. Shared authenticated ownership, required-text uniqueness, installation,
-request lifetime and outcomes stay connected. Current-frame reader correction and
-native visibility characterization establish prerequisites. The direct native
-observation/acceptance mechanism is selected for implementation before activation; a
-no-replay setting alone does not establish that existing native read profile.
+connects its existing fresh consumer after independent source/current/design
+challenge. Shared native reservations, required-text uniqueness, explicit
+observation/acceptance, real Local API lifetime and native outcomes use the
+translated five-table owner. Direct commands preserve remembered membership and
+later untouched observations; standalone reads retain one snapshot. Broader
+native profiles, multi-source composition, retained-data cutover, native hosting
+and complete-flow performance remain open. The selected binding has no old-engine
+fallback; retained consumers and their removal gates are named in the slice.

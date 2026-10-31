@@ -36,7 +36,7 @@ const key = (namespace: CoreTableNamespace, state: CoreSchemaUniqueState): strin
 
 function entryFor(document: CoreSystemDocument, metadata: CoreSchemaMetadata): RegistryEntry {
   let cached: CoreSchemaDefinition | undefined;
-  const owned = Object.freeze({ state: Object.freeze({ ...metadata.state }), schema: metadata.schema });
+  const owned = Object.freeze({ ...metadata, state: Object.freeze({ ...metadata.state }) });
   return Object.freeze({ id: document.id, creationTime: document.creationTime, metadata: owned,
     parsed: (): Result.Result<CoreSchemaDefinition, CorePersistenceError> => {
       if (cached !== undefined) return Result.succeed(cached);
@@ -109,5 +109,13 @@ export class CoreSchemaRegistry {
       const schema = yield* entry.parsed();
       return Option.some(Object.freeze({ id: entry.id, creationTime: entry.creationTime, metadata: entry.metadata, schema }));
     });
+  }
+
+  /** Trusted registry authentication does not eagerly parse unrelated Source-only schemas. */
+  nativeByState(namespace: CoreTableNamespace, state: CoreSchemaUniqueState): Result.Result<Option.Option<CoreSchemaSelection>, CorePersistenceError> {
+    const entry = this.entries.get(key(namespace, state));
+    if (entry?.metadata.native === undefined) return Result.succeed(Option.none());
+    return Result.map(entry.parsed(), schema => Option.some(Object.freeze({ id: entry.id, creationTime: entry.creationTime,
+      metadata: entry.metadata, schema })));
   }
 }

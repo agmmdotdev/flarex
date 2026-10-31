@@ -193,6 +193,33 @@ it("retains external interruption without replacing it with a deadline", () => r
   yield* lifetime.close;
 }).pipe(Effect.provide(TestClock.layer()))));
 
+it("drains the deadline loser and retains each completed typed failure and defect once", () => runEffect(Effect.gen(function* () {
+  const lifetime = yield* makeBoundedRequestLifetime(commerceError,
+    { calls: 16, commandBytes: 100, commandMs: 10 }, {}, {}, "request", "write");
+  const started = yield* Deferred.make<void>();
+  const release = yield* Deferred.make<void>();
+  const statement = commerceError("statementFailure"), defect = new Error("late native cleanup");
+  const native = Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never),
+    Effect.onInterrupt(() => Deferred.await(release).pipe(Effect.andThen(
+      Effect.failCause(Cause.combine(Cause.fail(statement), Cause.die(defect)))))));
+  const fiber = yield* Effect.forkChild(lifetime.withinDeadline(native));
+  yield* Deferred.await(started);
+  yield* TestClock.adjust("10 millis");
+  expect(fiber.pollUnsafe()).toBeUndefined();
+  yield* Deferred.succeed(release, undefined);
+  const outcome = yield* Fiber.await(fiber);
+  if (Exit.isSuccess(outcome)) throw new Error("Expected deadline with native completion failures");
+  expect(Cause.hasInterrupts(outcome.cause)).toBe(false);
+  expect(outcome.cause.reasons.filter(reason => Cause.isFailReason(reason) && reason.error.reason === "deadlineExceeded")).toHaveLength(1);
+  expect(outcome.cause.reasons.filter(reason => Cause.isFailReason(reason) && reason.error === statement)).toHaveLength(1);
+  expect(outcome.cause.reasons.filter(reason => Cause.isDieReason(reason) && reason.defect === defect)).toHaveLength(1);
+  const sealed = yield* Effect.exit(lifetime.seal);
+  if (Exit.isSuccess(sealed)) throw new Error("Expected rollback-only completion");
+  expect(sealed.cause.reasons.filter(reason => Cause.isFailReason(reason) && reason.error === statement)).toHaveLength(1);
+  expect(sealed.cause.reasons.filter(reason => Cause.isDieReason(reason) && reason.defect === defect)).toHaveLength(1);
+  yield* lifetime.close;
+}).pipe(Effect.provide(TestClock.layer()))));
+
 it("preserves a native defect as the first lifetime cause", () => runEffect(Effect.gen(function* () {
   const lifetime = yield* makeBoundedRequestLifetime(commerceError,
     { calls: 16, commandBytes: 100, commandMs: 10 }, {}, {}, "request", "write");

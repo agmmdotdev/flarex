@@ -1,6 +1,6 @@
 # Authenticated native table write ownership
 
-Status: **Required native extension; selected scope and proofs in slice 10; runtime design/implementation pending.**
+Status: **Required native extension implemented for the fresh selected scalar consumer; wider native and retained-data gates open.**
 
 ## Why the source mechanism needs an extension
 
@@ -33,6 +33,15 @@ Private policy/catalog state stays logical over the five physical tables, with
 one authoritative settlement/publication/cache invalidation path. Derive exact
 record/API shapes during the coordinated implementation; no generic registry,
 adapter SQL enforcement or additional physical family is justified here.
+
+The selected implementation stores reserved/active policy through existing
+schema/database owners and logical `_tables`/`_schemas` records. The transaction
+owner checks Application access by name, ID and query. Database-owned native
+bindings check producer/configuration, table/index generations, active schema
+and authority epoch before fresh disclosure and final acceptance. Native commands
+use tagged identities through the shared claim/outcome owner; trusted command
+registration does not reinstall schema. See the
+[executing owners and retained consumers](../slices/10-payload-native-core-cutover.md#executing-replacement-and-retained-consumers).
 
 ## Required proof and retirement
 

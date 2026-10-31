@@ -7,8 +7,9 @@ import { Cause, Effect, Exit, Option, Result, Schema, Semaphore } from "effect";
 import { bytesEqual, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { decodeDocumentValue, encodeDocumentValue, type DocumentObject, type DocumentValue } from "flarex-protocol/document-value";
 import { encodeIndexValue } from "flarex-protocol/index-key";
-import { CoreProgramIdentitySchema, CoreSchemaWorkerOptionsSchema, CoreTransactionLimitsSchema, CoreTransactionError, issueCoreClaim, type CoreDatabase, type CoreDatabaseOptions, type CoreError,
+import { CoreProgramIdentitySchema, CoreSchemaWorkerOptionsSchema, CoreTransactionLimitsSchema, CoreTransactionError, issueCoreClaim, issueCoreNativeBinding, type CoreDatabase, type CoreDatabaseOptions, type CoreError,
   type CoreProgramPublication, type CoreSchemaProposal, type CoreSchemaStatus, type CoreProgramDefinition, type CoreRequestAcquisition,
+  type CoreNativeBinding, type CoreNativeCommandDefinition, type CoreNativeCommandIdentity, type CoreNativeOperation,
   type CoreRequestClaim, type CoreRequestIdentity, type CoreRequestResolution, type CoreTableDefinition } from "./api";
 import { CorePersistenceError, type CoreDocumentLogEntry, type CoreIndexScan, type CoreInterval, type CorePersistence, type CorePersistenceSnapshot } from "./contracts";
 import { allocateCoreBuiltinDefinitions, allocateInternalId, bootstrapCore } from "./bootstrap";
@@ -24,20 +25,31 @@ import { CoreReadSetBuilder } from "./writeLog";
 import { captureCoreTableNamespace, coreNamespaceKey,type CoreTableNamespace } from "./namespace";
 import { CoreSchemaModel } from "./schemaModel";
 import { captureCoreSchema, checkCoreSchemaIndexReferences, CoreSchemaError } from "./schemaTypes";
+import { serializeCoreSchema } from "./schemaJson";
 import { coreIndexMetadataValue,type CoreIndexRecord } from "./indexState";
 import { planCoreIndexes,prepareCoreIndexChanges,finishCoreIndexChanges,type CoreIndexChanges } from "./indexModel";
 import { makeCoreSchemaWorker } from "./schemaWorker";
 import { makeCoreTableSummaryWorker } from "./tableSummary";
+import { CoreNativeIdentitySchema, checkCoreNativeAuthority, coreNativeMetadataReads, requireCoreNativeDefinition,
+  sameCoreNativeIdentity, type CoreNativeAuthority, type CoreNativeDefinition, type CoreNativeTablePolicy } from "./nativePolicy";
 
 
-const RequestRecordFields = { key: Schema.String, requestHash: Schema.String, program: CoreProgramIdentitySchema,
-  leaseToken: Schema.BigInt };
+const RequestFields = { key: Schema.String, requestHash: Schema.String, leaseToken: Schema.BigInt,
+  abandonedByLease: Schema.optionalKey(Schema.BigInt) };
+const NativeCommandIdentitySchema = Schema.Struct({ source: CoreNativeIdentitySchema, name: Schema.NonEmptyString,
+  mode: Schema.Literals(["read", "write"]) });
+const RequestRecordFields = { ...RequestFields, kind: Schema.optionalKey(Schema.Literal("application")), program: CoreProgramIdentitySchema };
+const NativeRequestFields = { ...RequestFields, kind: Schema.Literal("native"), native: NativeCommandIdentitySchema };
 const RequestRecord = Schema.Union([
   Schema.Struct({ ...RequestRecordFields, state: Schema.Literals(["claimed", "failed"]) }),
   Schema.Struct({ ...RequestRecordFields, state: Schema.Literal("committed"), result: Schema.String }),
+  Schema.Struct({ ...NativeRequestFields, state: Schema.Literals(["claimed", "failed"]) }),
+  Schema.Struct({ ...NativeRequestFields, state: Schema.Literal("committed"), result: Schema.String }),
 ]);
-const decodeRequestRecord = Schema.decodeUnknownResult(RequestRecord);
+const decodeRequestRecord = Schema.decodeUnknownResult(RequestRecord, { onExcessProperty: "error" });
 const decodeProgramIdentity = Schema.decodeUnknownResult(CoreProgramIdentitySchema);
+const decodeNativeRegistrations = Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({ name: Schema.NonEmptyString,
+  mode: Schema.Literals(["read", "write"]) })).check(Schema.isMinLength(1), Schema.isMaxLength(128)));
 const decodeOperationCacheBytes = Schema.decodeUnknownEffect(Schema.Int.check(Schema.makeFilter(value =>
   Number.isSafeInteger(value) && value >= 0 ? undefined : "Expected a nonnegative safe cache size")));
 const utf8 = new TextEncoder();
@@ -84,9 +96,10 @@ function requestRecord(entry: CoreDocumentLogEntry, table: CoreTableDefinition,
   identity: CoreRequestIdentity): Result.Result<RequestRecordData, CoreError> {
   return Result.gen(function* () {
     const document = yield* readDocumentObject(entry, table);
-    const record = yield* Result.mapError(decodeRequestRecord(document), corrupt);
-    if (record.key !== identity.key || record.requestHash !== identity.requestHash
-      || record.program.functionPath !== identity.program.functionPath)
+    const record = yield* Result.mapError(decodeRequestRecord(withoutSystemFields(document)), corrupt);
+    const matches = identity.kind === "native" ? record.kind === "native"
+      && sameNativeCommand(record.native, identity.native) : record.kind !== "native" && record.program.functionPath === identity.program.functionPath;
+    if (record.key !== identity.key || record.requestHash !== identity.requestHash || !matches)
       return yield* Result.fail(new CoreTransactionError({ reason: "requestMismatch" }));
     const base = { id: entry.id.slice(), revision: entry, document, leaseToken: record.leaseToken };
     if (record.state === "committed") {
@@ -95,6 +108,13 @@ function requestRecord(entry: CoreDocumentLogEntry, table: CoreTableDefinition,
     }
     return { ...base, state: record.state };
   });
+}
+function sameNativeCommand(left: CoreNativeCommandIdentity, right: CoreNativeCommandIdentity): boolean {
+  return left.name === right.name && left.mode === right.mode && sameCoreNativeIdentity(left.source, right.source);
+}
+function requestActor(identity: CoreRequestIdentity): DocumentObject {
+  return identity.kind === "native" ? { kind: "native", native: { source: { ...identity.native.source }, name: identity.native.name, mode: identity.native.mode } }
+    : { program: { ...identity.program } };
 }
 
 function existingResolution(record: RequestRecordData): Result.Result<Exclude<CoreRequestResolution, { kind: "missing" }>, CoreError> {
@@ -113,6 +133,10 @@ function ownedProgram(definition: CoreProgramDefinition): Result.Result<CoreProg
     return Object.freeze({ identity: Object.freeze(identity), metadata });
   });
 }
+const nativeUnsupported = (message: string) => new CoreSchemaError({ reason: "unsupportedCapability", message });
+const userTables = (registry: CoreRegistry, namespace: CoreTableNamespace) => [...registry.tables.values()]
+  .map(record => record.definition).filter(table => !table.name.startsWith("_")
+    && coreNamespaceKey(table.namespace) === coreNamespaceKey(namespace));
 
 function trackMetadataEquality(context: CoreTransactionInternals, registry: CoreRegistry,
   tableName: string, indexName: string, values: readonly DocumentValue[]): Result.Result<void, CoreError> {
@@ -141,9 +165,10 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
     .pipe(Effect.mapError(invalid));
   const lease = yield* persistence.acquireLease();
   const initial = yield* bootstrapCore(persistence, lease, options);
-  const committer = yield* makeCoreCommitter(persistence, lease, initial.timestamp, initial.registry, initial.resident, options);
+  const committer = yield* makeCoreCommitter(persistence, lease, initial.timestamp, initial.registry, initial.resident, options, initial.retention);
   const vault = new CoreFinalizationVault();
   const claims = new WeakMap<CoreRequestClaim, ClaimData>();
+  const nativeBindings = new WeakMap<CoreNativeBinding, CoreNativeAuthority & { readonly commands: readonly CoreNativeCommandDefinition[] }>();
   const borrowed = new Set<CoreTransactionInternals>();
   let closed = false;
   let drainSchemaWork:Effect.Effect<void>=Effect.void;
@@ -257,6 +282,48 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
   });
   const admin = <A>(namespace:CoreTableNamespace,use:(selected:Effect.Success<ReturnType<typeof make>>)=>Effect.Effect<A,CoreError>)=>
     useTransaction(make(undefined,undefined,false,namespace,true),use);
+  const guardNativeLifecycle = Effect.fn("CoreDatabase.guardNativeLifecycle")(function* (
+    context: CoreTransactionInternals, definition?: CoreNativeDefinition,
+  ) {
+    const tables = userTables(context.registry, context.namespace);
+    if (definition === undefined) {
+      if (tables.some(table => table.nativePolicy !== undefined))
+        return yield* nativeUnsupported("Application schema replacement of native-owned tables requires an admitted composed producer");
+      return;
+    }
+    yield* Effect.fromResult(requireCoreNativeDefinition(definition));
+    const model = new CoreSchemaModel(context);
+    for (const state of ["active", "pending", "validated"] as const) {
+      const selected = yield* model.getByState(state);
+      if (Option.isSome(selected) && selected.value.metadata.native !== definition.metadata)
+        return yield* nativeUnsupported("Native schema changes and cross-profile replacement are not supported");
+    }
+    for (const selected of definition.tables) {
+      if (tables.some(table => table.name === selected.name && table.state !== "active"))
+        return yield* nativeUnsupported("A retained inactive table identity prevents fresh native installation");
+      const table = context.registry.table(selected.name, context.namespace)?.definition;
+      if (table === undefined) continue;
+      if (table.nativePolicy === undefined || !sameCoreNativeIdentity(table.nativePolicy.identity, definition.identity))
+        return yield* nativeUnsupported("Native installation requires a new table; existing ownership cannot transfer");
+      const schema = yield* model.get(table.nativePolicy.schemaId);
+      if (Option.isNone(schema) || schema.value.metadata.native !== definition.metadata
+        || !["pending", "validated", "active"].includes(schema.value.metadata.state.state))
+        return yield* nativeUnsupported("This interrupted native installation cannot be resumed");
+    }
+    if (tables.some(table => !definition.tables.some(selected => selected.name === table.name)))
+      return yield* nativeUnsupported("A native-only schema cannot replace unrelated Application or native tables");
+  });
+  const assertEmptyNativeTable = Effect.fn("CoreDatabase.assertEmptyNativeTable")(function* (
+    selected: Effect.Success<ReturnType<typeof make>>, table: CoreTableDefinition,
+  ) {
+    const byId = table.indexes.find(index => index.name === "by_id");
+    if (byId === undefined) return yield* corrupt();
+    selected.context.addIndexRead(byId.ref.id, { start: null, end: null });
+    const page = yield* selected.snapshot.scan({ index: byId.ref, tableId: table.tabletId,
+      interval: { start: null, end: null }, order: "asc", maxResults: 1 });
+    if (page.entries.length !== 0 || page.cursor.kind !== "end")
+      return yield* nativeUnsupported("Native constraint preparation requires a proven empty table");
+  });
   const applyIndexes=Effect.fn("CoreDatabase.applyIndexChanges")(function*(context:CoreTransactionInternals,changes:CoreIndexChanges){
     const table=context.registry.table(INDEXES)?.definition;
     if(table===undefined)return yield* corrupt();
@@ -286,11 +353,34 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
     return {proposal,state:state.state,indexesReady,...(state.state==="failed"?{error:state.error,...(state.table_name===null?{}:{tableName:state.table_name})}:{})} satisfies CoreSchemaStatus;
   }))));
   const prepareSchema:CoreDatabase["prepareSchema"]=Effect.fn("CoreDatabase.prepareSchema")((input)=>admin(input.namespace??null,selected=>Effect.gen(function*(){
-    const schema=yield* Effect.fromResult(captureCoreSchema(input.schema));
+    if (input.native !== undefined) yield* Effect.fromResult(requireCoreNativeDefinition(input.native));
+    const schema=yield* Effect.fromResult(captureCoreSchema(input.native?.schema ?? input.schema));
+    if (input.native !== undefined && input.schema !== undefined) {
+      const supplied = yield* Effect.fromResult(captureCoreSchema(input.schema));
+      if ((yield* Effect.fromResult(serializeCoreSchema(supplied))) !== (yield* Effect.fromResult(serializeCoreSchema(schema))))
+        return yield* nativeUnsupported("Native schema must be derived from the authenticated producer");
+    }
     yield* Effect.fromResult(checkCoreSchemaIndexReferences(schema));
     const result=yield* selected.context.runSystem(Effect.gen(function*(){
       yield* ensureNamespace(selected.context);
-      const pendingProposal=yield* new CoreSchemaModel(selected.context).submitPending(schema);
+      yield* guardNativeLifecycle(selected.context, input.native);
+      const pendingProposal=yield* new CoreSchemaModel(selected.context).submitPending(schema, input.native?.metadata);
+      if (input.native !== undefined) for (const declaration of input.native.tables) {
+        const table = selected.context.registry.table(declaration.name, selected.context.namespace)?.definition;
+        if (table === undefined) return yield* corrupt();
+        const previous = table.nativePolicy;
+        if (previous !== undefined && previous.schemaId !== pendingProposal.id)
+          return yield* nativeUnsupported("Native installation cannot replace a reserved schema identity");
+        if (previous?.state !== "active") yield* assertEmptyNativeTable(selected, table);
+        const nativePolicy: CoreNativeTablePolicy = Object.freeze({ state: previous?.state ?? "reserved",
+          schemaId: pendingProposal.id, identity: input.native.identity, applicationRead: input.native.applicationRead,
+          uniqueConstraints: declaration.uniqueConstraints });
+        if (previous !== undefined && JSON.stringify(previous) === JSON.stringify(nativePolicy)) continue;
+        const catalog = selected.context.registry.table(TABLES)?.definition;
+        if (catalog === undefined) return yield* corrupt();
+        yield* selected.context.replaceSystem(TABLES, yield* Effect.fromResult(publicDocumentId(catalog, table.tabletId)),
+          tableDocument({ ...table, nativePolicy }));
+      }
       const plan=planCoreIndexes(selected.context.registry,input.namespace??null,schema);
       const allocated:CoreIndexRecord[]=[];
       for(const declaration of plan.added)allocated.push({ref:{id:yield* allocateInternalId(options.newInternalId)},tableId:declaration.tableId,name:declaration.name,fields:declaration.fields,
@@ -313,16 +403,39 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
   });
   const activateSchema:CoreDatabase["activateSchema"]=Effect.fn("CoreDatabase.activateSchema")((proposal,publication)=>admin(proposal.namespace,selected=>Effect.gen(function*(){
     yield* selected.context.runSystem(Effect.gen(function*(){
+      yield* guardNativeLifecycle(selected.context, publication.native);
       const model=new CoreSchemaModel(selected.context),schema=yield* model.getValidatedOrActive(proposal.id);
+      if (schema.metadata.native !== publication.native?.metadata)
+        return yield* nativeUnsupported("Schema activation requires its authenticated producer");
+      if (publication.native !== undefined) {
+        if (publication.programs.length !== 0) return yield* nativeUnsupported("Composed Application/native activation is not supported");
+        for (const declaration of publication.native.tables) {
+          const table = selected.context.registry.table(declaration.name, proposal.namespace)?.definition;
+          if (table?.nativePolicy === undefined || table.nativePolicy.schemaId !== proposal.id
+            || !sameCoreNativeIdentity(table.nativePolicy.identity, publication.native.identity))
+            return yield* nativeUnsupported("Native reservation no longer matches the proposal");
+          if (table.nativePolicy.state !== "active") yield* assertEmptyNativeTable(selected, table);
+        }
+      }
       const changes=yield* Effect.fromResult(Result.mapError(finishCoreIndexChanges(planCoreIndexes(selected.context.registry,proposal.namespace,schema.schema)),error=>error.reason==="unavailable"?new CoreTransactionError({reason:"indexUnavailable",cause:error}):error));
       yield* applyIndexes(selected.context,changes);
       yield* model.markActive(proposal.id);
+      if (publication.native !== undefined) for (const declaration of publication.native.tables) {
+        const table = selected.context.registry.table(declaration.name, proposal.namespace)?.definition;
+        const catalog = selected.context.registry.table(TABLES)?.definition;
+        if (table?.nativePolicy === undefined || catalog === undefined) return yield* corrupt();
+        if (table.nativePolicy.state !== "active") yield* selected.context.replaceSystem(TABLES,
+          yield* Effect.fromResult(publicDocumentId(catalog, table.tabletId)),
+          tableDocument({ ...table, nativePolicy: { ...table.nativePolicy, state: "active" } }));
+      }
     }));
     yield* writePrograms(selected,publication);
     const timestamp=yield* settle(selected);
     return {timestamp,tables:[...selected.context.registry.tables.values()].map(record=>record.definition).filter(table=>!table.name.startsWith("_")&&coreNamespaceKey(table.namespace)===coreNamespaceKey(proposal.namespace))};
   })));
   const publishPrograms:CoreDatabase["publishPrograms"]=Effect.fn("CoreDatabase.publishPrograms")((publication)=>admin(publication.namespace??null,selected=>Effect.gen(function*(){
+    yield* guardNativeLifecycle(selected.context, publication.native);
+    if (publication.native !== undefined) return yield* nativeUnsupported("Native command publication uses shared schema activation");
     yield* selected.context.runSystem(new CoreSchemaModel(selected.context).active());
     yield* writePrograms(selected,publication);
     const timestamp=yield* settle(selected);
@@ -335,6 +448,92 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
     if (authority === undefined) return yield* Effect.fail(corrupt());
     return authority.epoch;
   });
+
+  const nativeAuthority = Effect.fn("CoreDatabase.nativeAuthority")(function* (binding: CoreNativeBinding) {
+    yield* assertOpen;
+    const authority = nativeBindings.get(binding);
+    if (authority === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+    yield* Effect.fromResult(checkCoreNativeAuthority(committer.currentRegistry(), authority));
+    return authority;
+  });
+  const bindNative: CoreDatabase["bindNative"] = Effect.fn("CoreDatabase.bindNative")(function* (input) {
+    yield* assertOpen;
+    yield* Effect.fromResult(requireCoreNativeDefinition(input.definition));
+    const namespace = yield* Effect.fromResult(Result.mapError(captureCoreTableNamespace(input.namespace ?? null), invalid));
+    const selected = yield* start();
+    const schemaTable = selected.registry.table(SCHEMAS, namespace)?.definition;
+    const state = schemaTable?.indexes.find(index => index.name === "by_state");
+    if (schemaTable === undefined || state === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+    const active = yield* Effect.fromResult(selected.registry.schemas.getByState(namespace, "active", state.ref, () => {}));
+    const epoch = selected.registry.authority?.epoch;
+    if (Option.isNone(active) || active.value.metadata.native !== input.definition.metadata || epoch === undefined)
+      return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+    const tables: CoreTableDefinition[] = [];
+    for (const declaration of input.definition.tables) {
+      const table = selected.registry.table(declaration.name, namespace)?.definition;
+      if (table === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+      tables.push(table);
+    }
+    const registrations = yield* decodeNativeRegistrations(input.commands ?? input.definition.commands)
+      .pipe(Effect.mapError(invalid));
+    if (new Set(registrations.map(command => command.name)).size !== registrations.length) return yield* invalid();
+    const commands = Object.freeze(registrations.map(({ name, mode }) => Object.freeze({ name, mode,
+      identity: Object.freeze({ source: input.definition.identity, name, mode }) })));
+    const authority = Object.freeze({ definition: input.definition, namespace, schemaId: active.value.id,
+      authorityEpoch: epoch, tables: Object.freeze(tables), commands });
+    yield* Effect.fromResult(checkCoreNativeAuthority(selected.registry, authority));
+    const binding = issueCoreNativeBinding();
+    nativeBindings.set(binding, authority);
+    return binding;
+  });
+  const readNativeBinding: CoreDatabase["readNativeBinding"] = Effect.fn("CoreDatabase.readNativeBinding")(function* (binding) {
+    const authority = yield* nativeAuthority(binding);
+    return Object.freeze({ ...authority, tables: Object.freeze(authority.tables.map(table => Object.freeze({ ...table,
+      tabletId: table.tabletId.slice(), indexes: Object.freeze(table.indexes.map(index => Object.freeze({ ...index,
+        ref: Object.freeze({ ...index.ref, id: index.ref.id.slice() }) }))) }))) });
+  });
+  const beginNative: CoreDatabase["beginNative"] = Effect.fn("CoreDatabase.beginNative")((binding, beginOptions) =>
+    Effect.acquireUseRelease(Effect.gen(function* () {
+      const authority = yield* nativeAuthority(binding);
+      const command = authority.commands.find(candidate => candidate.name === beginOptions.commandName);
+      if (command === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+      const claimData = beginOptions.claim === undefined ? undefined : claims.get(beginOptions.claim);
+      if (beginOptions.claim !== undefined && (claimData === undefined || !claimData.active
+        || claimData.identity.kind !== "native" || !sameNativeCommand(claimData.identity.native, command.identity)))
+        return yield* new CoreTransactionError({ reason: "foreignClaim" });
+      if (command.mode === "read" && beginOptions.claim !== undefined) return yield* new CoreTransactionError({ reason: "foreignClaim" });
+      const selected = yield* start();
+      yield* Effect.fromResult(checkCoreNativeAuthority(selected.registry, authority));
+      const assertNativeOpen = Effect.andThen(assertOpen, Effect.suspend(() =>
+        Effect.fromResult(checkCoreNativeAuthority(committer.currentRegistry(), authority))));
+      const capture = Effect.fn("CoreDatabase.captureNative")(function* () {
+        yield* assertNativeOpen;
+        const observed = command.mode === "read" ? selected : yield* start();
+        yield* Effect.fromResult(checkCoreNativeAuthority(observed.registry, authority));
+        return { snapshot: observed.snapshot, registry: observed.registry,
+          residentReader: (request: CoreIndexScan) => observed.resident.scan(request) };
+      });
+      const now = yield* options.now;
+      const context = createCoreTransaction({ snapshot: selected.snapshot, registry: selected.registry,
+        residentReader: request => selected.resident.scan(request), operationCacheMaxBytes, now,
+        newInternalId: options.newInternalId, vault, limits, namespace: authority.namespace,
+        readonly: command.mode === "read", native: { authority, visibility: command.mode === "read" ? "snapshot" : "command", capture },
+        assertOwnerOpen: assertNativeOpen, onClosed: () => borrowed.delete(context),
+        ...(beginOptions.claim === undefined ? {} : { claim: beginOptions.claim }) });
+      borrowed.add(context);
+      return { selected, context, command, authority, claimData };
+    }), selected => Effect.gen(function* () {
+      const metadataReads = yield* Effect.fromResult(coreNativeMetadataReads(selected.selected.registry, selected.authority));
+      for (const read of metadataReads) for (const interval of read.intervals) selected.context.addIndexRead(read.indexId, interval);
+      if (selected.claimData !== undefined) {
+        const record = yield* selected.context.readPrivate(REQUESTS, selected.claimData.record.id);
+        if (Option.isNone(record) || record.value.state !== "claimed") return yield* new CoreTransactionError({ reason: "foreignClaim" });
+      }
+      const operations = selected.context.nativeOperations;
+      if (operations === undefined) return yield* corrupt("Native transaction facade is unavailable");
+      return Object.freeze({ command: selected.command, operations, finishRead: selected.context.finishRead,
+        finalize: selected.context.transaction.finalize, abort: selected.context.transaction.abort }) satisfies CoreNativeOperation;
+    }), (selected, exit) => Exit.isSuccess(exit) ? Effect.void : selected.context.transaction.abort()));
 
   const database: CoreDatabase = {
     assertOpen,
@@ -349,6 +548,7 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
           finish: selected.context.finishRead, abort: transaction.abort });
       }), true)),
     prepareSchema,schemaStatus,advanceSchema,advanceSchemaWork:schemaWorker.advanceWork,activateSchema,publishPrograms,
+    bindNative, readNativeBinding, beginNative,
     selectProgram: Effect.fn("CoreDatabase.selectProgram")(function* (path) {
       yield* assertOpen;
       const registry = committer.currentRegistry();
@@ -385,17 +585,26 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
         yield* committer.submit(yield* consume(yield* selected.context.transaction.finalize()));
         return { kind: "failed" as const };
       }))),
-    claimRequest: Effect.fn("CoreDatabase.claimRequest")((identity) =>
+    claimRequest: Effect.fn("CoreDatabase.claimRequest")((identity, binding) =>
       useTransaction(make(), selected => Effect.gen(function* (): Generator<Effect.Effect<unknown, CoreError>, CoreRequestAcquisition, unknown> {
-        const program = selected.registry.program(identity.program);
-        if (program === undefined) return yield* Effect.fail(new CoreTransactionError({ reason: "programUnavailable" }));
+        if (identity.kind === "native") {
+          if (binding === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+          const authority = yield* nativeAuthority(binding);
+          const command = authority.commands.find(candidate => sameNativeCommand(candidate.identity, identity.native));
+          if (command?.mode !== "write") return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+          const metadataReads = yield* Effect.fromResult(coreNativeMetadataReads(selected.registry, authority));
+          for (const read of metadataReads) for (const interval of read.intervals) selected.context.addIndexRead(read.indexId, interval);
+        } else {
+          const program = selected.registry.program(identity.program);
+          if (program === undefined) return yield* Effect.fail(new CoreTransactionError({ reason: "programUnavailable" }));
+        }
         const existing = yield* findRequest(selected, identity, selected.context);
         if (existing !== undefined) {
           return yield* Effect.fromResult(existingResolution(existing));
         }
         const id = yield* allocateInternalId(options.newInternalId);
         yield* selected.context.writePrivate(REQUESTS, id, { key: identity.key, requestHash: identity.requestHash,
-          program: { ...identity.program }, state: "claimed", leaseToken: lease.token });
+          ...requestActor(identity), state: "claimed", leaseToken: lease.token });
         const body = yield* selected.context.readPrivate(REQUESTS, id);
         if (Option.isNone(body)) return yield* Effect.fail(corrupt());
         const finalized = yield* consume(yield* selected.context.transaction.finalize());
@@ -423,7 +632,8 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
         }), onSuccess: timestamp => Effect.gen(function* () {
           const jsonValue = yield* Effect.fromResult(Result.mapError(encodeDocumentValue(body.value), invalid));
           const claim = issueCoreClaim();
-          claims.set(claim, { identity: { ...identity, program: { ...identity.program } }, active: true, record: {
+          claims.set(claim, { identity: identity.kind === "native" ? Object.freeze({ ...identity, native: Object.freeze({ ...identity.native, source: Object.freeze({ ...identity.native.source }) }) })
+            : Object.freeze({ ...identity, program: Object.freeze({ ...identity.program }) }), active: true, record: {
             id, document: body.value, state: "claimed", leaseToken: lease.token, revision: { ts: timestamp, tableId: table.tabletId.slice(), id: id.slice(),
               jsonValue, deleted: false, prevTs: null },
           } });
@@ -434,11 +644,12 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
       const claimData = beginOptions.claim === undefined ? undefined : claims.get(beginOptions.claim);
       if (beginOptions.claim !== undefined && (claimData === undefined || !claimData.active))
         return yield* Effect.fail(new CoreTransactionError({ reason: "foreignClaim" }));
+      if (claimData?.identity.kind === "native") return yield* new CoreTransactionError({ reason: "foreignClaim" });
       if (claimData !== undefined && beginOptions.program !== undefined
         && programKey(claimData.identity.program) !== programKey(beginOptions.program))
         return yield* Effect.fail(new CoreTransactionError({ reason: "requestMismatch" }));
       return yield* useTransaction(make(beginOptions.at, beginOptions.claim, false, beginOptions.namespace ?? null), selected => Effect.gen(function* () {
-        const programIdentity = claimData?.identity.program ?? beginOptions.program;
+        const programIdentity = claimData?.identity.kind === "native" ? undefined : claimData?.identity.program ?? beginOptions.program;
         if (programIdentity !== undefined) {
           const program = selected.registry.program(programIdentity);
           const head = selected.registry.head(programIdentity.functionPath);

@@ -14,6 +14,7 @@ import { LEGACY_CORE_REGISTRY_DECODERS, decodeLegacyTable } from "./legacySchema
 import { captureCoreSchema } from "./schemaTypes";
 import { serializeCoreSchema } from "./schemaJson";
 import type { CoreTableNamespace } from "./namespace";
+import { authenticateCoreNativeRegistry } from "./nativePolicy";
 
 export const CORE_LOGICAL_DATABASE_VERSION = 1n;
 export const CORE_SCHEMA_CUTOVER_GLOBAL = "flarex_schema_lifecycle_cutover_ts";
@@ -214,6 +215,7 @@ export const bootstrapCore = Effect.fn("CoreBootstrap.open")(function* (
   if (body.version !== CORE_LOGICAL_DATABASE_VERSION) return yield* corrupt("Unsupported logical schema version");
   const marker = yield* persistence.getGlobal(CORE_SCHEMA_CUTOVER_GLOBAL);
   if (Option.isNone(marker)) yield* putValue(persistence, lease, CORE_SCHEMA_CUTOVER_GLOBAL, global.document.ts);
+  yield* authenticateCoreNativeRegistry(registry);
   const resident = yield* Effect.fromResult(CoreResidentIndexes.create(registry, revisions));
   return { timestamp, registry, retention, resident };
 });

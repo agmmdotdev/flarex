@@ -1,6 +1,6 @@
 # Direct native command read visibility
 
-Status: **Existing native behavior characterized and minimum mechanism selected; translated runtime not implemented.**
+Status: **Selected direct-command and fixed-read profiles implemented for the fresh scalar consumer; wider native and hosting gates open.**
 
 ## Why the ordinary source transaction is insufficient
 
@@ -47,6 +47,16 @@ table capture/frontier obligations. Unfiltered find/count uses the captured tabl
 page-number output slices those candidates. General ranges/keyset pages remain
 named unsupported capability gates. Prior captures survive a later table scan;
 captured rows never become pending writes or mutation charges.
+
+Cached exact-key membership is separate from remembered rows. If a key was
+captured before a complete table scan, repeated key queries admit only that
+captured owner and the root's pending changes; a later point or table capture
+cannot widen the earlier key result. A key first queried after complete table
+capture derives its membership from that frozen table. Native uniqueness checks
+also account for explicitly remembered competing rows. When a new key capture
+names an already remembered owner at an incompatible revision, reject at that
+document checkpoint before disclosing a new result. These rules follow the
+executing native owner's key/query distinction, not a global cache union.
 
 Native ID revision/absence and monotone table-frontier obligations can reuse
 timestamp-qualified source event dependencies where equivalent. Point absence

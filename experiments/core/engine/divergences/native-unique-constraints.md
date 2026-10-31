@@ -1,6 +1,6 @@
 # Native declarative uniqueness over source indexes
 
-Status: **Required native extension; required-text subset selected in slice 10; runtime implementation pending.**
+Status: **Required-text subset implemented for the selected fresh native consumer; general constraint and retained-data gates open.**
 
 ## Why ordinary source indexes are insufficient
 

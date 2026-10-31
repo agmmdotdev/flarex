@@ -4,7 +4,7 @@ import { Effect, Result } from "effect";
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import { validateApplicationRevisionSyscallDocumentInTransactionV1 } from "../../application/revision/applicationRevisionSyscallValidatorV1";
-import { makeLogicalDocumentWorkingSet, type LogicalDocuments, type LogicalDocumentChanges,
+import { makeLogicalDocumentWorkingSet, type LogicalDocumentChanges,
   type LogicalDocumentReadTestHooks } from "../../storage/documents/logicalDocuments/workingSet";
 import { requireLogicalDocumentSourceAdmission, type LogicalDocumentSourceAdmission } from "../../storage/documents/logicalDocuments/documentAdmission";
 import { requireLogicalDocumentReadAdmission, type LogicalDocumentReadAdmission } from "../../storage/documents/logicalDocuments/documentAdmission";
@@ -43,7 +43,7 @@ export const makeSourceCmsReadDocuments = Effect.fnUntraced(function* (
   return working.documents;
 }, work => observeExecution("CmsDocuments.makeSourceRead", work, "caller"));
 
-export type CmsDocuments = LogicalDocuments<CmsTransactionError>;
+export type CmsDocuments = import("../../storage/documents/logicalDocuments/ports").LogicalDocuments<CmsTransactionError>;
 export type CmsDocumentReadTestHooks = LogicalDocumentReadTestHooks<CmsTransactionError>;
 export interface CmsClosedDocuments extends LogicalDocumentChanges {
   readonly admission: CmsAdmission;

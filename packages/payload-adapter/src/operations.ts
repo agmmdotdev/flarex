@@ -6,7 +6,7 @@ import { cmsError, defineCmsCommand, type CmsCommandContext, type CmsTransaction
 import type { Json } from "flarex-protocol/json";
 import { makePayloadDatabaseAdapter } from "./adapter";
 import { type PayloadContentProfile } from "./contract";
-import { projectPayloadFailure } from "./errors";
+import { projectPayloadCause } from "./errors";
 import { makePayloadInputs, type PayloadCreateInput, type PayloadUpdateInput, type PayloadDeleteInput,
   type PayloadFindInput, type PayloadFindByIdInput, type PayloadCountInput } from "./inputs";
 import type { PayloadJoinQuery } from "./joins";
@@ -54,13 +54,22 @@ export function makePayloadOperations(payload: BasePayload, bridge: Bridge, prof
     const common = options(req, collection, read);
     instrumentation?.onExecute?.();
     const diagnostics = yield* Effect.withFiber(fiber => Effect.succeed(captureExecutionDiagnosticContext(fiber)));
-    const result = yield* Effect.tryPromise({
-      try: signal => bridge.within(context, collection, req, signal, diagnostics, () => invoke(common), read.depth === 1, read.joins,
-        instrumentation?.onCollection),
-      catch: cause => cause,
-    }).pipe(
-      // oxlint-disable-next-line flarex/prefer-tagged-effect-recovery -- REVIEW: compatibility - Payload rejects with its own errors or a CMS failure; unknown rejection remains a defect.
-      Effect.catch(projectPayloadFailure));
+    const result = yield* Effect.uninterruptibleMask(restore => {
+      let pending: Promise<unknown> | undefined;
+      return restore(Effect.tryPromise({
+        try: signal => {
+          pending = bridge.within(context, collection, req, signal, diagnostics, () => invoke(common), read.depth === 1, read.joins,
+            instrumentation?.onCollection);
+          return pending;
+        },
+        catch: cause => cause,
+      })).pipe(Effect.onInterrupt(() => Effect.suspend(() => {
+        const completion = pending;
+        // Abort requests cancellation; the native Promise must actually settle
+        // before its request, host or transaction owner may finish draining.
+        return completion === undefined ? Effect.void : Effect.tryPromise({ try: () => completion, catch: cause => cause }).pipe(Effect.asVoid);
+      })), Effect.catchCause(cause => Effect.failCause(projectPayloadCause(cause))));
+    });
     return yield* Effect.fromResult(decode(result));
   }, work => observeExecution("PayloadAdapter.call", work));
 

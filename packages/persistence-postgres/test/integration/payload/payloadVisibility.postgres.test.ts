@@ -6,8 +6,8 @@ import { postgresUrl, useFileScopedPostgresPersistence } from "../../support/pos
 import { runEffect } from "../../support/effectTestRuntime";
 import { makeIndexedPayloadFixture } from "./payloadIndexedFixture";
 import { compilePayloadCollections } from "../../../../payload-adapter/src/collections";
-import { payloadDisjointVisibilityScenario, payloadPendingVisibilityScenario, payloadUniqueAbaVisibilityScenario,
-  payloadVisibilityScenario } from "./payloadVisibilityScenario";
+import { payloadCachedKeyCoherenceScenario, payloadCapturedOwnerConflictScenario, payloadDisjointVisibilityScenario,
+  payloadPendingVisibilityScenario, payloadUniqueAbaVisibilityScenario, payloadVisibilityScenario } from "./payloadVisibilityScenario";
 import { fullProofPayloadVisibilityTarget } from "./payloadVisibilityFixture";
 
 describe.skipIf(postgresUrl === null)("direct native Payload visibility (ordinary PostgreSQL)", () => {
@@ -47,5 +47,21 @@ describe.skipIf(postgresUrl === null)("direct native Payload visibility (ordinar
       ] }]);
       const tested = yield* makeIndexedPayloadFixture(persistence, makePostgresRelationalSession(persistence), compiled);
       yield* payloadUniqueAbaVisibilityScenario(fullProofPayloadVisibilityTarget(tested));
+    })))), 180_000);
+  it.each(["point", "table"] as const)("retains cached unique-key membership after a later %s demand", demand => withPersistence(persistence =>
+    runEffect(Effect.scoped(Effect.gen(function* () {
+      const compiled = yield* compilePayloadCollections([{ slug: "items", fields: [
+        { name: "title", type: "text", required: true, unique: true },
+      ] }]);
+      const tested = yield* makeIndexedPayloadFixture(persistence, makePostgresRelationalSession(persistence), compiled);
+      yield* payloadCachedKeyCoherenceScenario(fullProofPayloadVisibilityTarget(tested), demand);
+    })))), 180_000);
+  it("refuses a newly captured owner that disagrees with an earlier row at the document checkpoint", () => withPersistence(persistence =>
+    runEffect(Effect.scoped(Effect.gen(function* () {
+      const compiled = yield* compilePayloadCollections([{ slug: "items", fields: [
+        { name: "title", type: "text", required: true, unique: true },
+      ] }]);
+      const tested = yield* makeIndexedPayloadFixture(persistence, makePostgresRelationalSession(persistence), compiled);
+      yield* payloadCapturedOwnerConflictScenario(fullProofPayloadVisibilityTarget(tested));
     })))), 180_000);
 });

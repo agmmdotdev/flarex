@@ -86,17 +86,24 @@ function maximumEnd(a: Uint8Array | null, b: Uint8Array | null): Uint8Array | nu
 
 type Keys = BTree<Uint8Array, CoreTimestamp>;
 interface IndexedKeys { readonly id: Uint8Array; readonly tree: Keys }
+interface PendingIndexedKeys {
+  readonly id: Uint8Array;
+  readonly tree: BTree<Uint8Array, readonly CoreTimestamp[]>;
+}
 
-function overlap(tree: Keys, intervals: readonly CoreInterval[], after: CoreTimestamp): readonly [Uint8Array, CoreTimestamp] | undefined {
+function overlap<A>(tree: BTree<Uint8Array, A>, intervals: readonly CoreInterval[], after: CoreTimestamp,
+  timestamp: (value: A) => CoreTimestamp): readonly [Uint8Array, CoreTimestamp] | undefined {
   // Both sides are sorted. Probe the smaller side, as PendingKeysInIndex does.
   if (tree.size <= intervals.length) {
-    for (const [key, ts] of tree.entries()) {
+    for (const [key, value] of tree.entries()) {
+      const ts = timestamp(value);
       if (ts > after && containsInterval(intervals, key)) return [key, ts];
     }
     return undefined;
   }
   for (const interval of intervals) {
-    for (const [key, ts] of tree.entries(interval.start ?? undefined)) {
+    for (const [key, value] of tree.entries(interval.start ?? undefined)) {
+      const ts = timestamp(value);
       if (interval.end !== null && compareBytesLexicographically(key, interval.end) >= 0) break;
       if (ts > after) return [key, ts];
     }
@@ -147,7 +154,7 @@ export class CoreWriteLogSnapshot {
     for (const read of reads) {
       const entry = this.indexes.get(encodeBytesToLowercaseHex(read.indexId));
       if (entry === undefined) continue;
-      const found = overlap(entry.tree, read.intervals, after);
+      const found = overlap(entry.tree, read.intervals, after, value => value);
       if (found !== undefined) return Result.succeed({ indexId: entry.id.slice(), key: found[0].slice(), timestamp: found[1] });
     }
     return Result.succeed(undefined);
@@ -221,7 +228,7 @@ export class CoreWriteLog {
 /** Accepted unpublished commits, indexed by full affected key with FIFO removal. */
 export class CorePendingWrites {
   private readonly commits = new BTree<CoreTimestamp, readonly CoreIndexKeys[]>();
-  private readonly indexes = new Map<string, IndexedKeys>();
+  private readonly indexes = new Map<string, PendingIndexedKeys>();
 
   get size(): number { return this.commits.size; }
 
@@ -232,12 +239,13 @@ export class CorePendingWrites {
       const name = encodeBytesToLowercaseHex(change.indexId);
       let entry = this.indexes.get(name);
       if (entry === undefined) {
-        entry = { id: change.indexId.slice(), tree: new BTree<Uint8Array, CoreTimestamp>(undefined, compareBytesLexicographically) };
+        entry = { id: change.indexId.slice(), tree: new BTree<Uint8Array, readonly CoreTimestamp[]>(undefined, compareBytesLexicographically) };
         this.indexes.set(name, entry);
       }
       for (const key of change.keys) {
-        if (entry.tree.has(key)) throw new Error("Conflicting accepted writes reached pending-key insertion");
-        entry.tree.set(key.slice(), timestamp);
+        // Native exact-owner validation can admit removal/reacquisition before
+        // publication. Source readers still conflict with any pending writer.
+        entry.tree.set(key.slice(), [...entry.tree.get(key) ?? [], timestamp]);
       }
     }
     this.commits.set(timestamp, changes);
@@ -247,7 +255,7 @@ export class CorePendingWrites {
     for (const read of reads) {
       const entry = this.indexes.get(encodeBytesToLowercaseHex(read.indexId));
       if (entry === undefined) continue;
-      const found = overlap(entry.tree, read.intervals, -1n);
+      const found = overlap(entry.tree, read.intervals, -1n, lastPendingWriter);
       if (found !== undefined) return { indexId: entry.id.slice(), key: found[0].slice(), timestamp: found[1] };
     }
     return undefined;
@@ -258,9 +266,9 @@ export class CorePendingWrites {
     const entry = this.indexes.get(encodeBytesToLowercaseHex(indexId));
     if (entry === undefined) return [];
     const found: CoreConflict[] = [];
-    for (const [key, timestamp] of entry.tree.entries(interval.start ?? undefined)) {
+    for (const [key, writers] of entry.tree.entries(interval.start ?? undefined)) {
       if (interval.end !== null && compareBytesLexicographically(key, interval.end) >= 0) break;
-      if (keyInInterval(key, interval)) found.push({ indexId: entry.id.slice(), key: key.slice(), timestamp });
+      if (keyInInterval(key, interval)) found.push({ indexId: entry.id.slice(), key: key.slice(), timestamp: lastPendingWriter(writers) });
       if (found.length >= maxResults) break;
     }
     return found;
@@ -275,10 +283,18 @@ export class CorePendingWrites {
       const entry = this.indexes.get(name);
       if (entry === undefined) throw new Error("Pending index keys missing during removal");
       for (const key of change.keys) {
-        if (entry.tree.get(key) !== timestamp) throw new Error("Pending key belongs to another commit");
-        entry.tree.delete(key);
+        const writers = entry.tree.get(key);
+        if (writers?.[0] !== timestamp) throw new Error("Pending key belongs to another commit");
+        if (writers.length === 1) entry.tree.delete(key);
+        else entry.tree.set(key, writers.slice(1));
       }
       if (entry.tree.size === 0) this.indexes.delete(name);
     }
   }
+}
+
+function lastPendingWriter(writers: readonly CoreTimestamp[]): CoreTimestamp {
+  const timestamp = writers[writers.length - 1];
+  if (timestamp === undefined) throw new Error("Pending key has no writer");
+  return timestamp;
 }

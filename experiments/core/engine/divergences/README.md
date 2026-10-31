@@ -125,6 +125,8 @@ maintaining a competing completion log here.
 
 ## Selected native extensions
 
-- [Authenticated native write ownership](./native-write-ownership.md): required native-policy extension through shared schema/transaction owners; slice 10 design and activation gates remain, runtime not implemented.
-- [Native declarative uniqueness](./native-unique-constraints.md): selected required-text subset reuses source indexes/dependencies/acceptance; implementation and native-profile proofs remain.
-- [Direct native read visibility](./native-direct-read-visibility.md): existing direct Payload behavior characterized and minimum observation/final-validation mechanism selected; replacement runtime not implemented.
+- [Authenticated native write ownership](./native-write-ownership.md): selected fresh scalar policy implemented through shared schema/transaction owners; broader native and retained-data gates remain.
+- [Native declarative uniqueness](./native-unique-constraints.md): required-text subset implemented over source indexes/dependencies/acceptance; general constraint gates remain.
+- [Direct native read visibility](./native-direct-read-visibility.md): selected direct-command and fixed-read profiles implemented; wider native and hosting gates remain.
+- [Native Promise completion and cancellation](./native-promise-draining.md): actual foreign Promise draining and complete failure preservation at the Payload/request-lifetime owners; selected proof and review gates remain.
+- [Native accepted-state durability dependencies](./native-dependent-save-order.md): selective prerequisite durability is implemented for unpublished slot transitions, retaining independent saves and atomic FIFO batches; broader profile/performance gates remain.

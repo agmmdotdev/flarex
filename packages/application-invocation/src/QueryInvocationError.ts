@@ -161,6 +161,8 @@ export function projectQueryInvocationError(
       return queryInvocationError(projectCoreAdmissionReason(error), error);
     case "CoreQueryInputError":
       return queryInvocationError("invalidInput", error);
+    case "CoreNativeUniqueConflict":
+      return queryInvocationError("invalidConfiguration", error);
     default: {
       const unhandledError: never = error;
       throw new TypeError(

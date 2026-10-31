@@ -1,4 +1,6 @@
 import { retainLogicalReferenceFailure } from "./referenceFailure";
+import type { LogicalDocuments } from "./ports";
+export type { LogicalDocuments } from "./ports";
 import { retainLogicalRelationalFailure } from "./relationalFailure";
 import { captureLogicalInsertionGraph, bindLogicalInsertionRoot, issueLogicalInsertionAttempt, type LogicalInsertionEvidence, type LogicalInsertionRoot, committedLogicalInsertionOrder, compareLogicalInsertionOrder, type LogicalInsertionOrder, issueLogicalDeletedReferenceEvidence, type LogicalDeletedReferenceCause, type LogicalDeletedReferenceEvidence, rebaseLogicalDeletedReferenceEvidence } from "./insertionOrder";
 import type { LogicalDocumentPointEvidence } from "./pointEvidence";
@@ -246,18 +248,6 @@ export interface LogicalUniqueRead {
   readonly key: AppUniqueKeyProjectionV1;
   readonly owner: Readonly<{ tableId: CatalogTableId; rowId: AppRowIdHexV1 }> | null;
 }
-export interface LogicalDocuments<Failure> {
-  readonly get: (context: BoundedRequestContext, id: PresentedTransactionId, documentId: string, tableName?: string) => Effect.Effect<JsonObject | null, Failure>;
-  readonly getMany: (context: BoundedRequestContext, id: PresentedTransactionId, tableName: string,
-    documentIds: readonly string[]) => Effect.Effect<readonly (JsonObject | null)[], Failure>;
-  readonly find: (context: BoundedRequestContext, id: PresentedTransactionId, tableName: string,
-    query: Readonly<{ where: JsonObject; offset: number; limit: number }>) => Effect.Effect<Readonly<{ docs: readonly JsonObject[]; total: number }>, Failure>;
-  readonly insert: (context: BoundedRequestContext, id: PresentedTransactionId, tableName: string, fields: unknown) => Effect.Effect<JsonObject, Failure>;
-  readonly patch: (context: BoundedRequestContext, id: PresentedTransactionId, documentId: string, fields: unknown, tableName?: string) => Effect.Effect<JsonObject, Failure>;
-  readonly replace: (context: BoundedRequestContext, id: PresentedTransactionId, documentId: string, fields: unknown, tableName?: string) => Effect.Effect<JsonObject, Failure>;
-  readonly delete: (context: BoundedRequestContext, id: PresentedTransactionId, documentId: string, tableName?: string) => Effect.Effect<void, Failure>;
-}
-
 export interface LogicalDocumentReadTestHooks<Failure> {
   /** Trusted test observation after actual pending selection and page capture. */
   readonly afterReferencePage?: (observation: Readonly<{ pendingIds: readonly AppDocumentIdV1[]; inspected: number; hasMore: boolean }>) => void;

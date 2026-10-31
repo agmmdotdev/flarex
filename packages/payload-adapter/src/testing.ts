@@ -18,3 +18,4 @@ export {
   maximumPayloadPopulationTargets,
   payloadPopulationIds,
 } from "./population";
+export { ValidationError as PayloadValidationError } from "payload";

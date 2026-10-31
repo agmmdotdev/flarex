@@ -20,6 +20,8 @@ import { CoreIndexRegistry } from "./indexRegistry";
 import { parseCoreIndexRecord, type CoreIndexRecord } from "./indexState";
 import { CoreSchemaRegistry } from "./schemaRegistry";
 import type { CoreSystemDocument } from "./transaction";
+import { CoreNativeTablePolicySchema } from "./nativePolicyTypes";
+import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
 
 export const TABLES = "_tables";
 export const INDEXES = "_index";
@@ -39,6 +41,7 @@ const TableName = SchemaManifestAppIdentifierSchema;
 const StoredTableSchema = Schema.Struct({ name: TableName, number: Schema.BigInt.check(Schema.makeFilter(value =>
   value > 0n && value <= 0xffff_ffffn ? undefined : "Expected a table number")),
   state: Schema.Literals(["active", "hidden", "deleting"]), namespace: Schema.optionalKey(CoreTableNamespaceSchema),
+  nativePolicy: Schema.optionalKey(CoreNativeTablePolicySchema),
 });
 const StoredProgramSchema = Schema.Struct({ kind: Schema.Literal("revision"), identity: CoreProgramIdentitySchema, metadata: Schema.String });
 const StoredHeadSchema = Schema.Struct({ kind: Schema.Literal("head"), identity: CoreProgramIdentitySchema });
@@ -51,7 +54,8 @@ const utf8 = new TextEncoder();
 
 export function tableDocument(table: CoreTableDefinition): DocumentObject {
   return { name: table.name, number: BigInt(table.number), state: table.state,
-    ...(table.namespace === null ? {} : { namespace: table.namespace }) };
+    ...(table.namespace === null ? {} : { namespace: table.namespace }),
+    ...(table.nativePolicy === undefined ? {} : { nativePolicy: table.nativePolicy }) };
 }
 export function coreQualifiedTableKey(namespace: CoreTableNamespace, name: string): string {
   return JSON.stringify([coreNamespaceKey(namespace), name]);
@@ -191,7 +195,8 @@ export const parseCoreTableRecord = (document: CoreSystemDocument, ts: bigint | 
     const metadata = yield* Result.mapError(decodeStoredTable(document.value), corrupt);
     const id = yield* Result.mapError(decodeDocumentId(document.id), corrupt);
     return { id: id.internalId.slice(), ts, definition: Object.freeze({ name: metadata.name, number: Number(metadata.number),
-      state: metadata.state, namespace: metadata.namespace ?? null, tabletId: id.internalId.slice(), indexes: Object.freeze([]) }) };
+      state: metadata.state, namespace: metadata.namespace ?? null, tabletId: id.internalId.slice(), indexes: Object.freeze([]),
+      ...(metadata.nativePolicy === undefined ? {} : { nativePolicy: snapshotDecodedProtocolPlainData(metadata.nativePolicy) }) }) };
   });
 export interface CoreRegistryDecoders {
   readonly table: typeof parseCoreTableRecord;

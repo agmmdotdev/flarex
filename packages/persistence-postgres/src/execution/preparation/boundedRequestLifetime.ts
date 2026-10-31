@@ -36,6 +36,8 @@ interface ContextState<Failure> {
 export interface BoundedRequestLifetime<Failure> {
   readonly context: BoundedRequestContext;
   readonly mode: "read" | "write";
+  /** Trusted outer settlement uses the original request deadline. */
+  readonly deadlineUnixMilliseconds: number;
   readonly begin: (context: BoundedRequestContext, id?: PresentedTransactionId) => Effect.Effect<string, Failure>;
   readonly adapterCommit: (context: BoundedRequestContext, id: PresentedTransactionId) => Effect.Effect<never, Failure>;
   readonly rollback: (context: BoundedRequestContext, id: PresentedTransactionId) => Effect.Effect<never, Failure>;
@@ -89,7 +91,8 @@ export function projectBoundedRequestLifetime<Outer, Inner extends Outer>(
     Effect.catchCause(cause => Effect.failCause(projectCause(cause))));
   const chargeReceipts = new WeakMap<object, Effect.Effect<never, Inner>>();
   const projected = Object.freeze({
-    context: root.context, mode: root.mode, isClosing: root.isClosing, remainingBytes: root.remainingBytes, usedCalls: root.usedCalls, close: root.close,
+    context: root.context, mode: root.mode, deadlineUnixMilliseconds: root.deadlineUnixMilliseconds,
+    isClosing: root.isClosing, remainingBytes: root.remainingBytes, usedCalls: root.usedCalls, close: root.close,
     begin: (context, id) => projectEffect(root.begin(context, id)),
     adapterCommit: (context, id) => projectEffect(root.adapterCommit(context, id)),
     rollback: (context, id) => projectEffect(root.rollback(context, id)),
@@ -315,11 +318,26 @@ export const makeBoundedRequestLifetime = Effect.fnUntraced(function* <Failure, 
         ? failure("rollbackOnly", Option.getOrUndefined(request.failure)) : failure("closed"));
       const remaining = request.expiresAt - (yield* Clock.currentTimeMillis);
       if (remaining <= 0) return yield* refuse("deadlineExceeded");
-      // The deadline branch latches its failure before the race interrupts
-      // native work. Nested observed operations must not latch that internal
-      // interruption ahead of the owning deadline cause.
-      return yield* Effect.raceFirst(work, Effect.sleep(remaining).pipe(
-        Effect.andThen(() => refuse("deadlineExceeded"))));
+      let completed: Cause.Cause<Failure> | undefined;
+      const native = work.pipe(Effect.onError(cause => Effect.sync(() => {
+        // The race joins interrupted native work but returns only its winner.
+        // Keep the actual completed failure before that branch is discarded.
+        completed = ownCause(cause);
+        latch(completed);
+      })));
+      // The deadline latches before cancelling native work. Race cancellation
+      // is an internal interrupt; only the caller's own interruption is exposed.
+      return yield* Effect.uninterruptibleMask(restore => restore(Effect.raceFirst(native,
+        Effect.sleep(remaining).pipe(Effect.andThen(() => refuse("deadlineExceeded"))))).pipe(
+        Effect.catchCause(cause => {
+          const original = ownCause(cause);
+          const additional = completed?.reasons.filter(reason => !Cause.isInterruptReason(reason) &&
+            !original.reasons.some(current => originOf(current) === originOf(reason))) ?? [];
+          const full = ownCause(Cause.fromReasons([...original.reasons, ...additional]));
+          latch(full);
+          return Effect.failCause(full);
+        }),
+      ));
     })));
   },
     work => observeExecution("BoundedRequest.withinDeadline", work));
@@ -352,7 +370,7 @@ export const makeBoundedRequestLifetime = Effect.fnUntraced(function* <Failure, 
     latch(owned);
     return Result.succeed(owned);
   };
-  const lifetime = Object.freeze({ context, mode, begin, operation, nested, withinDeadline, recordFailure,
+  const lifetime = Object.freeze({ context, mode, deadlineUnixMilliseconds: request.expiresAt, begin, operation, nested, withinDeadline, recordFailure,
     checkpoint: (supplied: BoundedRequestContext) => observe(check(supplied)), charge, fromResult, seal, close,
     remainingBytes: () => limits.commandBytes - request.bytes,
     usedCalls: () => request.calls,
