@@ -11,6 +11,11 @@ profile, not every method exported by the native framework or SDK.
 | Admitted native commerce modules/workflows and checkout | [Medusa](./medusa.md) |
 | Native Local API scalar/content/reference profiles | [Payload](./payload.md) |
 
+The [framework capability migration map](./framework-capability-map.md) connects
+these native profiles to translated-core foundations, missing shared contracts
+and concrete compatibility proofs. It is planning-only and distinguishes
+existing native behavior from completed replacement execution.
+
 The enumerating runtime profiles and their connected witnesses define the
 boundary. These notes name the owners rather than freezing old private APIs.
 Each replacement may break internals while preserving supported behavior and
@@ -35,9 +40,10 @@ in their actual validation lane; a source-only hash is not a whole-runtime closu
 - SDK query-builder exports do not establish live Application Worker support.
   Baseline the actual query RPC and current function API, including their refusal
   boundaries. Native logical-store aggregates are a separate consumer profile.
-- Foreign Cart creation work remains pending, separate from admitted checkout
-  over existing carts. Shared-worktree changes must be rechecked and preserved;
-  dirty status alone does not prove a semantic change.
+- Current tracked native Cart creation/refresh and Promotion computation extend
+  the earlier existing-cart checkout inventory. Their bounded executing contracts
+  and tests are included in the Medusa map; general Cart/Promotion operations are
+  not implied. Recheck and preserve shared-worktree changes before each slice.
 
 This inventory establishes which existing responsibilities enter the goal.
 Complete transitive execution closure, updated runtime tests, both database

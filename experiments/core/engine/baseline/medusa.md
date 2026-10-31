@@ -23,11 +23,11 @@ and focused preflights explain their admission/status boundaries.
 | Product compositions | Admitted create/update/batch, categories/types/tags/collections/options/variants and Inventory/Pricing/Shipping relationships. |
 | Inventory, Stock Location and Store | Item/Level create/update/delete/batch, selected reservation/storing branches and lifecycle compositions. |
 | Fulfillment | Profiles/types/options, service/geo-zone/set graphs, installed Links, local provider and selected create/cancel/shipment/delivery/return branches. |
-| Pricing | PriceSet/PriceList/Price/Rule lifecycle and bounded update/batch compositions, selected variant/item pricing reads. |
+| Pricing | PriceSet/PriceList/Price/Rule lifecycle and bounded update/batch compositions, calculated Pricing and variant/item pricing; served PriceRule operators remain equality-only. |
 | Tax | Region/Rate/Rule operations, rule replacement and item tax-line calculation. |
 | Order | Archive/completion, bounded Change update/cancellation/decline/deletion and admitted checkout creation/accounting. |
 | Payment | Session/Collection/account-holder and selected local System-provider authorization/capture/refund compositions. |
-| Existing Cart checkout/context | Checkout from existing carts, Customer-context extension, Customer selection, variant-item pricing and inventory confirmation. |
+| Cart creation/refresh, Promotion and checkout/context | Bounded native Cart creation, Tax/Adjustment refresh and retained inverses, Promotion computation, existing-cart checkout, selected Customer context/create/delete/read branches, variant-item pricing and inventory confirmation. |
 
 These rows refer to the actual selected module/workflow contracts; they do not
 admit every native method in those families. At inspection there were 123
@@ -67,19 +67,24 @@ source audit and only one connected profile; it is not an exhaustive current
 support manifest. medusa-currency-runtime-inventory is explicitly a measured
 preflight, not promotion authority or the complete integration inventory.
 
-An older Cart-creation preflight says Promotion's service/static manifest are
-unpromoted; the current
-[Promotion checkout reader](../../../../packages/medusa-adapter/src/modules/promotion/checkout-read-service.ts)
-and live promotion manifest establish bounded checkout reads. They do not select
-Promotion computation, campaigns, budgets, writes or complete Cart creation.
-Record this discrepancy rather than importing either broader interpretation.
+Earlier Cart-creation and Pricing preflights describe narrower support than the
+current tracked implementation. The
+[native Cart root](../../../../packages/medusa-adapter/src/workflows/cart/create-cart.ts)
+selects genuine Cart creation, Pricing calculation and Promotion computation;
+the [Promotion service](../../../../packages/medusa-adapter/src/modules/promotion/compute-service.ts)
+and [bounded Pricing calculation](../../../../packages/medusa-adapter/src/modules/pricing/calculation.ts)
+execute their admitted native branches. Preserve the actual method, operator and
+resource restrictions rather than importing either old exclusions or full native
+API parity. The [capability migration map](./framework-capability-map.md) links
+these code owners and existing Cart/Promotion/Pricing compatibility witnesses.
 
-## Pending foreign work and exclusions
+## Current scope and exclusions
 
-Complete Cart creation remains outside the admitted baseline. Foreign changes to
-Cart service/manifests/creation models and untracked Cart ownership tests are
-pending work, distinct from existing-cart checkout. Preserve them and require a
-coordinated handoff before including newly completed behavior in the goal.
+Bounded Cart creation/refresh and Promotion computation are current migration
+inputs, including their selected Customer branches. They do not establish every
+Cart method, general Customer/Promotion management, populated Shipping support
+or external providers. Recheck current source/build inputs and coordinate any
+unrelated work in progress before implementation.
 
 General Customer/Group CRUD, arbitrary module sets, populated upgrades, remote
 providers, resumable external sagas, automatic native replay and public/hosted
