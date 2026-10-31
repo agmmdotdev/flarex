@@ -13,8 +13,11 @@ profile, not every method exported by the native framework or SDK.
 
 The [framework capability migration map](./framework-capability-map.md) connects
 these native profiles to translated-core foundations, missing shared contracts
-and concrete compatibility proofs. It is planning-only and distinguishes
-existing native behavior from completed replacement execution.
+and concrete compatibility proofs. Its source-mapped keep/adapt/extend ledger
+distinguishes Convex system bootstrap, physical upgrades, logical schema
+evolution and native business conversion, with proof gates for each extension.
+It is planning-only and distinguishes existing native behavior from completed
+replacement execution.
 
 The enumerating runtime profiles and their connected witnesses define the
 boundary. These notes name the owners rather than freezing old private APIs.
