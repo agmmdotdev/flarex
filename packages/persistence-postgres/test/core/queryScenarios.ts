@@ -12,7 +12,7 @@ import { activateCoreSchema, CORE_SCHEMA_WORKER_TEST_OPTIONS } from "./schemaFix
 import { captureCoreSchema } from "../../src/core/schemaTypes";
 
 
-const options: CoreDatabaseOptions = { schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS, now: Effect.succeed(1_000_000_000n), newInternalId: Effect.sync(() => randomBytes(16)) };
+const options: CoreDatabaseOptions = { schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS, now: Effect.succeed(1_000_000_000n), randomBytes: (length: 16 | 32) => Effect.sync(() => randomBytes(length)) };
 const schema = Result.getOrThrow(captureCoreSchema({ schemaValidation: true, tables: [{
   tableName: "items", documentType: { type: "object", value: {
     value: { fieldType: { type: "number" }, optional: false }, text: { fieldType: { type: "string" }, optional: true },

@@ -19,7 +19,7 @@ export function projectCoreCommerceFailure(failure: CoreError): CommerceTransact
       case "closed": return commerceError("closed", failure);
       case "conflict": return commerceError("writeConflict", failure);
       case "requestMismatch": return commerceError("requestConflict", failure);
-      case "missingDocument": case "invalidValue": case "documentValidation": case "invalidDocumentId":
+      case "missingDocument": case "invalidValue": case "documentValidation": case "invalidDocumentId": case "documentExists": case "documentDeleted":
         return commerceError("invalidInput", failure);
       case "admissionExpired": return commerceError("deadlineExceeded", failure);
       case "capacity": case "tooManyTables": return commerceError("limitExceeded", failure);

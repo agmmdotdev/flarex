@@ -13,7 +13,7 @@ it("preserves every cause reason when a request claim's save fails",async()=>{
     const unavailable=new CorePersistenceError({reason:"unavailable"}),defect=new Error("claim save defect");
     const failure=Cause.fromReasons([Cause.makeFailReason(unavailable),Cause.makeDieReason(defect),Cause.makeInterruptReason(42)]);
     const persistence:CorePersistence={...fixture.persistence,write:(lease,batch)=>failSave?Effect.failCause(failure):fixture.persistence.write(lease,batch)};
-    const database=yield* openCoreDatabase(persistence,{now:Effect.succeed(1_000_000_000n),newInternalId:Effect.sync(()=>randomBytes(16)),
+    const database=yield* openCoreDatabase(persistence,{now:Effect.succeed(1_000_000_000n),randomBytes:(length:16|32)=>Effect.sync(()=>randomBytes(length)),
       schemaWorker:CORE_SCHEMA_WORKER_TEST_OPTIONS});
     const program={functionPath:"items:claim",programHash:"claim-program",schemaHash:"claim-schema"};
     yield* database.publishPrograms({programs:[{identity:program,metadata:{}}]});

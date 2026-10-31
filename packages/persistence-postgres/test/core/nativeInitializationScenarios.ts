@@ -14,7 +14,7 @@ import { readCoreFixtureRegistry, type CorePersistenceFixture } from "./fixture"
 import { coreNativeTestBudget } from "./nativeTestBudget";
 
 const options = { schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS, now: Effect.succeed(1_000_000_000n),
-  newInternalId: Effect.sync(() => randomBytes(16)), maxBatchDelayMilliseconds: 0 };
+  randomBytes: (length: 16 | 32) => Effect.sync(() => randomBytes(length)), maxBatchDelayMilliseconds: 0 };
 const body = (title: string) => ({ title, createdAt: "2026-11-01T00:00:00.000Z", updatedAt: "2026-11-01T00:00:00.000Z" });
 const failure = <Value>(result: Result.Result<Value, CoreError>) => Result.isFailure(result) ? result.failure : undefined;
 const acquire = Effect.fn("NativeInitializationFixture.acquire")(function* (database: CoreDatabase, binding: CoreNativeBinding,

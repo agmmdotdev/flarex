@@ -3,10 +3,10 @@ import { Effect, Option, Result, Schema } from "effect";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { decodeDocumentValue, encodeDocumentValue, type DocumentObject } from "flarex-protocol/document-value";
 import { CoreTransactionError, type CoreDatabaseOptions, type CoreIndexDefinition, type CoreTableDefinition } from "./api";
-import { CorePersistenceError, type CoreDocumentLogEntry, type CorePersistence, type CorePersistenceLease, type CorePersistenceSnapshot } from "./contracts";
+import { CorePersistenceError, type CoreDocumentLogEntry, type CorePersistence, type CorePersistenceLease, type CorePersistenceSnapshot, type CoreRetentionValidator } from "./contracts";
 import { CORE_BUILTIN_TABLE_NUMBERS, DATABASE_GLOBALS, INDEXES, INDEX_BACKFILLS, PROGRAMS, REQUESTS, SCHEMAS,
   SCHEMA_VALIDATIONS, SCHEMA_VALIDATION_PROGRESS, TABLES, initialRegistry, loadCoreRegistry, readDocumentObject, tableDocument, type CoreRegistry } from "./registry";
-import { CoreFinalizationVault, createCoreTransaction, deriveCoreWriteBatch } from "./transaction";
+import { CoreFinalizationVault, createCoreTransaction, deriveCoreWriteBatch, prepareCoreTransactionIds } from "./transaction";
 import { makeCoreLeaderRetention } from "./retention";
 import { CoreResidentIndexes } from "./residentIndex";
 import { coreIndexMetadataValue, decodeCoreIndexMetadata } from "./indexState";
@@ -15,6 +15,8 @@ import { captureCoreSchema } from "./schemaTypes";
 import { serializeCoreSchema } from "./schemaJson";
 import type { CoreTableNamespace } from "./namespace";
 import { authenticateCoreNativeRegistry } from "./nativePolicy";
+import { captureCoreEntropy, type CoreTransactionIdGenerator } from "./transactionIdGenerator";
+import { checkCoreGeneratedIds } from "./committer";
 
 export const CORE_LOGICAL_DATABASE_VERSION = 1n;
 export const CORE_SCHEMA_CUTOVER_GLOBAL = "flarex_schema_lifecycle_cutover_ts";
@@ -24,10 +26,6 @@ const LegacyBootstrapIndex = Schema.Struct({ name: Schema.Literal("by_id"), tabl
   enabled: Schema.Literal(true), fields: Schema.Array(Schema.String), persistenceIndexId: Schema.optionalKey(Schema.BigInt) });
 const corrupt = (cause?: unknown) => new CorePersistenceError({ reason: "corruptData", ...(cause === undefined ? {} : { cause }) });
 
-export function allocateInternalId(effect: Effect.Effect<Uint8Array>): Effect.Effect<Uint8Array, CoreTransactionError> {
-  return Effect.flatMap(effect, value => value instanceof Uint8Array && value.byteLength === 16
-    ? Effect.succeed(value.slice()) : Effect.fail(new CoreTransactionError({ reason: "invalidDocumentId" })));
-}
 const anchor = Effect.fn("CoreBootstrap.anchor")(function* (persistence: CorePersistence, key: string) {
   const stored = yield* persistence.getGlobal(key);
   if (Option.isNone(stored)) return yield* corrupt();
@@ -71,15 +69,27 @@ export const loadBootstrapRegistry = Effect.fn("CoreBootstrap.loadAnchors")(func
 });
 
 export const allocateCoreBuiltinDefinitions = Effect.fn("CoreBootstrap.allocateBuiltins")(function* (
-  options: CoreDatabaseOptions, names: readonly string[], namespace: CoreTableNamespace = null, firstPersistenceIndexId?: bigint,
+  idGenerator: CoreTransactionIdGenerator, names: readonly string[], namespace: CoreTableNamespace = null, firstPersistenceIndexId?: bigint,
 ) {
   const definitions: CoreTableDefinition[] = [];
   let nextPersistenceIndexId = firstPersistenceIndexId;
+  const allocateIndex = (name: string, fields: readonly string[]): CoreIndexDefinition => ({ name, fields,
+    ref: { id: idGenerator.nextInternalId(),
+      ...(nextPersistenceIndexId === undefined ? {} : { persistenceIndexId: nextPersistenceIndexId++ }) } });
   for (const name of names) {
     const number = CORE_BUILTIN_TABLE_NUMBERS.get(name);
     if (number === undefined) return yield* corrupt();
-    const specs: Array<readonly [string, readonly string[]]> = [["by_id", []]];
-    if (name !== INDEXES) specs.push(["by_creation_time", ["_creationTime"]]);
+    definitions.push({ name, number, tabletId: idGenerator.nextInternalId(), namespace, state: "active", indexes: [] });
+  }
+  // Source reserves tablet identities, then intrinsic indexes, then declared system indexes.
+  for (const [position, definition] of definitions.entries()) {
+    const indexes = [allocateIndex("by_id", [])];
+    if (definition.name !== INDEXES) indexes.push(allocateIndex("by_creation_time", ["_creationTime"]));
+    definitions[position] = { ...definition, indexes };
+  }
+  for (const [position, definition] of definitions.entries()) {
+    const { name } = definition;
+    const specs: Array<readonly [string, readonly string[]]> = [];
     if (name === REQUESTS) specs.push(["by_key", ["key"]]);
     if (name === SCHEMAS) specs.push(["by_state", ["state"]]);
     if (name === INDEX_BACKFILLS) specs.push(["by_index_id", ["indexId"]]);
@@ -87,12 +97,8 @@ export const allocateCoreBuiltinDefinitions = Effect.fn("CoreBootstrap.allocateB
     if (name === SCHEMA_VALIDATION_PROGRESS) specs.push(["by_validation_id", ["validationId", "_creationTime"]]);
     if (name === PROGRAMS) specs.push(["by_head_path", ["kind", "identity.functionPath"]],
       ["by_identity", ["kind", "identity.functionPath", "identity.programHash", "identity.schemaHash"]]);
-    const indexes: CoreIndexDefinition[] = [];
-    for (const [indexName, fields] of specs) {
-      indexes.push({ name: indexName, fields, ref: { id: yield* allocateInternalId(options.newInternalId),
-        ...(nextPersistenceIndexId === undefined ? {} : { persistenceIndexId: nextPersistenceIndexId++ }) } });
-    }
-    definitions.push({ name, number, tabletId: yield* allocateInternalId(options.newInternalId), namespace, state: "active", indexes });
+    const indexes = [...definition.indexes, ...specs.map(([indexName, fields]) => allocateIndex(indexName, fields))];
+    definitions[position] = { ...definition, indexes };
   }
   const ids = definitions.flatMap(table => [table.tabletId, ...table.indexes.map(index => index.ref.id)]).map(encodeBytesToLowercaseHex);
   if (new Set(ids).size !== ids.length) return yield* new CoreTransactionError({ reason: "invalidDocumentId" });
@@ -110,34 +116,48 @@ function globalsBody(secretBytes: Uint8Array): DocumentObject {
 export const initializeCorePersistence = Effect.fn("CoreBootstrap.initialize")(function* (
   persistence: CorePersistence, lease: CorePersistenceLease, options: CoreDatabaseOptions,
 ) {
-  const definitions = yield* allocateCoreBuiltinDefinitions(options, [...CORE_BUILTIN_TABLE_NUMBERS.keys()], null, 1n);
+  const ids = yield* prepareCoreTransactionIds(options);
+  // UUID entropy is separate from the document stream and captured before any durable anchor.
+  const secret = yield* Effect.fromResult(captureCoreEntropy(yield* options.randomBytes(16), 16));
+  const definitions = yield* allocateCoreBuiltinDefinitions(ids.idGenerator, [...CORE_BUILTIN_TABLE_NUMBERS.keys()], null, 1n);
   let registry = yield* Effect.fromResult(initialRegistry(definitions));
   const tables = registry.table(TABLES)?.definition;
   const indexes = registry.table(INDEXES)?.definition;
   const tablesById = tables?.indexes.find(index => index.name === "by_id");
   const indexesById = indexes?.indexes.find(index => index.name === "by_id");
   if (tables === undefined || indexes === undefined || tablesById === undefined || indexesById === undefined) return yield* corrupt();
-  for (const [key, id] of [["tables_table_id", tables.tabletId], ["index_table_id", indexes.tabletId],
-    ["tables_by_id", tablesById.ref.id], ["index_by_id", indexesById.ref.id]] as const) yield* putValue(persistence, lease, key, encodeBytesToLowercaseHex(id));
   const vault = new CoreFinalizationVault();
-  const transaction = createCoreTransaction({ snapshot: yield* persistence.readSnapshot(0n), registry, now: yield* options.now,
-    newInternalId: options.newInternalId, vault });
-  for (const table of definitions) yield* transaction.writePrivate(TABLES, table.tabletId, tableDocument(table));
-  for (const index of registry.indexes.records.values()) yield* transaction.writePrivate(INDEXES, index.ref.id, coreIndexMetadataValue(index));
-  yield* transaction.runSystem(transaction.insertSystem(DATABASE_GLOBALS, globalsBody(yield* allocateInternalId(options.newInternalId))));
-  const authorityId = yield* allocateInternalId(options.newInternalId);
-  yield* transaction.writePrivate(PROGRAMS, authorityId, { kind: "authority", epoch: 0n });
+  const transaction = createCoreTransaction({ snapshot: yield* persistence.readSnapshot(0n), registry, ...ids, vault });
+  for (const table of definitions) {
+    yield* transaction.insertPrivate(TABLES, table.tabletId, tableDocument(table));
+    for (const declaration of table.indexes.filter(index => index.name === "by_id" || index.name === "by_creation_time")) {
+      const index = registry.indexes.byId(declaration.ref.id);
+      if (index === undefined) return yield* corrupt();
+      yield* transaction.insertPrivate(INDEXES, index.ref.id, coreIndexMetadataValue(index));
+    }
+  }
+  for (const table of definitions) for (const declaration of table.indexes.filter(index => index.name !== "by_id" && index.name !== "by_creation_time")) {
+    const index = registry.indexes.byId(declaration.ref.id);
+    if (index === undefined) return yield* corrupt();
+    yield* transaction.insertPrivate(INDEXES, index.ref.id, coreIndexMetadataValue(index));
+  }
+  yield* transaction.runSystem(transaction.insertSystem(DATABASE_GLOBALS, globalsBody(secret)));
+  const authorityId = transaction.idGenerator.nextInternalId();
+  yield* transaction.insertPrivate(PROGRAMS, authorityId, { kind: "authority", epoch: 0n });
   registry = transaction.registry.withAuthority({ id: authorityId, epoch: 0n, ts: 0n });
   transaction.setRegistryAfter(registry);
   const finalized = vault.take(yield* transaction.transaction.finalize());
   if (finalized === undefined) return yield* new CoreTransactionError({ reason: "foreignFinalization" });
-  yield* persistence.write(lease, yield* Effect.fromResult(deriveCoreWriteBatch(finalized, 0n)));
+  const batch = yield* Effect.fromResult(deriveCoreWriteBatch(finalized, 0n));
+  for (const [key, id] of [["tables_table_id", tables.tabletId], ["index_table_id", indexes.tabletId],
+    ["tables_by_id", tablesById.ref.id], ["index_by_id", indexesById.ref.id]] as const) yield* putValue(persistence, lease, key, encodeBytesToLowercaseHex(id));
+  yield* persistence.write(lease, batch);
   yield* putValue(persistence, lease, CORE_SCHEMA_CUTOVER_GLOBAL, 0n);
 });
 
 const migrateLegacy = Effect.fn("CoreBootstrap.migrateLegacy")(function* (
   persistence: CorePersistence, lease: CorePersistenceLease, options: CoreDatabaseOptions, timestamp: bigint,
-  snapshot: CorePersistenceSnapshot, registry: CoreRegistry, revisions: readonly CoreDocumentLogEntry[],
+  snapshot: CorePersistenceSnapshot, registry: CoreRegistry, revisions: readonly CoreDocumentLogEntry[], retention: CoreRetentionValidator,
 ) {
   const tables: unknown[] = [];
   const catalog = registry.table(TABLES)?.definition;
@@ -155,21 +175,24 @@ const migrateLegacy = Effect.fn("CoreBootstrap.migrateLegacy")(function* (
       stagedDbIndexes: [] });
   }
   const schema = yield* Effect.fromResult(captureCoreSchema({ tables, schemaValidation: true }));
-  const definitions = yield* allocateCoreBuiltinDefinitions(options, [...CORE_BUILTIN_TABLE_NUMBERS.keys()].filter(name => registry.table(name) === undefined));
-  for (const table of definitions) {
-    registry = registry.withTable({ definition: table, id: table.tabletId, ts: null });
-    for (const index of table.indexes) registry = yield* Effect.fromResult(registry.withIndex({ ...index, tableId: table.tabletId, state: { type: "Enabled" }, ts: null }));
-  }
+  const ids = yield* prepareCoreTransactionIds(options);
+  const needsGlobals = registry.table(DATABASE_GLOBALS) === undefined;
+  const secret = needsGlobals ? yield* Effect.fromResult(captureCoreEntropy(yield* options.randomBytes(16), 16)) : undefined;
+  const definitions = yield* allocateCoreBuiltinDefinitions(ids.idGenerator, [...CORE_BUILTIN_TABLE_NUMBERS.keys()].filter(name => registry.table(name) === undefined));
   const vault = new CoreFinalizationVault();
-  const transaction = createCoreTransaction({ snapshot, registry, now: yield* options.now, newInternalId: options.newInternalId, vault });
+  const transaction = createCoreTransaction({ snapshot, registry, ...ids, vault });
   for (const record of registry.tables.values()) yield* transaction.writePrivate(TABLES, record.id, tableDocument(record.definition));
+  for (const table of definitions) yield* transaction.insertPrivate(TABLES, table.tabletId, tableDocument(table));
   for (const index of registry.indexes.records.values()) yield* transaction.writePrivate(INDEXES, index.ref.id, coreIndexMetadataValue(index));
+  for (const table of definitions) for (const index of table.indexes) yield* transaction.insertPrivate(INDEXES, index.ref.id,
+    coreIndexMetadataValue({ ...index, tableId: table.tabletId, state: { type: "Enabled" }, ts: null }));
   for (const index of registry.indexesForTablet(catalog.tabletId)) if (index.name === "by_name" || index.name === "by_number")
     yield* transaction.writePrivate(INDEXES, index.ref.id, null);
   yield* transaction.runSystem(transaction.insertSystem(SCHEMAS, { state: { state: "active" }, schema: yield* Effect.fromResult(serializeCoreSchema(schema)) }));
-  yield* transaction.runSystem(transaction.insertSystem(DATABASE_GLOBALS, globalsBody(yield* allocateInternalId(options.newInternalId))));
+  if (secret !== undefined) yield* transaction.runSystem(transaction.insertSystem(DATABASE_GLOBALS, globalsBody(secret)));
   const finalized = vault.take(yield* transaction.transaction.finalize());
   if (finalized === undefined) return yield* new CoreTransactionError({ reason: "foreignFinalization" });
+  yield* checkCoreGeneratedIds(persistence, finalized, retention);
   const now = yield* options.now;
   const migratedAt = now > timestamp ? now : timestamp + 1n;
   yield* persistence.write(lease, yield* Effect.fromResult(deriveCoreWriteBatch(finalized, migratedAt)));
@@ -198,7 +221,7 @@ export const bootstrapCore = Effect.fn("CoreBootstrap.open")(function* (
   let registry = yield* loadCoreRegistry(snapshot, yield* loadBootstrapRegistry(persistence, snapshot, legacy), entry => { revisions.push(entry); },
     legacy ? LEGACY_CORE_REGISTRY_DECODERS : undefined);
   if (legacy) {
-    yield* migrateLegacy(persistence, lease, options, timestamp, snapshot, registry, revisions);
+    yield* migrateLegacy(persistence, lease, options, timestamp, snapshot, registry, revisions, retention);
     timestamp = yield* persistence.latestTimestamp(lease);
     snapshot = yield* persistence.readSnapshot(timestamp, retention);
     revisions.length = 0;

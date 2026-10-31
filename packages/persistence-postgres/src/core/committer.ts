@@ -5,9 +5,9 @@
  */
 import { Cause, Clock, Deferred, Duration, Effect, Exit, Option, Queue, Result, Schema, Semaphore } from "effect";
 import { BTreeEx as BTree } from "sorted-btree/extended/index.js";
-import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { compareBytesLexicographically, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { CoreTransactionError, type CoreDatabaseOptions, type CoreError } from "./api";
-import { CorePersistenceError, type CoreDocumentLogEntry, type CoreInterval, type CorePersistence, type CorePersistenceIndexEntry, type CorePersistenceLease, type CoreRetentionValidator, type CoreWriteBatch } from "./contracts";
+import { CorePersistenceError, CoreTimestampSchema, type CoreDocumentLogEntry, type CoreInterval, type CorePersistence, type CorePersistenceIndexEntry, type CorePersistenceLease, type CoreRetentionValidator, type CoreWriteBatch } from "./contracts";
 import { CoreRegistry, SCHEMAS } from "./registry";
 import { CoreTableCounts, type CoreTableCountDelta } from "./tableCounts";
 import type { CoreSchemaRegistryUpdate } from "./schemaRegistry";
@@ -19,6 +19,28 @@ import { makeCoreIndexCache, type CoreIndexCache } from "./indexCache";
 import type { CoreResidentIndexes } from "./residentIndex";
 import { prepareCoreNativeIndexes, validateCoreNativeIndexes } from "./nativeValidation";
 import { checkCoreNativeRegistryTransition } from "./nativePolicy";
+
+const decodeGeneratedIdBoundary = Schema.decodeUnknownEffect(CoreTimestampSchema);
+
+/** Source derives generated IDs from coalesced old=None updates, including insert-delete. */
+export const checkCoreGeneratedIds = Effect.fn("CoreCommitter.checkGeneratedIds")(function* (
+  persistence: CorePersistence, transaction: CoreFinalizedState, retention?: CoreRetentionValidator,
+) {
+  const generated = transaction.changes.filter(change => change.originalDocument === null).toSorted((left, right) =>
+    compareBytesLexicographically(left.table.tabletId, right.table.tabletId) || compareBytesLexicographically(left.id, right.id));
+  if (generated.length === 0) return;
+  const before = yield* decodeGeneratedIdBoundary(transaction.timestamp + 1n).pipe(
+    Effect.mapError(cause => new CoreTransactionError({ reason: "invalidValue", cause })));
+  const previous = yield* persistence.previousRevisions(generated.map(change => ({
+    tableId: change.table.tabletId, id: change.id, ts: before,
+  })), retention);
+  const reused = previous[0];
+  if (reused !== undefined) return yield* new CoreTransactionError({
+    reason: reused.document.deleted ? "documentDeleted" : "documentExists",
+    cause: { tableId: encodeBytesToLowercaseHex(reused.query.tableId), id: encodeBytesToLowercaseHex(reused.query.id),
+      previousTimestamp: reused.document.ts.toString() },
+  });
+});
 
 interface CorePublishedSnapshot {
   readonly registry: CoreRegistry;
@@ -278,6 +300,9 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
         if (deadline !== undefined && (yield* Clock.currentTimeMillis) >= deadline)
           return yield* new CoreTransactionError({ reason: "admissionExpired" });
       });
+      // This read-only client check owns no accepted prefix, save permit or SQL transaction.
+      yield* restore(prevalidationSlots.withPermits(1)(Effect.andThen(checkDeadline,
+        checkCoreGeneratedIds(persistence, transaction, retention))));
       const ack = yield* Deferred.make<bigint, CoreError>();
       let noWritePredecessors: readonly DurableCommit[] | undefined;
       while (true) {

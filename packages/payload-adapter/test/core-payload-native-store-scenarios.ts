@@ -106,7 +106,7 @@ export function registerCorePayloadNativeStore(driver: "pglite" | "postgres"): v
       const result = await Effect.runPromise(Effect.scoped(Effect.result(openCoreDatabase(reopened, {
         schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS,
         now: Clock.currentTimeMillis.pipe(Effect.map(value => BigInt(Math.floor(value)) * 1_000_000n)),
-        newInternalId: Effect.sync(() => crypto.getRandomValues(new Uint8Array(16))),
+        randomBytes: (length: 16 | 32) => Effect.sync(() => crypto.getRandomValues(new Uint8Array(length))),
       }))));
       expect(Result.isFailure(result) && result.failure).toMatchObject({ reason: "corruptData" });
     } finally { await physical.close(); }

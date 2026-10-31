@@ -4,11 +4,12 @@ import { encodeDocumentId } from "flarex-protocol/document-id";
 import type { CoreTableDefinition } from "../../src/core/api";
 import { initialRegistry } from "../../src/core/registry";
 import { CoreFinalizationVault, createCoreTransaction } from "../../src/core/transaction";
+import { createTransactionIdGenerator } from "../../src/core/transactionIdGenerator";
 
 const id=(value:number)=>{const bytes=new Uint8Array(16);new DataView(bytes.buffer).setUint32(12,value);return bytes;};
 
 describe("source user table namespace limit",()=>{
-  it("counts active user tables across namespaces and refuses before creation as a developer error",async()=>{
+  it("reserves the user identity at the global table cap without metadata writes or later closed-handle draws",async()=>{
     const component=Result.getOrThrow(encodeDocumentId(700,id(700)));
     const definitions:CoreTableDefinition[]=[
       {name:"_tables",number:513,tabletId:id(1),namespace:null,state:"active",indexes:[{name:"by_id",ref:{id:id(3)},fields:[]}]},
@@ -20,16 +21,23 @@ describe("source user table namespace limit",()=>{
         {name:"by_creation_time",ref:{id:id(40000+offset)},fields:["_creationTime"]},
       ]});
     const registry=Result.getOrThrow(initialRegistry(definitions));
+    const generator=Result.getOrThrow(createTransactionIdGenerator(new Uint8Array(32),1_000_000_000n));
+    const expected=Result.getOrThrow(createTransactionIdGenerator(new Uint8Array(32),1_000_000_000n));
+    expected.nextInternalId();
     await Effect.runPromise(Effect.gen(function*(){
       const transaction=createCoreTransaction({registry,now:1_000_000_000n,vault:new CoreFinalizationVault(),
-        newInternalId:Effect.die(new Error("Table cap must refuse before allocating an identity")),
+        idGenerator:generator,
         snapshot:{timestamp:0n,get:()=>Effect.die(new Error("Table cap must use captured metadata")),scan:()=>Effect.die(new Error("Table cap must use captured metadata"))}});
       const result=yield* Effect.result(transaction.transaction.insert("overflow",{}));
       expect(Result.isFailure(result)&&result.failure).toMatchObject({reason:"tooManyTables",cause:{limit:10000}});
+      expect(generator.nextInternalId()).toEqual(expected.nextInternalId());
       expect((yield* transaction.transaction.tableMappings)).toHaveLength(9999);
       expect((yield* transaction.transaction.usage).system.documentsWritten).toBe(0);
       expect((yield* transaction.transaction.usage).user.documentsWritten).toBe(0);
       yield* transaction.transaction.abort();
+      const closed=yield* Effect.result(transaction.transaction.insert("overflow",{}));
+      expect(Result.isFailure(closed)&&closed.failure).toMatchObject({reason:"closed"});
+      expect(generator.nextInternalId()).toEqual(expected.nextInternalId());
     }));
   });
 });

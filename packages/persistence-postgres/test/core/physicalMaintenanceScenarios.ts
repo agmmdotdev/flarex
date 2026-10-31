@@ -157,7 +157,7 @@ export function registerCorePhysicalMaintenanceScenarios(name: string, createFix
         const nextLease = tokens.reduce((maximum, row) => BigInt(row.token) > maximum ? BigInt(row.token) : maximum, 0n) + 1n;
         const persistence = yield* createCorePersistence(target, store.instance, { leaseTimestamp: Effect.succeed(nextLease) });
         const database = yield* openCoreDatabase(persistence, { schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS,
-          now: Effect.succeed(BigInt(store.latest.$bigint) + 1n), newInternalId: Effect.sync(() => randomBytes(16)) });
+          now: Effect.succeed(BigInt(store.latest.$bigint) + 1n), randomBytes: (length: 16 | 32) => Effect.sync(() => randomBytes(length)) });
         expect((yield* database.selectProgram(store.requestIdentity.program.functionPath))).toMatchObject({
           identity: store.requestIdentity.program, metadata: { visibility: "public" } });
         expect(yield* database.recoverRequest(store.requestIdentity)).toMatchObject({ kind: "committed", result: { legacy: true } });
@@ -198,7 +198,7 @@ export function registerCorePhysicalMaintenanceScenarios(name: string, createFix
         const reopenedPersistence = yield* createCorePersistence(reopenedTarget, store.instance,
           { leaseTimestamp: Effect.succeed(nextLease + 1n) });
         const reopened = yield* openCoreDatabase(reopenedPersistence, { schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS,
-          now: Effect.succeed(BigInt(store.latest.$bigint) + 100n), newInternalId: Effect.sync(() => randomBytes(16)) });
+          now: Effect.succeed(BigInt(store.latest.$bigint) + 100n), randomBytes: (length: 16 | 32) => Effect.sync(() => randomBytes(length)) });
         expect((yield* reopened.selectProgram(store.requestIdentity.program.functionPath)).identity).toEqual(store.requestIdentity.program);
         expect(yield* reopened.recoverRequest(store.requestIdentity)).toMatchObject({ kind: "committed", result: { legacy: true } });
         const freshReader = yield* reopened.begin();

@@ -19,7 +19,7 @@ import { CORE_SCHEMA_WORKER_TEST_OPTIONS } from "./schemaFixture";
 import { readCoreFixtureRegistry, type CorePersistenceFixture } from "./fixture";
 
 const target = { scopeUuid: "74bd6a8e-8dd1-414b-9515-0f342e8c5762", epochUuid: "e56ca002-c0b7-4881-8105-a8d7c23cf70d" };
-const options = { now: Effect.succeed(1_000_000_000n), newInternalId: Effect.sync(() => randomBytes(16)),
+const options = { now: Effect.succeed(1_000_000_000n), randomBytes: (length: 16 | 32) => Effect.sync(() => randomBytes(length)),
   schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS, maxBatchDelayMilliseconds: 0 };
 const sources = Effect.fn("NativeSchemaBundleLifecycle.sources")(function* (extra = false) {
   const application = yield* prepareApplicationSchemaSource(defineSchema({

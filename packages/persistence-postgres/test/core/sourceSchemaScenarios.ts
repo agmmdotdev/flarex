@@ -7,7 +7,7 @@ import { openCoreDatabase } from "../../src/core/database";
 import type { CorePersistenceFixture, CorePersistenceFixtureOptions } from "./fixture";
 import { activateCoreSchema, CORE_SCHEMA_WORKER_TEST_OPTIONS } from "./schemaFixture";
 
-const options = { now: Effect.succeed(1_000_000_000n), newInternalId: Effect.sync(() => randomBytes(16)),
+const options = { now: Effect.succeed(1_000_000_000n), randomBytes: (length: 16 | 32) => Effect.sync(() => randomBytes(length)),
   schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS };
 const object = (field: string, validator: ValidatorJsonV1): ValidatorJsonV1 => ({ type: "object",
   value: { [field]: { fieldType: validator, optional: false } } });

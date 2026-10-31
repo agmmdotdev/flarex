@@ -136,7 +136,7 @@ export type CoreRequestAcquisition =
 export class CoreTransactionError extends Data.TaggedError("CoreTransactionError")<{
   readonly reason: "closed" | "inflight" | "foreignFinalization" | "conflict"
     | "invalidValue" | "documentValidation" | "missingTable" | "missingIndex" | "indexUnavailable"
-    | "missingDocument" | "invalidDocumentId" | "programUnavailable"
+    | "missingDocument" | "invalidDocumentId" | "documentExists" | "documentDeleted" | "programUnavailable"
     | "requestMismatch" | "foreignClaim" | "tooManyTables" | "capacity" | "unavailable" | "authorityRevoked" | "admissionExpired" | "readonly";
   readonly cause?: unknown;
 }> {}
@@ -340,7 +340,8 @@ export interface CoreDatabaseOptions {
   readonly schemaBundles?: readonly CoreSchemaBundle[];
   readonly schemaWorker:CoreSchemaWorkerOptions;
   readonly now: Effect.Effect<CoreTimestamp>;
-  readonly newInternalId: Effect.Effect<Uint8Array>;
+  /** Trusted host entropy; the portable Core owns transaction-local ID generation. */
+  readonly randomBytes: (length: 16 | 32) => Effect.Effect<Uint8Array>;
   readonly maxInflight?: number;
   readonly maxConcurrentSaves?: number;
   readonly maxBatchDocuments?: number;

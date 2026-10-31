@@ -1,4 +1,4 @@
-import { Clock, Effect, Option, Schema } from "effect";
+import { Clock, Effect, Option, Schema, Stream } from "effect";
 import { bytesEqual, compareBytesLexicographically, copyBytes } from "@flarex/utils/bytes";
 import { MAX_INDEX_KEY_PREFIX_BYTES, splitIndexKey } from "flarex-protocol/index-key";
 import {
@@ -6,6 +6,7 @@ import {
   type CoreDocumentLogEntry,
   type CoreDocumentLogRequest,
   type CorePreviousRevisionQuery,
+  type CorePreviousRevisionSearch,
   type CorePreviousRevision,
   type CoreHydratedIndexEntry,
   type CoreIndexPage,
@@ -61,8 +62,10 @@ const decodeDocumentLogRequest = Schema.decodeUnknownEffect(Schema.Struct({
   after: Schema.optionalKey(Schema.Struct({ ts: timestampSchema, tableId: internalIdSchema, id: internalIdSchema })),
   tableId: Schema.optionalKey(internalIdSchema),
 }));
+const previousSearchSchema = Schema.Struct({ ...pointSchema.fields, ts: timestampSchema });
+const decodePreviousSearches = Schema.decodeUnknownEffect(Schema.Array(previousSearchSchema));
 const decodePreviousQueries = Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({
-  ...pointSchema.fields, ts: timestampSchema, prevTs: timestampSchema,
+  ...previousSearchSchema.fields, prevTs: timestampSchema,
 })));
 const decodeGlobals = makeStoredRowsDecoder(globalsSchema);
 const decodeLatest = makeStoredRowsDecoder(latestSchema);
@@ -71,6 +74,11 @@ const jsonNull = new TextEncoder().encode("null");
 
 function invalid(cause: unknown): CorePersistenceError {
   return new CorePersistenceError({ reason: "invalidTarget", cause });
+}
+
+function comparePreviousSearches(left: CorePreviousRevisionSearch, right: CorePreviousRevisionSearch): number {
+  return compareBytesLexicographically(left.tableId, right.tableId) || compareBytesLexicographically(left.id, right.id)
+    || (left.ts < right.ts ? -1 : left.ts > right.ts ? 1 : 0);
 }
 
 function copyDocument(entry: CoreDocumentLogEntry): CoreDocumentLogEntry {
@@ -320,7 +328,7 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
         const order = request.order === "asc" ? "ASC" : "DESC";
         const rows = yield* driver.query(`SELECT ts::text AS ts, table_id, id, json_value, deleted, prev_ts::text AS prev_ts
           FROM ${table("documents")} WHERE ${predicates.join(" AND ")}
-          ORDER BY ts ${order}, table_id ${order}, id ${order} LIMIT $${parameters.length}`, parameters);
+          ORDER BY ${table("documents")}.ts ${order}, table_id ${order}, id ${order} LIMIT $${parameters.length}`, parameters);
         const decoded = yield* decodeDocumentRows(rows);
         // The oldest requested timestamp witnesses retention, even when SQL returned no rows.
         yield* retention.validateDocument(request.start);
@@ -328,6 +336,59 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
         const last = documents.at(-1);
         return Object.freeze({ documents: Object.freeze(documents), done: documents.length < Number(parameters.at(-1)),
           cursor: last === undefined ? null : Object.freeze({ ts: last.ts, tableId: last.tableId.slice(), id: last.id.slice() }) });
+      }),
+      previousRevisions: Effect.fn("CorePersistence.previousRevisions")(function* (
+        input: readonly CorePreviousRevisionSearch[], retention: CoreRetentionValidator = sqlRetention) {
+        const capturedQueries = (yield* decodePreviousSearches(input).pipe(Effect.mapError(invalid)))
+          .map(query => Object.freeze({ ...query, tableId: copyBytes(query.tableId), id: copyBytes(query.id) })).toSorted(comparePreviousSearches);
+        // Source accepts a BTreeSet: equal searches are one request, regardless of byte-array identity.
+        const queries = capturedQueries.filter((query, index) => {
+          const previous = capturedQueries[index - 1];
+          return previous === undefined || comparePreviousSearches(query, previous) !== 0;
+        });
+        if (queries.length === 0) return Object.freeze([]);
+        const chunks: Array<readonly CorePreviousRevisionSearch[]> = [];
+        let offset = 0;
+        for (; offset + 8 <= queries.length; offset += 8) chunks.push(queries.slice(offset, offset + 8));
+        for (; offset < queries.length; offset += 1) chunks.push(queries.slice(offset, offset + 1));
+        return yield* driver.withConnection(connection => Effect.gen(function* () {
+          // Pinned db914cf06 postgres/lib.rs previous_revisions: eight-way groups, single remainder requests,
+          // and sixteen lazy query futures on one checkout. The transport owns actual wire pipelining.
+          const groups = yield* Stream.fromIterable(chunks).pipe(Stream.mapEffect(chunk => Effect.gen(function* () {
+            const parameters: CoreSqlParameter[] = [instance];
+            const selects = chunk.map(query => {
+              parameters.push(query.tableId, query.id, query.ts);
+              const n = parameters.length;
+              return `SELECT $${n}::bigint::text AS query_ts, ts::text AS ts, table_id, id, json_value, deleted, prev_ts::text AS prev_ts
+                FROM ${table("documents")} WHERE instance_name = $1 AND table_id = $${n - 2} AND id = $${n - 1} AND ts < $${n}
+                ORDER BY ${table("documents")}.ts DESC LIMIT 1`;
+            });
+            const statement = chunk.length === 1 ? selects[0]
+              : `WITH ${selects.map((select, index) => `q${index + 1} AS (${select})`).join(", ")}
+                ${selects.map((_, index) => `SELECT * FROM q${index + 1}`).join(" UNION ALL ")}`;
+            if (statement === undefined) return yield* Effect.die(new Error("Nonempty history request lost its statement"));
+            const rows = yield* connection.query(statement, parameters);
+            const decoded = yield* decodePreviousRevisionRows(rows);
+            const seen = new Set<CorePreviousRevisionSearch>();
+            const result: CorePreviousRevision<CorePreviousRevisionSearch>[] = [];
+            for (const row of decoded) {
+              const query = chunk.find(value => value.ts === row.query_ts && row.ts < value.ts
+                && bytesEqual(value.tableId, row.table_id) && bytesEqual(value.id, row.id));
+              if (query === undefined || seen.has(query))
+                return yield* Effect.fail(new CorePersistenceError({ reason: "corruptData" }));
+              seen.add(query);
+              result.push(Object.freeze({ query, document: documentFromRow(row) }));
+            }
+            return result;
+          }), { concurrency: 16, unordered: false }), Stream.runCollect);
+          const witness = queries.reduce((min, query) => query.ts < min ? query.ts : min, queries[0]?.ts ?? 0n);
+          if (retention === sqlRetention) {
+            // Like the existing exact predecessor reader, reuse this checkout for its post-I/O floor check.
+            const floor = yield* globalTimestamp(connection, "document_min_snapshot_ts");
+            if (witness < floor) return yield* Effect.fail(new CorePersistenceError({ reason: "outOfRetention" }));
+          } else yield* retention.validateDocument(witness);
+          return Object.freeze(groups.flat().toSorted((left, right) => comparePreviousSearches(left.query, right.query)));
+        }));
       }),
       previousRevisionsOfDocuments: Effect.fn("CorePersistence.previousRevisionsOfDocuments")(function* (
         input: readonly CorePreviousRevisionQuery[], retention: CoreRetentionValidator = sqlRetention) {
@@ -419,7 +480,7 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
               .pipe(Effect.mapError(invalid));
             const rows = yield* driver.query(`SELECT ts::text AS ts, table_id, id, json_value, deleted, prev_ts::text AS prev_ts
               FROM ${table("documents")} WHERE instance_name = $1 AND table_id = $2 AND id = $3 AND ts <= $4
-              ORDER BY ts DESC LIMIT 1`, [instance, copyBytes(decoded.tableId), copyBytes(decoded.id), at]);
+              ORDER BY ${table("documents")}.ts DESC LIMIT 1`, [instance, copyBytes(decoded.tableId), copyBytes(decoded.id), at]);
             const stored = yield* decodeDocumentRows(rows);
             yield* retention.validateDocument(at);
             return stored[0] === undefined ? Option.none<CoreDocumentLogEntry>() : Option.some(documentFromRow(stored[0]));

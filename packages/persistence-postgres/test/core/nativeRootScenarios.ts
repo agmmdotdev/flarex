@@ -4,11 +4,13 @@ import { describe, expect, it } from "vitest";
 import { defineSchema, defineTable } from "flarex/server";
 import { v } from "flarex/values";
 import { prepareApplicationSchemaSource } from "@flarex/analysis/internal/logical-application-source";
+import { decodeDocumentId } from "flarex-protocol/document-id";
 import { compileCurrencyCoreDefinition } from "../../../medusa-adapter/src/modules/currency/schema";
 import { compilePayloadCollections } from "../../../payload-adapter/src/collections";
 import { makeCoreNativeDefinition } from "../../src/core/nativePolicy";
 import { makeCoreSchemaBundle } from "../../src/core/schemaBundle";
 import { openCoreDatabase } from "../../src/core/database";
+import { createTransactionIdGenerator } from "../../src/core/transactionIdGenerator";
 import type { CoreDatabase, CoreError, CoreNativeRootOperation, CoreNativeRootParticipant, CoreRequestClaim, CoreRequestIdentity } from "../../src/core/api";
 import type { CorePersistenceFixture } from "./fixture";
 import { CORE_SCHEMA_WORKER_TEST_OPTIONS } from "./schemaFixture";
@@ -27,9 +29,14 @@ const setup = Effect.fn("NativeRootFixture.setup")(function* (fixture: CorePersi
   const currency = yield* compileCurrencyCoreDefinition(target);
   const bundle = yield* makeCoreSchemaBundle({ sources: [{ kind: "application", definition: application },
     { kind: "native", definition: payload }, { kind: "native", definition: currency }] });
-  let now = 1_000_000_000n, generated = 0;
+  let now = 1_000_000_000n;
+  let latestSeed: Uint8Array | undefined;
   const options = { schemaBundles: [bundle], now: Effect.sync(() => now),
-    newInternalId: Effect.sync(() => { generated++; return randomBytes(16); }),
+    randomBytes: (length: 16 | 32) => Effect.sync(() => {
+      const bytes = randomBytes(length);
+      if (length === 32) latestSeed = bytes.slice();
+      return bytes;
+    }),
     schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS, maxBatchDelayMilliseconds: 0 };
   const database = yield* Effect.acquireRelease(openCoreDatabase(fixture.persistence, options), db => db.close());
   const proposal = yield* database.prepareSchema({ bundle });
@@ -67,7 +74,11 @@ const setup = Effect.fn("NativeRootFixture.setup")(function* (fixture: CorePersi
     return { operation, claim: acquired.claim, identity };
   });
   return { database, options, bundle, payload, currency, payloadBinding, currencyBinding, currencyTable,
-    root, metadata, grant, begin, generated: () => generated, setNow: (value: bigint) => { now = value; } };
+    root, metadata, grant, begin, expectedInternalIds: (count: number) => {
+      if (latestSeed === undefined) throw new Error("Native root did not acquire a transaction seed.");
+      const preview = Result.getOrThrow(createTransactionIdGenerator(latestSeed, now));
+      return Array.from({ length: count }, () => preview.nextInternalId());
+    }, setNow: (value: bigint) => { now = value; } };
 });
 
 const closeRequest = Effect.fn("NativeRootFixture.abort")(function* (
@@ -101,12 +112,16 @@ export function registerNativeRootScenarios(label: string, createFixture: () => 
       const fixture = await createFixture();
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const tested = yield* setup(fixture), selected = yield* tested.begin();
+        const expectedIds = tested.expectedInternalIds(3);
         const payload = yield* selected.operation.native(tested.payloadBinding), currency = yield* selected.operation.native(tested.currencyBinding);
         const application = yield* selected.operation.applicationInsert(tested.grant);
         const postId = yield* payload.insert("posts", payloadBody("atomic"));
         const rows = yield* currency.writeRows(tested.currencyTable, "upsert", [currencyBody("xzz")]);
         expect(rows).toMatchObject([{ code: "xzz", decimal_digits: 0, rounding: "0", raw_rounding: { value: "0", precision: 20 } }]);
         const appId = yield* application.insert({ name: "atomic" });
+        const currencyId = rows[0]?._id;
+        if (typeof currencyId !== "string") return yield* Effect.die(new Error("Missing generated Currency ID."));
+        expect([postId, currencyId, appId].map(id => Result.getOrThrow(decodeDocumentId(id)).internalId)).toEqual(expectedIds);
         const before = yield* tested.database.publishedTimestamp;
         const result = { postId, appId, code: "xzz" };
         const committed = yield* tested.database.commit(yield* selected.operation.finalize(), { claim: selected.claim, result });
@@ -171,13 +186,16 @@ export function registerNativeRootScenarios(label: string, createFixture: () => 
       const fixture = await createFixture();
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const tested = yield* setup(fixture), invalid = yield* tested.begin();
-        const currency = yield* invalid.operation.native(tested.currencyBinding), generated = tested.generated();
+        const currency = yield* invalid.operation.native(tested.currencyBinding);
+        const [expectedFirstId] = tested.expectedInternalIds(1);
         expect(failure(yield* Effect.result(currency.writeRows(tested.currencyTable, "upsert", [currencyBody("xaa"),
           { ...currencyBody("xab"), decimal_digits: "invalid" }])))).toMatchObject({ reason: "documentValidation" });
-        expect(tested.generated()).toBe(generated);
         expect(failure(yield* Effect.result(currency.writeRows(tested.currencyTable, "upsert", [currencyBody("xaa"), currencyBody("xaa")]))))
           .toMatchObject({ reason: "invalidInput" });
-        expect(tested.generated()).toBe(generated);
+        expect(yield* currency.find(tested.currencyTable, {})).toEqual([]);
+        const [afterRefusal] = yield* currency.writeRows(tested.currencyTable, "upsert", [currencyBody("xaa")]);
+        if (typeof afterRefusal?._id !== "string") return yield* Effect.die(new Error("Missing first generated Currency ID."));
+        expect(Result.getOrThrow(decodeDocumentId(afterRefusal._id)).internalId).toEqual(expectedFirstId);
         yield* closeRequest(tested.database, invalid);
         const first = yield* tested.begin(), create = yield* first.operation.native(tested.currencyBinding);
         const [inserted] = yield* create.writeRows(tested.currencyTable, "upsert", [currencyBody("xzc")]);

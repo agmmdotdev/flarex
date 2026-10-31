@@ -314,6 +314,8 @@ describe("clean Query invocation-error projection", () => {
     [new CoreTransactionFailure({ reason: "programUnavailable" }), "queryNotFound"],
     [new CoreTransactionFailure({ reason: "capacity" }), "budgetExceeded"],
     [new CoreTransactionFailure({ reason: "tooManyTables" }), "budgetExceeded"],
+    [new CoreTransactionFailure({ reason: "documentExists" }), "invalidInput"],
+    [new CoreTransactionFailure({ reason: "documentDeleted" }), "invalidInput"],
     [new CoreTransactionFailure({ reason: "indexUnavailable" }), "indexUnavailable"],
     [new CoreTransactionFailure({ reason: "authorityRevoked" }), "staleScopeAuthority"],
     [new CoreTransactionFailure({ reason: "closed" }), "unavailable"],

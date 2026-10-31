@@ -15,7 +15,13 @@ export interface CoreIndexPlan {
   readonly enabled: readonly CoreIndexRecord[];
   readonly disabled: readonly CoreIndexRecord[];
 }
-export interface CoreIndexChanges { readonly removed: readonly Uint8Array[]; readonly added: readonly CoreIndexRecord[] }
+export interface CoreIndexMetadataWrite {
+  readonly kind: "insert" | "update";
+  readonly index: CoreIndexRecord;
+}
+export interface CoreIndexChanges { readonly removed: readonly Uint8Array[]; readonly writes: readonly CoreIndexMetadataWrite[] }
+const indexInsert = (index: CoreIndexRecord): CoreIndexMetadataWrite => ({ kind: "insert", index });
+const indexUpdate = (index: CoreIndexRecord): CoreIndexMetadataWrite => ({ kind: "update", index });
 const sameFields = (left: readonly string[], right: readonly string[]) => left.length === right.length && left.every((field, i) => field === right[i]);
 
 /** Compute again at activation: old enabled indexes remain readable throughout preparation. */
@@ -72,7 +78,7 @@ export function prepareCoreIndexChanges(plan: CoreIndexPlan, allocated: readonly
       || isCoreIndexStaged(index) !== desired.staged || index.state.type !== "Backfilling";
   })) throw new Error("Allocated indexes do not match the prepared source diff");
   return { removed: plan.dropped.filter(index => !isCoreIndexEnabled(index)).map(index => index.ref.id),
-    added: [...allocated, ...plan.enabled, ...plan.disabled] };
+    writes: [...allocated.map(indexInsert), ...plan.enabled.map(indexUpdate), ...plan.disabled.map(indexUpdate)] };
 }
 
 export function finishCoreIndexChanges(plan: CoreIndexPlan): Result.Result<CoreIndexChanges, CorePersistenceError> {
@@ -80,8 +86,8 @@ export function finishCoreIndexChanges(plan: CoreIndexPlan): Result.Result<CoreI
   const enable = [...plan.identical.filter(index => !isCoreIndexStaged(index) && !isCoreIndexEnabled(index)), ...plan.enabled];
   if (enable.some(index => index.state.type === "Backfilling")) return Result.fail(new CorePersistenceError({
     reason: "unavailable", cause: "Index backfill has not completed" }));
-  return Result.succeed({ removed: plan.dropped.map(index => index.ref.id), added: [
+  return Result.succeed({ removed: plan.dropped.map(index => index.ref.id), writes: [
     ...enable.map(index => ({ ...index, state: { type: "Enabled" as const } })),
     ...plan.disabled.map(index => ({ ...index, state: { type: "Backfilled2" as const, staged: true } })),
-  ] });
+  ].map(indexUpdate) });
 }

@@ -6,7 +6,7 @@ import type { CorePersistenceIndexEntry } from "../../src/core/contracts";
 import { CoreWriteLog, indexKeysFromWrites, indexTransitionsFromWrites, pointInterval } from "../../src/core/writeLog";
 import { bootstrapCore } from "../../src/core/bootstrap";
 import { makeCoreCommitter } from "../../src/core/committer";
-import { CoreFinalizationVault, createCoreTransaction } from "../../src/core/transaction";
+import { CoreFinalizationVault, createCoreTransaction, prepareCoreTransactionIds } from "../../src/core/transaction";
 import { createCorePGliteFixture } from "./fixture";
 import { CORE_SCHEMA_WORKER_TEST_OPTIONS } from "./schemaFixture";
 
@@ -79,7 +79,7 @@ describe("native retained key-transition certificates", () => {
   it("publishes Source writes without native transition certificates through the actual committer", async () => {
     const fixture = await createCorePGliteFixture();
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-      const options = { now: Effect.succeed(1_000_000_000n), newInternalId: Effect.sync(() => randomBytes(16)),
+      const options = { now: Effect.succeed(1_000_000_000n), randomBytes: (length: 16 | 32) => Effect.sync(() => randomBytes(length)),
         schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS, maxBatchDelayMilliseconds: 0 };
       const lease = yield* fixture.persistence.acquireLease();
       const initial = yield* bootstrapCore(fixture.persistence, lease, options);
@@ -87,7 +87,7 @@ describe("native retained key-transition certificates", () => {
         initial.registry, initial.resident, options, initial.retention);
       const vault = new CoreFinalizationVault();
       const context = createCoreTransaction({ snapshot: yield* fixture.persistence.readSnapshot(initial.timestamp, initial.retention),
-        registry: initial.registry, now: yield* options.now, newInternalId: options.newInternalId, vault });
+        registry: initial.registry, ...(yield* prepareCoreTransactionIds(options)), vault });
       const id = yield* context.transaction.insert("source_rows", { amount: 1 });
       const finalized = vault.take(yield* context.transaction.finalize());
       if (finalized === undefined) return yield* Effect.die(new Error("Missing Source finalization"));

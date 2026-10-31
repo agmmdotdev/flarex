@@ -1,11 +1,12 @@
 import type { ApplicationManifestV1 } from "@flarex/analysis/application-analysis";
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import { Clock, Effect, Exit, Result, Schema, Scope } from "effect";
-import { decodeDocumentId, InternalDocumentIdSchema } from "flarex-protocol/document-id";
+import { decodeDocumentId } from "flarex-protocol/document-id";
 import { decodeDocumentValue, type DocumentValue } from "flarex-protocol/document-value";
 import { createQueryCursorBroker, type QueryCursorBroker } from "flarex-protocol/query-cursor";
 
 import { openCoreDatabase } from "../../src/core/database";
+import { captureCoreEntropy } from "../../src/core/transactionIdGenerator";
 import { compileCoreApplicationSchema } from "../../src/application/coreSchema";
 import { makeCoreApplicationPrograms } from "../../src/application/coreProgram";
 import type { CoreDatabase, CoreProgramDefinition } from "../../src/core/api";
@@ -48,8 +49,8 @@ export interface ApplicationCoreFixture {
   readonly durableState: () => Promise<readonly Readonly<{ table: string; count: string }>[]>;
   readonly advanceProgramHead: () => Promise<void>;
   readonly loseNextWriteAcknowledgement: () => void;
-  /** Trusted allocator control, armed immediately before the observed insert syscall. */
-  readonly useNextInternalId: (id: Uint8Array) => void;
+  /** Host entropy control for a complete test action; every transaction keeps its own generator. */
+  readonly withEntropySeed: <A>(seed: Uint8Array, work: () => Promise<A>) => Promise<A>;
 }
 
 /** A fresh installation and explicit owner lifetime; no old migrator or seed SQL. */
@@ -61,15 +62,12 @@ export async function withApplicationCoreFixture<A>(
   let scope = await Effect.runPromise(Scope.make());
   const run = <Value, Failure>(effect: Effect.Effect<Value, Failure, Scope.Scope>) =>
     Effect.runPromise(effect.pipe(Scope.provide(scope)));
-  let nextInternalId: Uint8Array | undefined;
+  let entropySeed: Uint8Array | undefined;
   const options = {
     schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS,
     now: Clock.currentTimeMillis.pipe(Effect.map(value => BigInt(Math.floor(value)) * 1_000_000n)),
-    newInternalId: Effect.sync(() => {
-      const selected = nextInternalId;
-      nextInternalId = undefined;
-      return selected ?? crypto.getRandomValues(new Uint8Array(16));
-    }),
+    randomBytes: (length: 16 | 32) => Effect.sync(() => length === 32 && entropySeed !== undefined
+      ? entropySeed.slice() : crypto.getRandomValues(new Uint8Array(length))),
     maxConcurrentSaves: 1,
   } as const;
   let failure: unknown;
@@ -162,9 +160,11 @@ export async function withApplicationCoreFixture<A>(
       },
       advanceProgramHead: async () => { await run(currentDatabase.publishPrograms({ programs: await producePrograms(2) })); },
       loseNextWriteAcknowledgement: () => { loseNextAcknowledgement = true; },
-      useNextInternalId: (id: Uint8Array) => {
-        if (nextInternalId !== undefined) throw new Error("Fixture internal ID is already armed.");
-        nextInternalId = Schema.decodeUnknownSync(InternalDocumentIdSchema)(id).slice();
+      withEntropySeed: async <Value>(seed: Uint8Array, action: () => Promise<Value>) => {
+        if (entropySeed !== undefined) throw new Error("Fixture entropy seed is already selected.");
+        entropySeed = Result.getOrThrow(captureCoreEntropy(seed, 32));
+        try { return await action(); }
+        finally { entropySeed = undefined; }
       },
     }));
   } catch (cause) {

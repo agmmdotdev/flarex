@@ -2,6 +2,7 @@ import { Effect, Exit, Option, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { bytesEqual, compareBytesLexicographically } from "@flarex/utils/bytes";
 import { encodeDocumentValue } from "flarex-protocol/document-value";
+import { decodeDocumentId } from "flarex-protocol/document-id";
 import { type CoreTableDefinition } from "../../src/core/api";
 import { CorePersistenceError, type CoreHydratedIndexEntry, type CoreIndexPage,
   type CoreIndexScan, type CoreInterval, type CorePersistenceSnapshot } from "../../src/core/contracts";
@@ -9,6 +10,7 @@ import { documentIndexKey } from "../../src/core/documentIndex";
 import { createCoreIndexSnapshot } from "../../src/core/indexSnapshot";
 import { initialRegistry, publicDocumentId, readDocumentObject } from "../../src/core/registry";
 import { CoreFinalizationVault, createCoreTransaction } from "../../src/core/transaction";
+import { createTransactionIdGenerator } from "../../src/core/transactionIdGenerator";
 import { keyInInterval, pointInterval } from "../../src/core/writeLog";
 
 const internalId = (last: number) => { const bytes = new Uint8Array(16); bytes[15] = last; return bytes; };
@@ -179,7 +181,7 @@ describe("translated operation index snapshot", () => {
     const id = Result.getOrThrow(publicDocumentId(table, row.id));
     const vault = new CoreFinalizationVault();
     const transaction = createCoreTransaction({ snapshot: physical.snapshot, registry, now: 10n,
-      newInternalId: Effect.succeed(internalId(200)), vault }).transaction;
+      idGenerator: Result.getOrThrow(createTransactionIdGenerator(new Uint8Array(32), 10n)), vault }).transaction;
     const original = await Effect.runPromise(transaction.get(id));
     expect(Option.isSome(original)).toBe(true);
     await Effect.runPromise(transaction.get(id));
@@ -201,25 +203,30 @@ describe("translated operation index snapshot", () => {
     const physical = reader(0);
     const vault = new CoreFinalizationVault();
     const transaction = createCoreTransaction({ snapshot: physical.snapshot, registry, now: 1_000_000n,
-      newInternalId: Effect.succeed(internalId(200)), vault }).transaction;
+      idGenerator: Result.getOrThrow(createTransactionIdGenerator(new Uint8Array(32), 1_000_000n)), vault }).transaction;
     const id = await Effect.runPromise(transaction.insert("items", { value: 1 }));
+    const insertedInternalId = Result.getOrThrow(decodeDocumentId(id)).internalId;
     expect(Option.getOrThrow(await Effect.runPromise(transaction.get(id))).value).toBe(1);
     await Effect.runPromise(transaction.delete(id));
     expect(Option.isNone(await Effect.runPromise(transaction.get(id)))).toBe(true);
+    // Generated inserts stage old=None without a committed read. Their pending
+    // insert/delete observations must stay entirely within this transaction.
+    expect(physical.calls).toHaveLength(0);
     // The trusted private writer models reinsertion of this same identity;
     // generated public inserts continue to allocate a new identity.
     const context = createCoreTransaction({ snapshot: physical.snapshot, registry, now: 1_000_000n,
-      newInternalId: Effect.succeed(internalId(201)), vault: new CoreFinalizationVault() });
-    await Effect.runPromise(context.writePrivate("items", internalId(200), { value: 2 }));
-    await Effect.runPromise(context.writePrivate("items", internalId(200), null));
-    await Effect.runPromise(context.writePrivate("items", internalId(200), { value: 3 }));
+      idGenerator: Result.getOrThrow(createTransactionIdGenerator(new Uint8Array(32).fill(1), 1_000_000n)), vault: new CoreFinalizationVault() });
+    await Effect.runPromise(context.writePrivate("items", insertedInternalId, { value: 2 }));
+    expect(physical.calls).toHaveLength(1);
+    await Effect.runPromise(context.writePrivate("items", insertedInternalId, null));
+    await Effect.runPromise(context.writePrivate("items", insertedInternalId, { value: 3 }));
     expect(Option.getOrThrow(await Effect.runPromise(context.transaction.get(id))).value).toBe(3);
     await Effect.runPromise(context.transaction.abort());
     const finalized = vault.take(await Effect.runPromise(transaction.finalize()));
     expect(finalized?.changes[0]?.original).toBeUndefined();
     expect(finalized?.changes[0]?.originalDocument).toBeNull();
     expect(finalized?.changes[0]?.finalDocument).toBeNull();
-    expect(physical.calls).toHaveLength(2);
+    expect(physical.calls).toHaveLength(1);
   });
 
   it("does not turn operation prefetch into additional user reads or consumed dependencies", async () => {
@@ -228,7 +235,7 @@ describe("translated operation index snapshot", () => {
     const second = physical.rows[1];
     if (first === undefined || second === undefined) throw new Error("Missing fixture rows");
     const context = createCoreTransaction({ snapshot: physical.snapshot, registry, now: 1_000_000n,
-      newInternalId: Effect.succeed(internalId(200)), vault: new CoreFinalizationVault(), readonly: true });
+      idGenerator: Result.getOrThrow(createTransactionIdGenerator(new Uint8Array(32), 1_000_000n)), vault: new CoreFinalizationVault(), readonly: true });
     await Effect.runPromise(context.transaction.get(Result.getOrThrow(publicDocumentId(table, first.id))));
     const query = await Effect.runPromise(context.transaction.startQuery({ query: {
       source: { type: "IndexRange", indexName: "items.by_value", order: "asc", range: [] }, operators: [],
@@ -255,7 +262,7 @@ describe("translated operation index snapshot", () => {
     const transaction = createCoreTransaction({ snapshot: { ...physical.snapshot, scan: () => Effect.succeed({
       entries: mode === "duplicate" ? [entry, entry] : [entry], cursor: mode === "duplicate"
         ? { kind: "end" } : { kind: "after", key: entry.key },
-    }) }, registry, now: 10n, newInternalId: Effect.succeed(internalId(200)), vault: new CoreFinalizationVault() }).transaction;
+    }) }, registry, now: 10n, idGenerator: Result.getOrThrow(createTransactionIdGenerator(new Uint8Array(32), 10n)), vault: new CoreFinalizationVault() }).transaction;
     const exit = await Effect.runPromiseExit(transaction.get(id));
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) expect(exit.cause.reasons).toMatchObject([{ error: { reason: "corruptData" } }]);

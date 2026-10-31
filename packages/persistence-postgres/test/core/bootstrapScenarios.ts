@@ -16,7 +16,7 @@ import { captureCoreSchema } from "../../src/core/schemaTypes";
 
 const id = (last: number) => { const bytes = new Uint8Array(16); bytes[15] = last; return bytes; };
 const options: CoreDatabaseOptions = { schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS,
-  now: Effect.succeed(1_000_000_000n), newInternalId: Effect.sync(() => randomBytes(16)) };
+  now: Effect.succeed(1_000_000_000n), randomBytes: (length: 16 | 32) => Effect.sync(() => randomBytes(length)) };
 const identity = { functionPath: "users:deleteThroughInternal", programHash: "program-a", schemaHash: "schema-a" };
 const schema = Result.getOrThrow(captureCoreSchema({ schemaValidation: true, tables: [{
   tableName: "users", documentType: { type: "object", value: {

@@ -324,3 +324,12 @@ transaction and native host replacement executes the genuine consumer through
 five-table persistence. Product/strong-reference and joint relation consumers
 retain the named Legacy closure until their connected migration. This does not
 activate the broader giant fixture or general mixed API.
+
+The [transaction ID replacement](./slices/13-transaction-id-generation.md)
+implements the pinned transaction-local generator, connected allocation/validation
+order, metadata newness and batched previous-revision search. The selected callers
+use trusted entropy rather than complete-ID injection. Stored IDs and secrets
+retain their identity; construction cancellation and numeric history ordering
+belong to their shared owners. Its bounded proof and displaced-allocator retirement
+are complete. This is a Source-parity correction without a new DO/native algorithm
+exception; broader goal gates remain open.

@@ -10,14 +10,14 @@ import { CorePersistenceError, type CorePersistence } from "../../src/core/contr
 import { keyInInterval } from "../../src/core/writeLog";
 import { loadBootstrapRegistry } from "../../src/core/bootstrap";
 import { loadCoreRegistry, PROGRAMS, TABLES, INDEXES } from "../../src/core/registry";
-import { CoreFinalizationVault, createCoreTransaction } from "../../src/core/transaction";
+import { CoreFinalizationVault, createCoreTransaction, prepareCoreTransactionIds } from "../../src/core/transaction";
 import * as transactionOwner from "../../src/core/transaction";
 import type { CorePersistenceFixture } from "./fixture";
 import { activateCoreSchema, CORE_SCHEMA_WORKER_TEST_OPTIONS } from "./schemaFixture";
 import { captureCoreSchema } from "../../src/core/schemaTypes";
 
 const id = (value: number) => new Uint8Array(16).fill(value);
-const options: CoreDatabaseOptions = { schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS, now: Effect.succeed(1_000_000_000n), newInternalId: Effect.sync(() => randomBytes(16)) };
+const options: CoreDatabaseOptions = { schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS, now: Effect.succeed(1_000_000_000n), randomBytes: (length: 16 | 32) => Effect.sync(() => randomBytes(length)) };
 const path = "items:read";
 const schema = Result.getOrThrow(captureCoreSchema({ schemaValidation: true, tables: [{ tableName: "items",
   documentType: { type: "object", value: { value: { fieldType: { type: "number" }, optional: false } } },
@@ -125,15 +125,15 @@ describe(name, () => {
         && read.indexId.every((byte, index) => byte === tableById.ref.id[index]));
       expect(tableRead?.intervals).toEqual([{ start: null, end: null }]);
       expect(token.reads).toHaveLength(5);
-      const readonly = createCoreTransaction({ snapshot, registry, now: 1_000_000_000n,
-        newInternalId: options.newInternalId, vault: new CoreFinalizationVault(), readonly: true });
+      const readonly = createCoreTransaction({ snapshot, registry, ...(yield* prepareCoreTransactionIds(options)),
+        vault: new CoreFinalizationVault(), readonly: true });
       expect(Result.getFailure(yield* Effect.result(readonly.transaction.insert("items", { value: 3 })))).toEqual(
         Option.some(expect.objectContaining({ reason: "readonly" })));
       expect(Result.getFailure(yield* Effect.result(readonly.transaction.finalize()))).toEqual(
         Option.some(expect.objectContaining({ reason: "readonly" })));
       yield* readonly.finishRead();
-      const writeful = createCoreTransaction({ snapshot, registry, now: 1_000_000_000n,
-        newInternalId: options.newInternalId, vault: new CoreFinalizationVault() });
+      const writeful = createCoreTransaction({ snapshot, registry, ...(yield* prepareCoreTransactionIds(options)),
+        vault: new CoreFinalizationVault() });
       yield* writeful.transaction.insert("items", { value: 3 });
       expect(Result.getFailure(yield* Effect.result(writeful.finishRead()))).toEqual(
         Option.some(expect.objectContaining({ reason: "readonly" })));

@@ -84,7 +84,7 @@ export async function createCorePayloadFixture(target: CorePayloadFixtureTarget,
       epochUuid: options.epochUuid ?? "45000000-0000-4000-8000-000000000002" }));
     const databaseOptions = { schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS,
       now: Clock.currentTimeMillis.pipe(Effect.map(value => BigInt(Math.floor(value)) * 1_000_000n)),
-      newInternalId: Effect.sync(() => crypto.getRandomValues(new Uint8Array(16))), maxConcurrentSaves: 2 };
+      randomBytes: (length: 16 | 32) => Effect.sync(() => crypto.getRandomValues(new Uint8Array(length))), maxConcurrentSaves: 2 };
     let database: CoreDatabase;
     let currentPersistence: CorePersistence;
     let binding: CoreNativeBinding;

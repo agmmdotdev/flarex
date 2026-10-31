@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { activationError } from "../../../src/application/activation/errors";
+import { CoreTransactionError } from "../../../src/core/api";
+import { projectCoreCmsFailure } from "../../../src/frameworks/cmsTransaction/nativeFailure";
+import { projectCoreCommerceFailure } from "../../../src/frameworks/commerceTransaction/nativeFailure";
 import { CompositeCommandError } from "../../../src/frameworks/crossDomainCommand/model";
 import { projectCompositeFailure } from "../../../src/frameworks/crossDomainCommand/legacyFailure";
+import { projectCoreCompositeFailure } from "../../../src/frameworks/crossDomainCommand/nativeFailure";
 
 describe("joint command current Application failure projection", () => {
   it("retains a preparation resource failure and its exact cause chain", () => {
@@ -25,4 +29,20 @@ describe("joint command current Application failure projection", () => {
       expect(projected.reason).toBe("invalidAuthority");
       expect(projected.cause).toBe(refusal);
     });
+});
+
+describe.each([
+  { profile: "CMS", project: projectCoreCmsFailure, expectedReason: "documentInvalid" },
+  { profile: "Commerce", project: projectCoreCommerceFailure, expectedReason: "invalidInput" },
+  { profile: "Composite", project: projectCoreCompositeFailure, expectedReason: "invalidInput" },
+])("native $profile document ID failure projection", ({ project, expectedReason }) => {
+  it.each(["documentExists", "documentDeleted"] as const)("keeps %s as bad input with its exact Core cause", reason => {
+    const history = new Error("Generated ID has retained document history");
+    const refusal = new CoreTransactionError({ reason, cause: history });
+    const projected = project(refusal);
+
+    expect(projected.reason).toBe(expectedReason);
+    expect(projected.cause).toBe(refusal);
+    expect(refusal.cause).toBe(history);
+  });
 });

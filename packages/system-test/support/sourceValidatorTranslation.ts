@@ -136,7 +136,7 @@ export function proveHistoricalSourceWorker(physical: CorePersistenceFixture) {
     yield* Effect.tryPromise(() => seedPre09CapturedProgramStore(physical, store));
     const options = { schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS,
       now: Clock.currentTimeMillis.pipe(Effect.map(value => BigInt(Math.floor(value)) * 1_000_000n)),
-      newInternalId: Effect.sync(() => crypto.getRandomValues(new Uint8Array(16))),
+      randomBytes: (length: 16 | 32) => Effect.sync(() => crypto.getRandomValues(new Uint8Array(length))),
     };
     const withOwner = <A, E>(work: (database: CoreDatabase, runInOwnerScope: ApplicationCoreFixture["runInOwnerScope"]) =>
       Effect.Effect<A, E, Scope.Scope>) => Effect.scoped(Effect.gen(function* () {

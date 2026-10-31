@@ -25,7 +25,8 @@ export function projectCoreCompositeFailure(failure: CoreError): CompositeFailur
       case "closed": return compositeError("closed", failure);
       case "conflict": return compositeError("writeConflict", failure);
       case "requestMismatch": return compositeError("requestConflict", failure);
-      case "missingDocument": case "invalidValue": case "documentValidation": case "invalidDocumentId": return compositeError("invalidInput", failure);
+      case "missingDocument": case "invalidValue": case "documentValidation": case "invalidDocumentId":
+      case "documentExists": case "documentDeleted": return compositeError("invalidInput", failure);
       case "admissionExpired": return compositeError("deadlineExceeded", failure);
       case "capacity": case "tooManyTables": return compositeError("limitExceeded", failure);
       case "missingTable": case "missingIndex": case "indexUnavailable": case "programUnavailable": case "authorityRevoked":

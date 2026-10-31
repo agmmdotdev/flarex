@@ -20,7 +20,7 @@ export function projectCoreCmsFailure(failure: CoreError): CmsTransactionError {
       case "conflict": return cmsError("writeConflict", failure);
       case "requestMismatch": return cmsError("requestConflict", failure);
       case "missingDocument": return cmsError("documentMissing", failure);
-      case "invalidValue": case "documentValidation": return cmsError("documentInvalid", failure);
+      case "invalidValue": case "documentValidation": case "documentExists": case "documentDeleted": return cmsError("documentInvalid", failure);
       case "invalidDocumentId": return cmsError("invalidInput", failure);
       case "admissionExpired": return cmsError("deadlineExceeded", failure);
       case "capacity": case "tooManyTables": return cmsError("limitExceeded", failure);

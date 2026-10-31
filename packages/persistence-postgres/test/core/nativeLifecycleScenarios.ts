@@ -12,10 +12,10 @@ import { readCoreFixtureRegistry, type CorePersistenceFixture } from "./fixture"
 import { readDocumentObject, tableDocument } from "../../src/core/registry";
 import type { CoreDocumentLogEntry, CorePersistence } from "../../src/core/contracts";
 import { bootstrapCore } from "../../src/core/bootstrap";
-import { CoreFinalizationVault, createCoreTransaction } from "../../src/core/transaction";
+import { CoreFinalizationVault, createCoreTransaction, prepareCoreTransactionIds } from "../../src/core/transaction";
 import { coreNativeTestBudget } from "./nativeTestBudget";
 
-const options = { now: Effect.succeed(1_000_000_000n), newInternalId: Effect.sync(() => randomBytes(16)),
+const options = { now: Effect.succeed(1_000_000_000n), randomBytes: (length: 16 | 32) => Effect.sync(() => randomBytes(length)),
   schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS, maxBatchDelayMilliseconds: 0 };
 const scopeUuid = "8f5545a4-cd38-4ae0-a421-12fe85dcb727", epochUuid = "1e8aa599-efb5-45da-9b24-8e48f115f250";
 const source = Effect.fn("NativeLifecycleFixture.source")(function* (extra = false) {
@@ -59,7 +59,7 @@ export function registerNativeLifecycleScenarios(label: string, createFixture: (
         ];
         for (const mutation of mutations) {
           const context = createCoreTransaction({ snapshot: yield* fixture.persistence.readSnapshot(initial.timestamp, initial.retention),
-            registry: initial.registry, now: yield* options.now, newInternalId: options.newInternalId, vault: new CoreFinalizationVault() });
+            registry: initial.registry, ...(yield* prepareCoreTransactionIds(options)), vault: new CoreFinalizationVault() });
           yield* context.writePrivate("_tables", table.tabletId, mutation);
           const publication = checkCoreNativeRegistryTransition(context.registry, initial.registry, initial.registry);
           expect(Result.isFailure(publication) && publication.failure).toMatchObject({ reason: "corruptData" });
@@ -68,7 +68,7 @@ export function registerNativeLifecycleScenarios(label: string, createFixture: (
         const sourceRecord = yield* Effect.fromResult(initial.registry.schemas.nativeByState(null, "active"));
         if (sourceRecord._tag !== "Some") return yield* Effect.die(new Error("Missing native schema"));
         const context = createCoreTransaction({ snapshot: yield* fixture.persistence.readSnapshot(initial.timestamp, initial.retention),
-          registry: initial.registry, now: yield* options.now, newInternalId: options.newInternalId, vault: new CoreFinalizationVault() });
+          registry: initial.registry, ...(yield* prepareCoreTransactionIds(options)), vault: new CoreFinalizationVault() });
         const sourceDocument = yield* context.getSystem("_schemas", sourceRecord.value.id);
         if (sourceDocument._tag !== "Some") return yield* Effect.die(new Error("Missing source document"));
         const { native: omittedSource, ...sourceOnly } = sourceDocument.value.value;

@@ -449,19 +449,24 @@ data disposition and no obsolete compatibility route after the selected cutover.
 
 ## Q11 - Transaction-scoped Source ID generation
 
-**Open required source-parity gap.** The current injected `newInternalId`
-capability establishes a 16-byte value, not translation of the pinned production
-generator. At `db914cf06`,
+**Answered for the selected translated Core.** The
+[transaction ID slice](./slices/13-transaction-id-generation.md) implements the
+pinned generator, connected allocation/validation order, metadata newness and
+previous-revision search after independent challenge and peer exchange. Its
+bounded conformance, database/host proof and displaced-allocator retirement are
+complete; broader native, retained-data, hosting and performance gates remain open.
+The displaced injected `newInternalId` capability established a 16-byte value,
+not translation of the pinned production generator. At `db914cf06`,
 [TransactionIdGenerator](../../../../../crates/database/src/transaction_id_generator.rs)
 seeds a transaction-local ChaCha12 RNG and pins the current two-byte day at
 construction; each internal ID contains 14 random bytes followed by that day.
 Its explicit snapshot-query clone is not a second writable generator.
 
-Translate that owner using trusted host entropy/time and preserve the Source
-day range, byte ordering, per-transaction lifetime and clone restrictions.
-Inspect actual callers and vectors before replacing the current shared allocator;
-metadata/import identities and user insert allocation need their proper owners.
-Stored IDs remain readable and unchanged. The current opaque-ID representation
+The translated owner uses trusted host entropy/time and preserves the Source
+day range, byte ordering and per-transaction lifetime. Native children share
+their actual root's generator; no writable clone API is introduced. Metadata and
+user allocation use their transaction owner, while recovery/import identities
+remain unchanged. Stored IDs remain readable. The opaque-ID representation alone
 does not prove generator parity or supply a necessary DO/native exception.
 
 Medusa natural public keys remain logical fields resolved through ordinary

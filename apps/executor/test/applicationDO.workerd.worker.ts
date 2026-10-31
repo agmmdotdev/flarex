@@ -99,7 +99,7 @@ function options() {
       maxRequests: 8,
     },
     coreOptions: { now: Clock.currentTimeMillis.pipe(Effect.map(value => BigInt(Math.floor(value)) * 1_000_000n)),
-      newInternalId: Effect.sync(() => crypto.getRandomValues(new Uint8Array(16))), maxConcurrentSaves: 1 },
+      randomBytes: (length: 16 | 32) => Effect.sync(() => crypto.getRandomValues(new Uint8Array(length))), maxConcurrentSaves: 1 },
     createPool(connectionString) {
       resources.pools++;
       const applicationName = `actual-app-do-${crypto.randomUUID()}`;

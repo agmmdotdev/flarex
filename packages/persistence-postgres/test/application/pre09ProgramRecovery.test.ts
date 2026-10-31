@@ -18,7 +18,7 @@ it("cold reopens frozen pre09 positive-record identities, actual head and commit
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const database = yield* openCoreDatabase(yield* Effect.promise(() => fixture.reopen()), {
         schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS,
-        now: Effect.succeed(2_000_000_000n), newInternalId: Effect.sync(() => randomBytes(16)),
+        now: Effect.succeed(2_000_000_000n), randomBytes: (length: 16 | 32) => Effect.sync(() => randomBytes(length)),
       });
       for (const frozen of store.programs) {
         const selected = yield* database.selectProgram(frozen.identity.functionPath);

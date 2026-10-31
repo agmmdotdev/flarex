@@ -140,8 +140,10 @@ export interface CorePreviousRevisionQuery {
   /** Exact predecessor timestamp. No latest-before fallback is permitted. */
   readonly prevTs: CoreTimestamp;
 }
-export interface CorePreviousRevision {
-  readonly query: CorePreviousRevisionQuery;
+/** Latest revision strictly before ts; absence and a deletion revision are distinct. */
+export type CorePreviousRevisionSearch = Pick<CorePreviousRevisionQuery, "tableId" | "id" | "ts">;
+export interface CorePreviousRevision<Query extends CorePreviousRevisionSearch = CorePreviousRevisionQuery> {
+  readonly query: Query;
   readonly document: CoreDocumentLogEntry;
 }
 
@@ -150,6 +152,9 @@ export interface CorePersistence {
   /** One bounded timestamp-log SQL page; the document floor is checked after I/O, including empty pages. */
   readonly loadDocuments: (request: CoreDocumentLogRequest, retention?: CoreRetentionValidator)
     => Effect.Effect<CoreDocumentLogPage, CorePersistenceError>;
+  /** Latest-before searches share one read connection and preserve deletion revisions. */
+  readonly previousRevisions: (queries: readonly CorePreviousRevisionSearch[], retention?: CoreRetentionValidator)
+    => Effect.Effect<readonly CorePreviousRevision<CorePreviousRevisionSearch>[], CorePersistenceError>;
   /** Exact predecessor fetches share one read connection, without opening a SQL transaction. */
   readonly previousRevisionsOfDocuments: (queries: readonly CorePreviousRevisionQuery[], retention?: CoreRetentionValidator)
     => Effect.Effect<readonly CorePreviousRevision[], CorePersistenceError>;

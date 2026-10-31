@@ -15,12 +15,12 @@ import { makeCoreNativeDefinition } from "../../src/core/nativePolicy";
 import { readDocumentObject } from "../../src/core/registry";
 import { compilePayloadCollections } from "../../../payload-adapter/src/collections";
 import { captureCoreSchema } from "../../src/core/schemaTypes";
-import { CoreFinalizationVault, createCoreTransaction, type CoreFinalizedState } from "../../src/core/transaction";
+import { CoreFinalizationVault, createCoreTransaction, prepareCoreTransactionIds, type CoreFinalizedState } from "../../src/core/transaction";
 import type { CorePersistenceFixture } from "./fixture";
 import { activateCoreSchema, CORE_SCHEMA_WORKER_TEST_OPTIONS } from "./schemaFixture";
 
 const options: CoreDatabaseOptions = { schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS,
-  now: Effect.succeed(1_000_000_000n), newInternalId: Effect.sync(() => randomBytes(16)),
+  now: Effect.succeed(1_000_000_000n), randomBytes: (length: 16 | 32) => Effect.sync(() => randomBytes(length)),
   maxConcurrentSaves: 2, maxBatchDelayMilliseconds: 0 };
 const schema = Result.getOrThrow(captureCoreSchema({ schemaValidation: true, tables: [{
   tableName: "news", documentType: { type: "object", value: {
@@ -49,7 +49,7 @@ const open = Effect.fn("NativeCommitterFixture.open")(function* (persistence: Co
   const begin = Effect.fn("NativeCommitterFixture.begin")(function* () {
     const selected = yield* Effect.fromResult(committer.selectSnapshot());
     return createCoreTransaction({ snapshot: yield* persistence.readSnapshot(selected.timestamp, initial.retention),
-      registry: selected.registry, now: 1_000_000_000n, newInternalId: options.newInternalId, vault }).transaction;
+      registry: selected.registry, ...(yield* prepareCoreTransactionIds(runtimeOptions)), vault }).transaction;
   });
   const finish = Effect.fn("NativeCommitterFixture.finish")(function* (transaction: Effect.Success<ReturnType<typeof begin>>) {
     const state = vault.take(yield* transaction.finalize());

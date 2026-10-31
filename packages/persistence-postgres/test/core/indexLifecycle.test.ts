@@ -38,17 +38,50 @@ describe("source database index lifecycle", () => {
     expect(plan.added).toHaveLength(1);
     const prepared = prepareCoreIndexChanges(plan, [pending]);
     expect(prepared.removed).toHaveLength(0);
-    const preparing = initial.withIndexes(Result.getOrThrow(initial.indexes.apply(prepared)));
+    expect(prepared.writes.map(write => write.kind)).toEqual(["insert"]);
+    const copied = structuredClone(prepared);
+    expect(copied.writes.map(write => write.kind)).toEqual(["insert"]);
+    const preparing = initial.withIndexes(Result.getOrThrow(initial.indexes.apply({ removed: copied.removed,
+      added: copied.writes.map(write => write.index) })));
     const finishing = planCoreIndexes(preparing, null, schema);
     expect(Result.isFailure(finishCoreIndexChanges(finishing))).toBe(true);
     const backfilled = Result.getOrThrow(preparing.withIndex({ ...pending, state: { type: "Backfilled2", staged: false } }));
     const activation = Result.getOrThrow(finishCoreIndexChanges(planCoreIndexes(backfilled, null, schema)));
-    const active = backfilled.withIndexes(Result.getOrThrow(backfilled.indexes.apply(activation)));
+    expect(activation.writes.map(write => write.kind)).toEqual(["update"]);
+    const active = backfilled.withIndexes(Result.getOrThrow(backfilled.indexes.apply({ removed: activation.removed,
+      added: activation.writes.map(write => write.index) })));
     expect(active.table("items")?.definition.indexes.find(index => index.name === "by_name")?.ref.id).toEqual(id(4));
     expect(active.indexById(id(3))).toBeUndefined();
     const reverted = planCoreIndexes(preparing, null, Result.getOrThrow(captureCoreSchema({ ...schema, tables: [{ ...schema.tables[0], tableName: "items", stagedDbIndexes: [],
       indexes: [{ indexDescriptor: "by_name", fields: ["name"] }] }] })));
     expect(reverted.dropped.map(index => index.ref.id)).toEqual([id(4)]);
+  });
+
+  it("keeps existing index identity and update provenance through disable and re-enable", () => {
+    const initial = Result.getOrThrow(initialRegistry([table]));
+    const staged = Result.getOrThrow(captureCoreSchema({ schemaValidation: false, tables: [{ tableName: "items",
+      indexes: [], stagedDbIndexes: [{ indexDescriptor: "by_name", fields: ["name"] }] }] }));
+    const disabling = prepareCoreIndexChanges(planCoreIndexes(initial, null, staged), []);
+    expect(disabling.writes).toMatchObject([{ kind: "update", index: { ref: { id: id(3) } } }]);
+    const preparing = initial.withIndexes(Result.getOrThrow(initial.indexes.apply({ removed: disabling.removed,
+      added: disabling.writes.map(write => write.index) })));
+    expect(preparing.table("items")?.definition.indexes.find(index => index.name === "by_name")?.ref.id).toEqual(id(3));
+    const deactivate = Result.getOrThrow(finishCoreIndexChanges(planCoreIndexes(preparing, null, staged)));
+    expect(deactivate.writes).toMatchObject([{ kind: "update", index: { ref: { id: id(3) }, state: { type: "Backfilled2", staged: true } } }]);
+    const disabled = preparing.withIndexes(Result.getOrThrow(preparing.indexes.apply({ removed: deactivate.removed,
+      added: deactivate.writes.map(write => write.index) })));
+    expect(disabled.table("items")?.definition.indexes.find(index => index.name === "by_name")).toBeUndefined();
+    const enabled = Result.getOrThrow(captureCoreSchema({ schemaValidation: false, tables: [{ tableName: "items",
+      indexes: [{ indexDescriptor: "by_name", fields: ["name"] }], stagedDbIndexes: [] }] }));
+    const plan = planCoreIndexes(disabled, null, enabled);
+    const enabling = prepareCoreIndexChanges(plan, []);
+    expect(enabling.writes).toMatchObject([{ kind: "update", index: { ref: { id: id(3) } } }]);
+    const copied = structuredClone(enabling);
+    expect(copied.writes).toMatchObject([{ kind: "update", index: { ref: { id: id(3) } } }]);
+    const activation = Result.getOrThrow(finishCoreIndexChanges(plan));
+    const active = disabled.withIndexes(Result.getOrThrow(disabled.indexes.apply({ removed: activation.removed,
+      added: activation.writes.map(write => write.index) })));
+    expect(active.table("items")?.definition.indexes.find(index => index.name === "by_name")?.ref.id).toEqual(id(3));
   });
 
   it("preserves count-unknown checkpoint branch and source physical metadata", () => {

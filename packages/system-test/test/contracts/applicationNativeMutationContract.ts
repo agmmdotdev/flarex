@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
-import { Cause, Effect, Exit, Result, Schema } from "effect";
+import { Cause, Clock, Effect, Encoding, Exit, Result, Schema } from "effect";
 import { jsonToFlarexValueV1 } from "flarex-protocol/value";
 import { decodeDocumentId } from "flarex-protocol/document-id";
 import { APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1,
@@ -14,6 +15,22 @@ import { proveApplicationNestedMutation, proveApplicationNestedMutationFailure, 
   "../../support/applicationNativeMutationHarness";
 
 const storageTables = ["documents", "indexes", "leases", "persistence_globals", "read_only"];
+const idOracle = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Struct({
+  sourcePin: Schema.Literal("db914cf06e2b06ee985646611b9e12ed7a770318"),
+  sequences: Schema.Array(Schema.Struct({ name: Schema.String, ids: Schema.Array(Schema.String) })),
+})))(readFileSync(new URL("../../../persistence-postgres/test/core/fixtures/transactionIdOracle/vectors.json", import.meta.url), "utf8"));
+
+/** Rust's independent first draw plus the live fixture's observed UTC day bounds. */
+function firstDrawForFixtureDays(name: "ascending" | "zero", days: readonly number[]): readonly Uint8Array[] {
+  const vector = idOracle.sequences.find(sequence => sequence.name === name)?.ids[0];
+  if (vector === undefined) throw new Error("Missing independent transaction ID vector: " + name);
+  const first = Result.getOrThrow(Encoding.decodeHex(vector));
+  return days.map(day => {
+    const expected = first.slice();
+    new DataView(expected.buffer, expected.byteOffset, expected.byteLength).setUint16(14, day, false);
+    return expected;
+  });
+}
 
 export function defineApplicationNestedMutationContract(adapter: Readonly<{
   runScenario: <A>(scenario: (fixture: ApplicationCoreFixture) => Promise<A>) => Promise<A>;
@@ -118,15 +135,19 @@ export function defineApplicationNestedMutationContract(adapter: Readonly<{
     expect(proof.storageTables).toEqual(storageTables);
   }, 120_000);
   it("orders equal Application index fields by creation time before developer ID across reopen", async () => {
+    const beforeDay = Math.floor((await Effect.runPromise(Clock.currentTimeMillis)) / 86_400_000);
     const proof = await adapter.runScenario(proveCoreApplicationIndexOrder);
+    const afterDay = Math.floor((await Effect.runPromise(Clock.currentTimeMillis)) / 86_400_000);
+    expect(Math.abs(afterDay - beforeDay)).toBeLessThanOrEqual(1);
+    const fixtureDays = [...new Set([beforeDay, afterDay])];
     expect(proof.workerLoads).toBe(2);
     expect(proof.inserts).toBe(2);
     expect(proof.ids).toHaveLength(2);
     const [earlierId, laterId] = proof.ids;
     if (earlierId === undefined || laterId === undefined) throw new Error("Ordering proof is missing its allocated IDs.");
     expect(earlierId > laterId).toBe(true);
-    expect(Result.getOrThrow(decodeDocumentId(earlierId)).internalId).toEqual(new Uint8Array(16).fill(0xf0));
-    expect(Result.getOrThrow(decodeDocumentId(laterId)).internalId).toEqual(new Uint8Array(16).fill(0x10));
+    expect(firstDrawForFixtureDays("ascending", fixtureDays)).toContainEqual(Result.getOrThrow(decodeDocumentId(earlierId)).internalId);
+    expect(firstDrawForFixtureDays("zero", fixtureDays)).toContainEqual(Result.getOrThrow(decodeDocumentId(laterId)).internalId);
     for (const state of [proof.warm, proof.cold]) {
       expect(state.asc.map(row => row._id)).toEqual(proof.ids);
       expect(state.desc.map(row => row._id)).toEqual([...proof.ids].reverse());

@@ -13,9 +13,9 @@ import { encodeIndexKey, encodeIndexValue } from "flarex-protocol/index-key";
 import { captureLogicalQuery, compileIndexRange, fingerprintQuery, splitIndexRangeAfter } from "flarex-protocol/index-range";
 import { CoreNativeQueryError, CoreNativeUniqueConflict, CoreQueryInputError, CoreTransactionError, issueFinalizedTransaction, type CoreError, type CoreFinalizedTransaction,
   type CoreIndexDefinition, type CoreTableDefinition, type CoreTransaction, type CoreTransactionLimits, type CoreTransactionUsage,
-  type CoreReadToken, type CoreProgramDefinition, type CoreNativeOperations, type CoreNativeLimits } from "./api";
+  type CoreReadToken, type CoreProgramDefinition, type CoreNativeOperations, type CoreNativeLimits, type CoreDatabaseOptions } from "./api";
 import type { CoreApplicationInsertOperations } from "./api";
-import { CorePersistenceError, type CoreDocumentLogEntry, type CoreIndexPage, type CoreIndexScan, type CoreInterval, type CorePersistenceSnapshot, type CoreWriteBatch } from "./contracts";
+import { CorePersistenceError, CoreTimestampSchema, type CoreDocumentLogEntry, type CoreIndexPage, type CoreIndexScan, type CoreInterval, type CorePersistenceSnapshot, type CoreWriteBatch } from "./contracts";
 import { CoreRegistry, TABLES, INDEXES, SCHEMAS, PROGRAMS, publicDocumentId, readDocumentObject, tableDocument, parseCoreTableRecord } from "./registry";
 import { coreNamespaceKey, type CoreTableNamespace } from "./namespace";
 import { CoreSchemaModel } from "./schemaModel";
@@ -23,7 +23,7 @@ import type { CoreSchemaRegistry } from "./schemaRegistry";
 import { coreIndexMetadataValue, coreIndexWriteMode, parseCoreIndexRecord, type CoreIndexRecord } from "./indexState";
 import { CoreReadSetBuilder, keyInInterval, pointInterval, type CoreReadSet, type CoreWriteLogSnapshot } from "./writeLog";
 import { CORE_TRANSACTION_REFERENCE_LIMITS, CoreAccounting } from "./accounting";
-import { captureCoreDocument, captureCoreObject } from "./document";
+import { captureCoreDocument, captureCoreObject, incrementCoreCreationTime } from "./document";
 import { addIndexMetadataDependency, addTableWriteDependencies } from "./dependencies";
 import { captureCoreIndexRange, createCoreEmptyQuery, createCoreQuery } from "./query";
 import { createCoreIndexSnapshot } from "./indexSnapshot";
@@ -40,6 +40,7 @@ import { CoreNativeObservationState, type CoreNativeMembership,
 import { captureCoreNativeWhere, coreNativeUniqueSelection, coreNativeUniqueValues, planCoreNativeQuery,
   coreNativePageInterval, prepareCoreNativePredicate, type CoreNativeScalar } from "./nativeQuery";
 import { captureCoreNativeIndexWindow } from "./nativePage";
+import { captureCoreEntropy, createTransactionIdGenerator, type CoreTransactionIdGenerator } from "./transactionIdGenerator";
 
 export interface CoreDocumentChange {
   readonly table: CoreTableDefinition;
@@ -62,6 +63,8 @@ export interface CoreFinalizedState {
 }
 
 export interface CoreTransactionInternals {
+  /** Shared only with trusted metadata owners; never part of the public transaction. */
+  readonly idGenerator: CoreTransactionIdGenerator;
   readonly namespace: CoreTableNamespace;
   readonly timestamp: bigint;
   readonly registry: CoreRegistry;
@@ -82,6 +85,8 @@ export interface CoreTransactionInternals {
   readonly schemaTableStateIndex: () => import("./contracts").CoreIndexRef;
   readonly finishRead: () => Effect.Effect<CoreReadToken, CoreError>;
   readonly readPrivate: (table: string, id: Uint8Array) => Effect.Effect<Option.Option<DocumentObject>, CoreError>;
+  /** Source insertion with a predetermined internal ID, under the trusted control owner. */
+  readonly insertPrivate: (table: string, id: Uint8Array, body: DocumentObject) => Effect.Effect<void, CoreError>;
   readonly writePrivate: (table: string, id: Uint8Array, body: DocumentObject | null) => Effect.Effect<void, CoreError>;
   readonly setRegistryAfter: (registry: CoreRegistry) => void;
   readonly addIndexRead: (indexId: Uint8Array, interval: CoreInterval) => void;
@@ -138,14 +143,26 @@ const NativePageCount = Schema.Int.check(Schema.makeFilter(value => Number.isSaf
 const decodeNativePageOptions = Schema.decodeUnknownEffect(Schema.Struct({ indexName: Schema.NonEmptyString,
   offset: NativePageCount, limit: NativePageCount, order: Schema.optionalKey(Schema.Literal("asc")),
 }).annotate({ parseOptions: { onExcessProperty: "error" } }));
+const decodeCreationTimestamp = Schema.decodeUnknownEffect(CoreTimestampSchema);
+const decodeAppTableName = Schema.decodeUnknownEffect(SchemaManifestAppTableNameSchema);
 
-function nextUp(value: number): number {
-  if (value === 0) return Number.MIN_VALUE;
-  const view = new DataView(new ArrayBuffer(8));
-  view.setFloat64(0, value);
-  view.setBigUint64(0, view.getBigUint64(0) + 1n);
-  return view.getFloat64(0);
-}
+/** Source draws entropy before reading its own raw day clock. */
+export const prepareCoreTransactionIdGenerator = Effect.fn("CoreTransaction.prepareIdGenerator")(function* (
+  options: Pick<CoreDatabaseOptions, "randomBytes" | "now">,
+) {
+  const seed = yield* Effect.fromResult(captureCoreEntropy(yield* options.randomBytes(32), 32));
+  const rawDayTime = yield* options.now;
+  return yield* Effect.fromResult(createTransactionIdGenerator(seed, rawDayTime));
+});
+
+/** Bootstrap/snapshot construction reads its creation clock separately after the generator. */
+export const prepareCoreTransactionIds = Effect.fn("CoreTransaction.prepareIds")(function* (
+  options: Pick<CoreDatabaseOptions, "randomBytes" | "now">,
+) {
+  const idGenerator = yield* prepareCoreTransactionIdGenerator(options);
+  const now = yield* decodeCreationTimestamp(yield* options.now).pipe(Effect.mapError(invalid));
+  return { now, idGenerator };
+});
 
 /** The source snapshot and explicit native observations share one write and resource owner. */
 export function createCoreTransaction(input: Readonly<{
@@ -156,7 +173,7 @@ export function createCoreTransaction(input: Readonly<{
   namespace?: CoreTableNamespace;
   counts?: CoreTableCounts;
   now: bigint;
-  newInternalId: Effect.Effect<Uint8Array>;
+  idGenerator: CoreTransactionIdGenerator;
   vault: CoreFinalizationVault;
   claim?: import("./api").CoreRequestClaim;
   limits?: CoreTransactionLimits;
@@ -180,7 +197,7 @@ export function createCoreTransaction(input: Readonly<{
       residentReader?: (request: CoreIndexScan) => CoreIndexPage | undefined }>, CoreError>;
   }>;
 }>): CoreTransactionInternals {
-  const { snapshot } = input;
+  const { snapshot, idGenerator } = input;
   let registry = input.registry;
   const namespace = input.namespace ?? null;
   const indexSnapshot = createCoreIndexSnapshot({ snapshot, registry,
@@ -207,8 +224,14 @@ export function createCoreTransaction(input: Readonly<{
   let closed = false;
   let inflight = 0;
   const snapshotCeilMillis = Number((snapshot.timestamp + 999_999n) / 1_000_000n);
-  let creationTime = Math.max(snapshotCeilMillis, Number(input.now) / 1_000_000);
+  const wallMillis = Number(input.now / 1_000_000n) + Number(input.now % 1_000_000n) * 1e-6;
+  let creationTime = Math.max(snapshotCeilMillis, wallMillis);
   const unixTime = Math.floor(creationTime);
+  const takeCreationTime = () => Result.gen(function* () {
+    const advanced = yield* Result.mapError(incrementCoreCreationTime(creationTime), invalid);
+    creationTime = advanced.next;
+    return advanced.value;
+  });
 
   const assertOpen = () => Effect.suspend(() => closed
     ? Effect.fail(new CoreTransactionError({ reason: "closed" })) : input.assertOwnerOpen ?? Effect.void);
@@ -537,12 +560,15 @@ export function createCoreTransaction(input: Readonly<{
     return (yield* observe(table, id, access)).document;
   });
 
-  const stage = Effect.fn("CoreTransaction.stage")(function* (table: CoreTableDefinition, id: Uint8Array, document: DocumentObject | null, access: CoreTransactionNativeAccess | undefined = defaultAccess) {
+  const stage = Effect.fn("CoreTransaction.stage")(function* (table: CoreTableDefinition, id: Uint8Array, document: DocumentObject | null,
+    access: CoreTransactionNativeAccess | undefined = defaultAccess, mode: "insert" | "update" = "update") {
     if (input.readonly) return yield* new CoreTransactionError({ reason: "readonly" });
     if (!table.name.startsWith("_")) yield* Effect.fromResult(checkAccess(table, "write", access));
     const developerId = yield* Effect.fromResult(publicDocumentId(table, id));
     const pending = writes.get(developerId);
-    const original = yield* observe(table, id, access);
+    const original = mode === "insert" ? { original: undefined, document: null } : yield* observe(table, id, access);
+    if (mode === "insert" && nativeObservations !== undefined && !table.name.startsWith("_"))
+      yield* Effect.fromResult(nativeObservations.reserve(table, [developerId]));
     const previous = pending === undefined ? original.document : pending.finalDocument;
     yield* assertOpen();
     const captured = document === null ? null : yield* Effect.fromResult(Result.mapError(captureCoreDocument(document, table.name.startsWith("_")), invalid));
@@ -559,6 +585,13 @@ export function createCoreTransaction(input: Readonly<{
       pendingUpdates.push({ index, ...(oldKey === undefined ? {} : { oldKey }), ...(newKey === undefined ? {} : { newKey }) });
     }
     if (retainedBytes > 0 && native !== undefined) yield* native.chargeRetained(retainedBytes);
+    if (mode === "insert") {
+      if (pending !== undefined) return yield* Effect.die(new Error("Duplicate insert"));
+      const byId = table.indexes.find(index => index.name === "by_id");
+      if (byId === undefined) return yield* new CoreTransactionError({ reason: "indexUnavailable" });
+      const key = yield* Effect.fromResult(Result.mapError(encodeIndexKey([], developerId), invalid));
+      reads.add(byId.ref.id, pointInterval(key));
+    }
     yield* Effect.suspend(() => {
       if (closed) return Effect.fail(new CoreTransactionError({ reason: "closed" }));
       return Effect.fromResult(Result.map(accounting.write(table.name.startsWith("_"), captured?.semanticSizeBytes ?? 0), () => {
@@ -578,6 +611,16 @@ export function createCoreTransaction(input: Readonly<{
     });
   });
 
+  const enforceUserSchema = Effect.fn("CoreTransaction.enforceSchema")((table: CoreTableDefinition, body: DocumentObject) =>
+    new CoreSchemaModel(internals).enforceDocument(table.name, body, {
+      mode: "tableAware", check: (name, id) => {
+        const expected = registry.table(name, namespace);
+        if (expected === undefined) return "unavailable";
+        return Result.match(decodeDocumentId(id), { onFailure: () => "invalid" as const,
+          onSuccess: decoded => decoded.tableNumber === expected.definition.number ? "valid" as const : "invalid" as const });
+      },
+    }));
+
   const validateUserBody = Effect.fn("CoreTransaction.validateDocument")(function* (
     table: CoreTableDefinition, value: unknown, previous: DocumentObject | null = null, access: CoreTransactionNativeAccess | undefined = defaultAccess,
     managedUpdate: "advance" | "preserve" = "advance",
@@ -593,14 +636,7 @@ export function createCoreTransaction(input: Readonly<{
         if (previous !== null && policy.rows.keyColumns.some(key => body[key] !== previousBody[key]))
           return yield* new CoreTransactionError({ reason: "documentValidation", cause: "Native primary identity is immutable" });
       }
-      yield* new CoreSchemaModel(internals).enforceDocument(table.name, body, {
-        mode: "tableAware", check: (name, id) => {
-          const expected = registry.table(name, namespace);
-          if (expected === undefined) return "unavailable";
-          return Result.match(decodeDocumentId(id), { onFailure: () => "invalid" as const,
-            onSuccess: decoded => decoded.tableNumber === expected.definition.number ? "valid" as const : "invalid" as const });
-        },
-      });
+      yield* enforceUserSchema(table, body);
       return body;
   });
 
@@ -623,14 +659,16 @@ export function createCoreTransaction(input: Readonly<{
     operation: withinOperation ? body => body : operation,
   });
 
-  const writeSystem = Effect.fn("CoreTransaction.writeSystem")(function* (name: string, id: Uint8Array, body: DocumentObject | null) {
+  const writeSystem = Effect.fn("CoreTransaction.writeSystem")(function* (name: string, id: Uint8Array, body: DocumentObject | null,
+    mode: "insert" | "update" = "update") {
+    yield* assertOpen();
     const table = yield* Effect.fromResult(tableByName(name, true));
     const developerId = yield* Effect.fromResult(publicDocumentId(table, id));
-    const previous = yield* read(table, id);
+    const previous = mode === "insert" ? null : yield* read(table, id);
+    if (previous === null && body === null) return;
     const document = body === null ? null : { ...body, _id: developerId,
-      _creationTime: previous?._creationTime ?? creationTime };
-    if (previous === null && document !== null) creationTime = nextUp(creationTime);
-    yield* stage(table, id, document);
+      _creationTime: previous?._creationTime ?? (yield* Effect.fromResult(takeCreationTime())) };
+    yield* stage(table, id, document, defaultAccess, mode);
     if (name === TABLES && document !== null) {
       registry = registry.withTable(yield* Effect.fromResult(parseCoreTableRecord(yield* Effect.fromResult(systemDocument(document)), null)));
     } else if (name === INDEXES) {
@@ -646,7 +684,7 @@ export function createCoreTransaction(input: Readonly<{
   });
 
   const ensureUserTable = Effect.fn("CoreTransaction.ensureUserTable")(function* (name: string) {
-    yield* Schema.decodeUnknownEffect(SchemaManifestAppTableNameSchema)(name).pipe(Effect.mapError(invalid));
+    yield* decodeAppTableName(name).pipe(Effect.mapError(invalid));
     yield* Effect.fromResult(mappingRead());
     const existing = registry.table(name, namespace);
     if (existing !== undefined) return existing.definition;
@@ -657,18 +695,14 @@ export function createCoreTransaction(input: Readonly<{
     for (const record of registry.tables.values()) if (coreNamespaceKey(record.definition.namespace) === coreNamespaceKey(namespace)
       && record.definition.number >= number) number = record.definition.number + 1;
     if (number > 0xffff_ffff) return yield* new CoreTransactionError({ reason: "capacity" });
-    const tabletId = (yield* input.newInternalId).slice();
+    const tabletId = idGenerator.nextInternalId();
     const definition: CoreTableDefinition = { name, number, tabletId, namespace, state: "active", indexes: [] };
-    registry = registry.withTable({ definition, id: tabletId.slice(), ts: null });
-    const created: CoreIndexRecord[] = [];
+    yield* writeSystem(TABLES, tabletId, tableDocument(definition), "insert");
     for (const [indexName, fields] of [["by_id", []], ["by_creation_time", ["_creationTime"]]] as const) {
-      const record: CoreIndexRecord = { ref: { id: (yield* input.newInternalId).slice() }, tableId: tabletId,
+      const record: CoreIndexRecord = { ref: { id: idGenerator.nextInternalId() }, tableId: tabletId,
         name: indexName, fields, state: { type: "Enabled" }, ts: null };
-      created.push(record);
-      registry = yield* Effect.fromResult(registry.withIndex(record));
+      yield* writeSystem(INDEXES, record.ref.id, coreIndexMetadataValue(record), "insert");
     }
-    yield* writeSystem(TABLES, tabletId, tableDocument(definition));
-    for (const index of created) yield* writeSystem(INDEXES, index.ref.id, coreIndexMetadataValue(index));
     registryAfter = registry;
     const selected = registry.table(name, namespace);
     if (selected === undefined) return yield* new CorePersistenceError({ reason: "corruptData" });
@@ -729,16 +763,34 @@ export function createCoreTransaction(input: Readonly<{
       return document === null ? Option.none() : Option.some(yield* Effect.fromResult(Result.mapError(captureDocumentObject(document), invalid)));
     }))),
     insert: Effect.fn("CoreTransaction.insert")((tableName: string, value: unknown) => run(Effect.gen(function* () {
-      const table = native === undefined ? yield* ensureUserTable(tableName)
-        : yield* Effect.fromResult(tableByName(tableName, false, access));
+      if (native === undefined) {
+        // Syscall representation admission precedes Source's ID/time reservation.
+        const captured = yield* Effect.fromResult(Result.mapError(captureCoreObject(value, true), invalid));
+        yield* decodeAppTableName(tableName).pipe(Effect.mapError(invalid));
+        const internalId = idGenerator.nextInternalId();
+        const reservedTime = yield* Effect.fromResult(takeCreationTime());
+        const table = yield* ensureUserTable(tableName);
+        yield* Effect.fromResult(checkAccess(table, "write", access));
+        const id = yield* Effect.fromResult(publicDocumentId(table, internalId));
+        if ((Object.hasOwn(captured.value, "_id") && captured.value._id !== id)
+          || (Object.hasOwn(captured.value, "_creationTime") && captured.value._creationTime !== reservedTime))
+          return yield* invalid();
+        // Construct/validate the document before schema; its user-size check follows schema.
+        const constructed = yield* Effect.fromResult(Result.mapError(captureCoreDocument({ ...captured.value,
+          _id: id, _creationTime: reservedTime }, true), invalid));
+        const { _id, _creationTime, ...body } = constructed.value;
+        yield* enforceUserSchema(table, body);
+        const document = yield* Effect.fromResult(Result.mapError(captureCoreDocument(constructed.value, false), invalid));
+        yield* stage(table, internalId, document.value, access, "insert");
+        return id;
+      }
+      const table = yield* Effect.fromResult(tableByName(tableName, false, access));
       yield* Effect.fromResult(checkAccess(table, "write", access));
       const body = yield* validateUserBody(table, value, null, access);
-      const internalId = (yield* input.newInternalId).slice();
+      const internalId = idGenerator.nextInternalId();
       const id = yield* Effect.fromResult(publicDocumentId(table, internalId));
-      if ((yield* read(table, internalId, access)) !== null) return yield* Effect.fail(new CoreTransactionError({ reason: "conflict" }));
-      const document = { ...body, _id: id, _creationTime: creationTime };
-      creationTime = nextUp(creationTime);
-      yield* stage(table, internalId, document, access);
+      const document = { ...body, _id: id, _creationTime: yield* Effect.fromResult(takeCreationTime()) };
+      yield* stage(table, internalId, document, access, "insert");
       return id;
     }))),
     patch: Effect.fn("CoreTransaction.patch")((id: string, value: unknown) => run(Effect.gen(function* () {
@@ -778,7 +830,9 @@ export function createCoreTransaction(input: Readonly<{
     delete: Effect.fn("CoreTransaction.delete")((id: string) => run(Effect.gen(function* () {
       const selected = yield* Effect.fromResult(resolve(id, false, access));
       yield* Effect.fromResult(chargePointQuery(selected.table, selected.internalId));
-      yield* Effect.fromResult(chargeDocument(selected.table, yield* read(selected.table, selected.internalId, access)));
+      const previous = yield* read(selected.table, selected.internalId, access);
+      yield* Effect.fromResult(chargeDocument(selected.table, previous));
+      if (previous === null) return;
       yield* stage(selected.table, selected.internalId, null, access);
     }))),
     });
@@ -1196,7 +1250,7 @@ export function createCoreTransaction(input: Readonly<{
   const applicationInserts = new Map<CoreTransactionNativeAccess, CoreApplicationInsertOperations>();
 
   const internals: CoreTransactionInternals = {
-    namespace, timestamp: snapshot.timestamp,
+    idGenerator, namespace, timestamp: snapshot.timestamp,
     get registry() { return registry; },
     get schemaRegistry() { return registry.schemas; },
     transaction,
@@ -1248,8 +1302,10 @@ export function createCoreTransaction(input: Readonly<{
     runSystem: operation,
     getSystem, querySystem,
     insertSystem: Effect.fn("CoreTransaction.insertSystem")(function* (name: string, body: DocumentObject) {
-      const id = (yield* input.newInternalId).slice();
-      yield* writeSystem(name, id, body);
+      yield* assertOpen();
+      if (!name.startsWith("_")) return yield* invalid();
+      const id = idGenerator.nextInternalId();
+      yield* writeSystem(name, id, body, "insert");
       return yield* Effect.fromResult(publicDocumentId(yield* Effect.fromResult(tableByName(name, true)), id));
     }),
     replaceSystem: Effect.fn("CoreTransaction.replaceSystem")(function* (name: string, id: string, body: DocumentObject) {
@@ -1293,6 +1349,10 @@ export function createCoreTransaction(input: Readonly<{
       yield* Effect.fromResult(chargeDocument(table, document));
       return Option.fromNullOr(document);
     })),
+    insertPrivate: Effect.fn("CoreTransaction.insertPrivate")(function* (tableName: string, id: Uint8Array, body: DocumentObject) {
+      if (!tableName.startsWith("_")) return yield* invalid();
+      yield* writeSystem(tableName, id, body, "insert");
+    }),
     writePrivate: (tableName, id, body) => operation(writeSystem(tableName, id, body)),
     setRegistryAfter: value => { registry = value; registryAfter = value; },
     addIndexRead: (indexId, interval) => reads.add(indexId, interval),
@@ -1306,7 +1366,6 @@ export function deriveCoreWriteBatch(transaction: CoreFinalizedState, timestamp:
     const documents: CoreDocumentLogEntry[] = [];
     const indexes = new Map<string, import("./contracts").CorePersistenceIndexEntry>();
     for (const change of transaction.changes.toSorted((a, b) => a.table.number - b.table.number)) {
-      if (change.originalDocument === null && change.finalDocument === null) continue;
       const jsonValue = change.finalDocument === null ? new Uint8Array()
         : yield* Result.mapError(encodeDocumentValue(change.finalDocument), invalid);
       documents.push(Object.freeze({ ts: timestamp, tableId: change.table.tabletId.slice(), id: change.id.slice(),

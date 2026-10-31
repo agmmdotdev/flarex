@@ -19,7 +19,7 @@ const definition = { schemaValidation: true, tables: [{ tableName: "items",
 const publication = { programs: [{ identity: { functionPath: "items:read", programHash: "read", schemaHash: "items" }, metadata: {} }] };
 const options = (verifyPercent = 0, maxBytes = 2 * 1024 * 1024): CoreDatabaseOptions => ({
   schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS,
-  now: Effect.succeed(1_000_000_000n), newInternalId: Effect.sync(() => randomBytes(16)),
+  now: Effect.succeed(1_000_000_000n), randomBytes: (length: 16 | 32) => Effect.sync(() => randomBytes(length)),
   indexCache: { maxBytes, verifyPercent }, operationCacheMaxBytes: 1024 * 1024,
 });
 const range = (order: "asc" | "desc" = "asc", expressions: readonly IndexRangeExpression[] = []) =>

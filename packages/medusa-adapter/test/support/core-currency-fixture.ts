@@ -116,7 +116,7 @@ export async function createCoreCurrencyFixture(driver: "pglite" | "postgres", o
         { kind: "native", definition: payloadDefinition }, { kind: "native", definition: currencyDefinition }] });
       const databaseOptions: CoreDatabaseOptions = { schemaBundles: [bundle], schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS,
         now: Clock.currentTimeMillis.pipe(Effect.map(value => BigInt(Math.floor(value)) * 1_000_000n)),
-        newInternalId: Effect.sync(() => crypto.getRandomValues(new Uint8Array(16))), maxConcurrentSaves: 2 };
+        randomBytes: (length: 16 | 32) => Effect.sync(() => crypto.getRandomValues(new Uint8Array(length))), maxConcurrentSaves: 2 };
       database = yield* Effect.acquireRelease(openCoreDatabase(observed(selected), databaseOptions), value => value.close());
       if (install) {
         const proposal = yield* database.prepareSchema({ bundle });

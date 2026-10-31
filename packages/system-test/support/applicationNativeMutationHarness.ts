@@ -1167,26 +1167,30 @@ export async function proveApplicationNestedMutationFailure(fixture: Application
 }
 
 export async function proveCoreApplicationIndexOrder(fixture: ApplicationCoreFixture) {
-  // Keep creation order opposite public ID order without manufacturing rows or
-  // index bytes: control only the trusted allocator at the actual insert syscall.
-  const internalIds = [new Uint8Array(16).fill(0xf0), new Uint8Array(16).fill(0x10)];
+  // Locked Rust ChaCha12 vectors: ascending seed starts f231f9..., zero seed
+  // starts 9bf49a.... Select host entropy before each complete invocation so
+  // real generated IDs order opposite creation, without manufacturing rows.
+  const seeds = [Uint8Array.from({ length: 32 }, (_, index) => index), new Uint8Array(32)];
   let inserted = 0;
   const loader = new MiniflareApplicationWorkerLoader(method => {
     if (method !== "insertPointDocument") return;
-    const id = internalIds[inserted++];
-    if (id === undefined) throw new Error("Unexpected Application ordering insert.");
-    fixture.useNextInternalId(id);
+    inserted++;
   });
   try {
     const layer = await makeApplicationNativeMutationTestLayer(fixture, loader);
     const ids: string[] = [];
     for (const ordinal of [0, 1]) {
-      const outcome = await runSystemTestEffectV1(Effect.scoped(invokeApplicationMutation(
+      const seed = seeds[ordinal];
+      if (seed === undefined) throw new Error("Missing Application ordering entropy.");
+      const outcome = await fixture.withEntropySeed(seed, () => runSystemTestEffectV1(Effect.scoped(invokeApplicationMutation(
         TransactionFunctionPathV1Schema.make("users:create"), { name: "Equal name" },
         TransactionRequestKeyV1Schema.make("core-index-order:" + ordinal),
-      ).pipe(Effect.provide(layer))));
+      ).pipe(Effect.provide(layer)))));
       ids.push(Schema.decodeUnknownSync(Schema.String)(outcome.value));
     }
+    const [firstId, secondId] = ids;
+    if (firstId === undefined || secondId === undefined || firstId <= secondId)
+      throw new Error("Application ordering entropy did not produce the opposite ID order.");
     const read = async (database: ApplicationCoreFixture["database"]) => {
       const transaction = await runSystemTestEffectV1(database.begin());
       try {

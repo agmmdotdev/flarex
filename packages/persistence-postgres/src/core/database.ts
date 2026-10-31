@@ -18,12 +18,12 @@ import { CoreProgramIdentitySchema, CoreNativeRootIdentitySchema, CoreSchemaWork
   type CoreRequestClaim, type CoreRequestIdentity, type CoreRequestResolution, type CoreTableDefinition,
   type CoreNativeRootBindingMetadata, type CoreApplicationInsertBinding,
   type CoreNativeRootIdentity, type CoreNativeLimits } from "./api";
-import { CorePersistenceError, type CoreDocumentLogEntry, type CoreIndexScan, type CoreInterval, type CorePersistence, type CorePersistenceSnapshot } from "./contracts";
-import { allocateCoreBuiltinDefinitions, allocateInternalId, bootstrapCore } from "./bootstrap";
+import { CorePersistenceError, CoreTimestampSchema, type CoreDocumentLogEntry, type CoreIndexScan, type CoreInterval, type CorePersistence, type CorePersistenceSnapshot } from "./contracts";
+import { allocateCoreBuiltinDefinitions, bootstrapCore } from "./bootstrap";
 import { makeCoreCommitter } from "./committer";
 import { INDEXES, PROGRAMS, REQUESTS, TABLES, programKey, readDocumentObject,
   tableDocument, SCHEMAS, SCHEMA_VALIDATIONS, SCHEMA_VALIDATION_PROGRESS, publicDocumentId, type CoreRegistry } from "./registry";
-import { CoreFinalizationVault, createCoreTransaction, type CoreDocumentChange, type CoreFinalizedState,
+import { CoreFinalizationVault, createCoreTransaction, prepareCoreTransactionIdGenerator, type CoreDocumentChange, type CoreFinalizedState,
   type CoreTransactionInternals, type CoreTransactionNativeAccess } from "./transaction";
 import { CORE_TRANSACTION_REFERENCE_LIMITS, CoreAccounting } from "./accounting";
 import { captureCoreDocument, captureCoreObject } from "./document";
@@ -71,6 +71,7 @@ const decodeNativeRegistrations = Schema.decodeUnknownEffect(Schema.Array(Schema
   mode: Schema.Literals(["read", "write"]) })).check(Schema.isMinLength(1), Schema.isMaxLength(128)));
 const decodeOperationCacheBytes = Schema.decodeUnknownEffect(Schema.Int.check(Schema.makeFilter(value =>
   Number.isSafeInteger(value) && value >= 0 ? undefined : "Expected a nonnegative safe cache size")));
+const decodeCreationTimestamp = Schema.decodeUnknownEffect(CoreTimestampSchema);
 const utf8 = new TextEncoder();
 const utf8Decoder = new TextDecoder();
 
@@ -288,26 +289,41 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
   const make = Effect.fn("CoreDatabase.transaction")(function* (at?: bigint, claim?: CoreRequestClaim, readonly = false, namespace:CoreTableNamespace = null, system = false) {
     namespace=yield* Effect.fromResult(Result.mapError(captureCoreTableNamespace(namespace),invalid));
     const selected = yield* start(at);
-    const now = yield* options.now;
+    const minimum = yield* decodeCreationTimestamp((yield* committer.publishedTimestamp) + 1n).pipe(Effect.mapError(invalid));
+    const wallClock = yield* decodeCreationTimestamp(yield* options.now).pipe(Effect.mapError(invalid));
+    const now = wallClock > minimum ? wallClock : minimum;
+    const idGenerator = yield* prepareCoreTransactionIdGenerator(options);
     yield* assertOpen;
     const context = createCoreTransaction({ snapshot: selected.snapshot, registry: selected.registry,
       residentReader: request => selected.resident.scan(request), operationCacheMaxBytes,
-      now, newInternalId: options.newInternalId, vault, limits: system ? CORE_TRANSACTION_REFERENCE_LIMITS : limits, readonly, namespace, ...(selected.counts===undefined?{}:{counts:selected.counts}), assertOwnerOpen: assertOpen,
+      now, idGenerator, vault, limits: system ? CORE_TRANSACTION_REFERENCE_LIMITS : limits, readonly, namespace, ...(selected.counts===undefined?{}:{counts:selected.counts}), assertOwnerOpen: assertOpen,
       schemaBundles,
       onClosed: () => borrowed.delete(context), ...(claim === undefined ? {} : { claim }) });
-    borrowed.add(context);
     return { ...selected, context };
   });
 
-  // make registers a borrow before validation. Dispose every non-transferred
+  const registerBorrow = Effect.fn("CoreDatabase.registerBorrow")(<Selected extends Readonly<{ context: CoreTransactionInternals }>>(
+    selected: Selected, guard?: () => Result.Result<void, CoreError>,
+  ) => Effect.andThen(committer.assertReady, Effect.suspend(() => {
+    if (closed) return Effect.fail(new CoreTransactionError({ reason: "closed" }));
+    // Guard and registration share one synchronous callback, with no I/O boundary.
+    return Result.match(guard?.() ?? Result.succeed(undefined), {
+      onFailure: error => Effect.fail(error),
+      onSuccess: () => { borrowed.add(selected.context); return Effect.succeed(selected); },
+    });
+  })));
+
+  // Preparation owns only detached heap state and remains interruptible in the
+  // caller's current mode. Only borrow registration is a masked acquisition.
+  // Dispose every non-transferred
   // operation on its full Exit, including defects and interruption. Disposal
   // never changes a durable request/outcome, even after an uncertain save.
   const useTransaction = Effect.fn("CoreDatabase.useTransaction")(<Value>(
-    acquire: ReturnType<typeof make>,
+    prepare: ReturnType<typeof make>,
     use: (selected: Effect.Success<ReturnType<typeof make>>) => Effect.Effect<Value, CoreError>,
     transferOnSuccess = false,
-  ) => Effect.acquireUseRelease(acquire, use, (selected, exit) =>
-    transferOnSuccess && Exit.isSuccess(exit) ? Effect.void : selected.context.transaction.abort()));
+  ) => Effect.flatMap(prepare, prepared => Effect.acquireUseRelease(registerBorrow(prepared), use, (selected, exit) =>
+    transferOnSuccess && Exit.isSuccess(exit) ? Effect.void : selected.context.transaction.abort())));
 
   const findRequest = Effect.fn("CoreDatabase.findRequest")(function* (
     selected: Effect.Success<ReturnType<typeof start>>, identity: CoreRequestIdentity, transaction?: CoreTransactionInternals,
@@ -349,18 +365,22 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
         ]));
         yield* Effect.fromResult(trackMetadataEquality(selected.context, registry, PROGRAMS, "by_head_path", ["head", definition.identity.functionPath]));
         const existing = registry.program(definition.identity);
-        const id = existing?.id ?? (yield* allocateInternalId(options.newInternalId));
+        const id = existing?.id ?? selected.context.idGenerator.nextInternalId();
         const previous = existing === undefined ? undefined
           : yield* Effect.fromResult(Result.mapError(encodeDocumentValue(existing.definition.metadata), invalid));
         const next = yield* Effect.fromResult(Result.mapError(encodeDocumentValue(definition.metadata), invalid));
         if (previous === undefined || !bytesEqual(previous, next)) {
-          yield* selected.context.writePrivate(PROGRAMS, id, { kind: "revision", identity: { ...definition.identity }, metadata: utf8Decoder.decode(next) });
+          const body = { kind: "revision", identity: { ...definition.identity }, metadata: utf8Decoder.decode(next) };
+          if (existing === undefined) yield* selected.context.insertPrivate(PROGRAMS, id, body);
+          else yield* selected.context.writePrivate(PROGRAMS, id, body);
           registry = registry.withProgram({ definition, id, ts: null });
         }
         const oldHead = registry.head(definition.identity.functionPath);
         if (oldHead === undefined || programKey(oldHead.identity) !== programKey(definition.identity)) {
-          const headId = oldHead?.id ?? (yield* allocateInternalId(options.newInternalId));
-          yield* selected.context.writePrivate(PROGRAMS, headId, { kind: "head", identity: { ...definition.identity } });
+          const headId = oldHead?.id ?? selected.context.idGenerator.nextInternalId();
+          const body = { kind: "head", identity: { ...definition.identity } };
+          if (oldHead === undefined) yield* selected.context.insertPrivate(PROGRAMS, headId, body);
+          else yield* selected.context.writePrivate(PROGRAMS, headId, body);
           registry = registry.withHead({ identity: definition.identity, id: headId, ts: null });
         }
       }
@@ -455,21 +475,19 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
     const table=context.registry.table(INDEXES)?.definition;
     if(table===undefined)return yield* corrupt();
     for(const id of changes.removed)yield* context.deleteSystem(INDEXES,yield* Effect.fromResult(publicDocumentId(table,id)));
-    for(const index of changes.added)yield* context.replaceSystem(INDEXES,yield* Effect.fromResult(publicDocumentId(table,index.ref.id)),coreIndexMetadataValue(index));
+    for(const write of changes.writes){
+      const index=write.index;
+      if(write.kind==="insert")yield* context.insertPrivate(INDEXES,index.ref.id,coreIndexMetadataValue(index));
+      else yield* context.replaceSystem(INDEXES,yield* Effect.fromResult(publicDocumentId(table,index.ref.id)),coreIndexMetadataValue(index));
+    }
   });
   const ensureNamespace=Effect.fn("CoreDatabase.ensureNamespace")(function*(context:CoreTransactionInternals){
     const names=[SCHEMAS,SCHEMA_VALIDATIONS,SCHEMA_VALIDATION_PROGRESS].filter(name=>context.registry.table(name,context.namespace)===undefined);
     if(names.length===0)return;
-    const definitions=yield* allocateCoreBuiltinDefinitions(options,names,context.namespace);
-    let registry=context.registry;
-    for(const table of definitions){
-      registry=registry.withTable({definition:table,id:table.tabletId,ts:null});
-      for(const index of table.indexes)registry=yield* Effect.fromResult(registry.withIndex({...index,tableId:table.tabletId,state:{type:"Enabled"},ts:null}));
-    }
-    context.setRegistryAfter(registry);
-    for(const table of definitions)yield* context.replaceSystem(TABLES,yield* Effect.fromResult(publicDocumentId(context.registry.table(TABLES)!.definition,table.tabletId)),tableDocument(table));
-    for(const table of definitions)for(const index of context.registry.indexesForTablet(table.tabletId))yield* context.replaceSystem(INDEXES,
-      yield* Effect.fromResult(publicDocumentId(context.registry.table(INDEXES)!.definition,index.ref.id)),coreIndexMetadataValue(index));
+    const definitions=yield* allocateCoreBuiltinDefinitions(context.idGenerator,names,context.namespace);
+    for(const table of definitions)yield* context.insertPrivate(TABLES,table.tabletId,tableDocument(table));
+    for(const table of definitions)for(const index of table.indexes)yield* context.insertPrivate(INDEXES,index.ref.id,
+      coreIndexMetadataValue({...index,tableId:table.tabletId,state:{type:"Enabled"},ts:null}));
   });
   const schemaStatus=Effect.fn("CoreDatabase.schemaStatus")((proposal:CoreSchemaProposal)=>admin(proposal.namespace,selected=>selected.context.runSystem(Effect.gen(function*(){
     const found=yield* new CoreSchemaModel(selected.context).get(proposal.id);
@@ -516,7 +534,7 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
       }
       const plan=planCoreIndexes(selected.context.registry,selected.context.namespace,schema);
       const allocated:CoreIndexRecord[]=[];
-      for(const declaration of plan.added)allocated.push({ref:{id:yield* allocateInternalId(options.newInternalId)},tableId:declaration.tableId,name:declaration.name,fields:declaration.fields,
+      for(const declaration of plan.added)allocated.push({ref:{id:selected.context.idGenerator.nextInternalId()},tableId:declaration.tableId,name:declaration.name,fields:declaration.fields,
         ts:null,state:{type:"Backfilling",backfillState:{indexCreatedLowerBound:selected.timestamp,retentionStarted:false,staged:declaration.staged}}});
       yield* applyIndexes(selected.context,prepareCoreIndexChanges(plan,allocated));
       return pendingProposal;
@@ -753,7 +771,7 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
     }) });
   });
   const beginNative: CoreDatabase["beginNative"] = Effect.fn("CoreDatabase.beginNative")((binding, beginOptions) =>
-    Effect.acquireUseRelease(Effect.gen(function* () {
+    Effect.flatMap(Effect.gen(function* () {
       const authority = yield* nativeAuthority(binding);
       const command = authority.commands.find(candidate => candidate.name === beginOptions.commandName);
       if (command === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
@@ -775,17 +793,19 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
         return { snapshot: observed.snapshot, registry: observed.registry, writeLog: observed.writeLog,
           residentReader: (request: CoreIndexScan) => observed.resident.scan(request) };
       });
-      const now = yield* options.now;
+      const now = yield* decodeCreationTimestamp(yield* options.now).pipe(Effect.mapError(invalid));
+      const idGenerator = yield* prepareCoreTransactionIdGenerator(options);
+      yield* assertNativeOpen;
       const context = createCoreTransaction({ snapshot: selected.snapshot, registry: selected.registry,
-        residentReader: request => selected.resident.scan(request), operationCacheMaxBytes, now,
-        newInternalId: options.newInternalId, vault, limits, namespace: authority.namespace, schemaBundles,
+        residentReader: request => selected.resident.scan(request), operationCacheMaxBytes, now, idGenerator,
+        vault, limits, namespace: authority.namespace, schemaBundles,
         readonly: command.mode === "read", native: { authority, visibility: command.mode === "read" ? "snapshot" : "command", capture,
           limits: nativeLimits, chargeRetained: beginOptions.chargeRetained },
         assertOwnerOpen: assertNativeOpen, onClosed: () => borrowed.delete(context),
         ...(beginOptions.claim === undefined ? {} : { claim: beginOptions.claim }) });
-      borrowed.add(context);
       return { selected, context, command, authority, claimData };
-    }), selected => Effect.gen(function* () {
+    }), prepared => Effect.acquireUseRelease(registerBorrow(prepared,
+      () => checkCoreNativeAuthority(committer.currentRegistry(), prepared.authority)), selected => Effect.gen(function* () {
       const metadataReads = yield* Effect.fromResult(coreNativeMetadataReads(selected.selected.registry, selected.authority));
       for (const read of metadataReads) for (const interval of read.intervals) selected.context.addIndexRead(read.indexId, interval);
       if (selected.claimData !== undefined) {
@@ -795,10 +815,10 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
       if (operations === undefined) return yield* corrupt("Native transaction facade is unavailable");
       return Object.freeze({ unixTime: selected.context.transaction.unixTime, command: selected.command, operations, finishRead: selected.context.finishRead,
         finalize: selected.context.transaction.finalize, abort: selected.context.transaction.abort }) satisfies CoreNativeOperation;
-    }), (selected, exit) => Exit.isSuccess(exit) ? Effect.void : selected.context.transaction.abort()));
+    }), (selected, exit) => Exit.isSuccess(exit) ? Effect.void : selected.context.transaction.abort())));
 
   const beginNativeRoot: CoreDatabase["beginNativeRoot"] = Effect.fn("CoreDatabase.beginNativeRoot")((binding, beginOptions) =>
-    Effect.acquireUseRelease(Effect.gen(function* () {
+    Effect.flatMap(Effect.gen(function* () {
       const data = yield* nativeRootAuthority(binding);
       const claimData = claims.get(beginOptions.claim);
       if (claimData === undefined || !claimData.active || claimData.identity.kind !== "nativeRoot"
@@ -816,16 +836,18 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
         return { snapshot: observed.snapshot, registry: observed.registry, writeLog: observed.writeLog,
           residentReader: (request: CoreIndexScan) => observed.resident.scan(request) };
       });
-      const now = yield* options.now;
+      const now = yield* decodeCreationTimestamp(yield* options.now).pipe(Effect.mapError(invalid));
+      const idGenerator = yield* prepareCoreTransactionIdGenerator(options);
+      yield* assertNativeOpen;
       const context = createCoreTransaction({ snapshot: selected.snapshot, registry: selected.registry,
-        residentReader: request => selected.resident.scan(request), operationCacheMaxBytes, now,
-        newInternalId: options.newInternalId, vault, limits, namespace: data.metadata.namespace, schemaBundles,
+        residentReader: request => selected.resident.scan(request), operationCacheMaxBytes, now, idGenerator,
+        vault, limits, namespace: data.metadata.namespace, schemaBundles,
         nativeRoot: { accesses: data.accesses, limits: data.limits, maxFinalUserDocuments: data.maxFinalUserDocuments,
           chargeRetained: beginOptions.chargeRetained, capture }, assertOwnerOpen: assertNativeOpen,
         onClosed: () => borrowed.delete(context), claim: beginOptions.claim });
-      borrowed.add(context);
       return { selected, context, data, claimData };
-    }), selected => Effect.gen(function* () {
+    }), prepared => Effect.acquireUseRelease(registerBorrow(prepared,
+      () => checkNativeRoot(committer.currentRegistry(), prepared.data)), selected => Effect.gen(function* () {
       const metadataReads = yield* Effect.fromResult(nativeRootMetadataReads(selected.selected.registry, selected.data));
       for (const read of metadataReads) for (const interval of read.intervals) selected.context.addIndexRead(read.indexId, interval);
       yield* requireClaimRevision(selected.selected, selected.claimData, selected.context);
@@ -841,7 +863,7 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
       });
       return Object.freeze({ unixTime: selected.context.transaction.unixTime, native, applicationInsert,
         finalize: selected.context.transaction.finalize, abort: selected.context.transaction.abort });
-    }), (selected, exit) => Exit.isSuccess(exit) ? Effect.void : selected.context.transaction.abort()));
+    }), (selected, exit) => Exit.isSuccess(exit) ? Effect.void : selected.context.transaction.abort())));
 
   const database: CoreDatabase = {
     assertOpen,
@@ -927,9 +949,11 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
         if (existing !== undefined && (existing.state !== "failed" || initialization === undefined)) {
           return yield* Effect.fromResult(existingResolution(existing));
         }
-        const id = existing?.id ?? (yield* allocateInternalId(options.newInternalId));
-        yield* selected.context.writePrivate(REQUESTS, id, { key: identity.key, requestHash: identity.requestHash,
-          ...requestActor(identity), state: "claimed", leaseToken: lease.token });
+        const id = existing?.id ?? selected.context.idGenerator.nextInternalId();
+        const requestBody = { key: identity.key, requestHash: identity.requestHash,
+          ...requestActor(identity), state: "claimed", leaseToken: lease.token };
+        if (existing === undefined) yield* selected.context.insertPrivate(REQUESTS, id, requestBody);
+        else yield* selected.context.writePrivate(REQUESTS, id, requestBody);
         const body = yield* selected.context.readPrivate(REQUESTS, id);
         if (Option.isNone(body)) return yield* Effect.fail(corrupt());
         const finalized = yield* consume(yield* selected.context.transaction.finalize());

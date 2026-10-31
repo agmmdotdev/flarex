@@ -11,7 +11,7 @@ import { loadBootstrapRegistry } from "../../src/core/bootstrap";
 import { loadCoreRegistry } from "../../src/core/registry";
 import type { CoreDatabase, CoreSchemaProposal } from "../../src/core/api";
 
-const options={now:Effect.succeed(1_000_000_000n),newInternalId:Effect.sync(()=>randomBytes(16)),schemaWorker:CORE_SCHEMA_WORKER_TEST_OPTIONS};
+const options={now:Effect.succeed(1_000_000_000n),randomBytes:(length:16|32)=>Effect.sync(()=>randomBytes(length)),schemaWorker:CORE_SCHEMA_WORKER_TEST_OPTIONS};
 const idle=Effect.fn("CoreSchemaWorkerFixture.idle")(function*(database:CoreDatabase){
   for(let step=0;step<512;step++)if(!(yield* database.advanceSchemaWork({pageSize:2,maxPages:2})).hasMore)return;
   return yield* Effect.die(new Error("Bounded schema maintenance did not reach idle"));
@@ -165,7 +165,7 @@ export function registerCoreSchemaWorkerScenarios(label:string,createFixture:(op
           if(pause){yield* Deferred.succeed(started,undefined);yield* Deferred.await(release);}
           yield* fixture.persistence.writeIndexBackfill(lease,indexes);
         })};
-        const database=yield* openCoreDatabase(persistence,{now:Effect.succeed(1_000_000_000n),newInternalId:Effect.sync(()=>randomBytes(16)),schemaWorker:CORE_SCHEMA_WORKER_TEST_OPTIONS});
+        const database=yield* openCoreDatabase(persistence,{now:Effect.succeed(1_000_000_000n),randomBytes:(length:16|32)=>Effect.sync(()=>randomBytes(length)),schemaWorker:CORE_SCHEMA_WORKER_TEST_OPTIONS});
         const table={tableName:"items",documentType:{type:"any"},indexes:[],stagedDbIndexes:[]};
         yield* activateCoreSchema(database,{tables:[table],schemaValidation:true});
         const seed=yield* database.begin();

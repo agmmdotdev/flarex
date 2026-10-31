@@ -561,3 +561,15 @@ contract, characterization and divergence handoff connects native examined pages
 source initialization/retry and the genuine consumer to the shared core. The
 named Legacy Product/strong-reference and joint relation closure remains until
 its own migration; broader native, hosting and performance gates stay open.
+
+The [transaction ID continuation](./slices/13-transaction-id-generation.md)
+replaces complete-ID injection with trusted entropy and a transaction-owned
+Source generator, including real metadata/bootstrap allocation and independent
+UUID secret entropy. Its challenged scope also corrects ordinary insertion's
+allocation/document-validation phases while preserving native batch preflight.
+Existing stored IDs are unchanged. No algorithm divergence is required.
+The selected replacement and bounded caller/database/host proofs are complete.
+Generated metadata uses fresh-insert semantics and the Source batched history
+check; numeric revision ordering and interruptible transaction preparation stay
+with their shared owners. Broader native migration, retained-data cutover,
+managed hosting and complete-flow performance remain full-goal gates.

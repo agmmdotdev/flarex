@@ -24,7 +24,7 @@ function retryWitness(lane: "historical" | "latest", recentTimestamp: Effect.Eff
   const snapshots: bigint[] = [];
   const persistence: CorePersistence = { acquireLease: unavailable, latestTimestamp: unavailable, isFresh: unavailable,
     readRetentionBounds: unavailable, write: unavailable, writeIndexBackfill: unavailable, reconcileIndexBackfill: unavailable,
-    putGlobal: unavailable, getGlobal: () => Effect.succeed(Option.none()), previousRevisionsOfDocuments: unavailable,
+    putGlobal: unavailable, getGlobal: () => Effect.succeed(Option.none()), previousRevisions: unavailable, previousRevisionsOfDocuments: unavailable,
     loadDocuments: () => Effect.succeed({ documents: [], cursor: null, done: true }),
     readSnapshot: timestamp => Effect.sync(() => {
       snapshots.push(timestamp);
@@ -63,7 +63,7 @@ describe("source historical TableIterator", () => {
         const last = documents.at(-1);
         return { documents, done: logs === logPages.length, cursor: last === undefined ? null : { ts: last.ts, tableId: last.tableId, id: last.id } };
       }),
-      previousRevisionsOfDocuments: queries => Effect.sync(() => queries.flatMap(query => {
+      previousRevisions: unavailable, previousRevisionsOfDocuments: queries => Effect.sync(() => queries.flatMap(query => {
         predecessorWitnesses.push(query.ts);
         const document = [moved, deleted, unchanged].find(value => value.ts === query.prevTs && bytesEqual(value.id, query.id));
         return document === undefined ? [] : [{ query, document }];
@@ -92,7 +92,7 @@ describe("source historical TableIterator", () => {
     let scans = 0;
     const persistence: CorePersistence = { acquireLease: unavailable, latestTimestamp: unavailable, isFresh: unavailable,
       readRetentionBounds: unavailable, write: unavailable, writeIndexBackfill: unavailable, reconcileIndexBackfill: unavailable,
-      putGlobal: unavailable, getGlobal: () => Effect.succeed(Option.none()), loadDocuments: unavailable, previousRevisionsOfDocuments: unavailable,
+      putGlobal: unavailable, getGlobal: () => Effect.succeed(Option.none()), loadDocuments: unavailable, previousRevisions: unavailable, previousRevisionsOfDocuments: unavailable,
       readSnapshot: timestamp => Effect.succeed({ timestamp, get: unavailable, scan: () => {
         scans += 1; return Effect.fail(new CorePersistenceError({ reason: "unavailable" }));
       } }) };
@@ -195,7 +195,7 @@ describe("source historical TableIterator", () => {
       loadDocuments: () => Effect.sync(() => {
         walks += 1;
         return { documents: [{ ...firstOld, ts: 11n, prevTs: 1n }, { ...secondOld, ts: 12n, prevTs: 2n }], done: true, cursor: null };
-      }), previousRevisionsOfDocuments: queries => Effect.succeed(queries.flatMap(query => {
+      }), previousRevisions: unavailable, previousRevisionsOfDocuments: queries => Effect.succeed(queries.flatMap(query => {
         const document = [firstOld, secondOld].find(value => bytesEqual(value.tableId, query.tableId) && value.ts === query.prevTs);
         return document === undefined ? [] : [{ query, document }];
       })),
@@ -219,7 +219,7 @@ describe("source historical TableIterator", () => {
       putGlobal: unavailable, getGlobal: () => Effect.succeed(Option.none()),
       readSnapshot: timestamp => Effect.succeed({ timestamp, get: unavailable, scan: () => Effect.succeed({ entries: [{ key: key("a", 10), document: unchanged }], cursor: { kind: "end" } }) }),
       loadDocuments: () => Effect.succeed({ documents: old.slice(1).map(value => ({ ...value, ts: value.ts + 10n, prevTs: value.ts })), done: true, cursor: null }),
-      previousRevisionsOfDocuments: queries => Effect.sync(() => {
+      previousRevisions: unavailable, previousRevisionsOfDocuments: queries => Effect.sync(() => {
         batches.push(queries.length);
         return queries.flatMap(query => { const document = old.find(value => value.ts === query.prevTs && bytesEqual(value.id, query.id));
           return document === undefined ? [] : [{ query, document }]; }).toReversed();
@@ -244,7 +244,7 @@ describe("source historical TableIterator", () => {
       putGlobal: unavailable, getGlobal: () => Effect.succeed(Option.none()),
       readSnapshot: timestamp => Effect.succeed({ timestamp, get: unavailable, scan: () => Effect.succeed({ entries: [{ key: key("a", 10), document: first }], cursor: { kind: "end" } }) }),
       loadDocuments: () => Effect.succeed({ documents: [{ ...first, ts: 11n, prevTs: 1n }, { ...second, ts: 12n, prevTs: 2n }], done: true, cursor: null }),
-      previousRevisionsOfDocuments: () => Effect.sync(() => { exactReads += 1; return []; }),
+      previousRevisions: unavailable, previousRevisionsOfDocuments: () => Effect.sync(() => { exactReads += 1; return []; }),
     };
     const budget = { pageSize: 2, documentBytes: 10000, documentCount: 2, logPageSize: 2, maxLogPagesPerStep: 1, maxMetadataEntries: 1 };
     const metadata = createCoreTableIterator({ persistence, table, index, snapshotTs: 10n, recentTimestamp: Effect.succeed(20n), budget });

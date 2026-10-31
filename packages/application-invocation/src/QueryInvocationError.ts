@@ -208,6 +208,8 @@ function projectCoreTransactionReason(
     case "capacity": return "budgetExceeded";
     case "invalidValue":
     case "documentValidation":
+    case "documentExists":
+    case "documentDeleted":
     case "invalidDocumentId": return "invalidInput";
     case "readonly": return "incompatibleRuntime";
     case "authorityRevoked": return "staleScopeAuthority";

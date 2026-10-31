@@ -10,6 +10,7 @@ import { checkCoreNativeAuthority, makeCoreNativeDefinition, type CoreNativeAuth
 import { initialRegistry, publicDocumentId, readDocumentObject, type CoreRegistry } from "../../src/core/registry";
 import { serializeCoreSchema } from "../../src/core/schemaJson";
 import { CoreFinalizationVault, createCoreTransaction } from "../../src/core/transaction";
+import { createTransactionIdGenerator } from "../../src/core/transactionIdGenerator";
 import { CoreWriteLog, keyInInterval, type CoreIndexKeys } from "../../src/core/writeLog";
 import { CoreAccounting, CORE_TRANSACTION_REFERENCE_LIMITS } from "../../src/core/accounting";
 import { CoreNativeObservationState } from "../../src/core/nativeObservations";
@@ -87,12 +88,11 @@ async function fixture(visibility: "command" | "snapshot" = "command", maxIdenti
   const log = new CoreWriteLog(10n);
   const initial = { ...selected(10n, [{ id: 201, title: "first" }, { id: 202, title: "second" }]), writeLog: log.snapshot() };
   let current = initial;
-  let generated = 300;
   const vault = new CoreFinalizationVault();
   const retained = new CoreAccounting({ ...CORE_TRANSACTION_REFERENCE_LIMITS, bytesRead: retainedMaximum });
   const assertOwnerOpen = Effect.suspend(() => Effect.fromResult(checkCoreNativeAuthority(current.registry, authority)));
   const context = createCoreTransaction({ ...initial, now: 10n, vault, readonly: visibility === "snapshot",
-    newInternalId: Effect.sync(() => bytes(++generated)), assertOwnerOpen,
+    idGenerator: Result.getOrThrow(createTransactionIdGenerator(new Uint8Array(32), 10n)), assertOwnerOpen,
     native: { authority, visibility, limits: { maxIdentities, maxDocumentBytes },
       chargeRetained: bytesRead => Effect.fromResult(retained.read(false, bytesRead)), capture: () => Effect.andThen(assertOwnerOpen,
       Effect.sync(() => visibility === "snapshot" ? initial : current)) } });
@@ -595,7 +595,7 @@ describe("native transaction observations over the source transaction", () => {
     const transaction = createCoreTransaction({ snapshot: { timestamp: 10n,
       get: () => Effect.die(new Error("Unauthorized access reached storage")),
       scan: () => Effect.die(new Error("Unauthorized access reached storage")) }, registry: tested.registry,
-    now: 10n, newInternalId: Effect.succeed(bytes(400)), vault: new CoreFinalizationVault() }).transaction;
+    now: 10n, idGenerator: Result.getOrThrow(createTransactionIdGenerator(new Uint8Array(32), 10n)), vault: new CoreFinalizationVault() }).transaction;
     for (const operation of [transaction.get(tested.id(201)), transaction.patch(tested.id(201), { title: "bypass" }),
       transaction.insert(tested.table.name, body("bypass"))]) {
       expect(await Effect.runPromise(operation.pipe(Effect.result)))
