@@ -1,3 +1,4 @@
+import { encodeValidatorJsonV1 } from "flarex-protocol/validator-json";
 import type {
   ApplicationManifest,
 } from "@flarex/analysis/application-analysis";
@@ -15,6 +16,7 @@ import {
 import { Result } from "effect";
 import {
   canonicalizeApplicationRuntimeTargetV1,
+  applicationRuntimeTargetWireV1,
   type ApplicationRuntimeTargetV1,
 } from "flarex-protocol/internal/application-runtime-target-v1";
 import type { EdgeActionHostPolicyFrameV1 } from
@@ -162,10 +164,23 @@ function entrypointSource(
     readonly documentIdFormat?: "convex";
   }>,
 ): string {
+  const functionWire = (fn: ApplicationFunctionRuntimeFunctionV1) => ({
+    ...fn,
+    args: encodeValidatorJsonV1(fn.args),
+    returns: fn.returns === null ? null : encodeValidatorJsonV1(fn.returns),
+  });
+  const wireDefinition = {
+    ...definition,
+    target: applicationRuntimeTargetWireV1(definition.target),
+    rootFunction: functionWire(definition.rootFunction),
+    internalFunctionCatalog: definition.internalFunctionCatalog.map(functionWire),
+  };
   return [
     'import { WorkerEntrypoint } from "cloudflare:workers";',
-    `import { executeApplicationTransactionWorkerV1, executeApplicationActionWorkerV1 } from ${JSON.stringify(coreImport)};`,
-    `const definition = Object.freeze(${JSON.stringify(definition)});`,
+    `import { executeApplicationTransactionWorkerV1, executeApplicationActionWorkerV1, decodeValidatorJsonWireCoreV1 } from ${JSON.stringify(coreImport)};`,
+    'const functionFromWire = fn => Object.freeze({ ...fn, args: decodeValidatorJsonWireCoreV1(fn.args), returns: fn.returns === null ? null : decodeValidatorJsonWireCoreV1(fn.returns) });',
+    `const wireDefinition = JSON.parse(${JSON.stringify(JSON.stringify(wireDefinition))});`,
+    'const definition = Object.freeze({ ...wireDefinition, target: Object.freeze({ ...wireDefinition.target, function: functionFromWire(wireDefinition.target.function) }), rootFunction: functionFromWire(wireDefinition.rootFunction), internalFunctionCatalog: Object.freeze(wireDefinition.internalFunctionCatalog.map(functionFromWire)) });',
     `const loadExecution = () => import(${JSON.stringify(executionImport)});`,
     `export class ${APPLICATION_TRANSACTION_WORKER_ENTRYPOINT} extends WorkerEntrypoint {`,
     "  run(request, capability) {",

@@ -2,7 +2,7 @@ import {
   isCanonicalFlarexRuntimeObjectV1,
   type CanonicalFlarexRuntimeValueV1,
 } from "./value-runtime-core";
-import type { ValidatorJsonV1 } from "./validator-json-core";
+import { validatorLiteralEqualV1, type ValidatorJsonV1 } from "./validator-json-core";
 
 export type ValidatorValueExpectedV1 =
   | "null" | "number" | "bigint" | "boolean" | "string"
@@ -12,7 +12,7 @@ export type ValidatorValueIssueV1 =
   | { readonly reason: "typeMismatch"; readonly path: string;
       readonly expected: ValidatorValueExpectedV1 }
   | { readonly reason: "literalMismatch"; readonly path: string;
-      readonly literalType: "string" | "number" | "boolean" }
+      readonly literalType: "string" | "number" | "boolean" | "bigint" }
   | { readonly reason: "missingRequiredField"; readonly path: string;
       readonly field: string }
   | { readonly reason: "unexpectedField"; readonly path: string;
@@ -37,7 +37,7 @@ export interface ValidateValidatorValueV1Options {
   readonly idPolicy: ValidatorIdPolicyV1;
 }
 
-const FLOAT64_COMPARISON_VIEW = new DataView(new ArrayBuffer(16));
+
 
 /** Effect-free core for exact runtime kernels and the typed Result adapter. */
 export function validateValidatorValueIssueV1(
@@ -64,7 +64,7 @@ function validateAtPath(
     case "bytes": return value instanceof ArrayBuffer ? undefined : mismatch(path, "bytes");
     case "id": return validateId(validator.tableName, value, path, idPolicy);
     case "literal":
-      return literalEqual(value, validator.value) ? undefined : {
+      return validatorLiteralEqualV1(value, validator.value) ? undefined : {
         reason: "literalMismatch", path,
         literalType: literalType(validator.value),
       };
@@ -150,27 +150,16 @@ function mismatch(path: string, expected: ValidatorValueExpectedV1): ValidatorVa
   return { reason: "typeMismatch", path, expected };
 }
 
-function literalEqual(
-  value: CanonicalFlarexRuntimeValueV1,
-  literal: string | number | boolean,
-): boolean {
-  if (typeof literal !== "number") return value === literal;
-  if (typeof value !== "number") return false;
-  FLOAT64_COMPARISON_VIEW.setFloat64(0, value, false);
-  FLOAT64_COMPARISON_VIEW.setFloat64(8, literal, false);
-  return FLOAT64_COMPARISON_VIEW.getBigUint64(0, false) ===
-    FLOAT64_COMPARISON_VIEW.getBigUint64(8, false);
-}
-
 function appendFieldPath(path: string, fieldName: string): string {
   return /^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(fieldName)
     ? `${path}.${fieldName}`
     : `${path}[${JSON.stringify(fieldName)}]`;
 }
 
-function literalType(value: unknown): "string" | "number" | "boolean" {
+function literalType(value: unknown): "string" | "number" | "boolean" | "bigint" {
   if (typeof value === "string") return "string";
   if (typeof value === "number") return "number";
   if (typeof value === "boolean") return "boolean";
+  if (typeof value === "bigint") return "bigint";
   throw new TypeError("Decoded ValidatorJsonV1 contained an invalid literal.");
 }

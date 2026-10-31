@@ -1,3 +1,4 @@
+import { encodeSchemaManifestAppSchemaV1 } from "flarex-protocol/schema-manifest";
 import { eq } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import { expect } from "vitest";
@@ -61,7 +62,7 @@ export async function logicalWorkingSetScanObservationsScenario(db: FlarexMetada
   if (bound === undefined) throw failure("Missing scan table");
   const tableId = bound.tableId;
   const artifact = await runEffect(prepareSchemaVersionArtifactEffect({ deploymentId, schemaVersionId,
-    version: CatalogSchemaVersionSchema.make(1), manifest }));
+    version: CatalogSchemaVersionSchema.make(1), manifest: encodeSchemaManifestAppSchemaV1(manifest) }));
   await db.transaction(tx => runEffect(ensureSchemaVersionArtifactInTransactionEffect(tx, artifact)));
   await db.insert(fxControlScopes).values({ scopeId, deploymentId, isolationKind: "shared_database",
     physicalLocator: { kind: "shared_database", databaseKey: "scan-observations", schemaName: "public" } });

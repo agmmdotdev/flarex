@@ -1,3 +1,4 @@
+import { encodeDeploymentSchema, encodeDeploymentFunctions, encodeDeploymentAnalysis, encodeDeploymentCodegenAnalysis } from "flarex-protocol/deployment";
 import { Context, Effect, Layer, Schema } from "effect";
 import { rejectedFinishPushResponse } from "../pushResponses.ts";
 import {
@@ -220,7 +221,7 @@ export const deploymentSchemaApplicationPlan = Effect.fn(
   }
   return {
     version: schema.version,
-    tables: schema.tables.map(table => ({
+    tables: encodeDeploymentSchema(schema).tables.map(table => ({
       tableId: table.tableId,
       name: table.name,
       state: table.state ?? "active",
@@ -243,7 +244,7 @@ export const deploymentFunctionsApplicationPlan = Effect.fn(
   functions: DeploymentFunctions,
 ): Effect.fn.Return<DeploymentFunctionsApplicationPlan> {
   return {
-    functions: functions.functions.map(metadata => ({
+    functions: encodeDeploymentFunctions(functions).functions.map(metadata => ({
       path: metadata.path,
       kind: metadata.kind,
       visibility: metadata.visibility,
@@ -319,15 +320,16 @@ export const deploymentStartPushApplicationPlan = Effect.fn(
   input: StartAnalyzedPushStoreInput,
 ): Effect.fn.Return<DeploymentStartPushApplicationPlan> {
   const hasAnalysis = "analysis" in input;
+  const analysisJson = hasAnalysis ? storedDeploymentAnalysisJson(input) : undefined;
   return {
     supersedeUpdatedAt: input.now,
     row: {
       pushId: input.pushId,
       state: hasAnalysis ? "analyzed" : "failed",
       sourcePackageJson: JSON.stringify(input.sourcePackage),
-      schemaJson: hasAnalysis ? JSON.stringify(input.analysis.schema) : null,
-      functionsJson: hasAnalysis ? JSON.stringify(input.analysis.functions) : null,
-      codegenAnalysisJson: hasAnalysis ? JSON.stringify(input.codegenAnalysis) : null,
+      schemaJson: analysisJson?.schemaJson ?? null,
+      functionsJson: analysisJson?.functionsJson ?? null,
+      codegenAnalysisJson: analysisJson?.codegenAnalysisJson ?? null,
       error: hasAnalysis ? null : input.error,
       diagnosticsJson: input.diagnostics.length === 0 ? null : JSON.stringify(input.diagnostics),
       createdAt: input.now,
@@ -831,15 +833,23 @@ class DeploymentStoreWriteRollbackError extends Error {
   }
 }
 
+/** The actual write plan and its pre-write status decoder use identical wire metadata bytes. */
+function storedDeploymentAnalysisJson(input: { readonly analysis: DeploymentAnalysis; readonly codegenAnalysis: DeploymentCodegenAnalysis }) {
+  const analysis = encodeDeploymentAnalysis(input.analysis);
+  return { schemaJson: JSON.stringify(analysis.schema), functionsJson: JSON.stringify(analysis.functions),
+    codegenAnalysisJson: JSON.stringify(encodeDeploymentCodegenAnalysis(input.codegenAnalysis)) };
+}
+
 function pushStatusRowFromStartAnalyzedPushStoreInput(input: StartAnalyzedPushStoreInput): DeploymentPushStatusRow {
   if ("analysis" in input) {
+    const analysisJson = storedDeploymentAnalysisJson(input);
     return {
       push_id: input.pushId,
       state: "analyzed",
       source_package_json: JSON.stringify(input.sourcePackage),
-      schema_json: JSON.stringify(input.analysis.schema),
-      functions_json: JSON.stringify(input.analysis.functions),
-      codegen_analysis_json: JSON.stringify(input.codegenAnalysis),
+      schema_json: analysisJson.schemaJson,
+      functions_json: analysisJson.functionsJson,
+      codegen_analysis_json: analysisJson.codegenAnalysisJson,
       error: null,
       diagnostics_json: input.diagnostics.length === 0 ? null : JSON.stringify(input.diagnostics),
       created_at: input.now,

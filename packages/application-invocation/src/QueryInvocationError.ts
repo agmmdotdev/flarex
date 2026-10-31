@@ -240,6 +240,7 @@ function projectCoreSchemaReason(
 ): QueryInvocationErrorReason {
   switch (error.reason) {
     case "invalidSchema":
+    case "unsupportedFloatLiteral":
     case "stagedEnforcedConflict": return "invalidInput";
     case "unsupportedCapability": return "incompatibleRuntime";
     case "hashFailure": return "unavailable";

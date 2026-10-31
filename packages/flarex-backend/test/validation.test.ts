@@ -57,10 +57,9 @@ describe("backend validator metadata parsing", () => {
       throw new Error("Expected validator metadata parsing to fail.");
     }
     expect(parsed.failure).toBeInstanceOf(BackendValidationError);
-    expect(parsed.failure.message).toBe("$validator.value.body.fieldType: Validator is required.");
-    expect(() => assertValidatorJson(rawValidator, "$validator")).toThrow(
-      "$validator.value.body.fieldType: Validator is required.",
-    );
+    expect(parsed.failure.path).toBe('$validator["value"]["body"]["fieldType"]');
+    expect(parsed.failure.message).toBe('$validator["value"]["body"]["fieldType"]: Invalid validator JSON (missingProperty).');
+    expect(() => assertValidatorJson(rawValidator, "$validator")).toThrow(parsed.failure.message);
   });
 
   it("preserves first-failure order across dependent validator members", () => {
@@ -71,10 +70,8 @@ describe("backend validator metadata parsing", () => {
     }, "$validator");
     expect(Result.isFailure(record)).toBe(true);
     if (Result.isSuccess(record)) throw new Error("Expected record parsing to fail.");
-    expect(record.failure).toMatchObject({
-      path: "$validator.keys",
-      message: "$validator.keys: Validator is required.",
-    });
+    expect(record.failure.path).toBe('$validator["keys"]');
+    expect(record.failure.message).toBe('$validator["keys"]: Invalid validator JSON (malformedContainer).');
 
     const union = parseValidatorJson({
       type: "union",
@@ -85,20 +82,16 @@ describe("backend validator metadata parsing", () => {
     }, "$validator");
     expect(Result.isFailure(union)).toBe(true);
     if (Result.isSuccess(union)) throw new Error("Expected union parsing to fail.");
-    expect(union.failure).toMatchObject({
-      path: "$validator.value[0].value",
-      message: "$validator.value[0].value: Validator is required.",
-    });
+    expect(union.failure.path).toBe('$validator["value"][0]["value"]');
+    expect(union.failure.message).toBe('$validator["value"][0]["value"]: Invalid validator JSON (malformedContainer).');
   });
 
   it("rejects object validator metadata with an absent field map", () => {
     const result = parseValidatorJson({ type: "object" }, "$validator");
     expect(Result.isFailure(result)).toBe(true);
     if (Result.isSuccess(result)) throw new Error("Expected missing field map to fail.");
-    expect(result.failure).toMatchObject({
-      path: "$validator.value",
-      message: "$validator.value: Object validator value must be an object.",
-    });
+    expect(result.failure.path).toBe('$validator["value"]');
+    expect(result.failure.message).toBe('$validator["value"]: Invalid validator JSON (malformedContainer).');
   });
   it("treats reserved object names as own validator and document fields", () => {
     for (const fieldName of ["__proto__", "constructor", "toString"]) {
@@ -128,6 +121,18 @@ describe("backend validator metadata parsing", () => {
         "$document",
       )).not.toThrow();
     }
+  });
+
+  it("decodes exact literal metadata while keeping the retained JSON transport closed", () => {
+    const int64 = Result.getOrThrow(parseValidatorJson({ type: "literal", value: { $integer: "AQAAAAAAAAA=" } }, "$validator"));
+    expect(int64).toEqual({ type: "literal", value: 1n });
+    if (int64 === null) throw new Error("Expected an int64 literal.");
+    expect(() => validateJsonValue(int64, { $integer: "AQAAAAAAAAA=" })).toThrow("Bigint transport is not implemented.");
+    const negativeZero = Result.getOrThrow(parseValidatorJson({ type: "literal", value: { $float: "AAAAAAAAAIA=" } }, "$validator"));
+    if (negativeZero === null) throw new Error("Expected a signed-zero literal.");
+    expect(() => validateJsonValue(negativeZero, -0)).not.toThrow();
+    expect(() => validateJsonValue(negativeZero, 0)).toThrow(BackendValidationError);
+    expect(Result.isFailure(parseValidatorJson({ type: "literal", value: { $integer: "AQ==" } }, "$validator"))).toBe(true);
   });
 
   it("exposes JSON value validation failures through an Effect boundary", async () => {

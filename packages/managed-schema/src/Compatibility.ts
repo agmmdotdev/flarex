@@ -4,6 +4,7 @@ import type {
   SchemaManifestAppTableDefinitionV1,
 } from "flarex-protocol/schema-manifest";
 import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
+import { validatorLiteralEqualV1 } from "flarex-protocol/internal/validator-json-core";
 
 import type {
   AppSchemaEvolutionChange,
@@ -258,7 +259,7 @@ function compareValidator(
 
   if (active.type === "literal") {
     if (candidate.type === "literal") {
-      return literalValuesEqual(active.value, candidate.value)
+      return validatorLiteralEqualV1(active.value, candidate.value)
         ? UNIVERSALLY_COMPATIBLE
         : validationRequired("narrowingOrUnknown", path);
     }
@@ -386,7 +387,7 @@ function validatorJsonStructuralEquality(
         : "different";
     case "literal":
       return right.type === "literal"
-        && literalValuesEqual(left.value, right.value)
+        && validatorLiteralEqualV1(left.value, right.value)
         ? "equal"
         : "different";
     case "array":
@@ -474,23 +475,16 @@ function indexDescriptorKey(index: SchemaManifestAppIndexBindingV1): string {
 }
 
 function literalMatchesPrimitive(
-  value: string | number | boolean,
+  value: Extract<ValidatorJsonV1, { readonly type: "literal" }>["value"],
   candidateType: ValidatorJsonV1["type"],
 ): boolean {
   return candidateType === "string"
     ? typeof value === "string"
     : candidateType === "number"
     ? typeof value === "number"
+    : candidateType === "bigint"
+    ? typeof value === "bigint"
     : candidateType === "boolean" && typeof value === "boolean";
-}
-
-function literalValuesEqual(
-  left: string | number | boolean,
-  right: string | number | boolean,
-): boolean {
-  return typeof left === "number" && typeof right === "number"
-    ? Object.is(left, right)
-    : left === right;
 }
 
 function validationRequired(

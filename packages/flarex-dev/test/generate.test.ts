@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 import { deploymentAnalysisFromCodegenAnalysisEffect } from "@flarex/analysis";
+import { generatedExecutionWorkerSource } from "flarex-backend/artifact-runtime";
 import { Miniflare } from "miniflare";
 import { build, type Plugin } from "vite";
 import { describe, expect, it } from "vitest";
@@ -29,6 +30,10 @@ const workspaceRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../..",
 );
+
+function embeddedJsonSource(fragment: string): string {
+  return JSON.stringify(fragment).slice(1, -1);
+}
 
 function backendAnalysisFromCodegenAnalysis(analysis: DeploymentAnalysis) {
   return Effect.runSync(deploymentAnalysisFromCodegenAnalysisEffect(analysis));
@@ -176,7 +181,7 @@ export const list = query({ args: {}, handler: async () => [] });
 
     expect(calls).toEqual([["messages.js"]]);
     await expect(readGenerated(root, "functionMetadata.ts"))
-      .resolves.toContain('"kind": "mutation"');
+      .resolves.toContain(embeddedJsonSource('"kind": "mutation"'));
   });
 
   it("keeps explicit undefined source analyzer compatibility", async () => {
@@ -232,7 +237,7 @@ export const list = query({ args: {}, handler: async () => [] });
 
     expect(pushedPackages).toEqual([["messages.js"]]);
     await expect(readGenerated(root, "functionMetadata.ts"))
-      .resolves.toContain('"kind": "workflowMutation"');
+      .resolves.toContain(embeddedJsonSource('"kind": "workflowMutation"'));
   });
 
   it("deploys by generating from backend push analysis before finishing", async () => {
@@ -266,7 +271,7 @@ export const list = query({ args: {}, handler: async () => [] });
       beforeFinish: async started => {
         events.push(`beforeFinish:${started.pushId}`);
         await expect(readGenerated(root, "functionMetadata.ts"))
-          .resolves.toContain('"kind": "workflowMutation"');
+          .resolves.toContain(embeddedJsonSource('"kind": "workflowMutation"'));
       },
     });
 
@@ -327,7 +332,7 @@ export const list = query({ args: {}, handler: async () => [] });
       "abandon:push1:Generated output validation failed before activation: validation failed",
     ]);
     await expect(readGenerated(root, "functionMetadata.ts"))
-      .resolves.toContain('"path": "messages:list"');
+      .resolves.toContain(embeddedJsonSource('"path": "messages:list"'));
   });
 
   it("preserves deploy validation errors when abandon cleanup fails", async () => {
@@ -509,7 +514,7 @@ export const list = query({ args: {}, handler: async () => [] });
     const report = await dryRunFlarexCodegen({ root, sourceAnalyzer });
     const metadataWrite = report.writes.find(write => write.name === "functionMetadata.ts");
 
-    expect(metadataWrite?.contents).toContain('"kind": "action"');
+    expect(metadataWrite?.contents).toContain(embeddedJsonSource('"kind": "action"'));
     await expect(fileExists(path.join(root, "flarex/_generated/functionMetadata.ts")))
       .resolves.toBe(false);
   });
@@ -536,7 +541,7 @@ export const list = query({ args: {}, handler: async () => [] });
     const report = await dryRunFlarexCodegen({ root, pushCoordinator });
     const metadataWrite = report.writes.find(write => write.name === "functionMetadata.ts");
 
-    expect(metadataWrite?.contents).toContain('"kind": "action"');
+    expect(metadataWrite?.contents).toContain(embeddedJsonSource('"kind": "action"'));
     await expect(fileExists(path.join(root, "flarex/_generated/functionMetadata.ts")))
       .resolves.toBe(false);
   });
@@ -607,11 +612,11 @@ export const helper = "not a function";
     expect(api).not.toContain("_generated/ignored");
     expect(api).not.toContain("empty");
     expect(functionMetadata).not.toContain("functionRegistry");
-    expect(functionMetadata).toContain('"path": "messages:list"');
-    expect(functionMetadata).toContain('"kind": "query"');
-    expect(functionMetadata).toContain('"visibility": "public"');
-    expect(functionMetadata).toContain('"topic"');
-    expect(functionMetadata).toContain('"type": "array"');
+    expect(functionMetadata).toContain(embeddedJsonSource('"path": "messages:list"'));
+    expect(functionMetadata).toContain(embeddedJsonSource('"kind": "query"'));
+    expect(functionMetadata).toContain(embeddedJsonSource('"visibility": "public"'));
+    expect(functionMetadata).toContain(embeddedJsonSource('"topic"'));
+    expect(functionMetadata).toContain(embeddedJsonSource('"type": "array"'));
     expect(functionMetadata).not.toContain("spoofed");
     expect(deploymentSchema).toContain("export const deploymentSchema");
     expect(worker).toContain('import { functions } from "./functionRegistry"');
@@ -665,16 +670,48 @@ export const list = query({
 
     await generateFlarex({ root });
 
-    await expect(typecheckGeneratedOutput({
-      root,
-      cwd: workspaceRoot,
-      compilerOptions: {
-        paths: {
-          flarex: ["packages/flarex/src/index.ts"],
-          "flarex/*": ["packages/flarex/src/*"],
+    await writeFile(
+      path.join(root, "package.json"),
+      JSON.stringify({ private: true, name: "flarex-generated-typecheck-fixture" }),
+    );
+    const compilerAdapterPath = path.join(root, "tsrs-cli.cjs");
+    // The Node CLI hook runs the approved command with constant shell input.
+    // The generated config already contains absolute include and dependency paths.
+    await writeFile(
+      compilerAdapterPath,
+      `const { spawnSync } = require("node:child_process");
+const path = require("node:path");
+const [flag, configPath] = process.argv.slice(2);
+if (flag !== "-p" || typeof configPath !== "string" || path.basename(configPath) !== "tsconfig.json") {
+  throw new Error("Unexpected generated typecheck compiler arguments.");
+}
+const result = spawnSync("pnpm exec tsrs --fast --noEmit -p tsconfig.json", {
+  shell: true,
+  cwd: path.dirname(configPath),
+  stdio: "inherit",
+  windowsHide: true,
+});
+if (result.error) throw result.error;
+process.exit(result.status ?? 1);
+`,
+    );
+    try {
+      await expect(typecheckGeneratedOutput({
+        root,
+        tsconfigPath: "tsconfig.json",
+        typescriptCliPath: compilerAdapterPath,
+        cwd: workspaceRoot,
+        compilerOptions: {
+          paths: {
+            flarex: ["packages/flarex/src/index.ts"],
+            "flarex/*": ["packages/flarex/src/*"],
+            "flarex/validator-json": ["packages/flarex/src/validatorJson.ts"],
+          },
         },
-      },
-    })).resolves.toBeUndefined();
+      })).resolves.toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   }, 60000);
 
   it("removes stale generated files after final codegen", async () => {
@@ -747,12 +784,12 @@ export const create = mutation({
     expect(server).toContain('users: "teamMembers" | "users";');
     expect(server).not.toContain('auditLog: "auditLog";');
     expect(server).toContain('MutationBuilder<DataModel, "public", "mutation", PartitionScopes>');
-    expect(functionMetadata).toContain('"path": "users:create"');
-    expect(functionMetadata).toContain('"partition": {');
-    expect(functionMetadata).toContain('"table": "users"');
-    expect(functionMetadata).toContain('"selector": "byId"');
-    expect(functionMetadata).toContain('"partitionField": "_id"');
-    expect(functionMetadata).toContain('"argField": "userId"');
+    expect(functionMetadata).toContain(embeddedJsonSource('"path": "users:create"'));
+    expect(functionMetadata).toContain(embeddedJsonSource('"partition": {'));
+    expect(functionMetadata).toContain(embeddedJsonSource('"table": "users"'));
+    expect(functionMetadata).toContain(embeddedJsonSource('"selector": "byId"'));
+    expect(functionMetadata).toContain(embeddedJsonSource('"partitionField": "_id"'));
+    expect(functionMetadata).toContain(embeddedJsonSource('"argField": "userId"'));
     expect(api).toContain('"users:create": {');
     expect(api).toContain('"partition": {');
     expect(api).toContain('"table": "users"');
@@ -800,12 +837,12 @@ export const rename = mutation({
     const api = await readGenerated(root, "api.ts");
     const functionMetadata = await readGenerated(root, "functionMetadata.ts");
 
-    expect(functionMetadata).toContain('"path": "users:rename"');
-    expect(functionMetadata).toContain('"partition": {');
-    expect(functionMetadata).toContain('"table": "users"');
-    expect(functionMetadata).toContain('"selector": "byId"');
-    expect(functionMetadata).toContain('"partitionField": "_id"');
-    expect(functionMetadata).toContain('"argField": "userId"');
+    expect(functionMetadata).toContain(embeddedJsonSource('"path": "users:rename"'));
+    expect(functionMetadata).toContain(embeddedJsonSource('"partition": {'));
+    expect(functionMetadata).toContain(embeddedJsonSource('"table": "users"'));
+    expect(functionMetadata).toContain(embeddedJsonSource('"selector": "byId"'));
+    expect(functionMetadata).toContain(embeddedJsonSource('"partitionField": "_id"'));
+    expect(functionMetadata).toContain(embeddedJsonSource('"argField": "userId"'));
     expect(api).toContain('"users:rename": {');
     expect(api).toContain('"partition": {');
     expect(api).toContain('"selector": "byId"');
@@ -879,10 +916,10 @@ export const create = mutation({
     const functionMetadata = await readGenerated(root, "functionMetadata.ts");
     const worker = await readGenerated(root, "worker.ts");
 
-    expect(functionMetadata).toContain('"path": "users:create"');
-    expect(functionMetadata).toContain('"partition": {');
-    expect(functionMetadata).toContain('"type": "partitionCreateRoot"');
-    expect(functionMetadata).toContain('"table": "users"');
+    expect(functionMetadata).toContain(embeddedJsonSource('"path": "users:create"'));
+    expect(functionMetadata).toContain(embeddedJsonSource('"partition": {'));
+    expect(functionMetadata).toContain(embeddedJsonSource('"type": "partitionCreateRoot"'));
+    expect(functionMetadata).toContain(embeddedJsonSource('"table": "users"'));
     expect(api).toContain('"users:create": {');
     expect(api).toContain('"type": "partitionCreateRoot"');
     expect(worker).toContain('...(input.partitionKey === undefined ? {} : { partitionKey: input.partitionKey })');
@@ -928,6 +965,77 @@ export const create = mutation({
       "teams:create.partition: Selector bySlug targets slug, but teams is partitioned by _id.",
     );
   });
+
+  it.each(["typescript", "javascript"] as const)(
+    "fails closed for normalizeId in the retained %s executor without a syscall",
+    async profile => {
+      const root = await createProject();
+      let worker: Miniflare | undefined;
+      try {
+        await writeFile(path.join(root, "flarex/schema.ts"), `import { defineGlobalTable, defineSchema } from "flarex/server";
+import { v } from "flarex/values";
+export default defineSchema({ messages: defineGlobalTable({ body: v.string() }) });
+`);
+        await writeFile(path.join(root, "flarex/functions/messages.ts"), `import { query } from "../_generated/server";
+export const normalize = query({
+  args: {},
+  handler: ctx => ctx.db.normalizeId("messages", "1:legacy-document"),
+});
+`);
+        const context = await initialCodegen({ root });
+        const sourcePackage = await bundleFlarexSourcePackage(context);
+        const analysis = await new LocalMiniflareExecutionArtifactAdapter().analyze(sourcePackage);
+        await finalCodegen(context, analysis);
+        const modules = profile === "typescript"
+          ? [{ type: "ESModule" as const, path: "worker.js", contents: await bundleGeneratedWorker(root) }]
+          : [{
+            type: "ESModule" as const,
+            path: "worker.js",
+            contents: generatedExecutionWorkerSource({
+              headerComment: "// Retained executor capability fixture.",
+              executionModule: sourcePackage.execution,
+              backendBinding: "FLAREX_BACKEND",
+              backendBaseUrl: "https://flarex-backend.internal",
+              missingBackendBindingMessage: "Missing fixture backend.",
+            }),
+          }, ...sourcePackage.modules.map(module => ({
+            type: "ESModule" as const, path: module.path, contents: module.source,
+          }))];
+        const backendPaths: string[] = [];
+        worker = new Miniflare({
+          modules,
+          compatibilityDate: "2026-06-14",
+          serviceBindings: {
+            FLAREX_BACKEND: async request => {
+              const pathname = new URL(request.url).pathname;
+              backendPaths.push(pathname);
+              if (pathname === "/deployments/deployment1/executions/start") {
+                return Response.json({ sessionId: "normalize-session", kind: "query", identity: { kind: "anonymous" } });
+              }
+              if (pathname === "/deployments/deployment1/executions/normalize-session/abort") return Response.json({});
+              throw new Error(`Unexpected retained executor request: ${pathname}`);
+            },
+          },
+        });
+        const response = await worker.dispatchFetch("https://generated.test/__flarex_internal/invoke", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ path: "messages:normalize", args: {}, deploymentId: "deployment1" }),
+        });
+        expect(response.status).toBe(400);
+        expect(await response.json()).toEqual({
+          error: "ctx.db.normalizeId is not supported by the retained JSON executor profile.",
+        });
+        expect(backendPaths).toEqual([
+          "/deployments/deployment1/executions/start",
+          "/deployments/deployment1/executions/normalize-session/abort",
+        ]);
+      } finally {
+        await worker?.dispose();
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("guards generated internal routes when an internal token is configured", async () => {
     const root = await createProject();

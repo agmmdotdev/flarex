@@ -1001,15 +1001,16 @@ function encodeSourceLiteral(
   input: unknown,
   path: string,
 ): Result.Result<
-  { readonly value: string | number | boolean; readonly json: Json },
+  { readonly value: string | number | boolean | bigint; readonly json: Json },
   FunctionMetadataInvalidV1Error
 > {
   if (
     typeof input !== "string" &&
     typeof input !== "number" &&
-    typeof input !== "boolean"
+    typeof input !== "boolean" &&
+    typeof input !== "bigint"
   ) {
-    return invalid(path, "literal must be a string, number, or boolean");
+    return invalid(path, "literal must be a string, number, boolean, or signed int64");
   }
   try {
     return Result.succeed(Object.freeze({
@@ -1028,7 +1029,7 @@ function decodeStoredLiteral(
   input: unknown,
   path: string,
 ): Result.Result<
-  { readonly value: string | number | boolean; readonly json: Json },
+  { readonly value: string | number | boolean | bigint; readonly json: Json },
   FunctionMetadataNonCanonicalBytesV1Error
 > {
   try {
@@ -1036,11 +1037,12 @@ function decodeStoredLiteral(
     if (
       typeof value !== "string" &&
       typeof value !== "number" &&
-      typeof value !== "boolean"
+      typeof value !== "boolean" &&
+      typeof value !== "bigint"
     ) {
       return Result.fail(nonCanonical(
         "invalidShape",
-        `${path} must decode to a string, number, or boolean literal`,
+        `${path} must decode to a string, number, boolean, or signed int64 literal`,
       ));
     }
     return Result.succeed(Object.freeze({

@@ -1,8 +1,9 @@
 import { Effect, Schema } from "effect";
-import { decodeSchemaManifestAppTableDeclarationsV1Result, decodeSchemaManifestAppIndexDeclarationsV1Result } from "flarex-protocol/schema-manifest";
+import { captureSchemaManifestAppTableDeclarationsV1Result, decodeSchemaManifestAppIndexDeclarationsV1Result } from "flarex-protocol/schema-manifest";
 import type { LogicalSchemaSource } from "flarex-protocol/internal/logical-schema-candidate";
 import type { ApplicationManifest } from "./applicationAnalysis";
-import { ApplicationManifestV3Schema } from "./applicationAnalysis";
+import { ApplicationManifestV3Schema, applicationManifestWireV1 } from "./applicationAnalysis";
+import { encodeValidatorJsonV1 } from "flarex-protocol/validator-json";
 import { captureLogicalSchemaSource, LogicalSchemaCandidateError } from "./logicalSchemaCandidate";
 import { encodeCanonicalJson, isJson, isJsonObject } from "flarex-protocol/json";
 
@@ -29,7 +30,7 @@ export const prepareApplicationLogicalSource = Effect.fn("LogicalSchema.prepareA
       return yield* Effect.fail(failed());
     for (const table of payload.definition.tables) {
       const original = manifest.schema.tables.find(original => original.name === table.logicalName && payloadNames.has(original.name));
-      if (original === undefined || canonical(original.validator) !== canonical(table.definition.documentType))
+      if (original === undefined || canonical(encodeValidatorJsonV1(original.validator)) !== canonical(encodeValidatorJsonV1(table.definition.documentType)))
         return yield* Effect.fail(failed());
     }
     // Indices/relations are part of the same compiler contract, not inferred
@@ -44,11 +45,11 @@ export const prepareApplicationLogicalSource = Effect.fn("LogicalSchema.prepareA
         canonical(payload.definition.relations)) return yield* Effect.fail(failed());
   }
   const nativeTables = manifest.schema.tables.filter(table => !payloadNames.has(table.name));
-  const tables = yield* Effect.fromResult(decodeSchemaManifestAppTableDeclarationsV1Result(nativeTables.map(table => ({
+  const tables = yield* Effect.fromResult(captureSchemaManifestAppTableDeclarationsV1Result(nativeTables.map(table => ({
     logicalName: table.name, definition: { kind: "appDocument", definitionVersion: 1, documentType: table.validator },
   })))).pipe(Effect.mapError(cause => new LogicalSchemaCandidateError({ reason: "invalidInput", cause })));
   const names = new Set(nativeTables.map(table => table.name));
-  const manifestData: unknown = manifest;
+  const manifestData: unknown = applicationManifestWireV1(manifest);
   if (!isJson(manifestData) || !isJsonObject(manifestData)) return yield* Effect.die(new Error("Decoded Application manifest lost JSON"));
   const indexes = yield* Effect.fromResult(decodeSchemaManifestAppIndexDeclarationsV1Result(manifest.schema.indexes
     .filter(index => names.has(manifest.schema.tables.find(table => table.tableId === index.tableId)?.name ?? ""))

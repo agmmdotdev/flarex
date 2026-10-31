@@ -117,6 +117,17 @@ describe("managed app-schema compatibility", () => {
     });
   });
 
+  it("preserves bigint and exact float literal identity in compatibility proofs", () => {
+    const literal = (value: number | bigint): ValidatorJsonV1 => ({ type: "literal", value });
+    const float = (bits: bigint) => { const view = new DataView(new ArrayBuffer(8)); view.setBigUint64(0, bits); return view.getFloat64(0); };
+    expect(classifyValidatorCompatibility(literal(1n), { type: "bigint" }).disposition).toBe("universallyCompatible");
+    const incompatible: readonly (readonly [ValidatorJsonV1, ValidatorJsonV1])[] = [[literal(1n), { type: "number" }], [literal(1), { type: "bigint" }],
+      [literal(0), literal(-0)], [literal(float(0x7ff8_0000_0000_0001n)), literal(float(0x7ff8_0000_0000_0002n))]];
+    for (const [active, candidate] of incompatible)
+      expect(classifyValidatorCompatibility(active, candidate).disposition).toBe("requiresDataValidation");
+    const nan = literal(float(0x7ff8_0000_0000_0001n));
+    expect(classifyValidatorCompatibility(nan, nan).disposition).toBe("universallyCompatible");
+  });
   it("proves only conservative widening rules", () => {
     for (const [active, candidate] of [
       [

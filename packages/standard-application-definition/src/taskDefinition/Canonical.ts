@@ -9,6 +9,7 @@ import type {
   RunAttemptPolicyV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import { Encoding, Result } from "effect";
+import { encodeValidatorJsonV1 } from "flarex-protocol/validator-json";
 import {
   encodeCanonicalJson,
   isJsonObjectFromUnknown,
@@ -40,6 +41,7 @@ import {
 import {
   decodeApplicationRevisionTaskBindingFrameV1,
   decodeCanonicalTaskManifestV1,
+  decodeCanonicalTaskManifestWireV1,
   decodeTaskDefinitionRuntimeBindingCommitmentV1,
   decodeTaskDefinitionRuntimeBindingV1,
   decodeTaskRunCreationAuthorityReceiptV1,
@@ -102,7 +104,7 @@ export function decodeCanonicalTaskManifestPreimageV1(
       || !hasExactKeys(parsed, ["codec", "task"])
       || parsed.codec !== CANONICAL_TASK_MANIFEST_CODEC_V1
     ) return yield* Result.fail(invalid(operation, "invalid_shape"));
-    const manifest = yield* decodeCanonicalTaskManifestV1(parsed.task).pipe(
+    const manifest = yield* decodeCanonicalTaskManifestWireV1(parsed.task).pipe(
       Result.mapError(failure => reoperation(failure, operation)),
     );
     const canonical = yield* encodeCanonicalTaskManifestPreimageV1(manifest).pipe(
@@ -698,38 +700,8 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
 function validatorJson(
   validator: import("flarex-protocol/validator-json").ValidatorJsonV1,
 ): Json {
-  switch (validator.type) {
-    case "array":
-      return { type: "array", value: validatorJson(validator.value) };
-    case "object": {
-      const fields: Record<string, Json> = {};
-      for (const key of Object.keys(validator.value).sort()) {
-        const field = validator.value[key];
-        if (field !== undefined) {
-          fields[key] = {
-            fieldType: validatorJson(field.fieldType),
-            optional: field.optional,
-          };
-        }
-      }
-      return { type: "object", value: fields };
-    }
-    case "record":
-      return {
-        keys: validatorJson(validator.keys),
-        type: "record",
-        values: validatorJson(validator.values),
-      };
-    case "union":
-      return {
-        type: "union",
-        value: validator.value.map(validatorJson),
-      };
-    default:
-      return { ...validator };
-  }
+  return encodeValidatorJsonV1(validator);
 }
-
 function canonicalBytes<
   Operation extends StandardApplicationTaskDefinitionOperationV1,
 >(

@@ -23,7 +23,7 @@ import {
   type ExternalEffectExecutionSubjectFrameV1,
 } from "flarex-protocol/internal/execution-evidence-v1";
 import {
-  canonicalizeApplicationActionExecutionAuthorityV1,
+  canonicalizeApplicationActionExecutionAuthorityWireV1,
   type CanonicalApplicationActionExecutionAuthorityV1,
 } from "flarex-protocol/internal/application-action-authority-v1";
 import type { ScopeId } from "flarex-protocol/storage-authority";
@@ -434,7 +434,7 @@ export const admitApplicationAuthorityActionInvocation = Effect.fn(
     field: "request.canonicalBytes",
   })));
   const executionAuthority = yield*
-    canonicalizeApplicationActionExecutionAuthorityV1(
+    canonicalizeApplicationActionExecutionAuthorityWireV1(
       input.executionAuthority.authorityJson,
     ).pipe(Effect.mapError(() =>
       new ApplicationActionAuthorityInputV1Error({
@@ -1996,7 +1996,7 @@ function decodeApplicationInvocationRow(
   const storedSha256 = row.applicationExecutionAuthoritySha256;
   return Effect.gen(function* () {
     const executionAuthority = yield*
-      canonicalizeApplicationActionExecutionAuthorityV1(
+      canonicalizeApplicationActionExecutionAuthorityWireV1(
         row.applicationExecutionAuthorityJson,
       ).pipe(Effect.mapError(() =>
         new ApplicationActionAuthorityCorruptionV1Error({

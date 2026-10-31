@@ -1,3 +1,4 @@
+import { encodeSchemaManifestAppSchemaV1 } from "flarex-protocol/schema-manifest";
 import { readFile } from "node:fs/promises";
 import { sql } from "drizzle-orm";
 import { Schema } from "effect";
@@ -29,7 +30,7 @@ export async function nonNullCatalogScenario(persistence: Pick<FlarexPersistence
   }));
   const manifest = await persistence.drizzle.transaction(tx => runEffect(applySchemaManifestAppSchemaBindingsV1InTransactionEffect(tx, bindings)));
   const artifact = await runEffect(prepareSchemaVersionArtifactEffect({ deploymentId, schemaVersionId,
-    version: decodeCatalogSchemaVersion(1), manifest }));
+    version: decodeCatalogSchemaVersion(1), manifest: encodeSchemaManifestAppSchemaV1(manifest) }));
   await persistence.drizzle.transaction(tx => runEffect(ensureSchemaVersionArtifactInTransactionEffect(tx, artifact)));
   const table = manifest.tableDefinitions.tables[0], index = manifest.indexBindings.indexes[0];
   if (table === undefined || index === undefined) throw new Error("Missing genuine non-null catalog parents");

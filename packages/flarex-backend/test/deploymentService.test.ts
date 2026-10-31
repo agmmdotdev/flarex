@@ -1271,6 +1271,7 @@ describe("DeploymentService", () => {
     }
 
     const typedValidatorJsonStatus = analyzedPushStatus("push-typed-validator-json-validation-failed");
+    const validatorSqlCalls: string[] = [];
     const typedValidatorJsonRuntime = ManagedRuntime.make(
       DeploymentPushStore.layer(
         {
@@ -1294,7 +1295,7 @@ describe("DeploymentService", () => {
             schema: typedValidatorJsonStatus.analysis!.schema,
             functions: [],
           } as unknown as DeploymentCodegenAnalysis,
-        }]),
+        }], { onExec: query => { validatorSqlCalls.push(query); } }),
       ),
     );
 
@@ -1314,8 +1315,9 @@ describe("DeploymentService", () => {
         throw new Error("Expected DeploymentValidationError.");
       }
       expect(typedValidatorJsonError.message).toBe(
-        "Invalid validator metadata: $schema.tables.messages.validator.value: Validator is required.",
+        "Invalid validator metadata: $schema.tables.messages.validator[\"value\"]: Invalid validator JSON (missingProperty).",
       );
+      expect(validatorSqlCalls.filter(query => /^(?:INSERT|UPDATE|DELETE)\b/iu.test(query.trim()))).toEqual([]);
     } finally {
       await typedValidatorJsonRuntime.dispose();
     }

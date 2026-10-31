@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { encodeValidatorJsonV1 } from "flarex-protocol/validator-json";
 import { Effect, Schema } from "effect";
 import { and, eq } from "drizzle-orm";
 import { expect } from "vitest";
@@ -71,7 +72,7 @@ async function jointApplicationManifest(compiled: CompiledPayloadCollections) {
   if (audit === undefined) throw new Error("Missing authored audit table");
   const schemaDefinition = { ...compiled.schemaDefinition,
     tables: { ...compiled.schemaDefinition.tables, audit: {
-      kind: "table", validator: { isFlarexValidator: true, json: audit.definition.documentType },
+      kind: "table", validator: { isFlarexValidator: true, json: encodeValidatorJsonV1(audit.definition.documentType) },
       indexes: authored.indexes.map(index => ({ name: index.descriptor, fields: index.fields })),
     } },
     writePolicies: { ...compiled.schemaDefinition.writePolicies,

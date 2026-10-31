@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { query } from "flarex/server";
+import { isValidator, v, type GenericValidator, type Validator } from "flarex/values";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
 import type { HttpApiGroup } from "effect/unstable/httpapi";
 import {
@@ -13,6 +15,8 @@ import {
   decodeDeploymentHealthResponseEffect,
   decodeFinishPushResponseEffect,
   decodePushStatusEffect,
+  encodeDeploymentAnalysis,
+  encodeDeploymentCodegenAnalysis,
 } from "flarex-protocol/deployment";
 import {
   deploymentAbandonFailureToResponse,
@@ -67,8 +71,15 @@ import {
   DeploymentPushStore,
   DeploymentSqlError,
   type FinishPushStoreInput,
+  type StartAnalyzedPushStoreInput,
+  deploymentStartPushApplicationPlan,
+  deploymentSchemaApplicationPlan,
+  deploymentFunctionsApplicationPlan,
 } from "../src/deployment/Store";
+import { codegenAnalysisFromDeploymentAnalysis, decodePushStatusFromRow } from "../src/deployment/Validation";
+import { decodeValidatorJsonWireV1 } from "flarex-protocol/validator-json";
 import type {
+  DeploymentAnalysis,
   ActiveDeploymentStatus,
   ExecutionArtifactRef,
   FinishPushResponse,
@@ -93,6 +104,108 @@ async function decodePushStatusForTest(value: unknown) {
 }
 
 describe("DeploymentApiHandlers", () => {
+  const invalidTableRoots = [
+    ["int64", () => v.literal(1n), 'Schema table "items" document validator must be an object validator.'],
+    ["negative zero", () => v.literal(-0), 'Schema table "items" document validator must be an object validator.'],
+    ["scalar", () => v.string(), 'Schema table "items" document validator must be an object validator.'],
+    ["array", () => v.array(v.string()), 'Schema table "items" document validator must be an object validator.'],
+    ["union", () => v.union(v.object({}), v.object({ name: v.string() })), 'Schema table "items" document validator must be an object validator.'],
+    ["nonfinite root", () => v.literal(NaN), 'Schema table "items" document validator must be an object validator.'],
+    ["nonfinite array", () => v.array(v.literal(Infinity)), 'Schema table "items" document validator must be an object validator.'],
+    ["record before root and finite", () => sourceRecord(v.literal(1n), v.literal(Infinity)), "Records can only have string keys; the key validator must be a subtype of v.string()."],
+  ] as const;
+  for (const suppliedCodegen of [false, true]) {
+    it.each(invalidTableRoots)(`rejects fresh %s table roots before Store (supplied codegen=${suppliedCodegen})`, async (_name, root, message) => {
+      const analysis = sdkFreshTableRoot(root());
+      await expectFreshMetadataRejected({ sourcePackage: freshSourcePackage(), analysis: encodeDeploymentAnalysis(analysis),
+        ...(suppliedCodegen ? { codegenAnalysis: encodeDeploymentCodegenAnalysis(codegenAnalysisFromDeploymentAnalysis(analysis)) } : {}),
+      }, message);
+    });
+  }
+  for (const side of ["analysis", "codegen"] as const) {
+    it.each(invalidTableRoots.slice(0, 5))(`rejects a %s table root supplied only in ${side}`, async (_name, root) => {
+      const invalid = sdkFreshTableRoot(root());
+      const valid = sdkFreshTableRoot(v.object({}));
+      await expectFreshMetadataRejected({ sourcePackage: freshSourcePackage(),
+        analysis: encodeDeploymentAnalysis(side === "analysis" ? invalid : valid),
+        codegenAnalysis: encodeDeploymentCodegenAnalysis(codegenAnalysisFromDeploymentAnalysis(side === "codegen" ? invalid : valid)),
+      }, "Codegen analysis schema must match deployment analysis schema.");
+    });
+  }
+
+  const invalidSourceValidators = [
+    ["int64 record key", () => sourceRecord(v.literal(1n), v.number()), "Records can only have string keys; the key validator must be a subtype of v.string()."],
+    ["string literal record key", () => sourceRecord(v.literal("only"), v.number()), "Records cannot have string literal keys"],
+    ["nonfinite record key", () => sourceRecord(v.literal(NaN), v.number()), "Records can only have string keys; the key validator must be a subtype of v.string()."],
+    ["record before nonfinite value", () => sourceRecord(v.literal("only"), v.literal(Infinity)), "Records cannot have string literal keys"],
+    ["NaN literal", () => v.literal(NaN), "Infinite or NaN values are not supported in literal validators."],
+    ["Infinity literal", () => v.literal(Infinity), "Infinite or NaN values are not supported in literal validators."],
+  ] as const;
+
+  for (const location of ["table", "args", "returns"] as const) {
+    for (const suppliedCodegen of [false, true]) {
+      it.each(invalidSourceValidators)(`rejects fresh %s in ${location} before Store (supplied codegen=${suppliedCodegen})`, async (_name, leaf, message) => {
+        const analysis = sdkFreshAnalysis(leaf(), location);
+        await expectFreshMetadataRejected({ sourcePackage: freshSourcePackage(), analysis: encodeDeploymentAnalysis(analysis),
+          ...(suppliedCodegen ? { codegenAnalysis: encodeDeploymentCodegenAnalysis(codegenAnalysisFromDeploymentAnalysis(analysis)) } : {}),
+        }, message);
+      });
+    }
+  }
+
+  it.each(["analysis", "codegen"] as const)("rejects an invalid %s counterpart even when the other metadata is valid", async side => {
+    const valid = sdkFreshAnalysis(v.literal(1n), "args");
+    const invalid = sdkFreshAnalysis(v.literal(NaN), "args");
+    const analysis = side === "analysis" ? invalid : valid;
+    const codegen = codegenAnalysisFromDeploymentAnalysis(side === "codegen" ? invalid : valid);
+    await expectFreshMetadataRejected({ sourcePackage: freshSourcePackage(), analysis: encodeDeploymentAnalysis(analysis),
+      codegenAnalysis: encodeDeploymentCodegenAnalysis(codegen) }, "Codegen function lessons:list must match deployment function metadata.");
+  });
+
+  it.each([1n, -0])("round-trips literal %s through HTTP metadata, actual Store plans and stored-wire decoding", async value => {
+    const validator = { type: "object" as const, value: { value: { fieldType: { type: "literal" as const, value }, optional: false } } };
+    const analysis: DeploymentAnalysis = { schema: { version: 1, tables: [{ tableId: 1, name: "items", placement: { kind: "global" }, validator }], indexes: [] },
+      functions: { functions: [{ path: "lessons:list", kind: "query", visibility: "public", args: validator,
+        returns: { type: "literal", value }, route: null, partition: null }] } };
+    const source = { ...sourcePackage(), functions: ["lessons.ts"], modules: [...sourcePackage().modules,
+      { path: "lessons.ts", environment: "isolate" as const, sha256: "b".repeat(64) }] };
+    let reachedStore = false;
+    const { handler, dispose } = makeDeploymentApiWebHandler(deploymentTestLayer({
+      startAnalyzedPush: input => Effect.gen(function* () {
+        if (!("analysis" in input)) throw new Error("Expected analyzed metadata");
+        const returned = input.analysis.functions.functions[0]?.returns;
+        if (returned?.type !== "literal") throw new Error("Expected semantic literal");
+        expect(Object.is(returned.value, value)).toBe(true);
+        reachedStore = true;
+        const schemaPlan = yield* deploymentSchemaApplicationPlan(input.analysis.schema);
+        const functionPlan = yield* deploymentFunctionsApplicationPlan(input.analysis.functions);
+        const schemaLiteral = decodeValidatorJsonWireV1(JSON.parse(schemaPlan.tables[0]!.schemaJson));
+        if (schemaLiteral.type !== "object" || schemaLiteral.value.value?.fieldType.type !== "literal") throw new Error("Expected stored schema literal");
+        expect(Object.is(schemaLiteral.value.value.fieldType.value, value)).toBe(true);
+        const functionLiteral = decodeValidatorJsonWireV1(JSON.parse(functionPlan.functions[0]!.returnsJson));
+        if (functionLiteral.type !== "literal") throw new Error("Expected stored return literal");
+        expect(Object.is(functionLiteral.value, value)).toBe(true);
+        const { row } = yield* deploymentStartPushApplicationPlan(input);
+        return yield* decodePushStatusFromRow({ push_id: row.pushId, state: row.state,
+          source_package_json: row.sourcePackageJson, schema_json: row.schemaJson, functions_json: row.functionsJson,
+          codegen_analysis_json: row.codegenAnalysisJson, error: row.error, diagnostics_json: row.diagnosticsJson,
+          created_at: row.createdAt, updated_at: row.updatedAt });
+      }),
+    }));
+    try {
+      const response = await handler(new Request("https://deployment.test" + DeploymentRoute.startAnalyzedPush, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sourcePackage: source,
+          analysis: encodeDeploymentAnalysis(analysis), codegenAnalysis: encodeDeploymentCodegenAnalysis(codegenAnalysisFromDeploymentAnalysis(analysis)), diagnostics: [] }),
+      }));
+      expect(response.status).toBe(200);
+      const reopened = await decodePushStatusForTest(await response.json());
+      expect(reachedStore).toBe(true);
+      const returned = reopened.analysis?.functions.functions[0]?.returns;
+      if (returned?.type !== "literal") throw new Error("Expected reopened return literal");
+      expect(Object.is(returned.value, value)).toBe(true);
+    } finally { await dispose(); }
+  });
+
   it("registers handlers for the current DeploymentApi endpoints", async () => {
     // This is a runtime-bridge test: HttpApiBuilder.group publishes handlers through a Layer.
     const runtime = ManagedRuntime.make(
@@ -1730,6 +1843,7 @@ type DeploymentApiErrorInstance =
   | DeploymentStorageErrorResponse;
 
 interface DeploymentTestLayerOverrides {
+  readonly startAnalyzedPush?: (input: StartAnalyzedPushStoreInput) => Effect.Effect<PushStatus, DeploymentValidationError>;
   readonly getPush?: (pushId: string) => Effect.Effect<PushStatus>;
   readonly finishPush?: (
     input: FinishPushStoreInput,
@@ -1770,7 +1884,7 @@ function deploymentTestLayer(overrides: DeploymentTestLayerOverrides = {}) {
         DeploymentPushStore.of({
           getPush: overrides.getPush ?? (pushId => Effect.succeed(pushStatus(pushId))),
           getActiveDeployment: () => Effect.succeed(activeDeploymentStatus()),
-          startAnalyzedPush: input => Effect.succeed(pushStatus(input.pushId)),
+          startAnalyzedPush: overrides.startAnalyzedPush ?? (input => Effect.succeed(pushStatus(input.pushId))),
           finishPush: overrides.finishPush ?? (input => Effect.succeed({
             result: "activated",
             push: pushStatus(input.pushId, "activated"),
@@ -1918,4 +2032,51 @@ function executionArtifactRef(): ExecutionArtifactRef {
     sourcePackageHash: "source-package-hash",
     executionModule: "__execution.ts",
   };
+}
+
+
+function sourceRecord(key: GenericValidator, value: GenericValidator): Validator<unknown, "required", string> {
+  const validator: unknown = Reflect.apply(v.record, undefined, [key, value]);
+  if (!isRequiredTestValidator(validator)) throw new Error("Expected SDK record validator");
+  return validator;
+}
+
+function freshSourcePackage(): PushSourcePackage {
+  return { ...sourcePackage(), functions: ["lessons.ts"], modules: [...sourcePackage().modules,
+    { path: "lessons.ts", environment: "isolate", sha256: "b".repeat(64) }] };
+}
+
+function sdkFreshAnalysis(leaf: Validator<unknown, "required", string>, location: "table" | "args" | "returns"): DeploymentAnalysis {
+  const registered = query({ args: { value: location === "args" ? leaf : v.string() },
+    returns: location === "returns" ? leaf : v.null(), handler: async () => null });
+  return { schema: { version: 1, tables: location === "table" ? [{ tableId: 1, name: "items", placement: { kind: "global" },
+    validator: decodeValidatorJsonWireV1(v.object({ value: leaf }).json) }] : [], indexes: [] },
+    functions: { functions: [{ path: "lessons:list", kind: "query", visibility: "public",
+      args: decodeValidatorJsonWireV1(JSON.parse(registered.exportArgs())), returns: decodeValidatorJsonWireV1(JSON.parse(registered.exportReturns())),
+      route: null, partition: null }] } };
+}
+
+async function expectFreshMetadataRejected(payload: Parameters<typeof decodeStartAnalyzedPushHandlerInput>[0], message: string): Promise<void> {
+  let storeCalls = 0;
+  const { handler, dispose } = makeDeploymentApiWebHandler(deploymentTestLayer({
+    startAnalyzedPush: () => Effect.sync(() => { storeCalls += 1; throw new Error("Fresh invalid metadata reached Store"); }),
+  }));
+  try {
+    const response = await handler(new Request("https://deployment.test" + DeploymentRoute.startAnalyzedPush, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+    }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: message });
+    expect(storeCalls).toBe(0);
+  } finally { await dispose(); }
+}
+
+function isRequiredTestValidator(value: unknown): value is Validator<unknown, "required", string> {
+  return isValidator(value) && value.isOptional === "required";
+}
+
+function sdkFreshTableRoot(root: Validator<unknown, "required", string>): DeploymentAnalysis {
+  const base = sdkFreshAnalysis(v.number(), "args");
+  return { ...base, schema: { ...base.schema, tables: [{ tableId: 1, name: "items", placement: { kind: "global" },
+    validator: decodeValidatorJsonWireV1(root.json) }] } };
 }

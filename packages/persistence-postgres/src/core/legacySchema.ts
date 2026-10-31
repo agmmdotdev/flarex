@@ -2,7 +2,7 @@
 import { Result, Schema } from "effect";
 import { bytesEqual, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { decodeDocumentId } from "flarex-protocol/document-id";
-import { ValidatorJsonV1, validatorJsonAdmissionIssueV1 } from "flarex-protocol/validator-json";
+import { validatorJsonAdmissionIssueV1, type ValidatorJsonV1 } from "flarex-protocol/validator-json";
 import { CorePersistenceError } from "./contracts";
 import type { CoreRegistryDecoders } from "./registry";
 import type { CoreSystemDocument } from "./transaction";
@@ -15,6 +15,24 @@ const decodeTable = Schema.decodeUnknownResult(LegacyTable);
 const decodeIndex = Schema.decodeUnknownResult(LegacyIndex);
 const corrupt = (cause?: unknown) => new CorePersistenceError({ reason: "corruptData", ...(cause === undefined ? {} : { cause }) });
 
+// c554 persisted raw JSON with this exact literal subset. This historical reader
+// must not acquire newer wire tags or semantic literals through the live codec.
+const LegacyValidatorJson: Schema.Codec<ValidatorJsonV1> = Schema.suspend(() => Schema.Union([
+  Schema.Struct({ type: Schema.Literals(["null", "number", "bigint", "boolean", "string", "bytes", "any"]) }),
+  Schema.Struct({ type: Schema.Literal("id"), tableName: Schema.String.check(Schema.makeFilter(value =>
+    value.length > 0 ? undefined : "Expected a nonempty table identifier")) }),
+  Schema.Struct({ type: Schema.Literal("literal"), value: Schema.Union([
+    Schema.String, Schema.Boolean, Schema.Finite.check(Schema.makeFilter(value =>
+      Object.is(value, -0) ? "c554 numeric literals cannot be negative zero" : undefined)),
+  ]) }),
+  Schema.Struct({ type: Schema.Literal("array"), value: LegacyValidatorJson }),
+  Schema.Struct({ type: Schema.Literal("object"), value: Schema.Record(Schema.String,
+    Schema.Struct({ fieldType: LegacyValidatorJson, optional: Schema.Boolean })) }),
+  Schema.Struct({ type: Schema.Literal("record"), keys: LegacyValidatorJson, values: LegacyValidatorJson }),
+  Schema.Struct({ type: Schema.Literal("union"), value: Schema.Array(LegacyValidatorJson) }),
+]));
+const decodeLegacyValidator = Schema.decodeUnknownResult(LegacyValidatorJson);
+
 export const decodeLegacyTable = (document: CoreSystemDocument) => Result.gen(function* () {
   const metadata = yield* Result.mapError(decodeTable(document.value), corrupt);
   const id = yield* Result.mapError(decodeDocumentId(document.id), corrupt);
@@ -26,7 +44,7 @@ export const decodeLegacyTable = (document: CoreSystemDocument) => Result.gen(fu
   } });
   const issue = validatorJsonAdmissionIssueV1(parsed);
   if (issue !== undefined) return yield* Result.fail(corrupt(issue));
-  const validator = yield* Result.mapError(Schema.decodeUnknownResult(ValidatorJsonV1)(parsed), corrupt);
+  const validator = yield* Result.mapError(decodeLegacyValidator(parsed), corrupt);
   return { metadata, id: id.internalId.slice(), validator };
 });
 

@@ -1,3 +1,4 @@
+import { encodeSchemaManifestAppSchemaV1 } from "flarex-protocol/schema-manifest";
 import { Effect, Option, Result } from "effect";
 import { expect } from "vitest";
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
@@ -43,7 +44,7 @@ export const pendingPredicateIndexScenario = Effect.fn("PendingIndex.predicateSc
       throw new Error("Missing actual selected schema binding");
     const schemaVersionId = decodeCatalogSchemaVersionId("pending_predicate_owner");
     const artifact = yield* prepareSchemaVersionArtifactEffect({ deploymentId: native.deploymentId, schemaVersionId,
-      version: decodeCatalogSchemaVersion(99), manifest: input.manifest });
+      version: decodeCatalogSchemaVersion(99), manifest: encodeSchemaManifestAppSchemaV1(input.manifest) });
     const physicalSpec = decodeAppOrderedIndexPhysicalSpecV1({ ...selected.physicalSpec,
       predicate: { kind: "fieldIsNotNull", field: "padding" } });
     const ordered = yield* prepareOrderedIndexDefinitionBinding({ deploymentId: native.deploymentId, schemaVersionId,

@@ -1,3 +1,4 @@
+import { captureValidatorLiteralV1 } from "flarex-protocol/internal/validator-json-core";
 // Authored exact point-mutation runtime core. Built to an embedded JS artifact.
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
@@ -1004,18 +1005,7 @@ function decodeValidator(
         ["type", "value"],
         "exact-runtime literal validator",
       );
-      if (
-        !(
-          typeof value.value === "string" ||
-          typeof value.value === "boolean" ||
-          (typeof value.value === "number" &&
-            Number.isFinite(value.value) &&
-            !Object.is(value.value, -0))
-        )
-      ) {
-        throw new Error(`Invalid exact-runtime literal validator at ${path}.`);
-      }
-      return freeze({ type: "literal", value: value.value });
+      return freeze({ type: "literal", value: captureValidatorLiteralV1(value.value) });
     }
     case "array": {
       exactKeys(

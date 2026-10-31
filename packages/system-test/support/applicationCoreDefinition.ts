@@ -30,3 +30,10 @@ export async function createCoreApplicationDefinition(
     return Object.freeze({ source, manifest: analysis.manifest, coldAnalysisLoads: loader.loads });
   } finally { await loader.dispose(); }
 }
+
+/** Literal declarations execute through the same cold SDK/Analysis owner. */
+export async function createCoreLiteralApplicationDefinition(): Promise<ApplicationCoreDefinition> {
+  return createCoreApplicationDefinition(await createApplicationNativeMutationSourceBundle(
+    false, 0, 0, true, false, false, true, true, false, true,
+  ));
+}

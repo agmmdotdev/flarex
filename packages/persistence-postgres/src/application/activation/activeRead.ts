@@ -24,7 +24,7 @@ import { activationError, activationFailure, type ApplicationActivationError } f
 import { activeHeadFailure, type DecodedHead } from "./headCapture";
 import { UTF8_FATAL, validIdentity } from "./limits";
 import { clockMatches, copyRelationSelectionBasis, copySelectionBasis } from "./selectionIdentity";
-import { canonicalizeApplicationManifest } from "@flarex/analysis/application-analysis";
+import { canonicalizeApplicationManifestWire } from "@flarex/analysis/application-analysis";
 import {
   bytesEqualFullScan,
   copyBytes,
@@ -233,7 +233,7 @@ export const loadRevisionReadinessKindInTransaction = Effect.fn(
     ),
   });
   const canonical = yield* Effect.fromResult(
-    canonicalizeApplicationManifest(parsed).pipe(Result.mapError(cause =>
+    canonicalizeApplicationManifestWire(parsed).pipe(Result.mapError(cause =>
       activationError(
         "activate",
         "storedState",

@@ -1,10 +1,7 @@
-import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { transformWithOxc } from "vite";
 
-import { writeOrCheckGeneratedFile } from "./runtimeKernelBuilder";
+import { buildRuntimeKernelTwice, writeOrCheckGeneratedFile } from "./runtimeKernelBuilder";
 
 const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const CORE = path.join(
@@ -31,28 +28,20 @@ if (process.argv[1] !== undefined &&
 }
 
 async function buildTwice() {
-  const first = await buildOnce();
-  const second = await buildOnce();
-  if (first.source !== second.source || first.sha256 !== second.sha256) {
-    throw new Error("Point-mutation internal-call exact runtime core build is not deterministic.");
-  }
-  return first;
-}
-
-async function buildOnce() {
-  const input = (await readFile(CORE, "utf8")).replace(/\r\n?/g, "\n");
-  const output = await transformWithOxc(input, "PointMutationInternalCallExactRuntimeWorkerCore.ts", {
-    sourcemap: true,
+  const { source, sha256 } = await buildRuntimeKernelTwice({
+    entry: CORE,
+    label: "Point-mutation internal-call exact runtime core",
+    minify: false,
+    externalModules: [
+      "cloudflare:workers",
+      "flarex:function-api-core/v1",
+      "./_flarex/application-error-platform-v1.js",
+      "./pointMutationInternalCallExactRuntimeWorker/flarex-point-mutation-internal-call-exact-runtime-config-v1.js",
+      "./pointMutationInternalCallExactRuntimeWorker/flarex-point-mutation-internal-call-exact-runtime-execution-v1.js",
+      "./pointMutationInternalCallExactRuntimeWorker/flarex-point-mutation-internal-call-runtime-kernel-v1.js",
+    ],
   });
-  if (output.map === undefined || output.map === null) {
-    throw new Error("Point-mutation internal-call exact runtime core omitted its source map.");
-  }
-  const map = Buffer.from(JSON.stringify(output.map), "utf8").toString("base64");
-  const source = `${output.code}//# sourceMappingURL=data:application/json;base64,${map}\n`;
-  return Object.freeze({
-    source,
-    sha256: createHash("sha256").update(source, "utf8").digest("hex"),
-  });
+  return Object.freeze({ source, sha256 });
 }
 
 function render(receipt: Readonly<{ readonly source: string; readonly sha256: string }>) {

@@ -9,6 +9,8 @@ import { Data, Effect, Result, Schema } from "effect";
 
 import {
   canonicalizeApplicationRuntimeTargetV1,
+  decodeApplicationRuntimeTargetV1,
+  applicationRuntimeTargetWireV1,
   type ApplicationRuntimeTargetV1,
 } from "./application-runtime-target-v1";
 import { encodeCanonicalJson, type JsonObject } from "./json";
@@ -79,7 +81,7 @@ export const canonicalizeApplicationActionExecutionAuthorityV1 = Effect.fn(
   if (runtimeTargetSha256 !== captured.runtimeTargetSha256) {
     return yield* failureEffect("runtimeTargetDigestMismatch");
   }
-  const authorityJson = Object.freeze({
+  const authority = Object.freeze({
     format: APPLICATION_ACTION_EXECUTION_AUTHORITY_FORMAT_V1,
     version: APPLICATION_ACTION_EXECUTION_AUTHORITY_VERSION_V1,
     runtimeTarget: target.target,
@@ -87,7 +89,8 @@ export const canonicalizeApplicationActionExecutionAuthorityV1 = Effect.fn(
     activationSequence: captured.activationSequence,
     activeHeadSha256: captured.activeHeadSha256,
     schemaVersionId: captured.schemaVersionId,
-  }) satisfies JsonObject;
+  });
+  const authorityJson = Object.freeze({ ...authority, runtimeTarget: applicationRuntimeTargetWireV1(target.target) }) satisfies JsonObject;
   const canonicalBytes = UTF8.encode(encodeCanonicalJson(
     authorityJson,
     issue => {
@@ -105,7 +108,7 @@ export const canonicalizeApplicationActionExecutionAuthorityV1 = Effect.fn(
   const stableBytes = copyBytes(canonicalBytes);
   const stableSha256 = copyBytes(sha256);
   return Object.freeze({
-    authority: Object.freeze({ ...authorityJson }),
+    authority,
     authorityJson,
     get canonicalBytes(): Uint8Array {
       return copyBytes(stableBytes);
@@ -190,6 +193,22 @@ function captureAuthority(
   });
 }
 
+/** Strict serialized authority ingress; semantic authorities use the builder above. */
+export const canonicalizeApplicationActionExecutionAuthorityWireV1 = Effect.fn(
+  "ApplicationActionExecutionAuthority.canonicalizeWireV1",
+)(function* (input: unknown): Effect.fn.Return<
+  CanonicalApplicationActionExecutionAuthorityV1, ApplicationActionExecutionAuthorityV1Error
+> {
+  const captured = yield* Effect.fromResult(captureAuthority(input));
+  const runtimeTarget = yield* Effect.fromResult(decodeApplicationRuntimeTargetV1(captured.runtimeTarget)).pipe(
+    Effect.mapError(cause => failure("invalidRuntimeTarget", cause)),
+  );
+  return yield* canonicalizeApplicationActionExecutionAuthorityV1({
+    format: APPLICATION_ACTION_EXECUTION_AUTHORITY_FORMAT_V1,
+    version: APPLICATION_ACTION_EXECUTION_AUTHORITY_VERSION_V1,
+    ...captured, runtimeTarget,
+  });
+});
 function sha256Hex(
   bytes: Uint8Array,
 ): Effect.Effect<string, ApplicationActionExecutionAuthorityV1Error> {

@@ -2,7 +2,7 @@ import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Result, Schema } from "effect";
 import {
   decodeSchemaManifestAppIndexDeclarationsV1Result,
-  decodeSchemaManifestAppTableDeclarationsV1Result,
+  captureSchemaManifestAppTableDeclarationsV1Result,
   MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS,
   MAX_SCHEMA_MANIFEST_APP_INDEXES,
   MAX_SCHEMA_MANIFEST_APP_INDEXES_PER_TABLE,
@@ -517,10 +517,9 @@ function decodeValidatorCandidate(
           !(
             typeof record.value === "string" ||
             typeof record.value === "number" ||
-            typeof record.value === "boolean"
-          ) ||
-          (typeof record.value === "number" &&
-            (!Number.isFinite(record.value) || Object.is(record.value, -0)))
+            typeof record.value === "boolean" ||
+            typeof record.value === "bigint"
+          )
         ) {
           return yield* Result.fail(
             programError("decodeProgram", "invalidValidator", { path }),
@@ -799,7 +798,7 @@ function decodeTable(
         }),
       );
     }
-    const decoded = yield* decodeSchemaManifestAppTableDeclarationsV1Result([{
+    const decoded = yield* captureSchemaManifestAppTableDeclarationsV1Result([{
       logicalName: record.logicalName,
       definition: {
         kind: "appDocument",
@@ -1248,7 +1247,7 @@ export function decodeCanonicalDeclarativeProgramV1(
       tableNames.add(table.logicalName);
       tables.push(table);
     }
-    yield* decodeSchemaManifestAppTableDeclarationsV1Result(tables).pipe(
+    yield* captureSchemaManifestAppTableDeclarationsV1Result(tables).pipe(
       Result.mapError((cause) =>
         programError("decodeProgram", "invalidSchema", {
           path: "schema.tables",

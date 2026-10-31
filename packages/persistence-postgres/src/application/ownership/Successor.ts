@@ -3,9 +3,10 @@ import { readOwnershipUniqueClosure, decodeCapturedOwnershipUniqueClosure } from
 import { rowsFromDriverExecuteResult } from "../../database/driverExecuteResult";
 import { sql, type SQL } from "drizzle-orm";
 import { Effect, Schema } from "effect";
-import { verifyApplicationManifestV3, type ApplicationManifestV3 } from "@flarex/analysis/application-analysis";
+import { verifyApplicationManifestWireV3, type ApplicationManifestV3 } from "@flarex/analysis/application-analysis";
 import { verifyApplicationWritePolicies } from "@flarex/analysis/internal/application-write-policy";
 import { bytesEqualFullScan, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { encodeValidatorJsonV1 } from "flarex-protocol/validator-json";
 import { encodeCanonicalJson, type Json, type JsonObject } from "flarex-protocol/json";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import { CatalogSchemaVersionIdSchema, type CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
@@ -54,10 +55,11 @@ export function isOptionalPostRelationSuccessor(prior: ApplicationManifestV3, ne
   return prior.schema.tables.every((table, index) => {
     const candidate = next.schema.tables[index];
     if (candidate === undefined) return false;
-    if (table.name !== "posts") return same(table, candidate);
+    const previousWire = { ...table, validator: encodeValidatorJsonV1(table.validator) };
+    if (table.name !== "posts") return same(previousWire, { ...candidate, validator: encodeValidatorJsonV1(candidate.validator) });
     if (candidate.validator.type !== "object") return false;
     const { relatedPost: _relation, ...fields } = candidate.validator.value;
-    return same(table, { ...candidate, validator: { ...candidate.validator, value: fields } });
+    return same(previousWire, { ...candidate, validator: encodeValidatorJsonV1({ ...candidate.validator, value: fields }) });
   });
 }
 
@@ -146,7 +148,7 @@ export const decodeCapturedApplicationOwnershipPolicyManifest = Effect.fn("Appli
   const bytes = row.bytes;
   const value = yield* Effect.try({ try: (): unknown => JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)), catch: cause =>
     new ApplicationWriteOwnershipError({ reason: "invalidEvidence", cause }) });
-  const canonical = yield* verifyApplicationManifestV3(value).pipe(Effect.mapError(cause => new ApplicationWriteOwnershipError({ reason: "invalidEvidence", cause })));
+  const canonical = yield* verifyApplicationManifestWireV3(value).pipe(Effect.mapError(cause => new ApplicationWriteOwnershipError({ reason: "invalidEvidence", cause })));
   if (!bytesEqualFullScan(canonical.canonicalBytes, row.bytes) || !bytesEqualFullScan(yield* digestApplicationWriteOwnership(canonical.canonicalBytes), row.hash)) return yield* Effect.fail(refused());
   return { manifest: canonical.manifest, deploymentId: row.deploymentId, schemaVersionId: row.schemaVersionId, manifestSha256: encodeBytesToLowercaseHex(row.hash), publicationSha256: encodeBytesToLowercaseHex(row.publicationHash) };
 });

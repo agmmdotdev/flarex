@@ -1,5 +1,7 @@
+import { functionArgsToValidatorJson } from "./validation";
+import { encodeValidatorJsonWireCoreV1 } from "flarex-protocol/internal/validator-json-core";
+import { validatorJsonForComposition } from "./validatorOwnership";
 import { isValidator, v } from "./values";
-import { validatorToJson } from "./validation";
 import type { Auth } from "./auth";
 import type {
   GenericValidator,
@@ -28,6 +30,9 @@ import type {
   FunctionType,
   FunctionVisibility,
 } from "./api";
+
+const JSON_STRINGIFY = JSON.stringify;
+const OBJECT_VALUES = Object.values;
 
 export type FunctionValidators = PropertyValidators;
 export type FunctionArgsValidator =
@@ -236,14 +241,6 @@ function strictReplacer(key: string, value: unknown): unknown {
         "This is often caused by circular imports.",
     );
   }
-  if (
-    typeof value === "number" &&
-    (!Number.isFinite(value) || Object.is(value, -0))
-  ) {
-    throw new Error(
-      `Validator numeric literal for field "${key}" must be finite and must not be negative zero.`,
-    );
-  }
   return value;
 }
 
@@ -252,8 +249,8 @@ function exportArgs(functionDefinition: FunctionDefinition<unknown>): () => stri
     const args =
       typeof functionDefinition === "object" && functionDefinition.args !== undefined
         ? validatorJson(functionDefinition.args)
-        : v.any().json;
-    return JSON.stringify(args, strictReplacer);
+        : encodeValidatorJsonWireCoreV1(validatorJsonForComposition(v.any()));
+    return JSON_STRINGIFY(args, strictReplacer);
   };
 }
 
@@ -263,7 +260,7 @@ function exportReturns(functionDefinition: FunctionDefinition<unknown>): () => s
       typeof functionDefinition === "object" && functionDefinition.returns !== undefined
         ? validatorJson(functionDefinition.returns)
         : null;
-    return JSON.stringify(returns, strictReplacer);
+    return JSON_STRINGIFY(returns, strictReplacer);
   };
 }
 
@@ -276,19 +273,20 @@ function exportPartition(functionDefinition: FunctionDefinition<unknown>): () =>
         functionDefinition.partition.type === "partitionRoot")
         ? functionDefinition.partition
         : null;
-    return JSON.stringify(partition, strictReplacer);
+    return JSON_STRINGIFY(partition, strictReplacer);
   };
 }
 
 function validatorJson(validator: FunctionArgsValidator | DefinedReturnValidator): unknown {
   if (!isValidator(validator)) {
-    for (const field of Object.values(validator)) {
-      if (field === undefined) {
+    const fields = OBJECT_VALUES(validator);
+    for (let index = 0; index < fields.length; index += 1) {
+      if (fields[index] === undefined) {
         throw new Error('A validator is undefined for field "fieldType".');
       }
     }
   }
-  return validatorToJson(validator);
+  return encodeValidatorJsonWireCoreV1(isValidator(validator) ? validatorJsonForComposition(validator) : functionArgsToValidatorJson(validator));
 }
 
 function register<

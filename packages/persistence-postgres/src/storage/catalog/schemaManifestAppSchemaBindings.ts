@@ -6,8 +6,8 @@ import type {
 } from "flarex-protocol/catalog";
 import {
   decodeSchemaManifestAppIndexDeclarationsV1Result,
-  decodeSchemaManifestAppSchemaV1Result,
-  decodeSchemaManifestAppTableDeclarationsV1Result,
+  captureSchemaManifestAppSchemaV1Result,
+  captureSchemaManifestAppTableDeclarationsV1Result,
   type SchemaManifestAppIndexDeclarationInputV1,
   type SchemaManifestAppIndexDeclarationV1,
   type SchemaManifestAppIndexDescriptor,
@@ -416,7 +416,7 @@ function decodeTablesResult(
   ReadonlyArray<SchemaManifestAppTableDeclarationV1>,
   InvalidSchemaManifestAppSchemaBindingInputError
 > {
-  return decodeSchemaManifestAppTableDeclarationsV1Result(value).pipe(
+  return captureSchemaManifestAppTableDeclarationsV1Result(value).pipe(
     Result.mapError((cause) => new InvalidSchemaManifestAppSchemaBindingInputError(
       { reason: "invalidTables" },
       { cause },
@@ -666,7 +666,7 @@ function assembleManifestResult(
   SchemaManifestAppSchemaV1,
   StableLogicalIndexCatalogCorruptionError
 > {
-  return decodeSchemaManifestAppSchemaV1Result({
+  return captureSchemaManifestAppSchemaV1Result({
       kind: "appSchema",
       manifestVersion: 1,
       tableDefinitions: tableState.section,

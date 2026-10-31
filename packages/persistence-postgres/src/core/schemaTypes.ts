@@ -7,10 +7,9 @@ import { Data, Effect, Result, Schema, SchemaTransformation } from "effect";
 import { DeveloperDocumentIdSchema } from "flarex-protocol/document-id";
 import { captureDocumentValue } from "flarex-protocol/document-value";
 import { SchemaManifestAppIdentifierSchema } from "flarex-protocol/schema-manifest";
-import { ValidatorJsonV1, validatorJsonAdmissionIssueV1 } from "flarex-protocol/validator-json";
+import { ValidatorJsonV1, validatorIsValidRecordKeyV1, validatorJsonAdmissionIssueV1 } from "flarex-protocol/validator-json";
 import { CoreIndexDeclarationSchema, type CoreIndexDeclaration } from "./indexState";
 import { CorePersistenceError } from "./contracts";
-import { coreValidatorIsValidRecordKey } from "./validatorSubset";
 
 export const SCHEMAS = "_schemas";
 export const SCHEMA_VALIDATIONS = "_schema_validations";
@@ -20,7 +19,7 @@ export const VALIDATIONS_BY_SCHEMA_AND_TABLE = "by_schema_id_and_table_name";
 export const PROGRESS_BY_VALIDATION = "by_validation_id";
 
 export const CoreSchemaErrorReasonSchema = Schema.Literals([
-  "invalidSchema", "unsupportedCapability", "hashFailure", "schemaNotFound",
+  "invalidSchema", "unsupportedCapability", "unsupportedFloatLiteral", "hashFailure", "schemaNotFound",
   "schemaFailed", "schemaOverwritten", "notValidated", "stagedEnforcedConflict",
 ]);
 export class CoreSchemaError extends Data.TaggedError("CoreSchemaError")<{
@@ -193,7 +192,7 @@ function captureValidator(validator: ValidatorJsonV1): Result.Result<ValidatorJs
         return Object.freeze({ type: "object", value: Object.freeze(Object.fromEntries(fields)) });
       }
       case "record": {
-        if (!coreValidatorIsValidRecordKey(validator.keys))
+        if (!validatorIsValidRecordKeyV1(validator.keys))
           return yield* Result.fail(invalidCoreSchema("Records require string keys without string literals"));
         return Object.freeze({ type: "record", keys: yield* captureValidator(validator.keys),
           values: yield* captureValidator(validator.values) });

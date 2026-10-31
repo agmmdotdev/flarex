@@ -26,7 +26,10 @@ import {
   APPLICATION_MANIFEST_FORMAT_V1,
   ApplicationAnalysisContractError,
   ApplicationManifestV1Schema,
+  applicationManifestWireV1,
+  captureApplicationManifestV1,
   canonicalizeApplicationManifestV1,
+  canonicalizeApplicationManifestWireV1,
   decodeApplicationManifestV1,
   makeApplicationManifestV1,
   type ApplicationManifestSourceArtifactV1Input,
@@ -40,6 +43,7 @@ import type {
 } from "./index.ts";
 import {
   canonicalizeApplicationManifestV3,
+  canonicalizeApplicationManifestWireV3,
   ApplicationManifestV3Schema,
   makeApplicationManifestV3,
   verifyApplicationManifestV3,
@@ -94,9 +98,18 @@ export const verifyApplicationManifestWithRelations = Effect.fn("ApplicationAnal
   },
 );
 
+export const verifyApplicationManifestWithRelationsWire = Effect.fn("ApplicationAnalysis.verifyCurrentManifestWire")(
+  function* (value: unknown): Effect.fn.Return<CanonicalApplicationManifestWithRelations, ApplicationAnalysisContractError> {
+    const canonical = yield* Effect.fromResult(canonicalizeApplicationManifestWire(value));
+    return yield* verifyApplicationManifestWithRelations(canonical.manifest);
+  },
+);
+
 const OwnedApplicationManifestV2Schema = Schema.declare<ApplicationManifestV2>(
   (value): value is ApplicationManifestV2 =>
-    isNonArrayRecord(value) && isDeeplyFrozenJson(value),
+    isNonArrayRecord(value) &&
+    Result.isSuccess(decodeApplicationManifestV2Worker(value, "decodeManifest", "semantic")) &&
+    isDeeplyFrozenData(value),
   { identifier: "OwnedApplicationManifestV2" },
 );
 
@@ -112,7 +125,7 @@ export const ApplicationManifestV2Schema = Schema.Unknown.pipe(
         onSuccess: Effect.succeed,
       }),
     ),
-    encode: SchemaGetter.transform(snapshotApplicationManifestV2),
+    encode: SchemaGetter.transform(applicationManifestWireV1),
   }),
 );
 
@@ -141,6 +154,12 @@ export function canonicalizeApplicationManifestV2(
   );
 }
 
+export function canonicalizeApplicationManifestWireV2(
+  value: unknown,
+): Result.Result<CanonicalApplicationManifestV2, ApplicationAnalysisContractError> {
+  return decodeApplicationManifestV2(value).pipe(Result.flatMap(canonicalizeApplicationManifestV2));
+}
+
 export function canonicalizeApplicationManifest(
   value: unknown,
 ): Result.Result<
@@ -153,6 +172,20 @@ export function canonicalizeApplicationManifest(
       case 1: return yield* canonicalizeApplicationManifestV1(value);
       case 2: return yield* canonicalizeApplicationManifestV2(value);
       case 3: return yield* canonicalizeApplicationManifestV3(value);
+    }
+  });
+}
+
+/** Canonicalizes serialized/authenticated input, never semantic builder input. */
+export function canonicalizeApplicationManifestWire(
+  value: unknown,
+): Result.Result<CanonicalApplicationManifest, ApplicationAnalysisContractError> {
+  return Result.gen(function* () {
+    const version = yield* manifestVersion(value);
+    switch (version) {
+      case 1: return yield* canonicalizeApplicationManifestWireV1(value);
+      case 2: return yield* canonicalizeApplicationManifestWireV2(value);
+      case 3: return yield* canonicalizeApplicationManifestWireV3(value);
     }
   });
 }
@@ -206,6 +239,7 @@ export const makeApplicationManifest = Effect.fn(
 function decodeApplicationManifestV2Worker(
   value: unknown,
   operation: "decodeManifest" | "lowerManifest",
+  representation: "wire" | "semantic" = "wire",
 ): Result.Result<ApplicationManifestV2, ApplicationAnalysisContractError> {
   return Result.gen(function* () {
     const manifestProperties = yield* strictOwnDataProperties(
@@ -239,7 +273,7 @@ function decodeApplicationManifestV2Worker(
     }
 
     const { base: canonicalV1, relations: expectedRelations } = yield*
-      decodeApplicationManifestRelationParts(manifestProperties, schemaProperties, operation, false);
+      decodeApplicationManifestRelationParts(manifestProperties, schemaProperties, operation, false, representation);
     return snapshotApplicationManifestV2({
       format: canonicalV1.format,
       version: APPLICATION_MANIFEST_VERSION_V2,
@@ -261,12 +295,14 @@ export function decodeApplicationManifestRelationParts(
   schemaProperties: ReadonlyMap<string, unknown>,
   operation: "decodeManifest" | "lowerManifest",
   allowEmptyRelations: boolean,
+  representation: "wire" | "semantic" = "wire",
 ): Result.Result<Readonly<{
   readonly base: ApplicationManifestV1;
   readonly relations: ReadonlyArray<AnalyzedApplicationRelation>;
 }>, ApplicationAnalysisContractError> {
   return Result.gen(function* () {
-    const canonicalV1 = yield* decodeApplicationManifestV1({
+    const admitBase = representation === "wire" ? decodeApplicationManifestV1 : captureApplicationManifestV1;
+    const canonicalV1 = yield* admitBase({
       format: manifestProperties.get("format"),
       version: 1,
       sourceArtifact: manifestProperties.get("sourceArtifact"),
@@ -420,15 +456,17 @@ function canonicalizeApplicationManifestV2ForOperation(
     const manifest = yield* decodeApplicationManifestV2Worker(
       value,
       decodeOperation,
+      "semantic",
     );
-    if (!isJson(manifest)) {
+    const wire = applicationManifestWireV1(manifest);
+    if (!isJson(wire)) {
       return yield* Result.fail(contractFailure(
         encodeOperation,
         "invalidInput",
       ));
     }
     const measurement = measureCanonicalJsonUtf8Bytes(
-      manifest,
+      wire,
       APPLICATION_ANALYSIS_MAXIMUM_MANIFEST_BYTES_V1,
     );
     if (measurement.kind !== "success") {
@@ -443,7 +481,7 @@ function canonicalizeApplicationManifestV2ForOperation(
           : {},
       ));
     }
-    const canonicalText = encodeCanonicalJson(manifest, issue => {
+    const canonicalText = encodeCanonicalJson(wire, issue => {
       throw new Error(
         `Validated Application Manifest V2 lost JSON: ${issue.reason}.`,
       );
@@ -671,8 +709,7 @@ function freezeOwnedApplicationManifestV2(value: unknown): void {
   Object.freeze(value);
 }
 
-function isDeeplyFrozenJson(value: unknown): boolean {
-  if (!isJson(value)) return false;
+function isDeeplyFrozenData(value: unknown): boolean {
   const pending: unknown[] = [value];
   while (pending.length > 0) {
     const current = pending.pop();

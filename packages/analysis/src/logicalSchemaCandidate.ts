@@ -1,8 +1,10 @@
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { Data, Effect, Schema } from "effect";
+import { Data, Effect } from "effect";
 import {
-  decodeLogicalSchemaCandidate,
-  LogicalSchemaSourceSchema,
+  captureLogicalSchemaCandidate,
+  captureLogicalSchemaSourceResult,
+  encodeLogicalSchemaCandidate,
+  encodeLogicalSchemaSourceDefinition,
   MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES,
   type LogicalSchemaCandidate,
   type LogicalSchemaSource,
@@ -30,7 +32,7 @@ export const captureLogicalSchemaSource = Effect.fn("LogicalSchema.captureSource
   source: Omit<LogicalSchemaSource, "sourceSha256">,
 ) {
   const sourceSha256 = yield* digestSource(source);
-  return yield* Schema.decodeUnknownEffect(LogicalSchemaSourceSchema)({ ...source, sourceSha256 }).pipe(
+  return yield* Effect.fromResult(captureLogicalSchemaSourceResult({ ...source, sourceSha256 })).pipe(
     Effect.mapError(cause => new LogicalSchemaCandidateError({ reason: "invalidInput", cause })),
   );
 });
@@ -45,7 +47,7 @@ const preparedCandidates = new WeakMap<PreparedLogicalSchemaCandidate, LogicalSc
 export const prepareLogicalSchemaCandidate = Effect.fn("LogicalSchema.prepareCandidate")(function* (
   input: LogicalSchemaCandidate,
 ): Effect.fn.Return<PreparedLogicalSchemaCandidate, LogicalSchemaCandidateError> {
-  const candidate = yield* Effect.fromResult(decodeLogicalSchemaCandidate(input)).pipe(
+  const candidate = yield* Effect.fromResult(captureLogicalSchemaCandidate(input)).pipe(
     Effect.mapError(cause => new LogicalSchemaCandidateError({ reason: "invalidInput", cause })),
   );
   yield* verifyLogicalSchemaCandidateDigests(candidate);
@@ -58,7 +60,7 @@ export const prepareLogicalSchemaCandidate = Effect.fn("LogicalSchema.prepareCan
 export const verifyLogicalSchemaCandidateDigests = Effect.fn("LogicalSchema.verifyDigests")(function* (
   candidate: LogicalSchemaCandidate,
 ) {
-  if (measureCanonicalJsonUtf8Bytes(candidate, maximumBytes).kind !== "success") {
+  if (measureCanonicalJsonUtf8Bytes(encodeLogicalSchemaCandidate(candidate), maximumBytes).kind !== "success") {
     return yield* Effect.fail(new LogicalSchemaCandidateError({ reason: "limitExceeded" }));
   }
   for (const { sourceSha256, ...source } of candidate.sources) {
@@ -77,10 +79,11 @@ export const readPreparedLogicalSchemaCandidate = Effect.fn("LogicalSchema.readP
 });
 
 const digestSource = Effect.fn("LogicalSchema.digestSource")(function* (value: Omit<LogicalSchemaSource, "sourceSha256">) {
-  if (!isJson(value)) return yield* Effect.fail(new LogicalSchemaCandidateError({ reason: "invalidInput" }));
-  if (measureCanonicalJsonUtf8Bytes(value, maximumBytes).kind !== "success") {
+  const wire = { ...value, definition: encodeLogicalSchemaSourceDefinition(value.definition) };
+  if (!isJson(wire)) return yield* Effect.fail(new LogicalSchemaCandidateError({ reason: "invalidInput" }));
+  if (measureCanonicalJsonUtf8Bytes(wire, maximumBytes).kind !== "success") {
     return yield* Effect.fail(new LogicalSchemaCandidateError({ reason: "limitExceeded" }));
   }
-  const text = encodeCanonicalJson(value, issue => { throw new Error(`Logical source JSON invariant: ${issue.reason}`); });
+  const text = encodeCanonicalJson(wire, issue => { throw new Error(`Logical source JSON invariant: ${issue.reason}`); });
   return yield* digest(utf8.encode(text), { maximumInputBytes: maximumBytes }).pipe(Effect.map(encodeBytesToLowercaseHex));
 });

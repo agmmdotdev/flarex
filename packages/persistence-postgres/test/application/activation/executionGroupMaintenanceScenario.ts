@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { applicationFunctionWireV1 } from "@flarex/analysis/application-analysis";
 import { Effect, Result } from "effect";
 import { expect } from "vitest";
 import type { ApplicationNativeMutationFixture, ApplicationNativeMutationPersistence } from "../applicationNativeMutationTestFixture";
@@ -57,7 +58,7 @@ export const executionGroupMaintenanceScenario = Effect.fn("ExecutionGroup.maint
     // existing canonical projection/publication owners apply them; no metadata
     // row, clock, watermark or reservation is fabricated by the witness.
     const predecessor = yield* prepareFiniteMetadataProjection({ indexes: [], unique: [], application: {
-      functions: active.basis.manifest.functions.map(fn => ({ path: fn.path, semantic: { ...fn } })),
+      functions: active.basis.manifest.functions.map(fn => ({ path: fn.path, semantic: applicationFunctionWireV1(fn) })),
       groups: [{ group: "legacy_dynamic_worker_v1", semantic: { sourceArtifact: active.basis.manifest.sourceArtifact,
         runtimeHostIdentity: active.basis.runtimeHostIdentity, compatibilityDate: active.basis.compatibilityDate } }],
     } });

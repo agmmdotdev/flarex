@@ -26,6 +26,27 @@ const LARGE_BUDGET = budget({
 });
 
 describe("Function Metadata V1 codec", () => {
+  it("round-trips signed int64 literals without conflating their float counterparts", () => {
+    const values = [-9_223_372_036_854_775_808n, 9_223_372_036_854_775_807n, 1n, 1, -0, 0];
+    const encoded = success(encodeFunctionMetadataSetV1({ functions: [{
+      path: "literal:run", kind: "query", args: { type: "union", value: values.map(value => ({ type: "literal", value })) },
+    }] }, LARGE_BUDGET));
+    const decoded = success(decodeCanonicalFunctionMetadataSetV1(encoded.canonicalBytes, LARGE_BUDGET));
+    const validator = decoded.functions[0]?.metadata.argsValidator;
+    if (validator?.type !== "union") throw new Error("Expected union validator");
+    for (const [index, member] of validator.value.entries()) {
+      expect(member.type).toBe("literal");
+      if (member.type === "literal") expect(Object.is(member.value, values[index])).toBe(true);
+    }
+    expect(encoded.canonicalText.match(/"\$integer"/gu)).toHaveLength(3);
+    expect(decoded.canonicalBytes).toEqual(encoded.canonicalBytes);
+    for (const value of [-9_223_372_036_854_775_809n, 9_223_372_036_854_775_808n]) {
+      expect(Result.isFailure(encodeFunctionMetadataSetV1({ functions: [{ path: "bad:run", kind: "query",
+        args: { type: "literal", value },
+      }] }, LARGE_BUDGET))).toBe(true);
+    }
+  });
+
   it("requires explicit positive safe-integer operation budgets", () => {
     const accepted = decodeFunctionMetadataOperationBudgetV1({
       maximumFunctionsVisited: 1,

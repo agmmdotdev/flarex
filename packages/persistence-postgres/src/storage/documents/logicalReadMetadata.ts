@@ -81,6 +81,7 @@ const Table = Schema.Union([
 export type LogicalReadTableMetadata = typeof Table.Type;
 const decodeRoot = Schema.decodeUnknownEffect(Root);
 const decodeTable = Schema.decodeUnknownEffect(Table);
+const encodeTable = Schema.encodeSync(Table);
 const sha = (frame: JsonObject) => capturePrivateCanonicalValue(frame, 4_194_304, errors);
 const acquireMetadata = <Value, Failure>(db: FlarexMetadataDatabase,
   work: (tx: FlarexMetadataTransaction) => Effect.Effect<Value, Failure>, installation: PreparedInstallation) => runEffectTransaction(
@@ -187,10 +188,11 @@ export const publishLogicalReadMetadata = Effect.fn("LogicalReadMetadata.publish
         frame = { format: "flarex.logical-read-table", version: 1, sourceSha256: source.sourceSha256,
           localName: binding.localName, tableId, selectorTextFields, ...booleanSelectors, kind: "documents", definition };
       }
-      const canonical = yield* sha(frame);
+      const wireFrame = encodeTable(frame);
+      const canonical = yield* sha(wireFrame);
       yield* runDrizzleStatementEffect(tx.insert(fxControlLogicalReadTables).values({ deploymentId, schemaVersionId,
         sourceKey: source.key, sourceSha256: source.sourceSha256, localName: binding.localName, tableId,
-        projectionJson: frame, projectionSha256: canonical.sha256Hex }).onConflictDoNothing(), cause => failure("resourceFailure", cause));
+        projectionJson: wireFrame, projectionSha256: canonical.sha256Hex }).onConflictDoNothing(), cause => failure("resourceFailure", cause));
       const [existing] = yield* runDrizzleStatementEffect(tx.select({ digest: fxControlLogicalReadTables.projectionSha256 })
         .from(fxControlLogicalReadTables).where(and(eq(fxControlLogicalReadTables.deploymentId, deploymentId),
           eq(fxControlLogicalReadTables.schemaVersionId, schemaVersionId), eq(fxControlLogicalReadTables.sourceKey, source.key),
@@ -375,7 +377,7 @@ export const prepareLogicalReadMetadata = Effect.fn("LogicalReadMetadata.prepare
       eq(fxControlLogicalReadTables.sourceKey, root.sourceKey), eq(fxControlLogicalReadTables.localName, localName))).limit(1), cause => failure("resourceFailure", cause)));
     if (row === undefined) return yield* Effect.fail(failure("definitionMissing"));
     const decoded = yield* decodeTable(row.projectionJson).pipe(Effect.mapError(cause => failure("storedCorruption", cause)));
-    const canonicalTable = yield* sha(decoded);
+    const canonicalTable = yield* sha(encodeTable(decoded));
     if (canonicalTable.sha256Hex !== row.projectionSha256 || decoded.sourceSha256 !== root.sourceSha256 || decoded.localName !== localName ||
       decoded.tableId !== row.tableId || decoded.kind !== root.kind)
       return yield* Effect.fail(failure("storedCorruption"));

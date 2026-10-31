@@ -13,13 +13,15 @@ import type {
 import {
   decodeDeploymentAnalysisEffect,
   decodeDeploymentCodegenAnalysisEffect,
+  captureDeploymentAnalysisEffect,
+  captureDeploymentCodegenAnalysisEffect,
 } from "flarex-protocol/deployment";
 import { selectorNameForPartitionField } from "flarex-protocol/partition-selector";
 import {
   decodeSchemaManifestAppIndexDeclarationsV1Result,
-  decodeSchemaManifestAppTableDeclarationsV1Result,
+  captureSchemaManifestAppTableDeclarationsV1Result,
 } from "flarex-protocol/schema-manifest";
-import { ValidatorJson as ProtocolValidatorJsonSchema } from "flarex-protocol/validator-json";
+import { encodeValidatorJsonV1, validatorSourceRecordIssueV1, ValidatorJson as ProtocolValidatorJsonSchema } from "flarex-protocol/validator-json";
 import { verifyApplicationWritePolicies } from "./applicationWritePolicy/verification.ts";
 import { validateApplicationWritePolicySchema } from "./applicationWritePolicy/schemaCompatibility.ts";
 import type { ApplicationWritePolicies } from "./applicationWritePolicy/model.ts";
@@ -119,6 +121,25 @@ export type DeploymentAnalysis = {
   readonly schema: AnalyzedSchema;
 };
 
+/** Source analysis JSON keeps source partition policies and projects only validator leaves. */
+export function encodeCodegenDeploymentAnalysis(analysis: DeploymentAnalysis) {
+  return {
+    ...analysis,
+    schema: {
+      ...analysis.schema,
+      tables: analysis.schema.tables.map(table => ({ ...table, validator: encodeValidatorJsonV1(table.validator) })),
+    },
+    functions: analysis.functions.map(module => ({
+      ...module,
+      functions: module.functions.map(fn => ({
+        ...fn,
+        args: encodeValidatorJsonV1(fn.args),
+        returns: fn.returns === null ? null : encodeValidatorJsonV1(fn.returns),
+      })),
+    })),
+  };
+}
+
 export type ApplicationAnalysis = DeploymentAnalysis & {
   readonly relations: ReadonlyArray<AnalyzedApplicationRelation>;
   readonly writePolicies?: ApplicationWritePolicies;
@@ -147,6 +168,7 @@ export class AnalyzerFunctionMetadataError extends Data.TaggedError("AnalyzerFun
 
 export class AnalyzerValidatorError extends Data.TaggedError("AnalyzerValidatorError")<{
   readonly message: string;
+  readonly code?: "InvalidRecordType";
   readonly cause?: unknown;
 }> {}
 
@@ -397,6 +419,36 @@ export const decodeAnalyzerProtocolSuccessResponseEffect = Effect.fn(
   };
 });
 
+export const captureAnalyzerProtocolSuccessResponseEffect = Effect.fn(
+  "FlarexAnalysis.captureAnalyzerProtocolSuccessResponse",
+)(function* (
+  value: AnalyzerSuccessEnvelope,
+): Effect.fn.Return<AnalyzerProtocolSuccessResponse, AnalyzerResponseError> {
+  const analysis = yield* captureDeploymentAnalysisEffect(value.analysis).pipe(
+    Effect.mapError(error =>
+      new AnalyzerResponseError({
+        code: "protocol_validation",
+        message: error.message,
+        cause: error,
+      })
+    ),
+  );
+  const codegenAnalysis = yield* captureDeploymentCodegenAnalysisEffect(value.codegenAnalysis).pipe(
+    Effect.mapError(error =>
+      new AnalyzerResponseError({
+        code: "protocol_validation",
+        message: error.message,
+        cause: error,
+      })
+    ),
+  );
+  return {
+    analysis,
+    codegenAnalysis,
+    ...(value.diagnostics === undefined ? {} : { diagnostics: value.diagnostics }),
+  };
+});
+
 export const analyzeSchemaDefinitionEffect = Effect.fn(
   "FlarexAnalysis.analyzeSchemaDefinition",
 )(function* (
@@ -445,7 +497,7 @@ export const analyzeSchemaDefinitionEffect = Effect.fn(
     });
   }
   const decodedTableDeclarations = yield* Effect.fromResult(
-    decodeSchemaManifestAppTableDeclarationsV1Result(
+    captureSchemaManifestAppTableDeclarationsV1Result(
       inspectedTables.map(table => ({
         logicalName: table.name,
         definition: {
@@ -697,6 +749,46 @@ export const backendCodegenAnalysisFromCodegenAnalysisEffect: (
   };
 });
 
+/** Fresh metadata completes source admission; generic captures and historical readers remain structural. */
+export const admitFreshDeploymentMetadataEffect = Effect.fn("FlarexAnalysis.admitFreshDeploymentMetadata")(
+  function* (input: Pick<AnalyzerProtocolSuccessResponse, "analysis" | "codegenAnalysis">): Effect.fn.Return<void, AnalyzerSchemaError | AnalyzerValidatorError> {
+    for (const table of input.analysis.schema.tables) yield* admitFreshTableValidatorEffect(table.validator, table.name);
+    for (const fn of input.analysis.functions.functions) {
+      yield* admitFreshFunctionValidatorsEffect(fn.args ?? null, fn.returns ?? null, fn.path);
+    }
+    for (const table of input.codegenAnalysis.schema.tables) yield* admitFreshTableValidatorEffect(table.validator, table.name);
+    for (const module of input.codegenAnalysis.functions) {
+      for (const fn of module.functions) {
+        const identifier = fn.exportName === "default" ? module.moduleName : `${module.moduleName}:${fn.exportName}`;
+        yield* admitFreshFunctionValidatorsEffect(fn.args, fn.returns, `codegenAnalysis.${identifier}`);
+      }
+    }
+  },
+);
+
+const admitFreshTableValidatorEffect = Effect.fn("FlarexAnalysis.admitFreshTableValidator")(
+  function* (value: ProtocolValidatorJson | null | undefined, tableName: string): Effect.fn.Return<void, AnalyzerSchemaError | AnalyzerValidatorError> {
+    // Retained compatibility metadata can omit a validator; a present source validator must be an object.
+    if (value === null || value === undefined) return;
+    yield* Effect.fromResult(sourceRecordValidatorResult(value, `schema.tables.${tableName}.validator`));
+    yield* Effect.fromResult(sourceTableValidatorRootResult(value, tableName));
+    yield* backendValidatorJsonEffect(value);
+  },
+);
+
+const admitFreshFunctionValidatorsEffect = Effect.fn("FlarexAnalysis.admitFreshFunctionValidators")(
+  function* (args: ProtocolValidatorJson | null, returns: ProtocolValidatorJson | null, identifier: string): Effect.fn.Return<void, AnalyzerValidatorError> {
+    // Each function parses arguments, then returns, before completing args/returns finite serialization.
+    if (args !== null) {
+      yield* Effect.fromResult(sourceRecordValidatorResult(args, `${identifier}.exportArgs()`));
+      yield* Effect.fromResult(sourceArgumentValidatorResult(args, `${identifier}.exportArgs()`));
+    }
+    if (returns !== null) yield* Effect.fromResult(sourceRecordValidatorResult(returns, `${identifier}.exportReturns()`));
+    yield* backendValidatorJsonEffect(args);
+    yield* backendValidatorJsonEffect(returns);
+  },
+);
+
 export function normalizeAnalyzerDiagnostics(value: unknown): AnalyzerDiagnostic[] {
   if (!Array.isArray(value)) return [];
   return value.slice(-100).flatMap(diagnostic => {
@@ -761,10 +853,12 @@ const analyzeTableValidatorEffect = Effect.fn(function* (
     json,
     `schema.tables.${tableName}.validator`,
   );
-  if (validator === null || validator.type !== "object") {
-    return yield* schemaFailure(`Schema table "${tableName}" document validator must be an object validator.`);
+  if (validator !== null) {
+    yield* Effect.fromResult(sourceRecordValidatorResult(validator, `schema.tables.${tableName}.validator`).pipe(
+      Result.mapError(cause => schemaError(`Schema table "${tableName}" has an invalid document validator.`, cause)),
+    ));
   }
-  return validator;
+  return yield* Effect.fromResult(sourceTableValidatorRootResult(validator, tableName));
 });
 
 const analyzePlacementEffect = Effect.fn(function* (
@@ -1079,10 +1173,9 @@ function parseValidatorExportEffect(
     if (validator === null) {
       return yield* validatorFailure(`Invalid validator returned from ${identifier}.${exporterName}(): Validator is required.`);
     }
-    if (!allowNull && validator.type !== "object" && validator.type !== "any") {
-      return yield* validatorFailure(
-        `Invalid validator returned from ${identifier}.${exporterName}(): Argument validator must be an object validator or v.any().`,
-      );
+    yield* Effect.fromResult(sourceRecordValidatorResult(validator, identifier + "." + exporterName + "()"));
+    if (!allowNull) {
+      yield* Effect.fromResult(sourceArgumentValidatorResult(validator, `${identifier}.${exporterName}()`));
     }
     return validator;
   });
@@ -1420,6 +1513,34 @@ function backendFunctionPartitionEffect(
   });
 }
 
+/** Source parsing checks record domains before analyzed metadata applies finite-literal serialization. */
+function sourceRecordValidatorResult(
+  validator: ValidatorJSON,
+  path: string,
+): Result.Result<ValidatorJSON, AnalyzerValidatorError> {
+  const issue = validatorSourceRecordIssueV1(validator, path);
+  if (issue === undefined) return Result.succeed(validator);
+  return Result.fail(new AnalyzerValidatorError({
+    code: "InvalidRecordType",
+    message: issue.reason === "nonStringRecordKey"
+      ? "Records can only have string keys; the key validator must be a subtype of v.string()."
+      : "Records cannot have string literal keys",
+    cause: issue,
+  }));
+}
+
+function sourceTableValidatorRootResult(validator: ValidatorJSON | null, tableName: string): Result.Result<ValidatorJSON, AnalyzerSchemaError> {
+  return validator !== null && validator.type === "object"
+    ? Result.succeed(validator)
+    : Result.fail(schemaError(`Schema table "${tableName}" document validator must be an object validator.`));
+}
+
+function sourceArgumentValidatorResult(validator: ValidatorJSON, path: string): Result.Result<ValidatorJSON, AnalyzerValidatorError> {
+  return validator.type === "object" || validator.type === "any"
+    ? Result.succeed(validator)
+    : Result.fail(validatorError(`Invalid validator returned from ${path}: Argument validator must be an object validator or v.any().`));
+}
+
 const decodeProtocolValidatorJsonEffect = Schema.decodeUnknownEffect(
   ProtocolValidatorJsonSchema,
 );
@@ -1429,15 +1550,15 @@ export const backendValidatorJsonEffect = Effect.fn(
 )(function* (
   value: ValidatorJSON | null,
 ): Effect.fn.Return<BackendValidatorJson | null, AnalyzerValidatorError> {
-  const validator = yield* backendValidatorJsonWorker(value);
-  if (validator === null) return null;
-  yield* decodeProtocolValidatorJsonEffect(validator).pipe(
+  if (value === null) return null;
+  const captured = yield* decodeProtocolValidatorJsonEffect(value).pipe(
     Effect.mapError(cause => validatorError(
       `Invalid backend validator metadata: ${errorMessage(cause)}`,
       cause,
     )),
   );
-  return validator;
+  yield* Effect.fromResult(sourceRecordValidatorResult(captured, "$validator"));
+  return yield* backendValidatorJsonWorker(captured);
 });
 
 function backendValidatorJsonWorker(
@@ -1463,8 +1584,8 @@ function backendValidatorJsonWorker(
         return { type: "id", tableName: value.tableName };
       }
       case "literal": {
-        if (typeof value.value === "bigint") {
-          return yield* validatorFailure("BigInt literal validators are not supported by backend deployment metadata.");
+        if (typeof value.value === "number" && !Number.isFinite(value.value)) {
+          return yield* validatorFailure("Infinite or NaN values are not supported in literal validators.");
         }
         return { type: "literal", value: value.value };
       }

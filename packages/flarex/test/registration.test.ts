@@ -256,19 +256,23 @@ describe("Convex-style function registration", () => {
     );
   });
 
-  it("rejects numeric literals when the schema is authored", () => {
-    for (
-      const value of [
-        Number.NaN,
-        Number.POSITIVE_INFINITY,
-        Number.NEGATIVE_INFINITY,
-        -0,
-      ]
-    ) {
-      expect(() => v.literal(value)).toThrowError(
-        "Application numeric validator literals must be finite and not negative zero.",
-      );
+  it("exports source numeric literal tags and defers bigint overflow", () => {
+    const fn = query({
+      args: { count: v.literal(-9223372036854775808n), sign: v.literal(-0) },
+      returns: v.literal(9223372036854775807n),
+      handler: (): 9223372036854775807n => 9223372036854775807n,
+    });
+    expect(JSON.parse(fn.exportArgs())).toEqual({ type: "object", value: {
+      count: { fieldType: { type: "literal", value: { $integer: "AAAAAAAAAIA=" } }, optional: false },
+      sign: { fieldType: { type: "literal", value: { $float: "AAAAAAAAAIA=" } }, optional: false },
+    } });
+    expect(JSON.parse(fn.exportReturns())).toEqual({ type: "literal", value: { $integer: "/////////38=" } });
+    for (const value of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      const special = query({ args: { value: v.literal(value) }, handler: () => null });
+      expect(special.exportArgs()).toContain('"$float"');
     }
+    const overflow = query({ args: { value: v.literal(9223372036854775808n) }, handler: () => null });
+    expect(() => overflow.exportArgs()).toThrow();
   });
 
   it("rejects forged validator metadata during function registration export", () => {

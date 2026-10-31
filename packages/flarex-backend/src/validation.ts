@@ -1,5 +1,6 @@
 import { isWritableJsonObject } from "flarex-protocol/json";
 import { Effect, Result } from "effect";
+import { decodeValidatorJsonWireResultCoreV1, validatorLiteralEqualV1 } from "flarex-protocol/internal/validator-json-core";
 import type { Json, ValidatorJson } from "./types";
 
 export type BackendValidationOptions = {
@@ -17,13 +18,6 @@ export class BackendValidationError extends Error {
 }
 
 export type BackendValidationResult<A> = Result.Result<A, BackendValidationError>;
-
-function backendValidationFailure<A = never>(
-  message: string,
-  path: string,
-): BackendValidationResult<A> {
-  return Result.fail(new BackendValidationError(message, path));
-}
 
 export function validateJsonValue(
   validator: ValidatorJson,
@@ -51,7 +45,10 @@ export function validateJsonValue(
       options.validateId?.(validator.tableName, value, path);
       return;
     case "literal":
-      return expect(value === validator.value, `Expected literal ${String(validator.value)}.`, path);
+      if (typeof validator.value === "bigint") {
+        throw new BackendValidationError("Bigint transport is not implemented.", path);
+      }
+      return expect(validatorLiteralEqualV1(value, validator.value), `Expected literal ${String(validator.value)}.`, path);
     case "array":
       expect(Array.isArray(value), "Expected an array.", path);
       value.forEach((element, index) =>
@@ -106,124 +103,17 @@ export function assertValidatorJson(value: Json | undefined | null, path: string
 }
 
 export function parseValidatorJson(
-  value: Json | undefined | null,
+  value: unknown,
   path: string,
 ): BackendValidationResult<ValidatorJson | null> {
   if (value === undefined || value === null) return Result.succeed(null);
-  if (!isWritableJsonObject(value)) {
-    return backendValidationFailure("Expected validator object.", path);
-  }
-  const type = value.type;
-  if (typeof type !== "string") {
-    return backendValidationFailure("Validator type must be a string.", `${path}.type`);
-  }
-  switch (type) {
-    case "null":
-    case "number":
-    case "bigint":
-    case "boolean":
-    case "string":
-    case "bytes":
-    case "any":
-      return Result.succeed({ type });
-    case "id": {
-      const tableName = value.tableName;
-      if (typeof tableName !== "string" || tableName.length === 0) {
-        return backendValidationFailure(
-          "ID validator tableName must be a non-empty string.",
-          `${path}.tableName`,
-        );
-      }
-      return Result.succeed({ type, tableName });
-    }
-    case "literal": {
-      const literal = value.value;
-      if (
-        typeof literal !== "string" &&
-        typeof literal !== "number" &&
-        typeof literal !== "boolean"
-      ) {
-        return backendValidationFailure(
-          "Literal validator value must be string, number, or boolean.",
-          `${path}.value`,
-        );
-      }
-      return Result.succeed({ type, value: literal });
-    }
-    case "array": {
-      return parseRequiredValidatorJson(value.value, `${path}.value`).pipe(
-        Result.map(item => ({ type, value: item })),
-      );
-    }
-    case "object": {
-      const rawFields = value.value;
-      if (rawFields === undefined || !isWritableJsonObject(rawFields)) {
-        return backendValidationFailure("Object validator value must be an object.", `${path}.value`);
-      }
-      return Result.gen(function* () {
-        const fields: Array<readonly [
-          string,
-          { readonly fieldType: ValidatorJson; readonly optional: boolean },
-        ]> = [];
-        for (const [name, rawField] of Object.entries(rawFields)) {
-          if (!isWritableJsonObject(rawField)) {
-            return yield* backendValidationFailure(
-              "Object validator field must be an object.",
-              `${path}.value.${name}`,
-            );
-          }
-          if (typeof rawField.optional !== "boolean") {
-            return yield* backendValidationFailure(
-              "Object validator optional flag must be a boolean.",
-              `${path}.value.${name}.optional`,
-            );
-          }
-          const fieldType = yield* parseRequiredValidatorJson(
-            rawField.fieldType,
-            `${path}.value.${name}.fieldType`,
-          );
-          fields.push([name, {
-            fieldType,
-            optional: rawField.optional,
-          }]);
-        }
-        return { type, value: Object.fromEntries(fields) };
-      });
-    }
-    case "record": {
-      return Result.gen(function* () {
-        const keys = yield* parseRequiredValidatorJson(value.keys, `${path}.keys`);
-        const values = yield* parseRequiredValidatorJson(value.values, `${path}.values`);
-        return { type, keys, values };
-      });
-    }
-    case "union": {
-      if (!Array.isArray(value.value)) {
-        return backendValidationFailure("Union validator value must be an array.", `${path}.value`);
-      }
-      const rawMembers = value.value;
-      return Result.gen(function* () {
-        const members: ValidatorJson[] = [];
-        for (const [index, member] of rawMembers.entries()) {
-          members.push(yield* parseRequiredValidatorJson(member, `${path}.value[${index}]`));
-        }
-        return { type, value: members };
-      });
-    }
-    default:
-      return backendValidationFailure(`Unknown validator type ${type}.`, `${path}.type`);
-  }
-}
-
-function parseRequiredValidatorJson(
-  value: Json | undefined,
-  path: string,
-): BackendValidationResult<ValidatorJson> {
-  return parseValidatorJson(value, path).pipe(
-    Result.flatMap(parsed => parsed === null
-      ? backendValidationFailure("Validator is required.", path)
-      : Result.succeed(parsed)),
-  );
+  const decoded = decodeValidatorJsonWireResultCoreV1(value);
+  return decoded.ok
+    ? Result.succeed(decoded.value)
+    : Result.fail(new BackendValidationError(
+      `Invalid validator JSON (${decoded.issue.reason}).`,
+      `${path}${decoded.issue.path.slice(1)}`,
+    ));
 }
 
 function validateObject(

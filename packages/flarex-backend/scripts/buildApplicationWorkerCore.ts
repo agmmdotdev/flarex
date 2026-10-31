@@ -116,6 +116,7 @@ async function buildOnce(): Promise<CoreBuildReceipt> {
     "executeApplicationTransactionWorkerV1",
     "executeApplicationActionWorkerV1",
     "executeApplicationTaskWorkerV1",
+    "decodeValidatorJsonWireCoreV1",
     "startApplicationTaskWorkerSessionV1",
     "startLegacyTaskWorkerSessionV1",
   ]) {

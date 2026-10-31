@@ -294,7 +294,7 @@ export const v = Object.freeze({
   any: (): AnyFunctionArgsValidator =>
     captureFunctionArgsValidator<unknown, string>(standardV1.any()),
   id: idValidator,
-  literal: <Literal extends string | number | boolean>(
+  literal: <Literal extends string | number | bigint | boolean>(
     value: Literal,
   ): Validator<Literal, "required"> =>
     scalarValidator<Literal>(standardV1.literal(value)),

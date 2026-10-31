@@ -1,8 +1,10 @@
 /** Convex common/schemas/validator.rs::is_subset, db914cf06. FSL-1.1-Apache-2.0. */
 import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
+import { validatorIsSubsetOfStringV1, validatorLiteralEqualV1 } from "flarex-protocol/internal/validator-json-core";
 
 /** False negatives are safe; this is a proof rule, never a sample-based guess. */
 export function coreValidatorIsSubset(left: ValidatorJsonV1, right: ValidatorJsonV1): boolean {
+  if (right.type === "string") return validatorIsSubsetOfStringV1(left);
   if (left.type === "array" && right.type === "array") return coreValidatorIsSubset(left.value, right.value);
   if (left.type === "object" && right.type === "object") {
     return Object.keys(left.value).every(key => Object.hasOwn(right.value, key))
@@ -13,10 +15,9 @@ export function coreValidatorIsSubset(left: ValidatorJsonV1, right: ValidatorJso
       });
   }
   if (coreValidatorsEqual(left, right) || right.type === "any") return true;
-  if (left.type === "literal" && ((typeof left.value === "string" && right.type === "string")
-    || (typeof left.value === "number" && right.type === "number")
+  if (left.type === "literal" && ((typeof left.value === "number" && right.type === "number")
+    || (typeof left.value === "bigint" && right.type === "bigint")
     || (typeof left.value === "boolean" && right.type === "boolean"))) return true;
-  if (left.type === "id" && right.type === "string") return true;
   if (left.type === "union") return left.value.every(member => coreValidatorIsSubset(member, right));
   if (right.type === "union") return right.value.some(member => coreValidatorIsSubset(left, member))
     || (left.type === "boolean" && coreValidatorIsSubset({ type: "literal", value: true }, right)
@@ -27,7 +28,7 @@ export function coreValidatorIsSubset(left: ValidatorJsonV1, right: ValidatorJso
 export function coreValidatorsEqual(left: ValidatorJsonV1, right: ValidatorJsonV1): boolean {
   if (left.type !== right.type) return false;
   switch (left.type) {
-    case "literal": return right.type === "literal" && left.value === right.value;
+    case "literal": return right.type === "literal" && validatorLiteralEqualV1(left.value, right.value);
     case "id": return right.type === "id" && left.tableName === right.tableName;
     case "array": return right.type === "array" && coreValidatorsEqual(left.value, right.value);
     case "union": return right.type === "union" && left.value.length === right.value.length
@@ -55,13 +56,4 @@ export function coreValidatorReferences(validator: ValidatorJsonV1, tableName: s
     case "union": return validator.value.some(member => coreValidatorReferences(member, tableName));
     case "literal": case "null": case "number": case "bigint": case "boolean": case "string": case "bytes": case "any": return false;
   }
-}
-
-/** Validator::Record accepts only string subtypes without a literal-string key case. */
-export function coreValidatorIsValidRecordKey(validator: ValidatorJsonV1): boolean {
-  return coreValidatorIsSubset(validator, { type: "string" }) && !hasRecordLiteral(validator);
-}
-
-function hasRecordLiteral(validator: ValidatorJsonV1): boolean {
-  return validator.type === "literal" || (validator.type === "union" && validator.value.some(hasRecordLiteral));
 }

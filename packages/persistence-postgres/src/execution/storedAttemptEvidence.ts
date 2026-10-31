@@ -12,7 +12,7 @@ import { Data, Effect, Result, Schema } from "effect";
 
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import {
-  canonicalizeApplicationMutationExecutionAuthorityV1,
+  canonicalizeApplicationMutationExecutionAuthorityWireV1,
 } from "flarex-protocol/internal/application-mutation-authority-v1";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
@@ -1301,7 +1301,7 @@ const captureSessionExecutionAuthority = Effect.fn(
     session.applicationExecutionAuthorityCanonicalBytes === null ||
     session.applicationExecutionAuthoritySha256 === null
   ) return yield* Effect.fail(corrupt("sessionRecordInvalid"));
-  const canonical = yield* canonicalizeApplicationMutationExecutionAuthorityV1(
+  const canonical = yield* canonicalizeApplicationMutationExecutionAuthorityWireV1(
     session.applicationExecutionAuthorityJson,
   ).pipe(Effect.mapError(cause => corrupt("sessionRecordInvalid", cause)));
   if (

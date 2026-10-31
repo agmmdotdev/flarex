@@ -9,7 +9,7 @@ import type {
 import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
 import {
   decodeSchemaManifestAppIndexDeclarationsV1Result,
-  decodeSchemaManifestAppTableDeclarationsV1Result,
+  captureSchemaManifestAppTableDeclarationsV1Result,
   type CatalogSchemaVersion,
   type CatalogSchemaVersionId,
   type SchemaManifestAppSchemaV1,
@@ -98,7 +98,7 @@ export function applicationSchemaPublicationInputResult(
   }
   return Result.gen(function* () {
     const decodedTables = yield*
-      decodeSchemaManifestAppTableDeclarationsV1Result(tables).pipe(
+      captureSchemaManifestAppTableDeclarationsV1Result(tables).pipe(
         Result.mapError(cause => new ApplicationSchemaProjectionError(
           "publicationInput",
           { cause },

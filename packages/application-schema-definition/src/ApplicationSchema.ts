@@ -1,7 +1,7 @@
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import {
   decodeSchemaManifestAppIndexDeclarationsV1,
-  decodeSchemaManifestAppTableDeclarationsV1,
+  captureSchemaManifestAppTableDeclarationsV1,
   schemaManifestAppValidatorCanContainFieldPathV1,
   type SchemaManifestAppIndexDeclarationInputV1,
   type SchemaManifestAppIndexDeclarationV1,
@@ -121,7 +121,7 @@ export function applicationSchemaDefinition(
 export function snapshotApplicationSchemaDefinition(
   input: ApplicationSchemaDefinitionInput,
 ): ApplicationSchemaDefinition {
-  const decodedTables = decodeSchemaManifestAppTableDeclarationsV1(input.tables);
+  const decodedTables = captureSchemaManifestAppTableDeclarationsV1(input.tables);
   const decodedIndexes = decodeSchemaManifestAppIndexDeclarationsV1(input.indexes);
   const tablesByLogicalName = new Map(
     decodedTables.map(table => [table.logicalName, table] as const),

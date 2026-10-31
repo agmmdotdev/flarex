@@ -8,8 +8,9 @@ import {
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
   decodeSchemaManifestAppIndexDeclarationsV1Result,
-  decodeSchemaManifestAppTableDeclarationsV1Result,
+  captureSchemaManifestAppTableDeclarationsV1Result,
   decodeSchemaManifestJson,
+  encodeSchemaManifestAppSchemaV1,
   type CatalogSchemaVersion,
   type CatalogSchemaVersionId,
   type SchemaManifestAppIndexDeclarationV1,
@@ -290,7 +291,7 @@ const prepareValidatedAppSchemaPublicationV1Effect = Effect.fn(
     deploymentId: validated.deploymentId,
     schemaVersionId: validated.schemaVersionId,
     version: validated.version,
-    manifest: decodeSchemaManifestJson(logicalBindings.manifest),
+    manifest: decodeSchemaManifestJson(encodeSchemaManifestAppSchemaV1(logicalBindings.manifest)),
   });
   yield* Effect.fromResult(
     enforceAppSchemaPublicationV1CanonicalByteQuotaResult(
@@ -365,7 +366,7 @@ function validateAndSnapshotInputResult(
     const version = yield* decodeCatalogSchemaVersionResult(
       input.version,
     ).pipe(Result.mapError((cause) => invalidField("version", cause)));
-    const decodedTables = yield* decodeSchemaManifestAppTableDeclarationsV1Result(
+    const decodedTables = yield* captureSchemaManifestAppTableDeclarationsV1Result(
       tablesInput,
     ).pipe(Result.mapError((cause) => invalidField("tables", cause)));
     const decodedIndexes = yield* decodeSchemaManifestAppIndexDeclarationsV1Result(

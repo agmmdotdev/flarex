@@ -34,14 +34,15 @@ import {
   applicationPublicationCommitmentFrame,
   applicationSchemaPublicationFrame,
 } from "@flarex/analysis/internal/application-publication-v2";
+import { encodeValidatorJsonV1 } from "flarex-protocol/validator-json";
 import {
-  canonicalizeApplicationManifest,
-  canonicalizeApplicationManifestV1,
+  canonicalizeApplicationManifestWire,
+  canonicalizeApplicationManifestWireV1,
   verifyApplicationManifestWithRelations,
   type ApplicationManifestV1,
 } from "@flarex/analysis/application-analysis";
 import {
-  canonicalizeApplicationMutationExecutionAuthorityV1,
+  canonicalizeApplicationMutationExecutionAuthorityWireV1,
   type CanonicalApplicationMutationExecutionAuthorityV1,
 } from "flarex-protocol/internal/application-mutation-authority-v1";
 import {
@@ -1096,7 +1097,7 @@ const materializeApplicationGraphEffect = Effect.fn(
     return yield* Effect.fail("applicationGraphInvalid" as const);
   }
   const canonicalAuthority = yield*
-    canonicalizeApplicationMutationExecutionAuthorityV1(
+    canonicalizeApplicationMutationExecutionAuthorityWireV1(
       session.applicationExecutionAuthorityJson,
     ).pipe(Effect.mapError(() => "applicationGraphInvalid" as const));
   if (
@@ -1214,7 +1215,7 @@ const materializeApplicationGraphEffect = Effect.fn(
     catch: () => "applicationGraphInvalid" as const,
   });
   const manifest = yield* Effect.fromResult(
-    canonicalizeApplicationManifestV1(manifestValue).pipe(
+    canonicalizeApplicationManifestWireV1(manifestValue).pipe(
       Result.mapError(() => "applicationGraphInvalid" as const),
     ),
   );
@@ -1407,7 +1408,7 @@ const materializeRelationApplicationGraphEffect = Effect.fn(
   schemaManifestSha256: Uint8Array,
 ) {
   const canonicalAuthority = yield*
-    canonicalizeApplicationMutationExecutionAuthorityV1(
+    canonicalizeApplicationMutationExecutionAuthorityWireV1(
       session.applicationExecutionAuthorityJson,
     ).pipe(Effect.mapError(() => "applicationGraphInvalid" as const));
   if (!bytesEqual(
@@ -1553,7 +1554,7 @@ const materializeRelationApplicationGraphEffect = Effect.fn(
     catch: () => "applicationGraphInvalid" as const,
   });
   const canonicalManifest = yield* Effect.fromResult(
-    canonicalizeApplicationManifest(manifestValue).pipe(
+    canonicalizeApplicationManifestWire(manifestValue).pipe(
       Result.mapError(() => "applicationGraphInvalid" as const),
     ),
   );
@@ -1856,8 +1857,8 @@ function projectApplicationSchemaBindingResult(
       candidate.logicalName === table.name
     );
     if (bound === undefined || !canonicalJsonEqual(
-      bound.definition.documentType,
-      table.validator,
+      encodeValidatorJsonV1(bound.definition.documentType),
+      encodeValidatorJsonV1(table.validator),
     )) return Result.fail("applicationGraphInvalid");
     tableIds.set(table.tableId, bound.tableId);
     tables.push({

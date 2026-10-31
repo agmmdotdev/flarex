@@ -2,8 +2,9 @@ import { isNonBlankString } from "@flarex/utils/strings";
 import {
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
-  decodeSchemaManifestAppTableDeclarationsV1Result,
+  captureSchemaManifestAppTableDeclarationsV1Result,
   decodeSchemaManifestJson,
+  encodeSchemaManifestTableDefinitionsV1,
   type CatalogSchemaVersion,
   type CatalogSchemaVersionId,
   type SchemaManifestAppTableDeclarationV1,
@@ -323,7 +324,7 @@ const prepareValidatedAppTableDefinitionsArtifactV1Effect = Effect.fn(
     deploymentId: input.deploymentId,
     schemaVersionId: input.schemaVersionId,
     version: input.version,
-    manifest: decodeSchemaManifestJson(bindings.section),
+    manifest: decodeSchemaManifestJson(encodeSchemaManifestTableDefinitionsV1(bindings.section)),
   });
   const prepared = Object.freeze({
     deploymentId: input.deploymentId,
@@ -413,7 +414,7 @@ function validateAndSnapshotAppTableDefinitionsArtifactV1InputResult(
     const version = yield* decodeCatalogSchemaVersionResult(
       input.version,
     ).pipe(Result.mapError((cause) => invalidField("version", cause)));
-    const decodedTables = yield* decodeSchemaManifestAppTableDeclarationsV1Result(
+    const decodedTables = yield* captureSchemaManifestAppTableDeclarationsV1Result(
       input.tables,
     ).pipe(Result.mapError((cause) => invalidField("tables", cause)));
     const tables = snapshotSchemaManifestValue(decodedTables);

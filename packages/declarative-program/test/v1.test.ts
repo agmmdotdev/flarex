@@ -360,18 +360,29 @@ describe("@flarex/declarative-program/v1", () => {
     });
   });
 
-  it("rejects non-JSON-safe numeric literals", () => {
+  it("captures exact semantic numeric literals before persisted analysis admission", () => {
     for (
       const value of [
         Number.NaN,
         Number.POSITIVE_INFINITY,
         Number.NEGATIVE_INFINITY,
         -0,
+        -9_223_372_036_854_775_808n,
+        9_223_372_036_854_775_807n,
       ]
     ) {
       const input = inputProgram();
       const fn = input.modules[1]?.functions[0];
       if (fn === undefined) throw new Error("Expected mutation.");
+      fn.returnsValidator = { type: "literal", value };
+      const decoded = decode(input).modules[0]?.functions[1]?.returnsValidator;
+      if (decoded?.type !== "literal") throw new Error("Expected literal return");
+      expect(Object.is(decoded.value, value)).toBe(true);
+    }
+    for (const value of [-9_223_372_036_854_775_809n, 9_223_372_036_854_775_808n]) {
+      const input = inputProgram();
+      const fn = input.modules[1]?.functions[0];
+      if (fn === undefined) throw new Error("Expected mutation");
       fn.returnsValidator = { type: "literal", value };
       expectFailureReason(input, "invalidValidator");
     }

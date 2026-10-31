@@ -2,6 +2,7 @@ import { Result, Schema } from "effect";
 import { CatalogTableNamespaceSchema } from "./catalog";
 import { encodeCanonicalJson, isJson, JsonValue } from "./json";
 import { snapshotDecodedProtocolPlainData } from "./decoded-protocol-snapshot";
+import { encodeValidatorJsonV1 } from "./validator-json";
 import { RelationDeclarationsV1Schema } from "./relation-declaration-v1";
 import { LogicalDocumentUniqueConstraintDeclarationSchema } from "./app-unique-constraint-definition";
 import {
@@ -9,7 +10,8 @@ import {
   SchemaManifestAppIndexDeclarationV1Schema,
   SchemaManifestAppIndexFieldPathSchema,
   SchemaManifestJsonSchema,
-  decodeSchemaManifestAppTableDeclarationsV1Result,
+  SchemaManifestSemanticInputSchema,
+  captureSchemaManifestAppTableDeclarationsV1Result,
   decodeSchemaManifestAppIndexDeclarationsV1Result,
   schemaManifestAppValidatorCanContainFieldPathV1,
 } from "./schema-manifest";
@@ -99,6 +101,10 @@ export type LogicalSchemaCandidate = typeof LogicalSchemaCandidateSchema.Type;
 export type LogicalSchemaSource = typeof LogicalSchemaSourceSchema.Type;
 export type LogicalSchemaExtension = typeof LogicalSchemaExtensionSchema.Type;
 export type LogicalSchemaBinding = typeof SourceBinding.Type;
+export const encodeLogicalSchemaSource = Schema.encodeSync(LogicalSchemaSourceSchema);
+export const encodeLogicalSchemaCandidate = Schema.encodeSync(LogicalSchemaCandidateSchema);
+export const encodeLogicalSchemaSourceDefinition = Schema.encodeSync(SourceDefinition);
+export const captureLogicalSchemaSourceResult = Schema.decodeUnknownResult(Schema.toType(LogicalSchemaSourceSchema));
 
 export function logicalTableKey(table: QualifiedLogicalTable): string {
   return JSON.stringify([table.namespace, table.logicalName]);
@@ -107,6 +113,15 @@ export function logicalTableKey(table: QualifiedLogicalTable): string {
 const decodeCandidate = Schema.decodeUnknownResult(LogicalSchemaCandidateSchema.check(
   Schema.makeFilter(validateCandidate),
 ));
+const captureCandidate = Schema.decodeUnknownResult(Schema.toType(LogicalSchemaCandidateSchema).check(Schema.makeFilter(validateCandidate)));
+
+export function captureLogicalSchemaCandidate(input: unknown) {
+  return Result.gen(function* () {
+    yield* Schema.decodeUnknownResult(SchemaManifestSemanticInputSchema)(input);
+    const candidate = yield* captureCandidate(input);
+    return snapshotDecodedProtocolPlainData(candidate);
+  });
+}
 
 /** Structural/semantic validation only. Trusted composition must verify sources. */
 export function decodeLogicalSchemaCandidate(input: unknown) {
@@ -137,7 +152,7 @@ function validateCandidate(candidate: LogicalSchemaCandidate): string | undefine
       return "Relational producer owner mismatch";
     }
     if (definition.kind === "documents") {
-      if (Result.isFailure(decodeSchemaManifestAppTableDeclarationsV1Result(definition.tables)) ||
+      if (Result.isFailure(captureSchemaManifestAppTableDeclarationsV1Result(definition.tables)) ||
           Result.isFailure(decodeSchemaManifestAppIndexDeclarationsV1Result(definition.indexes))) {
         return "Invalid document definitions";
       }
@@ -185,7 +200,8 @@ function validateCandidate(candidate: LogicalSchemaCandidate): string | undefine
       if (view === undefined || table === undefined) return "Missing view definition";
       for (const [name, field] of Object.entries(view.definition.documentType.value)) {
         const targetField = table.definition.documentType.value[name];
-        if (targetField === undefined || canonical(field) !== canonical(targetField)) return "Incompatible view field";
+        if (targetField === undefined || canonical({ fieldType: encodeValidatorJsonV1(field.fieldType), optional: field.optional }) !==
+          canonical({ fieldType: encodeValidatorJsonV1(targetField.fieldType), optional: targetField.optional })) return "Incompatible view field";
       }
       // No hidden index/relationship installation through an exposure binding.
       if (source.definition.indexes.some(index => index.tableLogicalName === binding.localName) ||

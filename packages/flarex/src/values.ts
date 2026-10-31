@@ -1,3 +1,4 @@
+import { encodeValidatorJsonWireCoreV1 } from "flarex-protocol/internal/validator-json-core";
 import {
   applicationArrayValidatorJson,
   applicationIdValidatorJson,
@@ -16,18 +17,22 @@ import {
 import {
   decodeValidatorJsonV1,
   type ValidatorJsonV1,
+  type ValidatorJsonWireV1,
 } from "flarex-protocol/validator-json";
 
 import type { JSONValue } from "./auth";
 import {
   captureOwnedValidator,
   isOwnedValidator,
+  validatorJsonForComposition,
+  validatorOwnDataProperty,
 } from "./validatorOwnership";
 
 const OBJECT_CREATE = Object.create;
 const OBJECT_DEFINE_PROPERTY = Object.defineProperty;
 const OBJECT_ENTRIES = Object.entries;
 const OBJECT_FREEZE = Object.freeze;
+const OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = Object.getOwnPropertyDescriptor;
 const OWNED_VALIDATOR_JSON = Symbol("flarex.owned-validator-json");
 
 export type Id<Table extends string> = string & {
@@ -46,7 +51,7 @@ export class Validator<
   readonly fieldPaths!: FieldPaths;
   readonly isFlarexValidator = true;
   readonly kind: string;
-  readonly json: ValidatorJSON;
+  declare readonly json: ValidatorJsonWireV1;
   readonly isOptional: IsOptional;
 
   constructor(kind: string, json: ValidatorJSON, isOptional: IsOptional);
@@ -63,12 +68,16 @@ export class Validator<
     ownership?: typeof OWNED_VALIDATOR_JSON,
   ) {
     this.kind = kind;
-    this.json = ownership === OWNED_VALIDATOR_JSON
+    const semanticJson = ownership === OWNED_VALIDATOR_JSON
       ? json
       : snapshotApplicationValidatorJson(decodeValidatorJsonV1(json));
+    OBJECT_DEFINE_PROPERTY(this, "json", {
+      enumerable: true,
+      get: () => encodeValidatorJsonWireCoreV1(semanticJson),
+    });
     this.isOptional = isOptional;
     OBJECT_FREEZE(this);
-    captureOwnedValidator(this);
+    captureOwnedValidator(this, semanticJson);
   }
 
   asOptional(): Validator<Type | undefined, "optional", FieldPaths> {
@@ -110,20 +119,12 @@ function required<Type, Paths extends string = never>(
   return new Validator(kind, json, "required", OWNED_VALIDATOR_JSON);
 }
 
-function validatorJsonForComposition(
-  validator: GenericValidator,
-): ValidatorJSON {
-  if (isOwnedValidator(validator)) return validator.json;
-  return snapshotApplicationValidatorJson(
-    decodeValidatorJsonV1(validator.json),
-  );
-}
 
 export function isValidator(value: unknown): value is GenericValidator {
+  if (isOwnedValidator(value)) return true;
   return typeof value === "object"
     && value !== null
-    && "isFlarexValidator" in value
-    && value.isFlarexValidator === true;
+    && OBJECT_GET_OWN_PROPERTY_DESCRIPTOR(value, "isFlarexValidator")?.value === true;
 }
 
 export function asObjectValidator<Value extends GenericValidator | PropertyValidators>(
@@ -152,7 +153,7 @@ export const v = {
     required<ArrayBuffer>("bytes", applicationScalarValidatorJson("bytes")),
   any: () =>
     required<FlarexValue, string>("any", applicationScalarValidatorJson("any")),
-  literal: <Value extends string | number | boolean>(value: Value) =>
+  literal: <Value extends string | number | bigint | boolean>(value: Value) =>
     required<Value>("literal", applicationLiteralValidatorJson(value)),
   array: <Element extends Validator<any, "required", any>>(element: Element) =>
     required<Array<Infer<Element>>>(
@@ -174,7 +175,9 @@ export const v = {
         enumerable: true,
         value: {
           fieldType,
-          optional: field.isOptional === "optional",
+          optional: (isOwnedValidator(field)
+            ? field.isOptional
+            : validatorOwnDataProperty(field, "isOptional")) === "optional",
         },
       });
     }

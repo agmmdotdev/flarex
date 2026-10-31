@@ -1,3 +1,4 @@
+import { applicationFunctionWireV1 } from "@flarex/analysis/application-analysis";
 import { prepareFiniteApplicationExecutionSchema } from "../../commit/authority/postgresLoader";
 import {
   disposePublicationDefinitions,
@@ -41,7 +42,7 @@ export const prepareApplicationExecutionMetadataProjection = Effect.fn("Applicat
     "manifest" | "functionCatalogSha256" | "runtimeHostIdentity" | "compatibilityDate">,
 ) {
   return yield* prepareFiniteMetadataProjection({ indexes: [], unique: [], application: {
-    functions: basis.manifest.functions.map(fn => ({ path: fn.path, semantic: { ...fn } })),
+    functions: basis.manifest.functions.map(fn => ({ path: fn.path, semantic: applicationFunctionWireV1(fn) })),
     groups: [{ group: "legacy_dynamic_worker_v1", semantic: { sourceArtifact: basis.manifest.sourceArtifact,
       functionCatalogSha256: encodeBytesToLowercaseHex(basis.functionCatalogSha256),
       runtimeHostIdentity: basis.runtimeHostIdentity, compatibilityDate: basis.compatibilityDate } }],

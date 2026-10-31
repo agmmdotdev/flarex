@@ -24,7 +24,7 @@ import {
   type SourceArtifactV2ModuleRolesV1,
 } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
 import type { Json } from "flarex-protocol/json";
-import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
+import { encodeValidatorJsonV1, type ValidatorJsonV1 } from "flarex-protocol/validator-json";
 
 export const DECLARATIVE_V2_MATERIALIZER_FORMAT_V1 =
   "flarex.declarative-materializer/v1" as const;
@@ -799,7 +799,7 @@ function validateGraphAgainstProgram(
 }
 
 function validatorJsonAsJson(value: ValidatorJsonV1): Json {
-  return value;
+  return encodeValidatorJsonV1(value);
 }
 
 function functionArgsOwner(functionPath: string): string {

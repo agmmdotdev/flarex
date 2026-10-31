@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { Effect, SchemaAST, type Schema } from "effect";
+import { Effect, Result, SchemaAST, type Schema } from "effect";
 import {
   decodeAbandonPushRequestEffect,
   decodeActiveDeploymentStatusEffect,
   decodeAnalyzedStartPushRequestEffect,
   decodeDeploymentAnalysisEffect,
+  captureDeploymentAnalysisEffect,
+  encodeDeploymentAnalysis,
   decodeDeploymentCodegenAnalysisEffect,
   decodeDeploymentErrorResponseEffect,
   decodeDeploymentHealthResponseEffect,
@@ -27,6 +29,20 @@ import {
 } from "../src/deployment";
 
 describe("deployment protocol schemas", () => {
+  it.each([1n, -0])("keeps semantic capture and wire decoding distinct for metadata literal %s", async value => {
+    const semantic = { schema: { version: 1, tables: [], indexes: [] }, functions: { functions: [{ path: "literal:run",
+      kind: "query", visibility: "public", args: { type: "object", value: {} }, returns: { type: "literal", value },
+      route: null, partition: null,
+    }] } };
+    const captured = await Effect.runPromise(captureDeploymentAnalysisEffect(semantic));
+    const wire = encodeDeploymentAnalysis(captured);
+    const decoded = await Effect.runPromise(decodeDeploymentAnalysisEffect(wire));
+    const literal = decoded.functions.functions[0]?.returns;
+    if (literal?.type !== "literal") throw new Error("Expected decoded literal");
+    expect(Object.is(literal.value, value)).toBe(true);
+    expect(Result.isFailure(await Effect.runPromise(Effect.result(decodeDeploymentAnalysisEffect(semantic))))).toBe(true);
+    expect(Result.isFailure(await Effect.runPromise(Effect.result(captureDeploymentAnalysisEffect(wire))))).toBe(true);
+  });
   it("locks DeploymentDO route constants", () => {
     expect(DeploymentRoute).toEqual({
       health: "/health",

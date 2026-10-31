@@ -4,7 +4,7 @@ import {
   ApplicationAnalysisRejectionCodeV1,
   APPLICATION_ANALYSIS_MAXIMUM_MANIFEST_BYTES_V1,
   canonicalizeApplicationAnalysisReceiptV1,
-  canonicalizeApplicationManifest,
+  canonicalizeApplicationManifestWire,
   type ApplicationAnalysisReceiptV1,
   type ApplicationAnalysisRejectionCodeV1 as ApplicationAnalysisRejectionCode,
   type ApplicationManifest,
@@ -263,7 +263,7 @@ function prepareTerminal(
         cause,
       ));
     }
-    const canonical = yield* canonicalizeApplicationManifest(parsed).pipe(
+    const canonical = yield* canonicalizeApplicationManifestWire(parsed).pipe(
       Result.mapError(cause => failureValue(
         "settle",
         "invalidInput",
@@ -760,7 +760,7 @@ function decodeCanonicalManifest(
   operation: ApplicationAnalysisPersistenceError["operation"],
   bytes: Uint8Array,
 ) {
-  return decodeCanonical(operation, bytes, canonicalizeApplicationManifest);
+  return decodeCanonical(operation, bytes, canonicalizeApplicationManifestWire);
 }
 
 function decodeCanonical<A extends { readonly canonicalBytes: Uint8Array }>(

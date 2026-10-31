@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { Cause, Effect, Exit, Result, Schema } from "effect";
+import { jsonToFlarexValueV1 } from "flarex-protocol/value";
 import { decodeDocumentId } from "flarex-protocol/document-id";
 import { APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1,
   APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1,
@@ -9,14 +10,48 @@ import { CorePersistenceError } from "@flarex/persistence-postgres/internal/core
 import { CoreApplicationMutationError } from "@flarex/persistence-postgres/internal/core-application-mutation";
 import type { ApplicationCoreFixture } from
   "@flarex/persistence-postgres/internal/system-test/core-application-fixture";
-import { proveApplicationNestedMutation, proveApplicationNestedMutationFailure, proveCoreApplicationAuthority, proveCoreApplicationColdClaim, proveCoreApplicationBusyClaim, proveCoreApplicationIndexOrder, proveCoreApplicationClock, proveCoreApplicationAdmissionExpiry, proveCoreApplicationDocumentValidation, proveCoreApplicationSchemaMappings, proveCoreApplicationArgumentProfile, proveCoreApplicationArgumentRefusal } from
+import { proveApplicationNestedMutation, proveApplicationNestedMutationFailure, proveCoreApplicationAuthority, proveCoreApplicationColdClaim, proveCoreApplicationBusyClaim, proveCoreApplicationIndexOrder, proveCoreApplicationClock, proveCoreApplicationAdmissionExpiry, proveCoreApplicationDocumentValidation, proveCoreApplicationSchemaMappings, proveCoreApplicationArgumentProfile, proveCoreApplicationArgumentRefusal, proveCoreApplicationLiterals } from
   "../../support/applicationNativeMutationHarness";
 
 const storageTables = ["documents", "indexes", "leases", "persistence_globals", "read_only"];
 
 export function defineApplicationNestedMutationContract(adapter: Readonly<{
   runScenario: <A>(scenario: (fixture: ApplicationCoreFixture) => Promise<A>) => Promise<A>;
+  runLiteralScenario: <A>(scenario: (fixture: ApplicationCoreFixture) => Promise<A>) => Promise<A>;
 }>): void {
+  it("preserves Int64 and signed-zero literals through cold analysis, authenticated execution and reconstruction", async () => {
+    const proof = await adapter.runLiteralScenario(proveCoreApplicationLiterals);
+    const minimum = -9223372036854775808n, maximum = 9223372036854775807n;
+    expect(proof.coldAnalysisLoads).toBe(2);
+    expect(proof.low).toMatchObject({ disposition: "published", value: {
+      integer: { $integer: "AAAAAAAAAIA=" }, zero: { $float: "AAAAAAAAAIA=" }, refused: true,
+    } });
+    expect(jsonToFlarexValueV1(proof.low.value)).toMatchObject({ integer: minimum, zero: -0, refused: true });
+    expect(proof.high).toMatchObject({ disposition: "published", value: {
+      integer: { $integer: "/////////38=" }, zero: { $float: "AAAAAAAAAIA=" }, refused: false,
+    } });
+    expect(jsonToFlarexValueV1(proof.high.value)).toMatchObject({ integer: maximum, zero: -0, refused: false });
+    for (const refusal of [proof.invalidNumber, proof.invalidZero]) {
+      expect(Exit.isFailure(refusal)).toBe(true);
+      if (Exit.isSuccess(refusal)) throw new Error("A mismatched literal argument was admitted.");
+      expect(refusal.cause.reasons.some(reason => Cause.isFailReason(reason) &&
+        reason.error instanceof CoreApplicationMutationError && reason.error.reason === "argumentsInvalid")).toBe(true);
+    }
+    expect(Exit.isFailure(proof.invalidReturn)).toBe(true);
+    expect(proof.stagedForInvalidReturn).toBe(1);
+    expect(proof.beforeInvalidReturn).toHaveLength(2);
+    expect(proof.afterInvalidReturn).toEqual(proof.beforeInvalidReturn);
+    expect(proof.cold).toEqual(proof.afterInvalidReturn);
+    for (const row of proof.cold) expect(Object.is(row.zero, -0)).toBe(true);
+    expect(proof.cold.map(row => row.integer)).toEqual(expect.arrayContaining([minimum, maximum]));
+    expect(proof.freshAfterReopen.disposition).toBe("published");
+    expect(jsonToFlarexValueV1(proof.freshAfterReopen.value)).toMatchObject({ integer: minimum, zero: -0 });
+    expect(proof.replayAfterReopen).toMatchObject({ disposition: "replayed", commitSeq: proof.high.commitSeq, value: proof.high.value });
+    expect(proof.final).toHaveLength(3);
+    expect(proof.workerLoads).toBeGreaterThan(0);
+    expect(proof.storageTables).toEqual(storageTables);
+  }, 120_000);
+
   it("shares staged deletes across nested calls and reconstructs exact history and replay", async () => {
     const proof = await adapter.runScenario(proveApplicationNestedMutation);
     expect(proof.published).toMatchObject({ disposition: "published", value: { before: "Ada", child: null, after: null } });

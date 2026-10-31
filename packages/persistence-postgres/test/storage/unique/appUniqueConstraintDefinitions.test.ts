@@ -1,3 +1,4 @@
+import { encodeSchemaManifestAppSchemaV1 } from "flarex-protocol/schema-manifest";
 import {
   createMigratedPGlitePersistence,
 } from "../../support/pgliteTestFixture";
@@ -276,7 +277,7 @@ async function registerSchema(
     deploymentId,
     schemaVersionId,
     version: CatalogSchemaVersionSchema.make(version),
-    manifest,
+    manifest: encodeSchemaManifestAppSchemaV1(manifest),
   }));
   await persistence.drizzle.transaction((tx) =>
     runEffect(ensureSchemaVersionArtifactInTransactionEffect(tx, artifact))

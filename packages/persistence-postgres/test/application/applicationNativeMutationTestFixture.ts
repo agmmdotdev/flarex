@@ -1354,14 +1354,14 @@ function resolveTaskPublication(
 
 export async function createApplicationNativeMutationSourceBundle(includeProductLaunch = false, extraFunctionCount = 0,
   functionPaddingBytes = 0, includeInternalCalls = false, includeQueryCacheProbe = false, includeAdmissionReadTwice = false,
-  includeDocumentValidationProbe = false, includeSdkQueries = false, nextQueryMetadata = false): Promise<ApplicationNativeMutationSourceBundle> {
+  includeDocumentValidationProbe = false, includeSdkQueries = false, nextQueryMetadata = false, includeLiteralValidators = false): Promise<ApplicationNativeMutationSourceBundle> {
   const execution = [
     'import { query } from "flarex/server";',
     'import { mutation } from "flarex/server";',
     'import { internalMutation } from "flarex/server";',
     ...(includeInternalCalls || includeSdkQueries ? ['import { internalQuery } from "flarex/server";'] : []),
     'import { action } from "flarex/server";',
-    ...(extraFunctionCount > 0 || includeInternalCalls || includeSdkQueries || includeDocumentValidationProbe ? ['import { v } from "flarex/values";'] : []),
+    ...(extraFunctionCount > 0 || includeInternalCalls || includeSdkQueries || includeDocumentValidationProbe || includeLiteralValidators ? ['import { v } from "flarex/values";'] : []),
     'import * as users from "../functions/users.js";',
     ...(includeProductLaunch ? ['import * as productLaunch from "../functions/productLaunch.js";'] : []),
     "export default { users: {",
@@ -1372,6 +1372,10 @@ export async function createApplicationNativeMutationSourceBundle(includeProduct
     ...(includeDocumentValidationProbe ? [
       "  validationRecovery: mutation({ handler: users.validationRecovery }),",
       "  mappingInternal: internalMutation({ args: { id: v.id('implicit_parent') }, returns: v.id('implicit_child'), handler: users.mappingInternal }),",
+    ] : []),
+    ...(includeLiteralValidators ? [
+      "  literalWrite: mutation({ args: { integer: v.union(v.literal(-9223372036854775808n), v.literal(9223372036854775807n)), zero: v.literal(-0), testInvalid: v.optional(v.boolean()) }, returns: v.object({ id: v.id('literalDocuments'), integer: v.union(v.literal(-9223372036854775808n), v.literal(9223372036854775807n)), zero: v.literal(-0), refused: v.boolean() }), handler: users.literalWrite }),",
+      "  literalBadReturn: mutation({ args: {}, returns: v.literal(-0), handler: users.literalBadReturn }),",
     ] : []),
     ...(includeSdkQueries ? [
       "  queryProbe: mutation({ handler: users.queryProbe }),",
@@ -1612,13 +1616,30 @@ export async function createApplicationNativeMutationSourceBundle(includeProduct
     "  return { accepted: payload };",
     "}",
     "",
+    ...(includeLiteralValidators ? [
+      "export async function literalWrite(ctx, args) {",
+      "  let refused = false;",
+      "  if (args.testInvalid === true) {",
+      "    try { await ctx.db.insert('literalDocuments', { integer: Number(args.integer), zero: 0 }); }",
+      "    catch (error) { if (error.name !== " + JSON.stringify(APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1) + ") throw error; refused = true; }",
+      "  }",
+      "  const id = await ctx.db.insert('literalDocuments', { integer: args.integer, zero: args.zero });",
+      "  return { id, integer: args.integer, zero: args.zero, refused };",
+      "}",
+      "export async function literalBadReturn(ctx) {",
+      "  await ctx.db.insert('literalDocuments', { integer: -9223372036854775808n, zero: -0 });",
+      "  return 0;",
+      "}",
+    ] : []),
     ...Array.from({ length: extraFunctionCount }, (_, index) =>
       `export async function scale${index.toString().padStart(3, "0")}(_ctx, _args) { return null; }`),
   ].join("\n");
   const schema = includeSdkQueries ? [
     'import { defineGlobalTable, defineSchema } from "flarex/server";',
     'import { v } from "flarex/values";',
-    'export default defineSchema({ users: defineGlobalTable({ name: v.string(), padding: v.optional(v.string()), values: v.optional(v.union(v.array(v.number()), v.array(v.array(v.number())))) }).index("by_name", ["name"]) });',
+    includeLiteralValidators
+      ? 'export default defineSchema({ users: defineGlobalTable({ name: v.string(), padding: v.optional(v.string()), values: v.optional(v.union(v.array(v.number()), v.array(v.array(v.number())))) }).index("by_name", ["name"]), literalDocuments: defineGlobalTable({ integer: v.union(v.literal(-9223372036854775808n), v.literal(9223372036854775807n)), zero: v.literal(-0) }) });'
+      : 'export default defineSchema({ users: defineGlobalTable({ name: v.string(), padding: v.optional(v.string()), values: v.optional(v.union(v.array(v.number()), v.array(v.array(v.number())))) }).index("by_name", ["name"]) });',
     "",
   ].join("\n") : "export default {};\n";
   const launchHandler = [

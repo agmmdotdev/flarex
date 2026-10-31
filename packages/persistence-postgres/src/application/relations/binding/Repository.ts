@@ -1,5 +1,6 @@
 import {
   verifyApplicationManifestWithRelations,
+  verifyApplicationManifestWithRelationsWire,
   type ApplicationManifestWithRelations,
 } from "@flarex/analysis/application-analysis";
 import { applicationSchemaPublicationFrame } from
@@ -396,7 +397,7 @@ export const locateApplicationRelationManifestBindingEffect = Effect.fn(
       operation,
     ),
   });
-  const manifest = yield* verifyApplicationManifestWithRelations(parsedManifest).pipe(
+  const manifest = yield* verifyApplicationManifestWithRelationsWire(parsedManifest).pipe(
       Effect.mapError(cause => relationBindingReadFailureValue(
         "storedState",
         cause,

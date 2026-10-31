@@ -1,3 +1,4 @@
+import { encodeSchemaManifestAppSchemaV1 } from "flarex-protocol/schema-manifest";
 import type {
   FiniteStorageCaptureOperation,
   FiniteStorageCaptureEnvelopes,
@@ -1482,7 +1483,7 @@ export async function logicalWorkingSetCurrentUniqueBudgetScenario(db: FlarexMet
   if (table === undefined) throw failure("Missing unique budget table");
   const tableId = table.tableId;
   const artifact = await runEffect(prepareSchemaVersionArtifactEffect({ deploymentId, schemaVersionId,
-    version: CatalogSchemaVersionSchema.make(1), manifest }));
+    version: CatalogSchemaVersionSchema.make(1), manifest: encodeSchemaManifestAppSchemaV1(manifest) }));
   await db.transaction(tx => runEffect(ensureSchemaVersionArtifactInTransactionEffect(tx, artifact)));
   await db.insert(fxControlScopes).values({ scopeId, deploymentId, isolationKind: "shared_database",
     physicalLocator: { kind: "shared_database", databaseKey: "current-unique-budget", schemaName: "public" } });

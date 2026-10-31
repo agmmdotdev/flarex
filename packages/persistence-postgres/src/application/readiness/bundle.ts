@@ -7,7 +7,7 @@ import {
 } from "../../database/schema";
 import {
   type ApplicationManifestV1,
-  canonicalizeApplicationManifestV1,
+  canonicalizeApplicationManifestWireV1,
 } from "@flarex/analysis/application-analysis";
 import type {
   ApplicationTaskCatalogSnapshot,
@@ -305,7 +305,7 @@ const decodeStoredManifest = Effect.fn(
     catch: cause => readinessFailureValue("storedState", false, cause),
   });
   const canonical = yield* Effect.fromResult(
-    canonicalizeApplicationManifestV1(value).pipe(
+    canonicalizeApplicationManifestWireV1(value).pipe(
       Result.mapError(cause => readinessFailureValue(
         "storedState",
         false,

@@ -12,8 +12,9 @@ import {
   normalizeFlarexValueV1,
 } from "flarex-protocol/value";
 
-import { assertValidatorJson } from "./validatorJson.ts";
-import { isOwnedValidator } from "./validatorOwnership";
+import { isOwnedValidator, validatorOwnDataProperty, validatorJsonForComposition } from "./validatorOwnership";
+import { decodeValidatorJsonV1 } from "flarex-protocol/validator-json";
+import { isValidator } from "./values";
 import type {
   GenericValidator,
   PropertyValidators,
@@ -24,7 +25,6 @@ const ARRAY_IS_ARRAY = Array.isArray;
 const OBJECT_CREATE = Object.create;
 const OBJECT_DEFINE_PROPERTY = Object.defineProperty;
 const OBJECT_ENTRIES = Object.entries;
-const OBJECT_HAS_OWN = Object.hasOwn;
 const OBJECT_VALUES = Object.values;
 
 export class ValidationError extends Error {
@@ -89,16 +89,10 @@ export function validatorToJson(
   validator: GenericValidator | PropertyValidators | ValidatorJSON,
 ): ValidatorJSON {
   if (isGenericValidator(validator)) {
-    return isOwnedValidator(validator)
-      ? snapshotApplicationValidatorJson(validator.json)
-      : requiredValidatorJson(validator.json, "$validator.json");
+    return snapshotApplicationValidatorJson(validatorJsonForComposition(validator));
   }
-  if (OBJECT_HAS_OWN(validator, "type") && typeof validator.type === "string") {
-    const decoded = assertValidatorJson(validator);
-    if (decoded === null) {
-      throw new Error("$validator: Validator is required.");
-    }
-    return decoded;
+  if (typeof Object.getOwnPropertyDescriptor(validator, "type")?.value === "string") {
+    return decodeValidatorJsonV1(validator);
   }
   if (isPropertyValidators(validator)) {
     return functionArgsToValidatorJson(validator);
@@ -110,9 +104,7 @@ export function functionArgsToValidatorJson(
   args: GenericValidator | PropertyValidators,
 ): ValidatorJSON {
   if (isGenericValidator(args)) {
-    return isOwnedValidator(args)
-      ? snapshotApplicationValidatorJson(args.json)
-      : requiredValidatorJson(args.json, "$validator.json");
+    return snapshotApplicationValidatorJson(validatorJsonForComposition(args));
   }
   const fields: Record<
     string,
@@ -126,13 +118,10 @@ export function functionArgsToValidatorJson(
     OBJECT_DEFINE_PROPERTY(fields, name, {
       enumerable: true,
       value: {
-        fieldType: isOwnedValidator(validator)
-          ? validator.json
-          : requiredValidatorJson(
-            validator.json,
-            `$validator.${name}.json`,
-          ),
-        optional: validator.isOptional === "optional",
+        fieldType: validatorJsonForComposition(validator, `$validator.${name}.json`),
+        optional: (isOwnedValidator(validator)
+          ? validator.isOptional
+          : validatorOwnDataProperty(validator, "isOptional")) === "optional",
       },
     });
   }
@@ -193,19 +182,7 @@ function isPropertyValidators(value: unknown): value is PropertyValidators {
 }
 
 function isGenericValidator(value: unknown): value is GenericValidator {
-  return typeof value === "object"
-    && value !== null
-    && "isFlarexValidator" in value
-    && value.isFlarexValidator === true
-    && "json" in value
-    && typeof value.json === "object"
-    && value.json !== null;
-}
-
-function requiredValidatorJson(value: unknown, path: string): ValidatorJSON {
-  const decoded = assertValidatorJson(value, path);
-  if (decoded === null) throw new Error(`${path}: Validator is required.`);
-  return decoded;
+  return isValidator(value);
 }
 
 export { assertValidatorJson } from "./validatorJson.ts";

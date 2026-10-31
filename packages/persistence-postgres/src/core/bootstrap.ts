@@ -165,7 +165,7 @@ const migrateLegacy = Effect.fn("CoreBootstrap.migrateLegacy")(function* (
   for (const index of registry.indexes.records.values()) yield* transaction.writePrivate(INDEXES, index.ref.id, coreIndexMetadataValue(index));
   for (const index of registry.indexesForTablet(catalog.tabletId)) if (index.name === "by_name" || index.name === "by_number")
     yield* transaction.writePrivate(INDEXES, index.ref.id, null);
-  yield* transaction.runSystem(transaction.insertSystem(SCHEMAS, { state: { state: "active" }, schema: serializeCoreSchema(schema) }));
+  yield* transaction.runSystem(transaction.insertSystem(SCHEMAS, { state: { state: "active" }, schema: yield* Effect.fromResult(serializeCoreSchema(schema)) }));
   yield* transaction.runSystem(transaction.insertSystem(DATABASE_GLOBALS, globalsBody(yield* allocateInternalId(options.newInternalId))));
   const finalized = vault.take(yield* transaction.transaction.finalize());
   if (finalized === undefined) return yield* new CoreTransactionError({ reason: "foreignFinalization" });

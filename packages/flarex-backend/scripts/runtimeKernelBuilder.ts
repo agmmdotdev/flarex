@@ -15,6 +15,7 @@ export interface RuntimeKernelBuildOptions {
   readonly label: string;
   readonly minify: false | "esbuild";
   readonly maximumBytes?: number;
+  readonly externalModules?: ReadonlyArray<string>;
 }
 
 export async function buildRuntimeKernelTwice(
@@ -86,7 +87,7 @@ async function buildRuntimeKernelOnce(
         formats: ["es"],
         fileName: () => "kernel.js",
       },
-      rollupOptions: { treeshake: true },
+      rollupOptions: { treeshake: true, external: [...(options.externalModules ?? [])] },
     },
   });
   if (!Array.isArray(output) || output.length !== 1 ||
@@ -98,8 +99,12 @@ async function buildRuntimeKernelOnce(
     throw new Error(`${options.label} must emit exactly one JavaScript chunk.`);
   }
   const chunk = emitted[0];
-  if (chunk.imports.length !== 0 || chunk.dynamicImports.length !== 0) {
-    throw new Error(`${options.label} must not retain runtime imports.`);
+  const allowedImports = new Set((options.externalModules ?? []).map(specifier => specifier.replace(/^\.\//u, "")));
+  const unexpectedImports = [...chunk.imports, ...chunk.dynamicImports].filter(
+    specifier => !allowedImports.has(specifier.replace(/^\.\//u, "")),
+  );
+  if (unexpectedImports.length !== 0) {
+    throw new Error(`${options.label} must not retain undeclared runtime imports: ${unexpectedImports.join(", ")}.`);
   }
   const source = chunk.code.replace(/\r\n?/g, "\n");
   const sourceBytes = Buffer.byteLength(source, "utf8");

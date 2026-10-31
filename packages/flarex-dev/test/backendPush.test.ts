@@ -1,3 +1,5 @@
+import { Effect } from "effect";
+import { decodeAnalyzerProtocolSuccessResponseEffect } from "@flarex/analysis";
 import type { Miniflare } from "miniflare";
 import { describe, expect, it } from "vitest";
 import type { FinishPushRejectionCode } from "flarex-backend/types";
@@ -19,6 +21,28 @@ import {
 import type { SourcePackage } from "../src/sourcePackage";
 
 describe("backend push coordinator", () => {
+  it.each([1n, -0])("emits wire metadata for literal %s from the actual local analyzer service", async value => {
+    const sourcePackage = testSourcePackage();
+    const analysis: DeploymentAnalysis = { schema: { version: 1, tables: [], indexes: [] }, functions: [{ moduleName: "lessons", functions: [{
+      moduleName: "lessons", exportName: "list", kind: "query", visibility: "public",
+      args: { type: "object", value: { value: { fieldType: { type: "literal", value }, optional: false } } },
+      returns: { type: "literal", value }, partition: null,
+    }] }] };
+    const analyzer: BackendSourceAnalyzer = { analyze: async () => ({ analysis, diagnostics: [] }) };
+    const response = await createLocalAnalyzerService(analyzer)(new Request("http://local-analyzer/analyze", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sourcePackage }),
+    }));
+    expect(response.status).toBe(200);
+    const payload: unknown = await response.json();
+    const decoded = await Effect.runPromise(decodeAnalyzerProtocolSuccessResponseEffect({
+      analysis: payload !== null && typeof payload === "object" && "analysis" in payload ? payload.analysis : undefined,
+      codegenAnalysis: payload !== null && typeof payload === "object" && "codegenAnalysis" in payload ? payload.codegenAnalysis : undefined,
+    }));
+    const literal = decoded.analysis.functions.functions[0]?.returns;
+    if (literal?.type !== "literal") throw new Error("Expected decoded metadata literal");
+    expect(Object.is(literal.value, value)).toBe(true);
+  });
+
   it("starts public backend push with only the source package", async () => {
     const sourcePackage = testSourcePackage();
     const analysis = testAnalysis();

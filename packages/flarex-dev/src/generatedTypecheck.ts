@@ -68,7 +68,7 @@ type GeneratedOutputTsconfig = {
     allowImportingTsExtensions: true;
     exactOptionalPropertyTypes: true;
     isolatedModules: true;
-    lib: ["ES2022", "DOM"];
+    lib: ["ES2022", "ES2023.Array", "DOM"];
     module: "ESNext";
     moduleResolution: "Bundler";
     noEmit: true;
@@ -139,7 +139,7 @@ function generatedOutputTsconfig(
     allowImportingTsExtensions: true,
     exactOptionalPropertyTypes: true,
     isolatedModules: true,
-    lib: ["ES2022", "DOM"],
+    lib: ["ES2022", "ES2023.Array", "DOM"],
     module: "ESNext",
     moduleResolution: "Bundler",
     noEmit: true,

@@ -1,5 +1,6 @@
 import { Data, Result } from "effect";
 import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
+import { applicationFunctionWireV1, applicationSchemaWireV1 } from "./applicationAnalysisV1";
 
 import {
   APPLICATION_PUBLICATION_MAXIMUM_FRAME_BYTES_V1,
@@ -59,7 +60,7 @@ export function applicationSchemaPublicationFrameV2(
   const frame = {
     format: "flarex.application-schema-publication",
     version: APPLICATION_SCHEMA_PUBLICATION_FRAME_VERSION_V2,
-    schema: manifest.schema,
+    schema: applicationSchemaWireV1(manifest.schema),
   };
   if (!isJson(frame)) {
     return Result.fail(new ApplicationSchemaPublicationFrameV2Error({
@@ -89,7 +90,7 @@ export function applicationFunctionCatalogPublicationFrameV2(
   return canonicalPublicationFrame("functionCatalog", {
     format: "flarex.application-function-catalog",
     version: APPLICATION_PUBLICATION_FRAME_VERSION_V2,
-    functions: manifest.functions,
+    functions: manifest.functions.map(applicationFunctionWireV1),
   });
 }
 
@@ -97,7 +98,7 @@ export function applicationFunctionCatalogPublicationFrameV2(
 export function applicationFunctionEntryPublicationFrameV2(
   fn: ApplicationManifestV2["functions"][number],
 ): Result.Result<Uint8Array, ApplicationPublicationFrameV2Error> {
-  return canonicalPublicationFrame("functionEntry", fn);
+  return canonicalPublicationFrame("functionEntry", applicationFunctionWireV1(fn));
 }
 
 /**

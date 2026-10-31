@@ -424,7 +424,7 @@ export const standardV1 = Object.freeze({
     never
   > =>
     requiredValidatorV1(applicationIdValidatorJson(tableName)),
-  literal: <Literal extends string | number | boolean>(
+  literal: <Literal extends string | number | bigint | boolean>(
     value: Literal,
   ): StandardValidatorWithFieldPathsV1<
     Literal,

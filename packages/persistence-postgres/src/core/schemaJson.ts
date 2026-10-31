@@ -6,15 +6,19 @@
 import { Effect, Result, Schema } from "effect";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
-import { MAX_VALIDATOR_JSON_DEPTH_V1, MAX_VALIDATOR_JSON_NODES_V1 } from "flarex-protocol/validator-json";
+import { MAX_VALIDATOR_JSON_DEPTH_V1, MAX_VALIDATOR_JSON_NODES_V1, ValidatorLiteralWireCodecV1, ValidatorLiteralSourceCodecV1 } from "flarex-protocol/validator-json";
 import { captureCoreSchema, CoreSchemaError, CoreSchemaInputSchema, invalidCoreSchema,
   type CoreSchemaDefinition } from "./schemaTypes";
-import { coreValidatorIsValidRecordKey } from "./validatorSubset";
+import { validatorIsSubsetOfStringV1, validatorIsStringSubtypeWithStringLiteralV1 } from "flarex-protocol/internal/validator-json-core";
 
 /** The source emits a mandatory .0 in fixed integral f64s and uses -5..15 fixed exponents. */
-export function serializeCoreSchemaFloat(value: number): string {
-  // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: invariant - authoritative ValidatorJsonV1 capture admits only finite numeric literals; nonfinite codec input is an internal defect.
-  if (!Number.isFinite(value)) throw new TypeError("A schema numeric literal must be finite");
+export function serializeCoreSchemaFloat(value: number): Result.Result<string, CoreSchemaError> {
+  return Number.isFinite(value) ? Result.succeed(formatFiniteSchemaFloat(value))
+    : Result.fail(new CoreSchemaError({ reason: "unsupportedFloatLiteral",
+      message: "Infinite or NaN values are not supported in literal validators." }));
+}
+
+function formatFiniteSchemaFloat(value: number): string {
   if (value === 0) return Object.is(value, -0) ? "-0.0" : "0.0";
   const sign = value < 0 ? "-" : "";
   const parts = Math.abs(value).toString().split("e");
@@ -65,43 +69,68 @@ function closestDecimalDigits(value: number, digitCount: number, nativeExponent:
 
 const quote = (value: string): string => JSON.stringify(value);
 
+const encodeLiteral = Schema.encodeUnknownResult(ValidatorLiteralWireCodecV1);
+const decodeSourceLiteral = Schema.decodeUnknownResult(ValidatorLiteralSourceCodecV1);
+
 /** Property order follows the source enum/struct declaration, not alphabetical JSON keys. */
-export function serializeCoreDocumentValidator(validator: ValidatorJsonV1): string {
-  const tag = `"type":${quote(validator.type)}`;
-  switch (validator.type) {
-    case "literal": return `{${tag},"value":${typeof validator.value === "number"
-      ? serializeCoreSchemaFloat(validator.value) : JSON.stringify(validator.value)}}`;
-    case "id": return `{${tag},"tableName":${quote(validator.tableName)}}`;
-    case "array": return `{${tag},"value":${serializeCoreDocumentValidator(validator.value)}}`;
-    case "union": return `{${tag},"value":[${validator.value.map(serializeCoreDocumentValidator).join(",")}]}`;
-    case "record": return `{${tag},"keys":${serializeCoreDocumentValidator(validator.keys)},"values":{"fieldType":${serializeCoreDocumentValidator(validator.values)},"optional":false}}`;
-    case "object": return `{${tag},"value":{${Object.entries(validator.value).toSorted(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
-      .map(([key, field]) => `${quote(key)}:{"fieldType":${serializeCoreDocumentValidator(field.fieldType)},"optional":${field.optional}}`).join(",")}}}`;
-    case "null": case "number": case "bigint": case "boolean": case "string": case "bytes": case "any": return `{${tag}}`;
-  }
+export function serializeCoreDocumentValidator(validator: ValidatorJsonV1): Result.Result<string, CoreSchemaError> {
+  return Result.gen(function* () {
+    const tag = `"type":${quote(validator.type)}`;
+    switch (validator.type) {
+      case "literal": {
+        const value = typeof validator.value === "number" ? yield* serializeCoreSchemaFloat(validator.value)
+          : JSON.stringify(yield* Result.mapError(encodeLiteral(validator.value), cause => invalidCoreSchema("Invalid literal value", cause)));
+        return `{${tag},"value":${value}}`;
+      }
+      case "id": return `{${tag},"tableName":${quote(validator.tableName)}}`;
+      case "array": return `{${tag},"value":${yield* serializeCoreDocumentValidator(validator.value)}}`;
+      case "union": {
+        const values: string[] = [];
+        for (const value of validator.value) values.push(yield* serializeCoreDocumentValidator(value));
+        return `{${tag},"value":[${values.join(",")}]}`;
+      }
+      case "record": {
+        const keys = yield* serializeCoreDocumentValidator(validator.keys);
+        const values = yield* serializeCoreDocumentValidator(validator.values);
+        return `{${tag},"keys":${keys},"values":{"fieldType":${values},"optional":false}}`;
+      }
+      case "object": {
+        const fields: string[] = [];
+        for (const [key, field] of Object.entries(validator.value).toSorted(([a], [b]) => a < b ? -1 : a > b ? 1 : 0))
+          fields.push(`${quote(key)}:{"fieldType":${yield* serializeCoreDocumentValidator(field.fieldType)},"optional":${field.optional}}`);
+        return `{${tag},"value":{${fields.join(",")}}}`;
+      }
+      case "null": case "number": case "bigint": case "boolean": case "string": case "bytes": case "any": return `{${tag}}`;
+    }
+  });
 }
 
-/** Semantic definitions must pass captureCoreSchema at their authority boundary. */
-export function serializeCoreSchema(schema: CoreSchemaDefinition): string {
-  const tables = schema.tables.map(table => {
-    const indexes = (values: typeof table.indexes) => `[${values.map(index =>
-      `{"indexDescriptor":${quote(index.indexDescriptor)},"fields":${JSON.stringify(index.fields)}}`).join(",")}]`;
-    return `{"tableName":${quote(table.tableName)},"indexes":${indexes(table.indexes)},"stagedDbIndexes":${indexes(table.stagedDbIndexes)},"searchIndexes":[],"stagedSearchIndexes":[],"vectorIndexes":[],"stagedVectorIndexes":[],"documentType":${table.documentType === undefined ? "null" : serializeCoreDocumentValidator(table.documentType)},"stagedDocumentType":${table.stagedDocumentType === undefined ? "null" : serializeCoreDocumentValidator(table.stagedDocumentType)}}`;
+/** Source TryFrom<DatabaseSchema>: finite validation belongs to persistence conversion. */
+export function serializeCoreSchema(schema: CoreSchemaDefinition): Result.Result<string, CoreSchemaError> {
+  return Result.gen(function* () {
+    const tables: string[] = [];
+    for (const table of schema.tables) {
+      const indexes = (values: typeof table.indexes) => `[${values.map(index =>
+        `{"indexDescriptor":${quote(index.indexDescriptor)},"fields":${JSON.stringify(index.fields)}}`).join(",")}]`;
+      const documentType = table.documentType === undefined ? "null" : yield* serializeCoreDocumentValidator(table.documentType);
+      const stagedDocumentType = table.stagedDocumentType === undefined ? "null" : yield* serializeCoreDocumentValidator(table.stagedDocumentType);
+      tables.push(`{"tableName":${quote(table.tableName)},"indexes":${indexes(table.indexes)},"stagedDbIndexes":${indexes(table.stagedDbIndexes)},"searchIndexes":[],"stagedSearchIndexes":[],"vectorIndexes":[],"stagedVectorIndexes":[],"documentType":${documentType},"stagedDocumentType":${stagedDocumentType}}`);
+    }
+    return `{"tables":[${tables.join(",")}],"schemaValidation":${schema.schemaValidation}}`;
   });
-  return `{"tables":[${tables.join(",")}],"schemaValidation":${schema.schemaValidation}}`;
 }
 
 export const coreDocumentValidatorHash = Effect.fn("CoreSchema.validatorHash")(function* (validator: ValidatorJsonV1) {
-  const bytes = new TextEncoder().encode(serializeCoreDocumentValidator(validator));
+  const serialized = yield* Effect.fromResult(serializeCoreDocumentValidator(validator));
+  const bytes = new TextEncoder().encode(serialized);
   const digest = yield* Effect.tryPromise({ try: () => globalThis.crypto.subtle.digest("SHA-256", bytes),
     catch: (cause: unknown) => new CoreSchemaError({ reason: "hashFailure", message: "Could not hash the schema validator", cause }) });
   return encodeBytesToLowercaseHex(new Uint8Array(digest));
 });
-
 const SourceFieldSchema = Schema.Struct({ fieldType: Schema.Unknown, optional: Schema.Boolean });
 const SourceNodeSchema = Schema.Union([
   Schema.Struct({ type: Schema.Literals(["null", "number", "bigint", "boolean", "string", "bytes", "any", "map", "set"]) }),
-  Schema.Struct({ type: Schema.Literal("literal"), value: Schema.Union([Schema.String, Schema.Finite, Schema.Boolean]) }),
+  Schema.Struct({ type: Schema.Literal("literal"), value: Schema.Unknown }),
   Schema.Struct({ type: Schema.Literal("id"), tableName: Schema.String }),
   Schema.Struct({ type: Schema.Literal("array"), value: Schema.Unknown }),
   Schema.Struct({ type: Schema.Literal("object"), value: Schema.Record(Schema.String, SourceFieldSchema) }),
@@ -134,11 +163,18 @@ function sourceValidator(value: unknown, budget: { nodes: number }, depth = 0): 
       }
       case "record": {
         const keys = yield* sourceValidator(node.keys, budget, depth + 1);
-        if (node.values.optional || !coreValidatorIsValidRecordKey(keys))
-          return yield* Result.fail(invalidCoreSchema("Source records require string keys without literals and nonoptional values"));
-        return { type: "record", keys, values: yield* sourceValidator(node.values.fieldType, budget, depth + 1) };
+        if (!validatorIsSubsetOfStringV1(keys))
+          return yield* Result.fail(invalidCoreSchema("Source record keys must be string subtypes"));
+        const values = yield* sourceValidator(node.values.fieldType, budget, depth + 1);
+        if (validatorIsStringSubtypeWithStringLiteralV1(keys))
+          return yield* Result.fail(invalidCoreSchema("Source record keys cannot contain string literal validators"));
+        if (node.values.optional)
+          return yield* Result.fail(invalidCoreSchema("Source record values must not be optional"));
+        return { type: "record", keys, values };
       }
-      case "literal": case "id": return node;
+      case "literal": return { type: "literal", value: yield* Result.mapError(decodeSourceLiteral(node.value),
+        cause => invalidCoreSchema("Invalid source literal value", cause)) };
+      case "id": return node;
       case "null": case "number": case "bigint": case "boolean": case "string": case "bytes": case "any": return { type: node.type };
     }
   });

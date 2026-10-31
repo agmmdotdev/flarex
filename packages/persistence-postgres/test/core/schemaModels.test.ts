@@ -9,16 +9,21 @@ import { incrementIndexKeyPrefix } from "flarex-protocol/index-range";
 import { captureCoreSchema, checkCoreSchemaIndexReferences, coreSchemaTable, decodeCoreSchemaMetadata,
   decodeCoreSchemaValidationMetadata, decodeCoreSchemaValidationProgress, SCHEMAS, SCHEMA_VALIDATIONS,
   SCHEMA_VALIDATION_PROGRESS, type CoreSchemaDefinition } from "../../src/core/schemaTypes";
-import { parseCoreSchema, serializeCoreDocumentValidator, serializeCoreSchema, serializeCoreSchemaFloat,
+import { parseCoreSchema, serializeCoreDocumentValidator as encodeCoreDocumentValidator,
+  serializeCoreSchema as encodeCoreSchema, serializeCoreSchemaFloat as encodeCoreSchemaFloat,
   coreDocumentValidatorHash } from "../../src/core/schemaJson";
 import { CoreSchemaRegistry } from "../../src/core/schemaRegistry";
-import { coreValidatorIsSubset } from "../../src/core/validatorSubset";
+import { coreValidatorIsSubset, coreValidatorsEqual } from "../../src/core/validatorSubset";
+import { decodeLegacyTable } from "../../src/core/legacySchema";
 import { CoreSchemaModel, coreSchemaValidationOutcomes } from "../../src/core/schemaModel";
 import { CoreSchemaValidations } from "../../src/core/schemaValidations";
 import type { CoreSchemaTransaction } from "../../src/core/schemaValidationProgress";
 import type { CoreSystemDocument } from "../../src/core/transaction";
 import { CoreTableNamespaceSchema } from "../../src/core/namespace";
 
+const serializeCoreDocumentValidator = (value: ValidatorJsonV1) => Result.getOrThrow(encodeCoreDocumentValidator(value));
+const serializeCoreSchema = (value: CoreSchemaDefinition) => Result.getOrThrow(encodeCoreSchema(value));
+const serializeCoreSchemaFloat = (value: number) => Result.getOrThrow(encodeCoreSchemaFloat(value));
 const bytes = (value: number) => { const result = new Uint8Array(16); new DataView(result.buffer).setUint32(12, value); return result; };
 const id = (value: number) => Result.getOrThrow(encodeDocumentId(600, bytes(value)));
 const object = (fields: Record<string, ValidatorJsonV1>): ValidatorJsonV1 => ({ type: "object",
@@ -149,6 +154,37 @@ describe("source schema codecs and proof rules", () => {
     expect(Result.isFailure(parseCoreSchema('{"tables":[{"tableName":"items","indexes":[],"documentType":{"type":"object","value":{"bad":{"fieldType":{"type":"record","keys":{"type":"string"},"values":{"fieldType":{"type":"any"},"optional":true}},"optional":false}}}}]}'))).toBe(true);
   });
 
+  it("keeps source record key, value and optional refusal order through shared key predicates", () => {
+    const parseRecord = (keys: unknown, fieldType: unknown, optional = false) => parseCoreSchema(JSON.stringify({
+      tables: [{ tableName: "items", indexes: [], documentType: { type: "object", value: {
+        record: { fieldType: { type: "record", keys, values: { fieldType, optional } }, optional: false },
+      } } }],
+    }));
+    const malformed = { type: "not-a-validator" };
+    const integer = { type: "literal", value: { $integer: "AQAAAAAAAAA=" } };
+    const literal = { type: "literal", value: "key" };
+    const nonfinite = { type: "literal", value: { $float: "AAAAAAAA+H8=" } };
+    expect(parseRecord(integer, malformed, true)).toMatchObject({ failure: {
+      reason: "invalidSchema", message: "Source record keys must be string subtypes",
+    } });
+    expect(parseRecord(nonfinite, nonfinite)).toMatchObject({ failure: {
+      reason: "invalidSchema", message: "Source record keys must be string subtypes",
+    } });
+    expect(parseRecord(literal, malformed, true)).toMatchObject({ failure: {
+      reason: "invalidSchema", message: "Invalid source validator JSON",
+    } });
+    expect(parseRecord(literal, nonfinite, true)).toMatchObject({ failure: {
+      reason: "invalidSchema", message: "Source record keys cannot contain string literal validators",
+    } });
+    expect(parseRecord({ type: "union", value: [{ type: "string" }, literal] }, { type: "number" })).toMatchObject({ failure: {
+      reason: "invalidSchema", message: "Source record keys cannot contain string literal validators",
+    } });
+    expect(parseRecord({ type: "string" }, { type: "number" }, true)).toMatchObject({ failure: {
+      reason: "invalidSchema", message: "Source record values must not be optional",
+    } });
+    expect(Result.isSuccess(parseRecord({ type: "union", value: [] }, { type: "number" }))).toBe(true);
+    expect(Result.isSuccess(parseRecord({ type: "id", tableName: "items" }, { type: "number" }))).toBe(true);
+  });
   it("uses source float layout at exponent boundaries", () => {
     const cases: readonly (readonly [number, string])[] = [[0, "0.0"], [-0, "-0.0"], [1, "1.0"], [0.1, "0.1"],
       [1e-5, "0.00001"], [1e-6, "1e-6"], [1e15, "1000000000000000.0"], [1e16, "1e+16"],
@@ -233,6 +269,120 @@ describe("source schema codecs and proof rules", () => {
   });
 });
 
+describe("source literal identity and persistence conversion", () => {
+  const fromLiteral = (value: string | number | boolean | bigint) => schema(object({ value: { type: "literal", value } }));
+  const sourceSchema = (literal: string) => `{"tables":[{"tableName":"items","indexes":[],"documentType":{"type":"object","value":{"value":{"fieldType":{"type":"literal","value":${literal}},"optional":false}}}}]}`;
+  const capturedLiteral = (definition: CoreSchemaDefinition) => {
+    const validator = definition.tables[0]?.documentType;
+    return validator?.type === "object" && validator.value.value?.fieldType.type === "literal"
+      ? validator.value.value.fieldType.value : undefined;
+  };
+
+  it("round-trips source int64 tags and signed zero without changing ordinary literal bytes", async () => {
+    const cases: readonly (readonly [bigint, string])[] = [
+      [0n, "AAAAAAAAAAA="], [1n, "AQAAAAAAAAA="], [-1n, "//////////8="],
+      [-0x8000_0000_0000_0000n, "AAAAAAAAAIA="], [0x7fff_ffff_ffff_ffffn, "/////////38="],
+    ];
+    for (const [value, encoded] of cases) {
+      const literal = { type: "literal", value } as const;
+      const expected = `{"type":"literal","value":{"$integer":"${encoded}"}}`;
+      expect(serializeCoreDocumentValidator(literal)).toBe(expected);
+      expect(await Effect.runPromise(coreDocumentValidatorHash(literal)))
+        .toBe(createHash("sha256").update(expected).digest("hex"));
+      expect(capturedLiteral(Result.getOrThrow(parseCoreSchema(sourceSchema(`{"$integer":"${encoded}"}`))))).toBe(value);
+    }
+    expect(serializeCoreDocumentValidator({ type: "literal", value: -0 })).toBe('{"type":"literal","value":-0.0}');
+    expect(serializeCoreDocumentValidator({ type: "literal", value: 0 })).toBe('{"type":"literal","value":0.0}');
+    expect(Object.is(capturedLiteral(Result.getOrThrow(parseCoreSchema(sourceSchema('-0.0')))), -0)).toBe(true);
+    expect(Object.is(capturedLiteral(Result.getOrThrow(parseCoreSchema(sourceSchema('{"$float":"AAAAAAAAAIA="}')))), -0)).toBe(true);
+    expect(Object.is(capturedLiteral(Result.getOrThrow(parseCoreSchema(sourceSchema('{"$float":"AAAAAAAAAAA="}')))), 0)).toBe(true);
+    expect(serializeCoreDocumentValidator({ type: "literal", value: "\0" })).toBe('{"type":"literal","value":"\\u0000"}');
+    expect(await Effect.runPromise(coreDocumentValidatorHash({ type: "literal", value: 1n })))
+      .not.toBe(await Effect.runPromise(coreDocumentValidatorHash({ type: "literal", value: 1 })));
+    expect(await Effect.runPromise(coreDocumentValidatorHash({ type: "literal", value: -0 })))
+      .not.toBe(await Effect.runPromise(coreDocumentValidatorHash({ type: "literal", value: 0 })));
+    expect(Result.isFailure(captureCoreSchema({ tables: [{ tableName: "items", indexes: [],
+      documentType: object({ value: { type: "literal", value: 0x8000_0000_0000_0000n } }) }] }))).toBe(true);
+  });
+
+  it("matches standalone Rust serde literal golden hashes", async () => {
+    // Pinned enum field order, executed with serde_json 1.0.151 / serde_core
+    // 1.0.229 / zmij 1.0.23, offline. Int64 LE payloads supplied independently;
+    // this is a serde serialization oracle, not execution of the Convex crate.
+    const vectors: readonly (readonly [number | bigint, string])[] = [
+      [0, "9de16a640aeeed5dd8fe60839d1347596ffda30fabe0c15ad7cdcbf51d57352b"],
+      [-0, "4da6affabb1697140fcf34f5c148b77a9805818ee515e8974a586776412f32d6"],
+      [1, "b171289f3b32c98981959a950a26bd1e06f27bd8d92fcf458e72d8f332886511"],
+      [1e-6, "4ed76c6f8afc6f9bbade5c3d8a81f0edfd05fcf9bf44a102a0a20e471352d44d"],
+      [1e16, "72483e88e87b0f4feaf85cd92a82c24ac9aca59508ae2c04081fc86eb053a698"],
+      [0n, "ddd4cea217f984b2719e8f5ce217a7e72033355077b75ab33ac792e7e3bcb3b0"],
+      [1n, "183b791d93905b55cbe70a35187dcd5fb483ef22de5e3156881c81b694dd3b48"],
+      [-1n, "ca3c4e2913edacba083c0d8a1925f6f28238e9701ea50cfc32d0ce6bef4d6d1a"],
+      [-0x8000_0000_0000_0000n, "44dd455deeae8b14a33daec8e0eebbb0316e677820811eca258b9f8d59261ba8"],
+      [0x7fff_ffff_ffff_ffffn, "51b2484ee79a92495d53f857845eebb32b09c380139a4f730475eaf74c331738"],
+    ];
+    for (const [value, expected] of vectors)
+      expect(await Effect.runPromise(coreDocumentValidatorHash({ type: "literal", value }))).toBe(expected);
+  });
+  it("accepts source nonfinite parsing but refuses schema/hash persistence with a typed error", async () => {
+    for (const [value, tag] of [[Infinity, "AAAAAAAA8H8="], [-Infinity, "AAAAAAAA8P8="], [NaN, "AAAAAAAA+H8="]] as const) {
+      const parsed = Result.getOrThrow(parseCoreSchema(sourceSchema(`{"$float":"${tag}"}`)));
+      expect(Object.is(capturedLiteral(parsed), value)).toBe(true);
+      expect(encodeCoreSchema(parsed)).toMatchObject({ failure: { _tag: "CoreSchemaError", reason: "unsupportedFloatLiteral" } });
+      expect(await Effect.runPromise(Effect.result(coreDocumentValidatorHash({ type: "literal", value }))))
+        .toMatchObject({ failure: { _tag: "CoreSchemaError", reason: "unsupportedFloatLiteral" } });
+      const store = metadataStore();
+      expect(await Effect.runPromise(Effect.result(new CoreSchemaModel(store.tx).submitPending(fromLiteral(value)))))
+        .toMatchObject({ failure: { _tag: "CoreSchemaError", reason: "unsupportedFloatLiteral" } });
+      expect(store.rows(SCHEMAS)).toHaveLength(0);
+    }
+    for (const tag of ['{"$float":"AAAAAAAA8D8="}', '{"$integer":"AA=="}', '{"$integer":"AAAAAAAAAAA=","extra":true}'])
+      expect(Result.isFailure(parseCoreSchema(sourceSchema(tag)))).toBe(true);
+  });
+
+  it("keeps c554 historical validators at their original raw primitive subset", () => {
+    const legacy = (raw: string) => decodeLegacyTable({ id: id(1), creationTime: 1, value: {
+      name: "items", number: 10000, tabletId: Buffer.from(bytes(1)).toString("hex"), validator: raw,
+    } });
+    expect(legacy('{"type":"literal","value":1}')).toMatchObject({ success: { validator: { type: "literal", value: 1 } } });
+    for (const raw of ['{"type":"literal","value":-0}', '{"type":"literal","value":1e309}',
+      '{"type":"literal","value":{"$integer":"AQAAAAAAAAA="}}', '{"type":"literal","value":{"$float":"AAAAAAAAAIA="}}'])
+      expect(legacy(raw)).toMatchObject({ failure: { _tag: "CorePersistenceError", reason: "corruptData" } });
+  });
+
+  it("uses source literal bits and scalar types for subset and schema walk proofs", () => {
+    const literal = (value: string | number | boolean | bigint): ValidatorJsonV1 => ({ type: "literal", value });
+    const float = (bits: bigint) => { const view = new DataView(new ArrayBuffer(8)); view.setBigUint64(0, bits); return view.getFloat64(0); };
+    expect(coreValidatorsEqual(literal(0), literal(-0))).toBe(false);
+    expect(coreValidatorsEqual(literal(1), literal(1n))).toBe(false);
+    expect(coreValidatorsEqual(literal(float(0x7ff8_0000_0000_0001n)), literal(float(0x7ff8_0000_0000_0001n)))).toBe(true);
+    expect(coreValidatorsEqual(literal(float(0x7ff8_0000_0000_0001n)), literal(float(0x7ff8_0000_0000_0002n)))).toBe(false);
+    expect(coreValidatorIsSubset(literal(1n), { type: "bigint" })).toBe(true);
+    expect(coreValidatorIsSubset(literal(1n), { type: "number" })).toBe(false);
+    expect(coreValidatorIsSubset(literal(1), { type: "bigint" })).toBe(false);
+    expect(coreValidatorIsSubset(literal(0), literal(-0))).toBe(false);
+    expect(coreSchemaValidationOutcomes(fromLiteral(-0), fromLiteral(0), new Map(), () => true).get("items")).toBe("mustWalk");
+    expect(coreSchemaValidationOutcomes(fromLiteral(-0), undefined, new Map([["items", object({ value: literal(0) })]]), () => true)
+      .get("items")).toBe("mustWalk");
+  });
+
+  it("does not carry pending progress or valid staged proof across signed-zero changes", async () => {
+    for (const completed of [false, true]) {
+      const store = metadataStore(); const model = new CoreSchemaModel(store.tx);
+      const before = await Effect.runPromise(model.submitPending(schema(undefined, object({ value: { type: "literal", value: 0 } }))));
+      const first = Option.getOrThrow(await Effect.runPromise(model.validations.validationMetadataForTable(before.id, "items")));
+      await Effect.runPromise(model.validations.updateAttempt(first.document.id,
+        { kind: "recordProgress", additionalDocsValidated: 5n, totalDocs: 10n }));
+      if (completed) await Effect.runPromise(model.validations.updateAttempt(first.document.id, { kind: "markValid" }));
+      const after = await Effect.runPromise(model.submitPending(schema(undefined, object({ value: { type: "literal", value: -0 } }))));
+      const next = Option.getOrThrow(await Effect.runPromise(model.validations.validationMetadataForTable(after.id, "items")));
+      expect(next.document.id).not.toBe(first.document.id);
+      expect(next.metadata.validatorHash).not.toBe(first.metadata.validatorHash);
+      expect(next.metadata.state).toEqual({ state: "pending" });
+      expect(await Effect.runPromise(model.validations.progress(next.document.id))).toMatchObject({ numDocsValidated: 0n });
+    }
+  });
+});
 describe("namespaced schema registry", () => {
   it("records negative object-state equality dependencies and retains older roots", () => {
     const before = CoreSchemaRegistry.empty();
@@ -249,6 +399,51 @@ describe("namespaced schema registry", () => {
     expect(Option.isNone(Result.getOrThrow(after.getByState(component, "active", { id: bytes(1) }, observe)))).toBe(true);
   });
 
+  it("preserves the source distinction between stored nonfinite reads and new schema persistence", async () => {
+    // Convex db914cf06 schema_metadata.rs22-31/55-59: stored raw strings are
+    // parsed directly; only new metadata construction reverse-serializes them.
+    for (const [state, tag, expected] of [["active", "AAAAAAAA+H8=", NaN],
+      ["pending", "AAAAAAAA8H8=", Infinity], ["validated", "AAAAAAAA8P8=", -Infinity]] as const) {
+      const store = metadataStore();
+      const raw = `{"tables":[{"tableName":"items","indexes":[],"documentType":{"type":"object","value":{"value":{"fieldType":{"type":"literal","value":{"$float":"${tag}"}},"optional":false}}}}],"schemaValidation":true}`;
+      const selectedId = await Effect.runPromise(store.tx.insertSystem(SCHEMAS, { state: { state }, schema: raw }));
+      let stateReads = 0;
+      const byState = Result.getOrThrow(store.tx.schemaRegistry.getByState(null, state,
+        store.tx.schemaTableStateIndex(), () => { stateReads++; }));
+      const byId = await Effect.runPromise(new CoreSchemaModel(store.tx).get(selectedId));
+      for (const found of [byState, byId]) {
+        const selected = Option.getOrThrow(found);
+        const validator = selected.schema.tables[0]?.documentType;
+        expect(validator).toMatchObject({ type: "object" });
+        if (validator?.type !== "object") throw new Error("Missing stored object validator");
+        const literal = validator.value.value?.fieldType;
+        expect(literal?.type).toBe("literal");
+        if (literal?.type !== "literal") throw new Error("Missing stored literal validator");
+        expect(Object.is(literal.value, expected)).toBe(true);
+        expect(selected.metadata.schema).toBe(raw);
+        expect(encodeCoreSchema(selected.schema)).toMatchObject({ failure: {
+          _tag: "CoreSchemaError", reason: "unsupportedFloatLiteral",
+        } });
+      }
+      expect(stateReads).toBe(1);
+    }
+  });
+
+  it("classifies malformed stored numeric literals as corruption in both actual readers", async () => {
+    for (const encoded of ['{"$float":"AA=="}', '1e309']) {
+      const store = metadataStore();
+      const raw = `{"tables":[{"tableName":"items","indexes":[],"documentType":{"type":"object","value":{"value":{"fieldType":{"type":"literal","value":${encoded}},"optional":false}}}}],"schemaValidation":true}`;
+      const selectedId = await Effect.runPromise(store.tx.insertSystem(SCHEMAS, { state: { state: "active" }, schema: raw }));
+      let stateReads = 0;
+      const byState = store.tx.schemaRegistry.getByState(null, "active",
+        store.tx.schemaTableStateIndex(), () => { stateReads++; });
+      const byId = await Effect.runPromise(Effect.result(new CoreSchemaModel(store.tx).get(selectedId)));
+      for (const result of [byState, byId]) expect(result).toMatchObject({ failure: {
+        _tag: "CorePersistenceError", reason: "corruptData", cause: { reason: "invalidSchema" },
+      } });
+      expect(stateReads).toBe(1);
+    }
+  });
   it("checks final batch invariants and lazily rejects corrupt source JSON", () => {
     const active = record(1, "active"); const validated = record(2, "validated");
     const initial = Result.getOrThrow(CoreSchemaRegistry.bootstrap([{ namespace: null, document: active }, { namespace: null, document: validated }]));

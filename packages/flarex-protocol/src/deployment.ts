@@ -3,7 +3,7 @@ import { isNonEmptyString } from "@flarex/utils/strings";
 import { Effect, Schema } from "effect";
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/httpapi";
 import { AuthConfigSchema } from "./auth";
-import { ValidatorJson } from "./validator-json";
+import { encodeValidatorJsonV1, ValidatorJsonWireCodecV1, type ValidatorJsonV1 } from "./validator-json";
 
 export { ValidatorJson } from "./validator-json";
 
@@ -205,7 +205,7 @@ export class SchemaTable extends Schema.Class<SchemaTable>("SchemaTable")({
   tableId: Schema.Number,
   name: Schema.String,
   state: Schema.optional(TableState),
-  validator: Schema.optional(Schema.Union([ValidatorJson, Schema.Null])),
+  validator: Schema.optional(Schema.Union([ValidatorJsonWireCodecV1, Schema.Null])),
   placement: TablePlacement,
 }) {}
 
@@ -268,8 +268,8 @@ export class DeploymentFunctionMetadata extends Schema.Class<DeploymentFunctionM
   path: Schema.String,
   kind: DeploymentFunctionKind,
   visibility: Schema.optional(FunctionVisibility),
-  args: Schema.optional(Schema.Union([ValidatorJson, Schema.Null])),
-  returns: Schema.optional(Schema.Union([ValidatorJson, Schema.Null])),
+  args: Schema.optional(Schema.Union([ValidatorJsonWireCodecV1, Schema.Null])),
+  returns: Schema.optional(Schema.Union([ValidatorJsonWireCodecV1, Schema.Null])),
   route: Schema.optional(Schema.Union([FunctionRoutePolicy, Schema.Null])),
   partition: Schema.optional(Schema.Union([FunctionPartitionMetadata, Schema.Null])),
   position: Schema.optional(AnalyzedSourcePosition),
@@ -295,8 +295,8 @@ export class DeploymentCodegenFunction extends Schema.Class<DeploymentCodegenFun
   exportName: Schema.String,
   kind: DeploymentFunctionKind,
   visibility: FunctionVisibility,
-  args: ValidatorJson,
-  returns: Schema.Union([ValidatorJson, Schema.Null]),
+  args: ValidatorJsonWireCodecV1,
+  returns: Schema.Union([ValidatorJsonWireCodecV1, Schema.Null]),
   partition: Schema.optional(Schema.Union([FunctionPartitionMetadata, Schema.Null])),
   position: Schema.optional(AnalyzedSourcePosition),
 }) {}
@@ -786,3 +786,74 @@ function deploymentProtocolValidationFailure(
     cause,
   }));
 }
+
+/** Metadata projection only: admitted semantic models may be plain values or protocol class instances. */
+export function encodeDeploymentSchema(schema: DeploymentSchema) {
+  return { ...schema, tables: schema.tables.map(table => ({ ...table, validator: optionalValidatorWire(table.validator) })) };
+}
+
+export function encodeDeploymentFunctionValidators<Input extends {
+  readonly args?: ValidatorJsonV1 | null | undefined;
+  readonly returns?: ValidatorJsonV1 | null | undefined;
+}>(fn: Input) {
+  return { ...fn, args: optionalValidatorWire(fn.args), returns: optionalValidatorWire(fn.returns) };
+}
+
+export function encodeDeploymentFunctions(functions: DeploymentFunctions) {
+  return { ...functions, functions: functions.functions.map(encodeDeploymentFunctionValidators) };
+}
+
+export function encodeDeploymentAnalysis(analysis: DeploymentAnalysis) {
+  return { ...analysis, schema: encodeDeploymentSchema(analysis.schema), functions: encodeDeploymentFunctions(analysis.functions) };
+}
+
+export function encodeDeploymentCodegenAnalysis(analysis: DeploymentCodegenAnalysis) {
+  return { ...analysis, schema: encodeDeploymentSchema(analysis.schema), functions: analysis.functions.map(module => ({ ...module,
+    functions: module.functions.map(fn => ({ ...fn, args: encodeValidatorJsonV1(fn.args),
+      returns: fn.returns === null ? null : encodeValidatorJsonV1(fn.returns),
+    })),
+  })) };
+}
+
+function optionalValidatorWire(value: ValidatorJsonV1 | null | undefined) {
+  return value === null || value === undefined ? value : encodeValidatorJsonV1(value);
+}
+
+const captureAnalysis = Schema.decodeUnknownEffect(Schema.toCodecIso(DeploymentAnalysis));
+const captureCodegenAnalysis = Schema.decodeUnknownEffect(Schema.toCodecIso(DeploymentCodegenAnalysis));
+const capturePushStatus = Schema.decodeUnknownEffect(Schema.toCodecIso(PushStatus));
+const captureActiveDeployment = Schema.decodeUnknownEffect(Schema.toCodecIso(ActiveDeploymentStatus));
+const captureFinishResponse = Schema.decodeUnknownEffect(Schema.toCodecIso(FinishPushResponse));
+
+/** Trusted semantic handoffs construct the protocol classes without decoding wire literals again. */
+export const captureDeploymentAnalysisEffect = Effect.fn("DeploymentProtocol.captureDeploymentAnalysis")(
+  (value: unknown) => captureAnalysis(value).pipe(Effect.mapError(cause => new DeploymentProtocolValidationError({
+    schema: "DeploymentAnalysis", message: "Deployment analysis did not match the deployment protocol.", cause,
+  }))),
+);
+export const captureDeploymentCodegenAnalysisEffect = Effect.fn("DeploymentProtocol.captureDeploymentCodegenAnalysis")(
+  (value: unknown) => captureCodegenAnalysis(value).pipe(Effect.mapError(cause => new DeploymentProtocolValidationError({
+    schema: "DeploymentCodegenAnalysis", message: "Deployment codegen analysis did not match the deployment protocol.", cause,
+  }))),
+);
+export const capturePushStatusEffect = Effect.fn("DeploymentProtocol.capturePushStatus")(function* (value: unknown) {
+  const status = yield* capturePushStatus(value).pipe(Effect.mapError(cause => new DeploymentProtocolValidationError({
+    schema: "PushStatus", message: "Deployment push response did not match the deployment protocol.", cause,
+  })));
+  yield* validatePushSourcePackageAuthConfig(status.sourcePackage);
+  return status;
+});
+export const captureActiveDeploymentStatusEffect = Effect.fn("DeploymentProtocol.captureActiveDeploymentStatus")(function* (value: unknown) {
+  const status = yield* captureActiveDeployment(value).pipe(Effect.mapError(cause => new DeploymentProtocolValidationError({
+    schema: "ActiveDeploymentStatus", message: "Active deployment response did not match the deployment protocol.", cause,
+  })));
+  yield* validatePushSourcePackageAuthConfig(status.sourcePackage);
+  return status;
+});
+export const captureFinishPushResponseEffect = Effect.fn("DeploymentProtocol.captureFinishPushResponse")(function* (value: unknown) {
+  const response = yield* captureFinishResponse(value).pipe(Effect.mapError(cause => new DeploymentProtocolValidationError({
+    schema: "FinishPushResponse", message: "Finish push response did not match the deployment protocol.", cause,
+  })));
+  yield* validatePushSourcePackageAuthConfig(response.push.sourcePackage);
+  return response;
+});

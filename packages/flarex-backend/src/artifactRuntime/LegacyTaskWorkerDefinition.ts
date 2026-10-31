@@ -1,3 +1,4 @@
+import { encodeValidatorJsonV1 } from "flarex-protocol/validator-json";
 import { bytesEqualFullScan, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Data, Effect, Result } from "effect";
@@ -284,10 +285,20 @@ function entrypointSource(
     readonly manifest: TaskRuntimeLaunchSubject["runtimeBinding"]["manifest"];
   }>,
 ): string {
+  const wireDefinition = {
+    ...definition,
+    manifest: {
+      ...definition.manifest,
+      payloadValidator: encodeValidatorJsonV1(definition.manifest.payloadValidator),
+      outputValidator: definition.manifest.outputValidator === null ? null
+        : encodeValidatorJsonV1(definition.manifest.outputValidator),
+    },
+  };
   return [
     'import { RpcTarget, WorkerEntrypoint } from "cloudflare:workers";',
-    `import { executeLegacyTaskWorkerV1, startLegacyTaskWorkerSessionV1 } from ${JSON.stringify(coreImport)};`,
-    `const definition = Object.freeze(JSON.parse(${JSON.stringify(JSON.stringify(definition))}));`,
+    `import { executeLegacyTaskWorkerV1, startLegacyTaskWorkerSessionV1, decodeValidatorJsonWireCoreV1 } from ${JSON.stringify(coreImport)};`,
+    `const wireDefinition = JSON.parse(${JSON.stringify(JSON.stringify(wireDefinition))});`,
+    'const definition = Object.freeze({ ...wireDefinition, manifest: Object.freeze({ ...wireDefinition.manifest, payloadValidator: decodeValidatorJsonWireCoreV1(wireDefinition.manifest.payloadValidator), outputValidator: wireDefinition.manifest.outputValidator === null ? null : decodeValidatorJsonWireCoreV1(wireDefinition.manifest.outputValidator) }) });',
     `const loadExecution = () => import(${JSON.stringify(executionImport)});`,
     "class FlarexTaskWorkerSession extends RpcTarget {",
     "  #execution;",

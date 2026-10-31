@@ -4,7 +4,8 @@ import { isNonArrayRecord } from "@flarex/utils/records";
 import { encodeCanonicalJson, type Json, type JsonObject } from "./json";
 import { StrictParseOptions, StrictStructOptions } from "./strict-schema-options";
 import {
-  ValidatorJsonV1,
+  ValidatorJsonWireCodecV1,
+  encodeValidatorJsonV1,
   validatorJsonAdmissionIssueV1,
 } from "./validator-json";
 import {
@@ -70,8 +71,8 @@ const ApplicationRuntimeFunctionV1Schema = Schema.Struct({
     Schema.Literal("public"),
     Schema.Literal("internal"),
   ]),
-  args: ValidatorJsonV1,
-  returns: Schema.Union([ValidatorJsonV1, Schema.Null]),
+  args: ValidatorJsonWireCodecV1,
+  returns: Schema.Union([ValidatorJsonWireCodecV1, Schema.Null]),
   partition: ApplicationRuntimeFunctionPartitionV1Schema,
   entrySha256: LowercaseSha256,
 }).annotate(StrictStructOptions);
@@ -115,9 +116,23 @@ const decodeShape = Schema.decodeUnknownResult(
   ApplicationRuntimeTargetV1StructuralSchema,
   StrictParseOptions,
 );
+const captureShape = Schema.decodeUnknownResult(Schema.toType(ApplicationRuntimeTargetV1StructuralSchema), StrictParseOptions);
 
 export function decodeApplicationRuntimeTargetV1(
   value: unknown,
+): Result.Result<ApplicationRuntimeTargetV1, ApplicationRuntimeTargetV1Error> {
+  return admitRuntimeTarget(value, decodeShape);
+}
+
+export function captureApplicationRuntimeTargetV1(
+  value: unknown,
+): Result.Result<ApplicationRuntimeTargetV1, ApplicationRuntimeTargetV1Error> {
+  return admitRuntimeTarget(value, captureShape);
+}
+
+function admitRuntimeTarget(
+  value: unknown,
+  decode: typeof decodeShape,
 ): Result.Result<ApplicationRuntimeTargetV1, ApplicationRuntimeTargetV1Error> {
   return capturePlainData(value).pipe(
     Result.mapError(cause => error("decode", "invalidShape", cause)),
@@ -127,7 +142,7 @@ export function decodeApplicationRuntimeTargetV1(
         ? Result.succeed(captured)
         : Result.fail(error("decode", "invalidShape", admissionFailure));
     }),
-    Result.flatMap(captured => decodeShape(captured).pipe(
+    Result.flatMap(captured => decode(captured).pipe(
       Result.mapError(cause => error("decode", "invalidShape", cause)),
       Result.flatMap(target => target.function.path === functionPath(
           target.function.moduleName,
@@ -145,9 +160,9 @@ export function canonicalizeApplicationRuntimeTargetV1(
   CanonicalApplicationRuntimeTargetV1,
   ApplicationRuntimeTargetV1Error
 > {
-  return decodeApplicationRuntimeTargetV1(value).pipe(
+  return captureApplicationRuntimeTargetV1(value).pipe(
     Result.flatMap(target => {
-      const canonicalText = encodeCanonicalJson(targetJson(target), issue => {
+      const canonicalText = encodeCanonicalJson(applicationRuntimeTargetWireV1(target), issue => {
         throw new Error(`Application runtime target invariant: ${issue.reason}`);
       });
       const canonicalBytes = UTF8.encode(canonicalText);
@@ -160,6 +175,12 @@ export function canonicalizeApplicationRuntimeTargetV1(
         : Result.fail(error("canonicalize", "bytesExceeded"));
     }),
   );
+}
+
+export function canonicalizeApplicationRuntimeTargetWireV1(
+  value: unknown,
+): Result.Result<CanonicalApplicationRuntimeTargetV1, ApplicationRuntimeTargetV1Error> {
+  return decodeApplicationRuntimeTargetV1(value).pipe(Result.flatMap(canonicalizeApplicationRuntimeTargetV1));
 }
 
 function preflightValidators(value: unknown): unknown | undefined {
@@ -277,7 +298,7 @@ function capturePlainDataNode(
   }
 }
 
-function targetJson(target: ApplicationRuntimeTargetV1): JsonObject {
+export function applicationRuntimeTargetWireV1(target: ApplicationRuntimeTargetV1): JsonObject {
   const partition: Json = target.function.partition === null
     ? null
     : { ...target.function.partition };
@@ -300,8 +321,8 @@ function targetJson(target: ApplicationRuntimeTargetV1): JsonObject {
       exportName: target.function.exportName,
       kind: target.function.kind,
       visibility: target.function.visibility,
-      args: target.function.args,
-      returns: target.function.returns,
+      args: encodeValidatorJsonV1(target.function.args),
+      returns: target.function.returns === null ? null : encodeValidatorJsonV1(target.function.returns),
       partition,
       entrySha256: target.function.entrySha256,
     },

@@ -55,6 +55,53 @@ const sha256 = makeStandardApplicationTaskSha256V1((input) =>
 );
 
 describe("Standard Application task definition V1", () => {
+  it.each(["__proto__", "constructor", "toString"])("preserves own %s fields through Task metadata capture", fieldName => {
+    const literal = { type: "literal", value: -0 };
+    const fields = Object.fromEntries([[fieldName, { fieldType: literal, optional: false }]]);
+    const payloadValidator = { type: "object", value: fields };
+    const input = { ...makeManifest("reserved.fields"), payloadValidator,
+      outputValidator: { type: "array", value: payloadValidator } };
+    const captured = success(decodeCanonicalTaskManifestV1(input));
+    const nested = captured.outputValidator;
+    if (captured.payloadValidator.type !== "object" || nested?.type !== "array" || nested.value.type !== "object") {
+      throw new Error("Expected captured object validators.");
+    }
+    for (const validator of [captured.payloadValidator, nested.value]) {
+      expect(Object.hasOwn(validator.value, fieldName)).toBe(true);
+      const field = validator.value[fieldName];
+      if (field?.fieldType.type !== "literal") throw new Error("Expected captured literal field.");
+      expect(Object.is(field.fieldType.value, -0)).toBe(true);
+      expect(Object.isFrozen(validator.value)).toBe(true);
+      expect(Object.isFrozen(field)).toBe(true);
+    }
+    const bytes = success(encodeCanonicalTaskManifestPreimageV1(captured));
+    expect(UTF8.decode(bytes)).toContain(`${JSON.stringify(fieldName)}:`);
+    expect(success(decodeCanonicalTaskManifestPreimageV1(bytes))).toEqual(captured);
+    expect(Object.isFrozen(literal)).toBe(false);
+    literal.value = 0;
+    const capturedField = captured.payloadValidator.value[fieldName];
+    if (capturedField?.fieldType.type !== "literal") throw new Error("Expected detached literal field.");
+    expect(Object.is(capturedField.fieldType.value, -0)).toBe(true);
+  });
+  it("preserves numeric literal identity in canonical Task manifests and cold wire decoding", () => {
+    const values = [-9_223_372_036_854_775_808n, 9_223_372_036_854_775_807n, 1n, 1, -0, 0];
+    const texts = values.map(value => {
+      const manifest = { ...makeManifest("literal.run"), payloadValidator: { type: "literal", value } };
+      const bytes = success(encodeCanonicalTaskManifestPreimageV1(manifest));
+      const decoded = success(decodeCanonicalTaskManifestPreimageV1(bytes));
+      expect(decoded.payloadValidator.type).toBe("literal");
+      if (decoded.payloadValidator.type === "literal") expect(Object.is(decoded.payloadValidator.value, value)).toBe(true);
+      expect(success(encodeCanonicalTaskManifestPreimageV1(decoded))).toEqual(bytes);
+      return UTF8.decode(bytes);
+    });
+    expect(new Set(texts).size).toBe(values.length);
+    for (const value of [NaN, Infinity, -Infinity]) {
+      expect(Result.isFailure(encodeCanonicalTaskManifestPreimageV1({ ...makeManifest("literal.run"),
+        payloadValidator: { type: "literal", value },
+      }))).toBe(true);
+    }
+  });
+
   it("keeps task-definition codecs outside the prepared-definition contract", () => {
     expect("decodeTaskIdV1" in PreparedDefinition).toBe(false);
     const effect: Effect.Effect<

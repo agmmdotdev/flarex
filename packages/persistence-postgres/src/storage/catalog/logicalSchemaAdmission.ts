@@ -5,7 +5,7 @@ import {
   type PreparedLogicalSchemaCandidate,
 } from "@flarex/analysis/internal/logical-schema-candidate";
 import {
-  logicalTableKey,
+  logicalTableKey, encodeLogicalSchemaCandidate, encodeLogicalSchemaSource,
   type LogicalSchemaCandidate,
 } from "flarex-protocol/internal/logical-schema-candidate";
 import { SchemaManifestJsonSchema, CatalogSchemaVersionIdSchema, CatalogSchemaVersionSchema,
@@ -24,7 +24,7 @@ import {
 } from "../../database/catalogControlSession";
 import { fxControlScopes, fxControlSchemaVersions } from "../../database/schema";
 import { locateApplicationRelationBindingForCommitEffect } from "../../application/relations/binding";
-import { verifyApplicationManifestV3 } from "@flarex/analysis/application-analysis";
+import { applicationManifestWireV1, verifyApplicationManifestV3 } from "@flarex/analysis/application-analysis";
 import { ApplicationLogicalV3Evidence, prepareApplicationLogicalSource } from "@flarex/analysis/internal/logical-application-source";
 import { capturePrivateCanonicalValue } from "../../installation/frameworkSchema/privateCanonicalValue";
 import { prepareApplicationWritePolicyBinding } from "../../application/ownership/applicationWritePolicyBinding";
@@ -141,7 +141,7 @@ export function makeLogicalSchemaAdmission(configuration: {
           tableBindings.push({ table: definition.table, tableId: allocated.table.tableId });
         }
         const manifest = yield* Schema.decodeUnknownEffect(SchemaManifestJsonSchema)({
-          kind: "logicalSchemaAdmission", definitionVersion: 1, candidate, tableBindings,
+          kind: "logicalSchemaAdmission", definitionVersion: 1, candidate: encodeLogicalSchemaCandidate(candidate), tableBindings,
         }).pipe(Effect.orDie);
         // Compilation is complete. Only bounded owned metadata and local digest
         // work run here; no user callbacks, model loading or remote effects.
@@ -216,7 +216,7 @@ const requireRetainedOwners = Effect.fn("LogicalSchemaAdmission.requireRetainedO
         Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "ownershipChanged", cause })));
       const verified = yield* verifyApplicationManifestV3(evidence.manifest).pipe(
         Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "ownershipChanged", cause })));
-      const manifestData: unknown = verified.manifest;
+      const manifestData: unknown = applicationManifestWireV1(verified.manifest);
       if (!isJson(manifestData) || !isJsonObject(manifestData)) return yield* Effect.die(new Error("Decoded V3 manifest lost JSON"));
       const digestPolicy = { invalidInput: () => new LogicalSchemaAdmissionError({ reason: "ownershipChanged" }),
         hashFailure: (cause: unknown) => new LogicalSchemaAdmissionError({ reason: "resourceFailure", cause }) };
@@ -230,7 +230,7 @@ const requireRetainedOwners = Effect.fn("LogicalSchemaAdmission.requireRetainedO
       if (manifest.sha256Hex !== evidence.manifestSha256 || candidate.applicationAnalysis.manifestSha256 !== evidence.manifestSha256 ||
         schema.sha256Hex !== encodeBytesToLowercaseHex(bound.applicationSchemaSha256) ||
         policies === null || canonical(policies.writePolicies) !== canonical(bound.binding.writePolicies) ||
-        canonical(expected) !== canonical(app[0]))
+        canonical(encodeLogicalSchemaSource(expected)) !== canonical(encodeLogicalSchemaSource(app[0])))
         return yield* Effect.fail(new LogicalSchemaAdmissionError({ reason: "ownershipChanged" }));
       // Qualified names reuse the existing stable catalog. No removed,
       // reclassified or renamed retained native table may enter this profile.
@@ -263,7 +263,7 @@ const query = <A>(run: () => PromiseLike<A>) => Effect.tryPromise({
 });
 
 function candidateText(candidate: LogicalSchemaCandidate): string {
-  return encodeCanonicalJson(candidate, issue => { throw new Error(`Candidate JSON invariant: ${issue.reason}`); });
+  return encodeCanonicalJson(encodeLogicalSchemaCandidate(candidate), issue => { throw new Error(`Candidate JSON invariant: ${issue.reason}`); });
 }
 
 const canonical = (value: Parameters<typeof encodeCanonicalJson>[0]) => encodeCanonicalJson(value, issue => {

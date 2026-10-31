@@ -33,7 +33,7 @@ import { withApplicationWriteOwnershipCatalog } from "../ownership/Catalog";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import { applicationUniqueDeclarationsMatch } from "../ownership/UniqueDeclarations";
 import {
-  verifyApplicationManifestWithRelations,
+  verifyApplicationManifestWithRelationsWire,
   type ApplicationManifestWithRelations,
 } from "@flarex/analysis/application-analysis";
 import {
@@ -2808,7 +2808,7 @@ const decodeStoredManifest = Effect.fn(
       try: (): unknown => JSON.parse(UTF8_FATAL.decode(bytes)),
       catch: cause => failureValue("storedState", false, cause),
     });
-    const canonical = yield* verifyApplicationManifestWithRelations(parsed).pipe(
+    const canonical = yield* verifyApplicationManifestWithRelationsWire(parsed).pipe(
       Effect.mapError(cause => failureValue("storedState", false, cause)),
     );
     if (

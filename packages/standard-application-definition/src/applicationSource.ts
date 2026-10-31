@@ -402,6 +402,7 @@ function literalSource(
   value: string | number | bigint | boolean,
 ): Result.Result<string, Readonly<{ readonly invalid: true }>> {
   if (typeof value === "bigint") return Result.succeed(`${value}n`);
+  if (typeof value === "number" && Object.is(value, -0)) return Result.succeed("-0");
   if (typeof value === "number" && !Number.isFinite(value)) {
     return Result.fail({ invalid: true });
   }

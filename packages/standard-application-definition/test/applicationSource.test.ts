@@ -1,3 +1,4 @@
+import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -16,7 +17,11 @@ import { prepareStandardApplicationDefinitionV1 } from "../src/preparedDefinitio
 const UTF8 = new TextDecoder();
 
 describe("Standard Application executable source", () => {
-  it("preserves handler bytes and generates real registrations and schema", () => {
+  it.each([
+    { validator: { type: "string" }, source: "v.string()" },
+    { validator: { type: "literal", value: -0 }, source: "v.literal(-0)" },
+    { validator: { type: "literal", value: -9223372036854775808n }, source: "v.literal(-9223372036854775808n)" },
+  ] satisfies ReadonlyArray<{ readonly validator: ValidatorJsonV1; readonly source: string }>)("preserves handler bytes and generates exact validator source: $source", ({ validator, source: validatorSource }) => {
     const handlerBytes = new TextEncoder().encode(
       "export async function create(ctx, args) { return ctx.db.insert('users', args); }\n",
     );
@@ -42,7 +47,7 @@ describe("Standard Application executable source", () => {
                 type: "object",
                 value: {
                   name: {
-                    fieldType: { type: "string" },
+                    fieldType: validator,
                     optional: false,
                   },
                 },
@@ -65,7 +70,7 @@ describe("Standard Application executable source", () => {
               type: "object",
               value: {
                 name: {
-                  fieldType: { type: "string" },
+                  fieldType: validator,
                   optional: false,
                 },
               },
@@ -123,11 +128,11 @@ describe("Standard Application executable source", () => {
       'import * as applicationModule0 from "../functions/users.js";',
     );
     expect(UTF8.decode(execution?.sourceBytes)).toContain(
-      '"users": { "create": mutation({ args: v.object({ "name": v.string() })',
+      `"users": { "create": mutation({ args: v.object({ "name": ${validatorSource} })`,
     );
     expect(schema?.roles).toBe(SOURCE_ARTIFACT_V2_ROLE_SCHEMA);
     expect(UTF8.decode(schema?.sourceBytes)).toContain(
-      '"users": definePartitionTable(v.object({ "name": v.string() })).index("by_name", ["name"])',
+      `"users": definePartitionTable(v.object({ "name": ${validatorSource} })).index("by_name", ["name"])`,
     );
   });
 

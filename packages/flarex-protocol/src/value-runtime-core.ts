@@ -3,6 +3,23 @@ import { bytesEqualFullScan } from "@flarex/utils/bytes";
 
 import { isCanonicalArrayIndex } from "./canonical-array-index";
 import type { Json } from "./json";
+const OBJECT_FREEZE = Object.freeze;
+const OBJECT_DEFINE_PROPERTY = Object.defineProperty;
+const OBJECT_IS = Object.is;
+const NUMBER_IS_NAN = Number.isNaN;
+const NUMBER_IS_FINITE = Number.isFinite;
+const NUMBER = Number;
+const BIG_INT = BigInt;
+const ARRAY_BUFFER = ArrayBuffer;
+const UINT8_ARRAY = Uint8Array;
+const DATA_VIEW = DataView;
+const DATA_VIEW_SET_FLOAT64 = DataView.prototype.setFloat64;
+const DATA_VIEW_GET_FLOAT64 = DataView.prototype.getFloat64;
+const REFLECT_APPLY = Reflect.apply;
+const STRING_CHAR_AT = String.prototype.charAt;
+const STRING_CHAR_CODE_AT = String.prototype.charCodeAt;
+const STRING_ENDS_WITH = String.prototype.endsWith;
+
 
 /** The JavaScript value domain accepted at Flarex API boundaries. */
 export type FlarexValue =
@@ -36,7 +53,7 @@ export function isCanonicalFlarexRuntimeObjectV1(
     typeof value === "object" &&
     value !== null &&
     !Array.isArray(value) &&
-    !(value instanceof ArrayBuffer)
+    !(value instanceof ARRAY_BUFFER)
   );
 }
 
@@ -58,39 +75,39 @@ export function createOwnedCanonicalFlarexRuntimeValueReaderV1(
 export function createOwnedCanonicalFlarexRuntimeValueProjectionV1(value: CanonicalFlarexRuntimeValueV1) {
   const checks: (() => boolean)[] = [];
   const read = compileOwnedCanonicalBinaryProjection(value, checks) ?? (() => value);
-  return Object.freeze({ read, binaryMatches: () => checks.every(check => check()) });
+  return OBJECT_FREEZE({ read, binaryMatches: () => checks.every(check => check()) });
 }
 
 function compileOwnedCanonicalBinaryProjection(
   value: CanonicalFlarexRuntimeValueV1,
   checks?: (() => boolean)[],
 ): (() => CanonicalFlarexRuntimeValueV1) | undefined {
-  if (value instanceof ArrayBuffer) {
+  if (value instanceof ARRAY_BUFFER) {
     if (checks === undefined) return () => value.slice(0);
     const owned = value.slice(0);
-    checks.push(() => bytesEqualFullScan(new Uint8Array(value), new Uint8Array(owned)));
+    checks.push(() => bytesEqualFullScan(new UINT8_ARRAY(value), new UINT8_ARRAY(owned)));
     return () => owned.slice(0);
   }
   if (Array.isArray(value)) {
     const children = value.map((child: CanonicalFlarexRuntimeValueV1) =>
       ({ value: child, detach: compileOwnedCanonicalBinaryProjection(child, checks) }));
-    Object.freeze(value);
+    OBJECT_FREEZE(value);
     if (children.every(child => child.detach === undefined)) return undefined;
-    return () => Object.freeze(children.map(child =>
+    return () => OBJECT_FREEZE(children.map(child =>
       child.detach === undefined ? child.value : child.detach()));
   }
   if (isCanonicalFlarexRuntimeObjectV1(value)) {
     const children = Object.entries(value).map(([key, child]) =>
       ({ key, value: child, detach: compileOwnedCanonicalBinaryProjection(child, checks) }));
-    Object.freeze(value);
+    OBJECT_FREEZE(value);
     if (children.every(child => child.detach === undefined)) return undefined;
     return () => {
       const projection: Record<string, CanonicalFlarexRuntimeValueV1> = {};
-      for (const child of children) Object.defineProperty(projection, child.key, {
+      for (const child of children) OBJECT_DEFINE_PROPERTY(projection, child.key, {
         enumerable: true,
         value: child.detach === undefined ? child.value : child.detach(),
       });
-      return Object.freeze(projection);
+      return OBJECT_FREEZE(projection);
     };
   }
   return undefined;
@@ -117,7 +134,7 @@ export interface FlarexValueLimitsV1 {
   readonly requireDocumentObject: boolean;
 }
 
-export const FLAREX_GENERAL_VALUE_LIMITS_V1 = Object.freeze({
+export const FLAREX_GENERAL_VALUE_LIMITS_V1 = OBJECT_FREEZE({
   profile: "generalValue",
   maxSemanticBytes: MAX_FLAREX_VALUE_SEMANTIC_BYTES_V1,
   maxNesting: MAX_FLAREX_VALUE_NESTING_V1,
@@ -126,7 +143,7 @@ export const FLAREX_GENERAL_VALUE_LIMITS_V1 = Object.freeze({
   requireDocumentObject: false,
 } satisfies FlarexValueLimitsV1);
 
-export const FLAREX_APP_DOCUMENT_LIMITS_V1 = Object.freeze({
+export const FLAREX_APP_DOCUMENT_LIMITS_V1 = OBJECT_FREEZE({
   profile: "appDocument",
   maxSemanticBytes: MAX_FLAREX_APP_DOCUMENT_SEMANTIC_BYTES_V1,
   maxNesting: MAX_FLAREX_APP_DOCUMENT_NESTING_V1,
@@ -182,7 +199,7 @@ export class FlarexValueRuntimeCoreV1Error extends Error {
 
   constructor(issue: FlarexValueCodecV1Issue) {
     super("Flarex Value Codec V1 rejected a runtime value.");
-    Object.defineProperty(this, "name", {
+    OBJECT_DEFINE_PROPERTY(this, "name", {
       configurable: true,
       value: "FlarexValueRuntimeCoreV1Error",
     });
@@ -223,7 +240,7 @@ export function normalizeFlarexRuntimeValueWithLimitsV1(
     ancestors: new WeakSet(),
   });
   assertProfileRoot(node.value, limits, rootPath);
-  return Object.freeze({
+  return OBJECT_FREEZE({
     profile: limits.profile,
     value: node.value,
     semanticSizeBytes: node.semanticSizeBytes,
@@ -236,30 +253,23 @@ export function canonicalFlarexRuntimeValueToJsonV1(
   value: CanonicalFlarexRuntimeValueV1,
 ): Json {
   if (value === null || typeof value === "boolean") return value;
-  if (typeof value === "number") {
-    return isSpecialFloat(value)
-      ? taggedJson("$float", encodeFloat64(value))
-      : value;
-  }
-  if (typeof value === "bigint") {
-    return taggedJson("$integer", encodeInt64(value));
-  }
+  if (typeof value === "number" || typeof value === "bigint") return encodeFlarexNumericJsonV1(value);
   if (typeof value === "string") {
     return value.includes(NUL)
       ? taggedJson("$string", encodeBase64(TEXT_ENCODER.encode(value)))
       : value;
   }
-  if (value instanceof ArrayBuffer) {
-    return taggedJson("$bytes", encodeBase64(new Uint8Array(value)));
+  if (value instanceof ARRAY_BUFFER) {
+    return taggedJson("$bytes", encodeBase64(new UINT8_ARRAY(value)));
   }
   if (Array.isArray(value)) {
-    return Object.freeze(value.map(canonicalFlarexRuntimeValueToJsonV1));
+    return OBJECT_FREEZE(value.map(canonicalFlarexRuntimeValueToJsonV1));
   }
   const json: Record<string, Json> = {};
   for (const [key, member] of Object.entries(value)) {
     defineFrozenProperty(json, key, canonicalFlarexRuntimeValueToJsonV1(member));
   }
-  return Object.freeze(json);
+  return OBJECT_FREEZE(json);
 }
 
 function normalizeRuntimeNode(
@@ -287,12 +297,12 @@ function normalizeRuntimeNode(
     }
     const semanticSizeBytes = 2 + TEXT_ENCODER.encode(value).byteLength;
     assertSemanticSize(semanticSizeBytes, path, context.limits);
-    return Object.freeze({ value, semanticSizeBytes, nestingDepth: 0 });
+    return OBJECT_FREEZE({ value, semanticSizeBytes, nestingDepth: 0 });
   }
-  if (value instanceof ArrayBuffer) {
+  if (value instanceof ARRAY_BUFFER) {
     const semanticSizeBytes = 2 + value.byteLength;
     assertSemanticSize(semanticSizeBytes, path, context.limits);
-    return Object.freeze({
+    return OBJECT_FREEZE({
       value: value.slice(0),
       semanticSizeBytes,
       nestingDepth: 0,
@@ -337,8 +347,8 @@ function normalizeRuntimeArray(
       childDepth = Math.max(childDepth, child.nestingDepth);
       normalized.push(child.value);
     }
-    return Object.freeze({
-      value: Object.freeze(normalized),
+    return OBJECT_FREEZE({
+      value: OBJECT_FREEZE(normalized),
       semanticSizeBytes,
       nestingDepth: 1 + childDepth,
     });
@@ -374,8 +384,8 @@ function normalizeRuntimeObject<T extends object>(
       childDepth = Math.max(childDepth, child.nestingDepth);
       defineFrozenProperty(normalized, entry.key, child.value);
     }
-    return Object.freeze({
-      value: Object.freeze(normalized),
+    return OBJECT_FREEZE({
+      value: OBJECT_FREEZE(normalized),
       semanticSizeBytes,
       nestingDepth: 1 + childDepth,
     });
@@ -536,7 +546,7 @@ function primitiveNode(
   context: CodecContext,
 ): NormalizedNode {
   assertSemanticSize(semanticSizeBytes, path, context.limits);
-  return Object.freeze({ value, semanticSizeBytes, nestingDepth: 0 });
+  return OBJECT_FREEZE({ value, semanticSizeBytes, nestingDepth: 0 });
 }
 
 function withAncestor<A extends object, T>(
@@ -575,7 +585,7 @@ function defineFrozenProperty<Value>(
   key: string,
   value: Value,
 ): void {
-  Object.defineProperty(target, key, {
+  OBJECT_DEFINE_PROPERTY(target, key, {
     configurable: false,
     enumerable: true,
     writable: false,
@@ -586,27 +596,27 @@ function defineFrozenProperty<Value>(
 function taggedJson(tag: string, payload: string): Json {
   const value: Record<string, Json> = {};
   defineFrozenProperty(value, tag, payload);
-  return Object.freeze(value);
+  return OBJECT_FREEZE(value);
 }
 
 function encodeInt64(value: bigint): string {
   let unsigned = value < 0 ? value + (1n << 64n) : value;
-  const bytes = new Uint8Array(8);
+  const bytes = new UINT8_ARRAY(8);
   for (let index = 0; index < bytes.length; index += 1) {
-    bytes[index] = Number(unsigned & 0xffn);
+    bytes[index] = NUMBER(unsigned & 0xffn);
     unsigned >>= 8n;
   }
   return encodeBase64(bytes);
 }
 
 function encodeFloat64(value: number): string {
-  const buffer = new ArrayBuffer(8);
-  new DataView(buffer).setFloat64(0, value, true);
-  return encodeBase64(new Uint8Array(buffer));
+  const buffer = new ARRAY_BUFFER(8);
+  REFLECT_APPLY(DATA_VIEW_SET_FLOAT64, new DATA_VIEW(buffer), [0, value, true]);
+  return encodeBase64(new UINT8_ARRAY(buffer));
 }
 
 function isSpecialFloat(value: number): boolean {
-  return Number.isNaN(value) || !Number.isFinite(value) || Object.is(value, -0);
+  return NUMBER_IS_NAN(value) || !NUMBER_IS_FINITE(value) || OBJECT_IS(value, -0);
 }
 
 function encodeBase64(bytes: Uint8Array): string {
@@ -640,7 +650,7 @@ function encodeBase64(bytes: Uint8Array): string {
 }
 
 function base64Character(index: number): string {
-  return BASE64_ALPHABET.charAt(index);
+  return REFLECT_APPLY(STRING_CHAR_AT, BASE64_ALPHABET, [index]);
 }
 
 function requiredByte(bytes: Uint8Array, index: number): number {
@@ -673,3 +683,126 @@ const TEXT_ENCODER = new TextEncoder();
 const NUL = "\u0000";
 const BASE64_ALPHABET =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+
+/** Numeric leaves share the existing Value Codec byte representation. */
+export type FlarexNumericJsonV1 = number | Readonly<{ readonly $integer: string }> | Readonly<{ readonly $float: string }>;
+export type FlarexNumericTagPolicyV1 = "canonical" | "convexSchema";
+
+export function encodeFlarexNumericJsonV1(value: number | bigint): FlarexNumericJsonV1 {
+  if (typeof value === "number") return isSpecialFloat(value) ? OBJECT_FREEZE({ $float: encodeFloat64(value) }) : value;
+  if (value < MIN_FLAREX_INT64_V1 || value > MAX_FLAREX_INT64_V1)
+    throw unsupported("$", "bigint must fit in a signed 64-bit integer");
+  return OBJECT_FREEZE({ $integer: encodeInt64(value) });
+}
+
+/** Convex's Rust schema parser also admits tagged positive zero. */
+export function decodeFlarexNumericTagV1(
+  tag: "$integer" | "$float", payload: string, policy: FlarexNumericTagPolicyV1 = "canonical", path = "$",
+): number | bigint {
+  if (payload.length !== 12) throw invalidRuntimeTag(path, tag, "eight-byte numeric tag must contain exactly 12 Base64 characters");
+  const bytes = decodeCanonicalFlarexBase64V1(payload, path, tag);
+  if (bytes.byteLength !== 8) throw invalidRuntimeTag(path, tag, "numeric tag must contain exactly 8 bytes");
+  if (tag === "$integer") return decodeInt64(bytes);
+  const number = decodeFloat64(bytes);
+  if (!isSpecialFloat(number) && !(policy === "convexSchema" && number === 0))
+    throw invalidRuntimeTag(path, tag, "ordinary finite float must be encoded as a JSON number");
+  return number;
+}
+
+function invalidRuntimeTag(path: string, tag: string, detail: string): FlarexValueRuntimeCoreV1Error {
+  return new FlarexValueRuntimeCoreV1Error({ reason: "invalidTaggedValue", path, tag, detail });
+}
+
+function decodeInt64(bytes: Uint8Array): bigint {
+  let unsigned = 0n;
+  for (let index = bytes.length - 1; index >= 0; index -= 1) {
+    const byte = bytes[index];
+    if (byte === undefined) throw new Error("Validated int64 bytes lost an item.");
+    unsigned = (unsigned << 8n) | BIG_INT(byte);
+  }
+  return unsigned > MAX_FLAREX_INT64_V1 ? unsigned - (1n << 64n) : unsigned;
+}
+
+function decodeFloat64(bytes: Uint8Array): number {
+  return REFLECT_APPLY(DATA_VIEW_GET_FLOAT64, new DATA_VIEW(bytes.buffer, bytes.byteOffset, bytes.byteLength), [0, true]);
+}
+
+export function decodeCanonicalFlarexBase64V1(
+  encoded: string,
+  path: string,
+  tag: string,
+): Uint8Array {
+  const decodedLength = decodedFlarexBase64LengthV1(encoded);
+  if (decodedLength === undefined) {
+    throw invalidRuntimeTag(path, tag, "tag payload is not canonical standard base64");
+  }
+  const padding = REFLECT_APPLY(STRING_ENDS_WITH, encoded, ["=="]) ? 2 : REFLECT_APPLY(STRING_ENDS_WITH, encoded, ["="]) ? 1 : 0;
+  const dataCharacterCount = encoded.length - padding;
+  for (let index = 0; index < dataCharacterCount; index += 1) {
+    if (base64Value(REFLECT_APPLY(STRING_CHAR_CODE_AT, encoded, [index])) < 0) {
+      throw invalidRuntimeTag(
+        path,
+        tag,
+        "tag payload contains an invalid base64 character",
+      );
+    }
+  }
+  if (
+    (padding === 2 &&
+      (base64Value(REFLECT_APPLY(STRING_CHAR_CODE_AT, encoded, [encoded.length - 3])) & 0x0f) !== 0) ||
+    (padding === 1 &&
+      (base64Value(REFLECT_APPLY(STRING_CHAR_CODE_AT, encoded, [encoded.length - 2])) & 0x03) !== 0)
+  ) {
+    throw invalidRuntimeTag(path, tag, "tag payload is not canonical base64");
+  }
+  const bytes = new UINT8_ARRAY(decodedLength);
+  let outputIndex = 0;
+  for (let index = 0; index < encoded.length; index += 4) {
+    const first = base64Value(REFLECT_APPLY(STRING_CHAR_CODE_AT, encoded, [index]));
+    const second = base64Value(REFLECT_APPLY(STRING_CHAR_CODE_AT, encoded, [index + 1]));
+    const thirdCharacter = REFLECT_APPLY(STRING_CHAR_AT, encoded, [index + 2]);
+    const fourthCharacter = REFLECT_APPLY(STRING_CHAR_AT, encoded, [index + 3]);
+    const third = thirdCharacter === "=" ? 0 : base64Value(REFLECT_APPLY(STRING_CHAR_CODE_AT, thirdCharacter, [0]));
+    const fourth = fourthCharacter === "=" ? 0 : base64Value(REFLECT_APPLY(STRING_CHAR_CODE_AT, fourthCharacter, [0]));
+    if (first < 0 || second < 0 || third < 0 || fourth < 0) {
+      throw invalidRuntimeTag(path, tag, "tag payload contains an invalid base64 character");
+    }
+    if (outputIndex < bytes.length) {
+      bytes[outputIndex] = (first << 2) | (second >> 4);
+      outputIndex += 1;
+    }
+    if (outputIndex < bytes.length) {
+      bytes[outputIndex] = ((second & 0x0f) << 4) | (third >> 2);
+      outputIndex += 1;
+    }
+    if (outputIndex < bytes.length) {
+      bytes[outputIndex] = ((third & 0x03) << 6) | fourth;
+      outputIndex += 1;
+    }
+  }
+  return bytes;
+}
+
+export function decodedFlarexBase64LengthV1(encoded: string): number | undefined {
+  if (encoded.length % 4 !== 0) return undefined;
+  if (encoded.length === 0) return 0;
+  const finalCharacter = REFLECT_APPLY(STRING_CHAR_AT, encoded, [encoded.length - 1]);
+  const penultimateCharacter = REFLECT_APPLY(STRING_CHAR_AT, encoded, [encoded.length - 2]);
+  if (penultimateCharacter === "=" && finalCharacter !== "=") return undefined;
+  const padding = finalCharacter !== "="
+    ? 0
+    : penultimateCharacter === "="
+      ? 2
+      : 1;
+  return (encoded.length / 4) * 3 - padding;
+}
+
+function base64Value(code: number): number {
+  if (code >= 0x41 && code <= 0x5a) return code - 0x41;
+  if (code >= 0x61 && code <= 0x7a) return code - 0x61 + 26;
+  if (code >= 0x30 && code <= 0x39) return code - 0x30 + 52;
+  if (code === 0x2b) return 62;
+  if (code === 0x2f) return 63;
+  return -1;
+}

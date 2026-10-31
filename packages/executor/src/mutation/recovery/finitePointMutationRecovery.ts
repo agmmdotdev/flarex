@@ -4,7 +4,7 @@ import {
   readFiniteRecoveryAttempt,
   type FiniteRecoveryAttempt,
 } from "@flarex/persistence-postgres/internal/session";
-import { canonicalizeApplicationMutationExecutionAuthorityV1 } from "flarex-protocol/internal/application-mutation-authority-v1";
+import { canonicalizeApplicationMutationExecutionAuthorityWireV1 } from "flarex-protocol/internal/application-mutation-authority-v1";
 import { deriveInertApplicationMutationGrantEvidenceV1 } from "flarex-protocol/internal/application-mutation-grant-v1";
 import { TransactionExecutionClaimFenceV1Schema } from "@flarex/persistence-postgres/transaction-execution-claim";
 import type { ActivatedApplicationMutationSessionPreparationV1 } from "../session/pointMutationSessionActivationState";
@@ -31,7 +31,7 @@ export const captureFiniteRecoveryEvidence = Effect.fn("FinitePointMutationRecov
       row.validatedArgsCanonicalBytes === null || row.authorizationGrantJson === null || row.authorizationGrantCanonicalBytes === null || row.applicationExecutionAuthorityJson === null ||
       row.applicationExecutionAuthorityCanonicalBytes === null || row.applicationExecutionAuthoritySha256 === null)
       return yield* Effect.fail(new FiniteRecoveryEvidenceError({ reason: "invalidStoredEvidence" }));
-    const executionAuthority = yield* canonicalizeApplicationMutationExecutionAuthorityV1(row.applicationExecutionAuthorityJson)
+    const executionAuthority = yield* canonicalizeApplicationMutationExecutionAuthorityWireV1(row.applicationExecutionAuthorityJson)
       .pipe(Effect.mapError(cause => new FiniteRecoveryEvidenceError({ reason: "invalidStoredEvidence", cause })));
     if (!bytesEqual(executionAuthority.canonicalBytes, row.applicationExecutionAuthorityCanonicalBytes) ||
       !bytesEqual(executionAuthority.sha256, row.applicationExecutionAuthoritySha256) ||

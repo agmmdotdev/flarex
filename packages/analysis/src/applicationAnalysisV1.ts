@@ -16,7 +16,10 @@ import { isCanonicalIsoTimestamp } from "flarex-protocol/iso-timestamp";
 import { selectorNameForPartitionField } from "flarex-protocol/partition-selector";
 import { SchemaManifestAppDeveloperOrderedIndexSpecV1Schema } from "flarex-protocol/schema-manifest";
 import {
+  encodeValidatorJsonV1,
   ValidatorJsonV1,
+  ValidatorJsonWireCodecV1,
+  validatorJsonHasNonfiniteLiteralV1,
   validatorJsonAdmissionIssueV1,
 } from "flarex-protocol/validator-json";
 import { isDeclarativeV2ArtifactModulePathV1 } from "flarex-protocol/internal/declarative-v2-artifact-module-path-v1";
@@ -138,7 +141,11 @@ const AdmittedValidatorJsonV1Schema = Schema.Unknown.check(
       ? undefined
       : `Validator JSON exceeds the admitted profile: ${issue.reason}`;
   }),
-).pipe(Schema.decodeTo(ValidatorJsonV1));
+).pipe(Schema.decodeTo(ValidatorJsonWireCodecV1)).check(
+  Schema.makeFilter(value => validatorJsonHasNonfiniteLiteralV1(value)
+    ? "Infinite or NaN values are not supported in literal validators."
+    : undefined),
+);
 
 const ApplicationManifestTableV1Schema = Schema.Struct({
   tableId: PositiveSafeIntegerSchema,
@@ -146,6 +153,42 @@ const ApplicationManifestTableV1Schema = Schema.Struct({
   validator: AdmittedValidatorJsonV1Schema,
   placement: ApplicationTablePlacementV1Schema,
 }).annotate(StrictStructOptions);
+
+/** Explicit validator projection for authenticated JSON; the admitted model stays semantic. */
+export function applicationSchemaWireV1<
+  Input extends { readonly tables: ApplicationManifestV1["schema"]["tables"] },
+>(schema: Input) {
+  return {
+    ...schema,
+    tables: schema.tables.map(table => ({
+      ...table,
+      validator: encodeValidatorJsonV1(table.validator),
+    })),
+  };
+}
+
+export function applicationFunctionWireV1(
+  fn: ApplicationManifestV1["functions"][number],
+) {
+  return {
+    ...fn,
+    args: encodeValidatorJsonV1(fn.args),
+    returns: fn.returns === null ? null : encodeValidatorJsonV1(fn.returns),
+  };
+}
+
+export function applicationManifestWireV1<
+  Input extends {
+    readonly schema: { readonly tables: ApplicationManifestV1["schema"]["tables"] };
+    readonly functions: ApplicationManifestV1["functions"];
+  },
+>(manifest: Input) {
+  return {
+    ...manifest,
+    schema: applicationSchemaWireV1(manifest.schema),
+    functions: manifest.functions.map(applicationFunctionWireV1),
+  };
+}
 
 const isLogicalOrderedIndexSpec = Schema.is(SchemaManifestAppDeveloperOrderedIndexSpecV1Schema);
 const ApplicationManifestIndexV1Schema = Schema.Struct({
@@ -253,7 +296,9 @@ const ApplicationManifestV1SemanticSchema =
 
 const OwnedApplicationManifestV1Schema = Schema.declare<ApplicationManifestV1>(
   (value): value is ApplicationManifestV1 =>
-    isNonArrayRecord(value) && isDeeplyFrozenJson(value),
+    isNonArrayRecord(value) &&
+    Result.isSuccess(captureApplicationManifestV1ShapeResult(value)) &&
+    isDeeplyFrozenData(value),
   { identifier: "OwnedApplicationManifestV1" },
 );
 
@@ -321,7 +366,7 @@ export type ApplicationAnalysisReceiptV1 =
 const OwnedApplicationAnalysisReceiptV1Schema =
   Schema.declare<ApplicationAnalysisReceiptV1>(
     (value): value is ApplicationAnalysisReceiptV1 =>
-      isNonArrayRecord(value) && isDeeplyFrozenJson(value),
+      isNonArrayRecord(value) && isJson(value) && isDeeplyFrozenData(value),
     { identifier: "OwnedApplicationAnalysisReceiptV1" },
   );
 
@@ -656,6 +701,10 @@ const decodeApplicationManifestV1ShapeResult = Schema.decodeUnknownResult(
   ApplicationManifestV1StructuralSchema,
   StrictParseOptions,
 );
+const captureApplicationManifestV1ShapeResult = Schema.decodeUnknownResult(
+  Schema.toType(ApplicationManifestV1StructuralSchema),
+  StrictParseOptions,
+);
 const decodeApplicationAnalysisReceiptV1ShapeResult = Schema.decodeUnknownResult(
   ApplicationAnalysisReceiptV1StructuralSchema,
   StrictParseOptions,
@@ -664,16 +713,31 @@ const decodeApplicationAnalysisReceiptV1ShapeResult = Schema.decodeUnknownResult
 export function decodeApplicationManifestV1(
   value: unknown,
 ): Result.Result<ApplicationManifestV1, ApplicationAnalysisContractError> {
-  return decodeApplicationManifestV1ForOperation(value, "decodeManifest");
+  return admitApplicationManifestV1(value, "decodeManifest", decodeApplicationManifestV1ShapeResult);
 }
 
-function decodeApplicationManifestV1ForOperation(
+/** Captures the semantic model supplied by trusted analysis/build owners. */
+export function captureApplicationManifestV1(
+  value: unknown,
+): Result.Result<ApplicationManifestV1, ApplicationAnalysisContractError> {
+  return captureApplicationManifestV1ForOperation(value, "decodeManifest");
+}
+
+function captureApplicationManifestV1ForOperation(
   value: unknown,
   operation: "decodeManifest" | "lowerManifest",
 ): Result.Result<ApplicationManifestV1, ApplicationAnalysisContractError> {
+  return admitApplicationManifestV1(value, operation, captureApplicationManifestV1ShapeResult);
+}
+
+function admitApplicationManifestV1(
+  value: unknown,
+  operation: "decodeManifest" | "lowerManifest",
+  decode: typeof decodeApplicationManifestV1ShapeResult,
+): Result.Result<ApplicationManifestV1, ApplicationAnalysisContractError> {
   const admissionFailure = preflightApplicationManifest(value, operation);
   if (admissionFailure !== undefined) return Result.fail(admissionFailure);
-  return decodeApplicationManifestV1ShapeResult(value).pipe(
+  return decode(value).pipe(
     Result.mapError(cause => new ApplicationAnalysisContractError({
       operation,
       reason: "invalidInput",
@@ -709,18 +773,25 @@ export function canonicalizeApplicationManifestV1(
   );
 }
 
+/** Serialized or authenticated ingress: wire validators are decoded before semantic canonicalization. */
+export function canonicalizeApplicationManifestWireV1(
+  value: unknown,
+): Result.Result<CanonicalApplicationManifestV1, ApplicationAnalysisContractError> {
+  return decodeApplicationManifestV1(value).pipe(Result.flatMap(canonicalizeApplicationManifestV1));
+}
+
 function canonicalizeApplicationManifestV1ForOperation(
   value: unknown,
   decodeOperation: "decodeManifest" | "lowerManifest",
   encodeOperation: "encodeManifest" | "lowerManifest",
 ): Result.Result<CanonicalApplicationManifestV1, ApplicationAnalysisContractError> {
   return Result.gen(function* () {
-    const manifest = yield* decodeApplicationManifestV1ForOperation(
+    const manifest = yield* captureApplicationManifestV1ForOperation(
       value,
       decodeOperation,
     );
     const canonical = yield* canonicalJsonBytes(
-      manifest,
+      applicationManifestWireV1(manifest),
       APPLICATION_ANALYSIS_MAXIMUM_MANIFEST_BYTES_V1,
       encodeOperation,
       "manifestBytesExceeded",
@@ -1401,8 +1472,7 @@ function freezeOwnedApplicationAnalysisJson(value: unknown): void {
   Object.freeze(value);
 }
 
-function isDeeplyFrozenJson(value: unknown): boolean {
-  if (!isJson(value)) return false;
+function isDeeplyFrozenData(value: unknown): boolean {
   const pending: unknown[] = [value];
   while (pending.length > 0) {
     const current = pending.pop();

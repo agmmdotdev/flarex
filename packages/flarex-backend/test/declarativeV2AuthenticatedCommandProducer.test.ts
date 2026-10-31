@@ -1089,6 +1089,18 @@ describe("authenticated Declarative V2 command producer", () => {
       .not.toEqual(coldFirst.sourceModules[0]?.sourceSha256);
   });
 
+  it("keeps int64 and signed-zero registration commitments distinct through reconstruction", async () => {
+    const candidates = [];
+    for (const literal of [0, -0, 1, 1n]) {
+      const definition = registrationDefinition("export function ready(_ctx, args) { return args.value; }\n", literal);
+      const first = await issueRegistrationCandidate(definition);
+      expect(await issueRegistrationCandidate(definition)).toEqual(first);
+      candidates.push(first);
+    }
+    expect(new Set(candidates.map(candidate => encodeBytesToLowercaseHex(candidate.deploymentAnalysisSha256))).size).toBe(4);
+    expect(new Set(candidates.map(candidate => encodeBytesToLowercaseHex(candidate.deploymentCodegenAnalysisSha256))).size).toBe(4);
+  });
+
   it("interrupts registration evidence derivation and closes its scoped read session", async () => {
     const definition = registrationDefinition();
     const module = definition.artifactIngressPlan.source.modules[0];
@@ -1166,6 +1178,7 @@ const REGISTRATION_ROOT_CONFIGURATION = Object.freeze({
 
 function registrationDefinition(
   sourceText = "export function ready() { return 1; }\n",
+  literal?: number | bigint,
 ): PreparedStandardApplicationDefinitionV1 {
   const source = encoder.encode(sourceText);
   return Result.getOrThrow(prepareStandardApplicationDefinitionV1({
@@ -1180,15 +1193,25 @@ function registrationDefinition(
     programInput: {
       format: "flarex.declarative-program/v1",
       version: 1,
-      schema: { tables: [], indexes: [] },
+      schema: {
+        tables: literal === undefined ? [] : [{
+          logicalName: "literals",
+          definition: { kind: "appDocument", definitionVersion: 1, documentType: {
+            type: "object", value: { value: { fieldType: { type: "literal", value: literal }, optional: false } },
+          } },
+        }],
+        indexes: [],
+      },
       modules: [{
         modulePath: "functions/main",
         functions: [{
           exportName: "ready",
           kind: "mutation",
           visibility: "public",
-          argsValidator: { type: "any" },
-          returnsValidator: null,
+          argsValidator: literal === undefined ? { type: "any" } : {
+            type: "object", value: { value: { fieldType: { type: "literal", value: literal }, optional: false } },
+          },
+          returnsValidator: literal === undefined ? null : { type: "literal", value: literal },
         }],
       }],
     },

@@ -17,11 +17,13 @@ import {
 import {
   canonicalFlarexRuntimeValueToJsonV1,
   createOwnedCanonicalFlarexRuntimeValueProjectionV1,
+  decodeCanonicalFlarexBase64V1,
+  decodeFlarexNumericTagV1,
+  decodedFlarexBase64LengthV1,
   FLAREX_APP_DOCUMENT_LIMITS_V1,
   FLAREX_GENERAL_VALUE_LIMITS_V1,
   FlarexValueRuntimeCoreV1Error,
   isCanonicalFlarexRuntimeObjectV1,
-  MAX_FLAREX_INT64_V1,
   MAX_FLAREX_VALUE_OBJECT_FIELD_BYTES_V1,
   normalizeFlarexRuntimeValueV1,
   type CanonicalFlarexRuntimeValueV1,
@@ -220,10 +222,7 @@ export function normalizeFlarexValueV1(
       nestingDepth: normalized.nestingDepth,
     } satisfies NormalizedFlarexValueV1);
   } catch (cause) {
-    if (cause instanceof FlarexValueRuntimeCoreV1Error) {
-      throw new FlarexValueCodecV1Error({ issue: cause.issue });
-    }
-    throw cause;
+    return rethrowValueRuntimeCoreError(cause);
   }
 }
 
@@ -645,25 +644,17 @@ function decodeTaggedValue(
     throw invalidTag(path, tag, "tag payload must be a canonical base64 string");
   }
   preflightTaggedPayload(tag, entry.value, path, context.limits);
+  if (tag === "$integer" || tag === "$float") {
+    let numeric: number | bigint;
+    try {
+      numeric = decodeFlarexNumericTagV1(tag, entry.value, "canonical", path);
+    } catch (cause) {
+      return rethrowValueRuntimeCoreError(cause);
+    }
+    return primitiveNode(numeric, taggedJson(tag, entry.value), 9, path, context);
+  }
   const bytes = decodeCanonicalBase64(entry.value, path, tag);
   switch (tag) {
-    case "$integer": {
-      if (bytes.byteLength !== 8) {
-        throw invalidTag(path, tag, "signed integer tag must contain exactly 8 bytes");
-      }
-      const integer = decodeInt64(bytes);
-      return primitiveNode(integer, taggedJson(tag, entry.value), 9, path, context);
-    }
-    case "$float": {
-      if (bytes.byteLength !== 8) {
-        throw invalidTag(path, tag, "float tag must contain exactly 8 bytes");
-      }
-      const number = decodeFloat64(bytes);
-      if (!isSpecialFloat(number)) {
-        throw invalidTag(path, tag, "ordinary finite float must be encoded as a JSON number");
-      }
-      return primitiveNode(number, taggedJson(tag, entry.value), 9, path, context);
-    }
     case "$bytes": {
       const semanticSizeBytes = 2 + bytes.byteLength;
       assertSemanticSize(semanticSizeBytes, path, context.limits);
@@ -718,7 +709,7 @@ function preflightTaggedPayload(
   const maximumEncodedCharacters = base64EncodedLength(maximumDecodedBytes);
   if (encoded.length <= maximumEncodedCharacters) return;
 
-  const decodedLength = decodedBase64LengthFromShape(encoded);
+  const decodedLength = decodedFlarexBase64LengthV1(encoded);
   if (decodedLength !== undefined) {
     assertSemanticSize(2 + decodedLength, path, limits);
   }
@@ -974,109 +965,26 @@ function valueJsonEncodingInvariantFailure(
   throw new Error(VALUE_JSON_ENCODING_INVARIANT_MESSAGES[issue.reason]);
 }
 
-function decodeInt64(bytes: Uint8Array): bigint {
-  let unsigned = 0n;
-  for (let index = bytes.length - 1; index >= 0; index -= 1) {
-    const byte = bytes[index];
-    if (byte === undefined) throw new Error("Validated int64 bytes lost an item.");
-    unsigned = (unsigned << 8n) | BigInt(byte);
+/** The public synchronous codec retains its thrown input-error contract. */
+function rethrowValueRuntimeCoreError(cause: unknown): never {
+  if (cause instanceof FlarexValueRuntimeCoreV1Error) {
+    // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: protocol - synchronous Value Codec maps only its known pure input failure to the existing public codec error.
+    throw new FlarexValueCodecV1Error({ issue: cause.issue });
   }
-  return unsigned > MAX_FLAREX_INT64_V1 ? unsigned - (1n << 64n) : unsigned;
+  // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: invariant - unexpected defects retain their original identity rather than becoming codec input failures.
+  throw cause;
 }
 
-function decodeFloat64(bytes: Uint8Array): number {
-  return new DataView(
-    bytes.buffer,
-    bytes.byteOffset,
-    bytes.byteLength,
-  ).getFloat64(0, true);
-}
-
-function isSpecialFloat(value: number): boolean {
-  return Number.isNaN(value) || !Number.isFinite(value) || Object.is(value, -0);
-}
-
-function decodeCanonicalBase64(
-  encoded: string,
-  path: string,
-  tag: string,
-): Uint8Array {
-  const decodedLength = decodedBase64LengthFromShape(encoded);
-  if (decodedLength === undefined) {
-    throw invalidTag(path, tag, "tag payload is not canonical standard base64");
+function decodeCanonicalBase64(encoded: string, path: string, tag: string): Uint8Array {
+  try {
+    return decodeCanonicalFlarexBase64V1(encoded, path, tag);
+  } catch (cause) {
+    return rethrowValueRuntimeCoreError(cause);
   }
-  const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
-  const dataCharacterCount = encoded.length - padding;
-  for (let index = 0; index < dataCharacterCount; index += 1) {
-    if (base64Value(encoded.charCodeAt(index)) < 0) {
-      throw invalidTag(
-        path,
-        tag,
-        "tag payload contains an invalid base64 character",
-      );
-    }
-  }
-  if (
-    (padding === 2 &&
-      (base64Value(encoded.charCodeAt(encoded.length - 3)) & 0x0f) !== 0) ||
-    (padding === 1 &&
-      (base64Value(encoded.charCodeAt(encoded.length - 2)) & 0x03) !== 0)
-  ) {
-    throw invalidTag(path, tag, "tag payload is not canonical base64");
-  }
-  const bytes = new Uint8Array(decodedLength);
-  let outputIndex = 0;
-  for (let index = 0; index < encoded.length; index += 4) {
-    const first = base64Value(encoded.charCodeAt(index));
-    const second = base64Value(encoded.charCodeAt(index + 1));
-    const thirdCharacter = encoded.charAt(index + 2);
-    const fourthCharacter = encoded.charAt(index + 3);
-    const third = thirdCharacter === "=" ? 0 : base64Value(thirdCharacter.charCodeAt(0));
-    const fourth = fourthCharacter === "=" ? 0 : base64Value(fourthCharacter.charCodeAt(0));
-    if (first < 0 || second < 0 || third < 0 || fourth < 0) {
-      throw invalidTag(path, tag, "tag payload contains an invalid base64 character");
-    }
-    if (outputIndex < bytes.length) {
-      bytes[outputIndex] = (first << 2) | (second >> 4);
-      outputIndex += 1;
-    }
-    if (outputIndex < bytes.length) {
-      bytes[outputIndex] = ((second & 0x0f) << 4) | (third >> 2);
-      outputIndex += 1;
-    }
-    if (outputIndex < bytes.length) {
-      bytes[outputIndex] = ((third & 0x03) << 6) | fourth;
-      outputIndex += 1;
-    }
-  }
-  return bytes;
 }
 
 function base64EncodedLength(decodedBytes: number): number {
   return Math.ceil(decodedBytes / 3) * 4;
-}
-
-function decodedBase64LengthFromShape(encoded: string): number | undefined {
-  if (encoded.length % 4 !== 0) return undefined;
-  if (encoded.length === 0) return 0;
-  const finalCharacter = encoded.charAt(encoded.length - 1);
-  const penultimateCharacter = encoded.charAt(encoded.length - 2);
-  if (penultimateCharacter === "=" && finalCharacter !== "=") return undefined;
-  const padding = finalCharacter !== "="
-    ? 0
-    : penultimateCharacter === "="
-      ? 2
-      : 1;
-  return (encoded.length / 4) * 3 - padding;
-}
-
-function base64Value(code: number): number {
-  if (code >= 0x41 && code <= 0x5a) return code - 0x41;
-  if (code >= 0x61 && code <= 0x7a) return code - 0x61 + 26;
-  if (code >= 0x30 && code <= 0x39) return code - 0x30 + 52;
-  if (code === 0x2b) return 62;
-  if (code === 0x2f) return 63;
-  return -1;
 }
 
 function evidenceBytes(

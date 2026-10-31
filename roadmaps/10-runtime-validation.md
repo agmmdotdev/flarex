@@ -159,6 +159,36 @@ Not every route uses Effect Schema end to end. Some executor HTTP and legacy
 backend routes still use explicit manual decoders that return typed validation
 errors. Those remain legitimate boundaries but are a consistency gap.
 
+### Convex Literal Representation And Bounded Capture
+
+The [connected literal translation](../experiments/core/engine/slices/08-validator-literal-parity.md)
+separates protocol semantic validators from their encoded DTOs. Semantic literal
+identity preserves Int64 versus Float64, signed zero and NaN payload/sign bits.
+The SDK may construct unchecked bigint/all-number literals; numeric export owns
+signed-int64 bounds, and successful analysis/schema persistence separately refuses
+nonfinite literals. Generic JSON does not acquire native bigint semantics.
+Existing ordinary literal bytes, including NUL strings, remain unchanged; stored
+function metadata retains its separately owned historical value encoding.
+
+One bounded pure protocol decoder owns structural validation, typed issues and
+strict/default excess policy after a no-getter own-data snapshot. Public codecs,
+SDK foreign capture and thin Effect Schema adapters reuse that owner. Root/object
+codecs, `Schema.toType` and recursive fields retain the same contract. Arrays,
+functions and malformed field containers cannot reach a structural decoder as
+foreign references. Unknown extra names remain visible to strict policy while
+default stripping discards them; capture never evaluates their accessors or
+retains their foreign value graphs. Arbitrary-extra preservation is unsupported.
+
+The strict nested-excess witness supplies a field validator such as
+`{ type: "string", legacy: true }` and expects refusal. Dropping `legacy` during
+capture hid invalid metadata. Keep its presence for the shared owner's policy;
+adapter-side extra checks or weaker strict decoders would hide the same defect.
+
+Validator construction, export and SDK foreign capture use trusted captured
+intrinsics even after application code mutates ambient JavaScript helpers. Thin
+Effect Schema adapters run within the trusted host's Effect runtime; arbitrary
+poisoning of Effect's own internal helpers is outside that adapter guarantee.
+The SDK must not depend on those mutable library helpers to capture validators.
 ### 4. HTTP And Service-Binding Ingress
 
 At each request boundary Flarex distinguishes:
@@ -520,8 +550,9 @@ session validation before any syscall can affect authoritative Postgres state.
 3. **Complete validator-engine adoption without removing authority checks.**
    Migrate SDK, analyzer, generated shell, compatibility backend, and target
    persistence consumers to the existing runtime-neutral engine while retaining
-   validation at every boundary. Preserve the named bigint-literal and record-
-   metadata divergences until their wider protocol contracts are preflighted.
+   validation at every boundary. Translate literals through the accepted
+   connected core slice; the remaining source record wire/parser gate has a
+   named migration responsibility rather than a permanent metadata divergence.
 4. **Sanitize and version error responses.** Give expected domain failures
    stable codes/details, map unexpected defects to opaque 500 responses, attach
    correlation IDs, and log typed internal context without secrets or raw user
@@ -539,3 +570,27 @@ session validation before any syscall can affect authoritative Postgres state.
 8. **Specify unsupported runtime kinds.** Define action and workflow-mutation
    value/effect/return validation and error behavior before enabling those
    execution paths.
+
+## Source admission and Worker field ownership
+
+The shared source-semantic record policy rejects Int64/non-string keys and
+string-literal keys before finite analyzed-metadata conversion. Generic runtime
+and historical codecs remain separate. The previously admitted Int64-key SDK
+example is a shared analysis defect with a required owner correction, not an
+adapter exception; [08](../experiments/core/engine/slices/08-validator-literal-parity.md)
+owns its failing witness and replacement. Complete raw source grammar remains
+an explicit [09 gate](../experiments/core/engine/slices/09-source-validator-wire-parity.md).
+
+Encoded Worker metadata must be parsed from JSON text before semantic numeric
+rehydration. JavaScript object-literal insertion loses own `__proto__` fields;
+Application, Task and retained emitters share the correction and real Worker
+input/output witnesses. No adapter-side reconstruction or relaxed validation
+repairs either shared-owner defect.
+Task schema snapshots reuse the shared immutable validator capture after
+admission. The old private recursive freezer lost own `__proto__` fields; remove
+it and its redundant clone rather than repairing fields in a Worker adapter.
+
+Retained exact Worker builds bundle portable protocol dependencies and preserve
+an explicit allowlist of the host modules that the real runtime supplies.
+Single-file transpilation may reproduce an unresolved import; the shared
+runtime builder and genuine Worker module-graph checks own that correction.

@@ -1,6 +1,9 @@
 import { Data, Effect, Exit, Option, Result, Schema } from "effect";
 import { observeExecution } from "../../../execution/diagnostics/operation";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { applicationSchemaWireV1 } from "@flarex/analysis/application-analysis";
+import { encodeLogicalSchemaSourceDefinition } from "flarex-protocol/internal/logical-schema-candidate";
+import { encodeSchemaManifestAppDocumentDefinitionV1 } from "flarex-protocol/schema-manifest";
 import { encodeCanonicalJson, isJson, isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import type { ApplicationManifest } from "@flarex/analysis/application-analysis";
 import { ApplicationLogicalV3Evidence } from "@flarex/analysis/internal/logical-application-source";
@@ -281,8 +284,8 @@ const applicationCatalogMatches = Effect.fn("LogicalSourceAdmission.matchApplica
     const app = bound.logicalRequirements?.evidence.candidate.sources.filter(source => source.owner === "application");
     if (app?.length !== 1 || app[0] === undefined) return false;
     const evidence = Schema.decodeUnknownResult(ApplicationLogicalV3Evidence)(app[0].evidence);
-    const expected: unknown = manifest.schema;
-    const actual: unknown = Result.isSuccess(evidence) ? evidence.success.manifest.schema : undefined;
+    const expected: unknown = applicationSchemaWireV1(manifest.schema);
+    const actual: unknown = Result.isSuccess(evidence) ? applicationSchemaWireV1(evidence.success.manifest.schema) : undefined;
     if (!isJson(expected) || !isJson(actual) || canonical(expected) !== canonical(actual)) return false;
   }
   const originalTables = applicationTables(original);
@@ -315,7 +318,7 @@ const applicationCatalogMatches = Effect.fn("LogicalSourceAdmission.matchApplica
   }
   const expectedDefinitions = [...originalDefinitions, ...derivedDefinitions];
   return originalTables.every(table => boundTables.some(member => member.tableId === table.tableId &&
-    member.logicalName === table.logicalName && canonical(member.definition) === canonical(table.definition))) &&
+    member.logicalName === table.logicalName && canonical(encodeSchemaManifestAppDocumentDefinitionV1(member.definition)) === canonical(encodeSchemaManifestAppDocumentDefinitionV1(table.definition)))) &&
     expectedDefinitions.length === boundDefinitions.length &&
     expectedDefinitions.every(definition =>
       boundDefinitions.some(member => publishedPhysicalDefinitionMatchesLocated(definition, member))) &&
@@ -681,7 +684,7 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
     return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
   const source = readiness.source(expected.sourceKey);
   if (source === undefined || source.owner !== expectedOwner || source.definition.kind !== expectedKind ||
-      source.writeProfile !== expected.writeProfile || canonical(source.definition) !== canonical(expected.definition) ||
+      source.writeProfile !== expected.writeProfile || canonical(encodeLogicalSchemaSourceDefinition(source.definition)) !== canonical(expected.definition) ||
       canonical(source.evidence) !== canonical(expected.evidence))
     return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
   const selectedTables = readiness.sourceDefinitionTables(source.key);

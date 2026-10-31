@@ -1,3 +1,4 @@
+import { snapshotApplicationValidatorJson } from "@flarex/application-schema-definition/validator-json";
 import {
   RunAttemptPolicyV1Schema,
   TaskComputeProfileRefV1Schema,
@@ -13,6 +14,8 @@ import {
 import { Result, Schema } from "effect";
 import {
   ValidatorJsonV1,
+  ValidatorJsonWireCodecV1,
+  validatorJsonHasNonfiniteLiteralV1,
   validatorJsonAdmissionIssueV1,
   type ValidatorJsonV1 as ValidatorJsonV1Type,
 } from "flarex-protocol/validator-json";
@@ -89,6 +92,7 @@ const decodeValidator = Schema.decodeUnknownResult(
   ValidatorJsonV1,
   STRICT_PARSE_OPTIONS,
 );
+const decodeValidatorWire = Schema.decodeUnknownResult(ValidatorJsonWireCodecV1, STRICT_PARSE_OPTIONS);
 
 export function decodeTaskIdV1(
   input: unknown,
@@ -105,6 +109,13 @@ export function decodeCanonicalTaskManifestV1(
   InvalidStandardApplicationTaskDefinitionV1Error
 > {
   return decodeManifestForOperation(input, "decode_manifest");
+}
+
+/** Serialized manifest admission is distinct from semantic definition capture. */
+export function decodeCanonicalTaskManifestWireV1(
+  input: unknown,
+): Result.Result<CanonicalTaskManifestV1, InvalidStandardApplicationTaskDefinitionV1Error> {
+  return decodeManifestForOperation(input, "decode_manifest", undefined, "wire");
 }
 
 export function decodeCanonicalTaskCatalogV1(
@@ -652,6 +663,7 @@ function decodeManifestForOperation(
   input: unknown,
   operation: StandardApplicationTaskDefinitionOperationV1,
   pathPrefix?: string,
+  representation: "semantic" | "wire" = "semantic",
 ): Result.Result<
   CanonicalTaskManifestV1,
   InvalidStandardApplicationTaskDefinitionV1Error
@@ -686,6 +698,7 @@ function decodeManifestForOperation(
       outer.payloadValidator,
       operation,
       path("payloadValidator"),
+      representation,
     );
     const outputValidator = outer.outputValidator === null
       ? null
@@ -693,6 +706,7 @@ function decodeManifestForOperation(
         outer.outputValidator,
         operation,
         path("outputValidator"),
+        representation,
       );
     const capturedPolicy = captureRunAttemptPolicy(outer.runAttemptPolicy);
     if (capturedPolicy === undefined) {
@@ -802,6 +816,7 @@ function decodeValidatorSnapshot(
   input: unknown,
   operation: StandardApplicationTaskDefinitionOperationV1,
   path: string,
+  representation: "semantic" | "wire",
 ): Result.Result<
   ValidatorJsonV1Type,
   InvalidStandardApplicationTaskDefinitionV1Error
@@ -809,8 +824,11 @@ function decodeValidatorSnapshot(
   if (validatorJsonAdmissionIssueV1(input) !== undefined) {
     return Result.fail(invalid(operation, "invalid_validator", path));
   }
-  return decodeValidator(input).pipe(
-    Result.map((value) => freezeValidator(structuredClone(value))),
+  const decode = representation === "semantic" ? decodeValidator : decodeValidatorWire;
+  return decode(input).pipe(
+    Result.flatMap(value => validatorJsonHasNonfiniteLiteralV1(value)
+      ? Result.fail(invalid(operation, "invalid_validator", path))
+      : Result.succeed(snapshotApplicationValidatorJson(value))),
     Result.mapError(() => invalid(operation, "invalid_validator", path)),
   );
 }
@@ -965,42 +983,6 @@ function snapshotPolicy(policy: RunAttemptPolicyV1): RunAttemptPolicyV1 {
         computeProfile: policy.outOfMemory.computeProfile,
       }),
   });
-}
-
-function freezeValidator(value: ValidatorJsonV1Type): ValidatorJsonV1Type {
-  switch (value.type) {
-    case "array":
-      return Object.freeze({ type: "array", value: freezeValidator(value.value) });
-    case "object": {
-      const fields: Record<string, {
-        readonly fieldType: ValidatorJsonV1Type;
-        readonly optional: boolean;
-      }> = {};
-      for (const key of Object.keys(value.value)) {
-        const field = value.value[key];
-        if (field !== undefined) {
-          fields[key] = Object.freeze({
-            fieldType: freezeValidator(field.fieldType),
-            optional: field.optional,
-          });
-        }
-      }
-      return Object.freeze({ type: "object", value: Object.freeze(fields) });
-    }
-    case "record":
-      return Object.freeze({
-        type: "record",
-        keys: freezeValidator(value.keys),
-        values: freezeValidator(value.values),
-      });
-    case "union":
-      return Object.freeze({
-        type: "union",
-        value: Object.freeze(value.value.map(freezeValidator)),
-      });
-    default:
-      return Object.freeze({ ...value });
-  }
 }
 
 function countValidatorNodes(root: ValidatorJsonV1Type): number {

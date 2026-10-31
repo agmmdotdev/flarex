@@ -1,3 +1,4 @@
+import { encodeSchemaManifestAppSchemaV1 } from "flarex-protocol/schema-manifest";
 import {
   type CatalogIndexId,
   type CatalogTableId,
@@ -386,7 +387,7 @@ async function registerAppSchemaVersion(
     deploymentId,
     schemaVersionId,
     version: CatalogSchemaVersionSchema.make(1),
-    manifest,
+    manifest: encodeSchemaManifestAppSchemaV1(manifest),
   });
   await persistence.drizzle.transaction((tx) =>
     ensureSchemaVersionArtifactInTransaction(tx, artifact)

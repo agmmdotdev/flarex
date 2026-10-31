@@ -15,6 +15,7 @@ import {
   type DeploymentPushStatusRow,
 } from "../src/deployment/Validation";
 import type { AnalyzedStartPushRequest as ProtocolAnalyzedStartPushRequest } from "flarex-protocol/deployment";
+import { encodeDeploymentAnalysis, encodeDeploymentCodegenAnalysis } from "flarex-protocol/deployment";
 import type {
   AnalyzedStartPushRequest,
   DeploymentAnalysis,
@@ -27,6 +28,34 @@ import type {
 } from "../src/types";
 
 describe("deployment validation", () => {
+  it.each([{ value: 1n, other: 1 }, { value: -0, other: 0 }])("compares encoded metadata without conflating literal $value with $other", async ({ value, other }) => {
+    const literal = { type: "literal" as const, value };
+    const semantic: DeploymentAnalysis = {
+      schema: { ...simpleSchema(), tables: [{ ...simpleSchema().tables[0]!, validator: {
+        type: "object", value: { value: { fieldType: literal, optional: false } },
+      } }] },
+      functions: { functions: [{ path: "messages:list", kind: "query", returns: literal }] },
+    };
+    const analysis = await Effect.runPromise(decodeAnalysis(encodeDeploymentAnalysis(semantic)));
+    const codegen = codegenAnalysisFromDeploymentAnalysis(analysis);
+    const schemaMismatch: DeploymentCodegenAnalysis = { ...codegen, schema: {
+      ...codegen.schema, tables: [{ ...codegen.schema.tables[0]!, validator: {
+        type: "object", value: { value: { fieldType: { type: "literal", value: other }, optional: false } },
+      } }],
+    } };
+    await expectDeploymentValidationEffectFailure(
+      decodeCodegenAnalysis(encodeDeploymentCodegenAnalysis(schemaMismatch), analysis),
+      "Codegen analysis schema must match deployment analysis schema.",
+    );
+    const functionMismatch: DeploymentCodegenAnalysis = { ...codegen, functions: codegen.functions.map(module => ({ ...module,
+      functions: module.functions.map(fn => ({ ...fn, returns: { type: "literal", value: other } })),
+    })) };
+    await expectDeploymentValidationEffectFailure(
+      decodeCodegenAnalysis(encodeDeploymentCodegenAnalysis(functionMismatch), analysis),
+      "Codegen function messages:list must match deployment function metadata.",
+    );
+  });
+
   it("normalizes source package modules and function paths", () => {
     const normalized = validateSourcePackage({
       modules: [
@@ -599,7 +628,7 @@ describe("deployment validation", () => {
           validator: { type: "object", value: { body: { optional: false } } },
         }],
       }),
-      "Invalid validator metadata: $schema.tables.messages.validator.value.body.fieldType: Validator is required.",
+      "Invalid validator metadata: $schema.tables.messages.validator[\"value\"][\"body\"][\"fieldType\"]: Invalid validator JSON (missingProperty).",
     );
     expectDeploymentValidationFailure(
       () => validateSchema({
@@ -632,10 +661,10 @@ describe("deployment validation", () => {
           tableId: 1,
           name: "messages",
           placement: { kind: "global" },
-          validator: { type: "object", value: { body: { optional: false } } },
+          validator: { type: "object", value: { body: { optional: false }, later: { optional: false } } },
         }],
       }),
-      "Invalid validator metadata: $schema.tables.messages.validator.value.body.fieldType: Validator is required.",
+      "Invalid validator metadata: $schema.tables.messages.validator[\"value\"][\"body\"][\"fieldType\"]: Invalid validator JSON (missingProperty).",
     );
     await expectDeploymentValidationEffectFailure(
       decodeSchema({
@@ -780,7 +809,7 @@ describe("deployment validation", () => {
             args: { type: "object", value: { body: { optional: false } } },
           }],
         } as unknown as DeploymentFunctions),
-      "Invalid validator metadata: $functions.messages:list.args.value.body.fieldType: Validator is required.",
+      "Invalid validator metadata: $functions.messages:list.args[\"value\"][\"body\"][\"fieldType\"]: Invalid validator JSON (missingProperty).",
     );
     expectDeploymentValidationFailure(
       () =>
@@ -861,7 +890,7 @@ describe("deployment validation", () => {
           args: { type: "object", value: { body: { optional: false } } },
         }],
       }),
-      "Invalid validator metadata: $functions.messages:list.args.value.body.fieldType: Validator is required.",
+      "Invalid validator metadata: $functions.messages:list.args[\"value\"][\"body\"][\"fieldType\"]: Invalid validator JSON (missingProperty).",
     );
     await expectDeploymentValidationEffectFailure(
       decodeFunctions({

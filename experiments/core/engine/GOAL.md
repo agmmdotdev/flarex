@@ -283,9 +283,14 @@ complete Convex feature parity and production rollout are outside this goal.
 Single-owner correctness, required hosting proof and migration of the recorded
 supported scope remain inside it.
 
-The shared schema milestone does not complete [validator parity](./slices/08-validator-literal-parity.md). Translate the
-remaining source int64/negative-zero literal representations through protocol,
-SDK, manifest compilation, hashing and runtime validation in a connected slice;
-existing private validator limits are replacement inputs, not permanent runtime
-exceptions. Preserve explicit search/vector and shape-inference status while
-closing the supported consumer and full-core gates.
+The connected [numeric validator translation](./slices/08-validator-literal-parity.md)
+implements Int64/signed-zero representations through protocol, SDK, analysis,
+manifest compilation, stored metadata, hashing and real Worker execution. It also
+shares ordered source record admission and bounded foreign capture. This does
+not complete validator parity: explicit source-wire, search/vector and shape
+gates remain open alongside supported-consumer and full-core acceptance.
+The [source validator wire gate](./slices/09-source-validator-wire-parity.md)
+remains after the numeric translation: replace the simplified record value
+wire shape, select the proper source ingress policy and prove raw parser error
+stages. Preserve named stored identities/data through an explicit disposition;
+existing private wire layouts are not permanent mechanism exceptions.

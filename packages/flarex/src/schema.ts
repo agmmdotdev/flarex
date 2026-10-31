@@ -1,3 +1,4 @@
+import { validatorJsonForComposition } from "./validatorOwnership";
 import {
   applicationSchemaDefinition,
   applicationTableDefinition,
@@ -51,12 +52,13 @@ export class TableDefinition<
     readonly validator: DocumentValidator,
     readonly fields: PropertyValidators,
   ) {
-    if (validator.json.type !== "object") {
+    const documentType = validatorJsonForComposition(validator);
+    if (documentType.type !== "object") {
       throw new TypeError("Flarex table definitions require an object validator.");
     }
     applicationTableDefinitions.set(
       this,
-      applicationTableDefinition(validator.json),
+      applicationTableDefinition(documentType),
     );
   }
 
@@ -216,14 +218,15 @@ function applicationSchemaDefinitionFromSdkDefinitions(
 function snapshotSdkTableDefinition(
   table: TableDefinition,
 ): ApplicationTableDefinition {
-  if (table.validator.json.type !== "object") {
+  const documentType = validatorJsonForComposition(table.validator);
+  if (documentType.type !== "object") {
     throw new TypeError("Flarex table definitions require an object validator.");
   }
   if (table.indexes.some(index => Object.hasOwn(index, "decimalFields"))) {
     throw new TypeError("The public schema authoring API does not admit decimal index projections.");
   }
   return snapshotApplicationTableDefinition({
-    documentType: table.validator.json,
+    documentType,
     indexes: table.indexes.map(index => ({
       descriptor: index.name,
       fields: index.fields,

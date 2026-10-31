@@ -34,6 +34,7 @@ import {
 } from
   "@flarex/standard-application-invocation/internal/application-mutation-system";
 import { Effect, Result, Scope, Clock, Context, Option, Schema } from "effect";
+import type { DocumentObject } from "flarex-protocol/document-value";
 import type { CoreDatabase } from "@flarex/persistence-postgres/internal/core";
 import type { ApplicationCoreFixture } from "@flarex/persistence-postgres/internal/system-test/core-application-fixture";
 import {
@@ -1243,6 +1244,51 @@ export async function proveCoreApplicationSchemaMappings(fixture: ApplicationCor
     } finally { await runSystemTestEffectV1(read.abort()); }
   } finally { await loader.dispose(); }
 }
+/** Genuine SDK/Analysis -> authenticated program -> Worker -> five-table cold reopen. */
+export async function proveCoreApplicationLiterals(fixture: ApplicationCoreFixture) {
+  let stagedInserts = 0;
+  const loader = new MiniflareApplicationWorkerLoader(undefined, (method, args, result) => {
+    if (method === "insertPointDocument" && args[0] === "literalDocuments" &&
+      typeof result === "object" && result !== null && "kind" in result && result.kind === "inserted") stagedInserts += 1;
+  });
+  const minimum = -9223372036854775808n, maximum = 9223372036854775807n;
+  const rows = async (database: CoreDatabase) => {
+    const read = await runSystemTestEffectV1(database.begin());
+    try { return await runSystemTestEffectV1(read.scan("literalDocuments", "by_id")); }
+    finally { await runSystemTestEffectV1(read.abort()); }
+  };
+  try {
+    const layer = await makeApplicationNativeMutationTestLayer(fixture, loader);
+    const request = (functionPath: string, args: DocumentObject, key: string) => Effect.scoped(invokeApplicationMutation(
+      TransactionFunctionPathV1Schema.make(functionPath), args,
+      TransactionRequestKeyV1Schema.make("core-literals:" + key),
+    ).pipe(Effect.provide(layer)));
+    const low = await runSystemTestEffectV1(request("users:literalWrite", { integer: minimum, zero: -0, testInvalid: true }, "min"));
+    const high = await runSystemTestEffectV1(request("users:literalWrite", { integer: maximum, zero: -0 }, "max"));
+    const invalidNumber = await runSystemTestEffectV1(Effect.exit(request("users:literalWrite", { integer: Number(minimum), zero: -0 }, "number-refused")));
+    const invalidZero = await runSystemTestEffectV1(Effect.exit(request("users:literalWrite", { integer: minimum, zero: 0 }, "zero-refused")));
+    const beforeInvalidReturn = await rows(fixture.database);
+    const insertsBeforeInvalidReturn = stagedInserts;
+    const invalidReturn = await runSystemTestEffectV1(Effect.exit(request("users:literalBadReturn", {}, "return-refused")));
+    const stagedForInvalidReturn = stagedInserts - insertsBeforeInvalidReturn;
+    const afterInvalidReturn = await rows(fixture.database);
+    const reopened = await fixture.reopen();
+    const cold = await rows(reopened);
+    const coldLayer = await makeApplicationNativeMutationTestLayer({ ...fixture, database: reopened }, loader);
+    const freshAfterReopen = await runSystemTestEffectV1(Effect.scoped(invokeApplicationMutation(
+      TransactionFunctionPathV1Schema.make("users:literalWrite"), { integer: minimum, zero: -0 },
+      TransactionRequestKeyV1Schema.make("core-literals:cold-fresh"),
+    ).pipe(Effect.provide(coldLayer))));
+    const replayAfterReopen = await runSystemTestEffectV1(Effect.scoped(invokeApplicationMutation(
+      TransactionFunctionPathV1Schema.make("users:literalWrite"), { integer: maximum, zero: -0 },
+      TransactionRequestKeyV1Schema.make("core-literals:max"),
+    ).pipe(Effect.provide(coldLayer))));
+    return { low, high, invalidNumber, invalidZero, invalidReturn, stagedForInvalidReturn, beforeInvalidReturn, afterInvalidReturn,
+      cold, freshAfterReopen, replayAfterReopen, final: await rows(reopened),
+      coldAnalysisLoads: fixture.coldAnalysisLoads, workerLoads: loader.loads, storageTables: await fixture.storageTables() };
+  } finally { await loader.dispose(); }
+}
+
 export async function proveCoreApplicationArgumentProfile(fixture: ApplicationCoreFixture) {
   const loader = new MiniflareApplicationWorkerLoader();
   try {

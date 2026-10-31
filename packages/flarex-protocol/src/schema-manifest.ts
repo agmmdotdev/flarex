@@ -22,7 +22,8 @@ import {
   StrictStructOptions,
 } from "./strict-schema-options";
 import {
-  ObjectValidatorJsonV1,
+  ObjectValidatorJsonWireCodecV1,
+  validatorJsonHasNonfiniteLiteralV1,
   type ValidatorJsonV1,
 } from "./validator-json";
 
@@ -102,7 +103,11 @@ export const decodeSchemaManifestAppTableName = Schema.decodeUnknownSync(
 export const SchemaManifestAppDocumentDefinitionV1Schema = Schema.Struct({
   kind: Schema.Literal("appDocument"),
   definitionVersion: Schema.Literal(1),
-  documentType: ObjectValidatorJsonV1,
+  documentType: ObjectValidatorJsonWireCodecV1.check(
+    Schema.makeFilter(value => validatorJsonHasNonfiniteLiteralV1(value)
+      ? "Infinite or NaN values are not supported in literal validators."
+      : undefined),
+  ),
 }).check(
   Schema.makeFilter((definition) =>
     validateSchemaManifestAppValidatorIdentifiers(
@@ -113,6 +118,7 @@ export const SchemaManifestAppDocumentDefinitionV1Schema = Schema.Struct({
 ).annotate(StrictStructOptions);
 export type SchemaManifestAppDocumentDefinitionV1 =
   typeof SchemaManifestAppDocumentDefinitionV1Schema.Type;
+export const encodeSchemaManifestAppDocumentDefinitionV1 = Schema.encodeSync(SchemaManifestAppDocumentDefinitionV1Schema);
 
 export const SchemaManifestAppTableDefinitionV1Schema = Schema.Struct({
   tableId: CatalogTableIdSchema,
@@ -129,11 +135,12 @@ export const SchemaManifestAppTableDeclarationV1Schema = Schema.Struct({
 }).annotate(StrictStructOptions);
 export type SchemaManifestAppTableDeclarationV1 =
   typeof SchemaManifestAppTableDeclarationV1Schema.Type;
-export type SchemaManifestAppTableDeclarationInputV1 =
-  typeof SchemaManifestAppTableDeclarationV1Schema.Encoded & {
-    readonly tableId?: never;
-    readonly namespace?: never;
-  };
+export type SchemaManifestAppTableDeclarationInputV1 = {
+  readonly logicalName: typeof SchemaManifestAppTableNameSchema.Encoded;
+  readonly definition: SchemaManifestAppDocumentDefinitionV1;
+  readonly tableId?: never;
+  readonly namespace?: never;
+};
 
 const SchemaManifestAppTableDeclarationsV1Schema = Schema.Array(
   SchemaManifestAppTableDeclarationV1Schema,
@@ -160,6 +167,33 @@ const decodeSchemaManifestAppTableDeclarationsV1ShapeResult =
     SchemaManifestAppTableDeclarationsV1Schema,
     StrictParseOptions,
   );
+
+const captureSchemaManifestAppTableDeclarationsV1ShapeResult = Schema.decodeUnknownResult(
+  Schema.toType(SchemaManifestAppTableDeclarationsV1Schema),
+  StrictParseOptions,
+);
+export const SchemaManifestSemanticInputSchema = Schema.Unknown.check(
+  Schema.makeFilter(value => isManifestDataValue(value, 0, new WeakSet(), "semantic")
+    ? undefined : "Expected bounded own-data semantic schema manifest input"),
+);
+const captureSchemaManifestSemanticInput = Schema.decodeUnknownResult(SchemaManifestSemanticInputSchema);
+
+export function captureSchemaManifestAppTableDeclarationsV1(
+  value: unknown,
+): ReadonlyArray<SchemaManifestAppTableDeclarationV1> {
+  // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: protocol - synchronous Application schema authoring constructors throw admission errors; Effect owners retain the typed Result variant.
+  return Result.getOrThrow(captureSchemaManifestAppTableDeclarationsV1Result(value));
+}
+
+export function captureSchemaManifestAppTableDeclarationsV1Result(
+  value: unknown,
+): Result.Result<ReadonlyArray<SchemaManifestAppTableDeclarationV1>, Schema.SchemaError> {
+  return Result.gen(function* () {
+    yield* preflightSchemaManifestAppTableArrayResult(value);
+    yield* captureSchemaManifestSemanticInput(value);
+    return yield* captureSchemaManifestAppTableDeclarationsV1ShapeResult(value);
+  });
+}
 
 export function decodeSchemaManifestAppTableDeclarationsV1(
   value: unknown,
@@ -205,6 +239,21 @@ const decodeSchemaManifestTableDefinitionsV1ShapeResult = Schema.decodeUnknownRe
   SchemaManifestTableDefinitionsV1Schema,
   StrictParseOptions,
 );
+const captureSchemaManifestTableDefinitionsV1ShapeResult = Schema.decodeUnknownResult(
+  Schema.toType(SchemaManifestTableDefinitionsV1Schema), StrictParseOptions,
+);
+
+export function captureSchemaManifestTableDefinitionsV1Result(
+  value: unknown,
+): Result.Result<SchemaManifestTableDefinitionsV1, Schema.SchemaError> {
+  return Result.gen(function* () {
+    yield* preflightSchemaManifestTableDefinitionsResult(value);
+    yield* captureSchemaManifestSemanticInput(value);
+    return yield* captureSchemaManifestTableDefinitionsV1ShapeResult(value);
+  });
+}
+
+export const encodeSchemaManifestTableDefinitionsV1 = Schema.encodeSync(SchemaManifestTableDefinitionsV1Schema);
 
 export function decodeSchemaManifestTableDefinitionsV1(
   value: unknown,
@@ -454,6 +503,21 @@ const decodeSchemaManifestAppSchemaV1ShapeResult = Schema.decodeUnknownResult(
   SchemaManifestAppSchemaV1Schema,
   StrictParseOptions,
 );
+const captureSchemaManifestAppSchemaV1ShapeResult = Schema.decodeUnknownResult(
+  Schema.toType(SchemaManifestAppSchemaV1Schema), StrictParseOptions,
+);
+
+export function captureSchemaManifestAppSchemaV1Result(
+  value: unknown,
+): Result.Result<SchemaManifestAppSchemaV1, Schema.SchemaError> {
+  return Result.gen(function* () {
+    yield* preflightSchemaManifestAppSchemaResult(value);
+    yield* captureSchemaManifestSemanticInput(value);
+    return yield* captureSchemaManifestAppSchemaV1ShapeResult(value);
+  });
+}
+
+export const encodeSchemaManifestAppSchemaV1 = Schema.encodeSync(SchemaManifestAppSchemaV1Schema);
 
 export function decodeSchemaManifestAppSchemaV1(
   value: unknown,
@@ -984,17 +1048,27 @@ function isCanonicalJsonValue(
   depth: number,
   ancestors: WeakSet<object>,
 ): value is Json {
+  return isManifestDataValue(value, depth, ancestors, "wire");
+}
+
+function isManifestDataValue(
+  value: unknown,
+  depth: number,
+  ancestors: WeakSet<object>,
+  representation: "wire" | "semantic",
+): boolean {
   if (depth > MAX_SCHEMA_MANIFEST_NESTING_DEPTH) return false;
   if (value === null || typeof value === "boolean") return true;
   if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value === "bigint") return representation === "semantic";
   if (typeof value === "string") return isPostgresJsonString(value);
   if (typeof value !== "object") return false;
   if (ancestors.has(value)) return false;
 
   ancestors.add(value);
   const valid = Array.isArray(value)
-    ? isCanonicalJsonArray(value, depth, ancestors)
-    : isCanonicalJsonRecord(value, depth, ancestors);
+    ? isCanonicalJsonArray(value, depth, ancestors, representation)
+    : isCanonicalJsonRecord(value, depth, ancestors, representation);
   ancestors.delete(value);
   return valid;
 }
@@ -1003,7 +1077,8 @@ function isCanonicalJsonArray(
   value: ReadonlyArray<unknown>,
   depth: number,
   ancestors: WeakSet<object>,
-): value is ReadonlyArray<Json> {
+  representation: "wire" | "semantic",
+): boolean {
   if (Object.getPrototypeOf(value) !== Array.prototype) return false;
   const ownKeys = Reflect.ownKeys(value);
   if (ownKeys.length !== value.length + 1) return false;
@@ -1014,7 +1089,7 @@ function isCanonicalJsonArray(
       descriptor === undefined ||
       !("value" in descriptor) ||
       !descriptor.enumerable ||
-      !isCanonicalJsonValue(descriptor.value, depth + 1, ancestors)
+      !isManifestDataValue(descriptor.value, depth + 1, ancestors, representation)
     ) {
       return false;
     }
@@ -1029,7 +1104,8 @@ function isCanonicalJsonRecord<T extends object>(
   value: T,
   depth: number,
   ancestors: WeakSet<object>,
-): value is T & { readonly [key: string]: Json } {
+  representation: "wire" | "semantic",
+): boolean {
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) return false;
 
@@ -1040,7 +1116,7 @@ function isCanonicalJsonRecord<T extends object>(
       descriptor === undefined ||
       !("value" in descriptor) ||
       !descriptor.enumerable ||
-      !isCanonicalJsonValue(descriptor.value, depth + 1, ancestors)
+      !isManifestDataValue(descriptor.value, depth + 1, ancestors, representation)
     ) {
       return false;
     }

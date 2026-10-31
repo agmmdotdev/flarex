@@ -1,6 +1,8 @@
 import { asNonArrayRecord } from "@flarex/utils/records";
 import { isWritableJsonObject } from "flarex-protocol/json";
-import type { ValidatorJson as ProtocolValidatorJson } from "flarex-protocol/validator-json";
+import { Result, Schema } from "effect";
+import { ValidatorJsonWireCodecV1, type ValidatorJson as ProtocolValidatorJson } from "flarex-protocol/validator-json";
+import { validatorLiteralEqualV1 } from "flarex-protocol/internal/validator-json-core";
 
 import { parseFlarexDocumentId, type PersistenceJson } from "../storage/documents/documents";
 
@@ -149,8 +151,11 @@ function validateJsonValue(
       options.validateId?.(validator.tableName, value, path);
       return;
     case "literal":
+      if (typeof validator.value === "bigint") {
+        throw new DeploymentValidatorMetadataError("Bigint transport is not implemented.", path);
+      }
       return expect(
-        value === validator.value,
+        validatorLiteralEqualV1(value, validator.value),
         `Expected literal ${String(validator.value)}.`,
         path,
       );
@@ -185,119 +190,13 @@ function validateJsonValue(
   }
 }
 
+const decodeValidatorWire = Schema.decodeUnknownResult(ValidatorJsonWireCodecV1);
+
 function assertValidatorJson(value: unknown, path: string): ValidatorJson | null {
   if (value === undefined || value === null) return null;
-  const validator = asNonArrayRecord(value);
-  if (validator === null || typeof validator.type !== "string") {
-    throw new DeploymentValidatorMetadataError(
-      "Validator must be an object with a string type.",
-      path,
-    );
-  }
-
-  switch (validator.type) {
-    case "null":
-    case "number":
-    case "bigint":
-    case "boolean":
-    case "string":
-    case "bytes":
-    case "any":
-      return { type: validator.type };
-    case "id":
-      if (typeof validator.tableName !== "string" || validator.tableName.length === 0) {
-        throw new DeploymentValidatorMetadataError(
-          "ID validator tableName must be a non-empty string.",
-          `${path}.tableName`,
-        );
-      }
-      return { type: "id", tableName: validator.tableName };
-    case "literal":
-      if (
-        typeof validator.value !== "string" &&
-        typeof validator.value !== "number" &&
-        typeof validator.value !== "boolean"
-      ) {
-        throw new DeploymentValidatorMetadataError(
-          "Literal validator value must be string, number, or boolean.",
-          `${path}.value`,
-        );
-      }
-      return { type: "literal", value: validator.value };
-    case "array":
-      return {
-        type: "array",
-        value: requiredValidator(validator.value, `${path}.value`),
-      };
-    case "object":
-      return {
-        type: "object",
-        value: objectValidatorFields(validator.value, `${path}.value`),
-      };
-    case "record":
-      return {
-        type: "record",
-        keys: requiredValidator(validator.keys, `${path}.keys`),
-        values: requiredValidator(validator.values, `${path}.values`),
-      };
-    case "union":
-      if (!Array.isArray(validator.value)) {
-        throw new DeploymentValidatorMetadataError(
-          "Union validator value must be an array.",
-          `${path}.value`,
-        );
-      }
-      return {
-        type: "union",
-        value: validator.value.map((member, index) =>
-          requiredValidator(member, `${path}.value[${index}]`),
-        ),
-      };
-    default:
-      throw new DeploymentValidatorMetadataError(
-        `Unknown validator type ${validator.type}.`,
-        `${path}.type`,
-      );
-  }
-}
-
-function objectValidatorFields(
-  value: unknown,
-  path: string,
-): Record<string, { fieldType: ValidatorJson; optional: boolean }> {
-  const fields = asNonArrayRecord(value);
-  if (fields === null) {
-    throw new DeploymentValidatorMetadataError(
-      "Object validator value must be an object.",
-      path,
-    );
-  }
-  return Object.fromEntries(
-    Object.entries(fields).map(([name, rawField]) => {
-      const field = asNonArrayRecord(rawField);
-      if (field === null || typeof field.optional !== "boolean") {
-        throw new DeploymentValidatorMetadataError(
-          "Object validator field must have an optional boolean.",
-          `${path}.${name}`,
-        );
-      }
-      return [
-        name,
-        {
-          fieldType: requiredValidator(field.fieldType, `${path}.${name}.fieldType`),
-          optional: field.optional,
-        },
-      ];
-    }),
-  );
-}
-
-function requiredValidator(value: unknown, path: string): ValidatorJson {
-  const validator = assertValidatorJson(value, path);
-  if (validator === null) {
-    throw new DeploymentValidatorMetadataError("Validator is required.", path);
-  }
-  return validator;
+  // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - retained JSON-only deployment metadata API throws DeploymentValidatorMetadataError; convert the protocol Result once at this synchronous boundary.
+  return Result.getOrThrow(Result.mapError(decodeValidatorWire(value), cause =>
+    new DeploymentValidatorMetadataError(`Invalid validator JSON. ${cause.message}`, path)));
 }
 
 function validateObject(

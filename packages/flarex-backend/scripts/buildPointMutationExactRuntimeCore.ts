@@ -1,8 +1,7 @@
-import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { buildRuntimeKernelTwice } from "./runtimeKernelBuilder";
+import { writeFile } from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { transformWithOxc } from "vite";
 
 const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const CORE_PATH = path.join(
@@ -11,7 +10,6 @@ const CORE_PATH = path.join(
   "artifactRuntime",
   "PointMutationExactRuntimeWorkerCore.ts",
 );
-const VIRTUAL_CORE_FILENAME = "PointMutationExactRuntimeWorkerCore.ts";
 const GENERATED_PATH = path.join(
   PACKAGE_ROOT,
   "src",
@@ -74,33 +72,20 @@ export async function checkPointMutationExactRuntimeCore(): Promise<
 }
 
 async function buildTwice(): Promise<CoreBuildReceipt> {
-  const first = await buildOnce();
-  const second = await buildOnce();
-  if (first.source !== second.source || first.sha256 !== second.sha256) {
-    throw new Error(
-      "Exact point-mutation runtime core builds are not byte-for-byte stable.",
-    );
-  }
-  return first;
-}
-
-async function buildOnce(): Promise<CoreBuildReceipt> {
-  const input = (await readFile(CORE_PATH, "utf8")).replace(/\r\n?/g, "\n");
-  const result = await transformWithOxc(input, VIRTUAL_CORE_FILENAME, {
-    sourcemap: true,
+  const { source, sha256 } = await buildRuntimeKernelTwice({
+    entry: CORE_PATH,
+    label: "Exact point-mutation runtime core",
+    minify: false,
+    externalModules: [
+      "cloudflare:workers",
+      "flarex:function-api-core/v1",
+      "./_flarex/application-error-platform-v1.js",
+      "./pointMutationExactRuntimeWorker/flarex-point-mutation-exact-runtime-config-v1.js",
+      "./pointMutationExactRuntimeWorker/flarex-point-mutation-exact-runtime-execution-v1.js",
+      "./pointMutationExactRuntimeWorker/flarex-point-mutation-runtime-kernel-v1.js",
+    ],
   });
-  if (result.map === undefined || result.map === null) {
-    throw new Error("Exact-runtime core build did not emit a source map.");
-  }
-  const inlineSourceMap = Buffer.from(
-    JSON.stringify(result.map),
-    "utf8",
-  ).toString("base64");
-  const source = `${result.code}//# sourceMappingURL=data:application/json;base64,${inlineSourceMap}\n`;
-  return Object.freeze({
-    source,
-    sha256: createHash("sha256").update(source, "utf8").digest("hex"),
-  });
+  return Object.freeze({ source, sha256 });
 }
 
 function isGeneratedCoreModule(value: unknown): value is Readonly<{

@@ -2,3 +2,5 @@
 // including Effect's cached Error.stackTraceLimit writability detection.
 import "./ApplicationWorkerStackTracePrelude";
 export * from "../src/artifactRuntime/ApplicationWorkerCore";
+
+export { decodeValidatorJsonWireCoreV1 } from "flarex-protocol/internal/validator-json-core";

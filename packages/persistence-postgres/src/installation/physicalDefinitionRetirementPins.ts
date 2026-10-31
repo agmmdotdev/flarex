@@ -15,10 +15,10 @@ import {
   AppSchemaCandidateValidationOperationV1Error,
 } from "flarex-protocol/internal/app-schema-candidate-validation-v1";
 import {
-  canonicalizeApplicationActionExecutionAuthorityV1,
+  canonicalizeApplicationActionExecutionAuthorityWireV1,
 } from "flarex-protocol/internal/application-action-authority-v1";
 import {
-  canonicalizeApplicationMutationExecutionAuthorityV1,
+  canonicalizeApplicationMutationExecutionAuthorityWireV1,
 } from "flarex-protocol/internal/application-mutation-authority-v1";
 import {
   TransactionArtifactIdV1Schema,
@@ -413,7 +413,7 @@ const loadAndValidateMutationSessionEffect = Effect.fn(
     ) ||
     row.applicationExecutionAuthorityCanonicalBytes === null
   ) return yield* pinCorruption(owner, sessionId);
-  const canonical = yield* canonicalizeApplicationMutationExecutionAuthorityV1(
+  const canonical = yield* canonicalizeApplicationMutationExecutionAuthorityWireV1(
     row.applicationExecutionAuthorityJson,
   ).pipe(Effect.mapError(cause =>
     new PhysicalDefinitionRetirementPinCorruptionError({
@@ -569,7 +569,7 @@ const loadAndValidateActionEffect = Effect.fn(
     row.applicationExecutionAuthorityCanonicalBytes === null ||
     !isUint8ArrayWithByteLength(row.applicationExecutionAuthoritySha256, 32)
   ) return yield* pinCorruption("direct_action", requestKey);
-  const canonical = yield* canonicalizeApplicationActionExecutionAuthorityV1(
+  const canonical = yield* canonicalizeApplicationActionExecutionAuthorityWireV1(
     row.applicationExecutionAuthorityJson,
   ).pipe(Effect.mapError(cause =>
     new PhysicalDefinitionRetirementPinCorruptionError({

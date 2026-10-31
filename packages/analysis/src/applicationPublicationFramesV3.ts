@@ -1,5 +1,6 @@
 import { Data, Result } from "effect";
 import { encodeCanonicalJson, isJson, measureCanonicalJsonUtf8Bytes } from "flarex-protocol/json";
+import { applicationSchemaWireV1 } from "./applicationAnalysisV1";
 import { APPLICATION_PUBLICATION_MAXIMUM_FRAME_BYTES_V1 } from "./applicationPublicationFramesV1.ts";
 import type { ApplicationManifestV3 } from "./applicationAnalysisV3.ts";
 import type { ApplicationPublicationCommitmentV2Input } from "./applicationPublicationFramesV2.ts";
@@ -15,7 +16,7 @@ export function applicationSchemaPublicationFrameV3(
   return canonicalFrame({
     format: "flarex.application-schema-publication",
     version: 3,
-    schema: manifest.schema,
+    schema: applicationSchemaWireV1(manifest.schema),
   });
 }
 

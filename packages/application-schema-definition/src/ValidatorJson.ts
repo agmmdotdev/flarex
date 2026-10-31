@@ -3,13 +3,11 @@ import type {
   ValidatorJsonV1,
 } from "flarex-protocol/validator-json";
 
-const NUMBER_IS_FINITE = Number.isFinite;
 const OBJECT_CREATE = Object.create;
 const OBJECT_DEFINE_PROPERTY = Object.defineProperty;
 const OBJECT_ENTRIES = Object.entries;
 const OBJECT_FREEZE = Object.freeze;
 const OBJECT_HAS_OWN = Object.hasOwn;
-const OBJECT_IS = Object.is;
 const RANGE_ERROR = RangeError;
 
 export type ApplicationValidatorScalarType = Extract<
@@ -49,23 +47,16 @@ export function applicationIdValidatorJson(
 }
 
 export function applicationLiteralValidatorJson<
-  Literal extends string | number | boolean,
+  Literal extends string | number | bigint | boolean,
 >(value: Literal): Readonly<{ readonly type: "literal"; readonly value: Literal }> {
   if (
     typeof value !== "string" &&
     typeof value !== "number" &&
+    typeof value !== "bigint" &&
     typeof value !== "boolean"
   ) {
     throw new RANGE_ERROR(
-      "Application validator literals must be strings, numbers, or booleans.",
-    );
-  }
-  if (
-    typeof value === "number" &&
-    (!NUMBER_IS_FINITE(value) || OBJECT_IS(value, -0))
-  ) {
-    throw new RANGE_ERROR(
-      "Application numeric validator literals must be finite and not negative zero.",
+      "Application validator literals must be strings, numbers, bigints, or booleans.",
     );
   }
   return OBJECT_FREEZE({ type: "literal", value });

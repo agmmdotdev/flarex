@@ -8,7 +8,7 @@ import { withApplicationCoreFixture } from "@flarex/persistence-postgres/interna
 
 import { APPLICATION_NESTED_MUTATION_FIXTURE_OPTIONS, proveApplicationNativeMutation } from
   "../../support/applicationNativeMutationHarness";
-import { createCoreApplicationDefinition } from "../../support/applicationCoreDefinition";
+import { createCoreApplicationDefinition, createCoreLiteralApplicationDefinition } from "../../support/applicationCoreDefinition";
 
 describe("Application-native Standard mutation - PGlite", () => {
   defineApplicationCoreQueryContract({
@@ -18,6 +18,9 @@ describe("Application-native Standard mutation - PGlite", () => {
     },
   });
   defineApplicationNestedMutationContract({
+    runLiteralScenario: async scenario => withApplicationCoreFixture(
+      await createCorePGliteFixture(), await createCoreLiteralApplicationDefinition(), scenario,
+    ),
     runScenario: async scenario => {
       const definition = await createCoreApplicationDefinition();
       return withApplicationCoreFixture(await createCorePGliteFixture(), definition, scenario);

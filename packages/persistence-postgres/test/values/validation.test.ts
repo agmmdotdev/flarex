@@ -79,4 +79,19 @@ describe("persistence validator metadata", () => {
       )).not.toThrow();
     }
   });
+  it("decodes signed literals without enabling the retained JSON-only bigint transport", () => {
+    const tables = schemaTableValidatorsFromAnalysis({ schema: { tables: [{
+      tableId: 1, name: "literals", validator: { type: "object", value: {
+        sign: { fieldType: { type: "literal", value: { $float: "AAAAAAAAAIA=" } }, optional: false },
+      } },
+    }] } });
+    expect(() => validateDocumentValue(tables, 1, "1:literal", { sign: -0 })).not.toThrow();
+    expect(() => validateDocumentValue(tables, 1, "1:literal", { sign: 0 })).toThrow("failed validation at $.sign");
+    const bigintTables = schemaTableValidatorsFromAnalysis({ schema: { tables: [{
+      tableId: 1, name: "literals", validator: { type: "literal", value: { $integer: "AQAAAAAAAAA=" } },
+    }] } });
+    expect(bigintTables[0]?.validator).toEqual({ type: "literal", value: 1n });
+    expect(() => validateDocumentValue(bigintTables, 1, "1:literal", { $integer: "AQAAAAAAAAA=" })).toThrow("Bigint transport is not implemented.");
+  });
+
 });

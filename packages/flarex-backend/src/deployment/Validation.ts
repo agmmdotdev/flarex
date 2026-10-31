@@ -2,9 +2,9 @@ import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Effect, Schema } from "effect";
 import { SchemaManifestAppDeveloperOrderedIndexSpecV1Schema } from "flarex-protocol/schema-manifest";
-import { decodeAnalyzerProtocolSuccessResponseEffect } from "@flarex/analysis";
+import { admitFreshDeploymentMetadataEffect, captureAnalyzerProtocolSuccessResponseEffect } from "@flarex/analysis";
 import { decodeAuthConfigEffect } from "flarex-protocol/auth";
-import type { AnalyzedStartPushRequest as ProtocolAnalyzedStartPushRequest } from "flarex-protocol/deployment";
+import { encodeDeploymentSchema, encodeDeploymentFunctionValidators, type AnalyzedStartPushRequest as ProtocolAnalyzedStartPushRequest } from "flarex-protocol/deployment";
 import { selectorNameForPartitionField } from "flarex-protocol/partition-selector";
 import {
   decodeDeploymentStorageCodegenAnalysisJson,
@@ -276,16 +276,18 @@ export const decodeStartAnalyzedPushInput = Effect.fn(
     };
   }
   const hasCodegenAnalysis = Object.prototype.hasOwnProperty.call(request, "codegenAnalysis");
-  const codegenAnalysis = yield* decodeCodegenAnalysis(
-    hasCodegenAnalysis ? request.codegenAnalysis : codegenAnalysisFromDeploymentAnalysis(analysis),
-    analysis,
-  );
+  const codegenAnalysis = hasCodegenAnalysis
+    ? yield* decodeCodegenAnalysis(request.codegenAnalysis, analysis)
+    : codegenAnalysisFromDeploymentAnalysis(analysis);
   yield* validateDeploymentAnalysisSourcePackageEffect(sourcePackage, analysis);
-  yield* decodeAnalyzerProtocolSuccessResponseEffect({
+  const captured = yield* captureAnalyzerProtocolSuccessResponseEffect({
     analysis,
     codegenAnalysis,
     diagnostics,
   }).pipe(
+    Effect.mapError(error => new DeploymentValidationError({ message: error.message })),
+  );
+  yield* admitFreshDeploymentMetadataEffect(captured).pipe(
     Effect.mapError(error => new DeploymentValidationError({ message: error.message })),
   );
   return {
@@ -571,7 +573,7 @@ export const decodeCodegenAnalysis = Effect.fn("DeploymentValidation.decodeCodeg
       return yield* deploymentValidationFailureEffect("Codegen analysis must be an object.");
     }
     const schema = yield* decodeSchema(codegenAnalysis.schema);
-    if (canonicalJson(schema) !== canonicalJson(analysis.schema)) {
+    if (canonicalJson(encodeDeploymentSchema(schema)) !== canonicalJson(encodeDeploymentSchema(analysis.schema))) {
       return yield* deploymentValidationFailureEffect("Codegen analysis schema must match deployment analysis schema.");
     }
     if (!Array.isArray(codegenAnalysis.functions)) {
@@ -690,7 +692,7 @@ const assertCodegenFunctionMatchesMetadataEffect = Effect.fn(
     partition: metadata.partition ?? null,
     position: metadata.position,
   };
-  if (canonicalJson(codegen) !== canonicalJson(expected)) {
+  if (canonicalJson(encodeDeploymentFunctionValidators(codegen)) !== canonicalJson(encodeDeploymentFunctionValidators(expected))) {
     return yield* deploymentValidationFailureEffect(`Codegen function ${path} must match deployment function metadata.`);
   }
 });

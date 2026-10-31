@@ -1,3 +1,5 @@
+import { encodeSchemaManifestAppDocumentDefinitionV1 } from "flarex-protocol/schema-manifest";
+import { encodeValidatorJsonV1 } from "flarex-protocol/validator-json";
 import {
   capturePrivateAnalyzerReleaseTupleV1,
   installedPrivateAnalyzerReleaseTupleV1,
@@ -1541,7 +1543,7 @@ function deploymentAnalysisJson(
     schema: Object.freeze({
       tables: definition.program.schema.tables.map(table => Object.freeze({
         logicalName: table.logicalName,
-        definition: table.definition,
+        definition: encodeSchemaManifestAppDocumentDefinitionV1(table.definition),
       })),
       indexes: definition.program.schema.indexes.map(index => Object.freeze({
         tableLogicalName: index.tableLogicalName,
@@ -1559,8 +1561,8 @@ function deploymentAnalysisJson(
         exportName: fn.exportName,
         kind: fn.kind,
         visibility: fn.visibility,
-        argsValidator: fn.argsValidator,
-        returnsValidator: fn.returnsValidator,
+        argsValidator: encodeValidatorJsonV1(fn.argsValidator),
+        returnsValidator: fn.returnsValidator === null ? null : encodeValidatorJsonV1(fn.returnsValidator),
       }))
     ),
   });
@@ -1598,8 +1600,8 @@ function deploymentCodegenAnalysisJson(
         exportName: fn.exportName,
         kind: fn.kind,
         visibility: fn.visibility,
-        argsValidator: fn.argsValidator,
-        returnsValidator: fn.returnsValidator,
+        argsValidator: encodeValidatorJsonV1(fn.argsValidator),
+        returnsValidator: fn.returnsValidator === null ? null : encodeValidatorJsonV1(fn.returnsValidator),
       })),
     })),
   });

@@ -12,7 +12,7 @@ import { withApplicationCoreFixture } from "@flarex/persistence-postgres/interna
 
 import { APPLICATION_NESTED_MUTATION_FIXTURE_OPTIONS, proveApplicationNativeMutation } from
   "../../support/applicationNativeMutationHarness";
-import { createCoreApplicationDefinition } from "../../support/applicationCoreDefinition";
+import { createCoreApplicationDefinition, createCoreLiteralApplicationDefinition } from "../../support/applicationCoreDefinition";
 import {
   postgresUrl,
   withTemporarySplitPostgresPersistence,
@@ -42,6 +42,13 @@ describePostgres("Application-native Standard mutation - PostgreSQL", () => {
     },
   });
   defineApplicationNestedMutationContract({
+    runLiteralScenario: async scenario => {
+      const provisioning = process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL;
+      if (postgresUrl === null || provisioning === undefined) throw new Error("Core PostgreSQL literal proof requires explicit endpoints.");
+      return withApplicationCoreFixture(await createCorePostgresFixture({
+        connectionString: postgresUrl, provisioningConnectionString: provisioning,
+      }), await createCoreLiteralApplicationDefinition(), scenario);
+    },
     runScenario: async scenario => {
       const provisioning = process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL;
       if (postgresUrl === null || provisioning === undefined) throw new Error("Core PostgreSQL proof requires explicit serving and provisioning endpoints.");

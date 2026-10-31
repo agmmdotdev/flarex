@@ -1,3 +1,4 @@
+import { encodeLogicalSchemaCandidate } from "flarex-protocol/internal/logical-schema-candidate";
 import { Effect } from "effect";
 import { sql } from "drizzle-orm";
 import { expect } from "vitest";
@@ -57,8 +58,8 @@ export const relationalValueAdmissionScenario = Effect.fn("RelationalValueAdmiss
     const prepared = yield* prepareSchemaVersionArtifactEffect({ deploymentId, schemaVersionId: variantId,
       version: CatalogSchemaVersionSchema.make(2), manifest: {
         kind: "logicalSchemaAdmission", definitionVersion: 1, tableBindings: evidence.tableBindings,
-        candidate: { ...evidence.candidate, sources: evidence.candidate.sources.map(candidate =>
-          candidate.key === source.key ? variant : candidate) },
+        candidate: encodeLogicalSchemaCandidate({ ...evidence.candidate, sources: evidence.candidate.sources.map(candidate =>
+          candidate.key === source.key ? variant : candidate) }),
       },
     });
     const rollback = new Error("Discard synthetic compiler fixture");

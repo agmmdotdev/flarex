@@ -302,10 +302,12 @@ The [shared schema milestone](./slices/07-shared-schema-lifecycle.md) supplies t
 bounded Application lifecycle and five-table generated platform baseline in this
 sequence. Its native activation guard preserves the previous ready combination
 when shared native constraints are unsupported; it does not wrap or fall back to
-old framework installers. The [remaining literal translation](./slices/08-validator-literal-parity.md)
-connects validator semantics through authoring, analysis, manifests, hashing and
-actual runtime consumers before claiming source literal parity. Managed hosting,
-native/GC, supported-data and complete-flow performance gates remain separate.
+old framework installers. The [bounded literal translation](./slices/08-validator-literal-parity.md)
+now connects Int64/signed-zero semantics through authoring, analysis, manifests,
+stored metadata, hashing and actual runtime consumers. Full raw source-wire
+parity retains its [next gate](./slices/09-source-validator-wire-parity.md). Managed
+hosting, native/GC, supported-data and complete-flow performance gates remain
+separate.
 
 Derive executable conformance traces from pinned source and tests where present:
 conflict against an accepted unsaved write; independent saves completing out of
@@ -522,3 +524,8 @@ rules alone supply no runtime or cutover evidence. Production
 rollout and unspecified data resets are outside the goal. Preserve current behavior until a
 connected replacement is implemented and verified, then retire it rather than
 accumulate another engine.
+
+The [source validator wire translation](./slices/09-source-validator-wire-parity.md)
+closes remaining raw record grammar and parser-policy gaps beyond the connected
+numeric slice. Treat canonical-byte changes as a named stored-identity migration
+responsibility; do not preserve the simplified private wire as a runtime exception.

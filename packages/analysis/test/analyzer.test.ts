@@ -1,9 +1,11 @@
 import { Effect } from "effect";
 import type { ValidatorJSON } from "flarex/values";
+import { encodeValidatorJsonV1, decodeValidatorJsonWireV1 } from "flarex-protocol/validator-json";
 import { describe, expect, it } from "vitest";
 import {
   analyzeLoadedSourcePackageEffect,
   backendCodegenAnalysisFromCodegenAnalysisEffect,
+  backendRequiredValidatorJsonEffect,
   decodeAnalyzerProtocolSuccessResponseEffect,
   decodeAnalyzerSuccessEnvelopeEffect,
   deploymentAnalysisFromCodegenAnalysisEffect,
@@ -12,6 +14,15 @@ import {
 } from "../src/index";
 
 describe("shared analyzer semantics", () => {
+  it.each([NaN, Infinity, -Infinity])("parses exported %s but refuses it when completing backend metadata", async value => {
+    const parsed = decodeValidatorJsonWireV1(encodeValidatorJsonV1({ type: "literal", value }));
+    expect(parsed.type).toBe("literal");
+    if (parsed.type === "literal") expect(Object.is(parsed.value, value)).toBe(true);
+    await expect(Effect.runPromise(backendRequiredValidatorJsonEffect(parsed))).rejects.toMatchObject({
+      _tag: "AnalyzerValidatorError",
+      message: "Infinite or NaN values are not supported in literal validators.",
+    });
+  });
   it("analyzes schema, functions, source positions, and root partitions", async () => {
     const analysis = await Effect.runPromise(analyzeLoadedSourcePackageEffect({
       schemaDefinition: schemaDefinition(),
@@ -328,7 +339,7 @@ describe("shared analyzer semantics", () => {
     expect(Object.hasOwn(argsValidator.value, "__proto__")).toBe(true);
   });
 
-  it("rejects BigInt literal validators at the backend metadata conversion boundary", async () => {
+  it.each([-9_223_372_036_854_775_808n, 1n, 9_223_372_036_854_775_807n, -0])("preserves literal %s through backend metadata conversion", async value => {
     const analysis: DeploymentAnalysis = {
       schema: { version: 1, tables: [], indexes: [] },
       functions: [
@@ -341,8 +352,7 @@ describe("shared analyzer semantics", () => {
               kind: "query",
               visibility: "public",
               args: objectValidator({
-                // @ts-expect-error Deliberately exercise malformed legacy metadata.
-                value: { fieldType: { type: "literal", value: 1n }, optional: false },
+                value: { fieldType: { type: "literal", value }, optional: false },
               }),
               returns: null,
             },
@@ -351,10 +361,8 @@ describe("shared analyzer semantics", () => {
       ],
     };
 
-    await expect(Effect.runPromise(deploymentAnalysisFromCodegenAnalysisEffect(analysis)))
-      .rejects.toMatchObject({
-        message: "BigInt literal validators are not supported by backend deployment metadata.",
-      });
+    const converted = await Effect.runPromise(deploymentAnalysisFromCodegenAnalysisEffect(analysis));
+    expect(converted.functions.functions[0]?.args).toEqual(analysis.functions[0]?.functions[0]?.args);
   });
 
   it("rejects empty ID table names at the backend metadata conversion boundary", async () => {
@@ -370,7 +378,6 @@ describe("shared analyzer semantics", () => {
               optional: false,
             },
             later: {
-              // @ts-expect-error Deliberately exercise failure-order handling.
               fieldType: { type: "literal", value: 1n },
               optional: false,
             },

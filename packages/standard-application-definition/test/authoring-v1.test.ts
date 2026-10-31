@@ -183,10 +183,14 @@ describe("Standard Application typed authoring V1", () => {
     expect(Object.isFrozen(fields)).toBe(false);
   });
 
-  it.each([Number.NaN, Number.POSITIVE_INFINITY, -0])(
-    "rejects the non-canonical numeric literal %s",
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, -0, 9223372036854775808n])(
+    "retains the semantic authoring literal %s until export",
     value => {
-      expect(() => standardV1.literal(value)).toThrow(RangeError);
+      const validator = standardV1.literal(value);
+      expect(validator.json.type).toBe("literal");
+      if (validator.json.type !== "literal") throw new Error("Expected a literal validator.");
+      expect(Object.is(validator.json.value, value)).toBe(true);
+      expect(Object.isFrozen(validator.json)).toBe(true);
     },
   );
 

@@ -91,7 +91,7 @@ import { and, eq, getTableColumns, sql, type SQL } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
 import { Effect, Result, Schema } from "effect";
 import {
-  canonicalizeApplicationMutationExecutionAuthorityV1,
+  canonicalizeApplicationMutationExecutionAuthorityWireV1,
 } from "flarex-protocol/internal/application-mutation-authority-v1";
 import {
   FlarexDbV1StorageGenerationSchema,
@@ -487,7 +487,7 @@ export const captureFiniteReplacementAttemptInTransactionEffect = Effect.fn(
     !bytesEqual(original.context.session.authorizationGrantSha256, session.authorizationGrantSha256)))
     return yield* Effect.fail(corruptionError(input.selector.scopeId, "sessionRecordInvalid"));
   const canonical = original === undefined
-    ? yield* canonicalizeApplicationMutationExecutionAuthorityV1(session.applicationExecutionAuthorityJson)
+    ? yield* canonicalizeApplicationMutationExecutionAuthorityWireV1(session.applicationExecutionAuthorityJson)
       .pipe(Effect.mapError(cause => corruptionError(input.selector.scopeId, "sessionRecordInvalid", cause)))
     : original.canonicalExecutionAuthority;
   const authority = canonical.authority;

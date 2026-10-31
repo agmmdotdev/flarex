@@ -1,9 +1,11 @@
+import { encodeDeploymentAnalysis, encodeDeploymentCodegenAnalysis } from "flarex-protocol/deployment";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { isNonEmptyString } from "@flarex/utils/strings";
 import type { Miniflare } from "miniflare";
 import { Data, Effect } from "effect";
 import {
   backendCodegenAnalysisFromCodegenAnalysisEffect,
+  encodeCodegenDeploymentAnalysis,
   deploymentAnalysisFromCodegenAnalysisEffect,
 } from "@flarex/analysis";
 import {
@@ -451,7 +453,8 @@ export function createLocalAnalyzerService(
           diagnostics: result.diagnostics ?? [],
         } satisfies AnalyzeSourcePackageResponse;
       }));
-      return Response.json(payload);
+      return Response.json({ ...payload, analysis: encodeDeploymentAnalysis(payload.analysis),
+        codegenAnalysis: encodeDeploymentCodegenAnalysis(payload.codegenAnalysis) });
     } catch (error) {
       return Response.json(
         {
@@ -833,7 +836,7 @@ function diagnosticsFromError(error: unknown): AnalyzerDiagnostic[] {
 }
 
 function stableAnalysisJson(analysis: CodegenDeploymentAnalysis): string {
-  return JSON.stringify(analysis);
+  return JSON.stringify(encodeCodegenDeploymentAnalysis(analysis));
 }
 
 async function postLocalBackendPush(

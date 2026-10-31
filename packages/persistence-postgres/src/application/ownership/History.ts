@@ -1,6 +1,6 @@
 import { and, eq, ne, sql } from "drizzle-orm";
 import { Effect, Result } from "effect";
-import { canonicalizeApplicationManifest, verifyApplicationManifestWithRelations } from "@flarex/analysis/application-analysis";
+import { canonicalizeApplicationManifestWire, verifyApplicationManifestWithRelations } from "@flarex/analysis/application-analysis";
 import { applicationFunctionCatalogPublicationFrameV1, applicationPublicationCommitmentFrameV1 } from "@flarex/analysis/internal/application-publication-v1";
 import { applicationFunctionCatalogPublicationFrameV2, applicationPublicationCommitmentFrame,
   applicationSchemaPublicationFrame } from "@flarex/analysis/internal/application-publication-v2";
@@ -103,7 +103,7 @@ export const readPreviouslyApplicationWritableTables = Effect.fn("ApplicationWri
       const bytes = analyses[0]?.bytes;
       if (bytes === null || bytes === undefined || bytes.byteLength !== size.length) return yield* invalid();
       const parsed = yield* Effect.try({ try: (): unknown => JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)), catch: cause => failure(cause) });
-      const canonical = yield* Effect.fromResult(canonicalizeApplicationManifest(parsed).pipe(Result.mapError(failure)));
+      const canonical = yield* Effect.fromResult(canonicalizeApplicationManifestWire(parsed).pipe(Result.mapError(failure)));
       const manifest = canonical.manifest;
       if (manifest.version === 3) yield* verifyApplicationManifestWithRelations(manifest).pipe(Effect.mapError(failure));
       if (!bytesEqualFullScan(bytes, canonical.canonicalBytes) || !bytesEqualFullScan(yield* digest(bytes), publication.manifestSha256) ||

@@ -1,3 +1,9 @@
+import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/point-mutation-exact-runtime";
+import { isNonArrayRecord } from "@flarex/utils/records";
+import { Effect, Result } from "effect";
+import { encodeValidatorJsonV1, type ValidatorJsonV1 } from "flarex-protocol/validator-json";
+import { decodeCanonicalFunctionMetadataSetV1, encodeFunctionMetadataSetV1 } from "@flarex/persistence-postgres/internal/system-test/functionMetadataCodec";
+import { literalWorkerCodecModuleSource } from "./support/literalWorkerCodecModule";
 import { Miniflare } from "miniflare";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -30,7 +36,7 @@ import {
 import {
   requirePointMutationArgumentSemanticSizeV1,
 } from "flarex-protocol/point-mutation-start";
-import { normalizeFlarexValueV1 } from "flarex-protocol/value";
+import { flarexValueToJsonV1, jsonToFlarexValueV1, normalizeFlarexValueV1 } from "flarex-protocol/value";
 
 const POINT_MUTATION_APPLICATION_ERROR_PLATFORM_SOURCE_V1 =
   applicationErrorPlatformSourceV1({
@@ -232,6 +238,47 @@ export default {};`,
     },
   );
 
+  it.each([
+    { label: "stored int64", value: 1n, other: 1, fieldName: "value" },
+    { label: "stored signed zero with an own __proto__ field", value: -0, other: 0, fieldName: "__proto__" },
+  ])("preserves $label metadata through the genuine exact Worker", async ({ value, other, fieldName }) => {
+    const budget = { maximumFunctionsVisited: 1, maximumValidatorNodesVisited: 64, maximumCanonicalUtf8BytesMaterialized: 65_536 };
+    const literal = { type: "literal", value };
+    const encoded = Result.getOrThrow(encodeFunctionMetadataSetV1({ functions: [{
+      path: "orders:complete", kind: "mutation", visibility: "public",
+      args: { type: "object", value: Object.fromEntries([[fieldName, { fieldType: literal, optional: false }]]) },
+      returns: literal,
+    }] }, budget));
+    const stored = Result.getOrThrow(decodeCanonicalFunctionMetadataSetV1(encoded.canonicalBytes, budget));
+    const metadata = stored.functions[0]?.metadata;
+    if (metadata === undefined) throw new Error("Missing reconstructed function metadata.");
+    const scenario = {
+      path: metadata.functionPath,
+      argsValidator: metadata.argsValidator,
+      returnsValidator: metadata.returnsValidator,
+      argumentsValue: Object.fromEntries([[fieldName, value]]),
+      functionSource: `{ isMutation: true, isPublic: true, _handler: (_ctx, args) => args[${JSON.stringify(fieldName)}] }`,
+    };
+    const result = await runContractFailureScenario(scenario);
+    expect(result).toMatchObject({ name: "success", stage: "workerRun" });
+    if (!isNonArrayRecord(result)) throw new Error("Expected an exact Worker observation.");
+    const decodedResult = await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(result.result));
+    expect(Object.is(decodedResult.value, value)).toBe(true);
+    await expect(runContractFailureScenario({
+      ...scenario, argumentsValue: Object.fromEntries([[fieldName, other]]),
+    })).resolves.toMatchObject({
+      name: "PointMutationExactRuntimeInvalidRequestV1Error", stage: "workerRun", portableName: "PointMutationRuntimeContractV1Error", causeReason: "argumentsInvalid",
+    });
+    const outputFailure = await runContractFailureScenario({
+      ...scenario, functionSource: `{ isMutation: true, isPublic: true, _handler: () => ${other} }`,
+    });
+    expect(outputFailure).toMatchObject({
+      name: "PointMutationExactRuntimeUserCodeV1Error", stage: "workerRun",
+      causeReason: "literalMismatch", causePath: "$result", causeLiteralType: typeof value,
+    });
+    expect(outputFailure).not.toHaveProperty("portableName");
+  }, 30_000);
+
   it("propagates the public FlarexError after the mutation journal settles", async () => {
     await expect(runContractFailureScenario({
       path: "orders:complete",
@@ -286,6 +333,7 @@ export default {};`,
       argsValidator: { type: "object", value: {} },
     })).resolves.toEqual({
       name: "success",
+      stage: "workerRun",
       result: {
         format: "flarex.point-mutation-exact-runtime-result",
         version: 1,
@@ -320,6 +368,7 @@ export default {};`,
       argsValidator: { type: "object", value: {} },
     })).resolves.toEqual({
       name: "success",
+      stage: "workerRun",
       result: {
         format: "flarex.point-mutation-exact-runtime-result",
         version: 1,
@@ -338,6 +387,7 @@ export default {};`,
       argsValidator: { type: "object", value: {} },
     })).resolves.toEqual({
       name: "success",
+      stage: "workerRun",
       result: {
         format: "flarex.point-mutation-exact-runtime-result",
         version: 1,
@@ -397,7 +447,8 @@ async function runContractFailureScenario(
     readonly privateMixed?: boolean;
     readonly auth?: unknown;
     readonly argumentsValue: Readonly<Record<string, unknown>>;
-    readonly argsValidator: unknown;
+    readonly argsValidator: ValidatorJsonV1;
+    readonly returnsValidator?: ValidatorJsonV1 | null;
   }>,
 ): Promise<unknown> {
   const exactRuntimeConfigurationSource =
@@ -423,13 +474,13 @@ async function runContractFailureScenario(
       executionModule: "_flarex/execution.js",
       kind: "mutation",
       visibility: "public",
-      argsValidator: scenario.argsValidator,
-      returnsValidator: null,
+      argsValidator: encodeValidatorJsonV1(scenario.argsValidator),
+      returnsValidator: scenario.returnsValidator == null ? null : encodeValidatorJsonV1(scenario.returnsValidator),
     },
     auth: scenario.auth === undefined
       ? { kind: "anonymous" }
       : scenario.auth,
-    arguments: scenario.argumentsValue,
+    arguments: flarexValueToJsonV1(scenario.argumentsValue),
     argumentArraySemanticBytes:
       requirePointMutationArgumentSemanticSizeV1(
         normalizedArguments.semanticSizeBytes,
@@ -449,10 +500,16 @@ async function runContractFailureScenario(
       {
         type: "ESModule",
         path: "worker.js",
-        contents: `${POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1}
+        contents: `import { decodeValidatorJsonWireV1, flarexValueToJsonV1, jsonToFlarexValueV1 } from "./literal-codec.js";
+${POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1}
 export default {
   async fetch() {
-    const input = ${serializedRequest};
+    let stage = "fixtureDecode";
+    try {
+    const input = JSON.parse(${JSON.stringify(serializedRequest)});
+    input.function.argsValidator = decodeValidatorJsonWireV1(input.function.argsValidator);
+    input.function.returnsValidator = input.function.returnsValidator === null ? null : decodeValidatorJsonWireV1(input.function.returnsValidator);
+    input.arguments = jsonToFlarexValueV1(input.arguments);
     input.context.randomSeed = new Uint8Array(input.context.randomSeed);
     const operations = [];
     const journal = ${scenario.privateMixed
@@ -479,7 +536,7 @@ export default {
       : `{
         resolvePointTable() { throw new Error("journal must not open"); },
       }`};
-    try {
+    stage = "workerRun";
       const result = await Reflect.apply(
         FlarexPointMutationExactRuntimeV1.prototype.${scenario.privateMixed
           ? "runPrivateMixed"
@@ -488,20 +545,25 @@ export default {
         [input, journal],
       );
       return result.kind === "applicationError"
-        ? Response.json({ name: "applicationError", error: result.error })
-        : Response.json({ name: "success", result: result.result, ...${scenario.privateMixed
+        ? Response.json({ name: "applicationError", error: result.error, stage })
+        : Response.json({ name: "success", stage, result: flarexValueToJsonV1(result.result), ...${scenario.privateMixed
           ? "{ operations }"
           : "{}"} });
     } catch (error) {
       return Response.json({
         name: error?.name,
+        stage,
         message: error?.message,
         portableName: error?.cause?.name,
+        causeReason: error?.cause?.reason,
+        causePath: error?.cause?.path,
+        causeLiteralType: error?.cause?.literalType,
       });
     }
   },
 };`,
       },
+      { type: "ESModule", path: "literal-codec.js", contents: await literalWorkerCodecModuleSource() },
       {
         type: "ESModule",
         path: POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1,
@@ -561,7 +623,9 @@ export const complete = ${scenario.functionSource};`,
     const response = await worker.dispatchFetch(
       "https://exact-runtime.test/contract",
     );
-    return await response.json();
+    const body: unknown = await response.json();
+    return isNonArrayRecord(body) && body.name === "success"
+      ? { ...body, result: jsonToFlarexValueV1(body.result) } : body;
   } finally {
     await worker.dispose();
   }

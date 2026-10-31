@@ -52,6 +52,7 @@ import {
   POINT_MUTATION_RUNTIME_KERNEL_MODULE_V1,
   PointMutationExactRuntimeHostV1Error,
   pointMutationExactRuntimeWorkerCodeIdentityV1,
+  pointMutationExactRuntimeWorkerConfigurationSource,
   pointMutationExactRuntimeWorkerSource,
 } from "../src/artifactRuntime";
 import {
@@ -94,9 +95,20 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
       executionBridgeSource: "export default Object.freeze({});\n",
     } as const;
     const basis = pointMutationExactRuntimeWorkerGraphBasisV1(input);
+    // The canonical basis includes the regenerated Worker/kernel digests;
+    // its configuration seed stays independent of a deployed artifact.
     expect(createHash("sha256").update(basis).digest("hex")).toBe(
-      "d72605f8333977a65bdc45a6906d84a8955a5797bcb3189b5257cf6e1c551d5e",
+      "e436b806fabc76bf676e23392f3012c27aca5818d97e7a49b0478977c98ede3a",
     );
+    const basisParts: unknown = JSON.parse(basis);
+    expect(basisParts).toContainEqual([
+      POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1,
+      pointMutationExactRuntimeWorkerConfigurationSource({
+        executionModule: input.executionModule,
+        moduleTime: Date.UTC(2026, 6, 24),
+        moduleRandomSeedHex: "0".repeat(64),
+      }),
+    ]);
     expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1);
     expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1);
     expect(basis).toContain(
@@ -118,9 +130,18 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
   it("generates a named RPC-only exact mutation entrypoint", () => {
     const source = testExactRuntimeWorkerSource();
 
-    expect(source).toContain(
-      `export class ${POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1} extends WorkerEntrypoint`,
-    );
+    const exported = executableGeneratedModuleForTest(source, "point-mutation entrypoint");
+    expect([...exported.bindings.keys()]).toEqual([POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1]);
+    const Runtime = generatedRuntimeClass(source, Object.freeze({
+      isMutation: true, isPublic: true, _handler: () => null,
+    }));
+    expect(Object.getOwnPropertyDescriptor(Runtime, "name")?.value)
+      .toBe(POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1);
+    const runtime = new Runtime();
+    expect(Object.getOwnPropertyNames(Object.getPrototypeOf(runtime)))
+      .toEqual(["constructor", "run", "runPrivateMixed"]);
+    expect(typeof runtime.run).toBe("function");
+    expect("fetch" in runtime).toBe(false);
     expect(source).toContain("run(input, journal)");
     expect(source).toContain("journal.resolvePointTable(name)");
     expect(source).toContain("table.runPointOperation");
@@ -1083,7 +1104,7 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
   it("classifies user-module evaluation rejection as user code", async () => {
     const request = await exactRequest(testArtifact());
     const source = testExactRuntimeWorkerSource().replace(
-      /const executionModulePromise = import\([^;]+;/,
+      /var executionModulePromise = import\([^;]+;/,
       'const executionModulePromise = Promise.reject(new Error("module failed"));',
     );
     const Runtime = generatedRuntimeClass(source, Object.freeze({}));
@@ -1532,17 +1553,16 @@ function executableGeneratedSource(
 const inspectCoreApplicationErrorV1 = () => false;`,
   );
   const withTestModule = withTestApplicationErrorInspector.replace(
-    /const executionModulePromise = import\([^;]+;/,
+    /var executionModulePromise = import\([^;]+;/,
     'const executionModulePromise = Promise.resolve({ default: { orders: { complete: functionValue } } });',
   );
   const withTestKernel = replaceRuntimeKernelImportForTest(withTestModule);
-  const withoutExport = withTestKernel.replace(
-    `export class ${POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1}`,
-    `class ${POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1}`,
-  );
+  const module = executableGeneratedModuleForTest(withTestKernel, "point-mutation entrypoint");
+  const runtimeLocal = module.bindings.get(POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1);
+  if (runtimeLocal === undefined) throw new Error("Generated point-mutation entrypoint export is missing.");
   return returnRuntime
-    ? `${withoutExport}\nreturn ${POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1};`
-    : withoutExport;
+    ? `${module.source}\nreturn ${runtimeLocal};`
+    : module.source;
 }
 
 function replaceRuntimeKernelImportForTest(source: string): string {
@@ -1550,8 +1570,7 @@ function replaceRuntimeKernelImportForTest(source: string): string {
     POINT_MUTATION_RUNTIME_KERNEL_SOURCE_V1,
   );
   return source.replace(
-    `const runtimeKernelModulePath = "./pointMutationExactRuntimeWorker/flarex-point-mutation-runtime-kernel-v1.js";
-const runtimeKernelPromise = import(runtimeKernelModulePath).then(decodeRuntimeKernelModule);`,
+    `var runtimeKernelPromise = import("./pointMutationExactRuntimeWorker/flarex-point-mutation-runtime-kernel-v1.js").then(decodeRuntimeKernelModule);`,
     () => `const runtimeKernelPromise = Promise.resolve((() => {
 ${kernel.source}
 return {
@@ -1562,26 +1581,37 @@ return {
   );
 }
 
-function executableRuntimeKernelForTest(source: string): Readonly<{
+/** Existing generated export-list parser, shared by entrypoint and kernel evaluation. */
+function executableGeneratedModuleForTest(source: string, label: string): Readonly<{
   readonly source: string;
-  readonly executePointMutationLocal: string;
-  readonly inspectFailureLocal: string;
+  readonly bindings: ReadonlyMap<string, string>;
 }> {
   const exportMatch = /export\s*\{([\s\S]*?)\};/u.exec(source);
   if (exportMatch === null || exportMatch[1] === undefined) {
-    throw new Error("Generated point-mutation kernel is missing its export list.");
+    throw new Error(`Generated ${label} is missing its export list.`);
   }
   const bindings = new Map<string, string>();
   for (const entry of exportMatch[1].split(",")) {
     const match = /^\s*([A-Za-z_$][A-Za-z0-9_$]*)(?:\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*))?\s*$/u
       .exec(entry);
     if (match === null || match[1] === undefined) {
-      throw new Error("Generated point-mutation kernel has an invalid export.");
+      throw new Error(`Generated ${label} has an invalid export.`);
     }
-    bindings.set(match[2] ?? match[1], match[1]);
+    const exportedName = match[2] ?? match[1];
+    if (bindings.has(exportedName)) throw new Error(`Generated ${label} has a duplicate export.`);
+    bindings.set(exportedName, match[1]);
   }
-  const executePointMutationLocal = bindings.get("executePointMutationV1");
-  const inspectFailureLocal = bindings.get(
+  return Object.freeze({ source: source.replace(exportMatch[0], ""), bindings });
+}
+
+function executableRuntimeKernelForTest(source: string): Readonly<{
+  readonly source: string;
+  readonly executePointMutationLocal: string;
+  readonly inspectFailureLocal: string;
+}> {
+  const module = executableGeneratedModuleForTest(source, "point-mutation kernel");
+  const executePointMutationLocal = module.bindings.get("executePointMutationV1");
+  const inspectFailureLocal = module.bindings.get(
     "inspectPointMutationRuntimeFailureV1",
   );
   if (
@@ -1591,7 +1621,7 @@ function executableRuntimeKernelForTest(source: string): Readonly<{
     throw new Error("Generated point-mutation kernel exports are incomplete.");
   }
   return Object.freeze({
-    source: source.replace(exportMatch[0], ""),
+    source: module.source,
     executePointMutationLocal,
     inspectFailureLocal,
   });
@@ -1665,7 +1695,7 @@ Object.setPrototypeOf(globalThis, testWorkerGlobalPrototype);
 class WorkerEntrypoint {}`,
     )
     .replace(
-      /const executionModulePromise = import\([^;]+;/,
+      /var executionModulePromise = import\([^;]+;/,
       `const executionModulePromise = (() => {
   try { Object.freeze = (value) => value; } catch {}
   try { Promise.prototype.then = () => Promise.resolve("tampered"); } catch {}

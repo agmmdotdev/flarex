@@ -23,7 +23,7 @@ import { activationError, activationFailure, type ApplicationActivationError } f
 import { decodeActivation, decodeHead } from "./headCapture";
 import { UTF8_FATAL } from "./limits";
 import { prepareApplicationExecutionMetadataProjection } from "./metadataProjection";
-import { canonicalizeApplicationManifest } from "@flarex/analysis/application-analysis";
+import { canonicalizeApplicationManifestWire } from "@flarex/analysis/application-analysis";
 import { applicationFunctionCatalogPublicationFrameV1 } from "@flarex/analysis/internal/application-publication-v1";
 import { applicationFunctionCatalogPublicationFrameV2 } from "@flarex/analysis/internal/application-publication-v2";
 import { bytesEqualFullScan, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
@@ -121,7 +121,7 @@ export const backfillStandaloneApplicationBindings = Effect.fn("ApplicationActiv
           const manifestBytes = analysis.manifestBytes;
           const parsed = yield* Effect.try({ try: (): unknown => JSON.parse(UTF8_FATAL.decode(manifestBytes)),
             catch: cause => activationError("activate", "storedState", row.revisionId, false, cause) });
-          const manifest = yield* Effect.fromResult(canonicalizeApplicationManifest(parsed)).pipe(
+          const manifest = yield* Effect.fromResult(canonicalizeApplicationManifestWire(parsed)).pipe(
             Effect.mapError(cause => activationError("activate", "storedState", row.revisionId, false, cause)));
           if (!bytesEqualFullScan(manifest.canonicalBytes, analysis.manifestBytes) ||
             !bytesEqualFullScan(yield* sha256(manifest.canonicalBytes), parent.manifestSha256))

@@ -5,10 +5,9 @@ import {
   CatalogTableIdSchema,
   type CatalogTableId,
 } from "flarex-protocol/catalog";
-import type { Json } from "flarex-protocol/json";
 import {
-  decodeSchemaManifestAppTableDeclarationsV1Result,
-  decodeSchemaManifestTableDefinitionsV1Result,
+  captureSchemaManifestAppTableDeclarationsV1Result,
+  captureSchemaManifestTableDefinitionsV1Result,
   SchemaManifestAppTableNameSchema,
   type SchemaManifestAppDocumentDefinitionV1,
   type SchemaManifestAppTableDeclarationInputV1,
@@ -334,7 +333,7 @@ function decodeDeclarationsResult(
   ReadonlyArray<SchemaManifestAppTableDeclarationV1>,
   InvalidSchemaManifestTableBindingInputError
 > {
-  return decodeSchemaManifestAppTableDeclarationsV1Result(value).pipe(
+  return captureSchemaManifestAppTableDeclarationsV1Result(value).pipe(
     Result.mapError((cause) => new InvalidSchemaManifestTableBindingInputError(
       { reason: "invalidDeclarations" },
       { cause },
@@ -618,7 +617,7 @@ function assembleSectionResult(
     return tables.toSorted((left, right) => left.tableId - right.tableId);
   });
   return tablesResult.pipe(Result.flatMap((tables) =>
-    decodeSchemaManifestTableDefinitionsV1Result({
+    captureSchemaManifestTableDefinitionsV1Result({
       kind: "tableDefinitions",
       sectionVersion: 1,
       tables,
@@ -640,7 +639,7 @@ function detachAndFreezeSection(
   return copy;
 }
 
-function deepFreezeJson(value: Json): void {
+function deepFreezeJson(value: unknown): void {
   if (value === null || typeof value !== "object") return;
   for (const item of Array.isArray(value)
     ? value
