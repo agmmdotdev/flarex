@@ -1,6 +1,6 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
-import { Result, Schema } from "effect";
+import { Effect, Result, Schema, SchemaGetter, SchemaIssue } from "effect";
 
 import { isCanonicalArrayIndex } from "./canonical-array-index";
 import {
@@ -22,10 +22,14 @@ import {
   StrictStructOptions,
 } from "./strict-schema-options";
 import {
-  ObjectValidatorJsonWireCodecV1,
-  validatorJsonHasNonfiniteLiteralV1,
+  LegacyObjectValidatorJsonWireCodecV1,
+  DocumentValidatorJsonV1,
+  encodeLegacyValidatorJsonWireCoreV1,
   type ValidatorJsonV1,
+  validatorJsonHasNonfiniteLiteralV1,
 } from "./validator-json";
+import { decodeValidatorSourceTextResult, normalizeSourceDocumentValidator, SOURCE_JSON_MAXIMUM_OPEN_CONTAINERS } from "./validator-source";
+import { measureValidatorSourceResult, serializeValidatorSourceResult } from "./validator-source-serialization";
 
 export const MAX_CATALOG_SCHEMA_VERSION = 2_147_483_647;
 export const MAX_SCHEMA_MANIFEST_NESTING_DEPTH = 128;
@@ -103,7 +107,7 @@ export const decodeSchemaManifestAppTableName = Schema.decodeUnknownSync(
 export const SchemaManifestAppDocumentDefinitionV1Schema = Schema.Struct({
   kind: Schema.Literal("appDocument"),
   definitionVersion: Schema.Literal(1),
-  documentType: ObjectValidatorJsonWireCodecV1.check(
+  documentType: LegacyObjectValidatorJsonWireCodecV1.check(
     Schema.makeFilter(value => validatorJsonHasNonfiniteLiteralV1(value)
       ? "Infinite or NaN values are not supported in literal validators."
       : undefined),
@@ -115,29 +119,68 @@ export const SchemaManifestAppDocumentDefinitionV1Schema = Schema.Struct({
       "documentType",
     ),
   ),
+  Schema.makeFilter(definition => isManifestDataValue(encodeLegacyValidatorJsonWireCoreV1(definition.documentType),
+    0, new WeakSet(), "wire") ? undefined : "Expected the frozen PostgreSQL-safe V1 validator declaration"),
 ).annotate(StrictStructOptions);
 export type SchemaManifestAppDocumentDefinitionV1 =
   typeof SchemaManifestAppDocumentDefinitionV1Schema.Type;
 export const encodeSchemaManifestAppDocumentDefinitionV1 = Schema.encodeSync(SchemaManifestAppDocumentDefinitionV1Schema);
 
+const SourceDeclarationProfile = { maximumRawContainers: SOURCE_JSON_MAXIMUM_OPEN_CONTAINERS };
+const PersistableSourceDocumentValidator = DocumentValidatorJsonV1.check(Schema.makeFilter(value => {
+  const measured = measureValidatorSourceResult(value, SourceDeclarationProfile);
+  return measured.ok ? undefined : measured.issue.message;
+}));
+
+/** Backend Source JSON text must be readable by the same Source owner before publication. */
+const SourceDocumentDeclarationCodec = Schema.String.pipe(Schema.decodeTo(PersistableSourceDocumentValidator, {
+  decode: SchemaGetter.transformOrFail((text, options) => {
+    const parsed = decodeValidatorSourceTextResult(text);
+    const normalized = parsed.ok ? normalizeSourceDocumentValidator(parsed.value) : parsed;
+    return normalized.ok ? Effect.succeed(normalized.value) : Effect.fail(new SchemaIssue.InvalidValue({
+      message: normalized.issue.message,
+    }, text, options));
+  }),
+  encode: SchemaGetter.transformOrFail((value, options) => {
+    const serialized = serializeValidatorSourceResult(value, SourceDeclarationProfile);
+    return serialized.ok ? Effect.succeed(serialized.value) : Effect.fail(new SchemaIssue.InvalidValue({
+      message: serialized.issue.message,
+    }, value, options));
+  }),
+}));
+
+/** Fresh source document roots; the frozen V1 declaration retains its object-only byte contract. */
+export const SchemaManifestAppDocumentDefinitionV2Schema = Schema.Struct({
+  kind: Schema.Literal("appDocument"), definitionVersion: Schema.Literal(2),
+  documentType: SourceDocumentDeclarationCodec.check(Schema.makeFilter(value => validatorJsonHasNonfiniteLiteralV1(value)
+    ? "Infinite or NaN values are not supported in literal validators." : undefined)),
+}).annotate(StrictStructOptions);
+export type SchemaManifestAppDocumentDefinitionV2 = typeof SchemaManifestAppDocumentDefinitionV2Schema.Type;
+export const SchemaManifestAppDocumentDefinitionSchema = Schema.Union([
+  SchemaManifestAppDocumentDefinitionV1Schema, SchemaManifestAppDocumentDefinitionV2Schema,
+]);
+export type SchemaManifestAppDocumentDefinition = typeof SchemaManifestAppDocumentDefinitionSchema.Type;
+export const encodeSchemaManifestAppDocumentDefinition = Schema.encodeSync(SchemaManifestAppDocumentDefinitionSchema);
+export const encodeSchemaManifestAppDocumentDefinitionV2 = Schema.encodeSync(SchemaManifestAppDocumentDefinitionV2Schema);
+
 export const SchemaManifestAppTableDefinitionV1Schema = Schema.Struct({
   tableId: CatalogTableIdSchema,
   namespace: Schema.Literal("app"),
   logicalName: SchemaManifestAppTableNameSchema,
-  definition: SchemaManifestAppDocumentDefinitionV1Schema,
+  definition: SchemaManifestAppDocumentDefinitionSchema,
 }).annotate(StrictStructOptions);
 export type SchemaManifestAppTableDefinitionV1 =
   typeof SchemaManifestAppTableDefinitionV1Schema.Type;
 
 export const SchemaManifestAppTableDeclarationV1Schema = Schema.Struct({
   logicalName: SchemaManifestAppTableNameSchema,
-  definition: SchemaManifestAppDocumentDefinitionV1Schema,
+  definition: SchemaManifestAppDocumentDefinitionSchema,
 }).annotate(StrictStructOptions);
 export type SchemaManifestAppTableDeclarationV1 =
   typeof SchemaManifestAppTableDeclarationV1Schema.Type;
 export type SchemaManifestAppTableDeclarationInputV1 = {
   readonly logicalName: typeof SchemaManifestAppTableNameSchema.Encoded;
-  readonly definition: SchemaManifestAppDocumentDefinitionV1;
+  readonly definition: SchemaManifestAppDocumentDefinition;
   readonly tableId?: never;
   readonly namespace?: never;
 };
@@ -172,10 +215,11 @@ const captureSchemaManifestAppTableDeclarationsV1ShapeResult = Schema.decodeUnkn
   Schema.toType(SchemaManifestAppTableDeclarationsV1Schema),
   StrictParseOptions,
 );
-export const SchemaManifestSemanticInputSchema = Schema.Unknown.check(
-  Schema.makeFilter(value => isManifestDataValue(value, 0, new WeakSet(), "semantic")
-    ? undefined : "Expected bounded own-data semantic schema manifest input"),
-);
+export const SchemaManifestSemanticInputSchema = Schema.declareConstructor<unknown>()([], () => (input, _ast, options) =>
+  Result.match(captureSemanticManifestData(input), {
+    onFailure: message => Effect.fail(new SchemaIssue.InvalidValue({ message }, input, options)),
+    onSuccess: Effect.succeed,
+  }));
 const captureSchemaManifestSemanticInput = Schema.decodeUnknownResult(SchemaManifestSemanticInputSchema);
 
 export function captureSchemaManifestAppTableDeclarationsV1(
@@ -190,8 +234,8 @@ export function captureSchemaManifestAppTableDeclarationsV1Result(
 ): Result.Result<ReadonlyArray<SchemaManifestAppTableDeclarationV1>, Schema.SchemaError> {
   return Result.gen(function* () {
     yield* preflightSchemaManifestAppTableArrayResult(value);
-    yield* captureSchemaManifestSemanticInput(value);
-    return yield* captureSchemaManifestAppTableDeclarationsV1ShapeResult(value);
+    const captured = yield* captureSchemaManifestSemanticInput(value);
+    return yield* captureSchemaManifestAppTableDeclarationsV1ShapeResult(captured);
   });
 }
 
@@ -248,8 +292,8 @@ export function captureSchemaManifestTableDefinitionsV1Result(
 ): Result.Result<SchemaManifestTableDefinitionsV1, Schema.SchemaError> {
   return Result.gen(function* () {
     yield* preflightSchemaManifestTableDefinitionsResult(value);
-    yield* captureSchemaManifestSemanticInput(value);
-    return yield* captureSchemaManifestTableDefinitionsV1ShapeResult(value);
+    const captured = yield* captureSchemaManifestSemanticInput(value);
+    return yield* captureSchemaManifestTableDefinitionsV1ShapeResult(captured);
   });
 }
 
@@ -512,8 +556,8 @@ export function captureSchemaManifestAppSchemaV1Result(
 ): Result.Result<SchemaManifestAppSchemaV1, Schema.SchemaError> {
   return Result.gen(function* () {
     yield* preflightSchemaManifestAppSchemaResult(value);
-    yield* captureSchemaManifestSemanticInput(value);
-    return yield* captureSchemaManifestAppSchemaV1ShapeResult(value);
+    const captured = yield* captureSchemaManifestSemanticInput(value);
+    return yield* captureSchemaManifestAppSchemaV1ShapeResult(captured);
   });
 }
 
@@ -988,6 +1032,8 @@ function validateSchemaManifestAppValidatorIdentifiers(
     case "bytes":
     case "any":
     case "literal":
+    case "function":
+    case "commitTs":
       return undefined;
   }
 
@@ -1031,6 +1077,8 @@ function schemaManifestAppValidatorCanContainFieldPathPartsV1(
     case "literal":
     case "array":
     case "record":
+    case "function":
+    case "commitTs":
       return false;
   }
 
@@ -1041,6 +1089,75 @@ function assertNeverSchemaManifestValidator(value: never): never {
   throw new Error(
     `Unexpected ValidatorJsonV1 variant: ${JSON.stringify(value)}`,
   );
+}
+
+interface SemanticManifestFrame {
+  readonly source: object;
+  readonly target: object;
+  readonly keys: readonly PropertyKey[];
+  readonly arrayLength: number | undefined;
+  next: number;
+}
+const invalidSemanticManifestData = () => Result.fail("Expected bounded own-data semantic schema manifest input");
+
+/** Validate and detach once; shape decoders never reread mutable foreign nodes. */
+function captureSemanticManifestData(value: unknown): Result.Result<unknown, string> {
+  const copies = new WeakMap<object, object>();
+  const active = new WeakSet<object>();
+  const pending: SemanticManifestFrame[] = [];
+  const capture = (current: unknown): Result.Result<unknown, string> => {
+    if (current === null || typeof current === "boolean" || typeof current === "bigint") return Result.succeed(current);
+    if (typeof current === "number") return Number.isFinite(current) ? Result.succeed(current) : invalidSemanticManifestData();
+    if (typeof current === "string") return isPostgresJsonString(current, true) ? Result.succeed(current) : invalidSemanticManifestData();
+    if (typeof current !== "object" || active.has(current)) return invalidSemanticManifestData();
+    const copied = copies.get(current);
+    if (copied !== undefined) return Result.succeed(copied);
+    const array = Array.isArray(current);
+    const prototype = Object.getPrototypeOf(current);
+    if (array ? prototype !== Array.prototype : prototype !== Object.prototype && prototype !== null) return invalidSemanticManifestData();
+    const keys = Reflect.ownKeys(current);
+    let arrayLength: number | undefined;
+    if (array) {
+      const descriptor = Object.getOwnPropertyDescriptor(current, "length");
+      if (descriptor === undefined || !("value" in descriptor) || typeof descriptor.value !== "number"
+        || !Number.isSafeInteger(descriptor.value) || descriptor.value < 0 || keys.length !== descriptor.value + 1) return invalidSemanticManifestData();
+      arrayLength = descriptor.value;
+    }
+    let target: SemanticManifestFrame["target"];
+    if (arrayLength === undefined) target = Object.create(null);
+    else {
+      const items: unknown[] = [];
+      items.length = arrayLength;
+      target = items;
+    }
+    copies.set(current, target);
+    active.add(current);
+    pending.push({ source: current, target, keys, arrayLength, next: 0 });
+    return Result.succeed(target);
+  };
+  return Result.gen(function* () {
+    const root = yield* capture(value);
+    while (pending.length > 0) {
+      const frame = pending[pending.length - 1];
+      if (frame === undefined) throw new Error("Semantic manifest capture lost a frame.");
+      if (frame.next === (frame.arrayLength ?? frame.keys.length)) {
+        if (frame.arrayLength !== undefined && !frame.keys.every(key => key === "length"
+          || typeof key === "string" && isCanonicalArrayIndex(key, frame.arrayLength ?? 0))) return yield* invalidSemanticManifestData();
+        Object.freeze(frame.target);
+        active.delete(frame.source);
+        pending.pop();
+        continue;
+      }
+      const key = frame.arrayLength === undefined ? frame.keys[frame.next] : String(frame.next);
+      frame.next++;
+      if (typeof key !== "string" || !isPostgresJsonString(key)) return yield* invalidSemanticManifestData();
+      const descriptor = Object.getOwnPropertyDescriptor(frame.source, key);
+      if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) return yield* invalidSemanticManifestData();
+      Object.defineProperty(frame.target, key, { value: yield* capture(descriptor.value),
+        enumerable: true, configurable: true, writable: true });
+    }
+    return root;
+  });
 }
 
 function isCanonicalJsonValue(
@@ -1056,20 +1173,23 @@ function isManifestDataValue(
   depth: number,
   ancestors: WeakSet<object>,
   representation: "wire" | "semantic",
+  memo: WeakSet<object> = new WeakSet(),
 ): boolean {
-  if (depth > MAX_SCHEMA_MANIFEST_NESTING_DEPTH) return false;
+  if (representation === "wire" && depth > MAX_SCHEMA_MANIFEST_NESTING_DEPTH) return false;
   if (value === null || typeof value === "boolean") return true;
   if (typeof value === "number") return Number.isFinite(value);
   if (typeof value === "bigint") return representation === "semantic";
-  if (typeof value === "string") return isPostgresJsonString(value);
+  if (typeof value === "string") return isPostgresJsonString(value, representation === "semantic");
   if (typeof value !== "object") return false;
   if (ancestors.has(value)) return false;
+  if (memo.has(value)) return true;
 
   ancestors.add(value);
   const valid = Array.isArray(value)
-    ? isCanonicalJsonArray(value, depth, ancestors, representation)
-    : isCanonicalJsonRecord(value, depth, ancestors, representation);
+    ? isCanonicalJsonArray(value, depth, ancestors, representation, memo)
+    : isCanonicalJsonRecord(value, depth, ancestors, representation, memo);
   ancestors.delete(value);
+  if (valid) memo.add(value);
   return valid;
 }
 
@@ -1078,6 +1198,7 @@ function isCanonicalJsonArray(
   depth: number,
   ancestors: WeakSet<object>,
   representation: "wire" | "semantic",
+  memo: WeakSet<object>,
 ): boolean {
   if (Object.getPrototypeOf(value) !== Array.prototype) return false;
   const ownKeys = Reflect.ownKeys(value);
@@ -1089,7 +1210,7 @@ function isCanonicalJsonArray(
       descriptor === undefined ||
       !("value" in descriptor) ||
       !descriptor.enumerable ||
-      !isManifestDataValue(descriptor.value, depth + 1, ancestors, representation)
+      !isManifestDataValue(descriptor.value, depth + 1, ancestors, representation, memo)
     ) {
       return false;
     }
@@ -1105,6 +1226,7 @@ function isCanonicalJsonRecord<T extends object>(
   depth: number,
   ancestors: WeakSet<object>,
   representation: "wire" | "semantic",
+  memo: WeakSet<object>,
 ): boolean {
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) return false;
@@ -1116,7 +1238,7 @@ function isCanonicalJsonRecord<T extends object>(
       descriptor === undefined ||
       !("value" in descriptor) ||
       !descriptor.enumerable ||
-      !isManifestDataValue(descriptor.value, depth + 1, ancestors, representation)
+      !isManifestDataValue(descriptor.value, depth + 1, ancestors, representation, memo)
     ) {
       return false;
     }
@@ -1124,10 +1246,10 @@ function isCanonicalJsonRecord<T extends object>(
   return true;
 }
 
-function isPostgresJsonString(value: string): boolean {
+function isPostgresJsonString(value: string, allowNull = false): boolean {
   for (let index = 0; index < value.length; index += 1) {
     const codeUnit = value.charCodeAt(index);
-    if (codeUnit === 0) return false;
+    if (codeUnit === 0 && !allowNull) return false;
     if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
       const next = value.charCodeAt(index + 1);
       if (!Number.isInteger(next) || next < 0xdc00 || next > 0xdfff) {

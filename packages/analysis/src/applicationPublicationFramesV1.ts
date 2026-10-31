@@ -1,5 +1,5 @@
 import { Data, Result } from "effect";
-import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
+import { encodeCanonicalJson, isJson, measureCanonicalJsonUtf8Bytes } from "flarex-protocol/json";
 
 import { applicationFunctionWireV1, applicationSchemaWireV1, type ApplicationManifestV1 } from "./applicationAnalysisV1";
 
@@ -37,6 +37,7 @@ export function applicationSchemaPublicationFrameV1(
   return canonicalFrame("schema", {
     format: "flarex.application-schema-publication",
     version: APPLICATION_PUBLICATION_FRAME_VERSION_V1,
+    validatorIdentityEncoding: 2,
     schema: applicationSchemaWireV1(manifest.schema),
   });
 }
@@ -47,6 +48,7 @@ export function applicationFunctionCatalogPublicationFrameV1(
   return canonicalFrame("functionCatalog", {
     format: "flarex.application-function-catalog",
     version: APPLICATION_PUBLICATION_FRAME_VERSION_V1,
+    validatorIdentityEncoding: 2,
     functions: manifest.functions.map(applicationFunctionWireV1),
   });
 }
@@ -54,7 +56,7 @@ export function applicationFunctionCatalogPublicationFrameV1(
 export function applicationFunctionEntryPublicationFrameV1(
   fn: ApplicationManifestV1["functions"][number],
 ): Result.Result<Uint8Array, ApplicationPublicationFrameV1Error> {
-  return canonicalFrame("functionEntry", applicationFunctionWireV1(fn));
+  return canonicalFrame("functionEntry", { ...applicationFunctionWireV1(fn), validatorIdentityEncoding: 2 });
 }
 
 export function applicationPublicationCommitmentFrameV1(
@@ -77,6 +79,8 @@ function canonicalFrame(
       reason: "invalidInput",
     }));
   }
+  if (measureCanonicalJsonUtf8Bytes(value, APPLICATION_PUBLICATION_MAXIMUM_FRAME_BYTES_V1).kind !== "success")
+    return Result.fail(new ApplicationPublicationFrameV1Error({ operation, reason: "bytesExceeded" }));
   const text = encodeCanonicalJson(value, issue => {
     throw new Error(`Application publication frame invariant: ${issue.reason}`);
   });

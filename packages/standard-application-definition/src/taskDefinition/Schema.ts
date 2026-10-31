@@ -17,6 +17,7 @@ import {
   ValidatorJsonWireCodecV1,
   validatorJsonHasNonfiniteLiteralV1,
   validatorJsonAdmissionIssueV1,
+  validatorJsonWireAdmissionIssueV1,
   type ValidatorJsonV1 as ValidatorJsonV1Type,
 } from "flarex-protocol/validator-json";
 
@@ -146,9 +147,15 @@ export function decodeCanonicalTaskCatalogV1(
         "decode_catalog",
         `tasks[${index}]`,
       );
-      validatorNodes += countValidatorNodes(manifest.payloadValidator);
-      if (manifest.outputValidator !== null) {
-        validatorNodes += countValidatorNodes(manifest.outputValidator);
+      validatorNodes += countValidatorNodes(
+        manifest.payloadValidator,
+        MAX_TASK_CATALOG_VALIDATOR_NODES_V1 - validatorNodes,
+      );
+      if (manifest.outputValidator !== null && validatorNodes <= MAX_TASK_CATALOG_VALIDATOR_NODES_V1) {
+        validatorNodes += countValidatorNodes(
+          manifest.outputValidator,
+          MAX_TASK_CATALOG_VALIDATOR_NODES_V1 - validatorNodes,
+        );
       }
       if (validatorNodes > MAX_TASK_CATALOG_VALIDATOR_NODES_V1) {
         return yield* Result.fail(invalid(
@@ -821,7 +828,8 @@ function decodeValidatorSnapshot(
   ValidatorJsonV1Type,
   InvalidStandardApplicationTaskDefinitionV1Error
 > {
-  if (validatorJsonAdmissionIssueV1(input) !== undefined) {
+  const issue = representation === "semantic" ? validatorJsonAdmissionIssueV1(input) : validatorJsonWireAdmissionIssueV1(input);
+  if (issue !== undefined) {
     return Result.fail(invalid(operation, "invalid_validator", path));
   }
   const decode = representation === "semantic" ? decodeValidator : decodeValidatorWire;
@@ -985,34 +993,57 @@ function snapshotPolicy(policy: RunAttemptPolicyV1): RunAttemptPolicyV1 {
   });
 }
 
-function countValidatorNodes(root: ValidatorJsonV1Type): number {
-  let nodes = 0;
-  const pending: ValidatorJsonV1Type[] = [root];
+/** Counts logical occurrences, saturating once this catalog's remaining budget is exceeded. */
+function countValidatorNodes(root: ValidatorJsonV1Type, maximum: number): number {
+  const limit = maximum + 1;
+  const counts = new WeakMap<ValidatorJsonV1Type, number>();
+  const pending: Array<Readonly<{ value: ValidatorJsonV1Type; children?: readonly ValidatorJsonV1Type[] }>> = [{ value: root }];
   while (pending.length > 0) {
-    const value = pending.pop();
-    if (value === undefined) break;
-    nodes += 1;
+    const frame = pending.pop();
+    if (frame === undefined) throw new Error("Task validator count lost a frame.");
+    const { value } = frame;
+    if (counts.has(value)) continue;
+    if (frame.children !== undefined) {
+      let nodes = 1;
+      for (const child of frame.children) {
+        const count = counts.get(child);
+        if (count === undefined) throw new Error("Task validator count lost a child.");
+        nodes = Math.min(limit, nodes + count);
+        if (nodes === limit) break;
+      }
+      counts.set(value, nodes);
+      continue;
+    }
+    const children: ValidatorJsonV1Type[] = [];
     switch (value.type) {
+      case "function":
+        if (value.args !== undefined) children.push(value.args);
+        if (value.returns !== undefined) children.push(value.returns);
+        break;
       case "array":
-        pending.push(value.value);
+        children.push(value.value);
         break;
       case "object":
         for (const field of Object.values(value.value)) {
-          pending.push(field.fieldType);
+          children.push(field.fieldType);
         }
         break;
       case "record":
-        pending.push(value.values, value.keys);
+        children.push(value.keys, value.values);
         break;
       case "union":
-        for (let index = value.value.length - 1; index >= 0; index -= 1) {
-          const member = value.value[index];
-          if (member !== undefined) pending.push(member);
-        }
+        for (const member of value.value) children.push(member);
         break;
     }
+    pending.push({ value, children });
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      const child = children[index];
+      if (child !== undefined && !counts.has(child)) pending.push({ value: child });
+    }
   }
-  return nodes;
+  const total = counts.get(root);
+  if (total === undefined) throw new Error("Task validator count lost its root.");
+  return total;
 }
 
 function validTaskId(value: string): boolean {

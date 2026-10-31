@@ -491,8 +491,10 @@ describe("app-schema V1 publication", { concurrent: false }, () => {
         );
         const firstTable = unknownTarget.tables[0];
         if (firstTable === undefined) throw new Error("Expected a table fixture.");
+        const documentType = firstTable.definition.documentType;
+        if (documentType.type !== "object") throw new Error("Expected an object table fixture.");
         replaceOwnDataProperty(
-          firstTable.definition.documentType.value,
+          documentType.value,
           "unknown",
           {
             fieldType: { type: "id", tableName: "missing" },

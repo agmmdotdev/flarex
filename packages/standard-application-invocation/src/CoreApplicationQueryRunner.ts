@@ -51,6 +51,7 @@ export function makeCoreApplicationQueryRunner(configuration: ApplicationCoreQue
       );
       const definition = yield* Effect.try({ try: () => makeApplicationWorkerDefinition({
         source, target, manifest: program.manifest, hostPolicy: runner.hostPolicy,
+        validatorIdentityEncoding: program.validatorIdentityEncoding,
         hostPolicySha256: runner.hostPolicySha256, compatibilityDate: program.compatibilityDate,
         documentIdFormat: "convex",
       }), catch: cause => new CoreApplicationQueryError({ reason: "workerDefinitionFailed", cause }) });
@@ -61,7 +62,7 @@ export function makeCoreApplicationQueryRunner(configuration: ApplicationCoreQue
         target, auth, arguments: argumentsValue, argumentSemanticBytes, tables,
         context: { mode: "query", executionId: context.executionId, randomSeed: context.randomSeed,
           executionTime: operation.transaction.unixTime, snapshotTimestamp: operation.transaction.timestamp },
-      }, "convex").pipe(Effect.mapError(cause => new CoreApplicationQueryError({ reason: "invalidExecutionContext", cause })));
+      }, "convex", program.validatorIdentityEncoding).pipe(Effect.mapError(cause => new CoreApplicationQueryError({ reason: "invalidExecutionContext", cause })));
       const callbackContext = yield* Effect.withFiber(fiber => Effect.succeed(Context.add(
         captureExecutionDiagnosticContext(fiber), Clock.Clock, Context.get(fiber.context, Clock.Clock),
       )));

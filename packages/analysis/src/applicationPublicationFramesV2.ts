@@ -1,5 +1,5 @@
 import { Data, Result } from "effect";
-import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
+import { encodeCanonicalJson, isJson, measureCanonicalJsonUtf8Bytes } from "flarex-protocol/json";
 import { applicationFunctionWireV1, applicationSchemaWireV1 } from "./applicationAnalysisV1";
 
 import {
@@ -60,6 +60,7 @@ export function applicationSchemaPublicationFrameV2(
   const frame = {
     format: "flarex.application-schema-publication",
     version: APPLICATION_SCHEMA_PUBLICATION_FRAME_VERSION_V2,
+    validatorIdentityEncoding: 2,
     schema: applicationSchemaWireV1(manifest.schema),
   };
   if (!isJson(frame)) {
@@ -68,6 +69,8 @@ export function applicationSchemaPublicationFrameV2(
       reason: "invalidInput",
     }));
   }
+  if (measureCanonicalJsonUtf8Bytes(frame, APPLICATION_SCHEMA_PUBLICATION_MAXIMUM_FRAME_BYTES_V2).kind !== "success")
+    return Result.fail(new ApplicationSchemaPublicationFrameV2Error({ operation: "schema", reason: "bytesExceeded" }));
   const text = encodeCanonicalJson(frame, issue => {
     throw new Error(
       `Application schema publication V2 invariant: ${issue.reason}`,
@@ -90,6 +93,7 @@ export function applicationFunctionCatalogPublicationFrameV2(
   return canonicalPublicationFrame("functionCatalog", {
     format: "flarex.application-function-catalog",
     version: APPLICATION_PUBLICATION_FRAME_VERSION_V2,
+    validatorIdentityEncoding: 2,
     functions: manifest.functions.map(applicationFunctionWireV1),
   });
 }
@@ -98,7 +102,7 @@ export function applicationFunctionCatalogPublicationFrameV2(
 export function applicationFunctionEntryPublicationFrameV2(
   fn: ApplicationManifestV2["functions"][number],
 ): Result.Result<Uint8Array, ApplicationPublicationFrameV2Error> {
-  return canonicalPublicationFrame("functionEntry", applicationFunctionWireV1(fn));
+  return canonicalPublicationFrame("functionEntry", { ...applicationFunctionWireV1(fn), validatorIdentityEncoding: 2 });
 }
 
 /**
@@ -147,6 +151,8 @@ function canonicalPublicationFrame(
       reason: "invalidInput",
     }));
   }
+  if (measureCanonicalJsonUtf8Bytes(value, APPLICATION_PUBLICATION_MAXIMUM_FRAME_BYTES_V2).kind !== "success")
+    return Result.fail(new ApplicationPublicationFrameV2Error({ operation, reason: "bytesExceeded" }));
   const text = encodeCanonicalJson(value, issue => {
     throw new Error(
       `Application publication V2 invariant: ${issue.reason}`,

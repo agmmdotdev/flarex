@@ -1,4 +1,4 @@
-import { captureValidatorLiteralV1 } from "flarex-protocol/internal/validator-json-core";
+import { decodeValidatorJsonResultCoreV1, decodeValidatorJsonWireResultCoreV1 } from "flarex-protocol/internal/validator-json-core";
 // Authored exact point-mutation runtime core. Built to an embedded JS artifact.
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
@@ -54,9 +54,9 @@ const MAX_ARGUMENT_ARRAY_SEMANTIC_BYTES =
   exactRuntimeConfigurationV1.maxArgumentArraySemanticBytes;
 const CONFIGURED_ROOT_FUNCTION_ORDINAL =
   exactRuntimeConfigurationV1.rootFunctionOrdinal;
-const CONFIGURED_FUNCTION = exactRuntimeConfigurationV1.function;
+const CONFIGURED_FUNCTION = decodeConfiguredFunction(exactRuntimeConfigurationV1.function);
 const CONFIGURED_INTERNAL_QUERY_CATALOG =
-  exactRuntimeConfigurationV1.internalQueryCatalog;
+  Object.freeze(exactRuntimeConfigurationV1.internalQueryCatalog.map(decodeConfiguredFunction));
 const MAX_VALUE_BYTES = 1 << 25;
 const MAX_VALUE_NESTING = 64;
 const MAX_APP_DOCUMENT_BYTES = 1 << 20;
@@ -65,15 +65,6 @@ const MAX_ARRAY_ITEMS = 8192;
 const MAX_OBJECT_FIELDS = 1024;
 const MAX_OBJECT_FIELD_BYTES = 1024;
 const MAX_CATALOG_TABLE_ID = 2147483647;
-const MAX_VALIDATOR_NODES:
-  typeof import("flarex-protocol/validator-json")
-    .MAX_VALIDATOR_JSON_NODES_V1 = 65_536;
-const MAX_VALIDATOR_DEPTH:
-  typeof import("flarex-protocol/validator-json")
-    .MAX_VALIDATOR_JSON_DEPTH_V1 = 128;
-const MAX_VALIDATOR_OBJECT_FIELDS:
-  typeof import("flarex-protocol/validator-json")
-    .MAX_VALIDATOR_JSON_OBJECT_FIELDS_V1 = 1_024;
 const MIN_INT64 = -(1n << 63n);
 const MAX_INT64 = (1n << 63n) - 1n;
 const textEncoder = new TextEncoder();
@@ -938,183 +929,33 @@ function decodeRuntimeKernelModule(value: unknown): RuntimeKernelModule {
   });
 }
 
-interface ValidatorDecodeBudget {
-  nodes: number;
+/** Trusted source configuration is wire JSON; requests arrive over semantic Workers RPC. */
+function decodeConfiguredFunction<Input extends { readonly argsValidator: unknown; readonly returnsValidator: unknown }>(fn: Input) {
+  const args = decodeValidatorJsonWireResultCoreV1(fn.argsValidator);
+  if (!args.ok) throw new Error("Invalid configured argument validator.", { cause: args.issue });
+  let returns: ValidatorJsonV1 | null = null;
+  if (fn.returnsValidator !== null) {
+    const decoded = decodeValidatorJsonWireResultCoreV1(fn.returnsValidator);
+    if (!decoded.ok) throw new Error("Invalid configured return validator.", { cause: decoded.issue });
+    returns = decoded.value;
+  }
+  return Object.freeze({ ...fn, argsValidator: args.value, returnsValidator: returns });
 }
 
 function decodeArgsValidator(
   value: unknown,
   path: string,
-  depth: number,
-  budget: ValidatorDecodeBudget,
 ): DecodedExactRuntimeRequest["function"]["argsValidator"] {
-  const validator = decodeValidator(value, path, depth, budget);
+  const validator = decodeValidator(value, path);
   if (validator.type === "object") return validator;
-  if (validator.type === "any") return freeze({ type: "any" });
+  if (validator.type === "any") return validator;
   throw new Error("Exact-runtime argument validator must be object or any.");
 }
 
-function decodeValidator(
-  value: unknown,
-  path: string,
-  depth: number,
-  budget: ValidatorDecodeBudget,
-): ValidatorJsonV1 {
-  if (depth > MAX_VALIDATOR_DEPTH) {
-    throw new Error("Exact-runtime validator nesting exceeds its limit.");
-  }
-  budget.nodes += 1;
-  if (budget.nodes > MAX_VALIDATOR_NODES) {
-    throw new Error("Exact-runtime validator node count exceeds its limit.");
-  }
-  if (!isPlainRecord(value) || typeof value.type !== "string") {
-    throw new Error(`Invalid exact-runtime validator at ${path}.`);
-  }
-  switch (value.type) {
-    case "null":
-    case "number":
-    case "bigint":
-    case "boolean":
-    case "string":
-    case "bytes":
-    case "any": {
-      exactKeys(value, ["type"], "exact-runtime validator");
-      return freeze({ type: value.type });
-    }
-    case "id": {
-      exactKeys(value, ["type", "tableName"], "exact-runtime ID validator");
-      if (
-        typeof value.tableName !== "string" ||
-        value.tableName.length === 0
-      ) {
-        throw new Error(`Invalid exact-runtime ID validator at ${path}.`);
-      }
-      return freeze({ type: "id", tableName: value.tableName });
-    }
-    case "literal": {
-      exactKeys(
-        value,
-        ["type", "value"],
-        "exact-runtime literal validator",
-      );
-      return freeze({ type: "literal", value: captureValidatorLiteralV1(value.value) });
-    }
-    case "array": {
-      exactKeys(
-        value,
-        ["type", "value"],
-        "exact-runtime array validator",
-      );
-      return freeze({
-        type: "array",
-        value: decodeValidator(
-          value.value,
-          `${path}.value`,
-          depth + 1,
-          budget,
-        ),
-      });
-    }
-    case "object": {
-      exactKeys(
-        value,
-        ["type", "value"],
-        "exact-runtime object validator",
-      );
-      if (!isPlainRecord(value.value)) {
-        throw new Error(`Invalid exact-runtime object validator at ${path}.`);
-      }
-      const entries = ownEnumerableDataEntries(
-        value.value,
-        "exact-runtime object validator fields",
-      );
-      if (entries.length > MAX_VALIDATOR_OBJECT_FIELDS) {
-        throw new Error("Exact-runtime object validator has too many fields.");
-      }
-      const fields: Record<
-        string,
-        Readonly<{ readonly fieldType: ValidatorJsonV1; readonly optional: boolean }>
-      > = {};
-      for (const [fieldName, fieldValue] of entries) {
-        const field = exactRecord(
-          fieldValue,
-          ["fieldType", "optional"],
-          "exact-runtime object validator field",
-        );
-        if (typeof field.optional !== "boolean") {
-          throw new Error(
-            `Invalid exact-runtime object validator field at ${path}.`,
-          );
-        }
-        defineProperty(fields, fieldName, {
-          value: freeze({
-            fieldType: decodeValidator(
-              field.fieldType,
-              `${path}.value.${fieldName}.fieldType`,
-              depth + 1,
-              budget,
-            ),
-            optional: field.optional,
-          }),
-          enumerable: true,
-          configurable: false,
-          writable: false,
-        });
-      }
-      return freeze({ type: "object", value: freeze(fields) });
-    }
-    case "record": {
-      exactKeys(
-        value,
-        ["type", "keys", "values"],
-        "exact-runtime record validator",
-      );
-      return freeze({
-        type: "record",
-        keys: decodeValidator(
-          value.keys,
-          `${path}.keys`,
-          depth + 1,
-          budget,
-        ),
-        values: decodeValidator(
-          value.values,
-          `${path}.values`,
-          depth + 1,
-          budget,
-        ),
-      });
-    }
-    case "union": {
-      exactKeys(
-        value,
-        ["type", "value"],
-        "exact-runtime union validator",
-      );
-      if (!Array.isArray(value.value)) {
-        throw new Error(`Invalid exact-runtime union validator at ${path}.`);
-      }
-      validateArrayShape(value.value, "exact-runtime union validator");
-      if (value.value.length > MAX_VALIDATOR_NODES - budget.nodes) {
-        throw new Error(
-          "Exact-runtime union validator exceeds its remaining node budget.",
-        );
-      }
-      return freeze({
-        type: "union",
-        value: freeze(value.value.map((member, index) =>
-          decodeValidator(
-            member,
-            `${path}.value[${index}]`,
-            depth + 1,
-            budget,
-          )
-        )),
-      });
-    }
-    default:
-      throw new Error(`Unknown exact-runtime validator type at ${path}.`);
-  }
+function decodeValidator(value: unknown, path: string): ValidatorJsonV1 {
+  const decoded = decodeValidatorJsonResultCoreV1(value);
+  if (!decoded.ok) throw new Error(`Invalid exact-runtime validator at ${path}.`, { cause: decoded.issue });
+  return decoded.value;
 }
 
 function decodeRequest(value: unknown): DecodedExactRuntimeRequest {
@@ -1177,16 +1018,12 @@ function decodeRequest(value: unknown): DecodedExactRuntimeRequest {
   const argsValidator = decodeArgsValidator(
     fn.argsValidator,
     "$.function.argsValidator",
-    1,
-    { nodes: 0 },
   );
   const returnsValidator = fn.returnsValidator === null
     ? null
     : decodeValidator(
         fn.returnsValidator,
         "$.function.returnsValidator",
-        1,
-        { nodes: 0 },
       );
   const auth = decodeAuth(request.auth);
   const context = decodeContext(request.context);

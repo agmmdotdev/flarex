@@ -6,6 +6,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { canonicalizeAppIndexPhysicalSpecV1 } from "../src/index-definition";
+import * as DecodedProtocolSnapshot from "../src/decoded-protocol-snapshot";
 
 import {
   APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1,
@@ -187,7 +188,7 @@ describe("ordered index physical contract v1", () => {
 
   it("keeps explicit public decoding detached even for an issued specification", () => {
     const issued = lowerAppDeveloperOrderedIndexPhysicalSpecV1(logicalSpec("status"));
-    const clone = vi.spyOn(globalThis, "structuredClone");
+    const clone = vi.spyOn(DecodedProtocolSnapshot, "snapshotDecodedProtocolPlainData");
     try {
       const throwing = decodeAppOrderedIndexPhysicalSpecV1(issued);
       const result = Result.getOrThrow(decodeAppOrderedIndexPhysicalSpecV1Result(issued));
@@ -215,7 +216,7 @@ describe("ordered index physical contract v1", () => {
       { spec: APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1, values: [orderedIndexCreationTimeV1(1)] },
       { spec: APP_BY_ID_PHYSICAL_SPEC_V1, values: [] },
     ];
-    const clone = vi.spyOn(globalThis, "structuredClone");
+    const clone = vi.spyOn(DecodedProtocolSnapshot, "snapshotDecodedProtocolPlainData");
     try {
       for (const { spec, values } of cases) {
         clone.mockClear();
@@ -243,7 +244,7 @@ describe("ordered index physical contract v1", () => {
     const expectedKey = encodeAppOrderedIndexKeyV1({ spec: issued, values });
     const expression = { op: "eq" as const, field: requiredField(issued, 0), value: values[0]! };
     const expectedBounds = compileAppOrderedIndexBoundsV1({ spec: issued, expressions: [expression] });
-    const clone = vi.spyOn(globalThis, "structuredClone");
+    const clone = vi.spyOn(DecodedProtocolSnapshot, "snapshotDecodedProtocolPlainData");
     try {
       for (const spec of [raw, spread, foreignFrozen]) {
         clone.mockClear();
@@ -311,7 +312,7 @@ describe("ordered index physical contract v1", () => {
     );
     const retained = canonical.physicalSpec;
     const values = [stringValue("active"), orderedIndexCreationTimeV1(1)];
-    const clone = vi.spyOn(globalThis, "structuredClone");
+    const clone = vi.spyOn(DecodedProtocolSnapshot, "snapshotDecodedProtocolPlainData");
     try {
       const encodedKey = encodeAppOrderedIndexKeyV1({ spec: retained, values });
       expect(decodeAppOrderedIndexKeyV1({ spec: retained, encodedKey })).toEqual(values);

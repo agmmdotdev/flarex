@@ -42,6 +42,7 @@ export function makeCoreApplicationMutationRunner(configuration: Readonly<{
     );
     const definition = yield* Effect.try({ try: () => makeApplicationWorkerDefinition({
       source, target, manifest: input.program.manifest, hostPolicy: runner.hostPolicy,
+      validatorIdentityEncoding: input.program.validatorIdentityEncoding,
       hostPolicySha256: runner.hostPolicySha256, compatibilityDate: input.program.compatibilityDate,
       documentIdFormat: "convex",
     }), catch: cause => new CoreApplicationMutationError({ reason: "metadataInvalid", cause }) });
@@ -56,7 +57,7 @@ export function makeCoreApplicationMutationRunner(configuration: Readonly<{
       context: { mode: "write", executionId: context.executionId, logScopeId: context.logScopeId,
         randomSeed: context.randomSeed, executionTime: input.transaction.unixTime,
         initialCreationTimeCursor: input.transaction.unixTime },
-    }, "convex").pipe(Effect.mapError(cause => new CoreApplicationMutationError({ reason: "metadataInvalid", cause })));
+    }, "convex", input.program.validatorIdentityEncoding).pipe(Effect.mapError(cause => new CoreApplicationMutationError({ reason: "metadataInvalid", cause })));
     const callbackContext = yield* Effect.withFiber(fiber => Effect.succeed(Context.add(
       captureExecutionDiagnosticContext(fiber), Clock.Clock, Context.get(fiber.context, Clock.Clock),
     )));

@@ -153,6 +153,9 @@ describe("@flarex/declarative-program/v1", () => {
     if (table === undefined || index === undefined || module === undefined) {
       throw new Error("Expected mutable input members.");
     }
+    if (table.definition.documentType.type !== "object") {
+      throw new Error("Expected an object document validator fixture.");
+    }
 
     table.definition.documentType.value.status = {
       fieldType: { type: "number" },
@@ -434,7 +437,7 @@ describe("@flarex/declarative-program/v1", () => {
       ...STANDARD_BUDGET_INPUT,
       maximumValidatorDepth: 0,
     }))).toBe(true);
-    expect(Result.isFailure(makeCanonicalDeclarativeProgramBudgetV1({
+    expect(Result.isSuccess(makeCanonicalDeclarativeProgramBudgetV1({
       ...STANDARD_BUDGET_INPUT,
       maximumValidatorDepth: 129,
     }))).toBe(true);

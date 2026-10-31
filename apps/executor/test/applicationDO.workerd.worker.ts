@@ -4,7 +4,7 @@ import { invokeApplicationMutation, type ApplicationMutationSystem } from
   "@flarex/standard-application-invocation/internal/application-mutation-system";
 import { invokeApplicationQuery, type ApplicationQuerySystem } from
   "@flarex/standard-application-invocation/internal/application-query-system";
-import { makeCoreApplicationPrograms } from "@flarex/persistence-postgres/internal/core-application-program";
+import { makeCoreApplicationPrograms, readCoreApplicationProgram } from "@flarex/persistence-postgres/internal/core-application-program";
 import { compileCoreApplicationSchema } from "@flarex/persistence-postgres/internal/core-application-schema";
 import { parseCoreTableSummary, serializeCoreTableSummary } from "@flarex/persistence-postgres/internal/core";
 import { Cause, Clock, Effect, Exit, Result, Schema, type Scope } from "effect";
@@ -165,7 +165,7 @@ function options() {
       const first = yield* infrastructure.coreDatabase.selectProgram("users:typedQuery");
       // Genuine producer, current captured manifest; the host fixture does not
       // reconstruct Analysis/publication authority by copying the old algorithm.
-      const manifest = first.metadata.manifest;
+      const manifest = (yield* readCoreApplicationProgram(first, sha256)).manifest;
       schemaHead = infrastructure.coreDatabase.publishedTimestamp.pipe(Effect.map(String));
       if (decodeConfiguration(env.APP_CONFIGURATION).waitForSchemaOnBoot === true) {
         yield* Effect.gen(function* () {
@@ -304,26 +304,30 @@ export class ApplicationFixtureDO extends Base {
 
   override async fetch(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
-    if (path === "/schema-status") return Response.json({ ...hostOptions.schemaGate,
+    try {
+      // Complete control POST input before returning across the service binding.
+      if (["/schema-status", "/schema-release", "/status", "/release", "/close", "/close-cleanup"].includes(path)) {
+        await request.arrayBuffer();
+      }
+      if (path === "/schema-status") return Response.json({ ...hostOptions.schemaGate,
       alarmReleases: undefined, connectionReleases: undefined, alarm: await this.ctx.storage.getAlarm(), boot: this.#boot,
       resources: hostOptions.resources });
-    if (path === "/schema-release") { hostOptions.releaseSchema(); return Response.json({ released: true }); }
-    if (path === "/stage-hold") hostOptions.schemaGate.holdAlarms = true;
-    if (path === "/status") return Response.json({ boot: this.#boot, gateEntered: this.#gate.entered, blockedSourceReads: this.#gate.blocked,
+      if (path === "/schema-release") { hostOptions.releaseSchema(); return Response.json({ released: true }); }
+      if (path === "/stage-hold") hostOptions.schemaGate.holdAlarms = true;
+      if (path === "/status") return Response.json({ boot: this.#boot, gateEntered: this.#gate.entered, blockedSourceReads: this.#gate.blocked,
       resources: hostOptions.resources, backends: hostOptions.backends });
-    if (path === "/release") { this.#releaseSourceReads(); return Response.json({ released: true }); }
-    if (path === "/close" || path === "/close-cleanup") { this.#releaseSourceReads(); hostOptions.schemaGate.closing = true;
+      if (path === "/release") { this.#releaseSourceReads(); return Response.json({ released: true }); }
+      if (path === "/close" || path === "/close-cleanup") { this.#releaseSourceReads(); hostOptions.schemaGate.closing = true;
       const closing = this.close();
       if (path === "/close-cleanup" || !hostOptions.schemaGate.holdConnections) hostOptions.releaseSchema();
       await closing; return Response.json({ closed: true, resources: hostOptions.resources }); }
-    if (path === "/hold") this.#gate.hold = true;
-    if (path === "/hold-all") this.#gate.all = true;
-    try {
+      if (path === "/hold") this.#gate.hold = true;
+      if (path === "/hold-all") this.#gate.all = true;
       const response = await super.fetch(request);
       response.headers.set("x-app-do-boot", this.#boot);
       return response;
     } catch (cause) {
-      return Response.json({ error: String(cause), stack: cause instanceof Error ? cause.stack : null }, { status: 500 });
+      return Response.json({ error: Cause.pretty(Cause.fail(cause)), stack: cause instanceof Error ? cause.stack : null }, { status: 500 });
     }
   }
 }

@@ -46,7 +46,7 @@ export const prepareApplicationLogicalSource = Effect.fn("LogicalSchema.prepareA
   }
   const nativeTables = manifest.schema.tables.filter(table => !payloadNames.has(table.name));
   const tables = yield* Effect.fromResult(captureSchemaManifestAppTableDeclarationsV1Result(nativeTables.map(table => ({
-    logicalName: table.name, definition: { kind: "appDocument", definitionVersion: 1, documentType: table.validator },
+    logicalName: table.name, definition: { kind: "appDocument", definitionVersion: 2, documentType: table.validator },
   })))).pipe(Effect.mapError(cause => new LogicalSchemaCandidateError({ reason: "invalidInput", cause })));
   const names = new Set(nativeTables.map(table => table.name));
   const manifestData: unknown = applicationManifestWireV1(manifest);

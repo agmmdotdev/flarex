@@ -15,9 +15,10 @@ import {
 } from "@flarex/utils/bytes";
 import { Result } from "effect";
 import {
-  canonicalizeApplicationRuntimeTargetV1,
+  recanonicalizeApplicationRuntimeTargetV1,
   applicationRuntimeTargetWireV1,
   type ApplicationRuntimeTargetV1,
+  type ValidatorIdentityEncoding,
 } from "flarex-protocol/internal/application-runtime-target-v1";
 import type { EdgeActionHostPolicyFrameV1 } from
   "flarex-protocol/internal/edge-action-host-policy-v1";
@@ -44,6 +45,7 @@ export const APPLICATION_TRANSACTION_WORKER_CPU_MILLISECONDS = 10_000;
 export const APPLICATION_TRANSACTION_WORKER_WALL_MILLISECONDS = 30_000;
 
 export interface ApplicationWorkerDefinition {
+  readonly validatorIdentityEncoding: ValidatorIdentityEncoding;
   readonly documentIdFormat?: "convex";
   readonly targetCanonicalText: string;
   readonly hostPolicySha256Hex: string;
@@ -69,6 +71,8 @@ export interface ApplicationWorkerDefinition {
 export function makeApplicationWorkerDefinition(input: {
   readonly source: ApplicationAnalysisSourceBundle;
   readonly target: ApplicationRuntimeTargetV1;
+  /** Authenticated by the stored-program owner; never supplied by the request. */
+  readonly validatorIdentityEncoding?: ValidatorIdentityEncoding;
   readonly manifest: ApplicationManifest;
   readonly hostPolicy: EdgeActionHostPolicyFrameV1;
   readonly hostPolicySha256: Uint8Array;
@@ -84,8 +88,10 @@ export function makeApplicationWorkerDefinition(input: {
   if (!isUint8ArrayWithByteLength(input.hostPolicySha256, 32)) {
     throw new Error("Application worker host policy digest is invalid.");
   }
-  const canonicalTarget = canonicalizeApplicationRuntimeTargetV1(
+  const validatorIdentityEncoding = input.validatorIdentityEncoding ?? 2;
+  const canonicalTarget = recanonicalizeApplicationRuntimeTargetV1(
     input.target,
+    validatorIdentityEncoding,
   ).pipe(Result.getOrThrow);
   requireSourceAuthority(input.source, canonicalTarget.target, input.manifest);
   const rootOrdinal = input.manifest.functions.findIndex(
@@ -108,6 +114,7 @@ export function makeApplicationWorkerDefinition(input: {
     ),
   );
   const definition = Object.freeze({
+    validatorIdentityEncoding,
     target: canonicalTarget.target,
     rootFunction,
     internalFunctionCatalog,
@@ -127,6 +134,7 @@ export function makeApplicationWorkerDefinition(input: {
     ),
   });
   return Object.freeze({
+    validatorIdentityEncoding,
     ...(input.documentIdFormat === undefined ? {} : { documentIdFormat: input.documentIdFormat }),
     targetCanonicalText: canonicalTarget.canonicalText,
     hostPolicySha256Hex: hex(input.hostPolicySha256),
@@ -154,6 +162,7 @@ function entrypointSource(
   coreImport: string,
   executionImport: string,
   definition: Readonly<{
+    readonly validatorIdentityEncoding: ValidatorIdentityEncoding;
     readonly target: ApplicationRuntimeTargetV1;
     readonly rootFunction: ApplicationFunctionRuntimeFunctionV1;
     readonly internalFunctionCatalog: ReadonlyArray<
@@ -171,7 +180,8 @@ function entrypointSource(
   });
   const wireDefinition = {
     ...definition,
-    target: applicationRuntimeTargetWireV1(definition.target),
+    target: { ...applicationRuntimeTargetWireV1(definition.target),
+      ...(definition.validatorIdentityEncoding === 1 ? { validatorIdentityEncoding: undefined } : {}) },
     rootFunction: functionWire(definition.rootFunction),
     internalFunctionCatalog: definition.internalFunctionCatalog.map(functionWire),
   };

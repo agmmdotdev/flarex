@@ -33,7 +33,7 @@ describe("schema builders", () => {
           logicalName: "progress",
           definition: {
             kind: "appDocument",
-            definitionVersion: 1,
+            definitionVersion: 2,
             documentType: {
               type: "object",
               value: {
@@ -49,7 +49,7 @@ describe("schema builders", () => {
           logicalName: "users",
           definition: {
             kind: "appDocument",
-            definitionVersion: 1,
+            definitionVersion: 2,
             documentType: {
               type: "object",
               value: {

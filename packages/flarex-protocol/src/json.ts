@@ -142,45 +142,52 @@ export function encodeCanonicalJson(
   value: Json,
   onInvariantViolation: (issue: CanonicalJsonEncodingInvariantIssue) => never,
 ): string {
-  if (isJsonArray(value)) {
-    const items: string[] = [];
-    for (let index = 0; index < value.length; index += 1) {
-      if (!Object.hasOwn(value, index)) {
-        return onInvariantViolation({ reason: "missingArrayItem", index });
-      }
-      const item = value[index];
-      if (item === undefined) {
-        return onInvariantViolation({ reason: "missingArrayItem", index });
-      }
-      items.push(encodeCanonicalJson(item, onInvariantViolation));
+  const chunks: string[] = [];
+  const pending: CanonicalJsonEncodingFrame[] = [{ kind: "value", value }];
+  while (pending.length > 0) {
+    const frame = pending.pop();
+    if (frame === undefined) throw new Error("Canonical JSON encoding lost a frame.");
+    if (frame.kind === "array") {
+      if (frame.index === frame.value.length) { chunks.push("]"); continue; }
+      const index = frame.index;
+      if (!Object.hasOwn(frame.value, index)) return onInvariantViolation({ reason: "missingArrayItem", index });
+      const item = frame.value[index];
+      if (item === undefined) return onInvariantViolation({ reason: "missingArrayItem", index });
+      if (index > 0) chunks.push(",");
+      pending.push({ ...frame, index: index + 1 }, { kind: "value", value: item });
+      continue;
     }
-    return `[${items.join(",")}]`;
-  }
-  if (isJsonObject(value)) {
-    const fields: string[] = [];
-    for (const key of EffectArray.sort(
-      Object.keys(value),
-      UTF16_STRING_ORDER,
-    )) {
-      const item = value[key];
-      if (item === undefined) {
-        return onInvariantViolation({ reason: "missingObjectProperty", key });
-      }
-      fields.push(
-        `${JSON.stringify(key)}:${encodeCanonicalJson(
-          item,
-          onInvariantViolation,
-        )}`,
-      );
+    if (frame.kind === "object") {
+      if (frame.index === frame.keys.length) { chunks.push("}"); continue; }
+      const key = frame.keys[frame.index];
+      if (key === undefined) throw new Error("Canonical JSON encoding lost a key.");
+      const item = frame.value[key];
+      if (item === undefined) return onInvariantViolation({ reason: "missingObjectProperty", key });
+      if (frame.index > 0) chunks.push(",");
+      chunks.push(JSON.stringify(key), ":");
+      pending.push({ ...frame, index: frame.index + 1 }, { kind: "value", value: item });
+      continue;
     }
-    return `{${fields.join(",")}}`;
+    if (isJsonArray(frame.value)) {
+      chunks.push("[");
+      pending.push({ kind: "array", value: frame.value, index: 0 });
+    } else if (isJsonObject(frame.value)) {
+      chunks.push("{");
+      pending.push({ kind: "object", value: frame.value,
+        keys: EffectArray.sort(Object.keys(frame.value), UTF16_STRING_ORDER), index: 0 });
+    } else {
+      const encoded = JSON.stringify(frame.value);
+      if (encoded === undefined) return onInvariantViolation({ reason: "primitiveEncodingFailed" });
+      chunks.push(encoded);
+    }
   }
-  const encoded = JSON.stringify(value);
-  if (encoded === undefined) {
-    return onInvariantViolation({ reason: "primitiveEncodingFailed" });
-  }
-  return encoded;
+  return chunks.join("");
 }
+
+type CanonicalJsonEncodingFrame =
+  | Readonly<{ kind: "value"; value: Json }>
+  | Readonly<{ kind: "array"; value: ReadonlyArray<Json>; index: number }>
+  | Readonly<{ kind: "object"; value: JsonObject; keys: readonly string[]; index: number }>;
 
 /**
  * Measures canonical JSON UTF-8 bytes without first allocating the canonical
@@ -193,18 +200,32 @@ export function measureCanonicalJsonUtf8Bytes(
   maximumBytes: number,
 ): CanonicalJsonUtf8Measurement {
   if (!isNonNegativeSafeInteger(maximumBytes)) return { kind: "invalid" };
-  return measureCanonicalJsonValue(
-    value,
-    new WeakSet<object>(),
-    maximumBytes,
-  );
+  const ancestors = new WeakSet<object>();
+  const memo = new WeakMap<object, number>();
+  const pending = [measureCanonicalJsonValue(value, ancestors, memo, maximumBytes)];
+  let completed: CanonicalJsonUtf8Measurement = { kind: "invalid" };
+  while (pending.length > 0) {
+    const current = pending[pending.length - 1];
+    if (current === undefined) throw new Error("Canonical JSON measurement lost a frame.");
+    const step = current.next(completed);
+    if (step.done) { completed = step.value; pending.pop(); }
+    else pending.push(measureCanonicalJsonValue(step.value.value, ancestors, memo, step.value.maximumBytes));
+  }
+  return completed;
 }
 
-function measureCanonicalJsonValue(
+type CanonicalJsonMeasurementWork = Generator<
+  Readonly<{ value: unknown; maximumBytes: number }>,
+  CanonicalJsonUtf8Measurement,
+  CanonicalJsonUtf8Measurement
+>;
+
+function* measureCanonicalJsonValue(
   value: unknown,
   ancestors: WeakSet<object>,
+  memo: WeakMap<object, number>,
   maximumBytes: number,
-): CanonicalJsonUtf8Measurement {
+): CanonicalJsonMeasurementWork {
   if (value === null) return measuredPrimitive(4, maximumBytes);
   if (typeof value === "boolean") {
     return measuredPrimitive(value ? 4 : 5, maximumBytes);
@@ -220,9 +241,15 @@ function measureCanonicalJsonValue(
   if (typeof value !== "object" || ancestors.has(value)) {
     return { kind: "invalid" };
   }
+  const prior = memo.get(value);
+  if (prior !== undefined) return measuredPrimitive(prior, maximumBytes);
   let prototype: object | null;
   let isArray: boolean;
+  let immutable: boolean;
   try {
+    // Establish immutability before collecting a summary. A later Proxy trap
+    // may freeze a mutable object after changing an already-visited member.
+    immutable = Object.isFrozen(value);
     prototype = Object.getPrototypeOf(value);
     isArray = Array.isArray(value);
   } catch {
@@ -237,9 +264,10 @@ function measureCanonicalJsonValue(
   }
   ancestors.add(value);
   try {
-    return isArray
-      ? measureCanonicalJsonArray(value, ancestors, maximumBytes)
-      : measureCanonicalJsonObject(value, ancestors, maximumBytes);
+    const measured = isArray
+      ? yield* measureCanonicalJsonArray(value, memo, immutable, maximumBytes)
+      : yield* measureCanonicalJsonObject(value, memo, immutable, maximumBytes);
+    return measured;
   } catch {
     return { kind: "invalid" };
   } finally {
@@ -247,11 +275,12 @@ function measureCanonicalJsonValue(
   }
 }
 
-function measureCanonicalJsonArray<T extends object>(
+function* measureCanonicalJsonArray<T extends object>(
   value: T,
-  ancestors: WeakSet<object>,
+  memo: WeakMap<object, number>,
+  immutable: boolean,
   maximumBytes: number,
-): CanonicalJsonUtf8Measurement {
+): CanonicalJsonMeasurementWork {
   const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
   if (
     lengthDescriptor === undefined ||
@@ -279,12 +308,9 @@ function measureCanonicalJsonArray<T extends object>(
         return { kind: "exceeded", observed: total };
       }
     }
-    const child = measureCanonicalJsonValue(
-      descriptor.value,
-      ancestors,
-      maximumBytes - total,
-    );
+    const child = yield { value: descriptor.value, maximumBytes: maximumBytes - total };
     if (child.kind === "invalid") return child;
+    if (descriptor.value !== null && typeof descriptor.value === "object" && !memo.has(descriptor.value)) immutable = false;
     const nextTotal = checkedCanonicalByteAdd(
       total,
       child.kind === "success" ? child.bytes : child.observed,
@@ -299,14 +325,16 @@ function measureCanonicalJsonArray<T extends object>(
   if (ownKeys.length !== lengthDescriptor.value + 1) {
     return { kind: "invalid" };
   }
+  if (immutable) memo.set(value, total);
   return { kind: "success", bytes: total };
 }
 
-function measureCanonicalJsonObject<T extends object>(
+function* measureCanonicalJsonObject<T extends object>(
   value: T,
-  ancestors: WeakSet<object>,
+  memo: WeakMap<object, number>,
+  immutable: boolean,
   maximumBytes: number,
-): CanonicalJsonUtf8Measurement {
+): CanonicalJsonMeasurementWork {
   let total = 2;
   let fieldCount = 0;
   if (total > maximumBytes) return { kind: "exceeded", observed: total };
@@ -337,12 +365,9 @@ function measureCanonicalJsonObject<T extends object>(
     if (keyLength.kind === "exceeded" || total > maximumBytes) {
       return { kind: "exceeded", observed: total };
     }
-    const child = measureCanonicalJsonValue(
-      descriptor.value,
-      ancestors,
-      maximumBytes - total,
-    );
+    const child = yield { value: descriptor.value, maximumBytes: maximumBytes - total };
     if (child.kind === "invalid") return child;
+    if (descriptor.value !== null && typeof descriptor.value === "object" && !memo.has(descriptor.value)) immutable = false;
     const nextChildTotal = checkedCanonicalByteAdd(
       total,
       child.kind === "success" ? child.bytes : child.observed,
@@ -367,6 +392,7 @@ function measureCanonicalJsonObject<T extends object>(
   ) {
     return { kind: "invalid" };
   }
+  if (immutable) memo.set(value, total);
   return { kind: "success", bytes: total };
 }
 
@@ -445,6 +471,9 @@ function checkedCanonicalByteAdd(
 
 export function isJson(value: unknown): value is Json {
   const ancestors = new WeakSet<object>();
+  // Reuse only transitively frozen data. Mutable or accessor-bearing values
+  // must be revisited because later getters or Proxy traps can change them.
+  const completed = new WeakSet<object>();
   const frames: JsonValidationFrame[] = [{ kind: "value", value }];
   while (frames.length > 0) {
     const frame = frames.pop();
@@ -467,11 +496,13 @@ export function isJson(value: unknown): value is Json {
         }
         if (Array.isArray(current)) {
           if (ancestors.has(current)) return false;
+          if (completed.has(current)) break;
           ancestors.add(current);
-          frames.push({ kind: "array", value: current, index: 0 });
+          frames.push({ kind: "array", value: current, index: 0, immutable: Object.isFrozen(current) });
           break;
         }
         if (typeof current !== "object") return false;
+        const frozen = Object.isFrozen(current);
         const prototype = Object.getPrototypeOf(current);
         if (prototype !== Object.prototype && prototype !== null) {
           return false;
@@ -480,29 +511,40 @@ export function isJson(value: unknown): value is Json {
           return false;
         }
         if (ancestors.has(current)) return false;
+        if (completed.has(current)) break;
         ancestors.add(current);
+        const immutable = frozen && Object.keys(current).every(key => {
+          const descriptor = Object.getOwnPropertyDescriptor(current, key);
+          return descriptor !== undefined && "value" in descriptor;
+        });
+        const values = Object.values(current);
         frames.push({
           kind: "object",
           value: current,
-          // SAFETY: the guards above proved current is a plain object, so
-          // it is a string-keyed record.
-          values: Object.values(current as Record<string, unknown>),
+          values,
           index: 0,
+          immutable,
         });
         break;
       }
       case "array": {
+        const immutable = frame.immutable &&
+          (frame.previous === null || typeof frame.previous !== "object" || completed.has(frame.previous));
         if (frame.index >= frame.value.length) {
           ancestors.delete(frame.value);
+          if (immutable) completed.add(frame.value);
           break;
         }
         if (!Object.hasOwn(frame.value, frame.index)) return false;
+        const descriptor = immutable ? Object.getOwnPropertyDescriptor(frame.value, frame.index) : undefined;
         const item = frame.value[frame.index];
         if (item === undefined) return false;
         frames.push({
           kind: "array",
           value: frame.value,
           index: frame.index + 1,
+          immutable: immutable && descriptor !== undefined && "value" in descriptor,
+          previous: item,
         });
         frames.push({ kind: "value", value: item });
         break;
@@ -510,6 +552,7 @@ export function isJson(value: unknown): value is Json {
       case "object": {
         if (frame.index === frame.values.length) {
           ancestors.delete(frame.value);
+          if (frame.immutable && frame.values.every(item => item === null || typeof item !== "object" || completed.has(item))) completed.add(frame.value);
           break;
         }
         const item = frame.values[frame.index];
@@ -519,6 +562,7 @@ export function isJson(value: unknown): value is Json {
           value: frame.value,
           values: frame.values,
           index: frame.index + 1,
+          immutable: frame.immutable,
         });
         frames.push({ kind: "value", value: item });
         break;
@@ -545,10 +589,13 @@ type JsonValidationFrame =
       readonly kind: "array";
       readonly value: ReadonlyArray<unknown>;
       readonly index: number;
+      readonly immutable: boolean;
+      readonly previous?: unknown;
     }>
   | Readonly<{
       readonly kind: "object";
       readonly value: object;
       readonly values: ReadonlyArray<unknown>;
       readonly index: number;
+      readonly immutable: boolean;
     }>;

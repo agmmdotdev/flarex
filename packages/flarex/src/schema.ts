@@ -1,4 +1,5 @@
 import { validatorJsonForComposition } from "./validatorOwnership";
+import type { DocumentValidatorJsonV1, ValidatorJsonV1 } from "flarex-protocol/validator-json";
 import {
   applicationSchemaDefinition,
   applicationTableDefinition,
@@ -53,12 +54,9 @@ export class TableDefinition<
     readonly fields: PropertyValidators,
   ) {
     const documentType = validatorJsonForComposition(validator);
-    if (documentType.type !== "object") {
-      throw new TypeError("Flarex table definitions require an object validator.");
-    }
     applicationTableDefinitions.set(
       this,
-      applicationTableDefinition(documentType),
+      applicationTableDefinition(requireDocumentValidator(documentType)),
     );
   }
 
@@ -219,14 +217,11 @@ function snapshotSdkTableDefinition(
   table: TableDefinition,
 ): ApplicationTableDefinition {
   const documentType = validatorJsonForComposition(table.validator);
-  if (documentType.type !== "object") {
-    throw new TypeError("Flarex table definitions require an object validator.");
-  }
   if (table.indexes.some(index => Object.hasOwn(index, "decimalFields"))) {
     throw new TypeError("The public schema authoring API does not admit decimal index projections.");
   }
   return snapshotApplicationTableDefinition({
-    documentType,
+    documentType: requireDocumentValidator(documentType),
     indexes: table.indexes.map(index => ({
       descriptor: index.name,
       fields: index.fields,
@@ -234,20 +229,24 @@ function snapshotSdkTableDefinition(
   });
 }
 
+function requireDocumentValidator(validator: ValidatorJsonV1): DocumentValidatorJsonV1 {
+  if (validator.type === "object" || validator.type === "any") return validator;
+  if (validator.type === "union" && validator.value.every(member => member.type === "object")) {
+    return { type: "union", value: validator.value.filter(member => member.type === "object") };
+  }
+  throw new TypeError("Flarex table definitions require any, an object, or a union of objects.");
+}
+
+type DocumentWithSystemFields<Document, Name extends string> = Document extends unknown
+  ? Document & { _id: Id<Name>; _creationTime: number }
+  : never;
+
 export type DataModelFromSchemaDefinition<Schema extends SchemaDefinition<any>> = {
   [Name in keyof Schema["tables"] & string as Schema["tables"][Name] extends TableDefinition
     ? Name
     : never]: Schema["tables"][Name] extends TableDefinition<infer DocumentValidator, infer TableIndexes>
     ? {
-        document: {
-          [Field in keyof (Infer<DocumentValidator> & {
-            _id: Id<Name>;
-            _creationTime: number;
-          })]: (Infer<DocumentValidator> & {
-            _id: Id<Name>;
-            _creationTime: number;
-          })[Field];
-        };
+        document: DocumentWithSystemFields<Infer<DocumentValidator>, Name>;
         fieldPaths: DocumentValidator["fieldPaths"] | "_id" | "_creationTime";
         indexes: {
           [IndexName in keyof TableIndexes]: readonly [...TableIndexes[IndexName], "_creationTime", "_id"];

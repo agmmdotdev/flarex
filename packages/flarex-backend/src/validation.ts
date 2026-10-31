@@ -1,6 +1,7 @@
 import { isWritableJsonObject } from "flarex-protocol/json";
 import { Effect, Result } from "effect";
 import { decodeValidatorJsonWireResultCoreV1, validatorLiteralEqualV1 } from "flarex-protocol/internal/validator-json-core";
+import { validateValidatorValueIssueV1 } from "flarex-protocol/internal/validator-engine-core";
 import type { Json, ValidatorJson } from "./types";
 
 export type BackendValidationOptions = {
@@ -33,7 +34,11 @@ export function validateJsonValue(
     case "number":
       return expect(typeof value === "number" && Number.isFinite(value), "Expected a finite number.", path);
     case "bigint":
+    case "commitTs":
       throw new BackendValidationError("Bigint transport is not implemented.", path);
+    case "function":
+      return expect(validateValidatorValueIssueV1(validator, value, { path, idPolicy: { mode: "shapeOnly" } }) === undefined,
+        "Expected a function handle.", path);
     case "boolean":
       return expect(typeof value === "boolean", "Expected a boolean.", path);
     case "string":

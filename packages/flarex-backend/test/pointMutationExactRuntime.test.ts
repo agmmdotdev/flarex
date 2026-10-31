@@ -98,7 +98,7 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
     // The canonical basis includes the regenerated Worker/kernel digests;
     // its configuration seed stays independent of a deployed artifact.
     expect(createHash("sha256").update(basis).digest("hex")).toBe(
-      "e436b806fabc76bf676e23392f3012c27aca5818d97e7a49b0478977c98ede3a",
+      "8bfd415281168d5f7358ac91a62f01d8d89739d5c146df5ba0279da19bbd4f64",
     );
     const basisParts: unknown = JSON.parse(basis);
     expect(basisParts).toContainEqual([

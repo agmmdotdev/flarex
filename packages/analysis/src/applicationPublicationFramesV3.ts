@@ -16,6 +16,7 @@ export function applicationSchemaPublicationFrameV3(
   return canonicalFrame({
     format: "flarex.application-schema-publication",
     version: 3,
+    validatorIdentityEncoding: 2,
     schema: applicationSchemaWireV1(manifest.schema),
   });
 }

@@ -55,7 +55,9 @@ describe("Application numeric literal publication", () => {
       expect(read.sources[0]?.sourceSha256).toBe(source.sourceSha256);
       const definition = read.sources[0]?.definition;
       if (definition?.kind !== "documents") throw new Error("Expected document source");
-      const field = definition.tables[0]?.definition.documentType.value.value;
+      const documentType = definition.tables[0]?.definition.documentType;
+      if (documentType?.type !== "object") throw new Error("Expected object source validator");
+      const field = documentType.value.value;
       if (field?.fieldType.type !== "literal") throw new Error("Expected literal source field");
       expect(Object.is(field.fieldType.value, value)).toBe(true);
     }

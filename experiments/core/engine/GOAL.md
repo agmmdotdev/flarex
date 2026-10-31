@@ -289,8 +289,11 @@ manifest compilation, stored metadata, hashing and real Worker execution. It als
 shares ordered source record admission and bounded foreign capture. This does
 not complete validator parity: explicit source-wire, search/vector and shape
 gates remain open alongside supported-consumer and full-core acceptance.
-The [source validator wire gate](./slices/09-source-validator-wire-parity.md)
-remains after the numeric translation: replace the simplified record value
-wire shape, select the proper source ingress policy and prove raw parser error
-stages. Preserve named stored identities/data through an explicit disposition;
-existing private wire layouts are not permanent mechanism exceptions.
+The [source validator translation](./slices/09-source-validator-wire-parity.md)
+implements Source DTO grammar, parser phases, document roots, Function/CommitTs
+validators and fresh authenticated encoding 2 through current owners. Its narrow
+stored CoreProgram reader preserves original identities and outcomes; the real
+SDK/Worker and physical-row witnesses keep current transport separate. Remaining
+external/native retained-store cutover, broader source features and full-goal
+acceptance stay explicit; existing private wire layouts are not permanent
+mechanism exceptions.

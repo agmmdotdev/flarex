@@ -105,13 +105,13 @@ async function decodePushStatusForTest(value: unknown) {
 
 describe("DeploymentApiHandlers", () => {
   const invalidTableRoots = [
-    ["int64", () => v.literal(1n), 'Schema table "items" document validator must be an object validator.'],
-    ["negative zero", () => v.literal(-0), 'Schema table "items" document validator must be an object validator.'],
-    ["scalar", () => v.string(), 'Schema table "items" document validator must be an object validator.'],
-    ["array", () => v.array(v.string()), 'Schema table "items" document validator must be an object validator.'],
-    ["union", () => v.union(v.object({}), v.object({ name: v.string() })), 'Schema table "items" document validator must be an object validator.'],
-    ["nonfinite root", () => v.literal(NaN), 'Schema table "items" document validator must be an object validator.'],
-    ["nonfinite array", () => v.array(v.literal(Infinity)), 'Schema table "items" document validator must be an object validator.'],
+    ["int64", () => v.literal(1n), 'Schema table "items" document validator must be any, an object, or a union of objects.'],
+    ["negative zero", () => v.literal(-0), 'Schema table "items" document validator must be any, an object, or a union of objects.'],
+    ["scalar", () => v.string(), 'Schema table "items" document validator must be any, an object, or a union of objects.'],
+    ["array", () => v.array(v.string()), 'Schema table "items" document validator must be any, an object, or a union of objects.'],
+    ["nested union", () => v.union(v.union(v.object({}))), 'Schema table "items" document validator must be any, an object, or a union of objects.'],
+    ["nonfinite root", () => v.literal(NaN), 'Schema table "items" document validator must be any, an object, or a union of objects.'],
+    ["nonfinite array", () => v.array(v.literal(Infinity)), 'Schema table "items" document validator must be any, an object, or a union of objects.'],
     ["record before root and finite", () => sourceRecord(v.literal(1n), v.literal(Infinity)), "Records can only have string keys; the key validator must be a subtype of v.string()."],
   ] as const;
   for (const suppliedCodegen of [false, true]) {
@@ -132,6 +132,28 @@ describe("DeploymentApiHandlers", () => {
       }, "Codegen analysis schema must match deployment analysis schema.");
     });
   }
+
+  it.each([
+    { type: "record", keys: { type: "string" }, values: { type: "number" } },
+    { type: "record", keys: { type: "string" }, values: { fieldType: { type: "number" } } },
+    { type: "record", keys: { type: "string" }, values: { fieldType: { type: "number" }, optional: true } },
+  ])("refuses malformed source record transport before Store", async record => {
+    let storeCalls = 0;
+    const { handler, dispose } = makeDeploymentApiWebHandler(deploymentTestLayer({
+      startAnalyzedPush: () => Effect.sync(() => { storeCalls += 1; throw new Error("Malformed source wire reached Store"); }),
+    }));
+    try {
+      const analysis = encodeDeploymentAnalysis(sdkFreshAnalysis(v.number(), "args"));
+      const payload = { sourcePackage: freshSourcePackage(), analysis: { ...analysis, functions: { functions: [
+        { ...analysis.functions.functions[0], args: { type: "object", value: { rows: { fieldType: record, optional: false } } } },
+      ] } } };
+      const response = await handler(new Request("https://deployment.test" + DeploymentRoute.startAnalyzedPush, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+      }));
+      expect(response.status).toBe(400);
+      expect(storeCalls).toBe(0);
+    } finally { await dispose(); }
+  });
 
   const invalidSourceValidators = [
     ["int64 record key", () => sourceRecord(v.literal(1n), v.number()), "Records can only have string keys; the key validator must be a subtype of v.string()."],

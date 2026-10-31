@@ -1,5 +1,7 @@
 import type { ValidatorJson as ProtocolValidatorJson } from "flarex-protocol/validator-json";
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { Result } from "effect";
+import { encodeDocumentId } from "flarex-protocol/document-id";
 import {
   schemaTableValidatorsFromAnalysis,
   validateDocumentValue,
@@ -92,6 +94,17 @@ describe("persistence validator metadata", () => {
     }] } });
     expect(bigintTables[0]?.validator).toEqual({ type: "literal", value: 1n });
     expect(() => validateDocumentValue(bigintTables, 1, "1:literal", { $integer: "AQAAAAAAAAA=" })).toThrow("Bigint transport is not implemented.");
+  });
+
+  it("matches canonical Function strings and keeps CommitTs at the existing int64 transport gate", () => {
+    const tables = schemaTableValidatorsFromAnalysis({ schema: { tables: [{ tableId: 1, name: "handles",
+      validator: { type: "function", fnType: "query", args: { type: "id", tableName: "signatureOnly" } },
+    }] } });
+    const handle = `function://${Result.getOrThrow(encodeDocumentId(1, new Uint8Array(16)))}#advisory`;
+    expect(() => validateDocumentValue(tables, 1, "1:handle", handle)).not.toThrow();
+    expect(() => validateDocumentValue(tables, 1, "1:handle", "function://invalid")).toThrow("Expected a function handle.");
+    const timestamps = schemaTableValidatorsFromAnalysis({ schema: { tables: [{ tableId: 1, name: "timestamps", validator: { type: "commitTs" } }] } });
+    expect(() => validateDocumentValue(timestamps, 1, "1:timestamp", 1)).toThrow("Bigint transport is not implemented.");
   });
 
 });

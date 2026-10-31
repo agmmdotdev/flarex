@@ -8,7 +8,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { Data, Encoding, Option, Result, Schema } from "effect";
 
-const ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz";
+import { decodeCanonicalDocumentIdParts, encodeCanonicalDocumentId } from "./document-id-core";
 export const DocumentTableNumberSchema = Schema.Int.check(
   Schema.isBetween({ minimum: 1, maximum: 0xffff_ffff }),
 );
@@ -123,72 +123,10 @@ function decodeOldBase62Id(value: string): Option.Option<Uint8Array> {
   return Option.some(internal);
 }
 
-function encodeParts(tableNumber: number, internalId: Uint8Array): string {
-  const bytes: number[] = [];
-  let remaining = tableNumber;
-  while (remaining >= 128) {
-    bytes.push((remaining % 128) | 128);
-    remaining = Math.floor(remaining / 128);
-  }
-  bytes.push(remaining, ...internalId);
-  const checksum = fletcher16(bytes);
-  bytes.push(checksum & 255, checksum >>> 8);
-  let output = "";
-  let accumulator = 0;
-  let bits = 0;
-  for (const byte of bytes) {
-    accumulator = (accumulator << 8) | byte;
-    bits += 8;
-    while (bits >= 5) {
-      bits -= 5;
-      output += ALPHABET.charAt((accumulator >>> bits) & 31);
-    }
-    accumulator &= (1 << bits) - 1;
-  }
-  if (bits > 0) output += ALPHABET.charAt((accumulator << (5 - bits)) & 31);
-  return output;
-}
-
+function encodeParts(tableNumber: number, internalId: Uint8Array): string { return encodeCanonicalDocumentId(tableNumber, internalId); }
 function decodeCanonicalParts(text: string): Result.Result<DocumentIdParts, DocumentIdError> {
-  if (text.length < 31 || text.length > 37) return invalidId();
-  const bytes: number[] = [];
-  let accumulator = 0;
-  let bits = 0;
-  for (const character of text) {
-    const value = ALPHABET.indexOf(character);
-    if (value < 0) return invalidId();
-    accumulator = (accumulator << 5) | value;
-    bits += 5;
-    if (bits >= 8) {
-      bits -= 8;
-      bytes.push((accumulator >>> bits) & 255);
-      accumulator &= (1 << bits) - 1;
-    }
-  }
-  let tableNumber = 0;
-  let position = 0;
-  for (; position < 5; position += 1) {
-    const byte = bytes[position];
-    if (byte === undefined) return invalidId();
-    tableNumber += (byte & 127) * 2 ** (position * 7);
-    if (byte < 128) { position += 1; break; }
-  }
-  if (tableNumber < 1 || tableNumber > 0xffff_ffff || bytes.length !== position + 18) return invalidId();
-  const checksum = fletcher16(bytes.slice(0, position + 16));
-  if (bytes[position + 16] !== (checksum & 255) || bytes[position + 17] !== (checksum >>> 8)) return invalidId();
-  const internalId = Uint8Array.from(bytes.slice(position, position + 16));
-  if (encodeParts(tableNumber, internalId) !== text) return invalidId();
-  return Result.succeed(Object.freeze({ tableNumber, internalId }));
-}
-
-function fletcher16(bytes: readonly number[]): number {
-  let low = 0;
-  let high = 0;
-  for (const byte of bytes) {
-    low = (low + byte) & 255;
-    high = (high + low) & 255;
-  }
-  return (high << 8) | low;
+  const parts = decodeCanonicalDocumentIdParts(text);
+  return parts === undefined ? invalidId() : Result.succeed(parts);
 }
 
 function invalidId(): Result.Result<never, DocumentIdError> {

@@ -735,6 +735,7 @@ function userIdentityAtSemanticSize(size: number): Record<string, unknown> {
 function target(kind: FunctionKind, visibility: Visibility) {
   return {
     format: "flarex.application-runtime-target" as const,
+    validatorIdentityEncoding: 2 as const,
     version: 1 as const,
     scopeId: "scope",
     revisionId: "revision",

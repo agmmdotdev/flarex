@@ -1,4 +1,5 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
+import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
 import {
   Effect,
   Result,
@@ -56,6 +57,7 @@ const UTF8_ENCODER = new TextEncoder();
 export const APPLICATION_MANIFEST_VERSION_V2 = 2 as const;
 
 export interface ApplicationManifestV2 {
+  readonly validatorIdentityEncoding?: 2;
   readonly format: typeof APPLICATION_MANIFEST_FORMAT_V1;
   readonly version: typeof APPLICATION_MANIFEST_VERSION_V2;
   readonly sourceArtifact: ApplicationManifestV1["sourceArtifact"];
@@ -244,13 +246,15 @@ function decodeApplicationManifestV2Worker(
   return Result.gen(function* () {
     const manifestProperties = yield* strictOwnDataProperties(
       value,
-      ["format", "version", "sourceArtifact", "schema", "functions"],
+      ["format", "version", "validatorIdentityEncoding", "sourceArtifact", "schema", "functions"],
       "manifest",
       operation,
+      representation === "semantic" ? ["validatorIdentityEncoding"] : [],
     );
     if (
       manifestProperties.get("format") !== APPLICATION_MANIFEST_FORMAT_V1 ||
-      manifestProperties.get("version") !== APPLICATION_MANIFEST_VERSION_V2
+      manifestProperties.get("version") !== APPLICATION_MANIFEST_VERSION_V2 ||
+      (manifestProperties.has("validatorIdentityEncoding") && manifestProperties.get("validatorIdentityEncoding") !== 2)
     ) {
       return yield* Result.fail(contractFailure(
         operation,
@@ -277,6 +281,7 @@ function decodeApplicationManifestV2Worker(
     return snapshotApplicationManifestV2({
       format: canonicalV1.format,
       version: APPLICATION_MANIFEST_VERSION_V2,
+      validatorIdentityEncoding: 2,
       sourceArtifact: canonicalV1.sourceArtifact,
       schema: {
         version: APPLICATION_MANIFEST_VERSION_V2,
@@ -305,6 +310,7 @@ export function decodeApplicationManifestRelationParts(
     const canonicalV1 = yield* admitBase({
       format: manifestProperties.get("format"),
       version: 1,
+      ...(manifestProperties.has("validatorIdentityEncoding") ? { validatorIdentityEncoding: manifestProperties.get("validatorIdentityEncoding") } : {}),
       sourceArtifact: manifestProperties.get("sourceArtifact"),
       schema: {
         version: 1,
@@ -501,6 +507,7 @@ export function strictOwnDataProperties(
   expectedKeys: ReadonlyArray<string>,
   path: string,
   operation: "decodeManifest" | "lowerManifest",
+  optionalKeys: ReadonlyArray<string> = [],
 ): Result.Result<
   ReadonlyMap<string, unknown>,
   ApplicationAnalysisContractError
@@ -511,7 +518,8 @@ export function strictOwnDataProperties(
     }
     const ownKeys = Reflect.ownKeys(value);
     if (
-      ownKeys.length !== expectedKeys.length ||
+      ownKeys.length < expectedKeys.length - optionalKeys.length ||
+      ownKeys.length > expectedKeys.length ||
       ownKeys.some(key => typeof key !== "string" || !expectedKeys.includes(key))
     ) {
       return Result.fail(contractFailure(operation, "invalidInput", { path }));
@@ -519,6 +527,7 @@ export function strictOwnDataProperties(
     const properties = new Map<string, unknown>();
     for (const key of expectedKeys) {
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (descriptor === undefined && optionalKeys.includes(key)) continue;
       if (
         descriptor === undefined || !("value" in descriptor) ||
         descriptor.enumerable !== true
@@ -691,35 +700,18 @@ function isPositiveSafeInteger(value: unknown): value is number {
 function snapshotApplicationManifestV2(
   manifest: ApplicationManifestV2,
 ): ApplicationManifestV2 {
-  const snapshot: ApplicationManifestV2 = structuredClone(manifest);
-  freezeOwnedApplicationManifestV2(snapshot);
-  return snapshot;
-}
-
-function freezeOwnedApplicationManifestV2(value: unknown): void {
-  if (value === null || typeof value !== "object") return;
-  if (Array.isArray(value)) {
-    for (const item of value) freezeOwnedApplicationManifestV2(item);
-    Object.freeze(value);
-    return;
-  }
-  for (const item of Object.values(value)) {
-    freezeOwnedApplicationManifestV2(item);
-  }
-  Object.freeze(value);
+  return snapshotDecodedProtocolPlainData(manifest);
 }
 
 function isDeeplyFrozenData(value: unknown): boolean {
   const pending: unknown[] = [value];
+  const visited = new WeakSet<object>();
   while (pending.length > 0) {
     const current = pending.pop();
-    if (current === null || typeof current !== "object") continue;
+    if (current === null || typeof current !== "object" || visited.has(current)) continue;
+    visited.add(current);
     if (!Object.isFrozen(current)) return false;
-    if (Array.isArray(current)) {
-      pending.push(...current);
-    } else {
-      pending.push(...Object.values(current));
-    }
+    for (const item of Object.values(current)) pending.push(item);
   }
   return true;
 }

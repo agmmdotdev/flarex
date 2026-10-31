@@ -1,6 +1,6 @@
 # Source validator wire and parser parity
 
-Status: **Independent challenge complete; connected runtime contract selected; implementation preparation**.
+Status: **Implemented for the bounded current Source path; external/native activation and wider goal gates remain open**.
 This is a source-alignment requirement, not an accepted DO/native divergence.
 The numeric literal translation and ordered source-semantic record admission in
 [08](./08-validator-literal-parity.md) do not claim complete raw validator wire
@@ -10,12 +10,12 @@ Pinned Convex: `db914cf06e2b06ee985646611b9e12ed7a770318`, especially
 `npm-packages/convex/src/values/validators.ts` and
 `crates/common/src/schemas/{json,validator}.rs`.
 
-## Confirmed current gap
+## Pre-change source gap
 
 Convex SDK record JSON wraps `values` as `{ fieldType, optional }`; Flarex's
-shared validator wire stores the value validator directly. The core source
+shared validator wire previously stored the value validator directly. The core source
 schema JSON parser/serializer already understands the source wrapper. The
-Application/function wire and its consumers still need a connected translation.
+Application/function wire and its consumers required the connected replacement.
 Existing private wire shape is a replacement input, not a permanent exception.
 
 Backend source parsing also differs from strict SDK/value JSON decoding: Rust
@@ -25,8 +25,8 @@ universal decoder. Ordered semantic record rejection in 08 closes the newly
 exposed Int64-key admission gap; it does not establish raw malformed-key/value
 parse precedence for the existing simplified grammar.
 
-Flarex source table analysis currently admits only object roots. Fresh metadata
-construction shares that existing supported subset after 08; this is not a claim
+Before this slice, Flarex source table analysis admitted only object roots. Fresh
+metadata construction shared that subset after 08; this was not a claim
 that Convex supports only object roots. The pinned SDK `server/schema.ts`
 `defineTable` overloads document unions of objects, and `addSystemFields` handles
 objects, unions and `any`. Challenge actual backend/schema admission, SDK types,
@@ -293,3 +293,70 @@ the existing production owners before protocol runtime edits. Validate old
 identity recovery and new current identities separately. Preserve unrelated
 paused Main changes, generate only in the clean verification checkout, and rerun
 both required read-only reviews after connected implementation and checks.
+
+## Executing owners and remaining activation gates
+
+The current protocol parser (`validator-source.ts`) owns source text, raw DTOs,
+ordered semantic conversion and shared document-root normalization. The native
+DatabaseSchema DTO composes that parser; core `schemaJson`, `schemaTypes` and
+`validatorSubset` consume it. SDK/analysis exports, manifest admission, runtime
+targets and Task snapshots explicitly distinguish semantic capture from current
+wire capture. A source record wrapper must never enter the semantic preflight;
+old bare wire must never be accepted as a fallback at fresh ingress. The actual
+SDK/analyzer/publication/Worker/cold-reopen regression owns this connected witness.
+
+Fresh private appDocument definition version 2 encodes `documentType` as Source
+DTO JSON text. This preserves literal NUL and declaration size semantics through
+the existing JSONB envelope; general JSONB wire guards and real value limits
+remain with their owners. Definition version 1 retains its frozen object codec.
+The shared backend Source writer preserves numeric `-0.0` and checks expanded
+bytes and raw containers before rendering. Full DatabaseSchema serialization
+reserves its actual outer containers; standalone validator hash bytes retain
+their source layout. Successful fresh serialization must reopen through its
+reader. Memoized capture, snapshots and budget summaries process shared graphs
+without expanding their repeated branches before the owning size check.
+Fresh program metadata likewise stores canonical manifest/target/authority text.
+Callers needing semantic metadata use `readCoreApplicationProgram`, including
+the actual DO fixture; direct reads of a stored `metadata.manifest` are invalid.
+
+The stored-program Legacy projection preserves original validator payloads before
+every identity frame. Current Source normalization cannot remove historical
+underscore fields or reject historically admitted child names during identity
+verification. The frozen appDocument V1 object codec alone retains its original field/node/
+logical-depth admission limits; fresh Source/V2 declarations do not inherit them.
+Frozen baseline programs and a real baseline SDK/source/Worker
+store exercise authentication, original outcomes, current transport, fresh old-
+artifact execution and cold replay. Current marker tampering and unknown formats
+fail closed. This is one byte-identity reader, not another transaction engine.
+
+The retained local developer push uses raw DeploymentSchema/DeploymentFunctions,
+not ApplicationManifest or canonical FunctionMetadata V1. Those ordinary stored
+validators remain readable through their existing owner; its existing startup
+column upgrade remains required. Preserve the original files and analyzed state.
+The separately inspected owned PostgreSQL target contains no relational
+`fx_system_application_analysis_v1` table either. This does not inventory external
+or shared stores. Old relational analysis/readiness/activation/history consumers
+still use their current canonicalizers: before activating this replacement over
+any such retained store, inventory its original manifests, receipts, publications
+and outcomes and select its correlated migration or explicit stored-byte reader.
+Do not infer an old-data reset, silently re-sign it, or call CoreProgram
+compatibility proof a relational-publication cutover proof. That native/retained
+consumer cutover remains a wider goal gate.
+
+The actual DO witness preserves body and cleanup failures and exposes control-
+route failures through its existing diagnostic boundary. Reusing the authenticated
+program reader corrects its old metadata assumption; no engine or adapter fallback,
+extra SQL, weaker wait or relaxed lifecycle assertion is introduced. Its controlled
+local reconstruction does not establish managed eviction, deployment or capacity.
+
+Search/vector support, function-handle creation/invocation, pending commit-time
+production/resolution, remaining native cutover, retention/GC, managed hosting and
+complete-request performance retain their separate applicability/acceptance gates.
+No complete Convex feature or full-goal completion claim follows from this slice.
+
+Application Worker artifact/JSON metadata uses explicit current Source wire DTOs.
+The existing native exact-runtime RPC instead carries semantic validators, as
+declared by its request schema and production runner. Its generated configuration
+uses explicit JSON wire projection and decodes once before semantic equality.
+Share the protocol decoder at each declared representation; never infer a format
+from the shape or keep duplicate Worker parsers to accept both.

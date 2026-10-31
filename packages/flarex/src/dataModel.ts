@@ -33,18 +33,19 @@ export type FieldTypeFromFieldPath<
   Document extends GenericDocument,
   Path extends string,
 > = Path extends `${infer Head}.${infer Tail}`
-  ? Head extends keyof Document
-    ? NonNullable<Document[Head]> extends GenericDocument
-      ? FieldTypeFromFieldPath<NonNullable<Document[Head]>, Tail>
-      : never
-    : never
-  : Path extends keyof Document
-    ? Document[Path]
-    : never;
-export type WithoutSystemFields<Document extends GenericDocument> = Omit<
-  Document,
-  "_id" | "_creationTime"
->;
+  ? ValueFromUnion<Document, Head, Record<never, never>> extends infer Field
+    ? Field extends GenericDocument
+      ? FieldTypeFromFieldPath<Field, Tail>
+      : undefined
+    : undefined
+  : ValueFromUnion<Document, Path, undefined>;
+
+type ValueFromUnion<Document, Key, Default> = Document extends unknown
+  ? Key extends keyof Document ? Document[Key] : Default
+  : never;
+export type WithoutSystemFields<Document extends GenericDocument> = Document extends unknown
+  ? Omit<Document, "_id" | "_creationTime">
+  : never;
 export type SystemFields<TableName extends string> = {
   _id: Id<TableName>;
   _creationTime: number;

@@ -20,6 +20,7 @@ import { verifyApplicationWritePolicies } from "./applicationWritePolicy/verific
 
 /** Encoded policy authority has a separate contract from the V1/V2 manifests. */
 export interface ApplicationManifestV3 {
+  readonly validatorIdentityEncoding?: 2;
   readonly format: typeof APPLICATION_MANIFEST_FORMAT_V1;
   readonly version: 3;
   readonly sourceArtifact: ApplicationManifestV1["sourceArtifact"];
@@ -75,11 +76,13 @@ function admitApplicationManifestV3(
 ): Result.Result<ApplicationManifestV3, ApplicationAnalysisContractError> {
   return Result.gen(function* () {
     const outer = yield* strictOwnDataProperties(value,
-      ["format", "version", "sourceArtifact", "schema", "functions"], "manifest", "decodeManifest");
+      ["format", "version", "validatorIdentityEncoding", "sourceArtifact", "schema", "functions"], "manifest", "decodeManifest",
+      representation === "semantic" ? ["validatorIdentityEncoding"] : []);
     const schema = yield* strictOwnDataProperties(outer.get("schema"),
       ["version", "tables", "indexes", "relations", "writePolicies", "writePolicySetSha256"], "schema", "decodeManifest");
     if (outer.get("format") !== APPLICATION_MANIFEST_FORMAT_V1 ||
-      outer.get("version") !== 3 || schema.get("version") !== 3) {
+      outer.get("version") !== 3 || schema.get("version") !== 3 ||
+      (outer.has("validatorIdentityEncoding") && outer.get("validatorIdentityEncoding") !== 2)) {
       return yield* Result.fail(new ApplicationAnalysisContractError({
         operation: "decodeManifest", reason: "invalidInput", path: "version",
       }));
@@ -98,6 +101,7 @@ function admitApplicationManifestV3(
     return Object.freeze({
       format: APPLICATION_MANIFEST_FORMAT_V1,
       version: 3,
+      validatorIdentityEncoding: 2,
       sourceArtifact: base.sourceArtifact,
       schema: Object.freeze({
         version: 3,

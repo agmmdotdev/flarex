@@ -13,13 +13,9 @@ import {
   decodeDeploymentCodegenAnalysisEffect,
   type DeploymentAnalysis as ProtocolDeploymentAnalysis,
   type DeploymentCodegenAnalysis as ProtocolDeploymentCodegenAnalysis,
-  type ValidatorJson as ProtocolValidatorJson,
 } from "flarex-protocol/deployment";
-import type { ValidatorJSON } from "flarex/values";
 import type {
-  DeploymentAnalysis as BackendDeploymentAnalysis,
   AbandonPushRequest,
-  AnalyzeSourcePackageResponse,
   FinishPushRejectionCode,
   FinishPushRequest,
   FinishPushResponse,
@@ -47,7 +43,7 @@ import type { SourcePackage } from "./sourcePackage.ts";
 export type DevPushStatus = {
   pushId: string;
   state: PushState;
-  analysis?: BackendDeploymentAnalysis;
+  analysis?: ProtocolDeploymentAnalysis;
   codegenAnalysis?: CodegenDeploymentAnalysis;
   error?: string;
   diagnostics?: AnalyzerDiagnostic[];
@@ -451,7 +447,7 @@ export function createLocalAnalyzerService(
           analysis: yield* deploymentAnalysisFromCodegenAnalysisEffect(result.analysis),
           codegenAnalysis: yield* backendCodegenAnalysisFromCodegenAnalysisEffect(result.analysis),
           diagnostics: result.diagnostics ?? [],
-        } satisfies AnalyzeSourcePackageResponse;
+        };
       }));
       return Response.json({ ...payload, analysis: encodeDeploymentAnalysis(payload.analysis),
         codegenAnalysis: encodeDeploymentCodegenAnalysis(payload.codegenAnalysis) });
@@ -503,50 +499,10 @@ function parseError<T = never>(message: string): ParseResult<T> {
 function decodeProtocolDeploymentAnalysisEffect(
   value: unknown,
   diagnostics: AnalyzerDiagnostic[],
-): Effect.Effect<BackendDeploymentAnalysis, ExecutionArtifactAnalysisError> {
+): Effect.Effect<ProtocolDeploymentAnalysis, ExecutionArtifactAnalysisError> {
   return decodeDeploymentAnalysisEffect(value).pipe(
     Effect.mapError(error => new ExecutionArtifactAnalysisError(error.message, diagnostics)),
-    Effect.map(backendDeploymentAnalysisFromProtocol),
   );
-}
-
-function backendDeploymentAnalysisFromProtocol(
-  analysis: ProtocolDeploymentAnalysis,
-): BackendDeploymentAnalysis {
-  return {
-    schema: {
-      version: analysis.schema.version,
-      tables: analysis.schema.tables.map(table => ({
-        tableId: table.tableId,
-        name: table.name,
-        ...(table.state === undefined ? {} : { state: table.state }),
-        ...(table.validator === undefined ? {} : { validator: table.validator }),
-        placement: { ...table.placement },
-      })),
-      indexes: analysis.schema.indexes.map(index => ({
-        indexId: index.indexId,
-        tableId: index.tableId,
-        name: index.name,
-        fields: [...index.fields],
-        ...(index.decimalFields === undefined ? {} : { decimalFields: [...index.decimalFields] }),
-        ...(index.state === undefined ? {} : { state: index.state }),
-      })),
-    },
-    functions: {
-      functions: analysis.functions.functions.map(fn => ({
-        path: fn.path,
-        kind: fn.kind,
-        ...(fn.visibility === undefined ? {} : { visibility: fn.visibility }),
-        ...(fn.args === undefined ? {} : { args: fn.args }),
-        ...(fn.returns === undefined ? {} : { returns: fn.returns }),
-        ...(fn.route === undefined ? {} : { route: fn.route === null ? null : { ...fn.route } }),
-        ...(fn.partition === undefined
-          ? {}
-          : { partition: fn.partition === null ? null : { ...fn.partition } }),
-        ...(fn.position === undefined ? {} : { position: { ...fn.position } }),
-      })),
-    },
-  };
 }
 
 function codegenDeploymentAnalysisFromProtocolEffect(
@@ -560,7 +516,7 @@ function codegenDeploymentAnalysisFromProtocolEffect(
     tables.push({
       tableId: table.tableId,
       name: table.name,
-      validator: validatorJsonFromProtocol(table.validator),
+      validator: table.validator,
       placement: { ...table.placement },
     });
   }
@@ -583,8 +539,8 @@ function codegenDeploymentAnalysisFromProtocolEffect(
           exportName: fn.exportName,
           kind: fn.kind,
           visibility: fn.visibility,
-          args: validatorJsonFromProtocol(fn.args),
-          returns: fn.returns === null ? null : validatorJsonFromProtocol(fn.returns),
+          args: fn.args,
+          returns: fn.returns,
           ...(fn.partition === undefined
             ? {}
             : { partition: fn.partition === null ? null : { ...fn.partition } }),
@@ -606,49 +562,6 @@ function rejectCodegenRouteMetadata(value: unknown): ParseResult<void> {
     }
   }
   return { ok: true, value: undefined };
-}
-
-function validatorJsonFromProtocol(value: ProtocolValidatorJson): ValidatorJSON {
-  switch (value.type) {
-    case "null":
-    case "number":
-    case "bigint":
-    case "boolean":
-    case "string":
-    case "bytes":
-    case "any":
-      return { type: value.type };
-    case "id":
-      return { type: "id", tableName: value.tableName };
-    case "literal":
-      return { type: "literal", value: value.value };
-    case "array":
-      return { type: "array", value: validatorJsonFromProtocol(value.value) };
-    case "object":
-      return {
-        type: "object",
-        value: Object.fromEntries(
-          Object.entries(value.value).map(([field, descriptor]) => [
-            field,
-            {
-              fieldType: validatorJsonFromProtocol(descriptor.fieldType),
-              optional: descriptor.optional,
-            },
-          ]),
-        ),
-      };
-    case "record":
-      return {
-        type: "record",
-        keys: validatorJsonFromProtocol(value.keys),
-        values: validatorJsonFromProtocol(value.values),
-      };
-    case "union":
-      return { type: "union", value: value.value.map(validatorJsonFromProtocol) };
-    default:
-      value satisfies never;
-      return value;
-  }
 }
 
 function diagnosticsFromBody(body: unknown): AnalyzerDiagnostic[] {

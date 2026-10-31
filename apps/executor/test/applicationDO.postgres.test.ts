@@ -46,6 +46,8 @@ describe.runIf(endpoints !== undefined)("canonical app owner in actual workerd",
     const worker = await bundleWorker();
     const directory = await mkdtemp(join(tmpdir(), "flarex-application-do-"));
     let runtime: Miniflare | undefined;
+    let failed = false;
+    let failure: unknown;
     try {
       runtime = makeRuntime(worker, directory, { persistenceNamespace: "unconfigured", instanceName: "application" });
       const summary = Schema.decodeUnknownSync(Schema.Struct({ timestamp: Schema.String, count: Schema.String,
@@ -84,12 +86,15 @@ describe.runIf(endpoints !== undefined)("canonical app owner in actual workerd",
           if (owner === undefined) return;
           runtime = undefined;
           const closed = await Promise.allSettled([request(owner, "/close-cleanup", {}).then(async response => {
-            if (!response.ok) throw new Error(await response.text());
+            const text = await response.text();
+            if (!response.ok) throw new Error(text);
           })]);
           const disposed = await Promise.allSettled([owner.dispose()]);
           const failures = [...closed, ...disposed].flatMap(result => result.status === "rejected" ? [result.reason] : []);
           if (failures.length > 0) throw new AggregateError(failures, "Actual Application owner cleanup failed");
         };
+        let bodyFailed = false;
+        let bodyFailure: unknown;
         try {
           await start();
           const args = { id: fixture.documentId };
@@ -319,7 +324,17 @@ describe.runIf(endpoints !== undefined)("canonical app owner in actual workerd",
           const stillIdle = await schemaSchedulerStatus(active());
           expect(stillIdle.alarm).toBeNull();
           expect(stillIdle.resources.checkouts).toBe(idleCheckouts);
-        } finally { await close(); }
+        } catch (cause) {
+          bodyFailed = true;
+          bodyFailure = cause;
+          throw cause;
+        } finally {
+          try { await close(); }
+          catch (cleanup) {
+            if (bodyFailed) throw new AggregateError([bodyFailure, cleanup], "Actual Application body and cleanup failed", { cause: bodyFailure });
+            throw cleanup;
+          }
+        }
       });
 
       // Failure before ready cannot execute even a perfectly valid query body.
@@ -328,11 +343,19 @@ describe.runIf(endpoints !== undefined)("canonical app owner in actual workerd",
       expect(notReady.status).toBe(500);
       expect((await status(runtime)).resources.bodies).toBe(0);
       await request(runtime, "/close", {});
+    } catch (cause) {
+      failed = true;
+      failure = cause;
+      throw cause;
     } finally {
-      await runtime?.dispose();
+      const cleanup = await Promise.allSettled([runtime?.dispose()]);
       const absolute = resolve(directory);
-      if (!absolute.startsWith(`${resolve(tmpdir())}\\flarex-application-do-`)) throw new Error("Refusing unowned app-host fixture cleanup.");
-      await rm(absolute, { recursive: true, force: true });
+      const errors = cleanup.flatMap(result => result.status === "rejected" ? [result.reason] : []);
+      if (!absolute.startsWith(`${resolve(tmpdir())}\\flarex-application-do-`)) errors.push(new Error("Refusing unowned app-host fixture cleanup."));
+      else errors.push(...(await Promise.allSettled([rm(absolute, { recursive: true, force: true })]))
+        .flatMap(result => result.status === "rejected" ? [result.reason] : []));
+      if (errors.length > 0) throw new AggregateError(failed ? [failure, ...errors] : errors,
+        "Actual Application runtime cleanup failed", { ...(failed ? { cause: failure } : {}) });
     }
   }, 300_000);
 });

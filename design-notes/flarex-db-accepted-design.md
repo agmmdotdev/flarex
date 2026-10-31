@@ -1196,6 +1196,31 @@ real compiler contract, and Payload/Medusa variants must be derived from their
 own source schemas rather than being disguised as app document validators.
 Extending the closed section requires an explicit semantic-version change.
 
+Fresh Convex-translated declarations use `appDocument` definition version 2.
+They admit the source document roots (any, object, or an immediate union of
+objects), including source normalization, and encode the validator as Source DTO
+JSON text inside the private manifest. Declaration maps therefore do not inherit
+general value-object limits or JSONB's literal NUL restriction. The frozen
+version 1 object definition keeps its original codec and meaning.
+
+Persisted declarations use the backend Source serializer, including numeric
+Float64 `-0.0`, rather than the SDK value-JSON projector. Fresh serialization
+must remain readable through the Source parser. Check the actual raw JSON
+container depth with its owning envelope and expanded metadata byte budget
+before materializing text; these are not logical field/node quotas. Shared
+validator graphs retain immutable ownership without repeated expansion.
+
+Fresh authenticated Application manifest feature versions 1/2/3 and runtime
+targets use the separate `validatorIdentityEncoding: 2` byte generation. Existing
+digest chains bind it; source schema JSON/content hashes do not acquire this
+private marker. CoreProgram stores canonical manifest/target/authority JSON text
+and its stored reader alone preserves original unversioned program identities.
+It must authenticate historical validator payloads without current normalization
+rewriting their bytes. Current execution uses one engine after verification.
+The [identity adaptation](../experiments/core/engine/divergences/validator-authenticated-identities.md)
+owns the retained-byte boundary and external/native cutover gates; no table,
+outcome rekeying or unspecified data reset follows from this format change.
+
 S03-B2b uses an optimistic prepare/commit boundary because stable IDs are part
 of the canonical bytes, while canonicalization and Web Crypto must stay outside
 SQL locks:

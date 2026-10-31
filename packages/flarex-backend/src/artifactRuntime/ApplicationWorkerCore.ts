@@ -99,6 +99,7 @@ import {
 } from "flarex-protocol/internal/application-worker-v1";
 import type { EdgeActionHostPolicyFrameV1 } from
   "flarex-protocol/internal/edge-action-host-policy-v1";
+import type { ValidatorIdentityEncoding } from "flarex-protocol/internal/application-runtime-target-v1";
 import {
   isCanonicalFlarexRuntimeObjectV1,
   normalizeFlarexValueV1,
@@ -225,6 +226,7 @@ let importGuardActive = false;
 let importForbiddenAttempted = false;
 
 export interface ApplicationWorkerDefinitionV1 {
+  readonly validatorIdentityEncoding?: ValidatorIdentityEncoding;
   readonly target: ApplicationTransactionWorkerRequestV1["target"];
   readonly rootFunction: ApplicationFunctionRuntimeFunctionV1;
   readonly internalFunctionCatalog: ReadonlyArray<
@@ -362,7 +364,7 @@ export async function executeApplicationTransactionWorkerV1(
   let capabilityBoundary = "ApplicationWorkerReadBoundaryV1Error";
   try {
     admitSingleRun();
-    const request = await decodeTransactionRequest(input.request, input.definition.documentIdFormat);
+    const request = await decodeTransactionRequest(input.request, input.definition.documentIdFormat, input.definition.validatorIdentityEncoding ?? 2);
     requireTarget(request.target, input.definition);
     installRuntimeGlobals(
       request.context.executionTime,
@@ -435,7 +437,7 @@ export async function executeApplicationActionWorkerV1(
   let settledFailure: Error | undefined;
   try {
     admitSingleRun();
-    const request = await decodeActionRequest(input.request);
+    const request = await decodeActionRequest(input.request, input.definition.validatorIdentityEncoding ?? 2);
     requireTarget(request.target, input.definition);
     if (
       hex(request.context.hostPolicySha256) !==
@@ -1515,10 +1517,11 @@ function isApplicationDocumentValidationFailure(cause: unknown): boolean {
 async function decodeTransactionRequest(
   input: unknown,
   documentIdFormat?: "convex",
+  validatorIdentityEncoding: ValidatorIdentityEncoding = 2,
 ): Promise<ApplicationTransactionWorkerRequestV1> {
   try {
     return await runWorkerProtocolDecoder(
-      decodeApplicationTransactionWorkerRequestV1Effect(input, documentIdFormat),
+      decodeApplicationTransactionWorkerRequestV1Effect(input, documentIdFormat, validatorIdentityEncoding),
     );
   } catch (cause) {
     throw cause instanceof ApplicationWorkerProtocolV1Error
@@ -1529,10 +1532,11 @@ async function decodeTransactionRequest(
 
 async function decodeActionRequest(
   input: unknown,
+  validatorIdentityEncoding: ValidatorIdentityEncoding = 2,
 ): Promise<ApplicationActionWorkerRequestV1> {
   try {
     return await runWorkerProtocolDecoder(
-      decodeApplicationActionWorkerRequestV1Effect(input),
+      decodeApplicationActionWorkerRequestV1Effect(input, validatorIdentityEncoding),
     );
   } catch (cause) {
     throw cause instanceof ApplicationWorkerProtocolV1Error

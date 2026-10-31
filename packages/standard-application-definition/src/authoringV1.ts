@@ -7,6 +7,7 @@ import type {
 import {
   applicationArrayValidatorJson,
   applicationIdValidatorJson,
+  applicationFunctionValidatorJson,
   applicationLiteralValidatorJson,
   applicationObjectValidatorJson,
   applicationRecordValidatorJson,
@@ -380,6 +381,16 @@ export const standardV1 = Object.freeze({
     never
   > =>
     requiredValidatorV1(applicationScalarValidatorJson("bigint")),
+  commitTs: () => requiredValidatorV1<bigint>(applicationScalarValidatorJson("commitTs")),
+  functionHandle: (signature: Readonly<{
+    readonly fnType?: "query" | "mutation" | "action";
+    readonly args?: StandardValidatorV1<unknown, "required">;
+    readonly returns?: StandardValidatorV1<unknown, "required">;
+  }> = {}) => requiredValidatorV1<string>(applicationFunctionValidatorJson({
+    ...(signature.fnType === undefined ? {} : { fnType: signature.fnType }),
+    ...(signature.args === undefined ? {} : { args: signature.args.json }),
+    ...(signature.returns === undefined ? {} : { returns: signature.returns.json }),
+  })),
   boolean: (): StandardValidatorWithFieldPathsV1<
     boolean,
     "required",
@@ -458,10 +469,7 @@ export const standardV1 = Object.freeze({
     requiredValidatorV1<Readonly<Record<string, Value>>, never>(
       applicationRecordValidatorJson(keys.json, values.json),
     ),
-  union: <Members extends readonly [
-    StandardValidatorV1<unknown, "required">,
-    ...ReadonlyArray<StandardValidatorV1<unknown, "required">>,
-  ]>(
+  union: <Members extends ReadonlyArray<StandardValidatorV1<unknown, "required">>>(
     ...members: Members
   ): StandardValidatorWithFieldPathsV1<
     InferStandardValidatorV1<Members[number]>,
@@ -469,14 +477,10 @@ export const standardV1 = Object.freeze({
     ValidatorJsonV1,
     StandardValidatorFieldPathsV1<Members[number]>
   > => {
-    const [first, ...rest] = members;
     return requiredValidatorV1<
       InferStandardValidatorV1<Members[number]>,
       StandardValidatorFieldPathsV1<Members[number]>
-    >(applicationUnionValidatorJson([
-      first.json,
-      ...rest.map(member => member.json),
-    ]));
+    >(applicationUnionValidatorJson(members.map(member => member.json)));
   },
   optional: <Validator extends StandardValidatorV1<unknown, "required">>(
     validator: Validator,

@@ -1,6 +1,6 @@
 # Validator identity generations for retained Cloudflare artifacts
 
-Status: **Selected bounded adaptation; runtime implementation pending**.
+Status: **Implemented for current CoreProgram identities; external/native cutover gated**.
 Owning slice: [source validator translation](../slices/09-source-validator-wire-parity.md).
 
 ## Why the source mechanism cannot be used directly
@@ -33,7 +33,8 @@ narrow `Legacy` canonical projection. It preserves original hashes and requires
 agreement between selected generation and every authenticated envelope. Unknown
 formats/versions/markers fail without retrying a historical decoder. Current
 constructors do not publish Legacy programs. A fresh appDocument definition
-version 2 supports source document roots; version 1 keeps its old closed meaning.
+version 2 supports source document roots using Source DTO JSON text inside the
+private JSONB envelope; version 1 keeps its old closed meaning.
 
 Carry the verified generation into Worker/grant/request identity checks. The
 current Source DTO transports already verified semantic validators to Workers;
@@ -61,3 +62,17 @@ Required proof includes a frozen pre-change positive-record program/head/outcome
 cold-reopen trace, marker tampering/unknown-generation refusal and real Worker
 execution with current transport after historical authentication. PGlite and
 ordinary-role PostgreSQL are separate gates. Managed-host capacity is unmeasured.
+
+The executing reader is `readCoreApplicationProgram` with the narrow
+`LegacyApplicationProgramIdentity` projector. It freezes original table/function
+validators before hashing; current root normalization never rewrites historical
+identity payloads. `ApplicationWorkerDefinition`, the Worker request decoder and
+Core query/mutation runners carry the verified generation. Baseline physical-row
+fixtures include an executable SDK record artifact and underscore/name cases.
+
+The local developer push is raw DeploymentSchema/DeploymentFunctions and needs
+no ApplicationManifest discriminator. The owned PostgreSQL target has no old
+relational analysis table; external/shared state is unknown. This adaptation does
+not migrate non-Core relational analysis/publication/activation/history identities.
+Their retained-store inventory and correlated cutover remain required before
+activation over such data. No generic Legacy fallback or reset is selected.

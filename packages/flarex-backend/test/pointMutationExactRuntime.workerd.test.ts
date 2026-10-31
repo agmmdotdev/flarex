@@ -5,6 +5,7 @@ import { encodeValidatorJsonV1, type ValidatorJsonV1 } from "flarex-protocol/val
 import { decodeCanonicalFunctionMetadataSetV1, encodeFunctionMetadataSetV1 } from "@flarex/persistence-postgres/internal/system-test/functionMetadataCodec";
 import { literalWorkerCodecModuleSource } from "./support/literalWorkerCodecModule";
 import { Miniflare } from "miniflare";
+import { inspect } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   DECLARATIVE_V2_APPLICATION_ERROR_ADMISSION_SOURCE_V1,
@@ -37,6 +38,7 @@ import {
   requirePointMutationArgumentSemanticSizeV1,
 } from "flarex-protocol/point-mutation-start";
 import { flarexValueToJsonV1, jsonToFlarexValueV1, normalizeFlarexValueV1 } from "flarex-protocol/value";
+import { encodeDocumentId } from "flarex-protocol/document-id";
 
 const POINT_MUTATION_APPLICATION_ERROR_PLATFORM_SOURCE_V1 =
   applicationErrorPlatformSourceV1({
@@ -260,7 +262,7 @@ export default {};`,
       functionSource: `{ isMutation: true, isPublic: true, _handler: (_ctx, args) => args[${JSON.stringify(fieldName)}] }`,
     };
     const result = await runContractFailureScenario(scenario);
-    expect(result).toMatchObject({ name: "success", stage: "workerRun" });
+    expect(result, inspect(result)).toMatchObject({ name: "success", stage: "workerRun" });
     if (!isNonArrayRecord(result)) throw new Error("Expected an exact Worker observation.");
     const decodedResult = await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(result.result));
     expect(Object.is(decodedResult.value, value)).toBe(true);
@@ -277,6 +279,27 @@ export default {};`,
       causeReason: "literalMismatch", causePath: "$result", causeLiteralType: typeof value,
     });
     expect(outputFailure).not.toHaveProperty("portableName");
+  }, 30_000);
+
+  it("rehydrates record, Function and CommitTs wire metadata before semantic Workers RPC", async () => {
+    const handle = `function://${Result.getOrThrow(encodeDocumentId(7, new Uint8Array(16)))}#advisory`;
+    const validator: ValidatorJsonV1 = { type: "object", value: {
+      callbacks: { optional: false, fieldType: { type: "record", keys: { type: "string" }, values: {
+        type: "function", fnType: "mutation", args: { type: "id", tableName: "orders" }, returns: { type: "commitTs" },
+      } } },
+      timestamp: { optional: false, fieldType: { type: "commitTs" } },
+    } };
+    const args = { callbacks: { complete: handle }, timestamp: 17n };
+    const scenario = { path: "orders:complete", argsValidator: validator, returnsValidator: validator,
+      argumentsValue: args, functionSource: "{ isMutation: true, isPublic: true, _handler: (_ctx, args) => args }" };
+    const result = await runContractFailureScenario(scenario);
+    expect(result, inspect(result)).toMatchObject({ name: "success", stage: "workerRun" });
+    if (!isNonArrayRecord(result)) throw new Error("Expected an exact Worker observation.");
+    const decoded = await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(result.result));
+    expect(decoded.value).toEqual(args);
+    await expect(runContractFailureScenario({ ...scenario, validatorRepresentation: "wire" })).resolves.toMatchObject({
+      name: "Error", stage: "workerRun", message: expect.stringContaining("Invalid exact-runtime validator"),
+    });
   }, 30_000);
 
   it("propagates the public FlarexError after the mutation journal settles", async () => {
@@ -449,6 +472,7 @@ async function runContractFailureScenario(
     readonly argumentsValue: Readonly<Record<string, unknown>>;
     readonly argsValidator: ValidatorJsonV1;
     readonly returnsValidator?: ValidatorJsonV1 | null;
+    readonly validatorRepresentation?: "semantic" | "wire";
   }>,
 ): Promise<unknown> {
   const exactRuntimeConfigurationSource =
@@ -507,8 +531,8 @@ export default {
     let stage = "fixtureDecode";
     try {
     const input = JSON.parse(${JSON.stringify(serializedRequest)});
-    input.function.argsValidator = decodeValidatorJsonWireV1(input.function.argsValidator);
-    input.function.returnsValidator = input.function.returnsValidator === null ? null : decodeValidatorJsonWireV1(input.function.returnsValidator);
+    ${scenario.validatorRepresentation === "wire" ? "" : `input.function.argsValidator = decodeValidatorJsonWireV1(input.function.argsValidator);
+    input.function.returnsValidator = input.function.returnsValidator === null ? null : decodeValidatorJsonWireV1(input.function.returnsValidator);`}
     input.arguments = jsonToFlarexValueV1(input.arguments);
     input.context.randomSeed = new Uint8Array(input.context.randomSeed);
     const operations = [];

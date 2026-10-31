@@ -2,6 +2,7 @@ import { encodeValidatorJsonWireCoreV1 } from "flarex-protocol/internal/validato
 import {
   applicationArrayValidatorJson,
   applicationIdValidatorJson,
+  applicationFunctionValidatorJson,
   applicationLiteralValidatorJson,
   applicationObjectValidatorJson,
   applicationRecordValidatorJson,
@@ -88,11 +89,25 @@ export class Validator<
       OWNED_VALIDATOR_JSON,
     );
   }
+
+  optional(): Validator<Type | undefined, "optional", FieldPaths> {
+    return this.asOptional();
+  }
 }
 
 export type GenericValidator = Validator<any, OptionalProperty, any>;
 export type PropertyValidators = Record<string, GenericValidator>;
 export type Infer<Value extends GenericValidator> = Value["type"];
+
+/** Signature metadata helps authoring and does not grant invocation authority. */
+export type FunctionHandle<
+  Kind extends "query" | "mutation" | "action" = "query" | "mutation" | "action",
+  Args = unknown,
+  Returns = unknown,
+> = string & { readonly __functionHandle: { readonly kind: Kind; readonly args: Args; readonly returns: Returns } };
+
+type SignatureValue<Value> = Value extends GenericValidator ? Infer<Value>
+  : Value extends PropertyValidators ? ObjectType<Value> : unknown;
 
 type OptionalKeys<Fields extends PropertyValidators> = {
   [Field in keyof Fields]: Fields[Field]["isOptional"] extends "optional" ? Field : never;
@@ -145,6 +160,21 @@ export const v = {
     required<bigint>("int64", applicationScalarValidatorJson("bigint")),
   int64: () =>
     required<bigint>("int64", applicationScalarValidatorJson("bigint")),
+  commitTs: () =>
+    required<bigint>("commitTs", applicationScalarValidatorJson("commitTs")),
+  function: <
+    Kind extends "query" | "mutation" | "action" | undefined = undefined,
+    Args extends GenericValidator | PropertyValidators | undefined = undefined,
+    Returns extends GenericValidator | PropertyValidators | undefined = undefined,
+  >(signature?: { readonly fnType?: Kind; readonly args?: Args; readonly returns?: Returns }) =>
+    required<FunctionHandle<Exclude<Kind, undefined> extends never ? "query" | "mutation" | "action" : Exclude<Kind, undefined>, SignatureValue<Args>, SignatureValue<Returns>>>(
+      "function",
+      applicationFunctionValidatorJson({
+        ...(signature?.fnType === undefined ? {} : { fnType: signature.fnType }),
+        ...(signature?.args === undefined ? {} : { args: validatorJsonForComposition(asObjectValidator(signature.args)) }),
+        ...(signature?.returns === undefined ? {} : { returns: validatorJsonForComposition(asObjectValidator(signature.returns)) }),
+      }),
+    ),
   boolean: () =>
     required<boolean>("boolean", applicationScalarValidatorJson("boolean")),
   string: () =>
@@ -152,7 +182,7 @@ export const v = {
   bytes: () =>
     required<ArrayBuffer>("bytes", applicationScalarValidatorJson("bytes")),
   any: () =>
-    required<FlarexValue, string>("any", applicationScalarValidatorJson("any")),
+    required<any, string>("any", applicationScalarValidatorJson("any")),
   literal: <Value extends string | number | bigint | boolean>(value: Value) =>
     required<Value>("literal", applicationLiteralValidatorJson(value)),
   array: <Element extends Validator<any, "required", any>>(element: Element) =>
@@ -200,15 +230,9 @@ export const v = {
         validatorJsonForComposition(values),
       ),
     ),
-  union: <Members extends readonly [
-    Validator<any, "required", any>,
-    ...ReadonlyArray<Validator<any, "required", any>>,
-  ]>(...members: Members) => {
-    const first = members[0]!;
-    const memberJson: [ValidatorJSON, ...ValidatorJSON[]] = [
-      validatorJsonForComposition(first),
-    ];
-    for (let index = 1; index < members.length; index += 1) {
+  union: <Members extends ReadonlyArray<Validator<any, "required", any>>>(...members: Members) => {
+    const memberJson: ValidatorJSON[] = [];
+    for (let index = 0; index < members.length; index += 1) {
       OBJECT_DEFINE_PROPERTY(memberJson, index, {
         configurable: true,
         enumerable: true,

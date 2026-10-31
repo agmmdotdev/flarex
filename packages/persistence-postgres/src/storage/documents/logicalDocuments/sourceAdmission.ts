@@ -3,7 +3,7 @@ import { observeExecution } from "../../../execution/diagnostics/operation";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { applicationSchemaWireV1 } from "@flarex/analysis/application-analysis";
 import { encodeLogicalSchemaSourceDefinition } from "flarex-protocol/internal/logical-schema-candidate";
-import { encodeSchemaManifestAppDocumentDefinitionV1 } from "flarex-protocol/schema-manifest";
+import { encodeSchemaManifestAppDocumentDefinition } from "flarex-protocol/schema-manifest";
 import { encodeCanonicalJson, isJson, isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import type { ApplicationManifest } from "@flarex/analysis/application-analysis";
 import { ApplicationLogicalV3Evidence } from "@flarex/analysis/internal/logical-application-source";
@@ -12,7 +12,7 @@ import { canonicalizeAppIndexPhysicalSpecV1 } from "flarex-protocol/index-defini
 import { MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES, logicalTableKey,
   type LogicalSchemaSource } from "flarex-protocol/internal/logical-schema-candidate";
 import { CatalogSchemaVersionIdSchema, type CatalogSchemaVersionId,
-  type SchemaManifestAppDocumentDefinitionV1 } from "flarex-protocol/schema-manifest";
+  type SchemaManifestAppDocumentDefinition } from "flarex-protocol/schema-manifest";
 import type { MetadataSequence } from "flarex-protocol/commit-protocol";
 import { ReplacementScopeIdV1Schema, type ScopeId } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
@@ -249,7 +249,7 @@ export const getFiniteApplicationPublicationDefinitions = (metadata: FiniteAttem
 
 /** Both actual schema profiles retain their own immutable Application tables. */
 function applicationTables(snapshot: PublishedPhysicalRequirementSnapshotV1): readonly Readonly<{
-  tableId: CatalogTableId; logicalName: string; definition: SchemaManifestAppDocumentDefinitionV1;
+  tableId: CatalogTableId; logicalName: string; definition: SchemaManifestAppDocumentDefinition;
 }>[] | null {
   if (snapshot.manifest.kind === "appSchema") return snapshot.manifest.tableDefinitions.tables;
   const requirements = snapshot.logicalRequirements;
@@ -261,7 +261,7 @@ function applicationTables(snapshot: PublishedPhysicalRequirementSnapshotV1): re
     if (decoded === null) return null;
     for (const table of decoded.manifest.schema.tables) nativeNames.add(table.name);
   }
-  const tables: { tableId: CatalogTableId; logicalName: string; definition: SchemaManifestAppDocumentDefinitionV1 }[] = [];
+  const tables: { tableId: CatalogTableId; logicalName: string; definition: SchemaManifestAppDocumentDefinition }[] = [];
   for (const source of requirements.evidence.candidate.sources) {
     if (source.owner !== "application" && source.owner !== "payload") continue;
     if (source.definition.kind !== "documents") return null;
@@ -318,7 +318,7 @@ const applicationCatalogMatches = Effect.fn("LogicalSourceAdmission.matchApplica
   }
   const expectedDefinitions = [...originalDefinitions, ...derivedDefinitions];
   return originalTables.every(table => boundTables.some(member => member.tableId === table.tableId &&
-    member.logicalName === table.logicalName && canonical(encodeSchemaManifestAppDocumentDefinitionV1(member.definition)) === canonical(encodeSchemaManifestAppDocumentDefinitionV1(table.definition)))) &&
+    member.logicalName === table.logicalName && canonical(encodeSchemaManifestAppDocumentDefinition(member.definition)) === canonical(encodeSchemaManifestAppDocumentDefinition(table.definition)))) &&
     expectedDefinitions.length === boundDefinitions.length &&
     expectedDefinitions.every(definition =>
       boundDefinitions.some(member => publishedPhysicalDefinitionMatchesLocated(definition, member))) &&

@@ -102,6 +102,19 @@ describe("Standard Application task definition V1", () => {
     }
   });
 
+  it("round-trips current record wrappers while refusing bare records on wire ingress", () => {
+    const payloadValidator = { type: "record", keys: { type: "string" }, values: { type: "commitTs" } } as const;
+    const input = { ...makeManifest("record.run"), payloadValidator,
+      outputValidator: { type: "union", value: [payloadValidator, { type: "null" }] } };
+    expect(success(decodeCanonicalTaskManifestV1(input)).payloadValidator).toEqual(payloadValidator);
+    const bytes = success(encodeCanonicalTaskManifestPreimageV1(input));
+    const reopened = success(decodeCanonicalTaskManifestPreimageV1(bytes));
+    expect(reopened.payloadValidator).toEqual(payloadValidator);
+    expect(success(encodeCanonicalTaskManifestPreimageV1(reopened))).toEqual(bytes);
+    const legacyBareBytes = UTF8_ENCODER.encode(JSON.stringify({ codec: CANONICAL_TASK_MANIFEST_CODEC_V1, task: input }));
+    expect(Result.isFailure(decodeCanonicalTaskManifestPreimageV1(legacyBareBytes))).toBe(true);
+  });
+
   it("keeps task-definition codecs outside the prepared-definition contract", () => {
     expect("decodeTaskIdV1" in PreparedDefinition).toBe(false);
     const effect: Effect.Effect<
@@ -200,6 +213,28 @@ describe("Standard Application task definition V1", () => {
       reason: "catalog_validator_budget_exceeded",
       maximum: 65_536,
     });
+  });
+
+  it("counts logical validator occurrences with a bounded shared DAG traversal", () => {
+    let validator: CanonicalTaskManifestV1["payloadValidator"] = { type: "string" };
+    for (let depth = 0; depth < 30; depth += 1) {
+      validator = { type: "union", value: [validator, validator] };
+    }
+    expect(failure(decodeCanonicalTaskCatalogV1({ version: 1, tasks: [
+      { ...makeManifest("dag"), payloadValidator: validator },
+    ] }))).toMatchObject({ reason: "catalog_validator_budget_exceeded", path: "tasks[0]", observed: 65_537, maximum: 65_536 });
+    expect(failure(encodeCanonicalTaskManifestPreimageV1({ ...makeManifest("dag"), payloadValidator: validator })))
+      .toMatchObject({ reason: "canonical_bytes_exceeded" });
+    let smaller: CanonicalTaskManifestV1["payloadValidator"] = { type: "string" };
+    for (let depth = 0; depth < 15; depth += 1) smaller = { type: "union", value: [smaller, smaller] };
+    // Exactly 65,535 occurrences fit. Reusing the same graph as output exceeds
+    // the catalog budget even though it introduces no new validator objects.
+    expect(Result.isSuccess(decodeCanonicalTaskCatalogV1({ version: 1, tasks: [
+      { ...makeManifest("fits"), payloadValidator: smaller },
+    ] }))).toBe(true);
+    expect(failure(decodeCanonicalTaskCatalogV1({ version: 1, tasks: [
+      { ...makeManifest("twice"), payloadValidator: smaller, outputValidator: smaller },
+    ] }))).toMatchObject({ reason: "catalog_validator_budget_exceeded", observed: 65_537 });
   });
 
   it("reuses strict validator, retry-policy, compute, duration, and queue owners", () => {

@@ -304,8 +304,10 @@ sequence. Its native activation guard preserves the previous ready combination
 when shared native constraints are unsupported; it does not wrap or fall back to
 old framework installers. The [bounded literal translation](./slices/08-validator-literal-parity.md)
 now connects Int64/signed-zero semantics through authoring, analysis, manifests,
-stored metadata, hashing and actual runtime consumers. Full raw source-wire
-parity retains its [next gate](./slices/09-source-validator-wire-parity.md). Managed
+stored metadata, hashing and actual runtime consumers. The connected
+[source translation](./slices/09-source-validator-wire-parity.md) replaces the
+record wire/parser and document-root subset, including named stored identity
+handling. Its external/native cutover and broader source gates remain. Managed
 hosting, native/GC, supported-data and complete-flow performance gates remain
 separate.
 

@@ -13,6 +13,7 @@ import { encodeValidatorJsonV1 } from "flarex-protocol/validator-json";
 import {
   encodeCanonicalJson,
   isJsonObjectFromUnknown,
+  measureCanonicalJsonUtf8Bytes,
   type Json,
 } from "flarex-protocol/json";
 
@@ -711,20 +712,28 @@ function canonicalBytes<
   Uint8Array,
   InvalidStandardApplicationTaskDefinitionV1Error<Operation>
 > {
+  const measurement = measureCanonicalJsonUtf8Bytes(value, MAX_TASK_DEFINITION_CANONICAL_BYTES_V1);
+  if (measurement.kind !== "success") {
+    if (measurement.kind === "invalid") {
+      throw new StandardApplicationTaskCanonicalEncodingV1Defect({ operation, issue: { reason: "primitiveEncodingFailed" } });
+    }
+    return Result.fail(new InvalidStandardApplicationTaskDefinitionV1Error({
+      operation,
+      reason: "canonical_bytes_exceeded",
+      observed: measurement.observed,
+      maximum: MAX_TASK_DEFINITION_CANONICAL_BYTES_V1,
+    }));
+  }
   const bytes = UTF8.encode(encodeCanonicalJson(value, (issue) => {
     throw new StandardApplicationTaskCanonicalEncodingV1Defect({
       operation,
       issue,
     });
   }));
-  return bytes.byteLength <= MAX_TASK_DEFINITION_CANONICAL_BYTES_V1
-    ? Result.succeed(bytes)
-    : Result.fail(new InvalidStandardApplicationTaskDefinitionV1Error({
-      operation,
-      reason: "canonical_bytes_exceeded",
-      observed: bytes.byteLength,
-      maximum: MAX_TASK_DEFINITION_CANONICAL_BYTES_V1,
-    }));
+  if (bytes.byteLength !== measurement.bytes) {
+    throw new Error("Task canonical JSON measurement drifted.");
+  }
+  return Result.succeed(bytes);
 }
 
 function hex(digest: TaskDefinitionSha256V1): string {

@@ -154,7 +154,7 @@ describe("source schema codecs and proof rules", () => {
     expect(Result.isFailure(parseCoreSchema('{"tables":[{"tableName":"items","indexes":[],"documentType":{"type":"object","value":{"bad":{"fieldType":{"type":"record","keys":{"type":"string"},"values":{"fieldType":{"type":"any"},"optional":true}},"optional":false}}}}]}'))).toBe(true);
   });
 
-  it("keeps source record key, value and optional refusal order through shared key predicates", () => {
+  it("finishes raw record DTOs before ordered key, value and optional semantics", () => {
     const parseRecord = (keys: unknown, fieldType: unknown, optional = false) => parseCoreSchema(JSON.stringify({
       tables: [{ tableName: "items", indexes: [], documentType: { type: "object", value: {
         record: { fieldType: { type: "record", keys, values: { fieldType, optional } }, optional: false },
@@ -165,22 +165,22 @@ describe("source schema codecs and proof rules", () => {
     const literal = { type: "literal", value: "key" };
     const nonfinite = { type: "literal", value: { $float: "AAAAAAAA+H8=" } };
     expect(parseRecord(integer, malformed, true)).toMatchObject({ failure: {
-      reason: "invalidSchema", message: "Source record keys must be string subtypes",
+      reason: "invalidSchema", cause: { phase: "raw", reason: "unknownVariant" },
     } });
     expect(parseRecord(nonfinite, nonfinite)).toMatchObject({ failure: {
-      reason: "invalidSchema", message: "Source record keys must be string subtypes",
+      reason: "invalidSchema", cause: { phase: "semantic", reason: "nonStringRecordKey" },
     } });
     expect(parseRecord(literal, malformed, true)).toMatchObject({ failure: {
-      reason: "invalidSchema", message: "Invalid source validator JSON",
+      reason: "invalidSchema", cause: { phase: "raw", reason: "unknownVariant" },
     } });
     expect(parseRecord(literal, nonfinite, true)).toMatchObject({ failure: {
-      reason: "invalidSchema", message: "Source record keys cannot contain string literal validators",
+      reason: "invalidSchema", cause: { phase: "semantic", reason: "stringLiteralRecordKey" },
     } });
     expect(parseRecord({ type: "union", value: [{ type: "string" }, literal] }, { type: "number" })).toMatchObject({ failure: {
-      reason: "invalidSchema", message: "Source record keys cannot contain string literal validators",
+      reason: "invalidSchema", cause: { phase: "semantic", reason: "stringLiteralRecordKey" },
     } });
     expect(parseRecord({ type: "string" }, { type: "number" }, true)).toMatchObject({ failure: {
-      reason: "invalidSchema", message: "Source record values must not be optional",
+      reason: "invalidSchema", cause: { phase: "semantic", reason: "optionalRecordValue" },
     } });
     expect(Result.isSuccess(parseRecord({ type: "union", value: [] }, { type: "number" }))).toBe(true);
     expect(Result.isSuccess(parseRecord({ type: "id", tableName: "items" }, { type: "number" }))).toBe(true);

@@ -121,4 +121,4 @@ maintaining a competing completion log here.
 
 ## Source wire and retained identities
 
-- [Validator identity generations for retained Cloudflare artifacts](./validator-authenticated-identities.md): selected narrow historical byte projection and authenticated fresh encoding marker; implementation pending.
+- [Validator identity generations for retained Cloudflare artifacts](./validator-authenticated-identities.md): narrow stored CoreProgram byte projection and authenticated fresh encoding 2 implemented; external/native retained-store cutover gates remain.

@@ -287,6 +287,9 @@ function verifyValidatorIdTargets(
     case "null":
     case "number":
     case "bigint":
+    case "commitTs":
+    // Function signature metadata does not create document foreign-key targets.
+    case "function":
     case "boolean":
     case "string":
     case "bytes":

@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { encodeValidatorJsonV1, type ValidatorJsonV1 } from "../src/validator-json";
 import {
   encodeCanonicalJson,
   isJson,
@@ -225,6 +226,91 @@ describe("protocol JSON", () => {
         kind: "exceeded",
       });
     }
+  });
+
+  it("visits shared immutable JSON once while retaining logical encoded size", () => {
+    let graph: Json = Object.freeze({ text: "é😀\u0000\ud800", number: -0 });
+    for (let depth = 0; depth < 12; depth += 1) graph = Object.freeze({ left: graph, right: graph });
+    const expected = JSON.stringify(graph);
+    const canonical = encodeCanonicalJson(graph, failCanonicalJsonEncoding);
+    const bytes = new TextEncoder().encode(canonical).byteLength;
+    expect(JSON.parse(canonical)).toEqual(JSON.parse(expected));
+    expect(measureCanonicalJsonUtf8Bytes(graph, bytes)).toEqual({ kind: "success", bytes });
+    expect(measureCanonicalJsonUtf8Bytes(graph, bytes - 1)).toMatchObject({ kind: "exceeded" });
+    for (let depth = 12; depth < 30; depth += 1) graph = Object.freeze({ left: graph, right: graph });
+    expect(isJson(graph)).toBe(true);
+    expect(measureCanonicalJsonUtf8Bytes(graph, 1_048_576)).toMatchObject({ kind: "exceeded" });
+  });
+
+  it("bounds the actual immutable Source projection including numeric tags and signatures", () => {
+    let validator: ValidatorJsonV1 = { type: "function", args: { type: "object", value: {
+      rows: { fieldType: { type: "record", keys: { type: "string" }, values: { type: "literal", value: 17n } }, optional: false },
+    } }, returns: { type: "commitTs" } };
+    for (let depth = 0; depth < 30; depth += 1) validator = { type: "union", value: [validator, validator] };
+    const wire = encodeValidatorJsonV1(validator);
+    expect(isJson(wire)).toBe(true);
+    expect(measureCanonicalJsonUtf8Bytes(wire, 1_048_576)).toMatchObject({ kind: "exceeded" });
+  });
+
+  it("revisits mutable shared values after unrelated Proxy traps change them", () => {
+    function candidate(array: boolean, frozenParent: boolean, frozenProxy: boolean): unknown {
+      const mutable = { value: 1 };
+      const mutableArray = [1];
+      const leaf = array ? mutableArray : mutable;
+      const shared = frozenParent ? Object.freeze({ nested: leaf }) : leaf;
+      const target = frozenProxy ? Object.freeze({}) : {};
+      const mutating = new Proxy(target, { getPrototypeOf(current) {
+        mutable.value = Infinity;
+        mutableArray[0] = Infinity;
+        return Object.getPrototypeOf(current);
+      } });
+      return array ? [shared, mutating, shared] : { a: shared, b: mutating, c: shared };
+    }
+    for (const array of [false, true]) for (const frozenParent of [false, true]) for (const frozenProxy of [false, true]) {
+      expect(isJson(candidate(array, frozenParent, frozenProxy))).toBe(false);
+      expect(() => decodeJsonSchema(candidate(array, frozenParent, frozenProxy))).toThrow();
+      expect(measureCanonicalJsonUtf8Bytes(candidate(array, frozenParent, frozenProxy), 1_000)).toEqual({ kind: "invalid" });
+    }
+  });
+
+  it("establishes frozen state before collecting a Proxy's member summary", () => {
+    function candidate() {
+      const shared = { value: 1 };
+      return new Proxy(shared, { isExtensible(target) {
+        target.value = Infinity;
+        Object.freeze(target);
+        return false;
+      } });
+    }
+    expect(isJson(candidate())).toBe(false);
+    expect(measureCanonicalJsonUtf8Bytes(candidate(), 100)).toEqual({ kind: "invalid" });
+  });
+
+  it("measures and encodes deep admitted JSON without recursive calls", () => {
+    let graph: Json = true;
+    for (let depth = 0; depth < 10_000; depth += 1) graph = { nested: graph };
+    const bytes = 4 + 11 * 10_000;
+    expect(measureCanonicalJsonUtf8Bytes(graph, bytes)).toEqual({ kind: "success", bytes });
+    expect(new TextEncoder().encode(encodeCanonicalJson(graph, failCanonicalJsonEncoding))).toHaveLength(bytes);
+  });
+
+  it("retains measurement first failure and repeated accessor membership reads", () => {
+    expect(measureCanonicalJsonUtf8Bytes({ first: Infinity, later: "x".repeat(100) }, 20)).toEqual({ kind: "invalid" });
+    expect(measureCanonicalJsonUtf8Bytes({ first: "x".repeat(100), later: Infinity }, 20)).toMatchObject({ kind: "exceeded" });
+    let reads = 0;
+    const accessor = { get value() { reads += 1; return true; } };
+    const shared = { nested: accessor };
+    expect(isJson({ left: shared, right: shared })).toBe(true);
+    expect(reads).toBe(2);
+    expect(measureCanonicalJsonUtf8Bytes(accessor, 100)).toEqual({ kind: "invalid" });
+    expect(reads).toBe(2);
+    const mutable = { value: 1 };
+    const mutating = [mutable, true, mutable];
+    Object.defineProperty(mutating, 1, { enumerable: true, get: () => {
+      mutable.value = Infinity;
+      return true;
+    } });
+    expect(isJson(mutating)).toBe(false);
   });
 
   it("compares validated JSON structurally with JSON number semantics", () => {

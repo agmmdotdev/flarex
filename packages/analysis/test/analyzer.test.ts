@@ -298,7 +298,7 @@ describe("shared analyzer semantics", () => {
       .toBe("users");
   });
 
-  it("preserves reserved validator field names in backend analysis", async () => {
+  it("filters table system prefixes while retaining own function and nested fields", async () => {
     const fields: Extract<ValidatorJSON, { type: "object" }>["value"] = Object.fromEntries([[
       "__proto__",
       { fieldType: { type: "string" }, optional: false },
@@ -309,7 +309,9 @@ describe("shared analyzer semantics", () => {
         tables: [{
           tableId: 1,
           name: "users",
-          validator: { type: "object", value: fields },
+          validator: { type: "object", value: { ...fields,
+            nested: { fieldType: { type: "object", value: fields }, optional: false },
+          } },
           placement: { kind: "global" },
         }],
         indexes: [],
@@ -335,8 +337,11 @@ describe("shared analyzer semantics", () => {
     if (tableValidator?.type !== "object" || argsValidator?.type !== "object") {
       throw new Error("Expected object validators.");
     }
-    expect(Object.hasOwn(tableValidator.value, "__proto__")).toBe(true);
+    expect(Object.hasOwn(tableValidator.value, "__proto__")).toBe(false);
     expect(Object.hasOwn(argsValidator.value, "__proto__")).toBe(true);
+    const nested = tableValidator.value.nested?.fieldType;
+    if (nested?.type !== "object") throw new Error("Expected a nested object validator.");
+    expect(Object.hasOwn(nested.value, "__proto__")).toBe(true);
   });
 
   it.each([-9_223_372_036_854_775_808n, 1n, 9_223_372_036_854_775_807n, -0])("preserves literal %s through backend metadata conversion", async value => {

@@ -56,9 +56,9 @@ describe("application validator JSON authoring", () => {
   });
 
   it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -0])(
-    "rejects the non-canonical numeric literal %s",
+    "retains numeric literal %s until source admission and finite completion",
     value => {
-      expect(() => applicationLiteralValidatorJson(value)).toThrow(RangeError);
+      expect(Object.is(applicationLiteralValidatorJson(value).value, value)).toBe(true);
     },
   );
 
@@ -81,6 +81,17 @@ describe("application validator JSON authoring", () => {
     expect(snapshot).toEqual(union);
     expect(snapshot).not.toBe(union);
     expect(Object.isFrozen(snapshot)).toBe(true);
+  });
+
+  it("snapshots deep declarations and shared subgraphs without recursive expansion", () => {
+    let node: import("flarex-protocol/validator-json").ValidatorJsonV1 = { type: "string" };
+    for (let index = 0; index < 3_000; index += 1) node = { type: "array", value: node };
+    expect(() => snapshotApplicationValidatorJson(node)).not.toThrow();
+    let shared: import("flarex-protocol/validator-json").ValidatorJsonV1 = { type: "string" };
+    for (let index = 0; index < 25; index += 1) shared = { type: "union", value: [shared, shared] };
+    const snapshot = snapshotApplicationValidatorJson(shared);
+    if (snapshot.type !== "union") throw new Error("Expected union snapshot");
+    expect(snapshot.value[0]).toBe(snapshot.value[1]);
   });
 
   it("uses module-captured ownership intrinsics after realm mutation", () => {

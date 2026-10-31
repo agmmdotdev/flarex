@@ -9,7 +9,7 @@ import {
 } from "flarex-protocol/internal/application-worker-v1";
 import type { CanonicalFlarexRuntimeValueV1 } from "flarex-protocol/value";
 import {
-  canonicalizeApplicationRuntimeTargetV1,
+  recanonicalizeApplicationRuntimeTargetV1,
 } from "flarex-protocol/internal/application-runtime-target-v1";
 
 import {
@@ -99,6 +99,7 @@ export function makeApplicationExecutionHost(
     const request = yield* decodeApplicationTransactionWorkerRequestV1Effect(
       input.request,
       input.definition.documentIdFormat,
+      input.definition.validatorIdentityEncoding,
     ).pipe(Effect.mapError(cause => hostError(
       "transaction",
       "invalidRequest",
@@ -127,6 +128,7 @@ export function makeApplicationExecutionHost(
   )(function* (input) {
     const request = yield* decodeApplicationActionWorkerRequestV1Effect(
       input.request,
+      input.definition.validatorIdentityEncoding,
     ).pipe(Effect.mapError(cause => hostError(
       "action",
       "invalidRequest",
@@ -167,7 +169,7 @@ function requireTarget(
   target: ApplicationTransactionWorkerRequestV1["target"],
   definition: ApplicationWorkerDefinition,
 ): Effect.Effect<void, ApplicationExecutionHostError> {
-  return Effect.fromResult(canonicalizeApplicationRuntimeTargetV1(target)).pipe(
+  return Effect.fromResult(recanonicalizeApplicationRuntimeTargetV1(target, definition.validatorIdentityEncoding)).pipe(
     Effect.mapError(cause => hostError(operation, "invalidRequest", cause)),
     Effect.flatMap(canonical => canonical.canonicalText ===
         definition.targetCanonicalText

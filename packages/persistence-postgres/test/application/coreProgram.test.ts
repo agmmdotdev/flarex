@@ -3,7 +3,7 @@ import { canonicalizeApplicationManifestV1 } from "@flarex/analysis/application-
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
-import { canonicalizeApplicationRuntimeTargetV1 } from "flarex-protocol/internal/application-runtime-target-v1";
+import { canonicalizeApplicationRuntimeTargetV1, applicationRuntimeTargetWireV1 } from "flarex-protocol/internal/application-runtime-target-v1";
 import { makeCoreApplicationPrograms, readCoreApplicationProgram } from "../../src/application/coreProgram";
 
 const hash = (bytes: Uint8Array) => Effect.sync(() => new Uint8Array(createHash("sha256").update(bytes).digest()));
@@ -22,6 +22,22 @@ const configuration = { manifest, scopeUuid: "45000000-0000-4000-8000-0000000000
   epochUuid: "45000000-0000-4000-8000-000000000002", compatibilityDate: "2026-06-14", sha256: hash };
 
 describe("shared verified Application programs", () => {
+  it("stores a declaration with more than1024 fields as JSON text within the unchanged metadata value boundary", async () => {
+    const fields = Object.fromEntries(Array.from({ length: 1025 }, (_value, index) => [`f${index}`,
+      { fieldType: { type: "null" }, optional: false }]));
+    const fn = manifest.functions[0];
+    if (fn === undefined) throw new Error("Missing baseline function");
+    await Effect.runPromise(Effect.gen(function* () {
+      const [definition] = yield* makeCoreApplicationPrograms({ ...configuration, manifest: {
+        ...manifest, functions: [{ ...fn, args: { type: "object", value: fields } }],
+      } });
+      if (definition === undefined) throw new Error("Missing constructed declaration");
+      expect(typeof definition.metadata.manifest).toBe("string");
+      const program = yield* readCoreApplicationProgram(definition, hash);
+      expect(program.runtimeTarget.function.args.type).toBe("object");
+      if (program.runtimeTarget.function.args.type === "object") expect(Object.keys(program.runtimeTarget.function.args.value)).toHaveLength(1025);
+    }));
+  });
   it("produces public/internal queries directly and retains the real mutation authority format", async () => {
     await Effect.runPromise(Effect.gen(function* () {
       const definitions = yield* makeCoreApplicationPrograms(configuration);
@@ -53,9 +69,28 @@ describe("shared verified Application programs", () => {
         const target = Result.getOrThrow(canonicalizeApplicationRuntimeTargetV1(runtimeTarget));
         const changed = { identity: { ...definition.identity,
           programHash: encodeBytesToLowercaseHex(yield* hash(target.canonicalBytes)) },
-          metadata: { ...definition.metadata, runtimeTarget: target.target } };
+          metadata: { ...definition.metadata, runtimeTarget: JSON.stringify(applicationRuntimeTargetWireV1(target.target)) } };
         const result = yield* Effect.result(readCoreApplicationProgram(changed, hash));
         expect(Result.isFailure(result) && result.failure).toMatchObject({ reason: "metadataInvalid" });
+      }
+    }));
+  });
+
+  it("publishes only the closed current string envelope and refuses unknown or mixed identity generations", async () => {
+    await Effect.runPromise(Effect.gen(function* () {
+      const definitions = yield* makeCoreApplicationPrograms(configuration);
+      for (const definition of definitions) {
+        expect(definition.metadata).toMatchObject({ format: "flarex.core-application-program", version: 1, validatorIdentityEncoding: 2 });
+        expect(typeof definition.metadata.manifest).toBe("string");
+        const program = yield* readCoreApplicationProgram(definition, hash);
+        expect(program.validatorIdentityEncoding).toBe(2);
+        expect(program.runtimeTarget.validatorIdentityEncoding).toBe(2);
+        for (const metadata of [{ ...definition.metadata, validatorIdentityEncoding: 3 },
+          { ...definition.metadata, format: "unknown" }, { ...definition.metadata, version: 2 },
+          { ...definition.metadata, extra: true }]) {
+          const result = yield* Effect.result(readCoreApplicationProgram({ ...definition, metadata }, hash));
+          expect(Result.isFailure(result) && result.failure).toMatchObject({ reason: "metadataInvalid" });
+        }
       }
     }));
   });

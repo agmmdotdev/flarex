@@ -244,11 +244,12 @@ describe("fresh deployment table root admission", () => {
     ["negative zero", () => v.literal(-0), false],
     ["scalar", () => v.string(), false],
     ["array", () => v.array(v.string()), false],
-    ["union", () => v.union(v.object({}), v.object({ name: v.string() })), false],
+    ["nested union", () => v.union(v.union(v.object({}))), false],
+    ["union including any", () => v.union(v.object({}), v.any()), false],
     ["nonfinite root before finite completion", () => v.literal(NaN), false],
     ["nonfinite array before finite completion", () => v.array(v.literal(Infinity)), false],
     ["record key before root and finite completion", () => record(v.literal(1n), v.literal(Infinity)), true],
-  ] as const)("shares the source object-root rule for %s without narrowing historical DTOs", async (_name, make, recordFailure) => {
+  ] as const)("shares the source document-root rule for %s without narrowing historical DTOs", async (_name, make, recordFailure) => {
     const validator = make();
     const source = await Effect.runPromise(Effect.result(analyzeSchemaDefinitionEffect({
       tables: { items: { kind: "table", validator, indexes: [] } },
@@ -256,7 +257,7 @@ describe("fresh deployment table root admission", () => {
     if (Result.isSuccess(source)) throw new Error("Expected source table refusal");
     expect(source.failure).toMatchObject(recordFailure
       ? { _tag: "AnalyzerSchemaError", cause: { code: "InvalidRecordType" } }
-      : { _tag: "AnalyzerSchemaError", message: 'Schema table "items" document validator must be an object validator.' });
+      : { _tag: "AnalyzerSchemaError", message: 'Schema table "items" document validator must be any, an object, or a union of objects.' });
     for (const side of ["analysis", "codegen"] as const) {
       const pair = freshTablePair(decodeValidatorJsonWireV1(validator.json), side);
       await expect(Effect.runPromise(captureDeploymentAnalysisEffect(pair.analysis))).resolves.toBeDefined();
@@ -265,7 +266,7 @@ describe("fresh deployment table root admission", () => {
       if (Result.isSuccess(result)) throw new Error("Expected fresh table refusal");
       expect(result.failure).toMatchObject(recordFailure
         ? { _tag: "AnalyzerValidatorError", code: "InvalidRecordType" }
-        : { _tag: "AnalyzerSchemaError", message: 'Schema table "items" document validator must be an object validator.' });
+        : { _tag: "AnalyzerSchemaError", message: 'Schema table "items" document validator must be any, an object, or a union of objects.' });
     }
   });
 

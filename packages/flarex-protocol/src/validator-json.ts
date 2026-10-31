@@ -2,6 +2,9 @@ import { Effect, Schema, SchemaGetter, SchemaIssue, type SchemaAST } from "effec
 
 import {
   decodeValidatorJsonResultCoreV1,
+  decodeLegacyObjectValidatorJsonResultCoreV1,
+  decodeLegacyObjectValidatorJsonWireResultCoreV1,
+  encodeLegacyValidatorJsonWireCoreV1,
   decodeValidatorJsonWireResultCoreV1,
   decodeValidatorJsonWireCoreV1,
   decodeValidatorLiteralWireV1,
@@ -17,15 +20,18 @@ import {
   type ValidatorJsonDecodeResultV1,
   type ValidatorLiteralV1 as ValidatorLiteralV1Type,
   type ValidatorLiteralWireV1,
+  type LegacyValidatorJsonWireV1,
+  type DocumentValidatorJsonV1 as DocumentValidatorJsonV1Type,
 } from "./validator-json-core";
 import { FlarexValueRuntimeCoreV1Error, type FlarexNumericTagPolicyV1 } from "./value-runtime-core";
+import { normalizeSourceDocumentValidator } from "./validator-source";
 
 export {
   captureValidatorLiteralV1,
   isValidatorLiteralV1,
-  MAX_VALIDATOR_JSON_DEPTH_V1,
-  MAX_VALIDATOR_JSON_NODES_V1,
-  MAX_VALIDATOR_JSON_OBJECT_FIELDS_V1,
+  decodeLegacyValidatorJsonResultCoreV1,
+  decodeLegacyValidatorJsonWireResultCoreV1,
+  encodeLegacyValidatorJsonWireCoreV1,
   decodeValidatorJsonResultCoreV1,
   decodeValidatorJsonWireResultCoreV1,
   decodeValidatorJsonWireCoreV1,
@@ -34,6 +40,7 @@ export {
   encodeValidatorLiteralV1,
   ValidatorJsonV1InputError,
   validatorJsonAdmissionIssueV1,
+  validatorJsonWireAdmissionIssueV1,
   validatorJsonHasNonfiniteLiteralV1,
   validatorIsSubsetOfStringV1,
   validatorIsStringSubtypeWithStringLiteralV1,
@@ -46,6 +53,7 @@ export {
   type ValidatorJsonDecodeOptionsV1,
   type ValidatorJsonDecodeResultV1,
   type ValidatorLiteralWireV1,
+  type LegacyValidatorJsonWireV1,
 } from "./validator-json-core";
 
 export type ValidatorLiteralV1 = ValidatorLiteralV1Type;
@@ -53,6 +61,7 @@ export type ObjectValidatorJsonV1 = ObjectValidatorJsonV1Type;
 export type ValidatorJsonV1 = ValidatorJsonV1Type;
 export type ObjectValidatorJsonWireV1 = ObjectValidatorJsonWireV1Type;
 export type ValidatorJsonWireV1 = ValidatorJsonWireV1Type;
+export type DocumentValidatorJsonV1 = DocumentValidatorJsonV1Type;
 
 /** Schema adapters run in trusted hosts; same-realm SDK capture uses the pure owner.
  * Effect's lazy transformation parser itself consults mutable Array.prototype.map. */
@@ -109,6 +118,54 @@ export const ValidatorJsonWireCodecV1: Schema.Codec<ValidatorJsonV1, ValidatorJs
 export const ObjectValidatorJsonWireCodecV1: Schema.Codec<ObjectValidatorJsonV1, ObjectValidatorJsonWireV1> = ObjectWire.pipe(Schema.decodeTo(ObjectValidatorJsonV1, {
   decode: SchemaGetter.transform(value => decodeValidatorJsonWireCoreV1(value)),
   encode: SchemaGetter.transform(value => encodeValidatorJsonWireCoreV1(value)),
+}));
+
+/** Source DocumentSchema normalization precedes its owner's finite policy. */
+export const DocumentValidatorJsonV1: Schema.Codec<DocumentValidatorJsonV1> = Schema.declareConstructor<DocumentValidatorJsonV1>()([], () => (input, _ast, options) => {
+  const parsed = decodeValidatorJsonResultCoreV1(input, options);
+  if (!parsed.ok) return Effect.fail(schemaDecodeIssue(parsed.issue, input, options));
+  const normalized = normalizeSourceDocumentValidator(parsed.value);
+  return normalized.ok ? Effect.succeed(normalized.value) : Effect.fail(new SchemaIssue.InvalidValue({ message: `${normalized.issue.message} (${normalized.issue.reason}) ${normalized.issue.path}` }, input, options));
+}, { title: "DocumentValidatorJsonV1" });
+const DocumentWire = Schema.declareConstructor<ValidatorJsonWireV1>()([], () => (input, _ast, options) => {
+  const parsed = decodeValidatorJsonWireResultCoreV1(input, options);
+  if (!parsed.ok) return Effect.fail(schemaDecodeIssue(parsed.issue, input, options));
+  const normalized = normalizeSourceDocumentValidator(parsed.value);
+  return normalized.ok ? Effect.succeed(encodeValidatorJsonWireCoreV1(normalized.value)) : Effect.fail(new SchemaIssue.InvalidValue({ message: `${normalized.issue.message} (${normalized.issue.reason}) ${normalized.issue.path}` }, input, options));
+}, { title: "DocumentValidatorJsonWireV1" });
+export const DocumentValidatorJsonWireCodecV1: Schema.Codec<DocumentValidatorJsonV1, ValidatorJsonWireV1> = DocumentWire.pipe(Schema.decodeTo(DocumentValidatorJsonV1, {
+  decode: SchemaGetter.transform(value => {
+    const parsed = decodeValidatorJsonWireCoreV1(value);
+    const normalized = normalizeSourceDocumentValidator(parsed);
+    if (!normalized.ok) throw new ValidatorJsonV1InputError(normalized.issue.message);
+    return normalized.value;
+  }),
+  encode: SchemaGetter.transform(encodeValidatorJsonWireCoreV1),
+}));
+
+export type LegacyObjectValidatorJsonWireV1 = Extract<LegacyValidatorJsonWireV1, { readonly type: "object" }>;
+const LegacyObjectSemantic = Schema.declareConstructor<ObjectValidatorJsonV1>()([], () => (input, ast, options) => {
+  const parsed = decodeLegacyObjectValidatorJsonResultCoreV1(input, options);
+  if (!parsed.ok) return Effect.fail(schemaDecodeIssue(parsed.issue, input, options));
+  return parsed.value.type === "object" ? Effect.succeed(parsed.value) : Effect.fail(new SchemaIssue.InvalidType(ast, input, options));
+}, { title: "LegacyObjectValidatorJsonV1" });
+const LegacyObjectWire = Schema.declareConstructor<LegacyObjectValidatorJsonWireV1>()([], () => (input, ast, options) => {
+  const parsed = decodeLegacyObjectValidatorJsonWireResultCoreV1(input, options);
+  if (!parsed.ok) return Effect.fail(schemaDecodeIssue(parsed.issue, input, options));
+  const wire = parsed.value.type === "object" ? encodeLegacyValidatorJsonWireCoreV1(parsed.value) : undefined;
+  return wire?.type === "object" ? Effect.succeed(wire) : Effect.fail(new SchemaIssue.InvalidType(ast, input, options));
+}, { title: "LegacyObjectValidatorJsonWireV1" });
+export const LegacyObjectValidatorJsonWireCodecV1: Schema.Codec<ObjectValidatorJsonV1, LegacyObjectValidatorJsonWireV1> = LegacyObjectWire.pipe(Schema.decodeTo(LegacyObjectSemantic, {
+  decode: SchemaGetter.transform(value => {
+    const parsed = decodeLegacyObjectValidatorJsonWireResultCoreV1(value);
+    if (!parsed.ok || parsed.value.type !== "object") throw new ValidatorJsonV1InputError("Invalid historical object validator.");
+    return parsed.value;
+  }),
+  encode: SchemaGetter.transform(value => {
+    const wire = encodeLegacyValidatorJsonWireCoreV1(value);
+    if (wire.type !== "object") throw new ValidatorJsonV1InputError("Invalid historical object validator.");
+    return wire;
+  }),
 }));
 
 function requireDecodedValidator(result: ValidatorJsonDecodeResultV1): ValidatorJsonV1 {

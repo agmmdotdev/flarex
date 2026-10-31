@@ -8,8 +8,6 @@ import {
   decodeValidatorLiteralSourceV1,
   decodeValidatorLiteralWireV1,
   encodeValidatorJsonV1,
-  MAX_VALIDATOR_JSON_DEPTH_V1,
-  MAX_VALIDATOR_JSON_NODES_V1,
   ObjectValidatorJsonWireCodecV1,
   ValidatorJson,
   ValidatorJsonWireCodecV1,
@@ -284,14 +282,15 @@ describe("ValidatorJson", () => {
     expect(Result.isFailure(Schema.decodeUnknownResult(ValidatorJsonWireCodecV1, preserve)({ type: "string", legacy: {} }))).toBe(true);
     expect(Result.isFailure(Schema.decodeUnknownResult(Schema.toType(ValidatorJsonWireCodecV1), preserve)({ type: "string", legacy: {} }))).toBe(true);
   });
-  it("retains global node/depth limits in schemas and semantic projections", () => {
-    const oversized = { type: "union", value: Array.from({ length: MAX_VALIDATOR_JSON_NODES_V1 }, () => ({ type: "number" })) };
+  it("admits declarations beyond displaced node and logical-depth quotas", () => {
+    const shared = { type: "number" };
+    const wide = { type: "union", value: Array.from({ length: 65_537 }, () => shared) };
     let deep: unknown = { type: "number" };
-    for (let i = 0; i < MAX_VALIDATOR_JSON_DEPTH_V1; i += 1) deep = { type: "array", value: deep };
-    for (const value of [oversized, deep]) {
-      expect(() => decodeValidatorJson(value)).toThrow();
-      expect(() => decodeValidatorJsonWireV1(value)).toThrow();
-      expect(() => decodeSemanticWireType(value)).toThrow();
+    for (let index = 0; index < 300; index += 1) deep = { type: "array", value: deep };
+    for (const value of [wide, deep]) {
+      expect(() => decodeValidatorJson(value)).not.toThrow();
+      expect(() => decodeValidatorJsonWireV1(value)).not.toThrow();
+      expect(() => decodeSemanticWireType(value)).not.toThrow();
     }
   });
 

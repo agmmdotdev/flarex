@@ -10,7 +10,7 @@ import {
   type CompiledAppSchemaCatalogRequirementsV1,
 } from "../src/app-schema-catalog";
 import type { CatalogIndexId, CatalogTableId } from "../src/catalog";
-import type { ValidatorJsonV1 } from "../src/validator-json";
+import { encodeValidatorJsonV1, type ValidatorJsonV1 } from "../src/validator-json";
 
 type ForbiddenCompiledAuthority = Extract<
   keyof CompiledAppSchemaCatalogRequirementsV1,
@@ -239,6 +239,34 @@ describe("app-schema catalog requirement compilation", () => {
         },
       });
     }
+  });
+
+  it("treats Function signatures and CommitTs as leaves for catalog references and paths", async () => {
+    const documentType: ValidatorJsonV1 = {
+      type: "object",
+      value: {
+        handle: field({ type: "function", fnType: "query",
+          args: { type: "object", value: { owner: field({ type: "id", tableName: "missingArgs" }) } },
+          returns: { type: "id", tableName: "missingReturns" },
+        }),
+        timestamp: field({ type: "commitTs" }),
+        handles: field({ type: "array", value: { type: "function", args: { type: "id", tableName: "missingNested" } } }),
+      },
+    };
+    function currentManifest(validator: ValidatorJsonV1, fieldPath?: string) {
+      const manifest = appManifest([], fieldPath === undefined ? [] : [appIndex(1, 1, "byField", [fieldPath])]);
+      return { ...manifest, tableDefinitions: { ...manifest.tableDefinitions, tables: [{
+        tableId: 1, namespace: "app", logicalName: "records",
+        definition: { kind: "appDocument", definitionVersion: 2, documentType: JSON.stringify(encodeValidatorJsonV1(validator)) },
+      }] } };
+    }
+    for (const fieldPath of [undefined, "handle", "timestamp", "handles"]) {
+      await expect(compileAppSchemaCatalogRequirementsV1(currentManifest(documentType, fieldPath))).resolves.toMatchObject({ creationTimeIndexes: [{ tableId: 1 }] });
+    }
+    for (const fieldPath of ["handle.args.owner", "handle.returns", "timestamp.child"]) {
+      await expect(compileAppSchemaCatalogRequirementsV1(currentManifest(documentType, fieldPath))).rejects.toMatchObject({ issue: { reason: "impossibleIndexField", fieldPath } });
+    }
+    await expect(compileAppSchemaCatalogRequirementsV1(currentManifest({ type: "object", value: { owner: field({ type: "id", tableName: "missingArgs" }) } }))).rejects.toMatchObject({ issue: { reason: "unknownIdTarget", targetTableName: "missingArgs" } });
   });
 
   it("strictly rejects caller-authored physical or lifecycle authority", async () => {

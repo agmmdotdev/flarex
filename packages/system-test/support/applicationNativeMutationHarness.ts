@@ -81,6 +81,8 @@ import { runSystemTestEffectV1 } from "./systemTestEffectBoundaryV1";
 import { MiniflareApplicationWorkerLoader } from "./applicationNativeQueryHarness";
 
 const coreFixtureAdmissions = new WeakMap<CoreDatabase, Promise<CoreApplicationAdmission>>();
+type CoreMutationExecutionFixture = Pick<ApplicationCoreFixture,
+  "database" | "runInOwnerScope" | "deploymentId" | "source" | "queryCursor">;
 
 const COMPATIBILITY_DATE = "2026-06-14";
 export const APPLICATION_NESTED_MUTATION_FIXTURE_OPTIONS = Object.freeze({
@@ -1504,7 +1506,7 @@ function observeApplicationMutationConfiguration(
 }
 
 export async function makeApplicationNativeMutationTestLayer(
-  fixture: ApplicationMutationTestLiveFixture | ApplicationCoreFixture,
+  fixture: ApplicationMutationTestLiveFixture | CoreMutationExecutionFixture,
   loader: WorkerLoader,
   options: Readonly<{
     readonly source?: ApplicationMutationSystemLive["applicationRunner"]["source"];
@@ -1518,7 +1520,7 @@ export async function makeApplicationNativeMutationTestLayer(
   );
 }
 
-export function makeApplicationMutationTestLive(fixture: ApplicationCoreFixture, loader: WorkerLoader, options?: Readonly<{
+export function makeApplicationMutationTestLive(fixture: CoreMutationExecutionFixture, loader: WorkerLoader, options?: Readonly<{
     readonly source?: ApplicationMutationSystemLive["applicationRunner"]["source"];
     readonly onExecution?: () => void;
     readonly afterRuntime?: () => Effect.Effect<void, never>;
@@ -1530,14 +1532,14 @@ export function makeApplicationMutationTestLive(fixture: ApplicationMutationTest
     readonly afterRuntime?: () => Effect.Effect<void, never>;
     readonly uuidSequenceStart?: number;
   }>): Promise<ApplicationMutationSystemLive>;
-export function makeApplicationMutationTestLive(fixture: ApplicationMutationTestLiveFixture | ApplicationCoreFixture, loader: WorkerLoader, options?: Readonly<{
+export function makeApplicationMutationTestLive(fixture: ApplicationMutationTestLiveFixture | CoreMutationExecutionFixture, loader: WorkerLoader, options?: Readonly<{
     readonly source?: ApplicationMutationSystemLive["applicationRunner"]["source"];
     readonly onExecution?: () => void;
     readonly afterRuntime?: () => Effect.Effect<void, never>;
     readonly uuidSequenceStart?: number;
   }>): Promise<ApplicationMutationSystemLive | ApplicationCoreMutationSystemLive>;
 export async function makeApplicationMutationTestLive(
-  fixture: ApplicationMutationTestLiveFixture | ApplicationCoreFixture,
+  fixture: ApplicationMutationTestLiveFixture | CoreMutationExecutionFixture,
   loader: WorkerLoader,
   options: Readonly<{
     readonly source?: ApplicationMutationSystemLive["applicationRunner"]["source"];

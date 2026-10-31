@@ -117,8 +117,8 @@ const captureCandidate = Schema.decodeUnknownResult(Schema.toType(LogicalSchemaC
 
 export function captureLogicalSchemaCandidate(input: unknown) {
   return Result.gen(function* () {
-    yield* Schema.decodeUnknownResult(SchemaManifestSemanticInputSchema)(input);
-    const candidate = yield* captureCandidate(input);
+    const captured = yield* Schema.decodeUnknownResult(SchemaManifestSemanticInputSchema)(input);
+    const candidate = yield* captureCandidate(captured);
     return snapshotDecodedProtocolPlainData(candidate);
   });
 }
@@ -198,6 +198,9 @@ function validateCandidate(candidate: LogicalSchemaCandidate): string | undefine
       const view = source.definition.tables.find(entry => entry.logicalName === binding.localName);
       const table = target.source.definition.tables.find(entry => entry.logicalName === target.binding.localName);
       if (view === undefined || table === undefined) return "Missing view definition";
+      if (view.definition.documentType.type !== "object" || table.definition.documentType.type !== "object") {
+        return "Document views require object definitions";
+      }
       for (const [name, field] of Object.entries(view.definition.documentType.value)) {
         const targetField = table.definition.documentType.value[name];
         if (targetField === undefined || canonical({ fieldType: encodeValidatorJsonV1(field.fieldType), optional: field.optional }) !==
@@ -263,7 +266,8 @@ function sourceReferenceKind({ source, binding }: DefinitionBinding, field: stri
   if (source.definition.kind === "documents") {
     if (field === "_id") return undefined;
     const table = source.definition.tables.find(entry => entry.logicalName === binding.localName);
-    const declaredType = table?.definition.documentType.value[field]?.fieldType;
+    if (table?.definition.documentType.type !== "object") return undefined;
+    const declaredType = table.definition.documentType.value[field]?.fieldType;
     // Admit precisely one nullable identity, not arbitrary unions of identities.
     const type = declaredType?.type === "union" && declaredType.value.length === 2 &&
       declaredType.value.some(member => member.type === "null")

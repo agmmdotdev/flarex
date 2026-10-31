@@ -1,4 +1,4 @@
-import { encodeSchemaManifestAppDocumentDefinitionV1 } from "flarex-protocol/schema-manifest";
+import { encodeSchemaManifestAppDocumentDefinition } from "flarex-protocol/schema-manifest";
 import { encodeValidatorJsonV1 } from "flarex-protocol/validator-json";
 import {
   capturePrivateAnalyzerReleaseTupleV1,
@@ -1543,7 +1543,7 @@ function deploymentAnalysisJson(
     schema: Object.freeze({
       tables: definition.program.schema.tables.map(table => Object.freeze({
         logicalName: table.logicalName,
-        definition: encodeSchemaManifestAppDocumentDefinitionV1(table.definition),
+        definition: encodeSchemaManifestAppDocumentDefinition(table.definition),
       })),
       indexes: definition.program.schema.indexes.map(index => Object.freeze({
         tableLogicalName: index.tableLogicalName,

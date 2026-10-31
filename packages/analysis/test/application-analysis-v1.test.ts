@@ -16,6 +16,7 @@ import {
   ApplicationManifestV1Schema,
   canonicalizeApplicationAnalysisReceiptV1,
   canonicalizeApplicationManifestV1,
+  captureApplicationManifestV1,
   makeApplicationManifestV1,
 } from "@flarex/analysis/application-analysis";
 
@@ -333,7 +334,7 @@ describe("Application Analysis V1 contracts", () => {
     });
   });
 
-  it("applies the protocol validator admission limits before encoding", () => {
+  it("rejects unsupported document roots and cycles before encoding", () => {
     let validator: unknown = { type: "any" };
     for (let depth = 0; depth < 2_048; depth += 1) {
       validator = { type: "array", value: validator };
@@ -343,8 +344,7 @@ describe("Application Analysis V1 contracts", () => {
     expect(canonicalizeApplicationManifestV1(input)).toMatchObject({
       _tag: "Failure",
       failure: {
-        reason: "validatorLimitExceeded",
-        path: "schema.tables[0].validator",
+        reason: "invalidInput",
       },
     });
     expect(Result.isFailure(Schema.decodeUnknownResult(
@@ -358,13 +358,49 @@ describe("Application Analysis V1 contracts", () => {
     const cyclicInput = manifestWithTableValidator(cyclicValidator);
     expect(canonicalizeApplicationManifestV1(cyclicInput)).toMatchObject({
       _tag: "Failure",
-      failure: { reason: "validatorLimitExceeded" },
+      failure: { reason: "invalidInput" },
     });
     expect(Result.isFailure(Schema.decodeUnknownResult(
       ApplicationManifestV1Schema,
     )(cyclicInput))).toBe(true);
   });
 
+  it("snapshots a shared validator graph before bounding its expanded manifest bytes", () => {
+    let validator: import("flarex-protocol/validator-json").ValidatorJsonV1 = { type: "string" };
+    for (let depth = 0; depth < 12; depth += 1) validator = { type: "union", value: [validator, validator] };
+    const root = () => manifestWithTableValidator({ type: "object", value: {
+      child: { fieldType: validator, optional: false },
+    } });
+    const admitted = Result.getOrThrow(canonicalizeApplicationManifestV1(root()));
+    expect(new TextEncoder().encode(admitted.canonicalText)).toEqual(admitted.canonicalBytes);
+    for (let depth = 12; depth < 30; depth += 1) validator = { type: "union", value: [validator, validator] };
+    const captured = Result.getOrThrow(captureApplicationManifestV1(root()));
+    const document = captured.schema.tables[0]?.validator;
+    if (document?.type !== "object") throw new Error("Expected object root");
+    const shared = document.value.child?.fieldType;
+    if (shared?.type !== "union") throw new Error("Expected union child");
+    expect(shared.value[0]).toBe(shared.value[1]);
+    expect(Object.isFrozen(shared.value)).toBe(true);
+    expect(canonicalizeApplicationManifestV1(captured)).toMatchObject({
+      _tag: "Failure", failure: { reason: "manifestBytesExceeded", maximum: 1_048_576 },
+    });
+    // Source semantics still wins before the outer canonical byte policy.
+    expect(canonicalizeApplicationManifestV1(manifestWithTableValidator({ type: "object", value: {
+      child: { fieldType: validator, optional: false },
+      bad: { fieldType: { type: "record", keys: { type: "number" }, values: { type: "string" } }, optional: false },
+    } }))).toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+  });
+
+  it("copies and encodes a deep semantic validator within the actual manifest byte budget", () => {
+    let validator: import("flarex-protocol/validator-json").ValidatorJsonV1 = { type: "string" };
+    for (let depth = 0; depth < 4_096; depth += 1) validator = { type: "array", value: validator };
+    const result = canonicalizeApplicationManifestV1(manifestWithTableValidator({ type: "object", value: {
+      child: { fieldType: validator, optional: false },
+    } }));
+    const canonical = Result.getOrThrow(result);
+    expect(canonical.canonicalBytes.byteLength).toBeLessThan(1_048_576);
+    expect(new TextEncoder().encode(canonical.canonicalText)).toEqual(canonical.canonicalBytes);
+  });
   it("returns the same owned plain JSON representation from public decoders", () => {
     const input = manifestWithTableValidator({ type: "any" });
     const schemaDecoded = Schema.decodeUnknownResult(
@@ -680,6 +716,7 @@ function manifestInput() {
   return {
     format: APPLICATION_MANIFEST_FORMAT_V1,
     version: 1,
+    validatorIdentityEncoding: 2,
     sourceArtifact: {
       rootSha256: digest("1"),
       executionModulePath: "_flarex/execution.js",

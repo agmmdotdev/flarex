@@ -1,7 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  MAX_VALIDATOR_JSON_DEPTH_V1,
-} from "flarex-protocol/validator-json";
+import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
 
 import {
   executePointMutationV1,
@@ -138,17 +136,9 @@ describe("@flarex/function-runtime/point-mutation", () => {
     expect(open).not.toHaveBeenCalled();
   });
 
-  it("rejects validator projections beyond the protocol-owned depth", async () => {
-    let validator: NonNullable<
-      PointMutationRuntimeInputV1["function"]["returnsValidator"]
-    > = { type: "null" };
-    for (
-      let depth = 1;
-      depth < MAX_VALIDATOR_JSON_DEPTH_V1 + 1;
-      depth += 1
-    ) {
-      validator = { type: "array", value: validator };
-    }
+  it("rejects cyclic validator projections before resolving user code", async () => {
+    const validator: { type: "array"; value: ValidatorJsonV1 } = { type: "array", value: { type: "null" } };
+    validator.value = validator;
     const resolve = vi.fn();
     const failure = await executePointMutationV1(
       input({
@@ -167,7 +157,7 @@ describe("@flarex/function-runtime/point-mutation", () => {
     expect(inspectPointMutationRuntimeFailureV1(failure)).toEqual({
       kind: "contract",
       reason: "validatorProjectionInvalid",
-      cause: { reason: "tooDeep" },
+      cause: { reason: "malformedContainer" },
     });
     expect(resolve).not.toHaveBeenCalled();
   });

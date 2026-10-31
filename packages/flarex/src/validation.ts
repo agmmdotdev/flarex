@@ -161,6 +161,8 @@ function typeMismatchMessage(expected: ValidatorValueExpectedV1): string {
     case "null": return "Expected null.";
     case "number": return "Expected a number.";
     case "bigint": return "Expected a bigint.";
+    case "commitTs": return "Expected a commit timestamp.";
+    case "function": return "Expected a function handle.";
     case "boolean": return "Expected a boolean.";
     case "string": return "Expected a string.";
     case "bytes": return "Expected an ArrayBuffer.";

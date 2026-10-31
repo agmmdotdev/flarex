@@ -1,8 +1,6 @@
 import type {
   CanonicalDeclarativeProgramV1,
 } from "@flarex/declarative-program/v1";
-import type { ValidatorJSON } from "flarex/values";
-import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
 import type {
   AnalyzedModule,
   AnalyzedSchema,
@@ -30,9 +28,7 @@ export function analyzeCanonicalDeclarativeProgramV1(
     (table, index) => ({
       tableId: index + 1,
       name: table.logicalName,
-      validator: legacyValidatorJsonFromCanonical(
-        table.definition.documentType,
-      ),
+      validator: table.definition.documentType,
       placement: { kind: "global" },
     }),
   );
@@ -62,10 +58,8 @@ export function analyzeCanonicalDeclarativeProgramV1(
       exportName: fn.exportName,
       kind: fn.kind,
       visibility: fn.visibility,
-      args: legacyValidatorJsonFromCanonical(fn.argsValidator),
-      returns: fn.returnsValidator === null
-        ? null
-        : legacyValidatorJsonFromCanonical(fn.returnsValidator),
+      args: fn.argsValidator,
+      returns: fn.returnsValidator,
       partition: null,
     })),
   }));
@@ -78,58 +72,4 @@ export function analyzeCanonicalDeclarativeProgramV1(
     },
     functions,
   };
-}
-
-function legacyValidatorJsonFromCanonical(
-  validator: ValidatorJsonV1,
-): ValidatorJSON {
-  switch (validator.type) {
-    case "null":
-    case "number":
-    case "bigint":
-    case "boolean":
-    case "string":
-    case "bytes":
-    case "any":
-      return { type: validator.type };
-    case "id":
-      return {
-        type: "id",
-        tableName: validator.tableName,
-      };
-    case "literal":
-      return {
-        type: "literal",
-        value: validator.value,
-      };
-    case "array":
-      return {
-        type: "array",
-        value: legacyValidatorJsonFromCanonical(validator.value),
-      };
-    case "record":
-      return {
-        type: "record",
-        keys: legacyValidatorJsonFromCanonical(validator.keys),
-        values: legacyValidatorJsonFromCanonical(validator.values),
-      };
-    case "union":
-      return {
-        type: "union",
-        value: validator.value.map(legacyValidatorJsonFromCanonical),
-      };
-    case "object":
-      return {
-        type: "object",
-        value: Object.fromEntries(
-          Object.entries(validator.value).map(([fieldName, field]) => [
-            fieldName,
-            {
-              fieldType: legacyValidatorJsonFromCanonical(field.fieldType),
-              optional: field.optional,
-            },
-          ]),
-        ),
-      };
-  }
 }

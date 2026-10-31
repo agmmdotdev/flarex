@@ -28,17 +28,7 @@ export function normalizePointRuntimeValueV1(
 export function requirePointRuntimeValidatorAdmissionV1(root: unknown): void {
   const issue = validatorJsonAdmissionIssueV1(root);
   if (issue === undefined) return;
-  switch (issue.reason) {
-    case "tooManyNodes":
-      throw new Error("Exact-runtime validator has too many nodes.");
-    case "tooDeep":
-      throw new Error("Exact-runtime validator is too deeply nested.");
-    case "tooManyObjectFields":
-      throw new Error("Exact-runtime object validator has too many fields.");
-    case "malformedContainer":
-      throw new Error("Exact-runtime validator contains a malformed container.");
-  }
-  return rejectUnhandledAdmissionReason(issue.reason);
+  throw new Error("Exact-runtime validator contains a malformed container.");
 }
 
 export function validatePointRuntimeValueIssueV1(
@@ -68,10 +58,4 @@ function isAppDocumentIdForTable(value: string, tableId: number): boolean {
     separator === value.lastIndexOf(":") &&
     value.slice(0, separator) === String(tableId) &&
     isLowercaseUuidText(value.slice(separator + 1));
-}
-
-function rejectUnhandledAdmissionReason(reason: never): never {
-  throw new Error(
-    `Exact-runtime validator has an unsupported admission issue: ${String(reason)}.`,
-  );
 }

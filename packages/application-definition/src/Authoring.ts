@@ -20,6 +20,7 @@ import {
   type StandardApplicationRelationDeclaration,
 } from "@flarex/standard-application-definition/internal/relation-definition";
 import { copyBytes } from "@flarex/utils/bytes";
+import { normalizeSourceDocumentValidator, validateSourceValidatorResult } from "flarex-protocol/internal/validator-source";
 
 declare const IdTableHint: unique symbol;
 
@@ -125,7 +126,7 @@ type AnyFunctionArgsValidator =
 
 export type FunctionArgsValidator = AnyFunctionArgsValidator;
 
-const validatorStates = new WeakMap<AnyValidator, AuthoredValidator>();
+const validatorStates = new WeakMap<object, AuthoredValidator>();
 const functionArgsStates = new WeakMap<
   FunctionArgsValidator,
   StandardFunctionArgsValidatorV1
@@ -285,6 +286,16 @@ export const v = Object.freeze({
     scalarValidator<number>(standardV1.number()),
   bigint: (): Validator<bigint, "required"> =>
     scalarValidator<bigint>(standardV1.bigint()),
+  commitTs: (): Validator<bigint, "required"> => scalarValidator<bigint>(standardV1.commitTs()),
+  function: (signature: Readonly<{
+    readonly fnType?: "query" | "mutation" | "action";
+    readonly args?: Validator<unknown, "required", string>;
+    readonly returns?: Validator<unknown, "required", string>;
+  }> = {}): Validator<string, "required"> => scalarValidator<string>(standardV1.functionHandle({
+    ...(signature.fnType === undefined ? {} : { fnType: signature.fnType }),
+    ...(signature.args === undefined ? {} : { args: inspectValidator(signature.args) }),
+    ...(signature.returns === undefined ? {} : { returns: inspectValidator(signature.returns) }),
+  })),
   boolean: (): Validator<boolean, "required"> =>
     scalarValidator<boolean>(standardV1.boolean()),
   string: (): Validator<string, "required"> =>
@@ -308,25 +319,18 @@ export const v = Object.freeze({
       inspectValidator(keys),
       inspectValidator(values),
     )),
-  union: <Members extends readonly [
-    Validator<unknown, "required", string>,
-    ...ReadonlyArray<Validator<unknown, "required", string>>,
-  ]>(
+  union: <Members extends ReadonlyArray<Validator<unknown, "required", string>>>(
     ...members: Members
   ): Validator<
     InferValidator<Members[number]>,
     "required",
     ValidatorFieldPaths<Members[number]>
   > => {
-    const [first, ...rest] = members;
     return captureValidator<
       InferValidator<Members[number]>,
       "required",
       ValidatorFieldPaths<Members[number]>
-    >(standardV1.union(
-      inspectValidator(first),
-      ...rest.map((member) => inspectValidator(member)),
-    ));
+    >(standardV1.union(...members.map((member) => inspectValidator(member))));
   },
   optional: optionalValidator,
   nullable: <Value, FieldPaths extends string>(
@@ -409,7 +413,17 @@ class TableDefinitionHandle<
 
 export function defineTable<Fields extends ValidatorRecord>(
   fields: Fields,
-): TableDefinition<Fields> {
+): TableDefinition<Fields>;
+export function defineTable(document: Validator<unknown, "required", string>): TableDefinition;
+export function defineTable(fields: ValidatorRecord | Validator<unknown, "required", string>): TableDefinition {
+  const authoredDocument = validatorStates.get(fields);
+  if (authoredDocument !== undefined) {
+    const admitted = validateSourceValidatorResult(authoredDocument.json);
+    if (!admitted.ok) throw new TypeError(admitted.issue.message);
+    const normalized = normalizeSourceDocumentValidator(admitted.value);
+    if (!normalized.ok) throw new TypeError(normalized.issue.message);
+    return new TableDefinitionHandle(applicationTableDefinition(normalized.value));
+  }
   const authoredFields: Record<string, AuthoredValidator> = Object.create(null);
   for (const [fieldName, validator] of Object.entries(fields)) {
     Object.defineProperty(authoredFields, fieldName, {

@@ -8,7 +8,7 @@ import {
 } from "flarex-backend/artifact-runtime";
 import type {
   DeploymentAnalysis as BackendDeploymentAnalysis,
-} from "flarex-backend/types";
+} from "flarex-protocol/deployment";
 import { selectorNameForPartitionField } from "flarex-protocol/partition-selector";
 import {
   listFunctionModules,

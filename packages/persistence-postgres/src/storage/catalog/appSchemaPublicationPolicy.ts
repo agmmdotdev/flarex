@@ -194,6 +194,10 @@ function addValidatorLowerBound(
   switch (validator.type) {
     case "id":
       return addString(validator.tableName);
+    case "function":
+      return (validator.fnType === undefined || addString(validator.fnType)) &&
+        (validator.args === undefined || addValidatorLowerBound(validator.args, addBytes, addString)) &&
+        (validator.returns === undefined || addValidatorLowerBound(validator.returns, addBytes, addString));
     case "literal":
       return typeof validator.value !== "string" || addString(validator.value);
     case "array":
@@ -217,6 +221,7 @@ function addValidatorLowerBound(
     case "null":
     case "number":
     case "bigint":
+    case "commitTs":
     case "boolean":
     case "string":
     case "bytes":

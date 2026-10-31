@@ -268,9 +268,11 @@ function compareValidator(
       : validationRequired("narrowingOrUnknown", path);
   }
 
-  if (active.type === "id" && candidate.type === "string") {
+  if ((active.type === "id" || active.type === "function") && candidate.type === "string") {
     return UNIVERSALLY_COMPATIBLE;
   }
+  if ((active.type === "bigint" && candidate.type === "commitTs")
+    || (active.type === "commitTs" && candidate.type === "bigint")) return UNIVERSALLY_COMPATIBLE;
   if (active.type !== candidate.type) {
     return validationRequired("narrowingOrUnknown", path);
   }
@@ -279,9 +281,11 @@ function compareValidator(
     case "null":
     case "number":
     case "bigint":
+    case "commitTs":
     case "boolean":
     case "string":
     case "bytes":
+    case "function":
       return UNIVERSALLY_COMPATIBLE;
     case "id":
       return candidate.type === "id" && active.tableName === candidate.tableName
@@ -376,6 +380,7 @@ function validatorJsonStructuralEquality(
     case "null":
     case "number":
     case "bigint":
+    case "commitTs":
     case "boolean":
     case "string":
     case "bytes":
@@ -385,6 +390,11 @@ function validatorJsonStructuralEquality(
       return right.type === "id" && left.tableName === right.tableName
         ? "equal"
         : "different";
+    case "function": {
+      if (right.type !== "function" || left.fnType !== right.fnType) return "different";
+      const args = optionalValidatorStructuralEquality(left.args, right.args, budget);
+      return args === "equal" ? optionalValidatorStructuralEquality(left.returns, right.returns, budget) : args;
+    }
     case "literal":
       return right.type === "literal"
         && validatorLiteralEqualV1(left.value, right.value)
@@ -443,6 +453,12 @@ function validatorJsonStructuralEquality(
   }
 }
 
+function optionalValidatorStructuralEquality(left: ValidatorJsonV1 | undefined, right: ValidatorJsonV1 | undefined,
+  budget: CompatibilityBudget): StructuralEquality {
+  return left === undefined ? right === undefined ? "equal" : "different"
+    : right === undefined ? "different" : validatorJsonStructuralEquality(left, right, budget);
+}
+
 function indexBindingsEqual(
   left: SchemaManifestAppIndexBindingV1,
   right: SchemaManifestAppIndexBindingV1,
@@ -482,7 +498,7 @@ function literalMatchesPrimitive(
     ? typeof value === "string"
     : candidateType === "number"
     ? typeof value === "number"
-    : candidateType === "bigint"
+    : candidateType === "bigint" || candidateType === "commitTs"
     ? typeof value === "bigint"
     : candidateType === "boolean" && typeof value === "boolean";
 }

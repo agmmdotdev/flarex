@@ -3,6 +3,7 @@ import { isWritableJsonObject } from "flarex-protocol/json";
 import { Result, Schema } from "effect";
 import { ValidatorJsonWireCodecV1, type ValidatorJson as ProtocolValidatorJson } from "flarex-protocol/validator-json";
 import { validatorLiteralEqualV1 } from "flarex-protocol/internal/validator-json-core";
+import { isFunctionHandleString } from "flarex-protocol/internal/validator-engine-core";
 
 import { parseFlarexDocumentId, type PersistenceJson } from "../storage/documents/documents";
 
@@ -129,6 +130,7 @@ function validateJsonValue(
         path,
       );
     case "bigint":
+    case "commitTs":
       throw new DeploymentValidatorMetadataError(
         "Bigint transport is not implemented.",
         path,
@@ -137,6 +139,8 @@ function validateJsonValue(
       return expect(typeof value === "boolean", "Expected a boolean.", path);
     case "string":
       return expect(typeof value === "string", "Expected a string.", path);
+    case "function":
+      return expect(typeof value === "string" && isFunctionHandleString(value), "Expected a function handle.", path);
     case "bytes":
       throw new DeploymentValidatorMetadataError(
         "Bytes transport is not implemented.",

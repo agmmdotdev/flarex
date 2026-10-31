@@ -9,7 +9,7 @@ import {
   captureSchemaManifestAppTableDeclarationsV1Result,
   captureSchemaManifestTableDefinitionsV1Result,
   SchemaManifestAppTableNameSchema,
-  type SchemaManifestAppDocumentDefinitionV1,
+  type SchemaManifestAppDocumentDefinition,
   type SchemaManifestAppTableDeclarationInputV1,
   type SchemaManifestAppTableDeclarationV1,
   type SchemaManifestAppTableName,
@@ -593,7 +593,7 @@ function assembleSectionResult(
 > {
   const definitionsByName = new Map<
     SchemaManifestAppTableName,
-    SchemaManifestAppDocumentDefinitionV1
+    SchemaManifestAppDocumentDefinition
   >(
     declarations.map((table) => [table.logicalName, table.definition]),
   );

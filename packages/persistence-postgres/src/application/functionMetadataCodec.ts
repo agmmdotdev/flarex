@@ -705,7 +705,7 @@ function parseValidator(
         ));
       }
       if (isSimpleValidatorType(typeValue)) {
-        const validator: ValidatorJsonV1 = Object.freeze({ type: typeValue });
+        const validator = Object.freeze({ type: typeValue });
         scheduleAssignment(assign, Object.freeze({ validator, json: validator }));
         return;
       }

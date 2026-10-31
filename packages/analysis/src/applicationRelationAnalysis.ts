@@ -196,8 +196,14 @@ export function analyzeDecodedApplicationRelationsResult(
 
     const inverseName = declaration.inverse.name;
     if (inverseName !== null) {
+      if (targetTable.validator.type !== "object") {
+        return Result.fail(issue(
+          "inverseNameCollidesWithField",
+          `${path}.inverse.name`,
+          `Named relation inverses require an object validator on target table ${JSON.stringify(targetTable.name)}.`,
+        ));
+      }
       if (
-        targetTable.validator.type === "object" &&
         Object.hasOwn(targetTable.validator.value, inverseName)
       ) {
         return Result.fail(issue(

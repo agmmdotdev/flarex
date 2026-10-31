@@ -7,7 +7,7 @@ import {
 import { Data, Effect, Encoding, Result, Schema } from "effect";
 
 import {
-  canonicalizeApplicationMutationExecutionAuthorityV1,
+  recanonicalizeApplicationMutationExecutionAuthorityV1,
   type CanonicalApplicationMutationExecutionAuthorityV1,
 } from "./application-mutation-authority-v1";
 import {
@@ -483,8 +483,9 @@ export const prepareApplicationMutationGrantV1 = Effect.fn(
   "ApplicationMutationGrant.prepareV1",
 )(function* (input: PrepareApplicationMutationGrantV1Input) {
   const executionAuthority = yield*
-    canonicalizeApplicationMutationExecutionAuthorityV1(
+    recanonicalizeApplicationMutationExecutionAuthorityV1(
       input.executionAuthority.authority,
+      input.executionAuthority.validatorIdentityEncoding,
     ).pipe(Effect.mapError(cause => invalid("prepare", cause)));
   const policy = yield* canonicalizeTransactionGrantIdentityAccessPolicyV1Effect(
     input.identityAccessPolicy.policy,

@@ -24,13 +24,13 @@ import type {
   ConnectionMutationRequestMessage as MutationRequest,
 } from "flarex-protocol/connection";
 import type {
-  AnalyzedStartPushRequest,
-  DeploymentAnalysis,
   FinishPushResponse,
   Json,
   PushStatus,
   PushSourcePackage,
 } from "flarex-backend/types";
+import type { AnalyzedStartPushRequest, DeploymentAnalysis } from "flarex-protocol/deployment";
+import { encodeDeploymentAnalysis } from "flarex-protocol/deployment";
 import type { PaginationResult } from "flarex/server";
 
 import type { DeploymentAnalysis as CodegenDeploymentAnalysis } from "../src/analyze";
@@ -98,7 +98,7 @@ describe("backend sync with local executor runtime", () => {
       deploymentId,
       projectId,
       sourcePackage: generatedDeployment.sourcePackage,
-      analysisJson: generatedDeployment.analysis,
+      analysisJson: encodeDeploymentAnalysis(generatedDeployment.analysis),
     });
     await runtime.executor.activateDeploymentPackage({
       deploymentId,

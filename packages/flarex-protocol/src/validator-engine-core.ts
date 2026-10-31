@@ -3,10 +3,12 @@ import {
   type CanonicalFlarexRuntimeValueV1,
 } from "./value-runtime-core";
 import { validatorLiteralEqualV1, type ValidatorJsonV1 } from "./validator-json-core";
+import { isFunctionHandleString } from "./document-id-core";
+export { isFunctionHandleString } from "./document-id-core";
 
 export type ValidatorValueExpectedV1 =
   | "null" | "number" | "bigint" | "boolean" | "string"
-  | "bytes" | "id" | "array" | "object";
+  | "bytes" | "id" | "function" | "commitTs" | "array" | "object";
 
 export type ValidatorValueIssueV1 =
   | { readonly reason: "typeMismatch"; readonly path: string;
@@ -59,6 +61,8 @@ function validateAtPath(
     case "null": return value === null ? undefined : mismatch(path, "null");
     case "number": return typeof value === "number" ? undefined : mismatch(path, "number");
     case "bigint": return typeof value === "bigint" ? undefined : mismatch(path, "bigint");
+    case "commitTs": return typeof value === "bigint" ? undefined : mismatch(path, "commitTs");
+    case "function": return typeof value === "string" && isFunctionHandleString(value) ? undefined : mismatch(path, "function");
     case "boolean": return typeof value === "boolean" ? undefined : mismatch(path, "boolean");
     case "string": return typeof value === "string" ? undefined : mismatch(path, "string");
     case "bytes": return value instanceof ArrayBuffer ? undefined : mismatch(path, "bytes");

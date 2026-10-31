@@ -228,7 +228,7 @@ describe("Standard Application typed authoring V1", () => {
           logicalName: "authors",
           definition: {
             kind: "appDocument",
-            definitionVersion: 1,
+              definitionVersion: 2,
             documentType: {
               type: "object",
               value: {
@@ -241,7 +241,7 @@ describe("Standard Application typed authoring V1", () => {
           logicalName: "recipes",
           definition: {
             kind: "appDocument",
-            definitionVersion: 1,
+              definitionVersion: 2,
             documentType: {
               type: "object",
               value: {

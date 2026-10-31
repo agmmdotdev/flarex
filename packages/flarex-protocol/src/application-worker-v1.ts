@@ -8,8 +8,9 @@ import { isNonBlankString } from "@flarex/utils/strings";
 import { Data, Effect, Result, Schema } from "effect";
 
 import {
-  canonicalizeApplicationRuntimeTargetV1,
+  recanonicalizeApplicationRuntimeTargetV1,
   type ApplicationRuntimeTargetV1,
+  type ValidatorIdentityEncoding,
 } from "./application-runtime-target-v1";
 import {
   decodeUserIdentityEffect,
@@ -226,6 +227,7 @@ export const decodeApplicationTransactionWorkerRequestV1Effect = Effect.fn(
 )(function* (
   input: unknown,
   documentIdFormat?: "convex",
+  validatorIdentityEncoding: ValidatorIdentityEncoding = 2,
 ): Effect.fn.Return<
   ApplicationTransactionWorkerRequestV1,
   ApplicationWorkerProtocolV1Error
@@ -246,7 +248,7 @@ export const decodeApplicationTransactionWorkerRequestV1Effect = Effect.fn(
     request.version !== APPLICATION_TRANSACTION_WORKER_REQUEST_VERSION_V1
   ) return yield* fail(boundary, "invalidShape", "$request");
 
-  const target = yield* decodeTarget(request.target, boundary);
+  const target = yield* decodeTarget(request.target, boundary, validatorIdentityEncoding);
   if (target.function.kind === "action") {
     return yield* fail(boundary, "invalidTargetKind", "target.function.kind");
   }
@@ -292,6 +294,7 @@ export const decodeApplicationActionWorkerRequestV1Effect = Effect.fn(
   "ApplicationWorkerProtocol.decodeActionRequestV1",
 )(function* (
   input: unknown,
+  validatorIdentityEncoding: ValidatorIdentityEncoding = 2,
 ): Effect.fn.Return<
   ApplicationActionWorkerRequestV1,
   ApplicationWorkerProtocolV1Error
@@ -311,7 +314,7 @@ export const decodeApplicationActionWorkerRequestV1Effect = Effect.fn(
     request.version !== APPLICATION_ACTION_WORKER_REQUEST_VERSION_V1
   ) return yield* fail(boundary, "invalidShape", "$request");
 
-  const target = yield* decodeTarget(request.target, boundary);
+  const target = yield* decodeTarget(request.target, boundary, validatorIdentityEncoding);
   if (target.function.kind !== "action") {
     return yield* fail(boundary, "invalidTargetKind", "target.function.kind");
   }
@@ -431,9 +434,10 @@ function isBoundedApplicationErrorText(value: unknown): value is string {
 function decodeTarget(
   value: unknown,
   boundary: "transactionRequest" | "actionRequest",
+  validatorIdentityEncoding: ValidatorIdentityEncoding,
 ): Effect.Effect<ApplicationRuntimeTargetV1, ApplicationWorkerProtocolV1Error> {
   return Effect.fromResult(
-    canonicalizeApplicationRuntimeTargetV1(value).pipe(
+    recanonicalizeApplicationRuntimeTargetV1(value, validatorIdentityEncoding).pipe(
       Result.map(canonical => canonical.target),
       Result.mapError(cause =>
         protocolError(boundary, "invalidTarget", "target", cause)

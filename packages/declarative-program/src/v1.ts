@@ -7,7 +7,6 @@ import {
   MAX_SCHEMA_MANIFEST_APP_INDEXES,
   MAX_SCHEMA_MANIFEST_APP_INDEXES_PER_TABLE,
   MAX_SCHEMA_MANIFEST_APP_TABLES,
-  MAX_SCHEMA_MANIFEST_NESTING_DEPTH,
   type SchemaManifestAppIndexDeclarationInputV1,
   type SchemaManifestAppIndexDeclarationV1,
   type SchemaManifestAppTableDeclarationInputV1,
@@ -18,6 +17,7 @@ import {
   type ObjectValidatorJsonV1,
   type ValidatorJsonV1 as ValidatorJsonV1Type,
 } from "flarex-protocol/validator-json";
+import { normalizeSourceDocumentValidator, validateSourceValidatorResult } from "flarex-protocol/internal/validator-source";
 
 export const CANONICAL_DECLARATIVE_PROGRAM_FORMAT_V1 =
   "flarex.declarative-program/v1" as const;
@@ -477,6 +477,7 @@ function decodeValidatorCandidate(
       case "null":
       case "number":
       case "bigint":
+      case "commitTs":
       case "boolean":
       case "string":
       case "bytes":
@@ -488,6 +489,20 @@ function decodeValidatorCandidate(
           );
         }
         candidate = { type: typeRecord.type };
+        break;
+      }
+      case "function": {
+        const record = captureOpenRecord(value);
+        if (record === undefined || Object.keys(record).some(key => !["type", "fnType", "args", "returns"].includes(key)) ||
+          (record.fnType !== undefined && record.fnType !== "query" && record.fnType !== "mutation" && record.fnType !== "action")) {
+          return yield* Result.fail(programError("decodeProgram", "invalidValidator", { path }));
+        }
+        candidate = {
+          type: "function",
+          ...(record.fnType === undefined ? {} : { fnType: record.fnType }),
+          ...(record.args === undefined ? {} : { args: yield* decodeValidatorCandidate(record.args, context, depth + 1, `${path}.args`) }),
+          ...(record.returns === undefined ? {} : { returns: yield* decodeValidatorCandidate(record.returns, context, depth + 1, `${path}.returns`) }),
+        };
         break;
       }
       case "id": {
@@ -694,11 +709,19 @@ function snapshotValidator(
     case "null":
     case "number":
     case "bigint":
+    case "commitTs":
     case "boolean":
     case "string":
     case "bytes":
     case "any":
       return Object.freeze({ type: validator.type });
+    case "function":
+      return Object.freeze({
+        type: "function",
+        ...(validator.fnType === undefined ? {} : { fnType: validator.fnType }),
+        ...(validator.args === undefined ? {} : { args: snapshotValidator(validator.args) }),
+        ...(validator.returns === undefined ? {} : { returns: snapshotValidator(validator.returns) }),
+      });
     case "id":
       return Object.freeze({
         type: "id",
@@ -773,7 +796,7 @@ function decodeTable(
       definition === undefined ||
       typeof record.logicalName !== "string" ||
       definition.kind !== "appDocument" ||
-      definition.definitionVersion !== 1
+      (definition.definitionVersion !== 1 && definition.definitionVersion !== 2)
     ) {
       return yield* Result.fail(
         programError("decodeProgram", "invalidSchema", { path }),
@@ -785,24 +808,27 @@ function decodeTable(
       record.logicalName,
       `${path}.logicalName`,
     );
-    const documentType = yield* decodeValidator(
+    const documentValidator = yield* decodeValidator(
       definition.documentType,
       context,
       1,
       `${path}.definition.documentType`,
     );
-    if (documentType.type !== "object") {
+    const admitted = validateSourceValidatorResult(documentValidator);
+    const normalized = admitted.ok ? normalizeSourceDocumentValidator(admitted.value) : admitted;
+    if (!normalized.ok || (definition.definitionVersion === 1 && normalized.value.type !== "object")) {
       return yield* Result.fail(
         programError("decodeProgram", "invalidSchema", {
           path: `${path}.definition.documentType`,
         }),
       );
     }
+    const documentType = normalized.value;
     const decoded = yield* captureSchemaManifestAppTableDeclarationsV1Result([{
       logicalName: record.logicalName,
       definition: {
         kind: "appDocument",
-        definitionVersion: 1,
+        definitionVersion: 2,
         documentType,
       },
     }]).pipe(
@@ -820,8 +846,8 @@ function decodeTable(
       logicalName: table.logicalName,
       definition: Object.freeze({
         kind: "appDocument",
-        definitionVersion: 1,
-        documentType: snapshotValidator(table.definition.documentType),
+        definitionVersion: 2,
+        documentType: table.definition.documentType,
       }),
     });
   });
@@ -1131,7 +1157,6 @@ export function makeCanonicalDeclarativeProgramBudgetV1(
     !isNonNegativeSafeInteger(record.maximumValidatorNodes) ||
     !isNonNegativeSafeInteger(record.maximumValidatorDepth) ||
     record.maximumValidatorDepth === 0 ||
-    record.maximumValidatorDepth > MAX_SCHEMA_MANIFEST_NESTING_DEPTH ||
     !isNonNegativeSafeInteger(record.maximumValidatorStringUtf8Bytes)
   ) {
     return Result.fail(

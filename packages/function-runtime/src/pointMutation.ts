@@ -109,7 +109,7 @@ function contractFailureMessage(
     case "argumentsInvalid":
       return "Exact-runtime arguments do not match the pinned validator.";
     case "validatorProjectionInvalid":
-      return "Exact-runtime validator projection exceeds its limits.";
+      return "Exact-runtime validator projection is invalid.";
   }
 }
 

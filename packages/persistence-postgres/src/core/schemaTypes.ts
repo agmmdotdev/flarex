@@ -5,9 +5,9 @@
  */
 import { Data, Effect, Result, Schema, SchemaTransformation } from "effect";
 import { DeveloperDocumentIdSchema } from "flarex-protocol/document-id";
-import { captureDocumentValue } from "flarex-protocol/document-value";
 import { SchemaManifestAppIdentifierSchema } from "flarex-protocol/schema-manifest";
-import { ValidatorJsonV1, validatorIsValidRecordKeyV1, validatorJsonAdmissionIssueV1 } from "flarex-protocol/validator-json";
+import { ValidatorJsonV1 } from "flarex-protocol/validator-json";
+import { normalizeSourceDocumentValidator } from "flarex-protocol/internal/validator-source";
 import { CoreIndexDeclarationSchema, type CoreIndexDeclaration } from "./indexState";
 import { CorePersistenceError } from "./contracts";
 
@@ -46,10 +46,11 @@ export const CoreSchemaMetadataSchema = Schema.Struct({ state: CoreSchemaStateSc
 export type CoreSchemaMetadata = typeof CoreSchemaMetadataSchema.Type;
 export const decodeCoreSchemaMetadata = Schema.decodeUnknownResult(CoreSchemaMetadataSchema);
 
+const InputIndexSchema = Schema.Struct({ indexDescriptor: Schema.String, fields: Schema.Array(Schema.String) });
 const InputTableSchema = Schema.Struct({
-  tableName: UserTableNameSchema,
-  indexes: Schema.Array(CoreIndexDeclarationSchema),
-  stagedDbIndexes: Schema.optionalKey(Schema.NullOr(Schema.Array(CoreIndexDeclarationSchema))),
+  tableName: Schema.String,
+  indexes: Schema.Array(InputIndexSchema),
+  stagedDbIndexes: Schema.optionalKey(Schema.NullOr(Schema.Array(InputIndexSchema))),
   searchIndexes: Schema.optionalKey(Schema.NullOr(Schema.Array(Schema.Unknown))),
   stagedSearchIndexes: Schema.optionalKey(Schema.NullOr(Schema.Array(Schema.Unknown))),
   vectorIndexes: Schema.optionalKey(Schema.NullOr(Schema.Array(Schema.Unknown))),
@@ -116,13 +117,12 @@ export function invalidCoreSchema(message: string, cause?: unknown, tableName?: 
 
 const decodeInput = Schema.decodeUnknownResult(CoreSchemaInputSchema);
 const decodeValidator = Schema.decodeUnknownResult(ValidatorJsonV1);
-const identifier = Schema.decodeUnknownResult(CoreSchemaIdentifierSchema);
+const decodeTableName = Schema.decodeUnknownResult(UserTableNameSchema);
+const decodeIndex = Schema.decodeUnknownResult(CoreIndexDeclarationSchema);
 
 const captureIndexes = (items: readonly CoreIndexDeclaration[]) => Object.freeze(items.toSorted((a, b) =>
   a.indexDescriptor < b.indexDescriptor ? -1 : a.indexDescriptor > b.indexDescriptor ? 1 : 0).map(index =>
   Object.freeze({ indexDescriptor: index.indexDescriptor, fields: Object.freeze([...index.fields]) })));
-const stripSystemFields = (object: Extract<ValidatorJsonV1, { type: "object" }>): ValidatorJsonV1 => Object.freeze({
-  type: "object", value: Object.freeze(Object.fromEntries(Object.entries(object.value).filter(([key]) => !key.startsWith("_")))) });
 
 /** Capture the producer's semantic protocol validators; persisted source JSON has a separate codec. */
 export function captureCoreSchema(value: unknown): Result.Result<CoreSchemaDefinition, CoreSchemaError> {
@@ -130,25 +130,30 @@ export function captureCoreSchema(value: unknown): Result.Result<CoreSchemaDefin
     const input = yield* Result.mapError(decodeInput(value), cause => invalidCoreSchema("Invalid schema declaration", cause));
     const tables = new Map<string, CoreSchemaTable>();
     for (const table of input.tables) {
+      const documentType = table.documentType == null ? undefined : yield* normalizeCoreDocumentValidator(table.documentType);
+      const stagedDocumentType = table.stagedDocumentType == null ? undefined
+        : yield* normalizeCoreDocumentValidator(table.stagedDocumentType);
+      const tableName = yield* Result.mapError(decodeTableName(table.tableName), cause => invalidCoreSchema("Invalid table name", cause));
       if ([table.searchIndexes, table.stagedSearchIndexes, table.vectorIndexes, table.stagedVectorIndexes]
         .some(indexes => (indexes?.length ?? 0) > 0)) return yield* Result.fail(new CoreSchemaError({
           reason: "unsupportedCapability", message: "Search and vector indexes are not implemented", tableName: table.tableName }));
-      const indexes = [...table.indexes, ...(table.stagedDbIndexes ?? [])];
-      if (indexes.length > 64) return yield* Result.fail(invalidCoreSchema("A table supports at most 64 declared indexes", undefined, table.tableName));
+      if (table.indexes.length + (table.stagedDbIndexes?.length ?? 0) > 64)
+        return yield* Result.fail(invalidCoreSchema("A table supports at most 64 declared indexes", undefined, tableName));
+      const indexes: CoreIndexDeclaration[] = [];
+      const stagedIndexes: CoreIndexDeclaration[] = [];
+      for (const index of table.indexes) indexes.push(yield* Result.mapError(decodeIndex(index), cause => invalidCoreSchema("Invalid index", cause, tableName)));
+      for (const index of table.stagedDbIndexes ?? []) stagedIndexes.push(yield* Result.mapError(decodeIndex(index), cause => invalidCoreSchema("Invalid staged index", cause, tableName)));
       const names = new Set<string>();
       const fields = new Set<string>();
-      for (const index of indexes) {
+      for (const index of [...indexes, ...stagedIndexes]) {
         const key = JSON.stringify(index.fields);
         if (names.has(index.indexDescriptor) || fields.has(key)) return yield* Result.fail(invalidCoreSchema(
           "Index names and ordinary index field lists must be unique", undefined, table.tableName));
         names.add(index.indexDescriptor); fields.add(key);
       }
-      const documentType = table.documentType == null ? undefined : yield* normalizeCoreDocumentValidator(table.documentType);
-      const stagedDocumentType = table.stagedDocumentType == null ? undefined
-        : yield* normalizeCoreDocumentValidator(table.stagedDocumentType);
       // BTreeMap collection in the source intentionally keeps the last declaration.
-      tables.set(table.tableName, Object.freeze({ tableName: table.tableName,
-        indexes: captureIndexes(table.indexes), stagedDbIndexes: captureIndexes(table.stagedDbIndexes ?? []),
+      tables.set(tableName, Object.freeze({ tableName,
+        indexes: captureIndexes(indexes), stagedDbIndexes: captureIndexes(stagedIndexes),
         ...(documentType === undefined ? {} : { documentType }),
         ...(stagedDocumentType === undefined ? {} : { stagedDocumentType }) }));
     }
@@ -159,53 +164,9 @@ export function captureCoreSchema(value: unknown): Result.Result<CoreSchemaDefin
 
 export function normalizeCoreDocumentValidator(value: unknown): Result.Result<ValidatorJsonV1, CoreSchemaError> {
   return Result.gen(function* () {
-    const issue = validatorJsonAdmissionIssueV1(value);
-    if (issue !== undefined) return yield* Result.fail(invalidCoreSchema("Validator admission failed", issue));
     const validator = yield* Result.mapError(decodeValidator(value), cause => invalidCoreSchema("Invalid validator", cause));
-    const normalized = yield* captureValidator(validator);
-    if (normalized.type === "any") return normalized;
-    if (normalized.type === "object") return stripSystemFields(normalized);
-    if (normalized.type !== "union" || normalized.value.some(member => member.type !== "object"))
-      return yield* Result.fail(invalidCoreSchema("Document validators must be any, an object or a union of objects"));
-    const members: ValidatorJsonV1[] = [];
-    for (const member of normalized.value) if (member.type === "object") members.push(stripSystemFields(member));
-    return members.length === 1 && members[0] !== undefined ? members[0]
-      : Object.freeze({ type: "union", value: Object.freeze(members) });
-  });
-}
-
-function captureValidator(validator: ValidatorJsonV1): Result.Result<ValidatorJsonV1, CoreSchemaError> {
-  return Result.gen(function* () {
-    switch (validator.type) {
-      case "array": return Object.freeze({ type: "array", value: yield* captureValidator(validator.value) });
-      case "union": {
-        const values: ValidatorJsonV1[] = [];
-        for (const value of validator.value) values.push(yield* captureValidator(value));
-        return Object.freeze({ type: "union", value: Object.freeze(values) });
-      }
-      case "object": {
-        const fields: [string, { readonly fieldType: ValidatorJsonV1; readonly optional: boolean }][] = [];
-        for (const [key, field] of Object.entries(validator.value).toSorted(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
-          yield* Result.mapError(identifier(key), cause => invalidCoreSchema("Invalid object field identifier", cause));
-          fields.push([key, Object.freeze({ fieldType: yield* captureValidator(field.fieldType), optional: field.optional })]);
-        }
-        return Object.freeze({ type: "object", value: Object.freeze(Object.fromEntries(fields)) });
-      }
-      case "record": {
-        if (!validatorIsValidRecordKeyV1(validator.keys))
-          return yield* Result.fail(invalidCoreSchema("Records require string keys without string literals"));
-        return Object.freeze({ type: "record", keys: yield* captureValidator(validator.keys),
-          values: yield* captureValidator(validator.values) });
-      }
-      case "id":
-        yield* Result.mapError(identifier(validator.tableName), cause => invalidCoreSchema("Invalid ID table name", cause));
-        return Object.freeze({ ...validator });
-      case "literal":
-        yield* Result.mapError(captureDocumentValue(validator.value), cause => invalidCoreSchema("Invalid literal value", cause));
-        return Object.freeze({ ...validator });
-      case "null": case "number": case "bigint": case "boolean": case "string": case "bytes": case "any":
-        return Object.freeze({ ...validator });
-    }
+    const normalized = normalizeSourceDocumentValidator(validator);
+    return normalized.ok ? normalized.value : yield* Result.fail(invalidCoreSchema("Invalid document validator", normalized.issue));
   });
 }
 
@@ -224,11 +185,19 @@ export function checkCoreSchemaIndexReferences(schema: CoreSchemaDefinition): Re
   return Result.succeed(undefined);
 }
 
-function validatorContainsField(validator: ValidatorJsonV1, parts: readonly string[]): boolean {
-  const first = parts[0];
+function validatorContainsField(validator: ValidatorJsonV1, parts: readonly string[], offset = 0,
+  memo = new WeakMap<ValidatorJsonV1, Map<number, boolean>>()): boolean {
+  const known = memo.get(validator)?.get(offset);
+  if (known !== undefined) return known;
+  const first = parts[offset];
   if (first === undefined) return true;
   if (validator.type === "any") return true;
-  if (validator.type === "union") return validator.value.some(member => validatorContainsField(member, parts));
-  const field = validator.type === "object" ? validator.value[first] : undefined;
-  return field !== undefined && validatorContainsField(field.fieldType, parts.slice(1));
+  const field = validator.type === "object" && Object.hasOwn(validator.value, first) ? validator.value[first] : undefined;
+  const verdict = validator.type === "union"
+    ? validator.value.some(member => validatorContainsField(member, parts, offset, memo))
+    : field !== undefined && validatorContainsField(field.fieldType, parts, offset + 1, memo);
+  let offsets = memo.get(validator);
+  if (offsets === undefined) { offsets = new Map(); memo.set(validator, offsets); }
+  offsets.set(offset, verdict);
+  return verdict;
 }
