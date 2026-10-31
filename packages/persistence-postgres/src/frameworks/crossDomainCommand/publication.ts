@@ -16,10 +16,10 @@ import type {
 } from "../../commit/publication/scopePublicationModel";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
 import { runOwnedPromise } from "../../values/ownedPromise";
-import { compositeError, projectCompositePublicationFailure } from "./model";
-import type { makeCurrencyAnnouncementParticipants } from "./participants";
+import { projectCompositePublicationFailure } from "./legacyFailure";
+import type { makeLegacyCurrencyAnnouncementParticipants } from "./participants";
 
-type LogicalParticipants = Effect.Success<ReturnType<typeof makeCurrencyAnnouncementParticipants>>;
+type LogicalParticipants = Effect.Success<ReturnType<typeof makeLegacyCurrencyAnnouncementParticipants>>;
 interface PublicationInput {
   readonly tx: FlarexMetadataTransaction;
   readonly scopeId: ReplacementScopeIdV1;

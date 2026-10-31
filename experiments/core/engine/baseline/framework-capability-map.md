@@ -40,6 +40,13 @@ Local API lifetime. This bounded activation does not open the Application gate
 or complete the broader Payload/Medusa inventory. The
 [indexed continuation](../slices/11-payload-indexed-scalar.md) is implemented and
 validated for its selected fixture family; that family's old assembly is retired.
+The [Currency/composition continuation](../slices/12-medusa-currency-composition.md)
+now connects authenticated schema-only Application, Payload and genuine Currency
+sources to one schema lifecycle and confined transaction kernel. Shared row/query
+semantics, examined native pages and source initialization use their existing
+owners above the five-table persistence layer. Its selected genuine consumer uses
+that replacement; broader Medusa modules, developer-function
+composition, native hosting, retained data and performance remain migration gates.
 
 Source identities are the [current Convex pin](../CONVEX-REFERENCE-UPGRADE.md),
 the [recorded Medusa fork](../../../../third_party/medusa/SOURCE.json) at

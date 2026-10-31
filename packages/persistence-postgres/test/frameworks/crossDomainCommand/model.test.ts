@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { activationError } from "../../../src/application/activation/errors";
-import { CompositeCommandError, projectCompositeFailure } from "../../../src/frameworks/crossDomainCommand/model";
+import { CompositeCommandError } from "../../../src/frameworks/crossDomainCommand/model";
+import { projectCompositeFailure } from "../../../src/frameworks/crossDomainCommand/legacyFailure";
 
 describe("joint command current Application failure projection", () => {
   it("retains a preparation resource failure and its exact cause chain", () => {

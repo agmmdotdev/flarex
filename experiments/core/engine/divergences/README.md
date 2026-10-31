@@ -132,6 +132,12 @@ maintaining a competing completion log here.
 
 ## Selected native extensions
 
+- [Native source initialization outcomes](./native-source-initialization.md): actual producer seed/readiness and known-failure retry use existing Core native outcomes; selected fresh contract implemented.
+- [Native null-predicate index lowering](./native-null-partial-index.md): selected native active-row access through an authenticated equality-null prefix over a Source index; bounded lowering implemented.
+- [Native index page observations](./native-index-page-observations.md): Currency's examined windows preserve Source prefix/EOF ownership in the native profile; selected page/count path implemented.
+- [Native schema source composition](./native-schema-composition.md): one authenticated bundle before the existing Source lifecycle; selected fresh multi-source contract implemented.
+- [Confined native root participation](./native-root-participation.md): explicit source children over one kernel/lifetime/outcome; selected private mixed path implemented.
+- [Native relational row values](./native-relational-row-values.md): existing authenticated row semantics move to one shared value owner before Currency cutover; no additional physical schema or native runtime activation is implied.
 - [Authenticated native write ownership](./native-write-ownership.md): selected fresh scalar policy implemented through shared schema/transaction owners; broader native and retained-data gates remain.
 - [Native declarative uniqueness](./native-unique-constraints.md): required-text subset implemented over source indexes/dependencies/acceptance; general constraint gates remain.
 - [Direct native read visibility](./native-direct-read-visibility.md): selected direct-command and fixed-read profiles implemented; wider native and hosting gates remain.

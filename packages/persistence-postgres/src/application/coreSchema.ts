@@ -37,7 +37,7 @@ export function requireCoreApplicationSchemaSupport(
 ): Result.Result<ApplicationManifestV1, CoreSchemaError> {
   if (manifest.version !== 1 || manifest.schema.indexes.some(index => (index.decimalFields?.length ?? 0) > 0))
     return Result.fail(new CoreSchemaError({ reason: "unsupportedCapability",
-      message: "The translated core does not yet enforce native write ownership, exact values, unique constraints or references." }));
+      message: "The ordinary Application manifest profile does not admit native ownership, relational values, constraints or references; use an explicitly supported source-bound profile." }));
   return Result.succeed(manifest);
 }
 

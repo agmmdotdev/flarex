@@ -313,3 +313,14 @@ limits after its independent mechanism challenge and old-profile concurrency
 characterization. Its bounded database/consumer verification, independent review
 and selected fixture retirement are complete. This does not close broader
 native, managed-host, retained-data or performance obligations.
+
+The bounded [Currency/composition slice](./slices/12-medusa-currency-composition.md)
+has completed independent current/source/design review, peer challenge,
+existing-profile characterization and coordinated implementation handoff.
+Its selected real consumer combines Currency, Payload Local API and a trusted
+Application insert. Preserve demonstrated native first-observation reads,
+source-bound child capabilities and one settlement. Shared source, value,
+transaction and native host replacement executes the genuine consumer through
+five-table persistence. Product/strong-reference and joint relation consumers
+retain the named Legacy closure until their connected migration. This does not
+activate the broader giant fixture or general mixed API.

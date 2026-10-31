@@ -1,0 +1,147 @@
+import { Effect, Result, Schema } from "effect";
+import { compareUtf16Strings } from "@flarex/utils/strings";
+import { requirePreparedApplicationSchemaSource, type PreparedApplicationSchemaSource } from "@flarex/analysis/internal/logical-application-source";
+import { encodeLogicalSchemaSource, logicalTableKey, type QualifiedLogicalTable } from "flarex-protocol/internal/logical-schema-candidate";
+import { encodeCanonicalJson, type Json } from "flarex-protocol/json";
+import { captureCoreSchema, CoreSchemaError, type CoreSchemaDefinition } from "./schemaTypes";
+import { captureCoreTableNamespace, type CoreTableNamespace } from "./namespace";
+import { requireCoreNativeDefinition, type CoreNativeDefinition } from "./nativePolicy";
+import { coreNativeTableName } from "./schemaTableName";
+import { serializeCoreSchema } from "./schemaJson";
+import { compileCoreApplicationIndexes } from "../application/coreSchema";
+
+export interface CoreSchemaTableBinding {
+  readonly sourceKey: string;
+  readonly localName: string;
+  readonly table: QualifiedLogicalTable;
+  readonly coreTableName: string;
+}
+export type CoreSchemaSource =
+  | Readonly<{ kind: "application"; definition: PreparedApplicationSchemaSource }>
+  | Readonly<{ kind: "native"; definition: CoreNativeDefinition }>;
+export interface CoreSchemaBundle {
+  readonly namespace: CoreTableNamespace;
+  readonly schema: CoreSchemaDefinition;
+  readonly sources: readonly CoreSchemaSource[];
+  readonly bindings: readonly CoreSchemaTableBinding[];
+  readonly nativeDefinitions: readonly CoreNativeDefinition[];
+  readonly metadata: string;
+}
+const bundles = new WeakSet<CoreSchemaBundle>();
+const unsupported = (message: string, cause?: unknown) => new CoreSchemaError({ reason: "unsupportedCapability", message,
+  ...(cause === undefined ? {} : { cause }) });
+const canonical = (value: Json) => encodeCanonicalJson(value, issue => { throw new Error(`Schema bundle lost JSON: ${issue.reason}`); });
+const SourceEnvelope = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("application"), definition: Schema.declare<PreparedApplicationSchemaSource>(
+    (value): value is PreparedApplicationSchemaSource => Result.isSuccess(requirePreparedApplicationSchemaSource(value))) }),
+  Schema.Struct({ kind: Schema.Literal("native"), definition: Schema.declare<CoreNativeDefinition>(
+    (value): value is CoreNativeDefinition => Result.isSuccess(requireCoreNativeDefinition(value))) }),
+]);
+const decodeSourceEnvelope = Schema.decodeUnknownResult(SourceEnvelope, { onExcessProperty: "error" });
+const decodeSourceCount = Schema.decodeUnknownResult(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 64 })));
+
+/** Capture only the envelope. Opaque definitions retain their exact issuer
+ * identity; foreign getters and wrappers never survive into asynchronous work. */
+function captureSchemaSources(input: readonly CoreSchemaSource[]): Result.Result<readonly CoreSchemaSource[], CoreSchemaError> {
+  return Result.gen(function* () {
+    if (!Array.isArray(input))
+      return yield* Result.fail(unsupported("Schema bundle source limit exceeded"));
+    const length = yield* Result.try({ try: () => Object.getOwnPropertyDescriptor(input, "length"),
+      catch: cause => unsupported("Schema source count could not be captured", cause) });
+    const count = yield* Result.mapError(decodeSourceCount(length?.value), cause => unsupported("Schema bundle source limit exceeded", cause));
+    const sources: CoreSchemaSource[] = [];
+    for (let index = 0; index < count; index++) {
+      const envelope = yield* Result.try({ try: () => {
+        const item = Object.getOwnPropertyDescriptor(input, String(index));
+        if (item === undefined || !item.enumerable || !("value" in item)) return undefined;
+        const value: unknown = item.value;
+        if (value === null || typeof value !== "object") return undefined;
+        const properties = Object.getOwnPropertyDescriptors(value);
+        if (Reflect.ownKeys(properties).length !== 2) return undefined;
+        const kind = properties.kind, definition = properties.definition;
+        if (kind === undefined || definition === undefined || !kind.enumerable || !definition.enumerable
+          || !("value" in kind) || !("value" in definition)) return undefined;
+        const capturedKind: unknown = kind.value, capturedDefinition: unknown = definition.value;
+        return { kind: capturedKind, definition: capturedDefinition };
+      }, catch: cause => unsupported("Schema source envelope could not be captured", cause) });
+      const source = yield* Result.mapError(decodeSourceEnvelope(envelope), cause => unsupported("Schema source has no matching issuer proof", cause));
+      sources.push(Object.freeze(source));
+    }
+    return Object.freeze(sources);
+  });
+}
+
+export function requireCoreSchemaBundle(bundle: CoreSchemaBundle): Result.Result<void, CoreSchemaError> {
+  return bundles.has(bundle) ? Result.succeed(undefined) : Result.fail(unsupported("Schema bundle was not issued by the source owner"));
+}
+export function coreSchemaBundleNative(bundle: CoreSchemaBundle, definition: CoreNativeDefinition): boolean {
+  return bundles.has(bundle) && Result.isSuccess(requireCoreNativeDefinition(definition))
+    && bundle.nativeDefinitions.some(candidate => candidate.metadata === definition.metadata);
+}
+
+/** Trusted source composition before Source's existing single-schema lifecycle. */
+export const makeCoreSchemaBundle = Effect.fn("CoreSchemaBundle.make")(function* (input: Readonly<{
+  namespace?: CoreTableNamespace;
+  sources: readonly CoreSchemaSource[];
+}>) {
+  // Both captures execute before the first Effect yield. Async digest calls may
+  // not reread mutable caller envelopes after their source proof was checked.
+  const capturedNamespace = captureCoreTableNamespace(input.namespace ?? null);
+  const capturedSources = captureSchemaSources(input.sources);
+  const namespace = yield* Effect.fromResult(capturedNamespace)
+    .pipe(Effect.mapError(cause => unsupported("Invalid schema bundle namespace", cause)));
+  const sources = (yield* Effect.fromResult(capturedSources))
+    .toSorted((left, right) => compareUtf16Strings(left.definition.source.key, right.definition.source.key));
+  if (new Set(sources.map(source => source.definition.source.key)).size !== sources.length)
+    return yield* unsupported("Schema bundle sources require distinct keys");
+  const nativeDefinitions = sources.flatMap(source => source.kind === "native" ? [source.definition] : []);
+  const target = nativeDefinitions[0]?.identity;
+  if (target !== undefined && nativeDefinitions.some(definition => definition.identity.scopeUuid !== target.scopeUuid
+    || definition.identity.epochUuid !== target.epochUuid)) return yield* unsupported("Schema bundle native targets differ");
+  const bindings: CoreSchemaTableBinding[] = [], tables: CoreSchemaDefinition["tables"][number][] = [];
+  const names = new Set<string>(), coordinates = new Set<string>();
+  for (const selected of sources) {
+    const source = selected.definition.source;
+    if (source.bindings.some(binding => binding.kind !== "definition")) return yield* unsupported("Schema bundle views are not admitted");
+    if (selected.kind === "application") {
+      if (source.definition.kind !== "documents" || source.definition.relations.length !== 0)
+        return yield* unsupported("Schema-only Application relationships are not admitted");
+      const definition = source.definition;
+      if (definition.indexes.some(index => (index.decimalFields?.length ?? 0) > 0))
+        return yield* unsupported("Application decimal indexes are not admitted");
+      const compiled = [];
+      for (const table of definition.tables) {
+        const indexes = yield* Effect.fromResult(compileCoreApplicationIndexes(definition.indexes
+          .filter(index => index.tableLogicalName === table.logicalName)
+          .map(index => ({ name: index.descriptor, fields: index.fields }))))
+          .pipe(Effect.mapError(cause => unsupported("Application index lowering failed", cause)));
+        compiled.push({ tableName: table.logicalName, documentType: table.definition.documentType, indexes, stagedDbIndexes: [] });
+      }
+      const schema = yield* Effect.fromResult(captureCoreSchema({ schemaValidation: true, tables: compiled }));
+      tables.push(...schema.tables);
+    } else tables.push(...selected.definition.schema.tables);
+    for (const binding of source.bindings) {
+      const coreTableName = yield* coreNativeTableName(binding.table);
+      const coordinate = logicalTableKey(binding.table);
+      if (names.has(coreTableName) || coordinates.has(coordinate)) return yield* unsupported("Schema source table identities collide");
+      if (selected.kind === "native" && !selected.definition.tables.some(table => table.name === coreTableName
+        && (table.localName ?? table.name) === binding.localName)) return yield* unsupported("Native source table binding differs from its definition");
+      names.add(coreTableName); coordinates.add(coordinate);
+      bindings.push(Object.freeze({ sourceKey: source.key, localName: binding.localName,
+        table: Object.freeze({ ...binding.table }), coreTableName }));
+    }
+  }
+  if (bindings.length > 256 || tables.length !== bindings.length || tables.some(table => !names.has(table.tableName)))
+    return yield* unsupported("Schema bundle table closure differs from source bindings");
+  const schema = yield* Effect.fromResult(captureCoreSchema({ schemaValidation: true, tables }));
+  const metadata = canonical({ format: "flarex.core-schema-bundle", version: 1, loweringVersion: 1, namespace,
+    sources: sources.map(source => source.kind === "application" ? { kind: source.kind, source: encodeLogicalSchemaSource(source.definition.source) }
+      : { kind: source.kind, source: encodeLogicalSchemaSource(source.definition.source), native: source.definition.metadata }),
+    bindings: bindings.map(binding => ({ ...binding, table: { ...binding.table } })),
+    schema: yield* Effect.fromResult(serializeCoreSchema(schema)) });
+  const bundle: CoreSchemaBundle = Object.freeze({ namespace, schema,
+    sources: Object.freeze(sources.map(source => Object.freeze({ ...source }))), bindings: Object.freeze(bindings),
+    nativeDefinitions: Object.freeze(nativeDefinitions), metadata });
+  bundles.add(bundle);
+  return bundle;
+});

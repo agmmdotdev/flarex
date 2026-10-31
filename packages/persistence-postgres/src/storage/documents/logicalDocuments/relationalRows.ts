@@ -6,8 +6,7 @@ import type { FlarexMetadataTransaction } from "../../../database/metadataTransa
 import { runDrizzleStatementEffect } from "../../../database/drizzleStatementEffect";
 import { rowsFromDriverExecuteResult } from "../../../database/driverExecuteResult";
 import { compareBytesLexicographically, copyBytes } from "@flarex/utils/bytes";
-import { decodeExactDecimal } from "flarex-protocol/internal/exact-decimal";
-import { isRelationalColumnValue, validateRelationalRowColumns, validateRelationalRowValues, type RelationalColumnIdentity, type RelationalPersistenceCapability, type RelationalTableDefinition, RelationalRowValueError } from "flarex-protocol/internal/relational-schema";
+import { validateRelationalRowColumns, type RelationalPersistenceCapability, type RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import type { LogicalDocumentFailure, LogicalDocumentFailureReason } from "./model";
 import { canonicalizeFlarexValueV1Effect, copyCanonicalFlarexValueBytesV1, copyFlarexValueSha256V1, type CanonicalFlarexValueV1 } from "flarex-protocol/value";
@@ -15,6 +14,7 @@ import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import type { OrderedIndexKeyHexV1 } from "flarex-protocol/ordered-index";
 import { capturePrivateJsonData, inspectCapturedPrivateJsonData, useCapturedPrivateJsonData } from "../../../values/privateJsonData";
+import { prepareRelationalRows, prepareRelationalRowValues, type RelationalRowFailure } from "../../../values/relationalRows";
 import { detachStoredAppDocumentEvidence, detachStoredAppRowRevisionEvidence, inspectStoredAppDocumentEvidence, protectStoredAppDocumentEvidence } from "../appRowCanonicalEvidence";
 import { MAX_BOUNDED_APP_ROW_READ_IDENTITIES, MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES, type AppRowReadResultV1 } from "../appRows";
 import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
@@ -25,176 +25,41 @@ import { lowerCanonicalAppUniqueConstraintV1Result } from "../../unique/appUniqu
 import { inspectCanonicalFlarexValueOwnershipV1, isCanonicalFlarexRuntimeObjectV1,
   type CanonicalFlarexRuntimeObjectV1 } from "flarex-protocol/value";
 
-export function relationalTextIdentity<Failure>(table: RelationalTableDefinition, error: LogicalDocumentFailure<Failure>) {
-  const primary = table.keys.find(key => key.kind === "primary");
-  const unique = table.keys.filter(key => key.kind === "unique");
-  const selected = primary ?? (unique.length === 1 ? unique[0] : undefined);
-  const columns = selected?.columns.map(column => column.columnId);
-  return columns === undefined || columns.length === 0 ||
-    columns.some(key => {
-      const column = table.columns.find(candidate => candidate.identity.columnId === key);
-      return column?.type !== "text" || column.nullable;
-    }) ? Result.fail(error("invalidInput")) : Result.succeed(Object.freeze(columns));
-}
+export { relationalTextIdentity, relationalManagedUpdatedColumns as logicalManagedUpdatedColumns } from "../../../values/relationalRows";
 
-const Raw = Schema.Struct({ value: Schema.String,
-  precision: Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 1000 })),
-}).annotate({ parseOptions: { onExcessProperty: "ignore" } });
-const decodeRaw = Schema.decodeUnknownResult(Raw);
-
-const belongsTo = (table: RelationalTableDefinition, column: RelationalColumnIdentity) =>
-  column.owner === table.identity.owner && column.lineageId === table.identity.lineageId && column.tableId === table.identity.tableId;
-
-export const logicalManagedUpdatedColumns = (table: RelationalTableDefinition,
-  capabilities: readonly RelationalPersistenceCapability[]) => capabilities.flatMap(capability =>
-  capability.kind === "managedTimestamps" && belongsTo(table, capability.createdAtColumn)
-    ? [capability.updatedAtColumn.columnId] : []);
-
-/** The existing row validator has already selected this issue. Retain only
- * exact required-column and CHECK diagnostics; no validation is repeated. */
-function rowValueFailure<Failure>(table: RelationalTableDefinition, row: JsonObject,
-  reason: "documentInvalid" | "storedCorruption", error: LogicalDocumentFailure<Failure>, cause: RelationalRowValueError): Failure {
+/** Keep the retained execution owner's exact failure objects and diagnostic
+ * issuance while the shared value owner performs the row-local checks. */
+const rowFailure = <Failure>(table: RelationalTableDefinition,
+  error: LogicalDocumentFailure<Failure>): RelationalRowFailure<Failure> => (reason, cause, diagnostic) => {
   const failure = error(reason, cause);
-  if (reason === "documentInvalid" && cause.reason === "missingColumn" &&
-    table.columns.some(column => column.identity.columnId === cause.column && !column.nullable))
-    retainLogicalRelationalFailure(failure, { origin: "row", kind: "missing", table: table.identity, column: cause.column, candidate: row });
-  else if (reason === "documentInvalid" && cause.reason === "constraintViolation" && cause.constraint !== undefined)
-    retainLogicalRelationalFailure(failure, { origin: "row", kind: "check", table: table.identity, column: cause.column,
-      constraint: cause.constraint, candidate: row });
+  if (diagnostic !== undefined) retainLogicalRelationalFailure(failure, { ...diagnostic, table: table.identity });
   return failure;
-}
+};
 
-/** Complete native values are checked before projection or mutation. Relation
- * enforcement is a separate execution capability, not a row-value rule. */
 export function prepareLogicalRelationalRowValues<Failure>(table: RelationalTableDefinition,
   capabilities: readonly RelationalPersistenceCapability[], error: LogicalDocumentFailure<Failure>) {
-  const companions = capabilities.flatMap(capability => capability.kind === "exactNumericCompanion" && belongsTo(table, capability.numericColumn)
-    ? [{ numeric: capability.numericColumn.columnId, raw: capability.rawColumn.columnId }] : []);
-  return (row: JsonObject, reason: "documentInvalid" | "storedCorruption") => Result.gen(function* () {
-    yield* validateRelationalRowValues(table, row).pipe(Result.mapError(cause => rowValueFailure(table, row, reason, error, cause)));
-    for (const companion of companions) {
-      const value = row[companion.numeric];
-      const rawValue = row[companion.raw];
-      if (value === null && rawValue === null) continue;
-      const raw = yield* decodeRaw(rawValue).pipe(Result.mapError(cause => error(reason, cause)));
-      const numeric = yield* decodeExactDecimal(String(value)).pipe(Result.mapError(cause => error(reason, cause)));
-      const exact = yield* decodeExactDecimal(raw.value).pipe(Result.mapError(cause => error(reason, cause)));
-      if (numeric.canonical !== exact.canonical) return yield* Result.fail(error(reason));
-    }
-  });
+  return prepareRelationalRowValues(table, capabilities, rowFailure(table, error));
 }
 
-/** Row-local semantics for the admitted scalar relational profile. Defaults and
- * managed fields use the borrowed transaction's timestamp. Native adapters keep
- * ownership of their input coercion and numeric precision rules. */
+/** Canonical/REAL provenance remains lexical to this retained execution owner.
+ * The shared rules normalize values without issuing conversion authority. */
 export function prepareLogicalRelationalRows<Failure>(table: RelationalTableDefinition,
   capabilities: readonly RelationalPersistenceCapability[], error: LogicalDocumentFailure<Failure>) {
-  return compileLogicalRelationalRows(table, capabilities, error, prepareLogicalRelationalRowValues(table, capabilities, error));
+  return compileLogicalRelationalRows(table, capabilities, error);
 }
 
 function compileLogicalRelationalRows<Failure>(table: RelationalTableDefinition,
-  capabilities: readonly RelationalPersistenceCapability[], error: LogicalDocumentFailure<Failure>,
-  validate: ReturnType<typeof prepareLogicalRelationalRowValues<Failure>>) {
-  return Result.gen(function* () {
-    const keyColumns = yield* relationalTextIdentity(table, error);
-    const managed = logicalManagedUpdatedColumns(table, capabilities);
-    const deletions = capabilities.flatMap(capability => capability.kind === "softDelete" && belongsTo(table, capability.deletedAtColumn)
-      ? [capability.deletedAtColumn.columnId] : []);
-    const managedColumns = capabilities.flatMap(capability =>
-      capability.kind === "managedTimestamps" && belongsTo(table, capability.createdAtColumn)
-        ? [capability.createdAtColumn.columnId, capability.updatedAtColumn.columnId]
-        : capability.kind === "softDelete" && belongsTo(table, capability.deletedAtColumn) ? [capability.deletedAtColumn.columnId] : []);
-    const columnsByName = new Map<string, typeof table.columns[number]>(table.columns.map(column => [column.identity.columnId, column]));
-    const suppliedRows = new WeakSet<JsonObject>();
-    const validateInput = (input: JsonObject, required: "defer" | undefined = undefined) => Result.gen(function* () {
-      // A native write cannot smuggle internal Flarex identity fields or columns
-      // outside its source. Selected entity batches retain these identity and
-      // column guards, then check non-key scalars after the required sweep.
-      for (const [name, value] of Object.entries(input)) {
-        const column = columnsByName.get(name);
-        const deferredScalar = required === "defer" && !keyColumns.some(key => key === name);
-        if (column === undefined || !deferredScalar && !(column.default.kind === "serialNext" && value === null) &&
-          !(required === "defer" && !column.nullable && value === null) && !isRelationalColumnValue(column.type, column.nullable, value)) {
-          const failure = error("documentInvalid");
-          if (column !== undefined && !column.nullable && value === null)
-            retainLogicalRelationalFailure(failure, { origin: "input", kind: "null", table: table.identity, column: name, candidate: input });
-          return yield* Result.fail(failure);
-        }
-      }
-      // Only the capture owner's exact detached immutable tree can retain this
-      // supplied-input verdict. A frozen foreign wrapper is insufficient.
-      if (required === undefined && inspectCapturedPrivateJsonData(input)?.value === input) suppliedRows.add(input);
-    });
-    const applyDefaults = (input: JsonObject, previous: JsonObject | null, timestamp: string,
-      managedUpdate: "advance" | "preserve") => {
-      const row = { ...previous, ...input };
-      if (previous === null) for (const column of table.columns) {
-        const name = column.identity.columnId;
-        if (Object.hasOwn(row, name)) continue;
-        const value = column.default;
-        switch (value.kind) {
-          case "none": if (column.nullable) row[name] = null; break;
-          // Allocation needs complete indexed membership and its dependencies;
-          // the working-set owner supplies it before row-local normalization.
-          case "serialNext": break;
-          case "currentTimestamp": row[name] = timestamp; break;
-          case "emptyJsonArray": row[name] = []; break;
-          case "emptyJsonObject": row[name] = {}; break;
-          case "exactNumericRawLiteral": row[name] = { value: value.value, precision: value.precision }; break;
-          case "booleanLiteral": case "textLiteral": case "integerLiteral": case "doublePrecisionLiteral": case "exactNumericLiteral": row[name] = value.value; break;
-        }
-      }
-      else if (managedUpdate === "advance") for (const column of managed) row[column] = timestamp;
-      for (const column of table.columns) {
-        if ((column.type === "integer" || column.type === "doublePrecision") && Object.is(row[column.identity.columnId], -0))
-          row[column.identity.columnId] = 0;
-      }
+  capabilities: readonly RelationalPersistenceCapability[], error: LogicalDocumentFailure<Failure>) {
+  return prepareRelationalRows(table, capabilities, rowFailure(table, error)).pipe(Result.map(rows => {
+    const real = table.columns.some(column => column.type === "real");
+    const normalize = (...args: Parameters<typeof rows.normalize>) => rows.normalize(...args).pipe(Result.map(row => {
+      (real ? realCandidates : normalizedRows).set(row, normalize);
       return row;
-    };
-    // This selected phase checks only required values after ordinary pure
-    // defaults, including omitted transaction-time fields. Explicit null is
-    // still required; serial allocation stays with its accepting row owner.
-    // No scalar validation, REAL conversion or CHECK runs here.
-    const validateInsertRequired = (input: JsonObject, timestamp: string) => Result.gen(function* () {
-      const row = applyDefaults(input, null, timestamp, "advance");
-      for (const column of table.columns) {
-        if (column.nullable || column.default.kind === "serialNext") continue;
-        const name = column.identity.columnId;
-        const missing = !Object.hasOwn(row, name);
-        if (!missing && row[name] !== null) continue;
-        const captured = yield* useCapturedPrivateJsonData(row, Number.MAX_SAFE_INTEGER, error);
-        if (!isJsonObject(captured.value)) return yield* Result.fail(error("documentInvalid"));
-        if (missing) return yield* Result.fail(rowValueFailure(table, captured.value, "documentInvalid", error,
-          new RelationalRowValueError({ reason: "missingColumn", column: name })));
-        const failure = error("documentInvalid");
-        retainLogicalRelationalFailure(failure, { origin: "input", kind: "null", table: table.identity, column: name, candidate: captured.value });
-        return yield* Result.fail(failure);
-      }
-    });
-    const normalize = (input: JsonObject, previous: JsonObject | null, timestamp: string,
-      managedUpdate: "advance" | "preserve" = "advance") => Result.gen(function* () {
-      if (!suppliedRows.has(input)) yield* validateInput(input);
-      const row = applyDefaults(input, previous, timestamp, managedUpdate);
-      // Row semantics do not own a request/document allowance. Keep capture's
-      // ceiling finite without moving the accepting working set's later bounds
-      // or independent ordered charges into this immutable-table helper.
-      const captured = yield* useCapturedPrivateJsonData(row, Number.MAX_SAFE_INTEGER, error);
-      if (!isJsonObject(captured.value)) return yield* Result.fail(error("documentInvalid"));
-      const normalizedRow = captured.value;
-      yield* table.columns.some(column => column.type === "real")
-        ? validateRelationalRowColumns(table, normalizedRow).pipe(Result.mapError(cause => rowValueFailure(table, normalizedRow, "documentInvalid", error, cause)))
-        : validate(normalizedRow, "documentInvalid");
-      // A REAL candidate has only pure input/merge semantics here. Its actual
-      // borrowed SQL conversion must precede the canonical row verdict.
-      (table.columns.some(column => column.type === "real") ? realCandidates : normalizedRows).set(normalizedRow, normalize);
-      return normalizedRow;
-    });
-    const validateCanonical = (row: JsonObject, reason: "documentInvalid" | "storedCorruption") =>
-      table.columns.some(column => column.type === "real") && normalizedRows.get(row) !== normalize
-        ? Result.fail(error(reason)) : validate(row, reason);
-    return Object.freeze({ keyColumns, managedColumns: Object.freeze(managedColumns), normalize, validate: validateCanonical, validateInput, validateInsertRequired,
-      deletedAt: deletions.length === 1 ? deletions[0] : undefined });
-  });
+    }));
+    const validate = (row: JsonObject, reason: "documentInvalid" | "storedCorruption") =>
+      real && normalizedRows.get(row) !== normalize ? Result.fail(error(reason)) : rows.validate(row, reason);
+    return Object.freeze({ ...rows, normalize, validate });
+  }));
 }
 
 export class LogicalRelationalMechanicsError extends Data.TaggedError("LogicalRelationalMechanicsError")<{
@@ -634,7 +499,7 @@ export function prepareLogicalRelationalTableMechanics(sourceTable: RelationalTa
   const table = snapshotDecodedProtocolPlainData(sourceTable);
   const capabilities = snapshotDecodedProtocolPlainData(sourceCapabilities);
   const validate = prepareLogicalRelationalRowValues(table, capabilities, mechanicError);
-  const rows = Object.freeze(compileLogicalRelationalRows(table, capabilities, mechanicError, validate));
+  const rows = Object.freeze(compileLogicalRelationalRows(table, capabilities, mechanicError));
   const columns = new Map<string, typeof table.columns[number]>(table.columns.map(column => [column.identity.columnId, column]));
   const mechanics = Object.freeze({ table, capabilities,
     column: (name: string) => columns.get(name), columnNames: Object.freeze([...columns.keys()]),

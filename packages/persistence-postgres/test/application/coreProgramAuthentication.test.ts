@@ -20,6 +20,8 @@ it("authenticates retained program metadata before claim, recovery, grants or ex
     beginQuery: forbidden, prepareSchema: forbidden, schemaStatus: forbidden, advanceSchemaWork: forbidden,
     advanceSchema: forbidden, activateSchema: forbidden, publishPrograms: forbidden, lookupProgram: forbidden,
     bindNative: forbidden, readNativeBinding: forbidden, beginNative: forbidden,
+    bindNativeInitialization: forbidden,
+    bindNativeRoot: forbidden, readNativeRootBinding: forbidden, beginNativeRoot: forbidden,
     resolveRequest: forbidden, abortRequest: forbidden, begin: forbidden, commit: forbidden,
     publishedTimestamp: forbidden(), readAuthorityEpoch: forbidden(), advanceAuthorityEpoch: forbidden,
   };

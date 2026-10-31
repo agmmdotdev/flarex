@@ -549,3 +549,15 @@ necessary native ordinary-range observation and shared-budget differences
 separately. The selected replacement and its bounded database/consumer proofs
 are complete; its displaced fixture plumbing is retired. Broader native
 profiles, schema composition, retained data, hosting and performance remain open.
+
+The [Currency and native composition continuation](./slices/12-medusa-currency-composition.md)
+implements the selected genuine three-source announcement and Currency service path.
+Independent peer challenge rejects a fixed-S assumption for that existing
+READ COMMITTED profile. Compose authentic schema sources before shared
+activation, preserve per-source identities, and use confined child views over
+one pending/observation/budget/finalization owner. Exact Currency storage is
+required; its code-only queries do not select decimal ordered indexes. The
+contract, characterization and divergence handoff connects native examined pages,
+source initialization/retry and the genuine consumer to the shared core. The
+named Legacy Product/strong-reference and joint relation closure remains until
+its own migration; broader native, hosting and performance gates stay open.

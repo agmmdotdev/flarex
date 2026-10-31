@@ -8,3 +8,7 @@ export { CorePersistenceError } from "./contracts";
 export type * from "./api";
 export type * from "./contracts";
 export { parseCoreTableSummary, serializeCoreTableSummary } from "./tableSummary";
+export { makeCoreRelationalNativeDefinition, coreNativeRelationalRows, coreNativeRelationalFailure } from "./nativePolicy";
+export type { CoreNativeDefinition, CoreNativeRelationalRowPolicy, CoreNativeRelationalIndex } from "./nativePolicy";
+export { makeCoreSchemaBundle } from "./schemaBundle";
+export type { CoreSchemaBundle, CoreSchemaSource, CoreSchemaTableBinding } from "./schemaBundle";

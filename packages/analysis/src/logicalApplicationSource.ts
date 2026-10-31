@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { captureSchemaManifestAppTableDeclarationsV1Result, decodeSchemaManifestAppIndexDeclarationsV1Result } from "flarex-protocol/schema-manifest";
 import type { LogicalSchemaSource } from "flarex-protocol/internal/logical-schema-candidate";
 import type { ApplicationManifest } from "./applicationAnalysis";
@@ -6,9 +6,62 @@ import { ApplicationManifestV3Schema, applicationManifestWireV1 } from "./applic
 import { encodeValidatorJsonV1 } from "flarex-protocol/validator-json";
 import { captureLogicalSchemaSource, LogicalSchemaCandidateError } from "./logicalSchemaCandidate";
 import { encodeCanonicalJson, isJson, isJsonObject } from "flarex-protocol/json";
+import { analyzeLoadedApplicationSourcePackageEffect, type AnalyzedSchema } from "./index";
+import type { RelationDeclarationV1 } from "flarex-protocol/internal/relation-declaration-v1";
+import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
 
 export const ApplicationLogicalV3Evidence = Schema.Struct({ manifest: ApplicationManifestV3Schema,
   manifestSha256: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)) }).annotate({ parseOptions: { onExcessProperty: "error" } });
+
+const schemaSourceBrand: unique symbol = Symbol("Flarex/PreparedApplicationSchemaSource");
+export interface PreparedApplicationSchemaSource {
+  readonly [schemaSourceBrand]: true;
+  readonly source: LogicalSchemaSource;
+}
+const schemaSources = new WeakSet<object>();
+
+/** Schema installation only. The actual analyzer owns this issuance; neither a
+ * manifest/hash supplied by a caller nor this token grants function execution. */
+export const prepareApplicationSchemaSource = Effect.fn("LogicalSchema.analyzeApplicationSchema")(function* (
+  schemaDefinition: unknown,
+) {
+  const analysis = yield* analyzeLoadedApplicationSourcePackageEffect({ schemaDefinition,
+    executionModules: {}, sourceMaps: {} });
+  if (analysis.writePolicies !== undefined)
+    return yield* new LogicalSchemaCandidateError({ reason: "invalidInput" });
+  const definition = yield* projectApplicationDocuments(analysis.schema.tables, analysis.schema.indexes,
+    analysis.relations.map(relation => relation.declaration));
+  const source = snapshotDecodedProtocolPlainData(yield* captureLogicalSchemaSource({ key: "application", owner: "application",
+    writeProfile: "application.occ", evidence: { format: "flarex.application-schema-analysis", version: 1,
+      placements: analysis.schema.tables.map(table => ({ table: table.name, placement: table.placement })) }, definition,
+    bindings: definition.tables.map(table => ({ kind: "definition", localName: table.logicalName,
+      table: { namespace: "app", logicalName: table.logicalName } })) }));
+  const prepared = Object.freeze({ [schemaSourceBrand]: true as const, source });
+  schemaSources.add(prepared);
+  return prepared;
+});
+
+export function requirePreparedApplicationSchemaSource(prepared: unknown) {
+  return prepared !== null && (typeof prepared === "object" || typeof prepared === "function") && schemaSources.has(prepared) ? Result.succeed(undefined)
+    : Result.fail(new LogicalSchemaCandidateError({ reason: "unpreparedCandidate" }));
+}
+
+const projectApplicationDocuments = Effect.fn("LogicalSchema.projectApplicationDocuments")(function* (
+  sourceTables: AnalyzedSchema["tables"], sourceIndexes: AnalyzedSchema["indexes"], relations: readonly RelationDeclarationV1[],
+) {
+  if (sourceTables.some(table => table.placement.kind !== "global" &&
+    !(table.placement.kind === "partitionBy" && table.placement.field === "_id")))
+    return yield* new LogicalSchemaCandidateError({ reason: "unsupportedPlacement" });
+  const tables = yield* Effect.fromResult(captureSchemaManifestAppTableDeclarationsV1Result(sourceTables.map(table => ({
+    logicalName: table.name, definition: { kind: "appDocument", definitionVersion: 2, documentType: table.validator },
+  })))).pipe(Effect.mapError(cause => new LogicalSchemaCandidateError({ reason: "invalidInput", cause })));
+  const names = new Map(sourceTables.map(table => [table.tableId, table.name]));
+  const indexes = yield* Effect.fromResult(decodeSchemaManifestAppIndexDeclarationsV1Result(sourceIndexes
+    .filter(index => names.has(index.tableId)).map(index => ({ tableLogicalName: names.get(index.tableId),
+      descriptor: index.name, fields: index.fields, ...(index.decimalFields === undefined ? {} : { decimalFields: index.decimalFields }) })))).pipe(
+    Effect.mapError(cause => new LogicalSchemaCandidateError({ reason: "invalidInput", cause })));
+  return { kind: "documents" as const, tables, indexes, uniqueConstraints: [], relations };
+});
 
 /** Projection of authenticated analysis, shared by all framework composition
  * roots. V3's complete schema/policy evidence retains placements and command
@@ -45,23 +98,16 @@ export const prepareApplicationLogicalSource = Effect.fn("LogicalSchema.prepareA
         canonical(payload.definition.relations)) return yield* Effect.fail(failed());
   }
   const nativeTables = manifest.schema.tables.filter(table => !payloadNames.has(table.name));
-  const tables = yield* Effect.fromResult(captureSchemaManifestAppTableDeclarationsV1Result(nativeTables.map(table => ({
-    logicalName: table.name, definition: { kind: "appDocument", definitionVersion: 2, documentType: table.validator },
-  })))).pipe(Effect.mapError(cause => new LogicalSchemaCandidateError({ reason: "invalidInput", cause })));
   const names = new Set(nativeTables.map(table => table.name));
   const manifestData: unknown = applicationManifestWireV1(manifest);
   if (!isJson(manifestData) || !isJsonObject(manifestData)) return yield* Effect.die(new Error("Decoded Application manifest lost JSON"));
-  const indexes = yield* Effect.fromResult(decodeSchemaManifestAppIndexDeclarationsV1Result(manifest.schema.indexes
-    .filter(index => names.has(manifest.schema.tables.find(table => table.tableId === index.tableId)?.name ?? ""))
-    .map(index => ({ tableLogicalName: manifest.schema.tables.find(table => table.tableId === index.tableId)!.name,
-      descriptor: index.name, fields: index.fields, ...(index.decimalFields === undefined ? {} : { decimalFields: index.decimalFields }) })))).pipe(
-        Effect.mapError(cause => new LogicalSchemaCandidateError({ reason: "invalidInput", cause })));
+  const definition = yield* projectApplicationDocuments(nativeTables, manifest.schema.indexes, manifest.version === 1 ? [] :
+    manifest.schema.relations.filter(relation => names.has(relation.declaration.source.table)).map(relation => relation.declaration));
   return yield* captureLogicalSchemaSource({ key: "application", owner: "application", writeProfile: "application.occ",
     evidence: manifest.version === 3 ? { manifestSha256, manifest: manifestData } :
       { sourceArtifact: manifest.sourceArtifact, manifestSha256 },
-    definition: { kind: "documents", tables, indexes, uniqueConstraints: [], relations: manifest.version === 1 ? [] :
-      manifest.schema.relations.filter(relation => names.has(relation.declaration.source.table)).map(relation => relation.declaration) },
-    bindings: tables.map(table => ({ kind: "definition", localName: table.logicalName, table: { namespace: "app", logicalName: table.logicalName } })),
+    definition,
+    bindings: definition.tables.map(table => ({ kind: "definition", localName: table.logicalName, table: { namespace: "app", logicalName: table.logicalName } })),
   });
 });
 

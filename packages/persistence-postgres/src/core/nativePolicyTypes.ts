@@ -7,7 +7,7 @@ const strict = { parseOptions: { onExcessProperty: "error" } } as const;
 const isDocumentId = Schema.is(DeveloperDocumentIdSchema);
 const Digest = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
 export const CoreNativeIdentitySchema = Schema.Struct({ scopeUuid: ScopeUuidV1Schema, epochUuid: ScopeEpochUuidV1Schema,
-  sourceKey: Schema.Literal("payload"), sourceSha256: Digest, configSha256: Digest, provenanceSha256: Digest, definitionHash: Digest }).annotate(strict);
+  sourceKey: Schema.NonEmptyString, sourceSha256: Digest, configSha256: Digest, provenanceSha256: Digest, definitionHash: Digest }).annotate(strict);
 export type CoreNativeIdentity = typeof CoreNativeIdentitySchema.Type;
 /** Narrow reader for the captured Native10 table policy; source identities do not change. */
 const LegacyCoreNativeUniqueConstraintSchema = Schema.Struct({ descriptor: Schema.NonEmptyString,

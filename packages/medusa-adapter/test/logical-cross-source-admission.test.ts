@@ -5,7 +5,7 @@ import { prepareLogicalApplicationSourceAdmission } from "../../persistence-post
 import { prepareLogicalDocumentSourceAdmission } from "../../persistence-postgres/src/storage/documents/logicalDocuments/documentAdmission";
 import { defineCmsCommand } from "../../persistence-postgres/src/frameworks/cmsTransaction/commands";
 import { makeCmsHost } from "../../persistence-postgres/src/frameworks/cmsTransaction/host";
-import { makeCurrencyAnnouncementHost } from "../../persistence-postgres/src/frameworks/crossDomainCommand/host";
+import { makeLegacyCurrencyAnnouncementHost } from "../../persistence-postgres/src/frameworks/crossDomainCommand/legacyHost";
 import { preparedHostTestRuntime } from "../../persistence-postgres/test/execution/preparation/preparedHostRuntimeTestSupport";
 import { currencyAnnouncementWrite } from "../src/modules/currency/service";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
@@ -55,7 +55,7 @@ describe("cross-source relationship publication and source admission", () => {
     const payload = await Effect.runPromise(compilePayloadCollections(payloadCollections));
     await Effect.runPromise(prepareLogicalDocumentSourceAdmission(ports,
       fixture.application.uniqueConstraintEligibility, input, payload.sourceContract, { kind: "standalone" }));
-    const composite = await Effect.runPromise(makeCurrencyAnnouncementHost({
+    const composite = await Effect.runPromise(makeLegacyCurrencyAnnouncementHost({
       hostRuntime: preparedHostTestRuntime(fixture.persistence.drizzle),
       database: fixture.persistence.drizzle, controlDatabase: fixture.control.drizzle,
       session: fixture.session, deploymentId: fixture.deploymentId,
@@ -102,17 +102,22 @@ describe("cross-source relationship publication and source admission", () => {
     expect(head.value.frame.strongReferenceTableIds).not.toContain(currencyId);
     const projected = await Effect.runPromise(inspect(tx => readBindingActiveReferenceProjection(tx, clock, head.value)));
     expect(projected.map(reference => reference.name)).toEqual(["user_product", "news_product"]);
-    const builds = await fixture.persistence.query<{ index_definition_id: number; maintenance_activation_sequence: string | null }>(
-      "select index_definition_id, maintenance_activation_sequence::text as maintenance_activation_sequence " +
+    const builds = await fixture.persistence.query<{ index_definition_id: number; maintenance_authority_kind: "application" | "binding" | null;
+      maintenance_activation_sequence: string | null }>(
+      "select index_definition_id, maintenance_authority_kind, maintenance_activation_sequence::text as maintenance_activation_sequence " +
       "from fx_system_index_build_state where scope_id=$1 and index_definition_id=any($2::int[])",
       [clock.scopeId, projected.map(reference => reference.reverseIndex.indexDefinitionId)]);
     expect(builds.rows).toHaveLength(2);
     const userReference = projected.find(reference => reference.name === "user_product");
     const newsReference = projected.find(reference => reference.name === "news_product");
     if (userReference === undefined || newsReference === undefined) throw new Error("Missing projected references");
-    const maintenanceById = new Map(builds.rows.map(row => [row.index_definition_id, row.maintenance_activation_sequence]));
-    expect(maintenanceById.get(userReference.reverseIndex.indexDefinitionId)).not.toBeNull();
-    expect(maintenanceById.get(newsReference.reverseIndex.indexDefinitionId)).toBeNull();
+    const maintenanceById = new Map(builds.rows.map(row => [row.index_definition_id, row]));
+    expect(maintenanceById.get(userReference.reverseIndex.indexDefinitionId)).toMatchObject({
+      maintenance_authority_kind: "application", maintenance_activation_sequence: expect.any(String),
+    });
+    expect(maintenanceById.get(newsReference.reverseIndex.indexDefinitionId)).toMatchObject({
+      maintenance_authority_kind: "binding", maintenance_activation_sequence: head.value.frame.sequence,
+    });
     for (const reference of projected) {
       expect(reference.targetTableId).toBe(productId);
       expect(reference.targetLiveness).toEqual({ kind: "softDeleteNull", field: "deleted_at" });
@@ -214,7 +219,7 @@ describe("cross-source relationship publication and source admission", () => {
           text.includes('"fx_system_commit_app_row_change"') && text.includes('"change_ordinal"'));
         expect(factOrdinal).toBeGreaterThanOrEqual(0);
         const referenceReads = statements.slice(factOrdinal + 1);
-        expect(referenceReads.filter(text => text.includes("rows between unbounded preceding"))).toHaveLength(2);
+        expect(referenceReads.filter(text => /\bfx_read_snapshot_rows\s*\(/i.test(text))).toHaveLength(2);
         expect(referenceReads.filter(text => text.includes("with requested(ordinal, row_id)"))).toHaveLength(2);
         expect(referenceReads.filter(text => text.includes("pendingFact") ||
           (text.includes("exists (select 1") && text.includes("fact.table_id")))).toHaveLength(2);
@@ -243,7 +248,7 @@ describe("cross-source relationship publication and source admission", () => {
     const payload = await Effect.runPromise(compilePayloadCollections(payloadCollections));
     const cmsCommand = defineCmsCommand({ name: "payload-create", mode: "write", run: (ctx, args) =>
       ctx.documents.insert(ctx.context, ctx.transactionId, "news", args) });
-    const composite = await Effect.runPromise(makeCurrencyAnnouncementHost({
+    const composite = await Effect.runPromise(makeLegacyCurrencyAnnouncementHost({
       hostRuntime: preparedHostTestRuntime(fixture.persistence.drizzle),
       database: fixture.persistence.drizzle, controlDatabase: fixture.control.drizzle,
       session: fixture.session, deploymentId: fixture.deploymentId,

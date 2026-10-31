@@ -44,7 +44,7 @@ interface LogicalParticipantInput {
 
 /** Framework callbacks borrow one root lifetime; the root alone prepares the
  * combined delta after all three admitted contributions are closed. */
-export const makeCurrencyAnnouncementParticipants = Effect.fn("CurrencyAnnouncement.makeParticipants")(
+export const makeLegacyCurrencyAnnouncementParticipants = Effect.fn("CurrencyAnnouncement.makeLegacyParticipants")(
   function* (input: LogicalParticipantInput, hooks?: CurrencyAnnouncementTestHooks) {
     const { tx, authority, application, payload, currency, lifetime, transactionId,
       applicationTable, currencyCommand, cmsCommand, materialization, sourceTemplate } = input;

@@ -13,6 +13,7 @@ import { CoreFinalizationVault, createCoreTransaction } from "../../src/core/tra
 import { CoreWriteLog, keyInInterval, type CoreIndexKeys } from "../../src/core/writeLog";
 import { CoreAccounting, CORE_TRANSACTION_REFERENCE_LIMITS } from "../../src/core/accounting";
 import { CoreNativeObservationState } from "../../src/core/nativeObservations";
+import { prepareCoreNativeIndexes, validateCoreNativeIndexes } from "../../src/core/nativeValidation";
 
 const bytes = (value: number) => { const result = new Uint8Array(16); new DataView(result.buffer).setUint32(12, value); return result; };
 const managedTime = "2026-10-31T00:00:00.000Z";
@@ -98,6 +99,7 @@ async function fixture(visibility: "command" | "snapshot" = "command", maxIdenti
   const operations = context.nativeOperations;
   if (operations === undefined) throw new Error("Native facade was not issued");
   return { table, id, registry, authority, calls, context, operations, vault, retained,
+    current: () => current,
     publish: (timestamp: bigint, rows: readonly Row[], selectedRegistry?: CoreRegistry, transitions: readonly CoreIndexKeys[] = []) => {
       log.append(timestamp, [], undefined, transitions);
       current = { ...selected(timestamp, rows, selectedRegistry), writeLog: log.snapshot() };
@@ -110,6 +112,179 @@ async function fixture(visibility: "command" | "snapshot" = "command", maxIdenti
 }
 
 describe("native transaction observations over the source transaction", () => {
+  it("uses a bounded key-only presence witness for a cohort above the row capture cap", async () => {
+    const tested = await fixture("command", 128, 1);
+    tested.publish(20n, Array.from({ length: 130 }, (_, position) => ({ id: 1000 + position, title: `existing-${position}` })));
+    expect(await Effect.runPromise(tested.operations.isEmpty(tested.table.name))).toBe(false);
+    expect(tested.calls.at(-1)?.maxResults).toBe(1);
+    expect(tested.retained.snapshot().user.bytesRead).toBe(0);
+    expect((await Effect.runPromise(tested.context.transaction.usage)).user.documentsRead).toBe(0);
+    const packet = (await tested.finalized()).nativeObservations;
+    expect(packet?.indexes[0]).toMatchObject({ kind: "range", members: [expect.objectContaining({ id: expect.any(String) })] });
+    expect(packet?.indexes[0]?.interval.start).not.toBeNull();
+  });
+
+  it("protects an empty presence result against a normal competing insert", async () => {
+    const tested = await fixture();
+    tested.publish(20n, []);
+    expect(await Effect.runPromise(tested.operations.isEmpty(tested.table.name))).toBe(true);
+    tested.publish(30n, [{ id: 201, title: "competitor" }]);
+    const packet = (await tested.finalized()).nativeObservations;
+    if (packet === undefined) throw new Error("Missing native observations");
+    const prepared = await Effect.runPromise(prepareCoreNativeIndexes(tested.current().snapshot, tested.registry, packet.indexes, packet.limits.maxIdentities));
+    expect(validateCoreNativeIndexes(prepared, [], { documents: [], indexes: [] }, packet.limits.maxIdentities))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "conflict" } });
+  });
+
+  it("accounts for the common pending overlay in presence without disclosing bodies", async () => {
+    const tested = await fixture();
+    await Effect.runPromise(tested.operations.delete(tested.id(201)));
+    await Effect.runPromise(tested.operations.delete(tested.id(202)));
+    const before = tested.retained.snapshot().user.bytesRead;
+    expect(await Effect.runPromise(tested.operations.isEmpty(tested.table.name))).toBe(true);
+    expect(tested.retained.snapshot().user.bytesRead).toBe(before);
+    await Effect.runPromise(tested.operations.insert(tested.table.name, body("pending")));
+    const calls = tested.calls.length;
+    expect(await Effect.runPromise(tested.operations.isEmpty(tested.table.name))).toBe(false);
+    expect(tested.calls).toHaveLength(calls);
+    const packet = (await tested.finalized()).nativeObservations;
+    expect(packet?.indexes.find(slot => slot.kind === "range" && slot.interval.start === null))
+      .toMatchObject({ members: [{ id: tested.id(201) }, { id: tested.id(202) }] });
+  });
+
+  it("does not turn a positive presence witness into a body revision dependency", async () => {
+    const tested = await fixture();
+    expect(await Effect.runPromise(tested.operations.isEmpty(tested.table.name))).toBe(false);
+    tested.publish(20n, [{ id: 201, title: "first changed" }, { id: 202, title: "second changed" }]);
+    const packet = (await tested.finalized()).nativeObservations;
+    if (packet === undefined) throw new Error("Missing native observations");
+    const prepared = await Effect.runPromise(prepareCoreNativeIndexes(tested.current().snapshot, tested.registry, packet.indexes, packet.limits.maxIdentities));
+    expect(Result.isSuccess(validateCoreNativeIndexes(prepared, [], { documents: [], indexes: [] }, packet.limits.maxIdentities))).toBe(true);
+  });
+
+  it("keeps source identity caps inside the shared aggregate allowance", async () => {
+    const tested = await fixture();
+    const second = { ...tested.table, tabletId: bytes(900), number: 10002 };
+    const state = new CoreNativeObservationState({ maxIdentities: 3, maxDocumentBytes: 65536 }, [
+      { sourceKey: "first", tables: [tested.table], limits: { maxIdentities: 1, maxDocumentBytes: 65536 } },
+      { sourceKey: "second", tables: [second], limits: { maxIdentities: 2, maxDocumentBytes: 1024 } },
+    ]);
+    expect(Result.isSuccess(state.reserve(tested.table, ["a", "a"]))).toBe(true);
+    expect(state.reserve(tested.table, ["b"])).toMatchObject({ _tag: "Failure", failure: { reason: "capacity" } });
+    expect(Result.isSuccess(state.reserve(second, ["b", "c"]))).toBe(true);
+    expect(Result.isSuccess(state.reserve(tested.table, ["a"]))).toBe(true);
+    expect(state.limitsFor(second)).toMatchObject({ _tag: "Success", success: { maxDocumentBytes: 1024 } });
+    expect(state.reserve({ ...second, tabletId: bytes(901) }, ["d"]))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "authorityRevoked" } });
+    await Effect.runPromise(tested.context.transaction.abort());
+  });
+
+  it("captures the examined native page prefix without remembering its physical guard", async () => {
+    const tested = await fixture();
+    const rows = Array.from({ length: 20 }, (_, position) => ({ id: 1000 + position, title: `page-${String(position).padStart(2, "0")}` }));
+    const index = tested.table.indexes.find(candidate => candidate.fields[0] === "title");
+    if (index === undefined) throw new Error("Missing title index");
+    tested.publish(20n, rows);
+    const page = await Effect.runPromise(tested.operations.findPage(tested.table.name, {}, { indexName: index.name, offset: 0, limit: 1 }));
+    expect(page).toMatchObject({ documents: [{ title: "page-00" }], hasMore: true });
+    tested.publish(30n, rows.map((row, position) => ({ ...row, ts: position === 16 ? 30n : 20n,
+      category: position === 16 ? "guard changed" : "selected" })));
+    expect(Option.getOrThrow(await Effect.runPromise(tested.operations.get(tested.id(1016)))).category).toBe("guard changed");
+    const packet = (await tested.finalized()).nativeObservations;
+    const slot = packet?.indexes.find(candidate => candidate.kind === "range");
+    expect(slot).toMatchObject({ kind: "range", members: rows.slice(0, 16).map(row => ({ id: tested.id(row.id) })) });
+    expect(slot?.kind === "range" && slot.members).toHaveLength(16);
+    expect(packet?.dependencies.find(group => group.timestamp === 20n)?.reads.find(read => {
+      const byId = tested.table.indexes.find(candidate => candidate.name === "by_id");
+      return byId !== undefined && bytesEqual(read.indexId, byId.ref.id);
+    })?.intervals).toHaveLength(16);
+  });
+
+  it("recaptures a repeated native page and refuses a changed remembered body immediately", async () => {
+    const tested = await fixture();
+    const index = tested.table.indexes.find(candidate => candidate.fields[0] === "title");
+    if (index === undefined) throw new Error("Missing title index");
+    await Effect.runPromise(tested.operations.findPage(tested.table.name, {}, { indexName: index.name, offset: 0, limit: 1 }));
+    tested.publish(20n, [{ id: 201, title: "first", category: "changed" }, { id: 202, title: "second", ts: 10n }]);
+    expect(await Effect.runPromise(tested.operations.findPage(tested.table.name, {}, { indexName: index.name, offset: 0, limit: 1 }).pipe(Effect.result)))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "conflict" } });
+    await Effect.runPromise(tested.context.transaction.abort());
+  });
+
+  it("keeps ordinary page capture distinct from a later first unique lookup", async () => {
+    const tested = await fixture();
+    const index = tested.table.indexes.find(candidate => candidate.fields[0] === "title");
+    if (index === undefined) throw new Error("Missing title index");
+    await Effect.runPromise(tested.operations.findPage(tested.table.name, {}, { indexName: index.name, offset: 0, limit: 1 }));
+    tested.publish(20n, [{ id: 201, title: "first", amount: 16 }, { id: 202, title: "second", ts: 10n }]);
+    expect(await Effect.runPromise(tested.operations.find(tested.table.name, { title: "first" }).pipe(Effect.result)))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "conflict" } });
+    await Effect.runPromise(tested.context.transaction.abort());
+  });
+
+  it.each(["point", "table"] as const)("refuses a fresh page member after its earlier %s absence", async demand => {
+    const tested = await fixture();
+    if (demand === "point") await Effect.runPromise(tested.operations.get(tested.id(203)));
+    else await Effect.runPromise(tested.operations.find(tested.table.name, {}));
+    const index = tested.table.indexes.find(candidate => candidate.fields[0] === "title");
+    if (index === undefined) throw new Error("Missing title index");
+    tested.publish(20n, [{ id: 201, title: "first", ts: 10n }, { id: 202, title: "second", ts: 10n }, { id: 203, title: "third" }]);
+    expect(await Effect.runPromise(tested.operations.findPage(tested.table.name, {}, { indexName: index.name, offset: 0, limit: 1 }).pipe(Effect.result)))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "conflict" } });
+    await Effect.runPromise(tested.context.transaction.abort());
+  });
+
+  it("accepts unchanged terminal page membership when rows beyond its prefix disappear", async () => {
+    const tested = await fixture();
+    const rows = Array.from({ length: 20 }, (_, position) => ({ id: 1000 + position, title: `page-${String(position).padStart(2, "0")}`, ts: 20n }));
+    const index = tested.table.indexes.find(candidate => candidate.fields[0] === "title");
+    if (index === undefined) throw new Error("Missing title index");
+    tested.publish(20n, rows);
+    await Effect.runPromise(tested.operations.findPage(tested.table.name, {}, { indexName: index.name, offset: 0, limit: 1 }));
+    tested.publish(30n, rows.slice(0, 16));
+    const packet = (await tested.finalized()).nativeObservations;
+    if (packet === undefined) throw new Error("Missing native observations");
+    const prepared = await Effect.runPromise(prepareCoreNativeIndexes(tested.current().snapshot, tested.registry, packet.indexes, packet.limits.maxIdentities));
+    expect(Result.isSuccess(validateCoreNativeIndexes(prepared, [], { documents: [], indexes: [] }, packet.limits.maxIdentities))).toBe(true);
+  });
+
+  it("validates EOF against a later phantom even when only one row was returned", async () => {
+    const tested = await fixture();
+    const index = tested.table.indexes.find(candidate => candidate.fields[0] === "title");
+    if (index === undefined) throw new Error("Missing title index");
+    await Effect.runPromise(tested.operations.findPage(tested.table.name, {}, { indexName: index.name, offset: 0, limit: 1 }));
+    tested.publish(20n, [{ id: 201, title: "first", ts: 10n }, { id: 202, title: "second", ts: 10n }, { id: 203, title: "third" }]);
+    const packet = (await tested.finalized()).nativeObservations;
+    if (packet === undefined) throw new Error("Missing native observations");
+    const prepared = await Effect.runPromise(prepareCoreNativeIndexes(tested.current().snapshot, tested.registry, packet.indexes, packet.limits.maxIdentities));
+    expect(validateCoreNativeIndexes(prepared, [], { documents: [], indexes: [] }, packet.limits.maxIdentities))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "conflict" } });
+  });
+
+  it("requires a committed EOF witness for a pending-only page result", async () => {
+    const tested = await fixture();
+    tested.publish(20n, []);
+    const index = tested.table.indexes.find(candidate => candidate.fields[0] === "title");
+    if (index === undefined) throw new Error("Missing title index");
+    await Effect.runPromise(tested.operations.insert(tested.table.name, body("own")));
+    const before = tested.calls.length;
+    expect(await Effect.runPromise(tested.operations.findPage(tested.table.name, {}, { indexName: index.name, offset: 0, limit: 1 })))
+      .toMatchObject({ documents: [{ title: "own" }], hasMore: false });
+    expect(tested.calls.length).toBeGreaterThan(before);
+    expect((await tested.finalized()).nativeObservations?.indexes.find(slot => slot.kind === "range"))
+      .toMatchObject({ members: [], interval: { end: null } });
+  });
+
+  it("charges a page's non-EOF physical guard before any body coherence check", async () => {
+    const tested = await fixture("command", 16);
+    const index = tested.table.indexes.find(candidate => candidate.fields[0] === "title");
+    if (index === undefined) throw new Error("Missing title index");
+    tested.publish(20n, Array.from({ length: 20 }, (_, position) => ({ id: 1000 + position, title: `page-${String(position).padStart(2, "0")}` })));
+    expect(await Effect.runPromise(tested.operations.findPage(tested.table.name, {}, { indexName: index.name, offset: 0, limit: 1 }).pipe(Effect.result)))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "capacity" } });
+    expect((await tested.finalized()).nativeObservations?.indexes).toEqual([]);
+  });
+
   it("stores only detached key membership in unique-slot memos, including observed upgrades", async () => {
     const tested = await fixture();
     const index = tested.table.indexes.find(candidate => candidate.fields[0] === "title");

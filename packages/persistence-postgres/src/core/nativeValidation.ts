@@ -22,6 +22,7 @@ export const prepareCoreNativeIndexes = Effect.fn("CoreNativeValidation.prepare"
   const prepared: CorePreparedNativeIndex[] = [];
   for (const observation of observations) {
     const { table, index } = observation;
+    const captureLimit = Math.min(maxIdentities, observation.maxIdentities ?? maxIdentities);
     const currentTable = registry.tableByTablet(table.tabletId)?.definition;
     const currentIndex = registry.indexes.records.get(encodeBytesToLowercaseHex(index.ref.id));
     if (currentTable === undefined || currentTable.number !== table.number || currentTable.state !== "active"
@@ -35,7 +36,7 @@ export const prepareCoreNativeIndexes = Effect.fn("CoreNativeValidation.prepare"
     let interval = observation.interval;
     while (true) {
       const page = yield* snapshot.scan({ tableId: table.tabletId, index: index.ref,
-        interval, order: "asc", maxResults: Math.min(128, maxIdentities + 1 - entries.size) });
+        interval, order: "asc", maxResults: Math.min(128, captureLimit + 1 - entries.size) });
       for (const entry of page.entries) {
         if (entry.document.deleted || !bytesEqual(entry.document.tableId, table.tabletId)
           || !keyInInterval(entry.key, interval))
@@ -44,9 +45,9 @@ export const prepareCoreNativeIndexes = Effect.fn("CoreNativeValidation.prepare"
         if (entries.has(key)) return yield* new CorePersistenceError({ reason: "corruptData" });
         entries.set(key,
           yield* Effect.fromResult(publicDocumentId(table, entry.document.id)));
-        if (entries.size > maxIdentities)
+        if (entries.size > captureLimit)
           return yield* new CoreTransactionError({ reason: "capacity", cause: {
-            budget: "nativeIdentities", actual: entries.size, limit: maxIdentities,
+            budget: "nativeIdentities", actual: entries.size, limit: captureLimit,
           } });
       }
       if (page.cursor.kind === "end") break;
@@ -89,10 +90,11 @@ export function validateCoreNativeIndexes(prepared: readonly CorePreparedNativeI
     const batches = [...accepted];
     const predecessors = new Set<CoreWriteBatch>();
     for (const slot of prepared) {
+      const captureLimit = Math.min(maxIdentities, slot.observation.maxIdentities ?? maxIdentities);
       const entries = new Map(slot.entries);
       for (const batch of batches) if (yield* applyBatch(slot.observation, entries, batch)) predecessors.add(batch);
-      if (entries.size > maxIdentities) return yield* Result.fail(new CoreTransactionError({ reason: "capacity", cause: {
-        budget: "nativeIdentities", actual: entries.size, limit: maxIdentities,
+      if (entries.size > captureLimit) return yield* Result.fail(new CoreTransactionError({ reason: "capacity", cause: {
+        budget: "nativeIdentities", actual: entries.size, limit: captureLimit,
       } }));
       switch (slot.observation.kind) {
         case "unique": {

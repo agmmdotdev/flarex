@@ -446,3 +446,27 @@ References: [refactor direction and source seams](./REFACTOR.md),
 Required evidence: same real business graph, both database lanes, actual host
 proof, warm/cold/contended traces, CPU and tail latency, cache/retry costs, explicit
 data disposition and no obsolete compatibility route after the selected cutover.
+
+## Q11 - Transaction-scoped Source ID generation
+
+**Open required source-parity gap.** The current injected `newInternalId`
+capability establishes a 16-byte value, not translation of the pinned production
+generator. At `db914cf06`,
+[TransactionIdGenerator](../../../../../crates/database/src/transaction_id_generator.rs)
+seeds a transaction-local ChaCha12 RNG and pins the current two-byte day at
+construction; each internal ID contains 14 random bytes followed by that day.
+Its explicit snapshot-query clone is not a second writable generator.
+
+Translate that owner using trusted host entropy/time and preserve the Source
+day range, byte ordering, per-transaction lifetime and clone restrictions.
+Inspect actual callers and vectors before replacing the current shared allocator;
+metadata/import identities and user insert allocation need their proper owners.
+Stored IDs remain readable and unchanged. The current opaque-ID representation
+does not prove generator parity or supply a necessary DO/native exception.
+
+Medusa natural public keys remain logical fields resolved through ordinary
+indexes; they do not replace Source document IDs. The Currency composition slice
+does not need a new physical ID registry or decimal ordered index to address
+this separate source mechanism. Keep its implementation and conformance proof
+inside the full core goal rather than silently treating injected random bytes
+as completed Source translation.

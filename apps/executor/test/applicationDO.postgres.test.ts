@@ -223,7 +223,11 @@ describe.runIf(endpoints !== undefined)("canonical app owner in actual workerd",
           expect(late.body.ok).toBe(false);
           expect(late.body.failures).toContainEqual({ tag: "ApplicationExecutionHostError", reason: "readBoundaryFailed" });
           expect((await invoke(active(), "typed", args)).body.value).toBe("parent-after-success");
-          expect((await status(active())).resources.checkouts).toBe((await status(active())).resources.released);
+          // A genuine schema alarm can check out and release between requests.
+          // Drain it, then compare both counters from one status snapshot.
+          await waitForSchemaIdle(active());
+          const afterLateQuery = await status(active());
+          expect(afterLateQuery.resources.checkouts).toBe(afterLateQuery.resources.released);
           const cancelled = Promise.allSettled([request(active(), "/hold", { operation: "typed", args })]);
           await expect.poll(async () => (await status(active())).gateEntered, { timeout: 20_000 }).toBe(true);
           const cancelledClose = await request(active(), "/close", {});

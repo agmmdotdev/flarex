@@ -5,7 +5,7 @@ import {
 } from "../../commit/committedPointOutcomeErrors";
 import { RelationalSessionError } from "../../database/relationalTransaction/model";
 import { commerceError, CommerceTransactionError } from "./model";
-import { Effect, Result } from "effect";
+import { Effect } from "effect";
 import { PreparedHostRuntimeError } from "../../execution/preparation/preparedHostRuntime";
 import { ApplicationActivationError } from "../../application/activation/errors";
 import { ApplicationReadinessError } from "../../application/readiness/errors";
@@ -23,9 +23,10 @@ import { DataBindingError } from "../../installation/frameworkSchema/binding/err
 import { TrustedScopeAuthorityPortError } from "../../scope/scopeAuthorityResolution";
 import {
   canonicalizeJsonOutcome,
-  useJsonOutcomeValue,
   JsonOutcomeError,
 } from "../../values/jsonOutcome";
+import { projectCommerceJsonFailure } from "./json";
+export { captureCommerceJsonData } from "./json";
 import { sql } from "drizzle-orm";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
@@ -39,11 +40,6 @@ export const lockCommerceRequest = Effect.fn("CommerceRequest.lock")(function* (
     hashtextextended(${JSON.stringify(["flarex.commerce.request", scopeId, key])}, 0))`),
     cause => commerceError("statementFailure", cause));
 });
-
-/** Trusted immutable accounting handoff. Foreign values still require full
- * capture; every caller retains its own ordered budget check and charge. */
-export const captureCommerceJsonData = (input: unknown, maximum: number) =>
-  useJsonOutcomeValue(input, maximum).pipe(Result.mapError(projectCommerceRequestFailure));
 
 const encoder = new TextEncoder();
 /** Semantic domains cannot collide with the old arbitrary Application value preimage. */
@@ -88,7 +84,7 @@ export const projectCommerceRequestFailure = (cause: unknown): CommerceTransacti
       ? "invalidInput" : cause.reason, cause);
   if (cause instanceof PreparedHostRuntimeError) return commerceError(cause.reason === "closed" ? "closed" : "resourceFailure", cause);
   if (cause instanceof TrustedScopeAuthorityPortError) return commerceError("resourceFailure", cause);
-  if (cause instanceof JsonOutcomeError) return commerceError(cause.reason === "invalidEvidence" ? "storedCorruption" : cause.reason, cause);
+  if (cause instanceof JsonOutcomeError) return projectCommerceJsonFailure(cause);
   if (cause instanceof CommittedPointOutcomeRequestKeyReuseErrorV1) return commerceError("requestConflict", cause);
   if (cause instanceof CommittedPointOutcomeCorruptionErrorV1) return commerceError("storedCorruption", cause);
   if (cause instanceof RelationalSessionError) return commerceError(cause.reason === "decisionUncertain" ? "decisionUncertain" : "resourceFailure", cause);

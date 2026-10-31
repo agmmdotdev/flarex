@@ -36,7 +36,7 @@ export interface CommerceCommandContext {
   readonly manager: BoundedRequestContext;
   readonly store: CommerceStore;
   readonly table: (tableId: string) => Effect.Effect<CommerceStore, CommerceTransactionError>;
-  /** PostgreSQL transaction-start time, available to admitted logical rows. */
+  /** Fixed trusted operation time: Core root time or the retained SQL profile's transaction-start time. */
   readonly transactionTime?: Effect.Effect<string, CommerceTransactionError>;
   /** Available only to admitted logical relational participants. Physical
    * compatibility commands keep their existing bounded row operations. */

@@ -16,7 +16,7 @@ import { retainPreparedHost } from "../../../src/execution/preparation/preparedH
 import { makeCmsCommandBinding } from "../../../src/frameworks/cmsTransaction/construction";
 import { prepareSourceCmsDocumentMaterialization } from "../../../src/frameworks/cmsTransaction/contribution";
 import { defineCommerceCommand, getCommerceCommand } from "../../../src/frameworks/commerceTransaction/commands";
-import { makeCurrencyAnnouncementHost } from "../../../src/frameworks/crossDomainCommand/host";
+import { makeLegacyCurrencyAnnouncementHost } from "../../../src/frameworks/crossDomainCommand/legacyHost";
 import { ScopeExecutionLive } from "../../../src/scope/execution/ScopeExecution";
 import { prepareLogicalStorageReadiness } from "../../../src/storage/catalog/logicalStorageReadiness";
 import { prepareLogicalApplicationSourceAdmission } from "../../../src/storage/documents/logicalDocuments/applicationAdmission";
@@ -97,7 +97,7 @@ export async function jointApplicationRelationsScenario(persistence: PGliteFlare
       expectedContentIdentity: compiled.contentIdentity, currency: tested.currency,
       applicationSource: tested.applicationSource, payloadSource: compiled.sourceContract,
       currencyCommand, cmsCommand: inspectPayloadRuntimeForTest(runtime).commands.create, applicationTable: "audit" };
-    const host = yield* Effect.acquireRelease(makeCurrencyAnnouncementHost(input), value => value.close);
+    const host = yield* Effect.acquireRelease(makeLegacyCurrencyAnnouncementHost(input), value => value.close);
     const args = { currency: { code: "jnt", name: "Joint relation", symbol: "J", symbol_native: "J" },
       cms: { collection: "articles", data: { headline: "Joint relation", author: author.id } },
       application: { name: "Joint relation audit" } };
@@ -189,7 +189,7 @@ export async function jointApplicationRelationsScenario(persistence: PGliteFlare
       let completedParticipants = 0;
       const callsBeforeFault = { payload: payloadCalls, currency: currencyCalls };
       const fault = new Error(`Rollback all joint participants after ${step}`);
-      const failing = yield* Effect.acquireRelease(makeCurrencyAnnouncementHost({ ...input,
+      const failing = yield* Effect.acquireRelease(makeLegacyCurrencyAnnouncementHost({ ...input,
         materialization: { ...input.materialization, afterTransactionStep: event => {
           if (event.step === step) { faults++; return Promise.reject(fault); }
           return Promise.resolve();

@@ -6,7 +6,7 @@ import { commerceError, type CommerceTransactionError } from "./model";
 import type { CommerceStore } from "./storeModel";
 import type { CommerceResources } from "./resources";
 import { makeCommerceOperations, type CommerceOperations } from "./operations";
-import { captureCommerceJsonData } from "./request";
+import { captureCommerceJsonData } from "./json";
 import type { CommerceSetNullSelection, CommerceReferenceReplacement, CommerceDeletedReferenceSelection } from "./commands";
 
 type CommerceContextWorking = Readonly<{ store: CommerceStore; resources: CommerceResources;

@@ -69,6 +69,28 @@ export function coreNativeUniqueSelection(table: CoreTableDefinition, constraint
   });
 }
 
+/** A trusted native page names an ordinary index; equality does not promote it to a unique slot. */
+export function coreNativePageInterval(index: CoreIndexDefinition, where: CoreNativeWhere): Result.Result<CoreInterval, CoreError> {
+  return Result.gen(function* () {
+    const expressions: CapturedIndexRangeExpression[] = [];
+    for (const field of index.fields) {
+      if (!Object.hasOwn(where, field)) break;
+      const value = where[field];
+      if (value === undefined) break;
+      if (isCoreNativeRange(value)) {
+        for (const op of ["gt", "gte", "lt", "lte"] as const)
+          if (Object.hasOwn(value, op) && value[op] !== undefined) expressions.push({ op, field, value: value[op] });
+        break;
+      }
+      expressions.push({ op: "eq", field, value });
+    }
+    for (const expression of expressions) yield* Result.mapError(encodeIndexValue(expression.value), invalid);
+    const interval = yield* Result.mapError(compileIndexRange(expressions, index.fields), invalid);
+    return interval.end !== null && compareBytesLexicographically(interval.start, interval.end) > 0
+      ? { start: interval.start, end: interval.start } : interval;
+  });
+}
+
 /** Deterministic ID, complete unique tuple, longest ordinary prefix, then table. */
 export function planCoreNativeQuery(table: CoreTableDefinition, where: CoreNativeWhere): Result.Result<CoreNativeQueryPlan, CoreError> {
   return Result.gen(function* () {

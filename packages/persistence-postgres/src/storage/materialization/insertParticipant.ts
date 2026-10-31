@@ -1,4 +1,6 @@
-import { Clock, Data, Effect, Option, Result } from "effect";
+import { Clock, Effect, Option, Result } from "effect";
+import { applicationCommandError, type ApplicationCommandError } from "../../application/commandError";
+export { ApplicationCommandError, applicationCommandError } from "../../application/commandError";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1FromBytesResult } from "flarex-protocol/app-document-id";
 import type { CatalogTableId } from "flarex-protocol/catalog";
@@ -11,12 +13,6 @@ import { requireLogicalApplicationSourceAdmission, type LogicalApplicationSource
 import type { LogicalDocumentWrite } from "../documents/logicalDocuments/model";
 import type { PreparedPointCommitRowIntentV1 } from "./model";
 
-export class ApplicationCommandError extends Data.TaggedError("ApplicationCommandError")<{
-  readonly reason: "invalidAuthority" | "invalidInput" | "documentInvalid" | "limitExceeded" | "closed" | "rollbackOnly" | "deadlineExceeded" | "overlappingOperation" | "borrowedSettlement";
-  readonly cause?: unknown;
-}> {}
-export const applicationCommandError = (reason: ApplicationCommandError["reason"], cause?: unknown) =>
-  new ApplicationCommandError({ reason, ...(cause === undefined ? {} : { cause }) });
 declare const closureBrand: unique symbol;
 export interface ApplicationInsertClosure { readonly [closureBrand]: true }
 const closures = new WeakMap<object, { readonly owner: object; readonly changes: readonly PreparedPointCommitRowIntentV1[] }>();

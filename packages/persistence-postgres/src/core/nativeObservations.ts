@@ -13,6 +13,7 @@ export interface CoreNativeUniqueSlot {
   readonly interval: CoreInterval;
   /** First captured committed owners. The candidate's pending writes are separate. */
   readonly owners: readonly string[];
+  readonly maxIdentities?: number;
 }
 
 export interface CoreNativeRangeSlot {
@@ -21,6 +22,8 @@ export interface CoreNativeRangeSlot {
   readonly index: CoreIndexDefinition;
   readonly interval: CoreInterval;
   readonly members: readonly Readonly<{ id: string; key: Uint8Array }>[];
+  /** A page observation carries its source's finite capture allowance. */
+  readonly maxIdentities?: number;
 }
 export type CoreNativeIndexObservation = CoreNativeUniqueSlot | CoreNativeRangeSlot;
 
@@ -56,14 +59,39 @@ export class CoreNativeObservationState {
   private readonly slots = new Map<string, Readonly<{ slot: CoreNativeUniqueSlot; membership: CoreNativeSlotMembership; observed: boolean }>>();
   private readonly dependencies = new Map<bigint, CoreReadSetBuilder>();
   private readonly ranges = new Map<string, CoreNativeRangeSlot>();
+  private readonly pages: CoreNativeRangeSlot[] = [];
   private readonly identities = new Set<string>();
+  private readonly sourceIdentities = new Map<string, Set<string>>();
+  private readonly sourcesByTablet = new Map<string, Readonly<{ sourceKey: string; limits: CoreNativeLimits }>>();
 
-  constructor(private readonly limits: CoreNativeLimits) {}
+  constructor(private readonly limits: CoreNativeLimits, sources?: readonly Readonly<{
+    sourceKey: string; tables: readonly CoreTableDefinition[]; limits: CoreNativeLimits;
+  }>[]) {
+    for (const source of sources ?? []) for (const table of source.tables)
+      this.sourcesByTablet.set(encodeBytesToLowercaseHex(table.tabletId), source);
+  }
 
-  reserve(ids: readonly string[]): Result.Result<void, CoreTransactionError> {
+  limitsFor(table: CoreTableDefinition): Result.Result<CoreNativeLimits, CoreTransactionError> {
+    if (this.sourcesByTablet.size === 0) return Result.succeed(this.limits);
+    const source = this.sourcesByTablet.get(encodeBytesToLowercaseHex(table.tabletId));
+    return source === undefined ? Result.fail(new CoreTransactionError({ reason: "authorityRevoked" })) : Result.succeed(source.limits);
+  }
+
+  reserve(table: CoreTableDefinition, ids: readonly string[]): Result.Result<void, CoreTransactionError> {
+    const source = this.sourcesByTablet.get(encodeBytesToLowercaseHex(table.tabletId));
+    if (this.sourcesByTablet.size > 0 && source === undefined)
+      return Result.fail(new CoreTransactionError({ reason: "authorityRevoked" }));
     const additions = new Set(ids.filter(id => !this.identities.has(id)));
     if (this.identities.size + additions.size > this.limits.maxIdentities)
       return Result.fail(new CoreTransactionError({ reason: "capacity", cause: "Native captured identity limit" }));
+    if (source !== undefined) {
+      const captured = this.sourceIdentities.get(source.sourceKey) ?? new Set<string>();
+      const sourceAdditions = new Set(ids.filter(id => !captured.has(id)));
+      if (captured.size + sourceAdditions.size > source.limits.maxIdentities)
+        return Result.fail(new CoreTransactionError({ reason: "capacity", cause: "Native source captured identity limit" }));
+      for (const id of sourceAdditions) captured.add(id);
+      this.sourceIdentities.set(source.sourceKey, captured);
+    }
     for (const id of additions) this.identities.add(id);
     return Result.succeed(undefined);
   }
@@ -124,6 +152,12 @@ export class CoreNativeObservationState {
         Object.freeze({ id: member.id, key: member.key.slice() }))) }));
   }
 
+  /** Fresh native windows are independently observed, rather than memoized ranges. */
+  rememberPage(slot: CoreNativeRangeSlot): void {
+    this.pages.push(Object.freeze({ ...slot, interval: copyInterval(slot.interval),
+      members: Object.freeze(slot.members.map(member => Object.freeze({ id: member.id, key: member.key.slice() }))) }));
+  }
+
   addReads(timestamp: bigint, reads: CoreReadSet): void {
     let group = this.dependencies.get(timestamp);
     if (group === undefined) {
@@ -136,6 +170,7 @@ export class CoreNativeObservationState {
   snapshot(): CoreNativeObservations {
     const indexes: CoreNativeIndexObservation[] = [...this.slots.values()].map(entry => entry.slot);
     indexes.push(...this.ranges.values());
+    indexes.push(...this.pages);
     return Object.freeze({ limits: Object.freeze({ ...this.limits }),
       dependencies: Object.freeze([...this.dependencies].map(([timestamp, reads]) =>
       Object.freeze({ timestamp, reads: reads.snapshot() }))),

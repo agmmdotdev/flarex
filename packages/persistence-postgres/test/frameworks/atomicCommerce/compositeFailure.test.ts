@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { ScopePublicationCorruptionError, ScopePublicationResourceError, ScopePublicationSqlFailure } from "../../../src/commit/publication/scopePublicationModel";
-import { projectCompositeFailure, projectCompositePublicationFailure } from "../../../src/frameworks/crossDomainCommand/model";
+import { projectCompositeFailure, projectCompositePublicationFailure } from "../../../src/frameworks/crossDomainCommand/legacyFailure";
 import { LogicalDocumentSourceAdmissionError } from "../../../src/storage/documents/logicalDocuments/documentAdmission";
 import { LogicalApplicationSourceAdmissionError } from "../../../src/storage/documents/logicalDocuments/applicationAdmission";
 import { LogicalRelationalAdmissionError } from "../../../src/storage/documents/logicalDocuments/relationalAdmission";

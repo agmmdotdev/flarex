@@ -9,7 +9,10 @@ import type { LogicalDocumentFailure } from "./model";
 import type { LogicalSearchDefinition } from "./searchEntries";
 import type { Json } from "flarex-protocol/json";
 
-export interface LogicalSearchPattern { readonly column: string; readonly pattern: string }
+import type { RelationalSearchPattern as LogicalSearchPattern } from "../../../values/textSearch";
+import { foldSearchAscii as foldAscii, hasMandatorySearchTrigram } from "../../../values/textSearch";
+export type { RelationalSearchPattern as LogicalSearchPattern } from "../../../values/textSearch";
+export { hasMandatorySearchTrigram } from "../../../values/textSearch";
 export interface LogicalSearchMember {
   readonly rowId: AppRowIdHexV1;
   readonly fieldId: string;
@@ -20,12 +23,6 @@ export type LogicalSearchRead =
     patterns: readonly LogicalSearchPattern[]; entries: readonly LogicalSearchMember[] }>
   | Readonly<{ kind: "jsonContainment"; definition: LogicalSearchDefinition;
     column: string; value: Json; entries: readonly LogicalSearchMember[] }>;
-const foldAscii = (value: string) => value.replace(/[A-Z]/g, letter => letter.toLowerCase());
-
-/** A required three-character word run gives pg_trgm a selective key. A
- * wildcard-only or shorter pattern must use a different indexed anchor. */
-export const hasMandatorySearchTrigram = (pattern: string) => /[a-z0-9]{3,}/.test(foldAscii(pattern));
-
 export const readLogicalSearchRange = Effect.fn("LogicalDocuments.readSearchRange")(function* <Failure>(
   tx: FlarexMetadataTransaction, scopeId: ScopeId, definition: LogicalSearchDefinition,
   patterns: readonly LogicalSearchPattern[], maximumRows: number, error: LogicalDocumentFailure<Failure>,

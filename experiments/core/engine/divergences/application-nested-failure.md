@@ -7,9 +7,12 @@ Owner: [04C Standard mutation cutover](../slices/04c-standard-mutation-cutover.m
 
 ## Pinned mechanism
 
-At Convex `84fbb0e70b4e857913673871cb847ad11a55f3d5`,
+At Convex `db914cf06e2b06ee985646611b9e12ed7a770318`,
 [Transaction subtransactions](../../../../../../crates/database/src/transaction.rs)
-checkpoint writes, pending indexes, metadata and schema/component registries.
+checkpoint writes, pending indexes, metadata, schema/component registries and
+file uploads. The token also captures transaction-limit configuration and table
+count deltas. Both child commit and rollback restore the parent's limit
+configuration; rollback additionally restores the parent's table count deltas.
 [NestedWrites](../../../../../../crates/database/src/writes.rs) retains a parent
 owner and validates the nesting token; rollback restores that owner rather than
 applying inverse business writes.
@@ -22,7 +25,8 @@ same rollback branch as a handler error at this pin. Infrastructure errors also
 must not be described as recoverable child outcomes.
 
 Reads/usage, random/ID/time progression and scheduling counters are outside the
-write checkpoint. Write-size counters live inside checkpointed Writes. Copying
+write checkpoint. Restored limit configuration is distinct from rewinding
+consumed usage. Write-size counters live inside checkpointed Writes. Copying
 this mechanism later requires explicit selection of each state/accounting rule;
 neither all-state rewind nor all-accounting retention describes the pin.
 
