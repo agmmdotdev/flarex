@@ -1,5 +1,13 @@
 import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
-import { Effect } from "effect";
+import { Cause, Effect, Exit, Result } from "effect";
+import { CoreApplicationTransportError, makeCoreApplicationHttpHandler } from "@flarex/executor-http/internal/core-application";
+import {
+  coreApplicationProfilePath,
+  coreApplicationValueToJson,
+  encodeCoreApplicationProfile,
+  type CoreApplicationCoreProfile,
+  type CoreApplicationInvocationRequest,
+} from "flarex-protocol/internal/core-application";
 import { afterAll, describe, expect, it } from "vitest";
 import type { AuthConfig } from "flarex-protocol/auth";
 import { R2BackendExecutionArtifactStore, type R2BucketLike } from "../src/artifactStore";
@@ -8,6 +16,7 @@ import {
   type ExecutionArtifactInvokePayload,
 } from "../src/artifactRuntime";
 import { decodeExecutionArtifactInvokePayloadBody } from "../src/artifactRuntime/Requests";
+import { projectBackendCoreApplicationErrors } from "../src/coreApplicationRuntime";
 import {
   createRsaSigningKeys,
   dataJsonUrl,
@@ -34,6 +43,17 @@ describe("backend artifact runtime route", () => {
 
   afterAll(async () => {
     await Promise.all(harnesses.map(harness => harness.dispose()));
+  });
+
+  it("preserves transport provenance and simultaneous defects while refusing a malformed successful response", async () => {
+    const original = new CoreApplicationTransportError({ reason: "invalidResponse", status: 200, cause: new Error("malformed wire") });
+    const defect = new Error("independent defect");
+    const result = await Effect.runPromiseExit(projectBackendCoreApplicationErrors(Effect.failCause(
+      Cause.combine(Cause.fail(original), Cause.die(defect)),
+    )));
+    expect(Exit.isFailure(result) && result.cause.reasons).toMatchObject([
+      { _tag: "Fail", error: { status: 503, cause: original } }, { _tag: "Die", defect },
+    ]);
   });
 
   it("loads the active R2 source package before routing public invoke to the runtime binding", async () => {
@@ -432,7 +452,232 @@ describe("backend artifact runtime route", () => {
       error: "Authenticated HTTP invoke requires an execution artifact runtime.",
     });
   });
+
+  it("routes registered Core calls directly with verified identity, exact values and one caller key", async () => {
+    const deploymentId = "core-runtime-route";
+    const keys = await createRsaSigningKeys("core-http");
+    const token = await signJwt({ privateKey: keys.privateKey, kid: keys.jwk.kid, payload: {
+      iss: "https://issuer.example.com", sub: "core-user", aud: "flarex-http",
+      exp: Math.floor(Date.now() / 1000) + 60,
+    } });
+    const sourcePackage = testSourcePackage({ authConfig: customJwtConfig(dataJsonUrl({ keys: [keys.jwk] })),
+      authConfigModule: "_flarex/auth.config.js" });
+    const ref = await executionArtifactRefForSourcePackage(sourcePackage);
+    const profile: CoreApplicationCoreProfile = { format: "flarex.core-application.profile", version: 1, kind: "core",
+      route: { deploymentId, scopeUuid: "11111111-1111-4111-8111-111111111111", epochUuid: "22222222-2222-4222-8222-222222222222" },
+      sourceArtifactRootSha256: "a".repeat(64), sourcePackageHash: ref.sourcePackageHash };
+    const calls: CoreApplicationInvocationRequest[] = [];
+    let lookups = 0;
+    let artifactCalls = 0;
+    const exact = { counter: 9_007_199_254_740_993n, bytes: new Uint8Array([0, 128, 255]).buffer, signedZero: -0 };
+    const encoded = Result.getOrThrow(coreApplicationValueToJson(exact));
+    const handle = makeCoreApplicationHttpHandler({ route: profile.route,
+      authorize: request => Effect.succeed(request.headers.get("authorization") === "Bearer core-secret"),
+      execute: request => {
+        calls.push(request);
+        return Effect.succeed(request.kind === "query"
+          ? { kind: "query" as const, value: exact, evaluation: { timestamp: 9_007_199_254_740_993n, reads: [] } }
+          : { kind: "mutation" as const, value: exact, disposition: "published" as const, publishedTimestamp: 9_007_199_254_740_995n });
+      }, maximumRequestBytes: 1_048_576, maximumResponseBytes: 1_048_576 });
+    const harness = await createBackendHarness({
+      bindings: { FLAREX_EXECUTOR_TRANSPORT: "core_application", FLAREX_EXECUTOR_TOKEN: "core-secret",
+        FLAREX_TRUSTED_EXECUTION_IDENTITY: "true", FLAREX_TRUSTED_EXECUTION_IDENTITY_TOKEN: "trusted-core-secret" },
+      r2Buckets: ["ARTIFACTS"],
+      serviceBindings: {
+        FLAREX_EXECUTOR: request => {
+          if (new URL(request.url).pathname === coreApplicationProfilePath(deploymentId)) {
+            lookups++;
+            expect(request.headers.get("authorization")).toBe("Bearer core-secret");
+            return Response.json(Result.getOrThrow(encodeCoreApplicationProfile(profile)));
+          }
+          return Effect.runPromise(handle(request));
+        },
+        FLAREX_ARTIFACT_RUNTIME: async () => { artifactCalls++; return Response.json({ value: "wrong runtime" }); },
+      },
+    });
+    harnesses.push(harness);
+    await activateRuntimeDeployment(harness, deploymentId, sourcePackage);
+
+    for (const [path, kind, idempotencyKey] of [
+      ["users:get", "query", "core-query-key"], ["users:create", "mutation", "core-mutation-key"],
+    ] as const) {
+      const response = await harness.mf.dispatchFetch(`http://flarex.test/deployments/${deploymentId}/invoke`, {
+        method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ path, kind, args: { payload: encoded }, idempotencyKey,
+          identity: { kind: "anonymous" } }),
+      });
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ value: encoded });
+    }
+    expect(calls).toHaveLength(2);
+    expect(lookups).toBe(2);
+    expect(calls.map(call => call.requestKey)).toEqual(["core-query-key", "core-mutation-key"]);
+    expect(calls.map(call => call.functionPath)).toEqual(["users:get", "users:create"]);
+    expect(calls[0]?.args).toEqual({ payload: exact });
+    expect(calls[0]?.auth).toMatchObject({ kind: "user", user: {
+      subject: "core-user", issuer: "https://issuer.example.com", tokenIdentifier: "https://issuer.example.com|core-user",
+    } });
+    expect(calls[0]?.sourceArtifactRootSha256).toBe(profile.sourceArtifactRootSha256);
+
+    const unauthorized = await harness.mf.dispatchFetch(`http://flarex.test/deployments/${deploymentId}/invoke`, {
+      method: "POST", headers: { "content-type": "application/json", authorization: "Bearer invalid-jwt" },
+      body: JSON.stringify({ path: "users:get", kind: "query", args: {} }),
+    });
+    expect(unauthorized.status).toBe(401);
+    expect(lookups).toBe(2);
+    expect(calls).toHaveLength(2);
+
+    const omitted = await harness.mf.dispatchFetch(`http://flarex.test/deployments/${deploymentId}/invoke`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: "users:get", kind: "query" }),
+    });
+    expect(omitted.status).toBe(200);
+    expect(calls).toHaveLength(3);
+    expect(calls[2]?.args).toEqual({});
+    expect(calls[2]?.requestKey).toMatch(/^[0-9a-f-]{36}$/);
+    const explicitNull = await harness.mf.dispatchFetch(`http://flarex.test/deployments/${deploymentId}/invoke`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: "users:get", kind: "query", args: null }),
+    });
+    expect(explicitNull.status).toBe(400);
+    await expect(explicitNull.json()).resolves.toEqual({ error: "Invalid Core application arguments." });
+    expect(calls).toHaveLength(3);
+    const partitioned = await harness.mf.dispatchFetch(`http://flarex.test/deployments/${deploymentId}/invoke`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: "users:get", kind: "query", args: {}, partitionKey: "other-partition" }),
+    });
+    expect(partitioned.status).toBe(400);
+    await expect(partitioned.json()).resolves.toEqual({ error: "Core application execution does not admit partition routing." });
+    expect(calls).toHaveLength(3);
+    const trustedIdentity = { kind: "user", user: { subject: "trusted-core-user",
+      issuer: "https://trusted.example.com", tokenIdentifier: "https://trusted.example.com|trusted-core-user" } } as const;
+    const trusted = await harness.mf.dispatchFetch(`http://flarex.test/deployments/${deploymentId}/invoke`, {
+      method: "POST", headers: { "content-type": "application/json",
+        "x-flarex-trusted-execution-identity": JSON.stringify(trustedIdentity),
+        "x-flarex-trusted-execution-identity-token": "trusted-core-secret" },
+      body: JSON.stringify({ path: "users:get", kind: "query", args: {}, idempotencyKey: "trusted-core-key" }),
+    });
+    expect(trusted.status).toBe(200);
+    expect(calls).toHaveLength(4);
+    expect(calls[3]?.auth).toEqual(trustedIdentity);
+    expect(calls[3]?.requestKey).toBe("trusted-core-key");
+    expect(artifactCalls).toBe(0);
+  });
+
+  it("uses the retained artifact runtime only for an explicit legacy profile", async () => {
+    const deploymentId = "explicit-legacy-profile";
+    let lookups = 0;
+    let artifactCalls = 0;
+    const harness = await createBackendHarness({
+      bindings: { FLAREX_EXECUTOR_TRANSPORT: "core_application", FLAREX_EXECUTOR_TOKEN: "core-secret" },
+      r2Buckets: ["ARTIFACTS"], serviceBindings: {
+        FLAREX_EXECUTOR: async request => {
+          expect(new URL(request.url).pathname).toBe(coreApplicationProfilePath(deploymentId));
+          lookups++;
+          return Response.json(Result.getOrThrow(encodeCoreApplicationProfile({
+            format: "flarex.core-application.profile", version: 1, kind: "legacy", deploymentId,
+          })));
+        },
+        FLAREX_ARTIFACT_RUNTIME: async () => { artifactCalls++; return Response.json({ value: "legacy artifact" }); },
+      },
+    });
+    harnesses.push(harness);
+    await activateRuntimeDeployment(harness, deploymentId, testSourcePackage());
+    const response = await harness.mf.dispatchFetch(`http://flarex.test/deployments/${deploymentId}/invoke`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: "users:get", kind: "query", args: {}, partitionKey: "retained-partition" }),
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ value: "legacy artifact" });
+    expect(lookups).toBe(1);
+    expect(artifactCalls).toBe(1);
+  });
+
+  it("refuses stale Core source and lookup or invocation failure without artifact fallback", async () => {
+    const deploymentId = "core-runtime-refusal";
+    const sourcePackage = testSourcePackage();
+    const ref = await executionArtifactRefForSourcePackage(sourcePackage);
+    const profile: CoreApplicationCoreProfile = { format: "flarex.core-application.profile", version: 1, kind: "core",
+      route: { deploymentId, scopeUuid: "11111111-1111-4111-8111-111111111111", epochUuid: "22222222-2222-4222-8222-222222222222" },
+      sourceArtifactRootSha256: "a".repeat(64), sourcePackageHash: ref.sourcePackageHash };
+    let mode: "stale" | "lookup-failure" | "invoke-failure" | "malformed-success" | "oversized-success" = "stale";
+    let invokes = 0;
+    let artifactCalls = 0;
+    const harness = await createBackendHarness({
+      bindings: { FLAREX_EXECUTOR_TRANSPORT: "core_application", FLAREX_EXECUTOR_TOKEN: "core-secret" },
+      r2Buckets: ["ARTIFACTS"], serviceBindings: {
+        FLAREX_EXECUTOR: async request => {
+          if (new URL(request.url).pathname === coreApplicationProfilePath(deploymentId)) {
+            if (mode === "lookup-failure") return Response.json({ error: "untrusted internal detail" }, { status: 503 });
+            return Response.json(Result.getOrThrow(encodeCoreApplicationProfile(mode === "stale"
+              ? { ...profile, sourcePackageHash: "e".repeat(64) } : profile)));
+          }
+          invokes++;
+          if (mode === "malformed-success") return new Response("{malformed", { status: 200 });
+          if (mode === "oversized-success") return new Response(new Uint8Array(32 * 1024 * 1024 + 1), { status: 200 });
+          return Response.json({ format: "flarex.core-application.failure", version: 1,
+            error: { code: "source_changed", message: "Core source changed before invocation." } }, { status: 409 });
+        },
+        FLAREX_ARTIFACT_RUNTIME: async () => { artifactCalls++; return Response.json({ value: "wrong runtime" }); },
+      },
+    });
+    harnesses.push(harness);
+    await activateRuntimeDeployment(harness, deploymentId, sourcePackage);
+    const invoke = () => harness.mf.dispatchFetch(`http://flarex.test/deployments/${deploymentId}/invoke`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: "users:get", kind: "query", args: {}, idempotencyKey: "stable-core-key" }),
+    });
+    const stale = await invoke();
+    expect(stale.status).toBe(409);
+    await expect(stale.json()).resolves.toEqual({ error: "Active application source does not match its Core registration." });
+    expect(invokes).toBe(0);
+    mode = "lookup-failure";
+    const unavailable = await invoke();
+    expect(unavailable.status).toBe(503);
+    expect(await unavailable.text()).not.toContain("untrusted internal detail");
+    expect(invokes).toBe(0);
+    mode = "invoke-failure";
+    const failed = await invoke();
+    expect(failed.status).toBe(409);
+    await expect(failed.json()).resolves.toEqual({ error: "Core source changed before invocation." });
+    expect(invokes).toBe(1);
+    for (const invalidSuccess of ["malformed-success", "oversized-success"] as const) {
+      mode = invalidSuccess;
+      const invalid = await invoke();
+      expect(invalid.status).toBe(503);
+      await expect(invalid.json()).resolves.toEqual({ error: "Core application executor request failed." });
+    }
+    expect(invokes).toBe(3);
+    expect(artifactCalls).toBe(0);
+  });
+
+  it("requires the configured Core binding instead of running an artifact", async () => {
+    const deploymentId = "core-runtime-missing-binding";
+    let artifactCalls = 0;
+    const harness = await createBackendHarness({
+      bindings: { FLAREX_EXECUTOR_TRANSPORT: "core_application", FLAREX_EXECUTOR_TOKEN: "core-secret" },
+      r2Buckets: ["ARTIFACTS"], serviceBindings: {
+        FLAREX_ARTIFACT_RUNTIME: async () => { artifactCalls++; return Response.json({ value: "wrong runtime" }); },
+      },
+    });
+    harnesses.push(harness);
+    await activateRuntimeDeployment(harness, deploymentId, testSourcePackage());
+    const response = await harness.mf.dispatchFetch(`http://flarex.test/deployments/${deploymentId}/invoke`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: "users:get", kind: "query", args: {} }),
+    });
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: "Core application executor is not configured." });
+    expect(artifactCalls).toBe(0);
+  });
 });
+
+async function activateRuntimeDeployment(harness: BackendHarness, deploymentId: string, sourcePackage: PushSourcePackage) {
+  const started = await startPush(harness, deploymentId, { sourcePackage, analysis: testAnalysis() });
+  const bucket = await harness.mf.getR2Bucket("ARTIFACTS");
+  await new R2BackendExecutionArtifactStore(r2BucketLike(bucket)).put(sourcePackage);
+  expect((await finishPush(harness, deploymentId, started.pushId)).state).toBe("activated");
+}
 
 async function startPush(
   harness: BackendHarness,

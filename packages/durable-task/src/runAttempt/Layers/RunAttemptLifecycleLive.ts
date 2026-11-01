@@ -1,8 +1,8 @@
+// Adapted from Trigger.dev commit f10bc23785e569e5d917318cf2033aabdbe96a0b,
+// multiple mapped upstream paths. See trigger-source-map.json and THIRD_PARTY_NOTICES.md.
 import { bytesEqualFullScan } from "@flarex/utils/bytes";
 import type { RegisterTrustedWorkflowContinuationCommand, ResolveTrustedWorkflowContinuationCommand, TrustedWorkflowContinuation, TrustedWorkflowContinuationOutcome } from "../WorkflowContinuation.js";
 import { decodeTrustedWorkflowTaskRunAttemptAggregate, encodeTrustedWorkflowTaskRunAttemptAggregate } from "../Schema.js";
-// Adapted from Trigger.dev commit f10bc23785e569e5d917318cf2033aabdbe96a0b,
-// multiple mapped upstream paths. See trigger-source-map.json and THIRD_PARTY_NOTICES.md.
 import { Brand, Effect, Layer, Result } from "effect";
 import {
   fromCurrentTaskRunAttemptAggregate,

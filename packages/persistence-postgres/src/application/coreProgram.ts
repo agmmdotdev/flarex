@@ -39,6 +39,26 @@ export type CoreApplicationProgram = CoreApplicationProgramBase & (
   | Readonly<{ kind: "mutation"; executionAuthority: CanonicalApplicationMutationExecutionAuthorityV1 }>
 );
 export interface CoreApplicationTableBinding { readonly tableId: number; readonly logicalName: string }
+const ProgramProfile = Schema.Struct({ scopeUuid: ScopeUuidV1Schema, epochUuid: ScopeEpochUuidV1Schema,
+  sourceArtifactRootSha256: Schema.String.check(Schema.makeFilter(value => /^[0-9a-f]{64}$/.test(value)
+    ? undefined : "Expected a lowercase source SHA-256")) });
+export type CoreApplicationProgramProfile = typeof ProgramProfile.Type;
+const decodeProgramProfile = Schema.decodeUnknownResult(ProgramProfile);
+
+/** Trusted deployment routing pins are checked against the operation's selected program. */
+export function captureCoreApplicationProgramProfile(input: unknown): Result.Result<CoreApplicationProgramProfile, CoreApplicationProgramError> {
+  return decodeProgramProfile(input).pipe(
+    Result.mapError(cause => new CoreApplicationProgramError({ reason: "metadataInvalid", cause })),
+    Result.map(value => Object.freeze({ ...value })),
+  );
+}
+
+export function requireCoreApplicationProgramProfile(program: CoreApplicationProgram,
+  expected: CoreApplicationProgramProfile): Result.Result<void, CoreApplicationProgramError> {
+  return program.scopeUuid === expected.scopeUuid && program.epochUuid === expected.epochUuid
+    && program.runtimeTarget.sourceArtifactRootSha256 === expected.sourceArtifactRootSha256
+    ? Result.succeed(undefined) : Result.fail(new CoreApplicationProgramError({ reason: "unsupportedSelection" }));
+}
 type Hash = (bytes: Uint8Array) => Effect.Effect<Uint8Array, unknown>;
 const utf8 = new TextEncoder();
 const MetadataFields = { compatibilityDate: Schema.NonEmptyString,

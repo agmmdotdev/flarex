@@ -1,6 +1,6 @@
-import type { TrustedWorkflowContinuation, TrustedWorkflowContinuationAggregate, TrustedWorkflowContinuationAcceptance, TrustedWorkflowContinuationEvidence } from "./WorkflowContinuation.js";
 // Adapted from Trigger.dev commit f10bc23785e569e5d917318cf2033aabdbe96a0b,
 // upstream/internal-packages/run-engine/src/engine/eventBus.ts. See trigger-source-map.json and THIRD_PARTY_NOTICES.md.
+import type { TrustedWorkflowContinuation, TrustedWorkflowContinuationAggregate, TrustedWorkflowContinuationAcceptance, TrustedWorkflowContinuationEvidence } from "./WorkflowContinuation.js";
 import type { Brand } from "effect";
 import type {
   ApplicationTaskRuntimeTargetSha256V1,

@@ -122,6 +122,7 @@ maintaining a competing completion log here.
 
 ## Shared schema translation
 
+- [Application registration admission](./application-registration-admission.md): trusted fresh executor provenance extends the existing logical schema lifecycle; interrupted preparation and exact program publication share Core enforcement.
 - [Bounded schema/index worker lifetime](./cloudflare-schema-worker-lifetime.md).
 - [Live Worker table mapping](./worker-table-mapping.md).
 - [Drizzle physical maintenance](./drizzle-physical-maintenance.md).

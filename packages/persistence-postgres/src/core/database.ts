@@ -14,6 +14,7 @@ import { CoreProgramIdentitySchema, CoreNativeRootIdentitySchema, CoreSchemaWork
   issueCoreNativeRootBinding, issueCoreApplicationInsertBinding, issueCoreApplicationReadBinding, issueCoreNativeInitializationBinding,
   type CoreDatabase, type CoreDatabaseOptions, type CoreError,
   type CoreProgramPublication, type CoreSchemaProposal, type CoreSchemaStatus, type CoreProgramDefinition, type CoreProgramIdentity, type CoreRequestAcquisition,
+  type CoreApplicationRegistrationMetadata,
   type CoreNativeBinding, type CoreNativeCommandDefinition, type CoreNativeCommandIdentity, type CoreNativeOperation,
   type CoreRequestClaim, type CoreRequestIdentity, type CoreRequestResolution, type CoreTableDefinition,
   type CoreNativeRootBindingMetadata, type CoreApplicationInsertBinding,
@@ -49,6 +50,7 @@ import { coreProtectedAuthorityMetadataReads } from "./protectedNativeAuthority"
 import { capturePrivateJsonData } from "../values/privateJsonData";
 import { CoreRecoveryJournal, type CoreRecoveryEnrollment } from "./recoveryJournal";
 import { isCoreDefinitiveCommitRefusal } from "./api";
+import { captureCoreApplicationRegistration, guardCoreApplicationRegistration, readActiveCoreApplicationRegistration } from "./applicationRegistration";
 
 const NativeLimitsSchema = Schema.Struct({ maxIdentities: Schema.Int.check(Schema.isBetween({ minimum: 1,
   maximum: CORE_TRANSACTION_REFERENCE_LIMITS.documentsRead })), maxDocumentBytes: Schema.Int.check(Schema.isBetween({ minimum: 1,
@@ -140,8 +142,14 @@ const copyTableDefinition = (table: CoreTableDefinition): CoreTableDefinition =>
   tabletId: table.tabletId.slice(), indexes: Object.freeze(table.indexes.map(index => Object.freeze({ ...index,
     ref: Object.freeze({ ...index.ref, id: index.ref.id.slice() }) }))) });
 /** Keep source capabilities and the selected publication list stable across lifecycle I/O. */
-const ownPublicationFrame = (publication: CoreProgramPublication): CoreProgramPublication => Object.freeze({ ...publication,
-  programs: Object.freeze([...publication.programs]) });
+const ownPublicationFrame = (publication: CoreProgramPublication): Result.Result<CoreProgramPublication, CoreError> => Result.gen(function* () {
+  const programs: CoreProgramDefinition[] = [];
+  for (const program of publication.programs) programs.push(yield* ownedProgram(program));
+  const applicationRegistration = publication.applicationRegistration === undefined ? undefined
+    : yield* captureCoreApplicationRegistration(publication.applicationRegistration);
+  return Object.freeze({ ...publication, programs: Object.freeze(programs),
+    ...(applicationRegistration === undefined ? {} : { applicationRegistration }) });
+});
 const checkNativeRoot = (registry: CoreRegistry, data: NativeRootData): Result.Result<void, CoreError> => Result.gen(function* () {
   for (const access of data.accesses) {
     if (access.kind === "native") yield* checkCoreNativeAuthority(registry, access.authority);
@@ -293,6 +301,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
   // a fresh key. Openness, lease/fencing, clocks and body permissions are checked
   // at their existing live owners and never enter this success-only memo.
   const checkedNativeRoots = new WeakMap<CoreRegistry, WeakSet<NativeRootData>>();
+  const checkedApplicationRegistrations = new WeakMap<CoreRegistry, CoreApplicationRegistrationMetadata>();
   const validateNativeRoot = (registry: CoreRegistry, data: NativeRootData): Result.Result<void, CoreError> => {
     const checked = checkedNativeRoots.get(registry);
     if (checked?.has(data)) return Result.succeed(undefined);
@@ -514,7 +523,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     if (tables.some(table => !coreNativeStoredTables(definition).some(selected => selected.name === table.name)))
       return yield* nativeUnsupported("A native-only schema cannot replace unrelated Application or native tables");
   });
-  const assertEmptyNativeTable = Effect.fn("CoreDatabase.assertEmptyNativeTable")(function* (
+  const assertEmptyTable = Effect.fn("CoreDatabase.assertEmptyTable")(function* (
     selected: Effect.Success<ReturnType<typeof make>>, table: CoreTableDefinition,
   ) {
     const byId = table.indexes.find(index => index.name === "by_id");
@@ -523,7 +532,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     const page = yield* selected.snapshot.scan({ index: byId.ref, tableId: table.tabletId,
       interval: { start: null, end: null }, order: "asc", maxResults: 1 });
     if (page.entries.length !== 0 || page.cursor.kind !== "end")
-      return yield* nativeUnsupported("Native constraint preparation requires a proven empty table");
+      return yield* nativeUnsupported("Constraint preparation requires a proven empty table");
   });
   const applyIndexes=Effect.fn("CoreDatabase.applyIndexChanges")(function*(context:CoreTransactionInternals,changes:CoreIndexChanges){
     const table=context.registry.table(INDEXES)?.definition;
@@ -553,7 +562,11 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
   }))));
   const prepareSchema:CoreDatabase["prepareSchema"]=Effect.fn("CoreDatabase.prepareSchema")((requested)=>{
     const input = Object.freeze({ ...requested });
-    return admin(input.namespace??input.bundle?.namespace??null,selected=>Effect.gen(function*(){
+    const registration = input.applicationRegistration === undefined ? Result.succeed(undefined)
+      : captureCoreApplicationRegistration(input.applicationRegistration);
+    return Effect.gen(function* () {
+    const applicationRegistration = yield* Effect.fromResult(registration);
+    return yield* admin(input.namespace??input.bundle?.namespace??null,selected=>Effect.gen(function*(){
     if (input.bundle !== undefined && (input.native !== undefined || input.schema !== undefined))
       return yield* nativeUnsupported("Composed schema is derived only from its authenticated sources");
     if (input.native !== undefined) yield* Effect.fromResult(requireCoreNativeDefinition(input.native));
@@ -568,7 +581,10 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     const result=yield* selected.context.runSystem(Effect.gen(function*(){
       yield* ensureNamespace(selected.context);
       yield* guardNativeLifecycle(selected.context, input.native, input.bundle);
-      const pendingProposal=yield* new CoreSchemaModel(selected.context).submitPending(schema, input.bundle?.metadata ?? input.native?.metadata);
+      const registrationProof = yield* guardCoreApplicationRegistration(selected.context, { mode: "prepare", schema,
+        ...(applicationRegistration === undefined ? {} : { registration: applicationRegistration }),
+        native: input.native !== undefined || input.bundle !== undefined }, table => assertEmptyTable(selected, table));
+      const pendingProposal=yield* new CoreSchemaModel(selected.context).submitPending(schema, input.bundle?.metadata ?? input.native?.metadata, registrationProof);
       const definitions = input.bundle?.nativeDefinitions ?? (input.native === undefined ? [] : [input.native]);
       for (const definition of definitions) for (const declaration of coreNativeStoredTables(definition)) {
         const table = selected.context.registry.table(declaration.name, selected.context.namespace)?.definition;
@@ -577,7 +593,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         if (previous?.state === "active" && previous.schemaId !== pendingProposal.id) continue;
         if (previous !== undefined && previous.schemaId !== pendingProposal.id)
           return yield* nativeUnsupported("Native installation cannot replace a reserved schema identity");
-        if (previous?.state !== "active") yield* assertEmptyNativeTable(selected, table);
+        if (previous?.state !== "active") yield* assertEmptyTable(selected, table);
         const nativePolicy = coreNativePolicyForTable(definition, declaration, previous?.state ?? "reserved", pendingProposal.id, input.bundle?.protectedReferences,
           input.bundle?.nativeBindings?.find(binding => binding.sourceKey === definition.identity.sourceKey)?.selected);
         if (previous !== undefined && sameCoreNativeTablePolicy(previous, nativePolicy)) continue;
@@ -596,6 +612,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     yield* settle(selected);
     return Object.freeze({namespace:selected.context.namespace,id:result.id});
   }));
+    });
   });
   const summaryWorker=yield* makeCoreTableSummaryWorker({persistence,lease,retention:initial.retention,options,
     publishedTimestamp:committer.publishedTimestamp,publishCounts:committer.publishCounts});
@@ -608,11 +625,16 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     return yield* schemaStatus(proposal);
   });
   const activateSchema:CoreDatabase["activateSchema"]=Effect.fn("CoreDatabase.activateSchema")((requestedProposal,requestedPublication)=>{
-    const proposal = Object.freeze({ ...requestedProposal }), publication = ownPublicationFrame(requestedPublication);
-    return admin(proposal.namespace,selected=>Effect.gen(function*(){
+    const proposal = Object.freeze({ ...requestedProposal }), captured = ownPublicationFrame(requestedPublication);
+    return Effect.gen(function* () {
+    const publication = yield* Effect.fromResult(captured);
+    return yield* admin(proposal.namespace,selected=>Effect.gen(function*(){
     yield* selected.context.runSystem(Effect.gen(function*(){
       yield* guardNativeLifecycle(selected.context, publication.native, publication.bundle);
       const model=new CoreSchemaModel(selected.context),schema=yield* model.getValidatedOrActive(proposal.id);
+      yield* guardCoreApplicationRegistration(selected.context, { mode: "activate", schema: schema.schema, proposalId: proposal.id,
+        publication: publication.programs, ...(publication.applicationRegistration === undefined ? {} : { registration: publication.applicationRegistration }),
+        native: publication.native !== undefined || publication.bundle !== undefined }, table => assertEmptyTable(selected, table));
       if (schema.metadata.native !== (publication.bundle?.metadata ?? publication.native?.metadata))
         return yield* nativeUnsupported("Schema activation requires its authenticated producer");
       const definitions = publication.bundle?.nativeDefinitions ?? (publication.native === undefined ? [] : [publication.native]);
@@ -624,7 +646,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
           if (table?.nativePolicy === undefined || table.nativePolicy.state !== "active" && (table.nativePolicy.schemaId !== proposal.id
             || !sameCoreNativeIdentity(table.nativePolicy.identity, definition.identity)))
             return yield* nativeUnsupported("Native reservation no longer matches the proposal");
-          if (table.nativePolicy.state !== "active") yield* assertEmptyNativeTable(selected, table);
+          if (table.nativePolicy.state !== "active") yield* assertEmptyTable(selected, table);
         }
       }
       const changes=yield* Effect.fromResult(Result.mapError(finishCoreIndexChanges(planCoreIndexes(selected.context.registry,proposal.namespace,schema.schema)),error=>error.reason==="unavailable"?new CoreTransactionError({reason:"indexUnavailable",cause:error}):error));
@@ -645,18 +667,31 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     const timestamp=yield* settle(selected);
     return {timestamp,tables:[...selected.context.registry.tables.values()].map(record=>record.definition).filter(table=>!isCoreSystemTable(table)&&coreNamespaceKey(table.namespace)===coreNamespaceKey(proposal.namespace))};
   }));
+    });
   });
   const publishPrograms:CoreDatabase["publishPrograms"]=Effect.fn("CoreDatabase.publishPrograms")((requested)=>{
-    const publication = ownPublicationFrame(requested);
-    return admin(publication.namespace??null,selected=>Effect.gen(function*(){
+    const captured = ownPublicationFrame(requested);
+    return Effect.gen(function* () {
+    const publication = yield* Effect.fromResult(captured);
+    return yield* admin(publication.namespace??null,selected=>Effect.gen(function*(){
     yield* guardNativeLifecycle(selected.context, publication.native, publication.bundle);
     if (publication.native !== undefined || publication.bundle !== undefined) return yield* nativeUnsupported("Native command publication uses shared schema activation");
-    yield* selected.context.runSystem(new CoreSchemaModel(selected.context).active());
+    yield* selected.context.runSystem(Effect.gen(function* () {
+      const active = yield* new CoreSchemaModel(selected.context).active();
+      yield* guardCoreApplicationRegistration(selected.context, { mode: "publish", publication: publication.programs,
+        ...(Option.isNone(active) ? {} : { schema: active.value.schema }),
+        ...(publication.applicationRegistration === undefined ? {} : { registration: publication.applicationRegistration }) },
+        table => assertEmptyTable(selected, table));
+    }));
     yield* writePrograms(selected,publication);
     const timestamp=yield* settle(selected);
     return {timestamp,tables:[...selected.context.registry.tables.values()].map(record=>record.definition).filter(table=>!isCoreSystemTable(table)&&coreNamespaceKey(table.namespace)===coreNamespaceKey(publication.namespace??null))};
   }));
+    });
   });
+
+  const readApplicationRegistration: CoreDatabase["readApplicationRegistration"] = Effect.fn("CoreDatabase.readApplicationRegistration")(
+    () => admin(null, selected => selected.context.runSystem(readActiveCoreApplicationRegistration(selected.context, checkedApplicationRegistrations))));
 
   const readAuthorityEpoch = Effect.gen(function* () {
     yield* assertOpen;
@@ -1098,7 +1133,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
           transaction: Object.freeze({ timestamp, unixTime, usage, selectProgram, tableNumber, tableMappings, normalizeId, get, startQuery, scan }),
           finish: selected.context.finishRead, abort: transaction.abort });
       }), true)),
-    prepareSchema,schemaStatus,advanceSchema,advanceSchemaWork:schemaWorker.advanceWork,activateSchema,publishPrograms,
+    prepareSchema,readApplicationRegistration,schemaStatus,advanceSchema,advanceSchemaWork:schemaWorker.advanceWork,activateSchema,publishPrograms,
     bindNative, readNativeBinding, beginNative, bindNativeInitialization,
     bindNativeRoot, readNativeRootBinding, beginNativeRoot, bindNativeRootRecovery,
     selectProgram: Effect.fn("CoreDatabase.selectProgram")(function* (path) {

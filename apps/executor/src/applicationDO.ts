@@ -1,12 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
-import { CoreSchemaWorkBudgetSchema, CoreSchemaWorkerOptionsSchema, CoreTransactionError, makeCoreApplicationOwner,
+import { CoreTransactionError, makeCoreApplicationOwner,
   type CoreApplicationOwner, type CoreApplicationMaintenance, type CoreApplicationGenerationPhase,
   type CoreDatabase, type CoreDatabaseOptions, type CoreError } from
   "@flarex/persistence-postgres/internal/core";
 import { createCorePersistence, loadCorePersistenceTarget, makeCorePostgresDriver, type CorePostgresPool } from
   "@flarex/persistence-postgres/internal/core-persistence";
-import { makeApplicationMutationSystemLayer, makeCoreApplicationAdmission, CoreApplicationAdmissionConfigurationSchema,
-  type CoreApplicationAdmissionError, type ApplicationCoreMutationSystemLive,
+import { makeCoreApplicationLegacyAdmission } from
+  "@flarex/persistence-postgres/internal/core-application-legacy-admission";
+import { makeApplicationMutationSystemLayer, makeCoreApplicationAdmission,
+  type CoreApplicationAdmission, type CoreApplicationAdmissionError, type ApplicationCoreMutationSystemLive,
   type ApplicationMutationSystem } from
   "@flarex/standard-application-invocation/internal/application-mutation-system";
 import { makeApplicationQuerySystemLayer, type ApplicationQuerySystem } from
@@ -15,10 +17,12 @@ import { makeApplicationAnalysisR2SourceReader } from
   "flarex-backend/internal/application-analysis-source-reader";
 import { makeApplicationExecutionHost } from
   "flarex-backend/internal/application-execution-host";
-import { Cause, Clock, Data, Deferred, Effect, Exit, Layer, ManagedRuntime, Result, Schema, Semaphore, type Context, type Scope } from "effect";
+import { Cause, Clock, Data, Deferred, Effect, Exit, Layer, ManagedRuntime, Result, Semaphore, type Context, type Scope } from "effect";
 import { Client, Pool, type ClientConfig, type PoolConfig } from "pg";
 
 import { admitExecutorConfiguration, admitExecutorRequest, type ExecutorWorkerEnv } from "./requestLifecycle";
+import { captureApplicationDurableObjectWorkload, type ApplicationDurableObjectWorkload } from "./applicationWorkload";
+export type { ApplicationDurableObjectWorkload } from "./applicationWorkload";
 
 export interface ApplicationDurableObjectEnv extends ExecutorWorkerEnv {
   readonly LOADER: WorkerLoader;
@@ -32,26 +36,20 @@ export interface ApplicationDurableObjectConfiguration {
   readonly instanceName: string;
 }
 
-type ApplicationServices = ApplicationQuerySystem | ApplicationMutationSystem;
+export type ApplicationServices = ApplicationQuerySystem | ApplicationMutationSystem;
 type ApplicationComposition = Omit<ApplicationCoreMutationSystemLive, "coreDatabase" | "admission">;
-
-const NonnegativeCount = Schema.Int.check(Schema.makeFilter(value => Number.isSafeInteger(value) && value >= 0
-  ? undefined : "Expected a nonnegative safe count"));
-const ApplicationWorkload = Schema.Struct({
-  indexCache: Schema.Struct({ maxBytes: NonnegativeCount,
-    verifyPercent: NonnegativeCount.check(Schema.isLessThanOrEqualTo(100)) }),
-  operationCacheMaxBytes: NonnegativeCount,
-  schemaWorker: CoreSchemaWorkerOptionsSchema,
-  schemaScheduler: Schema.Struct({ work: CoreSchemaWorkBudgetSchema,
-    wakeDelayMilliseconds: NonnegativeCount.check(Schema.isGreaterThan(0)),
-    continuationDelayMilliseconds: NonnegativeCount.check(Schema.isGreaterThan(0)) }),
-  admission: CoreApplicationAdmissionConfigurationSchema,
-  /** Retained HTTP requests during boot/dispatch, separate from function permits. */
-  maxRequests: NonnegativeCount.check(Schema.isGreaterThan(0)),
-});
-export type ApplicationDurableObjectWorkload = typeof ApplicationWorkload.Type;
+export interface ApplicationDurableObjectInfrastructure {
+  readonly configuration: ApplicationDurableObjectConfiguration;
+  readonly coreDatabase: CoreDatabase;
+  readonly admission: CoreApplicationAdmission;
+  readonly assertFreshCoreApplicationDeployment: ReturnType<typeof makeCoreApplicationLegacyAdmission>;
+  readonly phase: CoreApplicationGenerationPhase;
+  readonly source: ReturnType<typeof makeApplicationAnalysisR2SourceReader>;
+  readonly host: ReturnType<typeof makeApplicationExecutionHost>;
+}
 
 export interface ApplicationPostgresPool extends CorePostgresPool {
+  readonly assertFreshCoreApplicationDeployment: ReturnType<typeof makeCoreApplicationLegacyAdmission>;
   readonly end: () => Promise<void>;
   readonly on: (event: "error", listener: (cause: Error) => void) => unknown;
   readonly removeListener: (event: "error", listener: (cause: Error) => void) => unknown;
@@ -85,6 +83,7 @@ export function createApplicationPostgresPool(configuration: PoolConfig): Applic
   const pool = new Pool({ ...configuration, Client: ApplicationClient });
   let closing: Promise<void> | undefined;
   return Object.freeze({ connect: () => pool.connect(), on: pool.on.bind(pool), removeListener: pool.removeListener.bind(pool),
+    assertFreshCoreApplicationDeployment: makeCoreApplicationLegacyAdmission(pool),
     end: () => closing ??= (async () => {
       const stopped = await Promise.allSettled([pool.end()]);
       const drained = await Promise.allSettled([...clients].map(client => client.end()));
@@ -101,18 +100,13 @@ export class ApplicationOwnerHostError extends Data.TaggedError("ApplicationOwne
 
 export interface ApplicationDurableObjectOptions<Env extends ApplicationDurableObjectEnv, Failure> {
   /** Trusted topology and canonical routing identity; never derived from a request. */
-  readonly configuration: (env: Env) => ApplicationDurableObjectConfiguration;
+  readonly configuration: (env: Env, objectId: DurableObjectId) => ApplicationDurableObjectConfiguration;
   readonly coreOptions: Omit<CoreDatabaseOptions, "indexCache" | "operationCacheMaxBytes" | "schemaWorker">;
   /** Explicit private workload settings; no Rust server cache allocation is inherited. */
-  readonly workload: ApplicationDurableObjectWorkload;
-  readonly application: (env: Env, infrastructure: Readonly<{
-    /** Trusted composition may install/publish only through this retained owner. */
-    coreDatabase: CoreDatabase;
-    /** Recovery rebuilds services without replaying boot-only installation. */
-    phase: CoreApplicationGenerationPhase;
-    source: ReturnType<typeof makeApplicationAnalysisR2SourceReader>;
-    host: ReturnType<typeof makeApplicationExecutionHost>;
-  }>) => Effect.Effect<ApplicationComposition, Failure, Scope.Scope>;
+  readonly workload: ApplicationDurableObjectWorkload | ((env: Env,
+    configuration: ApplicationDurableObjectConfiguration) => ApplicationDurableObjectWorkload);
+  readonly application: (env: Env, infrastructure: ApplicationDurableObjectInfrastructure) => Effect.Effect<
+    ApplicationComposition & Readonly<{ dispatch?: ApplicationDurableObjectOptions<Env, Failure>["dispatch"] }>, Failure, Scope.Scope>;
   readonly dispatch: (request: Request) => Effect.Effect<Response, Failure, ApplicationServices>;
   /** Trusted HTTP projection after the generation has refused disclosure. */
   readonly failureResponse?: (cause: Cause.Cause<Failure | CoreError | CoreApplicationAdmissionError | ApplicationOwnerHostError>) => Response;
@@ -140,29 +134,17 @@ export function resolveApplicationDurableObject(configuration: Pick<
 export function makeApplicationDurableObject<Env extends ApplicationDurableObjectEnv, Failure>(
   options: ApplicationDurableObjectOptions<Env, Failure>,
 ): ApplicationDurableObjectClass<Env> {
-  // Trusted synchronous composition boundary. The authoritative admission schema
-  // is shared with its scoped factory; invalid settings allocate no pool.
-  const decoded = Schema.decodeUnknownSync(ApplicationWorkload)(options.workload);
-  const workload = Object.freeze({ ...decoded,
-    indexCache: Object.freeze({ ...decoded.indexCache }),
-    schemaWorker: Object.freeze({ ...decoded.schemaWorker }),
-    schemaScheduler: Object.freeze({ ...decoded.schemaScheduler, work: Object.freeze({ ...decoded.schemaScheduler.work }) }),
-    admission: Object.freeze({ ...decoded.admission,
-      query: Object.freeze({ ...decoded.admission.query }), mutation: Object.freeze({ ...decoded.admission.mutation }) }),
-  });
-  const coreOptions = Object.freeze({ ...options.coreOptions,
-    indexCache: workload.indexCache, operationCacheMaxBytes: workload.operationCacheMaxBytes,
-    schemaWorker: workload.schemaWorker,
-    ...(options.coreOptions.transactionLimits === undefined ? {}
-      : { transactionLimits: Object.freeze({ ...options.coreOptions.transactionLimits }) }) });
   const createPool = options.createPool ?? ((connectionString: string) =>
     createApplicationPostgresPool({ connectionString, max: 4, statement_timeout: 30_000 }));
   type HostFailure = Failure | CoreError | CoreApplicationAdmissionError | ApplicationOwnerHostError;
-  type HostedOwner = CoreApplicationOwner<Context.Context<ApplicationServices>, HostFailure>;
+  type PreparedApplication = Readonly<{ services: Context.Context<ApplicationServices>;
+    dispatch: ApplicationDurableObjectOptions<Env, Failure>["dispatch"] }>;
+  type HostedOwner = CoreApplicationOwner<PreparedApplication, HostFailure>;
 
   return class ApplicationDurableObject extends DurableObject<Env> {
     readonly #canonical: boolean;
     readonly #configuration: ApplicationDurableObjectConfiguration;
+    readonly #workload: ApplicationDurableObjectWorkload;
     readonly #requests = new Map<Promise<Response>, AbortController>();
     #runtime: ManagedRuntime.ManagedRuntime<never, HostFailure> | undefined;
     #owner: HostedOwner | undefined;
@@ -177,13 +159,21 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
 
     constructor(ctx: DurableObjectState, env: Env) {
       super(ctx, env);
-      this.#configuration = Object.freeze({ ...options.configuration(env) });
+      this.#configuration = Object.freeze({ ...options.configuration(env, ctx.id) });
+      this.#workload = captureApplicationDurableObjectWorkload(typeof options.workload === "function"
+        ? options.workload(env, this.#configuration) : options.workload);
       this.#canonical = ctx.id.equals(this.#configuration.namespace.idFromName(this.#configuration.canonicalName));
     }
 
     #getRuntime(connectionString: string) {
       if (this.#runtime !== undefined) return this.#runtime;
       const configuration = this.#configuration;
+      const workload = this.#workload;
+      const coreOptions = Object.freeze({ ...options.coreOptions,
+        indexCache: workload.indexCache, operationCacheMaxBytes: workload.operationCacheMaxBytes,
+        schemaWorker: workload.schemaWorker,
+        ...(options.coreOptions.transactionLimits === undefined ? {}
+          : { transactionLimits: Object.freeze({ ...options.coreOptions.transactionLimits }) }) });
       const env = this.env;
       const owner = this;
       const acquire = Effect.gen(function* () {
@@ -205,7 +195,7 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
         const driver = makeCorePostgresDriver(pool);
         const target = yield* loadCorePersistenceTarget(driver, configuration.persistenceNamespace);
         const persistence = yield* createCorePersistence(target, configuration.instanceName);
-        const databaseOwner = yield* makeCoreApplicationOwner<Context.Context<ApplicationServices>, HostFailure, never>({ persistence, options: coreOptions,
+        const databaseOwner = yield* makeCoreApplicationOwner<PreparedApplication, HostFailure, never>({ persistence, options: coreOptions,
           // The HTTP map retains its original cap. One independent bounded
           // schema alarm also borrows the app generation, including during boot.
           maximumRequests: workload.maxRequests + 1,
@@ -219,12 +209,14 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
             });
             if (owner.#failure !== undefined) return yield* Effect.fail(owner.#failure);
             const application = yield* options.application(env, {
-              coreDatabase: hostedDatabase, phase,
+              configuration, coreDatabase: hostedDatabase, admission, phase,
+              assertFreshCoreApplicationDeployment: pool.assertFreshCoreApplicationDeployment,
               source: makeApplicationAnalysisR2SourceReader(env.ARTIFACTS),
               host: makeApplicationExecutionHost(env.LOADER),
             });
             const live = { ...application, coreDatabase: hostedDatabase, admission };
-            return yield* Layer.build(Layer.mergeAll(makeApplicationQuerySystemLayer(live), makeApplicationMutationSystemLayer(live)));
+            const services = yield* Layer.build(Layer.mergeAll(makeApplicationQuerySystemLayer(live), makeApplicationMutationSystemLayer(live)));
+            return Object.freeze({ services, dispatch: application.dispatch ?? options.dispatch });
           }),
         });
         owner.#owner = databaseOwner;
@@ -268,7 +260,7 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
         if (this.#closing !== undefined) return Effect.void;
         this.#schemaGeneration++;
         return this.#alarmStorageLock.withPermits(1)(Effect.suspend(() => this.#closing !== undefined
-          ? Effect.void : this.#ensureAlarm(workload.schemaScheduler.wakeDelayMilliseconds)));
+          ? Effect.void : this.#ensureAlarm(this.#workload.schemaScheduler.wakeDelayMilliseconds)));
       }));
     #withSchemaWake<A>(work: Effect.Effect<A, CoreError>): Effect.Effect<A, CoreError> {
       const owner = this;
@@ -290,8 +282,8 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
     ): Effect.Effect<void, CoreError> => this.#alarmStorageLock.withPermits(1)(Effect.suspend(() => {
       if (this.#closing !== undefined) return Effect.void;
       return hasMore || this.#schemaGeneration !== generation
-        ? this.#ensureAlarm(hasMore ? workload.schemaScheduler.continuationDelayMilliseconds
-          : workload.schemaScheduler.wakeDelayMilliseconds)
+        ? this.#ensureAlarm(hasMore ? this.#workload.schemaScheduler.continuationDelayMilliseconds
+          : this.#workload.schemaScheduler.wakeDelayMilliseconds)
         : this.#alarmStorage(() => this.ctx.storage.deleteAlarm());
     })));
     #runSchemaAlarm(controller: AbortController): Promise<Exit.Exit<void, unknown>> {
@@ -307,7 +299,7 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
         const maintenance = yield* Deferred.await(owner.#coreReady);
         if (owner.#closing !== undefined) return;
         const generation = owner.#schemaGeneration;
-        const progress = yield* maintenance.useDatabase(database => database.advanceSchemaWork(workload.schemaScheduler.work));
+        const progress = yield* maintenance.useDatabase(database => database.advanceSchemaWork(owner.#workload.schemaScheduler.work));
         yield* owner.#finishSchemaStep(generation, progress.hasMore);
       }), { signal: controller.signal });
     }
@@ -338,7 +330,7 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
       if (this.#closing !== undefined) return Response.json({ error: "application_owner_closed" }, { status: 503 });
       // Bound retained requests before runtime bootstrap. This is a host map
       // reservation, not a second query/mutation execution permit.
-      if (this.#requests.size >= workload.maxRequests)
+      if (this.#requests.size >= this.#workload.maxRequests)
         return Response.json({ error: "application_owner_overloaded" }, { status: 503 });
       const runtime = this.#getRuntime(admission.success.connectionString);
       const controller = new AbortController();
@@ -346,7 +338,7 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
       const dispatch = Effect.gen(function* () {
         const databaseOwner = yield* Deferred.await(ownerReady);
         yield* databaseOwner.recover;
-        return yield* databaseOwner.use(services => Effect.provideContext(options.dispatch(request), services));
+        return yield* databaseOwner.use(prepared => Effect.provideContext(prepared.dispatch(request), prepared.services));
       });
       const projectFailure = options.failureResponse;
       const invocation = runtime.runPromise(projectFailure === undefined ? dispatch : dispatch.pipe(

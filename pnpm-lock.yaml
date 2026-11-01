@@ -212,6 +212,9 @@ importers:
 
   apps/executor:
     dependencies:
+      '@flarex/analysis':
+        specifier: workspace:*
+        version: link:../../packages/analysis
       '@flarex/executor':
         specifier: workspace:*
         version: link:../../packages/executor
@@ -221,6 +224,9 @@ importers:
       '@flarex/persistence-postgres':
         specifier: workspace:*
         version: link:../../packages/persistence-postgres
+      '@flarex/source-analyzer-v2':
+        specifier: workspace:*
+        version: link:../analyzer
       '@flarex/standard-application-invocation':
         specifier: workspace:*
         version: link:../../packages/standard-application-invocation

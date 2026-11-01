@@ -126,7 +126,8 @@ import {
   makeCoreApplicationQueryRunner,
   type ApplicationCoreQuerySystemLive,
 } from "./CoreApplicationQueryRunner";
-export { CoreApplicationQueryError, type ApplicationCoreQuerySystemLive } from "./CoreApplicationQueryRunner";
+export { CoreApplicationQueryError, makeCoreApplicationQueryEvaluationRunner,
+  type ApplicationCoreQuerySystemLive } from "./CoreApplicationQueryRunner";
 
 const QUERY_POLICY_ENCODING_BUDGET = Object.freeze({
   maximumOrigins: 1,

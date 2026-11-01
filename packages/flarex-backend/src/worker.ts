@@ -1,4 +1,9 @@
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
+import {
+  invokeBackendCoreApplication,
+  lookupBackendCoreApplication,
+  projectBackendCoreApplicationErrors,
+} from "./coreApplicationRuntime";
 import {
   DeploymentProtocolValidationError,
   DeploymentPushAction,
@@ -868,6 +873,17 @@ const routeInvoke = Effect.fn("Worker.routeInvoke")(
     identity: ExecutionIdentity,
   ) {
     const invokeRequest = yield* invokeRequestFromPublicInvokeBodyEffect(body);
+    const coreProfile = yield* projectBackendCoreApplicationErrors(lookupBackendCoreApplication(env, deploymentId)).pipe(
+      Effect.catchCause(cause => Effect.failCause(Cause.map(cause,
+        error => publicWorkerDispatchError("invoke-execute", error)))),
+    );
+    if (coreProfile !== undefined) {
+      const result = yield* projectBackendCoreApplicationErrors(invokeBackendCoreApplication(
+        env, coreProfile, activeDeployment, invokeRequest, body.args === undefined ? {} : body.args, identity,
+      )).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause,
+        error => publicWorkerDispatchError("invoke-execute", error)))));
+      return json(result);
+    }
     const artifactRuntime = artifactRuntimeFromEnv(env, deploymentId);
     if (artifactRuntime !== undefined) {
       const result = yield* Effect.tryPromise({

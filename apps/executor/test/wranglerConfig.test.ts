@@ -37,7 +37,17 @@ describe("private executor Wrangler configuration", () => {
           service: "flarex-artifact-runtime",
           entrypoint: "FlarexPointMutationExactRuntimeArtifactHostV1",
         },
+        {
+          binding: "APPLICATION_ANALYZER",
+          service: "flarex-source-analyzer-v2",
+          entrypoint: "FlarexApplicationAnalysisHost",
+        },
       ],
+      durable_objects: { bindings: [{ name: "APPLICATIONS", class_name: "FlarexApplication" }] },
+      migrations: [{ tag: "core-application-owner", new_sqlite_classes: ["FlarexApplication"] }],
+      worker_loaders: [{ binding: "LOADER" }],
+      r2_buckets: [{ binding: "ARTIFACTS", bucket_name: "flarex-artifacts" }],
+      vars: { FLAREX_APPLICATION_PROFILES: '{"version":1,"profiles":[],"legacyProfiles":[]}' },
     });
     expect(config).not.toHaveProperty("route");
     expect(config).not.toHaveProperty("routes");

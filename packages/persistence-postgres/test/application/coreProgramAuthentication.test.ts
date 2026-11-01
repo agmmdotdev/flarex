@@ -17,7 +17,7 @@ it("authenticates retained program metadata before claim, recovery, grants or ex
   const database: CoreDatabase = {
     selectProgram: () => Effect.succeed({ ...frozen, metadata: { ...frozen.metadata, validatorIdentityEncoding: 3 } }),
     claimRequest: forbidden, recoverRequest: forbidden, assertOpen: forbidden(), close: forbidden,
-    beginQuery: forbidden, prepareSchema: forbidden, schemaStatus: forbidden, advanceSchemaWork: forbidden,
+    beginQuery: forbidden, prepareSchema: forbidden, readApplicationRegistration: forbidden, schemaStatus: forbidden, advanceSchemaWork: forbidden,
     advanceSchema: forbidden, activateSchema: forbidden, publishPrograms: forbidden, lookupProgram: forbidden,
     bindNative: forbidden, readNativeBinding: forbidden, beginNative: forbidden,
     bindNativeInitialization: forbidden,

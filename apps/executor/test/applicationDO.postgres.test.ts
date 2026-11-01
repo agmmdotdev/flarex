@@ -4,12 +4,10 @@ import { createCoreApplicationDefinition } from "@flarex/system-test/internal/ap
 import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { decodeDocumentValue } from "flarex-protocol/document-value";
 import { Miniflare, type MiniflareOptions } from "miniflare";
-import { builtinModules } from "node:module";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
-import { build, defaultClientConditions, type Plugin } from "vite";
+import { bundleApplicationWorker } from "./support/bundleApplicationWorker";
 import { describe, expect, it } from "vitest";
 
 const endpointPath = process.env.FLAREX_CORE_POSTGRES_ENDPOINTS_FILE;
@@ -428,21 +426,5 @@ function makeRuntime(worker: string, directory: string, configuration: Readonly<
   } satisfies MiniflareOptions);
 }
 async function bundleWorker() {
-  const builtins = new Set(builtinModules.flatMap(name => [name, `node:${name}`]));
-  const workspaceResolution: Plugin = { name: "actual-app-do-workspace-resolution", resolveId(id) {
-    if (id.startsWith("@flarex/") || id === "flarex-backend" || id.startsWith("flarex-backend/")
-      || id === "flarex-protocol" || id.startsWith("flarex-protocol/")) return fileURLToPath(import.meta.resolve(id));
-    return undefined;
-  } };
-  const output = await build({ configFile: false, logLevel: "silent", plugins: [workspaceResolution],
-    resolve: { conditions: ["workerd", ...defaultClientConditions] },
-    build: { write: false, minify: false, target: "es2022", lib: { entry: fileURLToPath(new URL("./applicationDO.workerd.worker.ts", import.meta.url)),
-      formats: ["es"], fileName: "worker" }, rolldownOptions: {
-      external: id => id.startsWith("cloudflare:") || builtins.has(id),
-      output: { banner: 'import { createRequire as createRuntimeRequire } from "node:module";\nconst require = createRuntimeRequire("file:///worker.js");' },
-    } } });
-  const chunks = (Array.isArray(output) ? output : [output]).flatMap(result => "output" in result ? result.output : []);
-  const worker = chunks.find(chunk => chunk.type === "chunk" && chunk.fileName === "worker.js");
-  if (worker === undefined || worker.type !== "chunk") throw new Error("Missing actual app-owner fixture bundle.");
-  return worker.code;
+  return bundleApplicationWorker(new URL("./applicationDO.workerd.worker.ts", import.meta.url));
 }

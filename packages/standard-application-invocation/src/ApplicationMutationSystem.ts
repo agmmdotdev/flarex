@@ -212,6 +212,7 @@ export interface ApplicationCoreMutationSystemLive {
   readonly admission: CoreApplicationAdmission;
   readonly coreDatabase: CoreDatabase;
   readonly deploymentId: TransactionGrantDeploymentIdV1;
+  readonly expectedProgramProfile?: import("@flarex/persistence-postgres/internal/core-application-program").CoreApplicationProgramProfile;
   readonly grantIssuer: ApplicationMutationGrantIssuer;
   readonly applicationRunner: ApplicationPointMutationRunnerConfig;
   readonly executionContextFactory: OccContextFactory;
@@ -451,7 +452,7 @@ export const prepareApplicationMutationAuthenticatedIdentity = Effect.fn(
   return prepared;
 });
 
-const prepareApplicationMutationIdentityAccessPolicy = Effect.fn(
+export const prepareApplicationMutationIdentityAccessPolicy = Effect.fn(
   "ApplicationMutation.prepareIdentityAccessPolicy",
 )(function* (
   input: unknown,
@@ -626,8 +627,10 @@ export function makeApplicationMutationSystemLayer(
   );
 }
 
-function makeCoreApplicationMutationSystemLayer(live: ApplicationCoreMutationSystemLive): Layer.Layer<ApplicationMutationSystem> {
+/** Trusted callers retain the Core outcome and timestamp without a legacy result projection. */
+export function makeCoreApplicationMutationInvocationPort(live: ApplicationCoreMutationSystemLive) {
   const port = makeCoreApplicationMutationPort({ database: live.coreDatabase, deploymentId: live.deploymentId,
+    ...(live.expectedProgramProfile === undefined ? {} : { expectedProgramProfile: live.expectedProgramProfile }),
     maximumAttempts: live.maximumAttempts, issueGrant: live.grantIssuer.issue,
     sha256: live.applicationRunner.sha256, execute: makeCoreApplicationMutationRunner(live) });
   const invoke = Effect.fn("ApplicationMutationSystem.invokeCore")((
@@ -639,11 +642,20 @@ function makeCoreApplicationMutationSystemLayer(live: ApplicationCoreMutationSys
       policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
       auth: { kind: "anonymous" }, capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
     }));
-    const outcome = yield* port.invoke(input.functionRef, args, input.requestKey, identity);
-    return Object.freeze({ status: "committed" as const, disposition: outcome.disposition,
-      scopeUuid: outcome.scopeUuid, epochUuid: outcome.epochUuid, commitSeq: outcome.timestamp,
-      value: normalizeFlarexValueV1(outcome.value).valueJson });
+    return yield* port.invoke(input.functionRef, args, input.requestKey, identity);
   })));
+  return Object.freeze({ invoke });
+}
+
+function makeCoreApplicationMutationSystemLayer(live: ApplicationCoreMutationSystemLive): Layer.Layer<ApplicationMutationSystem> {
+  const port = makeCoreApplicationMutationInvocationPort(live);
+  const invoke = Effect.fn("ApplicationMutationSystem.projectCore")((
+    ...input: Parameters<typeof port.invoke>
+  ) => port.invoke(...input).pipe(Effect.map(outcome => Object.freeze({
+    status: "committed" as const, disposition: outcome.disposition,
+    scopeUuid: outcome.scopeUuid, epochUuid: outcome.epochUuid, commitSeq: outcome.timestamp,
+    value: normalizeFlarexValueV1(outcome.value).valueJson,
+  }))));
   return Layer.succeed(ApplicationMutationSystem, ApplicationMutationSystem.of({
     invoke,
     invokeAuthenticated: Effect.fn("ApplicationMutationSystem.invokeCoreAuthenticated")(function* (functionRef, args, requestKey, identity) {

@@ -108,6 +108,7 @@ function options() {
       const observed = new WeakSet<object>();
       return {
         on: pool.on.bind(pool), removeListener: pool.removeListener.bind(pool),
+        assertFreshCoreApplicationDeployment: pool.assertFreshCoreApplicationDeployment,
         connect: async () => {
           const client = await pool.connect();
           if (!observed.has(client)) {

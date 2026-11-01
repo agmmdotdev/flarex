@@ -4,7 +4,7 @@ import { type CoreDatabase, type CoreReadToken } from "@flarex/persistence-postg
 import type { ApplicationCoreFixture } from "@flarex/persistence-postgres/internal/system-test/core-application-fixture";
 import { CORE_APPLICATION_COMPATIBILITY_DATE, CORE_APPLICATION_EPOCH_UUID, CORE_APPLICATION_SCOPE_UUID } from
   "@flarex/persistence-postgres/internal/system-test/core-application-fixture";
-import { makeCoreApplicationPrograms } from "@flarex/persistence-postgres/internal/core-application-program";
+import { captureCoreApplicationProgramProfile, makeCoreApplicationPrograms } from "@flarex/persistence-postgres/internal/core-application-program";
 import { createApplicationNativeMutationSourceBundle } from
   "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
@@ -12,7 +12,7 @@ import { invokeApplicationQuery, makeApplicationQuerySystemLayer } from
   "@flarex/standard-application-invocation/internal/application-query-system";
 import { invokeApplicationMutation, makeApplicationMutationSystemLayer } from
   "@flarex/standard-application-invocation/internal/application-mutation-system";
-import { Effect, Fiber, Schema } from "effect";
+import { Effect, Fiber, Result, Schema } from "effect";
 import { TransactionFunctionPathV1Schema, TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
 import { makeApplicationMutationTestLive } from "./applicationNativeMutationHarness";
 import { MiniflareApplicationWorkerLoader } from "./applicationNativeQueryHarness";
@@ -96,6 +96,51 @@ export async function proveCoreApplicationStandaloneIdentity(fixture: Applicatio
     const result = await runSystemTestEffectV1(runQuery(typedModule.reference("queryIdentity"), { nested: true }, { identity })
       .pipe(Effect.provide(layer)));
     return { result, identity, workerLoads: loader.loads };
+  } finally { await loader.dispose(); }
+}
+
+/** Exercise trusted routing pins against the real selected programs before any request authority. */
+export async function proveCoreApplicationConfiguredProgramProfile(fixture: ApplicationCoreFixture) {
+  const loader = new MiniflareApplicationWorkerLoader();
+  let sourceReads = 0, claims = 0, grants = 0;
+  try {
+    const original = await makeApplicationMutationTestLive(fixture, loader);
+    const database: CoreDatabase = Object.freeze({ ...fixture.database,
+      claimRequest: (...args: Parameters<CoreDatabase["claimRequest"]>) => Effect.suspend(() => {
+        claims++;
+        return fixture.database.claimRequest(...args);
+      }),
+    });
+    const base = Result.getOrThrow(captureCoreApplicationProgramProfile({ scopeUuid: CORE_APPLICATION_SCOPE_UUID,
+      epochUuid: CORE_APPLICATION_EPOCH_UUID, sourceArtifactRootSha256: fixture.source.sourceArtifact.rootSha256 }));
+    const profiles = [
+      { name: "scope", expected: Result.getOrThrow(captureCoreApplicationProgramProfile({ ...base,
+        scopeUuid: "45000000-0000-4000-8000-000000000003" })) },
+      { name: "epoch", expected: Result.getOrThrow(captureCoreApplicationProgramProfile({ ...base,
+        epochUuid: "45000000-0000-4000-8000-000000000004" })) },
+      { name: "source", expected: { ...base, sourceArtifactRootSha256: "ff".repeat(32) } },
+      { name: "invalid", expected: { ...base, sourceArtifactRootSha256: "invalid" } },
+    ];
+    const before = { durable: await fixture.durableState(), timestamp: await runSystemTestEffectV1(fixture.database.publishedTimestamp) };
+    const results = [];
+    for (const profile of profiles) {
+      const live = { ...original, coreDatabase: database, expectedProgramProfile: profile.expected,
+        applicationRunner: { ...original.applicationRunner, source: {
+          read: (root: string) => Effect.suspend(() => { sourceReads++; return original.applicationRunner.source.read(root); }),
+        } },
+        grantIssuer: { ...original.grantIssuer, issue: (...args: Parameters<typeof original.grantIssuer.issue>) =>
+          Effect.suspend(() => { grants++; return original.grantIssuer.issue(...args); }) },
+      };
+      const query = await runSystemTestEffectV1(Effect.scoped(Effect.exit(invokeApplicationQuery("users:get",
+        { id: fixture.documentId }).pipe(Effect.provide(makeApplicationQuerySystemLayer(live))))));
+      const mutation = await runSystemTestEffectV1(Effect.scoped(Effect.exit(invokeApplicationMutation(
+        TransactionFunctionPathV1Schema.make("users:create"), { name: "must refuse" },
+        TransactionRequestKeyV1Schema.make(`configured-profile:${profile.name}`),
+      ).pipe(Effect.provide(makeApplicationMutationSystemLayer(live))))));
+      results.push({ name: profile.name, query, mutation });
+    }
+    const after = { durable: await fixture.durableState(), timestamp: await runSystemTestEffectV1(fixture.database.publishedTimestamp) };
+    return { results, before, after, sourceReads, claims, grants, workerLoads: loader.loads };
   } finally { await loader.dispose(); }
 }
 

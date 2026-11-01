@@ -176,9 +176,9 @@
                                                  "stored policy corruption"
                                              ],
                         "licenseNotice":  "mit",
-                        "targetSha256":  "38c1a3a875807a350d80e05ad11cbd47f59280aa62a2ababae172a6a00c6903b",
-                        "transformationRevision":  "aa-r6-task-5b1b-i-b.v1",
-                        "changeReceipt":  "AA-R6 Task 5b1b.i.b exact recursive Legacy and Application aggregate, receipt, evidence, effect, and replay schemas; delegate the identical record predicate to its existing utility leaf"
+                        "targetSha256":  "cd2547d380621b9e94e6d5a97d82efc287613739e31ba99d45ace5d65b983b13",
+                        "transformationRevision":  "trusted-workflow-inline-product.provenance-v1",
+                        "changeReceipt":  "AA-R6 Task 5b1b.i.b exact recursive Legacy and Application aggregate, receipt, evidence, effect, and replay schemas; delegate the identical record predicate to its existing utility leaf; reviewed committed Flarex adaptations: 61cf2c24c trusted workflow definition-reference aggregate/receipt codecs; 58c2656f6 checkpoint and continuation state/evidence schemas using the existing validator owners. Attribution remains at the file boundary; no new Task host or runtime admission is claimed."
                     },
                     {
                         "upstreamCommit":  "f10bc23785e569e5d917318cf2033aabdbe96a0b",
@@ -209,9 +209,9 @@
                                                  "new error variant compile-time failure"
                                              ],
                         "licenseNotice":  "mit",
-                        "targetSha256":  "8bf85e2e394b256fc23efc1591b0c8e4a2943535ae93c7ddc144d0b7af000e4d",
-                        "transformationRevision":  "aa-r6-task-5b1b-i-b.v1",
-                        "changeReceipt":  "AA-R6 Task 5b1b.i.b typed recursive aggregate definition-reference mismatch"
+                        "targetSha256":  "3c0b9f0f69deea2c7f88d29c319ad5952e871a0878fa203cec0b5c066e7b76ce",
+                        "transformationRevision":  "trusted-workflow-inline-product.provenance-v1",
+                        "changeReceipt":  "AA-R6 Task 5b1b.i.b typed recursive aggregate definition-reference mismatch; reviewed committed Flarex adaptations: 58c2656f6 current phase and continuation operation error unions; existing tagged error ownership retained. Attribution remains at the file boundary; no new Task host or runtime admission is claimed."
                     },
                     {
                         "upstreamCommit":  "f10bc23785e569e5d917318cf2033aabdbe96a0b",
@@ -237,9 +237,9 @@
                                                  "redaction boundary"
                                              ],
                         "licenseNotice":  "mit",
-                        "targetSha256":  "8bf85e2e394b256fc23efc1591b0c8e4a2943535ae93c7ddc144d0b7af000e4d",
-                        "transformationRevision":  "aa-r6-task-5b1b-i-b.v1",
-                        "changeReceipt":  "AA-R6 Task 5b1b.i.b typed recursive aggregate definition-reference mismatch"
+                        "targetSha256":  "3c0b9f0f69deea2c7f88d29c319ad5952e871a0878fa203cec0b5c066e7b76ce",
+                        "transformationRevision":  "trusted-workflow-inline-product.provenance-v1",
+                        "changeReceipt":  "AA-R6 Task 5b1b.i.b typed recursive aggregate definition-reference mismatch; reviewed committed Flarex adaptations: 58c2656f6 current phase and continuation operation error unions; existing tagged error ownership retained. Attribution remains at the file boundary; no new Task host or runtime admission is claimed."
                     },
                     {
                         "upstreamCommit":  "f10bc23785e569e5d917318cf2033aabdbe96a0b",
@@ -265,9 +265,9 @@
                                                  "development-mode stall divergence receipt"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "8bf85e2e394b256fc23efc1591b0c8e4a2943535ae93c7ddc144d0b7af000e4d",
-                        "transformationRevision":  "aa-r6-task-5b1b-i-b.v1",
-                        "changeReceipt":  "AA-R6 Task 5b1b.i.b typed recursive aggregate definition-reference mismatch"
+                        "targetSha256":  "3c0b9f0f69deea2c7f88d29c319ad5952e871a0878fa203cec0b5c066e7b76ce",
+                        "transformationRevision":  "trusted-workflow-inline-product.provenance-v1",
+                        "changeReceipt":  "AA-R6 Task 5b1b.i.b typed recursive aggregate definition-reference mismatch; reviewed committed Flarex adaptations: 58c2656f6 current phase and continuation operation error unions; existing tagged error ownership retained. Attribution remains at the file boundary; no new Task host or runtime admission is claimed."
                     },
                     {
                         "upstreamCommit":  "f10bc23785e569e5d917318cf2033aabdbe96a0b",
@@ -296,9 +296,9 @@
                                                  "stale expected fence"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "ca0ae9f47c159dc9115423d942b44ccb36477d32ea45f20c6b8a64b1cc22fd1e",
-                        "transformationRevision":  "dte-ip01.v1",
-                        "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint"
+                        "targetSha256":  "41e26c8398c4f2ec5f3da1d9a1f349839449050f6f4c2313f1d083656a7e315a",
+                        "transformationRevision":  "trusted-workflow-inline-product.provenance-v1",
+                        "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint; reviewed committed Flarex adaptations: 61cf2c24c trusted generation delegates to existing lifecycle decisions; 58c2656f6 continuation registration/resolution/cancellation and resume control preserve the mapped policy owners. Attribution remains at the file boundary; no new Task host or runtime admission is claimed."
                     },
                     {
                         "upstreamCommit":  "f10bc23785e569e5d917318cf2033aabdbe96a0b",
@@ -328,9 +328,9 @@
                                                  "terminal outbox recovery"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "ca0ae9f47c159dc9115423d942b44ccb36477d32ea45f20c6b8a64b1cc22fd1e",
-                        "transformationRevision":  "dte-ip01.v1",
-                        "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint"
+                        "targetSha256":  "41e26c8398c4f2ec5f3da1d9a1f349839449050f6f4c2313f1d083656a7e315a",
+                        "transformationRevision":  "trusted-workflow-inline-product.provenance-v1",
+                        "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint; reviewed committed Flarex adaptations: 61cf2c24c trusted generation delegates to existing lifecycle decisions; 58c2656f6 continuation registration/resolution/cancellation and resume control preserve the mapped policy owners. Attribution remains at the file boundary; no new Task host or runtime admission is claimed."
                     },
                     {
                         "upstreamCommit":  "f10bc23785e569e5d917318cf2033aabdbe96a0b",
@@ -363,9 +363,9 @@
                                                  "lease expiry racing completion"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "ca0ae9f47c159dc9115423d942b44ccb36477d32ea45f20c6b8a64b1cc22fd1e",
-                        "transformationRevision":  "dte-ip01.v1",
-                        "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint"
+                        "targetSha256":  "41e26c8398c4f2ec5f3da1d9a1f349839449050f6f4c2313f1d083656a7e315a",
+                        "transformationRevision":  "trusted-workflow-inline-product.provenance-v1",
+                        "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint; reviewed committed Flarex adaptations: 61cf2c24c trusted generation delegates to existing lifecycle decisions; 58c2656f6 continuation registration/resolution/cancellation and resume control preserve the mapped policy owners. Attribution remains at the file boundary; no new Task host or runtime admission is claimed."
                     },
                     {
                         "upstreamCommit":  "f10bc23785e569e5d917318cf2033aabdbe96a0b",
@@ -396,9 +396,9 @@
                                                  "terminal failure effect recovery"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "ca0ae9f47c159dc9115423d942b44ccb36477d32ea45f20c6b8a64b1cc22fd1e",
-                        "transformationRevision":  "dte-ip01.v1",
-                        "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint"
+                        "targetSha256":  "41e26c8398c4f2ec5f3da1d9a1f349839449050f6f4c2313f1d083656a7e315a",
+                        "transformationRevision":  "trusted-workflow-inline-product.provenance-v1",
+                        "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint; reviewed committed Flarex adaptations: 61cf2c24c trusted generation delegates to existing lifecycle decisions; 58c2656f6 continuation registration/resolution/cancellation and resume control preserve the mapped policy owners. Attribution remains at the file boundary; no new Task host or runtime admission is claimed."
                     },
                     {
                         "upstreamCommit":  "f10bc23785e569e5d917318cf2033aabdbe96a0b",
@@ -483,9 +483,9 @@
                                                  "evidence rollback with transition"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "4bb9d1f57afbf136501d65ba5c25ea9855ce1ded55d76c41eb36789a1ba0d61c",
-                        "transformationRevision":  "dte-ip01.v1",
-                        "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint"
+                        "targetSha256":  "77fb4bfb93cf3a3e39d9cb50343a7c3132d0e8c443e42d6912ddb52154927897",
+                        "transformationRevision":  "trusted-workflow-inline-product.provenance-v1",
+                        "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint; reviewed committed Flarex adaptations: 61cf2c24c scoped trusted workflow store contract; 58c2656f6 current continuation operation typing. Attribution remains at the file boundary; no new Task host or runtime admission is claimed."
                     },
                     {
                         "upstreamCommit":  "f10bc23785e569e5d917318cf2033aabdbe96a0b",
@@ -575,9 +575,9 @@
                                                  "worker loss retry exhaustion"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "ca0ae9f47c159dc9115423d942b44ccb36477d32ea45f20c6b8a64b1cc22fd1e",
-                        "transformationRevision":  "dte-ip01.v1",
-                        "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint"
+                        "targetSha256":  "41e26c8398c4f2ec5f3da1d9a1f349839449050f6f4c2313f1d083656a7e315a",
+                        "transformationRevision":  "trusted-workflow-inline-product.provenance-v1",
+                        "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint; reviewed committed Flarex adaptations: 61cf2c24c trusted generation delegates to existing lifecycle decisions; 58c2656f6 continuation registration/resolution/cancellation and resume control preserve the mapped policy owners. Attribution remains at the file boundary; no new Task host or runtime admission is claimed."
                     },
                     {
                         "upstreamCommit":  "f10bc23785e569e5d917318cf2033aabdbe96a0b",
@@ -618,9 +618,9 @@
                                                  "effect intent atomicity"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "4bb9d1f57afbf136501d65ba5c25ea9855ce1ded55d76c41eb36789a1ba0d61c",
-                        "transformationRevision":  "dte-ip01.v1",
-                        "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint"
+                        "targetSha256":  "77fb4bfb93cf3a3e39d9cb50343a7c3132d0e8c443e42d6912ddb52154927897",
+                        "transformationRevision":  "trusted-workflow-inline-product.provenance-v1",
+                        "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint; reviewed committed Flarex adaptations: 61cf2c24c scoped trusted workflow store contract; 58c2656f6 current continuation operation typing. Attribution remains at the file boundary; no new Task host or runtime admission is claimed."
                     },
                     {
                         "upstreamCommit":  "f10bc23785e569e5d917318cf2033aabdbe96a0b",
@@ -649,9 +649,9 @@
                                                  "consumer fetches accepted fence"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "e4b471c72b4dbe82acde7151cdc6af6e68ad8f0dbc5a55cf3905672d75fa7381",
-                        "transformationRevision":  "aa-r6-task-5b1b-i-b.v1",
-                        "changeReceipt":  "AA-R6 Task 5b1b.i.b recursive aggregate, receipt, evidence, effect, and replay identity projections"
+                        "targetSha256":  "4b6a84b19c90f50e57f88587d3ed45a4014f4c4691b09318ed5fc959b91a4a26",
+                        "transformationRevision":  "trusted-workflow-inline-product.provenance-v1",
+                        "changeReceipt":  "AA-R6 Task 5b1b.i.b recursive aggregate, receipt, evidence, effect, and replay identity projections; reviewed committed Flarex adaptations: 58c2656f6 current continuation states, aggregates, receipts/effects and projected operation unions; legacy and Application projections retained. Attribution remains at the file boundary; no new Task host or runtime admission is claimed."
                     },
                     {
                         "upstreamCommit":  "f10bc23785e569e5d917318cf2033aabdbe96a0b",

@@ -2,11 +2,14 @@ import {
   readCoreApplicationProgram,
   readCoreApplicationTableBindings,
   validateCoreApplicationArguments,
+  captureCoreApplicationProgramProfile,
+  requireCoreApplicationProgramProfile,
 } from "@flarex/persistence-postgres/internal/core-application-program";
+import type { CoreReadToken } from "@flarex/persistence-postgres/internal/core";
 import { captureExecutionDiagnosticContext } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { Clock, Context, Data, Effect, Exit, Cause } from "effect";
 import { makeApplicationWorkerDefinition } from "flarex-backend/internal/application-worker-definition";
-import type { DocumentObject } from "flarex-protocol/document-value";
+import type { DocumentObject, DocumentValue } from "flarex-protocol/document-value";
 import {
   APPLICATION_TRANSACTION_WORKER_REQUEST_FORMAT_V1,
   APPLICATION_TRANSACTION_WORKER_REQUEST_VERSION_V1,
@@ -19,7 +22,12 @@ import type { ApplicationCoreMutationSystemLive } from "./ApplicationMutationSys
 
 /** Trusted app-lifetime composition shared with fresh mutation execution. */
 export type ApplicationCoreQuerySystemLive = Pick<ApplicationCoreMutationSystemLive,
-  "coreDatabase" | "admission" | "applicationRunner" | "executionContextFactory" | "queryCursor">;
+  "coreDatabase" | "admission" | "applicationRunner" | "executionContextFactory" | "queryCursor" | "expectedProgramProfile">;
+
+export interface CoreApplicationQueryEvaluation {
+  readonly value: DocumentValue;
+  readonly token: CoreReadToken;
+}
 
 export class CoreApplicationQueryError extends Data.TaggedError("CoreApplicationQueryError")<{
   readonly reason: "functionUnsupported" | "invalidComposition" | "sourceReadFailed"
@@ -29,9 +37,18 @@ export class CoreApplicationQueryError extends Data.TaggedError("CoreApplication
 
 /** A query borrows the retained database; it never claims or publishes an outcome. */
 export function makeCoreApplicationQueryRunner(configuration: ApplicationCoreQuerySystemLive) {
+  const evaluate = makeCoreApplicationQueryEvaluationRunner(configuration);
+  return Effect.fn("CoreApplicationQueryRunner.execute")((...args: Parameters<typeof evaluate>) =>
+    evaluate(...args).pipe(Effect.map(evaluation => evaluation.value)));
+}
+
+/** Preserve the consumed read token for trusted query-evaluation consumers. */
+export function makeCoreApplicationQueryEvaluationRunner(configuration: ApplicationCoreQuerySystemLive) {
   const database = configuration.coreDatabase;
   const runner = configuration.applicationRunner;
-  return Effect.fn("CoreApplicationQueryRunner.execute")(function* (
+  const expectedProfile = configuration.expectedProgramProfile === undefined ? undefined
+    : captureCoreApplicationProgramProfile(configuration.expectedProgramProfile);
+  return Effect.fn("CoreApplicationQueryRunner.evaluate")(function* (
     functionPath: string,
     argumentsValue: DocumentObject,
     argumentSemanticBytes: number,
@@ -39,6 +56,8 @@ export function makeCoreApplicationQueryRunner(configuration: ApplicationCoreQue
   ) {
     return yield* configuration.admission.withPermit("query", Effect.acquireUseRelease(database.beginQuery(functionPath), operation => Effect.gen(function* () {
       const program = yield* readCoreApplicationProgram(operation.program, runner.sha256);
+      if (expectedProfile !== undefined)
+        yield* Effect.fromResult(requireCoreApplicationProgramProfile(program, yield* Effect.fromResult(expectedProfile)));
       const target = program.runtimeTarget;
       if (program.kind !== "query" || target.function.visibility !== "public")
         return yield* new CoreApplicationQueryError({ reason: "functionUnsupported" });
@@ -76,8 +95,8 @@ export function makeCoreApplicationQueryRunner(configuration: ApplicationCoreQue
         if (Exit.isFailure(drained)) return yield* Effect.failCause(drained.cause);
         return host.value;
       }));
-      yield* operation.finish();
-      return value;
+      const token = yield* operation.finish();
+      return Object.freeze({ value, token }) satisfies CoreApplicationQueryEvaluation;
     }), operation => operation.abort()));
   });
 }

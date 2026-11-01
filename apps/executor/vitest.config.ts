@@ -7,7 +7,7 @@ export default defineConfig({
     // bundle uses configFile:false and external cloudflare:* runtime modules.
     alias: {
       "cloudflare:workers": fileURLToPath(new URL(
-        "../../packages/system-test/test/support/cloudflareWorkersStub.ts", import.meta.url,
+        "./test/support/cloudflareWorkersStub.ts", import.meta.url,
       )),
     },
   },

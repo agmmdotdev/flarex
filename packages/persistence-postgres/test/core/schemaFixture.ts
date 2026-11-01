@@ -19,6 +19,7 @@ export const activateCoreSchema = Effect.fn("CoreSchemaFixture.activate")(functi
   publication: CoreProgramPublication = { programs: [] },
 ) {
   const proposal = yield* database.prepareSchema({ schema,
+    ...(publication.applicationRegistration === undefined ? {} : { applicationRegistration: publication.applicationRegistration }),
     ...(publication.namespace === undefined ? {} : { namespace: publication.namespace }) });
   for (let step = 0; step < 512; step++) {
     const status = yield* database.schemaStatus(proposal);

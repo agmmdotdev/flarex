@@ -86,7 +86,8 @@
   ],
   "vars": {
     "FLAREX_PROJECT_ID": "default",
-    "FLAREX_ARTIFACT_RUNTIME_LOADS_SOURCE": "true"
+    "FLAREX_ARTIFACT_RUNTIME_LOADS_SOURCE": "true",
+    "FLAREX_EXECUTOR_TRANSPORT": "core_application"
   },
   "observability": {
     "enabled": true

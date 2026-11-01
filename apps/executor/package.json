@@ -29,7 +29,9 @@
     "effect": "catalog:",
     "flarex-backend": "workspace:*",
     "flarex-protocol": "workspace:*",
-    "pg": "^8.22.0"
+    "pg": "^8.22.0",
+    "@flarex/source-analyzer-v2": "workspace:*",
+    "@flarex/analysis": "workspace:*"
   },
   "devDependencies": {
     "@flarex/system-test": "workspace:*",

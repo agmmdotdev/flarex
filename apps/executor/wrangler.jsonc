@@ -3,7 +3,9 @@
   "name": "flarex-executor",
   "main": "src/worker.ts",
   "compatibility_date": "2026-06-14",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "workers_dev": false,
   "preview_urls": false,
   "placement": {
@@ -20,6 +22,11 @@
       "binding": "FLAREX_POINT_MUTATION_EXACT_RUNTIME_V1",
       "service": "flarex-artifact-runtime",
       "entrypoint": "FlarexPointMutationExactRuntimeArtifactHostV1"
+    },
+    {
+      "binding": "APPLICATION_ANALYZER",
+      "service": "flarex-source-analyzer-v2",
+      "entrypoint": "FlarexApplicationAnalysisHost"
     }
   ],
   "observability": {
@@ -29,5 +36,35 @@
       "head_sampling_rate": 1,
       "persist": true
     }
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "APPLICATIONS",
+        "class_name": "FlarexApplication"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "core-application-owner",
+      "new_sqlite_classes": [
+        "FlarexApplication"
+      ]
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ARTIFACTS",
+      "bucket_name": "flarex-artifacts"
+    }
+  ],
+  "worker_loaders": [
+    {
+      "binding": "LOADER"
+    }
+  ],
+  "vars": {
+    "FLAREX_APPLICATION_PROFILES": "{\"version\":1,\"profiles\":[],\"legacyProfiles\":[]}"
   }
 }

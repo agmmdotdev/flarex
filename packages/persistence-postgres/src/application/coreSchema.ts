@@ -35,9 +35,11 @@ export function compileCoreApplicationIndexes(
 export function requireCoreApplicationSchemaSupport(
   manifest: ApplicationManifest,
 ): Result.Result<ApplicationManifestV1, CoreSchemaError> {
-  if (manifest.version !== 1 || manifest.schema.indexes.some(index => (index.decimalFields?.length ?? 0) > 0))
+  if (manifest.version !== 1 || manifest.schema.indexes.some(index => (index.decimalFields?.length ?? 0) > 0)
+    || manifest.schema.tables.some(table => table.placement.kind !== "global")
+    || manifest.functions.some(fn => fn.partition !== null))
     return Result.fail(new CoreSchemaError({ reason: "unsupportedCapability",
-      message: "The ordinary Application manifest profile does not admit native ownership, relational values, constraints or references; use an explicitly supported source-bound profile." }));
+      message: "The ordinary Application manifest profile does not admit partition authority, native ownership, relational values, constraints or references; use an explicitly supported source-bound profile." }));
   return Result.succeed(manifest);
 }
 

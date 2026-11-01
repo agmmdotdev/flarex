@@ -39,6 +39,7 @@ import {
 } from "../core/api";
 import { CorePersistenceError } from "../core/contracts";
 import { readCoreApplicationProgram, readCoreApplicationTableBindings, validateCoreApplicationArguments,
+  captureCoreApplicationProgramProfile, requireCoreApplicationProgramProfile, type CoreApplicationProgramProfile,
   type CoreApplicationProgram as SharedCoreApplicationProgram, type CoreApplicationTableBinding } from "./coreProgram";
 
 /** Application policy above the shared engine, never a second publisher. */
@@ -63,6 +64,7 @@ type GrantInput = Omit<PrepareApplicationMutationGrantV1Input, "kid" | "grantId"
 export interface CoreApplicationMutationConfiguration<GrantFailure, ExecutionFailure> {
   readonly database: CoreDatabase;
   readonly deploymentId: TransactionGrantDeploymentIdV1;
+  readonly expectedProgramProfile?: CoreApplicationProgramProfile;
   /** Explicit admission budget; no automatic replay is granted to native adapters. */
   readonly maximumAttempts: number;
   readonly issueGrant: (input: GrantInput) => Effect.Effect<VerifiedApplicationMutationGrantV1, GrantFailure>;
@@ -83,6 +85,8 @@ export function makeCoreApplicationMutationPort<GrantFailure, ExecutionFailure>(
   configuration: CoreApplicationMutationConfiguration<GrantFailure, ExecutionFailure>,
 ) {
   const database = configuration.database;
+  const expectedProgramProfile = configuration.expectedProgramProfile === undefined ? undefined
+    : captureCoreApplicationProgramProfile(configuration.expectedProgramProfile);
   const maximumAttempts = configuration.maximumAttempts;
   if (!Number.isSafeInteger(maximumAttempts) || maximumAttempts < 1)
     throw new Error("Application mutation attempt budget must be a positive integer.");
@@ -90,6 +94,12 @@ export function makeCoreApplicationMutationPort<GrantFailure, ExecutionFailure>(
   const readProgram = Effect.fn("CoreApplicationMutation.readProgram")(function* (definition: CoreProgramDefinition) {
     const program = yield* readCoreApplicationProgram(definition, configuration.sha256).pipe(Effect.mapError(cause =>
       new CoreApplicationMutationError({ reason: cause.reason, cause })));
+    if (expectedProgramProfile !== undefined) {
+      const expected = yield* Effect.fromResult(expectedProgramProfile).pipe(Effect.mapError(cause =>
+        new CoreApplicationMutationError({ reason: cause.reason, cause })));
+      yield* Effect.fromResult(requireCoreApplicationProgramProfile(program, expected)).pipe(
+        Effect.mapError(cause => new CoreApplicationMutationError({ reason: cause.reason, cause })));
+    }
     if (program.kind !== "mutation") return yield* new CoreApplicationMutationError({ reason: "unsupportedSelection" });
     return program;
   });

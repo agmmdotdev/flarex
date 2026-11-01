@@ -181,7 +181,8 @@
     "./internal/system-test/session-kernel": "./src/execution/session/kernelTestApi.ts",
     "./internal/trusted-workflow-task-run-creation": "./src/tasks/trustedWorkflowTaskRunCreation.ts",
     "./internal/trusted-workflow-execution-subject": "./src/tasks/trustedWorkflowExecutionSubject.ts",
-    "./internal/commit-event-eligibility": "./src/commit/events/eligibilityApi.ts"
+    "./internal/commit-event-eligibility": "./src/commit/events/eligibilityApi.ts",
+    "./internal/core-application-legacy-admission": "./src/application/coreApplicationLegacyAdmission.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

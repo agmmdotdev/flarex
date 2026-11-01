@@ -4,7 +4,7 @@ import { expect, it } from "vitest";
 import { proveCoreApplicationNestedReadonly, proveCoreApplicationStandaloneCancelled,
   proveCoreApplicationStandalonePublicQuery, proveCoreApplicationStandaloneSnapshot,
   proveCoreApplicationStandaloneTerminals, proveCoreApplicationStandaloneMetadata,
-  proveCoreApplicationStandaloneIdentity } from "../../support/applicationCoreStandaloneQueryHarness";
+  proveCoreApplicationStandaloneIdentity, proveCoreApplicationConfiguredProgramProfile } from "../../support/applicationCoreStandaloneQueryHarness";
 
 const readonlyMethods = { insert: "undefined", patch: "undefined", replace: "undefined", delete: "undefined",
   runMutation: "undefined", runAction: "undefined" };
@@ -110,5 +110,19 @@ export function defineApplicationCoreStandaloneQueryContract(adapter: Readonly<{
     const proof = await adapter.runScenario(proveCoreApplicationStandaloneIdentity);
     expect(proof.result).toEqual({ parent: proof.identity.user, child: { parent: proof.identity.user, child: null } });
     expect(proof.workerLoads).toBe(1);
+  }, 120_000);
+
+  it("refuses configured source, scope and epoch mismatches before source loads, grants or request claims", async () => {
+    const proof = await adapter.runScenario(proveCoreApplicationConfiguredProgramProfile);
+    for (const result of proof.results) {
+      const reason = result.name === "invalid" ? "metadataInvalid" : "unsupportedSelection";
+      expect(failures(result.query), result.name).toMatchObject([{ _tag: "CoreApplicationProgramError", reason }]);
+      expect(failures(result.mutation), result.name).toMatchObject([{ _tag: "CoreApplicationMutationError", reason }]);
+    }
+    expect(proof.sourceReads).toBe(0);
+    expect(proof.claims).toBe(0);
+    expect(proof.grants).toBe(0);
+    expect(proof.workerLoads).toBe(0);
+    expect(proof.after).toEqual(proof.before);
   }, 120_000);
 }

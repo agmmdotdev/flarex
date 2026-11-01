@@ -23,6 +23,8 @@ export type Env = {
   FLAREX_EXECUTOR?: Fetcher;
   FLAREX_EXECUTOR_URL?: string;
   FLAREX_EXECUTOR_TOKEN?: string;
+  /** Unset and legacy_session identify retained session-based compatibility hosts. */
+  FLAREX_EXECUTOR_TRANSPORT?: "legacy_session" | "core_application";
   FLAREX_PROJECT_ID?: string;
   FLAREX_ARTIFACT_RUNTIME?: Fetcher;
   FLAREX_ARTIFACT_RUNTIME_TOKEN?: string;

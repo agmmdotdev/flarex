@@ -49,6 +49,8 @@ const productionSourceExtensions = new Set([".ts", ".tsx", ".mts", ".cts", ".js"
 
 /** @type {Map<string, number>} */
 const allowedRunPromiseSites = new Map([
+  // Existing Promise WebSocket entry projects the typed storage-profile refusal.
+  [siteKey("packages/flarex-backend/src/connectionDO.ts", "executeSyncInvoke"), 1],
   [siteKey("packages/executor-http/src/liveQueryDelivery.ts", "runFlarexBackendLiveQueryPromise"), 1],
   [siteKey("packages/executor-http/src/routeEffects.ts", "handleExecutorHttpDecodedBody"), 1],
   [siteKey("packages/executor/src/runtime/health.ts", "getExecutorHealth"), 1],

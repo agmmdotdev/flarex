@@ -19,6 +19,7 @@ import {
 } from "flarex-protocol/json";
 import { R2BackendExecutionArtifactStore } from "./artifactStore";
 import { ServiceBindingExecutionArtifactRuntime } from "./artifactRuntime";
+import { assertLegacySubscriptionApplication, projectBackendCoreApplicationErrors } from "./coreApplicationRuntime";
 import {
   decodeConnectionClientMessage,
   type ConnectionClientMessageError,
@@ -968,6 +969,9 @@ async function executeSyncInvoke(
   request: InvokeRequest,
   identity: ExecutionIdentity,
 ) {
+  // This consumer requires the legacy evaluation grammar. Refuse a registered
+  // Core profile before any read or mutation can reach the old artifact/store.
+  await Effect.runPromise(projectBackendCoreApplicationErrors(assertLegacySubscriptionApplication(env, deploymentId)));
   const artifactRuntime = artifactRuntimeFromEnv(env, deploymentId);
   if (artifactRuntime !== undefined) {
     const activeDeployment = await loadActiveDeployment(env, deploymentId);

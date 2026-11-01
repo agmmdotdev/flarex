@@ -1,9 +1,9 @@
+// Adapted from Trigger.dev commit f10bc23785e569e5d917318cf2033aabdbe96a0b,
+// upstream/packages/core/src/v3/schemas/schemas.ts. See trigger-source-map.json and THIRD_PARTY_NOTICES.md.
 import type { CurrentTaskRunAttemptAggregate, CurrentTaskRunAttemptEvidence, CurrentTaskRunAttemptMutationAcceptance, CurrentTaskAttemptCompletionReplay } from "./Model.js";
 import { TrustedWorkflowCheckpointDescriptorSchema, TrustedWorkflowCheckpointDescriptorCodec } from "./WorkflowContinuation.js";
 import type { TrustedWorkflowContinuation, TrustedWorkflowContinuationEvidence } from "./WorkflowContinuation.js";
 import { TrustedWorkflowBindingSha256Schema } from "../runCreation/TrustedWorkflowBindingDigest.js";
-// Adapted from Trigger.dev commit f10bc23785e569e5d917318cf2033aabdbe96a0b,
-// upstream/packages/core/src/v3/schemas/schemas.ts. See trigger-source-map.json and THIRD_PARTY_NOTICES.md.
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Encoding, Result, Schema, SchemaTransformation } from "effect";
 import { ApplicationTaskRuntimeTargetSha256V1Schema } from

@@ -144,12 +144,13 @@ Application-analysis coordinates. The preserved V3 experiment does not establish
 a usable system serving capability either.
 Task schema versions/lifetimes must remain independent of app code redeployment.
 
-The retained Task source-map and Trigger compatibility guards currently reject
-committed legacy files: source hashes/attribution and actual import/host admission
-no longer agree with their recorded scope. Their reconciliation belongs to this
-Task replacement owner before Task host or consumer cutover. Preserve the failing
-guards and audit source provenance and admitted capabilities; refreshing hashes
-or allowing imports alone does not establish source reuse or host support.
+The retained Task source map accounts for the committed trusted-workflow and
+inline-Product continuation adaptations, with exact mapped attribution and
+target digests. The Trigger compatibility guard still rejects the retained
+package's current imports and host admission. That admission reconciliation
+belongs to this Task replacement owner before Task host or consumer cutover.
+Preserve the guard and audit admitted capabilities; the reconciled provenance
+receipt does not establish host support or resume implementation.
 The connected core validator/metadata translation does not admit those Task hosts.
 
 ## Target Direction
