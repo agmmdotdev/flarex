@@ -9,6 +9,12 @@ preflight, is complete with a **no-go** decision. Production cutover remains
 blocked on separately owned hosted, routing, identity, request, response, auth,
 and recovery gates.
 
+The [fresh ordinary Core public continuation](../experiments/core/engine/slices/18-public-application-activation.md)
+connects the actual analyzer to public source-only push and a single Core
+candidate/activation authority in the local graph. It uses its own bound Core
+producer evidence, without recasting retained migration receipts. This does not
+close the managed production cutover or enable registered-source upgrades.
+
 This plan owns the ordered replacement of the private Declarative V2 static
 verifier with Application Analysis. It coordinates the existing analysis,
 artifact, Standard Application, persistence, readiness, activation, runtime,

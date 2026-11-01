@@ -75,7 +75,7 @@ export class CoreSchemaModel {
   }));
 
   readonly submitPending = Effect.fn("CoreSchemaModel.submitPending")((input: CoreSchemaDefinition, native?: string,
-    applicationRegistration?: string) => Effect.gen({ self: this }, function* () {
+    applicationRegistration?: string, candidate?: Readonly<{ metadata: string; updatedAt: number }>) => Effect.gen({ self: this }, function* () {
     const schema = yield* Effect.fromResult(captureCoreSchema(input));
     const serialized = yield* Effect.fromResult(serializeCoreSchema(schema));
     const active = yield* this.active();
@@ -115,7 +115,8 @@ export class CoreSchemaModel {
       yield* this.markOverwritten(existing.value.id);
     }
     const id = yield* this.tx.insertSystem(SCHEMAS, { state: { state: "pending" }, schema: serialized,
-      ...(native === undefined ? {} : { native }), ...(applicationRegistration === undefined ? {} : { applicationRegistration }) });
+      ...(native === undefined ? {} : { native }), ...(applicationRegistration === undefined ? {} : { applicationRegistration }),
+      ...(candidate === undefined ? {} : { applicationCandidate: candidate.metadata, applicationCandidateUpdatedAt: candidate.updatedAt }) });
     if (hasStaged) yield* this.validations.initializeStagedValidators(id, schema, carryOver);
     return { id, state: { state: "pending" } as const };
   }));
@@ -230,6 +231,8 @@ export class CoreSchemaModel {
     const cutoff = Number(this.tx.timestamp) / 1_000_000 - 3_600_000;
     for (const row of rows) {
       const metadata = yield* Effect.fromResult(decodeCoreSchemaMetadata(row.value).pipe(Result.mapError(coreSchemaCorrupt)));
+      // Public candidate status/retry retains this authenticated lifecycle row.
+      if (metadata.applicationCandidate !== undefined) continue;
       if (metadata.state.state !== "failed" && metadata.state.state !== "overwritten") continue;
       if (row.creationTime > cutoff) break;
       yield* this.tx.deleteSystem(SCHEMAS, row.id);

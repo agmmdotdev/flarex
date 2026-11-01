@@ -3,6 +3,9 @@
 Status: **Bounded fresh ordinary Application path implemented and reviewed;
 activation gates remain.**
 
+The [fresh public activation continuation](./18-public-application-activation.md)
+owns the source-upload through public invocation gate.
+
 Baseline: `a025de282921b344299fc29d21cb9ed567a9c6e1`. Convex pin:
 `db914cf06e2b06ee985646611b9e12ed7a770318`. This continues the
 [full goal](../GOAL.md) and [retirement ledger](./16b-legacy-entrypoint-retirement.md).
@@ -36,8 +39,9 @@ endpoint alone does not complete this slice.
 
 ## Routing, registration and old data
 
-A bounded trusted registration map owns deployment/scope/epoch, canonical name,
-physical namespace/instance, source provenance, policy and resource settings.
+A bounded trusted routing map owns deployment/scope/epoch, canonical name,
+physical namespace/instance, keys, analyzer policy and resource settings. Source
+provenance belongs to the prepared and activated Core candidate.
 HTTP request, response and registration body budgets are explicit per-profile
 settings, validated before opening the app's pool.
 Private signing/cursor secrets come from trusted configuration, never invoke
@@ -49,7 +53,7 @@ Its envelope requires an explicit `maximumLegacyRequestBytes` when retained
 legacy profiles are present. The gateway consumes that bounded original body
 once and forwards the exact bytes after selecting the admitted legacy identity.
 An absent, withdrawn or unready Core entry never becomes a legacy profile. The
-backend binds source package identity as well as the finalized artifact root.
+backend binds the candidate's source package identity and finalized artifact root.
 The DO answers a Core profile lookup only after checking persisted admission.
 
 Registration is a separate trusted operation. It reads genuine finalized R2
@@ -154,10 +158,11 @@ Partition/native-policy manifests,
 Core subscriptions and registered runtime upgrades remain refused until their
 specific contracts are implemented.
 
-Actual backend caller tests and actual configured gateway/DO/isolated-Worker
-tests establish separate connected boundaries. A complete public deployment
-upload/activation through backend discovery to this DO is still an activation
-gate. Wrangler's explicit registry starts empty. No deployment or durable-data
+The [fresh public continuation](./18-public-application-activation.md) connects
+source-only upload, actual analysis, Core candidate activation, public discovery
+and invocation through the real backend/service-binding/DO/isolated-Worker graph.
+Normal SDK generation discovers the target profile and emits Core-compatible
+typed files. Wrangler's explicit registry starts empty. No deployment or durable-data
 conversion is performed here. External legacy writers must be excluded before
 admitting fresh identities; retained legacy recovery and sync remain in the
 retirement ledger. Managed Cloudflare capacity and performance remain unproven.

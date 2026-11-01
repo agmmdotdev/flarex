@@ -1,16 +1,19 @@
 import { createCorePostgresFixture } from "@flarex/persistence-postgres/internal/system-test/core-persistence-fixture";
-import { createCoreApplicationDefinition } from "@flarex/system-test/internal/application-core-definition";
+import { createApplicationNativeMutationSourceBundle } from "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
 import { APPLICATION_ANALYSIS_ANALYZER_IDENTITY, APPLICATION_ANALYSIS_POLICY_IDENTITY } from
   "@flarex/source-analyzer-v2/internal/application-analysis-host";
+import { sourceModuleDigestInputV1, SOURCE_MODULE_DIGEST_FORMAT_V1 } from "flarex/artifacts";
+import { SOURCE_ARTIFACT_V2_ROLE_FUNCTION } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
 import { Result, Schema } from "effect";
 import { Miniflare, type MiniflareOptions } from "miniflare";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { coreApplicationInvocationPath, coreApplicationProfilePath, coreApplicationRegistrationPath,
-  decodeCoreApplicationInvocationSuccess, decodeCoreApplicationProfile, encodeCoreApplicationInvocationRequest } from
-  "flarex-protocol/internal/core-application";
+import { coreApplicationInvocationPath, coreApplicationProfilePath, coreApplicationPushStartPath, coreApplicationPushPath,
+  decodeCoreApplicationCandidate, decodeCoreApplicationInvocationSuccess, decodeCoreApplicationProfile,
+  encodeCoreApplicationInvocationRequest } from "flarex-protocol/internal/core-application";
 import { TransactionFunctionPathV1Schema, TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
 import { bundleApplicationWorker } from "./support/bundleApplicationWorker";
 import { createExecutorApplicationSecretFixture, executorApplicationProfileFixture } from "./support/executorApplicationConfiguration";
@@ -21,19 +24,28 @@ const endpoints = endpointPath === undefined ? undefined : Schema.decodeUnknownS
 }))(JSON.parse(await readFile(endpointPath, "utf8")));
 const token = "configured-app-owner-private-proof";
 type Profile = ReturnType<typeof executorApplicationProfileFixture>;
+type InvocationProfile = Profile & { sourceArtifactRootSha256: string };
 
 describe.runIf(endpoints !== undefined)("configured production app owner in actual workerd", () => {
-  it("registers sealed source through actual Analysis, resumes and preserves Core evidence and outcomes", async () => {
+  it("prepares public source once, cold-finishes its Core candidate and preserves exact outcomes", async () => {
     if (endpoints === undefined) throw new Error("Configured owner proof requires ordinary PostgreSQL.");
-    const definition = await createCoreApplicationDefinition();
+    const source = await createApplicationNativeMutationSourceBundle(false, 0, 0, true, false, false, true, true);
+    const modules = source.modules.map(module => ({ ...module,
+      source: module.source.replace("  notify: action({ handler: users.notify }),\n", "") }));
+    const sourcePackage = { modules: modules.map(module => ({ path: module.path, environment: "isolate" as const,
+      source: module.source, sha256: createHash("sha256").update(sourceModuleDigestInputV1(module.source, undefined)).digest("hex") })),
+      functions: modules.filter(module => (module.roles & SOURCE_ARTIFACT_V2_ROLE_FUNCTION) !== 0).map(module => module.path),
+      execution: source.sourceArtifact.executionModulePath,
+      ...(source.sourceArtifact.schemaModulePath === null ? {} : { schema: source.sourceArtifact.schemaModulePath }),
+      sourceModuleDigestFormat: SOURCE_MODULE_DIGEST_FORMAT_V1 };
     const worker = await bundleApplicationWorker(new URL("./configuredApplicationDO.workerd.worker.ts", import.meta.url));
     const directory = await mkdtemp(join(tmpdir(), "flarex-configured-application-"));
     const physical = await createCorePostgresFixture(endpoints);
     const base = executorApplicationProfileFixture();
     const keys = await createExecutorApplicationSecretFixture(base.keyId);
-    const configured = { ...base, persistenceNamespace: physical.namespace, instanceName: physical.instanceName,
-      anchorFunctionPath: "users:get", analyzerIdentity: APPLICATION_ANALYSIS_ANALYZER_IDENTITY,
-      analyzerPolicyIdentity: APPLICATION_ANALYSIS_POLICY_IDENTITY,
+    const profile = { ...base, persistenceNamespace: physical.namespace, instanceName: physical.instanceName,
+      analyzerIdentity: APPLICATION_ANALYSIS_ANALYZER_IDENTITY, analyzerPolicyIdentity: APPLICATION_ANALYSIS_POLICY_IDENTITY,
+      http: { ...base.http, maximumRegistrationRequestBytes: 1_048_576 },
       workload: { ...base.workload, schemaScheduler: { ...base.workload.schemaScheduler,
         wakeDelayMilliseconds: 60_000, continuationDelayMilliseconds: 60_000 } } };
     let runtime: Miniflare | undefined;
@@ -51,48 +63,43 @@ describe.runIf(endpoints !== undefined)("configured production app owner in actu
       if (failures.length > 0) throw new AggregateError(failures, "Configured owner resource cleanup failed.");
     };
     try {
-      runtime = makeRuntime(worker, directory, configured, keys);
-      const uploaded = await request(active(), "/__proof/source", { modules: definition.source.modules });
-      expect(uploaded.status, await uploaded.clone().text()).toBe(200);
-      const source = Schema.decodeUnknownSync(Schema.Struct({ source: Schema.Struct({ sourceArtifact:
-        Schema.Struct({ rootSha256: Schema.String }) }) }))(await uploaded.json());
-      await active().dispose();
-      runtime = undefined;
-      const profile = { ...configured, sourceArtifactRootSha256: source.source.sourceArtifact.rootSha256 };
+      runtime = makeRuntime(worker, directory, { ...profile, maximumRegistrationSteps: 1 }, keys);
       const path = coreApplicationInvocationPath(profile.deploymentId);
       const discovery = coreApplicationProfilePath(profile.deploymentId);
-      const registration = coreApplicationRegistrationPath(profile.deploymentId);
-      runtime = makeRuntime(worker, directory, { ...profile, maximumRegistrationSteps: 1 }, keys);
-
       const denied = await active().dispatchFetch(`https://configured-owner.test${path}`, { method: "POST", body: "{}" });
       expect(denied.status).toBe(401);
       expect((await request(active(), "/__proof/wrong-object")).status).toBe(500);
       expect((await request(active(), discovery)).status).toBe(503);
-      expect(Schema.decodeUnknownSync(Schema.Struct({ sourceReads: Schema.Int }))(await (await request(active(), "/__proof/resources")).json()).sourceReads).toBe(0);
-      const partial = await request(active(), registration, { format: "flarex.core-application.registration", version: 1,
-        requestKey: "registration:configured", sourceArtifactRootSha256: profile.sourceArtifactRootSha256 });
-      expect(partial.status, await partial.clone().text()).toBe(503);
+      expect(await sourceReads(active())).toBe(0);
+      const started = await request(active(), coreApplicationPushStartPath(profile.deploymentId), { sourcePackage });
+      expect(started.status, await started.clone().text()).toBe(200);
+      const candidate = Result.getOrThrow(decodeCoreApplicationCandidate(await started.json()));
+      expect(candidate.state).not.toBe("active");
+      expect(candidate.sourcePackage.modules.every(module => module.source === undefined && module.sourceMap === undefined)).toBe(true);
+      const push = coreApplicationPushPath(profile.deploymentId, candidate.pushId);
       expect((await request(active(), discovery)).status).toBe(503);
+      const partial = await request(active(), `${push}/finish`, {});
+      expect(partial.status, await partial.clone().text()).toBe(503);
       await stop();
 
       runtime = makeRuntime(worker, directory, profile, keys);
-      expect((await request(active(), discovery)).status).toBe(503);
-      const registered = await request(active(), registration, { format: "flarex.core-application.registration", version: 1,
-        requestKey: "registration:configured", sourceArtifactRootSha256: profile.sourceArtifactRootSha256 });
-      expect(registered.status, await registered.clone().text()).toBe(200);
+      const finished = await request(active(), `${push}/finish`, {});
+      expect(finished.status, await finished.clone().text()).toBe(200);
+      expect(Result.getOrThrow(decodeCoreApplicationCandidate(await finished.json())).state).toBe("active");
+      // Finish reconstructs persisted analysis; it does not read R2 or re-run analysis.
+      expect(await sourceReads(active())).toBe(0);
       const discovered = await request(active(), discovery);
       expect(discovered.status, await discovered.clone().text()).toBe(200);
-      const resolved = Result.getOrThrow(decodeCoreApplicationProfile(await discovered.json()));
-      expect(resolved).toMatchObject({ kind: "core", route: { deploymentId: profile.deploymentId,
-        scopeUuid: profile.scopeUuid, epochUuid: profile.epochUuid }, sourceArtifactRootSha256: profile.sourceArtifactRootSha256,
-        sourcePackageHash: profile.sourcePackageHash });
-
-      const oversized = await request(active(), path, { content: "x".repeat(profile.http.maximumRequestBytes) });
+      expect(Result.getOrThrow(decodeCoreApplicationProfile(await discovered.json()))).toMatchObject({ kind: "core",
+        sourceArtifactRootSha256: candidate.sourceArtifactRootSha256, sourcePackageHash: candidate.sourcePackageHash });
+      const invocationProfile = { ...profile, sourceArtifactRootSha256: candidate.sourceArtifactRootSha256 };
+      expect((await request(active(), `/applications/${profile.deploymentId}/register`, {})).status).toBe(404);
+      const oversized = await active().dispatchFetch(`https://configured-owner.test${path}`, { method: "POST",
+        headers: { authorization: `Bearer ${token}` }, body: " ".repeat(profile.http.maximumRequestBytes + 1) });
       expect(oversized.status).toBe(413);
-
-      const foreign = await invoke(active(), profile, "query", "users:get", { id: "wrong" }, "query:foreign", "ff".repeat(32));
+      const foreign = await invoke(active(), invocationProfile, "query", "users:get", { id: "wrong" }, "query:foreign", "ff".repeat(32));
       expect(foreign.status).toBe(503);
-      const create = invocation(profile, "mutation", "users:create", { name: "configured" }, "create:lost-response");
+      const create = invocation(invocationProfile, "mutation", "users:create", { name: "configured" }, "create:lost-response");
       const lost = await request(active(), path, create, { "x-proof-drop-response": "1" });
       expect(lost.status).toBe(502);
       const trace = Schema.decodeUnknownSync(Schema.Struct({ committed: Schema.Unknown }))(await lost.json());
@@ -110,35 +117,29 @@ describe.runIf(endpoints !== undefined)("configured production app owner in actu
       expect(replay.disposition).toBe("replayed");
       expect(replay.publishedTimestamp).toBe(committed.publishedTimestamp);
       expect(replay.value).toBe(id);
-      expect(Schema.decodeUnknownSync(Schema.Struct({ sourceReads: Schema.Int }))(await (await request(active(), "/__proof/resources")).json()).sourceReads).toBe(0);
-      const queryResponse = await invoke(active(), profile, "query", "users:get", { id }, "query:read");
+      expect(await sourceReads(active())).toBe(0);
+      const queryResponse = await invoke(active(), invocationProfile, "query", "users:get", { id }, "query:read");
       expect(queryResponse.status, await queryResponse.clone().text()).toBe(200);
       const queried = Result.getOrThrow(decodeCoreApplicationInvocationSuccess(await queryResponse.json()));
       if (queried.kind !== "query") throw new Error("Expected a Core query evaluation.");
       expect(Schema.decodeUnknownSync(Schema.Struct({ name: Schema.String }))(queried.value).name).toBe("configured");
       expect(queried.evaluation.timestamp).toBeGreaterThanOrEqual(committed.publishedTimestamp);
-      expect(queried.evaluation.reads.length).toBeGreaterThan(0);
       expect(queried.evaluation.reads.some(read => read.intervals.length > 0)).toBe(true);
-      expect(Schema.decodeUnknownSync(Schema.Struct({ sourceReads: Schema.Int }))(await (await request(active(), "/__proof/resources")).json()).sourceReads).toBeGreaterThan(0);
-      const again = await request(active(), registration, { format: "flarex.core-application.registration", version: 1,
-        requestKey: "registration:after-data", sourceArtifactRootSha256: profile.sourceArtifactRootSha256 });
+      expect(await sourceReads(active())).toBeGreaterThan(0);
+      const again = await request(active(), `${push}/finish`, {});
       expect(again.status, await again.clone().text()).toBe(200);
+      expect(Result.getOrThrow(decodeCoreApplicationCandidate(await again.json())).pushId).toBe(candidate.pushId);
       await stop();
 
-      // The same source pin does not authorize a changed configured installation generation.
       const changed = { ...profile, generation: profile.generation + 1 };
       runtime = makeRuntime(worker, directory, changed, keys);
       expect((await request(active(), discovery)).status).toBe(503);
-      expect((await invoke(active(), changed, "query", "users:get", { id }, "query:changed-generation")).status).toBe(503);
-      expect((await invoke(active(), changed, "mutation", "users:create", { name: "must refuse" }, "mutation:changed-generation")).status).toBe(503);
-      expect(Schema.decodeUnknownSync(Schema.Struct({ sourceReads: Schema.Int }))(await (await request(active(), "/__proof/resources")).json()).sourceReads).toBe(0);
-    } catch (cause) {
-      primaryFailures.push(cause);
-      throw cause;
-    } finally {
+      expect((await invoke(active(), { ...invocationProfile, generation: changed.generation }, "query", "users:get", { id }, "query:changed-generation")).status).toBe(503);
+      expect(await sourceReads(active())).toBe(0);
+    } catch (cause) { primaryFailures.push(cause); throw cause; }
+    finally {
       const closed = await Promise.allSettled([stop()]);
       const database = await Promise.allSettled([physical.close()]);
-      // mkdtemp returned this exact test-owned directory under the OS temporary root.
       const temporary = await Promise.allSettled([rm(directory, { recursive: true, force: true })]);
       const failures = [...closed, ...database, ...temporary].flatMap(result => result.status === "rejected" ? [result.reason] : []);
       if (failures.length > 0) throw new AggregateError([...primaryFailures, ...failures], "Configured app proof cleanup failed.");
@@ -146,18 +147,22 @@ describe.runIf(endpoints !== undefined)("configured production app owner in actu
   }, 240_000);
 });
 
+async function sourceReads(runtime: Miniflare) {
+  return Schema.decodeUnknownSync(Schema.Struct({ sourceReads: Schema.Int }))(
+    await (await request(runtime, "/__proof/resources")).json()).sourceReads;
+}
 function request(runtime: Miniflare, path: string, body?: unknown, extraHeaders: Record<string, string> = {}) {
   return runtime.dispatchFetch(`https://configured-owner.test${path}`, { method: body === undefined ? "GET" : "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...extraHeaders },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 }
-function invocation(profile: Profile, kind: "query" | "mutation", functionPath: string, args: Record<string, string>,
+function invocation(profile: InvocationProfile, kind: "query" | "mutation", functionPath: string, args: Record<string, string>,
   key: string, root = profile.sourceArtifactRootSha256) {
   return Result.getOrThrow(encodeCoreApplicationInvocationRequest({ format: "flarex.core-application.request", version: 1, kind,
     functionPath: TransactionFunctionPathV1Schema.make(functionPath), args, auth: { kind: "anonymous" },
     requestKey: TransactionRequestKeyV1Schema.make(key), sourceArtifactRootSha256: root }));
 }
-function invoke(runtime: Miniflare, profile: Profile, kind: "query" | "mutation", functionPath: string,
+function invoke(runtime: Miniflare, profile: InvocationProfile, kind: "query" | "mutation", functionPath: string,
   args: Record<string, string>, key: string, root?: string) {
   return request(runtime, coreApplicationInvocationPath(profile.deploymentId), invocation(profile, kind, functionPath, args, key, root));
 }
@@ -170,7 +175,6 @@ function makeRuntime(worker: string, directory: string, profile: Profile, keys: 
     hyperdrives: { HYPERDRIVE_CACHE_DISABLED: endpoints.connectionString }, workerLoaders: { LOADER: {} },
     serviceBindings: { APPLICATION_ANALYZER: { name: "configured-application-proof", entrypoint: "FlarexApplicationAnalysisHost" } },
     r2Buckets: ["ARTIFACTS"], r2Persist: join(directory, "r2"), durableObjectsPersist: join(directory, "do"),
-    durableObjects: { APPLICATIONS: { className: "ConfiguredApplicationDO", useSQLite: true },
-      UPLOADS: { className: "ApplicationSourceUploadDO", useSQLite: true } },
+    durableObjects: { APPLICATIONS: { className: "ConfiguredApplicationDO", useSQLite: true } },
   } satisfies MiniflareOptions);
 }

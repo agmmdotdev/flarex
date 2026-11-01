@@ -1,9 +1,7 @@
-import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
 import { Result } from "effect";
 import {
-  coreApplicationProfilePath,
-  encodeCoreApplicationProfile,
-  type CoreApplicationCoreProfile,
+  coreApplicationControlPath,
+  encodeCoreApplicationControl,
 } from "flarex-protocol/internal/core-application";
 import {
   executionIdentityFingerprint,
@@ -11,6 +9,7 @@ import {
   type ExecutionIdentity,
 } from "flarex-protocol/auth";
 import { afterAll, describe, expect, it } from "vitest";
+import { requestSyncUpgrade } from "./support/syncUpgradeRequest";
 import { R2BackendExecutionArtifactStore, type R2BucketLike } from "../src/artifactStore";
 import {
   createExecutionArtifactRuntimeService,
@@ -380,13 +379,11 @@ describe("sync protocol", () => {
     ws.close();
   });
 
-  it("refuses a registered Core subscription before invoking legacy application storage", async () => {
+  it("refuses a configured Core sync connection before creating legacy application consumers", async () => {
     const deploymentId = "sync-core-profile-refusal";
-    const sourcePackage = testSourcePackage();
-    const ref = await executionArtifactRefForSourcePackage(sourcePackage);
-    const profile: CoreApplicationCoreProfile = { format: "flarex.core-application.profile", version: 1, kind: "core",
+    const control = { format: "flarex.core-application.control" as const, version: 1 as const, kind: "core" as const,
       route: { deploymentId, scopeUuid: "11111111-1111-4111-8111-111111111111", epochUuid: "22222222-2222-4222-8222-222222222222" },
-      sourceArtifactRootSha256: "a".repeat(64), sourcePackageHash: ref.sourcePackageHash };
+      maximumPushRequestBytes: 1_048_576 };
     const runtimeCalls: unknown[] = [];
     const executorPaths: string[] = [];
     const harness = await createSyncHarness(runtimeCalls, undefined, undefined, {
@@ -394,28 +391,19 @@ describe("sync protocol", () => {
       serviceBindings: { FLAREX_EXECUTOR: async request => {
         const path = new URL(request.url).pathname;
         executorPaths.push(path);
-        if (path === coreApplicationProfilePath(deploymentId))
-          return Response.json(Result.getOrThrow(encodeCoreApplicationProfile(profile)));
+        if (path === coreApplicationControlPath(deploymentId))
+          return Response.json(Result.getOrThrow(encodeCoreApplicationControl(control)));
         if (path === "/live-query-subscriptions/remove" || path === "/live-query-subscriptions/remove-connection" || path === "/live-query-connections/touch")
           return Response.json({ deleted: true });
         return Response.json({ error: "Unexpected legacy application request." }, { status: 500 });
       } },
     });
     harnesses.push(harness);
-    await activateDeployment(harness, deploymentId, sourcePackage);
-    const ws = await openSync(harness, deploymentId);
-    try {
-      ws.send(JSON.stringify({ type: "ModifyQuerySet", baseVersion: 0, newVersion: 1,
-        modifications: [{ type: "Add", queryId: 7, udfPath: "users:get", args: [{ id: "1:ada" }], partitionKey: "user:ada" }] }));
-      const transition = await nextJsonMessage(ws);
-      expect(transition).toMatchObject({ type: "Transition", modifications: [{
-        type: "QueryFailed", queryId: 7,
-        errorMessage: "Core application subscriptions require the Core evaluation transport.",
-      }] });
-      expect(runtimeCalls).toEqual([]);
-      expect(executorPaths).toContain(coreApplicationProfilePath(deploymentId));
-      expect(executorPaths).not.toContain("/live-query-subscriptions/record");
-    } finally { ws.close(); }
+    const response = await requestSyncUpgrade(new URL(`/deployments/${deploymentId}/sync`, await harness.mf.ready));
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({ error: "This route is not admitted by the Core application profile." });
+    expect(runtimeCalls).toEqual([]);
+    expect(executorPaths).toEqual([coreApplicationControlPath(deploymentId)]);
   });
 
   it("returns AuthError for stale Authenticate identity versions", async () => {

@@ -5,13 +5,10 @@ import { executorApplicationFailureResponse } from "../src/applicationCompositio
 import { readExecutorApplicationProfiles, type ExecutorApplicationEnv } from "../src/applicationConfiguration";
 import { makeApplicationExecutorGateway } from "../src/applicationGateway";
 import { admitExecutorRequest } from "../src/requestLifecycle";
-import { ApplicationSourceUploadDO } from "./support/applicationDOSourceUpload";
-export { ApplicationSourceUploadDO };
 export { FlarexApplicationAnalysisHost } from "../../analyzer/src/ApplicationAnalysisEntrypoint";
 
 interface Env extends ExecutorApplicationEnv {
   readonly APPLICATIONS: DurableObjectNamespace<ConfiguredApplicationDO>;
-  readonly UPLOADS: DurableObjectNamespace;
 }
 
 /** Native-binding observation around the real configured production owner. */
@@ -61,7 +58,6 @@ export default {
     const admitted = admitExecutorRequest(request, env);
     if (Result.isFailure(admitted)) return admitted.failure;
     const path = new URL(request.url).pathname;
-    if (path === "/__proof/source") return env.UPLOADS.getByName("source-upload").fetch(request);
     if (path.startsWith("/__proof/")) {
       const profile = Result.getOrThrow(readExecutorApplicationProfiles(env))[0];
       if (profile === undefined) throw new Error("The configured proof needs one operator profile.");

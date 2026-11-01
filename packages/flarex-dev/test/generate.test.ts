@@ -7,7 +7,7 @@ import { deploymentAnalysisFromCodegenAnalysisEffect } from "@flarex/analysis";
 import { generatedExecutionWorkerSource } from "flarex-backend/artifact-runtime";
 import { Miniflare } from "miniflare";
 import { build, type Plugin } from "vite";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import {
   bundleFlarexSourcePackage,
   analyzeFlarexSourcePackage,
@@ -40,6 +40,91 @@ function backendAnalysisFromCodegenAnalysis(analysis: DeploymentAnalysis) {
 }
 
 describe("generateFlarex", () => {
+  it("uses the discovered Core profile before bundling and retires legacy generated runtimes", async () => {
+    const root = await createProject();
+    onTestFinished(() => rm(root, { recursive: true, force: true }));
+    await writeFile(path.join(root, "flarex/functions/messages.ts"),
+      'import { query } from "../_generated/server";\nexport const list = query({ args: {}, handler: async () => [] });\n');
+    const generatedDir = path.join(root, "flarex/_generated");
+    await mkdir(generatedDir, { recursive: true });
+    for (const name of ["worker.ts", "functionRegistry.ts", "functionMetadata.ts", "deploymentSchema.ts"])
+      await writeFile(path.join(generatedDir, name), "legacy managed runtime");
+    const analysis = backendPushAnalysis("query");
+    const calls: string[] = [];
+    let starts = 0;
+    const coordinator: BackendPushCoordinator = {
+      getStorageProfile: async () => { calls.push("profile"); return "core_application"; },
+      start: async source => {
+        calls.push("start");
+        expect(source.modules.find(module => module.path === "_flarex/execution.js")?.source).toContain('from "../messages.js"');
+        expect(source.modules.find(module => module.path === "messages.js")?.source).toMatch(/from\s*["']flarex\/server["']/);
+        return { pushId: "core-push", state: starts++ === 0 ? "analyzed" : "activated", storageProfile: "core_application", ...analysis };
+      },
+      finish: async () => { calls.push("finish"); return { result: "activated", push: {
+        pushId: "core-push", state: "activated", storageProfile: "core_application" } }; },
+    };
+    const result = await deployFlarex({ root, pushCoordinator: coordinator });
+    expect(calls).toEqual(["profile", "start", "finish"]);
+    expect(result.started.storageProfile).toBe("core_application");
+    expect(result.finished.storageProfile).toBe("core_application");
+    for (const name of ["worker.ts", "functionRegistry.ts", "functionMetadata.ts", "deploymentSchema.ts"])
+      await expect(fileExists(path.join(generatedDir, name))).resolves.toBe(false);
+    await expect(readGenerated(root, "api.ts")).resolves.toContain('../functions/messages');
+    await expect(readGenerated(root, "server.ts")).resolves.not.toContain("parseFlarexId");
+    await expect(readGenerated(root, "server.ts")).resolves.not.toContain("workflowMutationGeneric");
+    await expect(readGenerated(root, "dataModel.ts")).resolves.toContain("DataModelFromSchemaDefinition<typeof schema>");
+    expect((await deployFlarex({ root, pushCoordinator: coordinator })).started.state).toBe("activated");
+  });
+
+  it("refuses Core generation for unsupported declarations and mismatched profile discovery", async () => {
+    expect(() => finalGeneratedFiles(backendCodegenAnalysis("workflowMutation"), "core_application"))
+      .toThrow("Core generation requires ordinary global query and mutation declarations.");
+    expect(() => finalGeneratedFiles({ ...backendCodegenAnalysis("query"), storageProfile: "core_application" }, "legacy_session"))
+      .toThrow("The generation profile does not match the Core analysis profile.");
+    const root = await createProject();
+    onTestFinished(() => rm(root, { recursive: true, force: true }));
+    const coordinator: BackendPushCoordinator = {
+      getStorageProfile: async () => "core_application",
+      start: async () => ({ pushId: "legacy-push", state: "analyzed", ...backendPushAnalysis("query") }),
+      finish: async () => { throw new Error("Mismatched metadata must not activate."); },
+    };
+    await expect(deployFlarex({ root, pushCoordinator: coordinator }))
+      .rejects.toThrow("The backend push storage profile does not match its profile discovery.");
+  });
+
+  it("typechecks Core API and document validators without a generated storage runtime", async () => {
+    const root = await createProject();
+    onTestFinished(() => rm(root, { recursive: true, force: true }));
+    await writeFile(path.join(root, "flarex/schema.ts"),
+      'import { defineSchema, defineGlobalTable } from "flarex/server";\nimport { v } from "flarex/values";\nexport default defineSchema({ users: defineGlobalTable({ name: v.string() }) });\n');
+    await writeFile(path.join(root, "flarex/functions/users.ts"),
+      'import { mutation } from "../_generated/server";\nimport { v } from "flarex/values";\nexport const create = mutation({ args: { name: v.string() }, returns: v.id("users"), handler: async (ctx, args) => ctx.db.insert("users", { name: args.name }) });\n');
+    const context = await initialCodegen({ root, storageProfile: "core_application" });
+    await finalCodegen(context, { schema: { version: 1, tables: [{ tableId: 91, name: "users", placement: { kind: "global" },
+      validator: { type: "object", value: { name: { fieldType: { type: "string" }, optional: false } } } }], indexes: [] },
+    functions: [{ moduleName: "users", functions: [{ moduleName: "users", exportName: "create", kind: "mutation", visibility: "public",
+      args: { type: "object", value: { name: { fieldType: { type: "string" }, optional: false } } },
+      returns: { type: "id", tableName: "users" }, partition: null }] }] });
+    await writeFile(path.join(root, "flarex/typeWitness.ts"), `import { api } from "./_generated/api";
+import type { FunctionArgs, FunctionReturnType } from "flarex/server";
+import type { Doc } from "./_generated/dataModel";
+const args: FunctionArgs<typeof api.users.create> = { name: "valid" };
+// @ts-expect-error Core API retains the declared string argument.
+const invalidArgs: FunctionArgs<typeof api.users.create> = { name: 1 };
+declare const doc: Doc<"users">;
+const name: string = doc.name;
+const id: FunctionReturnType<typeof api.users.create> = doc._id;
+// @ts-expect-error Core document types retain field membership.
+doc.missing;
+void [args, invalidArgs, name, id];
+`);
+    await expect(typecheckGeneratedOutput({ root, cwd: workspaceRoot,
+      typescriptCliPath: "node_modules/typescript/bin/tsc", compilerOptions: { paths: {
+        flarex: ["packages/flarex/src/index.ts"], "flarex/*": ["packages/flarex/src/*"],
+      } } })).resolves.toBeUndefined();
+    await expect(fileExists(path.join(root, "flarex/_generated/worker.ts"))).resolves.toBe(false);
+  }, 30_000);
+
   it("plans final generated output before writing final-only files", async () => {
     const root = await createProject();
     await writeFile(
@@ -335,16 +420,21 @@ export const list = query({ args: {}, handler: async () => [] });
       .resolves.toContain(embeddedJsonSource('"path": "messages:list"'));
   });
 
-  it("preserves deploy validation errors when abandon cleanup fails", async () => {
+  it("retains deploy validation and fresh candidate cleanup failures", async () => {
     const root = await createProject();
+    onTestFinished(() => rm(root, { recursive: true, force: true }));
     const events: string[] = [];
+    const validationError = new Error("validation failed");
+    const cleanupError = new Error("abandon failed");
     const pushCoordinator: BackendPushCoordinator = {
+      getStorageProfile: async () => "core_application",
       start: async () => {
         events.push("start");
         const analysis = backendPushAnalysis("query");
         return {
           pushId: "push1",
           state: "analyzed",
+          storageProfile: "core_application",
           ...analysis,
         };
       },
@@ -354,20 +444,57 @@ export const list = query({ args: {}, handler: async () => [] });
       },
       abandon: async () => {
         events.push("abandon");
-        throw new Error("abandon failed");
+        throw cleanupError;
       },
     };
 
-    await expect(deployFlarex({
+    const failure = await deployFlarex({
       root,
       pushCoordinator,
       beforeFinish: async () => {
         events.push("beforeFinish");
-        throw new Error("validation failed");
+        throw validationError;
       },
-    })).rejects.toThrow("validation failed");
+    }).then(() => undefined, (error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(AggregateError);
+    if (failure instanceof AggregateError) {
+      expect(failure.message).toContain("validation failed");
+      expect(failure.errors).toHaveLength(2);
+      expect(failure.errors[0]).toBe(validationError);
+      expect(failure.errors[1]).toBe(cleanupError);
+      expect(failure.cause).toBe(validationError);
+    }
 
     expect(events).toEqual(["start", "beforeFinish", "abandon"]);
+  });
+
+  it("does not abandon an already active Core push when retry validation fails", async () => {
+    const root = await createProject();
+    onTestFinished(() => rm(root, { recursive: true, force: true }));
+    const events: string[] = [];
+    const validationError = new Error("retry validation failed");
+    const pushCoordinator: BackendPushCoordinator = {
+      getStorageProfile: async () => "core_application",
+      start: async () => {
+        events.push("start");
+        return { pushId: "active-push", state: "activated", storageProfile: "core_application", ...backendPushAnalysis("query") };
+      },
+      finish: async () => {
+        events.push("finish");
+        throw new Error("Failed validation must not finish.");
+      },
+      abandon: async () => {
+        events.push("abandon");
+        throw new Error("An active push must not be abandoned.");
+      },
+    };
+
+    await expect(deployFlarex({ root, pushCoordinator, beforeFinish: async () => {
+      events.push("beforeFinish");
+      throw validationError;
+    } })).rejects.toBe(validationError);
+    expect(events).toEqual(["start", "beforeFinish"]);
   });
 
   it("rejects deploy pushes that fail to activate", async () => {

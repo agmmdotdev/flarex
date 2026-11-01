@@ -60,6 +60,9 @@ cleanup; a retained export or self-test alone is not a permanent obligation.
 The [executor cutover](./slices/17-executor-cutover.md) connects trusted source
 registration, whole-function transport and real callers to the retained app
 owner, preserving exact evaluation and named old-data/profile boundaries.
+The [public activation continuation](./slices/18-public-application-activation.md)
+connects source-only push and normal SDK generation to the same Core candidate,
+activation, discovery and invocation authority for fresh ordinary applications.
 Total rewrite scope permits replacing current core, adapter, schema and installer
 internals. The [framework and migration plan](./REFACTOR.md#framework-adapters-and-shared-schema-installation)
 places Payload/Medusa compilers and runtime adapters above the translated core,

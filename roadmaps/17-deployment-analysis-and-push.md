@@ -23,6 +23,14 @@ two analysis authorities. The `AA-R9-P` production-cutover preflight is
 complete with a no-go decision. Production routing and cutover remain
 unapproved.
 
+The [fresh ordinary Core public path](../experiments/core/engine/slices/18-public-application-activation.md)
+now uses genuine framed source, the actual analyzer and one PostgreSQL candidate/
+activation owner through local public push, discovery and isolated execution.
+Its producer evidence binds the canonical manifest and package to Core's logical
+schema proposal. This separate bounded profile does not reinterpret legacy
+receipts or close managed production `AA-R9`; deployments, registered upgrades,
+existing-data conversion and the broader hosted gates remain open.
+
 This roadmap owns:
 
 - the dynamic V1 source-package compatibility contract, the retained private

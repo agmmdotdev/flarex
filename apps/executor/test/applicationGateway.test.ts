@@ -40,6 +40,31 @@ function fixture() {
 }
 
 describe("configured application gateway", () => {
+  it("exposes only trusted control inventory before a source is installed", async () => {
+    const f = fixture();
+    const response = await f.gateway.fetch(f.request(`/applications/${f.profile.deploymentId}/control`), f.env);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ format: "flarex.core-application.control", version: 1, kind: "core",
+      route: { deploymentId: f.profile.deploymentId, scopeUuid: f.profile.scopeUuid, epochUuid: f.profile.epochUuid },
+      maximumPushRequestBytes: f.profile.http.maximumRegistrationRequestBytes });
+    expect(f.names).toEqual([]);
+    expect(f.legacyCalls()).toBe(0);
+  });
+
+  it("routes the complete candidate lifecycle to the same canonical owner and retires direct registration", async () => {
+    const f = fixture();
+    const path = `/applications/${f.profile.deploymentId}`;
+    const id = encodeURIComponent("proposal:public");
+    for (const [route, body] of [[`${path}/push/start`, { sourcePackage: {} }],
+      [`${path}/push/${id}`, undefined], [`${path}/push/${id}/finish`, { activate: true }],
+      [`${path}/push/${id}/abandon`, { reason: "cancel" }], [`${path}/deployment`, undefined]] as const)
+      expect((await f.gateway.fetch(f.request(route, body), f.env)).status).toBe(200);
+    expect(f.names).toEqual(Array(5).fill(f.profile.canonicalName));
+    expect((await f.gateway.fetch(f.request(`${path}/register`, {}), f.env)).status).toBe(404);
+    expect((await f.gateway.fetch(f.request(`${path}/push/start`), f.env)).status).toBe(405);
+    expect(f.legacyCalls()).toBe(0);
+  });
+
   it("authenticates before reading registration or allocating a named object", async () => {
     const f = fixture();
     const env = { ...f.env, get FLAREX_APPLICATION_PROFILES(): string { throw new Error("Configuration read before admission"); } };
@@ -54,10 +79,10 @@ describe("configured application gateway", () => {
     const path = `/applications/${encodeURIComponent(f.profile.deploymentId)}`;
     await f.gateway.fetch(f.request(`${path}/profile`), f.env);
     const body = { format: "flarex.core-application.request", version: 1, kind: "query", functionPath: "users:read",
-      requestKey: "request:gateway", sourceArtifactRootSha256: f.profile.sourceArtifactRootSha256,
+      requestKey: "request:gateway", sourceArtifactRootSha256: "01".repeat(32),
       auth: { kind: "anonymous" }, args: {} };
     await f.gateway.fetch(f.request(`${path}/invoke`, body), f.env);
-    await f.gateway.fetch(f.request(`${path}/register`, { sourceArtifactRootSha256: f.profile.sourceArtifactRootSha256 }), f.env);
+    await f.gateway.fetch(f.request(`${path}/push/start`, { sourcePackage: {} }), f.env);
     expect(f.names).toEqual(Array(3).fill(f.profile.canonicalName));
     expect(await f.forwarded[1]?.json()).toEqual(body);
     expect(f.legacyCalls()).toBe(0);

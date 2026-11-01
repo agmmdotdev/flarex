@@ -326,6 +326,7 @@ export class AnalyzedStartPushRequest extends Schema.Class<AnalyzedStartPushRequ
 }) {}
 
 export class PushStatus extends Schema.Class<PushStatus>("PushStatus")({
+  storageProfile: Schema.optionalKey(Schema.Literal("core_application")),
   pushId: Schema.String,
   state: PushState,
   sourcePackage: PushSourcePackage,
@@ -335,6 +336,7 @@ export class PushStatus extends Schema.Class<PushStatus>("PushStatus")({
   diagnostics: Schema.optional(Schema.Array(PushDiagnostic)),
   createdAt: Schema.Number,
   updatedAt: Schema.Number,
+  indexesReady: Schema.optionalKey(Schema.Boolean),
 }) {}
 
 export class ActivatedFinishPushResponse extends Schema.Class<ActivatedFinishPushResponse>(
@@ -377,6 +379,30 @@ export class ActiveDeploymentStatus extends Schema.Class<ActiveDeploymentStatus>
   analysis: DeploymentAnalysis,
   codegenAnalysis: DeploymentCodegenAnalysis,
 }) {}
+
+/** Public Core metadata names its actual serving profile instead of a legacy artifact. */
+export class CoreActiveDeploymentStatus extends Schema.Class<CoreActiveDeploymentStatus>(
+  "CoreActiveDeploymentStatus",
+)({
+  storageProfile: Schema.Literal("core_application"),
+  activePushId: Schema.String,
+  activatedAt: Schema.Number,
+  schemaVersion: Schema.Number,
+  sourceArtifactRootSha256: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)),
+  sourcePackageHash: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)),
+  sourcePackage: PushSourcePackage,
+  analysis: DeploymentAnalysis,
+  codegenAnalysis: DeploymentCodegenAnalysis,
+}) {}
+
+export class PublicDeploymentProfile extends Schema.Class<PublicDeploymentProfile>("PublicDeploymentProfile")({
+  storageProfile: Schema.Literals(["core_application", "legacy_session"]),
+}) {}
+const PublicActiveDeploymentStatus = Schema.Union([
+  CoreActiveDeploymentStatus,
+  Schema.Struct({ ...ActiveDeploymentStatus.fields, storageProfile: Schema.optionalKey(Schema.Never) }),
+]);
+export type PublicActiveDeploymentStatus = typeof PublicActiveDeploymentStatus.Type;
 
 export class DeploymentApiGroup extends HttpApiGroup.make("deployment", { topLevel: true }).add(
   HttpApiEndpoint.get("health", DeploymentRoute.health, {
@@ -435,6 +461,8 @@ export class DeploymentApi extends HttpApi.make("flarex-deployment").add(Deploym
 const decodeUnknownAbandonPushRequest = Schema.decodeUnknownEffect(AbandonPushRequest);
 const decodeUnknownAnalyzedStartPushRequest = Schema.decodeUnknownEffect(AnalyzedStartPushRequest);
 const decodeUnknownActiveDeploymentStatus = Schema.decodeUnknownEffect(ActiveDeploymentStatus);
+const decodeUnknownPublicActiveDeploymentStatus = Schema.decodeUnknownEffect(PublicActiveDeploymentStatus);
+const decodeUnknownPublicDeploymentProfile = Schema.decodeUnknownEffect(PublicDeploymentProfile, { onExcessProperty: "error" });
 const decodeUnknownDeploymentErrorResponse = Schema.decodeUnknownEffect(DeploymentErrorResponse);
 const decodeUnknownDeploymentHealthResponse = Schema.decodeUnknownEffect(DeploymentHealthResponse);
 const decodeUnknownDeploymentAnalysis = Schema.decodeUnknownEffect(DeploymentAnalysis);
@@ -505,10 +533,11 @@ export const decodeFinishPushRequestEffect = Effect.fn(
   );
 });
 
-export const decodeStartPushRequestEffect = Effect.fn(
-  "DeploymentProtocol.decodeStartPushRequest",
+const decodeStartPushRequestForProfile = Effect.fn(
+  "DeploymentProtocol.decodeStartPushRequestForProfile",
 )(function* (
   value: unknown,
+  profile: "legacy_session" | "core_application",
 ): Effect.fn.Return<StartPushRequest, DeploymentProtocolValidationError> {
   if (!isNonArrayRecord(value)) {
     return yield* deploymentProtocolValidationFailure(
@@ -533,17 +562,23 @@ export const decodeStartPushRequestEffect = Effect.fn(
       })
     ),
   );
-  const sourcePackage = yield* decodePushSourcePackageEffect(request.sourcePackage);
+  const sourcePackage = yield* decodeSourcePackageForProfile(request.sourcePackage, profile);
   return {
     ...request,
     sourcePackage,
   };
 });
 
-export const decodePushSourcePackageEffect = Effect.fn(
-  "DeploymentProtocol.decodePushSourcePackage",
+export const decodeStartPushRequestEffect = Effect.fn("DeploymentProtocol.decodeStartPushRequest")((value: unknown) =>
+  decodeStartPushRequestForProfile(value, "legacy_session"));
+export const decodeCoreApplicationStartPushRequestEffect = Effect.fn("DeploymentProtocol.decodeCoreApplicationStartPushRequest")((value: unknown) =>
+  decodeStartPushRequestForProfile(value, "core_application"));
+
+const decodeSourcePackageForProfile = Effect.fn(
+  "DeploymentProtocol.decodeSourcePackageForProfile",
 )(function* (
   value: unknown,
+  profile: "legacy_session" | "core_application",
 ): Effect.fn.Return<PushSourcePackage, DeploymentProtocolValidationError> {
   const sourcePackage = yield* decodeUnknownPushSourcePackage(value).pipe(
     Effect.mapError(cause =>
@@ -554,9 +589,14 @@ export const decodePushSourcePackageEffect = Effect.fn(
       })
     ),
   );
-  yield* validatePushSourcePackageAuthConfig(sourcePackage);
+  yield* validatePushSourcePackageAuthConfig(sourcePackage, profile);
   return sourcePackage;
 });
+
+export const decodePushSourcePackageEffect = Effect.fn("DeploymentProtocol.decodePushSourcePackage")((value: unknown) =>
+  decodeSourcePackageForProfile(value, "legacy_session"));
+export const decodeCoreApplicationSourcePackageEffect = Effect.fn("DeploymentProtocol.decodeCoreApplicationSourcePackage")((value: unknown) =>
+  decodeSourcePackageForProfile(value, "core_application"));
 
 export const decodeDeploymentAnalysisEffect = Effect.fn(
   "DeploymentProtocol.decodeDeploymentAnalysis",
@@ -703,6 +743,26 @@ export const decodeActiveDeploymentStatusEffect = Effect.fn(
   return status;
 });
 
+export const decodePublicDeploymentProfileEffect = Effect.fn("DeploymentProtocol.decodePublicDeploymentProfile")((value: unknown) =>
+  decodeUnknownPublicDeploymentProfile(value).pipe(Effect.mapError(cause => new DeploymentProtocolValidationError({
+    schema: "PublicDeploymentProfile", message: "Deployment profile response did not match the public contract.", cause,
+  }))));
+export const decodePublicActiveDeploymentStatusEffect = Effect.fn(
+  "DeploymentProtocol.decodePublicActiveDeploymentStatus",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<PublicActiveDeploymentStatus, DeploymentProtocolValidationError> {
+  const status = yield* decodeUnknownPublicActiveDeploymentStatus(value).pipe(
+    Effect.mapError(cause => new DeploymentProtocolValidationError({
+      schema: "PublicActiveDeploymentStatus",
+      message: "Active deployment response did not match its storage profile.",
+      cause,
+    })),
+  );
+  yield* validatePushSourcePackageAuthConfig(status.sourcePackage, status.storageProfile === "core_application" ? "core_application" : "legacy_session");
+  return status;
+});
+
 export const decodePushStatusEffect = Effect.fn(
   "DeploymentProtocol.decodePushStatus",
 )(function* (
@@ -717,7 +777,7 @@ export const decodePushStatusEffect = Effect.fn(
       })
     ),
   );
-  yield* validatePushSourcePackageAuthConfig(status.sourcePackage);
+  yield* validatePushSourcePackageAuthConfig(status.sourcePackage, status.storageProfile === "core_application" ? "core_application" : "legacy_session");
   return status;
 });
 
@@ -738,13 +798,21 @@ export const decodeFinishPushResponseEffect = Effect.fn(
       })
     ),
   );
-  yield* validatePushSourcePackageAuthConfig(response.push.sourcePackage);
+  yield* validatePushSourcePackageAuthConfig(response.push.sourcePackage, response.push.storageProfile === "core_application" ? "core_application" : "legacy_session");
   return response;
 });
 
 function validatePushSourcePackageAuthConfig(
   sourcePackage: PushSourcePackage,
+  profile: "legacy_session" | "core_application" = "legacy_session",
 ): Effect.Effect<void, DeploymentProtocolValidationError> {
+  if (profile === "core_application") {
+    if (sourcePackage.sourceModuleDigestFormat !== SOURCE_MODULE_DIGEST_FORMAT_V1)
+      return deploymentProtocolValidationFailure("PushSourcePackage", "Core source packages require sha256-framed-v1 module digests.", sourcePackage);
+    if (sourcePackage.authConfigModule !== undefined)
+      return deploymentProtocolValidationFailure("PushSourcePackage", "Core source packages do not support executable auth config modules.", sourcePackage);
+    return Effect.void;
+  }
   if (
     sourcePackage.authConfig !== undefined &&
     !isNonEmptyString(sourcePackage.authConfigModule)
@@ -840,7 +908,7 @@ export const capturePushStatusEffect = Effect.fn("DeploymentProtocol.capturePush
   const status = yield* capturePushStatus(value).pipe(Effect.mapError(cause => new DeploymentProtocolValidationError({
     schema: "PushStatus", message: "Deployment push response did not match the deployment protocol.", cause,
   })));
-  yield* validatePushSourcePackageAuthConfig(status.sourcePackage);
+  yield* validatePushSourcePackageAuthConfig(status.sourcePackage, status.storageProfile === "core_application" ? "core_application" : "legacy_session");
   return status;
 });
 export const captureActiveDeploymentStatusEffect = Effect.fn("DeploymentProtocol.captureActiveDeploymentStatus")(function* (value: unknown) {
@@ -854,6 +922,6 @@ export const captureFinishPushResponseEffect = Effect.fn("DeploymentProtocol.cap
   const response = yield* captureFinishResponse(value).pipe(Effect.mapError(cause => new DeploymentProtocolValidationError({
     schema: "FinishPushResponse", message: "Finish push response did not match the deployment protocol.", cause,
   })));
-  yield* validatePushSourcePackageAuthConfig(response.push.sourcePackage);
+  yield* validatePushSourcePackageAuthConfig(response.push.sourcePackage, response.push.storageProfile === "core_application" ? "core_application" : "legacy_session");
   return response;
 });

@@ -28,8 +28,8 @@ describe("Declarative V2 Source Artifact V2 protocol vocabulary", () => {
     expect(Object.isFrozen(SOURCE_ARTIFACT_V2_ROLE_BITS_V1)).toBe(true);
   });
 
-  test.each([1, 2, 4, 8, 3, 9, 15])(
-    "accepts the nonempty supported role set %d",
+  test.each([0, 1, 2, 4, 8, 3, 9, 15])(
+    "accepts the supported role set or dependency membership %d",
     (roles) => {
       expect(isSourceArtifactV2ModuleRolesV1(roles)).toBe(true);
     },
@@ -39,7 +39,6 @@ describe("Declarative V2 Source Artifact V2 protocol vocabulary", () => {
     undefined,
     null,
     "1",
-    0,
     -0,
     -1,
     1.5,

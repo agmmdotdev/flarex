@@ -536,6 +536,7 @@ function applyRegistryChanges(transaction:CoreFinalizedState,current:CoreRegistr
     const base=transaction.registry,changes=transaction.registryAfter;
     if(changes === undefined)return current;
     let next=current;
+    for(const record of base.tables.values()) if(changes.tableByTablet(record.id)===undefined)next=next.withoutTable(record.id);
     for(const record of changes.tables.values()) if(record.ts === null) next=next.withTable({...record,ts:timestamp});
     const removed=[...base.indexes.records.values()].filter(index=>!changes.indexes.records.has(encodeBytesToLowercaseHex(index.ref.id))).map(index=>index.ref.id);
     const added=[...changes.indexes.records.values()].filter(index=>index.ts===null).map(index=>({...index,ts:timestamp}));

@@ -23,6 +23,22 @@ import {
 const digest = (digit: string) => digit.repeat(64);
 
 describe("Application Analysis V1 contracts", () => {
+  it("retains authenticated dependency modules without inventing function declarations", async () => {
+    const source = sourceArtifactWithSchema();
+    const result = await Effect.runPromise(makeApplicationManifestV1(applicationAnalysis(), {
+      ...source, modules: [...source.modules, { path: "dependency.js", roles: 0,
+        sourceSha256: digest("5"), sourceByteLength: 19 }],
+    }));
+    expect(result.manifest.sourceArtifact.modules.find(module => module.path === "dependency.js")).toMatchObject({ roles: 0 });
+    expect(result.manifest.functions.map(fn => fn.path)).toEqual(["orders:place"]);
+    for (const roles of [-0, -1, 16, 1.5]) {
+      expect(Result.isFailure(canonicalizeApplicationManifestV1({ ...result.manifest, sourceArtifact: {
+        ...result.manifest.sourceArtifact, modules: result.manifest.sourceArtifact.modules.map(module =>
+          module.path === "dependency.js" ? { ...module, roles } : module),
+      } }))).toBe(true);
+    }
+  });
+
   it("preserves authenticated decimal projections and rejects contradictory field selections", async () => {
     const analysis = applicationAnalysis();
     const projected = { ...analysis, schema: { ...analysis.schema!, indexes: [

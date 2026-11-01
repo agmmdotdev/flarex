@@ -17,6 +17,7 @@ import { makeApplicationAnalysisR2SourceReader } from
   "flarex-backend/internal/application-analysis-source-reader";
 import { makeApplicationExecutionHost } from
   "flarex-backend/internal/application-execution-host";
+import type { makePublicApplicationSourceProducer } from "flarex-backend/internal/public-application-source";
 import { Cause, Clock, Data, Deferred, Effect, Exit, Layer, ManagedRuntime, Result, Semaphore, type Context, type Scope } from "effect";
 import { Client, Pool, type ClientConfig, type PoolConfig } from "pg";
 
@@ -46,6 +47,7 @@ export interface ApplicationDurableObjectInfrastructure {
   readonly phase: CoreApplicationGenerationPhase;
   readonly source: ReturnType<typeof makeApplicationAnalysisR2SourceReader>;
   readonly host: ReturnType<typeof makeApplicationExecutionHost>;
+  readonly sourceUpload?: ReturnType<typeof makePublicApplicationSourceProducer>["upload"];
 }
 
 export interface ApplicationPostgresPool extends CorePostgresPool {
@@ -112,6 +114,9 @@ export interface ApplicationDurableObjectOptions<Env extends ApplicationDurableO
   readonly failureResponse?: (cause: Cause.Cause<Failure | CoreError | CoreApplicationAdmissionError | ApplicationOwnerHostError>) => Response;
   /** Optional trusted transport construction, also used by the actual socket witness. */
   readonly createPool?: (connectionString: string) => ApplicationPostgresPool;
+  /** Trusted immutable source upload capability bound to this canonical object's storage. */
+  readonly sourceUpload?: (env: Env, context: DurableObjectState,
+    configuration: ApplicationDurableObjectConfiguration) => NonNullable<ApplicationDurableObjectInfrastructure["sourceUpload"]>;
 }
 
 export type ApplicationDurableObjectClass<Env extends ApplicationDurableObjectEnv> =
@@ -213,6 +218,7 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
               assertFreshCoreApplicationDeployment: pool.assertFreshCoreApplicationDeployment,
               source: makeApplicationAnalysisR2SourceReader(env.ARTIFACTS),
               host: makeApplicationExecutionHost(env.LOADER),
+              ...(options.sourceUpload === undefined ? {} : { sourceUpload: options.sourceUpload(env, owner.ctx, configuration) }),
             });
             const live = { ...application, coreDatabase: hostedDatabase, admission };
             const services = yield* Layer.build(Layer.mergeAll(makeApplicationQuerySystemLayer(live), makeApplicationMutationSystemLayer(live)));

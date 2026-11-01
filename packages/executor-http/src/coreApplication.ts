@@ -1,12 +1,17 @@
 import { Cause, Data, Effect, Result, Schema } from "effect";
 import {
-  coreApplicationInvocationPath, coreApplicationProfilePath,
+  coreApplicationInvocationPath, coreApplicationProfilePath, coreApplicationControlPath,
+  coreApplicationDeploymentPath, coreApplicationPushStartPath, coreApplicationPushPath,
   decodeCoreApplicationFailure, decodeCoreApplicationInvocationRequest,
   decodeCoreApplicationInvocationSuccess, decodeCoreApplicationProfile,
   encodeCoreApplicationInvocationRequest, encodeCoreApplicationInvocationSuccess,
   type CoreApplicationCoreProfile, type CoreApplicationInvocationRequest,
   type CoreApplicationInvocationResult, type CoreApplicationInvocationSuccess,
   type CoreApplicationProfile, type CoreApplicationRouteIdentity,
+  decodeCoreApplicationControl, decodeCoreApplicationCandidate, decodeCoreApplicationStartRequest,
+  decodeCoreApplicationFinishRequest, decodeCoreApplicationAbandonRequest,
+  type CoreApplicationControl, type CoreApplicationCandidate, type CoreApplicationStartRequest,
+  type CoreApplicationFinishRequest, type CoreApplicationAbandonRequest,
 } from "flarex-protocol/internal/core-application";
 
 export class CoreApplicationTransportError extends Data.TaggedError("CoreApplicationTransportError")<{
@@ -167,6 +172,70 @@ export const lookupCoreApplicationProfile = Effect.fn("CoreApplicationHttp.looku
     && (profile.kind !== "core" || !sameRoute(profile.route, configuration.expectedRoute)))) return yield* error("invalidResponse");
   return profile;
 });
+
+/** Control inventory admits a configured target without claiming source readiness. */
+export const lookupCoreApplicationControl = Effect.fn("CoreApplicationHttp.lookupControl")(function* (
+  configuration: ClientConfiguration & Readonly<{ deploymentId: string }>,
+): Effect.fn.Return<CoreApplicationControl, CoreApplicationTransportError> {
+  const client = captureClient(configuration);
+  const wire = yield* send(client, coreApplicationControlPath(configuration.deploymentId));
+  const control = yield* Effect.fromResult(decodeCoreApplicationControl(wire)).pipe(
+    Effect.mapError(cause => error("invalidResponse", cause)));
+  const deploymentId = control.kind === "core" ? control.route.deploymentId : control.deploymentId;
+  if (deploymentId !== configuration.deploymentId) return yield* error("invalidResponse");
+  return control;
+});
+
+/** Explicit candidate operations; no installation or transport retry is implicit. */
+export function makeCoreApplicationDeploymentClient(configuration: ClientConfiguration & Readonly<{
+  deploymentId: string; expectedRoute?: CoreApplicationRouteIdentity;
+}>) {
+  const client = captureClient(configuration);
+  const deploymentId = configuration.deploymentId;
+  const expectedRoute = configuration.expectedRoute === undefined ? undefined : Object.freeze({ ...configuration.expectedRoute });
+  const readCandidate = Effect.fn("CoreApplicationHttp.readCandidate")(function* (
+    pathname: string, body?: string, expectedPushId?: string,
+  ): Effect.fn.Return<CoreApplicationCandidate | null, CoreApplicationTransportError> {
+    const wire = yield* send(client, pathname, body);
+    if (wire === null) return null;
+    const candidate = yield* Effect.fromResult(decodeCoreApplicationCandidate(wire)).pipe(
+      Effect.mapError(cause => error("invalidResponse", cause)));
+    if (candidate.route.deploymentId !== deploymentId || expectedRoute !== undefined && !sameRoute(candidate.route, expectedRoute)
+      || expectedPushId !== undefined && candidate.pushId !== expectedPushId) return yield* error("invalidResponse");
+    return candidate;
+  });
+  const requireCandidate = Effect.fn("CoreApplicationHttp.requireCandidate")(function* (
+    pathname: string, body: string, expectedPushId?: string,
+  ) {
+    const candidate = yield* readCandidate(pathname, body, expectedPushId);
+    return candidate === null ? yield* error("invalidResponse") : candidate;
+  });
+  return Object.freeze({
+    start: Effect.fn("CoreApplicationHttp.start")(function* (sourcePackage: CoreApplicationStartRequest["sourcePackage"]) {
+      const input = yield* Effect.fromResult(decodeCoreApplicationStartRequest({ sourcePackage })).pipe(
+        Effect.mapError(cause => error("invalidRequest", cause)));
+      return yield* requireCandidate(coreApplicationPushStartPath(deploymentId), JSON.stringify(input));
+    }),
+    read: (pushId: string) => readCandidate(coreApplicationPushPath(deploymentId, pushId), undefined, pushId),
+    finish: Effect.fn("CoreApplicationHttp.finish")(function* (pushId: string, body: CoreApplicationFinishRequest = {}) {
+      const input = yield* Effect.fromResult(decodeCoreApplicationFinishRequest(body)).pipe(
+        Effect.mapError(cause => error("invalidRequest", cause)));
+      const candidate = yield* requireCandidate(`${coreApplicationPushPath(deploymentId, pushId)}/finish`, JSON.stringify(input), pushId);
+      if (input.activate !== false && candidate.state !== "active") return yield* error("invalidResponse");
+      return candidate;
+    }),
+    abandon: Effect.fn("CoreApplicationHttp.abandon")(function* (pushId: string, body: CoreApplicationAbandonRequest = {}) {
+      const input = yield* Effect.fromResult(decodeCoreApplicationAbandonRequest(body)).pipe(
+        Effect.mapError(cause => error("invalidRequest", cause)));
+      const candidate = yield* requireCandidate(`${coreApplicationPushPath(deploymentId, pushId)}/abandon`, JSON.stringify(input), pushId);
+      return candidate.state === "abandoned" ? candidate : yield* error("invalidResponse");
+    }),
+    active: Effect.fn("CoreApplicationHttp.active")(function* () {
+      const candidate = yield* readCandidate(coreApplicationDeploymentPath(deploymentId));
+      return candidate === null || candidate.state === "active" ? candidate : yield* error("invalidResponse");
+    }),
+  });
+}
 
 export function makeCoreApplicationClient(configuration: ClientConfiguration & Readonly<{ profile: CoreApplicationCoreProfile }>) {
   const client = captureClient(configuration);

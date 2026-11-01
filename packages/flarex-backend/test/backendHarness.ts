@@ -39,7 +39,7 @@ export async function createBackendHarness(options: BackendHarnessOptions = {}):
       {
         type: "ESModule",
         path: "worker.js",
-        contents: await bundleWorker(),
+        contents: await bundleBackendWorker(),
       },
     ],
     compatibilityDate: "2026-06-14",
@@ -74,7 +74,7 @@ export async function createBackendHarness(options: BackendHarnessOptions = {}):
   };
 }
 
-async function bundleWorker(): Promise<string> {
+export async function bundleBackendWorker(): Promise<string> {
   const backendDir = dirname(dirname(fileURLToPath(import.meta.url)));
   const output = await build({
     configFile: false,

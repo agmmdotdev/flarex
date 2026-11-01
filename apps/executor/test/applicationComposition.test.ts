@@ -16,8 +16,7 @@ describe("configured Application composition", () => {
   function configuredProfile() {
     const anchor = definition.manifest.functions.find(fn => fn.kind === "query" && fn.visibility === "public");
     if (anchor === undefined) throw new Error("The actual analyzed fixture has no public query.");
-    const input = { ...executorApplicationProfileFixture(), sourceArtifactRootSha256: definition.source.sourceArtifact.rootSha256,
-      anchorFunctionPath: anchor.path, analyzerIdentity: APPLICATION_ANALYSIS_ANALYZER_IDENTITY,
+    const input = { ...executorApplicationProfileFixture(), analyzerIdentity: APPLICATION_ANALYSIS_ANALYZER_IDENTITY,
       analyzerPolicyIdentity: APPLICATION_ANALYSIS_POLICY_IDENTITY };
     return Result.getOrThrow(resolveExecutorApplicationProfile({
       FLAREX_APPLICATION_PROFILES: JSON.stringify({ version: 1, profiles: [input] }),
@@ -33,29 +32,33 @@ describe("configured Application composition", () => {
     const prepared = await Effect.runPromise(prepareExecutorApplicationDefinition({ APPLICATION_ANALYZER: {
       analyze: async request => {
         calls++;
-        expect(request).toMatchObject({ sourceArtifactRootSha256: profile.sourceArtifactRootSha256,
+        expect(request).toMatchObject({ sourceArtifactRootSha256: definition.source.sourceArtifact.rootSha256,
           analyzerIdentity: APPLICATION_ANALYSIS_ANALYZER_IDENTITY, analyzerPolicyIdentity: APPLICATION_ANALYSIS_POLICY_IDENTITY });
         return { format: "flarex.application-analysis-host-result", version: 1, kind: "analyzed",
-          sourceArtifactRootSha256: profile.sourceArtifactRootSha256,
+          sourceArtifactRootSha256: definition.source.sourceArtifact.rootSha256,
           analyzerIdentity: APPLICATION_ANALYSIS_ANALYZER_IDENTITY, analyzerPolicyIdentity: APPLICATION_ANALYSIS_POLICY_IDENTITY,
           manifest: definition.manifest, canonicalManifest: canonical.canonicalText } satisfies ApplicationAnalysisHostResult;
       },
-    } }, profile, { read: () => Effect.sync(() => { reads++; return definition.source; }) }, profile.sourceArtifactRootSha256));
+    } }, profile, { read: () => Effect.sync(() => { reads++; return definition.source; }) }, definition.source.sourceArtifact.rootSha256));
     expect(reads).toBe(1);
     expect(calls).toBe(1);
     expect(prepared.schema.tables.map(table => table.tableName)).toEqual(definition.manifest.schema.tables.map(table => table.name));
-    expect(prepared.programs.some(program => program.identity.functionPath === profile.anchorFunctionPath)).toBe(true);
+    expect(prepared.programs.some(program => program.identity.functionPath === "users:get")).toBe(true);
   });
 
-  it("refuses a foreign source pin before reading artifacts or calling Analysis", async () => {
+  it("refuses Analysis that does not bind the requested immutable source", async () => {
     let reads = 0;
     let calls = 0;
+    const canonical = Result.getOrThrow(canonicalizeApplicationManifest(definition.manifest));
     const failure = await Effect.runPromise(prepareExecutorApplicationDefinition({ APPLICATION_ANALYZER: {
-      analyze: async () => { calls++; throw new Error("Foreign analysis must not run."); },
+      analyze: async request => { calls++; return { format: "flarex.application-analysis-host-result", version: 1, kind: "analyzed",
+        sourceArtifactRootSha256: request.sourceArtifactRootSha256, analyzerIdentity: APPLICATION_ANALYSIS_ANALYZER_IDENTITY,
+        analyzerPolicyIdentity: APPLICATION_ANALYSIS_POLICY_IDENTITY, manifest: definition.manifest,
+        canonicalManifest: canonical.canonicalText } satisfies ApplicationAnalysisHostResult; },
     } }, configuredProfile(), { read: () => Effect.sync(() => { reads++; return definition.source; }) }, "ff".repeat(32)).pipe(Effect.flip));
     expect(failure).toMatchObject({ reason: "sourceMismatch" });
-    expect(reads).toBe(0);
-    expect(calls).toBe(0);
+    expect(reads).toBe(1);
+    expect(calls).toBe(1);
   });
 
   it("refuses partition authority in a valid analyzed manifest before it can be flattened", () => {

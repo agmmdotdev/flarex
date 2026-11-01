@@ -1,8 +1,9 @@
-import { encodeDeploymentAnalysis, encodeDeploymentCodegenAnalysis } from "flarex-protocol/deployment";
+import { decodePublicDeploymentProfileEffect, encodeDeploymentAnalysis, encodeDeploymentCodegenAnalysis,
+  type PublicDeploymentProfile } from "flarex-protocol/deployment";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { isNonEmptyString } from "@flarex/utils/strings";
 import type { Miniflare } from "miniflare";
-import { Data, Effect } from "effect";
+import { Data, Effect, Schema } from "effect";
 import {
   backendCodegenAnalysisFromCodegenAnalysisEffect,
   encodeCodegenDeploymentAnalysis,
@@ -41,6 +42,7 @@ import { readDevResponseJsonOrNullEffect } from "./responseJson.ts";
 import type { SourcePackage } from "./sourcePackage.ts";
 
 export type DevPushStatus = {
+  storageProfile?: "core_application";
   pushId: string;
   state: PushState;
   analysis?: ProtocolDeploymentAnalysis;
@@ -100,6 +102,8 @@ export function devFinishPushRejectionHint(code: FinishPushRejectionCode): strin
 }
 
 export interface BackendPushCoordinator {
+  /** The backend selects storage before source bundling; no lookup fallback. */
+  getStorageProfile?(): Promise<PublicDeploymentProfile["storageProfile"]>;
   start(sourcePackage: SourcePackage): Promise<DevPushStatus>;
   finish(pushId: string): Promise<DevFinishPushResponse>;
   abandon?(pushId: string, request?: AbandonPushRequest): Promise<DevPushStatus>;
@@ -132,7 +136,7 @@ export type HttpBackendPushCoordinatorOptions = {
 
 type BackendPushHttpResponse = Pick<Response, "json" | "ok" | "status">;
 
-type BackendPushResponseContext = "analyzer" | "push" | "finish";
+type BackendPushResponseContext = "analyzer" | "push" | "finish" | "profile";
 
 export class BackendPushResponseError extends Data.TaggedError("BackendPushResponseError")<{
   readonly context: BackendPushResponseContext;
@@ -283,6 +287,19 @@ export class HttpBackendPushCoordinator implements BackendPushCoordinator {
     this.deploymentId = options.deploymentId;
     this.fetcher = options.fetch ?? fetch;
     this.headers = options.headers;
+  }
+
+  async getStorageProfile(): Promise<PublicDeploymentProfile["storageProfile"]> {
+    const response = await this.fetcher(backendRequestUrl(this.url,
+      `/deployments/${encodeURIComponent(this.deploymentId)}/profile`),
+    this.headers === undefined ? undefined : { headers: this.headers });
+    // Deliberate runtime bridge: the public coordinator is a Promise HTTP API.
+    return await Effect.runPromise(Effect.gen(function* () {
+      const body = yield* readBackendPushResponseJson(response);
+      if (!response.ok) return yield* backendPushResponseFailure("profile", response, body,
+        errorMessageFromBody(body) ?? `Backend profile request failed with status ${response.status}.`);
+      return (yield* decodePublicDeploymentProfileEffect(body)).storageProfile;
+    }));
   }
 
   async start(sourcePackage: SourcePackage): Promise<DevPushStatus> {
@@ -587,6 +604,10 @@ function analysisFailure(
   return Effect.fail(new ExecutionArtifactAnalysisError(message, diagnostics));
 }
 
+const decodePushStorageProfile = Schema.decodeUnknownEffect(Schema.Struct({
+  storageProfile: Schema.optionalKey(Schema.Literal("core_application")),
+}));
+
 const parseDevPushStatusEffect = Effect.fn("FlarexDev.parsePushStatus")(
   function (
     value: unknown,
@@ -607,6 +628,8 @@ const parseDevPushStatusEffect = Effect.fn("FlarexDev.parsePushStatus")(
     const pushId = value.pushId;
     const state = value.state;
     return Effect.gen(function* () {
+      const { storageProfile } = yield* decodePushStorageProfile(value).pipe(Effect.mapError(() =>
+        new ExecutionArtifactAnalysisError("Backend push response storageProfile is invalid.", diagnostics)));
       const codegenAnalysis = "codegenAnalysis" in value
         ? yield* parseCodegenAnalysisFromBodyEffect(value)
         : undefined;
@@ -616,6 +639,7 @@ const parseDevPushStatusEffect = Effect.fn("FlarexDev.parsePushStatus")(
       return {
         pushId,
         state,
+        ...(storageProfile === undefined ? {} : { storageProfile }),
         ...(backendAnalysis === undefined ? {} : { analysis: backendAnalysis }),
         ...(codegenAnalysis === undefined ? {} : { codegenAnalysis }),
         ...(typeof value.error === "string" ? { error: value.error } : {}),

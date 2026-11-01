@@ -3,7 +3,7 @@ import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { makeLivePrivateSha256V1 } from "@flarex/analysis/internal/private-sha256-v1";
 import { encodeCanonicalJson } from "flarex-protocol/json";
-import { encodeDocumentValue } from "flarex-protocol/document-value";
+import { decodeDocumentValue, encodeDocumentValue, type DocumentObject } from "flarex-protocol/document-value";
 import { CoreProgramIdentitySchema, CoreTransactionError, type CoreApplicationRegistration,
   type CoreApplicationRegistrationMetadata, type CoreError, type CoreProgramDefinition, type CoreTableDefinition } from "./api";
 import { CorePersistenceError } from "./contracts";
@@ -22,7 +22,7 @@ const Identity = Schema.Struct({ deploymentId: Schema.NonEmptyString, scopeUuid:
   compatibilityDate: Schema.String.check(Schema.makeFilter(value => /^\d{4}-\d{2}-\d{2}$/.test(value) ? undefined : "Expected a compatibility date")),
   generation: Schema.Int.check(Schema.makeFilter(value => Number.isSafeInteger(value) && value > 0 ? undefined : "Expected a positive safe generation")) });
 const Proof = Schema.Struct({ format: Schema.Literal("flarex.core.application-registration"), version: Schema.Literal(1),
-  identity: Identity, schemaHash: Digest,
+  identity: Identity, schemaHash: Digest, candidateHash: Schema.optionalKey(Digest),
   programs: Schema.Array(Schema.Struct({ identity: CoreProgramIdentitySchema, metadataHash: Digest })) });
 type RegistrationProof = typeof Proof.Type;
 const decodeIdentity = Schema.decodeUnknownResult(Identity);
@@ -30,6 +30,7 @@ const decodeProgramIdentity = Schema.decodeUnknownResult(CoreProgramIdentitySche
 const decodeProof = Schema.decodeUnknownResult(Schema.fromJsonString(Proof), { onExcessProperty: "error" });
 type RegistrationReadContext = Pick<CoreTransactionInternals, "registry" | "schemaRegistry" | "namespace" | "addIndexRead">;
 const utf8 = new TextEncoder();
+const text = new TextDecoder("utf-8", { fatal: true });
 const invalid = (cause?: unknown) => new CoreTransactionError({ reason: "invalidValue", ...(cause === undefined ? {} : { cause }) });
 const corrupt = (cause?: unknown) => new CorePersistenceError({ reason: "corruptData", ...(cause === undefined ? {} : { cause }) });
 const refuse = (message: string) => new CoreSchemaError({ reason: "unsupportedCapability", message });
@@ -54,7 +55,10 @@ export function captureCoreApplicationRegistration(input: CoreApplicationRegistr
       programs.push(Object.freeze({ identity: Object.freeze(captured), metadata }));
     }
     programs.sort((a, b) => compareUtf16Strings(a.identity.functionPath, b.identity.functionPath));
-    return Object.freeze({ ...identity, programs: Object.freeze(programs) });
+    const candidate = input.candidateMetadata === undefined ? undefined
+      : (yield* captureCoreObject(input.candidateMetadata, true).pipe(Result.mapError(invalid))).value;
+    return Object.freeze({ ...identity, programs: Object.freeze(programs),
+      ...(candidate === undefined ? {} : { candidateMetadata: candidate }) });
   });
 }
 
@@ -67,8 +71,39 @@ export const coreApplicationRegistrationProof = Effect.fn("CoreApplicationRegist
   for (const program of registration.programs) programs.push({ identity: program.identity,
     metadataHash: yield* hash(yield* Effect.fromResult(encodeDocumentValue(program.metadata).pipe(Result.mapError(invalid)))) });
   programs.sort((a, b) => compareUtf16Strings(a.identity.functionPath, b.identity.functionPath));
-  return encodeCanonicalJson({ format: "flarex.core.application-registration", version: 1, identity, schemaHash, programs },
+  const candidateHash = registration.candidateMetadata === undefined ? undefined
+    : yield* hash(yield* Effect.fromResult(encodeDocumentValue(registration.candidateMetadata).pipe(Result.mapError(invalid))));
+  return encodeCanonicalJson({ format: "flarex.core.application-registration", version: 1, identity, schemaHash, programs,
+    ...(candidateHash === undefined ? {} : { candidateHash }) },
     issue => { throw new Error("Captured application registration invariant", { cause: issue }); });
+});
+
+export function encodeCoreApplicationCandidateMetadata(registration: CoreApplicationRegistration): Result.Result<string | undefined, CoreError> {
+  return registration.candidateMetadata === undefined ? Result.succeed(undefined)
+    : encodeDocumentValue(registration.candidateMetadata).pipe(Result.mapError(invalid), Result.map(bytes => text.decode(bytes)));
+}
+
+/** Detached producer evidence; its complete canonical bytes are bound by the registration proof. */
+export const readCoreApplicationCandidateEvidence = Effect.fn("CoreApplicationRegistration.candidateEvidence")(function* (
+  selected: CoreSchemaSelection,
+) {
+  const encoded = selected.metadata.applicationRegistration;
+  const candidate = selected.metadata.applicationCandidate;
+  if (encoded === undefined || candidate === undefined) return Option.none<Readonly<{
+    registration: CoreApplicationRegistrationMetadata; metadata: DocumentObject;
+  }>>();
+  const proof = yield* Effect.fromResult(decodeProof(encoded).pipe(Result.mapError(corrupt)));
+  const metadata = (yield* Effect.fromResult(decodeDocumentValue(utf8.encode(candidate)).pipe(Result.mapError(corrupt),
+    Result.flatMap(value => captureCoreObject(value, true).pipe(Result.mapError(corrupt)))))).value;
+  const bytes = yield* Effect.fromResult(encodeDocumentValue(metadata).pipe(Result.mapError(corrupt)));
+  if (proof.candidateHash === undefined || text.decode(bytes) !== candidate || (yield* hash(bytes)) !== proof.candidateHash
+    || (yield* hash(utf8.encode(yield* Effect.fromResult(serializeCoreSchema(selected.schema))))) !== proof.schemaHash)
+    return yield* corrupt();
+  const registration = Object.freeze({ ...proof.identity,
+    candidateProposal: Object.freeze({ namespace: null, id: selected.id }),
+    programs: Object.freeze(proof.programs.map(program => Object.freeze({ identity: Object.freeze({ ...program.identity }) }))),
+  });
+  return Option.some(Object.freeze({ registration, metadata }));
 });
 
 /** Dependencies cover absence, hidden/deleting tables and all program revisions, including a zero-table schema. */
@@ -80,7 +115,7 @@ function trackCatalog(context: RegistrationReadContext): Result.Result<void, Cor
   }
   return Result.succeed(undefined);
 }
-const liveSchemas = (context: RegistrationReadContext): Result.Result<readonly CoreSchemaSelection[], CoreError> => Result.gen(function* () {
+export const liveCoreApplicationSchemas = (context: RegistrationReadContext): Result.Result<readonly CoreSchemaSelection[], CoreError> => Result.gen(function* () {
   yield* trackCatalog(context);
   const entries: CoreSchemaSelection[] = [];
   for (const record of context.registry.tables.values()) {
@@ -99,7 +134,7 @@ const liveSchemas = (context: RegistrationReadContext): Result.Result<readonly C
 const retainedTables = (context: RegistrationReadContext) => [...context.registry.tables.values()].map(record => record.definition)
   .filter(table => !CORE_BUILTIN_TABLE_NUMBERS.has(table.name) || table.nativePolicy !== undefined);
 
-function requireTables(context: RegistrationReadContext, schema: CoreSchemaDefinition): Result.Result<readonly CoreTableDefinition[], CoreError> {
+export function requireCoreApplicationTables(context: RegistrationReadContext, schema: CoreSchemaDefinition): Result.Result<readonly CoreTableDefinition[], CoreError> {
   const tables = retainedTables(context);
   if (tables.length !== schema.tables.length || tables.some(table => table.namespace !== null || table.state !== "active"
     || table.nativePolicy !== undefined || !schema.tables.some(declaration => declaration.tableName === table.name)))
@@ -123,10 +158,12 @@ export const readCoreApplicationRegistration = Effect.fn("CoreApplicationRegistr
       return yield* refuse("Application registration program identity differs from its stored proof");
     programs.push(record.definition);
   }
-  const registration = yield* Effect.fromResult(captureCoreApplicationRegistration({ ...proof.identity, programs }).pipe(Result.mapError(corrupt)));
+  const candidate = yield* readCoreApplicationCandidateEvidence(selected);
+  const registration = yield* Effect.fromResult(captureCoreApplicationRegistration({ ...proof.identity, programs,
+    ...(Option.isNone(candidate) ? {} : { candidateMetadata: candidate.value.metadata }) }).pipe(Result.mapError(corrupt)));
   if ((yield* coreApplicationRegistrationProof(registration, selected.schema)) !== encoded)
     return yield* refuse("Application registration schema or program metadata differs from its stored proof");
-  yield* Effect.fromResult(requireTables(context, selected.schema));
+  yield* Effect.fromResult(requireCoreApplicationTables(context, selected.schema));
   return registration;
 });
 
@@ -136,7 +173,7 @@ export const guardCoreApplicationRegistration = Effect.fn("CoreApplicationRegist
     proposalId?: string; publication?: readonly CoreProgramDefinition[]; mode: "prepare" | "activate" | "publish";
     native?: boolean }>, assertEmpty: (table: CoreTableDefinition) => Effect.Effect<void, CoreError>,
 ) {
-  const live = yield* Effect.fromResult(liveSchemas(context));
+  const live = yield* Effect.fromResult(liveCoreApplicationSchemas(context));
   const tagged = live.filter(entry => entry.metadata.applicationRegistration !== undefined);
   if (input.registration === undefined) {
     if (tagged.length !== 0) return yield* refuse("Application schema lifecycle requires its complete registration proof");
@@ -160,7 +197,7 @@ export const guardCoreApplicationRegistration = Effect.fn("CoreApplicationRegist
     || existing.metadata.native !== undefined || existing.metadata.schema !== (yield* Effect.fromResult(serializeCoreSchema(input.schema)))
     || input.proposalId !== undefined && existing.id !== input.proposalId)
     return yield* refuse("Application registration cannot adopt or replace another schema or source");
-  const tables = yield* Effect.fromResult(requireTables(context, input.schema));
+  const tables = yield* Effect.fromResult(requireCoreApplicationTables(context, input.schema));
   if (existing.metadata.state.state === "active") {
     yield* readCoreApplicationRegistration(context, existing);
   } else {
@@ -173,7 +210,7 @@ export const guardCoreApplicationRegistration = Effect.fn("CoreApplicationRegist
 
 export const readActiveCoreApplicationRegistration = Effect.fn("CoreApplicationRegistration.readActive")(function* (context: RegistrationReadContext,
   checked: WeakMap<CoreRegistry, CoreApplicationRegistrationMetadata>) {
-  const live = yield* Effect.fromResult(liveSchemas(context));
+  const live = yield* Effect.fromResult(liveCoreApplicationSchemas(context));
   const active = live.find(entry => entry.metadata.state.state === "active" && entry.metadata.applicationRegistration !== undefined);
   if (active === undefined) return Option.none<CoreApplicationRegistrationMetadata>();
   if (live.length !== 1 || context.namespace !== null) return yield* refuse("Application registration has a foreign live schema");
@@ -182,10 +219,10 @@ export const readActiveCoreApplicationRegistration = Effect.fn("CoreApplicationR
   const previous = checked.get(context.registry);
   if (previous !== undefined) return Option.some(previous);
   const registration = yield* readCoreApplicationRegistration(context, active);
-  const { programs, ...identity } = registration;
+  const { programs, candidateMetadata, ...identity } = registration;
   const metadata = Object.freeze({ ...identity, programs: Object.freeze(programs.map(program => Object.freeze({
     identity: Object.freeze({ ...program.identity }),
-  }))) });
+  }))), ...(candidateMetadata === undefined ? {} : { candidateProposal: Object.freeze({ namespace: context.namespace, id: active.id }) }) });
   checked.set(context.registry, metadata);
   return Option.some(metadata);
 });

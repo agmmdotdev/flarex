@@ -13,7 +13,7 @@ import { CoreProgramIdentitySchema, CoreNativeRootIdentitySchema, CoreSchemaWork
   issueCoreNativeRootBinding, issueCoreApplicationInsertBinding, issueCoreApplicationReadBinding, issueCoreNativeInitializationBinding,
   type CoreDatabase, type CoreDatabaseOptions, type CoreError,
   type CoreProgramPublication, type CoreSchemaProposal, type CoreSchemaStatus, type CoreProgramDefinition, type CoreProgramIdentity, type CoreRequestAcquisition,
-  type CoreApplicationRegistrationMetadata,
+  type CoreApplicationRegistrationMetadata, type CoreApplicationCandidate,
   type CoreNativeBinding, type CoreNativeCommandDefinition, type CoreNativeCommandIdentity, type CoreNativeOperation,
   type CoreRequestClaim, type CoreRequestIdentity, type CoreRequestResolution, type CoreTableDefinition,
   type CoreNativeRootBindingMetadata, type CoreApplicationInsertBinding,
@@ -21,7 +21,7 @@ import { CoreProgramIdentitySchema, CoreNativeRootIdentitySchema, CoreSchemaWork
 import { CorePersistenceError, CoreTimestampSchema, type CoreDocumentLogEntry, type CoreIndexScan, type CoreInterval, type CorePersistence, type CorePersistenceSnapshot } from "./contracts";
 import { allocateCoreBuiltinDefinitions, bootstrapCore } from "./bootstrap";
 import { makeCoreCommitter } from "./committer";
-import { INDEXES, PROGRAMS, REQUESTS, TABLES, programKey, readDocumentObject,
+import { INDEXES, INDEX_BACKFILLS, PROGRAMS, REQUESTS, TABLES, programKey, readDocumentObject,
   tableDocument, SCHEMAS, SCHEMA_VALIDATIONS, SCHEMA_VALIDATION_PROGRESS, publicDocumentId, type CoreRegistry } from "./registry";
 import { CoreFinalizationVault, createCoreTransaction, prepareCoreTransactionIdGenerator, type CoreDocumentChange, type CoreFinalizedState,
   type CoreTransactionInternals, type CoreTransactionNativeAccess } from "./transaction";
@@ -49,9 +49,22 @@ import { coreProtectedAuthorityMetadataReads } from "./protectedNativeAuthority"
 import { capturePrivateJsonData } from "../values/privateJsonData";
 import { CoreRecoveryJournal, type CoreRecoveryEnrollment } from "./recoveryJournal";
 import { isCoreDefinitiveCommitRefusal } from "./api";
-import { captureCoreApplicationRegistration, guardCoreApplicationRegistration, readActiveCoreApplicationRegistration } from "./applicationRegistration";
+import { captureCoreApplicationRegistration, guardCoreApplicationRegistration, readActiveCoreApplicationRegistration,
+  encodeCoreApplicationCandidateMetadata, readCoreApplicationCandidateEvidence, liveCoreApplicationSchemas,
+  requireCoreApplicationTables } from "./applicationRegistration";
+import type { CoreSchemaSelection } from "./schemaRegistry";
 import { captureCoreNativeRootIdentity, captureCoreNativeRootRequestEvidence,
   type CoreNativeRootRequestEvidence } from "./nativeRootRequest";
+
+function schemaStatusValue(registry: CoreRegistry, proposal: CoreSchemaProposal, found: CoreSchemaSelection): CoreSchemaStatus {
+  const state = found.metadata.state;
+  if (found.metadata.applicationCandidateAbandoned) return { proposal, state: state.state, indexesReady: false };
+  const plan = planCoreIndexes(registry, proposal.namespace, found.schema);
+  const indexesReady = plan.added.length === 0 && [...plan.identical.filter(index => index.state.type !== "Backfilling"
+    || !index.state.backfillState.staged), ...plan.enabled].every(index => index.state.type !== "Backfilling");
+  return { proposal, state: state.state, indexesReady,
+    ...(state.state === "failed" ? { error: state.error, ...(state.table_name === null ? {} : { tableName: state.table_name }) } : {}) };
+}
 
 const NativeLimitsSchema = Schema.Struct({ maxIdentities: Schema.Int.check(Schema.isBetween({ minimum: 1,
   maximum: CORE_TRANSACTION_REFERENCE_LIMITS.documentsRead })), maxDocumentBytes: Schema.Int.check(Schema.isBetween({ minimum: 1,
@@ -544,10 +557,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
   const schemaStatus=Effect.fn("CoreDatabase.schemaStatus")((proposal:CoreSchemaProposal)=>admin(proposal.namespace,selected=>selected.context.runSystem(Effect.gen(function*(){
     const found=yield* new CoreSchemaModel(selected.context).get(proposal.id);
     if(Option.isNone(found))return yield* new CoreSchemaError({reason:"schemaNotFound",message:"Schema proposal does not exist"});
-    const state=found.value.metadata.state,plan=planCoreIndexes(selected.context.registry,proposal.namespace,found.value.schema);
-    const indexesReady=plan.added.length===0&&[...plan.identical.filter(index=>index.state.type!=="Backfilling"||!index.state.backfillState.staged),...plan.enabled]
-      .every(index=>index.state.type!=="Backfilling");
-    return {proposal,state:state.state,indexesReady,...(state.state==="failed"?{error:state.error,...(state.table_name===null?{}:{tableName:state.table_name})}:{})} satisfies CoreSchemaStatus;
+    return schemaStatusValue(selected.context.registry, proposal, found.value);
   }))));
   const prepareSchema:CoreDatabase["prepareSchema"]=Effect.fn("CoreDatabase.prepareSchema")((requested)=>{
     const input = Object.freeze({ ...requested });
@@ -573,7 +583,10 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       const registrationProof = yield* guardCoreApplicationRegistration(selected.context, { mode: "prepare", schema,
         ...(applicationRegistration === undefined ? {} : { registration: applicationRegistration }),
         native: input.native !== undefined || input.bundle !== undefined }, table => assertEmptyTable(selected, table));
-      const pendingProposal=yield* new CoreSchemaModel(selected.context).submitPending(schema, input.bundle?.metadata ?? input.native?.metadata, registrationProof);
+      const candidate = applicationRegistration === undefined ? undefined
+        : yield* Effect.fromResult(encodeCoreApplicationCandidateMetadata(applicationRegistration));
+      const pendingProposal=yield* new CoreSchemaModel(selected.context).submitPending(schema, input.bundle?.metadata ?? input.native?.metadata, registrationProof,
+        candidate === undefined ? undefined : { metadata: candidate, updatedAt: selected.context.transaction.unixTime });
       const definitions = input.bundle?.nativeDefinitions ?? (input.native === undefined ? [] : [input.native]);
       for (const definition of definitions) for (const declaration of coreNativeStoredTables(definition)) {
         const table = selected.context.registry.table(declaration.name, selected.context.namespace)?.definition;
@@ -641,6 +654,12 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       const changes=yield* Effect.fromResult(Result.mapError(finishCoreIndexChanges(planCoreIndexes(selected.context.registry,proposal.namespace,schema.schema)),error=>error.reason==="unavailable"?new CoreTransactionError({reason:"indexUnavailable",cause:error}):error));
       yield* applyIndexes(selected.context,changes);
       yield* model.markActive(proposal.id);
+      if (schema.metadata.applicationCandidate !== undefined && schema.metadata.state.state !== "active") {
+        const activeCandidate = yield* model.get(proposal.id);
+        if (Option.isNone(activeCandidate)) return yield* corrupt();
+        yield* selected.context.replaceSystem(SCHEMAS, proposal.id, { ...activeCandidate.value.metadata,
+          applicationCandidateUpdatedAt: selected.context.transaction.unixTime });
+      }
       for (const definition of definitions) for (const declaration of coreNativeStoredTables(definition)) {
         const table = selected.context.registry.table(declaration.name, proposal.namespace)?.definition;
         const catalog = selected.context.registry.table(TABLES)?.definition;
@@ -681,6 +700,74 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
 
   const readApplicationRegistration: CoreDatabase["readApplicationRegistration"] = Effect.fn("CoreDatabase.readApplicationRegistration")(
     () => admin(null, selected => selected.context.runSystem(readActiveCoreApplicationRegistration(selected.context, checkedApplicationRegistrations))));
+
+  const applicationCandidate = Effect.fn("CoreDatabase.applicationCandidate")(function* (
+    context: CoreTransactionInternals, schema: CoreSchemaSelection,
+  ) {
+    const evidence = yield* readCoreApplicationCandidateEvidence(schema);
+    if (Option.isNone(evidence)) return Option.none<CoreApplicationCandidate>();
+    if (schema.metadata.state.state === "active")
+      yield* readActiveCoreApplicationRegistration(context, checkedApplicationRegistrations);
+    const proposal = Object.freeze({ namespace: context.namespace, id: schema.id });
+    return Option.some(Object.freeze({ ...schemaStatusValue(context.registry, proposal, schema),
+      registration: evidence.value.registration, metadata: evidence.value.metadata,
+      creationTime: schema.creationTime, updatedAt: schema.metadata.applicationCandidateUpdatedAt ?? schema.creationTime,
+      abandoned: schema.metadata.applicationCandidateAbandoned ?? false }));
+  });
+  const readApplicationCandidate: CoreDatabase["readApplicationCandidate"] = Effect.fn("CoreDatabase.readApplicationCandidate")((requested) => {
+    const proposal = requested === undefined ? undefined : Object.freeze({ ...requested });
+    return admin(null, selected => selected.context.runSystem(Effect.gen(function* () {
+      if (proposal !== undefined && proposal.namespace !== null) return yield* nativeUnsupported("Public Application candidates use the default namespace");
+      const found = proposal === undefined
+        ? Option.fromNullishOr((yield* Effect.fromResult(liveCoreApplicationSchemas(selected.context)))
+          .find(schema => schema.metadata.applicationCandidate !== undefined))
+        : yield* new CoreSchemaModel(selected.context).get(proposal.id);
+      return Option.isNone(found) ? Option.none<CoreApplicationCandidate>() : yield* applicationCandidate(selected.context, found.value);
+    })));
+  });
+  const abandonApplicationCandidate: CoreDatabase["abandonApplicationCandidate"] = Effect.fn("CoreDatabase.abandonApplicationCandidate")((requested) => {
+    const proposal = Object.freeze({ ...requested });
+    return admin(null, selected => Effect.gen(function* () {
+      if (proposal.namespace !== null) return yield* nativeUnsupported("Public Application candidates use the default namespace");
+      yield* selected.context.runSystem(Effect.gen(function* () {
+        const model = new CoreSchemaModel(selected.context), found = yield* model.get(proposal.id);
+        if (Option.isNone(found)) return yield* new CoreSchemaError({ reason: "schemaNotFound", message: "Application candidate does not exist" });
+        const evidence = yield* readCoreApplicationCandidateEvidence(found.value);
+        if (Option.isNone(evidence)) return yield* nativeUnsupported("Schema is not a public Application candidate");
+        if (found.value.metadata.applicationCandidateAbandoned) return;
+        if (found.value.metadata.state.state === "active" || found.value.metadata.state.state === "overwritten")
+          return yield* nativeUnsupported("An active or overwritten Application candidate cannot be abandoned");
+        const live = yield* Effect.fromResult(liveCoreApplicationSchemas(selected.context));
+        if (live.some(schema => schema.id !== proposal.id) || selected.context.registry.programs.size !== 0 || selected.context.registry.heads.size !== 0)
+          return yield* nativeUnsupported("Application candidate no longer owns an unactivated database");
+        const tables = yield* Effect.fromResult(requireCoreApplicationTables(selected.context, found.value.schema));
+        for (const table of tables) yield* assertEmptyTable(selected, table);
+        yield* model.markOverwritten(proposal.id);
+        const overwritten = yield* model.get(proposal.id);
+        if (Option.isNone(overwritten)) return yield* corrupt();
+        yield* selected.context.replaceSystem(SCHEMAS, proposal.id, { ...overwritten.value.metadata,
+          applicationCandidateAbandoned: true, applicationCandidateUpdatedAt: selected.context.transaction.unixTime });
+        const catalog = selected.context.registry.table(TABLES)?.definition;
+        const indexCatalog = selected.context.registry.table(INDEXES)?.definition;
+        if (catalog === undefined || indexCatalog === undefined) return yield* corrupt();
+        for (const table of tables) {
+          for (const index of selected.context.registry.indexes.forTablet(table.tabletId)) {
+            const indexId = yield* Effect.fromResult(publicDocumentId(indexCatalog, index.ref.id));
+            for (const row of yield* selected.context.querySystem(INDEX_BACKFILLS, "by_index_id", [indexId]))
+              yield* selected.context.deleteSystem(INDEX_BACKFILLS, row.id);
+            yield* selected.context.deleteSystem(INDEXES, indexId);
+          }
+          yield* selected.context.deleteSystem(TABLES, yield* Effect.fromResult(publicDocumentId(catalog, table.tabletId)));
+        }
+      }));
+      const found = yield* selected.context.runSystem(new CoreSchemaModel(selected.context).get(proposal.id));
+      if (Option.isNone(found)) return yield* corrupt();
+      const candidate = yield* selected.context.runSystem(applicationCandidate(selected.context, found.value));
+      if (Option.isNone(candidate)) return yield* corrupt();
+      yield* settle(selected);
+      return candidate.value;
+    }));
+  });
 
   const readAuthorityEpoch = Effect.gen(function* () {
     yield* assertOpen;
@@ -1156,7 +1243,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
           transaction: Object.freeze({ timestamp, unixTime, usage, selectProgram, tableNumber, tableMappings, normalizeId, get, startQuery, scan }),
           finish: selected.context.finishRead, abort: transaction.abort });
       }), true)),
-    prepareSchema,readApplicationRegistration,schemaStatus,advanceSchema,advanceSchemaWork:schemaWorker.advanceWork,activateSchema,publishPrograms,
+    prepareSchema,readApplicationRegistration,readApplicationCandidate,abandonApplicationCandidate,schemaStatus,advanceSchema,advanceSchemaWork:schemaWorker.advanceWork,activateSchema,publishPrograms,
     bindNative, readNativeBinding, beginNative, bindNativeInitialization,
     bindNativeRoot, readNativeRootBinding, beginNativeRoot, bindNativeRootRecovery,
     selectProgram: Effect.fn("CoreDatabase.selectProgram")(function* (path) {

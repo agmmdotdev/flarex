@@ -8,12 +8,11 @@ describe("configured Core Application routes", () => {
   it("captures an operator profile without making it an installed profile", () => {
     const fixture = executorApplicationConfigurationFixture();
     const profile = Result.getOrThrow(resolveExecutorApplicationProfile(fixture, fixture.profile.deploymentId));
-    expect(profile.expectedProgramProfile).toEqual({ scopeUuid: fixture.profile.scopeUuid,
-      epochUuid: fixture.profile.epochUuid, sourceArtifactRootSha256: fixture.profile.sourceArtifactRootSha256 });
-    expect(profile.sourcePackageHash).toBe(fixture.profile.sourcePackageHash);
+    expect(profile.scopeUuid).toBe(fixture.profile.scopeUuid);
+    expect("sourcePackageHash" in profile).toBe(false);
+    expect("sourceArtifactRootSha256" in profile).toBe(false);
     expect(profile.workload.indexCache.verifyPercent).toBe(100);
     expect(Object.isFrozen(profile)).toBe(true);
-    expect(Object.isFrozen(profile.expectedProgramProfile)).toBe(true);
     expect(profile).not.toHaveProperty("privateKeyPkcs8");
   });
 
@@ -40,6 +39,10 @@ describe("configured Core Application routes", () => {
       { ...profile, hostPolicy: { ...profile.hostPolicy, allowRunAction: true } },
       { ...profile, generation: 0 },
       { ...profile, kind: "legacy" },
+      { ...profile, sourceUpload: { ...profile.sourceUpload, blockSizeBytes: profile.sourceUpload.admission.blockBytes + 1 } },
+      { ...profile, sourceArtifactRootSha256: "aa".repeat(32) },
+      { ...profile, sourcePackageHash: "aa".repeat(32) },
+      { ...profile, anchorFunctionPath: "users:get" },
     ]) {
       const outcome = readExecutorApplicationProfiles({
         FLAREX_APPLICATION_PROFILES: JSON.stringify({ version: 1, profiles: [invalid] }),

@@ -2,7 +2,7 @@ import { Cause, Data, Effect, Exit, Result, Schema } from "effect";
 import { CoreApplicationTransportError, decodeCoreApplicationJsonBody, readCoreApplicationBodyBytes } from
   "@flarex/executor-http/internal/core-application";
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
-import { encodeCoreApplicationProfile } from "flarex-protocol/internal/core-application";
+import { encodeCoreApplicationControl, encodeCoreApplicationProfile } from "flarex-protocol/internal/core-application";
 import { readExecutorApplicationRegistry } from "./applicationConfiguration";
 import { admitExecutorRequest, type ExecutorWorker, type ExecutorWorkerEnv } from "./requestLifecycle";
 
@@ -71,7 +71,7 @@ export function makeApplicationExecutorGateway(legacy: ExecutorWorker) {
         return legacy.fetch(new Request(request, { body: copyBytesToArrayBuffer(captured.bytes) }), env);
       }
 
-      const matched = /^\/applications\/([^/]+)\/(profile|invoke|register)$/.exec(pathname);
+      const matched = /^\/applications\/([^/]+)\/(control|profile|invoke|deployment|push\/start|push\/[^/]+(?:\/(?:finish|abandon))?)$/.exec(pathname);
       if (matched === null) return failure("not_found", "Unknown application route.", 404);
       let deploymentId: string;
       try { deploymentId = decodeURIComponent(matched[1] ?? ""); }
@@ -80,9 +80,22 @@ export function makeApplicationExecutorGateway(legacy: ExecutorWorker) {
         return failure("invalid_request", "Invalid application selector.", 400);
       }
       const operation = matched[2];
-      const method = operation === "profile" ? "GET" : "POST";
+      const method = operation === "control" || operation === "profile" || operation === "deployment"
+        || operation !== "push/start" && /^push\/[^/]+$/.test(operation ?? "") ? "GET" : "POST";
       if (request.method !== method) return failure("method_not_allowed", "Unsupported application method.", 405);
       const profile = registry.success.profiles.find(candidate => candidate.deploymentId === deploymentId);
+      if (operation === "control") {
+        const retained = registry.success.legacyProfiles.some(candidate => candidate.deploymentId === deploymentId);
+        if (profile === undefined && !retained)
+          return failure("application_unregistered", "The application storage profile is not registered.", 503);
+        const encoded = encodeCoreApplicationControl(profile === undefined
+          ? { format: "flarex.core-application.control", version: 1, kind: "legacy", deploymentId }
+          : { format: "flarex.core-application.control", version: 1, kind: "core",
+            route: { deploymentId, scopeUuid: profile.scopeUuid, epochUuid: profile.epochUuid },
+            maximumPushRequestBytes: profile.http.maximumRegistrationRequestBytes });
+        return Result.isSuccess(encoded) ? Response.json(encoded.success)
+          : failure("configuration", "Application routing is unavailable.", 503);
+      }
       if (profile === undefined) {
         const retained = registry.success.legacyProfiles.some(candidate => candidate.deploymentId === deploymentId);
         if (operation !== "profile" || !retained)

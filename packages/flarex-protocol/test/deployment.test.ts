@@ -3,6 +3,10 @@ import { Effect, Result, SchemaAST, type Schema } from "effect";
 import {
   decodeAbandonPushRequestEffect,
   decodeActiveDeploymentStatusEffect,
+  decodePublicActiveDeploymentStatusEffect,
+  decodePublicDeploymentProfileEffect,
+  decodeCoreApplicationSourcePackageEffect,
+  decodeCoreApplicationStartPushRequestEffect,
   decodeAnalyzedStartPushRequestEffect,
   decodeDeploymentAnalysisEffect,
   captureDeploymentAnalysisEffect,
@@ -29,6 +33,51 @@ import {
 } from "../src/deployment";
 
 describe("deployment protocol schemas", () => {
+  it("decodes only the public storage profile inventory", async () => {
+    for (const storageProfile of ["core_application", "legacy_session"])
+      await expect(Effect.runPromise(decodePublicDeploymentProfileEffect({ storageProfile }))).resolves.toEqual({ storageProfile });
+    for (const value of [{ storageProfile: "unknown" }, { storageProfile: "core_application", scopeUuid: "private" }])
+      await expect(Effect.runPromise(decodePublicDeploymentProfileEffect(value))).rejects.toMatchObject({ schema: "PublicDeploymentProfile" });
+  });
+  it("keeps inline JWT configuration in the explicit Core source profile", async () => {
+    const source = { ...sourcePackage(), sourceModuleDigestFormat: "sha256-framed-v1",
+      authConfig: { providers: [{ domain: "https://auth.example.com", applicationID: "core-app" }] } };
+    await expect(Effect.runPromise(decodePushSourcePackageEffect(source))).rejects.toMatchObject({
+      message: "Source package auth config module is required when authConfig is present.",
+    });
+    await expect(Effect.runPromise(decodeCoreApplicationSourcePackageEffect(source))).resolves.toEqual(source);
+    await expect(Effect.runPromise(decodeCoreApplicationStartPushRequestEffect({ sourcePackage: source })))
+      .resolves.toEqual({ sourcePackage: source });
+    const push = { ...pushStatus(), storageProfile: "core_application", sourcePackage: source };
+    await expect(Effect.runPromise(decodePushStatusEffect(push))).resolves.toEqual(push);
+    await expect(Effect.runPromise(decodeFinishPushResponseEffect({ result: "activated", push })))
+      .resolves.toEqual({ result: "activated", push });
+  });
+
+  it("refuses executable auth modules, invalid providers and unframed Core source", async () => {
+    await expect(Effect.runPromise(decodeCoreApplicationSourcePackageEffect(sourcePackage())))
+      .rejects.toMatchObject({ message: "Core source packages require sha256-framed-v1 module digests." });
+    await expect(Effect.runPromise(decodeCoreApplicationSourcePackageEffect({ ...sourcePackageWithAuth(),
+      sourceModuleDigestFormat: "sha256-framed-v1" })))
+      .rejects.toMatchObject({ message: "Core source packages do not support executable auth config modules." });
+    await expect(Effect.runPromise(decodeCoreApplicationSourcePackageEffect({ ...sourcePackage(),
+      sourceModuleDigestFormat: "sha256-framed-v1", authConfig: { providers: [{ type: "customJwt", algorithm: "HS256" }] } })))
+      .rejects.toMatchObject({ schema: "PushSourcePackage" });
+  });
+
+  it("decodes the explicit Core active identity without a legacy artifact reference", async () => {
+    const legacy = activeDeploymentStatus();
+    const core = { storageProfile: "core_application", activePushId: legacy.activePushId, activatedAt: legacy.activatedAt,
+      schemaVersion: legacy.schemaVersion, sourceArtifactRootSha256: "c".repeat(64), sourcePackageHash: "a".repeat(64),
+      sourcePackage: { ...sourcePackage(), sourceModuleDigestFormat: "sha256-framed-v1",
+        authConfig: { providers: [{ domain: "https://auth.example.com", applicationID: "core-app" }] } },
+      analysis: legacy.analysis, codegenAnalysis: legacy.codegenAnalysis };
+    await expect(Effect.runPromise(decodePublicActiveDeploymentStatusEffect(core))).resolves.toEqual(core);
+    await expect(Effect.runPromise(decodeActiveDeploymentStatusEffect(core))).rejects.toMatchObject({ schema: "ActiveDeploymentStatus" });
+    await expect(Effect.runPromise(decodePublicActiveDeploymentStatusEffect({ ...legacy, storageProfile: "unknown" })))
+      .rejects.toMatchObject({ schema: "PublicActiveDeploymentStatus" });
+  });
+
   it.each([1n, -0])("keeps semantic capture and wire decoding distinct for metadata literal %s", async value => {
     const semantic = { schema: { version: 1, tables: [], indexes: [] }, functions: { functions: [{ path: "literal:run",
       kind: "query", visibility: "public", args: { type: "object", value: {} }, returns: { type: "literal", value },

@@ -4,6 +4,7 @@ import {
   lookupBackendCoreApplication,
   projectBackendCoreApplicationErrors,
 } from "./coreApplicationRuntime";
+import { encodeCoreActiveDeployment, readBackendCoreApplicationActive, routeBackendCoreApplicationPush } from "./publicCoreApplicationDeployment";
 import {
   DeploymentProtocolValidationError,
   DeploymentPushAction,
@@ -13,7 +14,7 @@ import {
   InvokeProtocolValidationError,
   type PublicInvokeRequestBody,
 } from "flarex-protocol/invoke";
-import type { ExecutionIdentity } from "flarex-protocol/auth";
+import type { AuthConfig, ExecutionIdentity } from "flarex-protocol/auth";
 import {
   R2BackendExecutionArtifactStore,
   type BackendExecutionArtifactStore,
@@ -285,6 +286,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     routePublicWorker(request, env).pipe(
       Effect.catch(publicWorkerRouteErrorToResponseEffect),
     ),
+    { signal: request.signal },
   );
 }
 
@@ -373,6 +375,8 @@ const routeRegistryDeployments = Effect.fn("Worker.routeRegistryDeployments")(
 
 const routeDeploymentActiveRead = Effect.fn("Worker.routeDeploymentActiveRead")(
   function* (env: Env, deploymentId: string) {
+    const core = yield* readBackendCoreApplicationActive(env, deploymentId);
+    if (core !== undefined) return json(encodeCoreActiveDeployment(core.active));
     return yield* readDeploymentActiveEffect(
       env.DEPLOYMENTS.getByName(deploymentObjectName(deploymentId)),
     );
@@ -443,6 +447,13 @@ const routeDeployment = Effect.fn("Worker.routeDeployment")(
     originalUrl: URL,
   ): Effect.fn.Return<Response, PublicWorkerDeploymentRouteError> {
     const deploymentId = yield* publicDeploymentIdFromPartsEffect(parts);
+    if (parts[2] === "profile" && request.method === "GET") {
+      const core = yield* projectBackendCoreApplicationErrors(lookupBackendCoreApplication(env, deploymentId)).pipe(
+        Effect.catchCause(cause => Effect.failCause(Cause.map(cause,
+          error => publicWorkerDispatchError("deployment-active-read", error)))),
+      );
+      return json({ storageProfile: core === undefined ? "legacy_session" : "core_application" });
+    }
     if (parts[2] === "push") {
       return yield* routeDeploymentPushEffect(request, env, deploymentId, parts.slice(3));
     }
@@ -451,6 +462,14 @@ const routeDeployment = Effect.fn("Worker.routeDeployment")(
     }
     if (parts[2] === "invoke" && request.method === "POST") {
       return yield* routePublicInvoke(request, env, deploymentId);
+    }
+    if (["executions", "partitions", "sync", "scheduler"].includes(parts[2] ?? "")) {
+      const core = yield* projectBackendCoreApplicationErrors(lookupBackendCoreApplication(env, deploymentId)).pipe(
+        Effect.catchCause(cause => Effect.failCause(Cause.map(cause,
+          error => publicWorkerDispatchError("deployment-active-read", error)))),
+      );
+      if (core !== undefined)
+        return json({ error: "This route is not admitted by the Core application profile." }, { status: 409 });
     }
     if (parts[2] === "executions") {
       return yield* routeExecutionEffect(request, env, deploymentId, parts.slice(3));
@@ -704,15 +723,18 @@ const routeDeploymentPushEffect = Effect.fn("Worker.routeDeploymentPush")(
     Response,
     PublicWorkerDeploymentPushRouteError
   > {
-    const deployment = env.DEPLOYMENTS.getByName(deploymentObjectName(deploymentId));
     const path = yield* publicDeploymentPushPathFromPartsEffect(parts, request.method);
-    if (path.kind === "start" && request.method === "POST") {
+    if (request.method === "POST" && (path.kind === "start" || path.kind === "startAnalyzed"
+      || path.action === DeploymentPushAction.finish || path.action === DeploymentPushAction.abandon))
       yield* authorizePublicDeploymentPushMutationRequest(request, env);
+    const core = yield* routeBackendCoreApplicationPush(request, env, deploymentId, path);
+    if (core !== undefined) return core;
+    const deployment = env.DEPLOYMENTS.getByName(deploymentObjectName(deploymentId));
+    if (path.kind === "start" && request.method === "POST") {
       const routeInput = yield* decodePublicStartPushRouteInput(request);
       return yield* routeDeploymentStartPush(routeInput, env, deployment, deploymentId);
     }
     if (path.kind === "startAnalyzed" && request.method === "POST") {
-      yield* authorizePublicDeploymentPushMutationRequest(request, env);
       const routeInput = yield* decodePublicAnalyzedStartPushRouteInput(request);
       return yield* routeDeploymentAnalyzedStartPush(routeInput, deployment);
     }
@@ -725,12 +747,10 @@ const routeDeploymentPushEffect = Effect.fn("Worker.routeDeploymentPush")(
       return yield* routeDeploymentReadPush(deployment, publicDeploymentReadPushRouteInput(pushId));
     }
     if (action === DeploymentPushAction.finish && request.method === "POST") {
-      yield* authorizePublicDeploymentPushMutationRequest(request, env);
       const routeInput = yield* decodePublicFinishPushRouteInput(request, pushId);
       return yield* routeDeploymentFinishPush(routeInput, env, deployment);
     }
     if (action === DeploymentPushAction.abandon && request.method === "POST") {
-      yield* authorizePublicDeploymentPushMutationRequest(request, env);
       const routeInput = yield* decodePublicAbandonPushRouteInput(request, pushId);
       return yield* routeDeploymentAbandonPush(routeInput, deployment);
     }
@@ -873,17 +893,6 @@ const routeInvoke = Effect.fn("Worker.routeInvoke")(
     identity: ExecutionIdentity,
   ) {
     const invokeRequest = yield* invokeRequestFromPublicInvokeBodyEffect(body);
-    const coreProfile = yield* projectBackendCoreApplicationErrors(lookupBackendCoreApplication(env, deploymentId)).pipe(
-      Effect.catchCause(cause => Effect.failCause(Cause.map(cause,
-        error => publicWorkerDispatchError("invoke-execute", error)))),
-    );
-    if (coreProfile !== undefined) {
-      const result = yield* projectBackendCoreApplicationErrors(invokeBackendCoreApplication(
-        env, coreProfile, activeDeployment, invokeRequest, body.args === undefined ? {} : body.args, identity,
-      )).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause,
-        error => publicWorkerDispatchError("invoke-execute", error)))));
-      return json(result);
-    }
     const artifactRuntime = artifactRuntimeFromEnv(env, deploymentId);
     if (artifactRuntime !== undefined) {
       const result = yield* Effect.tryPromise({
@@ -911,6 +920,16 @@ const routePublicInvoke = Effect.fn("Worker.routePublicInvoke")(
   ) {
     const body = yield* decodePublicInvokeRouteRequest(request);
     const deploymentId = yield* publicInvokeDeploymentIdEffect(routeDeploymentId, body);
+    const core = yield* readBackendCoreApplicationActive(env, deploymentId);
+    if (core !== undefined) {
+      const identity = yield* resolvePublicInvokeIdentity(request, env, core.active);
+      const invokeRequest = yield* invokeRequestFromPublicInvokeBodyEffect(body);
+      const result = yield* projectBackendCoreApplicationErrors(invokeBackendCoreApplication(
+        env, core.profile, core.active, invokeRequest, body.args === undefined ? {} : body.args, identity,
+      )).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause,
+        error => publicWorkerDispatchError("invoke-execute", error)))));
+      return json(result);
+    }
     const activeDeployment = yield* loadActiveDeploymentEffect(env, deploymentId);
     const identity = yield* resolvePublicInvokeIdentity(request, env, activeDeployment);
     return yield* routeInvoke(env, deploymentId, activeDeployment, body, identity);
@@ -921,7 +940,7 @@ const resolvePublicInvokeIdentity = Effect.fn("Worker.resolvePublicInvokeIdentit
   function* (
     request: Request,
     env: Env,
-    activeDeployment: ActiveDeploymentStatus,
+    activeDeployment: Readonly<{ sourcePackage: Readonly<{ authConfig?: AuthConfig | undefined }> }>,
   ): Effect.fn.Return<ExecutionIdentity, TrustedExecutionIdentityError | JwtAuthError> {
     if (request.headers.has(TRUSTED_EXECUTION_IDENTITY_HEADER)) {
       return yield* resolveExecutionIdentityEffect(request, env);

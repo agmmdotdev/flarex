@@ -880,8 +880,9 @@ export function createCoreTransaction(input: Readonly<{
     const document = body === null ? null : { ...body, _id: developerId,
       _creationTime: previous?._creationTime ?? (yield* Effect.fromResult(takeCreationTime())) };
     yield* stage(table, id, document, defaultAccess, mode);
-    if (name === TABLES && document !== null) {
-      registry = registry.withTable(yield* Effect.fromResult(parseCoreTableRecord(yield* Effect.fromResult(systemDocument(document)), null)));
+    if (name === TABLES) {
+      registry = document === null ? registry.withoutTable(id)
+        : registry.withTable(yield* Effect.fromResult(parseCoreTableRecord(yield* Effect.fromResult(systemDocument(document)), null)));
     } else if (name === INDEXES) {
       registry = registry.withoutIndex(id);
       if (document !== null) registry = yield* Effect.fromResult(registry.withIndex(

@@ -51,10 +51,13 @@ export interface CoreApplicationRegistration {
   readonly compatibilityDate: string;
   readonly generation: number;
   readonly programs: readonly CoreProgramDefinition[];
+  /** Trusted producer evidence for a public candidate; authenticated with the publication. */
+  readonly candidateMetadata?: DocumentObject;
 }
 /** Authenticated discovery metadata contains no mutable program-value buffers. */
-export type CoreApplicationRegistrationMetadata = Omit<CoreApplicationRegistration, "programs"> & Readonly<{
+export type CoreApplicationRegistrationMetadata = Omit<CoreApplicationRegistration, "programs" | "candidateMetadata"> & Readonly<{
   programs: readonly Readonly<{ identity: CoreProgramIdentity }>[];
+  candidateProposal?: CoreSchemaProposal;
 }>;
 
 export interface CoreProgramPublication {
@@ -72,6 +75,13 @@ export interface CoreSchemaStatus {
   readonly indexesReady: boolean;
   readonly error?: string;
   readonly tableName?: string;
+}
+export interface CoreApplicationCandidate extends CoreSchemaStatus {
+  readonly registration: CoreApplicationRegistrationMetadata;
+  readonly metadata: DocumentObject;
+  readonly creationTime: number;
+  readonly updatedAt: number;
+  readonly abandoned: boolean;
 }
 export interface CoreSchemaActivation {
   readonly timestamp: CoreTimestamp;
@@ -444,6 +454,8 @@ export interface CoreDatabase {
     bundle?: CoreSchemaBundle; applicationRegistration?: CoreApplicationRegistration }>) => Effect.Effect<CoreSchemaProposal, CoreError>;
   /** Reads only an authenticated active registration and its complete live program closure. */
   readonly readApplicationRegistration: () => Effect.Effect<Option.Option<CoreApplicationRegistrationMetadata>, CoreError>;
+  readonly readApplicationCandidate: (proposal?: CoreSchemaProposal) => Effect.Effect<Option.Option<CoreApplicationCandidate>, CoreError>;
+  readonly abandonApplicationCandidate: (proposal: CoreSchemaProposal) => Effect.Effect<CoreApplicationCandidate, CoreError>;
   readonly schemaStatus: (proposal: CoreSchemaProposal) => Effect.Effect<CoreSchemaStatus, CoreError>;
   readonly advanceSchemaWork: (work:CoreSchemaWorkBudget)=>Effect.Effect<Readonly<{hasMore:boolean}>,CoreError>;
   readonly advanceSchema: (proposal: CoreSchemaProposal, work: Readonly<{ pageSize: number; maxPages: number }>) => Effect.Effect<CoreSchemaStatus, CoreError>;

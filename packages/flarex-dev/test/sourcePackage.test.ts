@@ -11,6 +11,12 @@ import {
 import { bundleSourcePackage } from "../src/sourcePackage";
 
 describe("Flarex source packages", () => {
+  it.each([null, "future", {}])("rejects malformed storage profile %j before bundling", async storageProfile => {
+    await expect(Reflect.apply(bundleSourcePackage, undefined, [{
+      appDir: "unused", functionModules: [], storageProfile,
+    }])).rejects.toThrow();
+  });
+
   it("orders bundled module and function paths by UTF-16 code units", async () => {
     const root = await createTemporaryRoot("flarex-source-order-");
     const appDir = path.join(root, "flarex");
@@ -139,7 +145,7 @@ export default defineSchema({ spoofed: defineGlobalTable({ value: v.number() }) 
       "utf8",
     );
     const worker = await readFile(path.join(root, "flarex/_generated/worker.ts"), "utf8");
-    expect(generated).toContain('"name": "users"');
+    expect(generated).toContain(JSON.stringify('"name": "users"').slice(1, -1));
     expect(generated).not.toContain("spoofed");
     expect(generated).not.toContain('from "../schema"');
     expect(worker).not.toContain('from "../schema"');
@@ -207,6 +213,21 @@ export const get = query({ args: {}, handler: async () => "changed" });
     expect(hashFor(changedAuth, "_flarex/execution.js")).toBe(
       hashFor(withAuth, "_flarex/execution.js"),
     );
+  });
+
+  it("bundles Core source with canonical SDK imports and validated inline auth", async () => {
+    const root = await createProject();
+    await writeAuthConfig(root, "core-app");
+    const context = await initialCodegen({ root, storageProfile: "core_application" });
+    const package_ = await bundleFlarexSourcePackage(context);
+    expect(package_.authConfigModule).toBeUndefined();
+    expect(package_.modules.map(module => module.path)).not.toContain("_flarex/auth.config.js");
+    expect(package_.authConfig?.providers[0]).toMatchObject({ applicationID: "core-app" });
+    expect(package_.modules.find(module => module.path === "_flarex/execution.js")?.source).toContain('from "../users.js"');
+    expect(package_.modules.find(module => module.path === "users.js")?.source).toMatch(/from\s*["']flarex\/server["']/);
+    expect(package_.modules.find(module => module.path === "_flarex/schema.js")?.source).toMatch(/from\s*["']flarex\/server["']/);
+    expect(package_.modules.filter(module => module.path !== "_flarex/execution.js")
+      .every(module => module.sourceMap !== undefined)).toBe(true);
   });
 
   it("rejects invalid auth config during source package bundling", async () => {

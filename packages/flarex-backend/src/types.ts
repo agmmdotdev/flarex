@@ -285,6 +285,7 @@ export type AnalyzeSourcePackageResponse =
     };
 
 export type PushStatus = {
+  storageProfile?: "core_application";
   pushId: string;
   state: PushState;
   sourcePackage: PushSourcePackage;
@@ -294,6 +295,7 @@ export type PushStatus = {
   diagnostics?: PushDiagnostic[];
   createdAt: number;
   updatedAt: number;
+  indexesReady?: boolean;
 };
 
 export type StartPushResponse = PushStatus;

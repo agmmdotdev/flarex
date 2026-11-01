@@ -261,6 +261,9 @@ importers:
       '@types/pg':
         specifier: ^8.20.0
         version: 8.20.0
+      flarex-dev:
+        specifier: workspace:*
+        version: link:../../packages/flarex-dev
       miniflare:
         specifier: 'catalog:'
         version: 4.20260611.0

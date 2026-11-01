@@ -21,6 +21,34 @@ import {
 import type { SourcePackage } from "../src/sourcePackage";
 
 describe("backend push coordinator", () => {
+  it("discovers the backend storage profile without falling back on lookup failures", async () => {
+    const urls: string[] = [];
+    const coordinator = new HttpBackendPushCoordinator({ url: "https://flarex.example", deploymentId: "deployment1",
+      fetch: async input => {
+        urls.push(String(input));
+        return Response.json({ storageProfile: "core_application" });
+      } });
+    await expect(coordinator.getStorageProfile()).resolves.toBe("core_application");
+    expect(urls).toEqual(["https://flarex.example/deployments/deployment1/profile"]);
+    await expect(new HttpBackendPushCoordinator({ url: "https://flarex.example", deploymentId: "deployment1",
+      fetch: async () => Response.json({ storageProfile: "unknown" }) }).getStorageProfile()).rejects.toThrow();
+    await expect(new HttpBackendPushCoordinator({ url: "https://flarex.example", deploymentId: "deployment1",
+      fetch: async () => Response.json({ error: "profile unavailable" }, { status: 503 }) }).getStorageProfile())
+      .rejects.toMatchObject({ context: "profile", status: 503 });
+  });
+
+  it("preserves Core push and finish profiles and rejects unknown profile markers", async () => {
+    const coordinator = new HttpBackendPushCoordinator({ url: "https://flarex.example", deploymentId: "deployment1",
+      fetch: async input => Response.json(String(input).endsWith("/finish")
+        ? { result: "activated", push: { pushId: "push1", state: "activated", storageProfile: "core_application" } }
+        : { pushId: "push1", state: "analyzed", storageProfile: "core_application" }) });
+    await expect(coordinator.start(testSourcePackage())).resolves.toMatchObject({ storageProfile: "core_application" });
+    await expect(coordinator.finish("push1")).resolves.toMatchObject({ push: { storageProfile: "core_application" } });
+    await expect(new HttpBackendPushCoordinator({ url: "https://flarex.example", deploymentId: "deployment1",
+      fetch: async () => Response.json({ pushId: "push1", state: "analyzed", storageProfile: "future" }) })
+      .start(testSourcePackage())).rejects.toThrow("Backend push response storageProfile is invalid.");
+  });
+
   it.each([1n, -0])("emits wire metadata for literal %s from the actual local analyzer service", async value => {
     const sourcePackage = testSourcePackage();
     const analysis: DeploymentAnalysis = { schema: { version: 1, tables: [], indexes: [] }, functions: [{ moduleName: "lessons", functions: [{

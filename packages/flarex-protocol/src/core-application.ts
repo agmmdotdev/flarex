@@ -5,6 +5,7 @@ import { captureDocumentObject, decodeDocumentValue, encodeDocumentValue,
   type DocumentObject, type DocumentValue } from "./document-value";
 import { JsonValue, type Json } from "./json";
 import { TransactionFunctionPathV1Schema, TransactionRequestKeyV1Schema } from "./transaction-session";
+import { PushSourcePackage } from "./deployment";
 
 const strict = { parseOptions: { onExcessProperty: "error" as const } };
 const Text = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024));
@@ -22,6 +23,7 @@ const Frontier = Schema.Struct({ timestamp: Timestamp, reads: Schema.Array(Read)
 const Evaluation = Schema.Struct({ timestamp: Timestamp, reads: Schema.Array(Read),
   metadataReadFrontiers: Schema.optionalKey(Schema.Array(Frontier)) }).annotate(strict);
 const Route = Schema.Struct({ deploymentId: Text, scopeUuid: Uuid, epochUuid: Uuid }).annotate(strict);
+const WallTime = Schema.Finite.check(Schema.makeFilter(value => value >= 0 ? undefined : "Expected nonnegative epoch milliseconds"));
 export type CoreApplicationRouteIdentity = typeof Route.Type;
 
 const requestHeader = {
@@ -32,16 +34,33 @@ const requestHeader = {
 };
 const RequestWire = Schema.Struct(requestHeader).annotate(strict);
 export type CoreApplicationInvocationRequest = Omit<typeof RequestWire.Type, "args"> & Readonly<{ args: DocumentObject }>;
-const RegistrationWire = Schema.Struct({ format: Schema.Literal("flarex.core-application.registration"),
-  version: Schema.Literal(1), requestKey: TransactionRequestKeyV1Schema,
-  sourceArtifactRootSha256: Sha256 }).annotate(strict);
-export type CoreApplicationRegistrationRequest = typeof RegistrationWire.Type;
 const CoreProfile = Schema.Struct({ format: Schema.Literal("flarex.core-application.profile"), version: Schema.Literal(1),
   kind: Schema.Literal("core"), route: Route, sourceArtifactRootSha256: Sha256, sourcePackageHash: Sha256 }).annotate(strict);
 const Profile = Schema.Union([CoreProfile, Schema.Struct({ format: Schema.Literal("flarex.core-application.profile"),
   version: Schema.Literal(1), kind: Schema.Literal("legacy"), deploymentId: Text }).annotate(strict)]);
 export type CoreApplicationCoreProfile = typeof CoreProfile.Type;
 export type CoreApplicationProfile = typeof Profile.Type;
+const Control = Schema.Union([
+  Schema.Struct({ format: Schema.Literal("flarex.core-application.control"), version: Schema.Literal(1),
+    kind: Schema.Literal("core"), route: Route,
+    maximumPushRequestBytes: Schema.Int.check(Schema.makeFilter(value => Number.isSafeInteger(value) && value > 0
+      ? undefined : "Expected a positive byte bound")) }).annotate(strict),
+  Schema.Struct({ format: Schema.Literal("flarex.core-application.control"), version: Schema.Literal(1),
+    kind: Schema.Literal("legacy"), deploymentId: Text }).annotate(strict),
+]);
+export type CoreApplicationControl = typeof Control.Type;
+const Candidate = Schema.Struct({ format: Schema.Literal("flarex.core-application.candidate"), version: Schema.Literal(1),
+  route: Route, pushId: Text, state: Schema.Literals(["pending", "validated", "active", "failed", "abandoned", "superseded"]),
+  sourceArtifactRootSha256: Sha256, sourcePackageHash: Sha256, canonicalManifest: Schema.String,
+  sourcePackage: PushSourcePackage, createdAt: WallTime, updatedAt: WallTime,
+  indexesReady: Schema.Boolean, error: Schema.optionalKey(Schema.String) }).annotate(strict);
+export type CoreApplicationCandidate = typeof Candidate.Type;
+const Start = Schema.Struct({ sourcePackage: PushSourcePackage }).annotate(strict);
+const Finish = Schema.Struct({ activate: Schema.optionalKey(Schema.Boolean) }).annotate(strict);
+const Abandon = Schema.Struct({ reason: Schema.optionalKey(Schema.String) }).annotate(strict);
+export type CoreApplicationStartRequest = typeof Start.Type;
+export type CoreApplicationFinishRequest = typeof Finish.Type;
+export type CoreApplicationAbandonRequest = typeof Abandon.Type;
 
 export interface CoreApplicationIndexRead {
   readonly indexId: Uint8Array;
@@ -73,9 +92,13 @@ const Failure = Schema.Struct({ format: Schema.Literal("flarex.core-application.
 export type CoreApplicationFailure = typeof Failure.Type;
 const decodeRequestWire = Schema.decodeUnknownResult(RequestWire);
 const decodeResponseWire = Schema.decodeUnknownResult(ResponseWire);
-const decodeRegistrationWire = Schema.decodeUnknownResult(RegistrationWire);
 const decodeProfileWire = Schema.decodeUnknownResult(Profile);
 const decodeFailureWire = Schema.decodeUnknownResult(Failure);
+const decodeControlWire = Schema.decodeUnknownResult(Control);
+const decodeCandidateWire = Schema.decodeUnknownResult(Candidate);
+const decodeStartWire = Schema.decodeUnknownResult(Start);
+const decodeFinishWire = Schema.decodeUnknownResult(Finish);
+const decodeAbandonWire = Schema.decodeUnknownResult(Abandon);
 
 export class CoreApplicationProtocolError extends Data.TaggedError("CoreApplicationProtocolError")<{
   readonly reason: "invalidRequest" | "invalidResponse" | "invalidValue";
@@ -115,14 +138,23 @@ export function encodeCoreApplicationInvocationRequest(value: CoreApplicationInv
   return Result.flatMap(coreApplicationValueToJson(value.args), args =>
     Result.mapError(decodeRequestWire({ ...value, args }), cause => invalid("invalidRequest", cause)));
 }
-export const decodeCoreApplicationRegistrationRequest = (value: unknown) =>
-  Result.mapError(decodeRegistrationWire(value), cause => invalid("invalidRequest", cause));
-export const encodeCoreApplicationRegistrationRequest = decodeCoreApplicationRegistrationRequest;
 export const decodeCoreApplicationProfile = (value: unknown) =>
   Result.mapError(decodeProfileWire(value), cause => invalid("invalidResponse", cause));
 export const encodeCoreApplicationProfile = decodeCoreApplicationProfile;
 export const decodeCoreApplicationFailure = (value: unknown) =>
   Result.mapError(decodeFailureWire(value), cause => invalid("invalidResponse", cause));
+export const decodeCoreApplicationControl = (value: unknown) =>
+  Result.mapError(decodeControlWire(value), cause => invalid("invalidResponse", cause));
+export const encodeCoreApplicationControl = decodeCoreApplicationControl;
+export const decodeCoreApplicationCandidate = (value: unknown) =>
+  Result.mapError(decodeCandidateWire(value), cause => invalid("invalidResponse", cause));
+export const encodeCoreApplicationCandidate = decodeCoreApplicationCandidate;
+export const decodeCoreApplicationStartRequest = (value: unknown) =>
+  Result.mapError(decodeStartWire(value), cause => invalid("invalidRequest", cause));
+export const decodeCoreApplicationFinishRequest = (value: unknown) =>
+  Result.mapError(decodeFinishWire(value), cause => invalid("invalidRequest", cause));
+export const decodeCoreApplicationAbandonRequest = (value: unknown) =>
+  Result.mapError(decodeAbandonWire(value), cause => invalid("invalidRequest", cause));
 
 function readSetFromWire(reads: readonly typeof Read.Type[]): Result.Result<readonly CoreApplicationIndexRead[], CoreApplicationProtocolError> {
   return Result.all(reads.map(read => Result.gen(function* () {
@@ -170,5 +202,9 @@ export function decodeCoreApplicationInvocationSuccess(value: unknown): Result.R
   });
 }
 export const coreApplicationInvocationPath = (deploymentId: string) => `/applications/${encodeURIComponent(deploymentId)}/invoke`;
-export const coreApplicationRegistrationPath = (deploymentId: string) => `/applications/${encodeURIComponent(deploymentId)}/register`;
 export const coreApplicationProfilePath = (deploymentId: string) => `/applications/${encodeURIComponent(deploymentId)}/profile`;
+export const coreApplicationControlPath = (deploymentId: string) => `/applications/${encodeURIComponent(deploymentId)}/control`;
+export const coreApplicationDeploymentPath = (deploymentId: string) => `/applications/${encodeURIComponent(deploymentId)}/deployment`;
+export const coreApplicationPushStartPath = (deploymentId: string) => `/applications/${encodeURIComponent(deploymentId)}/push/start`;
+export const coreApplicationPushPath = (deploymentId: string, pushId: string) =>
+  `/applications/${encodeURIComponent(deploymentId)}/push/${encodeURIComponent(pushId)}`;

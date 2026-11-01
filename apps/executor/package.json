@@ -39,6 +39,7 @@
     "@flarex/application-invocation": "workspace:*",
     "@types/node": "catalog:",
     "@types/pg": "^8.20.0",
+    "flarex-dev": "workspace:*",
     "miniflare": "catalog:",
     "pg-cloudflare": "1.4.0",
     "tsx": "catalog:",

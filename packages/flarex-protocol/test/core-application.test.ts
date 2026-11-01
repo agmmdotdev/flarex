@@ -5,7 +5,7 @@ import {
   coreApplicationArgumentsFromJson, coreApplicationValueFromJson, coreApplicationValueToJson,
   decodeCoreApplicationInvocationRequest, encodeCoreApplicationInvocationRequest,
   decodeCoreApplicationInvocationSuccess, encodeCoreApplicationInvocationSuccess,
-  decodeCoreApplicationRegistrationRequest, decodeCoreApplicationProfile,
+  decodeCoreApplicationStartRequest, decodeCoreApplicationCandidate, decodeCoreApplicationControl, decodeCoreApplicationProfile,
   type CoreApplicationInvocationRequest, type CoreApplicationInvocationSuccess,
 } from "../src/core-application";
 import { TransactionFunctionPathV1Schema, TransactionRequestKeyV1Schema } from "../src/transaction-session";
@@ -88,12 +88,25 @@ describe("Core whole-function protocol", () => {
     expect(Result.isFailure(coreApplicationValueFromJson({ $integer: "bad" }))).toBe(true);
   });
 
-  it("keeps registration separate and permits only a source reference", () => {
-    const registration = { format: "flarex.core-application.registration", version: 1,
-      requestKey: "register-1", sourceArtifactRootSha256: "b".repeat(64) };
-    expect(Result.isSuccess(decodeCoreApplicationRegistrationRequest(registration))).toBe(true);
-    expect(Result.isFailure(decodeCoreApplicationRegistrationRequest({ ...registration, manifest: {} }))).toBe(true);
-    expect(Result.isFailure(decodeCoreApplicationInvocationRequest(registration))).toBe(true);
+  it("admits source-only preparation without a caller-supplied manifest or storage authority", () => {
+    const source = { sourcePackage: { modules: [], functions: [], execution: "app.js" } };
+    expect(Result.isSuccess(decodeCoreApplicationStartRequest(source))).toBe(true);
+    for (const addition of [{ manifest: {} }, { scopeUuid: route.scopeUuid }, { programs: [] }, { sourceArtifactRootSha256: "b".repeat(64) }])
+      expect(Result.isFailure(decodeCoreApplicationStartRequest({ ...source, ...addition }))).toBe(true);
+    expect(Result.isFailure(decodeCoreApplicationInvocationRequest(source))).toBe(true);
+  });
+
+  it("keeps source readiness separate from operator routing and rejects malformed candidate evidence", () => {
+    const control = { format: "flarex.core-application.control", version: 1, kind: "core", route, maximumPushRequestBytes: 8192 };
+    expect(Result.isSuccess(decodeCoreApplicationControl(control))).toBe(true);
+    expect(Result.isFailure(decodeCoreApplicationProfile(control))).toBe(true);
+    expect(Result.isFailure(decodeCoreApplicationControl({ ...control, maximumPushRequestBytes: 0 }))).toBe(true);
+    const candidate = { format: "flarex.core-application.candidate", version: 1, route, pushId: "proposal:one", state: "validated",
+      sourceArtifactRootSha256: "a".repeat(64), sourcePackageHash: "b".repeat(64), canonicalManifest: "{}",
+      sourcePackage: { modules: [], functions: [], execution: "app.js" }, createdAt: 1, updatedAt: 2, indexesReady: true };
+    expect(Result.isSuccess(decodeCoreApplicationCandidate(candidate))).toBe(true);
+    expect(Result.isFailure(decodeCoreApplicationCandidate({ ...candidate, state: "runnable" }))).toBe(true);
+    expect(Result.isFailure(decodeCoreApplicationCandidate({ ...candidate, sourcePackageHash: undefined }))).toBe(true);
   });
 
   it("distinguishes an authoritative Core profile from an explicit legacy profile", () => {

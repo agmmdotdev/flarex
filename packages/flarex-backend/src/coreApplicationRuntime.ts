@@ -3,19 +3,23 @@ import type { ExecutionIdentity } from "flarex-protocol/auth";
 import {
   coreApplicationArgumentsFromJson,
   coreApplicationValueToJson,
+  type CoreApplicationControl,
   type CoreApplicationCoreProfile,
 } from "flarex-protocol/internal/core-application";
+import type { CoreActiveDeploymentStatus } from "flarex-protocol/deployment";
 import {
   TransactionFunctionPathV1Schema,
   TransactionRequestKeyV1Schema,
 } from "flarex-protocol/transaction-session";
 import {
   CoreApplicationTransportError,
-  lookupCoreApplicationProfile,
+  lookupCoreApplicationControl,
   makeCoreApplicationClient,
+  makeCoreApplicationDeploymentClient,
 } from "@flarex/executor-http/internal/core-application";
 import { HttpError } from "./http";
-import type { ActiveDeploymentStatus, Env, InvokeRequest } from "./types";
+import { BackendCoreApplicationMetadataError } from "./publicCoreApplicationMetadata";
+import type { Env, InvokeRequest } from "./types";
 
 type CoreApplicationEnv = Pick<Env,
   "FLAREX_EXECUTOR" | "FLAREX_EXECUTOR_TOKEN" | "FLAREX_EXECUTOR_TRANSPORT">;
@@ -50,20 +54,28 @@ export const lookupBackendCoreApplication = Effect.fn("BackendCoreApplication.lo
   if (env.FLAREX_EXECUTOR_TRANSPORT !== "core_application")
     return yield* new BackendCoreApplicationError({ reason: "configuration" });
   const options = yield* transportFor(env);
-  const profile = yield* lookupCoreApplicationProfile({ ...options, deploymentId });
-  return profile.kind === "core" ? profile : undefined;
+  const control = yield* lookupCoreApplicationControl({ ...options, deploymentId });
+  return control.kind === "core" ? control : undefined;
+});
+
+export const makeBackendCoreApplicationDeploymentClient = Effect.fn("BackendCoreApplication.deploymentClient")(function* (
+  env: CoreApplicationEnv,
+  control: Extract<CoreApplicationControl, { readonly kind: "core" }>,
+) {
+  return makeCoreApplicationDeploymentClient({ ...(yield* transportFor(env)), deploymentId: control.route.deploymentId,
+    expectedRoute: control.route });
 });
 
 /** The public caller has already resolved deployment and bearer/trusted identity. */
 export const invokeBackendCoreApplication = Effect.fn("BackendCoreApplication.invoke")(function* (
   env: CoreApplicationEnv,
   profile: CoreApplicationCoreProfile,
-  deployment: ActiveDeploymentStatus,
+  deployment: CoreActiveDeploymentStatus,
   request: InvokeRequest,
   argumentsJson: unknown,
   auth: ExecutionIdentity,
 ) {
-  if (profile.sourcePackageHash !== deployment.executionArtifactRef.sourcePackageHash)
+  if (profile.sourcePackageHash !== deployment.sourcePackageHash)
     return yield* new BackendCoreApplicationError({ reason: "sourceMismatch" });
   if (request.partitionKey !== undefined)
     return yield* new BackendCoreApplicationError({ reason: "unsupportedPartition" });
@@ -104,13 +116,15 @@ export const assertLegacySubscriptionApplication = Effect.fn("BackendCoreApplica
 });
 
 export const projectBackendCoreApplicationErrors = <Value, Failure>(
-  effect: Effect.Effect<Value, Failure | BackendCoreApplicationError | CoreApplicationTransportError>,
+  effect: Effect.Effect<Value, Failure | BackendCoreApplicationError | BackendCoreApplicationMetadataError | CoreApplicationTransportError>,
 ) => effect.pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, error => {
   if (error instanceof CoreApplicationTransportError) {
     const status = error.reason === "httpFailure" && error.status !== undefined && error.status >= 400 && error.status <= 599
       ? error.status : 503;
     return Object.assign(new HttpError(status, error.message || "Core application executor request failed."), { cause: error });
   }
+  if (error instanceof BackendCoreApplicationMetadataError)
+    return Object.assign(new HttpError(503, "Core application deployment metadata is unavailable."), { cause: error });
   if (!(error instanceof BackendCoreApplicationError)) return error;
   switch (error.reason) {
     case "configuration": return new HttpError(503, "Core application executor is not configured.");

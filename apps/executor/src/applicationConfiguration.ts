@@ -1,14 +1,14 @@
 import { Data, Result, Schema } from "effect";
-import { captureCoreApplicationProgramProfile } from "@flarex/persistence-postgres/internal/core-application-program";
 import { encodeEdgeActionHostPolicyV1 } from "flarex-protocol/internal/edge-action-host-policy-v1";
 import { makeGrantRetentionPolicyV1Result } from "flarex-protocol/grant-retention-policy";
 import { ScopeEpochUuidV1Schema, ScopeUuidV1Schema } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema, TransactionGrantKeyIdV1Schema } from "flarex-protocol/transaction-grant";
-import { TransactionFunctionPathV1Schema } from "flarex-protocol/transaction-session";
 import { ApplicationDurableObjectWorkloadSchema } from "./applicationWorkload";
 import type { ApplicationDurableObjectConfiguration, ApplicationDurableObjectEnv } from "./applicationDO";
 import type { ApplicationAnalysisHostRequest, ApplicationAnalysisHostResult } from
   "@flarex/source-analyzer-v2/internal/application-analysis-host";
+import { PublicApplicationSourcePolicySchema, type makePublicApplicationSourceProducer } from
+  "flarex-backend/internal/public-application-source";
 
 const Positive = Schema.Int.check(Schema.makeFilter(value => Number.isSafeInteger(value) && value > 0
   ? undefined : "Expected a positive safe integer"));
@@ -27,18 +27,16 @@ const ProfileInput = Schema.Struct({
   persistenceNamespace: Schema.String.check(Schema.makeFilter(value => /^[a-z_][a-z0-9_]{0,62}$/.test(value)
     ? undefined : "Expected an explicit PostgreSQL namespace")),
   instanceName: Text,
-  sourceArtifactRootSha256: Digest,
-  sourcePackageHash: Digest,
   compatibilityDate: Schema.String.check(Schema.makeFilter(value => /^\d{4}-\d{2}-\d{2}$/.test(value)
     ? undefined : "Expected a compatibility date")),
   generation: Positive,
-  anchorFunctionPath: TransactionFunctionPathV1Schema,
   analyzerIdentity: Digest,
   analyzerPolicyIdentity: Text,
   keyId: TransactionGrantKeyIdV1Schema,
   maximumAttempts: Positive,
   maximumRegistrationSteps: Positive,
   http: Schema.Struct({ maximumRequestBytes: Positive, maximumResponseBytes: Positive, maximumRegistrationRequestBytes: Positive }),
+  sourceUpload: PublicApplicationSourcePolicySchema,
   grantRetentionPolicy: Schema.Struct({ maximumGrantLifetimeMilliseconds: Positive,
     maximumFutureIssuedAtSkewMilliseconds: Nonnegative, maximumLiveSnapshotRetentionMilliseconds: Positive }),
   hostPolicy: Schema.Unknown,
@@ -66,6 +64,7 @@ export class ExecutorApplicationConfigurationError extends Data.TaggedError("Exe
 }> {}
 
 export interface ExecutorApplicationEnv extends ApplicationDurableObjectEnv {
+  readonly ARTIFACTS: ApplicationDurableObjectEnv["ARTIFACTS"] & Parameters<typeof makePublicApplicationSourceProducer>[0]["artifacts"];
   readonly APPLICATIONS?: DurableObjectNamespace;
   readonly APPLICATION_ANALYZER?: Readonly<{
     analyze: (request: ApplicationAnalysisHostRequest) => Promise<ApplicationAnalysisHostResult>;
@@ -86,14 +85,13 @@ export function readExecutorApplicationRegistry(env: Pick<ExecutorApplicationEnv
     for (const input of configured.profiles) {
       const policy = yield* encodeEdgeActionHostPolicyV1(input.hostPolicy, policyBudget).pipe(Result.mapError(invalidProfiles));
       const grantRetentionPolicy = yield* makeGrantRetentionPolicyV1Result(input.grantRetentionPolicy).pipe(Result.mapError(invalidProfiles));
-      const expectedProgramProfile = yield* captureCoreApplicationProgramProfile(input).pipe(Result.mapError(invalidProfiles));
       for (const key of [`deployment:${input.deploymentId}`, `scope:${input.scopeUuid}`, `object:${input.canonicalName}`,
         `instance:${input.persistenceNamespace}:${input.instanceName}`]) {
         if (identities.has(key)) return yield* Result.fail(new ExecutorApplicationConfigurationError({ reason: "duplicateProfile" }));
         identities.add(key);
       }
       profiles.push(Object.freeze({ ...input, hostPolicy: policy.frame, hostPolicyCanonicalBytes: policy.canonicalBytes,
-        grantRetentionPolicy, expectedProgramProfile }));
+        grantRetentionPolicy }));
     }
     const legacyProfiles = [];
     for (const input of configured.legacyProfiles ?? []) {

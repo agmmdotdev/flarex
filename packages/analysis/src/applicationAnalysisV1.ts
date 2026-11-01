@@ -27,6 +27,7 @@ import {
 } from "flarex-protocol/validator-json";
 import { isDeclarativeV2ArtifactModulePathV1 } from "flarex-protocol/internal/declarative-v2-artifact-module-path-v1";
 import {
+  isSourceArtifactV2ModuleRolesV1,
   SOURCE_ARTIFACT_V2_ROLE_AUTH,
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
   SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
@@ -95,7 +96,8 @@ const PositiveSafeIntegerSchema = Schema.Int.check(
   Schema.isBetween({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }),
 );
 const ModuleRolesSchema = Schema.Int.check(
-  Schema.isBetween({ minimum: 1, maximum: 15 }),
+  Schema.makeFilter(value => isSourceArtifactV2ModuleRolesV1(value)
+    ? undefined : "Expected supported source roles or dependency membership"),
 );
 const SourceByteLengthSchema = NonNegativeSafeIntegerSchema.check(
   Schema.isLessThanOrEqualTo(APPLICATION_ANALYSIS_MAXIMUM_MODULE_BYTES_V1),

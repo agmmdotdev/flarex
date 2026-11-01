@@ -45,6 +45,7 @@ export interface ApplicationAnalysisSourceModule {
   readonly sourceSha256: string;
   readonly sourceByteLength: number;
   readonly source: string;
+  readonly sourceMap?: string;
 }
 
 export interface ApplicationAnalysisSourceBundle {
@@ -80,7 +81,9 @@ export interface ApplicationAnalysisSourceReader {
 
 export function makeApplicationAnalysisSourceReader(options: {
   readonly source: SourceArtifactV2FinalizedContentReader;
+  readonly sourceMaps?: "ignore" | "read";
 }): ApplicationAnalysisSourceReader {
+  const sourceMaps = options.sourceMaps ?? "ignore";
   const read = Effect.fn("ApplicationAnalysisSource.read")(function* (
     rootSha256: string,
   ): Effect.fn.Return<
@@ -93,7 +96,7 @@ export function makeApplicationAnalysisSourceReader(options: {
         reason: "invalidRoot",
       });
     }
-    const budget = yield* Effect.fromResult(applicationAnalysisReadBudget());
+    const budget = yield* Effect.fromResult(applicationAnalysisReadBudget(sourceMaps));
     const finalized = yield* options.source.read(
       sourceArtifactV2DigestBytesFromLowerHex(rootSha256),
       budget,
@@ -108,9 +111,12 @@ export function makeApplicationAnalysisSourceReader(options: {
     const modules: ApplicationAnalysisSourceModule[] = [];
     for (const module of finalized.modules) {
       let source: string;
+      let sourceMap: string | undefined;
       let path: string;
       try {
         source = SOURCE_UTF8_DECODER.decode(module.sourceBytes);
+        sourceMap = sourceMaps === "read" && module.sourceMapBytes !== undefined
+          ? SOURCE_UTF8_DECODER.decode(module.sourceMapBytes) : undefined;
         path = PATH_UTF8_DECODER.decode(module.pathBytes);
       } catch (cause) {
         return yield* new ApplicationAnalysisSourceReadError({
@@ -126,6 +132,7 @@ export function makeApplicationAnalysisSourceReader(options: {
         sourceSha256: encodeBytesToLowercaseHex(module.sourceSha256),
         sourceByteLength: module.sourceBytes.byteLength,
         source,
+        ...(sourceMap === undefined ? {} : { sourceMap }),
       }));
     }
     const relationshipFailure = validateSourceRelationships(
@@ -216,27 +223,29 @@ function validateSourceRelationships(
 
 export function makeApplicationAnalysisR2SourceReader(
   bucket: SourceArtifactV2R2Bucket,
+  options: Readonly<{ sourceMaps?: "ignore" | "read" }> = {},
 ): ApplicationAnalysisSourceReader {
   const r2 = makeSourceArtifactV2R2Store(
     bucket,
     makeLiveSourceArtifactV2Sha256(),
   );
   return makeApplicationAnalysisSourceReader({
+    sourceMaps: options.sourceMaps ?? "ignore",
     source: makeSourceArtifactV2FinalizedContentReader({
       r2,
-      sourceMaps: "ignore",
+      sourceMaps: options.sourceMaps ?? "ignore",
     }),
   });
 }
 
-function applicationAnalysisReadBudget(): Result.Result<
+function applicationAnalysisReadBudget(sourceMaps: "ignore" | "read"): Result.Result<
   ReturnType<typeof makeDeclarativeV2ContentReadBudgetTracker> extends
     Result.Result<infer Success, unknown> ? Success : never,
   ApplicationAnalysisSourceReadError
 > {
-  const ceilings = budgetFrame("attempt_ceilings");
-  const usage = budgetFrame("attempt_usage", 0n);
-  const command = budgetFrame("command_budget");
+  const ceilings = budgetFrame("attempt_ceilings", sourceMaps);
+  const usage = budgetFrame("attempt_usage", sourceMaps, 0n);
+  const command = budgetFrame("command_budget", sourceMaps);
   return makeDeclarativeV2ContentReadBudgetTracker({
     ceilings,
     usage,
@@ -246,17 +255,19 @@ function applicationAnalysisReadBudget(): Result.Result<
 
 function budgetFrame(
   kind: DeclarativeV2VerifierBudgetFrameV2["kind"],
+  sourceMaps: "ignore" | "read",
   override?: bigint,
 ): DeclarativeV2VerifierBudgetFrameV2 {
   const values: Record<string, bigint | string> = { kind };
   for (const dimension of DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2) {
-    values[dimension] = override ?? applicationAnalysisDimensionLimit(dimension);
+    values[dimension] = override ?? applicationAnalysisDimensionLimit(dimension, sourceMaps);
   }
   return Object.freeze(values) as DeclarativeV2VerifierBudgetFrameV2;
 }
 
 function applicationAnalysisDimensionLimit(
   dimension: typeof DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2[number],
+  sourceMaps: "ignore" | "read",
 ): bigint {
   switch (dimension) {
     case "calls":
@@ -268,6 +279,8 @@ function applicationAnalysisDimensionLimit(
       return BigInt(APPLICATION_ANALYSIS_MAXIMUM_MODULES_V1);
     case "sourceBytes":
       return BigInt(APPLICATION_ANALYSIS_MAXIMUM_SOURCE_BYTES_V1);
+    case "sourceMapBytes":
+      return sourceMaps === "read" ? APPLICATION_ANALYSIS_SOURCE_READ_MAXIMUM_OUTPUT_BYTES : 0n;
     case "objectBodyBytes":
     case "canonicalBytes":
     case "frameBytes":

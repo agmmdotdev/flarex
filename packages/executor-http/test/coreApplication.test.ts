@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   coreApplicationInvocationPath, coreApplicationProfilePath, encodeCoreApplicationInvocationSuccess,
   type CoreApplicationCoreProfile, type CoreApplicationInvocationResult, type CoreApplicationInvocationSuccess,
+  type CoreApplicationCandidate, coreApplicationControlPath, coreApplicationPushStartPath, coreApplicationPushPath,
 } from "flarex-protocol/internal/core-application";
 import { captureDocumentObject } from "flarex-protocol/document-value";
 import { TransactionFunctionPathV1Schema, TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
 import { makeCoreApplicationClient, makeCoreApplicationHttpHandler, lookupCoreApplicationProfile,
+  lookupCoreApplicationControl, makeCoreApplicationDeploymentClient,
   CoreApplicationTransportError, decodeCoreApplicationJsonBody, readCoreApplicationBodyBytes,
   type CoreApplicationClientInvocation, type CoreApplicationTransport } from "../src/coreApplication";
 
@@ -24,6 +26,53 @@ const result = (): CoreApplicationInvocationSuccess => ({ ...query,
   functionPath: input().functionPath, requestKey: input().requestKey });
 
 describe("Core whole-function HTTP boundary", () => {
+  it("separates configured control inventory from a ready persisted application", async () => {
+    const configured = await Effect.runPromise(lookupCoreApplicationControl({ deploymentId: profile.route.deploymentId,
+      capabilityToken: "capability", transport: { fetch: async request => {
+        expect(new URL(request.url).pathname).toBe(coreApplicationControlPath(profile.route.deploymentId));
+        expect(request.headers.get("authorization")).toBe("Bearer capability");
+        return Response.json({ format: "flarex.core-application.control", version: 1, kind: "core", route: profile.route,
+          maximumPushRequestBytes: 8192 });
+      } } }));
+    expect(configured).toMatchObject({ kind: "core", maximumPushRequestBytes: 8192 });
+    const wrong = await Effect.runPromise(lookupCoreApplicationControl({ deploymentId: profile.route.deploymentId,
+      capabilityToken: "capability", transport: { fetch: async () => Response.json({ format: "flarex.core-application.control", version: 1,
+        kind: "legacy", deploymentId: "other" }) } }).pipe(Effect.flip));
+    expect(wrong.reason).toBe("invalidResponse");
+  });
+
+  it("binds candidate lifecycle calls to one route and proposal without retries", async () => {
+    const candidate: CoreApplicationCandidate = { format: "flarex.core-application.candidate", version: 1, route: profile.route,
+      pushId: "proposal:one", state: "validated", sourceArtifactRootSha256: profile.sourceArtifactRootSha256,
+      sourcePackageHash: profile.sourcePackageHash, canonicalManifest: "{}", sourcePackage: { modules: [], functions: [], execution: "app.js" },
+      createdAt: 1, updatedAt: 2, indexesReady: true };
+    const paths: string[] = [];
+    const bodies: unknown[] = [];
+    const client = makeCoreApplicationDeploymentClient({ deploymentId: profile.route.deploymentId, expectedRoute: profile.route,
+      capabilityToken: "capability", transport: { fetch: async request => {
+        const path = new URL(request.url).pathname;
+        paths.push(path);
+        if (request.method === "POST") bodies.push(await request.json());
+        return Response.json(path.endsWith("/abandon") ? { ...candidate, state: "abandoned" } : candidate);
+      } } });
+    expect(await Effect.runPromise(client.start(candidate.sourcePackage))).toEqual(candidate);
+    expect(await Effect.runPromise(client.read(candidate.pushId))).toEqual(candidate);
+    expect(await Effect.runPromise(client.finish(candidate.pushId, { activate: false }))).toEqual(candidate);
+    expect(await Effect.runPromise(client.abandon(candidate.pushId, { reason: "cancel" }))).toEqual({ ...candidate, state: "abandoned" });
+    expect(paths).toEqual([coreApplicationPushStartPath(profile.route.deploymentId),
+      coreApplicationPushPath(profile.route.deploymentId, candidate.pushId),
+      `${coreApplicationPushPath(profile.route.deploymentId, candidate.pushId)}/finish`,
+      `${coreApplicationPushPath(profile.route.deploymentId, candidate.pushId)}/abandon`]);
+    expect(bodies).toEqual([{ sourcePackage: candidate.sourcePackage }, { activate: false }, { reason: "cancel" }]);
+    const corrupt = makeCoreApplicationDeploymentClient({ deploymentId: profile.route.deploymentId, capabilityToken: "capability",
+      transport: { fetch: async () => Response.json({ ...candidate, pushId: "other" }) } });
+    expect((await Effect.runPromise(corrupt.finish(candidate.pushId).pipe(Effect.flip))).reason).toBe("invalidResponse");
+    const absent = makeCoreApplicationDeploymentClient({ deploymentId: profile.route.deploymentId, capabilityToken: "capability",
+      transport: { fetch: async () => Response.json(null) } });
+    expect(await Effect.runPromise(absent.active())).toBeNull();
+    expect((await Effect.runPromise(absent.finish(candidate.pushId).pipe(Effect.flip))).reason).toBe("invalidResponse");
+  });
+
   it("executes once through an authenticated bound route and preserves real evaluation", async () => {
     let calls = 0;
     const handler = makeCoreApplicationHttpHandler({ route: profile.route, maximumRequestBytes: 4096, maximumResponseBytes: 4096,

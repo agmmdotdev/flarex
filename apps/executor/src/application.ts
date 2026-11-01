@@ -3,6 +3,7 @@ import { makeApplicationDurableObject, type ApplicationDurableObjectOptions } fr
 import { executorApplicationObjectConfiguration, readExecutorApplicationProfiles,
   ExecutorApplicationConfigurationError, type ExecutorApplicationEnv } from "./applicationConfiguration";
 import { executorApplicationFailureResponse, makeExecutorApplicationComposition } from "./applicationComposition";
+import { makePublicApplicationSourceProducer } from "flarex-backend/internal/public-application-source";
 
 type Composition = Effect.Success<ReturnType<typeof makeExecutorApplicationComposition>>;
 type Failure = Effect.Error<ReturnType<typeof makeExecutorApplicationComposition>> |
@@ -21,6 +22,13 @@ export function makeExecutorApplicationOptions(): ApplicationDurableObjectOption
     coreOptions: { now: Clock.currentTimeMillis.pipe(Effect.map(milliseconds => BigInt(Math.floor(milliseconds)) * 1_000_000n)),
       randomBytes: length => Effect.sync(() => crypto.getRandomValues(new Uint8Array(length))) },
     application: makeExecutorApplicationComposition,
+    sourceUpload: (env, context, configuration) => {
+      const profile = Result.getOrThrow(readExecutorApplicationProfiles(env))
+        .find(candidate => candidate.canonicalName === configuration.canonicalName);
+      if (profile === undefined) throw new ExecutorApplicationConfigurationError({ reason: "unknownObject" });
+      return makePublicApplicationSourceProducer({ deploymentId: profile.deploymentId,
+        storage: context.storage, sql: context.storage.sql, artifacts: env.ARTIFACTS, policy: profile.sourceUpload }).upload;
+    },
     dispatch: () => Effect.succeed(Response.json({ error: "application_not_configured" }, { status: 503 })),
     failureResponse: executorApplicationFailureResponse,
   };
