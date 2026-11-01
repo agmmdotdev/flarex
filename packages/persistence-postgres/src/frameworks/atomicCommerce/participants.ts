@@ -20,13 +20,14 @@ import { captureCommerceResources, defaultCommerceResources, type CommerceResour
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { FlarexMetadataDatabase } from "../../application/deployments";
 import type { FrameworkSchemaTarget } from "../../installation/frameworkSchema/target";
-import { getAtomicCommerceParticipant, type AtomicCommerceParticipant } from "./commands";
+import { getAtomicCommerceParticipant, isCommerceDefinitionName, type AtomicCommerceParticipant } from "./commands";
 import { captureParticipantEvents, type CommerceDerivedIdEvent, type ParticipantEventSelection } from "./events";
 import type { LogicalCommerceLifecycleObservation, LogicalCommerceMutation,
   LogicalCommerceObservedRow, LogicalCommerceSetNull,
   LogicalCommerceReferenceReplacement, LogicalCommerceActivity } from "../commerceTransaction/logicalParticipant";
 import type { Json } from "flarex-protocol/json";
 import { LogicalInsertValidation, LogicalReconstitutionPolicy, LogicalPreservingDeletionUpsertPolicy, LogicalSetNullPolicy } from "../../storage/documents/logicalDocuments/model";
+import type { AtomicCommerceNativeSource } from "./nativeSelection";
 
 export interface LogicalCommerceCallObservation {
   readonly commandName: string;
@@ -58,7 +59,7 @@ export type LogicalCommerceCallValidation = (call: LogicalCommerceCallObservatio
   command: CommerceCommand)
   => Effect.Effect<void, ReturnType<typeof commerceError>>;
 
-interface AtomicCommerceParticipantBase {
+export interface AtomicCommerceParticipantBase {
   readonly participant: AtomicCommerceParticipant;
   readonly commands: readonly CommerceCommand[];
   /** Required for local profiles; all captured messages must match real facts. */
@@ -91,12 +92,13 @@ interface AtomicCommerceParticipantBase {
   readonly events?: ParticipantEventSelection;
 }
 export type AtomicCommerceParticipantInput = AtomicCommerceParticipantBase & (
-  Readonly<{ profile: CommerceProfile; installation: InstallationBindingReference; logicalStorage?: never; logicalResources?: never; logicalPublication?: never }> |
+  Readonly<{ profile: CommerceProfile; installation: InstallationBindingReference; logicalStorage?: never; logicalResources?: never; logicalPublication?: never; nativeStorage?: never }> |
   Readonly<{ logicalStorage: LogicalCommerceSelectionInput; logicalResources?: CommerceResources;
     /** Trusted mixed-packet publication within this source's existing identity budget. */
-    logicalPublication?: "mixed" | undefined; profile?: never; installation?: never }>
+    logicalPublication?: "mixed" | undefined; profile?: never; installation?: never; nativeStorage?: never }> |
+  Readonly<{ nativeStorage: AtomicCommerceNativeSource; logicalResources?: CommerceResources; logicalPublication?: "mixed";
+    logicalStorage?: never; profile?: never; installation?: never }>
 );
-export const isCommerceDefinitionName = (name: string) => /^[a-z][a-zA-Z0-9_-]{0,63}$/.test(name) && name !== "initialize";
 
 function captureParticipant(member: AtomicCommerceParticipantInput, logicalPublication: "mixed" | undefined,
   reconstitution: LogicalReconstitutionPolicy | undefined, allowPreservingDeletionUpsert: LogicalPreservingDeletionUpsertPolicy | undefined, allowActiveRestoreUpdate: true | undefined, allowStorageInsertionOrder: true | undefined,
@@ -146,6 +148,7 @@ export function captureAtomicCommerceParticipants(input: readonly AtomicCommerce
       return yield* Result.fail(commerceError("unsupportedProfile"));
     const captured = [];
     for (const member of input) {
+      if (member.nativeStorage !== undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
       const publication = yield* decodeLogicalPublication(member.logicalPublication)
         .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
       const reconstitution = yield* decodeReconstitution(member.reconstitution)

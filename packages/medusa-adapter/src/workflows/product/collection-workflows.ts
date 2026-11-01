@@ -10,7 +10,7 @@ import type { prepareProductCollectionDeletionLinkResource } from "../../links/p
 import { commerceDecoder } from "../../value/decoder";
 import { captureCommerceInput } from "../../value/input";
 import { captureWorkflowRecord } from "../../workflow/configuration";
-import { prepareAtomicWorkflowHost, captureInstalledWorkflowModules, type AtomicWorkflowExecution, type InstalledWorkflowModule } from "../../workflow/host";
+import { prepareAtomicWorkflowHost, withoutWorkflowPublication, captureInstalledWorkflowModules, type AtomicWorkflowExecution, type InstalledWorkflowModule } from "../../workflow/host";
 import { prepareWorkflowResources, type NativeWorkflowContext, type NativeWorkflowResources } from "../../workflow/resources";
 import type { ComposedWorkflowServices } from "../../workflow/composed-resource";
 import { productCollectionResources, productCollectionUpdateResources } from "../../workflow/policy";
@@ -61,7 +61,7 @@ const prepareInputs = Effect.fn("ProductCollection.prepareInputs")(function* <Ho
     const handler: unknown = Object.getOwnPropertyDescriptor(hooks, name)?.value;
     return name !== hookName || handler !== undefined && typeof handler !== "function";
   })) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const { logicalPublication: _publication, ...product } = captured.product;
+  const product = withoutWorkflowPublication(captured.product);
   return { options, hooks, modules: { product: { ...product, logicalResources: selectedResources } } };
 });
 

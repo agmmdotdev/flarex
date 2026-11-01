@@ -44,3 +44,14 @@ on both database lanes. This record does not admit arbitrary native SQL
 predicates or general migration conversions. Full Product and Link consumer
 closure remains a separate acceptance gate.
 
+## Ordinary workflow and Tax continuation
+
+The [Native17 continuation](../slices/17-native-atomic-workflows-and-tax.md)
+extends the same owner for Tax Region's two-null predicate and Tax Rate's
+null-plus-boolean active-default predicate. This shared extension and the complete
+admitted Tax workflow closure have paired native/owner proof. Preserve normalized
+authenticated eligibility separately from null-distinct business keys, original
+single-null frozen shapes, exact pending lookup and final accepted-prefix
+validation. An index prefix is an access path, not another unique-key field.
+No general SQL predicate parser or Pricing activation follows from Tax support.
+

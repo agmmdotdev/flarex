@@ -4,12 +4,12 @@ import { TaxModuleService } from "@medusajs/tax/services";
 import SystemTaxService from "@medusajs/tax/providers/system";
 import { CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
-import { prepareLogicalItemTaxLines, fullTaxGraph, taxCart, taxCountry, taxInput, taxItem, taxProvince,
-  taxRate, taxRegion, taxRule, taxSeed, taxShipping, type TaxInitialRow } from "./support/logical-item-tax-lines-fixture";
+import { prepareCoreItemTaxLines, fullTaxGraph, taxCart, taxCountry, taxInput, taxItem, taxProvince,
+  taxRate, taxRegion, taxRule, taxSeed, taxShipping, type TaxInitialRow } from "./support/core-item-tax-lines-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalItemTaxLines>>, sharedCleanupCount = 0, scopeOrdinal = 0;
+let connected: Awaited<ReturnType<typeof prepareCoreItemTaxLines>>, sharedCleanupCount = 0;
 type Inventory = Awaited<ReturnType<typeof connected.snapshot>>;
 const empty = { lineItemTaxLines: [], shippingMethodsTaxLines: [] };
 const province = () => taxRegion(taxProvince, { province_code: "ca", parent_id: taxCountry, provider_id: null });
@@ -24,7 +24,7 @@ function shippingLine(rate_id = "txr163-country", rate = 10, shipping_line_id = 
 function readOnly(before: Inventory, after: Inventory) {
   // Successful roots may record their own durable idempotency outcome. No Tax
   // row, history, index, fact or event may change during this read-only child.
-  for (const key of ["rows", "revisions", "indexEntries", "indexRevisions", "uniqueKeys", "rowChanges", "physicalFacts", "events"] as const)
+  for (const key of ["rows", "revisions", "indexes", "events"] as const)
     expect(after[key], key).toEqual(before[key]);
 }
 function reasons(value: unknown): string[] {
@@ -33,14 +33,12 @@ function reasons(value: unknown): string[] {
   if (value instanceof CommerceTransactionError) return [value.reason, ...reasons(value.cause)];
   return value instanceof Error ? [value.message, ...reasons(value.cause)] : [];
 }
-async function scenario(name: string, rows: readonly TaxInitialRow[]) {
-  const ordinal = ++scopeOrdinal;
-  return prepareLogicalItemTaxLines(driver, close => cleanup.push(close), rows, { resource: connected.fixture.resource,
-    fixtureIdentity: { deploymentId: "item-tax-lines-" + name + "-" + ordinal, projectId: "item-tax-lines-163", uuidOffset: 2_900_000 + ordinal * 10_000 } });
+async function scenario(_name: string, rows: readonly TaxInitialRow[]) {
+  return prepareCoreItemTaxLines(driver, close => cleanup.push(close), rows, { physical: connected.fixture.physical });
 }
 
 describe("genuine supplied item and shipping Tax lines", { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalItemTaxLines(driver, close => cleanup.push(close)); sharedCleanupCount = cleanup.length; }, 240_000);
+  beforeAll(async () => { connected = await prepareCoreItemTaxLines(driver, close => cleanup.push(close)); sharedCleanupCount = cleanup.length; }, 240_000);
   afterEach(async () => { vi.restoreAllMocks(); for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 

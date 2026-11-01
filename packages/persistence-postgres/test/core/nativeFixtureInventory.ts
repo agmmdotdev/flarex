@@ -17,9 +17,9 @@ export interface CoreNativeFixtureInventory {
 /** Read evidence through the real registry and snapshot, without rebuilding any
  * schema readiness, constraint, dependency or publication logic in a fixture. */
 export const readCoreNativeFixtureInventory = Effect.fn("CoreNativeFixture.inventory")(function* (
-  database: CoreDatabase, persistence: CorePersistence,
+  database: CoreDatabase, persistence: CorePersistence, at?: bigint,
 ): Effect.fn.Return<CoreNativeFixtureInventory, Effect.Error<ReturnType<typeof readCoreFixtureRegistry>>> {
-  const timestamp = yield* database.publishedTimestamp;
+  const timestamp = at ?? (yield* database.publishedTimestamp);
   const registry = yield* readCoreFixtureRegistry({ persistence }, timestamp);
   const snapshot = yield* persistence.readSnapshot(timestamp);
   const rows: CoreNativeFixtureInventory["rows"][number][] = [];

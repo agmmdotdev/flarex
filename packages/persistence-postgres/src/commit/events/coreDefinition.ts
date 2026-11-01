@@ -19,16 +19,34 @@ export const CoreNativeEventPolicySchema = Schema.Struct({ producerRevision: Eve
 }).annotate({ parseOptions: { onExcessProperty: "error" } });
 const decodePolicy = Schema.decodeUnknownResult(CoreNativeEventPolicySchema, { onExcessProperty: "error" });
 type Policy = typeof CoreNativeEventPolicySchema.Type;
+export function captureCoreNativeEventPolicy(input: unknown): Result.Result<Policy, ReturnType<typeof eventError>> {
+  return decodePolicy(input).pipe(Result.mapError(cause => eventError("invalidAuthority", cause)),
+    Result.flatMap(policy => new Set(policy.contracts.map(contract => contract.name)).size !== policy.contracts.length
+      || new Set(policy.subscribers.map(subscriber => subscriber.id)).size !== policy.subscribers.length
+      ? Result.fail(eventError("invalidAuthority")) : Result.succeed(policy)));
+}
+const RootBoundPolicy = Schema.Struct({ mode: Schema.Literal("rootBound"), version: Schema.Literal(1) })
+  .annotate({ parseOptions: { onExcessProperty: "error" } });
+const decodeRootBoundPolicy = Schema.decodeUnknownResult(RootBoundPolicy, { onExcessProperty: "error" });
+
+/** Stable private storage keeps exact per-request policy in the committed root
+ * commitment. A family never authorizes its own declared policy. */
+export function coreNativeEventStorage(definition: CoreNativeDefinition): Result.Result<
+  Readonly<{ mode: "fixed"; policy: Policy }> | Readonly<{ mode: "rootBound" }>, ReturnType<typeof eventError>> {
+  const source = definition.source, evidence = source.evidence;
+  if (source.key !== "flarex.native-events" || source.writeProfile !== "flarex.native-events" || source.owner !== "system"
+    || definition.applicationRead || !isJsonObject(evidence) || evidence.kind !== "coreNativeEvents")
+    return Result.fail(eventError("invalidAuthority"));
+  if (Result.isSuccess(decodeRootBoundPolicy(evidence.policy))) return Result.succeed(Object.freeze({ mode: "rootBound" }));
+  return coreNativeEventPolicy(definition).pipe(Result.map(policy => Object.freeze({ mode: "fixed", policy })));
+}
 
 export function coreNativeEventPolicy(definition: CoreNativeDefinition): Result.Result<Policy, ReturnType<typeof eventError>> {
   const source = definition.source, evidence = source.evidence;
   if (source.key !== "flarex.native-events" || source.writeProfile !== "flarex.native-events" || source.owner !== "system" || definition.applicationRead
     || !isJsonObject(evidence) || evidence.kind !== "coreNativeEvents")
     return Result.fail(eventError("invalidAuthority"));
-  return decodePolicy(evidence.policy).pipe(Result.mapError(cause => eventError("invalidAuthority", cause)),
-    Result.flatMap(policy => new Set(policy.contracts.map(contract => contract.name)).size !== policy.contracts.length
-      || new Set(policy.subscribers.map(subscriber => subscriber.id)).size !== policy.subscribers.length
-      ? Result.fail(eventError("invalidAuthority")) : Result.succeed(policy)));
+  return captureCoreNativeEventPolicy(evidence.policy);
 }
 
 export function matchesCoreNativeEventPolicy(policy: Policy, envelope: CommittedEvent): boolean {
@@ -42,12 +60,28 @@ export function matchesCoreNativeEventPolicy(policy: Policy, envelope: Committed
 export const compileCoreNativeEventDefinition = Effect.fn("CoreNativeEvents.compileDefinition")(function* (input: Readonly<{
   scopeUuid: string; epochUuid: string; policy: Json;
 }>) {
+  return yield* compileEventDefinition(input);
+});
+
+export const compileCoreNativeEventStorageDefinition = Effect.fn("CoreNativeEvents.compileStorageDefinition")(function* (input: Readonly<{
+  scopeUuid: string; epochUuid: string;
+}>) {
+  return yield* compileEventDefinition({ ...input, rootBound: true, policy: { mode: "rootBound", version: 1 } });
+});
+
+const compileEventDefinition = Effect.fn("CoreNativeEvents.compileStorage")(function* (input: Readonly<{
+  scopeUuid: string; epochUuid: string; policy: Json; rootBound?: true;
+}>) {
   const nativeTarget = Object.freeze({ scopeUuid: input.scopeUuid, epochUuid: input.epochUuid });
   const captured = yield* Effect.fromResult(capturePrivateJsonData(input.policy, commitEventLimits.totalBytes, eventError));
-  const policy = yield* Effect.fromResult(decodePolicy(captured.value).pipe(Result.mapError(cause => eventError("invalidAuthority", cause))));
-  if (new Set(policy.contracts.map(contract => contract.name)).size !== policy.contracts.length
-    || new Set(policy.subscribers.map(subscriber => subscriber.id)).size !== policy.subscribers.length)
-    return yield* eventError("invalidAuthority");
+  if (input.rootBound === true) yield* Effect.fromResult(decodeRootBoundPolicy(captured.value)
+    .pipe(Result.mapError(cause => eventError("invalidAuthority", cause))));
+  else {
+    const policy = yield* Effect.fromResult(decodePolicy(captured.value).pipe(Result.mapError(cause => eventError("invalidAuthority", cause))));
+    if (new Set(policy.contracts.map(contract => contract.name)).size !== policy.contracts.length
+      || new Set(policy.subscribers.map(subscriber => subscriber.id)).size !== policy.subscribers.length)
+      return yield* eventError("invalidAuthority");
+  }
   const origin = { kind: "authored", sourceId: "core.native-events" } as const;
   const column = (columnId: string, type: "text" | "integer" | "timestamptz" | "jsonb", nullable = false) =>
     ({ columnId, type, nullable, default: { kind: "none" }, origin });
@@ -56,7 +90,8 @@ export const compileCoreNativeEventDefinition = Effect.fn("CoreNativeEvents.comp
     indexes: indexes.map(index => ({ ...index, kind: "btree", predicate: null, origin })), constraints: [], relationships: [],
   });
   const schema = yield* Effect.fromResult(normalizeRelationalSchema({ owner: "system", lineageId: "flarex.native-events",
-    tables: [table("native_event_family", [column("id", "text"), column("event_count", "integer"), column("event_sha256", "text", true)]),
+    tables: [table("native_event_family", [column("id", "text"), column("event_count", "integer"), column("event_sha256", "text", true),
+      ...(input.rootBound === true ? [column("root_request", "text")] : [])]),
       table("native_event_envelope", [column("id", "text"), column("family_id", "text"), column("ordinal", "integer"), column("envelope", "jsonb")],
         [{ indexId: "native_event_envelope.family", columns: ["family_id", "ordinal"] }]),
       table("native_event_delivery", [column("id", "text"), column("family_id", "text"), column("ordinal", "integer"),
@@ -64,7 +99,7 @@ export const compileCoreNativeEventDefinition = Effect.fn("CoreNativeEvents.comp
         column("fence", "text"), column("owner", "text", true), column("lease_expires_at", "timestamptz", true),
         column("next_attempt_at", "timestamptz"), column("settled_at", "timestamptz", true), column("failure_code", "text", true)],
         [{ indexId: "native_event_delivery.family", columns: ["family_id", "ordinal", "subscriber_id"] }])], capabilities: [] }));
-  const provenance = { kind: "coreNativeEvents", owner: "system", version: 1, policy: captured.value } satisfies Json;
+  const provenance = { kind: "coreNativeEvents", owner: "system", version: input.rootBound === true ? 2 : 1, policy: captured.value } satisfies Json;
   const source = yield* captureLogicalSchemaSource({ key: "flarex.native-events", owner: "system", writeProfile: "flarex.native-events",
     evidence: { kind: "coreNativeEvents", provenance, policy: captured.value,
       privateEventTables: [{ localName: "native_event_family", role: "family" }, { localName: "native_event_envelope", role: "envelope" },

@@ -34,7 +34,10 @@ function fixture() {
     rows.set(table, current);
     return next;
   };
-  const operations: CoreNativeOperations = { get: unexpected, getMany: unexpected, patch: unexpected, replace: unexpected,
+  const operations: CoreNativeOperations = {
+    nativeActivityCursor: () => { throw new Error("Fixed event records do not request native activity"); },
+    nativeActivitySince: unexpected, checkpointReferences: unexpected, planSetNullReferences: unexpected,
+    get: unexpected, getMany: unexpected, patch: unexpected, replace: unexpected,
     delete: unexpected, normalizeId: unexpected, incomingReferences: unexpected, pendingDelete: unexpected, assertPendingDelete: unexpected,
     deleteRows: unexpected, lifecycle: unexpected, prepareDeleteClosure: unexpected, replaceReferenceSet: unexpected,
     referenceReplacementChanges: unexpected, protectedReferencePage: unexpected, assertProtectedReferenceGeneration: unexpected, isEmpty: unexpected,
@@ -62,6 +65,7 @@ function fixture() {
   };
   const binding = issueCoreNativeBinding();
   const database: CoreCommitEventStoreInput["database"] = {
+    resolveCommittedNativeRootRequest: unexpected,
     readNativeBinding: () => Effect.succeed({ definition, namespace: null, schemaId: "schema", authorityEpoch: 0n, tables: [], commands: definition.commands }),
     beginNative: (_binding, options) => {
       const command = definition.commands.find(command => command.name === options.commandName);

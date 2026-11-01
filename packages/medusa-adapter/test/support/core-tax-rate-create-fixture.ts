@@ -2,8 +2,6 @@ import { Effect, Result, Schema } from "effect";
 import type { Logger } from "@medusajs/framework/types";
 import { createStep, createWorkflow, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { createTaxRatesWorkflow, type CreateTaxRatesWorkflowInput } from "@medusajs/core-flows/tax/create-tax-rates";
-import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
-import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureTaxMetadata } from "../../src/modules/tax/schema";
 import { makeTaxRateCreateCommands } from "../../src/modules/tax/rate-create-service";
@@ -12,8 +10,7 @@ import { prepareTaxRateCreationWorkflow } from "../../src/workflows/tax/create-r
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
-import { projectNativeRow } from "../../src/repository/result";
-import { prepareLogicalItemTaxLines, taxRegion, taxSeed, type TaxInitialRow } from "./logical-item-tax-lines-fixture";
+import { prepareCoreItemTaxLines, taxRegion, taxSeed, type TaxInitialRow } from "./core-item-tax-lines-fixture";
 
 export const taxCreationCountry = "txreg164-us", taxCreationOtherCountry = "txreg164-ca";
 const RetainedIds = TaxRatePhysicalDeletionIds;
@@ -43,9 +40,9 @@ export function maximumTaxRateCreationInput(): TaxRateCreationInput {
 
 /** Reuse genuine Tax schema initialization and the separate calculation host.
  * The tested creation and inverse always invoke retained native callbacks. */
-export async function prepareLogicalTaxRateCreation(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  rows: readonly TaxInitialRow[] = taxRateCreationRows(), shared?: Parameters<typeof prepareLogicalItemTaxLines>[3]) {
-  const base = await prepareLogicalItemTaxLines(driver, close, rows, shared);
+export async function prepareCoreTaxRateCreation(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
+  rows: readonly TaxInitialRow[] = taxRateCreationRows(), shared?: Parameters<typeof prepareCoreItemTaxLines>[3]) {
+  const base = await prepareCoreItemTaxLines(driver, close, rows, shared);
   const lateFailure = new Error("Late parent failure after genuine native Tax Rate creation");
   const errors: Array<readonly [string | Error, Error | undefined]> = [];
   const logger: Logger = { panic() {}, shouldLog: () => false, setLogLevel() {}, unsetLogLevel() {}, activity: message => message,
@@ -98,22 +95,8 @@ export async function prepareLogicalTaxRateCreation(driver: "pglite" | "postgres
       workflow: { name: "probeTaxRateCreationLateParent", resources, prepared: Result.getOrThrow(flow.prepare()),
         input: TaxRateCreatesInput, output: contracts.Output, events: internalModuleWorkflowEvents } })));
   };
-  /** Observe committed rows through existing authenticated canonical evidence.
-   * No fixture-side conversion, selector, constraint or lifecycle algorithm. */
-  const read = async (selected?: readonly string[]) => {
-    const snapshot = await base.snapshot(), output: JsonObject[] = [];
-    const scopeUuid = projectScopeIdUuidV1(base.fixture.application.authority.scopeId).scopeUuid;
-    for (const row of snapshot.rows) {
-      if (row.scopeUuid !== scopeUuid) continue;
-      const version = snapshot.revisions.find(value => value.scopeUuid === row.scopeUuid && value.tableId === row.tableId &&
-        value.commitSeq === row.commitSeq && Buffer.from(value.rowId).equals(Buffer.from(row.rowId)));
-      if (version === undefined || version.isTombstone) continue;
-      const decoded = await decodeCanonicalFlarexValueEvidenceV1({ canonicalBytes: version.valueBytes, sha256: version.valueSha256, profile: "appDocument" });
-      const value = projectNativeRow(Schema.decodeUnknownSync(Schema.JsonObject)(decoded.valueJson));
-      if (typeof value.id === "string" && (selected === undefined || selected.includes(value.id))) output.push(value);
-    }
-    return output.sort((left, right) => String(left.id).localeCompare(String(right.id)));
-  };
+  // Observe actual Core rows through the common registry/snapshot owner.
+  const read = base.read;
   return { ...base, tax, options, contracts, errors, lateFailure, prepare, prepareForward, prepareInverse, prepareLateFailure, closeCaseHosts, read,
     prepareCalculation: base.prepare };
 }

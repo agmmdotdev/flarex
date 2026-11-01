@@ -26,6 +26,9 @@ class CoreReferenceFailure extends Data.TaggedError("CoreNativeReferenceError")<
   Extract<InvokeApplicationQueryError, { readonly _tag: "CoreNativeReferenceError" }>,
   "reason" | "forwardName" | "sourceTable" | "targetTable" | "sourceId" | "targetId"
 >> {}
+class CoreReferencePlanFailure extends Data.TaggedError("CoreNativeReferencePlanError")<Pick<
+  Extract<InvokeApplicationQueryError, { readonly _tag: "CoreNativeReferencePlanError" }>, "reason"
+>> {}
 
 class QueryInputFailure extends Data.TaggedError("ApplicationQueryInputError")<{
   readonly reason: "invalidFunction" | "invalidArguments" | "invalidIdentity";
@@ -324,6 +327,7 @@ describe("clean Query invocation-error projection", () => {
       sourceTable: "sources", targetTable: "targets", sourceId: "source", targetId: "target" }), "invalidConfiguration"],
     [new CoreReferenceFailure({ reason: "relationDeleteRestricted", forwardName: "sourceTarget",
       sourceTable: "sources", targetTable: "targets", sourceId: "source", targetId: "target" }), "invalidConfiguration"],
+    [new CoreReferencePlanFailure({ reason: "invalidAuthority" }), "invalidConfiguration"],
     [new CoreTransactionFailure({ reason: "indexUnavailable" }), "indexUnavailable"],
     [new CoreTransactionFailure({ reason: "authorityRevoked" }), "staleScopeAuthority"],
     [new CoreTransactionFailure({ reason: "closed" }), "unavailable"],

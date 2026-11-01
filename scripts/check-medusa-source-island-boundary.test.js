@@ -49,6 +49,7 @@ describe("Medusa source-island boundary checker", () => {
       "scripts/check-medusa-variant-item-pricing-source.mjs", "scripts/check-medusa-variant-item-pricing-source.test.js",
       "scripts/check-medusa-cart-prerequisite-source.mjs", "scripts/check-medusa-cart-prerequisite-source.test.js",
       "scripts/check-medusa-cart-creation-source.mjs",
+      "scripts/check-medusa-cart-create-declarations.mjs", "scripts/check-medusa-cart-create-workflows-source.mjs",
       "scripts/check-medusa-inventory-confirmation-source.mjs", "scripts/check-medusa-inventory-confirmation-source.test.js",
       "scripts/check-medusa-tax-rule-replacement-source.mjs", "scripts/check-medusa-tax-rule-replacement-source.test.js",
       "scripts/check-medusa-tax-rate-delete-source.mjs", "scripts/check-medusa-tax-rate-delete-source.test.js",
@@ -476,6 +477,96 @@ describe("Medusa source-island boundary checker", () => {
         rootSources: [{ relativePath, text: `import ${JSON.stringify(specifier)};` }] }).errors
         .some(error => error.includes("must not cross Currency package ownership"))).toBe(true);
     }
+  });
+
+  it("confines Core conformance imports to their selected framework producers", () => {
+    const edges = [
+      ...["src/modules/product/schema", "test/support/core-product-fixture"].map(target => ({
+        importer: "packages/flarex-backend/test/support/nativeProtectedWorkerFixture.ts", target,
+      })),
+      ...[
+        ["applicationOwnerScenarios.ts", "src/modules/currency/schema"],
+        ["applicationOwnerScenarios.ts", "src/modules/product/schema"],
+        ["nativeBindingSelection.test.ts", "src/modules/currency/schema"],
+        ["nativeEligibility.test.ts", "src/modules/tax/schema"],
+        ["nativeEventsScenarios.ts", "src/modules/currency/schema"],
+        ["nativeProtectedSchema.test.ts", "src/modules/product/schema"],
+        ["nativeRealPersistenceScenarios.ts", "src/modules/tax/schema"],
+        ["nativeRealRows.test.ts", "src/modules/tax/schema"],
+        ["nativeRelationalIntegrityScenarios.ts", "src/modules/product/schema"],
+        ["nativeRelationalQuery.test.ts", "src/modules/product/schema"],
+        ["nativeRelationalQuery.test.ts", "src/links/product-definition"],
+        ["nativeRelationalSchema.test.ts", "src/modules/product/definition"],
+        ["nativeRelationalSchema.test.ts", "src/modules/currency/schema"],
+        ["nativeRelationalSchema.test.ts", "src/links/product-definition"],
+        ["nativeRootEventsScenarios.ts", "src/modules/currency/schema"],
+        ["nativeRootScenarios.ts", "src/modules/currency/schema"],
+        ["nativeSchemaBundle.test.ts", "src/modules/currency/schema"],
+        ["nativeSchemaBundleLifecycleScenarios.ts", "src/modules/currency/schema"],
+      ].map(([file, target]) => ({ importer: `packages/persistence-postgres/test/core/${file}`, target })),
+      { importer: "packages/persistence-postgres/test/frameworks/cmsTransaction/nativeReferenceFailure.test.ts",
+        target: "src/modules/product/schema" },
+      { importer: "packages/persistence-postgres/test/frameworks/crossDomainCommand/jointApplicationRelationsFixture.ts",
+        target: "test/support/core-currency-fixture" },
+      { importer: "packages/persistence-postgres/test/frameworks/crossDomainCommand/jointApplicationRelationsScenario.ts",
+        target: "src/modules/currency/service" },
+    ].map(edge => ({ importer: edge.importer, target: `packages/medusa-adapter/${edge.target}.ts` }));
+    const promotion = { ...nativeControlPromotion, files: [...new Set(edges.map(edge => edge.target))].map(target =>
+      ({ target, targetSha256: "pinned", classification: "authored" })) };
+    /** @param {string} importer @param {string} specifier
+     * @param {import("./check-medusa-currency-promotion.mjs").Promotion} [selected] */
+    const check = (importer, specifier, selected = promotion) => analyzeMedusaSourceIslandBoundary({
+      ...emptyInput, currencyPromotion: selected,
+      rootSources: [{ relativePath: importer, text: `import { producer } from ${JSON.stringify(specifier)};` }],
+    }).errors;
+    for (const edge of edges) {
+      const specifier = posix.relative(posix.dirname(edge.importer), edge.target).replace(/\.ts$/u, "");
+      expect(check(edge.importer, specifier)).toEqual([]);
+      expect(check(edge.importer.replace(/[^/]+$/u, "unselected.test.ts"), specifier).length).toBeGreaterThan(0);
+      expect(check(edge.importer.replace("/test/", "/src/"), specifier).length).toBeGreaterThan(0);
+      expect(check(edge.importer, specifier + ".ts").length).toBeGreaterThan(0);
+      expect(check(edge.importer, specifier + "-adjacent").length).toBeGreaterThan(0);
+      expect(check(edge.importer, specifier, { ...promotion,
+        files: promotion.files.filter(file => file.target !== edge.target) }).length).toBeGreaterThan(0);
+      expect(check(edge.importer, specifier, { ...promotion,
+        files: promotion.files.map(file => file.target === edge.target ? { ...file, classification: "preserved" } : file) }).length)
+        .toBeGreaterThan(0);
+    }
+    // A target selected for another Core proof does not become a shared test
+    // dependency. This importer is admitted only for the Currency producer.
+    expect(check("packages/persistence-postgres/test/core/nativeRootEventsScenarios.ts",
+      "../../../medusa-adapter/src/modules/tax/schema").length).toBeGreaterThan(0);
+  });
+
+  it("authenticates the native Cart hook witness against its exact source-derived schema", () => {
+    const importer = "packages/medusa-adapter/test/native-cart-pricing-hook-witness.test.ts";
+    const specifier = "../../medusa-core-flows/src/cart/utils/schemas";
+    const target = "packages/medusa-core-flows/src/cart/utils/schemas.ts";
+    const source = "third_party/medusa/upstream/packages/core/core-flows/src/cart/utils/schemas.ts";
+    const promotion = { ...nativeControlPromotion,
+      packages: [...nativeControlPromotion.packages, {
+        path: "packages/medusa-core-flows", name: "@medusajs/core-flows", dependencies: {}, exports: [],
+      }],
+      files: [{ target, source, targetSha256: "pinned", classification: "cartCreationWorkflowFork" }],
+    };
+    /** @param {string} relativePath @param {string} selectedSpecifier
+     * @param {import("./check-medusa-currency-promotion.mjs").Promotion} [selected] */
+    const check = (relativePath, selectedSpecifier, selected = promotion) => analyzeMedusaSourceIslandBoundary({
+      ...emptyInput, currencyPromotion: selected,
+      rootSources: [{ relativePath, text: `import { pricingContextResult } from ${JSON.stringify(selectedSpecifier)};` }],
+    }).errors;
+    expect(check(importer, specifier)).toEqual([]);
+    for (const relativePath of [importer.replace("native-cart-pricing-hook-witness", "adjacent"),
+      importer.replace("/test/", "/src/")]) expect(check(relativePath, specifier).length).toBeGreaterThan(0);
+    for (const selectedSpecifier of [specifier + ".ts", specifier.replace("/schemas", "/./schemas"),
+      specifier.replace("/schemas", "/adjacent")]) expect(check(importer, selectedSpecifier).length).toBeGreaterThan(0);
+    expect(check(importer, specifier, { ...promotion, files: [] }).length).toBeGreaterThan(0);
+    for (const altered of [
+      { target: target.replace("schemas.ts", "adjacent.ts"), source, classification: "cartCreationWorkflowFork" },
+      { target, source: source.replace("schemas.ts", "adjacent.ts"), classification: "cartCreationWorkflowFork" },
+      { target, source, classification: "authored" },
+    ]) expect(check(importer, specifier, { ...promotion, files: [{ ...altered, targetSha256: "pinned" }] }).length)
+      .toBeGreaterThan(0);
   });
 
   it("admits only the extracted diagnostic owner's exact erased Product result type", () => {

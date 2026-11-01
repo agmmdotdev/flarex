@@ -60,3 +60,20 @@ behavior through the translated owner on PGlite and ordinary PostgreSQL before
 cutover. Passing pure helper checks alone does not activate the new native path.
 Retained SQL mechanics have named old consumers; the new Core path must not
 import their transaction, catalog, ID or publication authority.
+
+The [ordinary workflow/Tax continuation](../slices/17-native-atomic-workflows-and-tax.md)
+now selects REAL representation for its complete admitted Tax consumer. Its
+[dedicated value contract](./native-real-values.md) implements the selected portable
+submitted/immediate/cold canonical-decimal boundaries, with its named native-parser
+difference. Paired owner and complete admitted Tax proof do not activate serial allocation or general
+native column types. Reuse this shared row-value owner rather than importing old
+catalog, SQL transaction or publication authority into the translated Core.
+
+The same native lifecycle owner preserves the authentic invocation's active
+restore policy. Default Product restore leaves an already-active row unchanged;
+admitted Tax inverse profiles can explicitly require a real update through
+`allowActiveRestoreUpdate`. Forward that captured policy into the shared Core
+patch/managed-timestamp owner, keeping original creation fields, final integrity,
+activity, budgets and events. It is not a caller-set DAL option or an adapter
+timestamp repair. Both default and selected behavior need neutral and genuine
+consumer proof; unsupported option keys fail closed.

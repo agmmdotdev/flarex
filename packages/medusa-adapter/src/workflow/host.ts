@@ -36,8 +36,30 @@ export type InstalledWorkflowModule<Module extends WorkflowModule = WorkflowModu
   readonly logicalResources?: CommerceResources;
   /** Trusted opt-in to native upsert/delete publication within one logical participant. */
   readonly logicalPublication?: "mixed";
-  readonly logicalStorage: Extract<AtomicCommerceParticipantInput, { readonly logicalStorage: unknown }>["logicalStorage"];
+} & (
+  Readonly<{ logicalStorage: Extract<AtomicCommerceParticipantInput, { readonly logicalStorage: unknown }>["logicalStorage"]; nativeStorage?: never }>
+  | Readonly<{ nativeStorage: Extract<AtomicCommerceParticipantInput, { readonly nativeStorage: unknown }>["nativeStorage"]; logicalStorage?: never }>
+);
+
+/** Retained logical hosts return their actual storage branch, rather than
+ * widening portable selection metadata to an unissued native alternative. */
+export type LegacyInstalledWorkflowModules<Modules extends Readonly<Record<string, InstalledWorkflowModule>>> = {
+  readonly [Name in keyof Modules]: Extract<Modules[Name], { readonly logicalStorage: unknown }>;
 };
+
+/** Input has already passed own-data capture. Branch before object rest so
+ * removing publication policy preserves the required storage selection. */
+type WithoutWorkflowPublication<Binding extends InstalledWorkflowModule> = Binding extends unknown
+  ? Omit<Binding, "logicalPublication"> : never;
+export function withoutWorkflowPublication<Binding extends InstalledWorkflowModule>(binding: Binding): WithoutWorkflowPublication<Binding>;
+export function withoutWorkflowPublication(binding: InstalledWorkflowModule) {
+  if (binding.nativeStorage !== undefined) {
+    const { logicalPublication: _publication, ...selected } = binding;
+    return selected;
+  }
+  const { logicalPublication: _publication, ...selected } = binding;
+  return selected;
+}
 
 /** Capture selected installed bindings in declared order without invoking
  * getters. The facade keeps its own record-size/hook checks in their original
@@ -160,7 +182,9 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
     const binding = yield* Effect.fromResult(captureWorkflowRecord(raw));
     const definition = workflowModuleDefinition(member.module);
     if (binding.module !== member.module || definition === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
-    if (Object.keys(binding).some(key => key !== "module" && key !== "logicalStorage" && key !== "logicalResources" && key !== "logicalPublication") || binding.logicalStorage === undefined)
+    if (Object.keys(binding).some(key => key !== "module" && key !== "logicalStorage" && key !== "nativeStorage" && key !== "logicalResources" && key !== "logicalPublication")
+      || binding.logicalStorage === undefined && binding.nativeStorage === undefined
+      || binding.logicalStorage !== undefined && binding.nativeStorage !== undefined)
       return yield* Effect.fail(commerceError("unsupportedProfile"));
     const moduleEvents = definition.logical;
     const commands = new Set<CommerceCommand>();
@@ -234,7 +258,8 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
         }),
       } }),
     };
-    participants.push({ ...selected, logicalStorage: binding.logicalStorage,
+    participants.push({ ...selected, ...(binding.nativeStorage === undefined ? { logicalStorage: binding.logicalStorage }
+      : { nativeStorage: binding.nativeStorage }),
       ...(binding.logicalResources === undefined ? {} : { logicalResources: binding.logicalResources }),
       ...(binding.logicalPublication === undefined ? {} : { logicalPublication: binding.logicalPublication }),
     });

@@ -13,7 +13,7 @@ import type { prepareShippingOptionDeletionLinkResource } from "../../links/ship
 import { composedWorkflowResourceDefinition } from "../../workflow/composed-resource";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { orderedWorkflowIdEvents } from "../../workflow/events";
-import { prepareAtomicWorkflowHost, captureInstalledWorkflowModules, type AtomicWorkflowExecution,
+import { prepareAtomicWorkflowHost, withoutWorkflowPublication, captureInstalledWorkflowModules, type AtomicWorkflowExecution,
   type InstalledWorkflowModule } from "../../workflow/host";
 import { workflowModuleDefinition, type WorkflowMethod } from "../../workflow/module";
 import { shippingOptionDeletionResources, shippingOptionDeletionCommandMs } from "../../workflow/policy";
@@ -92,7 +92,7 @@ export const prepareShippingOptionDeletionWorkflow = Effect.fn("ShippingOption.p
     if (module.logicalResources !== undefined && !jsonEqual(module.logicalResources, shippingOptionDeletionResources))
       return yield* Effect.fail(commerceError("unsupportedProfile"));
   const select = <Module extends InstalledWorkflowModule>(binding: Module) => {
-    const { logicalPublication: _publication, ...selected } = binding;
+    const selected = withoutWorkflowPublication(binding);
     return { ...selected, logicalResources: shippingOptionDeletionResources };
   };
   const modules = { fulfillment: select(installed.fulfillment), priceSetLinks: select(installed.priceSetLinks),

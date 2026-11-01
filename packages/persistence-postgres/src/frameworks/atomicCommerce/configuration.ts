@@ -28,11 +28,10 @@ import {
 import {
   logicalMaterializationBatchBudget,
 } from "../../storage/documents/logicalDocuments/materialization";
-import { getAtomicCommerceCommand, type AtomicCommerceCommand } from "./commands";
+import { getAtomicCommerceCommand, isCommerceDefinitionName, type AtomicCommerceCommand } from "./commands";
 import {
   prepareAtomicCommerceParticipants,
   captureAtomicCommerceParticipants,
-  isCommerceDefinitionName,
   type AtomicCommerceParticipantInput,
   type CapturedAtomicCommerceParticipants,
 } from "./participants";

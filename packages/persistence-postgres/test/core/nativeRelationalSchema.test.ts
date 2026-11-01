@@ -77,7 +77,8 @@ describe("complete native relational schema lowering", () => {
           ? ["product_id", "sales_channel_id"] : ["product_id", "shipping_profile_id"]);
       }
       expect(definition.tables.find(table => table.localName === "product_shipping_profile")?.uniqueConstraints
-        .some(constraint => constraint.eligibility?.field === "deleted_at")).toBe(true);
+        .some(constraint => constraint.eligibility !== undefined && "field" in constraint.eligibility
+          && constraint.eligibility.field === "deleted_at")).toBe(true);
     }));
   });
 

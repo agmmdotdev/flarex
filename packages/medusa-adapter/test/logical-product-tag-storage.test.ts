@@ -1,32 +1,29 @@
+import { expectWorkflowRefusal } from "./support/workflow-failure-assertions";
 import { withWorkflowPolicy } from "./support/workflow-policy-fixture";
 import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Cause, Effect, Result } from "effect";
+import { Effect, Result } from "effect";
 import { isJsonObject } from "flarex-protocol/json";
 import { currencyWorkflowModule } from "../src/modules/currency/service";
 
 import { prepareProductTagWorkflow } from "../src/workflows/product/tag";
 
-
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
-import { fxAppRowCurrent } from "../../persistence-postgres/src/database/schema";
-import { runEffectFailure } from "../../persistence-postgres/test/support/effectTestRuntime";
-import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
-import { prepareLogicalProductHost } from "./support/logical-product-fixture";
+import { createCoreProductWorkflowFixture, type CoreProductWorkflowFixture } from "./support/core-product-workflow-fixture";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Product test driver");
 const cleanup: Array<() => Promise<void>> = [];
-let currency: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
-let product: Awaited<ReturnType<typeof prepareLogicalProductHost>>;
+const coreRows = async (selected = currency) => (await selected.fixture.snapshot()).rows;
+const coreEvents = async (selected = currency) => (await selected.fixture.snapshot()).events;
+
+let currency: CoreProductWorkflowFixture;
+let product: CoreProductWorkflowFixture["product"];
 
 describe("native Product-tag workflow with logical Product and Currency", () => {
   beforeAll(async () => {
-    currency = await logicalCurrencyFixture(driver, close => cleanup.push(close), { includeProduct: true });
-    product = await prepareLogicalProductHost(currency);
-    await Effect.runPromise(product.host.initialize([]));
-    await Effect.runPromise(product.host.close);
+    currency = await createCoreProductWorkflowFixture(driver, close => cleanup.push(close), { includeCurrency: true });
+    product = currency.product;
+
   }, 180_000);
   afterAll(async () => {
     const failures: unknown[] = [];
@@ -37,11 +34,11 @@ describe("native Product-tag workflow with logical Product and Currency", () => 
   it("commits native tags, module and workflow events, then replays one outcome", async () => {
     let hookCalls = 0;
     const host = await Effect.runPromise(prepareProductTagWorkflow({
-      execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
-        prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
+      execution: { identityAndAccessPolicy: currency.execution.identityAndAccessPolicy,
+        prepare: composition => currency.execution.prepare(composition) },
       modules: {
-        product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage },
-        currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: currency.hostInput.logicalStorage },
+        product: { module: product.runtime.workflow, nativeStorage: product.source },
+        currency: { module: Result.getOrThrow(currencyWorkflowModule), nativeStorage: currency.fixture.source("currency") },
       },
       revision: createHash("sha256").update("logical-product-tag-workflow").digest("hex"),
       subscribers: [{ id: "logical-product-tags", revision: "a".repeat(64) }],
@@ -58,43 +55,43 @@ describe("native Product-tag workflow with logical Product and Currency", () => 
       } },
     }));
     try {
-      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
-      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const beforeRows = await coreRows();
+      const beforeEvents = await coreEvents();
       const key = host.newRequestKey();
       const input = { product_tags: [{ value: "logical-tag" }] };
       const created = await Effect.runPromise(host.run(key, input));
       expect(created).toMatchObject([{ value: "logical-tag" }]);
       expect(hookCalls).toBe(1);
-      const afterRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
-      const afterEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const afterRows = await coreRows();
+      const afterEvents = await coreEvents();
       expect(afterRows).toHaveLength(beforeRows.length + 1);
       expect(afterEvents.slice(beforeEvents.length).map(event => event.envelope.contract))
         .toEqual(["product.product-tag.created", "product-tag.created"]);
       expect(await Effect.runPromise(host.run(key, input))).toEqual(created);
       expect(hookCalls).toBe(1);
-      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
-      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(afterEvents);
+      expect(await coreRows()).toEqual(afterRows);
+      expect(await coreEvents()).toEqual(afterEvents);
     } finally { await Effect.runPromise(host.close); }
   }, 120_000);
 
   it("accepts native tag creation without an optional query hook", async () => {
     const host = await Effect.runPromise(prepareProductTagWorkflow({
-      execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
-        prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
+      execution: { identityAndAccessPolicy: currency.execution.identityAndAccessPolicy,
+        prepare: composition => currency.execution.prepare(composition) },
       modules: {
-        product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage },
-        currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: currency.hostInput.logicalStorage },
+        product: { module: product.runtime.workflow, nativeStorage: product.source },
+        currency: { module: Result.getOrThrow(currencyWorkflowModule), nativeStorage: currency.fixture.source("currency") },
       },
       revision: createHash("sha256").update("logical-product-tag-no-hook").digest("hex"),
       subscribers: [{ id: "logical-product-tags", revision: "a".repeat(64) }],
     }));
     try {
-      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
-      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const beforeRows = await coreRows();
+      const beforeEvents = await coreEvents();
       expect(await Effect.runPromise(host.run(host.newRequestKey(),
         { product_tags: [{ value: "without-hook" }] }))).toMatchObject([{ value: "without-hook" }]);
-      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toHaveLength(beforeRows.length + 1);
-      expect((await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).slice(beforeEvents.length)
+      expect(await coreRows()).toHaveLength(beforeRows.length + 1);
+      expect((await coreEvents()).slice(beforeEvents.length)
         .map(event => event.envelope.contract)).toEqual(["product.product-tag.created", "product-tag.created"]);
     } finally { await Effect.runPromise(host.close); }
   }, 120_000);
@@ -103,27 +100,25 @@ describe("native Product-tag workflow with logical Product and Currency", () => 
     let hooks = 0;
     const forgedModule = withWorkflowPolicy(product.runtime.workflow, policy => ({ ...policy, capture: event => policy.capture(event).pipe(Effect.map(message => isJsonObject(message) && message.data !== undefined && isJsonObject(message.data) ? { ...message, data: { ...message.data, id: "ptag_forged" } } : message)) }));
     const host = await Effect.runPromise(prepareProductTagWorkflow({
-      execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
-        prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
+      execution: { identityAndAccessPolicy: currency.execution.identityAndAccessPolicy,
+        prepare: composition => currency.execution.prepare(composition) },
       modules: {
-        product: { module: forgedModule, logicalStorage: product.hostInput.logicalStorage },
-        currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: currency.hostInput.logicalStorage },
+        product: { module: forgedModule, nativeStorage: product.source },
+        currency: { module: Result.getOrThrow(currencyWorkflowModule), nativeStorage: currency.fixture.source("currency") },
       },
       revision: createHash("sha256").update("logical-product-tag-workflow-refusal").digest("hex"),
       subscribers: [{ id: "logical-product-tags", revision: "a".repeat(64) }],
       hooks: { productTagsCreated: async () => { hooks++; } },
     }));
     try {
-      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
-      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
-      const failure = await runEffectFailure(host.run(host.newRequestKey(),
+      const before = await currency.fixture.snapshot(), beforeRows = before.rows, beforeEvents = before.events;
+      const exit = await Effect.runPromiseExit(host.run(host.newRequestKey(),
         { product_tags: [{ value: "forged-event-tag" }] }));
-      expect(failure).toMatchObject({ reason: "rollbackOnly" });
-      if (!Cause.isCause(failure.cause)) throw new Error("Missing native call refusal cause");
-      expect(Result.getOrThrow(Cause.findError(failure.cause))).toMatchObject({ reason: "receiptMismatch" });
+      expect(await currency.fixture.snapshot()).toEqual(before);
+      expectWorkflowRefusal(exit, "receiptMismatch");
       expect(hooks).toBe(0);
-      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
-      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);
+      expect(await coreRows()).toEqual(beforeRows);
+      expect(await coreEvents()).toEqual(beforeEvents);
     } finally { await Effect.runPromise(host.close); }
   }, 120_000);
 });

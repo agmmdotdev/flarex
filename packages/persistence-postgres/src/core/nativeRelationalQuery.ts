@@ -53,7 +53,7 @@ function selectedWhere(table: CoreTableDefinition, selection: RelationalSelectio
  * or second snapshot is introduced. Count precedes projection and population. */
 export const executeCoreNativeRelationalRead = Effect.fn("CoreNativeRelational.read")(function* (
   operations: Pick<CoreNativeOperations, "find">, table: CoreTableDefinition,
-  policy: CoreNativeRelationalRowPolicy, query: Query,
+  policy: CoreNativeRelationalRowPolicy, query: Query, purpose: "rows" | "count" = "rows",
 ) {
   if (query.postgresPredicate !== undefined) return yield* new CoreQueryInputError({ reason: "invalidQuery",
     cause: "PostgreSQL predicate execution is not admitted by this native profile" });
@@ -84,8 +84,21 @@ export const executeCoreNativeRelationalRead = Effect.fn("CoreNativeRelational.r
       : compareBytesLexicographically(left.order, right.order)) * (query.direction === "asc" ? 1 : -1)
       || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
     const rows: JsonObject[] = [];
-    for (const member of matched.slice(query.offset, query.offset + query.limit)) rows.push(yield* project(member.row, query.fields));
-    return { rows, count: matched.length };
+    const orderedIdentities: Readonly<Record<string, string>>[] = [];
+    for (const member of purpose === "count" ? matched : matched.slice(query.offset, query.offset + query.limit)) {
+      if (purpose === "rows") rows.push(yield* project(member.row, query.fields));
+      if (query.storageInsertion || query.includeIdentities) {
+        const identity: Record<string, string> = {};
+        for (const field of query.identityColumns) {
+          const value = member.row[field];
+          if (typeof value !== "string") return yield* Result.fail(failure("storedCorruption"));
+          identity[field] = value;
+        }
+        orderedIdentities.push(Object.freeze(identity));
+      }
+    }
+    return { rows, count: matched.length, returned: purpose === "count" ? matched.length : rows.length,
+      ...(query.storageInsertion || query.includeIdentities ? { orderedIdentities: Object.freeze(orderedIdentities) } : {}) };
   }));
 });
 

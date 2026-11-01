@@ -10,18 +10,18 @@ import type { WorkflowModule } from "../src/workflow/module";
 import type { InstalledWorkflowModule } from "../src/workflow/host";
 import { TaxRulePhysicalDeletionIds } from "../src/modules/tax/rule-create-input";
 import { TaxRuleDeletionIds } from "../src/modules/tax/rule-delete-input";
-import { taxInput, taxRegion, type TaxInitialRow } from "./support/logical-item-tax-lines-fixture";
-import { prepareLogicalTaxRateUpdate, maximumTaxRateUpdateInput, taxRateUpdateRows, taxUpdateRateIds,
-  taxUpdateOldIds, taxUpdateRegions, taxUpdateStamp, TaxUpdateRetained, type TaxUpdateInput } from "./support/logical-tax-rate-update-fixture";
+import { taxInput, taxRegion, type TaxInitialRow } from "./support/core-item-tax-lines-fixture";
+import { prepareCoreTaxRateUpdate, maximumTaxRateUpdateInput, taxRateUpdateRows, taxUpdateRateIds,
+  taxUpdateOldIds, taxUpdateRegions, taxUpdateStamp, TaxUpdateRetained, type TaxUpdateInput } from "./support/core-tax-rate-update-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalTaxRateUpdate>>, ordinal = 0;
+let connected: Awaited<ReturnType<typeof prepareCoreTaxRateUpdate>>;
 type Local = typeof connected;
 type Inventory = Awaited<ReturnType<Local["snapshot"]>>;
 const id = (row: JsonObject) => Schema.decodeUnknownSync(Schema.String)(row.id);
 const eventsSince = (before: Inventory, after: Inventory) => after.events.filter(event => !before.events.some(prior =>
-  prior.scopeUuid === event.scopeUuid && prior.commitSeq === event.commitSeq && prior.eventOrdinal === event.eventOrdinal));
+  prior.familyId === event.familyId && prior.ordinal === event.ordinal));
 const eventVector = (events: Inventory["events"]) => events.flatMap(event => {
   const message = event.envelope.message;
   if (!isJsonObject(message) || message.data === undefined || !isJsonObject(message.data)) throw new Error("Missing complete native Tax update event");
@@ -30,13 +30,11 @@ const eventVector = (events: Inventory["events"]) => events.flatMap(event => {
 });
 const withoutUpdated = (row: JsonObject) => { const { updated_at: _updated, ...rest } = row; return rest; };
 function noTaxMutation(before: Inventory, after: Inventory) {
-  for (const key of ["rows", "revisions", "indexEntries", "indexRevisions", "uniqueKeys", "rowChanges", "physicalFacts", "events"] as const)
+  for (const key of ["rows", "revisions", "indexes", "events"] as const)
     expect(after[key], key).toEqual(before[key]);
 }
-async function scenario(name: string, rows: readonly TaxInitialRow[] = taxRateUpdateRows()) {
-  const number = ++ordinal;
-  return prepareLogicalTaxRateUpdate(driver, close => cleanup.push(close), rows, { resource: connected.fixture.resource,
-    fixtureIdentity: { deploymentId: `tax-rate-update-${name}-${number}`, projectId: "tax-rate-update-168", uuidOffset: 9_000_000 + number * 10_000 } });
+async function scenario(_name: string, rows: readonly TaxInitialRow[] = taxRateUpdateRows()) {
+  return prepareCoreTaxRateUpdate(driver, close => cleanup.push(close), rows, { physical: connected.fixture.physical });
 }
 const run = async (local: Local, input: TaxUpdateInput) => { const host = await local.prepare(); return Effect.runPromise(host.run(host.newRequestKey(), input)); };
 const selected = [...taxUpdateRateIds].sort();
@@ -66,7 +64,7 @@ function retainedTap(local: Local) {
 }
 
 describe(`genuine native Tax Rate selector update - ${driver}`, { concurrent: false }, () => {
-  beforeEach(async () => { connected = await prepareLogicalTaxRateUpdate(driver, close => cleanup.push(close)); }, 240_000);
+  beforeEach(async () => { connected = await prepareCoreTaxRateUpdate(driver, close => cleanup.push(close)); }, 240_000);
   afterEach(async () => {
     vi.restoreAllMocks();
     const failures: unknown[] = [];
@@ -248,7 +246,7 @@ describe(`genuine native Tax Rate selector update - ${driver}`, { concurrent: fa
         ...compensation.created.map(value => ["tax.tax-rate-rule.created", value])]);
       expect(calls).toBeGreaterThan(0); expect(calls).toBeLessThanOrEqual(defaultCommerceResources.calls);
       expect(eventsSince(before, after).length).toBeLessThanOrEqual(defaultCommerceResources.eventMessages);
-      expect(new Set(eventsSince(before, after).map(event => event.commitSeq)).size).toBe(1);
+      expect(new Set(eventsSince(before, after).map(event => event.timestamp)).size).toBe(1);
       for (const row of beforeRows.filter(value => !taxUpdateRateIds.some(parent => parent === id(value)) && !taxUpdateOldIds.includes(id(value))))
         expect((await local.read([id(row)]))[0]).toEqual(row);
       console.info("Tax Rate update maximum root calls/events", calls, eventsSince(before, after).length);

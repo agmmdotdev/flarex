@@ -6,18 +6,18 @@ import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/exec
 import { inspectLogicalRelationalFailure } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { CommerceTransactionError, isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { TaxCreationCheckConstraintError, TaxCreationValidationError } from "../src/modules/tax/region-create-failure";
-import { taxInput, taxRegion, taxSeed, type TaxInitialRow } from "./support/logical-item-tax-lines-fixture";
-import { prepareLogicalTaxRegionCreation, taxRegionCreationInput, maximumTaxRegionCreationInput,
-  taxRegionCreationRows, taxRegionCreationParent, type TaxRegionCreationInput } from "./support/logical-tax-region-create-fixture";
+import { taxInput, taxRegion, taxSeed, type TaxInitialRow } from "./support/core-item-tax-lines-fixture";
+import { prepareCoreTaxRegionCreation, taxRegionCreationInput, maximumTaxRegionCreationInput,
+  taxRegionCreationRows, taxRegionCreationParent, type TaxRegionCreationInput } from "./support/core-tax-region-create-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalTaxRegionCreation>>, sharedCleanupCount = 0, ordinal = 0;
+let connected: Awaited<ReturnType<typeof prepareCoreTaxRegionCreation>>, sharedCleanupCount = 0;
 type Local = typeof connected;
 type Inventory = Awaited<ReturnType<Local["snapshot"]>>;
 const id = (row: JsonObject) => Schema.decodeUnknownSync(Schema.String)(row.id);
 const eventsSince = (before: Inventory, after: Inventory) => after.events.filter(event => !before.events.some(prior =>
-  prior.scopeUuid === event.scopeUuid && prior.commitSeq === event.commitSeq && prior.eventOrdinal === event.eventOrdinal));
+  prior.familyId === event.familyId && prior.ordinal === event.ordinal));
 const eventVector = (events: Inventory["events"]) => events.flatMap(event => {
   const message = event.envelope.message;
   if (!isJsonObject(message) || message.data === undefined || !isJsonObject(message.data)) throw new Error("Missing complete native Tax event");
@@ -25,13 +25,11 @@ const eventVector = (events: Inventory["events"]) => events.flatMap(event => {
   return ids.map(value => [event.envelope.contract, value]);
 });
 function noTaxMutation(before: Inventory, after: Inventory) {
-  for (const key of ["rows", "revisions", "indexEntries", "indexRevisions", "uniqueKeys", "rowChanges", "physicalFacts", "events"] as const)
+  for (const key of ["rows", "revisions", "indexes", "events"] as const)
     expect(after[key], key).toEqual(before[key]);
 }
-async function scenario(name: string, rows: readonly TaxInitialRow[] = taxRegionCreationRows()) {
-  const number = ++ordinal;
-  return prepareLogicalTaxRegionCreation(driver, close => cleanup.push(close), rows, { resource: connected.fixture.resource,
-    fixtureIdentity: { deploymentId: `tax-region-create-${name}-${number}`, projectId: "tax-region-create-170", uuidOffset: 4_500_000 + number * 10_000 } });
+async function scenario(_name: string, rows: readonly TaxInitialRow[] = taxRegionCreationRows()) {
+  return prepareCoreTaxRegionCreation(driver, close => cleanup.push(close), rows, { physical: connected.fixture.physical });
 }
 const run = async (local: Local, input: TaxRegionCreationInput) => {
   const host = await local.prepare(); return Effect.runPromise(host.run(host.newRequestKey(), input));
@@ -112,7 +110,7 @@ function coreFailures(cause: Cause.Cause<unknown>): CommerceTransactionError[] {
 }
 
 describe(`genuine native Tax Region creation - ${driver}`, { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalTaxRegionCreation(driver, close => cleanup.push(close)); sharedCleanupCount = cleanup.length; }, 240_000);
+  beforeAll(async () => { connected = await prepareCoreTaxRegionCreation(driver, close => cleanup.push(close)); sharedCleanupCount = cleanup.length; }, 240_000);
   afterEach(async () => { vi.restoreAllMocks(); for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 

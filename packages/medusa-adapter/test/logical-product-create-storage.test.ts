@@ -1,7 +1,8 @@
+import { expectWorkflowRefusal } from "./support/workflow-failure-assertions";
 import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Cause, Effect, Result, Schema } from "effect";
-import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
+import { Modules, CommonEvents, MedusaError } from "@medusajs/framework/utils/portable";
 import { createStep, createWorkflow, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { productCallReceipts } from "../src/modules/product/events/call-receipts";
 import { decodeCategoryProjection } from "../src/modules/product/category-projection";
@@ -17,27 +18,25 @@ import { defineWorkflowMethod, defineWorkflowModule, workflowMethodDefinition,
   workflowModuleDefinition } from "../src/workflow/module";
 import { commerceDecoder } from "../src/value/decoder";
 import { findCollectionMembershipProducts } from "../src/modules/product/collection-membership";
-import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { defineCommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureProductSchema } from "../src/modules/product/schema";
 import { productRuntimeMetadata } from "../src/modules/product/runtime-metadata";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";
-import { fxAppRowCurrent } from "../../persistence-postgres/src/database/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
-import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
-import { prepareLogicalProductHost } from "./support/logical-product-fixture";
+import { createCoreProductWorkflowFixture, openCoreProductCommandHost, type CoreProductWorkflowFixture } from "./support/core-product-workflow-fixture";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Product test driver");
 const cleanup: Array<() => Promise<void>> = [];
-let currency: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
-let product: Awaited<ReturnType<typeof prepareLogicalProductHost>>;
+const coreRows = async (selected = currency) => (await selected.fixture.snapshot()).rows;
+const coreEvents = async (selected = currency) => (await selected.fixture.snapshot()).events;
+
+let currency: CoreProductWorkflowFixture;
+let product: CoreProductWorkflowFixture["product"];
 
 async function committedCollection(id: string) {
-  const host = await Effect.runPromise(makeCommerceHost({ ...product.hostInput, commands: [product.runtime.commands.retrieveCollection] }));
+  const host = await Effect.runPromise(openCoreProductCommandHost(currency, { commands: [product.runtime.commands.retrieveCollection] }));
   try {
     const value = await Effect.runPromise(host.read(product.runtime.commands.retrieveCollection, {
       id, config: { select: ["id", "products.id"], relations: ["products"] },
@@ -54,9 +53,9 @@ async function prepareCreationHost() {
   const catalog = await Effect.runPromise(captureProductSchema("atomic-commerce")
     .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
   const host = await Effect.runPromise(prepareProductCreateWorkflow({
-    execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
-      prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
-    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage } },
+    execution: { identityAndAccessPolicy: currency.execution.identityAndAccessPolicy,
+      prepare: composition => currency.execution.prepare(composition) },
+    modules: { product: { module: product.runtime.workflow, nativeStorage: product.source } },
     revision: createHash("sha256").update("logical-product-create-workflow").digest("hex"),
     subscribers: [{ id: "logical-product-create", revision: "a".repeat(64) }],
   }));
@@ -71,9 +70,9 @@ async function prepareCollectionCreationHost(catalog: Awaited<ReturnType<typeof 
   const revision = createHash("sha256").update("logical-product-collection-create").digest("hex");
   const contract = defineCommerceEventContract({ name: catalog.collection.createdEvent, revision,
     internal: true, decode: policy.capture });
-  const host = await Effect.runPromise(makeAtomicCommerceHost({ ...currency.hostInput,
+  const host = await Effect.runPromise(currency.execution.prepare({
     identityAndAccessPolicy: { profile: "logical-product-collection-create" },
-    participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
+    participants: [{ participant, nativeStorage: product.source,
       commands: [product.runtime.commands.createCollections], validateLogicalCall: policy.validateLogicalCall,
       events: { contracts: [contract], select: () => Effect.succeed(contract) } }],
     commands: [root], events: { producerRevision: revision, contracts: [contract],
@@ -86,9 +85,9 @@ async function prepareCollectionCreationHost(catalog: Awaited<ReturnType<typeof 
 
 async function prepareCollectionMembershipHost(catalog: Awaited<ReturnType<typeof prepareCreationHost>>["catalog"]) {
   return Effect.runPromise(prepareProductCollectionMembershipWorkflow({
-    execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
-      prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
-    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage } },
+    execution: { identityAndAccessPolicy: currency.execution.identityAndAccessPolicy,
+      prepare: composition => currency.execution.prepare(composition) },
+    modules: { product: { module: product.runtime.workflow, nativeStorage: product.source } },
     revision: createHash("sha256").update("logical-product-collection-membership").digest("hex"),
     subscribers: [{ id: "logical-product-collection-membership", revision: "a".repeat(64) }],
   }));
@@ -105,9 +104,9 @@ async function prepareCategoryCreationHost(catalog: Awaited<ReturnType<typeof pr
   const updated = defineCommerceEventContract({ name: catalog.category.updatedEvent, revision,
     internal: true, decode: policy.capture });
   const contracts = [created, updated];
-  const host = await Effect.runPromise(makeAtomicCommerceHost({ ...currency.hostInput,
+  const host = await Effect.runPromise(currency.execution.prepare({
     identityAndAccessPolicy: { profile: "logical-product-category-create" },
-    participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
+    participants: [{ participant, nativeStorage: product.source,
       commands: [product.runtime.commands.createCategories], validateLogicalCall: policy.validateLogicalCall,
       events: { contracts, select: (message: Json) => isJsonObject(message) && message.name === catalog.category.updatedEvent
         ? Effect.succeed(updated) : Effect.succeed(created) } }],
@@ -121,9 +120,9 @@ async function prepareCategoryCreationHost(catalog: Awaited<ReturnType<typeof pr
 
 async function prepareCategoryMembershipHost(catalog: Awaited<ReturnType<typeof prepareCreationHost>>["catalog"]) {
   return Effect.runPromise(prepareProductCategoryMembershipWorkflow({
-    execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
-      prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
-    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage } },
+    execution: { identityAndAccessPolicy: currency.execution.identityAndAccessPolicy,
+      prepare: composition => currency.execution.prepare(composition) },
+    modules: { product: { module: product.runtime.workflow, nativeStorage: product.source } },
     revision: createHash("sha256").update("logical-product-category-membership").digest("hex"),
     subscribers: [{ id: "logical-product-category-membership", revision: "a".repeat(64) }],
   }));
@@ -131,9 +130,9 @@ async function prepareCategoryMembershipHost(catalog: Awaited<ReturnType<typeof 
 
 async function prepareRelationshipsHost(catalog: Awaited<ReturnType<typeof prepareCreationHost>>["catalog"]) {
   return Effect.runPromise(prepareProductRelationshipsWorkflow({
-    execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
-      prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
-    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage } },
+    execution: { identityAndAccessPolicy: currency.execution.identityAndAccessPolicy,
+      prepare: composition => currency.execution.prepare(composition) },
+    modules: { product: { module: product.runtime.workflow, nativeStorage: product.source } },
     revision: createHash("sha256").update("logical-product-relationships").digest("hex"),
     subscribers: [{ id: "logical-product-relationships", revision: "a".repeat(64) }],
   }));
@@ -144,9 +143,9 @@ async function prepareDefaultBudgetRelationshipsHost(catalog: Awaited<ReturnType
     methods: ["listProducts", "retrieveProductCollection", "upsertProducts", "updateProductCollections"], graph: true,
   } }, true));
   return Effect.runPromise(prepareAtomicWorkflowHost({
-    execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
-      prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
-    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage } },
+    execution: { identityAndAccessPolicy: currency.execution.identityAndAccessPolicy,
+      prepare: composition => currency.execution.prepare(composition) },
+    modules: { product: { module: product.runtime.workflow, nativeStorage: product.source } },
     revision: createHash("sha256").update("logical-product-relationships-default-budget").digest("hex"),
     subscribers: [{ id: "logical-product-relationships", revision: "a".repeat(64) }],
     workflow: { name: "productRelationships", resources, prepared: Result.getOrThrow(productRelationshipsWorkflow.prepare()),
@@ -198,9 +197,9 @@ async function prepareObservedRelationshipsHost(catalog: Awaited<ReturnType<type
       return new WorkflowResponse(observe(related));
     });
   return Effect.runPromise(prepareAtomicWorkflowHost({
-    execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
-      prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition, requestCallLimit: 128 }) },
-    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage } },
+    execution: { identityAndAccessPolicy: currency.execution.identityAndAccessPolicy,
+      prepare: composition => currency.execution.prepare({ ...composition, requestCallLimit: 128 }) },
+    modules: { product: { module: product.runtime.workflow, nativeStorage: product.source } },
     revision: createHash("sha256").update(`logical-relationships-${mode}`).digest("hex"),
     subscribers: [{ id: "logical-product-relationships", revision: "a".repeat(64) }],
     workflow: { name: `observedRelationships${mode}`, resources,
@@ -250,9 +249,9 @@ async function prepareForgedCollectionMembershipHost(catalog: Awaited<ReturnType
     const contract = isJsonObject(message) && typeof message.name === "string" ? contracts.get(message.name) : undefined;
     return contract === undefined ? Effect.fail(commerceError("unadmittedEvent")) : Effect.succeed(contract);
   } };
-  const host = await Effect.runPromise(makeAtomicCommerceHost({ ...currency.hostInput,
+  const host = await Effect.runPromise(currency.execution.prepare({
     identityAndAccessPolicy: { profile: `forged-collection-membership-${forged}` },
-    participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
+    participants: [{ participant, nativeStorage: product.source,
       commands: [product.runtime.commands.retrieveCollection, command], validateLogicalCall: policy.validateLogicalCall, events: selected }],
     commands: [root], events: { producerRevision: revision, contracts: selected.contracts,
       subscribers: [{ id: "forged-collection-membership", revision: "a".repeat(64) }],
@@ -264,10 +263,9 @@ async function prepareForgedCollectionMembershipHost(catalog: Awaited<ReturnType
 
 describe("native Product creation on shared logical storage", () => {
   beforeAll(async () => {
-    currency = await logicalCurrencyFixture(driver, close => cleanup.push(close), { includeProduct: true });
-    product = await prepareLogicalProductHost(currency);
-    await Effect.runPromise(product.host.initialize([]));
-    await Effect.runPromise(product.host.close);
+    currency = await createCoreProductWorkflowFixture(driver, close => cleanup.push(close), { includeCurrency: true });
+    product = currency.product;
+
   }, 180_000);
   afterAll(async () => {
     const failures: unknown[] = [];
@@ -278,29 +276,28 @@ describe("native Product creation on shared logical storage", () => {
   it("runs the native creation step, reads pending Products and publishes matched module events once", async () => {
     const { host } = await prepareCreationHost();
     try {
-      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
-      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const beforeRows = await coreRows();
+      const beforeEvents = await coreEvents();
       // Reverse ID order so the graph reader's ID ordering cannot replace the
       // native createProductsStep result order.
       const input = { products: [{ id: "prod_logical_beta", title: "Logical Beta" },
         { id: "prod_logical_alpha", title: "Logical Alpha" }] };
       const key = host.newRequestKey();
       expect(await Effect.runPromise(host.run(key, input))).toMatchObject({ products: input.products });
-      const afterRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
-      const afterEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const afterRows = await coreRows();
+      const afterEvents = await coreEvents();
       expect(afterRows).toHaveLength(beforeRows.length + 2);
       expect(afterEvents.slice(beforeEvents.length).map(event => event.envelope.contract))
         .toEqual(["product.product.created", "product.product.created"]);
       expect(await Effect.runPromise(host.run(key, input))).toMatchObject({ products: input.products });
-      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
-      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(afterEvents);
+      expect(await coreRows()).toEqual(afterRows);
+      expect(await coreEvents()).toEqual(afterEvents);
       await expect(Effect.runPromise(host.run(host.newRequestKey(), { products: [
         { id: "prod_logical_conflict", title: "Logical Alpha" },
       ] }))).rejects.toMatchObject({ reason: "rollbackOnly" });
-      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
-      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(afterEvents);
-      expect((await currency.persistence.query<{ name: string }>(
-        "select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows)
+      expect(await coreRows()).toEqual(afterRows);
+      expect(await coreEvents()).toEqual(afterEvents);
+      expect(await currency.readPhysicalTables())
         .toEqual(currency.physicalTablesBeforeCandidate);
     } finally { await Effect.runPromise(host.close); }
   }, 120_000);
@@ -308,7 +305,7 @@ describe("native Product creation on shared logical storage", () => {
   it("creates a native Collection and Products linked by the shared logical foreign key", async () => {
     const { catalog, host: create } = await prepareCreationHost();
     const collection = await prepareCollectionCreationHost(catalog);
-    const read = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
+    const read = await Effect.runPromise(openCoreProductCommandHost(currency, {
       commands: [product.runtime.commands.retrieveCollection, product.runtime.commands.retrieve],
     }));
     try {
@@ -338,20 +335,19 @@ describe("native Product creation on shared logical storage", () => {
       expect(await Effect.runPromise(read.read(product.runtime.commands.retrieveCollection, {
         id: collectionInput.id, config: { select: ["id", "products.id"], relations: ["products"] },
       }))).toMatchObject({ id: collectionInput.id, products: [{ id: productId }] });
-      const afterRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
-      const afterEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const afterRows = await coreRows();
+      const afterEvents = await coreEvents();
       expect(await Effect.runPromise(collection.host.run(collectionKey, collection.root, collectionInput)))
         .toEqual(createdCollection);
       expect(await Effect.runPromise(create.run(productKey, productInput))).toEqual(createdProduct);
-      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
-      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(afterEvents);
+      expect(await coreRows()).toEqual(afterRows);
+      expect(await coreEvents()).toEqual(afterEvents);
       await expect(Effect.runPromise(create.run(create.newRequestKey(), { products: [{
         id: "prod_logical_collection_missing", title: "Missing Collection", collection_id: "pcol_missing",
       }] }))).rejects.toMatchObject({ reason: "invalidInput" });
-      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
-      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(afterEvents);
-      expect((await currency.persistence.query<{ name: string }>(
-        "select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows)
+      expect(await coreRows()).toEqual(afterRows);
+      expect(await coreEvents()).toEqual(afterEvents);
+      expect(await currency.readPhysicalTables())
         .toEqual(currency.physicalTablesBeforeCandidate);
     } finally {
       await Effect.runPromise(create.close);
@@ -364,7 +360,7 @@ describe("native Product creation on shared logical storage", () => {
     const { catalog, host: create } = await prepareCreationHost();
     const collection = await prepareCollectionCreationHost(catalog);
     const membership = await prepareCollectionMembershipHost(catalog);
-    const read = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
+    const read = await Effect.runPromise(openCoreProductCommandHost(currency, {
       commands: [product.runtime.commands.retrieveCollection, product.runtime.commands.retrieve],
     }));
     try {
@@ -378,7 +374,7 @@ describe("native Product creation on shared logical storage", () => {
         { id: "prod_members_keep", title: "Keep", collection_id: "pcol_members_target" },
       ] }));
       const input = { id: "pcol_members_target", add: ["prod_members_move"], remove: ["prod_members_remove"] };
-      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const beforeEvents = await coreEvents();
       const key = membership.newRequestKey();
       const result = await Effect.runPromise(membership.run(key, input));
       if (result.kind !== "replacementRequested") throw new Error("Expected requested Collection replacement");
@@ -396,35 +392,42 @@ describe("native Product creation on shared logical storage", () => {
       expect(await Effect.runPromise(read.read(product.runtime.commands.retrieve, {
         id: "prod_members_remove", config: { relations: ["collection"] },
       }))).toMatchObject({ id: "prod_members_remove", collection_id: null });
-      const afterRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
-      const afterEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const afterRows = await coreRows();
+      const afterEvents = await coreEvents();
       const emitted = afterEvents.slice(beforeEvents.length);
       expect(emitted.filter(row => row.envelope.contract === catalog.collection.updatedEvent)).toHaveLength(1);
       expect(emitted.filter(row => row.envelope.contract === catalog.product.updatedEvent)).toHaveLength(3);
       expect(emitted).toHaveLength(4);
-      expect(new Set(emitted.map(row => row.commitSeq)).size).toBe(1);
+      expect(new Set(emitted.map(row => row.timestamp)).size).toBe(1);
       expect(await Effect.runPromise(membership.run(key, input))).toEqual(result);
-      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
-      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(afterEvents);
+      expect(await coreRows()).toEqual(afterRows);
+      expect(await coreEvents()).toEqual(afterEvents);
       expect(await Effect.runPromise(membership.run(membership.newRequestKey(), { id: input.id })))
         .toMatchObject({ id: input.id });
       expect(await Effect.runPromise(membership.run(membership.newRequestKey(), { id: "pcol_members_missing" })))
         .toEqual({ kind: "skipped", id: "pcol_members_missing" });
-      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
-      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(afterEvents);
-      await expect(Effect.runPromise(membership.run(membership.newRequestKey(), {
+      expect(await coreRows()).toEqual(afterRows);
+      expect(await coreEvents()).toEqual(afterEvents);
+      const beforeMissingCollection = await currency.fixture.snapshot();
+      const missingCollection = await Effect.runPromiseExit(membership.run(membership.newRequestKey(), {
         id: "pcol_members_missing", add: ["prod_members_keep"],
-      }))).rejects.toMatchObject({ reason: "rollbackOnly" });
-      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
-      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(afterEvents);
+      }));
+      expect(await currency.fixture.snapshot()).toEqual(beforeMissingCollection);
+      const missingCollectionFailure = expectWorkflowRefusal(missingCollection, "adapterFailure");
+      expect(missingCollectionFailure.cause).toBeInstanceOf(MedusaError);
+      if (!(missingCollectionFailure.cause instanceof MedusaError)) throw new Error("Missing original native Collection retrieval failure");
+      expect(missingCollectionFailure.cause.type).toBe(MedusaError.Types.NOT_FOUND);
+      expect(missingCollectionFailure.cause.message).toBe("ProductCollection with id: pcol_members_missing was not found");
+      expect(await coreRows()).toEqual(afterRows);
+      expect(await coreEvents()).toEqual(afterEvents);
       for (const mode of ["collectionScalar", "productScalar", "foreignCollection", "foreignProduct", "repeatValid", "omission"] as const) {
         const forged = await prepareForgedCollectionMembershipHost(catalog, mode);
         try {
           await expect(Effect.runPromise(forged.host.run(forged.host.newRequestKey(), forged.root, {
             id: input.id, data: { product_ids: ["prod_members_keep", "prod_members_move"] },
           }))).rejects.toMatchObject({ reason: "invalidAuthority" });
-          expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
-          expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(afterEvents);
+          expect(await coreRows()).toEqual(afterRows);
+          expect(await coreEvents()).toEqual(afterEvents);
         } finally { await Effect.runPromise(forged.host.close); }
       }
       const seed = defineCommerceCommand("logicalCollectionUnrelatedSeed", "write", (ctx, value) =>
@@ -432,7 +435,7 @@ describe("native Product creation on shared logical storage", () => {
           if (!Array.isArray(value) || !value.every(isJsonObject)) return yield* ctx.refuse(commerceError("invalidInput"));
           return yield* (yield* ctx.table(catalog.product.table.name)).write(ctx.manager, "insert", value);
         }));
-      const seedHost = await Effect.runPromise(makeCommerceHost({ ...product.hostInput, commands: [seed] }));
+      const seedHost = await Effect.runPromise(openCoreProductCommandHost(currency, { commands: [seed] }));
       try {
         for (let start = 0; start < 260; start += 20) await Effect.runPromise(seedHost.run(seedHost.newRequestKey(), seed,
           Array.from({ length: 20 }, (_, index) => ({ id: `prod_collection_unrelated_${start + index}`,
@@ -467,8 +470,8 @@ describe("native Product creation on shared logical storage", () => {
   it("creates an owned Product graph with authenticated entity events and one pivot", async () => {
     const { catalog, host } = await prepareCreationHost();
     try {
-      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
-      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const beforeRows = await coreRows();
+      const beforeEvents = await coreEvents();
       const input = { products: [{ id: "prod_logical_graph", title: "Logical Graph",
         images: [{ id: "img_logical_graph", url: "logical-graph.png" }],
         options: [{ title: "Size", values: ["Small", "Large"] }],
@@ -483,23 +486,23 @@ describe("native Product creation on shared logical storage", () => {
         ]) }],
         variants: [{ id: "pvar_logical_graph", options: [{ value: "Small" }] }],
       }] });
-      const afterRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
-      const afterEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const afterRows = await coreRows();
+      const afterEvents = await coreEvents();
       expect(afterRows).toHaveLength(beforeRows.length + 7);
       expect(afterEvents.slice(beforeEvents.length).map(event => event.envelope.contract).sort()).toEqual([
         catalog.product.createdEvent, catalog.image.createdEvent, catalog.option.createdEvent,
         catalog.value.createdEvent, catalog.value.createdEvent, catalog.variant.createdEvent,
       ].sort());
       expect(await Effect.runPromise(host.run(key, input))).toEqual(created);
-      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
-      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(afterEvents);
+      expect(await coreRows()).toEqual(afterRows);
+      expect(await coreEvents()).toEqual(afterEvents);
       await expect(Effect.runPromise(host.run(host.newRequestKey(), { products: [{
         id: "prod_logical_graph_conflict", title: "Logical Graph Conflict",
         options: [{ title: "Size", values: ["Small"] }],
         variants: [{ title: "Small", sku: "logical-graph-small", options: { Size: "Small" } }],
       }] }))).rejects.toMatchObject({ reason: "rollbackOnly" });
-      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
-      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(afterEvents);
+      expect(await coreRows()).toEqual(afterRows);
+      expect(await coreEvents()).toEqual(afterEvents);
     } finally { await Effect.runPromise(host.close); }
   }, 120_000);
 
@@ -510,8 +513,8 @@ describe("native Product creation on shared logical storage", () => {
         !Array.isArray(input.values) || !input.values.every(isJsonObject)) return yield* ctx.refuse(commerceError("invalidInput"));
       return yield* (yield* ctx.table(input.table)).write(ctx.manager, "insert", input.values);
     }));
-    const read = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
-      commands: [...product.hostInput.commands, product.runtime.commands.list,
+    const read = await Effect.runPromise(openCoreProductCommandHost(currency, {
+      commands: [...currency.internalCommands, product.runtime.commands.list,
         product.runtime.commands.retrieve, product.runtime.commands.count, seed],
     }));
     try {
@@ -577,7 +580,7 @@ describe("native Product creation on shared logical storage", () => {
       }));
     const members = defineCommerceCommand("logicalCollectionMembershipRead", "read", (ctx, input) =>
       findCollectionMembershipProducts(ctx, catalog, input));
-    const host = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
+    const host = await Effect.runPromise(openCoreProductCommandHost(currency, {
       commands: [seed, members],
     }));
     try {
@@ -602,7 +605,7 @@ describe("native Product creation on shared logical storage", () => {
         if (!Array.isArray(input) || !input.every(isJsonObject)) return yield* ctx.refuse(commerceError("invalidInput"));
         return yield* (yield* ctx.table(catalog.product.table.name)).write(ctx.manager, "insert", input);
       }));
-    const seedHost = await Effect.runPromise(makeCommerceHost({ ...product.hostInput, commands: [seed] }));
+    const seedHost = await Effect.runPromise(openCoreProductCommandHost(currency, { commands: [seed] }));
     try {
       const collectionId = "pcol_members_overflow";
       await Effect.runPromise(collection.host.run(collection.host.newRequestKey(), collection.root,
@@ -612,8 +615,8 @@ describe("native Product creation on shared logical storage", () => {
           id: `prod_collection_overflow_${start + index}`, title: "Overflow Product",
           handle: `collection-overflow-${start + index}`, collection_id: collectionId,
         }))));
-      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
-      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const beforeRows = await coreRows();
+      const beforeEvents = await coreEvents();
       const overflow = await Effect.runPromise(Effect.result(membership.run(membership.newRequestKey(), {
         id: collectionId, remove: ["prod_collection_overflow_0"],
       })));
@@ -623,8 +626,8 @@ describe("native Product creation on shared logical storage", () => {
       expect(overflow.failure.cause.reasons.some(reason => Cause.isFailReason(reason) &&
         reason.error !== null && typeof reason.error === "object" && "reason" in reason.error &&
         reason.error.reason === "limitExceeded")).toBe(true);
-      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
-      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);
+      expect(await coreRows()).toEqual(beforeRows);
+      expect(await coreEvents()).toEqual(beforeEvents);
     } finally {
       await Effect.runPromise(create.close);
       await Effect.runPromise(collection.host.close);
@@ -636,7 +639,7 @@ describe("native Product creation on shared logical storage", () => {
   it("creates a native Category with requested Products and authenticates sibling maintenance", async () => {
     const { catalog, host: create } = await prepareCreationHost();
     const category = await prepareCategoryCreationHost(catalog);
-    const read = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
+    const read = await Effect.runPromise(openCoreProductCommandHost(currency, {
       commands: [product.runtime.commands.countCategories],
     }));
     try {
@@ -649,7 +652,7 @@ describe("native Product creation on shared logical storage", () => {
       const key = category.host.newRequestKey();
       const input = { id: "pcat_create_second", name: "Second", rank: 0,
         products: [{ id: "prod_category_create_b" }] };
-      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const beforeEvents = await coreEvents();
       const result = await Effect.runPromise(category.host.run(key, category.root, input));
       expect(result).toMatchObject({ id: input.id, rank: 0 });
       const selected = await Effect.runPromise(read.read(product.runtime.commands.countCategories, {
@@ -660,17 +663,17 @@ describe("native Product creation on shared logical storage", () => {
         { id: "pcat_create_first", rank: 1, products: [{ id: "prod_category_create_a", title: "Category Product A" }] },
         { id: "pcat_create_second", rank: 0, products: [{ id: "prod_category_create_b", title: "Category Product B" }] },
       ], 2]);
-      const afterRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
-      const afterEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const afterRows = await coreRows();
+      const afterEvents = await coreEvents();
       expect(afterEvents.slice(beforeEvents.length).map(event => event.envelope.contract))
         .toEqual([catalog.category.updatedEvent, catalog.category.createdEvent]);
       expect(await Effect.runPromise(category.host.run(key, category.root, input))).toEqual(result);
-      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
-      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(afterEvents);
+      expect(await coreRows()).toEqual(afterRows);
+      expect(await coreEvents()).toEqual(afterEvents);
       await expect(Effect.runPromise(category.host.run(category.host.newRequestKey(), category.root,
         { id: "pcat_create_missing_product", name: "Missing Product", products: [{ id: "missing" }] })))
         .rejects.toMatchObject({ reason: "invalidInput" });
-      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
+      expect(await coreRows()).toEqual(afterRows);
     } finally {
       await Effect.runPromise(create.close);
       await Effect.runPromise(category.host.close);
@@ -719,10 +722,10 @@ describe("native Product creation on shared logical storage", () => {
         { id: "pcat_batch_b", name: "Batch B", products: [{ id: "prod_category_batch_b" }] },
         { id: "pcat_batch_a", name: "Batch A", products: [{ id: "prod_category_batch_a" }] },
       ];
-      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const beforeEvents = await coreEvents();
       const result = await Effect.runPromise(category.host.run(category.host.newRequestKey(), category.root, input));
       expect(result).toMatchObject([{ id: "pcat_batch_b" }, { id: "pcat_batch_a" }]);
-      const events = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const events = await coreEvents();
       expect(events.slice(beforeEvents.length).map(event => event.envelope.contract))
         .toEqual([catalog.category.createdEvent]);
     } finally {
@@ -742,7 +745,7 @@ describe("native Product creation on shared logical storage", () => {
         { id: "prod_category_remove", title: "Remove Category", category_ids: ["pcat_logical_members"] },
         { id: "prod_category_add", title: "Add Category" },
       ] }));
-      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const beforeEvents = await coreEvents();
       const input = { id: "pcat_logical_members", add: ["prod_category_add"], remove: ["prod_category_remove"] };
       const key = membership.newRequestKey();
       const result = await Effect.runPromise(membership.run(key, input));
@@ -750,11 +753,11 @@ describe("native Product creation on shared logical storage", () => {
         { id: "prod_category_add", categories: [{ id: "pcat_logical_members" }] },
         { id: "prod_category_remove", categories: [] },
       ]);
-      const afterEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const afterEvents = await coreEvents();
       expect(afterEvents.slice(beforeEvents.length).map(event => event.envelope.contract))
         .toEqual([catalog.product.updatedEvent, catalog.product.updatedEvent]);
       expect(await Effect.runPromise(membership.run(key, input))).toEqual(result);
-      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(afterEvents);
+      expect(await coreEvents()).toEqual(afterEvents);
       const overlap = await Effect.runPromise(membership.run(membership.newRequestKey(), {
         id: "pcat_logical_members", add: ["prod_category_add"], remove: ["prod_category_add"],
       }));
@@ -763,17 +766,24 @@ describe("native Product creation on shared logical storage", () => {
         { id: "pcat_logical_members" }))).toEqual([]);
       expect(await Effect.runPromise(membership.run(membership.newRequestKey(),
         { id: "pcat_logical_members", add: ["prod_category_missing"] }))).toEqual([]);
-      const beforeInvalidRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
-      const beforeInvalidEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const beforeInvalidRows = await coreRows();
+      const beforeInvalidEvents = await coreEvents();
       await expect(Effect.runPromise(membership.run(membership.newRequestKey(), {
         id: "pcat_logical_members", add: Array(130).fill("prod_category_add"),
         remove: Array(130).fill("prod_category_add"),
       }))).rejects.toMatchObject({ reason: "invalidInput" });
-      await expect(Effect.runPromise(membership.run(membership.newRequestKey(), {
+      const missingTargetBefore = await currency.fixture.snapshot();
+      const missingTarget = await Effect.runPromiseExit(membership.run(membership.newRequestKey(), {
         id: "pcat_category_missing", add: ["prod_category_add"],
-      }))).rejects.toMatchObject({ reason: "rollbackOnly" });
-      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeInvalidRows);
-      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeInvalidEvents);
+      }));
+      expect(await currency.fixture.snapshot()).toEqual(missingTargetBefore);
+      const missingTargetFailure = expectWorkflowRefusal(missingTarget, "adapterFailure");
+      expect(missingTargetFailure.cause).toBeInstanceOf(MedusaError);
+      if (!(missingTargetFailure.cause instanceof MedusaError)) throw new Error("Missing original native Category relationship failure");
+      expect(missingTargetFailure.cause.type).toBe(MedusaError.Types.INVALID_DATA);
+      expect(missingTargetFailure.cause.message).toBe("You tried to set relationship product_category_id: pcat_category_missing, but such entity does not exist");
+      expect(await coreRows()).toEqual(beforeInvalidRows);
+      expect(await coreEvents()).toEqual(beforeInvalidEvents);
     } finally {
       await Effect.runPromise(create.close);
       await Effect.runPromise(category.host.close);
@@ -823,9 +833,9 @@ describe("native Product creation on shared logical storage", () => {
         const revision = createHash("sha256").update(`forged-category-membership-${mode}`).digest("hex");
         const contract = defineCommerceEventContract({ name: catalog.product.updatedEvent, revision,
           internal: true, decode: policy.capture });
-        const host = await Effect.runPromise(makeAtomicCommerceHost({ ...currency.hostInput,
+        const host = await Effect.runPromise(currency.execution.prepare({
           identityAndAccessPolicy: { profile: `forged-category-membership-${mode}` },
-          participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
+          participants: [{ participant, nativeStorage: product.source,
             commands: [product.runtime.commands.list, command], validateLogicalCall: policy.validateLogicalCall,
             events: { contracts: [contract], select: () => Effect.succeed(contract) } }],
           commands: [root], events: { producerRevision: revision, contracts: [contract],
@@ -834,13 +844,13 @@ describe("native Product creation on shared logical storage", () => {
               ? Effect.fail(commerceError("unadmittedEvent")) : Effect.void },
         }));
         try {
-          const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
-          const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+          const beforeRows = await coreRows();
+          const beforeEvents = await coreEvents();
           await expect(Effect.runPromise(host.run(host.newRequestKey(), root,
             [{ id, category_ids: mode === "omission" ? ["pcat_category_forged"] : [] }])))
             .rejects.toMatchObject({ reason: "invalidAuthority" });
-          expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
-          expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);
+          expect(await coreRows()).toEqual(beforeRows);
+          expect(await coreEvents()).toEqual(beforeEvents);
         } finally { await Effect.runPromise(host.close); }
       }
     } finally {
@@ -868,7 +878,7 @@ describe("native Product creation on shared logical storage", () => {
           category_ids: ["pcat_combined_target"] },
         { id: "prod_combined_keep", title: "Combined Keep", collection_id: "pcol_combined_target" },
       ] }));
-      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const beforeEvents = await coreEvents();
       const input = { collection: { id: "pcol_combined_target", add: ["prod_combined_add"],
         remove: ["prod_combined_remove"] },
       category: { id: "pcat_combined_target", add: ["prod_combined_add"], remove: ["prod_combined_remove"] } };
@@ -889,13 +899,13 @@ describe("native Product creation on shared logical storage", () => {
       expect(result.collection.kind === "replacementRequested" ? result.collection.requestedProductIds.toSorted() : [])
         .toEqual(["prod_combined_add", "prod_combined_keep"]);
       expect(await committedCollection(input.collection.id)).toEqual(["prod_combined_add", "prod_combined_keep"]);
-      const afterEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const afterEvents = await coreEvents();
       expect(afterEvents.slice(beforeEvents.length).map(row => row.envelope.contract).sort()).toEqual([
         catalog.collection.updatedEvent, ...Array(5).fill(catalog.product.updatedEvent),
       ].sort());
-      expect(new Set(afterEvents.slice(beforeEvents.length).map(row => row.commitSeq)).size).toBe(1);
+      expect(new Set(afterEvents.slice(beforeEvents.length).map(row => row.timestamp)).size).toBe(1);
       expect(await Effect.runPromise(relationships.run(key, input))).toEqual(result);
-      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(afterEvents);
+      expect(await coreEvents()).toEqual(afterEvents);
     } finally {
       await Effect.runPromise(create.close);
       await Effect.runPromise(collection.host.close);
@@ -915,11 +925,11 @@ describe("native Product creation on shared logical storage", () => {
       expect(overlap.productsAfterCategory).toEqual([{ id: "rel_overlap-remove", categories: [] }]);
       expect(overlap.collection.kind === "replacementRequested" ? overlap.collection.requestedProductIds.toSorted() : [])
         .toEqual(["rel_overlap-keep", "rel_overlap-remove"]);
-      const beforeNoOpEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const beforeNoOpEvents = await coreEvents();
       expect(await Effect.runPromise(scenario.relationships.run(scenario.relationships.newRequestKey(), {
         collection: { id: "missing-collection" }, category: { id: "missing-category" },
       }))).toEqual({ productsAfterCategory: [], collection: { kind: "skipped", id: "missing-collection" } });
-      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeNoOpEvents);
+      expect(await coreEvents()).toEqual(beforeNoOpEvents);
       const missing = await Effect.runPromise(scenario.relationships.run(scenario.relationships.newRequestKey(), {
         collection: { id: "rel_overlap-target", add: ["missing-product"] },
         category: { id: "rel_overlap-category", add: ["missing-product"] },
@@ -934,16 +944,21 @@ describe("native Product creation on shared logical storage", () => {
   it("rolls back both native children when the later Category or earlier Collection target is missing", async () => {
     const scenario = await prepareRelationshipScenario("rel_rollback");
     try {
-      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
-      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
-      for (const input of [
-        { ...scenario.input, category: { id: "missing-category", add: ["rel_rollback-add"] } },
-        { ...scenario.input, collection: { id: "missing-collection", add: ["rel_rollback-add"] } },
-      ]) {
-        await expect(Effect.runPromise(scenario.relationships.run(scenario.relationships.newRequestKey(), input)))
-          .rejects.toMatchObject({ reason: "rollbackOnly" });
-        expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
-        expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);
+      const before = await currency.fixture.snapshot(), beforeRows = before.rows, beforeEvents = before.events;
+      for (const [input, nativeType, message] of [
+        [{ ...scenario.input, category: { id: "missing-category", add: ["rel_rollback-add"] } },
+          MedusaError.Types.INVALID_DATA, "You tried to set relationship product_category_id: missing-category, but such entity does not exist"],
+        [{ ...scenario.input, collection: { id: "missing-collection", add: ["rel_rollback-add"] } },
+          MedusaError.Types.NOT_FOUND, "ProductCollection with id: missing-collection was not found"],
+      ] as const) {
+        const exit = await Effect.runPromiseExit(scenario.relationships.run(scenario.relationships.newRequestKey(), input));
+        expect(await currency.fixture.snapshot()).toEqual(before);
+        const failure = expectWorkflowRefusal(exit, "adapterFailure");
+        expect(failure.cause).toBeInstanceOf(MedusaError);
+        if (!(failure.cause instanceof MedusaError)) throw new Error("Missing original native composed relationship failure");
+        expect(failure.cause.type).toBe(nativeType); expect(failure.cause.message).toBe(message);
+        expect(await coreRows()).toEqual(beforeRows);
+        expect(await coreEvents()).toEqual(beforeEvents);
       }
     } finally { await scenario.close(); }
   }, 120_000);
@@ -951,8 +966,8 @@ describe("native Product creation on shared logical storage", () => {
   it("refuses an oversized composed relationship selection before either child executes", async () => {
     const scenario = await prepareRelationshipScenario("rel_bound");
     try {
-      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
-      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const beforeRows = await coreRows();
+      const beforeEvents = await coreEvents();
       for (const input of [
         { ...scenario.input, category: { id: "rel_bound-category",
           add: Array(130).fill("rel_bound-add"), remove: Array(130).fill("rel_bound-remove") } },
@@ -962,8 +977,8 @@ describe("native Product creation on shared logical storage", () => {
         await expect(Effect.runPromise(scenario.relationships.run(scenario.relationships.newRequestKey(), input)))
           .rejects.toMatchObject({ reason: "invalidInput" });
       }
-      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
-      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);
+      expect(await coreRows()).toEqual(beforeRows);
+      expect(await coreEvents()).toEqual(beforeEvents);
     } finally { await scenario.close(); }
   }, 120_000);
 
@@ -995,16 +1010,16 @@ describe("native Product creation on shared logical storage", () => {
   it("rejects malformed relationship inputs before publishing", async () => {
     const scenario = await prepareRelationshipScenario("rel_invalid");
     try {
-      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
-      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const beforeRows = await coreRows();
+      const beforeEvents = await coreEvents();
       for (const input of [null, { ...scenario.input, scopeId: "foreign" },
         { ...scenario.input, collection: { id: "rel_invalid-target", add: [12] } }]) {
         await expect(Effect.runPromise(scenario.relationships.run(scenario.relationships.newRequestKey(),
           // @ts-expect-error malformed external input exercises runtime decoding
           input))).rejects.toMatchObject({ reason: "invalidInput" });
       }
-      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
-      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);
+      expect(await coreRows()).toEqual(beforeRows);
+      expect(await coreEvents()).toEqual(beforeEvents);
     } finally { await scenario.close(); }
   }, 120_000);
 
@@ -1013,15 +1028,15 @@ describe("native Product creation on shared logical storage", () => {
     const late = await prepareObservedRelationshipsHost(scenario.catalog, "lateFailure");
     const invalid = await prepareObservedRelationshipsHost(scenario.catalog, "invalidOutput");
     try {
-      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
-      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const beforeRows = await coreRows();
+      const beforeEvents = await coreEvents();
       await expect(Effect.runPromise(late.run(late.newRequestKey(), scenario.input))).rejects.toBeDefined();
-      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
-      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);
+      expect(await coreRows()).toEqual(beforeRows);
+      expect(await coreEvents()).toEqual(beforeEvents);
       await expect(Effect.runPromise(invalid.run(invalid.newRequestKey(), scenario.input)))
         .rejects.toMatchObject({ reason: "storedCorruption" });
-      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
-      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);
+      expect(await coreRows()).toEqual(beforeRows);
+      expect(await coreEvents()).toEqual(beforeEvents);
     } finally {
       await Effect.runPromise(late.close);
       await Effect.runPromise(invalid.close);
@@ -1034,8 +1049,8 @@ describe("native Product creation on shared logical storage", () => {
     try {
       const key = scenario.relationships.newRequestKey();
       await Effect.runPromise(scenario.relationships.run(key, scenario.input));
-      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
-      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const beforeRows = await coreRows();
+      const beforeEvents = await coreEvents();
       const original = workflowMethodDefinition(product.runtime.workflow.methods.updateProductCollections);
       const source = workflowModuleDefinition(product.runtime.workflow);
       const upsert = workflowMethodDefinition(product.runtime.workflow.methods.upsertProducts);
@@ -1053,9 +1068,9 @@ describe("native Product creation on shared logical storage", () => {
         methods: ["listProducts", "retrieveProductCollection", "upsertProducts", "updateProductCollections"], graph: true,
       } }, true));
       const changed = await Effect.runPromise(prepareAtomicWorkflowHost({
-        execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
-          prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition, requestCallLimit: 128 }) },
-        modules: { product: { module: replacement, logicalStorage: product.hostInput.logicalStorage } },
+        execution: { identityAndAccessPolicy: currency.execution.identityAndAccessPolicy,
+          prepare: composition => currency.execution.prepare({ ...composition, requestCallLimit: 128 }) },
+        modules: { product: { module: replacement, nativeStorage: product.source } },
         revision: createHash("sha256").update("logical-product-relationships").digest("hex"),
         subscribers: [{ id: "logical-product-relationships", revision: "a".repeat(64) }],
         workflow: { name: "productRelationships", resources, prepared: Result.getOrThrow(productRelationshipsWorkflow.prepare()),
@@ -1064,8 +1079,8 @@ describe("native Product creation on shared logical storage", () => {
       try {
         await expect(Effect.runPromise(changed.run(key, scenario.input)))
           .rejects.toMatchObject({ reason: "requestConflict" });
-        expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
-        expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);
+        expect(await coreRows()).toEqual(beforeRows);
+        expect(await coreEvents()).toEqual(beforeEvents);
       } finally { await Effect.runPromise(changed.close); }
     } finally { await scenario.close(); }
   }, 120_000);
@@ -1084,7 +1099,7 @@ describe("native Product creation on shared logical storage", () => {
       category: { id: "rel_competing-category", add: ["rel_competing-add"] } };
     const secondInput = { collection: { id: "rel_competing-target", add: ["rel_competing-remove"] },
       category: { id: "rel_competing-category", add: ["rel_competing-keep"] } };
-    const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+    const beforeEvents = await coreEvents();
     const firstKey = first.newRequestKey();
     const firstRun = Effect.runPromise(first.run(firstKey, firstInput));
     let secondRun: Promise<unknown> | undefined;
@@ -1100,12 +1115,12 @@ describe("native Product creation on shared logical storage", () => {
         } finally { if (timer !== undefined) clearTimeout(timer); }
       } finally { release(); }
       await expect(firstRun).rejects.toMatchObject({ reason: "writeConflict" });
-      const afterConflict = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
-      expect(new Set(afterConflict.slice(beforeEvents.length).map(row => row.commitSeq)).size).toBe(1);
+      const afterConflict = await coreEvents();
+      expect(new Set(afterConflict.slice(beforeEvents.length).map(row => row.timestamp)).size).toBe(1);
       await Effect.runPromise(first.run(firstKey, firstInput));
-      const afterRetry = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
-      expect(new Set(afterRetry.slice(beforeEvents.length).map(row => row.commitSeq)).size).toBe(2);
-      const read = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
+      const afterRetry = await coreEvents();
+      expect(new Set(afterRetry.slice(beforeEvents.length).map(row => row.timestamp)).size).toBe(2);
+      const read = await Effect.runPromise(openCoreProductCommandHost(currency, {
         commands: [product.runtime.commands.retrieveCollection, product.runtime.commands.retrieve],
       }));
       try {

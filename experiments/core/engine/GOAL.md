@@ -370,3 +370,14 @@ supervision, whole-scope drain, all-inflight reconciliation and fresh services.
 It is connected to the actual DO and native Product caller-retry path. These
 bounded replacements do not close remaining modules/workflows, named data,
 managed hosting, package retirement or paused performance obligations.
+
+The [ordinary atomic workflow and Tax continuation](./slices/17-native-atomic-workflows-and-tax.md)
+has completed independent current/design/Convex challenge and peer exchange.
+Its connected implementation replaces the old relational-session workflow host
+with one Core root, first through complete admitted Product-only/Currency
+workflows, then through the complete Tax source and eight workflow families.
+Native REAL, compound eligibility and flush/checkpoint phases belong to shared
+owners. The selected replacement, complete admitted consumer closure and obsolete
+fixture retirement have connected two-driver proof. Task, finite borrowed,
+later multi-source graphs, retained data and actual Native17 managed hosting
+keep their named migration gates; the complete rewrite remains active.

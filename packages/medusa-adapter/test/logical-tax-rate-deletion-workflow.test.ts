@@ -1,25 +1,24 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { TaxModuleService } from "@medusajs/tax/services";
-import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { CommerceTransactionError, isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import { prepareTaxRateDeletionWorkflow } from "../src/workflows/tax/delete-rates";
-import { taxInput, taxRate, taxRegion, taxRule, taxSeed, type TaxInitialRow } from "./support/logical-item-tax-lines-fixture";
-import { prepareLogicalTaxRateDeletion, taxRateDeleteRegions, taxRateDeleteIds, taxRateDeleteRuleIds,
-  taxRateDeleteStamp, taxRateDeletionRows, type TaxRateDeletionInput } from "./support/logical-tax-rate-deletion-fixture";
+import { taxInput, taxRate, taxRegion, taxRule, taxSeed, type TaxInitialRow } from "./support/core-item-tax-lines-fixture";
+import { prepareCoreTaxRateDeletion, taxRateDeleteRegions, taxRateDeleteIds, taxRateDeleteRuleIds,
+  taxRateDeleteStamp, taxRateDeletionRows, type TaxRateDeletionInput } from "./support/core-tax-rate-deletion-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const decodeString = Schema.decodeUnknownSync(Schema.String);
 const decodeStrings = Schema.decodeUnknownSync(Schema.Array(Schema.String));
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalTaxRateDeletion>>, sharedCleanupCount = 0, ordinal = 0;
+let connected: Awaited<ReturnType<typeof prepareCoreTaxRateDeletion>>, sharedCleanupCount = 0;
 type Local = typeof connected;
 type Inventory = Awaited<ReturnType<Local["snapshot"]>>;
 const id = (row: JsonObject) => decodeString(row.id);
 const eventsSince = (before: Inventory, after: Inventory) => after.events.filter(event => !before.events.some(prior =>
-  prior.scopeUuid === event.scopeUuid && prior.commitSeq === event.commitSeq && prior.eventOrdinal === event.eventOrdinal));
+  prior.familyId === event.familyId && prior.ordinal === event.ordinal));
 const eventVector = (events: Inventory["events"]) => events.flatMap(event => {
   const message = event.envelope.message;
   if (!isJsonObject(message) || message.data === undefined || !isJsonObject(message.data)) throw new Error("Missing complete native Tax event");
@@ -27,13 +26,11 @@ const eventVector = (events: Inventory["events"]) => events.flatMap(event => {
   return ids.map(value => [event.envelope.contract, value]);
 });
 function noTaxMutation(before: Inventory, after: Inventory) {
-  for (const key of ["rows", "revisions", "indexEntries", "indexRevisions", "uniqueKeys", "rowChanges", "physicalFacts", "events"] as const)
+  for (const key of ["rows", "revisions", "indexes", "events"] as const)
     expect(after[key], key).toEqual(before[key]);
 }
-async function scenario(name: string, rows: readonly TaxInitialRow[] = taxRateDeletionRows()) {
-  const number = ++ordinal;
-  return prepareLogicalTaxRateDeletion(driver, close => cleanup.push(close), rows, { resource: connected.fixture.resource,
-    fixtureIdentity: { deploymentId: `tax-rate-delete-${name}-${number}`, projectId: "tax-rate-delete-169", uuidOffset: 8_000_000 + number * 10_000 } });
+async function scenario(_name: string, rows: readonly TaxInitialRow[] = taxRateDeletionRows()) {
+  return prepareCoreTaxRateDeletion(driver, close => cleanup.push(close), rows, { physical: connected.fixture.physical });
 }
 const run = async (local: Local, ids: TaxRateDeletionInput) => {
   const host = await local.prepare(); return Effect.runPromise(host.run(host.newRequestKey(), { ids }));
@@ -54,7 +51,7 @@ const allSelected = [...taxRateDeleteIds, ...taxRateDeleteRuleIds];
 /** Original MikroORM witnesses remain separate. This suite selects the human-
  * approved portable ordering while invoking genuine native service callbacks. */
 describe(`genuine native Tax Rate cascade deletion - ${driver}`, { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalTaxRateDeletion(driver, close => cleanup.push(close)); sharedCleanupCount = cleanup.length; }, 240_000);
+  beforeAll(async () => { connected = await prepareCoreTaxRateDeletion(driver, close => cleanup.push(close)); sharedCleanupCount = cleanup.length; }, 240_000);
   afterEach(async () => { vi.restoreAllMocks(); for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
@@ -255,9 +252,9 @@ describe(`genuine native Tax Rate cascade deletion - ${driver}`, { concurrent: f
 
   it("binds same-profile native deletion and retained restore to the executing scope with equal stored IDs", async () => {
     const local = await scenario("scope-local"), foreign = await scenario("scope-foreign"), original = await local.read(),
-      foreignRows = await foreign.read(), foreignScope = projectScopeIdUuidV1(foreign.fixture.application.authority.scopeId).scopeUuid,
-      localScope = projectScopeIdUuidV1(local.fixture.application.authority.scopeId).scopeUuid,
-      foreignEvents = (await foreign.snapshot()).events.filter(value => value.scopeUuid === foreignScope), selected = taxRateDeleteIds[0],
+      foreignRows = await foreign.read(), foreignScope = foreign.definition.identity.scopeUuid,
+      localScope = local.definition.identity.scopeUuid,
+      foreignEvents = (await foreign.snapshot()).events, selected = taxRateDeleteIds[0],
       children = taxRateDeletionRows().filter(value => value.table === "tax_rate_rule" && value.row.tax_rate_id === selected).map(value => id(value.row));
     expect(localScope).not.toBe(foreignScope); expect(original.map(id)).toEqual(foreignRows.map(id));
     expect(await Effect.runPromise(prepareTaxRateDeletionWorkflow({ ...local.options, modules: foreign.options.modules }).pipe(
@@ -265,12 +262,12 @@ describe(`genuine native Tax Rate cascade deletion - ${driver}`, { concurrent: f
     ))).toBeNull();
     expect((await local.read([selected, ...children])).every(row => typeof row.deleted_at === "string")).toBe(true);
     expect(await foreign.read()).toEqual(foreignRows);
-    expect((await foreign.snapshot()).events.filter(value => value.scopeUuid === foreignScope)).toEqual(foreignEvents);
+    expect((await foreign.snapshot()).events).toEqual(foreignEvents);
     await restore(local, [selected]); const restored = await local.read();
     for (const row of original) { const actual = restored.find(value => value.id === row.id);
       expect(actual).toEqual([selected, ...children].includes(id(row)) ? { ...row, updated_at: actual?.updated_at } : row); }
     expect(await foreign.read()).toEqual(foreignRows);
-    expect((await foreign.snapshot()).events.filter(value => value.scopeUuid === foreignScope)).toEqual(foreignEvents);
+    expect((await foreign.snapshot()).events).toEqual(foreignEvents);
   }, 240_000);
 
   it("drains interrupted native deletion before rollback and revokes its captured method without losing the interruption Cause", async () => {

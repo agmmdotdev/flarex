@@ -78,6 +78,8 @@ const preparedTargetMetadataTestImports = new Map([
 // Connected finite-contract proofs borrow exact authored native construction
 // and capture normalization to prove the real core gate runs first.
 // These edges grant no permission to adjacent tests or production consumers.
+/** @typedef {{ specifier: string, target: string, classification?: "cartCreationWorkflowFork", source?: string }} SelectedTestImport */
+/** @type {Map<string, SelectedTestImport[]>} */
 const finiteContractTestImports = new Map([
   ["packages/persistence-postgres/test/frameworks/atomicCommerce/participantInsertValidationScenario.ts", [{
     specifier: "../../../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
@@ -122,6 +124,76 @@ const finiteContractTestImports = new Map([
   }]],
   ["packages/persistence-postgres/test/storage/catalog/appSchemaCandidateValidation.postgres.test.ts", [{
     specifier: "../../../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+  }]],
+  // Core conformance proofs use the actual admitted framework producer. These
+  // exact pairs do not admit neighboring test files or runtime dependencies.
+  ["packages/flarex-backend/test/support/nativeProtectedWorkerFixture.ts", [{
+    specifier: "../../../medusa-adapter/src/modules/product/schema", target: "packages/medusa-adapter/src/modules/product/schema.ts",
+  }, {
+    specifier: "../../../medusa-adapter/test/support/core-product-fixture", target: "packages/medusa-adapter/test/support/core-product-fixture.ts",
+  }]],
+  ["packages/persistence-postgres/test/core/applicationOwnerScenarios.ts", [{
+    specifier: "../../../medusa-adapter/src/modules/currency/schema", target: "packages/medusa-adapter/src/modules/currency/schema.ts",
+  }, {
+    specifier: "../../../medusa-adapter/src/modules/product/schema", target: "packages/medusa-adapter/src/modules/product/schema.ts",
+  }]],
+  ["packages/persistence-postgres/test/core/nativeBindingSelection.test.ts", [{
+    specifier: "../../../medusa-adapter/src/modules/currency/schema", target: "packages/medusa-adapter/src/modules/currency/schema.ts",
+  }]],
+  ["packages/persistence-postgres/test/core/nativeEligibility.test.ts", [{
+    specifier: "../../../medusa-adapter/src/modules/tax/schema", target: "packages/medusa-adapter/src/modules/tax/schema.ts",
+  }]],
+  ["packages/persistence-postgres/test/core/nativeEventsScenarios.ts", [{
+    specifier: "../../../medusa-adapter/src/modules/currency/schema", target: "packages/medusa-adapter/src/modules/currency/schema.ts",
+  }]],
+  ["packages/persistence-postgres/test/core/nativeProtectedSchema.test.ts", [{
+    specifier: "../../../medusa-adapter/src/modules/product/schema", target: "packages/medusa-adapter/src/modules/product/schema.ts",
+  }]],
+  ["packages/persistence-postgres/test/core/nativeRealPersistenceScenarios.ts", [{
+    specifier: "../../../medusa-adapter/src/modules/tax/schema", target: "packages/medusa-adapter/src/modules/tax/schema.ts",
+  }]],
+  ["packages/persistence-postgres/test/core/nativeRealRows.test.ts", [{
+    specifier: "../../../medusa-adapter/src/modules/tax/schema", target: "packages/medusa-adapter/src/modules/tax/schema.ts",
+  }]],
+  ["packages/persistence-postgres/test/core/nativeRelationalIntegrityScenarios.ts", [{
+    specifier: "../../../medusa-adapter/src/modules/product/schema", target: "packages/medusa-adapter/src/modules/product/schema.ts",
+  }]],
+  ["packages/persistence-postgres/test/core/nativeRelationalQuery.test.ts", [{
+    specifier: "../../../medusa-adapter/src/modules/product/schema", target: "packages/medusa-adapter/src/modules/product/schema.ts",
+  }, {
+    specifier: "../../../medusa-adapter/src/links/product-definition", target: "packages/medusa-adapter/src/links/product-definition.ts",
+  }]],
+  ["packages/persistence-postgres/test/core/nativeRelationalSchema.test.ts", [{
+    specifier: "../../../medusa-adapter/src/modules/product/definition", target: "packages/medusa-adapter/src/modules/product/definition.ts",
+  }, {
+    specifier: "../../../medusa-adapter/src/modules/currency/schema", target: "packages/medusa-adapter/src/modules/currency/schema.ts",
+  }, {
+    specifier: "../../../medusa-adapter/src/links/product-definition", target: "packages/medusa-adapter/src/links/product-definition.ts",
+  }]],
+  ["packages/persistence-postgres/test/core/nativeRootEventsScenarios.ts", [{
+    specifier: "../../../medusa-adapter/src/modules/currency/schema", target: "packages/medusa-adapter/src/modules/currency/schema.ts",
+  }]],
+  ["packages/persistence-postgres/test/core/nativeRootScenarios.ts", [{
+    specifier: "../../../medusa-adapter/src/modules/currency/schema", target: "packages/medusa-adapter/src/modules/currency/schema.ts",
+  }]],
+  ["packages/persistence-postgres/test/core/nativeSchemaBundle.test.ts", [{
+    specifier: "../../../medusa-adapter/src/modules/currency/schema", target: "packages/medusa-adapter/src/modules/currency/schema.ts",
+  }]],
+  ["packages/persistence-postgres/test/core/nativeSchemaBundleLifecycleScenarios.ts", [{
+    specifier: "../../../medusa-adapter/src/modules/currency/schema", target: "packages/medusa-adapter/src/modules/currency/schema.ts",
+  }]],
+  ["packages/persistence-postgres/test/frameworks/cmsTransaction/nativeReferenceFailure.test.ts", [{
+    specifier: "../../../../medusa-adapter/src/modules/product/schema", target: "packages/medusa-adapter/src/modules/product/schema.ts",
+  }]],
+  ["packages/persistence-postgres/test/frameworks/crossDomainCommand/jointApplicationRelationsFixture.ts", [{
+    specifier: "../../../../medusa-adapter/test/support/core-currency-fixture", target: "packages/medusa-adapter/test/support/core-currency-fixture.ts",
+  }]],
+  ["packages/persistence-postgres/test/frameworks/crossDomainCommand/jointApplicationRelationsScenario.ts", [{
+    specifier: "../../../../medusa-adapter/src/modules/currency/service", target: "packages/medusa-adapter/src/modules/currency/service.ts",
+  }]],
+  ["packages/medusa-adapter/test/native-cart-pricing-hook-witness.test.ts", [{
+    specifier: "../../medusa-core-flows/src/cart/utils/schemas", target: "packages/medusa-core-flows/src/cart/utils/schemas.ts",
+    classification: "cartCreationWorkflowFork", source: "third_party/medusa/upstream/packages/core/core-flows/src/cart/utils/schemas.ts",
   }]],
 ]);
 // Existing publication measurements reuse the authored observer through these
@@ -390,12 +462,13 @@ function admitsSelectedMixedTestImport(promotion, relativePath, specifier) {
     : relativePath === mixedPerformanceTest ? mixedPerformanceTestImports
       : relativePath === mixedProductWorkerdTest ? mixedProductWorkerdTestImports
         : relativePath === preparedTargetMetadataTest ? preparedTargetMetadataTestImports : undefined;
-  const finiteContract = finiteContractTestImports.get(relativePath);
+  const finiteContract = finiteContractTestImports.get(relativePath)?.find(edge => edge.specifier === specifier);
   const target = permitted?.get(specifier) ??
-    finiteContract?.find(edge => edge.specifier === specifier)?.target ??
+    finiteContract?.target ??
     (publicationServerTestImports.get(relativePath) === specifier ? publicationServerOwner : undefined);
   return target !== undefined && promotion?.files.some(file =>
-    file.target === target && file.classification === "authored") === true;
+    file.target === target && file.classification === (finiteContract?.classification ?? "authored")
+    && (finiteContract?.source === undefined || file.source === finiteContract.source)) === true;
 }
 
 /** The extracted fixture observer and timing contract need exact erased types.
@@ -774,6 +847,8 @@ export function discoverRootToolSources(repoRoot) {
     "scripts/check-medusa-variant-item-pricing-source.test.js",
     "scripts/check-medusa-cart-prerequisite-source.mjs",
     "scripts/check-medusa-cart-creation-source.mjs",
+    "scripts/check-medusa-cart-create-declarations.mjs",
+    "scripts/check-medusa-cart-create-workflows-source.mjs",
     "scripts/check-medusa-cart-promotion-step-source.mjs",
     "scripts/check-medusa-cart-promotion-step-source.test.js",
     "scripts/check-medusa-cart-prerequisite-source.test.js",

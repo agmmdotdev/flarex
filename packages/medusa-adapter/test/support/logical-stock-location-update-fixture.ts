@@ -60,11 +60,11 @@ export async function prepareLogicalStockLocationUpdate(
       input: StockLocationsInput, output: StockLocationsOutput, events: internalModuleWorkflowEvents },
   }));
   registerCleanup(() => Effect.runPromise(creator.close));
-  const options: Parameters<typeof prepareStockLocationUpdateWorkflow>[0] = {
+  const options = {
     execution, modules: { stock_location: { module: stock.workflow, logicalStorage: sourceInput.logicalStorage } },
     revision: createHash("sha256").update("native-stock-location-update-113").digest("hex"),
     subscribers: [{ id: "native-stock-location-update", revision: "d".repeat(64) }],
-  };
+  } satisfies Parameters<typeof prepareStockLocationUpdateWorkflow>[0];
   const prepare = async (revision = options.revision) => {
     const host = await Effect.runPromise(prepareStockLocationUpdateWorkflow({ ...options, revision }));
     registerCleanup(() => Effect.runPromise(host.close));

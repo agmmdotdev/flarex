@@ -1,7 +1,7 @@
-import { Cause, Effect, Result } from "effect";
+import { Cause, Effect, Result, Schema } from "effect";
 import type { DocumentObject } from "flarex-protocol/document-value";
-import { isJsonObject } from "flarex-protocol/json";
-import type { CoreError, CoreNativeBindingMetadata, CoreNativeOperations } from "../../core/api";
+import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
+import { CoreNativeSetNullIntentSchema, type CoreError, type CoreNativeBindingMetadata, type CoreNativeOperations } from "../../core/api";
 import { coreNativeRelationalRows } from "../../core/nativePolicy";
 import { coreNativeRelationalRow, executeCoreNativeRelationalRead, executeCoreNativeRelationalPage,
   prepareCoreNativeRelationalRead } from "../../core/nativeRelationalQuery";
@@ -12,10 +12,33 @@ import { defaultCommerceResources, type CommerceResources } from "./resources";
 import type { CommerceStore } from "./storeModel";
 import { projectCoreCommerceFailure } from "./nativeFailure";
 import { observeExecution } from "../../execution/diagnostics/operation";
-import type { CommerceReferenceReplacement } from "./commands";
+import type { CommerceReferenceReplacement, CommerceSetNullSelection } from "./commands";
 
 const nativeResult = <A>(work: Effect.Effect<A, CoreError>) => work.pipe(
   Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCoreCommerceFailure))));
+const decodeSetNull = Schema.decodeUnknownEffect(CoreNativeSetNullIntentSchema);
+
+export interface NativeCommerceReadObservation {
+  readonly table: string;
+  readonly operation: "find" | "count";
+  readonly query: Json;
+  readonly total: number;
+  readonly returned: number;
+  readonly rows: readonly JsonObject[];
+  readonly orderedIdentities?: readonly Readonly<Record<string, string>>[];
+}
+/** The trusted host supplies these fields from its authentic selected command
+ * policy; native arguments never construct invocation controls or observers.
+ * Omission retains the existing standalone native profile. */
+export interface NativeCommerceInvocation {
+  readonly insertValidation?: "entityBatch";
+  readonly allowReferenceCheckpoints?: true;
+  readonly allowActiveRestoreUpdate?: true;
+  readonly allowStorageInsertionOrder?: true;
+  readonly allowReferenceReplacement?: true;
+  readonly setNullPolicy?: Readonly<{ managedUpdate: "advance" | "preserve" }>;
+  readonly onRead?: (observation: NativeCommerceReadObservation) => Effect.Effect<void, CommerceTransactionError>;
+}
 
 /** Core owns row, key, default, observation and mutation semantics. This owner
  * translates the existing native query values and framework request envelope. */
@@ -23,6 +46,7 @@ export const makeNativeCommerceParticipant = Effect.fn("NativeCommerce.makeParti
   operations: CoreNativeOperations, metadata: CoreNativeBindingMetadata,
   lifetime: BoundedRequestLifetime<CommerceTransactionError>, initialContext: BoundedRequestContext,
   transactionId: string, unixTime: number, resources: CommerceResources = defaultCommerceResources,
+  invocation?: NativeCommerceInvocation,
 ) {
   const stores = new Map<string, CommerceStore>();
   const retain = <Value>(value: Value) => Effect.gen(function* () {
@@ -48,13 +72,21 @@ export const makeNativeCommerceParticipant = Effect.fn("NativeCommerce.makeParti
         lifetime.remainingBytes(), commerceError));
       yield* lifetime.fromResult(lifetime.charge(captured.bytes));
       const query = yield* nativeResult(Effect.fromResult(prepareCoreNativeRelationalRead(policy, captured.value, resources.queryRows)));
+      if (invocation !== undefined && query.storageInsertion && invocation.allowStorageInsertionOrder !== true)
+        return yield* commerceError("invalidAuthority");
       preparation.captured ??= captured;
       return query;
     });
-    const read = (context: BoundedRequestContext, input: unknown, preparation: Preparation) => guard(context, "read", Effect.gen(function* () {
+    const read = (context: BoundedRequestContext, input: unknown, preparation: Preparation, operation: "find" | "count" = "find") => guard(context, "read", Effect.gen(function* () {
       const query = yield* prepare(input, preparation);
       const selected = yield* nativeResult(observeExecution(`NativeCommerce.query/${declaration.localName ?? table.name}`,
-        executeCoreNativeRelationalRead(operations, table, policy, query)));
+        executeCoreNativeRelationalRead(operations, table, policy, query, operation === "count" ? "count" : "rows")));
+      if (invocation?.onRead !== undefined) {
+        const captured = preparation.captured;
+        if (captured === undefined) return yield* commerceError("storedCorruption");
+        yield* invocation.onRead({ table: table.name, operation, query: captured.value, total: selected.count, returned: selected.returned,
+          rows: selected.rows, ...(selected.orderedIdentities === undefined ? {} : { orderedIdentities: selected.orderedIdentities }) });
+      }
       const rows = yield* retain(selected.rows);
       if (!Array.isArray(rows) || !rows.every(isJsonObject)) return yield* commerceError("storedCorruption");
       return { rows, count: selected.count };
@@ -71,22 +103,25 @@ export const makeNativeCommerceParticipant = Effect.fn("NativeCommerce.makeParti
         const preparation: Preparation = {};
         return Object.freeze({ find: context => read(context, input, preparation).pipe(Effect.map(result => result.rows)),
           findPage: context => readPage(context, input, preparation),
-          count: context => read(context, input, preparation).pipe(Effect.map(result => result.count)) } satisfies ReturnType<CommerceStore["prepareRead"]>);
+          count: context => read(context, input, preparation, "count").pipe(Effect.map(result => result.count)) } satisfies ReturnType<CommerceStore["prepareRead"]>);
       },
       find: (context, input) => read(context, input, {}).pipe(Effect.map(result => result.rows)),
       findPage: (context, input) => readPage(context, input, {}),
-      count: (context, input) => read(context, input, {}).pipe(Effect.map(result => result.count)),
+      count: (context, input) => read(context, input, {}, "count").pipe(Effect.map(result => result.count)),
       aggregate: context => guard(context, "read", Effect.fail(commerceError("unsupportedProfile"))),
       lifecycle: (context, mode, input) => guard(context, "write", Effect.gen(function* () {
         const captured = yield* lifetime.fromResult(useCapturedPrivateJsonData(input, lifetime.remainingBytes(), commerceError));
         yield* lifetime.fromResult(lifetime.charge(captured.bytes));
-        return yield* returnedRows(yield* nativeResult(operations.lifecycle(table.name, mode, captured.value)));
+        return yield* returnedRows(yield* nativeResult(operations.lifecycle(table.name, mode, captured.value,
+          invocation?.allowActiveRestoreUpdate === true ? { allowActiveRestoreUpdate: true } : undefined)));
       })),
       write: (context, mode, input) => guard(context, "write", Effect.gen(function* () {
+        if (invocation !== undefined && mode === "upsertPreservingDeletion") return yield* commerceError("invalidAuthority");
         const captured = yield* lifetime.fromResult(useCapturedPrivateJsonData(input, lifetime.remainingBytes(), commerceError));
         yield* lifetime.fromResult(lifetime.charge(captured.bytes));
         return yield* returnedRows(yield* nativeResult(observeExecution(`NativeCommerce.writeRows/${declaration.localName ?? table.name}/${mode}`,
-          operations.writeRows(table.name, mode, captured.value))));
+          operations.writeRows(table.name, mode, captured.value,
+            invocation?.insertValidation === undefined ? undefined : { insertValidation: invocation.insertValidation }))));
       })),
       delete: (context, input) => guard(context, "write", Effect.gen(function* () {
         const captured = yield* lifetime.fromResult(useCapturedPrivateJsonData(input, lifetime.remainingBytes(), commerceError));
@@ -104,12 +139,34 @@ export const makeNativeCommerceParticipant = Effect.fn("NativeCommerce.makeParti
   if (first === undefined) return yield* commerceError("unsupportedProfile");
   const store = yield* table(initialContext, first.localName ?? first.name);
   return Object.freeze({ store, resources, table,
-    planReferenceReplacement: (context: BoundedRequestContext, selection: CommerceReferenceReplacement) => lifetime.operation(context, transactionId, "write", Effect.gen(function* () {
+    ...(invocation?.setNullPolicy === undefined ? {} : {
+      planSetNull: (context: BoundedRequestContext, input: CommerceSetNullSelection) => lifetime.operation(context, transactionId, "write", Effect.gen(function* () {
+        const captured = yield* lifetime.fromResult(useCapturedPrivateJsonData(input, lifetime.remainingBytes(), commerceError));
+        yield* lifetime.fromResult(lifetime.charge(captured.bytes));
+        const selection = yield* decodeSetNull(captured.value).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
+        const source = metadata.definition.tables.find(candidate => (candidate.localName ?? candidate.name) === selection.sourceTable);
+        const target = metadata.definition.tables.find(candidate => (candidate.localName ?? candidate.name) === selection.targetTable);
+        if (source === undefined || target === undefined || selection.managedUpdate !== invocation.setNullPolicy?.managedUpdate)
+          return yield* commerceError("invalidAuthority");
+        yield* nativeResult(operations.planSetNullReferences({ ...selection, sourceTable: source.name, targetTable: target.name }));
+      })),
+    }),
+    ...(invocation?.allowReferenceCheckpoints === true ? {
+      checkpointRelationalReferences: (context: BoundedRequestContext, name: string) => lifetime.operation(context, transactionId, "write",
+        Effect.suspend(() => {
+          const declaration = metadata.definition.tables.find(candidate => (candidate.localName ?? candidate.name) === name);
+          return declaration === undefined ? Effect.fail(commerceError("invalidAuthority"))
+            : nativeResult(operations.checkpointReferences(declaration.name));
+        })),
+    } : {}),
+    ...(invocation === undefined || invocation.allowReferenceReplacement === true ? {
+      planReferenceReplacement: (context: BoundedRequestContext, selection: CommerceReferenceReplacement) => lifetime.operation(context, transactionId, "write", Effect.gen(function* () {
       const source = metadata.definition.tables.find(declaration => (declaration.localName ?? declaration.name) === selection.sourceTable);
       const target = metadata.definition.tables.find(declaration => (declaration.localName ?? declaration.name) === selection.targetTable);
       if (source === undefined || target === undefined) return yield* commerceError("invalidAuthority");
       yield* nativeResult(operations.replaceReferenceSet({ ...selection, sourceTable: source.name, targetTable: target.name }));
-    })),
+      })),
+    } : {}),
     referenceReplacementChanges: () => Effect.gen(function* () {
       const changes = yield* nativeResult(operations.referenceReplacementChanges());
       return yield* Effect.forEach(changes, change => Effect.gen(function* () {

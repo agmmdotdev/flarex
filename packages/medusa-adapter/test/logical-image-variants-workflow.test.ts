@@ -6,37 +6,28 @@ import { ProductModuleService } from "@medusajs/product/services";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineAtomicCommerceCommand, getAtomicCommerceCommand, type AtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
-import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits } from "../../persistence-postgres/src/database/schema";
-import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commit/events/schema";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution } from "../src/workflow/host";
 import { productImageVariantResources } from "../src/workflow/policy";
 import { variantImagesWorkflowEvents } from "../src/workflows/product/variant-images";
 import { ImageVariantsWorkflowInput } from "../src/modules/product/variant-workflow-input";
 import { prepareWorkflowResources } from "../src/workflow/resources";
-import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
+import { createCoreProductWorkflowFixture } from "./support/core-product-workflow-fixture";
 import { withWorkflowPolicy } from "./support/workflow-policy-fixture";
-import { prepareLogicalImageVariants } from "./support/logical-image-variants-workflow-fixture";
+import { prepareCoreImageVariants } from "./support/core-image-variants-workflow-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalImageVariants>>, fixtureCleanupCount = 0;
+let connected: Awaited<ReturnType<typeof prepareCoreImageVariants>>, fixtureCleanupCount = 0;
 const readRows = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject));
 const first = <Value>(values: readonly Value[]): Value => {
   const value = values[0]; if (value === undefined) throw new Error("Expected a genuine Image-Variant fixture identity"); return value;
 };
-const rows = () => connected.fixture.persistence.drizzle.select().from(fxAppRowCurrent)
-  .orderBy(fxAppRowCurrent.scopeUuid, fxAppRowCurrent.tableId, fxAppRowCurrent.rowId);
-const revisions = () => connected.fixture.persistence.drizzle.select().from(fxAppRowRevisions)
-  .orderBy(fxAppRowRevisions.scopeUuid, fxAppRowRevisions.tableId, fxAppRowRevisions.rowId, fxAppRowRevisions.commitSeq);
-const events = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents)
-  .orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal);
-const commits = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommits).orderBy(fxSystemCommits.commitSeq);
-const deliveries = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommitEventDeliveries)
-  .orderBy(fxSystemCommitEventDeliveries.commitSeq, fxSystemCommitEventDeliveries.eventOrdinal, fxSystemCommitEventDeliveries.subscriberId);
-const snapshot = async () => ({ rows: await rows(), revisions: await revisions(), events: await events(), commits: await commits(), deliveries: await deliveries() });
+const snapshot = () => connected.fixture.snapshot();
+const rows = async () => (await snapshot()).rows;
+const revisions = async () => (await snapshot()).revisions;
+const events = async () => (await snapshot()).events;
+const committedRoots = async () => (await snapshot()).outcomes;
+const deliveries = async () => (await snapshot()).deliveries;
 function failurePath(value: unknown): string[] {
   if (Cause.isCause(value)) return value.reasons.flatMap(reason => {
     switch (reason._tag) {
@@ -78,14 +69,14 @@ async function addBeforeRemoveExecution(trace: string[]): Promise<AtomicWorkflow
             ? Effect.sync(() => { trace.push("added"); }).pipe(Effect.andThen(Deferred.succeed(completed, undefined))) : Effect.void));
       },
     }, value));
-    const host = yield* makeAtomicCommerceHost({ ...connected.fixture.hostInput, ...composition, commands: [forwarded] });
+    const host = yield* connected.execution.prepare({ ...composition, commands: [forwarded] });
     const forwardingHost: AtomicCommerceHost = { ...host, run: (key, command, value) => host.run(key, command === original ? forwarded : command, value) };
     return forwardingHost;
   }) };
 }
 
 describe("native Image-to-Variants workflow on shared logical storage", () => {
-  beforeAll(async () => { connected = await prepareLogicalImageVariants(driver, close => cleanup.push(close)); fixtureCleanupCount = cleanup.length; }, 180_000);
+  beforeAll(async () => { connected = await prepareCoreImageVariants(driver, close => cleanup.push(close)); fixtureCleanupCount = cleanup.length; }, 180_000);
   afterEach(async () => {
     vi.restoreAllMocks(); const failures: unknown[] = [];
     try { await connected.cleanupProducts(); } catch (cause) { failures.push(cause); }
@@ -278,7 +269,7 @@ describe("native Image-to-Variants workflow on shared logical storage", () => {
     expect(after.filter(row => additions.includes(String(row.id)))).toEqual(variants.filter(row => additions.includes(String(row.id))));
     expect(after.filter(row => removals.includes(String(row.id))).every(row => row.thumbnail === null)).toBe(true);
     expect(readRows(await Effect.runPromise(connected.listAssignments())).map(row => row.variant_id).toSorted()).toEqual(additions.toSorted());
-    expect((await revisions()).filter(row => row.isTombstone)).toHaveLength(before.revisions.filter(row => row.isTombstone).length + 8);
+    expect((await revisions()).filter(row => row.deleted)).toHaveLength(before.revisions.filter(row => row.deleted).length + 8);
     expect(await revisions()).toHaveLength(before.revisions.length + 16);
     const emitted = (await events()).slice(before.events.length); expect(emitted).toHaveLength(4);
     process.stdout.write(JSON.stringify({ imageMaximum: { parents, additionParents: 4, siblings: 16, additionVariants: 4, options: 4, values: 16, pivots: pivotCount,
@@ -367,28 +358,24 @@ describe("native Image-to-Variants workflow on shared logical storage", () => {
   }, 120_000);
 
   it("replays once, binds input and revision, and recovers a lost COMMIT acknowledgement", async () => {
-    const graph = await connected.seed("image-replay"), fixture = connected.fixture; let lose = true, validations = 0;
-    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
-      Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-      Effect.flatMap(value => { if (!lose) return Effect.succeed(value); lose = false;
-        return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: "Lost native inverse image COMMIT acknowledgement" })); }),
-    ));
+    const graph = await connected.seed("image-replay"), fixture = connected.fixture; let validations = 0;
+    const fault = fixture.loseNextNativeRootAcknowledgement();
     const module = withWorkflowPolicy(connected.product.runtime.productImageVariantWorkflow, policy => ({ ...policy,
       validateLogicalCall: (...args) => policy.validateLogicalCall(...args).pipe(Effect.tap(() => Effect.sync(() => { validations++; }))) }));
-    const host = await connected.prepare({ ...connected.execution, prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, session, ...composition }) },
+    const host = await connected.prepare(connected.execution,
       connected.options.revision, module), key = host.newRequestKey(), input = { image_id: graph.imageId, add: [first(graph.variantIds)] };
     const before = await snapshot(), output = await Effect.runPromise(host.run(key, input)), after = await snapshot(), count = validations;
-    expect(lose).toBe(false); expect(output).toEqual({ added: input.add, removed: [] }); expect(count).toBeGreaterThan(0);
-    expect(after.commits).toHaveLength(before.commits.length + 1);
+    expect(fault.armed).toBe(false); expect(fault.failures).toBe(1);
+    expect(fault.evidence?.inventory).toEqual(await fixture.inventory()); expect(output).toEqual({ added: input.add, removed: [] }); expect(count).toBeGreaterThan(0);
+    expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
     expect(await Effect.runPromise(host.run(key, input))).toEqual(output); expect(validations).toBe(count); expect(await snapshot()).toEqual(after);
     await refuse(host.run(key, { image_id: graph.imageId, remove: input.add }), "requestConflict");
     const changed = await connected.prepare(connected.execution, "c".repeat(64)); await refuse(changed.run(key, input), "requestConflict");
   }, 120_000);
 
   it("confines matching endpoints and request keys to independent shop scopes", async () => {
-    const fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close), { resource: connected.fixture.resource, includeProduct: true,
-      fixtureIdentity: { deploymentId: "deployment_image_workflow_shop_b", projectId: "project_image_workflow_shop_b", uuidOffset: 120_000 } });
-    const other = await prepareLogicalImageVariants(driver, close => cleanup.push(close), fixture);
+    const fixture = await createCoreProductWorkflowFixture(driver, close => cleanup.push(close), { physical: connected.fixture.physical });
+    const other = await prepareCoreImageVariants(driver, close => cleanup.push(close), fixture);
     const left = await connected.seed("image-scope"), right = await other.seed("image-scope"), host = await connected.prepare(), otherHost = await other.prepare();
     expect(left).toEqual(right); const key = host.newRequestKey(), input = { image_id: left.imageId, add: [first(left.variantIds)] };
     expect(await Effect.runPromise(host.run(key, input))).toEqual({ added: input.add, removed: [] });
@@ -421,7 +408,7 @@ describe("native Image-to-Variants workflow on shared logical storage", () => {
       expect(outcomes.filter(value => value._tag === "Success")).toHaveLength(1);
       expect(outcomes.filter(value => value._tag === "Failure")).toHaveLength(1);
       for (const value of outcomes) if (value._tag === "Failure") expect(failurePath(value.cause)).toContain("writeConflict");
-      expect(await commits()).toHaveLength(before.commits.length + 1); expect(await Effect.runPromise(connected.listAssignments())).toEqual([]);
+      expect(await committedRoots()).toHaveLength(before.outcomes.length + 1); expect(await Effect.runPromise(connected.listAssignments())).toEqual([]);
       expect(readRows(await Effect.runPromise(connected.listVariants([id])))).toMatchObject([{ id, thumbnail: null }]);
     } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); }
   }, 180_000);

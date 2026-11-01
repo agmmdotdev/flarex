@@ -9,6 +9,7 @@ import type { PreparedCommitEventEligibility } from "../../commit/events/eligibi
 declare const participantBrand: unique symbol;
 export interface AtomicCommerceParticipant { readonly [participantBrand]: true }
 const participants = new WeakMap<object, string>();
+export const isCommerceDefinitionName = (name: string) => /^[a-z][a-zA-Z0-9_-]{0,63}$/.test(name) && name !== "initialize";
 
 /** A definition identity, granted installation authority only by the host. */
 export function defineAtomicCommerceParticipant(name: string): AtomicCommerceParticipant {

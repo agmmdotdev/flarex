@@ -2,9 +2,6 @@ import { Effect, Result, Schema } from "effect";
 import type { ITaxModuleService, Logger } from "@medusajs/framework/types";
 import { createStep, createWorkflow, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { deleteTaxRateRulesWorkflow, type DeleteTaxRateRulesWorkflowInput } from "@medusajs/core-flows/tax/delete-tax-rate-rules";
-import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
-import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
-import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeTaxRuleDeleteCommands } from "../../src/modules/tax/rule-delete-service";
 import { TaxRuleDeletionIds, TaxRuleDeletionOutput } from "../../src/modules/tax/rule-delete-input";
 import { prepareTaxRuleDeletionWorkflow } from "../../src/workflows/tax/delete-rules";
@@ -13,8 +10,7 @@ import { prepareTaxRuleCreationWorkflow } from "../../src/workflows/tax/create-r
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
-import { projectNativeRow } from "../../src/repository/result";
-import { prepareLogicalItemTaxLines, taxRegion, taxRate, taxRule, taxSeed, type TaxInitialRow } from "./logical-item-tax-lines-fixture";
+import { prepareCoreItemTaxLines, taxRegion, taxRate, taxRule, taxSeed, type TaxInitialRow } from "./core-item-tax-lines-fixture";
 
 export const taxRuleDeleteRegion = "txreg166-us";
 export const taxRuleDeleteParents = ["txr166-first", "txr166-second", "txr166-third", "txr166-fourth"];
@@ -42,9 +38,9 @@ export function taxRuleDeletionRows(): readonly TaxInitialRow[] {
 
 /** Reuses genuine Tax initialization. Mutation probes invoke genuine retained
  * callbacks or an explicitly admitted native service method. */
-export async function prepareLogicalTaxRuleDeletion(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  rows: readonly TaxInitialRow[] = taxRuleDeletionRows(), shared?: Parameters<typeof prepareLogicalItemTaxLines>[3]) {
-  const base = await prepareLogicalItemTaxLines(driver, close, rows, shared);
+export async function prepareCoreTaxRuleDeletion(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
+  rows: readonly TaxInitialRow[] = taxRuleDeletionRows(), shared?: Parameters<typeof prepareCoreItemTaxLines>[3]) {
+  const base = await prepareCoreItemTaxLines(driver, close, rows, shared);
   const lateFailure = new Error("Late parent failure after genuine native Tax Rule deletion");
   const logger: Logger = { panic() {}, shouldLog: () => false, setLogLevel() {}, unsetLogLevel() {}, activity: message => message,
     progress() {}, error() {}, failure() {}, success: () => ({}), silly() {}, debug() {}, verbose() {}, http() {}, info() {}, warn() {}, log() {} };
@@ -105,19 +101,7 @@ export async function prepareLogicalTaxRuleDeletion(driver: "pglite" | "postgres
       workflow: { name: "probeTaxRuleDeletionLateParent", resources, prepared: Result.getOrThrow(flow.prepare()),
         input: Schema.Struct({ ids: TaxRuleDeletionIds }), output: Schema.Null, events: internalModuleWorkflowEvents } })));
   };
-  const read = async (selected?: readonly string[]) => {
-    const snapshot = await base.snapshot(), output: JsonObject[] = [], scopeUuid = projectScopeIdUuidV1(base.fixture.application.authority.scopeId).scopeUuid;
-    for (const row of snapshot.rows) {
-      if (row.scopeUuid !== scopeUuid) continue;
-      const version = snapshot.revisions.find(value => value.scopeUuid === row.scopeUuid && value.tableId === row.tableId &&
-        value.commitSeq === row.commitSeq && Buffer.from(value.rowId).equals(Buffer.from(row.rowId)));
-      if (version === undefined || version.isTombstone) continue;
-      const decoded = await decodeCanonicalFlarexValueEvidenceV1({ canonicalBytes: version.valueBytes, sha256: version.valueSha256, profile: "appDocument" });
-      const value = projectNativeRow(Schema.decodeUnknownSync(Schema.JsonObject)(decoded.valueJson));
-      if (typeof value.id === "string" && (selected === undefined || selected.includes(value.id))) output.push(value);
-    }
-    return output.sort((left, right) => String(left.id).localeCompare(String(right.id)));
-  };
+  const read = base.read;
   return { ...base, tax, options, lateFailure, prepare, prepareCreation, prepareForward, prepareInverse, prepareRaw, prepareLateFailure, closeCaseHosts, read,
     prepareCalculation: base.prepare };
 }

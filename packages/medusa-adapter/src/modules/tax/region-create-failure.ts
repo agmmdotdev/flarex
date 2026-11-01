@@ -84,28 +84,44 @@ export function prepareTaxRegionFailurePresentation(contracts: Contracts) {
             table.columns.find(declared => declared.identity.columnId === column)?.type !== "text") return undefined;
           values.push(value);
         }
-        const declaredCohort = key.kind === "primary"
-          ? required.origin === "input" && table.keys.some(declared => declared.kind === "primary" &&
-            jsonEqual(declared.identity, key.identity) && jsonEqual(declared.columns.map(column => column.columnId), columns))
-          : required.origin === "row" && (table.keys.some(declared => declared.kind === "unique" &&
-            jsonEqual(declared.columns.map(column => column.columnId), columns)) ||
-            table.indexes.some(declared => declared.kind === "uniqueBtree" &&
-              jsonEqual(declared.columns.map(column => column.columnId), columns)));
+        let declaredCohort: boolean;
+        switch (key.kind) {
+          case "primary":
+            declaredCohort = required.origin === "input" && table.keys.some(declared => declared.kind === "primary" &&
+              jsonEqual(declared.identity, key.identity) && jsonEqual(declared.columns.map(column => column.columnId), columns));
+            break;
+          case "nativeUnique": {
+            const declaration = key.declaration;
+            declaredCohort = required.origin === "row" && (declaration.kind === "key"
+              ? table.keys.some(declared => declared.kind === "unique" && jsonEqual(declared.identity, declaration.identity) &&
+                jsonEqual(declared.columns.map(column => column.columnId), columns))
+              : table.indexes.some(declared => declared.kind === "uniqueBtree" && jsonEqual(declared.identity, declaration.identity) &&
+                jsonEqual(declared.columns.map(column => column.columnId), columns)));
+            break;
+          }
+          default: return undefined;
+        }
         if (!declaredCohort) return undefined;
-        // A Catalog unique definition ID stays opaque and authenticated by its
-        // issuer. Matching a declared column cohort does not convert that ID
-        // into a relational key/index identity or recheck its predicate.
+        // The storage owner rejected this exact declared key/index. Presentation
+        // does not rerun its eligibility predicate.
         return new MedusaError(MedusaError.Types.INVALID_DATA,
           formatTextUniqueConstraintMessage(pending.table.name, columns, values));
       }
       const reference = inspectLogicalReferenceFailure(failure);
-      if (reference?.origin !== "checkpoint" || reference.child.tableName !== pending.table.name ||
-        !pending.table.foreignKeys.some(key => key.columns.length === 1 && key.columns[0] === reference.sourceColumn &&
+      if (reference?.storage !== "core" || reference.origin !== "checkpoint" || reference.child.tableName !== pending.table.name) return undefined;
+      const sourceColumns = reference.sourceColumns, targetColumns = reference.target.columns, targetValues = reference.target.values;
+      const sourceColumn = sourceColumns[0], targetColumn = targetColumns[0], targetKey = targetValues[0];
+      if (sourceColumns.length !== 1 || targetColumns.length !== 1 || targetValues.length !== 1 ||
+        sourceColumn === undefined || targetColumn === undefined || typeof targetKey !== "string" ||
+        !schema.tables.some(table => table.identity.tableId === pending.table.name &&
+          jsonEqual(table.identity, reference.child.identity)) || !schema.tables.some(table => table.identity.tableId === reference.target.tableName &&
+          jsonEqual(table.identity, reference.target.identity)) ||
+        !pending.table.foreignKeys.some(key => key.columns.length === 1 && key.columns[0] === sourceColumn &&
           key.referencedTable === reference.target.tableName && key.referencedColumns.length === 1 &&
-          key.referencedColumns[0] === reference.target.column) ||
-        !pending.plan.entities.some(row => row[reference.sourceColumn] === reference.target.key)) return undefined;
+          key.referencedColumns[0] === targetColumn) ||
+        !pending.plan.entities.some(row => row[sourceColumn] === targetKey)) return undefined;
       return new MedusaError(MedusaError.Types.NOT_FOUND,
-        formatScalarForeignKeyConstraintMessage(reference.sourceColumn, reference.target.key));
+        formatScalarForeignKeyConstraintMessage(sourceColumn, targetKey));
     };
   });
 }

@@ -14,7 +14,7 @@ import { LocationFulfillmentProvider, ShippingOptionPriceSet } from "@medusajs/l
 import { fulfillmentSetDeletionResources, fulfillmentSetDeletionCommandMs } from "../../workflow/policy";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { internalModuleWorkflowEvents } from "../../workflow/events";
-import { prepareAtomicWorkflowHost, captureInstalledWorkflowModules, type AtomicWorkflowExecution,
+import { prepareAtomicWorkflowHost, withoutWorkflowPublication, captureInstalledWorkflowModules, type AtomicWorkflowExecution,
   type InstalledWorkflowModule } from "../../workflow/host";
 import { workflowModuleDefinition } from "../../workflow/module";
 import { prepareWorkflowResources } from "../../workflow/resources";
@@ -57,7 +57,7 @@ export const prepareFulfillmentSetDeletionWorkflow = Effect.fn("FulfillmentSet.p
     if (registration.logicalResources !== undefined && !jsonEqual(registration.logicalResources, fulfillmentSetDeletionResources))
       return yield* Effect.fail(commerceError("unsupportedProfile"));
   const select = <Module extends InstalledWorkflowModule>(binding: Module) => {
-    const { logicalPublication: _publication, ...selected } = binding;
+    const selected = withoutWorkflowPublication(binding);
     return { ...selected, logicalResources: fulfillmentSetDeletionResources };
   };
   const modules = { fulfillment: select(installed.fulfillment), locationLinks: select(installed.locationLinks),

@@ -482,3 +482,39 @@ does not need a new physical ID registry or decimal ordered index to address
 this separate source mechanism. Keep its implementation and conformance proof
 inside the full core goal rather than silently treating injected random bytes
 as completed Source translation.
+
+## Q12 - Portable REAL rounding or exact native provider parsing
+
+**Answered: owner selected portable IEEE rounding with no database conversion
+calls.** Pinned Convex uses
+Float64; admitted native Tax declares REAL. The old shared logical owner delegates
+decimal parsing to PostgreSQL's platform `strtof`. A single portable binary32 rule
+cannot reproduce every observed provider result without choosing a contract.
+
+Concrete case: submitted `91001.53515625` is an exact binary32 midpoint.
+PGlite and round-to-nearest-even select bits `47b1bcc4`, canonical `91001.53`.
+The ordinary-role Windows PostgreSQL 18.3/MSVC instance selects bits `47b1bcc5`,
+canonical `91001.54`; the negative case differs likewise. Other checked midpoint
+values on that Windows instance do use nearest-even, so a blanket ties-away mode
+does not preserve its parser. This is an input-parser difference, separate from
+the PostgreSQL shortest-output rule in the
+[REAL record](./divergences/native-real-values.md).
+
+The accepted portable owner interprets the captured number's decimal string,
+rounds exactly to binary32 with ties-even, then uses PostgreSQL's strict-interior
+shortest output. It does not substitute binary64 `Math.fround` for exact decimal
+rounding. This preserves the original direct-decimal Tax examples while explicitly
+choosing deterministic values over provider-specific midpoint parsing. Core
+normalization uses no database conversion call, per-row fallback or platform mode.
+
+Keep the mismatching inputs and both database oracles. PGlite direct-decimal
+comparison remains exact. Both drivers must independently prove binary32
+canonical formatting and actual Core write/reopen/readback. Ordinary PostgreSQL
+direct-input parsing is separately characterized with the complete checked
+corpus and the explicit signed midpoint difference; it is no longer claimed as
+universal native-input parity. Unknown format/storage differences still fail.
+Native business assertions and full consumer proofs remain required under this
+accepted numeric contract. No general type conversion, data reset or unrelated
+compatibility policy follows. The [Native17 slice](./slices/17-native-atomic-workflows-and-tax.md)
+now records the bounded implemented/proved contract; the [goal](./GOAL.md)
+remains active for its wider implementation and proof gates.

@@ -36,12 +36,31 @@ export type CoreNativePrivateEventRole = typeof CoreNativePrivateEventRoleSchema
 /** Narrow reader for the captured Native10 table policy; source identities do not change. */
 const LegacyCoreNativeUniqueConstraintSchema = Schema.Struct({ descriptor: Schema.NonEmptyString,
   field: Schema.NonEmptyString, indexName: Schema.NonEmptyString }).annotate(strict);
+const NativeEligibilityTerm = Schema.Struct({ field: Schema.NonEmptyString,
+  value: Schema.Union([Schema.Null, Schema.Boolean]) }).annotate(strict);
+/** Keep the stored single-null shape; bounded conjunctions serve native Tax. */
+export const CoreNativeEligibilitySchema = Schema.Union([
+  Schema.Struct({ field: Schema.NonEmptyString, value: Schema.Null }).annotate(strict),
+  Schema.Struct({ all: Schema.Array(NativeEligibilityTerm).check(Schema.isMinLength(2), Schema.isMaxLength(2),
+    Schema.makeFilter(terms => new Set(terms.map(term => term.field)).size === terms.length
+      ? undefined : "Native eligibility fields must be distinct"),
+    Schema.makeFilter(terms => terms[0]?.value === null ? undefined : "Native conjunction requires its null prefix")) }).annotate(strict),
+]);
+export type CoreNativeEligibility = typeof CoreNativeEligibilitySchema.Type;
+export function coreNativeEligibilityTerms(eligibility: CoreNativeEligibility): readonly typeof NativeEligibilityTerm.Type[] {
+  return "all" in eligibility ? eligibility.all : [eligibility];
+}
+export function coreNativeEligibilityMatches(eligibility: CoreNativeEligibility, row: Readonly<Record<string, unknown>>): boolean {
+  if (!("all" in eligibility)) return Object.hasOwn(row, eligibility.field) && row[eligibility.field] === eligibility.value;
+  for (const term of eligibility.all) if (!Object.hasOwn(row, term.field) || row[term.field] !== term.value) return false;
+  return true;
+}
 export const CoreNativeUniqueConstraintSchema = Schema.Struct({ descriptor: Schema.NonEmptyString,
   fields: Schema.Array(Schema.NonEmptyString).check(Schema.isMinLength(1),
     Schema.isMaxLength(MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS),
     Schema.makeFilter(fields => new Set(fields).size === fields.length ? undefined : "Native unique fields must be distinct")),
   indexName: Schema.NonEmptyString, nullsDistinct: Schema.Boolean,
-  eligibility: Schema.optionalKey(Schema.Struct({ field: Schema.NonEmptyString, value: Schema.Null }).annotate(strict)),
+  eligibility: Schema.optionalKey(CoreNativeEligibilitySchema),
 }).annotate(strict);
 const StoredUniqueConstraint = Schema.Union([LegacyCoreNativeUniqueConstraintSchema, CoreNativeUniqueConstraintSchema]);
 type StoredUniqueConstraint = typeof StoredUniqueConstraint.Type;
@@ -57,7 +76,9 @@ export function coreNativeConstraintEligibility(constraint: StoredUniqueConstrai
 /** The predicate supplies an access prefix, never an extra nullable unique key. */
 export function coreNativeConstraintAccessFields(constraint: StoredUniqueConstraint): readonly string[] {
   const fields = coreNativeConstraintFields(constraint), eligibility = coreNativeConstraintEligibility(constraint);
-  return eligibility === undefined ? fields : [eligibility.field, ...fields.filter(field => field !== eligibility.field)];
+  if (eligibility === undefined) return fields;
+  const prefix = coreNativeEligibilityTerms(eligibility).map(term => term.field);
+  return [...prefix, ...fields.filter(field => !prefix.includes(field))];
 }
 const NativeTupleFields = Schema.Array(Schema.NonEmptyString).check(Schema.isMinLength(1),
   Schema.isMaxLength(MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS),

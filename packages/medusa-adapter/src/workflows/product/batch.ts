@@ -22,7 +22,7 @@ import { workflowModuleDefinition, type WorkflowMethod } from "../../workflow/mo
 import { commerceDecoder } from "../../value/decoder";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { prepareWorkflowResources } from "../../workflow/resources";
-import { prepareAtomicWorkflowHost, prepareTaskAtomicWorkflowHost, captureInstalledWorkflowModules, type AtomicWorkflowExecution, type InstalledWorkflowModule, type WorkflowCallResults } from "../../workflow/host";
+import { prepareAtomicWorkflowHost, prepareTaskAtomicWorkflowHost, withoutWorkflowPublication, captureInstalledWorkflowModules, type AtomicWorkflowExecution, type InstalledWorkflowModule, type WorkflowCallResults } from "../../workflow/host";
 import { productBatchResources, productBatchParticipantResources } from "../../workflow/policy";
 import { decodeGraphCount } from "../../local-graph/query";
 import { productCreationWorkflowEntry } from "./create-input";
@@ -77,7 +77,7 @@ const prepareInputs = Effect.fn("ProductBatch.prepareInputs")(function* <Host ex
     captured.inventory.module.methods.softDeleteInventoryItems === undefined)
     return yield* Effect.fail(commerceError("invalidAuthority"));
   const select = <Module extends InstalledWorkflowModule>(binding: Module) => {
-    const { logicalPublication: _publication, ...selected } = binding;
+    const selected = withoutWorkflowPublication(binding);
     return { ...selected, logicalResources: productBatchParticipantResources };
   };
   const modules = { product: { ...select(captured.product), logicalResources: productBatchResources, logicalPublication: "mixed" as const },

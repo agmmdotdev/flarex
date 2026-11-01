@@ -12,7 +12,7 @@ import type { prepareStockLocationDeletionLinks } from "../../links/stock-locati
 import type { makeLocalPricingCommands } from "../../modules/pricing/service";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { internalModuleWorkflowEvents } from "../../workflow/events";
-import { prepareAtomicWorkflowHost, captureInstalledWorkflowModules, type AtomicWorkflowExecution, type InstalledWorkflowModule } from "../../workflow/host";
+import { prepareAtomicWorkflowHost, withoutWorkflowPublication, captureInstalledWorkflowModules, type AtomicWorkflowExecution, type InstalledWorkflowModule } from "../../workflow/host";
 import { workflowModuleDefinition } from "../../workflow/module";
 import { prepareWorkflowResources } from "../../workflow/resources";
 
@@ -59,7 +59,7 @@ export const prepareStockLocationDeletionWorkflow = Effect.fn("StockLocation.pre
   for (const installed of Object.values(modules)) if (installed.logicalResources !== undefined && !jsonEqual(installed.logicalResources, stockLocationDeletionResources))
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   const select = <Module extends InstalledWorkflowModule>(binding: Module) => {
-    const { logicalPublication: _publication, ...selected } = binding;
+    const selected = withoutWorkflowPublication(binding);
     return { ...selected, logicalResources: stockLocationDeletionResources };
   };
   const selected = {

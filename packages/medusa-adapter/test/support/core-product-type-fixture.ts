@@ -1,35 +1,23 @@
+import { createCoreProductWorkflowFixture, type CoreProductWorkflowFixture } from "./core-product-workflow-fixture";
 import { createHash } from "node:crypto";
 import { Effect, Result } from "effect";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { prepareProductTypeDeletionLinkResource } from "../../src/links/product-type-resource";
 import { prepareProductTypeCreationWorkflow, prepareProductTypeUpdateWorkflow, prepareProductTypeDeletionWorkflow,
   type ProductTypeCreationHooks, type ProductTypeUpdateHooks, type ProductTypeDeletionHooks } from "../../src/workflows/product/type";
-import type { AtomicWorkflowExecution } from "../../src/workflow/host";
-import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./logical-currency-fixture";
-import { prepareLogicalProductHost } from "./logical-product-fixture";
 
 /** Reuse the admitted shared Product source; this helper owns no bootstrap,
  * transaction, lifecycle or settlement implementation. */
-export async function prepareLogicalProductType(driver: "pglite" | "postgres", registerCleanup: (close: () => Promise<void>) => void,
-  selectedFixture?: LogicalCurrencyFixture) {
-  const fixture = selectedFixture ?? await logicalCurrencyFixture(driver, registerCleanup, { includeProduct: true });
-  const product = await prepareLogicalProductHost(fixture);
-  registerCleanup(() => Effect.runPromise(product.host.close));
-  await Effect.runPromise(product.host.initialize([]));
-  const reads = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
-    commands: [...product.hostInput.commands, product.runtime.commands.listTypes] }));
-  registerCleanup(() => Effect.runPromise(reads.close));
-  const execution: AtomicWorkflowExecution = {
-    identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-    prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, ...composition }),
-  };
+export async function prepareCoreProductType(driver: "pglite" | "postgres", registerCleanup: (close: () => Promise<void>) => void,
+  selectedFixture?: CoreProductWorkflowFixture) {
+  const base = selectedFixture ?? await createCoreProductWorkflowFixture(driver, registerCleanup);
+  const { fixture, product, execution } = base;
+  const reads = product.reads;
   const link = Result.getOrThrow(prepareProductTypeDeletionLinkResource());
   const options: Omit<Parameters<typeof prepareProductTypeCreationWorkflow>[0], "hooks"> = { execution, modules: { product: { module: product.runtime.productTypeWorkflow,
-    logicalStorage: product.hostInput.logicalStorage } },
+    nativeStorage: product.source } },
     revision: createHash("sha256").update("native-product-type-workflows-104").digest("hex"),
     subscribers: [{ id: "native-product-types", revision: "b".repeat(64) }] };
   const prepareCreate = async (hooks: ProductTypeCreationHooks = {}, selectedExecution = execution, revision = options.revision) => {
@@ -59,9 +47,9 @@ export async function prepareLogicalProductType(driver: "pglite" | "postgres", r
     }));
     const contracts = selected.map(value => value.contract);
     const root = defineAtomicCommerceCommand("seedTypeReferencedProducts", (ctx, input) => ctx.call(participant, commands.create, input));
-    const host = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
+    const host = await Effect.runPromise(execution.prepare({
       identityAndAccessPolicy: { profile: "type-workflow-product-reference-seed" },
-      participants: [{ participant, logicalStorage: product.hostInput.logicalStorage, commands: [commands.create],
+      participants: [{ participant, nativeStorage: product.source, commands: [commands.create],
         validateLogicalCall: logicalPolicy.validateLogicalCall, events: { contracts, select: event => {
           const selectedEvent = isJsonObject(event) && typeof event.name === "string"
             ? selected.find(value => value.name === event.name) : undefined;
@@ -73,7 +61,7 @@ export async function prepareLogicalProductType(driver: "pglite" | "postgres", r
     finally { await Effect.runPromise(host.close); }
     return products.map(row => row.id);
   };
-  const listProducts = (ids: readonly string[]) => product.host.read(product.runtime.commands.internalProductList,
+  const listProducts = (ids: readonly string[]) => product.reads.read(product.runtime.commands.internalProductList,
     { filters: { id: [...ids] } });
   return { fixture, product, reads, execution, link, options, prepareCreate, prepareUpdate, prepareDelete, listTypes, seedProducts, listProducts };
 }

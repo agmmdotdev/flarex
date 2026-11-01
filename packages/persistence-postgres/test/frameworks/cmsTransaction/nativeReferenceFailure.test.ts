@@ -46,6 +46,8 @@ beforeAll(() => Effect.runPromise(Effect.gen(function* () {
 function operations(overrides: Partial<CoreNativeOperations>): CoreNativeOperations {
   const unexpected = () => Effect.die(new Error("Unexpected operation at CMS failure boundary"));
   return { get: unexpected, getMany: unexpected, insert: unexpected, patch: unexpected, replace: unexpected, delete: unexpected,
+    nativeActivityCursor: () => { throw new Error("Unexpected Core activity at CMS failure boundary"); },
+    nativeActivitySince: unexpected, checkpointReferences: unexpected, planSetNullReferences: unexpected,
     normalizeId: unexpected, incomingReferences: unexpected, pendingDelete: unexpected, assertPendingDelete: unexpected,
     writeRows: unexpected, deleteRows: unexpected, lifecycle: unexpected, prepareDeleteClosure: unexpected,
     replaceReferenceSet: unexpected, referenceReplacementChanges: unexpected, protectedReferencePage: unexpected,

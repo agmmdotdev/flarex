@@ -22,7 +22,7 @@ import { compileInventoryDefinition } from "../../src/modules/inventory/schema";
 import { prepareStockLocationDeletionLinks } from "../../src/links/stock-location-deletion";
 import { prepareStockLocationDeletionWorkflow, StockLocationDeletionInput } from "../../src/workflows/stock-location/delete";
 import { prepareCreateReservationWorkflow } from "../../src/workflows/inventory/adjust-and-reserve";
-import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution } from "../../src/workflow/host";
+import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type LegacyInstalledWorkflowModules } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./logical-currency-fixture";
@@ -132,7 +132,7 @@ export async function prepareLogicalStockLocationDeletion(
   try { await Effect.runPromise(storeInitializer.initialize(storeRows)); } finally { await Effect.runPromise(storeInitializer.close); }
   const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
     prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, ...composition }) };
-  const modules: Parameters<typeof prepareStockLocationDeletionWorkflow>[0]["modules"] = {
+  const modules: LegacyInstalledWorkflowModules<Parameters<typeof prepareStockLocationDeletionWorkflow>[0]["modules"]> = {
     stock_location: { module: stock.workflow, logicalStorage: stockInput.logicalStorage },
     sales_channel_location_links: { module: links.location.workflow, logicalStorage: endpoints.linkInput.logicalStorage },
     location_fulfillment_set_links: { module: links.fulfillmentSet.workflow, logicalStorage: locfsInput.logicalStorage },

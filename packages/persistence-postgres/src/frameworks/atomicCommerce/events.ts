@@ -127,7 +127,16 @@ export function captureAtomicCommerceEvents(input: AtomicCommerceEvents): Result
       validate: input.validate, derivedIdValidation: input.derivedIdValidation })));
 }
 
-export const prepareAtomicCommerceEvents = Effect.fn("AtomicEvents.prepare")(function* (input: CapturedAtomicCommerceEvents) {
+export interface PreparedAtomicCommerceEvents {
+  readonly allowed: ReadonlyMap<CommerceEventContract, EventContract>;
+  readonly identity: Json;
+  readonly validate: AtomicCommerceEvents["validate"];
+  readonly derivedIdValidation: AtomicCommerceEvents["derivedIdValidation"];
+  readonly producerRevision: string;
+  readonly subscribers: readonly CommitEventSubscriber[];
+}
+export const prepareAtomicCommerceEvents = Effect.fn("AtomicEvents.prepare")(function* (input: CapturedAtomicCommerceEvents):
+Effect.fn.Return<PreparedAtomicCommerceEvents, CommerceTransactionError> {
   const { definitions } = input;
   const producerRevision = yield* decodeRevision(input.producerRevision).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
   const subscribers = yield* decodeSubscribers(input.subscribers).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));

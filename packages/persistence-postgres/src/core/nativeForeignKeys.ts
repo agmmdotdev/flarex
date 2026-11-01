@@ -17,6 +17,7 @@ import type { CoreFinalizedState } from "./transaction";
 import { CoreReadSetBuilder, type CoreReadSet } from "./writeLog";
 import { captureCoreNativeKeyProbe, foldCoreNativeKeyProbe, type CoreNativeKeyProbe, type CoreNativeKeyState } from "./nativeKeyProbe";
 import { CoreNativeIntegrityBudget } from "./nativeIntegrityBudget";
+import { retainReferenceFailure, type ReferenceFailureEvidence } from "../values/referenceFailure";
 
 const Scalar = Schema.Union([Schema.String, Schema.Finite, Schema.Boolean, Schema.Null]);
 const isScalar = Schema.is(Scalar);
@@ -57,9 +58,12 @@ export interface CoreNativeForeignKeySelection {
   readonly targetIndex: CoreIndexDefinition;
 }
 
-export function coreNativeForeignKeyError(foreignKey: CoreNativeForeignKey, reason: CoreNativeForeignKeyError["reason"]) {
-  return new CoreNativeForeignKeyError({ reason, descriptor: foreignKey.descriptor, sourceTable: foreignKey.sourceTable,
+export function coreNativeForeignKeyError(foreignKey: CoreNativeForeignKey, reason: CoreNativeForeignKeyError["reason"],
+  evidence?: Extract<ReferenceFailureEvidence, { readonly storage: "core" }>) {
+  const failure = new CoreNativeForeignKeyError({ reason, descriptor: foreignKey.descriptor, sourceTable: foreignKey.sourceTable,
     targetTable: foreignKey.targetTable, sourceFields: foreignKey.sourceFields, targetFields: foreignKey.targetFields });
+  if (evidence !== undefined) retainReferenceFailure(failure, evidence);
+  return failure;
 }
 
 export function selectCoreNativeForeignKey(registry: CoreRegistry, owner: CoreTableDefinition, foreignKey: CoreNativeForeignKey):

@@ -10,7 +10,7 @@ import { captureFulfillmentCreationMetadata } from "../../modules/fulfillment/sh
 import type { makeStockLocationUpdateCommands } from "../../modules/stock-location/update-service";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { internalModuleWorkflowEvents } from "../../workflow/events";
-import { prepareAtomicWorkflowHost, captureInstalledWorkflowModules, type AtomicWorkflowExecution,
+import { prepareAtomicWorkflowHost, withoutWorkflowPublication, captureInstalledWorkflowModules, type AtomicWorkflowExecution,
   type InstalledWorkflowModule } from "../../workflow/host";
 import { workflowModuleDefinition } from "../../workflow/module";
 import { fulfillmentCreationResources, fulfillmentCreationCommandMs } from "../../workflow/policy";
@@ -83,7 +83,7 @@ export const prepareFulfillmentCreationHost = Effect.fn("Fulfillment.prepareCrea
     if (module.logicalResources !== undefined && !jsonEqual(module.logicalResources, fulfillmentCreationResources))
       return yield* Effect.fail(commerceError("unsupportedProfile"));
   const select = <Module extends InstalledWorkflowModule>(binding: Module) => {
-    const { logicalPublication: _publication, ...selected } = binding;
+    const selected = withoutWorkflowPublication(binding);
     return { ...selected, logicalResources: fulfillmentCreationResources };
   };
   const modules = { fulfillment: select(installed.fulfillment), stockLocation: select(installed.stockLocation) };

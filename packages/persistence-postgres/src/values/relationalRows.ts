@@ -3,8 +3,16 @@ import { decodeExactDecimal } from "flarex-protocol/internal/exact-decimal";
 import { isRelationalColumnValue, validateRelationalRowColumns, validateRelationalRowValues,
   type RelationalColumnIdentity, type RelationalConstraintIdentity, type RelationalPersistenceCapability,
   type RelationalTableDefinition, RelationalRowValueError } from "flarex-protocol/internal/relational-schema";
-import { isJsonObject, type JsonObject } from "flarex-protocol/json";
+import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import { inspectCapturedPrivateJsonData, useCapturedPrivateJsonData } from "./privateJsonData";
+import { normalizeRelationalRealValue } from "./relationalReal";
+
+const realNormalizations = new WeakMap<object, JsonObject>();
+/** Read-only issuer evidence for the actual successful row normalization. A
+ * structural copy cannot acquire submitted REAL presentation provenance. */
+export function inspectRelationalRealNormalization(row: unknown): JsonObject | undefined {
+  return typeof row === "object" && row !== null ? realNormalizations.get(row) : undefined;
+}
 
 export type RelationalRowFailureReason = "invalidInput" | "documentInvalid" | "storedCorruption" | "limitExceeded";
 export type RelationalRowFailureDiagnostic =
@@ -77,9 +85,21 @@ export function prepareRelationalRowValues<Failure>(table: RelationalTableDefini
  * one timestamp and retains any required storage-conversion/canonical proofs.
  * Native adapters keep their input coercion and numeric precision semantics. */
 export function prepareRelationalRows<Failure>(table: RelationalTableDefinition,
-  capabilities: readonly RelationalPersistenceCapability[], error: RelationalRowFailure<Failure>) {
+  capabilities: readonly RelationalPersistenceCapability[], error: RelationalRowFailure<Failure>,
+  options: Readonly<{ realStorage?: "portable" }> = {}) {
   return Result.gen(function* () {
-    const validate = prepareRelationalRowValues(table, capabilities, error);
+    const validateValues = prepareRelationalRowValues(table, capabilities, error);
+    const realColumns = table.columns.filter(column => column.type === "real");
+    const portableReal = options.realStorage === "portable" && realColumns.length > 0;
+    const validate = portableReal ? (row: JsonObject, reason: "documentInvalid" | "storedCorruption") => Result.gen(function* () {
+      yield* validateValues(row, reason);
+      for (const column of realColumns) {
+        const name = column.identity.columnId, value = row[name];
+        if (value === null) continue;
+        const canonical = yield* normalizeRelationalRealValue(value).pipe(Result.mapError(cause => error(reason, cause)));
+        if (!Object.is(value, canonical)) return yield* Result.fail(error(reason));
+      }
+    }) : validateValues;
     const keyColumns = yield* relationalTextIdentity(table, error);
     const managed = relationalManagedUpdatedColumns(table, capabilities);
     const deletions = capabilities.flatMap(capability => capability.kind === "softDelete" && belongsTo(table, capability.deletedAtColumn)
@@ -160,10 +180,38 @@ export function prepareRelationalRows<Failure>(table: RelationalTableDefinition,
       const captured = yield* useCapturedPrivateJsonData(row, Number.MAX_SAFE_INTEGER, error);
       if (!isJsonObject(captured.value)) return yield* Result.fail(error("documentInvalid"));
       const normalizedRow = captured.value;
-      yield* table.columns.some(column => column.type === "real")
-        ? validateRelationalRowColumns(table, normalizedRow).pipe(Result.mapError(cause => rowValueFailure(table, normalizedRow, "documentInvalid", error, cause)))
-        : validate(normalizedRow, "documentInvalid");
-      return normalizedRow;
+      if (realColumns.length === 0) {
+        yield* validateValues(normalizedRow, "documentInvalid");
+        return normalizedRow;
+      }
+      yield* validateRelationalRowColumns(table, normalizedRow).pipe(Result.mapError(cause =>
+        rowValueFailure(table, normalizedRow, "documentInvalid", error, cause)));
+      // Retained logical callers keep their accepting SQL conversion owner.
+      // Core always selects the portable owner; this is no runtime fallback.
+      if (!portableReal) return normalizedRow;
+      let converted: Record<string, Json> | undefined;
+      const presentation: Record<string, number | null> = {};
+      for (const column of realColumns) {
+        const name = column.identity.columnId, value = normalizedRow[name];
+        if (value !== null && typeof value !== "number") return yield* Result.fail(error("documentInvalid"));
+        presentation[name] = value;
+        if (value !== null) {
+          const canonical = yield* normalizeRelationalRealValue(value).pipe(Result.mapError(cause => error("documentInvalid", cause)));
+          if (!Object.is(value, canonical)) {
+            converted ??= { ...normalizedRow };
+            converted[name] = canonical;
+          }
+        }
+      }
+      let canonicalRow = normalizedRow;
+      if (converted !== undefined) {
+        const convertedCapture = yield* useCapturedPrivateJsonData(converted, Number.MAX_SAFE_INTEGER, error);
+        if (!isJsonObject(convertedCapture.value)) return yield* Result.fail(error("documentInvalid"));
+        canonicalRow = convertedCapture.value;
+      }
+      yield* validateValues(canonicalRow, "documentInvalid");
+      realNormalizations.set(canonicalRow, Object.freeze(presentation));
+      return canonicalRow;
     });
     return Object.freeze({ keyColumns, managedColumns: Object.freeze(managedColumns), normalize, validate, validateInput, validateInsertRequired,
       deletedAt: deletions.length === 1 ? deletions[0] : undefined });

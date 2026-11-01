@@ -10,6 +10,7 @@ import type { JsonObject } from "flarex-protocol/json";
 import { CoreTableIteratorResourceBudgetSchema, CoreIteratorPositiveBudgetSchema } from "./iteratorBudget";
 import type { CoreNativeDefinition, CoreNativeIdentity, CoreNativeTablePolicy } from "./nativePolicy";
 import type { CoreSchemaBundle } from "./schemaBundle";
+import type { CoreNativeRootRequestEvidence, CoreCommittedNativeRootRequest } from "./nativeRootRequest";
 
 export interface CoreIndexDefinition {
   readonly name: string;
@@ -214,8 +215,11 @@ export class CoreNativeForeignKeyError extends Data.TaggedError("CoreNativeForei
   readonly sourceFields: readonly string[];
   readonly targetFields: readonly string[];
 }> {}
+export class CoreNativeReferencePlanError extends Data.TaggedError("CoreNativeReferencePlanError")<{
+  readonly reason: "invalidAuthority";
+}> {}
 
-export type CoreError = CoreTransactionError | CorePersistenceError | CoreQueryInputError | CoreSchemaError | CoreNativeUniqueConflict | CoreNativeReferenceError | CoreNativeForeignKeyError | CoreNativeQueryError | CoreNativeBudgetError;
+export type CoreError = CoreTransactionError | CorePersistenceError | CoreQueryInputError | CoreSchemaError | CoreNativeUniqueConflict | CoreNativeReferenceError | CoreNativeForeignKeyError | CoreNativeReferencePlanError | CoreNativeQueryError | CoreNativeBudgetError;
 
 /** These commit refusals originate before durability. The outer host must still
  * require a sole typed failure; mixed Causes and persistence uncertainty retain their owners. */
@@ -306,7 +310,53 @@ const nativePendingDeleteBrand: unique symbol = Symbol("CoreNativePendingDelete"
 /** Issued only after this exact native child successfully staged a deletion. */
 export interface CoreNativePendingDelete { readonly [nativePendingDeleteBrand]: true }
 
+const nativeActivityCursorBrand: unique symbol = Symbol("CoreNativeActivityCursor");
+/** A source-confined position in one live native root's actual operation history. */
+export interface CoreNativeActivityCursor { readonly [nativeActivityCursorBrand]: true }
+export interface CoreNativeMutationActivity {
+  readonly ordinal: number;
+  readonly table: string;
+  readonly operation: "insert" | "patch" | "replace" | "delete";
+  readonly before: JsonObject | null;
+  readonly after: JsonObject | null;
+  readonly realNormalization?: JsonObject;
+}
+export interface CoreNativeLifecycleActivity {
+  readonly table: string;
+  readonly key: Readonly<Record<string, string>>;
+  readonly operation: "softDelete" | "restore";
+  readonly beforeDeletedAt: string | null;
+  readonly afterDeletedAt: string | null;
+  readonly attemptOrdinal: number | null;
+  readonly rowAtOperation: JsonObject | null;
+}
+export interface CoreNativeReferenceSelection {
+  readonly sourceTable: string;
+  readonly sourceColumn: string;
+  readonly targetTable: string;
+  readonly targetColumn: string;
+  readonly targetKey: string;
+}
+export const CoreNativeSetNullIntentSchema = Schema.Struct({ sourceTable: Schema.NonEmptyString,
+  sourceColumn: Schema.NonEmptyString, targetTable: Schema.NonEmptyString, targetColumn: Schema.NonEmptyString,
+  targetKey: Schema.String, managedUpdate: Schema.Literals(["advance", "preserve"]),
+}).annotate({ parseOptions: { onExcessProperty: "error" } });
+export type CoreNativeSetNullIntent = typeof CoreNativeSetNullIntentSchema.Type;
+export interface CoreNativeReferenceReplacement extends CoreNativeReferenceSelection {
+  readonly desiredKeys: readonly string[];
+}
+export interface CoreNativeActivity {
+  readonly mutations: readonly CoreNativeMutationActivity[];
+  readonly lifecycle: readonly CoreNativeLifecycleActivity[];
+  readonly observedRows: readonly Readonly<{ table: string; row: JsonObject }>[];
+  readonly setNull: readonly CoreNativeSetNullIntent[];
+  readonly referenceReplacements: readonly CoreNativeReferenceReplacement[];
+}
+
 export type CoreNativeOperations = Pick<CoreTransaction, "get" | "insert" | "patch" | "replace" | "delete" | "normalizeId"> & {
+  /** Actual already-loaded native row semantics; this grants no storage access. */
+  readonly nativeActivityCursor: () => CoreNativeActivityCursor;
+  readonly nativeActivitySince: (cursor: CoreNativeActivityCursor) => Effect.Effect<CoreNativeActivity, CoreError>;
   readonly getMany: (table: string, ids: readonly string[]) => Effect.Effect<readonly (DocumentObject | null)[], CoreError>;
   readonly incomingReferences: (forwardName: string, targetId: string, options: Readonly<{ limit: number }>) =>
     Effect.Effect<Readonly<{ ids: readonly string[]; hasMore: boolean; inspectedMemberships: number }>, CoreError>;
@@ -318,17 +368,22 @@ export type CoreNativeOperations = Pick<CoreTransaction, "get" | "insert" | "pat
   readonly pendingDelete: (table: string, id: string) => Effect.Effect<CoreNativePendingDelete, CoreError>;
   readonly assertPendingDelete: (table: string, id: string, evidence: CoreNativePendingDelete) => Effect.Effect<void, CoreError>;
   /** Relational metadata owns full-batch preflight and native mutation phases. */
-  readonly writeRows: (table: string, mode: "insert" | "upsert" | "upsertPreservingDeletion" | "update", rows: unknown) =>
+  readonly writeRows: (table: string, mode: "insert" | "upsert" | "upsertPreservingDeletion" | "update", rows: unknown,
+    invocation?: Readonly<{ insertValidation?: "entityBatch" }>) =>
     Effect.Effect<readonly DocumentObject[], CoreError>;
+  /** Source-confined outgoing FK check; final integrity still runs at acceptance. */
+  readonly checkpointReferences: (table: string) => Effect.Effect<void, CoreError>;
+  /** Bounded native FK intent after an actual target deletion in this root. */
+  readonly planSetNullReferences: (selection: CoreNativeSetNullIntent) => Effect.Effect<void, CoreError>;
   readonly deleteRows: (table: string, keys: unknown) => Effect.Effect<readonly DocumentObject[], CoreError>;
-  readonly lifecycle: (table: string, mode: "softDelete" | "restore", keys: unknown) => Effect.Effect<readonly DocumentObject[], CoreError>;
+  readonly lifecycle: (table: string, mode: "softDelete" | "restore", keys: unknown,
+    invocation?: Readonly<{ allowActiveRestoreUpdate?: true }>) => Effect.Effect<readonly DocumentObject[], CoreError>;
   /** Explicit complete cascade preparation after the caller's replacement decisions.
    * Returned rows are the actual final removals, including already staged rows. */
   readonly prepareDeleteClosure: () => Effect.Effect<readonly Readonly<{ table: string; document: DocumentObject }>[], CoreError>;
   /** Complete active membership replacement through a declared nullable FK. */
-  readonly replaceReferenceSet: (selection: Readonly<{ sourceTable: string; sourceColumn: string; targetTable: string;
-    targetColumn: string; targetKey: string; desiredKeys: readonly string[] }>) => Effect.Effect<readonly DocumentObject[], CoreError>;
-  /** Trusted presentation owner reads the replacement's actual final delta. */
+  readonly replaceReferenceSet: (selection: CoreNativeReferenceReplacement) => Effect.Effect<readonly DocumentObject[], CoreError>;
+  /** Trusted presentation owner reads the replacement's actual patched rows. */
   readonly referenceReplacementChanges: () => Effect.Effect<readonly Readonly<{ sourceTable: string; documents: readonly DocumentObject[] }>[], CoreError>;
   /** Bounded key-presence proof; empty source observes the complete absence interval. */
   readonly isEmpty: (table: string) => Effect.Effect<boolean, CoreError>;
@@ -405,6 +460,11 @@ export interface CoreDatabase {
     limits: CoreNativeLimits; chargeRetained: (bytes: number) => Effect.Effect<void, CoreError> }>) => Effect.Effect<CoreNativeOperation, CoreError>;
   readonly bindNativeRoot: (input: CoreNativeRootBindingInput) => Effect.Effect<CoreNativeRootBinding, CoreError>;
   readonly bindNativeRootRecovery: (input: CoreNativeRootRecoveryInput) => Effect.Effect<CoreNativeRootRecovery, CoreError>;
+  /** Exact metadata evidence issued only for this live claimed root's child. */
+  readonly readNativeRootRequestEvidence: (operations: CoreNativeOperations) => Effect.Effect<CoreNativeRootRequestEvidence, CoreError>;
+  /** Verify a persisted metadata commitment against the actual committed request.
+   * The authentic source confines app/namespace without restoring body authority. */
+  readonly resolveCommittedNativeRootRequest: (evidence: unknown, binding: CoreNativeBinding) => Effect.Effect<CoreCommittedNativeRootRequest, CoreError>;
   readonly readNativeRootBinding: (binding: CoreNativeRootBinding) => Effect.Effect<CoreNativeRootBindingMetadata, CoreError>;
   readonly beginNativeRoot: (binding: CoreNativeRootBinding, options: Readonly<{ claim: CoreRequestClaim;
     chargeRetained: (bytes: number) => Effect.Effect<void, CoreError> }>) => Effect.Effect<CoreNativeRootOperation, CoreError>;

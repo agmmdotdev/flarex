@@ -11,7 +11,8 @@ import { CoreNativeQueryError, CoreTransactionError, type CoreError, type CoreIn
   type CoreTableDefinition } from "./api";
 import type { CoreInterval } from "./contracts";
 import { CORE_TRANSACTION_REFERENCE_LIMITS } from "./accounting";
-import { coreNativeConstraintEligibility, coreNativeConstraintFields, coreNativeConstraintNullsDistinct } from "./nativePolicy";
+import { coreNativeConstraintEligibility, coreNativeConstraintFields, coreNativeConstraintNullsDistinct,
+  coreNativeEligibilityTerms, coreNativeEligibilityMatches } from "./nativePolicy";
 
 const Scalar = Schema.Union([Schema.String, Schema.Finite, Schema.Boolean, Schema.Null]);
 export type CoreNativeScalar = typeof Scalar.Type;
@@ -59,7 +60,7 @@ export type CoreNativeQueryPlan = Readonly<{ kind: "all" }> | Readonly<{ kind: "
 
 export function coreNativeUniqueValues(constraint: Constraint, document: DocumentObject): Result.Result<readonly CoreNativeScalar[] | null, CoreTransactionError> {
   const eligibility = coreNativeConstraintEligibility(constraint);
-  if (eligibility !== undefined && document[eligibility.field] !== eligibility.value) return Result.succeed(null);
+  if (eligibility !== undefined && !coreNativeEligibilityMatches(eligibility, document)) return Result.succeed(null);
   const values: CoreNativeScalar[] = [];
   for (const field of coreNativeConstraintFields(constraint)) {
     const value = document[field];
@@ -76,12 +77,13 @@ export function coreNativeUniqueSelection(table: CoreTableDefinition, constraint
     const expressions: CapturedIndexRangeExpression[] = [];
     const fields = coreNativeConstraintFields(constraint);
     const eligibility = coreNativeConstraintEligibility(constraint);
-    if (eligibility !== undefined) expressions.push({ op: "eq", field: eligibility.field, value: eligibility.value });
+    const prefix = eligibility === undefined ? [] : coreNativeEligibilityTerms(eligibility);
+    for (const term of prefix) expressions.push({ op: "eq", field: term.field, value: term.value });
     for (const [position, field] of fields.entries()) {
       const value = values[position];
       if (value === undefined || isCoreNativeRange(value)) return yield* Result.fail(invalid());
       yield* Result.mapError(encodeIndexValue(value), invalid);
-      if (eligibility?.field !== field) expressions.push({ op: "eq", field, value });
+      if (!prefix.some(term => term.field === field)) expressions.push({ op: "eq", field, value });
     }
     return { index, interval: yield* Result.mapError(compileIndexRange(expressions, index.fields), invalid) };
   });
@@ -119,7 +121,7 @@ export function planCoreNativeQuery(table: CoreTableDefinition, where: CoreNativ
     for (const constraint of table.nativePolicy?.uniqueConstraints ?? []) {
       const fields = coreNativeConstraintFields(constraint);
       const eligibility = coreNativeConstraintEligibility(constraint);
-      if (eligibility !== undefined && (!Object.hasOwn(where, eligibility.field) || where[eligibility.field] !== eligibility.value)) continue;
+      if (eligibility !== undefined && !coreNativeEligibilityMatches(eligibility, where)) continue;
       if (!fields.every(field => Object.hasOwn(where, field) && !isCoreNativeRange(where[field]))
         || coreNativeConstraintNullsDistinct(constraint) && fields.some(field => where[field] === null)) continue;
       const values: CoreNativeScalar[] = [];

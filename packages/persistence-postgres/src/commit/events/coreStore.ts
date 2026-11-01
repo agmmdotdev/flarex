@@ -1,21 +1,25 @@
 import { Cause, Effect, Option, Result, Schema } from "effect";
 import type { DocumentObject } from "flarex-protocol/document-value";
-import type { JsonObject } from "flarex-protocol/json";
+import { encodeCanonicalJson, type JsonObject } from "flarex-protocol/json";
 import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
 import { MAX_PERSISTED_SIGNED_INT64_V1 } from "flarex-protocol/storage-authority";
 import { CoreNativeBudgetError, CoreNativeForeignKeyError, CoreNativeQueryError, CoreNativeReferenceError, CoreNativeUniqueConflict,
-  CoreQueryInputError, CoreTransactionError, type CoreDatabase, type CoreError, type CoreNativeBinding, type CoreNativeOperations } from "../../core/api";
+  CoreNativeReferencePlanError, CoreQueryInputError, CoreTransactionError, type CoreDatabase, type CoreError, type CoreNativeBinding, type CoreNativeOperations } from "../../core/api";
 import { CorePersistenceError } from "../../core/contracts";
 import { CoreSchemaError } from "../../core/schemaTypes";
 import { CORE_TRANSACTION_REFERENCE_LIMITS } from "../../core/accounting";
+import { captureCoreObject } from "../../core/document";
 import { coreNativeRelationalRow } from "../../core/nativeRelationalQuery";
-import { coreNativeRelationalRows, type CoreNativeDefinition } from "../../core/nativePolicy";
+import { coreNativeRelationalRows, sameCoreNativeIdentity, type CoreNativeDefinition } from "../../core/nativePolicy";
+import { CoreNativeRootRequestEvidenceSchema, type CoreNativeRootRequestEvidence } from "../../core/nativeRootRequest";
+import { capturePrivateCanonicalValue } from "../../installation/frameworkSchema/privateCanonicalValue";
 import { observeExecution } from "../../execution/diagnostics/operation";
 import { capturePrivateJsonData } from "../../values/privateJsonData";
 import { commitEventsDigest } from "./digest";
 import { EventEnvelope, EventName, EventRevision, EventSubscriber, CommitEventSubscriberFailure,
   commitEventLimits, eventError, type CommitEventError, type CommittedEvent, type CommitEventMessage, type CommitEventSubscriber } from "./model";
-import { CORE_NATIVE_EVENT_READ, CORE_NATIVE_EVENT_WRITE, coreNativeEventLimits, coreNativeEventPolicy, matchesCoreNativeEventPolicy } from "./coreDefinition";
+import { CORE_NATIVE_EVENT_READ, CORE_NATIVE_EVENT_WRITE, coreNativeEventLimits, coreNativeEventStorage,
+  captureCoreNativeEventPolicy, matchesCoreNativeEventPolicy } from "./coreDefinition";
 
 const strict = { parseOptions: { onExcessProperty: "error" } } as const;
 const FamilyId = Schema.String.check(Schema.isPattern(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/));
@@ -25,6 +29,7 @@ const Instant = Schema.String.check(Schema.makeFilter(value => Number.isFinite(D
   ? undefined : "Expected a canonical finite instant"));
 const Code = Schema.String.check(Schema.isPattern(/^[a-zA-Z0-9._-]{1,128}$/));
 const Family = Schema.Struct({ id: FamilyId, event_count: Count, event_sha256: Schema.NullOr(EventRevision) }).annotate(strict);
+const RootBoundFamily = Schema.Struct({ ...Family.fields, root_request: Schema.String }).annotate(strict);
 const EnvelopeRow = Schema.Struct({ id: Schema.NonEmptyString, family_id: FamilyId, ordinal: Ordinal, envelope: EventEnvelope }).annotate(strict);
 const StageInput = Schema.Struct({
   values: Schema.Array(EventEnvelope).check(Schema.isMaxLength(commitEventLimits.messages)), sha256: Schema.NullOr(EventRevision),
@@ -46,6 +51,8 @@ const Delivery = Schema.Struct({ id: Schema.NonEmptyString, family_id: FamilyId,
 }));
 type Delivery = typeof Delivery.Type;
 const decodeFamily = Schema.decodeUnknownResult(Family, { onExcessProperty: "error" });
+const decodeRootBoundFamily = Schema.decodeUnknownResult(RootBoundFamily, { onExcessProperty: "error" });
+const decodePackedRootRequest = Schema.decodeUnknownEffect(Schema.fromJsonString(CoreNativeRootRequestEvidenceSchema));
 const decodeEnvelopeRow = Schema.decodeUnknownResult(EnvelopeRow, { onExcessProperty: "error" });
 const decodeDelivery = Schema.decodeUnknownResult(Delivery, { onExcessProperty: "error" });
 const decodeEnvelope = Schema.decodeUnknownResult(EventEnvelope, { onExcessProperty: "error" });
@@ -62,6 +69,7 @@ const coreFailure = (failure: CoreError): CommitEventError => {
     return eventError(failure.reason === "corruptData" ? "storedCorruption" : "resourceFailure", failure);
   if (failure instanceof CoreNativeBudgetError) return eventError(failure.reason === "limitExceeded" ? "limitExceeded"
     : failure.reason === "unexpectedFailure" ? "resourceFailure" : "invalidAuthority", failure);
+  if (failure instanceof CoreNativeReferencePlanError) return eventError("invalidAuthority", failure);
   if (failure instanceof CoreNativeUniqueConflict || failure instanceof CoreNativeQueryError || failure instanceof CoreQueryInputError
     || failure instanceof CoreNativeReferenceError || failure instanceof CoreNativeForeignKeyError) return eventError("invalidInput", failure);
   if (failure instanceof CoreSchemaError) return eventError(failure.reason === "hashFailure" ? "resourceFailure" : "invalidAuthority", failure);
@@ -96,19 +104,82 @@ export interface CoreNativeEventFamilyInput {
   readonly capturedCount?: number;
 }
 
+type RootEventAuthority = Pick<CoreDatabase, "readNativeRootRequestEvidence">;
+type RootEventPolicy = Result.Result.Success<ReturnType<typeof captureCoreNativeEventPolicy>>;
+interface PreparedRootFamily {
+  readonly id: string;
+  readonly request: CoreNativeRootRequestEvidence;
+  readonly packedRequest: string;
+  readonly retainedBytes: number;
+  readonly policy: RootEventPolicy;
+}
+const preparedRootFamilies = new WeakMap<CoreNativeOperations, Readonly<{ authority: RootEventAuthority;
+  definition: CoreNativeDefinition; family: PreparedRootFamily }>>();
+const canonicalRootRequest = (evidence: CoreNativeRootRequestEvidence) => encodeCanonicalJson(evidence,
+  issue => { throw new Error("Native root request evidence lost its canonical owner", { cause: issue }); });
+
+export const coreNativeRootEventFamilyId = Effect.fn("CoreNativeEvents.rootFamilyId")(function* (
+  evidence: CoreNativeRootRequestEvidence,
+) {
+  const identity = yield* capturePrivateCanonicalValue({ format: "flarex.native-root-event-family", version: 1,
+    scopeUuid: evidence.source.scopeUuid, epochUuid: evidence.source.epochUuid, rootHash: evidence.root.definitionHash,
+    key: evidence.key, requestHash: evidence.requestHash }, 4096,
+  { invalidInput: () => eventError("invalidAuthority"), hashFailure: cause => eventError("resourceFailure", cause) });
+  return identity.sha256Hex;
+});
+
+/** Run before native callbacks. The exact metadata commitment and maximum
+ * header are retained/charged once, within the existing native document cap. */
+export const prepareCoreRootCommitEventFamily = Effect.fn("CoreNativeEvents.prepareRootFamily")(function* (
+  authority: RootEventAuthority, operations: CoreNativeOperations, definition: CoreNativeDefinition,
+): Effect.fn.Return<PreparedRootFamily, CommitEventError> {
+  const storage = yield* Effect.fromResult(coreNativeEventStorage(definition));
+  if (storage.mode !== "rootBound") return yield* eventError("invalidAuthority");
+  const request = yield* core(authority.readNativeRootRequestEvidence(operations));
+  if (!sameCoreNativeIdentity(request.source, definition.identity)) return yield* eventError("invalidAuthority");
+  const previous = preparedRootFamilies.get(operations);
+  if (previous?.authority === authority && previous.definition === definition) return previous.family;
+  const policy = snapshotDecodedProtocolPlainData(yield* Effect.fromResult(captureCoreNativeEventPolicy(request.frame.contract.events)));
+  const id = yield* coreNativeRootEventFamilyId(request);
+  const packedRequest = canonicalRootRequest(request);
+  const selected = yield* Effect.fromResult(tables(definition));
+  if (definition.source.definition.kind !== "relational" || definition.source.definition.schema.capabilities.length !== 0
+    || definition.source.definition.schema.tables.some(table => table.columns.some(column => column.default.kind !== "none")))
+    return yield* eventError("invalidAuthority");
+  const header = { id, event_count: commitEventLimits.messages, event_sha256: "f".repeat(64), root_request: packedRequest };
+  const rowPolicy = coreNativeRelationalRows(definition, selected.family.name);
+  if (rowPolicy === undefined || rowPolicy.table.columns.some(column => !Object.hasOwn(header, column.identity.columnId)))
+    return yield* eventError("invalidAuthority");
+  yield* core(Effect.fromResult(rowPolicy.rows.validate(header, "documentInvalid")));
+  // Source v6 IDs have at most37 characters. This is size reservation, not ID
+  // allocation; real generated system fields remain owned by Core.insert.
+  const measured = yield* Effect.fromResult(captureCoreObject({ ...header, _id: "x".repeat(37), _creationTime: 1 }, true)
+    .pipe(Result.mapError(cause => eventError("invalidInput", cause))));
+  if (measured.semanticSizeBytes > coreNativeEventLimits.maxDocumentBytes || measured.nestingDepth > 16)
+    return yield* eventError("limitExceeded");
+  const family = Object.freeze({ id, request, packedRequest, retainedBytes: new TextEncoder().encode(packedRequest).byteLength, policy });
+  preparedRootFamilies.set(operations, Object.freeze({ authority, definition, family }));
+  return family;
+});
+
 /** The host consumes its authentic sealed Commerce closure before calling this
  * trusted storage seam. All input is captured before hashing or the first write.
  * Publication densely numbers the surviving values, matching the old publisher. */
 export const stageCoreCommitEventFamily = Effect.fn("CoreNativeEvents.stageFamily")(function* (
   operations: CoreNativeOperations, definition: CoreNativeDefinition, familyId: string,
-  input: CoreNativeEventFamilyInput, unixTime: number,
+  input: CoreNativeEventFamilyInput, unixTime: number, rootAuthority?: RootEventAuthority,
 ) {
   const captured = capturePrivateJsonData(input, commitEventLimits.totalBytes + 131_072, eventError);
   const capture = yield* Effect.fromResult(captured);
   const envelope = yield* Effect.fromResult(decodeStageInput(capture.value).pipe(Result.mapError(cause => eventError("invalidInput", cause))));
   yield* Effect.fromResult(decodeId(familyId).pipe(Result.mapError(cause => eventError("invalidInput", cause))));
   const selected = yield* Effect.fromResult(tables(definition));
-  const policy = yield* Effect.fromResult(coreNativeEventPolicy(definition));
+  const storage = yield* Effect.fromResult(coreNativeEventStorage(definition));
+  const rootFamily = storage.mode === "rootBound"
+    ? rootAuthority === undefined ? yield* eventError("invalidAuthority")
+      : yield* prepareCoreRootCommitEventFamily(rootAuthority, operations, definition) : undefined;
+  const policy = storage.mode === "fixed" ? storage.policy : rootFamily?.policy;
+  if (policy === undefined || rootFamily !== undefined && rootFamily.id !== familyId) return yield* eventError("invalidAuthority");
   if (definition.source.definition.kind !== "relational" || definition.source.definition.schema.capabilities.length !== 0
     || definition.source.definition.schema.tables.some(table => table.columns.some(column => column.default.kind !== "none")))
     return yield* eventError("invalidAuthority");
@@ -121,7 +192,8 @@ export const stageCoreCommitEventFamily = Effect.fn("CoreNativeEvents.stageFamil
     // StageInput already decoded the detached family. Retain each event's
     // independent byte/capture check before policy validation and hashing.
     yield* Effect.fromResult(capturePrivateJsonData(value, commitEventLimits.bytes, eventError));
-    if (!matchesCoreNativeEventPolicy(policy, value) || new Set(value.subscribers.map(subscriber => subscriber.id)).size !== value.subscribers.length)
+    if (!matchesCoreNativeEventPolicy(policy, value) || new Set(value.subscribers.map(subscriber => subscriber.id)).size !== value.subscribers.length
+      || rootFamily !== undefined && value.group !== rootFamily.request.key)
       return yield* eventError("invalidAuthority");
     values.push(snapshotDecodedProtocolPlainData(value));
   }
@@ -136,7 +208,8 @@ export const stageCoreCommitEventFamily = Effect.fn("CoreNativeEvents.stageFamil
     next_attempt_at: now, settled_at: null, failure_code: null,
   });
   const records = [
-    { phase: "family", table: selected.family, rows: [{ id: familyId, event_count: values.length, event_sha256: digest }] },
+    { phase: "family", table: selected.family, rows: [{ id: familyId, event_count: values.length, event_sha256: digest,
+      ...(rootFamily === undefined ? {} : { root_request: rootFamily.packedRequest }) }] },
     { phase: "envelopes", table: selected.envelope, rows: values.map((event, ordinal) => ({
       id: ordinalId(familyId, ordinal), family_id: familyId, ordinal, envelope: event,
     })) },
@@ -164,7 +237,7 @@ export interface VerifiedCoreCommitEventFamily { readonly [verifiedBrand]: true 
 declare const claimBrand: unique symbol;
 export interface CoreCommitEventClaim { readonly [claimBrand]: true; readonly message: CommitEventMessage }
 export interface CoreCommitEventStoreInput {
-  readonly database: Pick<CoreDatabase, "readNativeBinding" | "beginNative" | "commit">;
+  readonly database: Pick<CoreDatabase, "readNativeBinding" | "beginNative" | "commit" | "resolveCommittedNativeRootRequest">;
   readonly binding: CoreNativeBinding;
 }
 
@@ -177,7 +250,7 @@ export const makeCoreCommitEventStore = Effect.fn("CoreNativeEvents.makeStore")(
   const initial = yield* core(database.readNativeBinding(binding));
   const identity = initial.definition.identity;
   yield* Effect.fromResult(tables(initial.definition));
-  yield* Effect.fromResult(coreNativeEventPolicy(initial.definition));
+  yield* Effect.fromResult(coreNativeEventStorage(initial.definition));
   const transact = <A>(mode: "read" | "write", work: (operations: CoreNativeOperations, definition: CoreNativeDefinition, now: number) => Effect.Effect<A, CommitEventError>) =>
     Effect.gen(function* () {
       const metadata = yield* core(database.readNativeBinding(binding));
@@ -201,11 +274,27 @@ export const makeCoreCommitEventStore = Effect.fn("CoreNativeEvents.makeStore")(
   const family = Effect.fn("CoreNativeEvents.readFamily")(function* (operations: CoreNativeOperations, definition: CoreNativeDefinition, id: string) {
     yield* Effect.fromResult(decodeId(id).pipe(Result.mapError(cause => eventError("invalidInput", cause))));
     const selected = yield* Effect.fromResult(tables(definition));
-    const policy = yield* Effect.fromResult(coreNativeEventPolicy(definition));
+    const storage = yield* Effect.fromResult(coreNativeEventStorage(definition));
     const headers = yield* core(operations.find(selected.family.name, { id }));
     if (headers.length !== 1 || headers[0] === undefined) return yield* corrupt();
-    const header = yield* fromStored(Result.flatMap(row(headers[0]), decodeFamily));
+    const header = yield* storage.mode === "fixed" ? fromStored(Result.flatMap(row(headers[0]), decodeFamily))
+      : fromStored(Result.flatMap(row(headers[0]), decodeRootBoundFamily));
     if (header.id !== id) return yield* corrupt();
+    let policy: RootEventPolicy;
+    let requestKey: string | undefined;
+    if (storage.mode === "fixed") policy = storage.policy;
+    else {
+      if (!("root_request" in header)) return yield* corrupt();
+      const evidence = yield* decodePackedRootRequest(header.root_request).pipe(Effect.mapError(corrupt));
+      if (canonicalRootRequest(evidence) !== header.root_request) return yield* corrupt();
+      const committed = yield* database.resolveCommittedNativeRootRequest(evidence, binding).pipe(Effect.catchCause(cause =>
+        Effect.failCause(Cause.map(cause, failure => failure instanceof CoreTransactionError
+          && (failure.reason === "authorityRevoked" || failure.reason === "requestMismatch" || failure.reason === "invalidValue")
+          ? corrupt(failure) : coreFailure(failure)))));
+      if ((yield* coreNativeRootEventFamilyId(committed.evidence)) !== id) return yield* corrupt();
+      policy = yield* Effect.fromResult(captureCoreNativeEventPolicy(committed.contract.events).pipe(Result.mapError(corrupt)));
+      requestKey = committed.evidence.key;
+    }
     const eventRows = yield* core(operations.find(selected.envelope.name, { family_id: id }));
     const deliveryRows = yield* core(operations.find(selected.delivery.name, { family_id: id }));
     if (eventRows.length !== header.event_count || header.event_count === 0) return yield* corrupt();
@@ -215,7 +304,8 @@ export const makeCoreCommitEventStore = Effect.fn("CoreNativeEvents.makeStore")(
     const expected = new Map<string, string>();
     for (const [ordinal, event] of envelopes.entries()) {
       if (event.family_id !== id || event.ordinal !== ordinal || event.id !== ordinalId(id, ordinal)
-        || !matchesCoreNativeEventPolicy(policy, event.envelope)) return yield* corrupt();
+        || !matchesCoreNativeEventPolicy(policy, event.envelope) || requestKey !== undefined && event.envelope.group !== requestKey)
+        return yield* corrupt();
       const captured = yield* Effect.fromResult(capturePrivateJsonData(event.envelope, commitEventLimits.bytes, corrupt));
       const envelope = yield* fromStored(decodeEnvelope(captured.value));
       if (new Set(envelope.subscribers.map(subscriber => subscriber.id)).size !== envelope.subscribers.length) return yield* corrupt();
@@ -237,13 +327,15 @@ export const makeCoreCommitEventStore = Effect.fn("CoreNativeEvents.makeStore")(
   const nextFamily = Effect.fn("CoreNativeEvents.nextFamily")((after?: string) => transact("read", (operations, definition) => Effect.gen(function* () {
     if (after !== undefined) yield* Effect.fromResult(decodeId(after).pipe(Result.mapError(cause => eventError("invalidInput", cause))));
     const selected = yield* Effect.fromResult(tables(definition));
+    const storage = yield* Effect.fromResult(coreNativeEventStorage(definition));
     const index = selected.family.indexes?.find(candidateIndex => candidateIndex.fields.length === 1 && candidateIndex.fields[0] === "id");
     if (index === undefined) return yield* eventError("invalidAuthority");
     const page = yield* core(operations.findPage(selected.family.name, after === undefined ? {} : { id: { gt: after } },
       { indexName: index.indexName, offset: 0, limit: 1 }));
     const document = page.documents[0];
     if (document === undefined) return Option.none<string>();
-    const header = yield* fromStored(Result.flatMap(row(document), decodeFamily));
+    const header = yield* storage.mode === "fixed" ? fromStored(Result.flatMap(row(document), decodeFamily))
+      : fromStored(Result.flatMap(row(document), decodeRootBoundFamily));
     if (header.event_count === 0) return yield* corrupt();
     return Option.some(header.id);
   })));

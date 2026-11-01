@@ -10,8 +10,8 @@ import { prepareTaxRateUpdateWorkflow } from "../../src/workflows/tax/update-rat
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
-import { prepareLogicalTaxRuleCreation } from "./logical-tax-rule-create-fixture";
-import { taxRegion, taxRate, taxRule, taxSeed, type TaxInitialRow } from "./logical-item-tax-lines-fixture";
+import { prepareCoreTaxRuleCreation } from "./core-tax-rule-create-fixture";
+import { taxRegion, taxRate, taxRule, taxSeed, type TaxInitialRow } from "./core-item-tax-lines-fixture";
 
 export const taxUpdateRegions = ["txreg168-us", "txreg168-ca"] as const;
 export const taxUpdateRateIds = ["txr168-d", "txr168-b", "txr168-c", "txr168-a"] as const;
@@ -65,9 +65,9 @@ export function maximumTaxRateUpdateInput(): TaxUpdateInput {
 
 /** Reuse admitted initialization, canonical committed-row observation and the
  * separate genuine calculator. The update graph has one native Tax instance. */
-export async function prepareLogicalTaxRateUpdate(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  rows: readonly TaxInitialRow[] = taxRateUpdateRows(), shared?: Parameters<typeof prepareLogicalTaxRuleCreation>[3]) {
-  const base = await prepareLogicalTaxRuleCreation(driver, close, rows, shared);
+export async function prepareCoreTaxRateUpdate(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
+  rows: readonly TaxInitialRow[] = taxRateUpdateRows(), shared?: Parameters<typeof prepareCoreTaxRuleCreation>[3]) {
+  const base = await prepareCoreTaxRuleCreation(driver, close, rows, shared);
   const logger: Logger = { panic() {}, shouldLog: () => false, setLogLevel() {}, unsetLogLevel() {}, activity: message => message,
     progress() {}, error() {}, failure() {}, success: () => ({}), silly() {}, debug() {}, verbose() {}, http() {}, info() {}, warn() {}, log() {} };
   const tax = await Effect.runPromise(makeTaxRateUpdateCommands(logger));

@@ -1,12 +1,13 @@
 import { Effect } from "effect";
 import type { LogicalSchemaSource } from "flarex-protocol/internal/logical-schema-candidate";
-import type { RelationalSchema, RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
+import type { RelationalSchema, RelationalTableDefinition, RelationalIndexPredicate } from "flarex-protocol/internal/relational-schema";
 import { type ValidatorJsonV1 } from "flarex-protocol/validator-json";
 import { relationalTextIdentity } from "../values/relationalRows";
 import { CoreSchemaError, type CoreSchemaInputSchema } from "./schemaTypes";
 import { coreNativeIndexName, coreNativeTableName } from "./schemaTableName";
 import type { CoreNativeRelationalIndex, CoreNativeTableDeclaration } from "./nativePolicy";
-import type { CoreNativeForeignKey, CoreNativeUniqueConstraintSchema } from "./nativePolicyTypes";
+import { coreNativeEligibilityTerms, type CoreNativeEligibility, type CoreNativeForeignKey,
+  type CoreNativeUniqueConstraintSchema } from "./nativePolicyTypes";
 
 const unsupported = (message: string) => new CoreSchemaError({ reason: "unsupportedCapability", message });
 const sameFields = (left: readonly string[], right: readonly string[]) => left.length === right.length
@@ -15,6 +16,17 @@ const ordered = (table: RelationalTableDefinition, fields: readonly string[]) =>
   const column = table.columns.find(candidate => candidate.identity.columnId === field);
   return column !== undefined && column.type !== "numeric" && column.type !== "jsonb";
 });
+function lowerEligibility(predicate: RelationalIndexPredicate): CoreNativeEligibility | undefined | false {
+  if (predicate === null) return undefined;
+  if (predicate.kind === "isNull") return Object.freeze({ field: predicate.column.columnId, value: null });
+  if (predicate.kind === "allNull") return Object.freeze({ all: Object.freeze(predicate.columns.map(column =>
+    Object.freeze({ field: column.columnId, value: null }))) });
+  if (predicate.kind === "isNullAndBooleanEquals") return Object.freeze({ all: Object.freeze([
+    Object.freeze({ field: predicate.nullColumn.columnId, value: null }),
+    Object.freeze({ field: predicate.booleanColumn.columnId, value: predicate.value }),
+  ]) });
+  return false;
+}
 
 /** Lower native business records to ordinary documents and indexes. Neither
  * endpoint FK semantics nor tuple identity creates a hidden membership table. */
@@ -28,8 +40,8 @@ export const lowerCoreNativeRelationalSchema = Effect.fn("CoreNativeDefinition.l
   for (const table of relational.tables) {
     const binding = bindings.find(candidate => candidate.localName === table.identity.tableId);
     if (binding === undefined) return yield* unsupported("Relational table has no authenticated binding");
-    if (table.columns.some(column => column.type === "real" || column.default.kind === "serialNext"))
-      return yield* unsupported("Relational REAL conversion and serial allocation are not admitted");
+    if (table.columns.some(column => column.default.kind === "serialNext"))
+      return yield* unsupported("Relational serial allocation is not admitted");
     const name = yield* coreNativeTableName(binding.table);
     const indexes: CoreNativeRelationalIndex[] = [];
     const uniqueConstraints: (typeof CoreNativeUniqueConstraintSchema.Type)[] = [];
@@ -46,15 +58,15 @@ export const lowerCoreNativeRelationalSchema = Effect.fn("CoreNativeDefinition.l
       // Search and JSON declarations remain authenticated native metadata. They
       // do not masquerade as ordered Core index access paths.
       if (index.kind === "textEquality" || index.kind === "jsonContainment") continue;
-      if (index.predicate !== null && index.predicate.kind !== "isNull")
-        return yield* unsupported("Relational index requires an ordinary or isNull B-tree lowering");
-      const prefix = index.predicate === null ? undefined : index.predicate.column.columnId;
+      const eligibility = lowerEligibility(index.predicate);
+      if (eligibility === false)
+        return yield* unsupported("Relational index requires an ordinary or admitted equality-predicate B-tree lowering");
+      const prefix = eligibility === undefined ? [] : coreNativeEligibilityTerms(eligibility).map(term => term.field);
       const keyFields = index.columns.map(column => column.columnId);
-      const fields = [...(prefix === undefined ? [] : [prefix]), ...keyFields.filter(field => field !== prefix)];
+      const fields = [...prefix, ...keyFields.filter(field => !prefix.includes(field))];
       if (!ordered(table, fields)) return yield* unsupported("Relational index requires admitted ordered scalar columns");
       const indexName = indexes.find(candidate => sameFields(candidate.fields, fields))?.indexName
         ?? (yield* coreNativeIndexName(binding.table, "index", index.identity.indexId));
-      const eligibility = prefix === undefined ? undefined : Object.freeze({ field: prefix, value: null });
       indexes.push(Object.freeze({ nativeId: index.identity.indexId, kind: "index", indexName, fields: Object.freeze(fields),
         ...(eligibility === undefined ? {} : { requiredPrefix: eligibility }) }));
       if (index.kind === "uniqueBtree") uniqueConstraints.push(Object.freeze({ descriptor: index.identity.indexId,
@@ -120,7 +132,7 @@ export const lowerCoreNativeRelationalSchema = Effect.fn("CoreNativeDefinition.l
     for (const column of table.columns) {
       const fieldType: ValidatorJsonV1 = column.type === "text" || column.type === "timestamptz" ? { type: "string" }
         : column.type === "boolean" ? { type: "boolean" }
-        : column.type === "integer" || column.type === "doublePrecision" ? { type: "number" }
+        : column.type === "integer" || column.type === "real" || column.type === "doublePrecision" ? { type: "number" }
         : column.type === "numeric" ? { type: "union", value: [{ type: "number" }, { type: "string" }] } : { type: "any" };
       value[column.identity.columnId] = { fieldType: column.nullable ? { type: "union", value: [fieldType, { type: "null" }] } : fieldType,
         optional: false };

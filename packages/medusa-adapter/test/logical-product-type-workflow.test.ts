@@ -1,28 +1,25 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { isDeepStrictEqual } from "node:util";
 import { Cause, Deferred, Effect, Fiber, Schema } from "effect";
 import { ProductModuleService } from "@medusajs/product/services";
 import { Link } from "@medusajs/modules-sdk/link";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { productTypeResources } from "../src/workflow/policy";
-import { fxAppRowCurrent, fxSystemCommits } from "../../persistence-postgres/src/database/schema";
-import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commit/events/schema";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import type { LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
-import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
-import { prepareLogicalProductType } from "./support/logical-product-type-fixture";
+import { createCoreProductWorkflowFixture } from "./support/core-product-workflow-fixture";
+import { prepareCoreProductType } from "./support/core-product-type-fixture";
+import { expectWorkflowDefect } from "./support/workflow-failure-assertions";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalProductType>>;
-const rows = () => connected.fixture.persistence.drizzle.select().from(fxAppRowCurrent)
-  .orderBy(fxAppRowCurrent.tableId, fxAppRowCurrent.rowId);
-const events = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents)
-  .orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal);
-const commits = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommits).orderBy(fxSystemCommits.commitSeq);
-const snapshot = async () => ({ rows: await rows(), events: await events(), commits: await commits() });
+let connected: Awaited<ReturnType<typeof prepareCoreProductType>>;
+let fixtureCleanupCount = 0;
+const snapshot = () => connected.fixture.snapshot();
+const rows = async () => (await snapshot()).rows;
+const revisions = async () => (await snapshot()).revisions;
+const events = async () => (await snapshot()).events;
+const committedRoots = async () => (await snapshot()).outcomes;
+const deliveries = async () => (await snapshot()).deliveries;
 const first = <Value>(values: readonly Value[]): Value => {
   const value = values[0]; if (value === undefined) throw new Error("Expected a native Type result"); return value;
 };
@@ -48,7 +45,12 @@ async function remove(ids: readonly string[]) {
 }
 
 describe("native Product Type workflows on shared logical storage", () => {
-  beforeAll(async () => { connected = await prepareLogicalProductType(driver, close => cleanup.push(close)); }, 180_000);
+  beforeAll(async () => { connected = await prepareCoreProductType(driver, close => cleanup.push(close)); fixtureCleanupCount = cleanup.length; }, 180_000);
+  afterEach(async () => {
+    vi.restoreAllMocks(); const failures: unknown[] = [];
+    for (const close of cleanup.splice(fixtureCleanupCount).reverse()) try { await close(); } catch (cause) { failures.push(cause); }
+    if (failures.length !== 0) throw new AggregateError(failures, "Product Type case cleanup failed");
+  }, 120_000);
   afterAll(async () => { vi.restoreAllMocks(); for (const close of cleanup.reverse()) await close(); }, 120_000);
 
   it("preserves native Type ID selector order and the first occurrence of duplicate IDs through the complete workflow", async () => {
@@ -93,7 +95,7 @@ describe("native Product Type workflows on shared logical storage", () => {
           .toEqual(expected.map(id => expect.objectContaining({ data: { id } })));
         expect(emitted.filter(event => event.envelope.contract === "product-type.updated").map(event => event.envelope.message))
           .toEqual(expected.map(id => expect.objectContaining({ data: { id } })));
-        expect((await commits()).length - before.commits.length).toBe(1);
+        expect((await committedRoots()).length - before.outcomes.length).toBe(1);
         const committed = await snapshot();
         expect(await Effect.runPromise(update.run(key, input))).toEqual(result);
         expect(preimages).toEqual([expected]); expect(nativeResults).toEqual([expected]);
@@ -119,7 +121,7 @@ describe("native Product Type workflows on shared logical storage", () => {
       const beforeEmpty = await events();
       expect(await Effect.runPromise(host.run(host.newRequestKey(), { product_types: [], additional_data: { witness: "create" } }))).toEqual([]);
       expect(native).toHaveBeenCalledTimes(1); expect(seen).toEqual([[]]); expect(await events()).toEqual(beforeEmpty);
-      const beforeEvents = await events(), beforeCommits = await commits();
+      const beforeEvents = await events(), beforeCommits = await committedRoots();
       let calls = 0;
       const product_types = [0, 1, 2, 3].map(index => ({ value: "type-max-" + index,
         metadata: { nested: { index, enabled: true }, payload: "x".repeat(1024) } }));
@@ -139,7 +141,7 @@ describe("native Product Type workflows on shared logical storage", () => {
         .toEqual(created.map(type => expect.objectContaining({ data: { id: type.id } })));
       expect(emitted).toHaveLength(8); expect(emitted.length).toBeLessThanOrEqual(productTypeResources.eventMessages);
       console.info("Product Type four-entry maximum", { calls, events: emitted.length });
-      expect((await commits()).length - beforeCommits.length).toBe(1);
+      expect((await committedRoots()).length - beforeCommits.length).toBe(1);
       const updated = await connected.prepareUpdate();
       const one = first(created);
       expect(await Effect.runPromise(updated.run(updated.newRequestKey(), { selector: { id: one.id }, update: { value: "type-max-renamed" } })))
@@ -228,7 +230,7 @@ describe("native Product Type workflows on shared logical storage", () => {
     } });
     const native = vi.spyOn(Link.prototype, "delete");
     try {
-      const beforeEvents = await events(), beforeCommits = await commits();
+      const beforeEvents = await events(), beforeCommits = await committedRoots();
       expect(await Effect.runPromise(deletion.run(deletion.newRequestKey(), { ids: requested }))).toBeNull();
       expect(observed).toEqual([requested]); expect(native).toHaveBeenCalledExactlyOnceWith({ product: { product_type_id: requested } });
       expect(await native.mock.results[0]?.value).toEqual([null, {}]);
@@ -241,7 +243,7 @@ describe("native Product Type workflows on shared logical storage", () => {
         .toEqual(expect.arrayContaining([type.id, other.id].map(id => expect.objectContaining({ data: { id } }))));
       expect(emitted.filter(event => event.envelope.contract === "product-type.deleted").map(event => event.envelope.message))
         .toEqual(requested.map(id => expect.objectContaining({ data: { id } })));
-      expect((await commits()).length - beforeCommits.length).toBe(1);
+      expect((await committedRoots()).length - beforeCommits.length).toBe(1);
       expect(await Effect.runPromise(connected.listTypes([type.id, other.id]))).toEqual([]);
       expect(await Effect.runPromise(connected.listTypes([type.id, other.id], true)))
         .toEqual(expect.arrayContaining([type.id, other.id].map(id => expect.objectContaining({ id, deleted_at: expect.any(String) }))));
@@ -259,29 +261,34 @@ describe("native Product Type workflows on shared logical storage", () => {
 
   it("rolls back each native mutation when its hook fails and revokes an escaped borrowed method", async () => {
     let escaped: (() => Promise<unknown>) | undefined, reached = 0;
+    const createFailure = new Error("Type creation hook rejected actual native mutation"),
+      updateFailure = new Error("Type update hook rejected actual native mutation"),
+      deleteFailure = new Error("Type deletion hook rejected actual native mutation");
     const create = await connected.prepareCreate({ productTypesCreated: async (input, context) => {
       expect(input.product_types).toHaveLength(1); reached++;
       escaped = () => context.resources.product.createProductTypes([{ value: "escaped-type" }]);
-      throw new Error("Type creation hook rejected actual native mutation");
+      throw createFailure;
     } });
     const seed = await connected.prepareCreate();
     const type = first(await Effect.runPromise(seed.run(seed.newRequestKey(), { product_types: [{ value: "hook-seed" }] })));
     const update = await connected.prepareUpdate({ productTypesUpdated: async input => {
       expect(input.product_types).toMatchObject([{ id: type.id, value: "hook-updated" }]); reached++;
-      throw new Error("Type update hook rejected actual native mutation");
+      throw updateFailure;
     } });
     const deletion = await connected.prepareDelete({ productTypesDeleted: async (input, context) => {
       expect(input.ids).toEqual([type.id]);
       expect(await context.resources.query.graph({ entity: "product_type", fields: ["id"], filters: { id: [type.id] }, pagination: { take: 1 } }))
         .toMatchObject({ data: [] }); reached++;
-      throw new Error("Type deletion hook rejected actual native mutation");
+      throw deleteFailure;
     } });
-    for (const work of [create.run(create.newRequestKey(), { product_types: [{ value: "hook-created" }] }).pipe(Effect.asVoid),
-      update.run(update.newRequestKey(), { selector: { id: type.id }, update: { value: "hook-updated" } }).pipe(Effect.asVoid),
-      deletion.run(deletion.newRequestKey(), { ids: [type.id] }).pipe(Effect.asVoid)]) {
-      const before = await snapshot(), result = await Effect.runPromise(Effect.result(work)); expect(result._tag).toBe("Failure");
-      if (result._tag === "Failure") expect(failurePath(result.failure)).toContain("adapterFailure");
+    for (const [work, original] of [
+      [create.run(create.newRequestKey(), { product_types: [{ value: "hook-created" }] }).pipe(Effect.asVoid), createFailure],
+      [update.run(update.newRequestKey(), { selector: { id: type.id }, update: { value: "hook-updated" } }).pipe(Effect.asVoid), updateFailure],
+      [deletion.run(deletion.newRequestKey(), { ids: [type.id] }).pipe(Effect.asVoid), deleteFailure],
+    ] as const) {
+      const before = await snapshot(), exit = await Effect.runPromiseExit(work);
       expect(await snapshot()).toEqual(before);
+      expectWorkflowDefect(exit, original);
     }
     expect(reached).toBe(3);
     if (escaped === undefined) throw new Error("Creation hook did not expose the borrowed Type method");
@@ -294,36 +301,35 @@ describe("native Product Type workflows on shared logical storage", () => {
 
   it("recovers the complete native Type result after a committed transaction loses its acknowledgement", async () => {
     const fixture = connected.fixture;
-    let lose = true, acknowledgementFailures = 0, hooks = 0;
-    let committedAtAck: Awaited<ReturnType<typeof snapshot>> | undefined, hookOutput: unknown;
-    const deliveries = () => fixture.persistence.drizzle.select().from(fxSystemCommitEventDeliveries)
-      .orderBy(fxSystemCommitEventDeliveries.commitSeq, fxSystemCommitEventDeliveries.eventOrdinal, fxSystemCommitEventDeliveries.subscriberId);
-    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
-      Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-      Effect.flatMap(value => {
-        if (!lose) return Effect.succeed(value);
-        lose = false;
-        // The genuine owner has completed COMMIT. Observe its durable rows and
-        // publication before replacing only that successful acknowledgement.
-        return Effect.tryPromise({ try: snapshot,
-          catch: cause => new RelationalSessionError({ reason: "resourceFailure", cause }),
-        }).pipe(Effect.flatMap(observed => {
-          committedAtAck = observed; acknowledgementFailures++;
-          return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost native Product Type COMMIT acknowledgement") }));
-        }));
-      }),
-    ));
+    let hooks = 0;
+    let hookOutput: unknown, mutateArguments: (() => void) | undefined, mutatePreparation: (() => void) | undefined;
+    const execution: typeof connected.execution = { ...connected.execution, prepare: composition => {
+      const participants = [...composition.participants];
+      mutatePreparation = () => { participants.length = 0; };
+      return connected.execution.prepare({ ...composition, participants });
+    } };
+    const fault = fixture.loseNextNativeRootAcknowledgement();
     const host = await connected.prepareCreate({ productTypesCreated: input => {
       hooks++; hookOutput = structuredClone(input.product_types);
-    } }, { ...connected.execution, prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, session, ...composition }) });
+      mutateArguments?.();
+    } }, execution);
+    if (mutatePreparation === undefined) throw new Error("The actual Type profile was not prepared");
+    // Recovery must reuse the production owner's captured profile rather than
+    // reading a caller-owned participant array again in the new generation.
+    mutatePreparation();
     const native = vi.spyOn(ProductModuleService.prototype, "createProductTypes");
     try {
       const before = await snapshot(), beforeDeliveries = await deliveries(), key = host.newRequestKey();
       const input = { product_types: [{ value: "type-uncertain-ack", metadata: { nested: { retained: true }, witness: "complete native DTO" } }] };
+      const original = first(input.product_types);
+      mutateArguments = () => { original.value = "caller-changed-after-capture"; };
       const result = await Effect.runPromise(host.run(key, input));
-      expect(lose).toBe(false); expect(acknowledgementFailures).toBe(1);
-      if (committedAtAck === undefined) throw new Error("The actual committed Type transaction did not reach the ACK interception");
-      expect(committedAtAck.commits.length - before.commits.length).toBe(1);
+      expect(original.value).toBe("caller-changed-after-capture");
+      expect(fault.armed).toBe(false); expect(fault.failures).toBe(1);
+      if (fault.evidence === undefined) throw new Error("The actual durable native root did not reach ACK loss");
+      expect(fault.evidence.inventory).toEqual(await fixture.inventory());
+      const committedAtAck = await snapshot();
+      expect(committedAtAck.outcomes.length - before.outcomes.length).toBe(1);
       expect(committedAtAck.rows.length - before.rows.length).toBe(1);
       const emitted = committedAtAck.events.slice(before.events.length);
       expect(emitted.map(event => event.envelope.contract)).toEqual([connected.product.runtime.metadata.type.createdEvent, "product-type.created"]);
@@ -335,8 +341,9 @@ describe("native Product Type workflows on shared logical storage", () => {
       expect(await snapshot()).toEqual(committedAtAck);
       const afterDeliveries = await deliveries(), publishedDeliveries = afterDeliveries.slice(beforeDeliveries.length);
       expect(publishedDeliveries).toHaveLength(2);
-      expect(publishedDeliveries.map(delivery => ({ commitSeq: delivery.commitSeq, eventOrdinal: delivery.eventOrdinal, state: delivery.state })))
-        .toEqual(emitted.map(event => ({ commitSeq: event.commitSeq, eventOrdinal: event.eventOrdinal, state: "pending" })));
+      expect(publishedDeliveries.map(delivery => ({ familyId: delivery.value.family_id, ordinal: delivery.value.ordinal, state: delivery.value.state })))
+        .toEqual(emitted.map(event => ({ familyId: event.familyId, ordinal: event.ordinal, state: "pending" })));
+      original.value = "type-uncertain-ack";
       expect(await Effect.runPromise(host.run(key, input))).toEqual(result);
       expect(native).toHaveBeenCalledTimes(1); expect(hooks).toBe(1);
       expect(await snapshot()).toEqual(committedAtAck); expect(await deliveries()).toEqual(afterDeliveries);
@@ -414,9 +421,8 @@ describe("native Product Type workflows on shared logical storage", () => {
   }, 120_000);
 
   it("confines identical values and request keys to each shop", async () => {
-    const fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close), { resource: connected.fixture.resource, includeProduct: true,
-      fixtureIdentity: { deploymentId: "deployment_product_type_workflow_shop_b", projectId: "project_product_type_workflow_shop_b", uuidOffset: 80_000 } });
-    const other = await prepareLogicalProductType(driver, close => cleanup.push(close), fixture);
+    const fixture = await createCoreProductWorkflowFixture(driver, close => cleanup.push(close), { physical: connected.fixture.physical });
+    const other = await prepareCoreProductType(driver, close => cleanup.push(close), fixture);
     const create = await connected.prepareCreate(), otherCreate = await other.prepareCreate(), key = create.newRequestKey();
     const input = { product_types: [{ value: "scope-type" }] };
     const left = first(await Effect.runPromise(create.run(key, input))), right = first(await Effect.runPromise(otherCreate.run(key, input)));
@@ -445,8 +451,6 @@ describe("native Product Type workflows on shared logical storage", () => {
       if (observed.length === 2) await Effect.runPromise(Deferred.succeed(reached, undefined));
       await Effect.runPromise(Deferred.await(release));
     } });
-    const deliveries = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommitEventDeliveries)
-      .orderBy(fxSystemCommitEventDeliveries.commitSeq, fxSystemCommitEventDeliveries.eventOrdinal, fxSystemCommitEventDeliveries.subscriberId);
     try {
       const before = await snapshot(), beforeDeliveries = await deliveries();
       const results = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
@@ -469,22 +473,22 @@ describe("native Product Type workflows on shared logical storage", () => {
       const winner = results.find(result => result._tag === "Success");
       if (winner === undefined || winner._tag !== "Success") throw new Error("Missing successful Type update root");
       expect(await Effect.runPromise(connected.listTypes([type.id]))).toMatchObject([{ id: type.id, value: first(winner.value).value }]);
-      const after = await snapshot(), published = after.events.slice(before.events.length), committed = after.commits.slice(before.commits.length);
+      const after = await snapshot(), published = after.events.slice(before.events.length), committed = after.outcomes.slice(before.outcomes.length);
       expect(committed).toHaveLength(1);
       expect(published.map(event => event.envelope.contract)).toEqual([connected.product.runtime.metadata.type.updatedEvent, "product-type.updated"]);
       expect(published.map(event => event.envelope.message)).toEqual([
         expect.objectContaining({ data: { id: type.id } }), expect.objectContaining({ data: { id: type.id } }),
       ]);
-      expect(published.every(event => event.commitSeq === first(committed).commitSeq)).toBe(true);
+      expect(published.every(event => event.timestamp === first(committed).timestamp)).toBe(true);
       const publishedDeliveries = (await deliveries()).slice(beforeDeliveries.length);
       expect(publishedDeliveries).toHaveLength(2);
-      expect(publishedDeliveries.map(delivery => ({ commitSeq: delivery.commitSeq, eventOrdinal: delivery.eventOrdinal, state: delivery.state })))
-        .toEqual(published.map(event => ({ commitSeq: event.commitSeq, eventOrdinal: event.eventOrdinal, state: "pending" })));
+      expect(publishedDeliveries.map(delivery => ({ familyId: delivery.value.family_id, ordinal: delivery.value.ordinal, state: delivery.value.state })))
+        .toEqual(published.map(event => ({ familyId: event.familyId, ordinal: event.ordinal, state: "pending" })));
       expect(after.rows).toHaveLength(before.rows.length);
       // rowId is a bytea value. Separate reads own distinct byte arrays, so
       // pointer equality would mistake every unchanged row for a new identity.
       const compared = after.rows.map(row => ({ row, previous: before.rows.find(previous =>
-        previous.scopeUuid === row.scopeUuid && previous.tableId === row.tableId && isDeepStrictEqual(previous.rowId, row.rowId)) }));
+        previous.table === row.table && previous.value._id === row.value._id) }));
       const changed = compared.filter(({ row, previous }) => !isDeepStrictEqual(row, previous));
       expect(compared.filter(value => value.previous !== undefined)).toHaveLength(before.rows.length);
       expect(changed).toHaveLength(1);

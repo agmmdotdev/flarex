@@ -1,34 +1,25 @@
+import { expectWorkflowDefect } from "./support/workflow-failure-assertions";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Cause, Deferred, Effect, Fiber, Schema } from "effect";
 import { ProductModuleService } from "@medusajs/product/services";
 import { Link } from "@medusajs/modules-sdk/link";
 import { ExecutionDiagnostics, type ExecutionDiagnosticPolicy } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { productOptionCreationResources, productOptionUpdateResources, productOptionDeletionResources } from "../src/workflow/policy";
-import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits } from "../../persistence-postgres/src/database/schema";
-import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commit/events/schema";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
-import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
-import { prepareLogicalProductOption } from "./support/logical-product-option-workflow-fixture";
+import { createCoreProductWorkflowFixture } from "./support/core-product-workflow-fixture";
+import { prepareCoreProductOption } from "./support/core-product-option-workflow-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalProductOption>>;
+let connected: Awaited<ReturnType<typeof prepareCoreProductOption>>;
 let fixtureCleanupCount = 0;
 const readRows = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject));
 const Values = Schema.Array(Schema.StructWithRest(Schema.Struct({ id: Schema.String, value: Schema.String }), [Schema.Record(Schema.String, Schema.Json)]));
 const decodeValues = Schema.decodeUnknownSync(Values);
-const rows = () => connected.fixture.persistence.drizzle.select().from(fxAppRowCurrent)
-  .orderBy(fxAppRowCurrent.scopeUuid, fxAppRowCurrent.tableId, fxAppRowCurrent.rowId);
-const events = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents)
-  .orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal);
-const commits = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommits).orderBy(fxSystemCommits.commitSeq);
-const deliveries = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommitEventDeliveries)
-  .orderBy(fxSystemCommitEventDeliveries.commitSeq, fxSystemCommitEventDeliveries.eventOrdinal, fxSystemCommitEventDeliveries.subscriberId);
-const revisions = () => connected.fixture.persistence.drizzle.select().from(fxAppRowRevisions)
-  .orderBy(fxAppRowRevisions.scopeUuid, fxAppRowRevisions.tableId, fxAppRowRevisions.rowId, fxAppRowRevisions.commitSeq);
-const snapshot = async () => ({ rows: await rows(), revisions: await revisions(), events: await events(), commits: await commits(), deliveries: await deliveries() });
+const snapshot = () => connected.fixture.snapshot();
+const rows = async () => (await snapshot()).rows;
+const revisions = async () => (await snapshot()).revisions;
+const events = async () => (await snapshot()).events;
+const deliveries = async () => (await snapshot()).deliveries;
 const first = <Value>(values: readonly Value[]): Value => {
   const value = values[0]; if (value === undefined) throw new Error("Expected an authentic native Option result"); return value;
 };
@@ -45,19 +36,6 @@ function failurePath(value: unknown): string[] {
   const reason: unknown = Object.getOwnPropertyDescriptor(value, "reason")?.value;
   const cause: unknown = Object.getOwnPropertyDescriptor(value, "cause")?.value;
   return [...(typeof reason === "string" ? [reason] : []), ...(cause === undefined ? [] : failurePath(cause))];
-}
-function containsCause(value: unknown, expected: Error): boolean {
-  if (value === expected) return true;
-  if (Cause.isCause(value)) return value.reasons.some(reason => {
-    switch (reason._tag) {
-      case "Fail": return containsCause(reason.error, expected);
-      case "Die": return containsCause(reason.defect, expected);
-      case "Interrupt": return false;
-    }
-  });
-  if (value === null || typeof value !== "object") return false;
-  const cause: unknown = Object.getOwnPropertyDescriptor(value, "cause")?.value;
-  return cause !== undefined && containsCause(cause, expected);
 }
 function observe(trace: string[], count?: { calls: number }): ExecutionDiagnosticPolicy {
   return { observe: (name, work) => Effect.sync(() => {
@@ -81,7 +59,7 @@ async function seedGraph(prefix: string, optionCount = 4, valueCount = 4, varian
 
 describe("native Product Option workflows on shared logical storage", () => {
   beforeAll(async () => {
-    connected = await prepareLogicalProductOption(driver, close => cleanup.push(close)); fixtureCleanupCount = cleanup.length;
+    connected = await prepareCoreProductOption(driver, close => cleanup.push(close)); fixtureCleanupCount = cleanup.length;
   }, 180_000);
   afterEach(async () => {
     vi.restoreAllMocks(); await connected.cleanupProducts();
@@ -156,9 +134,9 @@ describe("native Product Option workflows on shared logical storage", () => {
     expect(await Effect.runPromise(connected.listVariants(graph.productId))).toEqual(variants);
     const same = first(await Effect.runPromise(update.run(update.newRequestKey(), { selector: { id: first(ids) }, update: { values: originalValues.map(value => value.value) } })));
     expect(same.values.map(value => value.id)).toEqual(originalValues.map(value => value.id));
-    const tombstones = (await revisions()).filter(row => row.isTombstone).length;
+    const tombstones = (await revisions()).filter(row => row.deleted).length;
     expect(first(await Effect.runPromise(update.run(update.newRequestKey(), { selector: { id: first(ids) }, update: { values: [] } }))).values).toEqual([]);
-    expect((await revisions()).filter(row => row.isTombstone)).toHaveLength(tombstones + 4);
+    expect((await revisions()).filter(row => row.deleted)).toHaveLength(tombstones + 4);
     expect(await Effect.runPromise(connected.listProducts([graph.productId]))).toEqual(products);
     const afterVariants = readRows(await Effect.runPromise(connected.listVariants(graph.productId)));
     expect(afterVariants.map(({ options: _options, ...row }) => row)).toEqual(variants.map(({ options: _options, ...row }) => row));
@@ -183,7 +161,7 @@ describe("native Product Option workflows on shared logical storage", () => {
     for (const id of old) expect(targetPivots.filter(value => value.id === id)).toHaveLength(2);
     const preservedVariants = variants.map(row => ({ ...row, options: decodeValues(row.options).filter(value => !old.includes(value.id)) }));
     expect(preservedVariants.every(row => row.options.length === 1)).toBe(true);
-    const tombstones = (await revisions()).filter(row => row.isTombstone).length, before = await snapshot(), count = { calls: 0 };
+    const tombstones = (await revisions()).filter(row => row.deleted).length, before = await snapshot(), count = { calls: 0 };
     const host = await connected.prepareUpdate(), replacement = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { selector: { id: ids },
       update: { values: ["new-a", "new-b", "new-c", "new-d"] } }).pipe(Effect.provideService(ExecutionDiagnostics, observe([], count)))));
     if (replacement._tag === "Failure") {
@@ -193,7 +171,7 @@ describe("native Product Option workflows on shared logical storage", () => {
     const changed = replacement.success;
     expect(changed).toHaveLength(4); expect(changed.every(row => row.values.length === 4)).toBe(true);
     expect(changed.flatMap(row => row.values.map(value => value.id)).some(id => old.includes(id))).toBe(false);
-    expect((await revisions()).filter(row => row.isTombstone)).toHaveLength(tombstones + 48);
+    expect((await revisions()).filter(row => row.deleted)).toHaveLength(tombstones + 48);
     expect(await revisions()).toHaveLength(before.revisions.length + 68);
     expect(await Effect.runPromise(connected.listProducts(graph.productIds))).toEqual(products);
     expect(readRows(await Effect.runPromise(connected.listOptions(graph.discriminatorIds)))).toEqual(discriminators);
@@ -218,13 +196,13 @@ describe("native Product Option workflows on shared logical storage", () => {
       const pending = await context.resources.query.graph({ entity: "product_option", fields: ["id"], filters: { id }, pagination: { take: 1 } });
       expect(pending.data).toEqual([]);
     } });
-    const tombstones = (await revisions()).filter(row => row.isTombstone).length, before = await snapshot();
+    const tombstones = (await revisions()).filter(row => row.deleted).length, before = await snapshot();
     expect(await Effect.runPromise(host.run(host.newRequestKey(), { ids }).pipe(Effect.provideService(ExecutionDiagnostics, observe(trace, count))))).toBeNull();
     expect(nativeLink).toHaveBeenCalledExactlyOnceWith({ product: { product_option_id: ids } });
     expect(await nativeDelete.mock.results[0]?.value).toEqual({ product_option_id: [id],
       product_option_value_id: decodeValues(first(readRows(await Effect.runPromise(connected.listOptions([id], true)))).values).map(value => value.id) });
     expect(trace).toEqual(["hook", ...ids.map(() => "product-option.deleted")]);
-    expect((await revisions()).filter(row => row.isTombstone)).toHaveLength(tombstones);
+    expect((await revisions()).filter(row => row.deleted)).toHaveLength(tombstones);
     expect(await revisions()).toHaveLength(before.revisions.length + 3);
     expect(await Effect.runPromise(connected.listProducts([graph.productId]))).toEqual(product);
     const afterVariants = readRows(await Effect.runPromise(connected.listVariants(graph.productId)));
@@ -245,10 +223,10 @@ describe("native Product Option workflows on shared logical storage", () => {
     const graph = await seedGraph("option-delete-maximum"), ids = graph.options.map(row => row.id);
     const products = await Effect.runPromise(connected.listProducts([graph.productId]));
     const variants = readRows(await Effect.runPromise(connected.listVariants(graph.productId)));
-    const tombstones = (await revisions()).filter(row => row.isTombstone).length, before = await snapshot(), count = { calls: 0 };
+    const tombstones = (await revisions()).filter(row => row.deleted).length, before = await snapshot(), count = { calls: 0 };
     const host = await connected.prepareDelete();
     expect(await Effect.runPromise(host.run(host.newRequestKey(), { ids }).pipe(Effect.provideService(ExecutionDiagnostics, observe([], count))))).toBeNull();
-    expect((await revisions()).filter(row => row.isTombstone)).toHaveLength(tombstones);
+    expect((await revisions()).filter(row => row.deleted)).toHaveLength(tombstones);
     expect(await revisions()).toHaveLength(before.revisions.length + 20);
     expect(await Effect.runPromise(connected.listOptions(ids))).toEqual([]);
     const deleted = readRows(await Effect.runPromise(connected.listOptions(ids, true)));
@@ -268,11 +246,11 @@ describe("native Product Option workflows on shared logical storage", () => {
     await connected.arrangeDeletedValue(value.id);
     const beforeValue = decodeValues(first(readRows(await Effect.runPromise(connected.listOptions([id], true)))).values).find(row => row.id === value.id);
     if (beforeValue === undefined) throw new Error("Missing arranged deleted native Value");
-    const tombstones = (await revisions()).filter(row => row.isTombstone).length, before = await snapshot(), deletion = await connected.prepareDelete();
+    const tombstones = (await revisions()).filter(row => row.deleted).length, before = await snapshot(), deletion = await connected.prepareDelete();
     await Effect.runPromise(deletion.run(deletion.newRequestKey(), { ids: [id] }));
     const afterValue = decodeValues(first(readRows(await Effect.runPromise(connected.listOptions([id], true)))).values).find(row => row.id === value.id);
     expect(afterValue?.deleted_at).not.toEqual(beforeValue.deleted_at); expect(typeof afterValue?.deleted_at).toBe("string");
-    expect((await revisions()).filter(row => row.isTombstone)).toHaveLength(tombstones);
+    expect((await revisions()).filter(row => row.deleted)).toHaveLength(tombstones);
     expect((await events()).slice(before.events.length).filter(row => row.envelope.contract === connected.product.runtime.metadata.value.updatedEvent))
       .toHaveLength(1);
   }, 180_000);
@@ -281,14 +259,14 @@ describe("native Product Option workflows on shared logical storage", () => {
     const graph = await seedGraph("option-deleted-replace", 2, 2, 2), id = first(graph.options).id;
     const value = first(decodeValues(first(readRows(await Effect.runPromise(connected.listOptions([id])))).values));
     await connected.arrangeDeletedValue(value.id);
-    const update = await connected.prepareUpdate(), tombstones = (await revisions()).filter(row => row.isTombstone).length;
+    const update = await connected.prepareUpdate(), tombstones = (await revisions()).filter(row => row.deleted).length;
     const deletedBefore = decodeValues(first(readRows(await Effect.runPromise(connected.listOptions([id], true)))).values).find(row => row.id === value.id);
     await Effect.runPromise(update.run(update.newRequestKey(), { selector: { id }, update: { metadata: { only: true } } }));
     expect(decodeValues(first(readRows(await Effect.runPromise(connected.listOptions([id], true)))).values).find(row => row.id === value.id)).toEqual(deletedBefore);
-    expect((await revisions()).filter(row => row.isTombstone)).toHaveLength(tombstones);
+    expect((await revisions()).filter(row => row.deleted)).toHaveLength(tombstones);
     const changed = first(await Effect.runPromise(update.run(update.newRequestKey(), { selector: { id }, update: { values: ["value-0", "value-1"] } })));
     expect(changed.values.some(row => row.id === value.id)).toBe(false); expect(changed.values).toHaveLength(2);
-    expect((await revisions()).filter(row => row.isTombstone)).toHaveLength(tombstones + 2);
+    expect((await revisions()).filter(row => row.deleted)).toHaveLength(tombstones + 2);
   }, 180_000);
 
   it("refuses a fifth selected root and five old Values with no committed prefix", async () => {
@@ -350,9 +328,9 @@ describe("native Product Option workflows on shared logical storage", () => {
       update.run(update.newRequestKey(), { selector: { id: option.id }, update: { values: [] } }).pipe(Effect.asVoid),
       deletion.run(deletion.newRequestKey(), { ids: [option.id] }).pipe(Effect.asVoid)]) {
       trace.length = 0; const before = await snapshot();
-      const result = await Effect.runPromise(Effect.result(work.pipe(Effect.provideService(ExecutionDiagnostics, observe(trace)))));
-      expect(result._tag).toBe("Failure"); if (result._tag === "Failure") expect(containsCause(result.failure, hookFailure)).toBe(true);
+      const exit = await Effect.runPromiseExit(work.pipe(Effect.provideService(ExecutionDiagnostics, observe(trace))));
       expect(trace).toEqual(["hook"]); expect(await snapshot()).toEqual(before);
+      expectWorkflowDefect(exit, hookFailure);
     }
     if (escaped === undefined) throw new Error("Creation hook did not capture an escaped callback");
     await escaped().then(() => { throw new Error("Escaped Option callback retained authority"); }, cause => { expect(failurePath(cause)).toContain("closed"); });
@@ -389,24 +367,17 @@ describe("native Product Option workflows on shared logical storage", () => {
 
   it("recovers the actual committed Option graph after its acknowledgement is lost", async () => {
     const product_id = first(await connected.seedProducts("option-uncertain")), fixture = connected.fixture;
-    let lose = true, hooks = 0, committedAtAck: Awaited<ReturnType<typeof snapshot>> | undefined;
-    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
-      Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-      Effect.flatMap(value => {
-        if (!lose) return Effect.succeed(value); lose = false;
-        return Effect.tryPromise({ try: snapshot, catch: cause => new RelationalSessionError({ reason: "resourceFailure", cause }) }).pipe(
-          Effect.flatMap(observed => { committedAtAck = observed;
-            return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost native Option COMMIT acknowledgement") }));
-          }));
-      }),
-    ));
+    let hooks = 0;
+    const fault = fixture.loseNextNativeRootAcknowledgement();
     const host = await connected.prepareCreate({ productOptionsCreated: () => { hooks++; } },
-      { ...connected.execution, prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, session, ...composition }) });
+      connected.execution);
     const native = vi.spyOn(ProductModuleService.prototype, "createProductOptions"), key = host.newRequestKey();
     const input = { product_options: [{ title: "Acknowledged", product_id, values: ["one"] }] }, before = await snapshot();
     const result = await Effect.runPromise(host.run(key, input));
-    if (committedAtAck === undefined) throw new Error("The actual Option COMMIT did not reach ACK-loss boundary");
-    expect(lose).toBe(false); expect(committedAtAck.commits).toHaveLength(before.commits.length + 1);
+    if (fault.evidence === undefined) throw new Error("The actual durable native root did not reach ACK loss");
+      expect(fault.evidence.inventory).toEqual(await fixture.inventory());
+      const committedAtAck = await snapshot();
+    expect(fault.armed).toBe(false); expect(fault.failures).toBe(1); expect(committedAtAck.outcomes).toHaveLength(before.outcomes.length + 1);
     expect(result).toMatchObject([{ title: "Acknowledged", product_id, values: [{ value: "one" }] }]);
     expect(await Effect.runPromise(host.run(key, input))).toEqual(result); expect(hooks).toBe(1); expect(native).toHaveBeenCalledTimes(1);
     expect(await snapshot()).toEqual(committedAtAck);
@@ -458,9 +429,8 @@ describe("native Product Option workflows on shared logical storage", () => {
   }, 120_000);
 
   it("confines matching Option/Product identities and request keys to each shop", async () => {
-    const fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close), { resource: connected.fixture.resource, includeProduct: true,
-      fixtureIdentity: { deploymentId: "deployment_option_workflow_shop_b", projectId: "project_option_workflow_shop_b", uuidOffset: 110_000 } });
-    const other = await prepareLogicalProductOption(driver, close => cleanup.push(close), fixture);
+    const fixture = await createCoreProductWorkflowFixture(driver, close => cleanup.push(close), { physical: connected.fixture.physical });
+    const other = await prepareCoreProductOption(driver, close => cleanup.push(close), fixture);
     const product_id = first(await connected.seedProducts("option-scope")); expect(await other.seedProducts("option-scope")).toEqual([product_id]);
     const create = await connected.prepareCreate(), otherCreate = await other.prepareCreate(), key = create.newRequestKey();
     const input = { product_options: [{ id: "option-shared", title: "Shared", product_id, values: ["one"] }] };
@@ -499,7 +469,7 @@ describe("native Product Option workflows on shared logical storage", () => {
       if (winner === undefined || winner._tag !== "Success") throw new Error("Missing successful Option root");
       expect(readRows(await Effect.runPromise(connected.listOptions([option.id])))).toEqual(winner.value);
       const after = await snapshot(), emitted = after.events.slice(before.events.length);
-      expect(after.commits).toHaveLength(before.commits.length + 1); expect(emitted).toHaveLength(2);
+      expect(after.outcomes).toHaveLength(before.outcomes.length + 1); expect(emitted).toHaveLength(2);
       expect(after.deliveries).toHaveLength(before.deliveries.length + 2);
     } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); }
   }, 180_000);

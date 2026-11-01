@@ -1,7 +1,6 @@
+import { createCoreProductWorkflowFixture, type CoreProductWorkflowFixture } from "./core-product-workflow-fixture";
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
 import { defineCommerceCommand, type CommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
@@ -9,16 +8,14 @@ import { commerceError, defaultCommerceResources, isJsonObject, type CommerceTra
 import { prepareImageVariantsWorkflow } from "../../src/workflows/product/variant-images";
 import type { ProductWorkflowModule } from "../../src/modules/product/workflow";
 import type { AtomicWorkflowExecution } from "../../src/workflow/host";
-import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./logical-currency-fixture";
-import { prepareLogicalProductHost } from "./logical-product-fixture";
 
 type ImageWorkflowOptions = Parameters<typeof prepareImageVariantsWorkflow>[0];
 interface SeedInput { readonly parents?: number; readonly siblings?: number; readonly options?: number; readonly values?: number; readonly imageUrl?: string | null }
 interface SeedGraph { readonly productIds: string[]; readonly imageId: string; readonly variantIds: string[]; readonly optionIds: string[] }
 type ReadRows = Effect.Effect<Json, CommerceTransactionError>;
-export interface LogicalImageVariantsFixture {
-  readonly fixture: LogicalCurrencyFixture;
-  readonly product: Awaited<ReturnType<typeof prepareLogicalProductHost>>;
+export interface CoreImageVariantsFixture {
+  readonly fixture: CoreProductWorkflowFixture["fixture"];
+  readonly product: CoreProductWorkflowFixture["product"];
   readonly execution: AtomicWorkflowExecution;
   readonly options: ImageWorkflowOptions;
   readonly prepare: (execution?: AtomicWorkflowExecution, revision?: string, module?: ProductWorkflowModule) =>
@@ -38,24 +35,20 @@ export interface LogicalImageVariantsFixture {
 
 /** Native commands prepare and clean the graph; explicit persisted-state
  * arrangements use core lifecycle and scoped pivot writes. */
-export async function prepareLogicalImageVariants(driver: "pglite" | "postgres", registerCleanup: (close: () => Promise<void>) => void,
-  selectedFixture?: LogicalCurrencyFixture): Promise<LogicalImageVariantsFixture> {
-  const fixture = selectedFixture ?? await logicalCurrencyFixture(driver, registerCleanup, { includeProduct: true });
-  const product = await prepareLogicalProductHost(fixture);
-  registerCleanup(() => Effect.runPromise(product.host.close));
-  await Effect.runPromise(product.host.initialize([]));
+export async function prepareCoreImageVariants(driver: "pglite" | "postgres", registerCleanup: (close: () => Promise<void>) => void,
+  selectedFixture?: CoreProductWorkflowFixture): Promise<CoreImageVariantsFixture> {
+  const base = selectedFixture ?? await createCoreProductWorkflowFixture(driver, registerCleanup);
+  const { fixture, product, execution } = base;
   const { metadata, logicalPolicy } = product.runtime;
   const assignments = defineCommerceCommand("imageVariantsAssignmentObservation", "read", Effect.fn(function* (ctx) {
     return yield* (yield* ctx.table(metadata.assignment.table.name)).find(ctx.manager,
       { take: 256, order: { column: "id", direction: "asc" } });
   }));
-  const reads = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
-    commands: [assignments, product.runtime.commands.listVariants, product.runtime.commands.listOptions, product.runtime.commands.internalProductList] }));
+  const reads = await fixture.run(fixture.openReadHost("product",
+    [assignments, product.runtime.commands.listVariants, product.runtime.commands.listOptions, product.runtime.commands.internalProductList]));
   registerCleanup(() => Effect.runPromise(reads.close));
-  const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-    prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, ...composition }) };
   const options: ImageWorkflowOptions = { execution,
-    modules: { product: { module: product.runtime.productImageVariantWorkflow, logicalStorage: product.hostInput.logicalStorage } },
+    modules: { product: { module: product.runtime.productImageVariantWorkflow, nativeStorage: product.source } },
     revision: createHash("sha256").update("native-image-variant-workflow-108").digest("hex"),
     subscribers: [{ id: "native-image-variants", revision: "b".repeat(64) }] };
   const prepare = async (selectedExecution = execution, revision = options.revision,
@@ -78,10 +71,10 @@ export async function prepareLogicalImageVariants(driver: "pglite" | "postgres",
     // without changing any production workflow profile or its limits.
     const resources = { ...defaultCommerceResources, calls: 1024, eventMessages: 256 };
     const root = defineAtomicCommerceCommand("nativeImageVariantFixtureCommand", (ctx, value) => ctx.call(participant, command, value));
-    const host = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
+    const host = await Effect.runPromise(execution.prepare({
       requestCallLimit: resources.calls, requestEventLimit: resources.eventMessages,
       identityAndAccessPolicy: { profile: "native-image-variant-fixture" },
-      participants: [{ participant, logicalStorage: product.hostInput.logicalStorage, logicalResources: resources, commands: [command],
+      participants: [{ participant, nativeStorage: product.source, logicalResources: resources, commands: [command],
         validateLogicalCall: logicalPolicy.validateLogicalCall, events: { contracts, select: event => {
           const token = isJsonObject(event) && typeof event.name === "string" ? selected.find(value => value.name === event.name)?.contract : undefined;
           return token === undefined ? Effect.fail(commerceError("unadmittedEvent")) : Effect.succeed(token);
@@ -140,8 +133,9 @@ export async function prepareLogicalImageVariants(driver: "pglite" | "postgres",
     }));
     const participant = defineAtomicCommerceParticipant("image_pivot_arrangement");
     const root = defineAtomicCommerceCommand("imageVariantExtraValuePivotArrangementRoot", ctx => ctx.call(participant, arrange, null));
-    const host = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
-      participants: [{ participant, logicalStorage: product.hostInput.logicalStorage, commands: [arrange] }], commands: [root] }));
+    const host = await Effect.runPromise(execution.prepare({
+      identityAndAccessPolicy: { profile: "image-variant-pivot-arrangement" },
+      participants: [{ participant, nativeStorage: product.source, commands: [arrange] }], commands: [root] }));
     try { await Effect.runPromise(host.run(host.newRequestKey(), root, null)); } finally { await Effect.runPromise(host.close); }
   };
   const arrangeDeleted = async (entity: "image" | "variant", id: string) => {
@@ -150,8 +144,9 @@ export async function prepareLogicalImageVariants(driver: "pglite" | "postgres",
     }));
     const participant = defineAtomicCommerceParticipant("image_arrangement");
     const root = defineAtomicCommerceCommand("imageVariantDeletedArrangementRoot", ctx => ctx.call(participant, arrange, null));
-    const host = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
-      participants: [{ participant, logicalStorage: product.hostInput.logicalStorage, commands: [arrange] }], commands: [root] }));
+    const host = await Effect.runPromise(execution.prepare({
+      identityAndAccessPolicy: { profile: "image-variant-deleted-arrangement" },
+      participants: [{ participant, nativeStorage: product.source, commands: [arrange] }], commands: [root] }));
     try { await Effect.runPromise(host.run(host.newRequestKey(), root, null)); } finally { await Effect.runPromise(host.close); }
   };
   const listAssignments = () => reads.read(assignments, null);

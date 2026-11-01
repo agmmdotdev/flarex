@@ -11,10 +11,12 @@ import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "..
 import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { workflowMethodDefinition } from "../../src/workflow/module";
-import type { AtomicWorkflowExecution } from "../../src/workflow/host";
+import type { AtomicWorkflowExecution, LegacyInstalledWorkflowModules } from "../../src/workflow/host";
 
 type Connected = Awaited<ReturnType<typeof prepareLogicalProductUpdate>>;
-type ProductOptions = Omit<Parameters<typeof prepareProductDeletionWorkflow>[0], "hooks">;
+type ProductOptions = Omit<Parameters<typeof prepareProductDeletionWorkflow>[0], "hooks" | "modules"> & {
+  readonly modules: LegacyInstalledWorkflowModules<Parameters<typeof prepareProductDeletionWorkflow>[0]["modules"]>;
+};
 export interface LogicalProductDeletionFixture extends Omit<Connected, "modules" | "link" | "options"> {
   readonly inventoryDeletion: Effect.Success<ReturnType<typeof makeLocalInventoryCommands>>;
   readonly productDeletionLinks: Effect.Success<ReturnType<typeof prepareLocalProductLinks>>;

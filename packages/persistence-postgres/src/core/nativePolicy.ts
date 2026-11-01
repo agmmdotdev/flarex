@@ -35,11 +35,12 @@ import { CoreNativeIdentitySchema, CoreNativeUniqueConstraintSchema as Unique, t
   coreNativeConstraintEligibility } from "./nativePolicyTypes";
 import type { CoreNativePrivateReferenceRole, CoreNativePrivateEventRole } from "./nativePolicyTypes";
 export { CoreNativeIdentitySchema, CoreNativeTablePolicySchema, coreNativeConstraintFields,
-  coreNativeConstraintNullsDistinct, coreNativeConstraintEligibility, coreNativeConstraintAccessFields } from "./nativePolicyTypes";
+  coreNativeConstraintNullsDistinct, coreNativeConstraintEligibility, coreNativeConstraintAccessFields,
+  coreNativeEligibilityTerms, coreNativeEligibilityMatches } from "./nativePolicyTypes";
 export type { CoreNativeIdentity, CoreNativeTablePolicy, CoreNativeReference, CoreNativeReferenceProjection,
   CoreNativePrivateReferenceRole, CoreNativePrivateEventRole, CoreNativeForeignKey, CoreNativeRowKey,
-  CoreNativeProtectedReference } from "./nativePolicyTypes";
-import type { CoreNativeForeignKey, CoreNativeRowKey, CoreNativeProtectedReference } from "./nativePolicyTypes";
+  CoreNativeProtectedReference, CoreNativeEligibility } from "./nativePolicyTypes";
+import type { CoreNativeForeignKey, CoreNativeRowKey, CoreNativeProtectedReference, CoreNativeEligibility } from "./nativePolicyTypes";
 export interface CoreNativeTableDeclaration {
   readonly name: string;
   readonly localName?: string;
@@ -78,7 +79,7 @@ export interface CoreNativeRelationalIndex {
   readonly kind: "key" | "index";
   readonly indexName: string;
   readonly fields: readonly string[];
-  readonly requiredPrefix?: Readonly<{ field: string; value: null }>;
+  readonly requiredPrefix?: CoreNativeEligibility;
 }
 export interface CoreNativeRelationalRowPolicy {
   readonly table: RelationalTableDefinition;
@@ -344,7 +345,7 @@ export const makeCoreRelationalNativeDefinition = Effect.fn("CoreNativeDefinitio
       if (diagnostic !== undefined) relationalFailures.set(failure, Object.freeze({ table, diagnostic }));
       return failure;
     };
-    const rows = yield* Effect.fromResult(prepareRelationalRows(table, relational.capabilities, error))
+    const rows = yield* Effect.fromResult(prepareRelationalRows(table, relational.capabilities, error, { realStorage: "portable" }))
       .pipe(Effect.mapError(cause => unsupported("Relational scalar row policy is not supported", cause)));
     policies.set(name, Object.freeze({ table, capabilities: relational.capabilities, rows }));
   }

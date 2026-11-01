@@ -217,6 +217,25 @@ Application, Payload and Medusa execution profiles. The relevant
 be resolved before the affected path is activated. A slice can start within its
 authorized, settled boundaries while unrelated questions remain open.
 
+## Accepted native REAL number contract
+
+For the translated native REAL profile, the owner selected portable IEEE rounding
+and no database conversion calls in [Q12](./OPEN-QUESTIONS.md#q12---portable-real-rounding-or-exact-native-provider-parsing).
+Interpret the captured number's decimal string, round exactly to binary32 with
+ties-even, then emit PostgreSQL's strict-interior shortest decimal value through
+the shared native value owner. This is distinct from rounding the already captured
+binary64 with `Math.fround`, and from delegating to a platform `strtof`.
+
+The choice deliberately gives deterministic Core values across PGlite, PostgreSQL
+and runtime hosts. The checked Windows parser's signed exact-midpoint difference
+is preserved as a characterization witness, not copied into a platform branch.
+Immediate native presentation, source ownership, validation phases, exact values
+for other types, final integrity and request outcomes retain their contracts.
+Prove the [REAL extension](./divergences/native-real-values.md) through independent
+formatting oracles and real both-driver storage/reopen/native consumers before
+claiming support. This settles a value contract, not the wider core goal or
+retained-data cutover, and authorizes no reset or arbitrary native type change.
+
 ## Decision record shape
 
 Each focused note must contain:

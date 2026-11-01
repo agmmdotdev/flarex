@@ -12,8 +12,8 @@ import { prepareTaxRuleCreationWorkflow } from "../../src/workflows/tax/create-r
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
-import { prepareLogicalTaxRateCreation } from "./logical-tax-rate-create-fixture";
-import { taxRegion, taxRate, taxRule, taxSeed, type TaxInitialRow } from "./logical-item-tax-lines-fixture";
+import { prepareCoreTaxRateCreation } from "./core-tax-rate-create-fixture";
+import { taxRegion, taxRate, taxRule, taxSeed, type TaxInitialRow } from "./core-item-tax-lines-fixture";
 
 const native = Result.getOrThrow(createTaxRegionsWorkflow.prepare());
 const node = native.nodes.find(value => value.name === "create-tax-regions");
@@ -46,9 +46,9 @@ export function maximumTaxRegionCreationInput(): TaxRegionCreationInput {
 /** Reuse the existing four-model initialization, complete inventory, canonical
  * cold reads and independent Tax Lines host. Every creation/inverse probe below
  * invokes the genuine Region root or its retained native step callbacks. */
-export async function prepareLogicalTaxRegionCreation(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  rows: readonly TaxInitialRow[] = taxRegionCreationRows(), shared?: Parameters<typeof prepareLogicalTaxRateCreation>[3]) {
-  const base = await prepareLogicalTaxRateCreation(driver, close, rows, shared);
+export async function prepareCoreTaxRegionCreation(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
+  rows: readonly TaxInitialRow[] = taxRegionCreationRows(), shared?: Parameters<typeof prepareCoreTaxRateCreation>[3]) {
+  const base = await prepareCoreTaxRateCreation(driver, close, rows, shared);
   const lateFailure = new Error("Late parent failure after genuine native Tax Region creation");
   const errors: Array<readonly [string | Error, Error | undefined]> = [];
   const logger: Logger = { panic() {}, shouldLog: () => false, setLogLevel() {}, unsetLogLevel() {}, activity: message => message,

@@ -599,6 +599,18 @@ Selected unused helpers are removed. Named Legacy finite/journal, workflow,
 mixed/performance and durable-data consumers retain explicit migration/removal
 gates; the complete rewrite and paused performance acceptance remain open.
 
+The [ordinary atomic workflow and Tax continuation](./slices/17-native-atomic-workflows-and-tax.md)
+has completed independent challenge and peer exchange. It replaces the remaining
+SQL/session-held ordinary workflow execution through the existing portable
+compiler seam and one Core root/lifetime/outcome. Complete admitted Product-only
+and Product/Currency workflows precede the full Tax source/eight workflow-family
+proof, including shared REAL, compound eligibility and native flush checkpoints.
+Native hooks are not replayed, ordinary failed roots add no inverse callbacks,
+and explicit retained inverses remain fresh roots. The selected replacement,
+complete admitted consumer proof in both database lanes and displaced fixture
+cleanup are complete. Durable Task, finite borrowed, later-source graphs,
+retained data and actual Native17 managed hosting remain named gates.
+
 The [optional-one native continuation](./slices/14-native-reference-integrity.md)
 implements complete direct Payload relations/population/preferences and the genuine
 joint native consumer after independent peer challenge. Its scope includes the

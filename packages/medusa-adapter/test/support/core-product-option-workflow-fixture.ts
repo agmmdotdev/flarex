@@ -1,7 +1,6 @@
+import { createCoreProductWorkflowFixture, type CoreProductWorkflowFixture } from "./core-product-workflow-fixture";
 import { createHash } from "node:crypto";
 import { Effect, Result } from "effect";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
 import { defineCommerceCommand, type CommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
@@ -9,29 +8,17 @@ import { commerceError, defaultCommerceResources, isJsonObject, type Json } from
 import { prepareProductOptionDeletionLinkResource } from "../../src/links/product-option-resource";
 import { prepareProductOptionCreationWorkflow, prepareProductOptionUpdateWorkflow, prepareProductOptionDeletionWorkflow,
   type ProductOptionCreationHooks, type ProductOptionUpdateHooks, type ProductOptionDeletionHooks } from "../../src/workflows/product/option-workflows";
-import type { AtomicWorkflowExecution } from "../../src/workflow/host";
-import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./logical-currency-fixture";
-import { prepareLogicalProductHost } from "./logical-product-fixture";
 
 /** Seeds and cleanup call genuine existing native commands. This fixture adds
  * no graph replacement, cascade, mutation or settlement implementation. */
-export async function prepareLogicalProductOption(driver: "pglite" | "postgres", registerCleanup: (close: () => Promise<void>) => void,
-  selectedFixture?: LogicalCurrencyFixture) {
-  const fixture = selectedFixture ?? await logicalCurrencyFixture(driver, registerCleanup, { includeProduct: true });
-  const product = await prepareLogicalProductHost(fixture);
-  registerCleanup(() => Effect.runPromise(product.host.close));
-  await Effect.runPromise(product.host.initialize([]));
-  const reads = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
-    commands: [...product.hostInput.commands, product.runtime.commands.listOptions, product.runtime.commands.retrieveOption,
-      product.runtime.commands.listVariants] }));
-  registerCleanup(() => Effect.runPromise(reads.close));
-  const execution: AtomicWorkflowExecution = {
-    identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-    prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, ...composition }),
-  };
+export async function prepareCoreProductOption(driver: "pglite" | "postgres", registerCleanup: (close: () => Promise<void>) => void,
+  selectedFixture?: CoreProductWorkflowFixture) {
+  const base = selectedFixture ?? await createCoreProductWorkflowFixture(driver, registerCleanup);
+  const { fixture, product, execution } = base;
+  const reads = product.reads;
   const link = Result.getOrThrow(prepareProductOptionDeletionLinkResource());
   const options: Omit<Parameters<typeof prepareProductOptionCreationWorkflow>[0], "hooks"> = { execution,
-    modules: { product: { module: product.runtime.productOptionWorkflow, logicalStorage: product.hostInput.logicalStorage } },
+    modules: { product: { module: product.runtime.productOptionWorkflow, nativeStorage: product.source } },
     revision: createHash("sha256").update("native-product-option-workflows-107").digest("hex"),
     subscribers: [{ id: "native-product-options", revision: "b".repeat(64) }] };
   const prepareCreate = async (hooks: ProductOptionCreationHooks = {}, selectedExecution = execution, revision = options.revision) => {
@@ -48,7 +35,7 @@ export async function prepareLogicalProductOption(driver: "pglite" | "postgres",
   };
   const listOptions = (ids?: readonly string[], withDeleted = false) => reads.read(product.runtime.commands.listOptions,
     { filters: ids === undefined ? {} : { id: [...ids] }, config: { take: 256, relations: ["values"], ...(withDeleted ? { withDeleted: true } : {}) } });
-  const listProducts = (ids: readonly string[]) => product.host.read(product.runtime.commands.internalProductList, { filters: { id: [...ids] } });
+  const listProducts = (ids: readonly string[]) => product.reads.read(product.runtime.commands.internalProductList, { filters: { id: [...ids] } });
   const listVariants = (productId: string) => reads.read(product.runtime.commands.listVariants,
     { filters: { product_id: productId }, config: { take: 256, relations: ["options"] } });
 
@@ -67,10 +54,10 @@ export async function prepareLogicalProductOption(driver: "pglite" | "postgres",
     const contracts = selected.map(value => value.contract);
     const resources = { ...defaultCommerceResources, calls: 512, eventMessages: 128 };
     const root = defineAtomicCommerceCommand("nativeOptionFixtureCommand", (ctx, value) => ctx.call(participant, command, value));
-    const host = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
+    const host = await Effect.runPromise(execution.prepare({
       requestCallLimit: resources.calls, requestEventLimit: resources.eventMessages,
       identityAndAccessPolicy: { profile: "native-option-fixture" },
-      participants: [{ participant, logicalStorage: product.hostInput.logicalStorage, logicalResources: resources, commands: [command],
+      participants: [{ participant, nativeStorage: product.source, logicalResources: resources, commands: [command],
         validateLogicalCall: logicalPolicy.validateLogicalCall, events: { contracts, select: event => {
           const token = isJsonObject(event) && typeof event.name === "string" ? selected.find(value => value.name === event.name)?.contract : undefined;
           return token === undefined ? Effect.fail(commerceError("unadmittedEvent")) : Effect.succeed(token);
@@ -115,8 +102,8 @@ export async function prepareLogicalProductOption(driver: "pglite" | "postgres",
     }));
     const participant = defineAtomicCommerceParticipant("option_arrangement");
     const root = defineAtomicCommerceCommand("optionDeletedValueArrangementRoot", ctx => ctx.call(participant, arrange, null));
-    const host = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput, participants: [{ participant,
-      logicalStorage: product.hostInput.logicalStorage, commands: [arrange] }], commands: [root] }));
+    const host = await Effect.runPromise(execution.prepare({ identityAndAccessPolicy: { profile: "option-deleted-value-arrangement" }, participants: [{ participant,
+      nativeStorage: product.source, commands: [arrange] }], commands: [root] }));
     try { await Effect.runPromise(host.run(host.newRequestKey(), root, null)); } finally { await Effect.runPromise(host.close); }
   };
   const cleanupProducts = async () => {

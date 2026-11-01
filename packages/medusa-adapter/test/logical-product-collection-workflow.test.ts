@@ -1,3 +1,4 @@
+import { expectWorkflowDefect } from "./support/workflow-failure-assertions";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { isDeepStrictEqual } from "node:util";
 import { Cause, Deferred, Effect, Fiber, Schema } from "effect";
@@ -6,26 +7,19 @@ import { Link } from "@medusajs/modules-sdk/link";
 import { ExecutionDiagnostics, type ExecutionDiagnosticPolicy } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { productCollectionResources, productCollectionUpdateResources } from "../src/workflow/policy";
 import { prepareProductCollectionCreationWorkflow, prepareProductCollectionDeletionWorkflow } from "../src/workflows/product/collection-workflows";
-import { fxAppRowCurrent, fxSystemCommits } from "../../persistence-postgres/src/database/schema";
-import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commit/events/schema";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
-import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
-import { prepareLogicalProductCollection } from "./support/logical-product-collection-fixture";
+import { createCoreProductWorkflowFixture } from "./support/core-product-workflow-fixture";
+import { prepareCoreProductCollection } from "./support/core-product-collection-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalProductCollection>>;
+let connected: Awaited<ReturnType<typeof prepareCoreProductCollection>>;
 let fixtureCleanupCount = 0;
-const rows = () => connected.fixture.persistence.drizzle.select().from(fxAppRowCurrent)
-  .orderBy(fxAppRowCurrent.scopeUuid, fxAppRowCurrent.tableId, fxAppRowCurrent.rowId);
-const events = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents)
-  .orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal);
-const commits = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommits).orderBy(fxSystemCommits.commitSeq);
-const deliveries = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommitEventDeliveries)
-  .orderBy(fxSystemCommitEventDeliveries.commitSeq, fxSystemCommitEventDeliveries.eventOrdinal, fxSystemCommitEventDeliveries.subscriberId);
-const snapshot = async () => ({ rows: await rows(), events: await events(), commits: await commits(), deliveries: await deliveries() });
+const snapshot = () => connected.fixture.snapshot();
+const rows = async () => (await snapshot()).rows;
+const revisions = async () => (await snapshot()).revisions;
+const events = async () => (await snapshot()).events;
+const committedRoots = async () => (await snapshot()).outcomes;
+const deliveries = async () => (await snapshot()).deliveries;
 const first = <Value>(values: readonly Value[]): Value => {
   const value = values[0]; if (value === undefined) throw new Error("Expected a native Collection result"); return value;
 };
@@ -76,7 +70,7 @@ async function remove(ids: readonly string[]) {
 
 describe("native Product Collection workflows on shared logical storage", () => {
   beforeAll(async () => {
-    connected = await prepareLogicalProductCollection(driver, close => cleanup.push(close));
+    connected = await prepareCoreProductCollection(driver, close => cleanup.push(close));
     fixtureCleanupCount = cleanup.length;
   }, 180_000);
   afterEach(async () => {
@@ -130,7 +124,7 @@ describe("native Product Collection workflows on shared logical storage", () => 
       expect(emitted.filter(event => event.envelope.contract === connected.product.runtime.metadata.product.updatedEvent).map(event => event.envelope.message))
         .toEqual(expect.arrayContaining(products.map(id => expect.objectContaining({ data: { id } }))));
       expect(emitted.filter(event => event.envelope.contract === connected.product.runtime.metadata.collection.createdEvent)).toHaveLength(4);
-      expect((await commits()).length - before.commits.length).toBe(1);
+      expect((await committedRoots()).length - before.outcomes.length).toBe(1);
       expect(count.calls).toBeGreaterThan(0); expect(count.calls).toBeLessThanOrEqual(productCollectionResources.calls);
       expect(emitted.length).toBeLessThanOrEqual(productCollectionResources.eventMessages);
       console.info("Collection four-entry creation", { calls: count.calls, events: emitted.length });
@@ -178,7 +172,7 @@ describe("native Product Collection workflows on shared logical storage", () => 
         for (const name of [moduleName, "product-collection.updated"])
           expect(emitted.filter(event => event.envelope.contract === name).map(event => event.envelope.message))
             .toEqual(expected.map(id => expect.objectContaining({ data: { id } })));
-        expect((await commits()).length - before.commits.length).toBe(1);
+        expect((await committedRoots()).length - before.outcomes.length).toBe(1);
         const committed = await snapshot();
         expect(await Effect.runPromise(update.run(key, input))).toEqual(result);
         expect(preimages).toEqual([expected]); expect(nativeResults).toEqual([expected]); expect(hooks).toEqual([expected]);
@@ -328,7 +322,7 @@ describe("native Product Collection workflows on shared logical storage", () => 
       .toEqual(result.map(collection => expect.objectContaining({ data: { id: collection.id } })));
     expect(emitted.filter(event => event.envelope.contract === connected.product.runtime.metadata.product.updatedEvent).map(event => event.envelope.message))
       .toEqual(expect.arrayContaining([...prior, ...desired].map(id => expect.objectContaining({ data: { id } }))));
-    expect((await commits()).length - before.commits.length).toBe(1);
+    expect((await committedRoots()).length - before.outcomes.length).toBe(1);
     expect(count.calls).toBeGreaterThan(0); expect(count.calls).toBeLessThanOrEqual(productCollectionUpdateResources.calls);
     console.info("Collection four-root membership maximum", { calls: count.calls, events: emitted.length, prior: prior.length, desired: desired.length });
     await remove(collections.map(collection => collection.id));
@@ -378,7 +372,7 @@ describe("native Product Collection workflows on shared logical storage", () => 
         .toEqual(expect.arrayContaining([collection.id, other.id].map(id => expect.objectContaining({ data: { id } }))));
       expect(emitted.filter(event => event.envelope.contract === "product-collection.deleted").map(event => event.envelope.message))
         .toEqual(requested.map(id => expect.objectContaining({ data: { id } })));
-      expect((await commits()).length - before.commits.length).toBe(1);
+      expect((await committedRoots()).length - before.outcomes.length).toBe(1);
       const plainDelete = await connected.prepareDelete(), repeatedEvents = await events();
       expect(await Effect.runPromise(plainDelete.run(plainDelete.newRequestKey(), { ids: requested }))).toBeNull();
       expect((await events()).slice(repeatedEvents.length).map(event => event.envelope.contract)).toEqual(requested.map(() => "product-collection.deleted"));
@@ -419,31 +413,36 @@ describe("native Product Collection workflows on shared logical storage", () => 
 
   it("rolls back each native mutation and already captured workflow events when a hook fails", async () => {
     let escaped: (() => Promise<unknown>) | undefined;
+    const createFailure = new Error("Collection create hook rejected after captured workflow event"),
+      updateFailure = new Error("Collection update hook rejected after captured workflow event"),
+      deleteFailure = new Error("Collection delete hook rejected after captured workflow event");
     const trace: string[] = [], seed = await connected.prepareCreate();
     const collection = first(await Effect.runPromise(seed.run(seed.newRequestKey(), { collections: [{ title: "Collection hook seed" }] })));
     const create = await connected.prepareCreate({ collectionsCreated: async (input, context) => {
       expect(input.collections).toHaveLength(1); expect(trace).toEqual(["product-collection.created"]); trace.push("hook");
       escaped = () => context.resources.product.createProductCollections([{ title: "Escaped Collection" }]);
-      throw new Error("Collection create hook rejected after captured workflow event");
+      throw createFailure;
     } });
     const update = await connected.prepareUpdate({ collectionsUpdated: input => {
       expect(input.collections).toMatchObject([{ id: collection.id, title: "Collection hook changed" }]);
       expect(trace).toEqual(["product-collection.updated"]); trace.push("hook");
-      throw new Error("Collection update hook rejected after captured workflow event");
+      throw updateFailure;
     } });
     const deletion = await connected.prepareDelete({ collectionsDeleted: async (input, context) => {
       expect(input.ids).toEqual([collection.id]); expect(trace).toEqual(["product-collection.deleted"]); trace.push("hook");
       expect(await context.resources.query.graph({ entity: "product_collection", fields: ["id"],
         filters: { id: [collection.id] }, pagination: { take: 1 } })).toMatchObject({ data: [] });
-      throw new Error("Collection delete hook rejected after captured workflow event");
+      throw deleteFailure;
     } });
-    for (const work of [create.run(create.newRequestKey(), { collections: [{ title: "Collection hook created" }] }).pipe(Effect.asVoid),
-      update.run(update.newRequestKey(), { selector: { id: collection.id }, update: { title: "Collection hook changed" } }).pipe(Effect.asVoid),
-      deletion.run(deletion.newRequestKey(), { ids: [collection.id] }).pipe(Effect.asVoid)]) {
+    for (const [work, original, event] of [
+      [create.run(create.newRequestKey(), { collections: [{ title: "Collection hook created" }] }).pipe(Effect.asVoid), createFailure, "product-collection.created"],
+      [update.run(update.newRequestKey(), { selector: { id: collection.id }, update: { title: "Collection hook changed" } }).pipe(Effect.asVoid), updateFailure, "product-collection.updated"],
+      [deletion.run(deletion.newRequestKey(), { ids: [collection.id] }).pipe(Effect.asVoid), deleteFailure, "product-collection.deleted"],
+    ] as const) {
       trace.length = 0; const before = await snapshot();
-      const result = await Effect.runPromise(Effect.result(work.pipe(Effect.provideService(ExecutionDiagnostics, observe(trace)))));
-      expect(result._tag).toBe("Failure"); if (result._tag === "Failure") expect(failurePath(result.failure)).toContain("adapterFailure");
-      expect(trace[trace.length - 1]).toBe("hook"); expect(await snapshot()).toEqual(before);
+      const exit = await Effect.runPromiseExit(work.pipe(Effect.provideService(ExecutionDiagnostics, observe(trace))));
+      expect(trace).toEqual([event, "hook"]); expect(await snapshot()).toEqual(before);
+      expectWorkflowDefect(exit, original);
     }
     if (escaped === undefined) throw new Error("The actual Collection creation hook was not reached");
     const beforeLate = await snapshot();
@@ -485,27 +484,19 @@ describe("native Product Collection workflows on shared logical storage", () => 
 
   it("recovers complete Collection DTOs after the real committed transaction loses its acknowledgement", async () => {
     const fixture = connected.fixture;
-    let lose = true, failures = 0, hooks = 0, committedAtAck: Awaited<ReturnType<typeof snapshot>> | undefined, hookOutput: unknown;
-    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
-      Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-      Effect.flatMap(value => {
-        if (!lose) return Effect.succeed(value); lose = false;
-        return Effect.tryPromise({ try: snapshot, catch: cause => new RelationalSessionError({ reason: "resourceFailure", cause }) })
-          .pipe(Effect.flatMap(observed => {
-            committedAtAck = observed; failures++;
-            return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost native Collection COMMIT acknowledgement") }));
-          }));
-      }),
-    ));
+    let hooks = 0, hookOutput: unknown;
+    const fault = fixture.loseNextNativeRootAcknowledgement();
     const host = await connected.prepareCreate({ collectionsCreated: input => { hooks++; hookOutput = structuredClone(input.collections); } },
-      { ...connected.execution, prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, session, ...composition }) });
+      connected.execution);
     const native = vi.spyOn(ProductModuleService.prototype, "createProductCollections");
     try {
       const key = host.newRequestKey(), input = { collections: [{ title: "Collection uncertain ack", metadata: { nested: { retained: true } } }] }, before = await snapshot();
       const result = await Effect.runPromise(host.run(key, input));
-      expect(lose).toBe(false); expect(failures).toBe(1);
-      if (committedAtAck === undefined) throw new Error("Actual Collection COMMIT was not observed before ACK loss");
-      expect(committedAtAck.commits.length - before.commits.length).toBe(1); expect(committedAtAck.rows.length - before.rows.length).toBe(1);
+      expect(fault.armed).toBe(false); expect(fault.failures).toBe(1);
+      if (fault.evidence === undefined) throw new Error("The actual durable native root did not reach ACK loss");
+      expect(fault.evidence.inventory).toEqual(await fixture.inventory());
+      const committedAtAck = await snapshot();
+      expect(committedAtAck.outcomes.length - before.outcomes.length).toBe(1); expect(committedAtAck.rows.length - before.rows.length).toBe(1);
       const emitted = committedAtAck.events.slice(before.events.length);
       expect(emitted.map(event => event.envelope.contract)).toEqual([connected.product.runtime.metadata.collection.createdEvent, "product-collection.created"]);
       expect(committedAtAck.deliveries.length - before.deliveries.length).toBe(2);
@@ -564,9 +555,8 @@ describe("native Product Collection workflows on shared logical storage", () => 
   }, 120_000);
 
   it("confines matching Collection and Product identities, membership and request keys to each shop", async () => {
-    const fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close), { resource: connected.fixture.resource, includeProduct: true,
-      fixtureIdentity: { deploymentId: "deployment_collection_workflow_shop_b", projectId: "project_collection_workflow_shop_b", uuidOffset: 90_000 } });
-    const other = await prepareLogicalProductCollection(driver, close => cleanup.push(close), fixture);
+    const fixture = await createCoreProductWorkflowFixture(driver, close => cleanup.push(close), { physical: connected.fixture.physical });
+    const other = await prepareCoreProductCollection(driver, close => cleanup.push(close), fixture);
     const create = await connected.prepareCreate(), otherCreate = await other.prepareCreate(), key = create.newRequestKey();
     const input = { collections: [{ id: "pcol-workflow-shared", title: "Collection shared" }] };
     const left = first(await Effect.runPromise(create.run(key, input))), right = first(await Effect.runPromise(otherCreate.run(key, input)));
@@ -627,15 +617,15 @@ describe("native Product Collection workflows on shared logical storage", () => 
         expect(storedCollections).toHaveLength(collections.length);
         expect(storedCollections).toEqual(expect.arrayContaining(winner.value.map(collection =>
           expect.objectContaining({ id: collection.id, title: collection.title, handle: collection.handle }))));
-        const after = await snapshot(), emitted = after.events.slice(before.events.length), committed = after.commits.slice(before.commits.length);
+        const after = await snapshot(), emitted = after.events.slice(before.events.length), committed = after.outcomes.slice(before.outcomes.length);
         expect(committed).toHaveLength(1); expect(emitted).toHaveLength(mode === "scalar" ? 2 : 28);
         expect(emitted.filter(event => event.envelope.contract === "product-collection.updated").map(event => event.envelope.message))
           .toEqual(winner.value.map(collection => expect.objectContaining({ data: { id: collection.id } })));
-        expect(emitted.every(event => event.commitSeq === first(committed).commitSeq)).toBe(true);
+        expect(emitted.every(event => event.timestamp === first(committed).timestamp)).toBe(true);
         const published = after.deliveries.slice(before.deliveries.length);
         expect(published).toHaveLength(emitted.length);
-        expect(published.map(delivery => ({ commitSeq: delivery.commitSeq, eventOrdinal: delivery.eventOrdinal, state: delivery.state })))
-          .toEqual(emitted.map(event => ({ commitSeq: event.commitSeq, eventOrdinal: event.eventOrdinal, state: "pending" })));
+        expect(published.map(delivery => ({ familyId: delivery.value.family_id, ordinal: delivery.value.ordinal, state: delivery.value.state })))
+          .toEqual(emitted.map(event => ({ familyId: event.familyId, ordinal: event.ordinal, state: "pending" })));
         if (mode === "membership") {
           const desired = first(winner.value).title === "Collection competing left membership" ? leftProducts : rightProducts;
           const losing = desired === leftProducts ? rightProducts : leftProducts;
@@ -644,7 +634,7 @@ describe("native Product Collection workflows on shared logical storage", () => 
         }
         expect(after.rows).toHaveLength(before.rows.length);
         const compared = after.rows.map(row => ({ row, previous: before.rows.find(previous =>
-          previous.scopeUuid === row.scopeUuid && previous.tableId === row.tableId && isDeepStrictEqual(previous.rowId, row.rowId)) }));
+          previous.table === row.table && previous.value._id === row.value._id) }));
         expect(compared.filter(value => value.previous !== undefined)).toHaveLength(before.rows.length);
         expect(compared.filter(({ row, previous }) => !isDeepStrictEqual(row, previous))).toHaveLength(mode === "scalar" ? 1 : 24);
         await remove(collections.map(collection => collection.id));

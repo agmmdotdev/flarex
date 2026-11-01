@@ -17,7 +17,7 @@ import type { prepareShippingOptionLinkService } from "../../links/shipping-opti
 import type { prepareShippingOptionCreationLinkResource } from "../../links/shipping-option-price-set-service";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { orderedWorkflowIdEvents } from "../../workflow/events";
-import { prepareAtomicWorkflowHost, captureInstalledWorkflowModules, type AtomicWorkflowExecution,
+import { prepareAtomicWorkflowHost, withoutWorkflowPublication, captureInstalledWorkflowModules, type AtomicWorkflowExecution,
   type InstalledWorkflowModule } from "../../workflow/host";
 import { workflowModuleDefinition, type WorkflowMethod } from "../../workflow/module";
 import { prepareWorkflowResources } from "../../workflow/resources";
@@ -127,7 +127,7 @@ export const prepareShippingOptionCreationWorkflow = Effect.fn("ShippingOption.p
   for (const module of Object.values(installed)) if (module.logicalResources !== undefined && !jsonEqual(module.logicalResources, shippingOptionCreationResources))
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   const modules = Object.fromEntries(Object.entries(installed).map(([name, module]) => {
-    const { logicalPublication: _publication, ...binding } = module;
+    const binding = withoutWorkflowPublication(module);
     return [name, { ...binding, logicalResources: shippingOptionCreationResources }];
   }));
   const referenceDetachment = workflowModuleDefinition(installed.fulfillment.module)?.logical?.detachDeletedReferences === true;

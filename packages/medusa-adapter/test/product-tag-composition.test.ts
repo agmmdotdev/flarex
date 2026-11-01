@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
@@ -14,41 +14,38 @@ import type { ProductRuntimeMetadata } from "../src/modules/product/runtime-meta
 import { productCallReceipts } from "../src/modules/product/events/call-receipts";
 import { CommonEvents, Modules } from "@medusajs/framework/utils/portable";
 import { prepareWorkflowResources } from "../src/workflow/resources";
-import { prepareAtomicWorkflowHost, type AtomicWorkflowHostComposition } from "../src/workflow/host";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { fxAppRowCurrent } from "../../persistence-postgres/src/database/schema";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
+import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution } from "../src/workflow/host";
 import { runEffect, runEffectFailure } from "../../persistence-postgres/test/support/effectTestRuntime";
-import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commit/events/schema";
-import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
+import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant, type AtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
 import { defineCommerceEventContract, type ParticipantEventSelection, type CommerceEventContract } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";
 import { commerceError, type CommerceTransactionError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
-import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
-import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
-import { prepareLogicalProductHost } from "./support/logical-product-fixture";
+import { createCoreProductWorkflowFixture, type CoreProductWorkflowFixture } from "./support/core-product-workflow-fixture";
 
 const cleanup: Array<() => Promise<void>> = [];
+const testHosts = new Set<AtomicCommerceHost["close"]>();
+const closeHost = async (host: Pick<AtomicCommerceHost, "close">) => {
+  await runEffect(host.close);
+  testHosts.delete(host.close);
+};
+
 const driver = process.env.FLAREX_TEST_DRIVER ?? process.env.MEDUSA_COMPARISON_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Medusa comparison driver");
-let fixture: { currency: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
-  product: Awaited<ReturnType<typeof prepareLogicalProductHost>> };
+let fixture: { currency: CoreProductWorkflowFixture;
+  product: CoreProductWorkflowFixture["product"] };
 let policy: typeof fixture.product.runtime.logicalPolicy;
 let catalog: ProductRuntimeMetadata;
 let revision: string;
 const subscribers = [{ id: "composition", revision: "a".repeat(64) }];
-const inventory = async () => ({ logical: await logicalCurrencyInventory(fixture.currency),
-  productRows: await fixture.currency.persistence.drizzle.select().from(fxAppRowCurrent),
-  events: await fixture.currency.persistence.drizzle.select().from(fxSystemCommitEvents).orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal),
-  deliveries: await fixture.currency.persistence.drizzle.select().from(fxSystemCommitEventDeliveries).orderBy(fxSystemCommitEventDeliveries.commitSeq, fxSystemCommitEventDeliveries.eventOrdinal),
-});
-const execution = (session = fixture.currency.session) => ({ identityAndAccessPolicy: fixture.product.hostInput.identityAndAccessPolicy,
-  prepare: (composition: AtomicWorkflowHostComposition) => makeAtomicCommerceHost({ ...fixture.product.hostInput, session, ...composition }),
+const inventory = () => fixture.currency.fixture.snapshot();
+const execution = (): AtomicWorkflowExecution => ({
+  identityAndAccessPolicy: fixture.currency.execution.identityAndAccessPolicy,
+  prepare: composition => fixture.currency.execution.prepare(composition).pipe(
+    Effect.tap(host => Effect.sync(() => { testHosts.add(host.close); }))),
 });
 const modules = () => ({ product: { module: fixture.product.runtime.workflow,
-    logicalStorage: fixture.product.hostInput.logicalStorage },
-  currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: fixture.currency.hostInput.logicalStorage } });
+    nativeStorage: fixture.product.source },
+  currency: { module: Result.getOrThrow(currencyWorkflowModule), nativeStorage: fixture.currency.fixture.source("currency") } });
 const options = (hooks?: ProductTagCompositionHooks) => ({ execution: execution(), modules: modules(), revision, subscribers, ...(hooks === undefined ? {} : { hooks }) });
 const args = (value: string) => ({ value, updated_value: `${value}-updated` });
 const resources = () => Result.getOrThrow(prepareWorkflowResources({
@@ -76,10 +73,9 @@ describe("native composed Product workflows", () => {
       }
     }
     hash.update(await readFile(new URL(import.meta.url))); revision = hash.digest("hex");
-    const currency = await logicalCurrencyFixture(driver, close => cleanup.push(close), { includeProduct: true });
-    const product = await prepareLogicalProductHost(currency);
-    await runEffect(product.host.initialize([]));
-    await runEffect(product.host.close);
+    const currency = await createCoreProductWorkflowFixture(driver, close => cleanup.push(close), { includeCurrency: true });
+    const product = currency.product;
+
     fixture = { currency, product };
     catalog = await runEffect(captureProductSchema("atomic-commerce").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
     policy = fixture.product.runtime.logicalPolicy;
@@ -88,6 +84,11 @@ describe("native composed Product workflows", () => {
     const failures: unknown[] = [];
     for (const close of cleanup.reverse()) await close().catch(cause => { failures.push(cause); });
     if (failures.length > 0) throw new AggregateError(failures, "Logical composition cleanup failed");
+  });
+  afterEach(async () => {
+    const failures: unknown[] = [];
+    for (const close of [...testHosts].reverse()) await closeHost({ close }).catch(cause => { failures.push(cause); });
+    if (failures.length > 0) throw new AggregateError(failures, "Product composition host cleanup failed");
   });
 
   it("requires one authenticated lifecycle observation for each deleted tag", async () => {
@@ -128,19 +129,20 @@ describe("native composed Product workflows", () => {
     const key = host.newRequestKey(); const result = await runEffect(host.run(key, args("composed")));
     expect(result).toMatchObject([{ value: "composed-updated" }]); expect(hooks).toEqual(["created", "updated"]);
     const after = await inventory();
-    expect(after.logical.commits).toHaveLength(before.logical.commits.length + 1);
-    expect(after.logical.outcomes).toHaveLength(before.logical.outcomes.length + 1);
-    expect(after.logical.wakes).toHaveLength(before.logical.wakes.length + 1);
+    expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
+    expect(after.outcomes.at(-1)?.value).toMatchObject({ kind: "nativeRoot", state: "committed", key });
+    expect(after.families).toHaveLength(before.families.length + 1);
     const events = after.events.slice(before.events.length);
     expect(events.map(row => row.envelope.contract)).toEqual(["product.product-tag.created", "product-tag.created", "product.product-tag.updated", "product-tag.updated"]);
-    expect(events.map(row => row.eventOrdinal)).toEqual([0, 1, 2, 3]);
+    expect(events.map(row => row.ordinal)).toEqual([0, 1, 2, 3]);
     expect(events.map(row => row.envelope.internal)).toEqual([true, false, true, false]);
     expect(events.every(row => row.envelope.group === key)).toBe(true);
-    expect(new Set(events.map(row => row.commitSeq)).size).toBe(1);
-    expect(after.logical.commits.at(-1)?.eventCount).toBe(4);
+    expect(new Set(events.map(row => row.timestamp)).size).toBe(1);
+    expect(after.families.at(-1)?.value.event_count).toBe(4);
     expect(after.deliveries).toHaveLength(before.deliveries.length + 4);
-    const facts = after.logical.physicalFacts.slice(before.logical.physicalFacts.length);
-    expect(facts.map(fact => fact.changeOrdinal)).toEqual(facts.map((_, index) => index));
+    const facts = after.revisions.filter(row => !before.revisions.some(previous => previous.table === row.table && previous.id === row.id && previous.timestamp === row.timestamp));
+    expect(facts).toHaveLength(1); expect(facts[0]?.value).toMatchObject({ value: "composed-updated" });
+    expect(facts[0]?.timestamp).toBe(events[0]?.timestamp);
     expect(await runEffect(host.run(key, args("composed")))).toEqual(result);
     expect(hooks).toEqual(["created", "updated"]); expect(await inventory()).toEqual(after);
     const changed = await runEffect(prepareProductTagComposition(options()));
@@ -177,8 +179,8 @@ describe("native composed Product workflows", () => {
     expect(result).toMatchObject([[{ value: "parallel-product" }], [{ code: "usd" }]]);
     expect(entered).toBe(2);
     const after = await inventory();
-    expect(after.logical.commits).toHaveLength(before.logical.commits.length + 1);
-    expect(after.logical.outcomes).toHaveLength(before.logical.outcomes.length + 1);
+    expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
+    expect(after.outcomes.at(-1)?.value).toMatchObject({ kind: "nativeRoot", state: "committed", key });
     expect(after.events.slice(before.events.length).map(row => row.envelope.contract))
       .toEqual(["product.product-tag.created", "product-tag.created"]);
     expect(await runEffect(host.run(key, input))).toEqual(result);
@@ -242,8 +244,10 @@ describe("native composed Product workflows", () => {
     const before = await inventory();
     for (const updated of cases) {
       const host = await runEffect(prepareProductTagComposition(options({ updated })));
-      expect(Exit.isFailure(await runEffect(Effect.exit(host.run(host.newRequestKey(), args("refused-child")))))).toBe(true);
-      expect(await inventory()).toEqual(before);
+      try {
+        expect(Exit.isFailure(await runEffect(Effect.exit(host.run(host.newRequestKey(), args("refused-child")))))).toBe(true);
+        expect(await inventory()).toEqual(before);
+      } finally { await closeHost(host); }
     }
   }, 30_000);
 
@@ -261,8 +265,10 @@ describe("native composed Product workflows", () => {
         }));
         after(undefined); return new WorkflowResponse(created);
       }).prepare()), mode === "output" ? Schema.Null : Schema.Json);
-      expect(Exit.isFailure(await runEffect(Effect.exit(host.run(host.newRequestKey(), { value: `refused-${mode}`, enabled: true }))))).toBe(true);
-      expect(await inventory()).toEqual(before);
+      try {
+        expect(Exit.isFailure(await runEffect(Effect.exit(host.run(host.newRequestKey(), { value: `refused-${mode}`, enabled: true }))))).toBe(true);
+        expect(await inventory()).toEqual(before);
+      } finally { await closeHost(host); }
     }
   }, 30_000);
 
@@ -324,15 +330,12 @@ describe("native composed Product workflows", () => {
   }, 30_000);
 
   it("recovers a lost root acknowledgement without repeating either child", async () => {
-    const called = vi.fn(); let lose = true;
-    const session = issueRelationalSession(fixture.currency.persistence.drizzle, (profile, work) => runRelationalSession(fixture.currency.session, profile, work).pipe(
-      Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-      Effect.flatMap(value => { if (!lose) return Effect.succeed(value); lose = false;
-        return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: "lost composition acknowledgement" })); }),
-    ));
-    const host = await runEffect(prepareProductTagComposition({ ...options({ created: called, updated: called }), execution: execution(session) }));
+    const called = vi.fn(), fault = fixture.currency.fixture.loseNextNativeRootAcknowledgement();
+    const host = await runEffect(prepareProductTagComposition({ ...options({ created: called, updated: called }), execution: execution() }));
     const before = await inventory(); const key = host.newRequestKey();
     const result = await runEffect(host.run(key, args("recovered-composition")));
+    expect(fault.armed).toBe(false); expect(fault.failures).toBe(1);
+    expect(fault.evidence?.inventory).toEqual(await fixture.currency.fixture.inventory());
     expect(result).toMatchObject([{ value: "recovered-composition-updated" }]); expect(called).toHaveBeenCalledTimes(2);
     expect((await inventory()).events).toHaveLength(before.events.length + 4);
     expect(await runEffect(host.run(key, args("recovered-composition")))).toEqual(result); expect(called).toHaveBeenCalledTimes(2);
@@ -345,7 +348,7 @@ describe("native composed Product workflows", () => {
       host.run(key, args("concurrent-composition")), host.run(key, args("concurrent-composition")),
     ], { concurrency: 2 }));
     expect(first).toEqual(second); expect(called).toHaveBeenCalledTimes(2);
-    expect((await inventory()).logical.commits).toHaveLength(before.logical.commits.length + 1);
+    expect((await inventory()).outcomes).toHaveLength(before.outcomes.length + 1);
   }, 30_000);
 
   it("checks event selection in core independently of the adapter", async () => {
@@ -362,32 +365,38 @@ describe("native composed Product workflows", () => {
     const command = defineAtomicCommerceCommand("selectParticipantEvent", ctx => ctx.call(participant, emitted, null).pipe(
       Effect.catch(error => Effect.sync(() => { failures.push(error); return null; })),
     ));
-    const base = { ...fixture.product.hostInput, commands: [command], events: { producerRevision: revision, contracts: [first, second, external], subscribers, validate: () => Effect.void } };
-    const member = { participant, logicalStorage: fixture.product.hostInput.logicalStorage, commands: [emitted], validateLogicalCall: () => Effect.void };
-    const make = (events?: ParticipantEventSelection) => makeAtomicCommerceHost({ ...base, participants: [{ ...member, ...(events === undefined ? {} : { events }) }] });
+    const base = { identityAndAccessPolicy: fixture.currency.execution.identityAndAccessPolicy, commands: [command], events: { producerRevision: revision, contracts: [first, second, external], subscribers, validate: () => Effect.void } };
+    const member = { participant, nativeStorage: fixture.product.source, commands: [emitted], validateLogicalCall: () => Effect.void };
+    const make = (events?: ParticipantEventSelection) => execution().prepare({ ...base, participants: [{ ...member, ...(events === undefined ? {} : { events }) }] });
     for (const contracts of [[forged], [unlisted], [external], [first, first], Array.from({ length: 65 }, () => first)]) {
       expect(await runEffectFailure(make({ contracts, select: () => Effect.succeed(first) }))).toMatchObject({ reason: "invalidAuthority" });
     }
     const before = await inventory();
     for (const selected of [forged, second, external, unlisted]) {
       const host = await runEffect(make({ contracts: [first], select: () => Effect.succeed(selected) }));
-      expect(await runEffectFailure(host.run(host.newRequestKey(), command, null))).toMatchObject({ reason: "rollbackOnly" });
-      expect(failures.at(-1)).toMatchObject({ reason: "unadmittedEvent" });
-      expect(await inventory()).toEqual(before);
+      try {
+        expect(await runEffectFailure(host.run(host.newRequestKey(), command, null))).toMatchObject({ reason: "rollbackOnly" });
+        expect(failures.at(-1)).toMatchObject({ reason: "unadmittedEvent" });
+        expect(await inventory()).toEqual(before);
+      } finally { await closeHost(host); }
     }
     for (const events of [undefined, { contracts: [], select: () => Effect.succeed(first) }]) {
       const host = await runEffect(make(events));
-      expect(await runEffectFailure(host.run(host.newRequestKey(), command, null))).toMatchObject({ reason: "rollbackOnly" });
-      expect(failures.at(-1)).toMatchObject({ reason: "unadmittedEvent" });
+      try {
+        expect(await runEffectFailure(host.run(host.newRequestKey(), command, null))).toMatchObject({ reason: "rollbackOnly" });
+        expect(failures.at(-1)).toMatchObject({ reason: "unadmittedEvent" });
+      } finally { await closeHost(host); }
     }
     const failure = commerceError("receiptMismatch"), defect = new Error("selector defect");
     for (const scenario of [{ select: () => Effect.fail(failure), defect: false }, { select: () => Effect.die(defect), defect: true }]) {
       const host = await runEffect(make({ contracts: [first], select: scenario.select }));
-      const exit = await runEffect(Effect.exit(host.run(host.newRequestKey(), command, null)));
-      expect(Exit.isFailure(exit)).toBe(true);
-      if (Exit.isFailure(exit)) expect(Cause.hasDies(exit.cause)).toBe(scenario.defect);
-      if (!scenario.defect) expect(failures.at(-1)).toBe(failure);
-      expect(await inventory()).toEqual(before);
+      try {
+        const exit = await runEffect(Effect.exit(host.run(host.newRequestKey(), command, null)));
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) expect(Cause.hasDies(exit.cause)).toBe(scenario.defect);
+        if (!scenario.defect) expect(failures.at(-1)).toBe(failure);
+        expect(await inventory()).toEqual(before);
+      } finally { await closeHost(host); }
     }
     const getter = vi.fn(() => "unsafe"), select = vi.fn(() => Effect.succeed(first));
     message = Object.defineProperty({}, "payload", { get: getter, enumerable: true });
@@ -405,8 +414,9 @@ describe("native composed Product workflows", () => {
     expect(await runEffectFailure(changed.run(key, command, null))).toMatchObject({ reason: "requestConflict" });
     const quiet = defineAtomicCommerceCommand("quietParticipant", () => Effect.succeed(null));
     for (const events of [undefined, { contracts: [], select: () => Effect.succeed(first) }]) {
-      const host = await runEffect(makeAtomicCommerceHost({ ...base, commands: [quiet], participants: [{ ...member, ...(events === undefined ? {} : { events }) }] }));
-      expect(await runEffect(host.run(host.newRequestKey(), quiet, null))).toBeNull();
+      const host = await runEffect(execution().prepare({ ...base, commands: [quiet], participants: [{ ...member, ...(events === undefined ? {} : { events }) }] }));
+      try { expect(await runEffect(host.run(host.newRequestKey(), quiet, null))).toBeNull(); }
+      finally { await closeHost(host); }
     }
   }, 30_000);
 
@@ -414,14 +424,14 @@ describe("native composed Product workflows", () => {
     const participant = defineAtomicCommerceParticipant("validationMode");
     const read = defineCommerceCommand("readValidationMode", "read", () => Effect.succeed(null));
     const command = defineAtomicCommerceCommand("validationMode", ctx => ctx.call(participant, read, null));
-    const member = { participant, logicalStorage: fixture.product.hostInput.logicalStorage, commands: [read] };
-    const input = { ...fixture.product.hostInput, commands: [command] };
-    const aggregate = await runEffect(makeAtomicCommerceHost({ ...input,
+    const member = { participant, nativeStorage: fixture.product.source, commands: [read] };
+    const input = { identityAndAccessPolicy: fixture.currency.execution.identityAndAccessPolicy, commands: [command] };
+    const aggregate = await runEffect(execution().prepare({ ...input,
       participants: [{ ...member, validateLogical: () => Effect.void }] }));
-    const perCall = await runEffect(makeAtomicCommerceHost({ ...input,
+    const perCall = await runEffect(execution().prepare({ ...input,
       participants: [{ ...member, validateLogicalCall: () => Effect.void }] }));
     const validations: string[] = [];
-    const dual = await runEffect(makeAtomicCommerceHost({ ...input, participants: [{ ...member,
+    const dual = await runEffect(execution().prepare({ ...input, participants: [{ ...member,
       validateLogicalCall: () => Effect.sync(() => { validations.push("call"); }),
       validateLogical: () => Effect.sync(() => { validations.push("aggregate"); }) }] }));
     try {
@@ -434,6 +444,6 @@ describe("native composed Product workflows", () => {
       expect(validations).toEqual(["call", "aggregate"]);
       for (const single of [aggregate, perCall])
         expect(await runEffectFailure(single.run(dualKey, command, null))).toMatchObject({ reason: "requestConflict" });
-    } finally { await runEffect(dual.close); await runEffect(aggregate.close); await runEffect(perCall.close); }
+    } finally { await closeHost(dual); await closeHost(aggregate); await closeHost(perCall); }
   }, 30_000);
 });

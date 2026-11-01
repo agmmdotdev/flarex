@@ -17,7 +17,7 @@ import type { makeStockLocationCommands } from "../../modules/stock-location/ser
 import type { prepareShippingOptionLinkService } from "../../links/shipping-option-link-service";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { orderedWorkflowIdEvents } from "../../workflow/events";
-import { prepareAtomicWorkflowHost, captureInstalledWorkflowModules, type AtomicWorkflowExecution,
+import { prepareAtomicWorkflowHost, withoutWorkflowPublication, captureInstalledWorkflowModules, type AtomicWorkflowExecution,
   type InstalledWorkflowModule } from "../../workflow/host";
 import { workflowModuleDefinition } from "../../workflow/module";
 import { prepareWorkflowResources } from "../../workflow/resources";
@@ -126,7 +126,7 @@ export const prepareShippingOptionUpdateWorkflow = Effect.fn("ShippingOption.pre
   for (const module of Object.values(installed)) if (module.logicalResources !== undefined && !jsonEqual(module.logicalResources, shippingOptionUpdateResources))
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   const modules = Object.fromEntries(Object.entries(installed).map(([name, module]) => {
-    const { logicalPublication: _publication, ...binding } = module;
+    const binding = withoutWorkflowPublication(module);
     return [name, { ...binding, logicalResources: shippingOptionUpdateResources,
       ...(name === "pricing" ? { logicalPublication: "mixed" as const } : {}) }];
   }));

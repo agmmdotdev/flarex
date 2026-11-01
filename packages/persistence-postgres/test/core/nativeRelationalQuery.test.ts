@@ -62,7 +62,7 @@ describe("native relational plans over Core observations", () => {
       captured.push(where); return Effect.succeed(rows);
     } }, table, policy, query));
     expect(captured).toEqual([{ deleted_at: null }]);
-    expect(result).toEqual({ rows: [{ id: "later" }], count: 2 });
+    expect(result).toEqual({ rows: [{ id: "later" }], count: 2, returned: 1 });
   });
 
   it("keeps native JSON containment and stable insertion order in the shared query owner", async () => {
@@ -73,11 +73,11 @@ describe("native relational plans over Core observations", () => {
       predicate: { kind: "and", children: [{ kind: "isNull", column: "deleted_at" },
         { kind: "jsonContains", column: "metadata", value: { channel: ["retail"] } }] } }, 2048));
     expect(await Effect.runPromise(executeCoreNativeRelationalRead({ find: () => Effect.succeed(rows) }, table, policy, json)))
-      .toEqual({ rows: [{ id: "a" }], count: 1 });
+      .toEqual({ rows: [{ id: "a" }], count: 1, returned: 1 });
     const insertion = Result.getOrThrow(prepareCoreNativeRelationalRead(policy, { fields: ["id"], order: { kind: "storageInsertion", direction: "asc" },
       predicate: { kind: "in", column: "id", values: ["a", "z"] } }, 2048));
     expect(await Effect.runPromise(executeCoreNativeRelationalRead({ find: () => Effect.succeed(rows) }, table, policy, insertion)))
-      .toEqual({ rows: [{ id: "z" }, { id: "a" }], count: 2 });
+      .toEqual({ rows: [{ id: "z" }, { id: "a" }], count: 2, returned: 2, orderedIdentities: [{ id: "z" }, { id: "a" }] });
   });
 
   it("claims active non-null SKU tuples and needs explicit partial eligibility for unique reads", () => {

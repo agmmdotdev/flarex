@@ -3,18 +3,18 @@ import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { TaxModuleService } from "@medusajs/tax/services";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { CommerceTransactionError, isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { taxInput, taxRate, taxRegion, taxRule, taxSeed, type TaxInitialRow } from "./support/logical-item-tax-lines-fixture";
-import { prepareLogicalTaxRuleCreation, taxRuleRegion, taxRuleParents, taxRuleCreationRows,
-  taxRuleCreationInput, maximumTaxRuleCreationInput, type TaxRuleCreationInput } from "./support/logical-tax-rule-create-fixture";
+import { taxInput, taxRate, taxRegion, taxRule, taxSeed, type TaxInitialRow } from "./support/core-item-tax-lines-fixture";
+import { prepareCoreTaxRuleCreation, taxRuleRegion, taxRuleParents, taxRuleCreationRows,
+  taxRuleCreationInput, maximumTaxRuleCreationInput, type TaxRuleCreationInput } from "./support/core-tax-rule-create-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalTaxRuleCreation>>, sharedCleanupCount = 0, ordinal = 0;
+let connected: Awaited<ReturnType<typeof prepareCoreTaxRuleCreation>>, sharedCleanupCount = 0;
 type Local = typeof connected;
 type Inventory = Awaited<ReturnType<Local["snapshot"]>>;
 const id = (row: JsonObject) => Schema.decodeUnknownSync(Schema.String)(row.id);
 const eventsSince = (before: Inventory, after: Inventory) => after.events.filter(event => !before.events.some(prior =>
-  prior.scopeUuid === event.scopeUuid && prior.commitSeq === event.commitSeq && prior.eventOrdinal === event.eventOrdinal));
+  prior.familyId === event.familyId && prior.ordinal === event.ordinal));
 const eventVector = (events: Inventory["events"]) => events.flatMap(event => {
   const message = event.envelope.message;
   if (!isJsonObject(message) || message.data === undefined || !isJsonObject(message.data)) throw new Error("Missing complete native Tax event");
@@ -22,20 +22,18 @@ const eventVector = (events: Inventory["events"]) => events.flatMap(event => {
   return ids.map(value => [event.envelope.contract, value]);
 });
 function noTaxMutation(before: Inventory, after: Inventory) {
-  for (const key of ["rows", "revisions", "indexEntries", "indexRevisions", "uniqueKeys", "rowChanges", "physicalFacts", "events"] as const)
+  for (const key of ["rows", "revisions", "indexes", "events"] as const)
     expect(after[key], key).toEqual(before[key]);
 }
-async function scenario(name: string, rows: readonly TaxInitialRow[] = taxRuleCreationRows()) {
-  const number = ++ordinal;
-  return prepareLogicalTaxRuleCreation(driver, close => cleanup.push(close), rows, { resource: connected.fixture.resource,
-    fixtureIdentity: { deploymentId: `tax-rule-create-${name}-${number}`, projectId: "tax-rule-create-165", uuidOffset: 3_800_000 + number * 10_000 } });
+async function scenario(_name: string, rows: readonly TaxInitialRow[] = taxRuleCreationRows()) {
+  return prepareCoreTaxRuleCreation(driver, close => cleanup.push(close), rows, { physical: connected.fixture.physical });
 }
 const run = async (local: Local, rules: TaxRuleCreationInput) => {
   const host = await local.prepare(); return Effect.runPromise(host.run(host.newRequestKey(), { rules }));
 };
 
 describe(`genuine native standalone Tax Rule creation - ${driver}`, { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalTaxRuleCreation(driver, close => cleanup.push(close)); sharedCleanupCount = cleanup.length; }, 240_000);
+  beforeAll(async () => { connected = await prepareCoreTaxRuleCreation(driver, close => cleanup.push(close)); sharedCleanupCount = cleanup.length; }, 240_000);
   afterEach(async () => { vi.restoreAllMocks(); for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 

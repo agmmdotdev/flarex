@@ -5,18 +5,18 @@ import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/exec
 import { CommerceTransactionError, isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import type { WorkflowModule } from "../src/workflow/module";
-import { taxInput, taxRate, taxRegion, taxRule, taxSeed, type TaxInitialRow } from "./support/logical-item-tax-lines-fixture";
-import { prepareLogicalTaxRuleDeletion, taxRuleDeleteRegion, taxRuleDeleteParents, taxRuleDeleteIds,
-  taxRuleDeleteStamp, taxRuleDeletionRows, type TaxRuleDeletionInput } from "./support/logical-tax-rule-delete-fixture";
+import { taxInput, taxRate, taxRegion, taxRule, taxSeed, type TaxInitialRow } from "./support/core-item-tax-lines-fixture";
+import { prepareCoreTaxRuleDeletion, taxRuleDeleteRegion, taxRuleDeleteParents, taxRuleDeleteIds,
+  taxRuleDeleteStamp, taxRuleDeletionRows, type TaxRuleDeletionInput } from "./support/core-tax-rule-delete-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalTaxRuleDeletion>>, sharedCleanupCount = 0, ordinal = 0;
+let connected: Awaited<ReturnType<typeof prepareCoreTaxRuleDeletion>>, sharedCleanupCount = 0;
 type Local = typeof connected;
 type Inventory = Awaited<ReturnType<Local["snapshot"]>>;
 const id = (row: JsonObject) => Schema.decodeUnknownSync(Schema.String)(row.id);
 const eventsSince = (before: Inventory, after: Inventory) => after.events.filter(event => !before.events.some(prior =>
-  prior.scopeUuid === event.scopeUuid && prior.commitSeq === event.commitSeq && prior.eventOrdinal === event.eventOrdinal));
+  prior.familyId === event.familyId && prior.ordinal === event.ordinal));
 const eventVector = (events: Inventory["events"]) => events.flatMap(event => {
   const message = event.envelope.message;
   if (!isJsonObject(message) || message.data === undefined || !isJsonObject(message.data)) throw new Error("Missing complete native Tax event");
@@ -24,13 +24,11 @@ const eventVector = (events: Inventory["events"]) => events.flatMap(event => {
   return ids.map(value => [event.envelope.contract, value]);
 });
 function noTaxMutation(before: Inventory, after: Inventory) {
-  for (const key of ["rows", "revisions", "indexEntries", "indexRevisions", "uniqueKeys", "rowChanges", "physicalFacts", "events"] as const)
+  for (const key of ["rows", "revisions", "indexes", "events"] as const)
     expect(after[key], key).toEqual(before[key]);
 }
-async function scenario(name: string, rows: readonly TaxInitialRow[] = taxRuleDeletionRows()) {
-  const number = ++ordinal;
-  return prepareLogicalTaxRuleDeletion(driver, close => cleanup.push(close), rows, { resource: connected.fixture.resource,
-    fixtureIdentity: { deploymentId: `tax-rule-delete-${name}-${number}`, projectId: "tax-rule-delete-166", uuidOffset: 4_000_000 + number * 10_000 } });
+async function scenario(_name: string, rows: readonly TaxInitialRow[] = taxRuleDeletionRows()) {
+  return prepareCoreTaxRuleDeletion(driver, close => cleanup.push(close), rows, { physical: connected.fixture.physical });
 }
 const run = async (local: Local, ids: TaxRuleDeletionInput) => {
   const host = await local.prepare(); return Effect.runPromise(host.run(host.newRequestKey(), { ids }));
@@ -39,7 +37,7 @@ const historical = (selected: readonly string[]) => taxRuleDeletionRows().map(va
   ? { ...value, row: { ...value.row, deleted_at: taxRuleDeleteStamp } } : value);
 
 describe(`genuine native standalone Tax Rule deletion - ${driver}`, { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalTaxRuleDeletion(driver, close => cleanup.push(close)); sharedCleanupCount = cleanup.length; }, 240_000);
+  beforeAll(async () => { connected = await prepareCoreTaxRuleDeletion(driver, close => cleanup.push(close)); sharedCleanupCount = cleanup.length; }, 240_000);
   afterEach(async () => { vi.restoreAllMocks(); for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 

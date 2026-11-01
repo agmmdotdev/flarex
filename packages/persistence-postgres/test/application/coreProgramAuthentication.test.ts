@@ -22,6 +22,7 @@ it("authenticates retained program metadata before claim, recovery, grants or ex
     bindNative: forbidden, readNativeBinding: forbidden, beginNative: forbidden,
     bindNativeInitialization: forbidden,
     bindNativeRoot: forbidden, readNativeRootBinding: forbidden, beginNativeRoot: forbidden, bindNativeRootRecovery: forbidden,
+    readNativeRootRequestEvidence: forbidden, resolveCommittedNativeRootRequest: forbidden,
     resolveRequest: forbidden, abortRequest: forbidden, begin: forbidden, commit: forbidden,
     publishedTimestamp: forbidden(), readAuthorityEpoch: forbidden(), advanceAuthorityEpoch: forbidden,
   };

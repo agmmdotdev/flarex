@@ -8,7 +8,7 @@ import { captureFulfillmentCreationMetadata } from "../../modules/fulfillment/sh
 import type { makeLocalFulfillmentCreationCommands } from "../../modules/fulfillment/fulfillment-create-service";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { internalModuleWorkflowEvents } from "../../workflow/events";
-import { prepareAtomicWorkflowHost, captureInstalledWorkflowModules, type AtomicWorkflowExecution,
+import { prepareAtomicWorkflowHost, withoutWorkflowPublication, captureInstalledWorkflowModules, type AtomicWorkflowExecution,
   type InstalledWorkflowModule } from "../../workflow/host";
 import { workflowModuleDefinition } from "../../workflow/module";
 import { prepareWorkflowResources } from "../../workflow/resources";
@@ -54,7 +54,7 @@ export const prepareFulfillmentShipmentWorkflow = Effect.fn("Fulfillment.prepare
   const resources = yield* Effect.fromResult(prepareFulfillmentShipmentResources({ fulfillment: installed.fulfillment.module }));
   if (installed.fulfillment.logicalResources !== undefined && !jsonEqual(installed.fulfillment.logicalResources, fulfillmentShipmentResources))
     return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const { logicalPublication: _publication, ...selected } = installed.fulfillment;
+  const selected = withoutWorkflowPublication(installed.fulfillment);
   const modules = { fulfillment: { ...selected, logicalResources: fulfillmentShipmentResources } };
   const metadata = yield* captureFulfillmentCreationMetadata();
   const contracts = yield* Effect.fromResult(compileFulfillmentCreationContracts(metadata.frame));

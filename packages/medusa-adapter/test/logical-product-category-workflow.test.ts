@@ -1,34 +1,26 @@
+import { expectWorkflowDefect } from "./support/workflow-failure-assertions";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Cause, Deferred, Effect, Fiber, Schema } from "effect";
-import { and, eq } from "drizzle-orm";
 import { ProductModuleService } from "@medusajs/product/services";
 import { MessageAggregator } from "@medusajs/framework/utils/portable";
 import { Link } from "@medusajs/modules-sdk/link";
 import { ExecutionDiagnostics, type ExecutionDiagnosticPolicy } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { productCategoryDeletionResources, productCategoryCreationResources, productCategoryUpdateResources } from "../src/workflow/policy";
-import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits } from "../../persistence-postgres/src/database/schema";
-import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commit/events/schema";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
-import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
-import { prepareLogicalProductCategory } from "./support/logical-product-category-workflow-fixture";
+import { createCoreProductWorkflowFixture } from "./support/core-product-workflow-fixture";
+import { prepareCoreProductCategory } from "./support/core-product-category-workflow-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalProductCategory>>;
+let connected: Awaited<ReturnType<typeof prepareCoreProductCategory>>;
 let fixtureCleanupCount = 0;
 const readRows = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject));
 const readIds = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ id: Schema.String })));
-const rows = () => connected.fixture.persistence.drizzle.select().from(fxAppRowCurrent)
-  .orderBy(fxAppRowCurrent.scopeUuid, fxAppRowCurrent.tableId, fxAppRowCurrent.rowId);
-const events = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents)
-  .orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal);
-const commits = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommits).orderBy(fxSystemCommits.commitSeq);
-const deliveries = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommitEventDeliveries)
-  .orderBy(fxSystemCommitEventDeliveries.commitSeq, fxSystemCommitEventDeliveries.eventOrdinal, fxSystemCommitEventDeliveries.subscriberId);
-const revisions = () => connected.fixture.persistence.drizzle.select().from(fxAppRowRevisions);
-const snapshot = async () => ({ rows: await rows(), events: await events(), commits: await commits(), deliveries: await deliveries() });
+const snapshot = () => connected.fixture.snapshot();
+const rows = async () => (await snapshot()).rows;
+const revisions = async () => (await snapshot()).revisions;
+const events = async () => (await snapshot()).events;
+const committedRoots = async () => (await snapshot()).outcomes;
+const deliveries = async () => (await snapshot()).deliveries;
 const first = <Value>(values: readonly Value[]): Value => {
   const value = values[0]; if (value === undefined) throw new Error("Expected a native Category result"); return value;
 };
@@ -73,7 +65,7 @@ async function removeActiveCategories() {
 
 describe("native Product Category workflows on shared logical storage", () => {
   beforeAll(async () => {
-    connected = await prepareLogicalProductCategory(driver, close => cleanup.push(close));
+    connected = await prepareCoreProductCategory(driver, close => cleanup.push(close));
     fixtureCleanupCount = cleanup.length;
   }, 180_000);
   afterEach(async () => {
@@ -126,7 +118,7 @@ describe("native Product Category workflows on shared logical storage", () => {
         source: "product", object: connected.product.runtime.metadata.category.eventObject, action: "created",
       } })]);
     expect(emitted.filter(event => event.envelope.contract === connected.product.runtime.metadata.product.updatedEvent)).toHaveLength(0);
-    expect((await commits()).length - before.commits.length).toBe(1);
+    expect((await committedRoots()).length - before.outcomes.length).toBe(1);
     expect(count.calls).toBeGreaterThan(0); expect(count.calls).toBeLessThanOrEqual(productCategoryCreationResources.calls);
     expect(emitted.length).toBeLessThanOrEqual(productCategoryCreationResources.eventMessages);
     console.info("Category four-entry creation", { calls: count.calls, events: emitted.length });
@@ -260,7 +252,7 @@ describe("native Product Category workflows on shared logical storage", () => {
     const emitted = (await events()).slice(before.events.length);
     expect(emitted.filter(event => event.envelope.contract === "product-category.updated").map(event => event.envelope.message))
       .toEqual(moving.map(id => expect.objectContaining({ data: { id } })));
-    expect((await commits()).length - before.commits.length).toBe(1);
+    expect((await committedRoots()).length - before.outcomes.length).toBe(1);
     expect(count.calls).toBeGreaterThan(0); expect(count.calls).toBeLessThanOrEqual(productCategoryUpdateResources.calls);
     expect(emitted.length).toBeLessThanOrEqual(productCategoryUpdateResources.eventMessages);
     console.info("Category maximum four-root subtree update", { calls: count.calls, events: emitted.length });
@@ -304,7 +296,7 @@ describe("native Product Category workflows on shared logical storage", () => {
         .toEqual([expect.objectContaining({ data: { id: added } })]);
       expect(emitted.filter(event => event.envelope.contract === "product-category.created").map(event => event.envelope.message))
         .toEqual(added.map(id => expect.objectContaining({ data: { id } })));
-      expect((await commits()).length - before.commits.length).toBe(1);
+      expect((await committedRoots()).length - before.outcomes.length).toBe(1);
       expect(count.calls).toBeGreaterThan(0); expect(count.calls).toBeLessThanOrEqual(productCategoryCreationResources.calls);
       expect(emitted.length).toBeLessThanOrEqual(productCategoryCreationResources.eventMessages);
       console.info("Category maximum four-entry sibling-shifting creation", { calls: count.calls, events: emitted.length });
@@ -376,7 +368,7 @@ describe("native Product Category workflows on shared logical storage", () => {
     const native = vi.spyOn(Link.prototype, "delete").mockImplementation(async function (this: Link, ...args) {
       const result = await Reflect.apply(originalDelete, this, args); trace.push("native-link-completed"); return result;
     });
-    const before = await snapshot(), tombstones = (await revisions()).filter(row => row.isTombstone).length;
+    const before = await snapshot(), tombstones = (await revisions()).filter(row => row.deleted).length;
     expect(await Effect.runPromise(deletion.run(deletion.newRequestKey(), requested)
       .pipe(Effect.provideService(ExecutionDiagnostics, observe(trace))))).toBeNull();
     expect(native).toHaveBeenCalledExactlyOnceWith({ product: { product_category_id: requested } });
@@ -384,7 +376,7 @@ describe("native Product Category workflows on shared logical storage", () => {
     expect(readRows(await Effect.runPromise(connected.listCategories(ids))).map(category => ({ id: category.id, rank: category.rank })))
       .toEqual([{ id: ids[1], rank: -1 }, { id: ids[2], rank: 0 }, { id: ids[3], rank: 1 }]);
     expect(await Effect.runPromise(connected.listProducts(products))).toEqual(productsBefore);
-    expect((await revisions()).filter(row => row.isTombstone)).toHaveLength(tombstones);
+    expect((await revisions()).filter(row => row.deleted)).toHaveLength(tombstones);
     expect(await rows()).toHaveLength(before.rows.length);
     const emitted = (await events()).slice(before.events.length), category = connected.product.runtime.metadata.category;
     expect(emitted.filter(event => event.envelope.contract === category.deletedEvent).map(event => event.envelope.message))
@@ -418,7 +410,7 @@ describe("native Product Category workflows on shared logical storage", () => {
         .toEqual(requested.map(id => expect.objectContaining({ data: { id } })));
       expect(emitted.filter(event => event.envelope.contract === connected.product.runtime.metadata.category.deletedEvent).map(event => event.envelope.message))
         .toEqual([...new Set(requested)].map(id => expect.objectContaining({ data: { id } })));
-      expect((await commits()).length - before.commits.length).toBe(1);
+      expect((await committedRoots()).length - before.outcomes.length).toBe(1);
       const committed = await snapshot();
       expect(await Effect.runPromise(deletion.run(key, requested))).toBeNull(); expect(await snapshot()).toEqual(committed);
       await removeActiveCategories();
@@ -454,7 +446,7 @@ describe("native Product Category workflows on shared logical storage", () => {
       .toEqual([expect.objectContaining({ data: { id: first(siblings) } })]);
     expect(emitted.filter(event => event.envelope.contract === "product-category.deleted").map(event => event.envelope.message))
       .toEqual(requested.map(id => expect.objectContaining({ data: { id } })));
-    expect((await commits()).length - before.commits.length).toBe(1);
+    expect((await committedRoots()).length - before.outcomes.length).toBe(1);
     expect(count.calls).toBeGreaterThan(0); expect(count.calls).toBeLessThanOrEqual(productCategoryDeletionResources.calls);
     expect(emitted.length).toBeLessThanOrEqual(productCategoryDeletionResources.eventMessages);
     console.info("Category maximum four-duplicate sibling deletion", { calls: count.calls, events: emitted.length });
@@ -471,15 +463,15 @@ describe("native Product Category workflows on shared logical storage", () => {
       await Effect.runPromise(connected.categoryMembers(category.id)));
     expect(new Set(members.products.map(product => product.id))).toEqual(new Set(products));
     const productsBefore = await Effect.runPromise(connected.listProducts(products)), before = await snapshot();
-    const tombstones = (await revisions()).filter(row => row.isTombstone).length;
+    const tombstones = (await revisions()).filter(row => row.deleted).length;
     expect(await Effect.runPromise(deletion.run(deletion.newRequestKey(), [category.id]))).toBeNull();
     expect(await Effect.runPromise(connected.listProducts(products))).toEqual(productsBefore);
     const after = await snapshot();
     expect(after.rows).toHaveLength(before.rows.length);
-    expect((await revisions()).filter(row => row.isTombstone)).toHaveLength(tombstones);
+    expect((await revisions()).filter(row => row.deleted)).toHaveLength(tombstones);
     // A single root pointer advances. All eight Product and eight pivot
     // pointers retain their exact original committed identities and revisions.
-    expect(after.rows.filter((row, index) => row.commitSeq !== before.rows[index]?.commitSeq)).toHaveLength(1);
+    expect(after.rows.filter((row, index) => row.timestamp !== before.rows[index]?.timestamp)).toHaveLength(1);
     expect(after.events.slice(before.events.length).map(event => event.envelope.contract))
       .toEqual([connected.product.runtime.metadata.category.deletedEvent, "product-category.deleted"]);
   }, 120_000);
@@ -507,7 +499,7 @@ describe("native Product Category workflows on shared logical storage", () => {
   it("physically removes soft-deleted Category descendants and their retained pivots while preserving Products", async () => {
     const products = await connected.seedProducts("category-physical-descendant-products", 2);
     const productsBefore = await Effect.runPromise(connected.listProducts(products));
-    const pointerKey = (row: typeof fxAppRowCurrent.$inferSelect) => [row.scopeUuid, row.tableId, Buffer.from(row.rowId).toString("hex")].join(":");
+    const pointerKey = (row: Awaited<ReturnType<typeof rows>>[number]) => [row.table, row.value._id].join(":");
     const beforeCreation = new Set((await rows()).map(pointerKey));
     const create = await connected.prepareCreate(), deletion = await connected.prepareDelete();
     const ids = ["pcat-physical-parent", "pcat-physical-child", "pcat-physical-grandchild"];
@@ -518,26 +510,23 @@ describe("native Product Category workflows on shared logical storage", () => {
     ] }));
     const ownedPointers = new Set((await rows()).filter(row => !beforeCreation.has(pointerKey(row))).map(pointerKey));
     expect(ownedPointers.size).toBe(5); // Three Categories and their two pivots.
-    const tombstonesBefore = (await revisions()).filter(row => row.isTombstone).length;
+    const tombstonesBefore = (await revisions()).filter(row => row.deleted).length;
     expect(await Effect.runPromise(deletion.run(deletion.newRequestKey(), [first(ids.slice(2))]))).toBeNull();
     expect(await Effect.runPromise(deletion.run(deletion.newRequestKey(), [first(ids.slice(1))]))).toBeNull();
-    expect((await revisions()).filter(row => row.isTombstone)).toHaveLength(tombstonesBefore);
+    expect((await revisions()).filter(row => row.deleted)).toHaveLength(tombstonesBefore);
     expect(await Effect.runPromise(connected.listProducts(products))).toEqual(productsBefore);
     const beforePhysical = await snapshot();
+    const ownedRevisionKeys = new Set(beforePhysical.revisions.filter(row => row.value !== null && ownedPointers.has([row.table, row.value._id].join(":")))
+      .map(row => [row.table, row.id].join(":")));
     await connected.physicallyDeleteCategories([first(ids)]);
     expect(await Effect.runPromise(connected.listCategories(ids))).toEqual([]);
     expect(await Effect.runPromise(connected.listProducts(products))).toEqual(productsBefore);
-    const current = await connected.fixture.persistence.drizzle.select({
-      scopeUuid: fxAppRowCurrent.scopeUuid, tableId: fxAppRowCurrent.tableId, rowId: fxAppRowCurrent.rowId,
-      commitSeq: fxAppRowCurrent.commitSeq, isTombstone: fxAppRowRevisions.isTombstone,
-    }).from(fxAppRowCurrent).innerJoin(fxAppRowRevisions, and(
-      eq(fxAppRowCurrent.scopeUuid, fxAppRowRevisions.scopeUuid), eq(fxAppRowCurrent.tableId, fxAppRowRevisions.tableId),
-      eq(fxAppRowCurrent.rowId, fxAppRowRevisions.rowId), eq(fxAppRowCurrent.commitSeq, fxAppRowRevisions.commitSeq),
-    ));
-    const removed = current.filter(row => ownedPointers.has(pointerKey(row)));
-    expect(removed).toHaveLength(5); expect(removed.every(row => row.isTombstone)).toBe(true);
-    expect((await revisions()).filter(row => row.isTombstone)).toHaveLength(tombstonesBefore + 5);
-    expect((await commits()).length - beforePhysical.commits.length).toBe(1);
+    expect((await rows()).filter(row => ownedPointers.has(pointerKey(row)))).toEqual([]);
+    const removed = (await revisions()).filter(row => ownedRevisionKeys.has([row.table, row.id].join(":")) &&
+      !beforePhysical.revisions.some(previous => previous.table === row.table && previous.id === row.id && previous.timestamp === row.timestamp));
+    expect(removed).toHaveLength(5); expect(removed.every(row => row.deleted)).toBe(true);
+    expect((await revisions()).filter(row => row.deleted)).toHaveLength(tombstonesBefore + 5);
+    expect((await committedRoots()).length - beforePhysical.outcomes.length).toBe(1);
     const emitted = (await events()).slice(beforePhysical.events.length);
     expect(emitted.map(event => event.envelope.contract)).toEqual([connected.product.runtime.metadata.category.deletedEvent]);
     expect(emitted.map(event => event.envelope.message)).toEqual([expect.objectContaining({ data: { id: first(ids) } })]);
@@ -566,31 +555,36 @@ describe("native Product Category workflows on shared logical storage", () => {
   }, 120_000);
   it("rolls back each native mutation and already captured workflow events when a hook fails", async () => {
     let escaped: (() => Promise<unknown>) | undefined;
+    const createFailure = new Error("Category create hook rejected after captured workflow event"),
+      updateFailure = new Error("Category update hook rejected after captured workflow event"),
+      deleteFailure = new Error("Category delete hook rejected after captured workflow event");
     const trace: string[] = [], seed = await connected.prepareCreate();
     const category = first(await Effect.runPromise(seed.run(seed.newRequestKey(), { product_categories: [{ name: "Category hook seed" }] })));
     const create = await connected.prepareCreate({ categoriesCreated: async (input, context) => {
       expect(input.categories).toHaveLength(1); expect(trace).toEqual(["product-category.created"]); trace.push("hook");
       escaped = () => context.resources.product.createProductCategories([{ name: "Escaped Category" }]);
-      throw new Error("Category create hook rejected after captured workflow event");
+      throw createFailure;
     } });
     const update = await connected.prepareUpdate({ categoriesUpdated: input => {
       expect(input.categories).toMatchObject([{ id: category.id, name: "Category hook changed" }]);
       expect(trace).toEqual(["product-category.updated"]); trace.push("hook");
-      throw new Error("Category update hook rejected after captured workflow event");
+      throw updateFailure;
     } });
     const deletion = await connected.prepareDelete({ categoriesDeleted: async (input, context) => {
       expect(input.ids).toEqual([category.id]); expect(trace).toEqual(["product-category.deleted"]); trace.push("hook");
       expect(await context.resources.query.graph({ entity: "product_category", fields: ["id"],
         filters: { id: [category.id] }, pagination: { take: 1 } })).toMatchObject({ data: [] });
-      throw new Error("Category delete hook rejected after captured workflow event");
+      throw deleteFailure;
     } });
-    for (const work of [create.run(create.newRequestKey(), { product_categories: [{ name: "Category hook created" }] }).pipe(Effect.asVoid),
-      update.run(update.newRequestKey(), { selector: { id: category.id }, update: { name: "Category hook changed" } }).pipe(Effect.asVoid),
-      deletion.run(deletion.newRequestKey(), [category.id]).pipe(Effect.asVoid)]) {
+    for (const [work, original, event] of [
+      [create.run(create.newRequestKey(), { product_categories: [{ name: "Category hook created" }] }).pipe(Effect.asVoid), createFailure, "product-category.created"],
+      [update.run(update.newRequestKey(), { selector: { id: category.id }, update: { name: "Category hook changed" } }).pipe(Effect.asVoid), updateFailure, "product-category.updated"],
+      [deletion.run(deletion.newRequestKey(), [category.id]).pipe(Effect.asVoid), deleteFailure, "product-category.deleted"],
+    ] as const) {
       trace.length = 0; const before = await snapshot();
-      const result = await Effect.runPromise(Effect.result(work.pipe(Effect.provideService(ExecutionDiagnostics, observe(trace)))));
-      expect(result._tag).toBe("Failure"); if (result._tag === "Failure") expect(failurePath(result.failure)).toContain("adapterFailure");
-      expect(trace[trace.length - 1]).toBe("hook"); expect(await snapshot()).toEqual(before);
+      const exit = await Effect.runPromiseExit(work.pipe(Effect.provideService(ExecutionDiagnostics, observe(trace))));
+      expect(trace).toEqual([event, "hook"]); expect(await snapshot()).toEqual(before);
+      expectWorkflowDefect(exit, original);
     }
     if (escaped === undefined) throw new Error("The actual Category creation hook was not reached");
     const beforeLate = await snapshot();
@@ -632,27 +626,19 @@ describe("native Product Category workflows on shared logical storage", () => {
 
   it("recovers complete Category DTOs after the real committed transaction loses its acknowledgement", async () => {
     const fixture = connected.fixture;
-    let lose = true, failures = 0, hooks = 0, committedAtAck: Awaited<ReturnType<typeof snapshot>> | undefined, hookOutput: unknown;
-    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
-      Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-      Effect.flatMap(value => {
-        if (!lose) return Effect.succeed(value); lose = false;
-        return Effect.tryPromise({ try: snapshot, catch: cause => new RelationalSessionError({ reason: "resourceFailure", cause }) })
-          .pipe(Effect.flatMap(observed => {
-            committedAtAck = observed; failures++;
-            return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost native Category COMMIT acknowledgement") }));
-          }));
-      }),
-    ));
+    let hooks = 0, hookOutput: unknown;
+    const fault = fixture.loseNextNativeRootAcknowledgement();
     const host = await connected.prepareCreate({ categoriesCreated: input => { hooks++; hookOutput = structuredClone(input.categories); } },
-      { ...connected.execution, prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, session, ...composition }) });
+      connected.execution);
     const native = vi.spyOn(ProductModuleService.prototype, "createProductCategories");
     try {
       const key = host.newRequestKey(), input = { product_categories: [{ name: "Category uncertain ack", metadata: { nested: { retained: true } } }] }, before = await snapshot();
       const result = await Effect.runPromise(host.run(key, input));
-      expect(lose).toBe(false); expect(failures).toBe(1);
-      if (committedAtAck === undefined) throw new Error("Actual Category COMMIT was not observed before ACK loss");
-      expect(committedAtAck.commits.length - before.commits.length).toBe(1); expect(committedAtAck.rows.length - before.rows.length).toBe(1);
+      expect(fault.armed).toBe(false); expect(fault.failures).toBe(1);
+      if (fault.evidence === undefined) throw new Error("The actual durable native root did not reach ACK loss");
+      expect(fault.evidence.inventory).toEqual(await fixture.inventory());
+      const committedAtAck = await snapshot();
+      expect(committedAtAck.outcomes.length - before.outcomes.length).toBe(1); expect(committedAtAck.rows.length - before.rows.length).toBe(1);
       const emitted = committedAtAck.events.slice(before.events.length);
       expect(emitted.map(event => event.envelope.contract)).toEqual([connected.product.runtime.metadata.category.createdEvent, "product-category.created"]);
       expect(committedAtAck.deliveries.length - before.deliveries.length).toBe(2);
@@ -711,9 +697,8 @@ describe("native Product Category workflows on shared logical storage", () => {
   }, 120_000);
 
   it("confines matching Category and Product identities and request keys to each shop", async () => {
-    const fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close), { resource: connected.fixture.resource, includeProduct: true,
-      fixtureIdentity: { deploymentId: "deployment_category_workflow_shop_b", projectId: "project_category_workflow_shop_b", uuidOffset: 100_000 } });
-    const other = await prepareLogicalProductCategory(driver, close => cleanup.push(close), fixture);
+    const fixture = await createCoreProductWorkflowFixture(driver, close => cleanup.push(close), { physical: connected.fixture.physical });
+    const other = await prepareCoreProductCategory(driver, close => cleanup.push(close), fixture);
     const create = await connected.prepareCreate(), otherCreate = await other.prepareCreate(), key = create.newRequestKey();
     const input = { product_categories: [{ id: "pcat-workflow-shared", name: "Category shared" }] };
     const left = first(await Effect.runPromise(create.run(key, input))), right = first(await Effect.runPromise(otherCreate.run(key, input)));
@@ -757,11 +742,11 @@ describe("native Product Category workflows on shared logical storage", () => {
       const winner = results.find(result => result._tag === "Success");
       if (winner === undefined || winner._tag !== "Success") throw new Error("Missing successful Category root");
       expect(readRows(await Effect.runPromise(connected.listCategories([category.id])))).toEqual(winner.value);
-      const after = await snapshot(), emitted = after.events.slice(before.events.length), committed = after.commits.slice(before.commits.length);
+      const after = await snapshot(), emitted = after.events.slice(before.events.length), committed = after.outcomes.slice(before.outcomes.length);
       expect(committed).toHaveLength(1); expect(emitted).toHaveLength(2);
       expect(emitted.filter(event => event.envelope.contract === "product-category.updated").map(event => event.envelope.message))
         .toEqual(winner.value.map(row => expect.objectContaining({ data: { id: row.id } })));
-      expect(emitted.every(event => event.commitSeq === first(committed).commitSeq)).toBe(true);
+      expect(emitted.every(event => event.timestamp === first(committed).timestamp)).toBe(true);
       expect(after.deliveries.slice(before.deliveries.length)).toHaveLength(2);
     } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); }
   }, 180_000);

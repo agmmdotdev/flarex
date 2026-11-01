@@ -14,7 +14,7 @@ import type { prepareLocalVariantLinks } from "../../links/variant-service";
 import type { prepareProductUpdateLinkResource } from "../../links/product-update-resource";
 import { BasePricesUpdate } from "../../modules/pricing/input";
 import { workflowModuleDefinition } from "../../workflow/module";
-import { prepareAtomicWorkflowHost, captureInstalledWorkflowModules, type AtomicWorkflowExecution, type InstalledWorkflowModule } from "../../workflow/host";
+import { prepareAtomicWorkflowHost, withoutWorkflowPublication, captureInstalledWorkflowModules, type AtomicWorkflowExecution, type InstalledWorkflowModule } from "../../workflow/host";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { prepareWorkflowResources, type NativeWorkflowContext, type NativeWorkflowResources } from "../../workflow/resources";
 import type { ComposedWorkflowServices } from "../../workflow/composed-resource";
@@ -91,8 +91,8 @@ export const prepareProductUpdateWorkflow = Effect.fn("MedusaWorkflow.preparePro
       for (const value of calls.results(method)) ids.push(...(yield* Effect.fromResult(decodeIds(value))).map(row => row.id));
     return ids;
   }));
-  const { logicalPublication: _productLinkPublication, ...productLinks } = modules.product_links;
-  const { logicalPublication: _variantLinkPublication, ...variantLinks } = modules.variant_links;
+  const productLinks = withoutWorkflowPublication(modules.product_links);
+  const variantLinks = withoutWorkflowPublication(modules.variant_links);
   return yield* prepareAtomicWorkflowHost({ ...options,
     modules: { product: { ...modules.product, logicalResources: productUpdateResources, logicalPublication: "mixed" },
       pricing: { ...modules.pricing, logicalResources: productUpdateParticipantResources, logicalPublication: "mixed" },

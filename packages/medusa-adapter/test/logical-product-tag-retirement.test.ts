@@ -12,60 +12,39 @@ import { productTagDeletionEvents } from "../src/workflows/product/tag-events";
 import { ProductLifecycleIds } from "../src/modules/product/lifecycle";
 import { captureProductSchema } from "../src/modules/product/schema";
 import { productRuntimeMetadata } from "../src/modules/product/runtime-metadata";
-import { prepareAtomicWorkflowHost, type AtomicWorkflowHostComposition } from "../src/workflow/host";
+import { prepareAtomicWorkflowHost } from "../src/workflow/host";
 import { prepareWorkflowResources } from "../src/workflow/resources";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
-import { fxAppRowCurrent, fxSystemCommits } from "../../persistence-postgres/src/database/schema";
-import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
-import { prepareLogicalProductHost } from "./support/logical-product-fixture";
+import { createCoreProductWorkflowFixture, openCoreProductCommandHost, type CoreProductWorkflowFixture } from "./support/core-product-workflow-fixture";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Product test driver");
 const cleanup: Array<() => Promise<void>> = [];
-let currency: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
-let product: Awaited<ReturnType<typeof prepareLogicalProductHost>>;
+const coreRows = async (selected = currency) => (await selected.fixture.snapshot()).rows;
+const coreEvents = async (selected = currency) => (await selected.fixture.snapshot()).events;
+const coreOutcomes = async (selected = currency) => (await selected.fixture.snapshot()).outcomes.filter(row => row.value.kind === "nativeRoot");
+
+let currency: CoreProductWorkflowFixture;
+let product: CoreProductWorkflowFixture["product"];
 let catalog: Effect.Success<ReturnType<typeof productRuntimeMetadata>>;
 const revision = createHash("sha256").update("logical-product-tag-retirement").digest("hex");
 const subscribers = [{ id: "logical-product-tag-retirement", revision: "a".repeat(64) }];
 
-const rows = () => currency.persistence.drizzle.select().from(fxAppRowCurrent);
-const events = () => currency.persistence.drizzle.select().from(fxSystemCommitEvents)
-  .orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal);
-const commits = () => currency.persistence.drizzle.select().from(fxSystemCommits);
+const rows = () => coreRows();
+const events = () => coreEvents();
+const commits = () => coreOutcomes();
 const updateInput = (id: string, value = `${id}-updated`) =>
   ({ selector: { id }, update: { value }, additional_data: { witness: id } });
-
-function lostAcknowledgementSession(cause: string) {
-  let lose = true;
-  return issueRelationalSession(currency.persistence.drizzle, (profile, work) =>
-    runRelationalSession(currency.session, profile, work).pipe(
-      Effect.catchTag("RelationalTransactionError", error =>
-        Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause: error }))),
-      Effect.flatMap(value => {
-        if (!lose) return Effect.succeed(value);
-        lose = false;
-        return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause }));
-      }),
-    ));
-}
 
 async function hosts(options?: {
   updateHooks?: ProductTagUpdateWorkflowHooks;
   deleteHooks?: ProductTagDeleteWorkflowHooks;
-  session?: typeof currency.session;
 }) {
-  const execution = { identityAndAccessPolicy: product.hostInput.identityAndAccessPolicy,
-    prepare: (composition: AtomicWorkflowHostComposition) =>
-      makeAtomicCommerceHost({ ...product.hostInput, session: options?.session ?? currency.session, ...composition }) };
-  const selected = { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage };
+  const execution = currency.execution;
+  const selected = { module: product.runtime.workflow, nativeStorage: product.source };
   const create = await Effect.runPromise(prepareProductTagWorkflow({ execution,
     modules: { product: { ...selected },
       currency: { module: Result.getOrThrow(currencyWorkflowModule),
-        logicalStorage: currency.hostInput.logicalStorage } },
+        nativeStorage: currency.fixture.source("currency") } },
     revision, subscribers }));
   const update = await Effect.runPromise(prepareProductTagUpdateWorkflow({ execution,
     modules: { product: { ...selected } },
@@ -89,12 +68,11 @@ async function createTag(host: Awaited<ReturnType<typeof hosts>>["create"], valu
 
 describe("native Product-tag update/delete on logical storage", () => {
   beforeAll(async () => {
-    currency = await logicalCurrencyFixture(driver, close => cleanup.push(close), { includeProduct: true });
-    product = await prepareLogicalProductHost(currency);
+    currency = await createCoreProductWorkflowFixture(driver, close => cleanup.push(close), { includeCurrency: true });
+    product = currency.product;
     catalog = await Effect.runPromise(captureProductSchema("atomic-commerce")
       .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
-    await Effect.runPromise(product.host.initialize([]));
-    await Effect.runPromise(product.host.close);
+
   }, 180_000);
   afterAll(async () => {
     const failures: unknown[] = [];
@@ -113,7 +91,7 @@ describe("native Product-tag update/delete on logical storage", () => {
         filters: { id: expectedHookId }, pagination: { take: 1 } })).data)
         .toMatchObject([{ id: expectedHookId, value: "tag-retire-changed" }]);
     } } });
-    const read = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
+    const read = await Effect.runPromise(openCoreProductCommandHost(currency, {
       commands: [product.runtime.commands.listTags] }));
     try {
       expect(await Effect.runPromise(flow.update.run(flow.update.newRequestKey(),
@@ -178,13 +156,13 @@ describe("native Product-tag update/delete on logical storage", () => {
   it("soft-deletes an attached tag without deleting its Product or membership row", async () => {
     const flow = await hosts();
     const createProduct = await Effect.runPromise(prepareProductCreateWorkflow({
-      execution: { identityAndAccessPolicy: product.hostInput.identityAndAccessPolicy,
-        prepare: composition => makeAtomicCommerceHost({ ...product.hostInput, ...composition }) },
+      execution: { identityAndAccessPolicy: currency.execution.identityAndAccessPolicy,
+        prepare: composition => currency.execution.prepare(composition) },
       modules: { product: { module: product.runtime.workflow,
-        logicalStorage: product.hostInput.logicalStorage } },
+        nativeStorage: product.source } },
       revision, subscribers,
     }));
-    const reader = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
+    const reader = await Effect.runPromise(openCoreProductCommandHost(currency, {
       commands: [product.runtime.commands.list, product.runtime.commands.listTags] }));
     try {
       const removedId = await createTag(flow.create, "tag-retire-attached-removed");
@@ -312,10 +290,10 @@ describe("native Product-tag update/delete on logical storage", () => {
       module: product.runtime.workflow, methods: ["softDeleteProductTags"], graph: true,
     } }, true));
     const invalid = await Effect.runPromise(prepareAtomicWorkflowHost({
-      execution: { identityAndAccessPolicy: product.hostInput.identityAndAccessPolicy,
-        prepare: composition => makeAtomicCommerceHost({ ...product.hostInput, ...composition }) },
+      execution: { identityAndAccessPolicy: currency.execution.identityAndAccessPolicy,
+        prepare: composition => currency.execution.prepare(composition) },
       modules: { product: { module: product.runtime.workflow,
-        logicalStorage: product.hostInput.logicalStorage } },
+        nativeStorage: product.source } },
       revision, subscribers,
       workflow: { name: "wrongLogicalProductTagDeletionOutput", resources,
         prepared: Result.getOrThrow(deleteProductTagsWorkflow.prepare()),
@@ -364,16 +342,18 @@ describe("native Product-tag update/delete on logical storage", () => {
       expect(await events()).toEqual(before.events);
       expect(await commits()).toEqual(before.commits);
       let hooks = 0;
-      const session = lostAcknowledgementSession(`lost logical Product-tag ${kind} acknowledgement`);
+      const fault = currency.fixture.loseNextNativeRootAcknowledgement();
       const recovering = await hosts(kind === "update"
-        ? { session, updateHooks: { productTagsUpdated: () => { hooks++; } } }
-        : { session, deleteHooks: { productTagsDeleted: () => { hooks++; } } });
+        ? { updateHooks: { productTagsUpdated: () => { hooks++; } } }
+        : { deleteHooks: { productTagsDeleted: () => { hooks++; } } });
       try {
         const key = kind === "update" ? recovering.update.newRequestKey() : recovering.remove.newRequestKey();
         const run = () => kind === "update"
           ? Effect.runPromise(recovering.update.run(key, updateInput(id)))
           : Effect.runPromise(recovering.remove.run(key, { ids: [id] }));
         const result = await run();
+        expect(fault.armed).toBe(false); expect(fault.failures).toBe(1);
+        expect(fault.evidence?.inventory).toEqual(await currency.fixture.inventory());
         const after = { rows: await rows(), events: await events(), commits: await commits() };
         expect(hooks).toBe(1);
         expect(after.events).toHaveLength(before.events.length + 2);

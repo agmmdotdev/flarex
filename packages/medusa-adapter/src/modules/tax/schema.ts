@@ -5,6 +5,8 @@ import { capturePrivateCanonicalValue, commerceError } from "@flarex/persistence
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
 import { decodeCompiledDml } from "../../schema/compiled";
 import { lowerDmlSchema } from "../../schema/lower";
+import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
+import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
 
 /** Keep the complete native Tax schema, including inactive mutation constraints. */
 export const captureTaxMetadata = Effect.fn("Tax.captureMetadata")(function* () {
@@ -29,4 +31,19 @@ export const compileTaxDefinition = Effect.fn("Tax.compileDefinition")(function*
   const metadata = yield* captureTaxMetadata();
   const schema = yield* Effect.fromResult(normalizeRelationalSchema(lowerDmlSchema(metadata.frame.tables, "commerce.tax")));
   return Object.freeze({ schema, provenance: taxSourceProvenance });
+});
+
+/** The complete native Tax DML source shares Core's logical schema lifecycle. */
+export const compileTaxCoreDefinition = Effect.fn("Tax.compileCoreDefinition")(function* (target: Readonly<{
+  scopeUuid: string; epochUuid: string; applicationRead?: boolean;
+}>) {
+  const nativeTarget = Object.freeze({ scopeUuid: target.scopeUuid, epochUuid: target.epochUuid,
+    applicationRead: target.applicationRead ?? false });
+  const definition = yield* compileTaxDefinition();
+  const source = yield* captureLogicalSchemaSource({ key: "medusa.tax", owner: "medusa", writeProfile: "medusa.tax",
+    evidence: { provenance: definition.provenance, profile: "medusa.tax" },
+    definition: { kind: "relational", schema: definition.schema },
+    bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+      table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
+  return yield* makeCoreRelationalNativeDefinition({ ...nativeTarget, source, provenance: definition.provenance, commands: [] });
 });

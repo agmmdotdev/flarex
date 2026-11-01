@@ -137,13 +137,22 @@ maintaining a competing completion log here.
 
 ## Selected native extensions
 
-- [Native relational foreign keys](./native-relational-foreign-keys.md): declared native-key integrity and frozen bounded delete closure; specified, implementation/proof open.
-- [Native conditional uniqueness](./native-conditional-uniqueness.md): eligibility separate from nullable business keys; specified, implementation/proof open.
-- [Native relational query plans](./native-relational-query-plans.md): admitted Medusa plans through shared Core indexes/observations; specified, implementation/proof open.
-- [Native durable events and delivery](./native-durable-event-delivery.md): authenticated private logical records in the same root/outcome; specified, implementation/proof open.
-- [Protected historical outcome recovery](./native-protected-outcome-recovery.md): committed-first recovery with historical native disclosure authority; specified, implementation/proof open.
-- [Protected native Worker context](./native-protected-worker-context.md): confined native calls over the unchanged CoreV6 kernel and shared artifact generator; implemented, actual Worker proof open.
-- [Installed native source binding selection](./native-source-binding-selection.md): authenticated logical source withdrawal retains data and historical recovery while denying fresh runtime authority; specified, implementation/proof open.
+- [Native in-flight request joining](./native-inflight-request-joining.md): bounded exact duplicates share a live app-owner execution and captured correlation; Core remains durable authority, no native replay; selected Native17 replacement and paired admitted consumer proof complete.
+
+- [Native explicit set-null intents](./native-set-null-intents.md): authentic post-delete intent and source seal feed prepared/frozen shared FK patches; selected Native17 replacement and paired admitted consumer proof complete.
+
+- [Native event policy commitment](./native-event-policy-commitment.md): stable workflow event storage verifies exact policy through its committed root identity; selected Native17 replacement and paired admitted consumer proof complete.
+
+- [Native REAL values](./native-real-values.md): exact Tax submitted/immediate/cold representation and range behavior through the shared value owner; selected Native17 replacement and paired admitted consumer proof complete.
+- [Native reference checkpoints](./native-reference-checkpoints.md): entity-batch validation and source-confined outgoing FK checking before native callbacks, with unchanged final integrity; selected Native17 replacement and paired admitted consumer proof complete.
+
+- [Native relational foreign keys](./native-relational-foreign-keys.md): selected Product native-key integrity, frozen bounded delete closure and Tax checkpoint continuation proved; broader consumers remain open.
+- [Native conditional uniqueness](./native-conditional-uniqueness.md): selected Product/Links eligibility, nullable keys and Tax compound-predicate continuation proved; broader consumers remain open.
+- [Native relational query plans](./native-relational-query-plans.md): selected Product/Links plans through shared Core indexes/observations proved; broader native consumers remain open.
+- [Native durable events and delivery](./native-durable-event-delivery.md): selected authenticated logical business/event/outcome and delivery proof complete; broader native consumers remain open.
+- [Protected historical outcome recovery](./native-protected-outcome-recovery.md): selected committed-first historical native disclosure and callback-free recovery proved; wider consumers remain open.
+- [Protected native Worker context](./native-protected-worker-context.md): selected confined CoreV6 calls proved through actual local Workers; broader managed hosting remains open.
+- [Installed native source binding selection](./native-source-binding-selection.md): selected withdrawal/retention/historical recovery proved; broader native consumers remain open.
 - [Native many membership derivation](./native-reference-memberships.md): selected fresh many/join profiles implemented through confined logical records and ordinary indexes, with paired native/integrity/recovery proof; broader acceptance remains open.
 - [Native strong-reference integrity](./native-strong-references.md): selected optional-one late liveness/restrict validation, shared reverse indexes and ordered-save proof implemented; broader native gates remain.
 - [Confined Payload preference cleanup](./native-payload-preference-cleanup.md): logical installed model, opaque deletion evidence and native lifecycle authority implemented for selected consumers; broader lifecycle/hosting gates remain.

@@ -13,7 +13,7 @@ import { prepareLogicalProductLinksHost } from "./logical-product-links-fixture"
 import { prepareLogicalInventoryHosts } from "./logical-inventory-fixture";
 import { prepareProductShippingProfileWorkflow } from "../../src/workflows/product/shipping-profile";
 import { prepareProductNativeLinkResource } from "../../src/links/product-resource";
-import type { AtomicWorkflowHostComposition, AtomicWorkflowExecution } from "../../src/workflow/host";
+import type { AtomicWorkflowHostComposition, AtomicWorkflowExecution, LegacyInstalledWorkflowModules } from "../../src/workflow/host";
 import type { prepareProductCreationWorkflow } from "../../src/workflows/product/creation";
 
 export const creationRevision = (name: string) => createHash("sha256").update(name).digest("hex");
@@ -41,7 +41,7 @@ export async function connectProductCreation(fixture: LogicalCurrencyFixture): P
   ])));
   return { fixture, product, pricing, sales, shipping, productLinks, inventory, link };
 }
-export const productCreationModules = (value: ProductCreationFixture): Parameters<typeof prepareProductCreationWorkflow>[0]["modules"] => ({
+export const productCreationModules = (value: ProductCreationFixture): LegacyInstalledWorkflowModules<Parameters<typeof prepareProductCreationWorkflow>[0]["modules"]> => ({
   product: { module: value.product.runtime.workflow, logicalStorage: value.product.hostInput.logicalStorage },
   pricing: { module: value.pricing.runtime.workflow, logicalStorage: value.pricing.hostInput.logicalStorage },
   inventory: { module: value.inventory.inventory.runtime.workflow, logicalStorage: value.inventory.inventory.hostInput.logicalStorage },
@@ -55,7 +55,9 @@ export const productCreationExecution = (value: ProductCreationFixture, session:
   identityAndAccessPolicy: value.fixture.hostInput.identityAndAccessPolicy,
   prepare: (composition: AtomicWorkflowHostComposition) => makeAtomicCommerceHost({ ...value.fixture.hostInput, session, ...composition }),
 });
-export const productCreationOptions = (value: ProductCreationFixture): Omit<Parameters<typeof prepareProductCreationWorkflow>[0], "hooks"> => ({ execution: productCreationExecution(value),
+export const productCreationOptions = (value: ProductCreationFixture): Omit<Parameters<typeof prepareProductCreationWorkflow>[0], "hooks" | "modules"> & {
+  readonly modules: ReturnType<typeof productCreationModules>;
+} => ({ execution: productCreationExecution(value),
   modules: productCreationModules(value), link: value.link, revision: creationRevision("native-product-root"),
   subscribers: [{ id: "native-product-root", revision: "a".repeat(64) }],
 });

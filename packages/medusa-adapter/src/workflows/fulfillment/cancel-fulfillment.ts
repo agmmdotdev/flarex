@@ -7,7 +7,7 @@ import { FulfillmentCreationId } from "../../modules/fulfillment/fulfillment-cre
 import type { makeLocalFulfillmentCreationCommands } from "../../modules/fulfillment/fulfillment-create-service";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { internalModuleWorkflowEvents } from "../../workflow/events";
-import { prepareAtomicWorkflowHost, captureInstalledWorkflowModules, type AtomicWorkflowExecution,
+import { prepareAtomicWorkflowHost, withoutWorkflowPublication, captureInstalledWorkflowModules, type AtomicWorkflowExecution,
   type InstalledWorkflowModule } from "../../workflow/host";
 import { workflowModuleDefinition } from "../../workflow/module";
 import { prepareWorkflowResources } from "../../workflow/resources";
@@ -50,7 +50,7 @@ export const prepareFulfillmentCancellationWorkflow = Effect.fn("Fulfillment.pre
   const resources = yield* Effect.fromResult(prepareFulfillmentCancellationResources({ fulfillment: installed.fulfillment.module }));
   if (installed.fulfillment.logicalResources !== undefined && !jsonEqual(installed.fulfillment.logicalResources, defaultCommerceResources))
     return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const { logicalPublication: _publication, ...selected } = installed.fulfillment;
+  const selected = withoutWorkflowPublication(installed.fulfillment);
   const modules = { fulfillment: { ...selected, logicalResources: defaultCommerceResources } };
   const prepared = yield* Effect.fromResult(cancelFulfillmentWorkflow.prepare())
     .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));

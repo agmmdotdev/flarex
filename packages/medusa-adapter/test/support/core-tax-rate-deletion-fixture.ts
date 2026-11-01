@@ -14,8 +14,8 @@ import { prepareTaxRateCreationWorkflow } from "../../src/workflows/tax/create-r
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
-import { prepareLogicalTaxRuleCreation } from "./logical-tax-rule-create-fixture";
-import { taxRegion, taxRate, taxRule, taxSeed, type TaxInitialRow } from "./logical-item-tax-lines-fixture";
+import { prepareCoreTaxRuleCreation } from "./core-tax-rule-create-fixture";
+import { taxRegion, taxRate, taxRule, taxSeed, type TaxInitialRow } from "./core-item-tax-lines-fixture";
 
 export const taxRateDeleteRegions = ["txreg169-us", "txreg169-ca"] as const;
 export const taxRateDeleteIds = ["txr169-c", "txr169-d", "txr169-a", "txr169-b"] as const;
@@ -49,9 +49,9 @@ export function taxRateDeletionRows(): readonly TaxInitialRow[] {
 
 /** Reuses genuine Tax initialization. Mutation probes invoke genuine retained
  * callbacks or an explicitly admitted native service method. */
-export async function prepareLogicalTaxRateDeletion(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  rows: readonly TaxInitialRow[] = taxRateDeletionRows(), shared?: Parameters<typeof prepareLogicalTaxRuleCreation>[3]) {
-  const base = await prepareLogicalTaxRuleCreation(driver, close, rows, shared);
+export async function prepareCoreTaxRateDeletion(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
+  rows: readonly TaxInitialRow[] = taxRateDeletionRows(), shared?: Parameters<typeof prepareCoreTaxRuleCreation>[3]) {
+  const base = await prepareCoreTaxRuleCreation(driver, close, rows, shared);
   const lateFailure = new Error("Late parent failure after genuine native Tax Rate deletion");
   const logger: Logger = { panic() {}, shouldLog: () => false, setLogLevel() {}, unsetLogLevel() {}, activity: message => message,
     progress() {}, error() {}, failure() {}, success: () => ({}), silly() {}, debug() {}, verbose() {}, http() {}, info() {}, warn() {}, log() {} };

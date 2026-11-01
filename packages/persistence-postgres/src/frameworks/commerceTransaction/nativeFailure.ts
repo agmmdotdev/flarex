@@ -1,11 +1,26 @@
-import { CoreNativeBudgetError, CoreNativeReferenceError, CoreNativeUniqueConflict, CoreNativeForeignKeyError, CoreNativeQueryError, CoreQueryInputError,
+import { CoreNativeBudgetError, CoreNativeReferenceError, CoreNativeUniqueConflict, CoreNativeForeignKeyError, CoreNativeReferencePlanError, CoreNativeQueryError, CoreQueryInputError,
   CoreTransactionError, type CoreError } from "../../core/api";
 import { CorePersistenceError } from "../../core/contracts";
 import { CoreSchemaError } from "../../core/schemaTypes";
 import { commerceError, CommerceTransactionError } from "./model";
+import { coreNativeRelationalFailure } from "../../core/nativePolicy";
+import { inspectRelationalFailure, retainRelationalFailure } from "../../values/relationalFailure";
+import { inspectReferenceFailure, retainReferenceFailure } from "../../values/referenceFailure";
 
 /** The native error domain changes here; the complete Core failure stays attached. */
 export function projectCoreCommerceFailure(failure: CoreError): CommerceTransactionError {
+  const projected = classifyCoreCommerceFailure(failure);
+  const row = coreNativeRelationalFailure(failure);
+  if (row !== undefined) retainRelationalFailure(projected, { ...row.diagnostic, table: row.table.identity });
+  const relational = inspectRelationalFailure(failure);
+  if (relational !== undefined) retainRelationalFailure(projected, relational);
+  const reference = inspectReferenceFailure(failure);
+  if (reference !== undefined) retainReferenceFailure(projected, reference);
+  return projected;
+}
+
+function classifyCoreCommerceFailure(failure: CoreError): CommerceTransactionError {
+  if (failure instanceof CoreNativeReferencePlanError) return commerceError("invalidAuthority", failure);
   if (failure instanceof CoreNativeBudgetError) return failure.cause instanceof CommerceTransactionError ? failure.cause
     : commerceError(failure.reason === "unexpectedFailure" ? "resourceFailure" : failure.reason, failure);
   if (failure instanceof CoreNativeQueryError || failure instanceof CoreNativeUniqueConflict || failure instanceof CoreNativeReferenceError
