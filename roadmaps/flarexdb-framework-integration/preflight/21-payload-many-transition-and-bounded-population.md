@@ -2,6 +2,15 @@
 
 ## Status And Recommendation
 
+The [current core translation](../../../experiments/core/engine/slices/15-native-many-and-joins.md)
+implements the admitted fresh many/join consumers through logical membership
+documents, ordinary Source indexes and the shared native kernel. The physical
+edge/SQL-session descriptions below are retained preflight baseline evidence,
+not the selected runtime or a fallback. Forward order remains authoritative source
+data, and target-only ID admission performs no body read. The named existing-row
+many conversion remains deferred; its actual witness requires refusal even after
+the prior collection is emptied.
+
 Status: bounded forward population is implemented privately. The optional-many
 migration-host direction remains deferred. The [installation and migration
 boundary](./22-payload-many-installation-and-migration-boundary.md) implements a

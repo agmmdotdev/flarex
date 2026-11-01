@@ -67,6 +67,8 @@ const compose = Effect.fn("CmsNativeHost.compose")(function* (input: NativeHostI
     return metadata;
   });
   const initial = yield* readBinding();
+  const referenceTargets = new Map(initial.definition.references.map(reference => [reference.declaration.source.forwardName, reference.targetTable]));
+  const joins = initial.definition.source.writeProfile === "payload.content-joins";
   const names = new Set<string>();
   for (const token of allowed) {
     const definition = getCmsCommand(token);
@@ -93,7 +95,8 @@ const compose = Effect.fn("CmsNativeHost.compose")(function* (input: NativeHostI
       lifetime.operation(context, transactionId, "write", Effect.fail(cmsError("unsupportedProfile")));
     const cleanup = preferences === undefined || preferenceOperations === undefined ? undefined
       : makeNativePayloadPreferenceCleanup(preferences, lifetime, operations, preferenceOperations);
-    const ports = { documents, relations: makeNativeCmsRelations(operations, lifetime),
+    const ports = { documents, relations: makeNativeCmsRelations(operations, lifetime, referenceTargets,
+      command.mode === "read" && joins),
       preferences: cleanup?.cleanup ?? { deleteForPendingDocument: unsupported } };
     const call = Effect.fn("CmsNativeHost.invoke")(function* (context: CmsRequestContext, token: CmsCommand, value: Json): Effect.fn.Return<Json, CmsTransactionError> {
       const { definition } = yield* select(token);

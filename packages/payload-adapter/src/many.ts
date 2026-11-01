@@ -1,5 +1,5 @@
-import { Result } from "effect";
-import { decodeAppDocumentIdentityV1Result } from "flarex-protocol/app-document-id";
+import { Result, Schema } from "effect";
+import { DeveloperDocumentIdSchema } from "flarex-protocol/document-id";
 import {
   capturePrivateJsonData,
   cmsError,
@@ -8,18 +8,16 @@ import {
 } from "@flarex/persistence-postgres/internal/cms-adapter";
 import { payloadRelatedPostsField } from "./contract";
 
+const decodeManyIds = Schema.decodeUnknownResult(Schema.Array(DeveloperDocumentIdSchema).check(
+  Schema.isMaxLength(payloadRelatedPostsField.maxItems),
+  Schema.makeFilter(ids => new Set(ids).size === ids.length ? undefined : "Payload many identities must be distinct"),
+));
+
 /** Pure input capture; the request's posts capability subsequently checks table authority. */
 export function payloadManyIds(input: unknown): Result.Result<readonly string[], CmsTransactionError> {
   return Result.gen(function* () {
     const value = (yield* capturePrivateJsonData(input, cmsLimits.documentBytes, cmsError)).value;
-    if (!Array.isArray(value) || value.length > payloadRelatedPostsField.maxItems) return yield* Result.fail(cmsError("relationInvalid"));
-    const ids: string[] = [];
-    for (const id of value) {
-      if (typeof id !== "string") return yield* Result.fail(cmsError("relationInvalid"));
-      yield* decodeAppDocumentIdentityV1Result(id).pipe(Result.mapError(cause => cmsError("relationInvalid", cause)));
-      ids.push(id);
-    }
-    if (new Set(ids).size !== ids.length) return yield* Result.fail(cmsError("relationInvalid"));
+    const ids = yield* decodeManyIds(value).pipe(Result.mapError(cause => cmsError("relationInvalid", cause)));
     return Object.freeze(ids);
   });
 }

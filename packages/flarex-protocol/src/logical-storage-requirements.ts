@@ -9,6 +9,7 @@ import { APP_UNIQUE_KEY_CODEC_IDENTITY_V1, APP_UNIQUE_KEY_CODEC_VERSION_V1,
   decodeAppUniqueConstraintPhysicalSpecV1Result, lowerLogicalDocumentUniqueConstraint,
   type AppUniqueConstraintPhysicalSpecV1 } from "./app-unique-constraint-definition";
 import { relationalReverseIndexes } from "./relational-schema/access";
+import type { RelationDeclarationV1 } from "./relation-declaration-v1";
 
 export class LogicalStorageRequirementError extends Data.TaggedError("LogicalStorageRequirementError")<{
   readonly reason: "unsupportedDefinition";
@@ -136,23 +137,34 @@ export function compileLogicalSourceIndexes(source: LogicalSchemaSource) {
 
 /** Native declarations remain authoritative; this is their derived publication
  * policy, not a second schema declaration or a cross-source extension. */
-export function compileLogicalDocumentReferences(source: LogicalSchemaSource) {
+export function compileLogicalDocumentReference(source: LogicalSchemaSource, relation: RelationDeclarationV1):
+  Result.Result<LogicalSchemaExtension, LogicalStorageRequirementError> {
   return Result.gen(function* () {
-    const references: LogicalSchemaExtension[] = [];
-    if (source.owner !== "payload" || source.writeProfile !== "payload.content-relations" ||
-      source.definition.kind !== "documents" || source.definition.relations.length !== 1) return references;
-    const relation = source.definition.relations[0];
-    if (relation === undefined || relation.value.cardinality !== "one" || relation.value.required ||
+    if (source.owner !== "payload" || source.definition.kind !== "documents" || !source.definition.relations.includes(relation)
+      || relation.value.cardinality !== "one" || relation.value.required ||
       relation.localized || relation.onTargetDelete !== "restrict" || relation.inverse.name !== null ||
       relation.source.path.length !== 1 || relation.source.path[0]?.kind !== "field")
       return yield* Result.fail(failure(source));
     const from = source.bindings.find(binding => binding.kind === "definition" && binding.localName === relation.source.table);
     const to = source.bindings.find(binding => binding.kind === "definition" && binding.localName === relation.target.table);
     if (from === undefined || to === undefined) return yield* Result.fail(failure(source));
-    references.push({ name: `document-relation/${source.key}/${relation.source.table}/${relation.source.forwardName}`,
+    return { name: `document-relation/${source.key}/${relation.source.table}/${relation.source.forwardName}`,
       sourceKey: source.key, source: { table: from.table, field: relation.source.path[0].name },
       target: { table: to.table, field: "_id" }, policy: "strongReference",
-      liveness: { source: { kind: "current" }, target: { kind: "current" } }, onTargetDelete: "restrict" });
+      liveness: { source: { kind: "current" }, target: { kind: "current" } }, onTargetDelete: "restrict" } satisfies LogicalSchemaExtension;
+  });
+}
+
+/** Retain the existing whole-source admission boundary. A trusted native owner
+ * may lower one actual scalar declaration through the singular helper. */
+export function compileLogicalDocumentReferences(source: LogicalSchemaSource) {
+  return Result.gen(function* () {
+    const references: LogicalSchemaExtension[] = [];
+    if (source.owner !== "payload" || source.writeProfile !== "payload.content-relations" ||
+      source.definition.kind !== "documents" || source.definition.relations.length !== 1) return references;
+    const relation = source.definition.relations[0];
+    if (relation === undefined) return yield* Result.fail(failure(source));
+    references.push(yield* compileLogicalDocumentReference(source, relation));
     return Object.freeze(references);
   });
 }

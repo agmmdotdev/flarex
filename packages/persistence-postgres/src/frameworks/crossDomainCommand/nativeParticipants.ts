@@ -53,7 +53,7 @@ export const makeNativeCurrencyAnnouncementParticipants = Effect.fn("CurrencyAnn
   const commerce = yield* makeNativeCommerceParticipant(currencyOperations, currency, commerceLifetime,
     commerceLifetime.context, transactionId, operation.unixTime);
   const cmsContext = (context: CmsCommandContext["context"]) => makeCmsCommandContext(cmsLifetime, transactionId, context, {
-    documents, relations: makeNativeCmsRelations(payloadOperations, cmsLifetime),
+    documents, relations: makeNativeCmsRelations(payloadOperations, cmsLifetime, new Map(), false),
     preferences: { deleteForPendingDocument: (manager, id) => cmsLifetime.operation(manager, id, "write", Effect.fail(cmsError("unsupportedProfile"))) },
   }, false, () => Effect.fail(cmsError("invalidAuthority")));
   const commerceContext = (context: CommerceCommandContext["manager"]) => makeCommerceCommandContext(commerceLifetime,

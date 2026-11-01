@@ -4,7 +4,7 @@ import { decodeApplicationWritePolicies, digestApplicationWritePolicyFrame, payl
   validateApplicationWritePolicySchema, verifyApplicationWritePolicies } from "@flarex/analysis/internal/application-write-policy";
 import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
 import { LogicalSchemaSourceSchema, encodeLogicalSchemaSource, type LogicalSchemaSource, type QualifiedLogicalTable } from "flarex-protocol/internal/logical-schema-candidate";
-import { compileLogicalDocumentReferences } from "flarex-protocol/internal/logical-storage-requirements";
+import { compileLogicalDocumentReference } from "flarex-protocol/internal/logical-storage-requirements";
 import { encodeCanonicalJson, type Json } from "flarex-protocol/json";
 import { ScopeEpochUuidV1Schema, ScopeUuidV1Schema } from "flarex-protocol/storage-authority";
 import { encodeIndexKey, encodeIndexValue } from "flarex-protocol/index-key";
@@ -24,14 +24,28 @@ import { isCoreIndexStaged } from "./indexState";
 import type { RelationalPersistenceCapability, RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
 import { encodeValidatorJsonV1, type ValidatorJsonV1 } from "flarex-protocol/validator-json";
 import { prepareRelationalRows, type RelationalRowFailureDiagnostic } from "../values/relationalRows";
-import { coreNativeIndexName, coreNativeTableName } from "./schemaTableName";
+import { coreNativeIndexName, coreNativeReferenceTableName, coreNativeTableName } from "./schemaTableName";
 import { coreSchemaBundleNative, isCoreSchemaBundleSuccessor, requireCoreSchemaBundle, type CoreSchemaBundle } from "./schemaBundle";
+import { isCorePrivateTable } from "./nativeTableAccess";
 
 import { CoreNativeIdentitySchema, CoreNativeUniqueConstraintSchema as Unique, type CoreNativeIdentity,
   type CoreNativeTablePolicy, type CoreNativeReference, coreNativeConstraintFields, coreNativeConstraintNullsDistinct } from "./nativePolicyTypes";
+import type { CoreNativePrivateReferenceRole } from "./nativePolicyTypes";
 export { CoreNativeIdentitySchema, CoreNativeTablePolicySchema, coreNativeConstraintFields,
   coreNativeConstraintNullsDistinct } from "./nativePolicyTypes";
-export type { CoreNativeIdentity, CoreNativeTablePolicy, CoreNativeReference } from "./nativePolicyTypes";
+export type { CoreNativeIdentity, CoreNativeTablePolicy, CoreNativeReference, CoreNativeReferenceProjection,
+  CoreNativePrivateReferenceRole } from "./nativePolicyTypes";
+export interface CoreNativeTableDeclaration {
+  readonly name: string;
+  readonly localName?: string;
+  readonly table?: QualifiedLogicalTable;
+  readonly uniqueConstraints: readonly typeof Unique.Type[];
+  readonly indexes?: readonly CoreNativeRelationalIndex[];
+  readonly privateReference?: CoreNativePrivateReferenceRole;
+}
+export interface CoreNativePrivateTableDeclaration extends CoreNativeTableDeclaration {
+  readonly privateReference: CoreNativePrivateReferenceRole;
+}
 export interface CoreNativeDefinition {
   readonly identity: CoreNativeIdentity;
   readonly source: LogicalSchemaSource;
@@ -41,9 +55,14 @@ export interface CoreNativeDefinition {
   /** Authoritative source wire and exposure, stored with the shared schema record. */
   readonly metadata: string;
   readonly references: readonly CoreNativeReference[];
-  readonly tables: readonly Readonly<{ name: string; localName?: string; table?: QualifiedLogicalTable;
-    uniqueConstraints: readonly typeof Unique.Type[];
-    indexes?: readonly CoreNativeRelationalIndex[] }>[];
+  /** Business capabilities never include derived private projection tables. */
+  readonly tables: readonly CoreNativeTableDeclaration[];
+  readonly privateTables?: readonly CoreNativePrivateTableDeclaration[];
+}
+
+export function coreNativeStoredTables(definition: Pick<CoreNativeDefinition, "tables" | "privateTables">):
+  readonly (CoreNativeTableDeclaration | CoreNativePrivateTableDeclaration)[] {
+  return definition.privateTables === undefined ? definition.tables : [...definition.tables, ...definition.privateTables];
 }
 export interface CoreNativeRelationalIndex {
   readonly nativeId: string;
@@ -79,7 +98,8 @@ export interface CoreApplicationInsertAuthority {
   readonly table: CoreTableDefinition;
   readonly bundle: CoreSchemaBundle;
 }
-const SourceContract = Schema.Struct({ sourceKey: Schema.Literal("payload"), writeProfile: Schema.Literals(["payload.scalar", "payload.content-relations"]),
+const SourceContract = Schema.Struct({ sourceKey: Schema.Literal("payload"), writeProfile: Schema.Literals([
+  "payload.scalar", "payload.content-relations", "payload.content-many", "payload.content-joins"]),
   definition: Schema.toType(LogicalSchemaSourceSchema.fields.definition), evidence: LogicalSchemaSourceSchema.fields.evidence,
   configuration: LogicalSchemaSourceSchema.fields.evidence });
 const DefinitionOptions = Schema.Struct({ scopeUuid: ScopeUuidV1Schema, epochUuid: ScopeEpochUuidV1Schema,
@@ -111,7 +131,8 @@ export const makeCoreNativeDefinition = Effect.fn("CoreNativeDefinition.make")(f
     .pipe(Effect.mapError(cause => unsupported("Invalid native source", cause)));
   const contract = yield* decodeSourceContract(captured)
     .pipe(Effect.mapError(cause => unsupported("Only the selected Payload document source is supported", cause)));
-  if (contract.definition.kind !== "documents" || contract.definition.relations.length !== (contract.writeProfile === "payload.scalar" ? 0 : 1))
+  const manyProfile = contract.writeProfile === "payload.content-many" || contract.writeProfile === "payload.content-joins";
+  if (contract.definition.kind !== "documents" || contract.definition.relations.length !== (contract.writeProfile === "payload.scalar" ? 0 : manyProfile ? 2 : 1))
     return yield* unsupported("Native document declarations differ from the selected profile");
   const documentDefinition = contract.definition;
   const verified = yield* verifyApplicationWritePolicies(contract.evidence, documentDefinition.tables.map(table => table.logicalName))
@@ -159,14 +180,38 @@ export const makeCoreNativeDefinition = Effect.fn("CoreNativeDefinition.make")(f
     bindings: documentDefinition.tables.map(table => ({ kind: "definition", localName: table.logicalName,
       table: { namespace: "app", logicalName: table.logicalName } })) })
     .pipe(Effect.mapError(cause => producerFailure("Invalid native source definition", cause))));
-  const lowered = yield* Effect.fromResult(compileLogicalDocumentReferences(source))
-    .pipe(Effect.mapError(cause => unsupported("Native reference declarations are unsupported", cause)));
+  if (source.definition.kind !== "documents") return yield* unsupported("Native document source lost its definition");
   const references: CoreNativeReference[] = [];
-  for (const reference of lowered) {
-    const declaration = documentDefinition.relations.find(candidate => candidate.source.table === reference.source.table.logicalName
-      && candidate.source.forwardName === reference.source.field);
-    if (declaration === undefined || !tableNumbers.has(declaration.source.table) || !tableNumbers.has(declaration.target.table))
+  const privateTables: CoreNativePrivateTableDeclaration[] = [];
+  const privateSchemas: (typeof CoreSchemaInputSchema.Type)["tables"][number][] = [];
+  for (const declaration of source.definition.relations) {
+    if (!tableNumbers.has(declaration.source.table) || !tableNumbers.has(declaration.target.table))
       return yield* unsupported("Native reference endpoints are outside their authenticated source");
+    const field = declaration.source.path[0].name;
+    if (declaration.value.cardinality === "many") {
+      if (!manyProfile || declaration.source.path.length !== 1 || declaration.value.minItems !== 0
+        || declaration.value.maxItems !== 32 || !declaration.value.ordered || declaration.value.duplicates !== "forbid"
+        || declaration.localized || declaration.inverse.name !== null || declaration.onTargetDelete !== "restrict")
+        return yield* unsupported("Native many declaration differs from its admitted profile");
+      const name = `document-relation/${source.key}/${declaration.source.table}/${declaration.source.forwardName}`;
+      const tableName = yield* coreNativeReferenceTableName(source.key, name);
+      if (tableNumbers.has(tableName) || privateTables.some(table => table.name === tableName))
+        return yield* unsupported("Native private reference tables collide with their source");
+      const projection = Object.freeze({ tableName, bySourceIndex: "by_source_target" as const, byTargetIndex: "by_target_source" as const });
+      references.push(snapshotDecodedProtocolPlainData({ declaration, reference: { kind: "manyMembership" as const, name, sourceKey: source.key },
+        sourceTable: declaration.source.table, targetTable: declaration.target.table, field,
+        indexName: projection.byTargetIndex, projection }));
+      privateTables.push(Object.freeze({ name: tableName, uniqueConstraints: Object.freeze([]),
+        privateReference: Object.freeze({ kind: "referenceMembership", referenceName: name }) }));
+      privateSchemas.push({ tableName, documentType: { type: "object", value: {
+        sourceId: { optional: false, fieldType: { type: "id", tableName: declaration.source.table } },
+        targetId: { optional: false, fieldType: { type: "id", tableName: declaration.target.table } },
+      } }, indexes: [{ indexDescriptor: projection.bySourceIndex, fields: ["sourceId", "targetId"] },
+        { indexDescriptor: projection.byTargetIndex, fields: ["targetId", "sourceId"] }], stagedDbIndexes: [] });
+      continue;
+    }
+    const reference = yield* Effect.fromResult(compileLogicalDocumentReference(source, declaration))
+      .pipe(Effect.mapError(cause => unsupported("Native scalar reference declaration is unsupported", cause)));
     const indexName = `by_reference_${declaration.source.forwardName}`;
     const sourceTable: string = declaration.source.table;
     if (documentDefinition.indexes.some(index => index.tableLogicalName === sourceTable
@@ -178,14 +223,17 @@ export const makeCoreNativeDefinition = Effect.fn("CoreNativeDefinition.make")(f
   if (references.length !== documentDefinition.relations.length)
     return yield* unsupported("Native reference lowering is incomplete");
   const schema = yield* Effect.fromResult(captureCoreSchema({ schemaValidation: true,
-    tables: documentDefinition.tables.map(table => ({ tableName: table.logicalName, documentType: table.definition.documentType,
+    tables: [...documentDefinition.tables.map(table => ({ tableName: table.logicalName, documentType: table.definition.documentType,
       indexes: [...documentDefinition.indexes.filter(index => index.tableLogicalName === table.logicalName)
         .map(index => ({ indexDescriptor: index.descriptor, fields: index.fields })),
-        ...references.filter(reference => reference.sourceTable === table.logicalName)
-          .map(reference => ({ indexDescriptor: reference.indexName, fields: [reference.field] }))], stagedDbIndexes: [] })) }));
+        ...references.filter(reference => reference.sourceTable === table.logicalName && !("projection" in reference))
+          .map(reference => ({ indexDescriptor: reference.indexName, fields: [reference.field] }))], stagedDbIndexes: [] })), ...privateSchemas] }));
   const configSha256 = yield* digestApplicationWritePolicyFrame(configuration).pipe(Effect.mapError(cause => producerFailure("Native digest failed", cause)));
-  const definitionHash = yield* digestApplicationWritePolicyFrame({ sourceSha256: source.sourceSha256,
-    scopeUuid: options.scopeUuid, epochUuid: options.epochUuid, applicationRead: options.applicationRead })
+  const definitionFrame = { sourceSha256: source.sourceSha256,
+    scopeUuid: options.scopeUuid, epochUuid: options.epochUuid, applicationRead: options.applicationRead };
+  const loweredSchema = manyProfile ? yield* Effect.fromResult(serializeCoreSchema(schema)) : undefined;
+  const definitionHash = yield* digestApplicationWritePolicyFrame(loweredSchema === undefined ? definitionFrame : {
+    format: "flarex.core-native-memberships", version: 1, loweringVersion: 1, ...definitionFrame, schema: loweredSchema })
     .pipe(Effect.mapError(cause => producerFailure("Native digest failed", cause)));
   const identity: CoreNativeIdentity = Object.freeze({ scopeUuid: options.scopeUuid, epochUuid: options.epochUuid,
     sourceKey: contract.sourceKey, sourceSha256: source.sourceSha256, configSha256,
@@ -193,9 +241,13 @@ export const makeCoreNativeDefinition = Effect.fn("CoreNativeDefinition.make")(f
   const commands = ([ ["payload-create", "write"], ["payload-update", "write"], ["payload-delete", "write"],
     ["payload-find", "read"], ["payload-findByID", "read"], ["payload-count", "read"] ] as const)
     .map(([name, mode]) => Object.freeze({ name, mode, identity: Object.freeze({ source: identity, name, mode }) }));
-  const metadata = canonical({ source: encodeLogicalSchemaSource(source), identity, applicationRead: options.applicationRead });
+  const metadataFrame = { source: encodeLogicalSchemaSource(source), identity, applicationRead: options.applicationRead };
+  const metadata = canonical(loweredSchema === undefined ? metadataFrame : {
+    format: "flarex.core-native-memberships", version: 1, loweringVersion: 1, ...metadataFrame,
+    privateTables: privateTables.map(table => ({ name: table.name, privateReference: { ...table.privateReference } })), schema: loweredSchema });
   const definition: CoreNativeDefinition = Object.freeze({ identity, source, schema, applicationRead: options.applicationRead,
-    commands: Object.freeze(commands), metadata, tables: Object.freeze(tables), references: Object.freeze(references) });
+    commands: Object.freeze(commands), metadata, tables: Object.freeze(tables), references: Object.freeze(references),
+    ...(privateTables.length === 0 ? {} : { privateTables: Object.freeze(privateTables) }) });
   definitions.add(definition);
   return definition;
 });
@@ -335,12 +387,25 @@ export function sameCoreNativeIdentity(left: CoreNativeIdentity, right: CoreNati
     && left.sourceSha256 === right.sourceSha256 && left.configSha256 === right.configSha256
     && left.provenanceSha256 === right.provenanceSha256 && left.definitionHash === right.definitionHash;
 }
+export function coreNativePolicyForTable(definition: CoreNativeDefinition,
+  declaration: CoreNativeTableDeclaration | CoreNativePrivateTableDeclaration,
+  state: CoreNativeTablePolicy["state"], schemaId: string): CoreNativeTablePolicy {
+  const privateReference = declaration.privateReference;
+  const references = privateReference === undefined ? definition.references : [];
+  return Object.freeze({ state, schemaId, identity: definition.identity,
+    applicationRead: privateReference === undefined && definition.applicationRead,
+    uniqueConstraints: declaration.uniqueConstraints,
+    ...(references.length === 0 ? {} : { references }),
+    ...(privateReference === undefined ? {} : { privateReference }) });
+}
 function nativePolicyMatches(policy: CoreNativeTablePolicy, definition: CoreNativeDefinition, tableName: string): boolean {
-  const expected = definition.tables.find(table => table.name === tableName);
+  const expected = coreNativeStoredTables(definition).find(table => table.name === tableName);
+  const privateReference = expected?.privateReference;
   return expected !== undefined && sameCoreNativeIdentity(policy.identity, definition.identity)
-    && policy.applicationRead === definition.applicationRead
+    && policy.applicationRead === (privateReference === undefined && definition.applicationRead)
+    && canonical(policy.privateReference ?? null) === canonical(privateReference ?? null)
     && sameNativeConstraints(policy.uniqueConstraints, expected.uniqueConstraints)
-    && canonical(policy.references ?? []) === canonical(definition.references);
+    && canonical(policy.references ?? []) === canonical(privateReference === undefined ? definition.references : []);
 }
 function sameNativeConstraints(left: CoreNativeTablePolicy["uniqueConstraints"], right: CoreNativeTablePolicy["uniqueConstraints"]): boolean {
   return left.length === right.length && left.every((constraint, position) => {
@@ -355,6 +420,7 @@ function sameNativeConstraints(left: CoreNativeTablePolicy["uniqueConstraints"],
 export function sameCoreNativeTablePolicy(left: CoreNativeTablePolicy, right: CoreNativeTablePolicy): boolean {
   return left.state === right.state && left.schemaId === right.schemaId
     && left.applicationRead === right.applicationRead && sameCoreNativeIdentity(left.identity, right.identity)
+    && canonical(left.privateReference ?? null) === canonical(right.privateReference ?? null)
     && sameNativeConstraints(left.uniqueConstraints, right.uniqueConstraints)
     && canonical(left.references ?? []) === canonical(right.references ?? []);
 }
@@ -399,6 +465,7 @@ export function isCoreNativeDefinitionSuccessor(prior: CoreNativeDefinition, nex
 export function checkCoreTableAccess(table: CoreTableDefinition, mode: "read" | "write",
   authority?: CoreNativeAuthority): Result.Result<void, CoreTransactionError> {
   const policy = table.nativePolicy;
+  if (isCorePrivateTable(table)) return Result.fail(revoked());
   if (authority === undefined) return policy === undefined || (mode === "read" && policy.state === "active" && policy.applicationRead)
     ? Result.succeed(undefined) : Result.fail(revoked());
   const expected = authority.tables.find(candidate => candidate.name === table.name);
@@ -430,6 +497,12 @@ export function checkCoreNativeAuthority(registry: CoreRegistry, authority: Core
         if (actual === undefined || !bytesEqual(index.ref.id, actual.ref.id)
           || JSON.stringify(index.fields) !== JSON.stringify(actual.fields)) return yield* Result.fail(revoked());
       }
+      yield* checkNativeTableIndexes(registry, table, authority.definition, true).pipe(Result.mapError(() => revoked()));
+    }
+    for (const declaration of authority.definition.privateTables ?? []) {
+      const table = registry.table(declaration.name, authority.namespace)?.definition;
+      if (table?.state !== "active" || table.nativePolicy?.state !== "active" || table.nativePolicy.schemaId !== authority.schemaId
+        || !nativePolicyMatches(table.nativePolicy, authority.definition, declaration.name)) return yield* Result.fail(revoked());
       yield* checkNativeTableIndexes(registry, table, authority.definition, true).pipe(Result.mapError(() => revoked()));
     }
   });
@@ -527,10 +600,10 @@ function checkNativeRegistry(registry: CoreRegistry, sources: ReadonlyMap<string
         && candidate.selection.metadata.state.state === "active");
       const activeProof = active === undefined ? undefined : sources.get(active.selection.metadata.native ?? "");
       for (const definition of isBundle(proof) ? proof.nativeDefinitions : [proof]) {
-        for (const declaration of definition.tables) {
+        for (const declaration of coreNativeStoredTables(definition)) {
           const table = registry.table(declaration.name, namespace)?.definition;
           const previous = activeProof === undefined ? undefined : (isBundle(activeProof) ? activeProof.nativeDefinitions : [activeProof])
-            .find(candidate => candidate.tables.some(item => item.name === declaration.name));
+            .find(candidate => coreNativeStoredTables(candidate).some(item => item.name === declaration.name));
           if (state === "reserved" && previous !== undefined) {
             if (table?.nativePolicy === undefined || table.nativePolicy.state !== "active" || table.nativePolicy.schemaId !== active?.selection.id
               || !nativePolicyMatches(table.nativePolicy, previous, declaration.name))
@@ -678,8 +751,14 @@ function schemaAuthorityMetadataReads(registry: CoreRegistry, authority: Readonl
 export function coreNativeMetadataReads(registry: CoreRegistry, authority: CoreNativeAuthority, tableName?: string): Result.Result<CoreReadSet, CoreError> {
   return Result.gen(function* () {
     yield* checkCoreNativeAuthority(registry, authority, tableName);
+    const privateTables: CoreTableDefinition[] = [];
+    for (const declaration of authority.definition.privateTables ?? []) {
+      const table = registry.table(declaration.name, authority.namespace)?.definition;
+      if (table === undefined) return yield* Result.fail(revoked());
+      privateTables.push(table);
+    }
     return yield* schemaAuthorityMetadataReads(registry, { ...authority,
-      tables: authority.tables.filter(candidate => tableName === undefined || candidate.name === tableName) });
+      tables: [...authority.tables.filter(candidate => tableName === undefined || candidate.name === tableName), ...privateTables] });
   });
 }
 export function coreApplicationInsertMetadataReads(registry: CoreRegistry,

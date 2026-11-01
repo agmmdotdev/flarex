@@ -24,11 +24,15 @@ import { coreNativeTestBudget } from "../../../persistence-postgres/test/core/na
 import type { JsonObject } from "flarex-protocol/json";
 
 type NativeRuntime = Pick<PayloadRuntime, "bind" | "bindRead" | "bindNative" | "bindNativeRead">;
+/** Test-owned fixed producers and the ordinary compiler share this data contract.
+ * It is not a CompiledPayloadCollections issuer proof for the public runtime. */
+export type CorePayloadFixtureSource = Pick<CompiledPayloadCollections,
+  "configuration" | "sourceContract" | "contentIdentity" | "createNativeCollections">;
 type AccessRuntime = Effect.Success<ReturnType<typeof makePayloadManagedReadAccessRuntime>>;
 export interface CorePayloadFixtureOptions {
-  readonly compiled?: CompiledPayloadCollections;
+  readonly compiled?: CorePayloadFixtureSource;
   readonly application?: PreparedApplicationSchemaSource;
-  readonly futureSources?: readonly Readonly<{ compiled: CompiledPayloadCollections; application?: PreparedApplicationSchemaSource }>[];
+  readonly futureSources?: readonly Readonly<{ compiled: CorePayloadFixtureSource; application?: PreparedApplicationSchemaSource }>[];
   readonly preferences?: boolean;
   /** Install this authentic source without automatically granting cleanup. */
   readonly preferenceDefinition?: CoreNativeDefinition;
@@ -37,7 +41,7 @@ export interface CorePayloadFixtureOptions {
     readonly beforeFinalize?: () => Effect.Effect<void, CoreError>;
     readonly afterFinalize?: () => Effect.Effect<void, CoreError>;
   };
-  readonly makeRuntime?: (compiled: CompiledPayloadCollections) => Effect.Effect<NativeRuntime, CmsTransactionError, Scope.Scope>;
+  readonly makeRuntime?: (compiled: CorePayloadFixtureSource) => Effect.Effect<NativeRuntime, CmsTransactionError, Scope.Scope>;
   readonly scopeUuid?: string;
   readonly epochUuid?: string;
   readonly wrapRuntimeDriver?: CorePersistenceFixtureOptions["wrapRuntimeDriver"];
@@ -45,20 +49,21 @@ export interface CorePayloadFixtureOptions {
   readonly afterIndexBackfill?: (indexes: readonly CorePersistenceIndexEntry[]) => Effect.Effect<void, CorePersistenceError>;
 }
 export interface CorePayloadSuccessor {
-  readonly compiled: CompiledPayloadCollections;
+  readonly compiled: CorePayloadFixtureSource;
   readonly definition: Effect.Success<ReturnType<typeof makeCoreNativeDefinition>>;
   readonly bundle: CoreSchemaBundle | undefined;
   readonly proposal: Effect.Success<ReturnType<CoreDatabase["prepareSchema"]>>;
 }
 export type CorePayloadFixtureTarget =
-  | Readonly<{ kind: "fresh"; driver: "pglite" | "postgres"; instanceName?: string }>
+  | Readonly<{ kind: "fresh"; driver: "pglite" | "postgres"; instanceName?: string;
+    postgresEndpoints?: Readonly<{ connectionString: string; provisioningConnectionString: string }> }>
   | Readonly<{ kind: "physical"; physical: CorePersistenceFixture; installation: "fresh" | "existing"; instanceName?: string }>;
 export interface CorePayloadFixture {
   readonly database: CoreDatabase;
   readonly physical: CorePersistenceFixture;
   readonly persistence: CorePersistence;
   readonly instanceName: string;
-  readonly compiled: CompiledPayloadCollections;
+  readonly compiled: CorePayloadFixtureSource;
   readonly definition: Effect.Success<ReturnType<typeof makeCoreNativeDefinition>>;
   readonly binding: CoreNativeBinding;
   readonly cmsBinding: CmsNativeBinding;
@@ -73,7 +78,7 @@ export interface CorePayloadFixture {
   readonly run: <A, E>(work: Effect.Effect<A, E, Scope.Scope>) => Promise<A>;
   readonly openHost: (extra: readonly CmsCommand[]) => Effect.Effect<CmsHost, CmsTransactionError>;
   readonly inventory: () => Promise<CoreNativeFixtureInventory>;
-  readonly prepareSuccessor: (compiled: CompiledPayloadCollections, application?: PreparedApplicationSchemaSource) => Promise<CorePayloadSuccessor>;
+  readonly prepareSuccessor: (compiled: CorePayloadFixtureSource, application?: PreparedApplicationSchemaSource) => Promise<CorePayloadSuccessor>;
   readonly activateSuccessor: (successor: CorePayloadSuccessor) => Promise<void>;
   readonly rebind: (successor: CorePayloadSuccessor) => Promise<void>;
   readonly seedPreferences: (rows: readonly JsonObject[]) => Promise<void>;
@@ -92,8 +97,10 @@ export async function createCorePayloadFixture(target: CorePayloadFixtureTarget,
     ...(target.instanceName === undefined ? {} : { instanceName: target.instanceName }),
     ...(options.wrapRuntimeDriver === undefined ? {} : { wrapRuntimeDriver: options.wrapRuntimeDriver }) });
   else {
-    if (postgresUrl === null || provisioning === undefined) throw new Error("Native PostgreSQL fixture needs ordinary and provisioning endpoints");
-    physical = await createCorePostgresFixture({ connectionString: postgresUrl, provisioningConnectionString: provisioning,
+    const endpoints = target.postgresEndpoints ?? (postgresUrl === null || provisioning === undefined ? undefined
+      : { connectionString: postgresUrl, provisioningConnectionString: provisioning });
+    if (endpoints === undefined) throw new Error("Native PostgreSQL fixture needs ordinary and provisioning endpoints");
+    physical = await createCorePostgresFixture({ ...endpoints,
       ...(target.instanceName === undefined ? {} : { instanceName: target.instanceName }),
       ...(options.wrapRuntimeDriver === undefined ? {} : { wrapRuntimeDriver: options.wrapRuntimeDriver }) });
   }
@@ -113,7 +120,7 @@ export async function createCorePayloadFixture(target: CorePayloadFixtureTarget,
   });
   let closed = false;
   try {
-    let compiled = options.compiled ?? await run(compilePayloadCollections([{ slug: "news", fields: [
+    let compiled: CorePayloadFixtureSource = options.compiled ?? await run(compilePayloadCollections([{ slug: "news", fields: [
       { name: "title", type: "text", required: true, unique: true },
     ] }]));
     let definition = await run(makeCoreNativeDefinition({ source: compiled.sourceContract,
@@ -123,7 +130,7 @@ export async function createCorePayloadFixture(target: CorePayloadFixtureTarget,
     const preferenceDefinition = options.preferenceDefinition
       ?? (options.preferences === true ? await run(makePayloadPreferenceNativeDefinition(definition.identity)) : undefined);
     const bundles: CoreSchemaBundle[] = [];
-    let bundle = application === undefined && preferenceDefinition === undefined ? undefined : await run(makeCoreSchemaBundle({ sources: [
+    let bundle = application === undefined && preferenceDefinition === undefined && definition.privateTables === undefined ? undefined : await run(makeCoreSchemaBundle({ sources: [
       ...(application === undefined ? [] : [{ kind: "application" as const, definition: application }]), { kind: "native", definition },
       ...(preferenceDefinition === undefined ? [] : [{ kind: "native" as const, definition: preferenceDefinition }]),
     ] }));
@@ -132,7 +139,7 @@ export async function createCorePayloadFixture(target: CorePayloadFixtureTarget,
       const futureDefinition = await run(makeCoreNativeDefinition({ source: future.compiled.sourceContract,
         scopeUuid: definition.identity.scopeUuid, epochUuid: definition.identity.epochUuid }));
       const futureApplication = future.application ?? application;
-      if (futureApplication === undefined && preferenceDefinition === undefined) continue;
+      if (futureApplication === undefined && preferenceDefinition === undefined && futureDefinition.privateTables === undefined) continue;
       bundles.push(await run(makeCoreSchemaBundle({ sources: [
         ...(futureApplication === undefined ? [] : [{ kind: "application" as const, definition: futureApplication }]),
         { kind: "native", definition: futureDefinition },
@@ -215,7 +222,7 @@ export async function createCorePayloadFixture(target: CorePayloadFixtureTarget,
       prepareSuccessor: async (next, nextApplication = application) => {
         const nextDefinition = await run(makeCoreNativeDefinition({ source: next.sourceContract,
           scopeUuid: definition.identity.scopeUuid, epochUuid: definition.identity.epochUuid }));
-        const nextBundle = nextApplication === undefined && preferenceDefinition === undefined ? undefined : await run(makeCoreSchemaBundle({ sources: [
+        const nextBundle = nextApplication === undefined && preferenceDefinition === undefined && nextDefinition.privateTables === undefined ? undefined : await run(makeCoreSchemaBundle({ sources: [
           ...(nextApplication === undefined ? [] : [{ kind: "application" as const, definition: nextApplication }]),
           { kind: "native", definition: nextDefinition },
           ...(preferenceDefinition === undefined ? [] : [{ kind: "native" as const, definition: preferenceDefinition }]),

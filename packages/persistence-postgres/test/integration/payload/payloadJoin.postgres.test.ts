@@ -1,12 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { postgresUrl, useFileScopedPostgresPersistence } from "../../support/postgresHelpers";
-import { makePostgresRelationalSession } from "../../../src/database/relationalTransaction/session";
-import { payloadPreferenceBindingScenario } from "../../frameworks/payloadPreferences/payloadPreferenceBindingScenario";
+import { describe, it } from "vitest";
+import { postgresUrl } from "../../support/postgresHelpers";
+import { payloadJoinScenario } from "./payloadJoinScenario";
 
-describe.skipIf(postgresUrl === null)("private Payload reverse join (PostgreSQL)", () => {
-  const withPersistence = useFileScopedPostgresPersistence();
-  it("proves populated reverse join behavior, races and recovery", () => withPersistence(async persistence => {
-    expect((await persistence.query<{ superuser: boolean }>("select rolsuper as superuser from pg_roles where rolname=current_user")).rows[0]?.superuser).toBe(false);
-    await payloadPreferenceBindingScenario(persistence, makePostgresRelationalSession(persistence), "joins");
-  }), 180000);
+describe.skipIf(postgresUrl === null)("native Payload reverse joins (ordinary-role PostgreSQL)", () => {
+  it("preserves first-window ordering, source observations, lifetime and cold recovery", () => payloadJoinScenario("postgres"), 180_000);
 });

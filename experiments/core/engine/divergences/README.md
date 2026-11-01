@@ -132,6 +132,7 @@ maintaining a competing completion log here.
 
 ## Selected native extensions
 
+- [Native many membership derivation](./native-reference-memberships.md): selected fresh many/join profiles implemented through confined logical records and ordinary indexes, with paired native/integrity/recovery proof; broader acceptance remains open.
 - [Native strong-reference integrity](./native-strong-references.md): selected optional-one late liveness/restrict validation, shared reverse indexes and ordered-save proof implemented; broader native gates remain.
 - [Confined Payload preference cleanup](./native-payload-preference-cleanup.md): logical installed model, opaque deletion evidence and native lifecycle authority implemented for selected consumers; broader lifecycle/hosting gates remain.
 - [Native source initialization outcomes](./native-source-initialization.md): actual producer seed/readiness and known-failure retry use existing Core native outcomes; selected fresh contract implemented.

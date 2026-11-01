@@ -328,6 +328,16 @@ Name policy-sensitive cases and resolve their Application/native disposition
 before changing observable behavior; a retained policy difference is not parity.
 Matching names or SQL text is not algorithm conformance or a measured speedup.
 
+The [fresh many/join continuation](./slices/15-native-many-and-joins.md) implements
+its actual fixed producer and genuine Local API consumers after three-way peer
+challenge. It uses confined logical memberships, unchanged ordinary Source indexes,
+shared native integrity and one schema lifecycle, preserving fresh-only installation,
+refused many upgrades, source-authoritative order, root-only bounded joins and real
+source observations. Its [membership divergence](./divergences/native-reference-memberships.md)
+records the executing native derivation and paired proof. Relation workload
+construction also uses the current owner and its bounded regressions are complete;
+broader retirement, native, host and performance gates remain part of the goal.
+
 ## Convex-guided replacement workflow
 
 Accepted development rule: organize the refactor around replacing existing
@@ -587,4 +597,5 @@ sequence fence while keeping actual schema/policy/identity invalidation strict.
 The selected populated successor, cold build/rebinding, native late-integrity,
 opaque cleanup and genuine joint proof are complete. Selected fixtures have
 retired their old relation/catalog materialization and Legacy joint host; named
-many/joins, Product, developer-UDF and query-sync consumers remain separate gates.
+Product, developer-UDF and query-sync consumers remain separate gates. The selected
+fresh many/join continuation above replaces its named old consumer assembly.

@@ -1632,17 +1632,23 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         }));
         return pending?.current == null ? null : yield* lifetime.fromResult(output(pending.current, true));
       }))));
+  const captureIdentityBatch = Effect.fn("LogicalDocuments.captureIdentityBatch")(function* (tableName: string, input: readonly string[]) {
+    const captured = yield* Effect.fromResult(useCapturedPrivateJsonData(input, lifetime.remainingBytes(), error));
+    yield* charge(captured.bytes);
+    if (!Array.isArray(captured.value) || captured.value.length > Math.min(limits.pageRows, callIdentityLimit))
+      return yield* Effect.fail(error("limitExceeded"));
+    const table = yield* tableForName(tableName);
+    const identities = yield* Effect.forEach(captured.value, value => Effect.fromResult(decodeAppDocumentIdentityV1Result(value)
+      .pipe(Result.mapError(cause => error("invalidInput", cause)))));
+    if (identities.some(identity => identity.tableId !== table.tableId) || new Set(identities.map(identity => identity.id)).size !== identities.length) {
+      return yield* Effect.fail(error("invalidInput"));
+    }
+    return { table, identities };
+  });
+  const validateIds: LogicalDocuments<Failure>["validateIds"] = Effect.fn("LogicalDocuments.validateIds")((context, id, tableName, input) =>
+    runOperation(context, id, "read", Effect.asVoid(captureIdentityBatch(tableName, input))));
   const getMany: LogicalDocuments<Failure>["getMany"] = (context, id, tableName, input) => observeExecution("LogicalDocuments.getMany", Effect.suspend(() => runOperation(context, id, "read", Effect.gen(function* () {
-      const captured = yield* Effect.fromResult(useCapturedPrivateJsonData(input, lifetime.remainingBytes(), error));
-      yield* charge(captured.bytes);
-      if (!Array.isArray(captured.value) || captured.value.length > Math.min(limits.pageRows, callIdentityLimit))
-        return yield* Effect.fail(error("limitExceeded"));
-      const table = yield* tableForName(tableName);
-      const identities = yield* Effect.forEach(captured.value, value => Effect.fromResult(decodeAppDocumentIdentityV1Result(value)
-        .pipe(Result.mapError(cause => error("invalidInput", cause)))));
-      if (identities.some(identity => identity.tableId !== table.tableId) || new Set(identities.map(identity => identity.id)).size !== identities.length) {
-        return yield* Effect.fail(error("invalidInput"));
-      }
+      const { table, identities } = yield* captureIdentityBatch(tableName, input);
       const read = Effect.gen(function* () {
         const missing = identities.filter(identity => !dependencies.has(identity.id));
         if (!scanned.has(table.tableId) && dependencies.size + missing.length > limits.identities) return yield* Effect.fail(error("limitExceeded"));
@@ -3139,7 +3145,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       setNull: Object.freeze(setNull.slice(root === undefined ? 0 : localCursor.setNull)),
       referenceReplacements: Object.freeze(referenceReplacements.slice(root === undefined ? 0 : localCursor.referenceReplacements)) }), insertionRoot));
   }));
-  const documents = Object.freeze({ get, getMany, find, insert, delete: remove,
+  const documents = Object.freeze({ validateIds, get, getMany, find, insert, delete: remove,
     patch: (context, id, documentId, fields, tableName) => edit(context, id, documentId, fields, "patch", tableName),
     replace: (context, id, documentId, fields, tableName) => edit(context, id, documentId, fields, "replace", tableName) } satisfies LogicalDocuments<Failure>);
   const relationalTable = (manager: BoundedRequestContext,

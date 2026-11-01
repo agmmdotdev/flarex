@@ -79,7 +79,7 @@ export function makePayloadInputs(profile: PayloadContentProfile, collections: r
     if (payloadHasMany(profile) && Object.hasOwn(data, "relatedPosts")) {
       const ids = yield* Effect.fromResult(payloadManyIds(data.relatedPosts));
       // This capability authenticates table identity; finalization owns liveness.
-      if (ids.length > 0) yield* context.documents.getMany(context.context, context.transactionId, collection.logicalTableName, ids);
+      if (ids.length > 0) yield* context.documents.validateIds(context.context, context.transactionId, collection.logicalTableName, ids);
     }
     return data;
   });

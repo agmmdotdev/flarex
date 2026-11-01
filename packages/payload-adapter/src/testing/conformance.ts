@@ -10,6 +10,8 @@ import type { PayloadRuntime } from "../runtime";
 import { payloadConformanceConfiguration } from "./profiles";
 import type { CompiledPayloadCollections } from "../collections";
 
+type NativeConfiguration = Pick<CompiledPayloadCollections, "configuration" | "contentIdentity" | "createNativeCollections">;
+
 export interface PayloadConformanceRuntime {
   readonly runtime: Omit<PayloadRuntime, "makeAttempt">;
   readonly payload: BasePayload;
@@ -17,6 +19,7 @@ export interface PayloadConformanceRuntime {
     readonly touched: () => string[];
     readonly hookRuns: () => number;
     readonly executions: () => number;
+    readonly readAccessCalls: () => number;
     readonly pendingReads: () => number;
     readonly heldDeletes: () => number;
     readonly completedDeletes: () => number;
@@ -27,14 +30,15 @@ export interface PayloadConformanceRuntime {
 /** Fixed test scenarios only; the ordinary runtime never imports this module. */
 export const makePayloadConformanceRuntime: (
   profile?: PayloadContentProfile,
-  compiled?: CompiledPayloadCollections,
+  compiled?: NativeConfiguration,
 ) => Effect.Effect<PayloadConformanceRuntime, CmsTransactionError, Scope.Scope> =
-  Effect.fn("PayloadConformance.makeRuntime")(function* (profile?: PayloadContentProfile, compiled?: CompiledPayloadCollections) {
+  Effect.fn("PayloadConformance.makeRuntime")(function* (profile?: PayloadContentProfile, compiled?: NativeConfiguration) {
   if (profile !== undefined && compiled !== undefined && profile !== compiled.configuration.profile)
     return yield* cmsError("invalidAuthority");
   const selectedProfile = compiled?.configuration.profile ?? profile ?? "payload.scalar";
   let hookRuns = 0;
   let executions = 0;
+  let readAccessCalls = 0;
   let pendingReads = 0;
   let completedDeletes = 0;
   const heldDeletes = new Set<() => void>();
@@ -88,20 +92,23 @@ export const makePayloadConformanceRuntime: (
   const native = yield* makePayloadNative(compiled ?? payloadConformanceConfiguration(selectedProfile), {
     hooks, onExecute: () => { executions += 1; },
     onCollection: collection => { touched.add(collection); },
+    // Same fixed allow policy as the conformance collections, with actual native
+    // access execution visible independently from adapter/execution counters.
+    access: { read: () => { readAccessCalls++; return true; }, create: () => true, update: () => true, delete: () => true },
   });
   yield* Effect.addFinalizer(() => Effect.sync(releasePendingDeletes));
   const runtime = Object.freeze(bindPayloadDirect(native));
   registerPayloadRuntime(runtime, native);
   return { runtime, payload: native.payload, observations: {
     touched: () => [...touched], hookRuns: () => hookRuns,
-    executions: () => executions, pendingReads: () => pendingReads,
+    executions: () => executions, readAccessCalls: () => readAccessCalls, pendingReads: () => pendingReads,
     heldDeletes: () => heldDeletes.size, completedDeletes: () => completedDeletes, releasePendingDeletes,
   } };
 });
 
 /** Fixed native-access witness for equivalent direct and managed read behavior. */
 export const makePayloadManagedReadAccessRuntime = Effect.fn("PayloadManagedReadAccess.make")(function* (
-  compiled: CompiledPayloadCollections,
+  compiled: NativeConfiguration,
 ) {
   let visibility: "all" | "selected" | "denied" = "all";
   let accessCalls = 0;

@@ -34,3 +34,6 @@ export const coreNativeTableName = Effect.fn("CoreSchema.nativeTableName")((tabl
 export const coreNativeIndexName = Effect.fn("CoreSchema.nativeIndexName")((table: QualifiedLogicalTable,
   kind: "key" | "index", identity: string) => encodedName(kind === "key" ? "k_" : "i_",
     ["flarex.core.native-index", 1, table.namespace, table.logicalName, kind, identity]));
+
+export const coreNativeReferenceTableName = Effect.fn("CoreSchema.nativeReferenceTableName")((sourceKey: string,
+  referenceName: string) => encodedName("r_", ["flarex.core.native-reference-membership", 1, sourceKey, referenceName]));

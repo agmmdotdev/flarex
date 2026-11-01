@@ -1,8 +1,4 @@
 import { it } from "vitest";
-import { createRelationalPGliteFixture } from "../../database/relationalPGliteWorkerTestSupport";
-import { payloadPreferenceBindingScenario } from "../../frameworks/payloadPreferences/payloadPreferenceBindingScenario";
+import { payloadManyUpgradeScenario } from "./payloadManyUpgradeScenario";
 
-it("refuses scalar and optional-one many upgrades even after posts become empty", async () => {
-  const fixture = await createRelationalPGliteFixture();
-  await payloadPreferenceBindingScenario(fixture.persistence, fixture.session, "many-upgrade");
-}, 180000);
+it("refuses many upgrades of emptied scalar and optional-one owners", () => payloadManyUpgradeScenario("pglite"), 180_000);

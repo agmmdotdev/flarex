@@ -41,7 +41,7 @@ export function registerCoreNativeReferenceScenarios(driver: "pglite" | "postgre
       }) },
     ];
     const compiled = await Promise.all(variants.map(definition => Effect.runPromise(compilePayloadCollections([definition]))));
-    const fixture = await createCorePayloadFixture({ kind: "fresh", driver }, { compiled: scalar, makeRuntime: makePayloadRuntime });
+    const fixture = await createCorePayloadFixture({ kind: "fresh", driver }, { compiled: scalar, makeRuntime: () => makePayloadRuntime(scalar) });
     try {
       const before = await fixture.inventory();
       for (const candidate of compiled) {
@@ -58,7 +58,7 @@ export function registerCoreNativeReferenceScenarios(driver: "pglite" | "postgre
 
   it("uses the entire candidate overlay and true incoming EOF, including net-zero native sources", async () => {
     const compiled = await Effect.runPromise(compilePayloadCollections([payloadPostsCollectionDefinition("payload.content-relations")]));
-    const fixture = await createCorePayloadFixture({ kind: "fresh", driver }, { compiled, preferences: true, makeRuntime: makePayloadRuntime });
+    const fixture = await createCorePayloadFixture({ kind: "fresh", driver }, { compiled, preferences: true, makeRuntime: () => makePayloadRuntime(compiled) });
     const { run } = fixture;
     try {
       const commands = inspectPayloadRuntimeForTest(fixture.runtime).commands;
@@ -126,7 +126,7 @@ export function registerCoreNativeReferenceScenarios(driver: "pglite" | "postgre
   it("keeps actual native target observations separate from integrity and refuses incoming capacity exhaustion", async () => {
     const compiled = await Effect.runPromise(compilePayloadCollections([payloadPostsCollectionDefinition("payload.content-relations")]));
     let beforeFinalize: (() => Effect.Effect<void, CoreError>) | undefined;
-    const fixture = await createCorePayloadFixture({ kind: "fresh", driver }, { compiled, preferences: true, makeRuntime: makePayloadRuntime,
+    const fixture = await createCorePayloadFixture({ kind: "fresh", driver }, { compiled, preferences: true, makeRuntime: () => makePayloadRuntime(compiled),
       nativeHooks: { beforeFinalize: () => beforeFinalize?.() ?? Effect.void } });
     const { run } = fixture;
     try {
@@ -166,7 +166,7 @@ export function registerCoreNativeReferenceScenarios(driver: "pglite" | "postgre
 
   it("authenticates installed cleanup and opaque native deletion evidence", async () => {
     const compiled = await Effect.runPromise(compilePayloadCollections([payloadPostsCollectionDefinition("payload.content-relations")]));
-    const fixture = await createCorePayloadFixture({ kind: "fresh", driver }, { compiled, preferences: true, makeRuntime: makePayloadRuntime });
+    const fixture = await createCorePayloadFixture({ kind: "fresh", driver }, { compiled, preferences: true, makeRuntime: () => makePayloadRuntime(compiled) });
     const { run } = fixture;
     try {
       const preferences = fixture.preferences, preferencesBinding = fixture.preferencesBinding, bundle = fixture.bundle;
@@ -235,7 +235,7 @@ export function registerCoreNativeReferenceScenarios(driver: "pglite" | "postgre
       commands: expected.commands.map(command => ({ name: command.name, mode: command.mode })) }));
     expect(altered.metadata).not.toBe(expected.metadata);
     const compiled = await Effect.runPromise(compilePayloadCollections([payloadPostsCollectionDefinition("payload.content-relations")]));
-    const fixture = await createCorePayloadFixture({ kind: "fresh", driver }, { compiled, preferenceDefinition: altered, makeRuntime: makePayloadRuntime });
+    const fixture = await createCorePayloadFixture({ kind: "fresh", driver }, { compiled, preferenceDefinition: altered, makeRuntime: () => makePayloadRuntime(compiled) });
     const { run } = fixture;
     try {
       const bundle = fixture.bundle, preferencesBinding = fixture.preferencesBinding;

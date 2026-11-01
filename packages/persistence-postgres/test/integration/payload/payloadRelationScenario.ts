@@ -16,24 +16,6 @@ import { defineCmsCommand } from "../../../src/frameworks/cmsTransaction/command
 import { cmsError } from "../../../src/frameworks/cmsTransaction/model";
 import { finishPayloadSuccessor, nativePreference, readNativePayload, expectNativeFailedWrite, awaitNativeTestGate } from "./payloadNativeRelationFixture";
 import { coreNativeFixtureData } from "../../core/nativeFixtureInventory";
-import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
-import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
-import type { CmsHostInput } from "../../../src/frameworks/cmsTransaction/host";
-import type { makeDataBindingHost } from "../../../src/installation/frameworkSchema/binding/host";
-import type { relationReadinessFixture } from "../../application/relations/applicationRelationReadinessFixture";
-import type { PayloadContentProfiles } from "../../../src/frameworks/payloadPreferences/binding";
-
-/** Retained only by the unmigrated many/joins consumer closure. */
-export interface LegacyPayloadRelationScenarioInput {
-  persistence: PGliteFlarexPersistence | PostgresFlarexPersistence;
-  fixture: Awaited<ReturnType<typeof relationReadinessFixture>>;
-  bindings: Effect.Success<ReturnType<typeof makeDataBindingHost>>;
-  payloadProfiles: PayloadContentProfiles;
-  hostInput: Omit<CmsHostInput<unknown>, "commands">;
-  seed: (id: string, preferences: readonly string[]) => Promise<void>;
-  inventory: () => Promise<unknown>;
-  reopen?: () => Promise<void>;
-}
 
 function documentId(value: Json): string {
   if (!isJsonObject(value) || typeof value.id !== "string") throw new Error("Expected Payload document");
@@ -239,7 +221,8 @@ export async function payloadRelationScenario(driver: "pglite" | "postgres") {
     await remove(interruptedId);
     await update(source, { relatedPost: null });
     await remove(source);
-    expect((await run(readNativePayload(fixture, operations => operations.incomingReferences("relatedPost", target, { limit: 16 })))).value).toEqual({ ids: [], hasMore: false });
+    expect((await run(readNativePayload(fixture, operations => operations.incomingReferences("relatedPost", target, { limit: 16 })))).value)
+      .toEqual({ ids: [], hasMore: false, inspectedMemberships: 0 });
     await remove(target);
   } finally { conformance?.observations.releasePendingDeletes(); await fixture.close(); }
 }
@@ -254,26 +237,6 @@ export async function withDeadline<Value>(promise: Promise<Value>): Promise<Valu
   let timer: ReturnType<typeof setTimeout> | undefined;
   try { return await Promise.race([promise, new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error("Native barrier deadline")), 5000); })]); }
   finally { if (timer !== undefined) clearTimeout(timer); }
-}
-
-/** Retained PostgreSQL lock witness for the unmigrated many/joins closure. */
-export async function heldNativeRace(persistence: PostgresFlarexPersistence, first: Effect.Effect<unknown, unknown>, second: Effect.Effect<unknown, unknown>, entered: Promise<void>, release: () => void) {
-  const firstObserved = Promise.allSettled([Effect.runPromise(first.pipe(Effect.result))]);
-  let secondObserved: typeof firstObserved | undefined;
-  let results: Array<Awaited<typeof firstObserved>[number]> = [];
-  try {
-    await withDeadline(Promise.race([entered, firstObserved.then(() => { throw new Error("Native change exited before its barrier"); })]));
-    secondObserved = Promise.allSettled([Effect.runPromise(second.pipe(Effect.result))]);
-    const deadline = performance.now() + 5000;
-    let waiting = false;
-    while (!waiting && performance.now() < deadline) {
-      const rows = await persistence.pool.query<{ waiting: boolean }>("select exists(select 1 from pg_stat_activity where usename = current_user and datname = current_database() and application_name = current_setting('application_name') and pid <> pg_backend_pid() and cardinality(pg_blocking_pids(pid)) > 0) as waiting");
-      waiting = rows.rows[0]?.waiting === true;
-      if (!waiting) await new Promise(resolve => setTimeout(resolve, 10));
-    }
-    expect(waiting).toBe(true);
-  } finally { release(); results = [...await firstObserved, ...(secondObserved === undefined ? [] : await secondObserved)]; }
-  return results;
 }
 
 /** The second operation settles before the first native finalization resumes. */

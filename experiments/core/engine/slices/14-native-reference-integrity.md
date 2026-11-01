@@ -231,9 +231,10 @@ reviews; preserve unrelated changes and commit only complete reviewed work.
 
 ## Retained consumers and removal gates
 
-- `payload.content-many`, `payload.content-joins` and their wrappers retain
-  ordered occurrence, duplicate and bounded join obligations until their own
-  complete shared-core migration.
+- `payload.content-many`, `payload.content-joins` and their wrappers are now
+  migrated through the [fresh many/join continuation](./15-native-many-and-joins.md),
+  retaining ordered membership, duplicate refusal and bounded join semantics.
+  Repeated memberships and populated-many conversion remain separate gates.
 - Product retains its authentic thirteen-table/FK/owned-lifecycle closure, native
   soft-delete/restore/events and checkpoints; native Links retain allowed absent
   endpoints. Do not truncate these schemas or enable their profiles here.

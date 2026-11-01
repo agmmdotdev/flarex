@@ -1,15 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { postgresUrl, useFileScopedPostgresPersistence } from "../../support/postgresHelpers";
-import { makePostgresRelationalSession } from "../../../src/database/relationalTransaction/session";
-import { payloadPreferenceBindingScenario } from "../../frameworks/payloadPreferences/payloadPreferenceBindingScenario";
+import { describe, it } from "vitest";
+import { postgresUrl } from "../../support/postgresHelpers";
+import { payloadManyScenario, payloadManyCapacityScenario } from "./payloadManyScenario";
 
-describe.skipIf(postgresUrl === null)("private Payload many (PostgreSQL)", () => {
-  const withPersistence = useFileScopedPostgresPersistence();
-  it("proves populated many behavior, races and recovery", () => withPersistence(async persistence => {
-    expect((await persistence.query<{ superuser: boolean }>("select rolsuper as superuser from pg_roles where rolname=current_user")).rows[0]?.superuser).toBe(false);
-    await payloadPreferenceBindingScenario(persistence, makePostgresRelationalSession(persistence), "many");
-  }), 180000);
-  it("refuses existing empty ownership as a fresh many installation", () => withPersistence(async persistence => {
-    await payloadPreferenceBindingScenario(persistence, makePostgresRelationalSession(persistence), "many-upgrade");
-  }), 180000);
+describe.skipIf(postgresUrl === null)("native Payload many (ordinary-role PostgreSQL)", () => {
+  it("preserves CRUD, population, late races and cold uncertain recovery", () => payloadManyScenario("postgres"), 180_000);
+  it("does not count private memberships as business identities", () => payloadManyCapacityScenario("postgres"), 180_000);
 });

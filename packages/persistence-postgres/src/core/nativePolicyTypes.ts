@@ -11,10 +11,26 @@ const Digest = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
 export const CoreNativeIdentitySchema = Schema.Struct({ scopeUuid: ScopeUuidV1Schema, epochUuid: ScopeEpochUuidV1Schema,
   sourceKey: Schema.NonEmptyString, sourceSha256: Digest, configSha256: Digest, provenanceSha256: Digest, definitionHash: Digest }).annotate(strict);
 export type CoreNativeIdentity = typeof CoreNativeIdentitySchema.Type;
-export const CoreNativeReferenceSchema = Schema.Struct({ declaration: RelationDeclarationV1Schema,
+const ReferenceFields = { declaration: RelationDeclarationV1Schema,
+  sourceTable: Schema.NonEmptyString, targetTable: Schema.NonEmptyString,
+  field: Schema.NonEmptyString, indexName: Schema.NonEmptyString };
+const CoreNativeSingleReferenceSchema = Schema.Struct({ declaration: RelationDeclarationV1Schema,
   reference: LogicalSchemaExtensionSchema, sourceTable: Schema.NonEmptyString, targetTable: Schema.NonEmptyString,
-  field: Schema.NonEmptyString, indexName: Schema.NonEmptyString }).annotate(strict);
+  field: Schema.NonEmptyString, indexName: Schema.NonEmptyString }).annotate(strict).check(
+    Schema.makeFilter(reference => reference.declaration.value.cardinality === "one" ? undefined : "Expected a scalar reference declaration"));
+export const CoreNativeReferenceProjectionSchema = Schema.Struct({ tableName: Schema.NonEmptyString,
+  bySourceIndex: Schema.Literal("by_source_target"), byTargetIndex: Schema.Literal("by_target_source") }).annotate(strict);
+export type CoreNativeReferenceProjection = typeof CoreNativeReferenceProjectionSchema.Type;
+const CoreNativeManyReferenceSchema = Schema.Struct({ ...ReferenceFields,
+  reference: Schema.Struct({ kind: Schema.Literal("manyMembership"), name: Schema.NonEmptyString,
+    sourceKey: Schema.NonEmptyString }).annotate(strict),
+  projection: CoreNativeReferenceProjectionSchema }).annotate(strict).check(
+    Schema.makeFilter(reference => reference.declaration.value.cardinality === "many" ? undefined : "Expected a many reference declaration"));
+export const CoreNativeReferenceSchema = Schema.Union([CoreNativeSingleReferenceSchema, CoreNativeManyReferenceSchema]);
 export type CoreNativeReference = typeof CoreNativeReferenceSchema.Type;
+export const CoreNativePrivateReferenceRoleSchema = Schema.Struct({ kind: Schema.Literal("referenceMembership"),
+  referenceName: Schema.NonEmptyString }).annotate(strict);
+export type CoreNativePrivateReferenceRole = typeof CoreNativePrivateReferenceRoleSchema.Type;
 /** Narrow reader for the captured Native10 table policy; source identities do not change. */
 const LegacyCoreNativeUniqueConstraintSchema = Schema.Struct({ descriptor: Schema.NonEmptyString,
   field: Schema.NonEmptyString, indexName: Schema.NonEmptyString }).annotate(strict);
@@ -34,9 +50,13 @@ export function coreNativeConstraintNullsDistinct(constraint: StoredUniqueConstr
 export const CoreNativeTablePolicySchema = Schema.Struct({ state: Schema.Literals(["reserved", "active"]),
   schemaId: Schema.String.check(Schema.makeFilter(value => isDocumentId(value) ? undefined : "Expected a schema document ID")),
   identity: CoreNativeIdentitySchema, applicationRead: Schema.Boolean,
-  references: Schema.optionalKey(Schema.Array(CoreNativeReferenceSchema).check(Schema.isMaxLength(1))),
+  privateReference: Schema.optionalKey(CoreNativePrivateReferenceRoleSchema),
+  references: Schema.optionalKey(Schema.Array(CoreNativeReferenceSchema).check(Schema.isMaxLength(2))),
   uniqueConstraints: Schema.Array(StoredUniqueConstraint).check(Schema.isMaxLength(64), Schema.makeFilter(values =>
     new Set(values.map(value => value.descriptor)).size !== values.length
       || new Set(values.map(value => JSON.stringify(coreNativeConstraintFields(value)))).size !== values.length
-      ? "Native constraints require distinct descriptors and field tuples" : undefined)) }).annotate(strict);
+      ? "Native constraints require distinct descriptors and field tuples" : undefined)) }).annotate(strict).check(
+        Schema.makeFilter(policy => policy.privateReference === undefined || !policy.applicationRead
+          && (policy.references?.length ?? 0) === 0 && policy.uniqueConstraints.length === 0
+          ? undefined : "Private reference tables do not grant business exposure or independent constraints"));
 export type CoreNativeTablePolicy = typeof CoreNativeTablePolicySchema.Type;

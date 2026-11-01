@@ -248,6 +248,16 @@ include both that admitted subset and remaining unsupported replacement work.
 | Request replay and cancellation | Selected direct/borrowed outcome recovery and explicit retry policies; no general automatic native replay. | Preserve owned string/Promise transaction IDs, caught-child rollback-only state, closed/foreign-ID refusal and abort/drain. Separate committed replay from an admitted whole-root retry and check native callback invocation counts. |
 | Named schema transitions | The admitted single posts scalar profile can add optional relatedPost with unchanged provenance, scalar fields/indexes and unique closure; configured arbitrary relationships do not establish general populated upgrades. Many/joins require fresh installation. | Preserve that exact data/binding transition through shared lifecycle. Test old-writer refusal, interrupted activation and unsupported many/joins successors, including an empty existing collection; do not infer general conversions. |
 
+The selected [many/join translation](../slices/15-native-many-and-joins.md) now
+executes these fixed fresh profiles through authenticated private logical
+memberships, ordinary Source indexes and the existing shared lifecycle/kernel.
+Paired native/owner proof covers order, integrity, private authority, distinct
+business/system budgets, cancellation and cold replay. The exact upgrade refusals
+remain; general configured-many compilation and populated conversion are not
+implied. Relation workload construction also selects the current owner while
+performance measurements remain stopped. Broader compatibility and retirement
+gates below continue to apply.
+
 Payload features outside this compatibility migration remain refused unless a
 later capability slice admits them: globals, drafts/versions, jobs, general
 auth/uploads/blocks/arrays, findDistinct, updateMany, ordinary deleteMany,

@@ -153,6 +153,7 @@ export const makeCoreSchemaBundle = Effect.fn("CoreSchemaBundle.make")(function*
     || definition.identity.epochUuid !== target.epochUuid)) return yield* unsupported("Schema bundle native targets differ");
   const bindings: CoreSchemaTableBinding[] = [], tables: CoreSchemaDefinition["tables"][number][] = [];
   const names = new Set<string>(), coordinates = new Set<string>();
+  let privateTableCount = 0;
   for (const selected of sources) {
     const source = selected.definition.source;
     if (source.bindings.some(binding => binding.kind !== "definition")) return yield* unsupported("Schema bundle views are not admitted");
@@ -183,8 +184,13 @@ export const makeCoreSchemaBundle = Effect.fn("CoreSchemaBundle.make")(function*
       bindings.push(Object.freeze({ sourceKey: source.key, localName: binding.localName,
         table: Object.freeze({ ...binding.table }), coreTableName }));
     }
+    if (selected.kind === "native") for (const declaration of selected.definition.privateTables ?? []) {
+      if (names.has(declaration.name)) return yield* unsupported("Private native source table identities collide");
+      names.add(declaration.name);
+      privateTableCount++;
+    }
   }
-  if (bindings.length > 256 || tables.length !== bindings.length || tables.some(table => !names.has(table.tableName)))
+  if (bindings.length > 256 || tables.length !== bindings.length + privateTableCount || tables.some(table => !names.has(table.tableName)))
     return yield* unsupported("Schema bundle table closure differs from source bindings");
   const schema = yield* Effect.fromResult(captureCoreSchema({ schemaValidation: true, tables }));
   const metadata = canonical({ format: "flarex.core-schema-bundle", version: 1, loweringVersion: 1, namespace,

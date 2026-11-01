@@ -262,7 +262,7 @@ export interface CoreNativePendingDelete { readonly [nativePendingDeleteBrand]: 
 export type CoreNativeOperations = Pick<CoreTransaction, "get" | "insert" | "patch" | "replace" | "delete" | "normalizeId"> & {
   readonly getMany: (table: string, ids: readonly string[]) => Effect.Effect<readonly (DocumentObject | null)[], CoreError>;
   readonly incomingReferences: (forwardName: string, targetId: string, options: Readonly<{ limit: number }>) =>
-    Effect.Effect<Readonly<{ ids: readonly string[]; hasMore: boolean }>, CoreError>;
+    Effect.Effect<Readonly<{ ids: readonly string[]; hasMore: boolean; inspectedMemberships: number }>, CoreError>;
   readonly pendingDelete: (table: string, id: string) => Effect.Effect<CoreNativePendingDelete, CoreError>;
   readonly assertPendingDelete: (table: string, id: string, evidence: CoreNativePendingDelete) => Effect.Effect<void, CoreError>;
   /** Relational metadata owns full-batch preflight and native mutation phases. */

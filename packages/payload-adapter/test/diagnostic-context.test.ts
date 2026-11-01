@@ -51,7 +51,7 @@ describe("Payload request diagnostic handoff", () => {
       const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(cmsError, cmsLimits, {}, {}, "payload diagnostics", "read"), selected => selected.close);
       const unused = () => Effect.fail(cmsError("unsupportedProfile"));
       const context = makeCmsCommandContext(lifetime, "payload diagnostics", lifetime.context, {
-        documents: { get: unused, getMany: unused, insert: unused, patch: unused, replace: unused, delete: unused,
+        documents: { validateIds: unused, get: unused, getMany: unused, insert: unused, patch: unused, replace: unused, delete: unused,
           find: () => observeExecution("LogicalDocuments.get", Effect.withFiber(fiber => Effect.sync(() => {
             calls++;
             expect(Context.get(fiber.context, Tracer.Tracer)).toBe(tracer);

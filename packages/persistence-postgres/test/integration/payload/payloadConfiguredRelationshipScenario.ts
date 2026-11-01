@@ -26,10 +26,10 @@ export async function payloadConfiguredRelationshipScenario(driver: "pglite" | "
   ]));
   const batches: CoreWriteBatch[] = [];
   const fixture = await createCorePayloadFixture({ kind: "fresh", driver }, {
-    compiled, preferences: true, makeRuntime: makePayloadRuntime, observeWrite: batch => batches.push(batch),
+    compiled, preferences: true, makeRuntime: () => makePayloadRuntime(compiled), observeWrite: batch => batches.push(batch),
   });
   const foreign = await createCorePayloadFixture({ kind: "physical", physical: fixture.physical, installation: "fresh", instanceName: "foreign" }, {
-    compiled, preferences: true, makeRuntime: makePayloadRuntime,
+    compiled, preferences: true, makeRuntime: () => makePayloadRuntime(compiled),
     scopeUuid: "45000000-0000-4000-8000-000000000003", epochUuid: "45000000-0000-4000-8000-000000000004",
   }).catch(async cause => {
     try { await fixture.close(); }
@@ -119,9 +119,10 @@ export async function payloadConfiguredRelationshipScenario(driver: "pglite" | "
     const incoming = (target: string, limit = 16) => run(readNativePayload(fixture, operations => operations.incomingReferences(relationName, target, { limit })));
     const oldIncoming = await incoming(author.id);
     const newIncoming = await incoming(other.id);
-    expect(oldIncoming.value).toEqual({ ids: [article.id, second.id].toSorted(), hasMore: false });
-    expect(newIncoming.value).toEqual({ ids: [], hasMore: false });
-    expect((await incoming(author.id, 1)).value).toMatchObject({ ids: expect.any(Array), hasMore: true });
+    expect(oldIncoming.value).toEqual({ ids: [article.id, second.id].toSorted(), hasMore: false, inspectedMemberships: 2 });
+    expect(newIncoming.value).toEqual({ ids: [], hasMore: false, inspectedMemberships: 0 });
+    expect((await incoming(author.id, 1)).value).toEqual({ ids: [article.id, second.id].toSorted().slice(0, 1),
+      hasMore: true, inspectedMemberships: 2 });
     for (const invalid of [-1, Number.MAX_SAFE_INTEGER, 1.5]) expect(await run(Effect.result(readNativePayload(fixture,
       operations => operations.incomingReferences(relationName, author.id, { limit: invalid }))))).toMatchObject(expect.objectContaining({ failure: expect.anything() }));
     expect(await run(Effect.result(readNativePayload(fixture, operations => operations.incomingReferences("forged", author.id, { limit: 16 }))))).toMatchObject(expect.objectContaining({ failure: expect.anything() }));
@@ -132,8 +133,8 @@ export async function payloadConfiguredRelationshipScenario(driver: "pglite" | "
     expect(nativeTokenInvalidated(oldIncoming.token, batches.slice(beforeRetarget))).toBe(true);
     expect(nativeTokenInvalidated(newIncoming.token, batches.slice(beforeRetarget))).toBe(true);
     expect(document(await read(article.id))[relationName]).toEqual(other);
-    expect((await incoming(author.id)).value).toEqual({ ids: [second.id], hasMore: false });
-    expect((await incoming(other.id)).value).toEqual({ ids: [article.id], hasMore: false });
+    expect((await incoming(author.id)).value).toEqual({ ids: [second.id], hasMore: false, inspectedMemberships: 1 });
+    expect((await incoming(other.id)).value).toEqual({ ids: [article.id], hasMore: false, inspectedMemberships: 1 });
     expect(document(await update({ collection: "articles", id: article.id, data: { [relationName]: null } }))[relationName]).toBeNull();
     expect(document(await read(article.id))[relationName]).toBeNull();
     await fixture.seedPreferences([
@@ -159,7 +160,7 @@ export async function payloadConfiguredRelationshipScenario(driver: "pglite" | "
     expect(afterDelete.revisions.filter(revision => revision.timestamp === timestamp)).toHaveLength(4);
     expect(afterDelete.rows.filter(row => row.value.id === "article-pref" || row.value.id === "author-pref")).toEqual([]);
     expect(afterDelete.rows.filter(row => row.value.id === "unrelated-pref" || row.value.id === "prefix-pref")).toHaveLength(2);
-    expect((await incoming(author.id)).value).toEqual({ ids: [], hasMore: false });
+    expect((await incoming(author.id)).value).toEqual({ ids: [], hasMore: false, inspectedMemberships: 0 });
     expect(await run(paired.run(deleteKey, pair, true))).toEqual(deleted);
     expect(await fixture.inventory()).toEqual(afterDelete);
     const oldReader = fixture.reader;

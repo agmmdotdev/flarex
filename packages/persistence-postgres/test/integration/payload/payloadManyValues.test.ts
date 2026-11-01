@@ -1,8 +1,7 @@
 import { expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { verifyApplicationManifestV3 } from "@flarex/analysis/application-analysis";
-import { appDocumentIdV1FromRowIdentity, decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
-import { CatalogTableIdSchema } from "flarex-protocol/catalog";
+import { encodeDocumentId } from "flarex-protocol/document-id";
 import { payloadManyIds, makePayloadPopulation } from "../../../../payload-adapter/src/testing";
 import { payloadScalarFields, payloadScalarConfiguration, payloadManyConfiguration } from "../../../../payload-adapter/src/testing/profiles";
 import { isOptionalPostRelationSuccessor } from "../../../src/application/ownership/Successor";
@@ -12,7 +11,10 @@ import { payloadRelationManifest } from "./payloadRelationFixture";
 import { makePayloadCollectionRuntime } from "../../../../payload-adapter/src/collectionRuntime";
 const posts = makePayloadCollectionRuntime(payloadManyConfiguration.tables[0]!);
 
-const ids = Array.from({ length: 33 }, (_, i) => appDocumentIdV1FromRowIdentity({ tableId: CatalogTableIdSchema.make(2), rowId: decodeAppRowIdHexV1((i + 1).toString(16).padStart(32, "0")) }));
+const ids = Array.from({ length: 33 }, (_, index) => {
+  const internal = new Uint8Array(16); internal[15] = index + 1;
+  return Result.getOrThrow(encodeDocumentId(2, internal));
+});
 
 it("captures only dense, canonical, unique arrays within the private bound", () => {
   expect(Result.getOrThrow(payloadManyIds([]))).toEqual([]);

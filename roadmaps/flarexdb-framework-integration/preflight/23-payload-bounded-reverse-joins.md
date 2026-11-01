@@ -13,6 +13,16 @@ references, with identities at depth zero and source documents at depth one.
 The implementation includes the CMS relation-read capability, exact
 configuration/binding, adapter response shaping and both-driver consumer proof.
 
+The [current core replacement](../../../experiments/core/engine/slices/15-native-many-and-joins.md)
+uses authenticated private logical memberships and ordinary consumed index
+prefixes, with source-body hydration and the existing native observation owner.
+The old physical edge/adjacency/scope-clock choreography below is baseline evidence,
+not a selected fallback. Source identity order, root-only traversal, target access,
+first-window lookahead and no exact totals remain unchanged. The independent
+64-window/1,088-inspection bounds also remain; the real request's 64-call ledger
+reserves one call and admits 63 incoming probes. Tests of that boundary do not
+increase production limits or restart performance campaigns.
+
 This closes the remaining bounded reverse-consumer gap in the
 [non-reactive Payload relation milestone](./05-core-first-three-lane-readiness.md#payload-native-onemany-relations).
 The intended outcome remains a shared Flarex core proven by Payload and Medusa.

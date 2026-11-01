@@ -6,6 +6,16 @@ Status: approved private fresh-install many profile implemented. The scalar and
 optional-one profiles remain supported by the private conformance surface.
 Existing-row many upgrades and data-migration authority remain disabled.
 
+The [translated core continuation](../../../experiments/core/engine/slices/15-native-many-and-joins.md)
+now executes this fixed native producer through private logical memberships and
+ordinary indexes over the five core tables. Shared schema/build/activation,
+native observations/integrity, system accounting and one settlement replace the
+old physical occurrence/readiness assembly. Both drivers cover genuine Local API,
+cold recovery and the refusal-only upgrade boundary. Earlier physical/file-backed
+mechanism descriptions below remain baseline evidence, not the current fixture
+or an alternate engine. No PostgreSQL server restart, deployment or general
+populated conversion is claimed by a cold logical-owner reopen.
+
 The private **fresh-install many-relation conformance capability** proves the
 actual Payload operation path through the shared Application row, relation,
 transaction, publication and binding owners. Keep an existing-row

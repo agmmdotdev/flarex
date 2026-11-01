@@ -2,7 +2,6 @@ import { fxSystemScopeExecutionAuthorities } from "../../../src/database/schema"
 import { preparedHostTestRuntime } from "../../execution/preparation/preparedHostRuntimeTestSupport";
 import { administrativelyRepairFrameworkMetadata } from "../../installation/frameworkSchema/frameworkMetadataRepairTestSupport";
 import { installPayloadPreferenceFixture } from "./payloadPreferenceFixture";
-import { payloadJoinScenario } from "../../integration/payload/payloadJoinScenario";
 import { projectScopeIdUuidV1Result, ScopeIdSchema, ScopeEpochSchema, StorageGenerationSchema } from "flarex-protocol/storage-authority";
 import { isJsonObject } from "flarex-protocol/json";
 import { eq, ne } from "drizzle-orm";
@@ -41,20 +40,15 @@ import { cmsHostFixture } from "../cmsTransaction/cmsHostFixture";
 import { installationBindingReference } from "../../installation/frameworkSchema/frameworkDataBindingPhysicalTestSupport";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import { payloadPreferencePublicationScenario } from "./payloadPreferencePublicationScenario";
-import { payloadManyScenario } from "../../integration/payload/payloadManyScenario";
-import { payloadManyUpgradeScenario } from "../../integration/payload/payloadManyUpgradeScenario";
-import { payloadRelationManifest } from "../../integration/payload/payloadRelationFixture";
 import { policyManifestFixture } from "../../application/ownership/applicationWritePolicyFixture";
-import { createHash } from "node:crypto";
 const decodeGeneration = Schema.decodeUnknownEffect(StorageGenerationSchema);
 
-export async function payloadPreferenceBindingScenario(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession, relationOnly: false | "many" | "many-upgrade" | "joins" = false, reopen?: () => Promise<void>) {
+export async function payloadPreferenceBindingScenario(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession) {
   const schemaName = (await persistence.query<{ name: string }>("select current_schema() as name")).rows[0]?.name;
   if (schemaName === undefined) throw new Error("Missing fixture schema");
   const scalar = await policyManifestFixture(undefined, true, payloadScalarFields, payloadScalarConfiguration);
-  const many = (relationOnly === "many" || relationOnly === "joins") ? await payloadRelationManifest(scalar.manifest, true, relationOnly === "joins") : null;
   const { fixture, target, bindings, reference, candidate: contentCandidate, payloadProfiles } = await cmsHostFixture(persistence, { cmsFields: payloadScalarFields,
-    cmsManifest: many === null ? scalar : { manifest: many.manifest, manifestSha256: createHash("sha256").update(many.canonicalBytes).digest("hex") },
+    cmsManifest: scalar,
     physicalLocator: { kind: "database_per_scope", databaseKey: "application_relation_readiness_fold_target", schemaName } });
   const { profile, availability, table } = await installPayloadPreferenceFixture(persistence, target, fixture.deploymentId);
   const record = await runEffect(capturePayloadPreferenceRecord({ id: "preference-a", key: "collection-posts-a", user: { relationTo: "users", value: "user-a" },
@@ -113,16 +107,6 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
     wakes: await persistence.drizzle.select().from(fxSystemCommitWakes), facts: await persistence.drizzle.select().from(fxSystemCommitAppRowChanges),
     clocks: await persistence.drizzle.select().from(fxSystemScopeClocks), unique: await persistence.drizzle.select().from(fxAppUniqueKeys), indexes: await persistence.drizzle.select().from(fxAppIndexEntryCurrent) });
 
-  if (relationOnly) {
-    const scenario = relationOnly === "joins" ? payloadJoinScenario : relationOnly === "many-upgrade" ? payloadManyUpgradeScenario : payloadManyScenario;
-    await scenario({ persistence, fixture, bindings, payloadProfiles, hostInput: { ...hostInput, payloadPreferenceTarget: target }, inventory, ...(reopen === undefined ? {} : { reopen }),
-      seed: async (id, preferenceIds) => { await persistence.drizzle.insert(table).values(preferenceIds.map(preferenceId => ({
-        scope: Result.getOrThrow(projectScopeIdUuidV1Result(reference.scopeId)).scopeUuid, generation: reference.storageGeneration,
-        id: preferenceId, key: `collection-posts-${id}`, userCollection: "users", userId: "user-a", value: { retained: true },
-        createdAt: record.createdAt, updatedAt: record.updatedAt })));
-      } });
-    return;
-  }
   const disabled = await runEffect(makeCmsHost(hostInput));
   expect(await runEffectFailure(disabled.read(probe, {}))).toMatchObject({ reason: "unsupportedProfile" });
   const { expectedContentIdentity: _expectedContentIdentity, ...hostWithoutContentIdentity } = hostInput;

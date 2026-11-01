@@ -39,9 +39,11 @@ import { makeCoreSchemaWorker } from "./schemaWorker";
 import { makeCoreTableSummaryWorker } from "./tableSummary";
 import { CoreNativeIdentitySchema, checkCoreNativeAuthority, coreNativeMetadataReads, requireCoreNativeDefinition,
   coreNativeSchemaIncludes, coreNativeSchemaSuccessor, sameCoreNativeIdentity, sameCoreNativeTablePolicy,
+  coreNativeStoredTables, coreNativePolicyForTable,
   checkCoreApplicationInsertAuthority, coreApplicationInsertMetadataReads,
-  type CoreNativeAuthority, type CoreNativeDefinition, type CoreNativeTablePolicy } from "./nativePolicy";
+  type CoreNativeAuthority, type CoreNativeDefinition } from "./nativePolicy";
 import { coreSchemaBundleExpectedTarget, requireCoreSchemaBundle, type CoreSchemaBundle } from "./schemaBundle";
+import { isCoreSystemTable } from "./nativeTableAccess";
 import { capturePrivateJsonData } from "../values/privateJsonData";
 
 const NativeLimitsSchema = Schema.Struct({ maxIdentities: Schema.Int.check(Schema.isBetween({ minimum: 1,
@@ -212,7 +214,9 @@ function ownedProgram(definition: CoreProgramDefinition): Result.Result<CoreProg
   });
 }
 const nativeUnsupported = (message: string) => new CoreSchemaError({ reason: "unsupportedCapability", message });
-const userTables = (registry: CoreRegistry, namespace: CoreTableNamespace) => [...registry.tables.values()]
+// Managed schema ownership includes private native tables; bootstrap system
+// tables belong to their separate model. Public activation results filter both.
+const schemaTables = (registry: CoreRegistry, namespace: CoreTableNamespace) => [...registry.tables.values()]
   .map(record => record.definition).filter(table => !table.name.startsWith("_")
     && coreNamespaceKey(table.namespace) === coreNamespaceKey(namespace));
 
@@ -405,7 +409,7 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
   const guardNativeLifecycle = Effect.fn("CoreDatabase.guardNativeLifecycle")(function* (
     context: CoreTransactionInternals, definition?: CoreNativeDefinition, bundle?: CoreSchemaBundle,
   ) {
-    const tables = userTables(context.registry, context.namespace);
+    const tables = schemaTables(context.registry, context.namespace);
     if (bundle !== undefined) {
       yield* Effect.fromResult(requireCoreSchemaBundle(bundle));
       if (definition !== undefined || !coreSchemaBundleExpectedTarget(bundle, context.namespace, schemaBundles))
@@ -424,7 +428,7 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
         if (table.state !== "active" || !bundle.schema.tables.some(declaration => declaration.tableName === table.name)
           || !existingSource)
           return yield* nativeUnsupported("Fresh composition cannot replace an unrelated retained table");
-        const native = bundle.nativeDefinitions.find(source => source.tables.some(declaration => declaration.name === table.name));
+        const native = bundle.nativeDefinitions.find(source => coreNativeStoredTables(source).some(declaration => declaration.name === table.name));
         if (native === undefined ? table.nativePolicy !== undefined : table.nativePolicy === undefined)
           return yield* nativeUnsupported("Composed table ownership differs from its source");
       }
@@ -436,8 +440,8 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
       return;
     }
     yield* Effect.fromResult(requireCoreNativeDefinition(definition));
-    if (definition.source.definition.kind === "relational")
-      return yield* nativeUnsupported("Relational native installation requires an authenticated schema bundle");
+    if (definition.source.definition.kind === "relational" || definition.privateTables !== undefined)
+      return yield* nativeUnsupported("Private or relational native installation requires an authenticated schema bundle");
     const model = new CoreSchemaModel(context);
     for (const state of ["active", "pending", "validated"] as const) {
       const selected = yield* model.getByState(state);
@@ -445,7 +449,7 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
         || !coreNativeSchemaSuccessor(context.registry, selected.value.metadata.native, definition)))
         return yield* nativeUnsupported("Native schema is not an authenticated compatible successor");
     }
-    for (const selected of definition.tables) {
+    for (const selected of coreNativeStoredTables(definition)) {
       if (tables.some(table => table.name === selected.name && table.state !== "active"))
         return yield* nativeUnsupported("A retained inactive table identity prevents fresh native installation");
       const table = context.registry.table(selected.name, context.namespace)?.definition;
@@ -457,7 +461,7 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
         || !["pending", "validated", "active"].includes(schema.value.metadata.state.state))
         return yield* nativeUnsupported("This interrupted native installation cannot be resumed");
     }
-    if (tables.some(table => !definition.tables.some(selected => selected.name === table.name)))
+    if (tables.some(table => !coreNativeStoredTables(definition).some(selected => selected.name === table.name)))
       return yield* nativeUnsupported("A native-only schema cannot replace unrelated Application or native tables");
   });
   const assertEmptyNativeTable = Effect.fn("CoreDatabase.assertEmptyNativeTable")(function* (
@@ -516,7 +520,7 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
       yield* guardNativeLifecycle(selected.context, input.native, input.bundle);
       const pendingProposal=yield* new CoreSchemaModel(selected.context).submitPending(schema, input.bundle?.metadata ?? input.native?.metadata);
       const definitions = input.bundle?.nativeDefinitions ?? (input.native === undefined ? [] : [input.native]);
-      for (const definition of definitions) for (const declaration of definition.tables) {
+      for (const definition of definitions) for (const declaration of coreNativeStoredTables(definition)) {
         const table = selected.context.registry.table(declaration.name, selected.context.namespace)?.definition;
         if (table === undefined) return yield* corrupt();
         const previous = table.nativePolicy;
@@ -524,10 +528,7 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
         if (previous !== undefined && previous.schemaId !== pendingProposal.id)
           return yield* nativeUnsupported("Native installation cannot replace a reserved schema identity");
         if (previous?.state !== "active") yield* assertEmptyNativeTable(selected, table);
-        const nativePolicy: CoreNativeTablePolicy = Object.freeze({ state: previous?.state ?? "reserved",
-          schemaId: pendingProposal.id, identity: definition.identity, applicationRead: definition.applicationRead,
-          uniqueConstraints: declaration.uniqueConstraints,
-          ...(definition.references.length === 0 ? {} : { references: definition.references }) });
+        const nativePolicy = coreNativePolicyForTable(definition, declaration, previous?.state ?? "reserved", pendingProposal.id);
         if (previous !== undefined && sameCoreNativeTablePolicy(previous, nativePolicy)) continue;
         const catalog = selected.context.registry.table(TABLES)?.definition;
         if (catalog === undefined) return yield* corrupt();
@@ -566,7 +567,7 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
       const definitions = publication.bundle?.nativeDefinitions ?? (publication.native === undefined ? [] : [publication.native]);
       if (publication.native !== undefined || publication.bundle !== undefined) {
         if (publication.programs.length !== 0) return yield* nativeUnsupported("Composed Application/native activation is not supported");
-        for (const definition of definitions) for (const declaration of definition.tables) {
+        for (const definition of definitions) for (const declaration of coreNativeStoredTables(definition)) {
           const table = selected.context.registry.table(declaration.name, proposal.namespace)?.definition;
           if (table?.nativePolicy === undefined || table.nativePolicy.state !== "active" && (table.nativePolicy.schemaId !== proposal.id
             || !sameCoreNativeIdentity(table.nativePolicy.identity, definition.identity)))
@@ -577,13 +578,11 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
       const changes=yield* Effect.fromResult(Result.mapError(finishCoreIndexChanges(planCoreIndexes(selected.context.registry,proposal.namespace,schema.schema)),error=>error.reason==="unavailable"?new CoreTransactionError({reason:"indexUnavailable",cause:error}):error));
       yield* applyIndexes(selected.context,changes);
       yield* model.markActive(proposal.id);
-      for (const definition of definitions) for (const declaration of definition.tables) {
+      for (const definition of definitions) for (const declaration of coreNativeStoredTables(definition)) {
         const table = selected.context.registry.table(declaration.name, proposal.namespace)?.definition;
         const catalog = selected.context.registry.table(TABLES)?.definition;
         if (table?.nativePolicy === undefined || catalog === undefined) return yield* corrupt();
-        const nativePolicy: CoreNativeTablePolicy = Object.freeze({ state: "active", schemaId: proposal.id,
-          identity: definition.identity, applicationRead: definition.applicationRead, uniqueConstraints: declaration.uniqueConstraints,
-          ...(definition.references.length === 0 ? {} : { references: definition.references }) });
+        const nativePolicy = coreNativePolicyForTable(definition, declaration, "active", proposal.id);
         if (!sameCoreNativeTablePolicy(table.nativePolicy, nativePolicy)) yield* selected.context.replaceSystem(TABLES,
           yield* Effect.fromResult(publicDocumentId(catalog, table.tabletId)),
           tableDocument({ ...table, nativePolicy }));
@@ -591,7 +590,7 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
     }));
     yield* writePrograms(selected,publication);
     const timestamp=yield* settle(selected);
-    return {timestamp,tables:[...selected.context.registry.tables.values()].map(record=>record.definition).filter(table=>!table.name.startsWith("_")&&coreNamespaceKey(table.namespace)===coreNamespaceKey(proposal.namespace))};
+    return {timestamp,tables:[...selected.context.registry.tables.values()].map(record=>record.definition).filter(table=>!isCoreSystemTable(table)&&coreNamespaceKey(table.namespace)===coreNamespaceKey(proposal.namespace))};
   }));
   });
   const publishPrograms:CoreDatabase["publishPrograms"]=Effect.fn("CoreDatabase.publishPrograms")((requested)=>{
@@ -602,7 +601,7 @@ export const openCoreDatabase = Effect.fn("CoreDatabase.open")(function* (
     yield* selected.context.runSystem(new CoreSchemaModel(selected.context).active());
     yield* writePrograms(selected,publication);
     const timestamp=yield* settle(selected);
-    return {timestamp,tables:[...selected.context.registry.tables.values()].map(record=>record.definition).filter(table=>!table.name.startsWith("_")&&coreNamespaceKey(table.namespace)===coreNamespaceKey(publication.namespace??null))};
+    return {timestamp,tables:[...selected.context.registry.tables.values()].map(record=>record.definition).filter(table=>!isCoreSystemTable(table)&&coreNamespaceKey(table.namespace)===coreNamespaceKey(publication.namespace??null))};
   }));
   });
 

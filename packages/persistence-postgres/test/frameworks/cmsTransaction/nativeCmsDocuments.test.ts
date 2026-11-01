@@ -1,15 +1,15 @@
-import { Effect, Result } from "effect";
+import { Effect, Option, Result } from "effect";
 import { expect, it } from "vitest";
 import type { DocumentObject } from "flarex-protocol/document-value";
 import { encodeDocumentId } from "flarex-protocol/document-id";
-import type { CoreNativeOperations } from "../../../src/core/api";
+import { CoreTransactionError, type CoreNativeOperations } from "../../../src/core/api";
 import { makeCmsRequestLifetime } from "../../../src/frameworks/cmsTransaction/lifetime";
 import { makeNativeCmsDocuments } from "../../../src/frameworks/cmsTransaction/nativeDocuments";
 
-function coreOperations(getMany: CoreNativeOperations["getMany"]): CoreNativeOperations {
+function coreOperations(getMany: CoreNativeOperations["getMany"], normalizeId?: CoreNativeOperations["normalizeId"]): CoreNativeOperations {
   const unexpected = () => Effect.die(new Error("Unexpected Core operation in CMS batch-input test"));
   return { getMany, get: unexpected, insert: unexpected, patch: unexpected, replace: unexpected, delete: unexpected,
-    normalizeId: unexpected, incomingReferences: unexpected, pendingDelete: unexpected, assertPendingDelete: unexpected,
+    normalizeId: normalizeId ?? unexpected, incomingReferences: unexpected, pendingDelete: unexpected, assertPendingDelete: unexpected,
     writeRows: unexpected, deleteRows: unexpected, isEmpty: unexpected, find: unexpected, findPage: unexpected };
 }
 const request = () => Effect.acquireRelease(makeCmsRequestLifetime({ hostId: Symbol() }, { requestId: Symbol() }, "native-batch-test", "read"), lifetime => lifetime.close);
@@ -56,5 +56,57 @@ it("forwards one owned 32-ID batch and preserves positional target absence", () 
     return expected;
   })), lifetime);
   expect(yield* documents.getMany(lifetime.context, undefined, "posts", ids)).toEqual(expected);
+  expect(calls).toBe(1);
+}))));
+
+it("authenticates all 32 target IDs without observing bodies or absence", () => Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+  const normalized: string[] = [];
+  const lifetime = yield* request();
+  const documents = makeNativeCmsDocuments(coreOperations(() => Effect.die(new Error("ID validation performed a body read")), (table, id) => Effect.sync(() => {
+    expect(table).toBe("posts");
+    if (typeof id !== "string") throw new Error("Uncaptured target identity");
+    normalized.push(id);
+    return Option.some(id);
+  })), lifetime);
+  yield* documents.validateIds(lifetime.context, undefined, "posts", ids);
+  expect(normalized).toEqual(ids);
+}))));
+
+it.each(["duplicate", "oversized", "getter", "sparse", "malformed-last", "old-id"] as const)("refuses %s validation batch before importing Core metadata", mode => Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+  let calls = 0, getters = 0;
+  const lifetime = yield* request();
+  const documents = makeNativeCmsDocuments(coreOperations(() => Effect.die(new Error("Unexpected target read")), () => { calls++; return Effect.succeed(Option.none()); }), lifetime);
+  const first = ids[0];
+  if (first === undefined) return yield* Effect.die(new Error("Missing test ID"));
+  const batch = mode === "duplicate" ? [first, first] : mode === "oversized" ? [...ids, first]
+    : mode === "malformed-last" ? [first, "bad-id"] : mode === "old-id" ? ["100:00000000000000000000000000000000"] : [first];
+  if (mode === "getter") Object.defineProperty(batch, "0", { enumerable: true, get: () => { getters++; return first; } });
+  if (mode === "sparse") delete batch[0];
+  expect(yield* Effect.flip(documents.validateIds(lifetime.context, undefined, "posts", batch)))
+    .toMatchObject({ reason: mode === "oversized" ? "limitExceeded" : "invalidInput" });
+  expect(calls).toBe(0);
+  expect(getters).toBe(0);
+}))));
+
+it("refuses wrong-table and rewritten IDs without a body lookup", () => Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+  const first = ids[0], second = ids[1];
+  if (first === undefined || second === undefined) return yield* Effect.die(new Error("Missing test IDs"));
+  for (const normalized of [Option.none<string>(), Option.some(second)]) {
+    const lifetime = yield* request();
+    const documents = makeNativeCmsDocuments(coreOperations(() => Effect.die(new Error("Wrong-table validation read a body")), () => Effect.succeed(normalized)), lifetime);
+    expect(yield* Effect.flip(documents.validateIds(lifetime.context, undefined, "posts", [first]))).toMatchObject({ reason: "invalidInput" });
+  }
+}))));
+
+it("authenticates table authority for an empty validation batch", () => Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+  const lifetime = yield* request();
+  let calls = 0;
+  const documents = makeNativeCmsDocuments(coreOperations(() => Effect.die(new Error("Empty validation read a body")), (table, id) => {
+    calls++;
+    expect(table).toBe("unowned");
+    expect(id).toBeUndefined();
+    return Effect.fail(new CoreTransactionError({ reason: "missingTable" }));
+  }), lifetime);
+  expect(yield* Effect.flip(documents.validateIds(lifetime.context, undefined, "unowned", []))).toMatchObject({ reason: "bindingChanged" });
   expect(calls).toBe(1);
 }))));

@@ -1,5 +1,6 @@
 import { Cause, Effect, Option, Schema } from "effect";
 import type { DocumentObject } from "flarex-protocol/document-value";
+import { DeveloperDocumentIdSchema } from "flarex-protocol/document-id";
 import { isJsonObject } from "flarex-protocol/json";
 import type { CoreError, CoreNativeOperations } from "../../core/api";
 import type { LogicalDocuments } from "../../storage/documents/logicalDocuments/ports";
@@ -11,6 +12,8 @@ import { projectCoreCmsFailure } from "./nativeFailure";
 const nativeResult = <A>(work: Effect.Effect<A, CoreError>): Effect.Effect<A, CmsTransactionError> =>
   work.pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCoreCmsFailure))));
 const decodeBatchIds = Schema.decodeUnknownEffect(Schema.Array(Schema.String).check(Schema.makeFilter(ids =>
+  new Set(ids).size === ids.length ? undefined : "CMS batch identities must be distinct")));
+const decodeCanonicalBatchIds = Schema.decodeUnknownEffect(Schema.Array(DeveloperDocumentIdSchema).check(Schema.makeFilter(ids =>
   new Set(ids).size === ids.length ? undefined : "CMS batch identities must be distinct")));
 
 /** This translation owns no snapshot, working set, constraint or settlement. */
@@ -37,6 +40,21 @@ export function makeNativeCmsDocuments(operations: CoreNativeOperations, lifetim
     return yield* document(found.value);
   });
   return {
+    validateIds: Effect.fn("NativeCmsDocuments.validateIds")((context, id, table, ids) => lifetime.operation(context, id, "read", Effect.gen(function* () {
+      const captured = yield* Effect.fromResult(useCapturedPrivateJsonData(ids, lifetime.remainingBytes(), cmsError));
+      if (!Array.isArray(captured.value) || captured.value.length > cmsLimits.pageRows)
+        return yield* Effect.fail(cmsError("limitExceeded"));
+      // Capture and validate the entire canonical batch before importing even
+      // metadata dependencies. Core normalization supplies table authority only.
+      const batch = yield* decodeCanonicalBatchIds(captured.value).pipe(Effect.mapError(cause => cmsError("invalidInput", cause)));
+      yield* lifetime.fromResult(lifetime.charge(captured.bytes));
+      // Empty batches still authenticate the named table; normalization of an
+      // absent ID records metadata only and does not observe row absence.
+      if (batch.length === 0) yield* nativeResult(operations.normalizeId(table, undefined));
+      for (const documentId of batch) {
+        if ((yield* normalize(table, documentId)) !== documentId) return yield* Effect.fail(cmsError("invalidInput"));
+      }
+    }))),
     get: (context, id, documentId, table) => lifetime.operation(context, id, "read", get(table, documentId)),
     getMany: Effect.fn("NativeCmsDocuments.getMany")((context, id, table, ids) => lifetime.operation(context, id, "read", Effect.gen(function* () {
       const captured = yield* Effect.fromResult(useCapturedPrivateJsonData(ids, lifetime.remainingBytes(), cmsError));

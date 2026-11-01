@@ -1,8 +1,4 @@
 import { it } from "vitest";
-import { createRelationalPGliteFixture } from "../../database/relationalPGliteWorkerTestSupport";
-import { payloadPreferenceBindingScenario } from "../../frameworks/payloadPreferences/payloadPreferenceBindingScenario";
+import { payloadJoinScenario } from "./payloadJoinScenario";
 
-it("proves fresh Payload reverse join CRUD and population through native owners", async () => {
-  const fixture = await createRelationalPGliteFixture({ fileBacked: true });
-  await payloadPreferenceBindingScenario(fixture.persistence, fixture.session, "joins", fixture.reopen);
-}, 180000);
+it("preserves genuine reverse joins, population, authority and cold recovery", () => payloadJoinScenario("pglite"), 180_000);

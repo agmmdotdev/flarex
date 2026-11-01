@@ -4,7 +4,7 @@
  * Copyright 2026 Convex, Inc., FSL-1.1-Apache-2.0 (convex-backend/LICENSE.md).
  */
 import { BTreeEx as BTree } from "sorted-btree/extended/index.js";
-import { Effect, Option, Result, Schema, Semaphore } from "effect";
+import { Effect, Exit, Option, Result, Schema, Semaphore } from "effect";
 import { bytesEqual, compareBytesLexicographically, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { SchemaManifestAppTableNameSchema } from "flarex-protocol/schema-manifest";
 import { decodeDocumentId, normalizeDocumentId } from "flarex-protocol/document-id";
@@ -15,7 +15,7 @@ import { CoreNativeQueryError, CoreNativeUniqueConflict, CoreQueryInputError, Co
   type CoreIndexDefinition, type CoreTableDefinition, type CoreTransaction, type CoreTransactionLimits, type CoreTransactionUsage,
   type CoreReadToken, type CoreProgramDefinition, type CoreNativeOperations, type CoreNativeLimits, type CoreDatabaseOptions } from "./api";
 import type { CoreApplicationInsertOperations } from "./api";
-import { CorePersistenceError, CoreTimestampSchema, type CoreDocumentLogEntry, type CoreIndexPage, type CoreIndexScan, type CoreInterval, type CorePersistenceSnapshot, type CoreWriteBatch } from "./contracts";
+import { CorePersistenceError, CoreTimestampSchema, type CoreDocumentLogEntry, type CoreHydratedIndexEntry, type CoreIndexPage, type CoreIndexScan, type CoreInterval, type CorePersistenceSnapshot, type CoreWriteBatch } from "./contracts";
 import { CoreRegistry, TABLES, INDEXES, SCHEMAS, PROGRAMS, publicDocumentId, readDocumentObject, tableDocument, parseCoreTableRecord } from "./registry";
 import { coreNamespaceKey, type CoreTableNamespace } from "./namespace";
 import { CoreSchemaModel } from "./schemaModel";
@@ -41,7 +41,9 @@ import { captureCoreNativeWhere, coreNativeUniqueSelection, coreNativeUniqueValu
   coreNativePageInterval, prepareCoreNativePredicate, type CoreNativeScalar } from "./nativeQuery";
 import { captureCoreNativeIndexWindow } from "./nativePage";
 import { captureCoreEntropy, createTransactionIdGenerator, type CoreTransactionIdGenerator } from "./transactionIdGenerator";
-import { coreNativeReferenceTarget, selectCoreNativeReference } from "./nativeReferences";
+import { coreNativeReferenceIndexTable, coreNativeReferenceInterval, coreNativeReferenceTargets, selectCoreNativeReference, type CoreNativeReferenceSelection } from "./nativeReferences";
+import { isCorePrivateTable, isCoreSystemTable } from "./nativeTableAccess";
+import { isCoreNativeManyReference, readCoreNativeMembership } from "./nativeReferenceProjection";
 
 export interface CoreDocumentChange {
   readonly table: CoreTableDefinition;
@@ -211,6 +213,7 @@ export function createCoreTransaction(input: Readonly<{
   const reads = new CoreReadSetBuilder();
   const writes = new Map<string, CoreDocumentChange>();
   const deletedBy = new Map<string, CoreTransactionNativeAccess>();
+  const membershipIdentities = new Map<string, Readonly<{ id: string; internalId: Uint8Array; creationTime: number; allocated: boolean }>>();
   const deletionEvidence = new WeakMap<CoreNativePendingDelete, Readonly<{ access: CoreTransactionNativeAccess; id: string; change: CoreDocumentChange }>>();
   const pendingIndexes = new Map<string, BTree<Uint8Array, DocumentObject | null>>();
   const accounting = new CoreAccounting(input.limits ?? CORE_TRANSACTION_REFERENCE_LIMITS);
@@ -301,7 +304,7 @@ export function createCoreTransaction(input: Readonly<{
     return Result.gen(function* () {
       const byId = table.indexes.find(index => index.name === "by_id");
       if (byId === undefined) return yield* Result.fail(invalid());
-      if (native === undefined || table.name.startsWith("_")) yield* addIndexMetadataDependency(reads, registry, byId);
+      if (native === undefined || isCoreSystemTable(table)) yield* addIndexMetadataDependency(reads, registry, byId);
       const developerId = yield* publicDocumentId(table, id);
       const key = yield* Result.mapError(encodeIndexKey([], developerId), invalid);
       yield* accounting.query(byId.ref.id, pointInterval(key));
@@ -313,11 +316,11 @@ export function createCoreTransaction(input: Readonly<{
     return Result.gen(function* () {
       let size = documentSizes.get(document);
       if (size === undefined) {
-        const measured = yield* Result.mapError(captureCoreDocument(document, table.name.startsWith("_")), invalid);
+        const measured = yield* Result.mapError(captureCoreDocument(document, isCoreSystemTable(table)), invalid);
         size = measured.semanticSizeBytes;
         documentSizes.set(document, size);
       }
-      yield* accounting.read(table.name.startsWith("_"), size);
+      yield* accounting.read(isCoreSystemTable(table), size);
     });
   }
 
@@ -343,7 +346,7 @@ export function createCoreTransaction(input: Readonly<{
         if (!isJson(body) || !isJsonObject(body)) return yield* new CorePersistenceError({ reason: "corruptData" });
         yield* Effect.fromResult(policy.rows.validate(body, "storedCorruption"));
       }
-      const measured = yield* Effect.fromResult(Result.mapError(captureCoreDocument(decoded, table.name.startsWith("_")), invalid));
+      const measured = yield* Effect.fromResult(Result.mapError(captureCoreDocument(decoded, isCoreSystemTable(table)), invalid));
       document = measured.value;
       documentSizes.set(document, measured.semanticSizeBytes);
     }
@@ -546,7 +549,12 @@ export function createCoreTransaction(input: Readonly<{
     const developerId = yield* Effect.fromResult(publicDocumentId(table, id));
     const pending = writes.get(developerId);
     if (pending !== undefined) return { original: pending.original, document: pending.originalDocument };
-    if (native !== undefined && !table.name.startsWith("_")) return yield* nativeObserve(table, id, access);
+    if (native !== undefined && isCorePrivateTable(table)) {
+      const original = nativeObservations?.original(developerId);
+      if (original === undefined) return yield* new CorePersistenceError({ reason: "corruptData", cause: "Unprepared native membership mutation" });
+      return original;
+    }
+    if (native !== undefined && !isCoreSystemTable(table)) return yield* nativeObserve(table, id, access);
     const byId = table.indexes.find(index => index.name === "by_id");
     if (byId === undefined) return yield* Effect.fail(new CoreTransactionError({ reason: "indexUnavailable" }));
     const key = yield* Effect.fromResult(Result.mapError(encodeIndexKey([], developerId), invalid));
@@ -567,29 +575,30 @@ export function createCoreTransaction(input: Readonly<{
     return (yield* observe(table, id, access)).document;
   });
 
-  const stage = Effect.fn("CoreTransaction.stage")(function* (table: CoreTableDefinition, id: Uint8Array, document: DocumentObject | null,
+  const stageDocument = Effect.fn("CoreTransaction.stageDocument")(function* (table: CoreTableDefinition, id: Uint8Array, document: DocumentObject | null,
     access: CoreTransactionNativeAccess | undefined = defaultAccess, mode: "insert" | "update" = "update") {
     if (input.readonly) return yield* new CoreTransactionError({ reason: "readonly" });
-    if (!table.name.startsWith("_")) yield* Effect.fromResult(checkAccess(table, "write", access));
+    if (!isCoreSystemTable(table)) yield* Effect.fromResult(checkAccess(table, "write", access));
     const developerId = yield* Effect.fromResult(publicDocumentId(table, id));
     const pending = writes.get(developerId);
     const original = mode === "insert" ? { original: undefined, document: null } : yield* observe(table, id, access);
-    if (mode === "insert" && nativeObservations !== undefined && !table.name.startsWith("_"))
+    if (mode === "insert" && nativeObservations !== undefined && !isCoreSystemTable(table))
       yield* Effect.fromResult(nativeObservations.reserve(table, [developerId]));
     const previous = pending === undefined ? original.document : pending.finalDocument;
     yield* assertOpen();
-    const captured = document === null ? null : yield* Effect.fromResult(Result.mapError(captureCoreDocument(document, table.name.startsWith("_")), invalid));
+    const captured = document === null ? null : yield* Effect.fromResult(Result.mapError(captureCoreDocument(document, isCoreSystemTable(table)), invalid));
     const next = captured?.value ?? null;
     // Assignment validates the target ID's table, without observing target liveness/body.
     if (next !== null && access?.kind === "native") for (const reference of table.nativePolicy?.references ?? []) {
       if (reference.sourceTable !== table.name) continue;
       const selection = yield* Effect.fromResult(selectCoreNativeReference(registry, table, reference));
-      yield* Effect.fromResult(coreNativeReferenceTarget(selection, next));
+      yield* Effect.fromResult(coreNativeReferenceTargets(selection, next));
     }
     if (captured !== null) documentSizes.set(captured.value, captured.semanticSizeBytes);
-    const retainedBytes = native === undefined || table.name.startsWith("_") ? 0
-      : yield* Effect.fromResult(nativeBodyBytes(table, next));
-    if (native !== undefined && !table.name.startsWith("_")) yield* nativeConstraints(table, developerId, previous, next, access);
+    const retainedBytes = native === undefined || isCoreSystemTable(table) && !isCorePrivateTable(table) ? 0
+      : isCorePrivateTable(table) ? next === null ? 0 : (yield* Effect.fromResult(Result.mapError(encodeDocumentValue(next), invalid))).byteLength
+        : yield* Effect.fromResult(nativeBodyBytes(table, next));
+    if (native !== undefined && !isCoreSystemTable(table)) yield* nativeConstraints(table, developerId, previous, next, access);
     yield* Effect.fromResult(addTableWriteDependencies(reads, registry, table));
     const pendingUpdates: Array<Readonly<{ index: CoreIndexDefinition; oldKey?: Uint8Array; newKey?: Uint8Array }>> = [];
     for (const index of registry.indexesForTablet(table.tabletId)) {
@@ -607,7 +616,7 @@ export function createCoreTransaction(input: Readonly<{
     }
     yield* Effect.suspend(() => {
       if (closed) return Effect.fail(new CoreTransactionError({ reason: "closed" }));
-      return Effect.fromResult(Result.map(accounting.write(table.name.startsWith("_"), captured?.semanticSizeBytes ?? 0), () => {
+      return Effect.fromResult(Result.map(accounting.write(isCoreSystemTable(table), captured?.semanticSizeBytes ?? 0), () => {
       writes.set(developerId, Object.freeze({ table, id: id.slice(), original: original.original,
         originalDocument: original.document, finalDocument: next }));
       if (next === null && access?.kind === "native") deletedBy.set(developerId, access);
@@ -624,6 +633,31 @@ export function createCoreTransaction(input: Readonly<{
       }
       }));
     });
+  });
+
+  /** One public write and all of its derived records stage atomically. Accounting,
+   * actual observations and generator reservations survive a refused attempt. */
+  const stage = Effect.fn("CoreTransaction.stage")(function* (table: CoreTableDefinition, id: Uint8Array, document: DocumentObject | null,
+    access: CoreTransactionNativeAccess | undefined = defaultAccess, mode: "insert" | "update" = "update") {
+    const references = table.nativePolicy?.references?.filter(reference => reference.sourceTable === table.name
+      && isCoreNativeManyReference(reference)) ?? [];
+    if (access?.kind !== "native" || references.length === 0) return yield* stageDocument(table, id, document, access, mode);
+    const previous = mode === "insert" ? null : yield* read(table, id, access);
+    const savedWrites = new Map(writes), savedDeleted = new Map(deletedBy);
+    const savedIndexes = new Map([...pendingIndexes].map(([key, value]) => [key, value.clone()]));
+    yield* Effect.gen(function* () {
+      yield* stageDocument(table, id, document, access, mode);
+      const sourceId = yield* Effect.fromResult(publicDocumentId(table, id));
+      const next = writes.get(sourceId)?.finalDocument ?? null;
+      for (const reference of references) {
+        const selection = yield* Effect.fromResult(selectCoreNativeReference(registry, table, reference));
+        yield* maintainNativeMemberships(selection, sourceId, previous, next, access);
+      }
+    }).pipe(Effect.onExit(exit => Exit.isFailure(exit) ? Effect.sync(() => {
+      writes.clear(); for (const [key, value] of savedWrites) writes.set(key, value);
+      deletedBy.clear(); for (const [key, value] of savedDeleted) deletedBy.set(key, value);
+      pendingIndexes.clear(); for (const [key, value] of savedIndexes) pendingIndexes.set(key, value);
+    }) : Effect.void));
   });
 
   const enforceUserSchema = Effect.fn("CoreTransaction.enforceSchema")((table: CoreTableDefinition, body: DocumentObject) =>
@@ -670,7 +704,7 @@ export function createCoreTransaction(input: Readonly<{
     ...(initialPosition === undefined ? {} : { initialPosition }),
     pendingIndex: () => pendingIndexes.get(encodeBytesToLowercaseHex(index.ref.id)),
     recordRead: consumed => { reads.add(index.ref.id, consumed); return accounting.query(index.ref.id, consumed); },
-    chargeDocument: (document, size) => { documentSizes.set(document, size); return accounting.read(table.name.startsWith("_"), size); }, assertOpen,
+    chargeDocument: (document, size) => { documentSizes.set(document, size); return accounting.read(isCoreSystemTable(table), size); }, assertOpen,
     operation: withinOperation ? body => body : operation,
   });
 
@@ -704,7 +738,7 @@ export function createCoreTransaction(input: Readonly<{
     const existing = registry.table(name, namespace);
     if (existing !== undefined) return existing.definition;
     const active = [...registry.tables.values()].filter(record => record.definition.state === "active"
-      && !record.definition.name.startsWith("_"));
+      && !isCoreSystemTable(record.definition));
     if (active.length >= 10000) return yield* new CoreTransactionError({ reason: "tooManyTables", cause: { limit: 10000 } });
     let number = 10001;
     for (const record of registry.tables.values()) if (coreNamespaceKey(record.definition.namespace) === coreNamespaceKey(namespace)
@@ -756,13 +790,211 @@ export function createCoreTransaction(input: Readonly<{
     return rows;
   });
 
+  /** Reuse Source's ordinary query/pending merge. Captured prefetch is separate
+   * from the exact consumed prefix and its inspected membership accounting. */
+  const queryNativeReferenceIndex = Effect.fn("CoreTransaction.queryNativeReferenceIndex")(function* (
+    selection: CoreNativeReferenceSelection, table: CoreTableDefinition, index: CoreIndexDefinition,
+    interval: CoreInterval, maximum: number, access: CoreTransactionNativeAccess,
+  ) {
+    if (native === undefined || nativeObservations === undefined) return yield* invalid();
+    const selected = yield* nativeCapture(selection.source, access);
+    const currentSource = selected.registry.tableByTablet(selection.source.tabletId)?.definition;
+    if (currentSource === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+    const current = yield* Effect.fromResult(selectCoreNativeReference(selected.registry, currentSource, selection.reference));
+    const currentTable = selected.registry.tableByTablet(table.tabletId)?.definition;
+    const currentIndex = currentTable?.indexes.find(value => bytesEqual(value.ref.id, index.ref.id));
+    if (currentTable === undefined || currentIndex === undefined
+      || !bytesEqual(coreNativeReferenceIndexTable(current).tabletId, coreNativeReferenceIndexTable(selection).tabletId))
+      return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+    const physical = new Map<string, CoreHydratedIndexEntry>();
+    const consumed = new CoreReadSetBuilder();
+    const query = createCoreQuery({ snapshot: { timestamp: selected.indexSnapshot.timestamp,
+      scan: request => selected.indexSnapshot.scan(request).pipe(Effect.tap(page => Effect.sync(() => {
+        for (const entry of page.entries) physical.set(encodeBytesToLowercaseHex(entry.key), entry);
+      }))) }, table: currentTable, index: currentIndex, interval, order: "asc", limit: maximum,
+      queryFingerprint: new Uint8Array(), pendingIndex: () => pendingIndexes.get(encodeBytesToLowercaseHex(index.ref.id)),
+      recordRead: observed => {
+        consumed.add(index.ref.id, observed);
+        nativeRead(selected.snapshot.timestamp, index, observed);
+        return accounting.query(index.ref.id, observed);
+      }, chargeDocument: (document, size) => {
+        documentSizes.set(document, size);
+        return accounting.read(isCoreSystemTable(table), size);
+      }, assertOpen, operation: body => body });
+    const documents: DocumentObject[] = [];
+    try {
+      while (documents.length < maximum) {
+        const page = yield* query.nextPage({ maxResults: Math.min(128, maximum - documents.length),
+          maxBytes: CORE_TRANSACTION_REFERENCE_LIMITS.systemBytesWritten });
+        documents.push(...page.documents);
+        if (page.done) break;
+      }
+    } finally { yield* query.close(); }
+    const observed = consumed.snapshot().flatMap(dependency => dependency.intervals);
+    const examined = new Set<string>();
+    for (const [key, entry] of physical) if (observed.some(part => keyInInterval(entry.key, part))) {
+      if (entry.document.deleted || entry.document.ts > selected.snapshot.timestamp || !bytesEqual(entry.document.tableId, table.tabletId))
+        return yield* new CorePersistenceError({ reason: "corruptData" });
+      const document = yield* Effect.fromResult(readDocumentObject(entry.document, table));
+      if (!bytesEqual(yield* Effect.fromResult(documentIndexKey(index, document)), entry.key))
+        return yield* new CorePersistenceError({ reason: "corruptData", cause: "Native reference index differs from its document" });
+      examined.add(key);
+    }
+    const pending = pendingIndexes.get(encodeBytesToLowercaseHex(index.ref.id));
+    if (pending !== undefined) for (const [key] of pending.entries(interval.start ?? undefined)) {
+      if (interval.end !== null && compareBytesLexicographically(key, interval.end) >= 0) break;
+      if (observed.some(part => keyInInterval(key, part))) examined.add(encodeBytesToLowercaseHex(key));
+    }
+    yield* native.chargeRetained(128 + physical.size * 128);
+    return { documents: Object.freeze(documents), selected, physical, inspectedMemberships: examined.size };
+  });
+
+  const rememberNativeMembership = Effect.fn("CoreTransaction.rememberNativeMembership")(function* (
+    selection: CoreNativeReferenceSelection, selected: Effect.Success<ReturnType<typeof nativeCapture>>,
+    document: DocumentObject,
+  ) {
+    if (native === undefined || nativeObservations === undefined || selection.projection === undefined)
+      return yield* invalid();
+    const table = selection.projection.table;
+    const member = yield* Effect.fromResult(readCoreNativeMembership({ source: selection.source, target: selection.target, membership: table }, document));
+    const decoded = yield* Effect.fromResult(Result.mapError(decodeDocumentId(member.id), cause => new CorePersistenceError({ reason: "corruptData", cause })));
+    if (writes.has(member.id)) return member;
+    const byId = table.indexes.find(index => index.name === "by_id");
+    if (byId === undefined) return yield* new CoreTransactionError({ reason: "indexUnavailable" });
+    yield* Effect.fromResult(chargePointQuery(table, decoded.internalId));
+    const found = yield* selected.snapshot.get(table.tabletId, decoded.internalId);
+    if (Option.isNone(found) || found.value.deleted)
+      return yield* new CorePersistenceError({ reason: "corruptData", cause: "Missing native membership document" });
+    if (!bytesEqual(found.value.tableId, table.tabletId) || !bytesEqual(found.value.id, decoded.internalId))
+      return yield* new CorePersistenceError({ reason: "corruptData" });
+    const observation = yield* captureObservation(table, found.value, selected.snapshot.timestamp);
+    if (observation.document === null) return yield* new CorePersistenceError({ reason: "corruptData" });
+    const current = yield* Effect.fromResult(readCoreNativeMembership({ source: selection.source, target: selection.target, membership: table }, observation.document));
+    if (current.id !== member.id || current.sourceId !== member.sourceId || current.targetId !== member.targetId)
+      return yield* new CorePersistenceError({ reason: "corruptData", cause: "Native membership index differs from its document" });
+    const previous = nativeObservations.original(member.id);
+    if (previous !== undefined && previous.original?.ts !== observation.original?.ts)
+      return yield* new CoreTransactionError({ reason: "conflict", cause: "Native membership revision changed" });
+    if (previous === undefined) {
+      yield* native.chargeRetained((yield* Effect.fromResult(Result.mapError(encodeDocumentValue(observation.document), invalid))).byteLength);
+      nativeObservations.remember(table, member.id, observation);
+      nativeRead(selected.snapshot.timestamp, byId, pointInterval(yield* Effect.fromResult(Result.mapError(encodeIndexKey([], member.id), invalid))));
+    }
+    return member;
+  });
+
+  const maintainNativeMemberships = Effect.fn("CoreTransaction.maintainNativeMemberships")(function* (
+    selection: CoreNativeReferenceSelection, sourceId: string, previous: DocumentObject | null, next: DocumentObject | null,
+    access: CoreTransactionNativeAccess,
+  ) {
+    if (selection.projection === undefined || !isCoreNativeManyReference(selection.reference)) return yield* invalid();
+    const table = selection.projection.table, index = selection.projection.sourceIndex;
+    const expected = new Set(previous === null ? [] : yield* Effect.fromResult(Result.mapError(coreNativeReferenceTargets(selection, previous),
+      cause => new CorePersistenceError({ reason: "corruptData", cause }))));
+    const desired = new Set(next === null ? [] : yield* Effect.fromResult(coreNativeReferenceTargets(selection, next)));
+    // A reorder or unrelated source-body update changes no memberships. Neither
+    // child rows nor their stable allocated IDs need another write/read cycle.
+    if (expected.size === desired.size && [...expected].every(targetId => desired.has(targetId))) return;
+    const interval = yield* Effect.fromResult(Result.mapError(compileIndexRange([{ op: "eq", field: "sourceId", value: sourceId }], index.fields), invalid));
+    const selected = yield* queryNativeReferenceIndex(selection, table, index, interval, 33, access);
+    if (selected.documents.length > 32)
+      return yield* new CorePersistenceError({ reason: "corruptData", cause: "Native source membership bound exceeded" });
+    const existing = new Map<string, DocumentObject>();
+    const identity = (targetId: string) => `${selection.reference.reference.name}:${sourceId}:${targetId}`;
+    for (const document of selected.documents) {
+      const member = yield* rememberNativeMembership(selection, selected.selected, document);
+      if (member.sourceId !== sourceId || existing.has(member.targetId))
+        return yield* new CorePersistenceError({ reason: "corruptData", cause: "Duplicate or foreign native membership" });
+      existing.set(member.targetId, document);
+      const decoded = yield* Effect.fromResult(Result.mapError(decodeDocumentId(member.id), invalid));
+      const time = document._creationTime;
+      if (typeof time !== "number") return yield* new CorePersistenceError({ reason: "corruptData" });
+      const key = identity(member.targetId);
+      membershipIdentities.set(key, { id: member.id, internalId: decoded.internalId,
+        creationTime: time, allocated: membershipIdentities.get(key)?.allocated ?? false });
+    }
+    if (existing.size !== expected.size || [...expected].some(target => !existing.has(target))) {
+      // A fresh projection capture cannot refresh an older public observation.
+      // Distinguish that real source race from an incoherent stored projection.
+      const original = nativeObservations?.original(sourceId);
+      if (original !== undefined) {
+        const sourceIdentity = yield* Effect.fromResult(Result.mapError(decodeDocumentId(sourceId), invalid));
+        yield* Effect.fromResult(chargePointQuery(selection.source, sourceIdentity.internalId));
+        const current = yield* selected.selected.snapshot.get(selection.source.tabletId, sourceIdentity.internalId);
+        const revision = Option.isNone(current) ? undefined : current.value.ts;
+        if (revision !== original.original?.ts || Option.isSome(current) && current.value.deleted !== (original.document === null))
+          return yield* new CoreTransactionError({ reason: "conflict", cause: "Native source changed before membership maintenance" });
+      }
+      return yield* new CorePersistenceError({ reason: "corruptData", cause: "Native source membership inventory differs from its array" });
+    }
+    for (const [targetId, document] of existing) if (!desired.has(targetId)) {
+      const member = yield* Effect.fromResult(readCoreNativeMembership({ source: selection.source, target: selection.target, membership: table }, document));
+      const decoded = yield* Effect.fromResult(Result.mapError(decodeDocumentId(member.id), invalid));
+      yield* stageDocument(table, decoded.internalId, null, access);
+    }
+    for (const targetId of desired) if (!existing.has(targetId)) {
+      const key = identity(targetId);
+      let member = membershipIdentities.get(key);
+      if (member === undefined) {
+        const internalId = idGenerator.nextInternalId();
+        member = { internalId, id: yield* Effect.fromResult(publicDocumentId(table, internalId)),
+          creationTime: yield* Effect.fromResult(takeCreationTime()), allocated: true };
+        membershipIdentities.set(key, member);
+        if (native !== undefined) yield* native.chargeRetained(96 + key.length * 2);
+      }
+      const document = { sourceId, targetId, _id: member.id, _creationTime: member.creationTime };
+      yield* stageDocument(table, member.internalId, document, access,
+        member.allocated && !writes.has(member.id) ? "insert" : "update");
+    }
+  });
+
+  /** A reverse lookup observes its sources at the same capture frontier. It
+   * never refreshes an earlier semantic original from another operation. */
+  const hydrateNativeReferenceSource = Effect.fn("CoreTransaction.hydrateNativeReferenceSource")(function* (
+    selection: CoreNativeReferenceSelection, selected: Effect.Success<ReturnType<typeof nativeCapture>>,
+    sourceId: string, access: CoreTransactionNativeAccess,
+  ) {
+    if (nativeObservations === undefined) return yield* invalid();
+    const table = selection.source;
+    yield* Effect.fromResult(nativeObservations.reserve(table, [sourceId]));
+    const pending = writes.get(sourceId);
+    if (pending !== undefined) {
+      if (pending.finalDocument === null || !bytesEqual(pending.table.tabletId, table.tabletId))
+        return yield* new CorePersistenceError({ reason: "corruptData", cause: "Pending native membership has no source" });
+      if (selection.projection !== undefined) yield* Effect.fromResult(chargeDocument(table, pending.finalDocument));
+      return pending.finalDocument;
+    }
+    const decoded = yield* Effect.fromResult(Result.mapError(decodeDocumentId(sourceId), cause => new CorePersistenceError({ reason: "corruptData", cause })));
+    if (decoded.tableNumber !== table.number) return yield* new CorePersistenceError({ reason: "corruptData" });
+    const byId = table.indexes.find(index => index.name === "by_id");
+    if (byId === undefined) return yield* new CoreTransactionError({ reason: "indexUnavailable" });
+    yield* Effect.fromResult(chargePointQuery(table, decoded.internalId));
+    const found = yield* selected.snapshot.get(table.tabletId, decoded.internalId);
+    if (Option.isNone(found) || found.value.deleted)
+      return yield* new CorePersistenceError({ reason: "corruptData", cause: "Orphan native membership" });
+    if (!bytesEqual(found.value.tableId, table.tabletId) || !bytesEqual(found.value.id, decoded.internalId))
+      return yield* new CorePersistenceError({ reason: "corruptData" });
+    let original = nativeObservations.original(sourceId);
+    if (original === undefined) {
+      original = yield* nativeRemember(table, sourceId,
+        yield* captureObservation(table, found.value, selected.snapshot.timestamp, access));
+      nativeRead(selected.snapshot.timestamp, byId,
+        pointInterval(yield* Effect.fromResult(Result.mapError(encodeIndexKey([], sourceId), invalid))));
+    }
+    if (original.document === null || original.original === undefined || original.original.ts < found.value.ts)
+      return yield* new CoreTransactionError({ reason: "conflict", cause: "Native incoming source revision changed" });
+    if (selection.projection !== undefined) yield* Effect.fromResult(chargeDocument(table, original.document));
+    return original.document;
+  });
+
   const userOperations = (access: CoreTransactionNativeAccess | undefined = defaultAccess, withinOperation = false,
     managedUpdate: "advance" | "preserve" = "advance"): Pick<CoreTransaction, "normalizeId" | "get" | "insert" | "patch" | "replace" | "delete"> => {
     const run = withinOperation ? <Value>(body: Effect.Effect<Value, CoreError>) => body : operation;
     return Object.freeze({
     normalizeId: Effect.fn("CoreTransaction.normalizeId")((name: string, id: unknown) => run(Effect.gen(function* () {
       if (native === undefined) yield* Effect.fromResult(mappingRead());
-      const table = registry.table(name,namespace)?.definition;
+      const table = native === undefined ? registry.table(name, namespace)?.definition
+        : yield* Effect.fromResult(tableByName(name, false, access));
       if(table===undefined)return Option.none<string>();
       yield* Effect.fromResult(checkAccess(table, "read", access));
       return yield* Effect.fromResult(Result.mapError(normalizeDocumentId(table.number, id), invalid));
@@ -859,7 +1091,7 @@ export function createCoreTransaction(input: Readonly<{
     tableMappings: operation(Effect.gen(function* () {
       yield* Effect.fromResult(mappingRead());
       return Object.freeze([...registry.tables.values()].filter(record => record.definition.state === "active"
-        && !record.definition.name.startsWith("_") && coreNamespaceKey(record.definition.namespace) === coreNamespaceKey(namespace))
+        && !isCoreSystemTable(record.definition) && coreNamespaceKey(record.definition.namespace) === coreNamespaceKey(namespace))
         .map(record => Object.freeze({ tableId: record.definition.number, logicalName: record.definition.name })));
     })),
     selectProgram: Effect.fn("CoreTransaction.selectProgram")((path: string) => operation(Effect.gen(function* () {
@@ -945,7 +1177,7 @@ export function createCoreTransaction(input: Readonly<{
       markClosed();
       input.onClosed?.();
       if (input.nativeRoot !== undefined) {
-        const finalUserDocuments = [...writes.values()].filter(change => !change.table.name.startsWith("_")
+        const finalUserDocuments = [...writes.values()].filter(change => !isCoreSystemTable(change.table)
           && (change.originalDocument !== null || change.finalDocument !== null)).length;
         if (finalUserDocuments > input.nativeRoot.maxFinalUserDocuments)
           return yield* new CoreTransactionError({ reason: "capacity", cause: "Native final user document limit" });
@@ -1295,14 +1527,34 @@ export function createCoreTransaction(input: Readonly<{
       const selection = yield* Effect.fromResult(selectCoreNativeReference(registry, source, reference));
       const selectedTarget = yield* Effect.fromResult(Result.mapError(decodeDocumentId(targetId), cause => new CoreTransactionError({ reason: "invalidDocumentId", cause })));
       if (selectedTarget.tableNumber !== selection.target.number) return yield* new CoreTransactionError({ reason: "invalidDocumentId" });
-      const page = yield* nativeFindPage(access, true)(source.name, { [reference.field]: targetId },
-        { indexName: reference.indexName, offset: 0, limit: captured.limit });
+      const captureLimits = nativeObservations === undefined ? undefined : yield* Effect.fromResult(nativeObservations.limitsFor(source));
+      if (captureLimits === undefined) return yield* invalid();
+      const needed = captured.limit + 1;
+      if (!Number.isSafeInteger(needed)) return yield* new CoreNativeQueryError({ reason: "invalidInput" });
+      const indexed = coreNativeReferenceIndexTable(selection);
+      const interval = yield* Effect.fromResult(coreNativeReferenceInterval(selection, targetId));
+      const page = yield* queryNativeReferenceIndex(selection, indexed, selection.index, interval,
+        Math.min(needed, captureLimits.maxIdentities + 1), access);
+      if (page.documents.length > captureLimits.maxIdentities)
+        return yield* new CoreTransactionError({ reason: "capacity", cause: "Native incoming identity limit" });
       const ids: string[] = [];
       for (const document of page.documents) {
         if (typeof document._id !== "string") return yield* new CorePersistenceError({ reason: "corruptData" });
-        ids.push(document._id);
+        const member = selection.projection === undefined ? undefined : yield* rememberNativeMembership(selection, page.selected, document);
+        if (member !== undefined && member.targetId !== targetId)
+          return yield* new CorePersistenceError({ reason: "corruptData", cause: "Native membership target differs from its index interval" });
+        const sourceId = member?.sourceId ?? document._id;
+        if (ids.includes(sourceId))
+          return yield* new CorePersistenceError({ reason: "corruptData", cause: "Duplicate native incoming source" });
+        const body = yield* hydrateNativeReferenceSource(selection, page.selected, sourceId, access);
+        const targets = yield* Effect.fromResult(Result.mapError(coreNativeReferenceTargets(selection, body),
+          cause => new CorePersistenceError({ reason: "corruptData", cause })));
+        if (!targets.includes(targetId))
+          return yield* new CorePersistenceError({ reason: "corruptData", cause: "Native membership differs from its source" });
+        ids.push(sourceId);
       }
-      return Object.freeze({ ids: Object.freeze(ids), hasMore: page.hasMore });
+      return Object.freeze({ ids: Object.freeze(ids.slice(0, captured.limit)), hasMore: ids.length > captured.limit,
+        inspectedMemberships: page.inspectedMemberships });
     }))),
     pendingDelete: Effect.fn("CoreTransaction.nativePendingDelete")((tableName: string, id: string) => operation(Effect.gen(function* () {
       if (access?.kind !== "native") return yield* new CoreTransactionError({ reason: "authorityRevoked" });

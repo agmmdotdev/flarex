@@ -4,6 +4,9 @@ import type { BoundedRequestContext, PresentedTransactionId } from "../../../exe
 
 /** Confined framework document operations, independent of a storage session. */
 export interface LogicalDocuments<Failure> {
+  /** Authenticate table-typed IDs without observing document bodies or absence. */
+  readonly validateIds: (context: BoundedRequestContext, id: PresentedTransactionId, tableName: string,
+    documentIds: readonly string[]) => Effect.Effect<void, Failure>;
   readonly get: (context: BoundedRequestContext, id: PresentedTransactionId, documentId: string, tableName?: string) => Effect.Effect<JsonObject | null, Failure>;
   readonly getMany: (context: BoundedRequestContext, id: PresentedTransactionId, tableName: string,
     documentIds: readonly string[]) => Effect.Effect<readonly (JsonObject | null)[], Failure>;

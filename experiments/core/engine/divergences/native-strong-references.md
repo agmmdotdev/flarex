@@ -16,9 +16,10 @@ dependencies, pending old/new index maintenance and ordered published plus
 accepted-unsaved conflict checking, not a generic row foreign-key engine.
 
 Source's [index registry](../../../../../../crates/indexing/src/index_registry.rs)
-emits one old/new key per document/index. Optional-one can retain this algorithm
-using a scalar reverse index. Many/joins need a separate occurrence mechanism
-when selected; this record does not admit them.
+emits one old/new key per document/index. Optional-one retains this algorithm
+using a scalar reverse index. The selected fresh many/join continuation uses
+[logical memberships](./native-reference-memberships.md) with the same ordinary
+index machinery; that record owns its separate native representation.
 
 ## Required native difference
 
@@ -68,5 +69,6 @@ cold metadata authentication and no callback replay. Pair shared-owner and
 genuine Local API/joint witnesses on PGlite and ordinary PostgreSQL separately.
 
 Native Links, owned cross-owner cascades, Product soft-delete/restore/checkpoints,
-many/joins and general developer-UDF participation retain their separate gates.
+repeated memberships, populated-many conversion and general developer-UDF
+participation retain their separate gates.
 Performance and deployed native hosting remain unproved.

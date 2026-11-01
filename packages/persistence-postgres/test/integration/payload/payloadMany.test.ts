@@ -1,8 +1,5 @@
 import { it } from "vitest";
-import { createRelationalPGliteFixture } from "../../database/relationalPGliteWorkerTestSupport";
-import { payloadPreferenceBindingScenario } from "../../frameworks/payloadPreferences/payloadPreferenceBindingScenario";
+import { payloadManyScenario, payloadManyCapacityScenario } from "./payloadManyScenario";
 
-it("proves fresh Payload many CRUD and population through native owners", async () => {
-  const fixture = await createRelationalPGliteFixture({ fileBacked: true });
-  await payloadPreferenceBindingScenario(fixture.persistence, fixture.session, "many", fixture.reopen);
-}, 180000);
+it("proves genuine fresh many CRUD, population, late integrity and recovery", () => payloadManyScenario("pglite"), 180_000);
+it("keeps private membership work separate from business identity capacity", () => payloadManyCapacityScenario("pglite"), 180_000);

@@ -342,5 +342,17 @@ scalar-to-relation successor and compatible audit-only source evolution. It reus
 the shared index builder, preserves active native ownership during pending
 preparation, and atomically activates complete policy/index/schema state.
 Native late-integrity checks remain separate from semantic observations.
-The selected replacement and connected two-driver proof are complete; many/joins, Product, developer-UDF
-borrowing, query-sync feed retirement and broader goal gates remain named retained.
+The selected replacement and connected two-driver proof are complete; its many/join
+continuation is below. Product, developer-UDF borrowing, query-sync feed retirement
+and broader goal gates remain named retained.
+
+The [fresh many/join replacement](./slices/15-native-many-and-joins.md) implements
+the genuine fixed producer and consumers after independent challenge and peer
+exchange. It preserves fresh-only installation and upgrade refusal while replacing
+physical occurrence machinery with authenticated private logical memberships and
+ordinary Source indexes. ID-only admission, confined joins, native accounting,
+source observations and late integrity have paired owner/consumer proof. The
+connected relation workload construction uses the same current owner without
+restarting performance measurements. Its selected replacement and bounded
+regressions are complete; the remaining native, retained-data, hosting, package
+boundary retirement and performance obligations keep the full goal open.

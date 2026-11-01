@@ -17,6 +17,8 @@ export interface CorePersistenceFixture {
   /** Owned fixture maintenance/observation only; never passed to user code. */
   readonly query: (statement: string, parameters?: readonly CoreSqlParameter[]) => Promise<readonly unknown[]>;
   readonly close: () => Promise<void>;
+  /** Trusted test diagnostics only; never supplied to application/framework code. */
+  readonly runtimePool?: Pool;
 }
 
 /** Test observation through actual metadata owners; never a readiness implementation. */
@@ -99,7 +101,7 @@ export async function createCorePostgresFixture(options: CorePostgresFixtureOpti
     const target = await Effect.runPromise(loadCorePersistenceTarget(runtimeDriver, namespace));
     const persistence = await Effect.runPromise(createCorePersistence(target, instanceName, options));
     let closed = false;
-    return Object.freeze({ persistence, namespace, instanceName,
+    return Object.freeze({ persistence, namespace, instanceName, runtimePool: runtime,
       reopen: async (instance = instanceName) => Effect.runPromise(Effect.gen(function* () {
         const loaded = yield* loadCorePersistenceTarget(runtimeDriver, namespace);
         return yield* createCorePersistence(loaded, instance, options);

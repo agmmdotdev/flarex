@@ -13,6 +13,7 @@ import { CorePersistenceError, type CoreHydratedIndexEntry, type CoreIndexPage, 
 import { captureCoreDocument } from "./document";
 import { documentIndexKey } from "./documentIndex";
 import { CoreRegistry, INDEXES, readDocumentObject } from "./registry";
+import { isCoreSystemTable } from "./nativeTableAccess";
 import { CoreReadSetBuilder, copyInterval } from "./writeLog";
 
 interface IndexDocuments {
@@ -106,7 +107,7 @@ export function createCoreIndexSnapshot(input: Readonly<{
     return Result.gen(function* () {
       for (const entry of entries) {
         const document = yield* readDocumentObject(entry.document, table);
-        const measured = yield* Result.mapError(captureCoreDocument(document, table.name.startsWith("_")),
+        const measured = yield* Result.mapError(captureCoreDocument(document, isCoreSystemTable(table)),
           cause => new CorePersistenceError({ reason: "corruptData", cause }));
         // Keep a single immutable document revision shared by its secondary
         // keys. The source charges document value size only through ById.
