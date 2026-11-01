@@ -168,7 +168,12 @@ const finiteContractTestImports = new Map([
   }, {
     specifier: "../../../medusa-adapter/src/modules/currency/schema", target: "packages/medusa-adapter/src/modules/currency/schema.ts",
   }, {
+    specifier: "../../../medusa-adapter/src/modules/pricing/schema", target: "packages/medusa-adapter/src/modules/pricing/schema.ts",
+  }, {
     specifier: "../../../medusa-adapter/src/links/product-definition", target: "packages/medusa-adapter/src/links/product-definition.ts",
+  }]],
+  ["packages/persistence-postgres/test/core/nativeTextPredicateIndexScenario.ts", [{
+    specifier: "../../../medusa-adapter/src/modules/pricing/schema", target: "packages/medusa-adapter/src/modules/pricing/schema.ts",
   }]],
   ["packages/persistence-postgres/test/core/nativeRootEventsScenarios.ts", [{
     specifier: "../../../medusa-adapter/src/modules/currency/schema", target: "packages/medusa-adapter/src/modules/currency/schema.ts",

@@ -2,24 +2,23 @@ import { Effect, Result, Schema } from "effect";
 import { makeLocalInventoryCommands } from "../../src/modules/inventory/service";
 import { prepareProductBatchLinkResource } from "../../src/links/product-batch-resource";
 import { prepareProductBatchWorkflow, prepareProductVariantBatchWorkflow } from "../../src/workflows/product/batch";
-import { prepareLogicalProductDeletion } from "./logical-product-deletion-fixture";
-import { creationRevision, productCreationModules, productCreationOptions } from "./logical-product-creation-fixture";
+import { prepareCoreProductDeletion } from "./core-product-deletion-fixture";
+import { creationRevision, productCreationModules, productCreationOptions } from "./core-product-creation-fixture";
 import { prepareProductCreationWorkflow } from "../../src/workflows/product/creation";
-import { prepareInventoryCreateHost } from "./logical-inventory-fixture";
-import { seedLogicalPricingLists } from "./logical-pricing-fixture";
+import { prepareCoreInventoryCreateHost, seedCorePricingLists } from "./core-product-creation-fixture";
 
 /** Reuse genuine creation/update/deletion seed operations and their installed
  * sources. The batch facade supplies the only new execution root. */
-export async function prepareLogicalProductBatch(driver: "pglite" | "postgres", registerCleanup: (close: () => Promise<void>) => void,
-  shared?: Parameters<typeof prepareLogicalProductDeletion>[2]) {
-  const connected = await prepareLogicalProductDeletion(driver, registerCleanup, shared);
+export async function prepareCoreProductBatch(driver: "pglite" | "postgres", registerCleanup: (close: () => Promise<void>) => void,
+  shared?: Parameters<typeof prepareCoreProductDeletion>[2]) {
+  const connected = await prepareCoreProductDeletion(driver, registerCleanup, shared);
   const inventoryBatch = await Effect.runPromise(makeLocalInventoryCommands("product-batches"));
-  const modules: Parameters<typeof prepareProductBatchWorkflow>[0]["modules"] = { ...productCreationModules(connected.creation),
-    product: { module: connected.creation.product.runtime.productBatchWorkflow, logicalStorage: connected.creation.product.hostInput.logicalStorage },
+  const modules = { ...productCreationModules(connected.creation),
+    product: { module: connected.creation.product.runtime.productBatchWorkflow, nativeStorage: connected.creation.product.source },
     pricing: connected.modules.pricing,
-    inventory: { module: inventoryBatch.workflow, logicalStorage: connected.creation.inventory.inventory.hostInput.logicalStorage },
+    inventory: { module: inventoryBatch.workflow, nativeStorage: connected.creation.inventory.inventory.source },
     product_links: connected.modules.product_links, variant_links: connected.modules.variant_links,
-  };
+  } satisfies Parameters<typeof prepareProductBatchWorkflow>[0]["modules"];
   const link = Result.getOrThrow(prepareProductBatchLinkResource({ ...connected.productDeletionLinks.nativeServices,
     ...connected.variantDeletionLinks.nativeServices }, connected.pricing.runtime.workflow));
   const options = { execution: connected.execution, modules, link, revision: creationRevision("native-product-batches"),
@@ -36,7 +35,7 @@ export async function prepareLogicalProductBatch(driver: "pglite" | "postgres", 
     const total = variantsPerProduct.reduce((sum, count) => sum + count, 0);
     if (total > 4) throw new Error("Seed graph exceeds the genuine creation profile");
     const itemIds = Array.from({ length: total * 2 }, (_, index) => prefix + "-inventory-" + index);
-    const items = await prepareInventoryCreateHost(connected.fixture, connected.creation.inventory.inventory);
+    const items = await prepareCoreInventoryCreateHost(connected.fixture, connected.creation.inventory.inventory);
     try {
       for (let index = 0; index < itemIds.length; index += 4) await Effect.runPromise(items.host.run(items.host.newRequestKey(), items.create,
         itemIds.slice(index, index + 4).map(id => ({ id, sku: id }))));
@@ -70,7 +69,7 @@ export async function prepareLogicalProductBatch(driver: "pglite" | "postgres", 
         prices: ["USD", "EUR"].map(currency_code => ({ id: prefix + "-sale-" + variant.id + "-" + currency_code,
           price_set_id: id(priceSets.get(variant.id)), currency_code, amount: 5, rules: { region_id: "sale" } })),
       })));
-      if (priceLists.length > 0) await seedLogicalPricingLists(connected.fixture, connected.pricing, priceLists);
+      if (priceLists.length > 0) await seedCorePricingLists(connected.fixture, connected.pricing, priceLists);
       return { products, itemIds, priceSets };
     } finally { await Effect.runPromise(native.close); }
   };
@@ -98,3 +97,4 @@ export async function prepareLogicalProductBatch(driver: "pglite" | "postgres", 
   };
   return { ...connected, inventoryBatch, modules, link, options, prepareProduct, prepareVariant, seedGraph, seedForeignOwners };
 }
+export type CoreProductBatchFixture = Awaited<ReturnType<typeof prepareCoreProductBatch>>;

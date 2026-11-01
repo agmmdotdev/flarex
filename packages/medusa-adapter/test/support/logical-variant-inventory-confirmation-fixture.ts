@@ -14,7 +14,7 @@ import { VariantInventoryLinkRows } from "../../src/links/variant-service";
 import { ScalarId } from "../../src/repository/scalar-id-read";
 import { prepareInventoryCreateHost } from "./logical-inventory-fixture";
 import { prepareLogicalVariantItemPricing } from "./logical-variant-item-pricing-fixture";
-import { creationRevision } from "./logical-product-creation-fixture";
+import { legacyCreationRevision as creationRevision } from "./legacy-product-creation-fixture";
 
 const LinkTuples = Schema.Array(Schema.Tuple([ScalarId, ScalarId, Schema.Struct({ required_quantity: Schema.Literal(1) })]));
 const VariantFlags = Schema.Struct({ id: ScalarId, allow_backorder: Schema.optionalKey(Schema.Boolean), manage_inventory: Schema.optionalKey(Schema.Boolean) });

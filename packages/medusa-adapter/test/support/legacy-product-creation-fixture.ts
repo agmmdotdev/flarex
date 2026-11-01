@@ -4,7 +4,7 @@ import { commerceError, isJsonObject } from "@flarex/persistence-postgres/intern
 import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
-import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./logical-currency-fixture";
+import type { LogicalCurrencyFixture } from "./logical-currency-fixture";
 import { prepareLogicalProductHost } from "./logical-product-fixture";
 import { prepareLogicalPricingHost } from "./logical-pricing-fixture";
 import { prepareLogicalSalesChannelHost } from "./logical-sales-channel-fixture";
@@ -16,8 +16,8 @@ import { prepareProductNativeLinkResource } from "../../src/links/product-resour
 import type { AtomicWorkflowHostComposition, AtomicWorkflowExecution, LegacyInstalledWorkflowModules } from "../../src/workflow/host";
 import type { prepareProductCreationWorkflow } from "../../src/workflows/product/creation";
 
-export const creationRevision = (name: string) => createHash("sha256").update(name).digest("hex");
-export interface ProductCreationFixture {
+export const legacyCreationRevision = (name: string) => createHash("sha256").update(name).digest("hex");
+export interface LegacyProductCreationFixture {
   readonly fixture: LogicalCurrencyFixture;
   readonly product: Awaited<ReturnType<typeof prepareLogicalProductHost>>;
   readonly pricing: Awaited<ReturnType<typeof prepareLogicalPricingHost>>;
@@ -27,7 +27,7 @@ export interface ProductCreationFixture {
   readonly inventory: Awaited<ReturnType<typeof prepareLogicalInventoryHosts>>;
   readonly link: Result.Result.Success<ReturnType<typeof prepareProductNativeLinkResource>>;
 }
-export async function connectProductCreation(fixture: LogicalCurrencyFixture): Promise<ProductCreationFixture> {
+export async function connectLegacyProductCreation(fixture: LogicalCurrencyFixture): Promise<LegacyProductCreationFixture> {
   const product = await prepareLogicalProductHost(fixture), pricing = await prepareLogicalPricingHost(fixture);
   const sales = await prepareLogicalSalesChannelHost(fixture), shipping = await prepareLogicalShippingProfileHost(fixture);
   const productLinks = await prepareLogicalProductLinksHost(fixture);
@@ -41,7 +41,7 @@ export async function connectProductCreation(fixture: LogicalCurrencyFixture): P
   ])));
   return { fixture, product, pricing, sales, shipping, productLinks, inventory, link };
 }
-export const productCreationModules = (value: ProductCreationFixture): LegacyInstalledWorkflowModules<Parameters<typeof prepareProductCreationWorkflow>[0]["modules"]> => ({
+export const legacyProductCreationModules = (value: LegacyProductCreationFixture): LegacyInstalledWorkflowModules<Parameters<typeof prepareProductCreationWorkflow>[0]["modules"]> => ({
   product: { module: value.product.runtime.workflow, logicalStorage: value.product.hostInput.logicalStorage },
   pricing: { module: value.pricing.runtime.workflow, logicalStorage: value.pricing.hostInput.logicalStorage },
   inventory: { module: value.inventory.inventory.runtime.workflow, logicalStorage: value.inventory.inventory.hostInput.logicalStorage },
@@ -51,23 +51,23 @@ export const productCreationModules = (value: ProductCreationFixture): LegacyIns
   product_links: { module: value.productLinks.runtime.workflow, logicalStorage: value.productLinks.hostInput.logicalStorage },
   variant_links: { module: value.inventory.link.runtime.workflow, logicalStorage: value.inventory.link.hostInput.logicalStorage },
 });
-export const productCreationExecution = (value: ProductCreationFixture, session: LogicalCurrencyFixture["session"] = value.fixture.session): AtomicWorkflowExecution => ({
+export const legacyProductCreationExecution = (value: LegacyProductCreationFixture, session: LogicalCurrencyFixture["session"] = value.fixture.session): AtomicWorkflowExecution => ({
   identityAndAccessPolicy: value.fixture.hostInput.identityAndAccessPolicy,
   prepare: (composition: AtomicWorkflowHostComposition) => makeAtomicCommerceHost({ ...value.fixture.hostInput, session, ...composition }),
 });
-export const productCreationOptions = (value: ProductCreationFixture): Omit<Parameters<typeof prepareProductCreationWorkflow>[0], "hooks" | "modules"> & {
-  readonly modules: ReturnType<typeof productCreationModules>;
-} => ({ execution: productCreationExecution(value),
-  modules: productCreationModules(value), link: value.link, revision: creationRevision("native-product-root"),
+export const legacyProductCreationOptions = (value: LegacyProductCreationFixture): Omit<Parameters<typeof prepareProductCreationWorkflow>[0], "hooks" | "modules"> & {
+  readonly modules: ReturnType<typeof legacyProductCreationModules>;
+} => ({ execution: legacyProductCreationExecution(value),
+  modules: legacyProductCreationModules(value), link: value.link, revision: legacyCreationRevision("native-product-root"),
   subscribers: [{ id: "native-product-root", revision: "a".repeat(64) }],
 });
-export async function seedCreationEndpoints(value: ProductCreationFixture, prefix = "root") {
-  const modules = productCreationModules(value);
+export async function seedLegacyCreationEndpoints(value: LegacyProductCreationFixture, prefix = "root") {
+  const modules = legacyProductCreationModules(value);
   const label = prefix === "root" ? "Root" : prefix;
-  const host = await Effect.runPromise(prepareProductShippingProfileWorkflow({ execution: productCreationExecution(value),
+  const host = await Effect.runPromise(prepareProductShippingProfileWorkflow({ execution: legacyProductCreationExecution(value),
     modules: { product: modules.product, sales_channel: modules.sales_channel, fulfillment: modules.fulfillment,
       link: { module: value.productLinks.runtime.workflow, logicalStorage: value.productLinks.hostInput.logicalStorage } },
-    revision: creationRevision("product-root-endpoint-setup"), subscribers: [{ id: "product-root-endpoint-setup", revision: "b".repeat(64) }],
+    revision: legacyCreationRevision("product-root-endpoint-setup"), subscribers: [{ id: "product-root-endpoint-setup", revision: "b".repeat(64) }],
   }));
   try {
     for (const index of [0, 1]) await Effect.runPromise(host.run(host.newRequestKey(), {
@@ -78,7 +78,7 @@ export async function seedCreationEndpoints(value: ProductCreationFixture, prefi
     }));
   } finally { await Effect.runPromise(host.close); }
 }
-export async function seedCreationReferences(value: ProductCreationFixture, prefix = "root") {
+export async function seedLegacyCreationReferences(value: LegacyProductCreationFixture, prefix = "root") {
   const { commands, metadata, logicalPolicy } = value.product.runtime;
   const label = prefix === "root" ? "Root" : prefix;
   const entries = [
@@ -108,12 +108,4 @@ export async function seedCreationReferences(value: ProductCreationFixture, pref
       await Effect.runPromise(host.run(host.newRequestKey(), root, data));
     }
   } finally { await Effect.runPromise(host.close); }
-}
-export async function makeProductCreationFixture(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  options?: { readonly resource: LogicalCurrencyFixture["resource"]; readonly fixtureIdentity: { deploymentId: string; projectId: string; uuidOffset: number } }): Promise<ProductCreationFixture> {
-  const configuration = { includeProduct: true, includePricing: true,
-    includeVariantInventory: true, includeSalesChannel: true, includeShippingProfile: true,
-    includeProductSalesChannelLink: true, includeProductShippingProfileLink: true };
-  return connectProductCreation(await (options === undefined ? logicalCurrencyFixture(driver, close, configuration)
-    : logicalCurrencyFixture(driver, close, { ...configuration, ...options })));
 }

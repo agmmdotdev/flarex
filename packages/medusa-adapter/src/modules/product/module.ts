@@ -33,10 +33,10 @@ export function productImageAliasRepository(repository: DAL.RepositoryService, r
 function bindProduct(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata,
   entities: ReadonlyMap<typeof productModels[number], ProductEntityMetadata>, profile: ProductRepositoryProfile) {
   const bound = productRepository(ctx, owner, metadata, profile);
-  const { repository, refuse, categoryRepository, captureLocalEvent, rejectLocalEvent,
+  const { repository, refuse, categoryRepository, captureLocalEvent, bridge,
     replaceCollectionMembership } = bound;
   const eventBus = commerceModuleEventBus({ owner, resources: ctx.resources,
-    capture: captureLocalEvent, check: work => work.pipe(Effect.catchTag("CommerceTransactionError", rejectLocalEvent)), refuse,
+    capture: captureLocalEvent, check: work => Effect.suspend(() => bridge.checked(bridge.current(), work)), refuse,
   });
   // Category depends on the main service's mutation interceptor. Keep this
   // framework cycle local; no generic container, lazy resolver or service lookup.

@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
+import { Cause, Context, Deferred, Effect, Equal, Exit, Fiber, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { isJsonObject, jsonEqual, type Json } from "flarex-protocol/json";
 import { defineCommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
-import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
+import { commerceError, type CommerceTransactionError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant, type AtomicCommerceContext, type AtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";
 import { compileCoreNativeEventStorageDefinition } from "../../persistence-postgres/src/commit/events/coreDefinition";
@@ -70,6 +70,45 @@ async function host(tested: CoreNativeWorkflowFixture, body: Parameters<typeof d
 }
 
 describe(`${driver} ordinary atomic workflow owner`, () => {
+  it("retains three independent owned failures through native body and seal while rolling back the complete root", async () => {
+    const tested = await fixture();
+    const reused = commerceError("invalidInput"), sameCode = commerceError("invalidInput");
+    const Annotation = Context.Service<string>("NativeAtomicTest/OwnedOccurrences");
+    let runs = 0, bodyCause: Cause.Cause<CommerceTransactionError> | undefined;
+    try {
+      const selected = await host(tested, (context, args) => Effect.gen(function* () {
+        runs++;
+        yield* context.call(participant, nestedWrite, args);
+        // Issue every origin independently, then exercise the real Cause join.
+        const first = Result.getOrThrow(context.recordFailure(Cause.annotate(Cause.fail(reused), Context.make(Annotation, "native-body"))));
+        const second = Result.getOrThrow(context.recordFailure(Cause.annotate(Cause.fail(reused), Context.make(Annotation, "native-body"))));
+        const third = Result.getOrThrow(context.recordFailure(Cause.annotate(Cause.fail(sameCode), Context.make(Annotation, "native-body"))));
+        bodyCause = Result.getOrThrow(context.recordFailure(Cause.combine(Cause.combine(first, second), third)));
+        expect(bodyCause.reasons).toHaveLength(3);
+        return yield* Effect.failCause(bodyCause);
+      }));
+      const before = await tested.snapshot(), key = selected.selected.newRequestKey();
+      const outcome = await Effect.runPromise(Effect.exit(selected.run(key, argumentsFor("xoi"))));
+      if (Exit.isSuccess(outcome) || bodyCause === undefined) throw new Error("Expected authentic native body and seal failure");
+      expect(outcome.cause.reasons).toHaveLength(4);
+      expect(outcome.cause.reasons.every(Cause.isFailReason)).toBe(true);
+      expect(failures(outcome)).toEqual([reused, reused, sameCode, expect.objectContaining({ reason: "rollbackOnly" })]);
+      const owned = outcome.cause.reasons.filter(reason => Cause.isFailReason(reason) && reason.error.reason === "invalidInput");
+      const tokens = owned.map(reason => reason.annotations.get("Flarex/BoundedRequestFailureOrigin"));
+      expect(tokens).toEqual(bodyCause.reasons.map(reason => reason.annotations.get("Flarex/BoundedRequestFailureOrigin")));
+      expect(new Set(tokens).size).toBe(3);
+      expect(Equal.equals(tokens[0], tokens[1])).toBe(false);
+      expect(owned.every(reason => reason.annotations.get(Annotation.key) === "native-body")).toBe(true);
+      expect(runs).toBe(1);
+      expect(await tested.snapshot()).toEqual(before);
+      expect(await tested.readRows("currency", ["xoi"])).toEqual([]);
+      const inventory = await tested.inventory();
+      expect(inventory.outcomes.filter(outcome => outcome.value.key === key)).toHaveLength(1);
+      expect(inventory.outcomes.find(outcome => outcome.value.key === key)?.value).toMatchObject({ state: "failed" });
+      await Effect.runPromise(selected.selected.close);
+    } finally { await tested.close(); }
+  }, 120_000);
+
   it("uses one shared root and keeps a caught foreign capability refusal rollback-only", async () => {
     const tested = await fixture();
     try {

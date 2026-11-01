@@ -1,7 +1,8 @@
 import { expectWorkflowRefusal } from "./support/workflow-failure-assertions";
 import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Cause, Effect, Result, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
+import { CoreNativeUniqueConflict } from "../../persistence-postgres/src/core/api";
 import { Modules, CommonEvents, MedusaError } from "@medusajs/framework/utils/portable";
 import { createStep, createWorkflow, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { productCallReceipts } from "../src/modules/product/events/call-receipts";
@@ -292,9 +293,11 @@ describe("native Product creation on shared logical storage", () => {
       expect(await Effect.runPromise(host.run(key, input))).toMatchObject({ products: input.products });
       expect(await coreRows()).toEqual(afterRows);
       expect(await coreEvents()).toEqual(afterEvents);
-      await expect(Effect.runPromise(host.run(host.newRequestKey(), { products: [
+      const conflict = expectWorkflowRefusal(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { products: [
         { id: "prod_logical_conflict", title: "Logical Alpha" },
-      ] }))).rejects.toMatchObject({ reason: "rollbackOnly" });
+      ] }))), "invalidInput");
+      expect(conflict.cause).toBeInstanceOf(CoreNativeUniqueConflict);
+      expect(conflict.cause).toMatchObject({ reason: "uniqueConflict", descriptor: "IDX_product_handle_unique", fields: ["handle"] });
       expect(await coreRows()).toEqual(afterRows);
       expect(await coreEvents()).toEqual(afterEvents);
       expect(await currency.readPhysicalTables())
@@ -496,11 +499,13 @@ describe("native Product creation on shared logical storage", () => {
       expect(await Effect.runPromise(host.run(key, input))).toEqual(created);
       expect(await coreRows()).toEqual(afterRows);
       expect(await coreEvents()).toEqual(afterEvents);
-      await expect(Effect.runPromise(host.run(host.newRequestKey(), { products: [{
+      const conflict = expectWorkflowRefusal(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { products: [{
         id: "prod_logical_graph_conflict", title: "Logical Graph Conflict",
         options: [{ title: "Size", values: ["Small"] }],
         variants: [{ title: "Small", sku: "logical-graph-small", options: { Size: "Small" } }],
-      }] }))).rejects.toMatchObject({ reason: "rollbackOnly" });
+      }] }))), "invalidInput");
+      expect(conflict.cause).toBeInstanceOf(CoreNativeUniqueConflict);
+      expect(conflict.cause).toMatchObject({ reason: "uniqueConflict", descriptor: "IDX_product_variant_sku_unique", fields: ["sku"] });
       expect(await coreRows()).toEqual(afterRows);
       expect(await coreEvents()).toEqual(afterEvents);
     } finally { await Effect.runPromise(host.close); }
@@ -617,15 +622,9 @@ describe("native Product creation on shared logical storage", () => {
         }))));
       const beforeRows = await coreRows();
       const beforeEvents = await coreEvents();
-      const overflow = await Effect.runPromise(Effect.result(membership.run(membership.newRequestKey(), {
+      expectWorkflowRefusal(await Effect.runPromise(Effect.exit(membership.run(membership.newRequestKey(), {
         id: collectionId, remove: ["prod_collection_overflow_0"],
-      })));
-      if (!Result.isFailure(overflow)) throw new Error("Expected bounded Collection refusal");
-      expect(overflow.failure.reason).toBe("rollbackOnly");
-      if (!Cause.isCause(overflow.failure.cause)) throw new Error("Missing bounded refusal cause");
-      expect(overflow.failure.cause.reasons.some(reason => Cause.isFailReason(reason) &&
-        reason.error !== null && typeof reason.error === "object" && "reason" in reason.error &&
-        reason.error.reason === "limitExceeded")).toBe(true);
+      }))), "limitExceeded");
       expect(await coreRows()).toEqual(beforeRows);
       expect(await coreEvents()).toEqual(beforeEvents);
     } finally {
@@ -882,13 +881,7 @@ describe("native Product creation on shared logical storage", () => {
       const input = { collection: { id: "pcol_combined_target", add: ["prod_combined_add"],
         remove: ["prod_combined_remove"] },
       category: { id: "pcat_combined_target", add: ["prod_combined_add"], remove: ["prod_combined_remove"] } };
-      const ordinaryExit = await Effect.runPromise(Effect.result(ordinary.run(ordinary.newRequestKey(), input)));
-      if (!Result.isFailure(ordinaryExit)) throw new Error("Expected default composed-workflow limit");
-      expect(ordinaryExit.failure.reason).toBe("rollbackOnly");
-      if (!Cause.isCause(ordinaryExit.failure.cause)) throw new Error("Missing bounded refusal cause");
-      expect(ordinaryExit.failure.cause.reasons.some(reason => Cause.isFailReason(reason) &&
-        reason.error !== null && typeof reason.error === "object" && "reason" in reason.error &&
-        reason.error.reason === "limitExceeded")).toBe(true);
+      expectWorkflowRefusal(await Effect.runPromise(Effect.exit(ordinary.run(ordinary.newRequestKey(), input))), "limitExceeded");
       const key = relationships.newRequestKey();
       const result = await Effect.runPromise(relationships.run(key, input));
       expect(result.productsAfterCategory).toMatchObject([

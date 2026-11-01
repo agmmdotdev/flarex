@@ -20,7 +20,7 @@ import { productInlineImportPolicy, productInlineImportProfile } from "../../src
 import { prepareDurableNotification } from "../../src/workflow/durable-notification";
 import type { AtomicWorkflowExecution } from "../../src/workflow/host";
 import type { TaskAtomicCommerceHost } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { prepareLogicalProductBatch } from "./logical-product-batch-fixture";
+import { prepareLegacyProductBatch as prepareLogicalProductBatch } from "./legacy-product-batch-fixture";
 import { notificationLogicalSource, prepareLogicalNotificationHost } from "./logical-notification-fixture";
 
 const hash = (bytes: Uint8Array) => Effect.sync(() => new Uint8Array(createHash("sha256").update(bytes).digest()));

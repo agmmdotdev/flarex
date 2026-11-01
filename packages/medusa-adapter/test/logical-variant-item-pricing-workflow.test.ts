@@ -16,7 +16,7 @@ import { prepareVariantItemPricingWorkflow } from "../src/workflows/cart/variant
 import { ExactNumericRaw } from "../src/value/exact-numeric";
 import { VariantItemPricingCalculationOutput } from "../src/modules/pricing/calculation";
 import { prepareLogicalVariantItemPricing } from "./support/logical-variant-item-pricing-fixture";
-import { creationRevision } from "./support/logical-product-creation-fixture";
+import { legacyCreationRevision as creationRevision } from "./support/legacy-product-creation-fixture";
 import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");

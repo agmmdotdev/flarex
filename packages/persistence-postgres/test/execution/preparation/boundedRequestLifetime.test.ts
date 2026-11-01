@@ -1,4 +1,4 @@
-import { Cause, Context, Deferred, Effect, Exit, Fiber, Result } from "effect";
+import { Cause, Context, Deferred, Effect, Equal, Exit, Fiber, Result } from "effect";
 import { TestClock } from "effect/testing";
 import { expect, it } from "vitest";
 import { makeBoundedRequestLifetime, projectBoundedRequestLifetime, reclassifyBoundedRequestReason } from "../../../src/execution/preparation/boundedRequestLifetime";
@@ -7,6 +7,55 @@ import { runEffect } from "../../support/effectTestRuntime";
 
 const make = () => makeBoundedRequestLifetime(commerceError,
   { calls: 16, commandBytes: 100, commandMs: 10000 }, {}, {}, "request", "write");
+
+it.each(["direct", "projected"] as const)("retains three independently owned equal failures through %s propagation and seal", mode => runEffect(Effect.scoped(Effect.gen(function* () {
+  const root = yield* Effect.acquireRelease(make(), lifetime => lifetime.close);
+  const foreign = yield* Effect.acquireRelease(make(), lifetime => lifetime.close);
+  const lifetime = mode === "direct" ? root : projectBoundedRequestLifetime(root, error => error);
+  const revoked = yield* lifetime.nested(lifetime.context, "request", Effect.succeed);
+  const reused = commerceError("invalidInput"), sameCode = commerceError("invalidInput");
+  const Annotation = Context.Service<string>("test/owned-occurrence-note");
+  const calls = lifetime.usedCalls(), bytes = lifetime.remainingBytes();
+  // Each occurrence receives its real private origin before any Cause union.
+  const first = Result.getOrThrow(lifetime.recordFailure(lifetime.context, Cause.fail(reused)));
+  const second = Result.getOrThrow(lifetime.recordFailure(lifetime.context, Cause.fail(reused)));
+  const third = Result.getOrThrow(lifetime.recordFailure(lifetime.context, Cause.fail(sameCode)));
+  const tokens = [first, second, third].map(cause => cause.reasons[0]?.annotations.get("Flarex/BoundedRequestFailureOrigin"));
+  expect(tokens.every(token => typeof token === "object" && token !== null && Object.isFrozen(token))).toBe(true);
+  for (const token of tokens) {
+    expect(Equal.equals(token, token)).toBe(true);
+    expect(Object.keys(token ?? {})).toEqual([]);
+    for (const other of tokens) if (other !== token) expect(Equal.equals(token, other)).toBe(false);
+  }
+  expect(new Set(tokens).size).toBe(3);
+  const complete = Cause.combine(Cause.combine(first, second), third);
+  expect(complete.reasons).toHaveLength(3);
+  const annotated = Cause.annotate(complete, Context.make(Annotation, "retained"));
+  const owned = Result.getOrThrow(lifetime.recordFailure(lifetime.context, annotated));
+  const named = Effect.fn("Lifetime.rethrowIndependentOwnedOccurrences")(function* () { return yield* Effect.failCause(owned); });
+  const rethrown = yield* Effect.exit(named());
+  if (Exit.isSuccess(rethrown)) throw new Error("Expected the complete owned occurrence chain");
+  const repeated = Result.getOrThrow(lifetime.recordFailure(lifetime.context, Cause.combine(owned, rethrown.cause)));
+  expect(repeated.reasons).toHaveLength(3);
+  expect(repeated.reasons.filter(Cause.isFailReason).map(reason => reason.error)).toEqual([reused, reused, sameCode]);
+  expect(repeated.reasons.map(reason => reason.annotations.get("Flarex/BoundedRequestFailureOrigin"))).toEqual(tokens);
+  expect(repeated.reasons.every(reason => reason.annotations.get(Annotation.key) === "retained")).toBe(true);
+  expect(Result.isFailure(lifetime.recordFailure(foreign.context, complete))).toBe(true);
+  expect(Result.isFailure(lifetime.recordFailure(revoked, complete))).toBe(true);
+  expect(lifetime.usedCalls()).toBe(calls);
+  expect(lifetime.remainingBytes()).toBe(bytes);
+  yield* foreign.seal;
+  expect(foreign.isClosing()).toBe(true);
+  const sealed = yield* Effect.exit(root.seal);
+  if (Exit.isSuccess(sealed)) throw new Error("Expected the three owned failures and the seal marker");
+  expect(sealed.cause.reasons).toHaveLength(4);
+  expect(sealed.cause.reasons.filter(Cause.isFailReason).map(reason => reason.error.reason)).toEqual([
+    "rollbackOnly", "invalidInput", "invalidInput", "invalidInput",
+  ]);
+  const originals = sealed.cause.reasons.filter(reason => Cause.isFailReason(reason) && reason.error.reason === "invalidInput");
+  expect(originals.map(reason => reason.annotations.get("Flarex/BoundedRequestFailureOrigin"))).toEqual(tokens);
+  expect(originals.every(reason => reason.annotations.get(Annotation.key) === "retained")).toBe(true);
+}))));
 
 it("retires only changed classification origins across installed Error annotation cloning", () => runEffect(Effect.gen(function* () {
   const lifetime = yield* make();
@@ -27,6 +76,18 @@ it("retires only changed classification origins across installed Error annotatio
   const changed = Cause.map(Cause.fromReasons([origin]), () => native).reasons[0];
   if (changed === undefined) throw new Error("Expected a native classification");
   const retired = reclassifyBoundedRequestReason(origin, changed.annotate(Context.make(Marker, marker)));
+  const retiredAgain = reclassifyBoundedRequestReason(origin, changed);
+  const retiredToken = retired.annotations.get("Flarex/BoundedRequestFailureOrigin");
+  const retiredAgainToken = retiredAgain.annotations.get("Flarex/BoundedRequestFailureOrigin");
+  expect(Object.isFrozen(originalToken)).toBe(true);
+  expect(Object.isFrozen(retiredToken)).toBe(true);
+  expect(Object.isFrozen(retiredAgainToken)).toBe(true);
+  expect(Equal.equals(originalToken, originalToken)).toBe(true);
+  expect(Equal.equals(retiredToken, retiredToken)).toBe(true);
+  expect(Equal.equals(originalToken, retiredToken)).toBe(false);
+  expect(Equal.equals(retiredToken, retiredAgainToken)).toBe(false);
+  const observedRetired = Result.getOrThrow(lifetime.recordFailure(lifetime.context, Cause.fromReasons([retired])));
+  expect(observedRetired.reasons[0]?.annotations.get("Flarex/BoundedRequestFailureOrigin")).not.toBe(retiredToken);
   const cloned = Cause.map(Cause.fromReasons([retired]), value => value).reasons[0];
   if (cloned === undefined || !Cause.isFailReason(cloned)) throw new Error("Expected the retained native failure");
   expect(cloned.error).toBe(native);

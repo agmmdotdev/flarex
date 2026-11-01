@@ -132,3 +132,35 @@ it("recognizes one originating queued failure across callback stack annotations"
   for (const reason of cause.reasons)
     expect(Context.getOrUndefined(Cause.reasonAnnotations(reason), CompletionDiagnostic)).toBe("native");
 }))));
+
+it("joins queued cleanup without collapsing independently owned typed, defect or interrupt occurrences", () => runEffect(withLifetime(lifetime => Effect.gen(function* () {
+  const reused = commerceError("invalidInput"), sameCode = commerceError("invalidInput"), defect = new TypeError("owned queued defect");
+  let cleaned = false;
+  const completed = failure(yield* Effect.exit(borrowed(lifetime, context => {
+    if (context.enqueue === undefined) throw new Error("Missing authentic borrowed queue");
+    return context.enqueue(() => Result.succeed({}), () => Effect.gen(function* () {
+      const observe = (cause: Cause.Cause<CommerceTransactionError>) => Result.getOrThrow(context.recordFailure(
+        Cause.annotate(cause, Context.make(CompletionDiagnostic, "owned-queued-occurrences"))));
+      const first = observe(Cause.fail(reused));
+      const second = observe(Cause.fail(reused));
+      const third = observe(Cause.fail(sameCode));
+      const failedCleanup = observe(Cause.die(defect));
+      const interrupted = observe(Cause.interrupt(712));
+      const typed = Cause.combine(Cause.combine(first, second), third);
+      const complete = Result.getOrThrow(context.recordFailure(Cause.combine(Cause.combine(typed, failedCleanup), interrupted)));
+      expect(complete.reasons).toHaveLength(5);
+      return yield* Effect.failCause(complete);
+    }).pipe(Effect.ensuring(Effect.sync(() => { cleaned = true; }))));
+  })));
+  expect(cleaned).toBe(true);
+  expect(completed.reasons).toHaveLength(5);
+  expect(completed.reasons.filter(Cause.isFailReason).map(reason => reason.error)).toEqual([reused, reused, sameCode]);
+  expect(completed.reasons.filter(Cause.isDieReason).map(reason => reason.defect)).toEqual([defect]);
+  expect(completed.reasons.filter(Cause.isInterruptReason).map(reason => reason.fiberId)).toEqual([712]);
+  expect(completed.reasons.every(reason => reason.annotations.get(CompletionDiagnostic.key) === "owned-queued-occurrences")).toBe(true);
+  const sealed = failure(yield* Effect.exit(lifetime.seal));
+  expect(sealed.reasons).toHaveLength(6);
+  expect(sealed.reasons.filter(Cause.isFailReason).map(reason => reason.error.reason)).toEqual([
+    "rollbackOnly", "invalidInput", "invalidInput", "invalidInput",
+  ]);
+}))));

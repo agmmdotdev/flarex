@@ -25,6 +25,10 @@ function lowerEligibility(predicate: RelationalIndexPredicate): CoreNativeEligib
     Object.freeze({ field: predicate.nullColumn.columnId, value: null }),
     Object.freeze({ field: predicate.booleanColumn.columnId, value: predicate.value }),
   ]) });
+  if (predicate.kind === "isNullAndTextEquals") return Object.freeze({ all: Object.freeze([
+    Object.freeze({ field: predicate.nullColumn.columnId, value: null }),
+    Object.freeze({ field: predicate.textColumn.columnId, value: predicate.value }),
+  ]) });
   return false;
 }
 

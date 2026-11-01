@@ -1,26 +1,23 @@
+import { expectCapturedWorkflowRefusal, expectWorkflowDefect, expectWorkflowRefusal } from "./support/workflow-failure-assertions";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Cause, Deferred, Effect, Fiber, Schema } from "effect";
 import { ProductModuleService } from "@medusajs/product/services";
+import { MedusaError } from "@medusajs/framework/utils/portable";
 import { prepareProductCreateWorkflow } from "../src/workflows/product/create";
-import { fxAppRowCurrent, fxSystemCommits } from "../../persistence-postgres/src/database/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { prepareProductVariantUpdateWorkflow } from "../src/workflows/product/variant-update";
 import { productVariantUpdateResources } from "../src/workflow/policy";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
 import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { projectExactNumericColumns } from "../src/value/exact-numeric";
-import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
-import { prepareLogicalVariantUpdate } from "./support/logical-variant-update-fixture";
+import { makeCoreProductCreationFixture } from "./support/core-product-creation-fixture";
+import { prepareCoreVariantUpdate } from "./support/core-product-update-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalVariantUpdate>>;
-const rows = () => connected.fixture.persistence.drizzle.select().from(fxAppRowCurrent);
-const events = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents).orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal);
-const commits = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommits);
+let connected: Awaited<ReturnType<typeof prepareCoreVariantUpdate>>;
+const snapshot = () => connected.fixture.snapshot();
+const events = async () => (await snapshot()).events;
+const outcomes = async () => (await snapshot()).outcomes;
 const Id = Schema.decodeUnknownSync(Schema.String);
 const decodeWorkflowEvent = Schema.decodeUnknownSync(Schema.StructWithRest(Schema.Struct({ data: Schema.Struct({ id: Schema.String }) }),
   [Schema.Record(Schema.String, Schema.Json)]));
@@ -45,9 +42,7 @@ function failurePath(value: unknown): string[] {
 }
 
 describe("complete native Product Variant update workflow", () => {
-  beforeAll(async () => { connected = await prepareLogicalVariantUpdate(await logicalCurrencyFixture(driver, close => cleanup.push(close), {
-    includeProduct: true, includePricing: true, includeVariantInventory: true,
-  }), close => cleanup.push(close)); }, 150_000);
+  beforeAll(async () => { connected = await prepareCoreVariantUpdate(await makeCoreProductCreationFixture(driver, close => cleanup.push(close)), close => cleanup.push(close)); }, 150_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
 
   it("updates four variants, replaces prices and dismisses Inventory links under one bounded root", async () => {
@@ -63,7 +58,7 @@ describe("complete native Product Variant update workflow", () => {
       prices: [{ id: Id(variant.prices.find(price => price.currency_code === "USD")?.id), amount: "987.6543210987654321", rules: { channel_id: "new" } },
         { currency_code: "GBP", amount: 300, rules: { region_id: "created" } }],
     })), additional_data: { note: "maximum" } };
-    const beforeCommits = await commits(), beforeEvents = await events();
+    const beforeOutcomes = await outcomes(), beforeEvents = await events();
     let calls = 0;
     const key = host.newRequestKey();
     const result = await Effect.runPromise(host.run(key, input).pipe(Effect.provideService(ExecutionDiagnostics, {
@@ -73,13 +68,13 @@ describe("complete native Product Variant update workflow", () => {
     expect(calls).toBeLessThanOrEqual(productVariantUpdateResources.calls);
     expect(result).toHaveLength(4);
     expect(result.every(variant => variant.manage_inventory === false && variant.price_set?.prices.length === 2)).toBe(true);
-    expect((await commits()).length - beforeCommits.length).toBe(1);
+    expect((await outcomes()).length - beforeOutcomes.length).toBe(1);
     const emitted = (await events()).slice(beforeEvents.length);
     expect(emitted.filter(event => event.envelope.contract === "product-variant.updated").map(event => decodeWorkflowEvent(event.envelope.message).data))
       .toEqual(ids(seeded).map(id => ({ id })));
-    const storedEvents = await events(), storedRows = await rows();
+    const storedEvents = await events(), storedState = await snapshot();
     expect(await Effect.runPromise(host.run(key, input))).toEqual(result);
-    expect(await rows()).toEqual(storedRows);
+    expect(await snapshot()).toEqual(storedState);
     expect(await events()).toEqual(storedEvents);
   });
 
@@ -107,14 +102,15 @@ describe("complete native Product Variant update workflow", () => {
 
   it.each(["batch", "selector"] as const)("rolls back variants, prices, rules and links when the %s completion hook fails", async form => {
     const seeded = await connected.seed("update-hook-" + form, 1), id = seeded[0]!.id;
-    const hook = vi.fn(() => { throw new Error("product variants updated hook failed"); });
+    const original = new Error("product variants updated hook failed");
+    const hook = vi.fn(() => { throw original; });
     const host = await prepare({ productVariantsUpdated: hook });
-    const beforeRows = await rows(), beforeEvents = await events();
+    const beforeState = await snapshot(), beforeEvents = await events();
     const input = form === "batch" ? { product_variants: [{ id, title: "changed", manage_inventory: false, prices: [] }] }
       : { selector: { id }, update: { title: "changed", manage_inventory: false, prices: [] } };
-    expect(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), input)))).toMatchObject({ _tag: "Failure" });
+    expectWorkflowDefect(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), input))), original);
     expect(hook).toHaveBeenCalledTimes(1);
-    expect(await rows()).toEqual(beforeRows);
+    expect(await snapshot()).toEqual(beforeState);
     expect(await events()).toEqual(beforeEvents);
   });
 
@@ -122,10 +118,10 @@ describe("complete native Product Variant update workflow", () => {
     let getters = 0;
     const fake = Object.defineProperty({}, "dismissMethod", { enumerable: true, get: () => { getters++; return connected.inventory.link.runtime.nativeServices.inventory.dismissMethod; } });
     const execution = { ...connected.execution, prepare: vi.fn(connected.execution.prepare) };
-    const result = await Effect.runPromise(Effect.result(prepareProductVariantUpdateWorkflow({ execution, modules: connected.modules,
+    const result = await Effect.runPromise(Effect.exit(prepareProductVariantUpdateWorkflow({ execution, modules: connected.modules,
       nativeLinks: { inventory: fake, pricing: connected.inventory.link.runtime.nativeServices.pricing },
       revision: "a".repeat(64), subscribers: [] })));
-    expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+    expect(result).toMatchObject({ _tag: "Failure", cause: { reasons: [{ _tag: "Fail", error: { reason: "invalidAuthority" } }] } });
     expect(getters).toBe(0);
     expect(execution.prepare).not.toHaveBeenCalled();
   });
@@ -134,10 +130,10 @@ describe("complete native Product Variant update workflow", () => {
     const row = { amount: "987.65432109876543210", raw_amount: { value: "987.65432109876543210", precision: 20 } };
     const first = await Effect.runPromise(projectExactNumericColumns(row, [{ name: "amount" }]));
     expect(await Effect.runPromise(projectExactNumericColumns(first, [{ name: "amount" }], "reserialize"))).toEqual(first);
-    expect(await Effect.runPromise(Effect.result(projectExactNumericColumns(first, [{ name: "amount" }], "exact"))))
-      .toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
-    expect(await Effect.runPromise(Effect.result(projectExactNumericColumns({ ...row, amount: 1 }, [{ name: "amount" }], "reserialize"))))
-      .toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
+    expect(await Effect.runPromise(Effect.exit(projectExactNumericColumns(first, [{ name: "amount" }], "exact"))))
+      .toMatchObject({ _tag: "Failure", cause: { reasons: [{ _tag: "Fail", error: { reason: "storedCorruption" } }] } });
+    expect(await Effect.runPromise(Effect.exit(projectExactNumericColumns({ ...row, amount: 1 }, [{ name: "amount" }], "reserialize"))))
+      .toMatchObject({ _tag: "Failure", cause: { reasons: [{ _tag: "Fail", error: { reason: "storedCorruption" } }] } });
   });
 
   it("updates native scalar metadata and options through selectors without touching omitted pricing", async () => {
@@ -155,7 +151,7 @@ describe("complete native Product Variant update workflow", () => {
   });
 
   it("refuses managed fields and oversized graphs before native Product methods", async () => {
-    const host = await prepare(), beforeRows = await rows(), beforeEvents = await events();
+    const host = await prepare(), beforeState = await snapshot(), beforeEvents = await events();
     const upsert = vi.spyOn(ProductModuleService.prototype, "upsertProductVariants"), update = vi.spyOn(ProductModuleService.prototype, "updateProductVariants");
     try {
       const bad = [
@@ -165,27 +161,29 @@ describe("complete native Product Variant update workflow", () => {
         { product_variants: [{ id: "managed-variant", prices: [{ id: "managed-price", amount: 1, raw_amount: { value: "1", precision: 20 } }] }] },
       ];
       for (const input of bad) {
-        const result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), input)));
-        expect(result).toMatchObject({ _tag: "Failure" });
-        expect(failurePath(result._tag === "Failure" ? result.failure : undefined), JSON.stringify(input)).toContain("invalidInput");
+        const result = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), input)));
+        expectWorkflowRefusal(result, "invalidInput");
       }
       expect(upsert).not.toHaveBeenCalled(); expect(update).not.toHaveBeenCalled();
-      expect(await rows()).toEqual(beforeRows); expect(await events()).toEqual(beforeEvents);
+      expect(await snapshot()).toEqual(beforeState); expect(await events()).toEqual(beforeEvents);
     } finally { upsert.mockRestore(); update.mockRestore(); }
   });
 
   it("keeps the native missing-Pricing-link error and rolls back an earlier variant update", async () => {
     const seed = await Effect.runPromise(prepareProductCreateWorkflow({ execution: connected.execution,
-      modules: { product: { module: connected.product.runtime.workflow, logicalStorage: connected.product.hostInput.logicalStorage } },
+      modules: { product: { module: connected.product.runtime.workflow, nativeStorage: connected.product.source } },
       revision: "d".repeat(64), subscribers: [{ id: "bare-variant-seed", revision: "e".repeat(64) }] }));
     try {
       await Effect.runPromise(seed.run(seed.newRequestKey(), { products: [{ id: "unpriced-product", title: "bare", options: [{ title: "Size", values: ["S"] }],
         variants: [{ id: "unpriced-variant", title: "bare", sku: "unpriced-sku", options: { Size: "S" } }] }] }));
     } finally { await Effect.runPromise(seed.close); }
-    const host = await prepare(), beforeRows = await rows(), beforeEvents = await events();
-    const result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { product_variants: [{ id: "unpriced-variant", title: "pending", prices: [] }] })));
-    expect(result).toMatchObject({ _tag: "Failure" });
-    expect(await rows()).toEqual(beforeRows); expect(await events()).toEqual(beforeEvents);
+    const host = await prepare(), beforeState = await snapshot(), beforeEvents = await events();
+    const result = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { product_variants: [{ id: "unpriced-variant", title: "pending", prices: [] }] })));
+    const failure = expectWorkflowRefusal(result, "adapterFailure");
+    expect(failure.cause).toBeInstanceOf(MedusaError);
+    expect(failure.cause).toMatchObject({ type: MedusaError.Types.NOT_FOUND,
+      message: "Variants with IDs unpriced-variant do not have prices associated." });
+    expect(await snapshot()).toEqual(beforeState); expect(await events()).toEqual(beforeEvents);
   });
 
   it("does not reattach Inventory links when inventory management is enabled again", async () => {
@@ -207,54 +205,63 @@ describe("complete native Product Variant update workflow", () => {
       escaped = context.resources.product.updateProductVariants;
       try { await escaped({ id }, { product_id: "foreign" }); } catch { caught = true; }
     } });
-    const beforeRows = await rows(), beforeEvents = await events();
-    const result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { product_variants: [{ id, title: "pending" }] })));
-    expect(result).toMatchObject({ _tag: "Failure" }); expect(caught).toBe(true);
-    expect(await rows()).toEqual(beforeRows); expect(await events()).toEqual(beforeEvents);
+    const beforeState = await snapshot(), beforeEvents = await events();
+    const result = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { product_variants: [{ id, title: "pending" }] })));
+    expect(Schema.isSchemaError(expectCapturedWorkflowRefusal(result, "invalidInput").cause)).toBe(true);
+    expect(caught).toBe(true);
+    expect(await snapshot()).toEqual(beforeState); expect(await events()).toEqual(beforeEvents);
     expect(escaped).toBeDefined();
     if (escaped !== undefined) await expect(escaped({ id }, { title: "escaped" })).rejects.toMatchObject({ reason: "closed" });
   });
 
   it("cancels after pending native updates and ignores their late completion", async () => {
     const seeded = await connected.seed("update-cancel", 1), host = await prepare(), id = seeded[0]!.id;
-    const reached = await Effect.runPromise(Deferred.make<void>());
-    let finish: (() => void) | undefined;
+    const reached = await Effect.runPromise(Deferred.make<void>()), finished = await Effect.runPromise(Deferred.make<void>());
+    let finish: (() => void) | undefined, escaped: (() => Promise<unknown>) | undefined;
+    let completed = false;
     const original = ProductModuleService.prototype.upsertProductVariants;
     const native = vi.spyOn(ProductModuleService.prototype, "upsertProductVariants").mockImplementation(async function (this: ProductModuleService, ...args) {
       const result = await Reflect.apply(original, this, args);
+      escaped = () => Reflect.apply(original, this, args);
       await Effect.runPromise(Deferred.succeed(reached, undefined));
-      await new Promise<void>(resolve => { finish = resolve; }); return result;
+      await new Promise<void>(resolve => { finish = resolve; });
+      completed = true; await Effect.runPromise(Deferred.succeed(finished, undefined));
+      return result;
     });
     try {
-      const beforeRows = await rows(), beforeEvents = await events();
-      await Effect.runPromise(Effect.gen(function* () {
+      const beforeState = await snapshot(), beforeEvents = await events();
+      const interrupted = await Effect.runPromise(Effect.gen(function* () {
         const fiber = yield* Effect.forkChild(host.run(host.newRequestKey(), { product_variants: [{ id, title: "cancelled" }] }));
         yield* Deferred.await(reached).pipe(Effect.timeout(30_000)); yield* Fiber.interrupt(fiber);
+        return yield* Fiber.await(fiber);
       }));
-      expect(await rows()).toEqual(beforeRows); expect(await events()).toEqual(beforeEvents);
-      finish?.(); expect(await rows()).toEqual(beforeRows); expect(await events()).toEqual(beforeEvents);
+      expect(interrupted._tag).toBe("Failure");
+      if (interrupted._tag === "Failure") expect(Cause.hasInterrupts(interrupted.cause)).toBe(true);
+      expect(completed).toBe(false);
+      expect(await snapshot()).toEqual(beforeState); expect(await events()).toEqual(beforeEvents);
+      if (escaped === undefined) throw new Error("Native Variant update did not expose its borrowed capability");
+      await escaped().then(() => { throw new Error("Late native Variant callback unexpectedly succeeded"); }, cause => {
+        expect(failurePath(cause)).toContain("closed");
+      });
+      finish?.(); await Effect.runPromise(Deferred.await(finished).pipe(Effect.timeout(5_000)));
+      expect(completed).toBe(true);
+      expect(await snapshot()).toEqual(beforeState); expect(await events()).toEqual(beforeEvents);
     } finally { finish?.(); native.mockRestore(); }
   }, 120_000);
 
   it("recovers a lost acknowledgement without repeating native updates and binds replay identity", async () => {
     const seeded = await connected.seed("update-uncertain", 1), id = seeded[0]!.id;
-    let lose = true;
-    const fixture = connected.fixture;
-    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
-      Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-      Effect.flatMap(value => { if (!lose) return Effect.succeed(value); lose = false;
-        return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost Variant update COMMIT acknowledgement") })); }),
-    ));
-    const host = await prepare({}, { ...connected.execution, prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, session, ...composition }) });
+    const fault = connected.fixture.loseNextNativeRootAcknowledgement();
+    const host = await prepare();
     const changed = await prepare({}, connected.execution, "c".repeat(64));
     const native = vi.spyOn(ProductModuleService.prototype, "upsertProductVariants");
     try {
       const key = host.newRequestKey(), input = { product_variants: [{ id, title: "uncertain" }] };
-      const result = await Effect.runPromise(host.run(key, input)); expect(lose).toBe(false); expect(native).toHaveBeenCalledTimes(1);
-      const storedRows = await rows(), storedEvents = await events();
+      const result = await Effect.runPromise(host.run(key, input)); expect(fault.failures).toBe(1); expect(native).toHaveBeenCalledTimes(1);
+      const storedState = await snapshot(), storedEvents = await events();
       expect(await Effect.runPromise(host.run(key, input))).toEqual(result); expect(native).toHaveBeenCalledTimes(1);
       await expect(Effect.runPromise(changed.run(key, input))).rejects.toMatchObject({ reason: "requestConflict" });
-      expect(await rows()).toEqual(storedRows); expect(await events()).toEqual(storedEvents);
+      expect(await snapshot()).toEqual(storedState); expect(await events()).toEqual(storedEvents);
     } finally { native.mockRestore(); }
   });
 
@@ -281,10 +288,7 @@ describe("complete native Product Variant update workflow", () => {
   });
 
   it("confines matching variant IDs and request keys to two shops", async () => {
-    const other = await prepareLogicalVariantUpdate(await logicalCurrencyFixture(driver, close => cleanup.push(close), {
-      includeProduct: true, includePricing: true, includeVariantInventory: true, resource: connected.fixture.resource,
-      fixtureIdentity: { deploymentId: "variant_update_shop_b", projectId: "variant_update_shop_b", uuidOffset: 24_000 },
-    }), close => cleanup.push(close));
+    const other = await prepareCoreVariantUpdate(await makeCoreProductCreationFixture(driver, close => cleanup.push(close), { physical: connected.fixture.physical }), close => cleanup.push(close));
     const left = await connected.seed("update-scoped", 1), right = await other.seed("update-scoped", 1);
     expect(ids(left)).toEqual(ids(right));
     const first = await prepare(), second = await other.prepare(); cleanup.push(() => Effect.runPromise(second.close));

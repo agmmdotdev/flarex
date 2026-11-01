@@ -1,4 +1,4 @@
-import { Effect, Result } from "effect";
+import { Cause, Effect, Result } from "effect";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommercePromiseOwner } from "../module/promise-owner";
@@ -44,8 +44,13 @@ export function commerceRepositoryContext(root: CommerceCommandContext, owner: C
       return yield* (ctx.enqueue === undefined ? work(ctx, normalized)
         : ctx.enqueue(() => captureCommerceInput(normalized, ctx.resources), (captured: Json) => work(ctx, captured)));
     }));
-  const checked = <Value>(ctx: CommerceCommandContext, value: Effect.Effect<Value, CommerceTransactionError>) =>
-    value.pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+  const checked = Effect.fn("CommerceRepository.checked")(<Value, Requirements>(ctx: CommerceCommandContext,
+    value: Effect.Effect<Value, CommerceTransactionError, Requirements>): Effect.Effect<Value, CommerceTransactionError, Requirements> =>
+    value.pipe(Effect.catchCause(cause => Result.match(ctx.recordFailure(cause), {
+      onSuccess: owned => Effect.failCause(owned),
+      onFailure: error => Effect.failCause(Cause.combine(cause, Cause.fail(error))),
+    }))),
+  );
   return { execute, executeInput, checked, select, current: () => active,
     // SAFETY: Medusa declares caller-selected manager types; the returned opaque
     // token is authenticated again on every DAL call and nested entry.

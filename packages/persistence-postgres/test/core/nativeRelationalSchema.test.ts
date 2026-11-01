@@ -2,13 +2,15 @@ import { Effect, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
 import type { Json } from "flarex-protocol/json";
-import type { RelationalSchema } from "flarex-protocol/internal/relational-schema";
+import { normalizeRelationalSchema, relationalSchemaSourceFromDefinition, type RelationalSchema } from "flarex-protocol/internal/relational-schema";
 import { compileProductDefinition } from "../../../medusa-adapter/src/modules/product/definition";
 import { compileCurrencyCoreDefinition } from "../../../medusa-adapter/src/modules/currency/schema";
+import { compilePricingCoreDefinition, compilePricingDefinition } from "../../../medusa-adapter/src/modules/pricing/schema";
 import { compileProductLinksDefinition } from "../../../medusa-adapter/src/links/product-definition";
 import { coreNativeConstraintAccessFields, coreNativePolicyForTable, coreNativeRelationalRows,
   makeCoreRelationalNativeDefinition, sameCoreNativeTablePolicy } from "../../src/core/nativePolicy";
 import { CoreNativeTablePolicySchema } from "../../src/core/nativePolicyTypes";
+import { coreNativeIndexName } from "../../src/core/schemaTableName";
 import { encodeDocumentId } from "flarex-protocol/document-id";
 
 const target = { scopeUuid: "f2bfbf4a-271e-4a44-bcc8-7aa3c7fe59bd", epochUuid: "df564a72-4a2c-4265-8b96-83ac7c90ee1e" };
@@ -23,6 +25,73 @@ const compile = Effect.fn("NativeRelationalSchemaTest.compile")(function* (key: 
 });
 
 describe("complete native relational schema lowering", () => {
+  it("lowers the genuine complete Pricing text-predicate index as a nonunique ordinary superset", async () => {
+    const native = await Effect.runPromise(compilePricingDefinition());
+    const definition = await Effect.runPromise(compilePricingCoreDefinition(target));
+    expect(definition.tables).toHaveLength(6);
+    expect(definition.tables.map(table => table.localName).toSorted()).toEqual([
+      "price", "price_list", "price_list_rule", "price_preference", "price_rule", "price_set",
+    ]);
+    const source = native.schema.tables.find(table => table.identity.tableId === "price_list");
+    const table = definition.tables.find(table => table.localName === "price_list");
+    const selected = source?.indexes.filter(index => index.predicate?.kind === "isNullAndTextEquals");
+    expect(selected).toHaveLength(1);
+    const declared = selected?.[0];
+    if (declared === undefined || table?.table === undefined) throw new Error("Missing authentic PriceList text-predicate declaration");
+    const nativeId = declared.identity.indexId;
+    expect(nativeId).toBe("PriceList_id_status_starts_at_ends_at_0");
+    const index = table?.indexes?.find(index => index.nativeId === nativeId);
+    expect(declared).toMatchObject({ kind: "btree", predicate: { kind: "isNullAndTextEquals", value: "active",
+      nullColumn: { tableId: "price_list", columnId: "deleted_at" }, textColumn: { tableId: "price_list", columnId: "status" } } });
+    expect(declared?.columns.map(column => column.columnId)).toEqual(["id", "status", "starts_at", "ends_at"]);
+    expect(index).toMatchObject({ nativeId, kind: "index", fields: ["deleted_at", "status", "id", "starts_at", "ends_at"],
+      requiredPrefix: { all: [{ field: "deleted_at", value: null }, { field: "status", value: "active" }] } });
+    expect(index?.indexName).toBe(await Effect.runPromise(coreNativeIndexName(table.table, "index", nativeId)));
+    expect(table?.uniqueConstraints.some(constraint => constraint.descriptor === nativeId)).toBe(false);
+    expect(definition.identity.sourceKey).toBe("medusa.pricing");
+    expect(definition.identity.sourceSha256).toBe(definition.source.sourceSha256);
+    expect(definition.schema.tables.find(schema => schema.tableName === table?.name)?.indexes.find(candidate => candidate.indexDescriptor === index?.indexName)?.fields)
+      .toEqual(["deleted_at", "status", "id", "starts_at", "ends_at"]);
+  });
+
+  it("authenticates the exact text literal and refuses producer metadata with an unchanged source digest", async () => {
+    const native = await Effect.runPromise(compilePricingDefinition());
+    const selected = native.schema.tables.find(table => table.identity.tableId === "price_list")?.indexes
+      .filter(index => index.predicate?.kind === "isNullAndTextEquals");
+    expect(selected).toHaveLength(1);
+    const sourceIndex = selected?.[0];
+    if (sourceIndex === undefined) throw new Error("Missing authentic PriceList text-predicate declaration");
+    const altered = Result.getOrThrow(normalizeRelationalSchema(relationalSchemaSourceFromDefinition({ ...native.schema,
+      tables: native.schema.tables.map(table => ({ ...table, indexes: table.indexes.map(index => index.predicate?.kind === "isNullAndTextEquals"
+        ? { ...index, predicate: { ...index.predicate, value: "draft" } } : index) })),
+    })));
+    const original = await Effect.runPromise(compile("medusa.pricing", native.schema, native.provenance));
+    const changed = await Effect.runPromise(compile("medusa.pricing", altered, native.provenance));
+    expect(changed.identity.sourceSha256).not.toBe(original.identity.sourceSha256);
+    expect(changed.identity.definitionHash).not.toBe(original.identity.definitionHash);
+    expect(changed.tables.find(table => table.localName === "price_list")?.indexes?.find(index => index.nativeId === sourceIndex.identity.indexId)?.requiredPrefix)
+      .toEqual({ all: [{ field: "deleted_at", value: null }, { field: "status", value: "draft" }] });
+    const refusal = await Effect.runPromise(Effect.result(makeCoreRelationalNativeDefinition({ ...target,
+      source: { ...original.source, definition: { kind: "relational", schema: altered } }, provenance: native.provenance, commands: [] })));
+    expect(refusal).toMatchObject({ _tag: "Failure", failure: { _tag: "CoreSchemaError", reason: "unsupportedCapability" } });
+  });
+
+  it("refuses malformed text literals and columns before relational lowering can issue a source", async () => {
+    const native = await Effect.runPromise(compilePricingDefinition());
+    for (const value of [true, 1, null, { eq: "active" }]) {
+      expect(Result.isFailure(normalizeRelationalSchema(relationalSchemaSourceFromDefinition({ ...native.schema,
+        tables: native.schema.tables.map(table => ({ ...table, indexes: table.indexes.map(index => index.predicate?.kind === "isNullAndTextEquals"
+          ? { ...index, predicate: { ...index.predicate, value } } : index) })),
+      })))).toBe(true);
+    }
+    for (const columnId of ["starts_at", "missing_status"]) {
+      expect(Result.isFailure(normalizeRelationalSchema(relationalSchemaSourceFromDefinition({ ...native.schema,
+        tables: native.schema.tables.map(table => ({ ...table, indexes: table.indexes.map(index => index.predicate?.kind === "isNullAndTextEquals"
+          ? { ...index, predicate: { ...index.predicate, textColumn: { ...index.predicate.textColumn, columnId } } } : index) })),
+      })))).toBe(true);
+    }
+  });
+
   it("lowers the genuine Product graph, native tuple pivots and every FK and unique requirement", async () => {
     await Effect.runPromise(Effect.gen(function* () {
       const native = yield* compileProductDefinition();

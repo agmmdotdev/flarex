@@ -1,6 +1,8 @@
 # Native Promise completion and cancellation
 
-Status: **Necessary native/runtime adaptation; selected Payload boundary implemented and validated; general native hosting remains open.**
+Status: **Necessary native/runtime adaptation; selected Payload boundary and
+private-origin equality correction implemented and validated; general native
+hosting remains open.**
 
 ## Source and reason
 
@@ -68,6 +70,39 @@ The deadline race also returns the owned completed Cause from its native
 branch, rather than only recording it as a side effect and returning an unowned
 clone. This keeps each actual failure once while preserving distinct late
 defects, caller interruption and the existing deadline-winner behavior.
+
+## Private origin equality
+
+The [Native18 continuation](../slices/18-native-product-multi-source-workflows.md)
+adds a concrete shared-lifetime witness: three independently issued failure
+occurrences survive repository observation with distinct authenticated origin
+tokens, but sealing collapses them when they reuse one Error or refusal value.
+Installed Effect RC112 `Cause.combine` uses structural union; distinct empty
+object tokens compare structurally equal along with equal errors and annotations.
+That violates the existing complete-occurrence contract.
+
+Give newly allocated source-private origin tokens reference equality through
+Effect's official `Equal.byReferenceUnsafe` facility. Apply it at both token
+issuers: authentic lifetime origins and fresh unissued tokens retiring a changed
+classification. Only freshly created private objects are marked; caller-owned
+data and Error values are untouched. Retain the same WeakMap authentication,
+origin-entry deduplication, first-chain containment and annotation enrichment.
+Equality opt-out alone grants no authority.
+
+Existing Cause joins retain their order and implementation. The same authentic
+origin propagates once; independent occurrences remain distinct even when their
+Error or code matches. Prove direct/projected lifetimes, changed/unchanged
+classification, native body/seal, queue/Promise/abort aggregation and context
+isolation. Preserve mixed typed failures, defects, interruption and diagnostics.
+This does not promise multiplicity for raw, unowned equal Reasons combined before
+the lifetime issues origins, nor introduce a global merger, identity counter,
+persisted field or migration.
+
+Pinned Convex owns error disposition and rollback through
+`transaction.rs:418-454,1551-1562` and `async_syscall.rs:738-767`; its Rust error
+representation does not specify Effect Reason counts. This correction preserves
+the accepted native full-Cause adaptation. The Payload Promise drain above and
+Medusa's bounded foreign-callback grace retain their separate lifecycle contracts.
 
 The actual native drain cases in
 `packages/payload-adapter/test/native-drain.test.ts` cover cancellation while a

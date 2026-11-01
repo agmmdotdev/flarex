@@ -361,6 +361,11 @@ Change obstructing internal interfaces and migrate their callers. Preserve
 required behavior without a Convex equivalent, such as engine-grant revocation,
 with its explicit reason and evidence.
 
+For native schema producers, inspect the actual compiled logical declarations
+alongside the pinned models: generated/default indexes, predicates and final
+identities participate in admission too. Static model counts or an inferred
+index name do not prove that the complete producer can install.
+
 Within an authorized slice, routine TypeScript structure, private API changes,
 caller migration and removal of displaced machinery proceed without another
 approval. An existing mismatch with Convex is not itself a reason to stop. A
@@ -610,6 +615,27 @@ and explicit retained inverses remain fresh roots. The selected replacement,
 complete admitted consumer proof in both database lanes and displaced fixture
 cleanup are complete. Durable Task, finite borrowed, later-source graphs,
 retained data and actual Native17 managed hosting remain named gates.
+
+The [multi-source Product/Variant continuation](./slices/18-native-product-multi-source-workflows.md)
+implements the independently challenged connected replacement: all eight
+already-admitted Product/Variant create/update/delete/batch roots and their full
+business producer/runtime closure. Preserve the combined Variant Links source,
+one-table ShippingProfile selection, native exact values and original budgets;
+no new physical family or preliminary numeric-index project is established.
+PriceList's null-plus-text predicate uses the shared ordinary equality prefix,
+preserving broader reads and old predicate identities. Its shared conditional
+uniqueness has paired proof without changing the Source index algorithm.
+Repository failures observe/rethrow the existing complete Cause without admitting
+a new refusal operation. Product's event-check bridge follows the same rule,
+including the actual first `unadmittedEvent` from an absent-ID upsert in an
+update-only root. Event grants, native upsert, receipt-validation order and the
+distinct sticky guard on later result capture retain their contracts.
+Private failure origins use reference equality so Effect's structural Cause
+joins preserve independently authenticated occurrences with equal values; the
+lifetime issuer owns that representation and its aggregation proof.
+Fresh construction, complete paired consumer proof and selected retirement are
+complete. Populated transitions, named retained Task/finite/native consumers,
+native managed hosting and performance retain their separate gates.
 
 The [optional-one native continuation](./slices/14-native-reference-integrity.md)
 implements complete direct Payload relations/population/preferences and the genuine

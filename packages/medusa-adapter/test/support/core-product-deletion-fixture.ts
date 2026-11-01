@@ -5,51 +5,32 @@ import { prepareLocalVariantLinks } from "../../src/links/variant-service";
 import { prepareProductDeletionLinkResource } from "../../src/links/product-deletion-resource";
 import { prepareProductDeletionWorkflow, prepareProductVariantDeletionWorkflow,
   type ProductDeletionHooks, type ProductVariantDeletionHooks } from "../../src/workflows/product/deletion";
-import { prepareLogicalProductUpdate } from "./logical-product-update-fixture";
-import { creationRevision } from "./logical-product-creation-fixture";
+import { prepareCoreProductUpdate } from "./core-product-update-fixture";
+import { creationRevision } from "./core-product-creation-fixture";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { workflowMethodDefinition } from "../../src/workflow/module";
-import type { AtomicWorkflowExecution, LegacyInstalledWorkflowModules } from "../../src/workflow/host";
-
-type Connected = Awaited<ReturnType<typeof prepareLogicalProductUpdate>>;
-type ProductOptions = Omit<Parameters<typeof prepareProductDeletionWorkflow>[0], "hooks" | "modules"> & {
-  readonly modules: LegacyInstalledWorkflowModules<Parameters<typeof prepareProductDeletionWorkflow>[0]["modules"]>;
-};
-export interface LogicalProductDeletionFixture extends Omit<Connected, "modules" | "link" | "options"> {
-  readonly inventoryDeletion: Effect.Success<ReturnType<typeof makeLocalInventoryCommands>>;
-  readonly productDeletionLinks: Effect.Success<ReturnType<typeof prepareLocalProductLinks>>;
-  readonly variantDeletionLinks: Effect.Success<ReturnType<typeof prepareLocalVariantLinks>>;
-  readonly modules: ProductOptions["modules"];
-  readonly link: ProductOptions["link"];
-  readonly options: ProductOptions;
-  readonly prepareProduct: (hooks?: ProductDeletionHooks, execution?: AtomicWorkflowExecution) => Promise<Effect.Success<ReturnType<typeof prepareProductDeletionWorkflow>>>;
-  readonly prepareVariant: (hooks?: ProductVariantDeletionHooks, execution?: AtomicWorkflowExecution) => Promise<Effect.Success<ReturnType<typeof prepareProductVariantDeletionWorkflow>>>;
-  readonly seedStock: (prefix: string, itemIds: readonly string[], quantity?: number, levelsPerItem?: number) => Promise<void>;
-  readonly attachInventory: (variantId: string, itemId: string) => Promise<void>;
-  readonly dismissInventory: (variantId: string, itemId: string) => Promise<void>;
-}
 
 /** Actual creation/update fixtures seed the graph; only the deletion facade
  * selects deletion capabilities. There is no fixture reconciliation algorithm. */
-export async function prepareLogicalProductDeletion(driver: "pglite" | "postgres", registerCleanup: (close: () => Promise<void>) => void,
-  shared?: Parameters<typeof prepareLogicalProductUpdate>[2]): Promise<LogicalProductDeletionFixture> {
-  const connected = await prepareLogicalProductUpdate(driver, registerCleanup, shared);
+export async function prepareCoreProductDeletion(driver: "pglite" | "postgres", registerCleanup: (close: () => Promise<void>) => void,
+  shared?: Parameters<typeof prepareCoreProductUpdate>[2]) {
+  const connected = await prepareCoreProductUpdate(driver, registerCleanup, shared);
   const inventory = await Effect.runPromise(makeLocalInventoryCommands("product-deletions"));
   const productLinks = await Effect.runPromise(prepareLocalProductLinks("product-deletions"));
   const variantLinks = await Effect.runPromise(prepareLocalVariantLinks("product-deletions"));
-  const modules: ProductOptions["modules"] = {
-    product: { module: connected.creation.product.runtime.productDeletionWorkflow, logicalStorage: connected.creation.product.hostInput.logicalStorage },
-    inventory: { module: inventory.workflow, logicalStorage: connected.creation.inventory.inventory.hostInput.logicalStorage },
-    pricing: { module: connected.pricing.runtime.workflow, logicalStorage: connected.pricing.hostInput.logicalStorage },
-    product_links: { module: productLinks.workflow, logicalStorage: connected.productLinks.hostInput.logicalStorage },
-    variant_links: { module: variantLinks.workflow, logicalStorage: connected.inventory.link.hostInput.logicalStorage },
-  };
+  const modules = {
+    product: { module: connected.creation.product.runtime.productDeletionWorkflow, nativeStorage: connected.creation.product.source },
+    inventory: { module: inventory.workflow, nativeStorage: connected.creation.inventory.inventory.source },
+    pricing: { module: connected.pricing.runtime.workflow, nativeStorage: connected.pricing.source },
+    product_links: { module: productLinks.workflow, nativeStorage: connected.productLinks.source },
+    variant_links: { module: variantLinks.workflow, nativeStorage: connected.inventory.link.source },
+  } satisfies Parameters<typeof prepareProductDeletionWorkflow>[0]["modules"];
   const link = Result.getOrThrow(prepareProductDeletionLinkResource({ sales: productLinks.nativeServices.sales,
     shipping: productLinks.nativeServices.shipping, inventory: variantLinks.nativeServices.inventory,
     pricing: variantLinks.nativeServices.pricing }, connected.pricing.runtime.workflow));
-  const options: ProductOptions = { execution: connected.execution, modules, link, revision: creationRevision("native-product-deletion"),
+  const options = { execution: connected.execution, modules, link, revision: creationRevision("native-product-deletion"),
     subscribers: [{ id: "native-product-deletion", revision: "b".repeat(64) }] };
   const prepareProduct = async (hooks: ProductDeletionHooks = {}, execution = options.execution) => {
     const host = await Effect.runPromise(prepareProductDeletionWorkflow({ ...options, execution, hooks }));
@@ -67,7 +48,7 @@ export async function prepareLogicalProductDeletion(driver: "pglite" | "postgres
     const levels = defineAtomicCommerceCommand("productDeletionSeedLevels", (ctx, input) => ctx.call(participant, stock.createLevels, input));
     const reserve = defineAtomicCommerceCommand("productDeletionSeedReservation", (ctx, input) => ctx.call(participant, stock.reserve, input));
     const host = await Effect.runPromise(options.execution.prepare({ identityAndAccessPolicy: { seed: "product-deletion-stock" },
-      participants: [{ participant, logicalStorage: modules.inventory.logicalStorage, commands: [stock.createLevels, stock.reserve],
+      participants: [{ participant, nativeStorage: connected.creation.inventory.inventory.source, commands: [stock.createLevels, stock.reserve],
         validateLogicalCall: policy.validateLogicalCall, events: { contracts: contracts.map(contract => contract.token), select: message => {
           const selected = isJsonObject(message) ? contracts.find(contract => contract.name === message.name) : undefined;
           return selected ? Effect.succeed(selected.token) : Effect.fail(commerceError("unadmittedEvent"));
@@ -91,7 +72,7 @@ export async function prepareLogicalProductDeletion(driver: "pglite" | "postgres
     const contracts = method.moduleEvents.map(name => ({ name, token: defineCommerceEventContract({ name, revision: "a".repeat(64), internal: true, decode: policy.capture }) }));
     const command = defineAtomicCommerceCommand("productDeletionSeedInventoryLink", (ctx, input) => ctx.call(participant, selectedCommand, input));
     const host = await Effect.runPromise(options.execution.prepare({ identityAndAccessPolicy: { seed: "product-deletion-inventory-link", operation },
-      participants: [{ participant, logicalStorage: modules.variant_links.logicalStorage, commands: [selectedCommand], validateLogicalCall: policy.validateLogicalCall,
+      participants: [{ participant, nativeStorage: connected.inventory.link.source, commands: [selectedCommand], validateLogicalCall: policy.validateLogicalCall,
         events: { contracts: contracts.map(contract => contract.token), select: message => {
           const selected = isJsonObject(message) ? contracts.find(contract => contract.name === message.name) : undefined;
           return selected ? Effect.succeed(selected.token) : Effect.fail(commerceError("unadmittedEvent"));
@@ -107,3 +88,4 @@ export async function prepareLogicalProductDeletion(driver: "pglite" | "postgres
   return { ...connected, inventoryDeletion: inventory, productDeletionLinks: productLinks, variantDeletionLinks: variantLinks,
     modules, link, options, prepareProduct, prepareVariant, seedStock, attachInventory, dismissInventory };
 }
+export type CoreProductDeletionFixture = Awaited<ReturnType<typeof prepareCoreProductDeletion>>;

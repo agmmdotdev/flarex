@@ -1,27 +1,21 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { expectWorkflowRefusal } from "./support/workflow-failure-assertions";
 import { Cause, Deferred, Effect, Fiber, Schema } from "effect";
 import { ProductModuleService } from "@medusajs/product/services";
 import { InventoryModuleService } from "@medusajs/inventory/services";
 import { Link } from "@medusajs/modules-sdk/link";
 import { prepareProductBatchWorkflow, prepareProductVariantBatchWorkflow } from "../src/workflows/product/batch";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
-import { fxAppRowCurrent, fxSystemCommits } from "../../persistence-postgres/src/database/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
-import { prepareLogicalProductBatch } from "./support/logical-product-batch-fixture";
+import { prepareCoreProductBatch } from "./support/core-product-batch-fixture";
 import { defineAtomicCommerceCommand, getAtomicCommerceCommand, type AtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
-import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
+import { commerceError, CommerceTransactionError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
 import type { AtomicWorkflowExecution } from "../src/workflow/host";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalProductBatch>>;
-const rows = () => connected.fixture.persistence.drizzle.select().from(fxAppRowCurrent);
-const events = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents)
-  .orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal);
-const commits = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommits);
-const snapshot = async () => ({ rows: await rows(), events: await events(), commits: await commits() });
+let connected: Awaited<ReturnType<typeof prepareCoreProductBatch>>;
+const snapshot = () => connected.fixture.snapshot();
+const events = async () => (await snapshot()).events;
+const outcomes = async () => (await snapshot()).outcomes;
 const create = (prefix: string) => ({ id: prefix + "-product", title: prefix, handle: prefix + "-handle",
   options: [{ title: "Size", values: ["0"] }], variants: [{ id: prefix + "-variant", title: prefix + " Variant",
     sku: prefix + "-sku", options: { Size: "0" }, manage_inventory: false, prices: [] }] });
@@ -41,7 +35,7 @@ function failurePath(value: unknown): string[] {
 }
 
 describe("native Product batch authority, lifetime and settlement boundaries", () => {
-  beforeAll(async () => { connected = await prepareLogicalProductBatch(driver, close => cleanup.push(close)); }, 180_000);
+  beforeAll(async () => { connected = await prepareCoreProductBatch(driver, close => cleanup.push(close)); }, 180_000);
   afterAll(async () => { vi.restoreAllMocks(); for (const close of cleanup.reverse()) await close(); }, 120_000);
 
   it("refuses forged resources and unselected module profiles for both facades before native mutation", async () => {
@@ -61,14 +55,26 @@ describe("native Product batch authority, lifetime and settlement boundaries", (
       { ...connected.options, modules: { ...connected.modules,
         variant_links: { ...connected.modules.variant_links, module: connected.creation.inventory.link.runtime.workflow } } },
     ];
+    const expectedReasons: readonly CommerceTransactionError["reason"][] = [
+      "unsupportedProfile", "unsupportedProfile", "invalidAuthority", "invalidAuthority", "invalidAuthority", "unsupportedProfile", "unsupportedProfile",
+    ];
     try {
-      for (const options of attempts) {
+      for (const [attemptIndex, options] of attempts.entries()) {
+        const expectedReason = expectedReasons[attemptIndex];
+        if (expectedReason === undefined) throw new Error("Missing source-directed preparation refusal");
         const preparations = [prepareProductBatchWorkflow(options).pipe(Effect.map(host => host.close)),
           prepareProductVariantBatchWorkflow(options).pipe(Effect.map(host => host.close))];
         for (const preparation of preparations) {
-          const result = await Effect.runPromise(Effect.result(preparation));
-          if (result._tag === "Success") await Effect.runPromise(result.success);
+          const result = await Effect.runPromise(Effect.exit(preparation));
+          if (result._tag === "Success") await Effect.runPromise(result.value);
           expect(result).toMatchObject({ _tag: "Failure" });
+          if (result._tag === "Failure") {
+            expect(result.cause.reasons).toHaveLength(1);
+            const [causeReason] = result.cause.reasons;
+            if (causeReason === undefined || !Cause.isFailReason(causeReason)) throw new Error("Expected one typed workflow refusal");
+            expect(causeReason.error).toBeInstanceOf(CommerceTransactionError);
+            expect(causeReason.error).toMatchObject({ reason: expectedReason });
+          }
         }
       }
       expect(native).not.toHaveBeenCalled(); expect(await snapshot()).toEqual(before);
@@ -89,10 +95,9 @@ describe("native Product batch authority, lifetime and settlement boundaries", (
     });
     try {
       const before = await snapshot();
-      const result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { create: [create("batch-caught")] })));
+      const result = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { create: [create("batch-caught")] })));
       expect(created).toBe(true); expect(caught).toHaveLength(1); expect(caught[0]).toContain("unsupportedProfile");
-      expect(result).toMatchObject({ _tag: "Failure" });
-      if (result._tag === "Failure") expect(failurePath(result.failure)).toContain("unsupportedProfile");
+      expectWorkflowRefusal(result, "unsupportedProfile");
       expect(await snapshot()).toEqual(before);
       if (escaped === undefined) throw new Error("Native creation did not expose its borrowed callback to the observation spy");
       await escaped().then(() => { throw new Error("Escaped native creation unexpectedly succeeded"); }, cause => {
@@ -139,27 +144,17 @@ describe("native Product batch authority, lifetime and settlement boundaries", (
 
   it("recovers a lost mixed-batch COMMIT acknowledgement once and binds replay input and revision", async () => {
     const old = await connected.seed("batch-uncertain-old", 2), update = old[0]!, removed = old[1]!;
-    let lose = true;
-    const fixture = connected.fixture;
-    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
-      Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-      Effect.flatMap(value => {
-        if (!lose) return Effect.succeed(value);
-        lose = false;
-        return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost native Product batch COMMIT acknowledgement") }));
-      }),
-    ));
-    const host = await connected.prepareProduct({ ...connected.execution,
-      prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, session, ...composition }) });
+    const fault = connected.fixture.loseNextNativeRootAcknowledgement();
+    const host = await connected.prepareProduct();
     const changed = await connected.prepareProduct(connected.execution, "c".repeat(64));
     const native = vi.spyOn(ProductModuleService.prototype, "createProducts"), deletion = vi.spyOn(ProductModuleService.prototype, "softDeleteProducts");
     try {
       const key = host.newRequestKey(), input = { create: [create("batch-uncertain-new")],
-        update: [{ id: update.id, title: "committed batch update" }], delete: [removed.id] }, beforeCommits = await commits();
+        update: [{ id: update.id, title: "committed batch update" }], delete: [removed.id] }, beforeOutcomes = await outcomes();
       const result = await Effect.runPromise(host.run(key, input));
       expect(result).toMatchObject({ created: [{ id: "batch-uncertain-new-product" }], updated: [{ id: update.id }], deleted: [removed.id] });
-      expect(lose).toBe(false); expect(native).toHaveBeenCalledTimes(1); expect(deletion).toHaveBeenCalledTimes(1);
-      expect((await commits()).length - beforeCommits.length).toBe(1);
+      expect(fault.failures).toBe(1); expect(native).toHaveBeenCalledTimes(1); expect(deletion).toHaveBeenCalledTimes(1);
+      expect((await outcomes()).length - beforeOutcomes.length).toBe(1);
       const stored = await snapshot();
       expect(await Effect.runPromise(host.run(key, input))).toEqual(result);
       await expect(Effect.runPromise(host.run(key, { ...input, delete: [removed.id, "changed-request"] }))).rejects.toMatchObject({ reason: "requestConflict" });
@@ -252,10 +247,10 @@ describe("native Product batch authority, lifetime and settlement boundaries", (
       const createdProduct = { id: prefix + "-new-product", title: prefix, handle: prefix + "-handle",
         options: [{ title: "Size", values: ["1"] }], variants: [variant] };
       const result = kind === "product"
-        ? await connected.prepareProduct(execution).then(host => Effect.runPromise(Effect.result(host.run(host.newRequestKey(), {
+        ? await connected.prepareProduct(execution).then(host => Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), {
           create: [createdProduct], delete: [product.id],
         }))))
-        : await connected.prepareVariant().then(host => Effect.runPromise(Effect.result(host.run(host.newRequestKey(), {
+        : await connected.prepareVariant().then(host => Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), {
           create: [{ ...variant, product_id: product.id }], delete: [oldVariant],
         }))));
       for (const stage of ["nativeVariantCreated", "deletionGraphCaptured", "newLinkWaiting", "newLinkAttached", "inventoryDeletedSharedItem"])
@@ -267,8 +262,18 @@ describe("native Product batch authority, lifetime and settlement boundaries", (
         expect(trace.indexOf("inventoryDeletedSharedItem")).toBeLessThan(trace.indexOf("newLinkAttached"));
       }
       else expect(trace.indexOf("newLinkAttached")).toBeLessThan(trace.indexOf("inventoryDeletedSharedItem"));
-      expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
-      if (result._tag === "Failure") expect(failurePath(result.failure)).toEqual(["unsupportedProfile"]);
+      // Final Item-lifetime policy runs after the command lifetime has sealed.
+      // It has one original refusal and no callback rollback marker.
+      expect(result).toMatchObject({ _tag: "Failure" });
+      if (result._tag === "Failure") {
+        expect(result.cause.reasons).toHaveLength(1);
+        const [causeReason] = result.cause.reasons;
+        expect(causeReason !== undefined && Cause.isFailReason(causeReason)).toBe(true);
+        if (causeReason !== undefined && Cause.isFailReason(causeReason)) {
+          expect(causeReason.error).toBeInstanceOf(CommerceTransactionError);
+          expect(causeReason.error).toMatchObject({ reason: "unsupportedProfile" });
+        }
+      }
       expect(await snapshot()).toEqual(before);
     } finally {
       await Effect.runPromise(Deferred.succeed(attachReached, undefined));
@@ -298,7 +303,7 @@ describe("native Product batch authority, lifetime and settlement boundaries", (
       return result;
     });
     try {
-      const beforeCommits = await atStage("snapshot commits", commits), beforeEvents = await atStage("snapshot events", events);
+      const beforeOutcomes = await atStage("snapshot outcomes", outcomes), beforeEvents = await atStage("snapshot events", events);
       const results = await atStage("competing roots", () => Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const first = yield* Effect.forkChild(Effect.exit(host.run(host.newRequestKey(), { update: [{ id: product.id, title: "first competing batch" }] })));
         const second = yield* Effect.forkChild(Effect.exit(host.run(host.newRequestKey(), { update: [{ id: product.id, title: "second competing batch" }] })));
@@ -311,14 +316,13 @@ describe("native Product batch authority, lifetime and settlement boundaries", (
         throw new Error("Native batch competition returned an unexpected root failure [" + trace.join(", ") + "]", { cause: result.cause });
       expect(results.filter(result => result._tag === "Success")).toHaveLength(1);
       expect(results.flatMap(result => result._tag === "Failure" ? failurePath(result.cause) : [])).toContain("writeConflict");
-      expect((await commits()).length - beforeCommits.length).toBe(1);
+      expect((await outcomes()).length - beforeOutcomes.length).toBe(1);
       expect((await events()).slice(beforeEvents.length).filter(event => event.envelope.contract === "product.updated")).toHaveLength(1);
     } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); native.mockRestore(); }
   }, 120_000);
 
   it("confines identical IDs, native descendants and batch request keys to their shop", async () => {
-    const other = await prepareLogicalProductBatch(driver, close => cleanup.push(close), { resource: connected.fixture.resource,
-      fixtureIdentity: { deploymentId: "product_batch_boundary_shop_b", projectId: "product_batch_boundary_shop_b", uuidOffset: 32_000 } });
+    const other = await prepareCoreProductBatch(driver, close => cleanup.push(close), { physical: connected.fixture.physical });
     const left = (await connected.seed("batch-scoped"))[0]!, right = (await other.seed("batch-scoped"))[0]!;
     expect(left.id).toBe(right.id); expect(left.variants.map(variant => variant.id)).toEqual(right.variants.map(variant => variant.id));
     const first = await connected.prepareProduct(), second = await other.prepareProduct(), key = first.newRequestKey();

@@ -4,7 +4,7 @@ import type { Context, DAL } from "@medusajs/framework/types";
 import type { CommerceModuleEvents } from "../../module/persistence";
 import { commerceMutationEvents } from "../../repository/mutation-events";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, type CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { decodeProductProjection, decodeProductCount, ProductRelationshipId, ProductRelationshipIds } from "./value-profile";
 import { commerceRepositoryContext } from "../../repository/context";
 import type { CommercePromiseOwner } from "../../module/promise-owner";
@@ -248,7 +248,7 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
       return [...ids];
     }))),
   };
-  return { repository, mutationPersistence, refuse, relatedRepository, categoryRepository,
+  return { bridge, repository, mutationPersistence, refuse, relatedRepository, categoryRepository,
     replaceCollectionMembership: (selections: readonly Readonly<{ id: string; productIds: readonly string[] }>[], shared: unknown) =>
       bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
         if (profile !== "collectionMembership" ||
@@ -263,6 +263,5 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
           targetColumn: "id", targetKey: selected.id, desiredKeys: selected.productIds });
       }))),
     captureLocalEvent: (event: unknown) => Effect.suspend(() => bridge.current().captureLocalEvent(event)),
-    rejectLocalEvent: (error: CommerceTransactionError) => Effect.suspend(() => bridge.current().refuse(error)),
   };
 }

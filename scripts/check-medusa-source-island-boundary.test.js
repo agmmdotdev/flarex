@@ -498,7 +498,9 @@ describe("Medusa source-island boundary checker", () => {
         ["nativeRelationalQuery.test.ts", "src/links/product-definition"],
         ["nativeRelationalSchema.test.ts", "src/modules/product/definition"],
         ["nativeRelationalSchema.test.ts", "src/modules/currency/schema"],
+        ["nativeRelationalSchema.test.ts", "src/modules/pricing/schema"],
         ["nativeRelationalSchema.test.ts", "src/links/product-definition"],
+        ["nativeTextPredicateIndexScenario.ts", "src/modules/pricing/schema"],
         ["nativeRootEventsScenarios.ts", "src/modules/currency/schema"],
         ["nativeRootScenarios.ts", "src/modules/currency/schema"],
         ["nativeSchemaBundle.test.ts", "src/modules/currency/schema"],
@@ -526,16 +528,27 @@ describe("Medusa source-island boundary checker", () => {
       expect(check(edge.importer.replace("/test/", "/src/"), specifier).length).toBeGreaterThan(0);
       expect(check(edge.importer, specifier + ".ts").length).toBeGreaterThan(0);
       expect(check(edge.importer, specifier + "-adjacent").length).toBeGreaterThan(0);
+      expect(check(edge.importer, specifier.replace(/\/([^/]+)$/u, "/./$1")).length).toBeGreaterThan(0);
       expect(check(edge.importer, specifier, { ...promotion,
         files: promotion.files.filter(file => file.target !== edge.target) }).length).toBeGreaterThan(0);
       expect(check(edge.importer, specifier, { ...promotion,
+        files: promotion.files.map(file => file.target === edge.target ? { ...file, target: file.target + "-adjacent" } : file) }).length)
+        .toBeGreaterThan(0);
+      expect(check(edge.importer, specifier, { ...promotion,
         files: promotion.files.map(file => file.target === edge.target ? { ...file, classification: "preserved" } : file) }).length)
+        .toBeGreaterThan(0);
+      expect(check(edge.importer, specifier, { ...promotion,
+        files: promotion.files.map(file => file.target === edge.target ? { ...file, classification: "testHarnessPort" } : file) }).length)
         .toBeGreaterThan(0);
     }
     // A target selected for another Core proof does not become a shared test
     // dependency. This importer is admitted only for the Currency producer.
     expect(check("packages/persistence-postgres/test/core/nativeRootEventsScenarios.ts",
       "../../../medusa-adapter/src/modules/tax/schema").length).toBeGreaterThan(0);
+    expect(check("packages/persistence-postgres/test/core/nativeRootEventsScenarios.ts",
+      "../../../medusa-adapter/src/modules/pricing/schema").length).toBeGreaterThan(0);
+    expect(check("packages/persistence-postgres/test/core/nativeTextPredicateIndexScenario.ts",
+      "../../../medusa-adapter/src/modules/product/definition").length).toBeGreaterThan(0);
   });
 
   it("authenticates the native Cart hook witness against its exact source-derived schema", () => {

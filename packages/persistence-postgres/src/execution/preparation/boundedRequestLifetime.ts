@@ -1,4 +1,4 @@
-import { Cause, Clock, Context, Effect, Option, Result } from "effect";
+import { Cause, Clock, Context, Effect, Equal, Option, Result } from "effect";
 import { observeExecution } from "../diagnostics/operation";
 
 declare const requestBrand: unique symbol;
@@ -74,7 +74,7 @@ export function reclassifyBoundedRequestReason<From, To>(
   const unchanged = Cause.isFailReason(original) && Cause.isFailReason(mapped) && Object.is(original.error, mapped.error)
     || Cause.isDieReason(original) && Cause.isDieReason(mapped) && Object.is(original.defect, mapped.defect)
     || Cause.isInterruptReason(original) && Cause.isInterruptReason(mapped) && original.fiberId === mapped.fiberId;
-  return unchanged ? mapped : mapped.annotate(Context.make(FailureOrigin, Object.freeze({})), { overwrite: true });
+  return unchanged ? mapped : mapped.annotate(Context.make(FailureOrigin, Equal.byReferenceUnsafe(Object.freeze({}))), { overwrite: true });
 }
 /** Source-private authentic request identity; carries no storage authority. */
 export const boundedRequestRootIdentity = <Failure>(lifetime: BoundedRequestLifetime<Failure>): object | undefined => requestRoots.get(lifetime);
@@ -180,7 +180,7 @@ export const makeBoundedRequestLifetime = Effect.fnUntraced(function* <Failure, 
     for (const reason of cause.reasons) {
       let entry = originOf(reason);
       if (entry === undefined) {
-        const token = Object.freeze({});
+        const token = Equal.byReferenceUnsafe(Object.freeze({}));
         const owned = reason.annotate(Context.make(FailureOrigin, token), { overwrite: true });
         entry = { reason: owned };
         origins.set(token, entry);

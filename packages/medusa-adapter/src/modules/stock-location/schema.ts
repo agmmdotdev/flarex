@@ -3,6 +3,8 @@ import { stockLocationModuleModels } from "@medusajs/stock-location/static-manif
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
 import { capturePrivateCanonicalValue } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
+import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
 import { decodeCompiledDml } from "../../schema/compiled";
 import { lowerDmlSchema } from "../../schema/lower";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
@@ -42,4 +44,19 @@ export const compileStockLocationDefinition = Effect.fn("StockLocation.compileDe
   const compiled = yield* compilePinnedStockLocationMetadata();
   const schema = yield* Effect.fromResult(normalizeRelationalSchema(lowerDmlSchema(compiled.tables, "commerce.stock-location")));
   return Object.freeze({ schema, provenance: stockLocationSourceProvenance });
+});
+
+/** The complete pinned StockLocation source feeds the shared native logical lifecycle. */
+export const compileStockLocationCoreDefinition = Effect.fn("StockLocation.compileCoreDefinition")(function* (target: Readonly<{
+  scopeUuid: string; epochUuid: string; applicationRead?: boolean;
+}>) {
+  const nativeTarget = Object.freeze({ scopeUuid: target.scopeUuid, epochUuid: target.epochUuid,
+    applicationRead: target.applicationRead ?? false });
+  const definition = yield* compileStockLocationDefinition();
+  const source = yield* captureLogicalSchemaSource({ key: "medusa.stockLocation", owner: "medusa", writeProfile: "medusa.stockLocation",
+    evidence: { provenance: definition.provenance, profile: "medusa.stockLocation" },
+    definition: { kind: "relational", schema: definition.schema },
+    bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+      table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
+  return yield* makeCoreRelationalNativeDefinition({ ...nativeTarget, source, provenance: definition.provenance, commands: [] });
 });

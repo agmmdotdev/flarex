@@ -20,7 +20,7 @@ import { prepareInventoryStockingWorkflow } from "../../src/workflows/inventory/
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
-import { prepareLogicalProductDeletion } from "./logical-product-deletion-fixture";
+import { prepareLegacyProductDeletion as prepareLogicalProductDeletion } from "./legacy-product-deletion-fixture";
 
 const prepared = Result.getOrThrow(deleteInventoryItemWorkflow.prepare());
 function inverse(name: string) {

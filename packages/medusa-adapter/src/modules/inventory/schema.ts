@@ -3,6 +3,8 @@ import { inventoryModuleModels } from "@medusajs/inventory/static-manifest";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
 import { capturePrivateCanonicalValue } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
+import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
 import { decodeCompiledDml } from "../../schema/compiled";
 import { lowerDmlSchema } from "../../schema/lower";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
@@ -48,4 +50,19 @@ export const compileInventoryDefinition = Effect.fn("Inventory.compileDefinition
       origin: { kind: "derived" as const, sourceId: "reservation-item.line-item-equality" },
     }] }) }));
   return Object.freeze({ schema, provenance: inventorySourceProvenance });
+});
+
+/** The complete pinned Inventory source feeds the shared native logical lifecycle. */
+export const compileInventoryCoreDefinition = Effect.fn("Inventory.compileCoreDefinition")(function* (target: Readonly<{
+  scopeUuid: string; epochUuid: string; applicationRead?: boolean;
+}>) {
+  const nativeTarget = Object.freeze({ scopeUuid: target.scopeUuid, epochUuid: target.epochUuid,
+    applicationRead: target.applicationRead ?? false });
+  const definition = yield* compileInventoryDefinition();
+  const source = yield* captureLogicalSchemaSource({ key: "medusa.inventory", owner: "medusa", writeProfile: "medusa.inventory",
+    evidence: { provenance: definition.provenance, profile: "medusa.inventory" },
+    definition: { kind: "relational", schema: definition.schema },
+    bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+      table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
+  return yield* makeCoreRelationalNativeDefinition({ ...nativeTarget, source, provenance: definition.provenance, commands: [] });
 });

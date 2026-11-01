@@ -1,22 +1,18 @@
+import { expectWorkflowRefusal } from "./support/workflow-failure-assertions";
+import { CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Cause, Deferred, Effect, Fiber, Schema } from "effect";
 import { ProductModuleService } from "@medusajs/product/services";
 import { PricingModuleService } from "@medusajs/pricing/services";
 import { prepareProductDeletionWorkflow, type ProductDeletionHooks } from "../src/workflows/product/deletion";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
-import { fxAppRowCurrent, fxSystemCommits } from "../../persistence-postgres/src/database/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
-import { prepareLogicalProductDeletion } from "./support/logical-product-deletion-fixture";
-import { prepareLogicalProductHost } from "./support/logical-product-fixture";
+import { prepareCoreProductDeletion } from "./support/core-product-deletion-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalProductDeletion>>;
-const rows = () => connected.fixture.persistence.drizzle.select().from(fxAppRowCurrent);
-const events = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents).orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal);
-const commits = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommits);
+let connected: Awaited<ReturnType<typeof prepareCoreProductDeletion>>;
+const snapshot = () => connected.fixture.snapshot();
+const events = async () => (await snapshot()).events;
+const outcomes = async () => (await snapshot()).outcomes;
 type HookContext = Parameters<NonNullable<ProductDeletionHooks["productsDeleted"]>>[1];
 const removal = (id: string) => ({ ids: [id] });
 
@@ -35,11 +31,11 @@ function failurePath(value: unknown): string[] {
 }
 
 describe("Product deletion workflow authority, lifecycle and settlement boundaries", () => {
-  beforeAll(async () => { connected = await prepareLogicalProductDeletion(driver, close => cleanup.push(close)); }, 180_000);
+  beforeAll(async () => { connected = await prepareCoreProductDeletion(driver, close => cleanup.push(close)); }, 180_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
 
   it("refuses forged tokens and authentic creation profiles before invoking native Product mutation", async () => {
-    const beforeRows = await rows(), beforeEvents = await events();
+    const beforeState = await snapshot(), beforeEvents = await events();
     const native = vi.spyOn(ProductModuleService.prototype, "softDeleteProducts");
     const attempts = [
       { ...connected.options, link: structuredClone(connected.link) },
@@ -54,12 +50,19 @@ describe("Product deletion workflow authority, lifecycle and settlement boundari
     ];
     try {
       for (const options of attempts) {
-        const result = await Effect.runPromise(Effect.result(prepareProductDeletionWorkflow(options)));
-        if (result._tag === "Success") await Effect.runPromise(result.success.close);
+        const result = await Effect.runPromise(Effect.exit(prepareProductDeletionWorkflow(options)));
+        if (result._tag === "Success") await Effect.runPromise(result.value.close);
         expect(result).toMatchObject({ _tag: "Failure" });
+        if (result._tag === "Failure") {
+          expect(result.cause.reasons).toHaveLength(1);
+          const [causeReason] = result.cause.reasons;
+          if (causeReason === undefined || !Cause.isFailReason(causeReason)) throw new Error("Expected one typed workflow refusal");
+          expect(causeReason.error).toBeInstanceOf(CommerceTransactionError);
+          expect(causeReason.error).toMatchObject({ reason: "unsupportedProfile" });
+        }
       }
       expect(native).not.toHaveBeenCalled();
-      expect(await rows()).toEqual(beforeRows); expect(await events()).toEqual(beforeEvents);
+      expect(await snapshot()).toEqual(beforeState); expect(await events()).toEqual(beforeEvents);
     } finally { native.mockRestore(); }
   });
 
@@ -71,70 +74,74 @@ describe("Product deletion workflow authority, lifecycle and settlement boundari
       escaped = context.resources.link.delete;
       try { await escaped({ product: { variant_id: ["1", "2", "3", "4", "5"] } }); } catch { caught = true; }
     } });
-    const beforeRows = await rows(), beforeEvents = await events(), beforeCommits = await commits();
-    const result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), removal(product.id))));
-    expect(result).toMatchObject({ _tag: "Failure" }); expect(caught).toBe(true);
-    expect(await rows()).toEqual(beforeRows); expect(await events()).toEqual(beforeEvents); expect(await commits()).toEqual(beforeCommits);
+    const beforeState = await snapshot(), beforeEvents = await events(), beforeOutcomes = await outcomes();
+    const result = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), removal(product.id))));
+    expectWorkflowRefusal(result, "invalidInput"); expect(caught).toBe(true);
+    expect(await snapshot()).toEqual(beforeState); expect(await events()).toEqual(beforeEvents); expect(await outcomes()).toEqual(beforeOutcomes);
     expect(escaped).toBeDefined();
     if (escaped !== undefined) await expect(escaped({ product: { variant_id: product.variants.map(variant => variant.id) } }))
       .rejects.toMatchObject({ reason: "closed" });
-    expect(await rows()).toEqual(beforeRows); expect(await events()).toEqual(beforeEvents);
+    expect(await snapshot()).toEqual(beforeState); expect(await events()).toEqual(beforeEvents);
   });
 
   it("cancels after native Pricing descendants have changed and ignores the late callback result", async () => {
     const product = (await connected.seed("product-boundary-cancel"))[0]!, host = await connected.prepareProduct();
-    const reached = await Effect.runPromise(Deferred.make<void>());
-    let finish: (() => void) | undefined;
+    const reached = await Effect.runPromise(Deferred.make<void>()), finished = await Effect.runPromise(Deferred.make<void>());
+    let finish: (() => void) | undefined, escaped: (() => Promise<unknown>) | undefined;
+    let completed = false;
     const original = PricingModuleService.prototype.softDeletePriceSets;
     const native = vi.spyOn(PricingModuleService.prototype, "softDeletePriceSets").mockImplementation(async function (this: PricingModuleService, ...args) {
       const result = await Reflect.apply(original, this, args);
+      escaped = () => Reflect.apply(original, this, args);
       await Effect.runPromise(Deferred.succeed(reached, undefined));
       await new Promise<void>(resolve => { finish = resolve; });
+      completed = true; await Effect.runPromise(Deferred.succeed(finished, undefined));
       return result;
     });
     try {
-      const beforeRows = await rows(), beforeEvents = await events(), beforeCommits = await commits();
-      await Effect.runPromise(Effect.gen(function* () {
-        const fiber = yield* Effect.forkChild(host.run(host.newRequestKey(), removal(product.id)));
-        yield* Deferred.await(reached).pipe(Effect.timeout(30_000));
-        yield* Fiber.interrupt(fiber);
-      }));
+      const beforeState = await snapshot(), beforeEvents = await events(), beforeOutcomes = await outcomes();
+      const fiber = Effect.runFork(host.run(host.newRequestKey(), removal(product.id)));
+      try {
+        await Effect.runPromise(Deferred.await(reached).pipe(Effect.timeout(30_000)));
+        await Effect.runPromise(Fiber.interrupt(fiber));
+        const interrupted = await Effect.runPromise(Fiber.await(fiber));
+        expect(interrupted._tag).toBe("Failure");
+        if (interrupted._tag === "Failure") expect(Cause.hasInterrupts(interrupted.cause)).toBe(true);
+        expect(completed).toBe(false);
+        if (escaped === undefined) throw new Error("Native Pricing callback did not expose its borrowed capability");
+        await escaped().then(() => { throw new Error("Cancelled native Pricing callback unexpectedly succeeded"); }, cause => {
+          expect(failurePath(cause)).toContain("closed");
+        });
+        expect(await snapshot()).toEqual(beforeState); expect(await events()).toEqual(beforeEvents); expect(await outcomes()).toEqual(beforeOutcomes);
+        finish?.(); await Effect.runPromise(Deferred.await(finished).pipe(Effect.timeout(5_000)));
+        expect(completed).toBe(true);
+      } finally { finish?.(); await Effect.runPromise(Fiber.interrupt(fiber)); }
       expect(native).toHaveBeenCalledTimes(1);
-      expect(await rows()).toEqual(beforeRows); expect(await events()).toEqual(beforeEvents); expect(await commits()).toEqual(beforeCommits);
-      finish?.();
-      expect(await rows()).toEqual(beforeRows); expect(await events()).toEqual(beforeEvents);
+      expect(await snapshot()).toEqual(beforeState); expect(await events()).toEqual(beforeEvents); expect(await outcomes()).toEqual(beforeOutcomes);
     } finally { finish?.(); native.mockRestore(); }
   }, 120_000);
 
   it("recovers a lost COMMIT acknowledgement once and binds both replay input and revision", async () => {
     const product = (await connected.seed("product-boundary-uncertain"))[0]!;
-    let lose = true;
-    const fixture = connected.fixture;
-    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
-      Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-      Effect.flatMap(value => {
-        if (!lose) return Effect.succeed(value);
-        lose = false;
-        return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost Product cascade COMMIT acknowledgement") }));
-      }),
-    ));
-    const host = await connected.prepareProduct({}, { ...connected.execution,
-      prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, session, ...composition }) });
+    const fault = connected.fixture.loseNextNativeRootAcknowledgement();
+    const host = await connected.prepareProduct();
     const changed = await Effect.runPromise(prepareProductDeletionWorkflow({ ...connected.options, revision: "c".repeat(64) }));
     cleanup.push(() => Effect.runPromise(changed.close));
     const productNative = vi.spyOn(ProductModuleService.prototype, "softDeleteProducts");
     const pricingNative = vi.spyOn(PricingModuleService.prototype, "softDeletePriceSets");
     try {
-      const key = host.newRequestKey(), input = removal(product.id), beforeCommits = await commits();
+      const key = host.newRequestKey(), input = removal(product.id), beforeOutcomes = await outcomes();
       const result = await Effect.runPromise(host.run(key, input));
-      expect(lose).toBe(false); expect(productNative).toHaveBeenCalledTimes(1); expect(pricingNative).toHaveBeenCalledTimes(1);
-      expect((await commits()).length - beforeCommits.length).toBe(1);
-      const storedRows = await rows(), storedEvents = await events();
+      expect(fault.failures).toBe(1); expect(productNative).toHaveBeenCalledTimes(1); expect(pricingNative).toHaveBeenCalledTimes(1);
+      expect((await outcomes()).length - beforeOutcomes.length).toBe(1);
+      expect(fault.evidence).toBeDefined();
+      expect((await outcomes()).filter(outcome => outcome.timestamp === fault.evidence?.timestamp)).toHaveLength(1);
+      const storedState = await snapshot(), storedEvents = await events();
       expect(await Effect.runPromise(host.run(key, input))).toEqual(result);
       await expect(Effect.runPromise(host.run(key, { ids: [product.id, "different-request"] }))).rejects.toMatchObject({ reason: "requestConflict" });
       await expect(Effect.runPromise(changed.run(key, input))).rejects.toMatchObject({ reason: "requestConflict" });
       expect(productNative).toHaveBeenCalledTimes(1); expect(pricingNative).toHaveBeenCalledTimes(1);
-      expect(await rows()).toEqual(storedRows); expect(await events()).toEqual(storedEvents);
+      expect(await snapshot()).toEqual(storedState); expect(await events()).toEqual(storedEvents);
     } finally { productNative.mockRestore(); pricingNative.mockRestore(); }
   });
 
@@ -150,7 +157,7 @@ describe("Product deletion workflow authority, lifecycle and settlement boundari
       return result;
     });
     try {
-      const beforeCommits = await commits(), beforeEvents = await events();
+      const beforeOutcomes = await outcomes(), beforeEvents = await events();
       const results = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const first = yield* Effect.forkChild(Effect.exit(host.run(host.newRequestKey(), removal(product.id))));
         const second = yield* Effect.forkChild(Effect.exit(host.run(host.newRequestKey(), removal(product.id))));
@@ -159,16 +166,25 @@ describe("Product deletion workflow authority, lifecycle and settlement boundari
         return [yield* Fiber.join(first), yield* Fiber.join(second)];
       })));
       expect(results.filter(result => result._tag === "Success")).toHaveLength(1);
-      expect(results.flatMap(result => result._tag === "Failure" ? failurePath(result.cause) : [])).toContain("writeConflict");
-      expect((await commits()).length - beforeCommits.length).toBe(1);
+      const rejected = results.filter(result => result._tag === "Failure");
+      expect(rejected).toHaveLength(1);
+      const failure = rejected[0];
+      if (failure === undefined) throw new Error("Missing stale-root failure");
+      expect(failure.cause.reasons).toHaveLength(1);
+      const [causeReason] = failure.cause.reasons;
+      expect(causeReason !== undefined && Cause.isFailReason(causeReason)).toBe(true);
+      if (causeReason !== undefined && Cause.isFailReason(causeReason)) {
+        expect(causeReason.error).toBeInstanceOf(CommerceTransactionError);
+        expect(causeReason.error).toMatchObject({ reason: "writeConflict" });
+      }
+      expect((await outcomes()).length - beforeOutcomes.length).toBe(1);
       expect((await events()).slice(beforeEvents.length).filter(event => event.envelope.contract === "product.deleted")).toHaveLength(1);
     } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); native.mockRestore(); }
   }, 120_000);
 
   it("confines matching Product/Variant IDs, cascade targets and request keys to their shop", async () => {
-    const other = await prepareLogicalProductDeletion(driver, close => cleanup.push(close), {
-      resource: connected.fixture.resource,
-      fixtureIdentity: { deploymentId: "product_deletion_boundary_shop_b", projectId: "product_deletion_boundary_shop_b", uuidOffset: 32_000 },
+    const other = await prepareCoreProductDeletion(driver, close => cleanup.push(close), {
+      physical: connected.fixture.physical,
     });
     const left = (await connected.seed("product-boundary-scoped"))[0]!, right = (await other.seed("product-boundary-scoped"))[0]!;
     expect(left.id).toBe(right.id); expect(left.variants.map(variant => variant.id)).toEqual(right.variants.map(variant => variant.id));
@@ -178,13 +194,11 @@ describe("Product deletion workflow authority, lifecycle and settlement boundari
     expect(await Effect.runPromise(other.pricing.host.read(other.pricing.runtime.list, {
       filters: { id: right.variants.map(variant => variant.price_set_id) }, config: { relations: ["prices"] },
     }))).toMatchObject([{ deleted_at: null, prices: [expect.anything(), expect.anything()] }]);
-    const reader = await prepareLogicalProductHost(other.fixture);
-    try {
-      await Effect.runPromise(reader.host.initialize([]));
-      const observed = await Effect.runPromise(reader.host.read(reader.runtime.commands.internalProductList,
+    {
+      const observed = await Effect.runPromise(other.creation.product.reads.read(other.creation.product.runtime.commands.internalProductList,
         { filters: { id: [right.id] }, config: { relations: ["variants"] } }));
       expect(observed).toMatchObject([{ id: right.id, title: "product-boundary-scoped0", variants: [{ id: right.variants[0]!.id }] }]);
-    } finally { await Effect.runPromise(reader.host.close); }
+    }
     expect(await Effect.runPromise(second.run(key, input))).toBeNull();
     expect(await Effect.runPromise(first.run(key, input))).toBeNull();
   }, 180_000);

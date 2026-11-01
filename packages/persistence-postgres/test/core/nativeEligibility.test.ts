@@ -22,13 +22,39 @@ describe("bounded native conditional eligibility", () => {
     expect(coreNativeEligibilityMatches(all, { deleted_at: null, selected: true })).toBe(true);
     expect(coreNativeEligibilityMatches(all, { deleted_at: null, selected: false })).toBe(false);
     expect(coreNativeEligibilityMatches(all, { selected: true })).toBe(false);
+    const allNull = { all: [{ field: "deleted_at", value: null }, { field: "parent_id", value: null }] };
+    expect(Result.getOrThrow(decode(allNull))).toEqual(allNull);
+    const text: CoreNativeEligibility = { all: [{ field: "deleted_at", value: null }, { field: "status", value: "active" }] };
+    expect(Result.getOrThrow(decode(text))).toEqual(text);
+    expect(coreNativeEligibilityTerms(text)).toEqual(text.all);
+    expect(coreNativeEligibilityMatches(text, { deleted_at: null, status: "active" })).toBe(true);
+    expect(coreNativeEligibilityMatches(text, { deleted_at: null, status: "draft" })).toBe(false);
+    expect(coreNativeEligibilityMatches(text, { status: "active" })).toBe(false);
+    expect(coreNativeEligibilityMatches(text, { deleted_at: "2026-11-01T00:00:00.000Z", status: "active" })).toBe(false);
     for (const input of [
       { field: "selected", value: true },
       { all: [{ field: "deleted_at", value: null }] },
       { all: [{ field: "deleted_at", value: null }, { field: "deleted_at", value: null }] },
       { all: [{ field: "selected", value: true }, { field: "other", value: false }] },
-      { all: [{ field: "deleted_at", value: null }, { field: "status", value: "active" }] },
+      { field: "status", value: "active" },
+      { all: [{ field: "deleted_at", value: null }, { field: "status", value: "active" }, { field: "other", value: null }] },
+      { all: [{ field: "deleted_at", value: null }, { field: "deleted_at", value: "active" }] },
+      { all: [{ field: "status", value: "active" }, { field: "deleted_at", value: null }] },
+      { all: [{ field: "deleted_at", value: null }, { field: "status", value: 1 }] },
+      { all: [{ field: "deleted_at", value: null }, { field: "status", value: { eq: "active" } }] },
+      { all: [{ field: "deleted_at", value: null }, { field: "status", value: "active", extra: true }] },
+      { all: [{ field: "deleted_at", value: null }, { field: "status", value: "active" }], extra: true },
     ]) expect(Result.isFailure(decode(input))).toBe(true);
+  });
+
+  it("keeps a text eligibility prefix separate from nullable business keys", () => {
+    const constraint = { descriptor: "live-alias", fields: ["alias"], indexName: "live_alias", nullsDistinct: true,
+      eligibility: { all: [{ field: "deleted_at", value: null }, { field: "status", value: "active" }] } } as const;
+    expect(coreNativeConstraintAccessFields(constraint)).toEqual(["deleted_at", "status", "alias"]);
+    expect(coreNativeConstraintAccessFields({ ...constraint, fields: ["status", "alias"] })).toEqual(["deleted_at", "status", "alias"]);
+    expect(Result.getOrThrow(coreNativeUniqueValues(constraint, { deleted_at: null, status: "active", alias: "shared" }))).toEqual(["shared"]);
+    expect(Result.getOrThrow(coreNativeUniqueValues(constraint, { deleted_at: null, status: "active", alias: null }))).toBeNull();
+    expect(Result.getOrThrow(coreNativeUniqueValues(constraint, { deleted_at: null, status: "draft", alias: "shared" }))).toBeNull();
   });
 
   it("lowers genuine Tax all-null and active-default constraints independently of key nullness", async () => {

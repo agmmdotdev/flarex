@@ -1,4 +1,4 @@
-import { Cause, Clock, Context, Deferred, Effect, Exit, Option, References, Scope, Tracer } from "effect";
+import { Cause, Clock, Context, Deferred, Effect, Exit, Option, References, Result, Scope, Tracer } from "effect";
 import { describe, expect, it } from "vitest";
 import { mockRelationalRead } from "./mock-relational-read";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
@@ -33,6 +33,35 @@ function tracing() {
 }
 
 describe("commerce Promise operation context", () => {
+  it("retains independent owned same-error occurrences through Promise cleanup and the root seal", async () => {
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError,
+        commerceLimits, {}, {}, "promise-owned-occurrences", "write"), lifetime => lifetime.close);
+      const owner = yield* Effect.acquireRelease(makeCommercePromiseOwner(cause => lifetime.recordFailure(lifetime.context, cause)), owner => owner.close);
+      const reused = commerceError("invalidInput"), sameCode = commerceError("invalidInput");
+      const first = Result.getOrThrow(lifetime.recordFailure(lifetime.context, Cause.fail(reused)));
+      const second = Result.getOrThrow(lifetime.recordFailure(lifetime.context, Cause.fail(reused)));
+      const third = Result.getOrThrow(lifetime.recordFailure(lifetime.context, Cause.fail(sameCode)));
+      // Promise transport and cleanup receive three already-issued occurrences.
+      const pending = [first, second, third].map(cause => owner.run(Effect.failCause(cause)));
+      const rejected = yield* Effect.promise(() => Promise.allSettled(pending));
+      expect(rejected.map(result => result.status)).toEqual(["rejected", "rejected", "rejected"]);
+      const completed = yield* Effect.exit(owner.withClose(Effect.succeed("foreign callback caught every rejection")));
+      if (Exit.isSuccess(completed)) throw new Error("Expected complete Promise cleanup failure");
+      expect(completed.cause.reasons).toHaveLength(3);
+      expect(completed.cause.reasons.filter(Cause.isFailReason).map(reason => reason.error)).toEqual([reused, reused, sameCode]);
+      const tokens = completed.cause.reasons.map(reason => reason.annotations.get("Flarex/BoundedRequestFailureOrigin"));
+      expect(new Set(tokens).size).toBe(3);
+      expect(owner.hasPending()).toBe(false);
+      const sealed = yield* Effect.exit(lifetime.seal);
+      if (Exit.isSuccess(sealed)) throw new Error("Expected sticky Promise failures at seal");
+      expect(sealed.cause.reasons).toHaveLength(4);
+      expect(sealed.cause.reasons.filter(Cause.isFailReason).map(reason => reason.error.reason)).toEqual([
+        "rollbackOnly", "invalidInput", "invalidInput", "invalidInput",
+      ]);
+    })));
+  });
+
   it("captures only the tracer and current parent at the owning factory", async () => {
     const trace = tracing();
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {

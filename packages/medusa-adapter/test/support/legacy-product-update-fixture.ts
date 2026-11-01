@@ -6,8 +6,8 @@ import { prepareProductUpdateLinkResource } from "../../src/links/product-update
 import { prepareLogicalPricingHost, seedLogicalPricingLists } from "./logical-pricing-fixture";
 import { prepareLogicalProductLinksHost } from "./logical-product-links-fixture";
 import { prepareLogicalInventoryHosts, prepareInventoryCreateHost } from "./logical-inventory-fixture";
-import { connectProductCreation, creationRevision, productCreationExecution, productCreationOptions,
-  seedCreationEndpoints, seedCreationReferences } from "./logical-product-creation-fixture";
+import { connectLegacyProductCreation, legacyCreationRevision, legacyProductCreationExecution, legacyProductCreationOptions,
+  seedLegacyCreationEndpoints, seedLegacyCreationReferences } from "./legacy-product-creation-fixture";
 import { logicalCurrencyFixture } from "./logical-currency-fixture";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
@@ -15,7 +15,7 @@ import { commerceError } from "@flarex/persistence-postgres/internal/commerce-va
 
 /** Shared storage/schema and real native creation seed; the update root alone
  * selects its wider methods. No fixture reproduces reconciliation or cascade. */
-export async function prepareLogicalProductUpdate(driver: "pglite" | "postgres", registerCleanup: (close: () => Promise<void>) => void,
+export async function prepareLegacyProductUpdate(driver: "pglite" | "postgres", registerCleanup: (close: () => Promise<void>) => void,
   shared?: Pick<NonNullable<Parameters<typeof logicalCurrencyFixture>[2]>, "additionalSources"> & (
     { readonly resource: Awaited<ReturnType<typeof logicalCurrencyFixture>>["resource"];
       readonly fixtureIdentity: { readonly deploymentId: string; readonly projectId: string; readonly uuidOffset: number } }
@@ -25,7 +25,7 @@ export async function prepareLogicalProductUpdate(driver: "pglite" | "postgres",
     includeProductSalesChannelLink: true, includeProductShippingProfileLink: true };
   const fixture = await (shared === undefined ? logicalCurrencyFixture(driver, registerCleanup, configuration)
     : logicalCurrencyFixture(driver, registerCleanup, { ...configuration, ...shared }));
-  const creation = await connectProductCreation(fixture);
+  const creation = await connectLegacyProductCreation(fixture);
   const pricing = await prepareLogicalPricingHost(fixture, "product-updates");
   const productLinks = await prepareLogicalProductLinksHost(fixture, "product-updates");
   for (const member of [pricing, productLinks]) {
@@ -42,8 +42,8 @@ export async function prepareLogicalProductUpdate(driver: "pglite" | "postgres",
   const link = Result.getOrThrow(prepareProductUpdateLinkResource({ sales: productLinks.runtime.nativeServices.sales,
     shipping: productLinks.runtime.nativeServices.shipping, inventory: inventory.link.runtime.nativeServices.inventory,
     pricing: inventory.link.runtime.nativeServices.pricing }, pricing.runtime.workflow));
-  const execution = productCreationExecution(creation);
-  const options = { execution, modules, link, revision: creationRevision("native-product-update"),
+  const execution = legacyProductCreationExecution(creation);
+  const options = { execution, modules, link, revision: legacyCreationRevision("native-product-update"),
     subscribers: [{ id: "native-product-update", revision: "b".repeat(64) }] };
   const prepare = async (hooks: ProductUpdateHooks = {}, selectedExecution = execution) => {
     const host = await Effect.runPromise(prepareProductUpdateWorkflow({ ...options, execution: selectedExecution, hooks }));
@@ -61,7 +61,7 @@ export async function prepareLogicalProductUpdate(driver: "pglite" | "postgres",
     }
     const priceSetIds = new Map<string, string>();
     const readId = Schema.decodeUnknownSync(Schema.String);
-    const host = await Effect.runPromise(prepareProductCreationWorkflow({ ...productCreationOptions(creation), hooks: {
+    const host = await Effect.runPromise(prepareProductCreationWorkflow({ ...legacyProductCreationOptions(creation), hooks: {
       productsCreated: async (value, context) => {
         const links = await context.resources.query.graph({ entity: "product_variant_price_set", fields: ["variant_id", "price_set_id"],
           filters: { variant_id: value.products.flatMap(product => product.variants.map(variant => variant.id)) }, pagination: { take: 4 } });
@@ -102,7 +102,7 @@ export async function prepareLogicalProductUpdate(driver: "pglite" | "postgres",
       inventory: { module: creation.inventory.inventory.runtime.workflow, logicalStorage: creation.inventory.inventory.hostInput.logicalStorage },
       stock_location: { module: creation.inventory.stockLocation.runtime.workflow, logicalStorage: creation.inventory.stockLocation.hostInput.logicalStorage },
       link: { module: creation.inventory.link.runtime.workflow, logicalStorage: creation.inventory.link.hostInput.logicalStorage },
-    }, revision: creationRevision("product-update-additional-variant"), subscribers: [{ id: "product-update-variant-seed", revision: "b".repeat(64) }] }));
+    }, revision: legacyCreationRevision("product-update-additional-variant"), subscribers: [{ id: "product-update-variant-seed", revision: "b".repeat(64) }] }));
     try {
       return await Effect.runPromise(host.run(host.newRequestKey(), { product_variants: [{ id: prefix + "-variant", product_id: productId,
         title: prefix, sku: prefix + "-sku", options: { Size: "1" }, prices: [] }] }));
@@ -126,9 +126,9 @@ export async function prepareLogicalProductUpdate(driver: "pglite" | "postgres",
       [{ id: prefix + "-image", product_id: productId, url: "https://example.test/" + prefix + "/extra" }])); }
     finally { await Effect.runPromise(host.close); }
   };
-  await seedCreationEndpoints(creation);
-  await seedCreationEndpoints(creation, "replacement");
-  await seedCreationReferences(creation);
-  await seedCreationReferences(creation, "replacement");
+  await seedLegacyCreationEndpoints(creation);
+  await seedLegacyCreationEndpoints(creation, "replacement");
+  await seedLegacyCreationReferences(creation);
+  await seedLegacyCreationReferences(creation, "replacement");
   return { fixture, creation, pricing, productLinks, inventory, execution, modules, link, options, prepare, seed, appendVariant, appendImage };
 }

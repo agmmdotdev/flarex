@@ -1,3 +1,4 @@
+import { expectWorkflowDefect, expectWorkflowRefusal } from "./support/workflow-failure-assertions";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Cause, Effect, Schema } from "effect";
 import { ProductModuleService } from "@medusajs/product/services";
@@ -6,35 +7,19 @@ import { prepareProductCreateWorkflow } from "../src/workflows/product/create";
 import { prepareProductUpdateWorkflow } from "../src/workflows/product/update";
 import { productUpdateResources } from "../src/workflow/policy";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
-import { inspectCapturedPrivateJsonData } from "@flarex/persistence-postgres/internal/commerce-values";
-import { fxAppRowCurrent, fxSystemCommits } from "../../persistence-postgres/src/database/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
-import { prepareLogicalProductUpdate } from "./support/logical-product-update-fixture";
+import { inspectCapturedPrivateJsonData, CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { prepareCoreProductUpdate } from "./support/core-product-update-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const Id = Schema.decodeUnknownSync(Schema.String);
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalProductUpdate>>;
-const rows = () => connected.fixture.persistence.drizzle.select().from(fxAppRowCurrent);
-const events = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents).orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal);
-const commits = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommits);
-
-function failurePath(value: unknown): string[] {
-  if (Cause.isCause(value)) return value.reasons.flatMap(reason => {
-    switch (reason._tag) {
-      case "Fail": return failurePath(reason.error);
-      case "Die": return failurePath(reason.defect);
-      case "Interrupt": return [reason._tag];
-    }
-  });
-  if (value === null || typeof value !== "object") return [];
-  const reason = Object.getOwnPropertyDescriptor(value, "reason")?.value;
-  const cause = Object.getOwnPropertyDescriptor(value, "cause")?.value;
-  return [...(typeof reason === "string" ? [reason] : []), ...(cause === undefined ? [] : failurePath(cause))];
-}
+let connected: Awaited<ReturnType<typeof prepareCoreProductUpdate>>;
+const snapshot = () => connected.fixture.snapshot();
+const events = async () => (await snapshot()).events;
+const outcomes = async () => (await snapshot()).outcomes;
 
 describe("complete native Product update workflow", () => {
-  beforeAll(async () => { connected = await prepareLogicalProductUpdate(driver, close => cleanup.push(close)); }, 180_000);
+  beforeAll(async () => { connected = await prepareCoreProductUpdate(driver, close => cleanup.push(close)); }, 180_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
 
   it("reconciles four Products and four variants, prices, Inventory dismissal and both Product Link replacements in one root", async () => {
@@ -84,7 +69,7 @@ describe("complete native Product update workflow", () => {
       category_ids: ["replacement-category-0", "replacement-category-1", "replacement-category-2", "replacement-category-3"],
       sales_channels: [{ id: "replacement-channel-0" }, { id: "replacement-channel-1" }], shipping_profile_id: "root-profile-1",
     })), additional_data: { note: "maximum" } };
-    const beforeRows = await rows(), beforeCommits = await commits(), beforeEvents = await events();
+    const beforeState = await snapshot(), beforeOutcomes = await outcomes(), beforeEvents = await events();
     for (const selection of [{ name: "1 MiB", requestByteLimit: 1_048_576, requestEventLimit: 128 },
       { name: "128 events", requestByteLimit: 2_097_152, requestEventLimit: 128 }]) {
       const limited = await connected.prepare({}, { ...connected.execution,
@@ -92,16 +77,15 @@ describe("complete native Product update workflow", () => {
           requestByteLimit: selection.requestByteLimit, requestEventLimit: selection.requestEventLimit }),
       });
       let limitedCalls = 0;
-      const refused = await Effect.runPromise(Effect.result(limited.run(limited.newRequestKey(), input).pipe(
+      const refused = await Effect.runPromise(Effect.exit(limited.run(limited.newRequestKey(), input).pipe(
         Effect.provideService(ExecutionDiagnostics, {
           observe: (name, work) => Effect.sync(() => { if (name === "BoundedRequest.enter") limitedCalls++; }).pipe(Effect.andThen(work)),
         }), Effect.ensuring(Effect.sync(() => console.info("Product update refused maximum", selection.name, "calls", limitedCalls))),
       )));
-      expect(refused).toMatchObject({ _tag: "Failure" });
-      expect(failurePath(refused._tag === "Failure" ? refused.failure : undefined)).toContain("limitExceeded");
-      expect(await rows()).toEqual(beforeRows);
+      expectWorkflowRefusal(refused, "limitExceeded");
+      expect(await snapshot()).toEqual(beforeState);
       expect(await events()).toEqual(beforeEvents);
-      expect(await commits()).toEqual(beforeCommits);
+      expect(await outcomes()).toEqual(beforeOutcomes);
     }
     let calls = 0;
     const key = host.newRequestKey();
@@ -115,17 +99,17 @@ describe("complete native Product update workflow", () => {
     expect(result.flatMap(product => product.variants)).toHaveLength(4);
     expect(result[0]?.variants[0]?.id).not.toBe(oldVariantIds[0]);
     expect(result[1]?.variants[0]?.id).not.toBe(oldVariantIds[1]);
-    expect((await commits()).length - beforeCommits.length).toBe(1);
+    expect((await outcomes()).length - beforeOutcomes.length).toBe(1);
     const emitted = (await events()).slice(beforeEvents.length);
     expect(emitted).toHaveLength(135);
     expect(emitted.filter(event => event.envelope.contract.startsWith("pricing.") && event.envelope.contract.endsWith(".deleted"))).toHaveLength(36);
     expect(emitted.filter(event => event.envelope.contract.startsWith("pricing.") && event.envelope.contract.endsWith(".created"))).toHaveLength(20);
     expect(emitted.filter(event => event.envelope.contract === "product.updated").map(event => event.envelope.message))
       .toEqual(seeded.map(product => expect.objectContaining({ data: { id: product.id } })));
-    const allEvents = await events(), allRows = await rows();
+    const allEvents = await events(), allState = await snapshot();
     expect(await Effect.runPromise(host.run(key, input))).toEqual(result);
     expect(newPriceSetIds).toHaveLength(4);
-    expect(await rows()).toEqual(allRows);
+    expect(await snapshot()).toEqual(allState);
     expect(await events()).toEqual(allEvents);
     const priceSets = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject))(await Effect.runPromise(connected.pricing.host.read(connected.pricing.runtime.list,
       { filters: { id: seeded.flatMap(product => product.variants.map(variant => Id(variant.price_set_id))) }, config: { withDeleted: true } })));
@@ -198,14 +182,15 @@ describe("complete native Product update workflow", () => {
 
   it.each(["batch", "selector"] as const)("rolls back Product graph, Pricing lifecycle and both Links when the %s completion hook fails", async form => {
     const seeded = await connected.seed("product-update-hook-" + form), product = seeded[0]!;
-    const hook = vi.fn(() => { throw new Error("products updated hook failed"); });
+    const original = new Error("products updated hook failed");
+    const hook = vi.fn(() => { throw original; });
     const host = await connected.prepare({ productsUpdated: hook });
-    const beforeRows = await rows(), beforeEvents = await events();
+    const beforeState = await snapshot(), beforeEvents = await events();
     const update = { title: "Changed", variants: [], sales_channels: [], shipping_profile_id: null };
     const input = form === "batch" ? { products: [{ id: product.id, ...update }] } : { selector: { id: product.id }, update };
-    expect(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), input)))).toMatchObject({ _tag: "Failure" });
+    expectWorkflowDefect(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), input))), original);
     expect(hook).toHaveBeenCalledTimes(1);
-    expect(await rows()).toEqual(beforeRows);
+    expect(await snapshot()).toEqual(beforeState);
     expect(await events()).toEqual(beforeEvents);
   });
 
@@ -243,7 +228,7 @@ describe("complete native Product update workflow", () => {
 
   it("retains native silent missing Pricing-Link behavior for existing variants", async () => {
     const create = await Effect.runPromise(prepareProductCreateWorkflow({ execution: connected.execution,
-      modules: { product: { module: connected.creation.product.runtime.workflow, logicalStorage: connected.creation.product.hostInput.logicalStorage } },
+      modules: { product: { module: connected.creation.product.runtime.workflow, nativeStorage: connected.creation.product.source } },
       revision: "a".repeat(64), subscribers: [{ id: "product-update-unpriced-seed", revision: "b".repeat(64) }] }));
     try { await Effect.runPromise(create.run(create.newRequestKey(), { products: [{ id: "product-update-unpriced", title: "Unpriced",
       options: [{ title: "Size", values: ["0"] }], variants: [{ id: "product-update-unpriced-variant", title: "Unpriced", options: { Size: "0" } }] }] })); }
@@ -255,49 +240,57 @@ describe("complete native Product update workflow", () => {
   });
 
   it("refuses managed fields, unknown fields, excessive total variants and forged resources before native mutation", async () => {
-    const host = await connected.prepare(), beforeRows = await rows(), beforeEvents = await events();
+    const host = await connected.prepare(), beforeState = await snapshot(), beforeEvents = await events();
     const upsert = vi.spyOn(ProductModuleService.prototype, "upsertProducts");
     try {
       // @ts-expect-error Runtime negative witness deliberately omits the required batch Product ID.
-      const missingId = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { products: [{ title: "Batch update requires a Product ID" }] })));
-      expect(missingId).toMatchObject({ _tag: "Failure" });
+      const missingId = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { products: [{ title: "Batch update requires a Product ID" }] })));
+      expectWorkflowRefusal(missingId, "invalidInput");
       for (const input of [
         { products: [{ id: "managed-product", created_at: "2026-01-01T00:00:00.000Z" }] },
         { products: [{ id: "managed-product", unknown_field: true }] },
         { products: [{ id: "managed-product", variants: [{ id: "managed-variant", product_id: "foreign" }] }] },
         { products: Array.from({ length: 4 }, (_, index) => ({ id: "over-total-" + index, variants: [{ title: "a" }, { title: "b" }] })) },
-      ]) expect(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), input)))).toMatchObject({ _tag: "Failure" });
+      ]) expectWorkflowRefusal(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), input))), "invalidInput");
       expect(upsert).not.toHaveBeenCalled();
     } finally { upsert.mockRestore(); }
     let getters = 0;
     const forged = Object.defineProperty({ ...connected.link }, "create", { enumerable: true, get: () => { getters++; return () => []; } });
-    expect(await Effect.runPromise(Effect.result(prepareProductUpdateWorkflow({ ...connected.options, link: forged }))))
-      .toMatchObject({ _tag: "Failure" });
+    const preparation = await Effect.runPromise(Effect.exit(prepareProductUpdateWorkflow({ ...connected.options, link: forged })));
+    expect(preparation).toMatchObject({ _tag: "Failure" });
+    if (preparation._tag === "Failure") {
+      expect(preparation.cause.reasons).toHaveLength(1);
+      const [causeReason] = preparation.cause.reasons;
+      if (causeReason === undefined || !Cause.isFailReason(causeReason)) throw new Error("Expected one typed workflow refusal");
+      expect(causeReason.error).toBeInstanceOf(CommerceTransactionError);
+      expect(causeReason.error).toMatchObject({ reason: "unsupportedProfile" });
+    }
     expect(getters).toBe(0);
-    expect(await rows()).toEqual(beforeRows);
+    expect(await snapshot()).toEqual(beforeState);
     expect(await events()).toEqual(beforeEvents);
   });
 
   it("refuses absent stored Products in the named existing-Product profile and rolls back native upsert creation", async () => {
-    const host = await connected.prepare(), beforeRows = await rows(), beforeEvents = await events();
-    expect(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { products: [
+    const host = await connected.prepare(), beforeState = await snapshot(), beforeEvents = await events();
+    expectWorkflowRefusal(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { products: [
       { id: "product-update-absent-root", title: "Native upsert could create this root", handle: "product-update-absent-root" },
-    ] })))).toMatchObject({ _tag: "Failure" });
-    expect(await rows()).toEqual(beforeRows);
+    ] }))), "unadmittedEvent");
+    expect(await snapshot()).toEqual(beforeState);
     expect(await events()).toEqual(beforeEvents);
   });
 
   it("refuses a persisted previous-variant closure above four before Product mutation", async () => {
     const seeded = await connected.seed("product-update-prior-limit", 4);
     await connected.appendVariant("product-update-fifth", seeded[0]!.id);
-    const host = await connected.prepare(), beforeRows = await rows(), beforeEvents = await events();
+    const host = await connected.prepare(), beforeState = await snapshot(), beforeEvents = await events();
     const upsert = vi.spyOn(ProductModuleService.prototype, "upsertProducts");
     try {
-      expect(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { products: seeded.map(product => ({ id: product.id, variants: [] })) }))))
-        .toMatchObject({ _tag: "Failure" });
+      expectWorkflowRefusal(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), {
+        products: seeded.map(product => ({ id: product.id, variants: [] })),
+      }))), "unsupportedProfile");
       expect(upsert).not.toHaveBeenCalled();
     } finally { upsert.mockRestore(); }
-    expect(await rows()).toEqual(beforeRows);
+    expect(await snapshot()).toEqual(beforeState);
     expect(await events()).toEqual(beforeEvents);
   });
 
@@ -307,15 +300,14 @@ describe("complete native Product update workflow", () => {
     const storedImages = Schema.decodeUnknownSync(Schema.Struct({ images: Schema.Array(Schema.JsonObject) }))(stored).images;
     expect(storedImages).toHaveLength(3);
     expect(storedImages).toContainEqual(expect.objectContaining({ id: "product-update-old-images-image" }));
-    const host = await connected.prepare(), beforeRows = await rows(), beforeEvents = await events(), beforeCommits = await commits();
-    const refused = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { products: [{ id: product.id,
+    const host = await connected.prepare(), beforeState = await snapshot(), beforeEvents = await events(), beforeOutcomes = await outcomes();
+    const refused = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { products: [{ id: product.id,
       title: "Small replacement", images: [{ url: "https://example.test/product-update-old-images/replaced" }],
       variants: [], sales_channels: [], shipping_profile_id: null,
     }] })));
-    expect(refused).toMatchObject({ _tag: "Failure" });
-    expect(failurePath(refused._tag === "Failure" ? refused.failure : undefined)).toContain("unsupportedProfile");
-    expect(await rows()).toEqual(beforeRows);
+    expectWorkflowRefusal(refused, "unsupportedProfile");
+    expect(await snapshot()).toEqual(beforeState);
     expect(await events()).toEqual(beforeEvents);
-    expect(await commits()).toEqual(beforeCommits);
+    expect(await outcomes()).toEqual(beforeOutcomes);
   });
 });

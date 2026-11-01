@@ -1,7 +1,8 @@
 # Confined native root participation
 
-Status: **Selected private three-source contract implemented through the shared
-kernel; broader developer/native composition and hosting gates remain open.**
+Status: **Selected private roots and complete Product/Variant workflow composition
+implemented through the shared kernel, including complete repository/event
+failure observation; broader native composition and hosting gates remain open.**
 
 ## Source and required native behavior
 
@@ -74,6 +75,34 @@ Native promises remain with their existing framework continuation owners. They
 retain full Causes, cancellation and root failure provenance; they receive no
 settlement capability. Unsupported events, relations and preferences fail closed.
 Ordinary Application OCC and standalone native read profiles remain distinct.
+
+### Medusa repository observation versus later capture
+
+The [Native18 continuation](../slices/18-native-product-multi-source-workflows.md#repository-failure-propagation-and-later-capture)
+keeps failure observation separate from admitting a new operation. Repository
+`checked` receives Effect work that may already have failed and been latched.
+Observe its complete Cause through the existing context's `recordFailure` and
+propagate the returned owned Cause; if observation refuses the context, preserve
+both the original Cause and that refusal. Re-entering `ctx.refuse` fabricates a
+new operation and masks propagation with another rollback-only check. Observation
+adds no calls or bytes and creates no new transaction, lifetime or failure cache.
+
+Product's event-check bridge follows the same rule. A missing supplied Product ID
+can enter native upsert's create branch; its `product.created` event is refused
+by the selected update profile before the later update-receipt validator runs.
+Preserve that first `unadmittedEvent` and observe it through the existing checked
+repository context. Do not re-enter `ctx.refuse`, grant the event, or reorder
+native work merely to obtain a different refusal. Fresh decoder failures still
+poison the active context before event capture, while borrowed and revoked
+contexts retain their existing authority checks.
+
+A callback that catches a refusal and returns successfully is different: result
+capture is a genuine subsequent operation. Its rollback-only rejection retains
+the original failure, and the outer seal still adds its own marker. Preserve
+every actual reason and authenticated origin; do not globally erase derived
+refusals or treat unrelated occurrences of the same Error as one failure.
+This does not replace native sticky failure with Source's catchable handler
+checkpoint or alter the separate Payload Promise-completion boundary.
 
 ## Proof and retirement
 

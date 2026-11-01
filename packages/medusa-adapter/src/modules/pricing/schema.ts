@@ -3,6 +3,8 @@ import { pricingModuleModels } from "@medusajs/pricing/static-manifest";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
 import { capturePrivateCanonicalValue } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
+import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
 import { decodeCompiledDml } from "../../schema/compiled";
 import { lowerDmlSchema } from "../../schema/lower";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
@@ -42,4 +44,19 @@ export const compilePricingDefinition = Effect.fn("Pricing.compileDefinition")(f
   const compiled = yield* compilePinnedPricingMetadata();
   const schema = yield* Effect.fromResult(normalizeRelationalSchema(lowerDmlSchema(compiled.tables, "commerce.pricing")));
   return Object.freeze({ schema, provenance: pricingSourceProvenance });
+});
+
+/** The complete pinned Pricing source feeds the shared native logical lifecycle. */
+export const compilePricingCoreDefinition = Effect.fn("Pricing.compileCoreDefinition")(function* (target: Readonly<{
+  scopeUuid: string; epochUuid: string; applicationRead?: boolean;
+}>) {
+  const nativeTarget = Object.freeze({ scopeUuid: target.scopeUuid, epochUuid: target.epochUuid,
+    applicationRead: target.applicationRead ?? false });
+  const definition = yield* compilePricingDefinition();
+  const source = yield* captureLogicalSchemaSource({ key: "medusa.pricing", owner: "medusa", writeProfile: "medusa.pricing",
+    evidence: { provenance: definition.provenance, profile: "medusa.pricing" },
+    definition: { kind: "relational", schema: definition.schema },
+    bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+      table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
+  return yield* makeCoreRelationalNativeDefinition({ ...nativeTarget, source, provenance: definition.provenance, commands: [] });
 });

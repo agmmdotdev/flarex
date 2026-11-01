@@ -1,8 +1,9 @@
 # Single-owner core refactor goal
 
 Status: **Active implementation goal; bounded Application transactions, snapshots,
-caches, shared schema/index lifecycle and five-table physical maintenance
-implemented; native, retention, managed-hosting and performance gates open**.
+caches, shared schema/index lifecycle, five-table physical maintenance and selected
+native profiles implemented; broader native, retention, managed-hosting and
+performance gates open**.
 The owner has requested the complete single-owner refactor, delivered through
 bounded connected milestones. This authorization supersedes earlier statements
 that this work is documentation-only. It does not decide unresolved guarantees,
@@ -381,3 +382,16 @@ owners. The selected replacement, complete admitted consumer closure and obsolet
 fixture retirement have connected two-driver proof. Task, finite borrowed,
 later multi-source graphs, retained data and actual Native17 managed hosting
 keep their named migration gates; the complete rewrite remains active.
+
+The [multi-source Product/Variant continuation](./slices/18-native-product-multi-source-workflows.md)
+implements the complete eight existing create, update, delete and batch roots,
+eight business participants and 30 business tables through Native17's shared
+owner and fresh schema lifecycle. Complete paired consumer proof preserves
+actual empty children, exact values, ownership races and original resource
+policies. Shared equality-prefix lowering retains Pricing's full null-plus-text
+index declaration and ordinary all-value index. Repository/event failure
+observation and private origin equality preserve complete native Causes without
+new operations or authority. Selected obsolete construction is removed; named
+Legacy consumers retain explicit removal gates. Populated conversion, other
+native/Task/finite consumers and wider hosting and performance acceptance remain
+open; the complete rewrite remains active.

@@ -7,7 +7,7 @@ import { isJsonObject } from "flarex-protocol/json";
 import { createStep, createWorkflow, WorkflowResponse } from "@medusajs/workflows-sdk";
 import { batchVariantImagesWorkflow } from "@medusajs/core-flows/product/batch-variant-images";
 import { Modules, CommonEvents, MedusaError } from "@medusajs/framework/utils/portable";
-import { CoreNativeForeignKeyError } from "../../persistence-postgres/src/core/api";
+import { CoreNativeForeignKeyError, CoreNativeUniqueConflict } from "../../persistence-postgres/src/core/api";
 import { productCallReceipts } from "../src/modules/product/events/call-receipts";
 import { prepareProductCreateWorkflow } from "../src/workflows/product/create";
 import { prepareProductTagWorkflow } from "../src/workflows/product/tag";
@@ -845,8 +845,10 @@ describe("native Product lifecycle on shared logical storage", () => {
       }] }));
       const conflictRows = await coreRows();
       const conflictEvents = await committedEvents();
-      await expect(Effect.runPromise(restore.host.run(restore.host.newRequestKey(), restore.root,
-        ["prod_logical_lifecycle"]))).rejects.toMatchObject({ reason: "rollbackOnly" });
+      const conflict = expectWorkflowRefusal(await Effect.runPromise(Effect.exit(restore.host.run(restore.host.newRequestKey(), restore.root,
+        ["prod_logical_lifecycle"]))), "invalidInput");
+      expect(conflict.cause).toBeInstanceOf(CoreNativeUniqueConflict);
+      expect(conflict.cause).toMatchObject({ reason: "uniqueConflict", descriptor: "IDX_product_handle_unique", fields: ["handle"] });
       expect(await coreRows()).toEqual(conflictRows);
       expect(await committedEvents()).toEqual(conflictEvents);
     } finally {
@@ -1334,10 +1336,12 @@ describe("native Product lifecycle on shared logical storage", () => {
       await expect(Effect.runPromise(update.host.run(update.host.newRequestKey(), update.root, {
         id: productId, data: { variants: [{ id: "pvar_logical_update_foreign", title: "Stolen" }] },
       }))).rejects.toMatchObject({ reason: "invalidInput" });
-      await expect(Effect.runPromise(update.host.run(update.host.newRequestKey(), update.root, {
+      const conflict = expectWorkflowRefusal(await Effect.runPromise(Effect.exit(update.host.run(update.host.newRequestKey(), update.root, {
         id: productId, data: { variants: [{ id: "pvar_logical_update_keep", sku: "logical-sku-foreign" },
           { id: "pvar_logical_update_new" }] },
-      }))).rejects.toMatchObject({ reason: "rollbackOnly" });
+      }))), "invalidInput");
+      expect(conflict.cause).toBeInstanceOf(CoreNativeUniqueConflict);
+      expect(conflict.cause).toMatchObject({ reason: "uniqueConflict", descriptor: "IDX_product_variant_sku_unique", fields: ["sku"] });
       await expect(Effect.runPromise(forged.host.run(forged.host.newRequestKey(), forged.root, null)))
         .rejects.toMatchObject({ reason: "invalidAuthority" });
       expect(await coreRows()).toEqual(stableRows);

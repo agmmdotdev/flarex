@@ -15,8 +15,10 @@ import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./logical-currency-fixture";
-import { connectProductCreation, creationRevision, productCreationExecution, productCreationModules,
-  productCreationOptions, seedCreationEndpoints, seedCreationReferences } from "./logical-product-creation-fixture";
+import { connectLegacyProductCreation as connectProductCreation, legacyCreationRevision as creationRevision,
+  legacyProductCreationExecution as productCreationExecution, legacyProductCreationModules as productCreationModules,
+  legacyProductCreationOptions as productCreationOptions, seedLegacyCreationEndpoints as seedCreationEndpoints,
+  seedLegacyCreationReferences as seedCreationReferences } from "./legacy-product-creation-fixture";
 import { prepareInventoryCreateHost } from "./logical-inventory-fixture";
 import { prepareLogicalSalesChannelLocation } from "./logical-sales-channel-location-fixture";
 import { prepareLogicalPricingHost, seedLogicalPricingLists } from "./logical-pricing-fixture";

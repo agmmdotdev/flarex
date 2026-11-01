@@ -37,8 +37,8 @@ export type CoreNativePrivateEventRole = typeof CoreNativePrivateEventRoleSchema
 const LegacyCoreNativeUniqueConstraintSchema = Schema.Struct({ descriptor: Schema.NonEmptyString,
   field: Schema.NonEmptyString, indexName: Schema.NonEmptyString }).annotate(strict);
 const NativeEligibilityTerm = Schema.Struct({ field: Schema.NonEmptyString,
-  value: Schema.Union([Schema.Null, Schema.Boolean]) }).annotate(strict);
-/** Keep the stored single-null shape; bounded conjunctions serve native Tax. */
+  value: Schema.Union([Schema.Null, Schema.Boolean, Schema.String]) }).annotate(strict);
+/** Keep the stored single-null shape; native conjunctions remain bounded. */
 export const CoreNativeEligibilitySchema = Schema.Union([
   Schema.Struct({ field: Schema.NonEmptyString, value: Schema.Null }).annotate(strict),
   Schema.Struct({ all: Schema.Array(NativeEligibilityTerm).check(Schema.isMinLength(2), Schema.isMaxLength(2),

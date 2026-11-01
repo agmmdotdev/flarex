@@ -2,6 +2,8 @@ import { Data, Effect, Schema } from "effect";
 import { fulfillmentModuleModels } from "@medusajs/fulfillment/static-manifest";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
 import { capturePrivateCanonicalValue } from "@flarex/persistence-postgres/internal/commerce-values";
+import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
+import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
 import { decodeCompiledDml } from "../../schema/compiled";
 import { lowerDmlSchema } from "../../schema/lower";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
@@ -93,6 +95,21 @@ const compileSelectedDefinition = Effect.fn("ShippingProfile.compileSelectedDefi
 export const compileShippingProfileDefinition = Effect.fn("ShippingProfile.compileDefinition")(function* () {
   const schema = yield* compileSelectedDefinition(yield* captureShippingProfileMetadata());
   return Object.freeze({ schema, provenance: shippingProfileSourceProvenance });
+});
+
+/** Only the scalar ShippingProfile source feeds this shared native lifecycle. */
+export const compileShippingProfileCoreDefinition = Effect.fn("ShippingProfile.compileCoreDefinition")(function* (target: Readonly<{
+  scopeUuid: string; epochUuid: string; applicationRead?: boolean;
+}>) {
+  const nativeTarget = Object.freeze({ scopeUuid: target.scopeUuid, epochUuid: target.epochUuid,
+    applicationRead: target.applicationRead ?? false });
+  const definition = yield* compileShippingProfileDefinition();
+  const source = yield* captureLogicalSchemaSource({ key: "medusa.shippingProfile", owner: "medusa", writeProfile: "medusa.shippingProfile",
+    evidence: { provenance: definition.provenance, profile: "medusa.shippingProfile" },
+    definition: { kind: "relational", schema: definition.schema },
+    bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+      table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
+  return yield* makeCoreRelationalNativeDefinition({ ...nativeTarget, source, provenance: definition.provenance, commands: [] });
 });
 
 /** Fresh explicit six-table composition; no populated installation upgrade. */
