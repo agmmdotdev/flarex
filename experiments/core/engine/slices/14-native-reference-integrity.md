@@ -245,10 +245,14 @@ reviews; preserve unrelated changes and commit only complete reviewed work.
   that stronger recovery path migrated.
 - Old relation facts/feeds and readiness owners remain for query-sync readers in
   `apps/executor/src/querySyncSourceRead.ts` and backend deployment-sync readers.
-- The selected joint fixture must leave the Legacy host; that host/participant/
-  publication closure remains only for `logical-cross-source-admission.test.ts`
-  until its Product/reference migration. Remove selected old assembly and exports
-  only after callers migrate; no selected-engine fallback is permitted.
+- The Legacy joint host/participant/publication closure still serves the eight
+  `logical-cross-source-admission.test.ts` cases. Product migration alone does not
+  replace their finite-journal rollback, source/catalog activation, 33-reference
+  batching, atomic mixed replay and opposite-direction reference assertions.
+  Their exact migration/removal gate is in the
+  [retirement ledger](./16b-legacy-entrypoint-retirement.md#retained-consumer-ledger).
+  Remove old assembly/exports after those cases move; no selected-engine fallback
+  is permitted.
 
 No unspecified durable reset, general conversion engine, new public schema API,
 extra physical family or native replay is authorized by this continuation.

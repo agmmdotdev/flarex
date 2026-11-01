@@ -216,6 +216,11 @@ ID rewrite or new migration engine is selected.
 
 ### Named retained consumers
 
+The [cross-core retirement ledger](./16b-legacy-entrypoint-retirement.md)
+records the other remaining runtime, historical and benchmark owners, and
+supersedes the old joint-host gate based only on Product migration. The detailed
+finite-profile obligations below remain required.
+
 The selected protected Core consumers have moved to the five
 `nativeProtected*.workerd.test.ts` entries. Their business, authorization, race,
 reverse-page and whole-outcome recovery assertions do not exercise the retained

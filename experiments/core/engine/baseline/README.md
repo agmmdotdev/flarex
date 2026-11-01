@@ -19,6 +19,10 @@ evolution and native business conversion, with proof gates for each extension.
 It is planning-only and distinguishes existing native behavior from completed
 replacement execution.
 
+The [legacy retirement ledger](../slices/16b-legacy-entrypoint-retirement.md)
+records retired unconsumed entrypoints and the actual caller, replacement owner
+and removal proof for remaining runtime, test, benchmark and historical families.
+
 The enumerating runtime profiles and their connected witnesses define the
 boundary. These notes name the owners rather than freezing old private APIs.
 Each replacement may break internals while preserving supported behavior and

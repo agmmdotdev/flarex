@@ -112,7 +112,6 @@ const allowedRunPromiseSites = new Map([
   [siteKey("packages/persistence-postgres/src/application/revision/applicationRevisionReadinessV1.ts", "startLocatedEffectTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/application/revision/applicationRevisionActivationV1.ts", "startLocatedEffectTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/database/locatedEffectTransaction.ts", "startLocatedEffectTransaction"), 1],
-  [siteKey("packages/persistence-postgres/src/application/applicationPointQuerySnapshotV1.ts", "startReadTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/storage/indexes/intrinsicCreationTimeIndexBuildV1.ts", "startAppOrderedIndexBuildTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/installation/physicalDefinitionLifecycle.ts", "startLocatedTransaction"), 1],
   // Each named transaction callback owns admission and closes it before returning.

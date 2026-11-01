@@ -12,7 +12,6 @@
     "./internal/edge-action-host-syscall-sequencer-v1": "./src/edgeActionHostSyscallSequencerV1.ts",
     "./internal/system-test/action-admission-system-v1": "./src/actionAdmissionSystemV1.ts",
     "./internal/system-test/system-action-v1": "./src/actionSystemV1.ts",
-    "./internal/system-test/system-query-v1": "./src/querySystemV1.ts",
     "./internal/application-query-system": "./src/ApplicationQuerySystem.ts",
     "./internal/application-relation-query-system": "./src/ApplicationRelationQuerySystem.ts",
     "./internal/application-mutation-system": "./src/ApplicationMutationSystem.ts",
@@ -27,9 +26,7 @@
     "./internal/application-task-mutation-authority": "./src/ApplicationTaskMutationAuthority.ts",
     "./internal/application-task-compute-delivery": "./src/ApplicationTaskComputeDelivery.ts",
     "./internal/system-test/application-task-delivery-event-host": "./src/ApplicationTaskDeliveryEventHost.ts",
-    "./internal/application-action-host-composition": "./src/ApplicationActionHostComposition.ts",
-    "./internal/system-test/system-v1": "./src/systemV1.ts",
-    "./internal/system-test/legacy-active-revision-reader-v1": "./src/LegacyStandardApplicationActiveRevisionReaderV1.ts"
+    "./internal/application-action-host-composition": "./src/ApplicationActionHostComposition.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
