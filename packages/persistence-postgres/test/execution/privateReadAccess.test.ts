@@ -1,11 +1,24 @@
 import { Effect } from "effect";
 import { expect, it } from "vitest";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
-import { preparePrivateParticipantReadAccess } from "../../src/execution/journal/privateReadAccess";
+import { inspectPrivateParticipantReadSelection, preparePrivateParticipantReadAccess,
+  preparePrivateParticipantReadSelection } from "../../src/execution/journal/privateReadAccess";
 
 const principal = { scopeId: ScopeIdSchema.make("private_read_scope"), principalDigest: "a".repeat(64) };
 const selection = { principal, participant: "private-product", sourceKey: "medusa.product",
   nativeProfileRevision: "b".repeat(64), method: "retrieve", ids: ["product-one"] };
+
+it("owns an immutable neutral read selection and refuses copied authority", async () => {
+  const mutable = { ...selection, principal: { ...principal }, ids: [...selection.ids] };
+  const access = await Effect.runPromise(preparePrivateParticipantReadSelection(mutable));
+  mutable.principal.principalDigest = "c".repeat(64);
+  mutable.ids[0] = "unselected-product";
+  const captured = inspectPrivateParticipantReadSelection(access);
+  expect(captured?.selection).toMatchObject({ principal, ids: ["product-one"] });
+  expect(Object.isFrozen(captured?.selection.principal)).toBe(true);
+  expect(Object.isFrozen(captured?.selection.ids)).toBe(true);
+  expect(inspectPrivateParticipantReadSelection({ profileRevision: access.profileRevision })).toBeUndefined();
+});
 
 it("pins the exact source, principal, native policy and ID selection into read replay identity", async () => {
   const first = await Effect.runPromise(preparePrivateParticipantReadAccess(selection));

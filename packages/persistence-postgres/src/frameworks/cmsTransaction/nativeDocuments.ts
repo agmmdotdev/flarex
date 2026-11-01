@@ -1,23 +1,24 @@
-import { Cause, Effect, Option, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import type { DocumentObject } from "flarex-protocol/document-value";
 import { DeveloperDocumentIdSchema } from "flarex-protocol/document-id";
-import { isJsonObject } from "flarex-protocol/json";
-import type { CoreError, CoreNativeOperations } from "../../core/api";
+import { isJsonObject, type JsonObject } from "flarex-protocol/json";
+import type { CoreNativeOperations } from "../../core/api";
 import type { LogicalDocuments } from "../../storage/documents/logicalDocuments/ports";
 import { capturePrivateJsonData, useCapturedPrivateJsonData } from "../../values/privateJsonData";
 import type { CmsRequestLifetime } from "./lifetime";
 import { cmsError, cmsLimits, type CmsTransactionError } from "./model";
-import { projectCoreCmsFailure } from "./nativeFailure";
-
-const nativeResult = <A>(work: Effect.Effect<A, CoreError>): Effect.Effect<A, CmsTransactionError> =>
-  work.pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCoreCmsFailure))));
+import { nativeResult } from "./nativeFailure";
 const decodeBatchIds = Schema.decodeUnknownEffect(Schema.Array(Schema.String).check(Schema.makeFilter(ids =>
   new Set(ids).size === ids.length ? undefined : "CMS batch identities must be distinct")));
 const decodeCanonicalBatchIds = Schema.decodeUnknownEffect(Schema.Array(DeveloperDocumentIdSchema).check(Schema.makeFilter(ids =>
   new Set(ids).size === ids.length ? undefined : "CMS batch identities must be distinct")));
+export type NativeCmsWriteAuthorization = (transition: Readonly<{
+  operation: "insert" | "patch" | "replace" | "delete"; table: string; id?: string; before: JsonObject | null; fields?: unknown;
+}>) => Effect.Effect<(id: string) => void, CmsTransactionError>;
 
 /** This translation owns no snapshot, working set, constraint or settlement. */
-export function makeNativeCmsDocuments(operations: CoreNativeOperations, lifetime: CmsRequestLifetime): LogicalDocuments<CmsTransactionError> {
+export function makeNativeCmsDocuments(operations: CoreNativeOperations, lifetime: CmsRequestLifetime,
+  authorize?: NativeCmsWriteAuthorization): LogicalDocuments<CmsTransactionError> {
   const document = Effect.fn("NativeCmsDocuments.document")(function* (value: DocumentObject) {
     const captured = yield* Effect.fromResult(capturePrivateJsonData(value, cmsLimits.documentBytes,
       (_reason, cause) => cmsError("storedCorruption", cause)));
@@ -73,20 +74,33 @@ export function makeNativeCmsDocuments(operations: CoreNativeOperations, lifetim
       return { docs, total: ordered.length };
     })),
     insert: (context, id, table, fields) => lifetime.operation(context, id, "write", Effect.gen(function* () {
-      return yield* written(yield* nativeResult(operations.insert(table, fields)));
+      const accepted = authorize === undefined ? undefined : yield* authorize({ operation: "insert", table, before: null, fields });
+      const inserted = yield* nativeResult(operations.insert(table, fields));
+      accepted?.(inserted);
+      return yield* written(inserted);
     })),
     patch: (context, id, documentId, fields, table) => lifetime.operation(context, id, "write", Effect.gen(function* () {
       const selected = yield* normalize(table, documentId);
+      const accepted = authorize === undefined || table === undefined ? undefined
+        : yield* authorize({ operation: "patch", table, id: selected, before: yield* get(table, selected), fields });
       yield* nativeResult(operations.patch(selected, fields));
+      accepted?.(selected);
       return yield* written(selected);
     })),
     replace: (context, id, documentId, fields, table) => lifetime.operation(context, id, "write", Effect.gen(function* () {
       const selected = yield* normalize(table, documentId);
+      const accepted = authorize === undefined || table === undefined ? undefined
+        : yield* authorize({ operation: "replace", table, id: selected, before: yield* get(table, selected), fields });
       yield* nativeResult(operations.replace(selected, fields));
+      accepted?.(selected);
       return yield* written(selected);
     })),
     delete: (context, id, documentId, table) => lifetime.operation(context, id, "write", Effect.gen(function* () {
-      yield* nativeResult(operations.delete(yield* normalize(table, documentId)));
+      const selected = yield* normalize(table, documentId);
+      const accepted = authorize === undefined || table === undefined ? undefined
+        : yield* authorize({ operation: "delete", table, id: selected, before: null });
+      yield* nativeResult(operations.delete(selected));
+      accepted?.(selected);
     })),
   };
 }

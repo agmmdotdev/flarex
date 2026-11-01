@@ -9,6 +9,7 @@
   "exports": {
     "./internal/core-application-schema": "./src/application/coreSchema.ts",
     "./internal/core-application-mutation": "./src/application/coreMutation.ts",
+    "./internal/core-native-application-mutation": "./src/application/coreNativeMutation.ts",
     "./internal/system-test/core-application-fixture": "./test/application/applicationCoreFixture.ts",
     "./internal/core": "./src/core/index.ts",
     "./internal/core-persistence": "./src/database/corePersistence/index.ts",

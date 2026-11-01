@@ -20,6 +20,11 @@ import type { CoreResidentIndexes } from "./residentIndex";
 import { prepareCoreNativeIndexes, validateCoreNativeIndexes } from "./nativeValidation";
 import { checkCoreNativeRegistryTransition } from "./nativePolicy";
 import { prepareCoreNativeReferences, validateCoreNativeReferences } from "./nativeReferences";
+import { prepareCoreNativeForeignKeys, validateCoreNativeForeignKeys } from "./nativeForeignKeys";
+import { prepareCoreNativeProtectedReferences, validateCoreNativeProtectedReferences } from "./nativeProtectedReferences";
+import { CoreNativeIntegrityBudget } from "./nativeIntegrityBudget";
+import { coreNamespaceKey } from "./namespace";
+import type { CoreRecoveryJournal } from "./recoveryJournal";
 
 const decodeGeneratedIdBoundary = Schema.decodeUnknownEffect(CoreTimestampSchema);
 
@@ -95,6 +100,9 @@ const decodeCommitterConfig = Schema.decodeUnknownEffect(CommitterConfig);
 
 /** db914cf06 committer.rs + write_batcher.rs: bounded saves, acceptance and publication differ. */
 export interface CoreCommitter {
+  readonly whenStopped: Effect.Effect<Cause.Cause<CoreError>>;
+  readonly stoppedCause: () => Cause.Cause<CoreError> | undefined;
+  readonly validateReadMetadata: (frontiers: readonly Readonly<{ timestamp: bigint; reads: import("./writeLog").CoreReadSet }>[]) => Effect.Effect<void, CoreError>;
   readonly submit: (transaction: CoreFinalizedState) => Effect.Effect<bigint, CoreError>;
   readonly publishedTimestamp: Effect.Effect<bigint>;
   readonly selectSnapshot: (at?: bigint) => Result.Result<CorePublishedSnapshot & Readonly<{ timestamp: bigint }>, CoreError>;
@@ -116,6 +124,7 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
   initialResident: CoreResidentIndexes,
   options: CoreDatabaseOptions,
   retention?: CoreRetentionValidator,
+  recovery?: CoreRecoveryJournal,
 ) {
   const config = yield* decodeCommitterConfig({ maxInflight: options.maxInflight ?? 512,
     maxConcurrentSaves: options.maxConcurrentSaves ?? 1, maxBatchDocuments: options.maxBatchDocuments ?? 64,
@@ -144,9 +153,14 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
   let jobs = 0;
   let activeSaves = 0;
   let stopped: Cause.Cause<CoreError> | undefined;
+  const stoppedSignal = yield* Deferred.make<Cause.Cause<CoreError>>();
 
   const stop = (cause: Cause.Cause<CoreError>) => Effect.gen(function* () {
-    if (stopped === undefined) stopped = cause;
+    if (stopped === undefined) {
+      stopped = cause;
+      recovery?.seal();
+      yield* Deferred.succeed(stoppedSignal, cause);
+    }
     for (const [, commit] of accepted.entries()) {
       yield* Deferred.failCause(commit.durability.completion, stopped);
       yield* Deferred.failCause(commit.ack, stopped);
@@ -317,15 +331,26 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
             const conflict = yield* Effect.fromResult(snapshot.conflict(group.reads, group.timestamp));
             if (conflict !== undefined) return yield* new CoreTransactionError({ reason: "conflict", cause: conflict });
           }
-          const needsNativeSnapshot = indexes.length > 0 || transaction.changes.some(change => (change.table.nativePolicy?.references?.length ?? 0) > 0);
-          const nativeSnapshot = transaction.nativeObservations === undefined || !needsNativeSnapshot ? undefined
+          const needsProtectedSnapshot = transaction.changes.length > 0 && [...publishedRegistry.tables.values()].some(record =>
+            record.definition.nativePolicy?.protectedReferences?.some(reference => transaction.changes.some(change =>
+              (reference.sourceTable === change.table.name || reference.targetTable === change.table.name)
+              && coreNamespaceKey(change.table.namespace) === coreNamespaceKey(record.definition.namespace))));
+          const needsNativeSnapshot = indexes.length > 0 || transaction.changes.some(change =>
+            (change.table.nativePolicy?.references?.length ?? 0) > 0 || (change.table.nativePolicy?.foreignKeys?.length ?? 0) > 0)
+            || needsProtectedSnapshot;
+          const nativeSnapshot = !needsNativeSnapshot || transaction.nativeObservations === undefined && !needsProtectedSnapshot ? undefined
             : yield* persistence.readSnapshot(snapshot.timestamp, retention);
           const nativeIndexes = nativeSnapshot === undefined || indexes.length === 0 ? [] : yield* prepareCoreNativeIndexes(
             nativeSnapshot, publishedRegistry, indexes, transaction.nativeObservations?.limits.maxIdentities ?? 0);
+          const integrityBudget = new CoreNativeIntegrityBudget(transaction);
           const nativeReferences = nativeSnapshot === undefined ? undefined
-            : yield* prepareCoreNativeReferences(nativeSnapshot, publishedRegistry, transaction);
+            : yield* prepareCoreNativeReferences(nativeSnapshot, publishedRegistry, transaction, integrityBudget);
+          const nativeForeignKeys = nativeSnapshot === undefined ? undefined
+            : yield* prepareCoreNativeForeignKeys(nativeSnapshot, publishedRegistry, transaction, integrityBudget);
+          const nativeProtectedReferences = nativeSnapshot === undefined ? undefined
+            : yield* prepareCoreNativeProtectedReferences(nativeSnapshot, publishedRegistry, transaction, integrityBudget);
           yield* Effect.yieldNow;
-          return { timestamp: snapshot.timestamp, nativeIndexes, nativeReferences };
+          return { timestamp: snapshot.timestamp, nativeIndexes, nativeReferences, nativeForeignKeys, nativeProtectedReferences, integrityBudget };
         })));
         const acceptedHere = yield* mutex.withPermits(1)(Effect.gen(function* () {
           if (stopped !== undefined) return yield* Effect.failCause(stopped);
@@ -347,6 +372,17 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
             && !Result.match(snapshot.conflict(prepared.nativeReferences.reads, prepared.timestamp), {
               onFailure: () => false, onSuccess: conflict => conflict === undefined,
             })) return false;
+          if (prepared.nativeForeignKeys !== undefined && prepared.nativeForeignKeys.reads.length > 0
+            && !Result.match(snapshot.conflict(prepared.nativeForeignKeys.reads, prepared.timestamp), {
+              onFailure: () => false, onSuccess: conflict => conflict === undefined,
+            })) return false;
+          if (prepared.nativeProtectedReferences !== undefined && prepared.nativeProtectedReferences.reads.length > 0
+            && !Result.match(snapshot.conflict(prepared.nativeProtectedReferences.reads, prepared.timestamp), {
+              onFailure: () => false, onSuccess: conflict => conflict === undefined,
+            })) return false;
+          const pendingProtectedGrant = pending.conflict(prepared.nativeProtectedReferences?.grantReads ?? []);
+          if (pendingProtectedGrant !== undefined)
+            return yield* new CoreTransactionError({ reason: "authorityRevoked", cause: pendingProtectedGrant });
           const now = yield* options.now;
           const timestamp = now > assigned ? now : assigned + 1n;
           if (timestamp < 0n || timestamp > 0x7fff_ffff_ffff_ffffn) return yield* new CoreTransactionError({ reason: "capacity" });
@@ -356,7 +392,11 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
             : yield* Effect.fromResult(validateCoreNativeIndexes(prepared.nativeIndexes,
               acceptedBatches, batch, transaction.nativeObservations.limits.maxIdentities)));
           if (prepared.nativeReferences !== undefined) for (const predecessor of yield* Effect.fromResult(
-            validateCoreNativeReferences(prepared.nativeReferences, acceptedBatches, batch))) contributingBatches.add(predecessor);
+            validateCoreNativeReferences(prepared.nativeReferences, acceptedBatches, batch, prepared.integrityBudget))) contributingBatches.add(predecessor);
+          if (prepared.nativeForeignKeys !== undefined) for (const predecessor of yield* Effect.fromResult(
+            validateCoreNativeForeignKeys(prepared.nativeForeignKeys, acceptedBatches, batch, prepared.integrityBudget))) contributingBatches.add(predecessor);
+          if (prepared.nativeProtectedReferences !== undefined) for (const predecessor of yield* Effect.fromResult(
+            validateCoreNativeProtectedReferences(prepared.nativeProtectedReferences, acceptedBatches, batch, prepared.integrityBudget))) contributingBatches.add(predecessor);
           const predecessors = [...accepted.values()].filter(commit => contributingBatches.has(commit.batch))
             .map(commit => commit.durability);
           if (batch.documents.length === 0) {
@@ -396,7 +436,19 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
     })), Effect.sync(() => { if (!ownedBySave && jobs > 0) jobs -= 1; }));
   });
   return {
+    whenStopped: Deferred.await(stoppedSignal),
+    stoppedCause: () => stopped,
     submit,
+    validateReadMetadata: (frontiers: readonly Readonly<{ timestamp: bigint; reads: import("./writeLog").CoreReadSet }>[]) => mutex.withPermits(1)(Effect.gen(function* () {
+      if (stopped !== undefined) return yield* Effect.failCause(stopped);
+      const snapshot = log.snapshot();
+      for (const { timestamp, reads } of frontiers) {
+        const committedConflict = yield* Effect.fromResult(snapshot.conflict(reads, timestamp));
+        const pendingConflict = pending.conflict(reads);
+        if (committedConflict !== undefined || pendingConflict !== undefined)
+          return yield* new CoreTransactionError({ reason: "authorityRevoked", cause: committedConflict ?? pendingConflict });
+      }
+    })),
     publishedTimestamp: Effect.sync(() => published),
     selectSnapshot: (at?: bigint): Result.Result<CorePublishedSnapshot & Readonly<{ timestamp: bigint }>, CoreError> => {
       const timestamp = at ?? published;

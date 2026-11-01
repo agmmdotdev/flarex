@@ -29,6 +29,7 @@ interface CoreBuildReceipt {
   readonly serverExports: readonly string[];
   readonly valuesExports: readonly string[];
 }
+interface CoreBuildOptions { readonly privateNative?: boolean }
 
 if (
   process.argv[1] !== undefined &&
@@ -38,10 +39,12 @@ if (
   if (mode !== "update" && mode !== "check") {
     throw new Error("Usage: buildApplicationWorkerCore.ts <update|check>");
   }
-  const receipt = await buildApplicationWorkerCoreTwice();
+  const profile = process.argv[3];
+  if (profile !== undefined && profile !== "private-native") throw new Error("Unknown Application Worker core profile");
+  const receipt = await buildApplicationWorkerCoreTwice({ privateNative: profile === "private-native" });
   const rendered = renderGenerated(receipt);
   await writeOrCheckGeneratedFile(
-    GENERATED_PATH,
+    profile === "private-native" ? path.join(PACKAGE_ROOT, "src", "artifactRuntime", "PrivateNativeApplicationWorkerCore.generated.ts") : GENERATED_PATH,
     rendered,
     mode,
     "Generated Application Worker core is stale.",
@@ -52,16 +55,16 @@ if (
   );
 }
 
-export async function buildApplicationWorkerCoreTwice(): Promise<CoreBuildReceipt> {
-  const first = await buildOnce();
-  const second = await buildOnce();
+export async function buildApplicationWorkerCoreTwice(options: CoreBuildOptions = {}): Promise<CoreBuildReceipt> {
+  const first = await buildOnce(options);
+  const second = await buildOnce(options);
   if (first.source !== second.source || first.sha256 !== second.sha256) {
     throw new Error("Application Worker core builds are not stable.");
   }
   return first;
 }
 
-async function buildOnce(): Promise<CoreBuildReceipt> {
+async function buildOnce(options: CoreBuildOptions): Promise<CoreBuildReceipt> {
   const serverExports = await runtimeExportNames("flarex/server");
   const valuesExports = await runtimeExportNames("flarex/values");
   const output = await build({
@@ -73,7 +76,7 @@ async function buildOnce(): Promise<CoreBuildReceipt> {
       minify: "esbuild",
       sourcemap: false,
       lib: {
-        entry: ENTRY_PATH,
+        entry: options.privateNative === true ? path.join(PACKAGE_ROOT, "scripts", "PrivateNativeApplicationWorkerCoreEntry.ts") : ENTRY_PATH,
         formats: ["es"],
         fileName: () => "application-worker-core.js",
       },
@@ -124,6 +127,8 @@ async function buildOnce(): Promise<CoreBuildReceipt> {
       throw new Error(`Application Worker core omitted ${name}.`);
     }
   }
+  if (options.privateNative === true && !chunk.exports.includes("executePrivateNativeApplicationTransactionWorker"))
+    throw new Error("Private native Worker core omitted its profile entrypoint");
   const source = chunk.code.replace(/\r\n?/g, "\n");
   const sourceBytes = Buffer.byteLength(source, "utf8");
   if (sourceBytes > MAXIMUM_CORE_BYTES) {

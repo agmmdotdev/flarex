@@ -1,49 +1,29 @@
 import { Cause, Effect, Result } from "effect";
-import { compareBytesLexicographically } from "@flarex/utils/bytes";
 import type { DocumentObject } from "flarex-protocol/document-value";
-import { isJson, isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
+import { isJsonObject } from "flarex-protocol/json";
 import type { CoreError, CoreNativeBindingMetadata, CoreNativeOperations } from "../../core/api";
 import { coreNativeRelationalRows } from "../../core/nativePolicy";
+import { coreNativeRelationalRow, executeCoreNativeRelationalRead, executeCoreNativeRelationalPage,
+  prepareCoreNativeRelationalRead } from "../../core/nativeRelationalQuery";
 import type { BoundedRequestContext, BoundedRequestLifetime } from "../../execution/preparation/boundedRequestLifetime";
 import { useCapturedPrivateJsonData } from "../../values/privateJsonData";
-import { prepareRelationalRead, relationalSelectionValues, type RelationalSelection } from "../../values/relationalQuery";
-import type { NormalizedRelationalPredicate } from "../../values/relationalPredicate";
 import { commerceError, type CommerceTransactionError } from "./model";
-import { defaultCommerceResources } from "./resources";
+import { defaultCommerceResources, type CommerceResources } from "./resources";
 import type { CommerceStore } from "./storeModel";
 import { projectCoreCommerceFailure } from "./nativeFailure";
+import { observeExecution } from "../../execution/diagnostics/operation";
+import type { CommerceReferenceReplacement } from "./commands";
 
 const nativeResult = <A>(work: Effect.Effect<A, CoreError>) => work.pipe(
   Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCoreCommerceFailure))));
-const pageWhere = (predicate: NormalizedRelationalPredicate): Result.Result<JsonObject, CommerceTransactionError> => Result.gen(function* () {
-  if (predicate.kind === "isNull") return { [predicate.column]: null };
-  if (predicate.kind !== "and") return yield* Result.fail(commerceError("unsupportedProfile"));
-  const where: Record<string, Json> = {};
-  for (const child of predicate.children) Object.assign(where, yield* pageWhere(child));
-  return where;
-});
-const nativeRow = (document: DocumentObject): Result.Result<JsonObject, CommerceTransactionError> => {
-  const { _id, _creationTime, ...row } = document;
-  return isJson(row) && isJsonObject(row) ? Result.succeed(row) : Result.fail(commerceError("storedCorruption"));
-};
-const project = (row: JsonObject, fields: readonly string[]): Result.Result<JsonObject, CommerceTransactionError> => Result.gen(function* () {
-  const output: Record<string, Json> = {};
-  for (const field of fields) {
-    const value = row[field];
-    if (value === undefined) return yield* Result.fail(commerceError("storedCorruption"));
-    output[field] = value;
-  }
-  return output;
-});
 
 /** Core owns row, key, default, observation and mutation semantics. This owner
  * translates the existing native query values and framework request envelope. */
 export const makeNativeCommerceParticipant = Effect.fn("NativeCommerce.makeParticipant")(function* (
   operations: CoreNativeOperations, metadata: CoreNativeBindingMetadata,
   lifetime: BoundedRequestLifetime<CommerceTransactionError>, initialContext: BoundedRequestContext,
-  transactionId: string, unixTime: number,
+  transactionId: string, unixTime: number, resources: CommerceResources = defaultCommerceResources,
 ) {
-  const resources = defaultCommerceResources;
   const stores = new Map<string, CommerceStore>();
   const retain = <Value>(value: Value) => Effect.gen(function* () {
     const captured = yield* lifetime.fromResult(useCapturedPrivateJsonData(value, lifetime.remainingBytes(), commerceError));
@@ -57,85 +37,34 @@ export const makeNativeCommerceParticipant = Effect.fn("NativeCommerce.makeParti
     const guard = <Value>(context: BoundedRequestContext, mode: "read" | "write", work: Effect.Effect<Value, CommerceTransactionError>) =>
       lifetime.operation(context, transactionId, mode, work);
     const returnedRows = Effect.fn("NativeCommerce.returnRows")(function* (documents: readonly DocumentObject[]) {
-      const rows = yield* Effect.forEach(documents, document => Effect.fromResult(nativeRow(document)));
+      const rows = yield* nativeResult(Effect.forEach(documents, document => Effect.fromResult(coreNativeRelationalRow(document))));
       const value = yield* retain(rows);
       if (!Array.isArray(value) || !value.every(isJsonObject)) return yield* commerceError("storedCorruption");
       return value;
     });
-    const selectedWhere = (selection: RelationalSelection | null, nulls: readonly string[], key: string): JsonObject => {
-      if (selection === null) {
-        const anchor = nulls.find(field => table.indexes.some(index => index.fields[0] === field));
-        return anchor === undefined ? { [key]: { gte: "" } } : { [anchor]: null };
-      }
-      const values = relationalSelectionValues(selection);
-      const where: Record<string, Json> = {};
-      for (const field of values.fields) {
-        const value = values.value(field);
-        if (value !== undefined) where[field] = value;
-      }
-      return where;
-    };
     type Preparation = { captured?: Result.Result.Success<ReturnType<typeof useCapturedPrivateJsonData<CommerceTransactionError>>> };
     const prepare = (input: unknown, preparation: Preparation) => Effect.gen(function* () {
       const captured = yield* lifetime.fromResult(useCapturedPrivateJsonData(preparation.captured?.value ?? input,
         lifetime.remainingBytes(), commerceError));
       yield* lifetime.fromResult(lifetime.charge(captured.bytes));
-      const prepared = yield* lifetime.fromResult(prepareRelationalRead(policy.table, captured.value, resources.queryRows, commerceError));
-      const query = yield* lifetime.fromResult(prepared.compile());
-      if (query.postgresPredicate !== undefined || query.search !== null || query.json !== null || query.storageInsertion)
-        return yield* commerceError("unsupportedProfile");
+      const query = yield* nativeResult(Effect.fromResult(prepareCoreNativeRelationalRead(policy, captured.value, resources.queryRows)));
       preparation.captured ??= captured;
-      return { ...query, predicate: prepared.predicate };
+      return query;
     });
     const read = (context: BoundedRequestContext, input: unknown, preparation: Preparation) => guard(context, "read", Effect.gen(function* () {
       const query = yield* prepare(input, preparation);
-      if (query.selections === null && query.requiresIndexedNullAnchor
-        && !query.requiredNulls.some(field => table.indexes.some(index => index.fields[0] === field)))
-        return yield* commerceError("invalidInput");
-      const candidates = new Map<string, DocumentObject>();
-      for (const selection of query.selections ?? [null]) {
-        const documents = yield* nativeResult(operations.find(table.name, selectedWhere(selection, query.requiredNulls, query.key)));
-        for (const document of documents) {
-          if (typeof document._id !== "string") return yield* commerceError("storedCorruption");
-          candidates.set(document._id, document);
-        }
-      }
-      const selected = yield* lifetime.fromResult(Result.gen(function* () {
-        const matched: { readonly id: string; readonly row: JsonObject; readonly order: Uint8Array }[] = [];
-        for (const [id, document] of candidates) {
-          const row = yield* nativeRow(document);
-          const inspected = yield* query.inspect(row);
-          if (inspected.matches) matched.push({ id, row, order: inspected.order });
-        }
-        matched.sort((left, right) => compareBytesLexicographically(left.order, right.order)
-          * (query.direction === "asc" ? 1 : -1) || left.id.localeCompare(right.id));
-        const rows: JsonObject[] = [];
-        for (const member of matched.slice(query.offset, query.offset + query.limit)) rows.push(yield* project(member.row, query.fields));
-        return { rows, count: matched.length };
-      }));
+      const selected = yield* nativeResult(observeExecution(`NativeCommerce.query/${declaration.localName ?? table.name}`,
+        executeCoreNativeRelationalRead(operations, table, policy, query)));
       const rows = yield* retain(selected.rows);
       if (!Array.isArray(rows) || !rows.every(isJsonObject)) return yield* commerceError("storedCorruption");
       return { rows, count: selected.count };
     }));
     const readPage = (context: BoundedRequestContext, input: unknown, preparation: Preparation) => guard(context, "read", Effect.gen(function* () {
       const query = yield* prepare(input, preparation);
-      if (query.includeIdentities || query.direction !== "asc" || query.selections !== null && query.selections.length > 1)
-        return yield* commerceError("unsupportedProfile");
-      if (query.selections?.length === 0) return { rows: Object.freeze([]), hasMore: false };
-      const where = yield* lifetime.fromResult(pageWhere(query.predicate));
-      const index = table.indexes.find(candidate => candidate.fields[0] === query.orderColumn
-        && declaration.indexes?.some(binding => binding.indexName === candidate.name && binding.requiredPrefix === undefined));
-      if (index === undefined) return yield* commerceError("unsupportedProfile");
-      const page = yield* nativeResult(operations.findPage(table.name, where,
-        { indexName: index.name, offset: query.offset, limit: query.limit, order: "asc" }));
-      const selected = yield* lifetime.fromResult(Result.gen(function* () {
-        const rows: JsonObject[] = [];
-        for (const document of page.documents) rows.push(yield* project(yield* nativeRow(document), query.fields));
-        return rows;
-      }));
-      const rows = yield* retain(selected);
+      const selected = yield* nativeResult(executeCoreNativeRelationalPage(operations, table, declaration, policy, query));
+      const rows = yield* retain(selected.rows);
       if (!Array.isArray(rows) || !rows.every(isJsonObject)) return yield* commerceError("storedCorruption");
-      return { rows, hasMore: page.hasMore };
+      return { rows, hasMore: selected.hasMore };
     }));
     const store: CommerceStore = Object.freeze({
       prepareRead: (input): ReturnType<CommerceStore["prepareRead"]> => {
@@ -148,12 +77,16 @@ export const makeNativeCommerceParticipant = Effect.fn("NativeCommerce.makeParti
       findPage: (context, input) => readPage(context, input, {}),
       count: (context, input) => read(context, input, {}).pipe(Effect.map(result => result.count)),
       aggregate: context => guard(context, "read", Effect.fail(commerceError("unsupportedProfile"))),
-      lifecycle: context => guard(context, "write", Effect.fail(commerceError("unsupportedProfile"))),
-      write: (context, mode, input) => guard(context, "write", Effect.gen(function* () {
-        if (mode === "upsertPreservingDeletion") return yield* commerceError("unsupportedProfile");
+      lifecycle: (context, mode, input) => guard(context, "write", Effect.gen(function* () {
         const captured = yield* lifetime.fromResult(useCapturedPrivateJsonData(input, lifetime.remainingBytes(), commerceError));
         yield* lifetime.fromResult(lifetime.charge(captured.bytes));
-        return yield* returnedRows(yield* nativeResult(operations.writeRows(table.name, mode, captured.value)));
+        return yield* returnedRows(yield* nativeResult(operations.lifecycle(table.name, mode, captured.value)));
+      })),
+      write: (context, mode, input) => guard(context, "write", Effect.gen(function* () {
+        const captured = yield* lifetime.fromResult(useCapturedPrivateJsonData(input, lifetime.remainingBytes(), commerceError));
+        yield* lifetime.fromResult(lifetime.charge(captured.bytes));
+        return yield* returnedRows(yield* nativeResult(observeExecution(`NativeCommerce.writeRows/${declaration.localName ?? table.name}/${mode}`,
+          operations.writeRows(table.name, mode, captured.value))));
       })),
       delete: (context, input) => guard(context, "write", Effect.gen(function* () {
         const captured = yield* lifetime.fromResult(useCapturedPrivateJsonData(input, lifetime.remainingBytes(), commerceError));
@@ -171,6 +104,28 @@ export const makeNativeCommerceParticipant = Effect.fn("NativeCommerce.makeParti
   if (first === undefined) return yield* commerceError("unsupportedProfile");
   const store = yield* table(initialContext, first.localName ?? first.name);
   return Object.freeze({ store, resources, table,
+    planReferenceReplacement: (context: BoundedRequestContext, selection: CommerceReferenceReplacement) => lifetime.operation(context, transactionId, "write", Effect.gen(function* () {
+      const source = metadata.definition.tables.find(declaration => (declaration.localName ?? declaration.name) === selection.sourceTable);
+      const target = metadata.definition.tables.find(declaration => (declaration.localName ?? declaration.name) === selection.targetTable);
+      if (source === undefined || target === undefined) return yield* commerceError("invalidAuthority");
+      yield* nativeResult(operations.replaceReferenceSet({ ...selection, sourceTable: source.name, targetTable: target.name }));
+    })),
+    referenceReplacementChanges: () => Effect.gen(function* () {
+      const changes = yield* nativeResult(operations.referenceReplacementChanges());
+      return yield* Effect.forEach(changes, change => Effect.gen(function* () {
+        const declaration = metadata.definition.tables.find(candidate => candidate.name === change.sourceTable);
+        const policy = coreNativeRelationalRows(metadata.definition, change.sourceTable);
+        const key = policy?.rows.keyColumns.length === 1 ? policy.rows.keyColumns[0] : undefined;
+        if (declaration === undefined || key === undefined) return yield* commerceError("storedCorruption");
+        const ids: string[] = [];
+        for (const document of change.documents) {
+          const value = document[key];
+          if (typeof value !== "string") return yield* commerceError("storedCorruption");
+          ids.push(value);
+        }
+        return Object.freeze({ sourceTable: declaration.name, ids: Object.freeze(ids) });
+      }));
+    }),
     transactionTime: (context: BoundedRequestContext) => lifetime.operation(context, transactionId, "read",
       Effect.succeed(new Date(unixTime).toISOString())) });
 });

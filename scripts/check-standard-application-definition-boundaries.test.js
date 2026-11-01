@@ -372,6 +372,29 @@ describe("Application definition boundary checker", () => {
   const cleanSourcePath =
     "packages/application-definition/src/Preparation.ts";
 
+  it("confines Source validator translation to its exact authoring owner", () => {
+    const authoring = "packages/application-definition/src/Authoring.ts";
+    const selected = "flarex-protocol/internal/validator-source";
+    expect(analyzeApplicationDefinitionBoundary(validApplicationDefinitionManifest(), [{
+      relativePath: authoring,
+      text: `import { normalizeSourceDocumentValidator } from "${selected}";`,
+    }]).errors).toEqual([]);
+    for (const [relativePath, specifier] of [
+      [cleanSourcePath, selected],
+      [authoring, "flarex-protocol/internal/validator-source/private"],
+      [authoring, "flarex-protocol/internal/validator-source-other"],
+    ]) {
+      expect(analyzeApplicationDefinitionBoundary(validApplicationDefinitionManifest(), [{
+        relativePath, text: `import { translator } from "${specifier}";`,
+      }]).errors).toEqual([`${relativePath}:1 imports forbidden module "${specifier}".`]);
+    }
+    const manifest = validApplicationDefinitionManifest();
+    const dependencies = Object.fromEntries(Object.entries(manifest.dependencies)
+      .filter(([name]) => name !== "flarex-protocol"));
+    expect(analyzeApplicationDefinitionBoundary({ ...manifest, dependencies }, []).errors.join("\n"))
+      .toContain("Application definition dependency flarex-protocol must use workspace:*.");
+  });
+
   it("accepts the clean root and its exact pure preparation imports", () => {
     const report = analyzeApplicationDefinitionBoundary(
       validApplicationDefinitionManifest(),
@@ -574,7 +597,6 @@ function validManifest() {
   };
 }
 
-/** @returns {Readonly<Record<string, unknown>>} */
 function validApplicationDefinitionManifest() {
   return {
     name: "@flarex/application-definition",
@@ -591,6 +613,7 @@ function validApplicationDefinitionManifest() {
       "@flarex/standard-application-definition": "workspace:*",
       "@flarex/utils": "workspace:*",
       "effect": "catalog:",
+      "flarex-protocol": "workspace:*",
     },
   };
 }

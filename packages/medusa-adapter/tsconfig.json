@@ -37,6 +37,7 @@
     "vitest.product-variants.config.ts",
     "vitest.product-categories.config.ts",
     "vitest.product-internal-categories.config.ts",
+    "vitest.product-managed-read.config.ts",
     "vitest.product-internal.config.ts",
     "vitest.link-storage.config.ts"
   ],

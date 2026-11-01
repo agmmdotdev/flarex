@@ -11,7 +11,7 @@ export interface CmsCommand { readonly [commandBrand]: true }
 export interface CmsCommandContext {
   /** Available only on a genuine protected reverse-page borrow. */
   readonly privateReferencePage?: (input: Readonly<{ limit: number; cursor?: string }>) => Effect.Effect<
-    Readonly<{ ids: readonly import("flarex-protocol/app-document-id").AppDocumentIdV1[]; lookahead: import("flarex-protocol/app-document-id").AppDocumentIdV1 | null; hasMore: boolean; cursor: string | null }>, CmsTransactionError>;
+    Readonly<{ ids: readonly string[]; lookahead: string | null; hasMore: boolean; cursor: string | null }>, CmsTransactionError>;
   readonly context: CmsRequestContext;
   readonly standaloneRead: boolean;
   readonly populationRead: boolean;

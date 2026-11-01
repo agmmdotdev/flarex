@@ -1,7 +1,13 @@
+import { Cause, Effect } from "effect";
 import { CoreNativeBudgetError, CoreNativeUniqueConflict, CoreNativeReferenceError, CoreNativeQueryError, CoreQueryInputError, CoreTransactionError, type CoreError } from "../../core/api";
 import { CorePersistenceError } from "../../core/contracts";
 import { CoreSchemaError } from "../../core/schemaTypes";
 import { cmsError, CmsTransactionError } from "./model";
+
+/** Core can fail with its complete stopped Cause, including cleanup defects
+ * and interruption. Project typed reasons without replacing that completion. */
+export const nativeResult = <A, R>(work: Effect.Effect<A, CoreError, R>): Effect.Effect<A, CmsTransactionError, R> =>
+  work.pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCoreCmsFailure))));
 
 /** One profile projection; core provenance stays attached to the native error. */
 export function projectCoreCmsFailure(failure: CoreError): CmsTransactionError {

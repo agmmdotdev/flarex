@@ -10,7 +10,7 @@ import {
   type CoreApplicationMutationConfiguration,
 } from "@flarex/persistence-postgres/internal/core-application-mutation";
 import { Cause, Clock, Context, Effect, Exit } from "effect";
-import { CoreTransactionError } from "@flarex/persistence-postgres/internal/core";
+import { CoreTransactionError, type CoreTransaction } from "@flarex/persistence-postgres/internal/core";
 import { captureExecutionDiagnosticContext } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import type { QueryCursorBroker } from "flarex-protocol/query-cursor";
 import { inspectVerifiedApplicationMutationGrantV1 } from "flarex-protocol/internal/application-mutation-grant-v1";
@@ -19,21 +19,39 @@ import {
   APPLICATION_TRANSACTION_WORKER_REQUEST_VERSION_V1,
   decodeApplicationTransactionWorkerRequestV1Effect,
 } from "flarex-protocol/internal/application-worker-v1";
+import { decodeAdmittedFrameworkOperationV1Result, type AdmittedFrameworkOperationV1 } from "flarex-protocol/internal/admitted-framework-operation-v1";
+import type { Json } from "flarex-protocol/json";
 
 import type { ApplicationMutationSystemLive } from "./ApplicationMutationSystem";
 import { makeCoreApplicationReadSession } from "./CoreApplicationReadSession";
 import type { CoreApplicationAdmission } from "./CoreApplicationAdmission";
 
 type CoreBodyInput = Parameters<CoreApplicationMutationConfiguration<never, never>["execute"]>[0];
+export type CoreWorkerMutationOperations = Pick<CoreTransaction, "unixTime" | "tableNumber" | "get" | "startQuery"
+  | "insert" | "patch" | "replace" | "delete">;
+interface RunnerConfiguration {
+  readonly applicationRunner: ApplicationMutationSystemLive["applicationRunner"];
+  readonly executionContextFactory: ApplicationMutationSystemLive["executionContextFactory"];
+  readonly queryCursor: Readonly<{ scopeUuid: string; broker: QueryCursorBroker }>;
+  readonly admission: CoreApplicationAdmission;
+}
+type RunnerInput<Failure> = Omit<CoreBodyInput, "transaction"> & Readonly<{ transaction: CoreWorkerMutationOperations;
+  native?: (operation: AdmittedFrameworkOperationV1) => Effect.Effect<Json, Failure> }>;
+export type CoreNativeApplicationMutationInput<Failure> = RunnerInput<Failure> & Required<Pick<RunnerInput<Failure>, "native">>;
 /** Host projection and RPC lifetime, separate from shared transaction authority. */
-export function makeCoreApplicationMutationRunner(configuration: Readonly<{
-  applicationRunner: ApplicationMutationSystemLive["applicationRunner"];
-  executionContextFactory: ApplicationMutationSystemLive["executionContextFactory"];
-  queryCursor: Readonly<{ scopeUuid: string; broker: QueryCursorBroker }>;
-  admission: CoreApplicationAdmission;
-}>) {
-  const execute = Effect.fn("CoreApplicationMutationRunner.execute")(function* (input: CoreBodyInput) {
+export function makeCoreApplicationMutationRunner(configuration: RunnerConfiguration) {
+  return makeRunner<never>(configuration, false);
+}
+/** Same authenticated Worker and callback owner for the named native root.
+ * Native callbacks are never replayed by this runner. */
+export function makeCoreNativeApplicationMutationRunner<Failure>(configuration: RunnerConfiguration) {
+  const execute = makeRunner<Failure>(configuration, true);
+  return (input: CoreNativeApplicationMutationInput<Failure>) => execute(input);
+}
+function makeRunner<NativeFailure>(configuration: RunnerConfiguration, privateNative: boolean) {
+  const execute = Effect.fn("CoreApplicationMutationRunner.execute")(function* (input: RunnerInput<NativeFailure>) {
     const runner = configuration.applicationRunner;
+    if (privateNative !== (input.native !== undefined)) return yield* new CoreApplicationMutationError({ reason: "unsupportedSelection" });
     if (input.program.scopeUuid !== configuration.queryCursor.scopeUuid)
       return yield* new CoreApplicationMutationError({ reason: "metadataInvalid" });
     const target = input.program.executionAuthority.authority.runtimeTarget;
@@ -45,6 +63,7 @@ export function makeCoreApplicationMutationRunner(configuration: Readonly<{
       validatorIdentityEncoding: input.program.validatorIdentityEncoding,
       hostPolicySha256: runner.hostPolicySha256, compatibilityDate: input.program.compatibilityDate,
       documentIdFormat: "convex",
+      ...(privateNative ? { privateNative: true as const } : {}),
     }), catch: cause => new CoreApplicationMutationError({ reason: "metadataInvalid", cause }) });
     const context = yield* configuration.executionContextFactory.make();
     const grant = inspectVerifiedApplicationMutationGrantV1(input.grant).payload;
@@ -61,7 +80,7 @@ export function makeCoreApplicationMutationRunner(configuration: Readonly<{
     const callbackContext = yield* Effect.withFiber(fiber => Effect.succeed(Context.add(
       captureExecutionDiagnosticContext(fiber), Clock.Clock, Context.get(fiber.context, Clock.Clock),
     )));
-    const session = makeCoreApplicationReadSession(input, callbackContext, configuration.queryCursor.broker,
+    const session = makeCoreApplicationReadSession<Effect.Error<typeof input.revalidate>, NativeFailure>(input, callbackContext, configuration.queryCursor.broker,
       configuration.admission);
     const capability = Object.freeze({
       ...session.target,
@@ -87,6 +106,13 @@ export function makeCoreApplicationMutationRunner(configuration: Readonly<{
       patchPointDocument: (id: string, value: unknown) => session.run(() => input.transaction.patch(id, value)),
       replacePointDocument: (id: string, value: unknown) => session.run(() => input.transaction.replace(id, value)),
       deletePointDocument: (id: string) => session.run(() => input.transaction.delete(id)),
+      ...(input.native === undefined ? {} : { runPrivateNativeOperation: (value: unknown) => session.run(() => Effect.gen(function* () {
+        const operation = yield* Effect.fromResult(decodeAdmittedFrameworkOperationV1Result(value)).pipe(
+          Effect.mapError(cause => new CoreTransactionError({ reason: "invalidValue", cause })));
+        const native = input.native;
+        if (native === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+        return yield* native(operation);
+      })) }),
     });
     return yield* Effect.uninterruptibleMask(restore => Effect.gen(function* () {
       const host = yield* Effect.exit(restore(runner.host.runTransaction({ definition, request, capability })).pipe(

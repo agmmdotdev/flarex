@@ -209,6 +209,11 @@ describe.runIf(endpoints !== undefined)("canonical app owner in actual workerd",
           expect(lost.body.failures).toContainEqual({ tag: "CorePersistenceError", reason: "uncertainWrite" });
           const historyAfterLost = await fixture.history();
           expect(historyAfterLost.length).toBe(history.length + 1);
+          // The shared supervisor reconstructs this SAME app object. A new
+          // explicit call resolves the committed outcome without body replay.
+          const recoveredInPlace = await invoke(active(), "mutate", { ...args, fail: false }, "/invoke", "actual-app:lost-ack");
+          expect(Schema.decodeUnknownSync(Mutation)(recoveredInPlace.body.value).disposition).toBe("replayed");
+          expect(await fixture.history()).toEqual(historyAfterLost);
           await close();
           await start();
           const replay = await invoke(active(), "mutate", { ...args, fail: false }, "/invoke", "actual-app:lost-ack");

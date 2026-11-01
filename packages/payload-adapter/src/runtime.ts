@@ -1,7 +1,7 @@
 import { Effect, type Scope } from "effect";
 import type { CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
 import type { CmsCommandBinding, CmsReadBinding } from "@flarex/persistence-postgres/internal/cms-execution";
-import type { CmsNativeBinding } from "@flarex/persistence-postgres/internal/cms-native";
+import type { CmsNativeBinding } from "@flarex/persistence-postgres/internal/cms-execution";
 import type {
   LogicalParticipantBorrow,
   SessionJournalAttempt,
@@ -15,9 +15,10 @@ import type { PayloadHost, PayloadReadHost } from "./api";
 
 export type { PayloadHost, PayloadReadHost, PayloadCreateArgs, PayloadUpdateArgs, PayloadDeleteArgs,
   PayloadFindArgs, PayloadFindByIdArgs, PayloadCountArgs, PayloadDocument, PayloadPageResult, PayloadCountResult } from "./api";
-export { makePayloadReferenceReadRuntime } from "./runtime/referenceRead";
-export { makePayloadReferenceSaveRuntime } from "./runtime/referenceSave";
-export { makePayloadReferencePagesRuntime } from "./runtime/referencePages";
+export { makePayloadReferenceReadRuntime, makePayloadNativeReferenceRead } from "./runtime/referenceRead";
+export { makePayloadReferenceSaveRuntime, makePayloadNativeReferenceSave } from "./runtime/referenceSave";
+export { makePayloadReferencePagesRuntime, makePayloadNativeReferencePages } from "./runtime/referencePages";
+export type { PayloadNativeInstrumentation } from "./runtime/native";
 export interface PayloadAttemptRuntime {
   readonly borrowParticipant: LogicalParticipantBorrow;
 }

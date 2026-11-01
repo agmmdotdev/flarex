@@ -2093,7 +2093,7 @@ function normalizeTaskValue(
   );
 }
 
-function detachCapabilityValue(value: unknown, failureName: string): unknown {
+export function detachCapabilityValue(value: unknown, failureName: string): unknown {
   if (value === null ||
     (typeof value !== "object" && typeof value !== "function")) return value;
   if (value instanceof ARRAY_BUFFER) return value.slice(0);
@@ -2734,7 +2734,7 @@ function disposeApplicationTaskCapabilities(
   );
 }
 
-function disposeReceivedCapability(value: unknown): void {
+export function disposeReceivedCapability(value: unknown): void {
   const object = asObject(value);
   if (object === undefined) return;
   const dispose = REFLECT_GET(object, SYMBOL_DISPOSE);

@@ -31,6 +31,9 @@ import {
   APPLICATION_WORKER_SERVER_EXPORTS,
   APPLICATION_WORKER_VALUES_EXPORTS,
 } from "./ApplicationWorkerCore.generated";
+import { APPLICATION_WORKER_CORE_SOURCE as PRIVATE_NATIVE_WORKER_CORE_SOURCE,
+  APPLICATION_WORKER_SERVER_EXPORTS as PRIVATE_NATIVE_WORKER_SERVER_EXPORTS,
+  APPLICATION_WORKER_VALUES_EXPORTS as PRIVATE_NATIVE_WORKER_VALUES_EXPORTS } from "./PrivateNativeApplicationWorkerCore.generated";
 import { makeApplicationRuntimeModuleGraph } from
   "./ApplicationRuntimeModuleGraph";
 import { applicationRuntimeSourceMatchesManifest } from
@@ -47,6 +50,7 @@ export const APPLICATION_TRANSACTION_WORKER_WALL_MILLISECONDS = 30_000;
 export interface ApplicationWorkerDefinition {
   readonly validatorIdentityEncoding: ValidatorIdentityEncoding;
   readonly documentIdFormat?: "convex";
+  readonly privateNative?: true;
   readonly targetCanonicalText: string;
   readonly hostPolicySha256Hex: string;
   readonly transactionWallMilliseconds: number;
@@ -79,6 +83,8 @@ export function makeApplicationWorkerDefinition(input: {
   readonly compatibilityDate?: string;
   /** Selected by trusted storage composition and emitted into the definition. */
   readonly documentIdFormat?: "convex";
+  /** Trusted bounded native-root profile; never supplied by Worker arguments. */
+  readonly privateNative?: true;
 }): ApplicationWorkerDefinition {
   const compatibilityDate = input.compatibilityDate ??
     APPLICATION_WORKER_COMPATIBILITY_DATE;
@@ -106,6 +112,8 @@ export function makeApplicationWorkerDefinition(input: {
     canonicalTarget.target.function,
     rootOrdinal,
   );
+  if (input.privateNative === true && (input.documentIdFormat !== "convex" || rootFunction.kind !== "mutation"))
+    throw new Error("Private native Worker definitions require a Core mutation");
   const internalFunctionCatalog = Object.freeze(
     input.manifest.functions.flatMap((fn, ordinal) =>
       fn.kind === "query" || fn.kind === "mutation"
@@ -124,17 +132,19 @@ export function makeApplicationWorkerDefinition(input: {
   });
   const graph = makeApplicationRuntimeModuleGraph({
     source: input.source,
-    coreSource: APPLICATION_WORKER_CORE_SOURCE,
-    serverExports: APPLICATION_WORKER_SERVER_EXPORTS,
-    valuesExports: APPLICATION_WORKER_VALUES_EXPORTS,
+    coreSource: input.privateNative === true ? PRIVATE_NATIVE_WORKER_CORE_SOURCE : APPLICATION_WORKER_CORE_SOURCE,
+    serverExports: input.privateNative === true ? PRIVATE_NATIVE_WORKER_SERVER_EXPORTS : APPLICATION_WORKER_SERVER_EXPORTS,
+    valuesExports: input.privateNative === true ? PRIVATE_NATIVE_WORKER_VALUES_EXPORTS : APPLICATION_WORKER_VALUES_EXPORTS,
     entrypointSource: imports => entrypointSource(
       imports.core,
       imports.execution,
       definition,
+      input.privateNative === true,
     ),
   });
   return Object.freeze({
     validatorIdentityEncoding,
+    ...(input.privateNative === undefined ? {} : { privateNative: input.privateNative }),
     ...(input.documentIdFormat === undefined ? {} : { documentIdFormat: input.documentIdFormat }),
     targetCanonicalText: canonicalTarget.canonicalText,
     hostPolicySha256Hex: hex(input.hostPolicySha256),
@@ -172,6 +182,7 @@ function entrypointSource(
     readonly hostPolicySha256Hex: string;
     readonly documentIdFormat?: "convex";
   }>,
+  privateNative = false,
 ): string {
   const functionWire = (fn: ApplicationFunctionRuntimeFunctionV1) => ({
     ...fn,
@@ -187,7 +198,7 @@ function entrypointSource(
   };
   return [
     'import { WorkerEntrypoint } from "cloudflare:workers";',
-    `import { executeApplicationTransactionWorkerV1, executeApplicationActionWorkerV1, decodeValidatorJsonWireCoreV1 } from ${JSON.stringify(coreImport)};`,
+    `import { ${privateNative ? "executePrivateNativeApplicationTransactionWorker as executeApplicationTransactionWorkerV1" : "executeApplicationTransactionWorkerV1"}, executeApplicationActionWorkerV1, decodeValidatorJsonWireCoreV1 } from ${JSON.stringify(coreImport)};`,
     'const functionFromWire = fn => Object.freeze({ ...fn, args: decodeValidatorJsonWireCoreV1(fn.args), returns: fn.returns === null ? null : decodeValidatorJsonWireCoreV1(fn.returns) });',
     `const wireDefinition = JSON.parse(${JSON.stringify(JSON.stringify(wireDefinition))});`,
     'const definition = Object.freeze({ ...wireDefinition, target: Object.freeze({ ...wireDefinition.target, function: functionFromWire(wireDefinition.target.function) }), rootFunction: functionFromWire(wireDefinition.rootFunction), internalFunctionCatalog: Object.freeze(wireDefinition.internalFunctionCatalog.map(functionFromWire)) });',

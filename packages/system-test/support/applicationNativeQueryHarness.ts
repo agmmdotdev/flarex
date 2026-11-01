@@ -542,7 +542,7 @@ class MiniflareApplicationWorkerStub implements WorkerStub {
       });
       const envelope = decodeBridgeValue(JSON.parse(await response.text()));
       if (!isRecord(envelope) || envelope.ok !== true) {
-        const error = new Error(errorMessage(envelope));
+        const error = new Error(errorMessage(envelope), { cause: isRecord(envelope) ? envelope.causes : undefined });
         Object.defineProperty(error, "name", { value: errorName(envelope) });
         this.owner.release(runtime);
         throw error;
@@ -654,6 +654,7 @@ class Capability extends RpcTarget {
     return this.call("takeIncomingRelationSources", [input]);
   }
   invoke(request) { return this.call("invoke", [request]); }
+  runPrivateNativeOperation(request) { return this.call("runPrivateNativeOperation", [request]); }
   insertPointDocument(tableName, value) {
     return this.call("insertPointDocument", [tableName, value]);
   }
@@ -686,10 +687,18 @@ export default {
         result?.[Symbol.dispose]?.();
       }
     } catch (error) {
+      const causes = [];
+      let current = error;
+      for (let depth = 0; depth < 8 && current !== undefined && current !== null; depth++) {
+        causes.push({ name: typeof current?.name === "string" ? current.name : "Error",
+          message: typeof current?.message === "string" ? current.message : String(current) });
+        current = current?.cause;
+      }
       return new Response(JSON.stringify(encodeBridgeValue({
         ok: false,
         name: typeof error?.name === "string" ? error.name : "Error",
         message: typeof error?.message === "string" ? error.message : String(error),
+        causes,
       })), { status: 500 });
     }
   },

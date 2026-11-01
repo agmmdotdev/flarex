@@ -10,6 +10,11 @@ import { encodeValidatorJsonV1 } from "flarex-protocol/validator-json";
 import { coreNativeTableName } from "./schemaTableName";
 import { serializeCoreSchema } from "./schemaJson";
 import { compileCoreApplicationIndexes } from "../application/coreSchema";
+import type { PreparedLogicalSchemaCandidate } from "@flarex/analysis/internal/logical-schema-candidate";
+import type { CoreNativeProtectedReference } from "./nativePolicyTypes";
+import { lowerCoreProtectedReferences } from "./nativeProtectedSchema";
+import { coreProtectedNativeReferenceMeaning } from "./protectedNativeMetadata";
+import { SchemaManifestJsonSchema } from "flarex-protocol/schema-manifest";
 
 export interface CoreSchemaTableBinding {
   readonly sourceKey: string;
@@ -20,6 +25,7 @@ export interface CoreSchemaTableBinding {
 export type CoreSchemaSource =
   | Readonly<{ kind: "application"; definition: PreparedApplicationSchemaSource }>
   | Readonly<{ kind: "native"; definition: CoreNativeDefinition }>;
+export interface CoreNativeBindingSelection { readonly sourceKey: string; readonly selected: boolean }
 export interface CoreSchemaBundle {
   readonly namespace: CoreTableNamespace;
   readonly schema: CoreSchemaDefinition;
@@ -27,6 +33,8 @@ export interface CoreSchemaBundle {
   readonly bindings: readonly CoreSchemaTableBinding[];
   readonly nativeDefinitions: readonly CoreNativeDefinition[];
   readonly metadata: string;
+  readonly protectedReferences?: readonly CoreNativeProtectedReference[];
+  readonly nativeBindings?: readonly CoreNativeBindingSelection[];
 }
 const bundles = new WeakSet<CoreSchemaBundle>();
 const unsupported = (message: string, cause?: unknown) => new CoreSchemaError({ reason: "unsupportedCapability", message,
@@ -40,6 +48,11 @@ const SourceEnvelope = Schema.Union([
 ]);
 const decodeSourceEnvelope = Schema.decodeUnknownResult(SourceEnvelope, { onExcessProperty: "error" });
 const decodeSourceCount = Schema.decodeUnknownResult(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 64 })));
+const captureNativeBindings = Schema.decodeUnknownResult(SchemaManifestJsonSchema);
+const decodeNativeBindings = Schema.decodeUnknownResult(Schema.Array(Schema.Struct({ sourceKey: Schema.NonEmptyString,
+  selected: Schema.Boolean }).annotate({ parseOptions: { onExcessProperty: "error" } })).check(Schema.isMaxLength(64),
+  Schema.makeFilter(values => new Set(values.map(value => value.sourceKey)).size === values.length
+    ? undefined : "Native binding source selections must be distinct")), { onExcessProperty: "error" });
 
 /** Capture only the envelope. Opaque definitions retain their exact issuer
  * identity; foreign getters and wrappers never survive into asynchronous work. */
@@ -118,7 +131,9 @@ function compatibleApplicationSource(prior: CoreSchemaSource, next: CoreSchemaSo
  * target bundle in the trusted expected-source set captured by the database. */
 export function isCoreSchemaBundleSuccessor(prior: CoreSchemaBundle, next: CoreSchemaBundle): boolean {
   if (Result.isFailure(requireCoreSchemaBundle(prior)) || Result.isFailure(requireCoreSchemaBundle(next))
-    || coreNamespaceKey(prior.namespace) !== coreNamespaceKey(next.namespace)) return false;
+    || coreNamespaceKey(prior.namespace) !== coreNamespaceKey(next.namespace)
+    || canonical((prior.protectedReferences ?? []).map(coreProtectedNativeReferenceMeaning))
+      !== canonical((next.protectedReferences ?? []).map(coreProtectedNativeReferenceMeaning))) return false;
   if (prior.metadata === next.metadata) return true;
   const added = next.sources.filter(source => !prior.sources.some(previous => previous.definition.source.key === source.definition.source.key));
   if (next.sources.length !== prior.sources.length + added.length || added.length > 1 || added.some(source => source.kind !== "native")) return false;
@@ -136,18 +151,28 @@ export function isCoreSchemaBundleSuccessor(prior: CoreSchemaBundle, next: CoreS
 export const makeCoreSchemaBundle = Effect.fn("CoreSchemaBundle.make")(function* (input: Readonly<{
   namespace?: CoreTableNamespace;
   sources: readonly CoreSchemaSource[];
+  candidate?: PreparedLogicalSchemaCandidate;
+  nativeBindings?: readonly CoreNativeBindingSelection[];
 }>) {
   // Both captures execute before the first Effect yield. Async digest calls may
   // not reread mutable caller envelopes after their source proof was checked.
   const capturedNamespace = captureCoreTableNamespace(input.namespace ?? null);
   const capturedSources = captureSchemaSources(input.sources);
+  const requestedCandidate = input.candidate;
+  const capturedBindings = input.nativeBindings === undefined ? Result.succeed(undefined)
+    : captureNativeBindings({ nativeBindings: input.nativeBindings }).pipe(Result.flatMap(value => decodeNativeBindings(value.nativeBindings)),
+      Result.map(values => Object.freeze(values.map(value => Object.freeze({ ...value })))));
   const namespace = yield* Effect.fromResult(capturedNamespace)
     .pipe(Effect.mapError(cause => unsupported("Invalid schema bundle namespace", cause)));
   const sources = (yield* Effect.fromResult(capturedSources))
     .toSorted((left, right) => compareUtf16Strings(left.definition.source.key, right.definition.source.key));
+  const nativeBindings = yield* Effect.fromResult(capturedBindings)
+    .pipe(Effect.mapError(cause => unsupported("Invalid native source binding selection", cause)));
   if (new Set(sources.map(source => source.definition.source.key)).size !== sources.length)
     return yield* unsupported("Schema bundle sources require distinct keys");
   const nativeDefinitions = sources.flatMap(source => source.kind === "native" ? [source.definition] : []);
+  if (nativeBindings?.some(binding => !nativeDefinitions.some(definition => definition.source.key === binding.sourceKey)))
+    return yield* unsupported("Native binding selection has no compiler-issued native source");
   const target = nativeDefinitions[0]?.identity;
   if (target !== undefined && nativeDefinitions.some(definition => definition.identity.scopeUuid !== target.scopeUuid
     || definition.identity.epochUuid !== target.epochUuid)) return yield* unsupported("Schema bundle native targets differ");
@@ -192,15 +217,22 @@ export const makeCoreSchemaBundle = Effect.fn("CoreSchemaBundle.make")(function*
   }
   if (bindings.length > 256 || tables.length !== bindings.length + privateTableCount || tables.some(table => !names.has(table.tableName)))
     return yield* unsupported("Schema bundle table closure differs from source bindings");
-  const schema = yield* Effect.fromResult(captureCoreSchema({ schemaValidation: true, tables }));
+  const protectedClosure = requestedCandidate === undefined ? undefined
+    : yield* lowerCoreProtectedReferences(requestedCandidate, sources, bindings, tables);
+  const protectedReferences = protectedClosure?.references ?? [];
+  const schema = yield* Effect.fromResult(captureCoreSchema({ schemaValidation: true, tables: protectedClosure?.tables ?? tables }));
   const metadata = canonical({ format: "flarex.core-schema-bundle", version: 1, loweringVersion: 1, namespace,
     sources: sources.map(source => source.kind === "application" ? { kind: source.kind, source: encodeLogicalSchemaSource(source.definition.source) }
       : { kind: source.kind, source: encodeLogicalSchemaSource(source.definition.source), native: source.definition.metadata }),
     bindings: bindings.map(binding => ({ ...binding, table: { ...binding.table } })),
+    ...(protectedReferences.length === 0 ? {} : { protectedReferences }),
+    ...(nativeBindings === undefined ? {} : { nativeBindings }),
     schema: yield* Effect.fromResult(serializeCoreSchema(schema)) });
   const bundle: CoreSchemaBundle = Object.freeze({ namespace, schema,
     sources: Object.freeze(sources.map(source => Object.freeze({ ...source }))), bindings: Object.freeze(bindings),
-    nativeDefinitions: Object.freeze(nativeDefinitions), metadata });
+    nativeDefinitions: Object.freeze(nativeDefinitions), metadata,
+    ...(nativeBindings === undefined ? {} : { nativeBindings }),
+    ...(protectedReferences.length === 0 ? {} : { protectedReferences }) });
   bundles.add(bundle);
   return bundle;
 });

@@ -6,7 +6,7 @@
 import { Result } from "effect";
 import { CoreTransactionError, type CoreDocumentUsage, type CoreTransactionLimits, type CoreTransactionUsage } from "./api";
 import type { CoreInterval } from "./contracts";
-import { CoreReadSetBuilder } from "./writeLog";
+import { CoreReadSetBuilder, type CoreReadSet } from "./writeLog";
 
 /** db914cf06 execution_size.rs/knobs.rs defaults; configurable, not selected DO capacity. */
 export const CORE_TRANSACTION_REFERENCE_LIMITS: CoreTransactionLimits = Object.freeze({
@@ -59,6 +59,8 @@ export class CoreAccounting {
   snapshot(): CoreTransactionUsage {
     return Object.freeze({ user: copyUsage(this.user), system: copyUsage(this.system), databaseQueries: this.queries });
   }
+
+  queryReads(): CoreReadSet { return this.directReads.snapshot(); }
 
   private check(budget: string, actual: number, limit: number): Result.Result<void, CoreTransactionError> {
     return actual <= limit ? Result.succeed(undefined) : Result.fail(new CoreTransactionError({

@@ -9,8 +9,14 @@ import type { SessionJournalAttempt, SessionJournalStorePersistence, PrivateRead
   PrivateReverseReadSelection, PrivateReverseReadTarget } from "@flarex/persistence-postgres/internal/session-journal";
 import type { ApplicationRevisionSyscallValidatorV1 } from "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
 import { cmsError } from "@flarex/persistence-postgres/internal/cms-adapter";
-import { makePayloadReferencePagesRuntime } from "@flarex/payload-adapter/internal/runtime";
+import { makePayloadReferencePagesRuntime, makePayloadNativeReferencePages, type PayloadNativeInstrumentation } from "@flarex/payload-adapter/internal/runtime";
 import type { CompiledPayloadCollections } from "@flarex/payload-adapter/internal/collections";
+import type { Json } from "flarex-protocol/json";
+import type { CoreError, CoreNativeBinding, CoreNativeRootBindingMetadata,
+  CoreNativeRootOperation } from "@flarex/persistence-postgres/internal/core";
+import { prepareNativeReferencePagesAccess } from "@flarex/persistence-postgres/internal/cms-native";
+import type { CmsRequestLifetime } from "@flarex/persistence-postgres/internal/cms-execution";
+import type { CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
 
 type ReadJournal = Pick<SessionJournalStorePersistence, "readPrivateReverseReferencePermissionsEffect" | "preparePrivateReverseReferencePagesEffect">;
 interface ReverseReadConsumerInput {
@@ -73,3 +79,29 @@ export const makePrivatePayloadReverseReadConsumer: (compiled: CompiledPayloadCo
   Effect.fn("PrivatePayloadReverseReadConsumer.make")(function* (compiled, input) {
     return yield* makePrivatePayloadReverseReadConsumerWithRuntime(compiled, input, makePayloadReferencePagesRuntime);
   });
+
+/** Same-root native replacement. Target access is supplied by the genuine
+ * Product child, separately from the tracked reverse enumeration policy. */
+interface NativeReverseConsumerInput {
+  readonly operation: CoreNativeRootOperation; readonly root: CoreNativeRootBindingMetadata;
+  readonly binding: CoreNativeBinding; readonly lifetime: CmsRequestLifetime;
+  readonly transactionId: string; readonly principal: PrivateReadPrincipal; readonly policyDocumentId: string;
+  readonly collection: string; readonly relation: string; readonly targetId: string;
+  readonly readTarget: Effect.Effect<Json, CmsTransactionError>;
+}
+interface NativeReverseConsumer { readonly page: (args: Json) => Effect.Effect<Json, CmsTransactionError> }
+export const makePrivatePayloadNativeReverseReadConsumer: (compiled: CompiledPayloadCollections, input: NativeReverseConsumerInput, instrumentation?: PayloadNativeInstrumentation) =>
+  Effect.Effect<NativeReverseConsumer, CoreError | CmsTransactionError, Scope.Scope> = Effect.fn("PrivatePayloadReverseReadConsumer.makeNative")(function* (
+  compiled, input, instrumentation,
+) {
+  const grant = input.root.applicationRead?.binding;
+  const table = compiled.configuration.tables.find(candidate => candidate.collectionSlug === input.collection);
+  const participant = input.root.participants.find(candidate => candidate.binding === input.binding);
+  if (grant === undefined || table === undefined || participant === undefined) return yield* cmsError("invalidAuthority");
+  const operations = yield* input.operation.native(input.binding);
+  const access = yield* prepareNativeReferencePagesAccess({ application: yield* input.operation.applicationRead(grant),
+    policyDocumentId: input.policyDocumentId, principal: input.principal, native: participant, operations,
+    lifetime: input.lifetime, transactionId: input.transactionId, collection: input.collection, table: table.logicalTableName, field: input.relation,
+    targetId: input.targetId, readTarget: input.readTarget });
+  return yield* makePayloadNativeReferencePages(compiled, { operations, lifetime: input.lifetime, transactionId: input.transactionId, access }, instrumentation);
+});

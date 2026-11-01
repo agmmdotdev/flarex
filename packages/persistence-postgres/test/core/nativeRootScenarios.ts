@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { Effect, Option, Result } from "effect";
+import { Effect, Option, Result, type Scope } from "effect";
 import { describe, expect, it } from "vitest";
 import { defineSchema, defineTable } from "flarex/server";
 import { v } from "flarex/values";
@@ -7,22 +7,40 @@ import { prepareApplicationSchemaSource } from "@flarex/analysis/internal/logica
 import { decodeDocumentId } from "flarex-protocol/document-id";
 import { compileCurrencyCoreDefinition } from "../../../medusa-adapter/src/modules/currency/schema";
 import { compilePayloadCollections } from "../../../payload-adapter/src/collections";
-import { makeCoreNativeDefinition } from "../../src/core/nativePolicy";
+import { makeCoreNativeDefinition, type CoreNativeDefinition } from "../../src/core/nativePolicy";
 import { makeCoreSchemaBundle } from "../../src/core/schemaBundle";
 import { openCoreDatabase } from "../../src/core/database";
 import { createTransactionIdGenerator } from "../../src/core/transactionIdGenerator";
-import type { CoreDatabase, CoreError, CoreNativeRootOperation, CoreNativeRootParticipant, CoreRequestClaim, CoreRequestIdentity } from "../../src/core/api";
+import type { CoreDatabase, CoreDatabaseOptions, CoreError, CoreNativeRootBinding, CoreNativeRootBindingInput, CoreNativeRootBindingMetadata,
+  CoreApplicationInsertBinding, CoreNativeBinding, CoreNativeRootOperation, CoreNativeRootParticipant, CoreRequestClaim, CoreRequestIdentity } from "../../src/core/api";
+import { CorePersistenceError, type CorePersistence } from "../../src/core/contracts";
 import type { CorePersistenceFixture } from "./fixture";
 import { CORE_SCHEMA_WORKER_TEST_OPTIONS } from "./schemaFixture";
 import { coreNativeTestBudget } from "./nativeTestBudget";
+import { readCoreNativeFixtureInventory } from "./nativeFixtureInventory";
 
 const target = { scopeUuid: "64395396-fde0-4f25-b3d5-8e9f323312d4", epochUuid: "8d516cd6-38d2-4c19-b9e7-d750beac4628" };
 const payloadBody = (title: string) => ({ title, createdAt: "2026-11-01T00:00:00.000Z", updatedAt: "2026-11-01T00:00:00.000Z" });
 const currencyBody = (code: string) => ({ code, name: code, symbol: "N", symbol_native: "N" });
 const failure = <Value>(result: Result.Result<Value, CoreError>) => Result.isFailure(result) ? result.failure : undefined;
+export interface NativeRootFixture {
+  readonly database: CoreDatabase; readonly options: CoreDatabaseOptions;
+  readonly bundle: Effect.Success<ReturnType<typeof makeCoreSchemaBundle>>;
+  readonly payload: CoreNativeDefinition; readonly currency: CoreNativeDefinition;
+  readonly payloadBinding: CoreNativeBinding; readonly currencyBinding: CoreNativeBinding; readonly currencyTable: string;
+  readonly root: CoreNativeRootBinding; readonly rootInput: CoreNativeRootBindingInput; readonly metadata: CoreNativeRootBindingMetadata;
+  readonly grant: CoreApplicationInsertBinding;
+  readonly begin: () => Effect.Effect<Readonly<{ operation: CoreNativeRootOperation; claim: CoreRequestClaim; identity: CoreRequestIdentity }>, CoreError>;
+  readonly expectedInternalIds: (count: number) => readonly Uint8Array[];
+  readonly setNow: (value: bigint) => void;
+}
+type NativeRootFixtureFailure = CoreError | Effect.Error<ReturnType<typeof prepareApplicationSchemaSource>>
+  | Effect.Error<ReturnType<typeof compilePayloadCollections>> | Effect.Error<ReturnType<typeof makeCoreNativeDefinition>>
+  | Effect.Error<ReturnType<typeof compileCurrencyCoreDefinition>>;
 
 const setup = Effect.fn("NativeRootFixture.setup")(function* (fixture: CorePersistenceFixture, maxFinalUserDocuments = 128,
-  selectedLimits?: Readonly<{ payload: number; currency: number }>) {
+  selectedLimits?: Readonly<{ payload: number; currency: number }>, retryProvenNoncommit?: true,
+  persistence: CorePersistence = fixture.persistence): Effect.fn.Return<NativeRootFixture, NativeRootFixtureFailure, Scope.Scope> {
   const application = yield* prepareApplicationSchemaSource(defineSchema({ users: defineTable({ name: v.string() }) }));
   const compiled = yield* compilePayloadCollections([{ slug: "posts", fields: [{ name: "title", type: "text", required: true, unique: true }] }]);
   const payload = yield* makeCoreNativeDefinition({ ...target, source: compiled.sourceContract });
@@ -38,7 +56,7 @@ const setup = Effect.fn("NativeRootFixture.setup")(function* (fixture: CorePersi
       return bytes;
     }),
     schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS, maxBatchDelayMilliseconds: 0 };
-  const database = yield* Effect.acquireRelease(openCoreDatabase(fixture.persistence, options), db => db.close());
+  const database = yield* Effect.acquireRelease(openCoreDatabase(persistence, options), db => db.close());
   const proposal = yield* database.prepareSchema({ bundle });
   let ready = false;
   for (let step = 0; step < 128; step++) {
@@ -58,8 +76,10 @@ const setup = Effect.fn("NativeRootFixture.setup")(function* (fixture: CorePersi
       limits: { maxIdentities: selectedLimits?.payload ?? 256, maxDocumentBytes: 65536 } },
     { binding: currencyBinding, commands: ["currency-write"], limits: { maxIdentities: selectedLimits?.currency ?? 128, maxDocumentBytes: 65536 } },
   ];
-  const root = yield* database.bindNativeRoot({ bundle, contract: { name: "core-native-root-conformance", version: 1 },
-    participants, applicationInsert: { table: "users", maxDocumentBytes: 65536 }, maxFinalUserDocuments });
+  const rootInput = { bundle, contract: { name: "core-native-root-conformance", version: 1 },
+    participants, applicationInsert: { table: "users", maxDocumentBytes: 65536 }, maxFinalUserDocuments,
+    ...(retryProvenNoncommit === undefined ? {} : { retryProvenNoncommit }) };
+  const root = yield* database.bindNativeRoot(rootInput);
   const metadata = yield* database.readNativeRootBinding(root);
   const grant = metadata.applicationInsert?.binding;
   const currencyTable = currency.tables[0]?.name;
@@ -74,11 +94,19 @@ const setup = Effect.fn("NativeRootFixture.setup")(function* (fixture: CorePersi
     return { operation, claim: acquired.claim, identity };
   });
   return { database, options, bundle, payload, currency, payloadBinding, currencyBinding, currencyTable,
-    root, metadata, grant, begin, expectedInternalIds: (count: number) => {
+    root, rootInput, metadata, grant, begin, expectedInternalIds: (count: number) => {
       if (latestSeed === undefined) throw new Error("Native root did not acquire a transaction seed.");
       const preview = Result.getOrThrow(createTransactionIdGenerator(latestSeed, now));
       return Array.from({ length: count }, () => preview.nextInternalId());
     }, setNow: (value: bigint) => { now = value; } };
+});
+
+const rebindRoot = Effect.fn("NativeRootFixture.rebind")(function* (database: CoreDatabase, tested: NativeRootFixture): Effect.fn.Return<CoreNativeRootBinding, CoreError> {
+  const participants = yield* Effect.forEach(tested.metadata.participants, participant => Effect.gen(function* () {
+    const binding = yield* database.bindNative({ definition: participant.definition, commands: participant.commands.map(command => ({ name: command.name, mode: command.mode })) });
+    return { binding, commands: participant.commands.map(command => command.name), limits: participant.limits };
+  }));
+  return yield* database.bindNativeRoot({ ...tested.rootInput, participants });
 });
 
 const closeRequest = Effect.fn("NativeRootFixture.abort")(function* (
@@ -101,9 +129,16 @@ export function registerNativeRootScenarios(label: string, createFixture: () => 
         expect(failure(yield* Effect.result(tested.database.begin({ claim: selected.claim })))).toMatchObject({ reason: "foreignClaim" });
         const appId = yield* application.insert({ name: "pending only" });
         expect(Option.getOrThrow(yield* application.readPending(appId))).toMatchObject({ name: "pending only" });
+        yield* application.patchPending(appId, { name: "same pending identity" });
+        expect(Option.getOrThrow(yield* application.readPending(appId))).toMatchObject({ _id: appId, name: "same pending identity" });
+        expect(failure(yield* Effect.result(application.patchPending(appId, { name: 123 })))).toMatchObject({ reason: "documentValidation" });
+        expect(Option.getOrThrow(yield* application.readPending(appId))).toMatchObject({ name: "same pending identity" });
+        expect(failure(yield* Effect.result(application.patchPending(id, { name: "foreign native" })))).toMatchObject({ reason: "authorityRevoked" });
         expect(failure(yield* Effect.result(application.readPending(id)))).toMatchObject({ reason: "authorityRevoked" });
         expect(failure(yield* Effect.result(application.insert({ name: "second insert" })))).toMatchObject({ reason: "capacity" });
         yield* closeRequest(tested.database, selected);
+        expect(Object.hasOwn(tested.metadata, "retryProvenNoncommit")).toBe(false);
+        expect(yield* tested.database.claimRequest(selected.identity, tested.root)).toEqual({ kind: "failed" });
         expect(failure(yield* Effect.result(payload.get(id)))).toMatchObject({ reason: "closed" });
       }))); } finally { await fixture.close(); }
     }, 90_000);
@@ -132,6 +167,10 @@ export function registerNativeRootScenarios(label: string, createFixture: () => 
         const ordinary = yield* tested.database.begin();
         expect(Option.getOrThrow(yield* ordinary.get(appId))).toMatchObject({ name: "atomic" });
         yield* ordinary.abort();
+        const later = yield* tested.begin();
+        const laterApplication = yield* later.operation.applicationInsert(tested.grant);
+        expect(failure(yield* Effect.result(laterApplication.patchPending(appId, { name: "committed identity" })))).toMatchObject({ reason: "authorityRevoked" });
+        yield* closeRequest(tested.database, later);
         yield* tested.database.close();
         const reopened = yield* Effect.acquireRelease(openCoreDatabase(yield* Effect.promise(() => fixture.reopen()), tested.options), db => db.close());
         const payloadBinding = yield* reopened.bindNative({ definition: tested.payload });
@@ -221,5 +260,114 @@ export function registerNativeRootScenarios(label: string, createFixture: () => 
         yield* tested.database.commit(yield* changed.operation.finalize(), { claim: changed.claim, result: null });
       }))); } finally { await fixture.close(); }
     }, 90_000);
+
+    it("reclaims a matching explicit abort only for an authenticated opted-in root and fences old claims", async () => {
+      const fixture = await createFixture();
+      try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const tested = yield* setup(fixture, 128, undefined, true), first = yield* tested.begin();
+        expect(tested.metadata.retryProvenNoncommit).toBe(true);
+        const { retryProvenNoncommit: _policy, ...defaultInput } = tested.rootInput;
+        const defaultRoot = yield* tested.database.bindNativeRoot(defaultInput);
+        expect((yield* tested.database.readNativeRootBinding(defaultRoot)).identity).not.toEqual(tested.metadata.identity);
+        const historical = yield* tested.database.bindNativeRootRecovery({ ...tested.rootInput,
+          participants: tested.metadata.participants.map(participant => ({ definition: participant.definition,
+            commands: participant.commands.map(command => ({ name: command.name, mode: command.mode })), limits: participant.limits })) });
+        expect(historical.identity).toEqual(tested.metadata.identity);
+        const native = yield* first.operation.native(tested.payloadBinding);
+        yield* native.insert("posts", payloadBody("discarded first attempt"));
+        const oldFinalized = yield* first.operation.finalize();
+        yield* tested.database.abortRequest(first.claim);
+        const before = yield* readCoreNativeFixtureInventory(tested.database, fixture.persistence);
+        const failedRecord = before.outcomes.find(outcome => outcome.value.key === first.identity.key);
+        expect(failedRecord?.value).toMatchObject({ state: "failed" });
+        expect(failedRecord?.value.abandonedByLease).toBeUndefined();
+        expect(failure(yield* Effect.result(tested.database.claimRequest({ ...first.identity, requestHash: "changed correlation" }, tested.root))))
+          .toMatchObject({ reason: "requestMismatch" });
+        const reclaimed = yield* tested.database.claimRequest(first.identity, tested.root);
+        if (reclaimed.kind !== "claimed") return yield* Effect.die(new Error("Explicit aborted root was not reclaimed"));
+        const pending = (yield* readCoreNativeFixtureInventory(tested.database, fixture.persistence)).outcomes.find(outcome => outcome.value.key === first.identity.key);
+        expect(pending?.value._id).toBe(failedRecord?.value._id);
+        expect(pending?.timestamp).toBeGreaterThan(failedRecord?.timestamp ?? 0n);
+        expect(failure(yield* Effect.result(tested.database.abortRequest(first.claim)))).toMatchObject({ reason: "foreignClaim" });
+        expect(failure(yield* Effect.result(tested.database.commit(oldFinalized, { claim: first.claim, result: null }))))
+          .toMatchObject({ reason: "foreignClaim" });
+        expect(yield* tested.database.claimRequest(first.identity, tested.root)).toEqual({ kind: "busy" });
+        const second = yield* tested.database.beginNativeRoot(tested.root, { claim: reclaimed.claim, chargeRetained: coreNativeTestBudget().chargeRetained });
+        const id = yield* (yield* second.native(tested.payloadBinding)).insert("posts", payloadBody("accepted explicit retry"));
+        const timestamp = yield* tested.database.commit(yield* second.finalize(), { claim: reclaimed.claim, result: { id } });
+        expect(yield* tested.database.claimRequest(first.identity, tested.root)).toEqual({ kind: "committed", timestamp, result: { id } });
+        const inventory = yield* readCoreNativeFixtureInventory(tested.database, fixture.persistence);
+        expect(inventory.rows.filter(row => row.table === "posts").map(row => row.value.title)).toEqual(["accepted explicit retry"]);
+        expect(yield* historical.resolve(first.identity)).toEqual({ kind: "committed", timestamp, result: { id } });
+      }))); } finally { await fixture.close(); }
+    }, 90_000);
+
+    it("gives competing explicit retries one current claim and requires live authority", async () => {
+      const fixture = await createFixture();
+      try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const tested = yield* setup(fixture, 128, undefined, true), first = yield* tested.begin();
+        yield* closeRequest(tested.database, first);
+        const contenders = yield* Effect.all([tested.database.claimRequest(first.identity, tested.root), tested.database.claimRequest(first.identity, tested.root)], { concurrency: 2 });
+        expect(contenders.map(result => result.kind).toSorted()).toEqual(["busy", "claimed"]);
+        const winner = contenders.find(result => result.kind === "claimed");
+        if (winner?.kind !== "claimed") return yield* Effect.die(new Error("Missing winning root retry"));
+        yield* tested.database.abortRequest(winner.claim);
+        yield* tested.database.advanceAuthorityEpoch(1n);
+        expect(failure(yield* Effect.result(tested.database.claimRequest(first.identity, tested.root))))
+          .toMatchObject({ reason: "authorityRevoked" });
+        expect(yield* tested.database.resolveRequest(first.identity)).toEqual({ kind: "failed" });
+      }))); } finally { await fixture.close(); }
+    }, 90_000);
+
+    it("reclaims only after fenced proof for unknown claims and replays a durable outcome after acknowledgement loss", async () => {
+      const fixture = await createFixture();
+      try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        let loseAcknowledgement = false;
+        const observe = (persistence: CorePersistence): CorePersistence => ({ ...persistence, write: (lease, batch) =>
+          persistence.write(lease, batch).pipe(Effect.andThen(() => {
+            if (!loseAcknowledgement) return Effect.void;
+            loseAcknowledgement = false;
+            return Effect.fail(new CorePersistenceError({ reason: "uncertainWrite" }));
+          })) });
+        const tested = yield* setup(fixture, 128, undefined, true, observe(fixture.persistence));
+        const abandoned: CoreRequestIdentity = { kind: "nativeRoot", root: tested.metadata.identity, key: "unknown-root-claim", requestHash: "same arguments" };
+        loseAcknowledgement = true;
+        expect(failure(yield* Effect.result(tested.database.claimRequest(abandoned, tested.root)))).toMatchObject({ reason: "uncertainWrite" });
+        expect(Result.isFailure(yield* Effect.result(tested.database.claimRequest(abandoned, tested.root)))).toBe(true);
+        yield* tested.database.close();
+        const reopenedPersistence = yield* Effect.promise(() => fixture.reopen());
+        const reopened = yield* Effect.acquireRelease(openCoreDatabase(observe(reopenedPersistence), tested.options), db => db.close());
+        const currentRoot = yield* rebindRoot(reopened, tested);
+        expect(yield* reopened.claimRequest(abandoned, currentRoot)).toEqual({ kind: "busy" });
+        expect(yield* reopened.recoverRequest(abandoned)).toEqual({ kind: "failed" });
+        const reconciledClaim = yield* reopened.claimRequest(abandoned, currentRoot);
+        if (reconciledClaim.kind !== "claimed") return yield* Effect.die(new Error("Fenced noncommit was not eligible for explicit retry"));
+        yield* reopened.abortRequest(reconciledClaim.claim);
+        const abandonedRecord = (yield* readCoreNativeFixtureInventory(reopened, reopenedPersistence)).outcomes
+          .find(outcome => outcome.value.key === abandoned.key);
+        expect(abandonedRecord?.value.state).toBe("failed");
+        const identity: CoreRequestIdentity = { kind: "nativeRoot", root: tested.metadata.identity, key: "unknown-root-outcome", requestHash: "durable arguments" };
+        const acquired = yield* reopened.claimRequest(identity, currentRoot);
+        if (acquired.kind !== "claimed") return yield* Effect.die(new Error("Fresh opted-in request was not claimed"));
+        const metadata = yield* reopened.readNativeRootBinding(currentRoot);
+        const child = metadata.participants.find(participant => participant.definition.identity.sourceKey === "payload");
+        if (child === undefined) return yield* Effect.die(new Error("Missing current Payload participant"));
+        const operation = yield* reopened.beginNativeRoot(currentRoot, { claim: acquired.claim, chargeRetained: coreNativeTestBudget().chargeRetained });
+        const id = yield* (yield* operation.native(child.binding)).insert("posts", payloadBody("durable one body"));
+        loseAcknowledgement = true;
+        expect(failure(yield* Effect.result(reopened.commit(yield* operation.finalize(), { claim: acquired.claim, result: { id } }))))
+          .toMatchObject({ reason: "uncertainWrite" });
+        yield* reopened.close();
+        const coldPersistence = yield* Effect.promise(() => fixture.reopen());
+        const cold = yield* Effect.acquireRelease(openCoreDatabase(coldPersistence, tested.options), db => db.close());
+        const coldRoot = yield* rebindRoot(cold, tested);
+        expect(yield* cold.claimRequest(identity, coldRoot)).toMatchObject({ kind: "committed", result: { id } });
+        expect(yield* cold.recoverRequest(identity)).toMatchObject({ kind: "committed", result: { id } });
+        expect((yield* readCoreNativeFixtureInventory(cold, coldPersistence)).rows.filter(row => row.table === "posts").map(row => row.value.title))
+          .toEqual(["durable one body"]);
+      }))); } finally { await fixture.close(); }
+    }, 90_000);
   });
 }
+
+export { setup as setupNativeRootFixture, rebindRoot as rebindNativeRootFixture };

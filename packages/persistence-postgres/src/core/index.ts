@@ -1,7 +1,9 @@
 /** Trusted host composition only. User/adapter capabilities do not export this owner. */
 export { openCoreDatabase } from "./database";
+export { makeCoreApplicationOwner } from "./applicationOwner";
+export type { CoreApplicationOwner, CoreApplicationMaintenance, CoreApplicationGenerationPhase } from "./applicationOwner";
 export { CORE_TRANSACTION_REFERENCE_LIMITS } from "./accounting";
-export { CoreTransactionError, CoreQueryInputError, CoreNativeReferenceError, isCoreDefinitiveCommitRefusal,
+export { CoreTransactionError, CoreQueryInputError, CoreNativeReferenceError, CoreNativeForeignKeyError, isCoreDefinitiveCommitRefusal,
   CoreSchemaWorkBudgetSchema, CoreSchemaWorkerOptionsSchema } from "./api";
 export { CoreSchemaError } from "./schemaTypes";
 export type { CoreTableNamespace } from "./namespace";

@@ -6,13 +6,18 @@ import { cmsError } from "@flarex/persistence-postgres/internal/cms-adapter";
 import { LogicalParticipantInvocationError } from "@flarex/persistence-postgres/internal/logical-participant-errors";
 import { isJsonObject, type Json } from "flarex-protocol/json";
 import { requireCompiledPayloadCollections, type CompiledPayloadCollections } from "../collections";
-import { makePayloadNative } from "./native";
+import { makePayloadNative, type PayloadNativeInstrumentation } from "./native";
 import { makePayloadAttempt } from "./attempt";
 import type { PayloadAttemptRuntime } from "../runtime";
+import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
+import { makeBorrowedNativeCmsInvocation, type CmsRequestLifetime, type CoreNativeBindingMetadata,
+  type CoreNativeOperations } from "@flarex/persistence-postgres/internal/cms-execution";
 
 const Access = Schema.Struct({ principal: PrivateReadPrincipal, collection: Schema.NonEmptyString, ids: PrivateReadIds,
   participant: Schema.NonEmptyString, nativeProfileRevision: PrivateReadPrincipal.fields.principalDigest });
 const decodeAccess = Schema.decodeUnknownEffect(Access, { onExcessProperty: "error" });
+const decodeNativeRead = Schema.decodeUnknownEffect(Schema.Struct({ principal: PrivateReadPrincipal,
+  collection: Schema.NonEmptyString, ids: PrivateReadIds }), { onExcessProperty: "error" });
 
 /** Selected private finite-read profile. Each instance owns its native access
  * closure; no caller-supplied user/context/overrideAccess reaches Payload. */
@@ -55,4 +60,35 @@ export const makePayloadReferenceReadRuntime = Effect.fn("PayloadReferenceRead.m
     return selected;
   });
   return { makeAttempt, profileRevision: grant.profileRevision };
+});
+
+/** A separate source-read selection over the same native root. Save assignment,
+ * retention and reverse enumeration permissions never create this selection. */
+export const makePayloadNativeReferenceRead = Effect.fn("PayloadReferenceRead.makeNative")(function* (
+  compiled: CompiledPayloadCollections,
+  input: Readonly<{ operations: CoreNativeOperations; native: CoreNativeBindingMetadata; lifetime: CmsRequestLifetime; transactionId: string;
+    principal: PrivateReadPrincipal; collection: string; ids: readonly string[] }>,
+  instrumentation?: PayloadNativeInstrumentation,
+) {
+  yield* requireCompiledPayloadCollections(compiled);
+  const selected = yield* decodeNativeRead({ principal: input.principal, collection: input.collection, ids: input.ids })
+    .pipe(Effect.mapError(cause => cmsError("invalidAuthority", cause)));
+  const table = compiled.configuration.tables.find(candidate => candidate.collectionSlug === selected.collection);
+  if (table === undefined || !input.native.tables.some(candidate => candidate.name === table.logicalTableName)
+    || input.native.definition.identity.configSha256 !== compiled.contentIdentity.configSha256
+    || input.native.definition.identity.provenanceSha256 !== compiled.contentIdentity.provenanceSha256
+    || projectScopeIdUuidV1(selected.principal.scopeId).scopeUuid !== input.native.definition.identity.scopeUuid)
+    return yield* cmsError("invalidAuthority");
+  const allowed = new Set(selected.ids), token = Object.freeze({}), contextKey = "flarexPrivateReferenceRead";
+  const native = yield* makePayloadNative(compiled, instrumentation, { create: () => false, update: () => false, delete: () => false,
+    read: ({ id, req }) => !input.lifetime.isClosing() && req.context[contextKey] === token && typeof id === "string" && allowed.has(id) });
+  const commands = native.makeCommands({ requestContext: { [contextKey]: token } });
+  const borrowed = makeBorrowedNativeCmsInvocation({ operations: input.operations, lifetime: input.lifetime,
+    transactionId: input.transactionId, commands: [commands.findByID] });
+  const read = Effect.fn("PayloadReferenceRead.readNative")(function* (id: string) {
+    if (!allowed.has(id) || !native.isLive()) return yield* cmsError("invalidAuthority");
+    return yield* borrowed.invoke(commands.findByID, { collection: selected.collection, id, depth: 0 });
+  }, Effect.catchCause(cause => Effect.fromResult(input.lifetime.recordFailure(input.lifetime.context, cause)).pipe(
+    Effect.flatMap(recorded => Effect.failCause(recorded)))));
+  return Object.freeze({ read });
 });

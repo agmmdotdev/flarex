@@ -356,3 +356,17 @@ connected relation workload construction uses the same current owner without
 restarting performance measurements. Its selected replacement and bounded
 regressions are complete; the remaining native, retained-data, hosting, package
 boundary retirement and performance obligations keep the full goal open.
+
+The [Product, Links and protected-reference continuation](./slices/16-native-product-links-and-references.md)
+now supplies the complete admitted Product graph, logical relational integrity,
+native query execution and same-root durable event storage through current Core
+owners. The selected original/authored Product, Links, protected actual Worker
+authorization/race/recovery and app DO paths have connected proof and independent
+review. Selected obsolete helpers are removed; the slice names retained finite,
+journal, workflow and performance consumers with their removal gates.
+The [app-owner recovery prerequisite](./slices/16a-app-owner-recovery.md)
+preserves Source's terminal committer stop through portable generation
+supervision, whole-scope drain, all-inflight reconciliation and fresh services.
+It is connected to the actual DO and native Product caller-retry path. These
+bounded replacements do not close remaining modules/workflows, named data,
+managed hosting, package retirement or paused performance obligations.

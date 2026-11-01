@@ -1,13 +1,10 @@
-import { Cause, Effect, Option, Result } from "effect";
+import { Effect, Option, Result } from "effect";
 import { decodeDocumentId } from "flarex-protocol/document-id";
-import type { CoreError, CoreNativeOperations } from "../../core/api";
+import type { CoreNativeOperations } from "../../core/api";
 import type { CmsRequestLifetime } from "./lifetime";
 import { cmsError } from "./model";
-import { projectCoreCmsFailure } from "./nativeFailure";
+import { nativeResult } from "./nativeFailure";
 import type { CmsRelations } from "./relations";
-
-const nativeResult = <A>(work: Effect.Effect<A, CoreError>) =>
-  work.pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCoreCmsFailure))));
 
 /** The trusted host derives target tables from its authenticated definition.
  * Core owns indexed source observations; this request owns join admission. */

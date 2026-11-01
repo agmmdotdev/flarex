@@ -31,6 +31,32 @@ accounting remain. These are source findings, not executed upstream tests.
 
 ## Why the write-maintenance timing differs
 
+### Translated Core native selection at the current pin
+
+The translated Core at `db914cf06e2b06ee985646611b9e12ed7a770318`
+already maintains Source's per-index private live-document/tombstone delta in
+[`transaction.ts`](../../../../packages/persistence-postgres/src/core/transaction.ts).
+Native unique/range reads and checkpoint uniqueness now consume that existing
+ordered delta through
+[`coreNativePendingIndexDocuments`](../../../../packages/persistence-postgres/src/core/nativeQuery.ts).
+They seek the selected interval instead of re-encoding every pending document
+for each point lookup. This is reuse of the pinned transaction-index mechanism,
+not another algorithm divergence or a second write-state owner.
+
+The physical native slot/range retains its first captured membership and exact
+dependencies. Unwritten remembered originals retain first-observation behavior;
+every written identity suppresses its original, including deletes and rows
+whose final key moved out. Only live final pending members of the selected
+interval are added. Uniqueness still inspects remembered originals and checks
+conditional eligibility on actual key fields. Releases, accounting, eager Core
+key-validation timing and final accepted-prefix validation remain with their
+existing owners. The
+[`bounded pending-index witness`](../../../../packages/persistence-postgres/test/core/nativePendingIndex.test.ts)
+checks the seek, selected live/tombstone prefix, end guard and untouched suffix.
+
+The remaining sections describe the retained logical-root adaptation; they do
+not change the translated Core's already eager index-maintenance contract.
+
 Current Flarex accepts schema-valid pending writes before ordinary ordered-key
 lowering. The existing
 [`indexedQueries` regression](../../../../packages/persistence-postgres/test/execution/journal/indexedQueries.test.ts)

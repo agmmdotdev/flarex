@@ -93,6 +93,8 @@ const nativeRootBindingBrand: unique symbol = Symbol("CoreNativeRootBinding");
 export interface CoreNativeRootBinding { readonly [nativeRootBindingBrand]: true }
 const applicationInsertBindingBrand: unique symbol = Symbol("CoreApplicationInsertBinding");
 export interface CoreApplicationInsertBinding { readonly [applicationInsertBindingBrand]: true }
+const applicationReadBindingBrand: unique symbol = Symbol("CoreApplicationReadBinding");
+export interface CoreApplicationReadBinding { readonly [applicationReadBindingBrand]: true }
 export interface CoreNativeRootParticipant {
   readonly binding: CoreNativeBinding;
   readonly commands: readonly string[];
@@ -104,18 +106,35 @@ export interface CoreNativeRootBindingInput {
   readonly participants: readonly CoreNativeRootParticipant[];
   /** One insert into an authentic Application-owned table; no committed read grant. */
   readonly applicationInsert?: Readonly<{ table: string; maxDocumentBytes: number }>;
+  readonly applicationRead?: Readonly<{ table: string; program: CoreProgramIdentity; maxIdentities: number; maxDocumentBytes: number }>;
+  readonly applicationProgram?: CoreProgramIdentity;
+  readonly retryProvenNoncommit?: true;
+  readonly protectedMetadata?: true;
   readonly maxFinalUserDocuments: number;
 }
 export interface CoreNativeRootBindingMetadata {
   readonly identity: CoreNativeRootIdentity;
+  readonly contract?: JsonObject;
   readonly namespace: CoreTableNamespace;
   readonly schemaId: string;
   readonly authorityEpoch: bigint;
   readonly limits: CoreNativeLimits;
   readonly maxFinalUserDocuments: number;
-  readonly participants: readonly Readonly<{ binding: CoreNativeBinding; commands: readonly CoreNativeCommandDefinition[];
-    definition: CoreNativeDefinition; limits: CoreNativeLimits }>[];
+  readonly participants: readonly (CoreNativeBindingMetadata & Readonly<{ binding: CoreNativeBinding; limits: CoreNativeLimits }>)[];
   readonly applicationInsert?: Readonly<{ binding: CoreApplicationInsertBinding; table: CoreTableDefinition; limits: CoreNativeLimits }>;
+  readonly applicationRead?: Readonly<{ binding: CoreApplicationReadBinding; table: CoreTableDefinition; program: CoreProgramIdentity; limits: CoreNativeLimits }>;
+  readonly applicationProgram?: CoreProgramIdentity;
+  readonly retryProvenNoncommit?: true;
+}
+export type CoreNativeRootRecoveryInput = Omit<CoreNativeRootBindingInput, "participants"> & {
+  readonly participants: readonly Readonly<{ definition: CoreNativeDefinition;
+    commands: readonly Readonly<{ name: string; mode: "read" | "write" }>[]; limits: CoreNativeLimits }>[];
+};
+/** Historical disclosure authority supplies no fresh writer capability. */
+export interface CoreNativeRootRecovery {
+  readonly identity: CoreNativeRootIdentity;
+  readonly resolve: (correlation: Readonly<{ key: string; requestHash: string }>) => Effect.Effect<CoreRequestResolution, CoreError>;
+  readonly recover: (correlation: Readonly<{ key: string; requestHash: string }>) => Effect.Effect<CoreRequestResolution, CoreError>;
 }
 
 const requestClaimBrand: unique symbol = Symbol("CoreRequestClaim");
@@ -168,12 +187,21 @@ export class CoreNativeReferenceError extends Data.TaggedError("CoreNativeRefere
   readonly targetId: string;
 }> {}
 
-export type CoreError = CoreTransactionError | CorePersistenceError | CoreQueryInputError | CoreSchemaError | CoreNativeUniqueConflict | CoreNativeReferenceError | CoreNativeQueryError | CoreNativeBudgetError;
+export class CoreNativeForeignKeyError extends Data.TaggedError("CoreNativeForeignKeyError")<{
+  readonly reason: "targetMissing" | "deleteRestricted" | "updateRestricted";
+  readonly descriptor: string;
+  readonly sourceTable: string;
+  readonly targetTable: string;
+  readonly sourceFields: readonly string[];
+  readonly targetFields: readonly string[];
+}> {}
+
+export type CoreError = CoreTransactionError | CorePersistenceError | CoreQueryInputError | CoreSchemaError | CoreNativeUniqueConflict | CoreNativeReferenceError | CoreNativeForeignKeyError | CoreNativeQueryError | CoreNativeBudgetError;
 
 /** These commit refusals originate before durability. The outer host must still
  * require a sole typed failure; mixed Causes and persistence uncertainty retain their owners. */
-export function isCoreDefinitiveCommitRefusal(error: CoreError): error is CoreTransactionError | CoreNativeUniqueConflict | CoreNativeReferenceError {
-  return error._tag === "CoreTransactionError" || error._tag === "CoreNativeUniqueConflict" || error._tag === "CoreNativeReferenceError";
+export function isCoreDefinitiveCommitRefusal(error: CoreError): error is CoreTransactionError | CoreNativeUniqueConflict | CoreNativeReferenceError | CoreNativeForeignKeyError {
+  return error._tag === "CoreTransactionError" || error._tag === "CoreNativeUniqueConflict" || error._tag === "CoreNativeReferenceError" || error._tag === "CoreNativeForeignKeyError";
 }
 
 export interface CoreQueryRequest {
@@ -263,12 +291,26 @@ export type CoreNativeOperations = Pick<CoreTransaction, "get" | "insert" | "pat
   readonly getMany: (table: string, ids: readonly string[]) => Effect.Effect<readonly (DocumentObject | null)[], CoreError>;
   readonly incomingReferences: (forwardName: string, targetId: string, options: Readonly<{ limit: number }>) =>
     Effect.Effect<Readonly<{ ids: readonly string[]; hasMore: boolean; inspectedMemberships: number }>, CoreError>;
+  /** Protected traversal consumes source membership without observing hidden bodies. */
+  readonly protectedReferencePage: (name: string, targetId: string, options: Readonly<{ limit: number;
+    position?: Uint8Array; generation?: number }>) => Effect.Effect<Readonly<{ ids: readonly string[]; hasMore: boolean;
+      position: Uint8Array | null; generation: number; inspectedMemberships: number }>, CoreError>;
+  readonly assertProtectedReferenceGeneration: (name: string, generation: number) => Effect.Effect<void, CoreError>;
   readonly pendingDelete: (table: string, id: string) => Effect.Effect<CoreNativePendingDelete, CoreError>;
   readonly assertPendingDelete: (table: string, id: string, evidence: CoreNativePendingDelete) => Effect.Effect<void, CoreError>;
   /** Relational metadata owns full-batch preflight and native mutation phases. */
-  readonly writeRows: (table: string, mode: "insert" | "upsert" | "update", rows: unknown) =>
+  readonly writeRows: (table: string, mode: "insert" | "upsert" | "upsertPreservingDeletion" | "update", rows: unknown) =>
     Effect.Effect<readonly DocumentObject[], CoreError>;
   readonly deleteRows: (table: string, keys: unknown) => Effect.Effect<readonly DocumentObject[], CoreError>;
+  readonly lifecycle: (table: string, mode: "softDelete" | "restore", keys: unknown) => Effect.Effect<readonly DocumentObject[], CoreError>;
+  /** Explicit complete cascade preparation after the caller's replacement decisions.
+   * Returned rows are the actual final removals, including already staged rows. */
+  readonly prepareDeleteClosure: () => Effect.Effect<readonly Readonly<{ table: string; document: DocumentObject }>[], CoreError>;
+  /** Complete active membership replacement through a declared nullable FK. */
+  readonly replaceReferenceSet: (selection: Readonly<{ sourceTable: string; sourceColumn: string; targetTable: string;
+    targetColumn: string; targetKey: string; desiredKeys: readonly string[] }>) => Effect.Effect<readonly DocumentObject[], CoreError>;
+  /** Trusted presentation owner reads the replacement's actual final delta. */
+  readonly referenceReplacementChanges: () => Effect.Effect<readonly Readonly<{ sourceTable: string; documents: readonly DocumentObject[] }>[], CoreError>;
   /** Bounded key-presence proof; empty source observes the complete absence interval. */
   readonly isEmpty: (table: string) => Effect.Effect<boolean, CoreError>;
   readonly find: (table: string, where: JsonObject) => Effect.Effect<readonly DocumentObject[], CoreError>;
@@ -289,12 +331,17 @@ export interface CoreNativeOperation {
 }
 export interface CoreApplicationInsertOperations {
   readonly insert: (value: unknown) => Effect.Effect<string, CoreError>;
+  readonly patchPending: (id: string, value: unknown) => Effect.Effect<void, CoreError>;
   readonly readPending: (id: string) => Effect.Effect<Option.Option<DocumentObject>, CoreError>;
+}
+export interface CoreApplicationReadOperations {
+  readonly get: (id: string) => Effect.Effect<Option.Option<DocumentObject>, CoreError>;
 }
 export interface CoreNativeRootOperation {
   readonly unixTime: number;
   readonly native: (binding: CoreNativeBinding) => Effect.Effect<CoreNativeOperations, CoreError>;
   readonly applicationInsert: (binding: CoreApplicationInsertBinding) => Effect.Effect<CoreApplicationInsertOperations, CoreError>;
+  readonly applicationRead: (binding: CoreApplicationReadBinding) => Effect.Effect<CoreApplicationReadOperations, CoreError>;
   readonly finalize: () => Effect.Effect<CoreFinalizedTransaction, CoreError>;
   readonly abort: () => Effect.Effect<void>;
 }
@@ -303,6 +350,7 @@ export interface CoreNativeRootOperation {
 export interface CoreReadToken {
   readonly timestamp: CoreTimestamp;
   readonly reads: CoreReadSet;
+  readonly metadataReadFrontiers?: readonly Readonly<{ timestamp: CoreTimestamp; reads: CoreReadSet }>[];
 }
 
 export interface CoreQueryOperation {
@@ -328,13 +376,14 @@ export interface CoreDatabase {
   readonly selectProgram: (functionPath: string) => Effect.Effect<CoreProgramDefinition, CoreError>;
   readonly lookupProgram: (identity: CoreProgramIdentity) => Effect.Effect<CoreProgramDefinition, CoreError>;
   readonly bindNative: (input: Readonly<{ definition: CoreNativeDefinition; namespace?: CoreTableNamespace;
-    commands?: readonly Readonly<{ name: string; mode: "read" | "write" }>[] }>) => Effect.Effect<CoreNativeBinding, CoreError>;
+    commands?: readonly Readonly<{ name: string; mode: "read" | "write" }>[]; protectedMetadata?: true }>) => Effect.Effect<CoreNativeBinding, CoreError>;
   readonly readNativeBinding: (binding: CoreNativeBinding) => Effect.Effect<CoreNativeBindingMetadata, CoreError>;
   readonly bindNativeInitialization: (input: Readonly<{ binding: CoreNativeBinding; commandName: string }>) =>
     Effect.Effect<CoreNativeInitializationBinding, CoreError>;
   readonly beginNative: (binding: CoreNativeBinding, options: Readonly<{ commandName: string; claim?: CoreRequestClaim;
     limits: CoreNativeLimits; chargeRetained: (bytes: number) => Effect.Effect<void, CoreError> }>) => Effect.Effect<CoreNativeOperation, CoreError>;
   readonly bindNativeRoot: (input: CoreNativeRootBindingInput) => Effect.Effect<CoreNativeRootBinding, CoreError>;
+  readonly bindNativeRootRecovery: (input: CoreNativeRootRecoveryInput) => Effect.Effect<CoreNativeRootRecovery, CoreError>;
   readonly readNativeRootBinding: (binding: CoreNativeRootBinding) => Effect.Effect<CoreNativeRootBindingMetadata, CoreError>;
   readonly beginNativeRoot: (binding: CoreNativeRootBinding, options: Readonly<{ claim: CoreRequestClaim;
     chargeRetained: (bytes: number) => Effect.Effect<void, CoreError> }>) => Effect.Effect<CoreNativeRootOperation, CoreError>;
@@ -395,6 +444,9 @@ export function issueCoreNativeRootBinding(): CoreNativeRootBinding {
 }
 export function issueCoreApplicationInsertBinding(): CoreApplicationInsertBinding {
   return Object.freeze({ [applicationInsertBindingBrand]: true as const });
+}
+export function issueCoreApplicationReadBinding(): CoreApplicationReadBinding {
+  return Object.freeze({ [applicationReadBindingBrand]: true as const });
 }
 export function issueCoreNativePendingDelete(): CoreNativePendingDelete {
   return Object.freeze({ [nativePendingDeleteBrand]: true as const });

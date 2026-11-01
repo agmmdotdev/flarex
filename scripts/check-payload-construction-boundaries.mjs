@@ -14,6 +14,11 @@ const constructionNames = new Set([
   "getCmsCommand", "makeBorrowedCmsAttempt", "makeApplicationServing", "makeApplicationReadServing",
   "createSessionJournalStorePersistence", "createAppDeveloperIndexQueryPortV1",
   "issuePreparedFiniteSessionJournalEntry", "issueFrozenFiniteAttempt",
+  "makeCmsNativeBinding", "CmsNativeBindingInput", "makeCmsNativeHost",
+  "prepareNativeReferenceSaveAccess", "prepareNativeReferencePagesAccess",
+  "makePayloadPreferenceNativeCleanup", "makePayloadPreferenceNativeDefinition",
+  "CoreDatabase", "CoreDatabaseOptions", "CoreTransaction", "CoreNativeOperation", "CoreNativeRootOperation",
+  "CoreFinalizedTransaction", "CoreRequestClaim", "openCoreDatabase", "makeCoreApplicationOwner",
 ]);
 
 /** All import forms use the same boundary, including erased types/re-exports.

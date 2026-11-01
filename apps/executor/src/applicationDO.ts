@@ -1,5 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
-import { CoreSchemaWorkBudgetSchema, CoreSchemaWorkerOptionsSchema, CoreTransactionError, openCoreDatabase, type CoreDatabase, type CoreDatabaseOptions, type CoreError } from
+import { CoreSchemaWorkBudgetSchema, CoreSchemaWorkerOptionsSchema, CoreTransactionError, makeCoreApplicationOwner,
+  type CoreApplicationOwner, type CoreApplicationMaintenance, type CoreApplicationGenerationPhase,
+  type CoreDatabase, type CoreDatabaseOptions, type CoreError } from
   "@flarex/persistence-postgres/internal/core";
 import { createCorePersistence, loadCorePersistenceTarget, makeCorePostgresDriver, type CorePostgresPool } from
   "@flarex/persistence-postgres/internal/core-persistence";
@@ -13,7 +15,7 @@ import { makeApplicationAnalysisR2SourceReader } from
   "flarex-backend/internal/application-analysis-source-reader";
 import { makeApplicationExecutionHost } from
   "flarex-backend/internal/application-execution-host";
-import { Cause, Clock, Data, Deferred, Effect, Exit, Layer, ManagedRuntime, Result, Schema, Semaphore, type Scope } from "effect";
+import { Cause, Clock, Data, Deferred, Effect, Exit, Layer, ManagedRuntime, Result, Schema, Semaphore, type Context, type Scope } from "effect";
 import { Client, Pool, type ClientConfig, type PoolConfig } from "pg";
 
 import { admitExecutorConfiguration, admitExecutorRequest, type ExecutorWorkerEnv } from "./requestLifecycle";
@@ -106,10 +108,14 @@ export interface ApplicationDurableObjectOptions<Env extends ApplicationDurableO
   readonly application: (env: Env, infrastructure: Readonly<{
     /** Trusted composition may install/publish only through this retained owner. */
     coreDatabase: CoreDatabase;
+    /** Recovery rebuilds services without replaying boot-only installation. */
+    phase: CoreApplicationGenerationPhase;
     source: ReturnType<typeof makeApplicationAnalysisR2SourceReader>;
     host: ReturnType<typeof makeApplicationExecutionHost>;
   }>) => Effect.Effect<ApplicationComposition, Failure, Scope.Scope>;
   readonly dispatch: (request: Request) => Effect.Effect<Response, Failure, ApplicationServices>;
+  /** Trusted HTTP projection after the generation has refused disclosure. */
+  readonly failureResponse?: (cause: Cause.Cause<Failure | CoreError | CoreApplicationAdmissionError | ApplicationOwnerHostError>) => Response;
   /** Optional trusted transport construction, also used by the actual socket witness. */
   readonly createPool?: (connectionString: string) => ApplicationPostgresPool;
 }
@@ -151,18 +157,21 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
       : { transactionLimits: Object.freeze({ ...options.coreOptions.transactionLimits }) }) });
   const createPool = options.createPool ?? ((connectionString: string) =>
     createApplicationPostgresPool({ connectionString, max: 4, statement_timeout: 30_000 }));
+  type HostFailure = Failure | CoreError | CoreApplicationAdmissionError | ApplicationOwnerHostError;
+  type HostedOwner = CoreApplicationOwner<Context.Context<ApplicationServices>, HostFailure>;
 
   return class ApplicationDurableObject extends DurableObject<Env> {
     readonly #canonical: boolean;
     readonly #configuration: ApplicationDurableObjectConfiguration;
     readonly #requests = new Map<Promise<Response>, AbortController>();
-    #runtime: ManagedRuntime.ManagedRuntime<ApplicationServices, Failure | CoreError | CoreApplicationAdmissionError | ApplicationOwnerHostError> | undefined;
-    #database: CoreDatabase | undefined;
+    #runtime: ManagedRuntime.ManagedRuntime<never, HostFailure> | undefined;
+    #owner: HostedOwner | undefined;
     #failure: ApplicationOwnerHostError | undefined;
     #closing: Promise<void> | undefined;
     readonly #alarmStorageLock = Semaphore.makeUnsafe(1);
     #schemaGeneration = 0;
-    readonly #coreReady = Deferred.makeUnsafe<CoreDatabase, unknown>();
+    readonly #coreReady = Deferred.makeUnsafe<CoreApplicationMaintenance<HostFailure>, HostFailure>();
+    readonly #ownerReady = Deferred.makeUnsafe<HostedOwner, HostFailure>();
     #bootstrap: Readonly<{ controller: AbortController; result: Promise<Exit.Exit<void, unknown>> }> | undefined;
     #schemaAlarm: Readonly<{ controller: AbortController; result: Promise<Exit.Exit<void, unknown>> }> | undefined;
 
@@ -196,28 +205,34 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
         const driver = makeCorePostgresDriver(pool);
         const target = yield* loadCorePersistenceTarget(driver, configuration.persistenceNamespace);
         const persistence = yield* createCorePersistence(target, configuration.instanceName);
-        const admission = yield* makeCoreApplicationAdmission(workload.admission);
-        // Opening includes the PostgreSQL fence and complete bootstrap. Layer
-        // construction cannot disclose an invocation before this succeeds.
-        const coreDatabase = yield* openCoreDatabase(persistence, coreOptions);
-        owner.#database = coreDatabase;
-        yield* Deferred.succeed(owner.#coreReady, coreDatabase);
-        if (owner.#closing !== undefined) return yield* new ApplicationOwnerHostError({ reason: "closed" });
-        const hostedDatabase: CoreDatabase = Object.freeze({ ...coreDatabase,
-          prepareSchema: (input: Parameters<CoreDatabase["prepareSchema"]>[0]) => owner.#withSchemaWake(coreDatabase.prepareSchema(input)),
-          activateSchema: (proposal: Parameters<CoreDatabase["activateSchema"]>[0], publication: Parameters<CoreDatabase["activateSchema"]>[1]) => owner.#withSchemaWake(coreDatabase.activateSchema(proposal, publication)),
+        const databaseOwner = yield* makeCoreApplicationOwner<Context.Context<ApplicationServices>, HostFailure, never>({ persistence, options: coreOptions,
+          // The HTTP map retains its original cap. One independent bounded
+          // schema alarm also borrows the app generation, including during boot.
+          maximumRequests: workload.maxRequests + 1,
+          onKernelReady: maintenance => Deferred.succeed(owner.#coreReady, maintenance).pipe(Effect.asVoid),
+          prepare: Effect.fn("ApplicationDurableObject.prepare")(function* (coreDatabase, phase) {
+            if (owner.#closing !== undefined) return yield* new ApplicationOwnerHostError({ reason: "closed" });
+            const admission = yield* makeCoreApplicationAdmission(workload.admission);
+            const hostedDatabase: CoreDatabase = Object.freeze({ ...coreDatabase,
+              prepareSchema: (input: Parameters<CoreDatabase["prepareSchema"]>[0]) => owner.#withSchemaWake(coreDatabase.prepareSchema(input)),
+              activateSchema: (proposal: Parameters<CoreDatabase["activateSchema"]>[0], publication: Parameters<CoreDatabase["activateSchema"]>[1]) => owner.#withSchemaWake(coreDatabase.activateSchema(proposal, publication)),
+            });
+            if (owner.#failure !== undefined) return yield* Effect.fail(owner.#failure);
+            const application = yield* options.application(env, {
+              coreDatabase: hostedDatabase, phase,
+              source: makeApplicationAnalysisR2SourceReader(env.ARTIFACTS),
+              host: makeApplicationExecutionHost(env.LOADER),
+            });
+            const live = { ...application, coreDatabase: hostedDatabase, admission };
+            return yield* Layer.build(Layer.mergeAll(makeApplicationQuerySystemLayer(live), makeApplicationMutationSystemLayer(live)));
+          }),
         });
-        if (owner.#failure !== undefined) return yield* Effect.fail(owner.#failure);
-        const application = yield* options.application(env, {
-          coreDatabase: hostedDatabase,
-          source: makeApplicationAnalysisR2SourceReader(env.ARTIFACTS),
-          host: makeApplicationExecutionHost(env.LOADER),
-        });
-        const live = { ...application, coreDatabase: hostedDatabase, admission };
-        return Layer.mergeAll(makeApplicationQuerySystemLayer(live), makeApplicationMutationSystemLayer(live));
+        owner.#owner = databaseOwner;
+        yield* Deferred.succeed(owner.#ownerReady, databaseOwner);
       }).pipe(Effect.onExit(exit => Exit.isFailure(exit)
-        ? Deferred.failCause(owner.#coreReady, exit.cause).pipe(Effect.asVoid) : Effect.void));
-      this.#runtime = ManagedRuntime.make(Layer.unwrap(acquire));
+        ? Deferred.failCause(owner.#coreReady, exit.cause).pipe(
+          Effect.andThen(Deferred.failCause(owner.#ownerReady, exit.cause)), Effect.asVoid) : Effect.void));
+      this.#runtime = ManagedRuntime.make(Layer.effectDiscard(acquire));
       const controller = new AbortController();
       const result = this.#runtime.runPromiseExit(Effect.void, { signal: controller.signal });
       // The retained bootstrap is independent of a single HTTP call. Native
@@ -289,10 +304,10 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
       // Core workers do not require ApplicationServices. In particular they must
       // progress a schema while trusted application composition waits for it.
       return Effect.runPromiseExit(Effect.gen(function* () {
-        const database = yield* Deferred.await(owner.#coreReady);
+        const maintenance = yield* Deferred.await(owner.#coreReady);
         if (owner.#closing !== undefined) return;
         const generation = owner.#schemaGeneration;
-        const progress = yield* database.advanceSchemaWork(workload.schemaScheduler.work);
+        const progress = yield* maintenance.useDatabase(database => database.advanceSchemaWork(workload.schemaScheduler.work));
         yield* owner.#finishSchemaStep(generation, progress.hasMore);
       }), { signal: controller.signal });
     }
@@ -327,7 +342,15 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
         return Response.json({ error: "application_owner_overloaded" }, { status: 503 });
       const runtime = this.#getRuntime(admission.success.connectionString);
       const controller = new AbortController();
-      const invocation = runtime.runPromise(options.dispatch(request), {
+      const ownerReady = this.#ownerReady;
+      const dispatch = Effect.gen(function* () {
+        const databaseOwner = yield* Deferred.await(ownerReady);
+        yield* databaseOwner.recover;
+        return yield* databaseOwner.use(services => Effect.provideContext(options.dispatch(request), services));
+      });
+      const projectFailure = options.failureResponse;
+      const invocation = runtime.runPromise(projectFailure === undefined ? dispatch : dispatch.pipe(
+        Effect.catchCause(cause => Effect.sync(() => projectFailure(cause)))), {
         signal: AbortSignal.any([request.signal, controller.signal]),
       });
       this.#requests.set(invocation, controller);
@@ -355,8 +378,8 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
         // Start disposal now so an interruptible factory cannot hold close.
         const runtime = this.#runtime;
         const dispose = Promise.allSettled(runtime === undefined ? [] : [runtime.dispose()]);
-        const database = this.#database;
-        const coreClose = await Promise.allSettled(database === undefined ? [] : [Effect.runPromise(database.close())]);
+        const databaseOwner = this.#owner;
+        const coreClose = await Promise.allSettled(databaseOwner === undefined ? [] : [Effect.runPromise(databaseOwner.close)]);
         await Promise.allSettled([...this.#requests.keys()]);
         const backgroundDrain = await Promise.allSettled([
           ...(alarm === undefined ? [] : [alarm.result]), ...(bootstrap === undefined ? [] : [bootstrap.result]),

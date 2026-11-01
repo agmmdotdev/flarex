@@ -56,6 +56,28 @@ export function registerCorePersistenceScenarios(
     try { await run(fixture); } finally { await fixture.close(); }
   };
   describe(`translated five-table persistence (${lane})`, () => {
+    it("persists a large ordinary-index batch without losing backend execution or its fence", () => withFixture(async fixture => {
+      const persistence = fixture.persistence;
+      const lease = await Effect.runPromise(persistence.acquireLease());
+      const names = Array.from({ length: 7000 }, (_, offset) => `large-${String(offset).padStart(5, "0")}`);
+      await Effect.runPromise(persistence.write(lease, {
+        documents: [document(1n, "large-index-batch")], indexes: names.map(name => index(1n, name)),
+      }));
+      expect(await Effect.runPromise(persistence.latestTimestamp(lease))).toBe(1n);
+      const snapshot = await Effect.runPromise(persistence.readSnapshot(1n));
+      const actual: Uint8Array[] = [];
+      let interval: Readonly<{ start: Uint8Array | null; end: Uint8Array | null }> = { start: null, end: null };
+      while (true) {
+        const page = await scan(snapshot, 512, "asc", interval);
+        actual.push(...page.entries.map(entry => entry.key));
+        expect(page.entries.every(entry => entry.document.jsonValue.length !== 0 && entry.document.ts === 1n)).toBe(true);
+        if (page.cursor.kind === "end") break;
+        interval = { start: after(page.cursor.key), end: null };
+      }
+      expect(actual).toEqual(names.map(name => key(name)));
+      expect(await Effect.runPromise(fixture.persistence.isFresh(lease))).toBe(false);
+    }));
+
     it("hydrates unchanged keys from the exact document revision and retains tombstones", () => withFixture(async fixture => {
       const persistence = fixture.persistence;
       const lease = await Effect.runPromise(persistence.acquireLease());

@@ -5,7 +5,7 @@ import upstream, { admittedProductTypeCases, productCoverage } from "./vitest.pr
 export default defineConfig({
   ...upstream,
   resolve: { ...upstream.resolve, alias: [
-    { find: /^@medusajs\/test-utils$/, replacement: fileURLToPath(new URL("./test/support/logical-public-type-runner.ts", import.meta.url)) },
+    { find: /^@medusajs\/test-utils$/, replacement: fileURLToPath(new URL("./test/support/core-product-runner.ts", import.meta.url)) },
     ...(Array.isArray(upstream.resolve?.alias) ? upstream.resolve.alias.filter(alias =>
       !(alias.find instanceof RegExp && alias.find.source === "^@medusajs\\/test-utils$")) : []),
   ] },

@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { cmsError, type CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
 import { bindCmsCommand, bindCmsRead, type CmsCommandBinding, type CmsReadBinding, type CmsHost, type CmsReadHost } from
   "@flarex/persistence-postgres/internal/cms-execution";
-import { bindCmsNativeCommand, bindCmsNativeRead, type CmsNativeBinding } from "@flarex/persistence-postgres/internal/cms-native";
+import { bindCmsNativeCommand, bindCmsNativeRead, type CmsNativeBinding } from "@flarex/persistence-postgres/internal/cms-execution";
 import type { PayloadHost, PayloadReadHost } from "../api";
 import { payloadCanonicalResults } from "../results";
 import type { PayloadNative } from "../runtime/native";

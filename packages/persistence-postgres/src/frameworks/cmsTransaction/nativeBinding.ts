@@ -15,6 +15,8 @@ import { requirePayloadPreferenceNativeCleanup, type PayloadPreferenceNativeClea
 
 export { makePayloadPreferenceNativeCleanup, type PayloadPreferenceNativeCleanup } from "../payloadPreferences/nativeCleanup";
 export { makePayloadPreferenceNativeDefinition } from "../payloadPreferences/nativeSource";
+export { prepareNativeReferenceSaveAccess } from "./nativeReferenceAccess";
+export { prepareNativeReferencePagesAccess } from "./nativeReferencePages";
 
 declare const bindingBrand: unique symbol;
 /** Trusted construction supplies dependencies; framework callbacks receive none. */

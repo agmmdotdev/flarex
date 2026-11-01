@@ -8,6 +8,8 @@ it("accepts the checked-in adapter through declared operation capabilities", () 
     'import { bindCmsRead, type CmsReadBinding } from "@flarex/persistence-postgres/internal/cms-execution";')).toEqual([]);
   expect(inspectPayloadConstructionBoundary(file,
     'import type { LogicalParticipantBorrow } from "@flarex/persistence-postgres/internal/session-journal";')).toEqual([]);
+  expect(inspectPayloadConstructionBoundary(file,
+    'import { bindCmsNativeCommand, makeBorrowedNativeCmsInvocation, type CmsNativeBinding, type CoreNativeOperations, type CoreNativeBindingMetadata } from "@flarex/persistence-postgres/internal/cms-execution";')).toEqual([]);
 });
 it.each([
   'import type { CmsHostInput as Hidden } from "@flarex/persistence-postgres/internal/cms-adapter";',
@@ -33,6 +35,18 @@ it.each([
   'export * from "@flarex/persistence-postgres/internal/session-journal-construction";',
   'import { issuePreparedFiniteSessionJournalEntry as bind } from "@flarex/persistence-postgres/internal/session-journal";',
   'type Constructor = import("@flarex/persistence-postgres/internal/session-journal").createAppDeveloperIndexQueryPortV1;',
+  'import { makeCmsNativeBinding as bind } from "@flarex/persistence-postgres/internal/cms-execution";',
+  'type Input = import("@flarex/persistence-postgres/internal/cms-execution").CmsNativeBindingInput;',
+  'export { makeCmsNativeHost as bind } from "@flarex/persistence-postgres/internal/cms-execution";',
+  'import { prepareNativeReferenceSaveAccess } from "@flarex/persistence-postgres/internal/cms-execution";',
+  'export { prepareNativeReferencePagesAccess } from "@flarex/persistence-postgres/internal/cms-execution";',
+  'import { makePayloadPreferenceNativeCleanup } from "@flarex/persistence-postgres/internal/cms-execution";',
+  'import type { CoreDatabase } from "@flarex/persistence-postgres/internal/cms-execution";',
+  'type Root = import("@flarex/persistence-postgres/internal/cms-execution").CoreNativeRootOperation;',
+  'export type { CoreFinalizedTransaction } from "@flarex/persistence-postgres/internal/cms-execution";',
+  'import { makeCoreApplicationOwner } from "@flarex/persistence-postgres/internal/cms-execution";',
+  'import type { CoreNativeOperations } from "@flarex/persistence-postgres/internal/core";',
+  'import { bindCmsNativeCommand } from "@flarex/persistence-postgres/internal/cms-native";',
 ])("rejects hidden construction or conformance dependencies: %s", text => {
   expect(inspectPayloadConstructionBoundary(file, text).length).toBeGreaterThan(0);
 });

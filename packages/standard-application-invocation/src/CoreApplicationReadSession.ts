@@ -45,16 +45,16 @@ const QUERY_TRANSPORT_PAGE_SEMANTIC_BYTES = normalizeFlarexValueV1(QUERY_TRANSPO
   - normalizeFlarexValueV1([]).semanticSizeBytes;
 
 /** One serial callback and stream lifetime, borrowed by either execution profile. */
-export function makeCoreApplicationReadSession<RevalidationError>(
+export function makeCoreApplicationReadSession<RevalidationError, OperationError = never>(
   input: Readonly<{
-    transaction: CoreReadTransaction;
+    transaction: Pick<CoreReadTransaction, "get" | "startQuery">;
     revalidate: Effect.Effect<void, RevalidationError>;
   }>,
   callbackContext: Context.Context<never>,
   broker: QueryCursorBroker,
   limits: Pick<CoreApplicationAdmission, "maxPendingCallbacks" | "maxOpenQueries">,
 ) {
-  type CapabilityFailure = CoreError | RevalidationError | CoreApplicationAdmissionError;
+  type CapabilityFailure = CoreError | RevalidationError | CoreApplicationAdmissionError | OperationError;
   let open = true;
   let tail = Promise.resolve();
   let firstCause: Cause.Cause<CapabilityFailure> | undefined;
@@ -62,7 +62,7 @@ export function makeCoreApplicationReadSession<RevalidationError>(
   let querySequence = 0;
   let pendingCallbacks = 0;
   const stopped = () => new Error("The Application database capability is unavailable.");
-  const run = <A>(work: () => Effect.Effect<A, CoreError | CoreApplicationAdmissionError>): Promise<A> => {
+  const run = <A>(work: () => Effect.Effect<A, CoreError | CoreApplicationAdmissionError | OperationError>): Promise<A> => {
     if (!open || firstCause !== undefined) return Promise.reject(stopped());
     if (pendingCallbacks >= limits.maxPendingCallbacks) {
       // Latch before exposing rejection: untrusted code can catch an RPC error.

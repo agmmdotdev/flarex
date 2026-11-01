@@ -28,6 +28,7 @@ export interface CoreNativeRangeSlot {
 export type CoreNativeIndexObservation = CoreNativeUniqueSlot | CoreNativeRangeSlot;
 
 export interface CoreNativeObservations {
+  readonly selectiveMetadata?: true;
   readonly limits: CoreNativeLimits;
   readonly identities?: readonly string[];
   readonly sourceCaptures?: readonly Readonly<{ sourceKey: string; tablets: readonly string[];

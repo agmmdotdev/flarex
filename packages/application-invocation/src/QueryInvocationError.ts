@@ -163,6 +163,7 @@ export function projectQueryInvocationError(
       return queryInvocationError("invalidInput", error);
     case "CoreNativeUniqueConflict":
     case "CoreNativeReferenceError":
+    case "CoreNativeForeignKeyError":
     case "CoreNativeQueryError":
     case "CoreNativeBudgetError":
       return queryInvocationError("invalidConfiguration", error);

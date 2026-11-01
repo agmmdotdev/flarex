@@ -167,7 +167,7 @@ function options() {
       // reconstruct Analysis/publication authority by copying the old algorithm.
       const manifest = (yield* readCoreApplicationProgram(first, sha256)).manifest;
       schemaHead = infrastructure.coreDatabase.publishedTimestamp.pipe(Effect.map(String));
-      if (decodeConfiguration(env.APP_CONFIGURATION).waitForSchemaOnBoot === true) {
+      if (infrastructure.phase === "initial" && decodeConfiguration(env.APP_CONFIGURATION).waitForSchemaOnBoot === true) {
         yield* Effect.gen(function* () {
           schemaGate.bootWaiting = true;
           const schema = yield* Effect.fromResult(compileCoreApplicationSchema(manifest));
@@ -257,6 +257,12 @@ function options() {
             reason: isNonArrayRecord(reason.error) && typeof reason.error.reason === "string" ? reason.error.reason : null,
           })),
         });
+    }),
+    failureResponse: cause => Response.json({ ok: false, cause: Cause.pretty(cause), resources,
+      failures: cause.reasons.filter(Cause.isFailReason).map(reason => ({
+        tag: isNonArrayRecord(reason.error) && typeof reason.error._tag === "string" ? reason.error._tag : null,
+        reason: isNonArrayRecord(reason.error) && typeof reason.error.reason === "string" ? reason.error.reason : null,
+      })),
     }),
     resources,
     backends, schemaGate, releaseSchema,

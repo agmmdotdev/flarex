@@ -5,6 +5,7 @@ import { defaultCommerceResources, type CommerceResources, type Json, type JsonO
 import { productCreationProfile, productGraphCatalog } from "./graph-profile";
 import type { ProductRuntimeMetadata } from "./runtime-metadata";
 import { captureGraph, insertGraphRows } from "../../write/create";
+import { observeExecution } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 
 export type ProductTable = string;
 export interface ProductGraph { readonly products: readonly string[]; readonly rows: ReadonlyMap<ProductTable, readonly JsonObject[]> }
@@ -18,11 +19,11 @@ export const captureProductGraph = Effect.fn("ProductAdapter.captureGraph")(func
 ) {
   const graph = yield* captureGraph(productCreationProfile(catalog), input, resources);
   return { products: graph.roots, rows: graph.rows } satisfies ProductGraph;
-});
+}, work => observeExecution("ProductGraph.capture", work));
 
 export const insertProductGraph = Effect.fn("ProductAdapter.insertGraph")((
   ctx: CommerceCommandContext, catalog: ProductRuntimeMetadata, graph: ProductGraph,
-) => insertGraphRows(ctx, productGraphCatalog(catalog), graph.rows));
+) => observeExecution("ProductGraph.insert", insertGraphRows(ctx, productGraphCatalog(catalog), graph.rows)));
 
 /** Reuse Medusa's relation grouping for the newly inserted, acyclic graph. */
 export function assembleProducts(catalog: ProductRuntimeMetadata, rows: ReadonlyMap<ProductTable, readonly JsonObject[]>, relations: readonly string[]) {

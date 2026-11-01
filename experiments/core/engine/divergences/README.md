@@ -1,5 +1,9 @@
 # Convex mechanism divergence records
 
+- [Scoped app-generation supervision](./app-owner-recovery.md): preserve Source's committer stop and durable reconstruction through a portable scoped supervisor and Cloudflare host adapter.
+
+- [Caller retry after proven noncommit](./native-proven-noncommit-retry.md): selected Product and protected retry behavior requires authenticated manual reclaim after proven noncommit; automatic callback replay remains forbidden.
+
 Status: **Required record format for the authorized core refactor**.
 The default is to copy or translate the pinned Convex mechanism as closely as
 possible. Every necessary mechanism difference gets its own Markdown record in
@@ -132,6 +136,13 @@ maintaining a competing completion log here.
 
 ## Selected native extensions
 
+- [Native relational foreign keys](./native-relational-foreign-keys.md): declared native-key integrity and frozen bounded delete closure; specified, implementation/proof open.
+- [Native conditional uniqueness](./native-conditional-uniqueness.md): eligibility separate from nullable business keys; specified, implementation/proof open.
+- [Native relational query plans](./native-relational-query-plans.md): admitted Medusa plans through shared Core indexes/observations; specified, implementation/proof open.
+- [Native durable events and delivery](./native-durable-event-delivery.md): authenticated private logical records in the same root/outcome; specified, implementation/proof open.
+- [Protected historical outcome recovery](./native-protected-outcome-recovery.md): committed-first recovery with historical native disclosure authority; specified, implementation/proof open.
+- [Protected native Worker context](./native-protected-worker-context.md): confined native calls over the unchanged CoreV6 kernel and shared artifact generator; implemented, actual Worker proof open.
+- [Installed native source binding selection](./native-source-binding-selection.md): authenticated logical source withdrawal retains data and historical recovery while denying fresh runtime authority; specified, implementation/proof open.
 - [Native many membership derivation](./native-reference-memberships.md): selected fresh many/join profiles implemented through confined logical records and ordinary indexes, with paired native/integrity/recovery proof; broader acceptance remains open.
 - [Native strong-reference integrity](./native-strong-references.md): selected optional-one late liveness/restrict validation, shared reverse indexes and ordered-save proof implemented; broader native gates remain.
 - [Confined Payload preference cleanup](./native-payload-preference-cleanup.md): logical installed model, opaque deletion evidence and native lifecycle authority implemented for selected consumers; broader lifecycle/hosting gates remain.

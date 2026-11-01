@@ -1,5 +1,6 @@
 /** Native scalar selection policy over the shared Source index/range codec. */
 import { Result, Schema } from "effect";
+import type { BTreeEx as BTree } from "sorted-btree/extended/index.js";
 import { compareBytesLexicographically } from "@flarex/utils/bytes";
 import type { DocumentObject } from "flarex-protocol/document-value";
 import type { JsonObject } from "flarex-protocol/json";
@@ -10,7 +11,7 @@ import { CoreNativeQueryError, CoreTransactionError, type CoreError, type CoreIn
   type CoreTableDefinition } from "./api";
 import type { CoreInterval } from "./contracts";
 import { CORE_TRANSACTION_REFERENCE_LIMITS } from "./accounting";
-import { coreNativeConstraintFields, coreNativeConstraintNullsDistinct } from "./nativePolicy";
+import { coreNativeConstraintEligibility, coreNativeConstraintFields, coreNativeConstraintNullsDistinct } from "./nativePolicy";
 
 const Scalar = Schema.Union([Schema.String, Schema.Finite, Schema.Boolean, Schema.Null]);
 export type CoreNativeScalar = typeof Scalar.Type;
@@ -29,6 +30,19 @@ const invalid = (cause?: unknown) => new CoreNativeQueryError({ reason: "invalid
 export const isCoreNativeRange = (value: Predicate | undefined): value is typeof Range.Type =>
   value !== null && typeof value === "object";
 
+/** Select the existing incrementally maintained pending index. A bounded
+ * native lookup must not re-encode or inspect unrelated pending documents.
+ * Tombstones suppress originals through the writes map; they are not members. */
+export function* coreNativePendingIndexDocuments(
+  pending: Pick<BTree<Uint8Array, DocumentObject | null>, "entries"> | undefined, interval: CoreInterval,
+): Generator<DocumentObject> {
+  if (pending === undefined) return;
+  for (const [key, document] of pending.entries(interval.start ?? undefined)) {
+    if (interval.end !== null && compareBytesLexicographically(key, interval.end) >= 0) break;
+    if (document !== null) yield document;
+  }
+}
+
 export function captureCoreNativeWhere(input: JsonObject): Result.Result<CoreNativeWhere, CoreError> {
   return Result.gen(function* () {
     // Structural ownership permits escaped surrogates. Selected operands and
@@ -44,6 +58,8 @@ export type CoreNativeQueryPlan = Readonly<{ kind: "all" }> | Readonly<{ kind: "
   | Readonly<{ kind: "range"; index: CoreIndexDefinition; interval: CoreInterval }>;
 
 export function coreNativeUniqueValues(constraint: Constraint, document: DocumentObject): Result.Result<readonly CoreNativeScalar[] | null, CoreTransactionError> {
+  const eligibility = coreNativeConstraintEligibility(constraint);
+  if (eligibility !== undefined && document[eligibility.field] !== eligibility.value) return Result.succeed(null);
   const values: CoreNativeScalar[] = [];
   for (const field of coreNativeConstraintFields(constraint)) {
     const value = document[field];
@@ -59,11 +75,13 @@ export function coreNativeUniqueSelection(table: CoreTableDefinition, constraint
     if (index === undefined) return yield* Result.fail(new CoreTransactionError({ reason: "indexUnavailable" }));
     const expressions: CapturedIndexRangeExpression[] = [];
     const fields = coreNativeConstraintFields(constraint);
+    const eligibility = coreNativeConstraintEligibility(constraint);
+    if (eligibility !== undefined) expressions.push({ op: "eq", field: eligibility.field, value: eligibility.value });
     for (const [position, field] of fields.entries()) {
       const value = values[position];
       if (value === undefined || isCoreNativeRange(value)) return yield* Result.fail(invalid());
       yield* Result.mapError(encodeIndexValue(value), invalid);
-      expressions.push({ op: "eq", field, value });
+      if (eligibility?.field !== field) expressions.push({ op: "eq", field, value });
     }
     return { index, interval: yield* Result.mapError(compileIndexRange(expressions, index.fields), invalid) };
   });
@@ -100,6 +118,8 @@ export function planCoreNativeQuery(table: CoreTableDefinition, where: CoreNativ
     }
     for (const constraint of table.nativePolicy?.uniqueConstraints ?? []) {
       const fields = coreNativeConstraintFields(constraint);
+      const eligibility = coreNativeConstraintEligibility(constraint);
+      if (eligibility !== undefined && (!Object.hasOwn(where, eligibility.field) || where[eligibility.field] !== eligibility.value)) continue;
       if (!fields.every(field => Object.hasOwn(where, field) && !isCoreNativeRange(where[field]))
         || coreNativeConstraintNullsDistinct(constraint) && fields.some(field => where[field] === null)) continue;
       const values: CoreNativeScalar[] = [];

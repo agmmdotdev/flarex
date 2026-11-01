@@ -23,6 +23,28 @@ union of source access. The App child can insert and read only its own pending
 insert; generated-ID absence, validation, accounting and staging still pass
 through the same kernel. It has no committed read or general Application facade.
 
+## Native16 protected consumer extension
+
+The existing authored reverse-page consumer inserts an Application row, consumes
+native pages, then patches that same pending row. Preserve this developer logic
+through the ordinary point-patch syscall and unchanged Worker kernel. Extend the
+existing one-insert grant with a confined pending-only patch; do not grant a
+second insert, committed/foreign row mutation, replace/delete, query, transaction
+or finalizer. The same generated Core ID, namespace, table validator, authority,
+staging and budgets apply to every attempted patch. Failure remains sticky and
+does not refund already consumed resources.
+
+The protected profile also carries a separately confined Application point-read
+grant for the backend-selected permission record. Its exact immutable program
+revision and current head, explicit global authority epoch, consumed table
+validator and tracked point observation remain with Core. This is separate from
+the pending-insert view and cannot be used to self-grant through ordinary writes.
+
+The actual authored insert → native pages → pending patch consumer and foreign
+or committed-row refusal must be proved through the private generated Worker on
+both databases. This extension does not broaden the retained Native15 consumer
+or establish a general framework-facing Application transaction API.
+
 Add a truthful `nativeRoot` case to the existing Core claim/outcome owner. Root
 identity covers selected source identities and actual child command/table/profile
 semantics, including target scope/epoch UUIDs. Unrelated producers, whole bundle

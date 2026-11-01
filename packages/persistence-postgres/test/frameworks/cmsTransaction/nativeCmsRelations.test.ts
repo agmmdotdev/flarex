@@ -17,6 +17,9 @@ function operations(overrides: Pick<CoreNativeOperations, "get" | "normalizeId" 
   const unexpected = () => Effect.die(new Error("Unexpected Core operation in join admission test"));
   return { ...overrides, getMany: unexpected, insert: unexpected, patch: unexpected, replace: unexpected, delete: unexpected,
     pendingDelete: unexpected, assertPendingDelete: unexpected, writeRows: unexpected, deleteRows: unexpected,
+    lifecycle: unexpected, prepareDeleteClosure: unexpected,
+    replaceReferenceSet: unexpected, referenceReplacementChanges: unexpected, protectedReferencePage: unexpected,
+    assertProtectedReferenceGeneration: unexpected,
     isEmpty: unexpected, find: unexpected, findPage: unexpected };
 }
 const validOperations = (incomingReferences: CoreNativeOperations["incomingReferences"]): CoreNativeOperations => operations({

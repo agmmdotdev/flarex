@@ -584,6 +584,21 @@ check; numeric revision ordering and interruptible transaction preparation stay
 with their shared owners. Broader native migration, retained-data cutover,
 managed hosting and complete-flow performance remain full-goal gates.
 
+The [Product, Links and protected-reference continuation](./slices/16-native-product-links-and-references.md)
+selects the complete admitted graph after independent current/design/Source
+challenge and peer exchange. Shared native-key FKs, conditional uniqueness,
+native query execution, explicit closure preparation, durable events and
+historically authenticated committed-first recovery now execute in existing
+owners. The connected [app-generation supervisor](./slices/16a-app-owner-recovery.md)
+preserves the terminal committer stop and reconstructs after whole-scope drain,
+fencing and all-inflight reconciliation; the actual DO and explicit native
+caller-retry path use that owner. Native business semantics remain with
+Medusa/Payload. The selected original/authored Product, Links, protected
+read/save/reverse/race/recovery and actual-host proof and review are complete.
+Selected unused helpers are removed. Named Legacy finite/journal, workflow,
+mixed/performance and durable-data consumers retain explicit migration/removal
+gates; the complete rewrite and paused performance acceptance remain open.
+
 The [optional-one native continuation](./slices/14-native-reference-integrity.md)
 implements complete direct Payload relations/population/preferences and the genuine
 joint native consumer after independent peer challenge. Its scope includes the

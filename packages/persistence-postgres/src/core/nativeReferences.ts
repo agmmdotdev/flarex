@@ -8,7 +8,6 @@ import { compileIndexRange } from "flarex-protocol/index-range";
 import type { DocumentObject } from "flarex-protocol/document-value";
 import { CoreNativeReferenceError, CoreTransactionError, type CoreError, type CoreIndexDefinition, type CoreTableDefinition } from "./api";
 import { CorePersistenceError, type CoreInterval, type CorePersistenceSnapshot, type CoreWriteBatch } from "./contracts";
-import { CoreAccounting, CORE_TRANSACTION_REFERENCE_LIMITS } from "./accounting";
 import { captureCoreDocument } from "./document";
 import { documentIndexKey } from "./documentIndex";
 import { addIndexMetadataDependency, addTableWriteDependencies } from "./dependencies";
@@ -19,6 +18,7 @@ import { coreNativeManyTargets, isCoreNativeManyReference, readCoreNativeMembers
 import { publicDocumentId, readDocumentObject, type CoreRegistry } from "./registry";
 import type { CoreFinalizedState } from "./transaction";
 import { CoreReadSetBuilder, keyInInterval, pointInterval, type CoreReadSet } from "./writeLog";
+import { CoreNativeIntegrityBudget } from "./nativeIntegrityBudget";
 
 export interface CoreNativeReferenceSelection {
   readonly reference: CoreNativeReference;
@@ -128,7 +128,7 @@ export interface CorePreparedNativeReferences {
 }
 
 export const prepareCoreNativeReferences = Effect.fn("CoreNativeReferences.prepare")(function* (
-  snapshot: CorePersistenceSnapshot, registry: CoreRegistry, transaction: CoreFinalizedState,
+  snapshot: CorePersistenceSnapshot, registry: CoreRegistry, transaction: CoreFinalizedState, budget?: CoreNativeIntegrityBudget,
 ) {
   const observations = transaction.nativeObservations;
   const reads = new CoreReadSetBuilder();
@@ -136,14 +136,9 @@ export const prepareCoreNativeReferences = Effect.fn("CoreNativeReferences.prepa
   const maxIdentities = observations?.limits.maxIdentities ?? 0;
   const identities = new Set(observations?.identities ?? []);
   const sourceCaptures = observations?.sourceCaptures?.map(source => ({ ...source, captured: new Set(source.identities) })) ?? [];
-  const limits = transaction.limits ?? CORE_TRANSACTION_REFERENCE_LIMITS;
-  const accounting = new CoreAccounting(limits, transaction.usage);
-  const queries = new CoreReadSetBuilder();
-  const query = (index: CoreIndexDefinition, interval: CoreInterval) => {
-    queries.add(index.ref.id, interval);
-    return transaction.usage.databaseQueries + queries.intervalCount > limits.databaseQueries
-      ? Result.fail(new CoreTransactionError({ reason: "capacity", cause: "Native reference query limit" })) : Result.succeed(undefined);
-  };
+  const queryBudget = budget ?? new CoreNativeIntegrityBudget(transaction);
+  const accounting = queryBudget.accounting;
+  const query = (index: CoreIndexDefinition, interval: CoreInterval) => queryBudget.query(index, interval);
   const charge = (table: CoreTableDefinition, entry: import("./contracts").CoreDocumentLogEntry) => Result.gen(function* () {
     const document = yield* readDocumentObject(entry, table);
     const captured = yield* Result.mapError(captureCoreDocument(document, isCoreSystemTable(table)), cause => new CorePersistenceError({ reason: "corruptData", cause }));
@@ -151,6 +146,7 @@ export const prepareCoreNativeReferences = Effect.fn("CoreNativeReferences.prepa
     return document;
   });
   const reserve = (table: CoreTableDefinition, id: string) => {
+    if (budget !== undefined) return budget.reserve(table, id);
     identities.add(id);
     if (identities.size > maxIdentities) return Result.fail(new CoreTransactionError({ reason: "capacity", cause: "Native reference identity limit" }));
     const source = sourceCaptures.find(capture => capture.tablets.includes(encodeBytesToLowercaseHex(table.tabletId)));
@@ -167,10 +163,10 @@ export const prepareCoreNativeReferences = Effect.fn("CoreNativeReferences.prepa
     if (currentOwner === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
     for (const reference of change.table.nativePolicy.references ?? []) {
       const selection = yield* Effect.fromResult(selectCoreNativeReference(registry, currentOwner, reference));
-      yield* Effect.fromResult(addTableWriteDependencies(reads, registry, selection.source));
-      yield* Effect.fromResult(addTableWriteDependencies(reads, registry, selection.target));
+      yield* Effect.fromResult(addTableWriteDependencies(reads, registry, selection.source, observations.selectiveMetadata === true));
+      yield* Effect.fromResult(addTableWriteDependencies(reads, registry, selection.target, observations.selectiveMetadata === true));
       if (selection.projection !== undefined)
-        yield* Effect.fromResult(addTableWriteDependencies(reads, registry, selection.projection.table));
+        yield* Effect.fromResult(addTableWriteDependencies(reads, registry, selection.projection.table, observations.selectiveMetadata === true));
       yield* Effect.fromResult(addIndexMetadataDependency(reads, registry, selection.index));
       if (bytesEqual(change.table.tabletId, selection.source.tabletId) && change.finalDocument !== null) {
         for (const targetId of yield* Effect.fromResult(coreNativeReferenceTargets(selection, change.finalDocument))) {
@@ -261,12 +257,13 @@ export const prepareCoreNativeReferences = Effect.fn("CoreNativeReferences.prepa
 
 /** Fold the full accepted-unsaved prefix, then the whole candidate final overlay. */
 export function validateCoreNativeReferences(prepared: CorePreparedNativeReferences, accepted: Iterable<CoreWriteBatch>,
-  candidate: CoreWriteBatch): Result.Result<ReadonlySet<CoreWriteBatch>, CoreError> {
+  candidate: CoreWriteBatch, budget?: CoreNativeIntegrityBudget): Result.Result<ReadonlySet<CoreWriteBatch>, CoreError> {
   return Result.gen(function* () {
     const batches = [...accepted], predecessors = new Set<CoreWriteBatch>();
     const captured = new Set(prepared.capturedIdentities ?? []);
     const sources = prepared.sourceCaptures?.map(source => ({ ...source, captured: new Set(source.identities) })) ?? [];
     const reserve = (table: CoreTableDefinition, id: string) => {
+      if (budget !== undefined) return budget.reserve(table, id);
       captured.add(id);
       const source = sources.find(value => value.tablets.includes(encodeBytesToLowercaseHex(table.tabletId)));
       source?.captured.add(id);

@@ -1,4 +1,4 @@
-import { CoreNativeBudgetError, CoreNativeReferenceError, CoreNativeUniqueConflict, CoreNativeQueryError, CoreQueryInputError,
+import { CoreNativeBudgetError, CoreNativeReferenceError, CoreNativeUniqueConflict, CoreNativeForeignKeyError, CoreNativeQueryError, CoreQueryInputError,
   CoreTransactionError, type CoreError } from "../../core/api";
 import { CorePersistenceError } from "../../core/contracts";
 import { CoreSchemaError } from "../../core/schemaTypes";
@@ -8,7 +8,8 @@ import { commerceError, CommerceTransactionError } from "./model";
 export function projectCoreCommerceFailure(failure: CoreError): CommerceTransactionError {
   if (failure instanceof CoreNativeBudgetError) return failure.cause instanceof CommerceTransactionError ? failure.cause
     : commerceError(failure.reason === "unexpectedFailure" ? "resourceFailure" : failure.reason, failure);
-  if (failure instanceof CoreNativeQueryError || failure instanceof CoreNativeUniqueConflict || failure instanceof CoreNativeReferenceError)
+  if (failure instanceof CoreNativeQueryError || failure instanceof CoreNativeUniqueConflict || failure instanceof CoreNativeReferenceError
+    || failure instanceof CoreNativeForeignKeyError)
     return commerceError("invalidInput", failure);
   if (failure instanceof CorePersistenceError) return commerceError(failure.reason === "uncertainWrite" ? "decisionUncertain"
     : failure.reason === "corruptData" ? "storedCorruption" : "resourceFailure", failure);

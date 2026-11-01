@@ -174,6 +174,9 @@ const allowedRunPromiseExitSites = new Map([
 
 /** @type {Map<string, number>} */
 const allowedRunPromiseExitWithSites = new Map([
+  // Payload DAL retains the original native error and full Cause across its
+  // request-owned Promise edge, using the captured invocation context.
+  [siteKey("packages/payload-adapter/src/adapter.ts", "run"), 1],
   // Operation-owned Worker RPC preserves its diagnostic context and invocation Clock;
   // the trusted invocation closes and drains every admitted callback.
   [siteKey("packages/standard-application-invocation/src/CoreApplicationReadSession.ts", "run"), 1],
@@ -194,9 +197,7 @@ const allowedRunPromiseWithSites = new Map([
   // supervised Effect child with the parent Context before foreign settlement.
   [siteKey("packages/persistence-postgres/src/database/corePersistence/driver.ts", "transaction"), 1],
 
-  // These existing Payload DAL/rollback edges preserve actual invocation
-  // diagnostics and cancellation instead of starting a default runtime.
-  [siteKey("packages/payload-adapter/src/adapter.ts", "run"), 1],
+  // Payload rollback preserves invocation diagnostics and cancellation.
   [siteKey("packages/payload-adapter/src/adapter.ts", "unsupported"), 1],
 ]);
 

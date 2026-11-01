@@ -177,9 +177,10 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
     const insertRows = Effect.fn("CorePersistence.insertRows")(
       function* (connection: CoreSqlConnection, name: string, columns: readonly string[],
         rows: readonly (readonly CoreSqlParameter[])[], overwrite = false) {
-        // PostgreSQL's bind-parameter ceiling bounds each statement; all chunks
-        // remain inside this logical batch's one fenced SQL transaction.
-        const chunkSize = Math.floor(60_000 / columns.length);
+        // Match postgres/lib.rs INSERTS_PER_STATEMENT. All chunks remain in
+        // this logical batch's one fenced SQL transaction. Giant VALUES binds
+        // also exceed PGlite's signed ParameterDescription count parser.
+        const chunkSize = 1024;
         for (let start = 0; start < rows.length; start += chunkSize) {
           const chunk = rows.slice(start, start + chunkSize);
           const parameters: CoreSqlParameter[] = [];
