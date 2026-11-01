@@ -117,13 +117,13 @@ export const makePayloadPreferenceCleanup = Effect.fn(
 
 /** Shared lifecycle recorder. Its trusted CMS owner supplies only exact pending
  * deletion proof; native callbacks receive the operation port alone. */
-export function makePayloadPreferenceCleanupRecorder(lifetime: CmsRequestLifetime, input: Readonly<{
+export function makePayloadPreferenceCleanupRecorder<DocumentId extends string>(lifetime: CmsRequestLifetime, input: Readonly<{
   available: boolean;
   collections: readonly string[];
   requireOpen: Effect.Effect<void, CmsTransactionError>;
-  requireDeletion: (id: string) => Effect.Effect<Readonly<{ documentId: AppDocumentIdV1; collectionSlug: string }>, CmsTransactionError>;
+  requireDeletion: (id: string) => Effect.Effect<Readonly<{ documentId: DocumentId; collectionSlug: string }>, CmsTransactionError>;
 }>) {
-  const intents: PayloadPreferenceDeletionIntent[] = [];
+  const intents: Readonly<{ documentId: DocumentId; collectionSlug: string; key: string }>[] = [];
   const keys = new Set<string>();
   let closed = false;
   const deleteForPendingDocument: PayloadPreferenceCleanup["deleteForPendingDocument"] =

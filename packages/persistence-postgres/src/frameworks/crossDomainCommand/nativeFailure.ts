@@ -1,4 +1,4 @@
-import { CoreNativeBudgetError, CoreNativeUniqueConflict, CoreNativeQueryError, CoreQueryInputError,
+import { CoreNativeBudgetError, CoreNativeReferenceError, CoreNativeUniqueConflict, CoreNativeQueryError, CoreQueryInputError,
   CoreTransactionError, type CoreError } from "../../core/api";
 import { CorePersistenceError } from "../../core/contracts";
 import { CoreSchemaError } from "../../core/schemaTypes";
@@ -15,7 +15,8 @@ export function projectCoreCompositeFailure(failure: CoreError): CompositeFailur
       || original instanceof CommerceTransactionError || original instanceof ApplicationCommandError) return original;
     return compositeError(failure.reason === "unexpectedFailure" ? "resourceFailure" : failure.reason, failure);
   }
-  if (failure instanceof CoreNativeQueryError || failure instanceof CoreNativeUniqueConflict) return compositeError("invalidInput", failure);
+  if (failure instanceof CoreNativeQueryError || failure instanceof CoreNativeUniqueConflict || failure instanceof CoreNativeReferenceError)
+    return compositeError("invalidInput", failure);
   if (failure instanceof CorePersistenceError) return compositeError(failure.reason === "uncertainWrite" ? "decisionUncertain"
     : failure.reason === "corruptData" ? "storedCorruption" : "resourceFailure", failure);
   if (failure instanceof CoreSchemaError) return compositeError(failure.reason === "unsupportedCapability" ? "unsupportedProfile" : "bindingChanged", failure);

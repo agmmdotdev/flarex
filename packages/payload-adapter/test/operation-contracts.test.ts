@@ -1,13 +1,16 @@
 import { expect, expectTypeOf, it } from "vitest";
-import { Result, type Effect } from "effect";
+import { Effect, Result } from "effect";
 import { cmsLimits } from "@flarex/persistence-postgres/internal/cms-adapter";
 import { decodePayloadPaging, makePayloadQuery } from "../src/query";
-import { payloadResults, type PayloadCountResult, type PayloadDocument, type PayloadPageResult } from "../src/results";
+import { payloadCanonicalResults, payloadResults, type PayloadCountResult, type PayloadDocument, type PayloadPageResult } from "../src/results";
+import { isJsonObject } from "flarex-protocol/json";
 import type { PayloadCreateInput, PayloadUpdateInput, PayloadFindByIdInput } from "../src/inputs";
 import { payloadIsManagedField, payloadRelatedPostsField, type PayloadContentProfile } from "../src/contract";
 import { payloadPostsCollection, payloadContentFields, payloadScalarConfiguration } from "../src/testing/profiles";
 import { makePayloadCollectionRuntime } from "../src/collectionRuntime";
 import type { PayloadRuntime, PayloadHost, PayloadReadHost, PayloadCreateArgs } from "../src/runtime";
+import { compilePayloadCollections } from "../src/collections";
+import { makePayloadConformanceRuntime, inspectPayloadRuntimeForTest } from "../src/testing";
 
 const collection = makePayloadCollectionRuntime(payloadScalarConfiguration.tables[0]!);
 const { decode: decodePayloadWhere, adapter: payloadAdapterWhere } = makePayloadQuery(collection);
@@ -54,6 +57,43 @@ it("retains populated output with detached ownership and checks result envelopes
   expect(Result.getOrThrow(payloadResults.count({ totalDocs: 0 }))).toEqual({ totalDocs: 0 });
 });
 
+it("projects a fresh mutable populated tree from an immutable saved native result", () => {
+  const original = { id: "post", author: { id: "author", name: "Ada" }, relatedPosts: [{ id: "target", labels: ["original"] }] };
+  const canonical = Result.getOrThrow(payloadResults.document(original));
+  expect(Object.isFrozen(canonical.author)).toBe(true);
+  expect(Object.isFrozen(canonical.relatedPosts)).toBe(true);
+  const first = Result.getOrThrow(payloadCanonicalResults.document(canonical));
+  if (first.author === undefined || !isJsonObject(first.author) || !Array.isArray(first.relatedPosts) || !isJsonObject(first.relatedPosts[0])
+    || !Array.isArray(first.relatedPosts[0].labels)) throw new Error("Missing populated caller result");
+  expect(Reflect.set(first.author, "name", "Caller changed")).toBe(true);
+  first.relatedPosts[0].labels.push("caller label");
+  first.relatedPosts.push({ id: "caller-added" });
+  expect(canonical).toEqual(original);
+  const replayed = Result.getOrThrow(payloadCanonicalResults.document(canonical));
+  expect(replayed).toEqual(original);
+  expect(replayed.author).not.toBe(first.author);
+  expect(replayed.relatedPosts).not.toBe(first.relatedPosts);
+});
+
+it("detaches page documents and arrays independently on each Local API projection", () => {
+  const canonical = Result.getOrThrow(payloadResults.page({ docs: [{ id: "post", author: { id: "author", name: "Ada" } }],
+    totalDocs: 1, limit: 10, totalPages: 1, page: 1, pagingCounter: 1, hasPrevPage: false, hasNextPage: false, prevPage: null, nextPage: null }));
+  const first = Result.getOrThrow(payloadCanonicalResults.page(canonical));
+  const author = first.docs[0]?.author;
+  if (author === undefined || !isJsonObject(author)) throw new Error("Missing populated page document");
+  expect(Reflect.set(author, "name", "Page caller changed")).toBe(true);
+  expect(Reflect.set(first.docs, "0", { id: "replacement" })).toBe(true);
+  expect(Reflect.set(first.docs, "length", 0)).toBe(true);
+  const second = Result.getOrThrow(payloadCanonicalResults.page(canonical));
+  expect(second).toEqual(canonical);
+  expect(second.docs).not.toBe(first.docs);
+  expect(canonical.docs).toHaveLength(1);
+  const count = Result.getOrThrow(payloadResults.count({ totalDocs: 1 }));
+  const callerCount = Result.getOrThrow(payloadCanonicalResults.count(count));
+  expect(Reflect.set(callerCount, "totalDocs", 99)).toBe(true);
+  expect(Result.getOrThrow(payloadCanonicalResults.count(count))).toEqual({ totalDocs: 1 });
+});
+
 it("keeps the admitted field metadata aligned with the native collection", () => {
   const profiles: PayloadContentProfile[] = ["payload.scalar", "payload.content-relations", "payload.content-many", "payload.content-joins"];
   for (const profile of profiles) {
@@ -65,6 +105,20 @@ it("keeps the admitted field metadata aligned with the native collection", () =>
       if (field.name === "relatedPosts") expect(native).toMatchObject({ maxRows: payloadRelatedPostsField.maxItems, defaultValue: [] });
     }
   }
+});
+
+it("derives the conformance profile from configured collections and refuses a supplied mismatch", async () => {
+  await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+    const compiled = yield* compilePayloadCollections([
+      { slug: "authors", fields: [{ name: "name", type: "text", required: true }] },
+      { slug: "articles", fields: [{ name: "headline", type: "text", required: true },
+        { name: "author", type: "relationship", relationTo: "authors" }] },
+    ]);
+    const configured = yield* makePayloadConformanceRuntime(undefined, compiled);
+    expect(inspectPayloadRuntimeForTest(configured.runtime).commands.create).toBeDefined();
+    expect(configured.observations.executions()).toBe(0);
+    expect(yield* Effect.flip(makePayloadConformanceRuntime("payload.scalar", compiled))).toMatchObject({ reason: "invalidAuthority" });
+  })));
 });
 
 it("preserves operation argument and result types at the JSON boundary", () => {

@@ -1,12 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { postgresUrl, useFileScopedPostgresPersistence } from "../../support/postgresHelpers";
-import { makePostgresRelationalSession } from "../../../src/database/relationalTransaction/session";
+import { describe, it } from "vitest";
+import { postgresUrl } from "../../support/postgresHelpers";
 import { payloadConfiguredRelationshipScenario } from "./payloadConfiguredRelationshipScenario";
 
-describe.skipIf(postgresUrl === null)("configurable Payload relationships (PostgreSQL)", () => {
-  const withPersistence = useFileScopedPostgresPersistence();
-  it.each([["authors", "author"], ["article-authors", "editor"]])("proves ordinary-role articles -> %s via %s", (target, field) => withPersistence(async persistence => {
-    expect((await persistence.query<{ superuser: boolean }>("select rolsuper as superuser from pg_roles where rolname=current_user")).rows[0]?.superuser).toBe(false);
-    await payloadConfiguredRelationshipScenario(persistence, makePostgresRelationalSession(persistence), target, field);
-  }), 180000);
+describe.skipIf(postgresUrl === null)("configured Payload relationships (ordinary-role PostgreSQL)", () => {
+  it.each([["authors", "author"], ["article-authors", "editor"]])("compiles and runs articles -> %s via %s", (target, field) =>
+    payloadConfiguredRelationshipScenario("postgres", target, field), 180_000);
 });

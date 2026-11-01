@@ -1,79 +1,30 @@
-import { makeCmsCommandBinding } from "../../../src/frameworks/cmsTransaction/construction";
-import {
-  inspectPayloadRuntimeForTest,
-  withPayloadRuntimeScopeForTest,
-} from "../../../../payload-adapter/src/testing";
-import { selectScopeClockRows } from "../../../src/scope/scopeClock";
-import {
-  makeApplicationActivationRepository,
-} from "../../../src/application/activation/repository";
-import { ScopeIdSchema, ScopeEpochSchema, projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
-import { insertInitialScopeClockInTransactionResult } from "../../../src/scope/scopeClockInitialization";
-import { validateApplicationWriteOwnershipForCommit } from "../../../src/application/ownership/Commit";
-import { fxAppRowCurrent, fxAppRowRevisions } from "../../../src/database/schema";
-import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
-import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
-import { randomUUID } from "node:crypto";
-import { and, eq, getTableName, sql } from "drizzle-orm";
-import { PgDialect } from "drizzle-orm/pg-core";
-import {
-  closeInstallationAdmission,
-  lockInstallationForCurrentTransaction,
-  requireAdmittedTargetInstallationSchema,
-} from "../../../src/installation/installationLifecycle";
-import { decodeAppDocumentIdentityV1Result, decodeAppDocumentIdV1 } from "flarex-protocol/app-document-id";
-import {
-  canonicalizeAppUniqueConstraintSetV1,
-} from "flarex-protocol/internal/app-unique-constraint-set-v1";
-import {
-  createApplicationRelationReadPort,
-} from "../../../src/application/relations/applicationRelationRead";
-import {
-  openApplicationRelationQuerySnapshot,
-  readApplicationRelationQueryIncomingSources,
-} from "../../../src/application/applicationQuerySnapshot";
-import { ScopeExecutionLive } from "../../../src/scope/execution/ScopeExecution";
-import { readApplicationWriteOwnershipInTransaction } from "../../../src/application/ownership/Repository";
-import { withApplicationWriteOwnershipCatalog } from "../../../src/application/ownership/Catalog";
-import { ApplicationWriteOwnershipHistoryBudget } from "../../../src/application/ownership/Policy";
-import { makePostgresRelationalSession } from "../../../src/database/relationalTransaction/session";
-import { resolveLocatedTrustedScopeAuthorityByIdEffect } from "../../../src/scope/scopeAuthorityResolution";
-import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../../../src/scope/scopeClock";
-import {
-  fxControlSchemaVersionUniqueConstraintSets,
-  fxControlSchemaVersionUniqueConstraintBindings,
-  fxSystemScopeClocks,
-} from "../../../src/database/schema";
+import { Cause, Effect, Exit, Fiber, Result } from "effect";
 import { expect } from "vitest";
-import { Effect, Exit, Fiber, Result } from "effect";
-import { isJsonObject, type Json } from "flarex-protocol/json";
-import { makePayloadConformanceRuntime } from "../../../../payload-adapter/src/testing";
-import { payloadRelationContentIdentity } from "../../../../payload-adapter/src/testing/profiles";
-import { makeCmsHost, type CmsHostInput } from "../../../src/frameworks/cmsTransaction/host";
+import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
+import { decodeDocumentId } from "flarex-protocol/document-id";
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { prepareApplicationSchemaSource } from "@flarex/analysis/internal/logical-application-source";
+import { defineSchema, defineTable } from "../../../../flarex/src/server";
+import { v } from "../../../../flarex/src/values";
+import { compilePayloadCollections } from "../../../../payload-adapter/src/collections";
+import { makePayloadConformanceRuntime, inspectPayloadRuntimeForTest, type PayloadConformanceRuntime } from "../../../../payload-adapter/src/testing";
+import { payloadPostsCollectionDefinition } from "../../../../payload-adapter/src/testing/profiles";
+import { createCorePayloadFixture, type CorePayloadSuccessor } from "../../../../payload-adapter/test/support/core-payload-fixture";
+import { CorePersistenceError } from "../../../src/core/contracts";
+import type { CoreError } from "../../../src/core/api";
 import { defineCmsCommand } from "../../../src/frameworks/cmsTransaction/commands";
 import { cmsError } from "../../../src/frameworks/cmsTransaction/model";
-import {
-  dataBindingActivationRequest,
-  makeDataBindingHost,
-} from "../../../src/installation/frameworkSchema/binding/host";
-import { readAdmittedDataBinding } from "../../../src/installation/frameworkSchema/binding/selection";
-import {
-  fxAppEdgeCurrent,
-  fxAppEdgeAdjacencyVersions,
-  fxSystemCommitRelationAdjacencyChanges,
-  fxSystemCommits,
-} from "../../../src/database/schema";
-import {
-  fxSystemCommitPayloadPreferenceDeletions,
-} from "../../../src/frameworks/payloadPreferences/factsSchema";
-import { preparePayloadRelationSuccessor, preparePayloadRelationRevision } from "./payloadRelationFixture";
-import {
-  type relationReadinessFixture,
-} from "../../application/relations/applicationRelationReadinessFixture";
-import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
+import { finishPayloadSuccessor, nativePreference, readNativePayload, expectNativeFailedWrite, awaitNativeTestGate } from "./payloadNativeRelationFixture";
+import { coreNativeFixtureData } from "../../core/nativeFixtureInventory";
+import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
+import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
+import type { CmsHostInput } from "../../../src/frameworks/cmsTransaction/host";
+import type { makeDataBindingHost } from "../../../src/installation/frameworkSchema/binding/host";
+import type { relationReadinessFixture } from "../../application/relations/applicationRelationReadinessFixture";
 import type { PayloadContentProfiles } from "../../../src/frameworks/payloadPreferences/binding";
 
-export async function payloadRelationScenario(input: {
+/** Retained only by the unmigrated many/joins consumer closure. */
+export interface LegacyPayloadRelationScenarioInput {
   persistence: PGliteFlarexPersistence | PostgresFlarexPersistence;
   fixture: Awaited<ReturnType<typeof relationReadinessFixture>>;
   bindings: Effect.Success<ReturnType<typeof makeDataBindingHost>>;
@@ -82,389 +33,215 @@ export async function payloadRelationScenario(input: {
   seed: (id: string, preferences: readonly string[]) => Promise<void>;
   inventory: () => Promise<unknown>;
   reopen?: () => Promise<void>;
-}) {
-  const { fixture, bindings, hostInput, payloadProfiles } = input;
-  const db = fixture.persistence.drizzle;
-  await runEffect(Effect.scoped(Effect.gen(function* () {
-    const scalar = yield* makePayloadConformanceRuntime();
-    const relation = yield* makePayloadConformanceRuntime("payload.content-relations");
-    yield* Effect.promise(async () => {
-      const oldHost = await runEffect(withPayloadRuntimeScopeForTest(scalar.runtime, fixture.makeServing(hostInput.session).pipe(
-        Effect.flatMap(serving => makeCmsCommandBinding({ serving, hostRuntime: hostInput.hostRuntime,
-          identityAndAccessPolicy: hostInput.identityAndAccessPolicy, profile: { kind: "fullProof",
-            ...(hostInput.payloadPreferenceTarget === undefined ? {} : { payloadPreferenceTarget: hostInput.payloadPreferenceTarget }) } })),
-        Effect.flatMap(binding => scalar.runtime.bind(binding)))));
-      const createOld = (title: string) => runEffect(oldHost.create(oldHost.newRequestKey(), { collection: "posts", data: { title, publishedAt: "2026-01-01" } }));
-      const target = documentId(await createOld("relation-target"));
-      const source = documentId(await createOld("relation-source"));
-      const old = await runEffect(bindings.withCurrent(readAdmittedDataBinding));
-      const active = await runEffect(fixture.relationActivation.readActive());
-      const managedTableId = Result.getOrThrow(decodeAppDocumentIdentityV1Result(source)).tableId;
-      const denyOrdinary = async () => {
-        const located = await runEffect(resolveLocatedTrustedScopeAuthorityByIdEffect({
-          deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
-        }, fixture.authorityPorts));
-        const result = await db.transaction(async tx => {
-          await runEffect(lockInstallationForCurrentTransaction(tx));
-          try {
-            await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.authority.scopeId));
-            return await runEffect(validateApplicationWriteOwnershipForCommit(tx, {
-              scopeId: fixture.authority.scopeId, generation: "application_v1", authenticatedAttemptedTables: [managedTableId], materialTables: [],
-            }, hostInput.materialization.uniqueConstraints, located.target).pipe(Effect.result));
-          } finally { closeInstallationAdmission(tx); }
-        });
-        expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "writeDenied" } });
-      };
-      await denyOrdinary();
-      const next = await preparePayloadRelationSuccessor(fixture);
-      await denyOrdinary();
-      const activated = await runEffect(fixture.relationActivation.activate({ revisionId: next.input.revisionId, expectedActiveHead: active.expectedActiveHead }));
-      expect(activated.status).toBe("activated");
-      await denyOrdinary();
-      await runEffect(fixture.relationActivation.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }));
-      expect((await runEffect(fixture.relationActivation.readActive())).expectedActiveHead).toEqual(activated.expectedActiveHead);
-
-      const calls = scalar.observations.executions();
-      await runEffectFailure(oldHost.findByID({ collection: "posts", id: source }));
-      expect(scalar.observations.executions()).toBe(calls);
-      const reference = await runEffect(bindings.readApplicationReference());
-      expect(reference.readiness).toMatchObject({ kind: "policy", relationCount: 1 });
-      const policy = next.relation.binding;
-      if (policy.version !== 3) throw new Error("Expected relation write policy");
-      const candidate = await runEffect(bindings.prepare({ ...old.frame, application: reference,
-        payloadContent: { ...payloadRelationContentIdentity, application: reference,
-          tables: policy.writePolicies.filter(policy => policy.owner === "payload").map(policy => ({ tableId: policy.tableId.toString(), writePolicySha256: policy.writePolicySha256 })) } }));
-      await runEffect(bindings.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration, "relation-rebind", candidate.sha256, old.head)));
-      await runEffectFailure(bindings.prepare(old.frame));
-      let failureStep: string | undefined;
-      const pair = defineCmsCommand({ name: "relation-nested", mode: "write", run: Effect.fn("RelationTest.nested")(function* (ctx, args) {
-        if (!isJsonObject(args)) return yield* Effect.fail(cmsError("invalidInput"));
-        if (args.kind === "create") {
-          const child = yield* ctx.nested(inspectPayloadRuntimeForTest(relation.runtime).commands.create, { collection: "posts", data: { title: "relation-nested-target", publishedAt: "2026-01-01" } });
-          if (!isJsonObject(child)) return yield* Effect.fail(cmsError("invalidInput"));
-          return yield* ctx.nested(inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: source, data: { relatedPost: child.id ?? null } });
-        }
-        yield* ctx.nested(inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: source, data: { relatedPost: null } });
-        return yield* ctx.nested(inspectPayloadRuntimeForTest(relation.runtime).commands.delete, { collection: "posts", id: args.id ?? null });
-      }) });
-      const composition = { ...hostInput, expectedContentIdentity: payloadRelationContentIdentity,
-        commands: [...Object.values(inspectPayloadRuntimeForTest(relation.runtime).commands), pair],
-        materialization: { ...hostInput.materialization, applicationRelations: fixture.relationCommit,
-          afterTransactionStep: async (event: { step: string }) => { if (event.step === failureStep) throw new Error(`Injected relation ${event.step}`); } } };
-      let host = await runEffect(makeCmsHost(composition));
-      const write = (command: ReturnType<typeof inspectPayloadRuntimeForTest>["commands"]["update"], args: Json) => runEffect(host.run(host.newRequestKey(), command, args));
-      const read = (id: string) => runEffect(host.read(inspectPayloadRuntimeForTest(relation.runtime).commands.findByID, { collection: "posts", id }));
-      const inventory = async () => ({ base: await input.inventory(), edges: await db.select().from(fxAppEdgeCurrent),
-        adjacency: await db.select().from(fxAppEdgeAdjacencyVersions), relationFacts: await db.select().from(fxSystemCommitRelationAdjacencyChanges),
-        preferences: await db.select().from(fxSystemCommitPayloadPreferenceDeletions) });
-      const scopeId = fixture.authority.scopeId;
-      const restore = (reserved = 0) => db.transaction(tx => {
-        const budget = new ApplicationWriteOwnershipHistoryBudget();
-        Result.getOrThrow(budget.consume(reserved, 0));
-        return runEffect(withApplicationWriteOwnershipCatalog(fixture.control.drizzle,
-          fixture.control.drizzle === db ? tx : undefined,
-          catalog => readApplicationWriteOwnershipInTransaction(tx, scopeId, budget, catalog)).pipe(Effect.result));
-      });
-      expect((await restore(49))._tag).toBe("Success");
-      expect(await restore(50)).toMatchObject({ _tag: "Failure", failure: { reason: "historyLimit" } });
-      // A valid but different closed catalog must not grant historical successor authority.
-      const catalog = fixture.control.drizzle;
-      const uniqueWhere = and(eq(fxControlSchemaVersionUniqueConstraintSets.deploymentId, fixture.deploymentId), eq(fxControlSchemaVersionUniqueConstraintSets.schemaVersionId, policy.schemaVersionId));
-      const bindingWhere = and(eq(fxControlSchemaVersionUniqueConstraintBindings.deploymentId, fixture.deploymentId), eq(fxControlSchemaVersionUniqueConstraintBindings.schemaVersionId, policy.schemaVersionId));
-      const retainedUnique = (await catalog.select().from(fxControlSchemaVersionUniqueConstraintSets).where(uniqueWhere))[0];
-      const retainedBindings = await catalog.select().from(fxControlSchemaVersionUniqueConstraintBindings).where(bindingWhere);
-      if (retainedUnique === undefined) throw new Error("Missing unique closure");
-      const empty = await runEffect(canonicalizeAppUniqueConstraintSetV1([]));
-      try {
-        await catalog.delete(fxControlSchemaVersionUniqueConstraintBindings).where(bindingWhere);
-        await catalog.update(fxControlSchemaVersionUniqueConstraintSets).set({ definitionCount: 0, definitionSetSha256: Buffer.from(empty.sha256Hex, "hex") }).where(uniqueWhere);
-        expect(await restore()).toMatchObject({ _tag: "Failure", failure: { reason: "ownershipChanged" } });
-      } finally {
-        await catalog.update(fxControlSchemaVersionUniqueConstraintSets).set(retainedUnique).where(uniqueWhere);
-        await catalog.insert(fxControlSchemaVersionUniqueConstraintBindings).values(retainedBindings);
-      }
-      expect((await restore())._tag).toBe("Success");
-      expect(await read(source)).toMatchObject({ relatedPost: null });
-      for (const relatedPost of [{ id: target }, 42, [target]]) {
-        const before = await inventory();
-        const executions = relation.observations.executions();
-        expect(await runEffectFailure(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: source, data: { relatedPost } }))).toMatchObject({ reason: "relationInvalid" });
-        expect(relation.observations.executions()).toBe(executions);
-        expect(await inventory()).toEqual(before);
-      }
-
-      const identity = Result.getOrThrow(decodeAppDocumentIdentityV1Result(target));
-      const missing = `${identity.tableId}:${randomUUID()}`;
-      const wrongTable = `${identity.tableId + 1}:${randomUUID()}`;
-      const tombstone = documentId(await write(inspectPayloadRuntimeForTest(relation.runtime).commands.create, { collection: "posts", data: { title: "relation-tombstone", publishedAt: "2026-01-01" } }));
-      const tombstoneIdentity = Result.getOrThrow(decodeAppDocumentIdentityV1Result(tombstone));
-      const tombstoneRowId = Buffer.from(tombstoneIdentity.rowId, "hex");
-      const retainedRow = (await db.select().from(fxAppRowRevisions).where(eq(fxAppRowRevisions.rowId, tombstoneRowId)))[0];
-      if (retainedRow === undefined) throw new Error("Missing target fixture row");
-      const foreignScope = ScopeIdSchema.make(`scope_${randomUUID()}`);
-      const foreignEpoch = ScopeEpochSchema.make(`epoch_${randomUUID()}`);
-      const foreignUuid = projectScopeIdUuidV1(foreignScope).scopeUuid;
-      await db.transaction(async tx => {
-        Result.getOrThrow(await insertInitialScopeClockInTransactionResult(tx, { scopeId: foreignScope, initialEpoch: foreignEpoch }));
-        const clock = (await selectScopeClockRows(tx).where(eq(fxSystemScopeClocks.scopeUuid, foreignUuid)))[0];
-        if (clock === undefined || clock.epochUuid === null) throw new Error("Missing foreign clock");
-        await tx.insert(fxAppRowRevisions).values({ ...retainedRow, scopeUuid: foreignUuid, writeEpochUuid: clock.epochUuid });
-        await tx.insert(fxAppRowCurrent).values({ scopeUuid: foreignUuid, tableId: retainedRow.tableId, rowId: retainedRow.rowId, commitSeq: retainedRow.commitSeq });
-        await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: retainedRow.commitSeq }).where(eq(fxSystemScopeClocks.scopeUuid, foreignUuid));
-      });
-      const beforeRestrictFault = await inventory();
-      failureStep = "relationRestrictValidated";
-      try {
-        expect(await runEffect(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(relation.runtime).commands.delete, { collection: "posts", id: tombstone }).pipe(Effect.exit))).toMatchObject({ _tag: "Failure" });
-      } finally { failureStep = undefined; }
-      expect(await inventory()).toEqual(beforeRestrictFault);
-      await write(inspectPayloadRuntimeForTest(relation.runtime).commands.delete, { collection: "posts", id: tombstone });
-      const foreignBefore = await db.select().from(fxAppRowRevisions).where(eq(fxAppRowRevisions.scopeUuid, foreignUuid));
-
-      const invalidRelations: ReadonlyArray<readonly [relatedPost: string, reason: Parameters<typeof cmsError>[0]]> = [
-        [missing, "relationTargetMissing"],
-        [tombstone, "relationTargetMissing"],
-        [wrongTable, "documentInvalid"],
-        ["invalid", "documentInvalid"],
-      ];
-      for (const [relatedPost, reason] of invalidRelations) {
-        const before = await inventory();
-        expect(await runEffectFailure(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: source, data: { relatedPost } }))).toMatchObject({ reason });
-        expect(await inventory()).toEqual(before);
-      }
-      const key = host.newRequestKey();
-      const args = { collection: "posts", id: source, data: { relatedPost: target } };
-      const result = await runEffect(host.run(key, inspectPayloadRuntimeForTest(relation.runtime).commands.update, args));
-      const executed = relation.observations.executions();
-      expect(await runEffect(host.run(key, inspectPayloadRuntimeForTest(relation.runtime).commands.update, args))).toEqual(result);
-      expect(relation.observations.executions()).toBe(executed);
-      expect(await read(source)).toMatchObject({ relatedPost: target });
-      expect(await db.select().from(fxAppEdgeCurrent)).toHaveLength(1);
-      expect(await db.select().from(fxSystemCommitRelationAdjacencyChanges)).toHaveLength(2);
-      const current = await runEffect(fixture.relationActivation.readActive());
-      const declared = next.manifest.schema.relations[0]?.declaration.source;
-      if (declared === undefined) throw new Error("Missing relation declaration");
-      const incoming = await runEffect(Effect.scoped(Effect.gen(function* () {
-        const opened = yield* openApplicationRelationQuerySnapshot(current.selection, { source: { table: declared.table, path: declared.path } }, {
-          deploymentId: fixture.deploymentId, controlDb: fixture.control.drizzle, authority: fixture.authorityPorts,
-          relations: createApplicationRelationReadPort(fixture.control.drizzle, fixture.pointCommitAuthority, fixture.relationCommit, fixture.fold),
-        });
-        return yield* readApplicationRelationQueryIncomingSources(opened.snapshot, decodeAppDocumentIdV1(target), 16);
-      })).pipe(Effect.provide(ScopeExecutionLive)));
-      expect(incoming.sources.map(item => item.sourceDocumentId)).toEqual([source]);
-      expect(incoming.exhausted).toBe(true);
-
-      const beforeRestrict = await inventory();
-      expect(await runEffectFailure(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(relation.runtime).commands.delete, { collection: "posts", id: target }))).toMatchObject({ reason: "relationDeleteRestricted" });
-      expect(await inventory()).toEqual(beforeRestrict);
-      await write(inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: source, data: { score: 7 } });
-      expect(await read(source)).toMatchObject({ relatedPost: target, score: 7 });
-      const schemaName = await db.transaction(async tx => {
-        await runEffect(lockInstallationForCurrentTransaction(tx));
-        try { return await runEffect(Effect.fromResult(requireAdmittedTargetInstallationSchema(tx))); }
-        finally { closeInstallationAdmission(tx); }
-      });
-      const rowTable = new PgDialect().sqlToQuery(sql`${sql.identifier(schemaName)}.${sql.identifier(getTableName(fxAppRowRevisions))}`).sql;
-      const rowFunction = new PgDialect().sqlToQuery(sql`${sql.identifier(schemaName)}.${sql.identifier("payload_relation_row_corruption")}`).sql;
-      const sourceIdentity = Result.getOrThrow(decodeAppDocumentIdentityV1Result(source));
-      await input.persistence.query(`create function ${rowFunction}() returns trigger language plpgsql as $$
-        begin
-          if NEW."${fxAppRowRevisions.rowId.name}"=decode('${sourceIdentity.rowId}','hex') then
-            NEW."${fxAppRowRevisions.creationTime.name}" := NEW."${fxAppRowRevisions.creationTime.name}" + 1;
-          end if;
-          return NEW;
-        end $$`);
-      try {
-        await input.persistence.query(`create trigger payload_relation_row_corruption before insert on ${rowTable}
-          for each row execute function ${rowFunction}()`);
-        try {
-          const before = await inventory();
-          expect(await runEffectFailure(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(relation.runtime).commands.update,
-            { collection: "posts", id: source, data: { relatedPost: source } }))).toMatchObject({ reason: "storedCorruption" });
-          expect(await inventory()).toEqual(before);
-        } finally { await input.persistence.query(`drop trigger payload_relation_row_corruption on ${rowTable}`); }
-      } finally { await input.persistence.query(`drop function ${rowFunction}()`); }
-      for (const step of ["relationEdgeWritten", "commitHeaderWritten", "commitChangeWritten", "outcomeWritten", "wakeWritten", "clockAdvanced"]) {
-        const before = await inventory(); failureStep = step;
-        expect(await runEffect(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: source, data: { relatedPost: source } }).pipe(Effect.exit))).toMatchObject({ _tag: "Failure" });
-        failureStep = undefined; expect(await inventory()).toEqual(before);
-      }
-      await write(inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: source, data: { relatedPost: source } });
-      expect(await read(source)).toMatchObject({ relatedPost: source });
-      await write(inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: source, data: { relatedPost: target } });
-      await write(inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: target, data: { relatedPost: source } });
-      expect(await db.select().from(fxAppEdgeCurrent)).toHaveLength(2);
-      await write(inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: target, data: { relatedPost: null } });
-      const nested = await write(pair, { kind: "create" });
-      if (!isJsonObject(nested) || typeof nested.relatedPost !== "string") throw new Error("Missing nested target");
-      await input.seed(nested.relatedPost, ["relation-preference"]);
-      const commitsBefore = (await db.select().from(fxSystemCommits)).length;
-      await write(pair, { kind: "delete", id: nested.relatedPost });
-      expect((await db.select().from(fxSystemCommits)).length).toBe(commitsBefore + 1);
-      expect(await db.select().from(fxSystemCommitPayloadPreferenceDeletions)).toHaveLength(1);
-      expect(await db.select().from(fxAppEdgeCurrent)).toHaveLength(0);
-      expect(await read(source)).toMatchObject({ relatedPost: null, score: 7 });
-      await write(inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: source, data: { relatedPost: target } });
-      if ("pool" in input.persistence) {
-        const persistence = input.persistence;
-        const duplicateKey = host.newRequestKey();
-        const duplicateCalls = relation.observations.executions();
-        const duplicateArgs = { collection: "posts", id: source, data: { score: 8 } };
-        const duplicate = await Promise.allSettled([runEffect(host.run(duplicateKey, inspectPayloadRuntimeForTest(relation.runtime).commands.update, duplicateArgs)), runEffect(host.run(duplicateKey, inspectPayloadRuntimeForTest(relation.runtime).commands.update, duplicateArgs))]);
-        expect(duplicate.map(item => item.status)).toEqual(["fulfilled", "fulfilled"]);
-        expect(duplicate[0]).toEqual(duplicate[1]);
-        expect(relation.observations.executions()).toBe(duplicateCalls + 1);
-        let lost = false;
-        let bound = false;
-        const pids: unknown[] = [];
-        const recovering = await runEffect(makeCmsHost({ ...composition, session: makePostgresRelationalSession(persistence, { lifecycleFault: event => {
-          if (!bound) return;
-          if (event.phase === "begin" && event.edge === "after") pids.push(Reflect.get(event.client, "processID"));
-          if (event.phase === "commit" && event.edge === "after" && !lost) { lost = true; throw new Error("Lost relation COMMIT acknowledgement"); }
-        } }) }));
-        bound = true;
-        const recoveryCalls = relation.observations.executions();
-        expect(await runEffect(recovering.run(recovering.newRequestKey(), inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: source, data: { relatedPost: source } }))).toMatchObject({ relatedPost: source });
-        expect(relation.observations.executions()).toBe(recoveryCalls + 1);
-        expect(pids.length).toBeGreaterThanOrEqual(2);
-        expect(pids[1]).not.toBe(pids[0]);
-        const interruptedId = documentId(await write(inspectPayloadRuntimeForTest(relation.runtime).commands.create, { collection: "posts", data: { title: "delete-unresolved", publishedAt: "2026-01-01", relatedPost: target } }));
-        await input.seed(interruptedId, ["relation-interrupted"]);
-        const beforeInterrupt = await inventory();
-        const pending = relation.observations.pendingReads();
-        const fiber = Effect.runFork(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(relation.runtime).commands.delete, { collection: "posts", id: interruptedId }));
-        try {
-          const deadline = performance.now() + 5000;
-          while (relation.observations.pendingReads() === pending && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
-          expect(relation.observations.pendingReads()).toBe(pending + 1);
-          await runEffect(Fiber.interrupt(fiber));
-          expect(Exit.isFailure(await runEffect(Fiber.await(fiber)))).toBe(true);
-        } finally { await runEffect(Fiber.interrupt(fiber)); }
-        expect(await inventory()).toEqual(beforeInterrupt);
-        await write(inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: interruptedId, data: { title: "interrupted-restored", relatedPost: null } });
-        await write(inspectPayloadRuntimeForTest(relation.runtime).commands.delete, { collection: "posts", id: interruptedId });
-        for (const first of ["insert", "delete"] as const) {
-          const raceTarget = documentId(await write(inspectPayloadRuntimeForTest(relation.runtime).commands.create, { collection: "posts", data: { title: `race-${first}`, publishedAt: "2026-01-01" } }));
-          const entered = barrier<void>();
-          const release = barrier<void>();
-          const holder = await runEffect(makeCmsHost(composition, { afterDocumentClosure: Effect.fn("RelationTest.holdCommand")(function* () {
-            entered.resolve();
-            yield* Effect.promise(() => release.promise);
-          }) }));
-          const firstCommand = first === "insert" ? inspectPayloadRuntimeForTest(relation.runtime).commands.update : inspectPayloadRuntimeForTest(relation.runtime).commands.delete;
-          const firstArgs = first === "insert" ? { collection: "posts", id: source, data: { relatedPost: raceTarget } } : { collection: "posts", id: raceTarget };
-          // Reuse the scoped overlap owner: timeout interrupts and joins both
-          // requests, and the second completes before the first is released.
-          const results = await runEffect(overlappingSnapshotRace(
-            holder.run(holder.newRequestKey(), firstCommand, firstArgs),
-            host.run(host.newRequestKey(), first === "insert" ? inspectPayloadRuntimeForTest(relation.runtime).commands.delete : inspectPayloadRuntimeForTest(relation.runtime).commands.update,
-              first === "insert" ? { collection: "posts", id: raceTarget } : { collection: "posts", id: source, data: { relatedPost: raceTarget } }),
-            entered.promise, () => release.resolve(),
-          ));
-          // This admitted Payload path does not read the target body; the shared
-          // relation planner owns target liveness and delete restrictions.
-          expect(results[0]).toMatchObject({ status: "fulfilled", value: { _tag: "Failure", failure: { reason: first === "insert" ? "relationTargetMissing" : "relationDeleteRestricted" } } });
-          expect(results[1]).toMatchObject({ status: "fulfilled", value: { _tag: "Success" } });
-          if (first === "delete") {
-            await write(inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: source, data: { relatedPost: null } });
-            await write(inspectPayloadRuntimeForTest(relation.runtime).commands.delete, { collection: "posts", id: raceTarget });
-          }
-        }
-        const preferenceTarget = hostInput.payloadPreferenceTarget;
-        if (preferenceTarget === undefined) throw new Error("Missing preference target");
-        let revisionOrdinal = 62;
-        let relationFixture = next;
-        for (const change of ["activation", "binding"] as const) for (const first of ["writer", "change"] as const) {
-          const beforeBinding = await runEffect(bindings.withCurrent(readAdmittedDataBinding));
-          const entered = barrier<void>();
-          const release = barrier<void>();
-          const holdChange = async () => { if (first === "change") { entered.resolve(); await release.promise; } };
-          const heldWriter = await runEffect(makeCmsHost(composition, { afterAdmission: () => Effect.promise(async () => {
-            entered.resolve(); await release.promise;
-          }) }));
-          let changing: Effect.Effect<unknown, unknown>;
-          let preparedActivation: Awaited<ReturnType<typeof preparePayloadRelationRevision>> | undefined;
-          if (change === "activation") {
-            const preparedRevision = await preparePayloadRelationRevision(relationFixture, revisionOrdinal++);
-            preparedActivation = preparedRevision;
-            if (first === "change") relationFixture = preparedRevision;
-            const beforeActive = await runEffect(fixture.relationActivation.readActive());
-            const activator = makeApplicationActivationRepository({ activation: { kind: "fullProof" }, deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId, readiness: fixture.legacyReadiness,
-              relationReadiness: fixture.fold, authority: fixture.authorityPorts, faultAfter: point => point === "headWritten" ? holdChange() : undefined });
-            changing = activator.activate({ revisionId: preparedRevision.publication.revisionId, expectedActiveHead: beforeActive.expectedActiveHead });
-          } else {
-            const retainedCandidate = await runEffect(bindings.prepare(beforeBinding.frame));
-            const rebinder = await runEffect(makeDataBindingHost({ database: db, target: preferenceTarget,
-              selection: { deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId },
-              authority: fixture.authorityPorts, application: fixture.relationActivation, payloadProfiles,
-              testOnly: { afterAcceptance: () => Effect.promise(holdChange) } }));
-            changing = rebinder.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration, `race-binding-${first}`, retainedCandidate.sha256, beforeBinding.head));
-          }
-          const writer = first === "writer" ? heldWriter : host;
-          const writerKey = writer.newRequestKey();
-          const writerArgs = { collection: "posts", id: source, data: { score: 20 + revisionOrdinal } };
-          const writing = writer.run(writerKey, inspectPayloadRuntimeForTest(relation.runtime).commands.update, writerArgs);
-          const results = await heldNativeRace(persistence, first === "writer" ? writing : changing, first === "writer" ? changing : writing, entered.promise, () => release.resolve());
-          expect(results[0]).toMatchObject({ status: "fulfilled", value: { _tag: "Success" } });
-          if (change === "activation" && first === "writer") {
-            expect(results[1]).toMatchObject({ status: "fulfilled", value: { _tag: "Failure", failure: { _tag: "ApplicationActivationError", reason: "notReady" } } });
-            expect((await runEffect(bindings.withCurrent(readAdmittedDataBinding))).head).toEqual(beforeBinding.head);
-            expect(await read(source)).toMatchObject({ score: writerArgs.data.score });
-            const count = relation.observations.executions();
-            expect(await runEffect(host.run(writerKey, inspectPayloadRuntimeForTest(relation.runtime).commands.update, writerArgs))).toMatchObject({ score: writerArgs.data.score });
-            expect(relation.observations.executions()).toBe(count);
-            continue;
-          }
-          expect(results[1]).toMatchObject({ status: "fulfilled", value: { _tag: change === "activation" ? "Failure" : "Success" } });
-          if (change === "activation") {
-            if (preparedActivation === undefined) throw new Error("Missing prepared schema successor");
-            const application = await runEffect(bindings.readApplicationReference());
-            expect(BigInt(application.activationSequence)).toBe(BigInt(beforeBinding.frame.application.activationSequence) + 1n);
-            expect(application.schemaVersionId).not.toBe(beforeBinding.frame.application.schemaVersionId);
-            expect(application.schemaManifestSha256).not.toBe(beforeBinding.frame.application.schemaManifestSha256);
-            expect(application).toMatchObject({ revisionId: preparedActivation.publication.revisionId,
-              schemaVersionId: preparedActivation.relation.binding.schemaVersionId,
-              schemaManifestSha256: preparedActivation.relation.binding.schemaManifestSha256,
-              applicationSchemaSha256: preparedActivation.relation.binding.applicationSchemaSha256 });
-            const count = relation.observations.executions();
-            const beforeRefusal = await inventory();
-            // The original generation is pinned to its immutable schema. A real
-            // successor is refused before Application acceptance or callbacks.
-            expect(await runEffectFailure(host.read(inspectPayloadRuntimeForTest(relation.runtime).commands.findByID, { collection: "posts", id: source }))).toMatchObject({
-              reason: "invalidAuthority", cause: { _tag: "ApplicationActivationError", operation: "read", reason: "invalidComposition", retryable: false },
-            });
-            expect(relation.observations.executions()).toBe(count);
-            expect(await inventory()).toEqual(beforeRefusal);
-            const rebound = await runEffect(bindings.prepare({ ...beforeBinding.frame, application, payloadContent: { ...beforeBinding.frame.payloadContent, application } }));
-            await runEffect(bindings.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration, `race-rebind-${first}`, rebound.sha256, beforeBinding.head)));
-            // Revision-pinned hosts are reconstructed after the explicit cutover.
-            const afterRebind = await inventory();
-            expect(await runEffectFailure(host.read(inspectPayloadRuntimeForTest(relation.runtime).commands.findByID, { collection: "posts", id: source }))).toMatchObject({
-              reason: "invalidAuthority", cause: { _tag: "ApplicationActivationError", operation: "read", reason: "invalidComposition", retryable: false },
-            });
-            expect(relation.observations.executions()).toBe(count);
-            expect(await inventory()).toEqual(afterRebind);
-            host = await runEffect(makeCmsHost(composition));
-            expect(await read(source)).toMatchObject({ id: source });
-          }
-          if (first === "writer") {
-            const count = relation.observations.executions();
-            await runEffectFailure(host.run(writerKey, inspectPayloadRuntimeForTest(relation.runtime).commands.update, writerArgs));
-            expect(relation.observations.executions()).toBe(count);
-          }
-        }
-      }
-      await write(inspectPayloadRuntimeForTest(relation.runtime).commands.delete, { collection: "posts", id: source });
-      expect(await db.select().from(fxAppEdgeCurrent)).toHaveLength(0);
-      await write(inspectPayloadRuntimeForTest(relation.runtime).commands.delete, { collection: "posts", id: target });
-      expect(await db.select().from(fxAppRowRevisions).where(eq(fxAppRowRevisions.scopeUuid, foreignUuid))).toEqual(foreignBefore);
-    });
-  })));
 }
 
 function documentId(value: Json): string {
   if (!isJsonObject(value) || typeof value.id !== "string") throw new Error("Expected Payload document");
   return value.id;
+}
+
+/** Preserve the real populated scalar -> optional-one transition and its IDs. */
+export async function payloadRelationScenario(driver: "pglite" | "postgres") {
+  const scalarCompiled = await Effect.runPromise(compilePayloadCollections([payloadPostsCollectionDefinition()]));
+  const relationCompiled = await Effect.runPromise(compilePayloadCollections([payloadPostsCollectionDefinition("payload.content-relations")]));
+  const application = await Effect.runPromise(prepareApplicationSchemaSource(defineSchema({ audit: defineTable({ name: v.string() }).index("by_name", ["name"]) })));
+  const applicationNext = await Effect.runPromise(prepareApplicationSchemaSource(defineSchema({ audit: defineTable({ name: v.string(), note: v.optional(v.string()) }).index("by_name", ["name"]) })));
+  let conformance: PayloadConformanceRuntime | undefined;
+  let afterFinalize: (() => Effect.Effect<void, CoreError>) | undefined;
+  let beforeFinalize: (() => Effect.Effect<void, CoreError>) | undefined;
+  let failPhysicalChunk = false;
+  let physicalChunks = 0;
+  const fixture = await createCorePayloadFixture({ kind: "fresh", driver }, { compiled: scalarCompiled, application, preferences: true,
+    futureSources: [{ compiled: relationCompiled, application }, { compiled: relationCompiled, application: applicationNext }],
+    makeRuntime: compiled => makePayloadConformanceRuntime(compiled.configuration.profile).pipe(Effect.tap(value => Effect.sync(() => { conformance = value; })), Effect.map(value => value.runtime)),
+    nativeHooks: { afterFinalize: () => afterFinalize?.() ?? Effect.void, beforeFinalize: () => beforeFinalize?.() ?? Effect.void },
+    afterIndexBackfill: indexes => Effect.suspend(() => {
+      if (indexes.length === 0) return Effect.void;
+      physicalChunks++;
+      if (!failPhysicalChunk) return Effect.void;
+      failPhysicalChunk = false;
+      return Effect.fail(new CorePersistenceError({ reason: "unavailable", cause: "after durable native reverse-index chunk, before checkpoint" }));
+    }),
+  });
+  const { run } = fixture;
+  try {
+    const oldHost = fixture.writer;
+    const oldRuntime = conformance;
+    if (oldRuntime === undefined) throw new Error("Missing scalar Local API runtime");
+    const createOld = (title: string) => run(oldHost.create(oldHost.newRequestKey(), { collection: "posts", data: { title, publishedAt: "2026-01-01" } }));
+    const targetDocument = await createOld("relation-target");
+    const sourceDocument = await createOld("relation-source");
+    const target = documentId(targetDocument), source = documentId(sourceDocument);
+    const denyOrdinary = () => run(Effect.acquireUseRelease(fixture.database.begin(), tx => Effect.gen(function* () {
+      expect(yield* Effect.flip(tx.patch(source, { score: 999 }))).toMatchObject({ reason: "authorityRevoked" });
+    }), tx => tx.abort()));
+    await denyOrdinary();
+    // A writer finalized before the new index existed cannot omit that generation.
+    const entered = barrier<void>(), release = barrier<void>();
+    afterFinalize = () => { afterFinalize = undefined; return Effect.sync(() => entered.resolve()).pipe(Effect.andThen(Effect.promise(() => release.promise))); };
+    const staleCalls = oldRuntime.observations.executions();
+    const staleWriter = await run(oldHost.update(oldHost.newRequestKey(), { collection: "posts", id: source, data: { score: 6 } }).pipe(Effect.forkScoped));
+    let successor: CorePayloadSuccessor | undefined;
+    try {
+      await run(awaitNativeTestGate(staleWriter, Effect.promise(() => entered.promise)));
+      successor = await fixture.prepareSuccessor(relationCompiled);
+    } finally { release.resolve(); }
+    expect(await run(Fiber.join(staleWriter).pipe(Effect.result))).toMatchObject({ failure: { reason: "writeConflict" } });
+    expect(oldRuntime.observations.executions()).toBe(staleCalls + 1);
+    if (successor === undefined) throw new Error("Missing actual native successor");
+    expect(await run(Effect.result(fixture.database.activateSchema(successor.proposal, successor.bundle === undefined
+      ? { programs: [], native: successor.definition } : { programs: [], bundle: successor.bundle })))).toMatchObject(expect.objectContaining({ failure: expect.anything() }));
+    await denyOrdinary();
+    expect(await run(oldHost.update(oldHost.newRequestKey(), { collection: "posts", id: source, data: { score: 7 } }))).toMatchObject({ id: source, title: "relation-source", score: 7 });
+    const duringBuild = documentId(await createOld("relation-during-build"));
+    failPhysicalChunk = true;
+    let interrupted = false;
+    for (let step = 0; step < 512 && !interrupted; step++) {
+      const result = await run(Effect.result(fixture.database.advanceSchema(successor.proposal, { pageSize: 1, maxPages: 1 })));
+      if (Result.isFailure(result)) { expect(result.failure).toMatchObject({ reason: "unavailable" }); interrupted = true; }
+    }
+    expect(interrupted).toBe(true);
+    expect(physicalChunks).toBeGreaterThan(0);
+    await fixture.reopen();
+    expect(await run(fixture.reader.findByID({ collection: "posts", id: source }))).toMatchObject({ id: source, title: "relation-source", score: 7 });
+    expect(await run(fixture.writer.update(fixture.writer.newRequestKey(), { collection: "posts", id: source, data: { score: 8 } }))).toMatchObject({ score: 8 });
+    const stillScalar = fixture.writer;
+    const scalarRuntime = conformance;
+    if (scalarRuntime === undefined) throw new Error("Missing resumed scalar runtime");
+    await finishPayloadSuccessor(fixture, successor);
+    const callbacks = scalarRuntime.observations.executions();
+    expect(await run(Effect.result(stillScalar.findByID({ collection: "posts", id: source })))).toMatchObject({ failure: { reason: "bindingChanged" } });
+    expect(scalarRuntime.observations.executions()).toBe(callbacks);
+    await fixture.rebind(successor);
+    await denyOrdinary();
+    expect(await run(fixture.reader.findByID({ collection: "posts", id: source }))).toMatchObject({ id: source, title: "relation-source", score: 8, relatedPost: null });
+    expect(await run(fixture.reader.findByID({ collection: "posts", id: target }))).toMatchObject({ ...targetDocument, id: target, relatedPost: null });
+    const reverse = fixture.definition.references[0];
+    if (reverse === undefined) throw new Error("Missing installed authenticated reference");
+    const inventory = await fixture.inventory();
+    const reverseIds = inventory.indexes.filter(index => index.table === "posts" && index.name === reverse.indexName).map(index => index.id);
+    for (const id of [source, target, duringBuild]) expect(reverseIds).toContain(encodeBytesToLowercaseHex(Result.getOrThrow(decodeDocumentId(id)).internalId));
+    const update = (id: string, data: JsonObject) => run(fixture.writer.update(fixture.writer.newRequestKey(), { collection: "posts", id, data }));
+    const remove = (id: string) => run(fixture.writer.delete(fixture.writer.newRequestKey(), { collection: "posts", id }));
+    const read = (id: string) => run(fixture.reader.findByID({ collection: "posts", id }));
+    const create = (title: string, relatedPost?: string) => run(fixture.writer.create(fixture.writer.newRequestKey(), { collection: "posts", data: { title, publishedAt: "2026-01-01", ...(relatedPost === undefined ? {} : { relatedPost }) } }));
+    for (const relatedPost of [{ id: target }, 42, [target]]) {
+      const executions = conformance?.observations.executions();
+      const rejectedKey = fixture.writer.newRequestKey();
+      await expectNativeFailedWrite(fixture, rejectedKey, fixture.writer.update(rejectedKey,
+        { collection: "posts", id: source, data: { relatedPost } }), "relationInvalid");
+      expect(conformance?.observations.executions()).toBe(executions);
+    }
+    await update(source, { relatedPost: target });
+    expect(await read(source)).toMatchObject({ relatedPost: target, score: 8 });
+    expect(await run(Effect.flip(fixture.writer.delete(fixture.writer.newRequestKey(), { collection: "posts", id: target })))).toMatchObject({ reason: "relationDeleteRestricted" });
+    await update(source, { relatedPost: source });
+    await update(target, { relatedPost: source });
+    await update(target, { relatedPost: null });
+    await update(source, { relatedPost: target });
+    const relationCommands = inspectPayloadRuntimeForTest(fixture.runtime).commands;
+    const nested = defineCmsCommand({ name: "relation-nested", mode: "write", run: Effect.fn(function* (ctx, args) {
+      if (!isJsonObject(args)) return yield* cmsError("invalidInput");
+      if (args.kind === "create") {
+        const child = yield* ctx.nested(relationCommands.create, { collection: "posts", data: { title: "relation-nested-target", publishedAt: "2026-01-01" } });
+        return yield* ctx.nested(relationCommands.update, { collection: "posts", id: source, data: { relatedPost: documentId(child) } });
+      }
+      yield* ctx.nested(relationCommands.update, { collection: "posts", id: source, data: { relatedPost: null } });
+      return yield* ctx.nested(relationCommands.delete, { collection: "posts", id: args.id ?? null });
+    }) });
+    const host = await run(fixture.openHost([nested]));
+    const linked = await run(host.run(host.newRequestKey(), nested, { kind: "create" }));
+    if (!isJsonObject(linked) || typeof linked.relatedPost !== "string") throw new Error("Missing same-root pending relation target");
+    await fixture.seedPreferences([nativePreference("relation-preference", `collection-posts-${linked.relatedPost}`)]);
+    const beforeNestedDelete = await fixture.inventory();
+    await run(host.run(host.newRequestKey(), nested, { kind: "delete", id: linked.relatedPost }));
+    const afterNestedDelete = await fixture.inventory();
+    expect(afterNestedDelete.outcomes).toHaveLength(beforeNestedDelete.outcomes.length + 1);
+    expect(afterNestedDelete.revisions).toHaveLength(beforeNestedDelete.revisions.length + 3);
+    expect(await read(source)).toMatchObject({ relatedPost: null });
+    // Both late-integrity race orders run actual Local API callbacks exactly once.
+    for (const first of ["insert", "delete"] as const) {
+      const raceTarget = documentId(await create(`race-${first}`));
+      const raceEntered = barrier<void>(), raceRelease = barrier<void>();
+      beforeFinalize = () => { beforeFinalize = undefined; return Effect.sync(() => raceEntered.resolve()).pipe(Effect.andThen(Effect.promise(() => raceRelease.promise))); };
+      const callsBefore = conformance?.observations.executions() ?? 0;
+      const firstWork = first === "insert" ? fixture.writer.update(fixture.writer.newRequestKey(), { collection: "posts", id: source, data: { relatedPost: raceTarget } })
+        : fixture.writer.delete(fixture.writer.newRequestKey(), { collection: "posts", id: raceTarget });
+      const secondWork = first === "insert" ? fixture.writer.delete(fixture.writer.newRequestKey(), { collection: "posts", id: raceTarget })
+        : fixture.writer.update(fixture.writer.newRequestKey(), { collection: "posts", id: source, data: { relatedPost: raceTarget } });
+      const results = await run(overlappingSnapshotRace(firstWork, secondWork, raceEntered.promise, () => raceRelease.resolve()));
+      expect(results[0]).toMatchObject({ value: { failure: { reason: first === "insert" ? "relationTargetMissing" : "relationDeleteRestricted" } } });
+      expect(results[1]).toMatchObject({ value: expect.objectContaining({ success: expect.anything() }) });
+      expect(conformance?.observations.executions()).toBe(callsBefore + 2);
+      const failedCalls = conformance?.observations.executions();
+      expect(await run(Effect.result(firstWork))).toMatchObject({ failure: { reason: "requestConflict" } });
+      expect(conformance?.observations.executions()).toBe(failedCalls);
+      if (first === "delete") { await update(source, { relatedPost: null }); await remove(raceTarget); }
+    }
+    // Unobserved target-body updates do not invent a semantic body dependency.
+    const unrelatedEntered = barrier<void>(), unrelatedRelease = barrier<void>();
+    beforeFinalize = () => { beforeFinalize = undefined; return Effect.sync(() => unrelatedEntered.resolve()).pipe(Effect.andThen(Effect.promise(() => unrelatedRelease.promise))); };
+    const unrelated = await run(overlappingSnapshotRace(
+      fixture.writer.update(fixture.writer.newRequestKey(), { collection: "posts", id: source, data: { relatedPost: target } }),
+      fixture.writer.update(fixture.writer.newRequestKey(), { collection: "posts", id: target, data: { score: 17 } }), unrelatedEntered.promise, () => unrelatedRelease.resolve()));
+    expect(unrelated.map(result => Result.isSuccess(result.value))).toEqual([true, true]);
+    // A later compatible audit source evolution remains valid under score writes.
+    const auditSuccessor = await fixture.prepareSuccessor(relationCompiled, applicationNext);
+    for (let step = 0; step < 512; step++) {
+      const status = await run(fixture.database.schemaStatus(auditSuccessor.proposal));
+      if (status.state === "validated" && status.indexesReady) break;
+      await run(fixture.database.advanceSchema(auditSuccessor.proposal, { pageSize: 2, maxPages: 1 }));
+    }
+    const scoreKey = fixture.writer.newRequestKey();
+    const scoreResult = await run(fixture.writer.update(scoreKey, { collection: "posts", id: source, data: { score: 23 } }));
+    await fixture.activateSuccessor(auditSuccessor);
+    await fixture.rebind(auditSuccessor);
+    expect(await read(source)).toMatchObject({ id: source, score: 23, relatedPost: target });
+    // Body count is stable when replaying a real native outcome after cold reopen.
+    await fixture.reopen();
+    expect(await run(fixture.writer.update(scoreKey, { collection: "posts", id: source, data: { score: 23 } }))).toEqual(scoreResult);
+    expect(await read(source)).toMatchObject({ id: source, score: 23, relatedPost: target });
+    const interruptedId = documentId(await create("delete-unresolved", target));
+    await fixture.seedPreferences([nativePreference("relation-interrupted", `collection-posts-${interruptedId}`)]);
+    const beforeInterrupt = await fixture.inventory();
+    const currentRuntime = conformance;
+    if (currentRuntime === undefined) throw new Error("Missing native cancellation runtime");
+    const pending = currentRuntime.observations.pendingReads();
+    const completed = currentRuntime.observations.completedDeletes();
+    const callbackCount = currentRuntime.observations.executions();
+    const interruptedKey = fixture.writer.newRequestKey();
+    await run(Effect.scoped(Effect.gen(function* () {
+      const fiber = yield* fixture.writer.delete(interruptedKey, { collection: "posts", id: interruptedId }).pipe(Effect.forkScoped);
+      const arrival = Effect.gen(function* () {
+        while (currentRuntime.observations.pendingReads() === pending) yield* Effect.sleep(10);
+      });
+      yield* awaitNativeTestGate(fiber, arrival);
+      const interrupting = yield* Fiber.interrupt(fiber).pipe(Effect.forkScoped);
+      yield* Effect.yieldNow;
+      expect(currentRuntime.observations.heldDeletes()).toBe(1);
+      expect(currentRuntime.observations.completedDeletes()).toBe(completed);
+      expect(fiber.pollUnsafe()).toBeUndefined();
+      expect(interrupting.pollUnsafe()).toBeUndefined();
+      currentRuntime.observations.releasePendingDeletes();
+      const exit = yield* Fiber.await(fiber);
+      yield* Fiber.join(interrupting);
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) expect(Cause.hasInterrupts(exit.cause)).toBe(true);
+      expect(currentRuntime.observations.heldDeletes()).toBe(0);
+      expect(currentRuntime.observations.completedDeletes()).toBe(completed + 1);
+      expect(currentRuntime.observations.executions()).toBe(callbackCount + 1);
+    }).pipe(Effect.ensuring(Effect.sync(currentRuntime.observations.releasePendingDeletes)), Effect.timeout("5 seconds"))));
+    const afterInterrupt = await fixture.inventory();
+    expect(coreNativeFixtureData(afterInterrupt)).toEqual(coreNativeFixtureData(beforeInterrupt));
+    expect(afterInterrupt.outcomes).toHaveLength(beforeInterrupt.outcomes.length + 1);
+    expect(afterInterrupt.outcomes.find(outcome => outcome.value.key === interruptedKey)?.value.state).toBe("failed");
+    await update(interruptedId, { title: "interrupted-restored", relatedPost: null });
+    await remove(interruptedId);
+    await update(source, { relatedPost: null });
+    await remove(source);
+    expect((await run(readNativePayload(fixture, operations => operations.incomingReferences("relatedPost", target, { limit: 16 })))).value).toEqual({ ids: [], hasMore: false });
+    await remove(target);
+  } finally { conformance?.observations.releasePendingDeletes(); await fixture.close(); }
 }
 
 export function barrier<Value>() {
@@ -475,18 +252,18 @@ export function barrier<Value>() {
 
 export async function withDeadline<Value>(promise: Promise<Value>): Promise<Value> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([promise, new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error("Native barrier deadline")), 5000); })]);
-  } finally { if (timer !== undefined) clearTimeout(timer); }
+  try { return await Promise.race([promise, new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error("Native barrier deadline")), 5000); })]); }
+  finally { if (timer !== undefined) clearTimeout(timer); }
 }
 
+/** Retained PostgreSQL lock witness for the unmigrated many/joins closure. */
 export async function heldNativeRace(persistence: PostgresFlarexPersistence, first: Effect.Effect<unknown, unknown>, second: Effect.Effect<unknown, unknown>, entered: Promise<void>, release: () => void) {
-  const firstObserved = Promise.allSettled([runEffect(first.pipe(Effect.result))]);
+  const firstObserved = Promise.allSettled([Effect.runPromise(first.pipe(Effect.result))]);
   let secondObserved: typeof firstObserved | undefined;
   let results: Array<Awaited<typeof firstObserved>[number]> = [];
   try {
     await withDeadline(Promise.race([entered, firstObserved.then(() => { throw new Error("Native change exited before its barrier"); })]));
-    secondObserved = Promise.allSettled([runEffect(second.pipe(Effect.result))]);
+    secondObserved = Promise.allSettled([Effect.runPromise(second.pipe(Effect.result))]);
     const deadline = performance.now() + 5000;
     let waiting = false;
     while (!waiting && performance.now() < deadline) {
@@ -495,21 +272,16 @@ export async function heldNativeRace(persistence: PostgresFlarexPersistence, fir
       if (!waiting) await new Promise(resolve => setTimeout(resolve, 10));
     }
     expect(waiting).toBe(true);
-  } finally {
-    release();
-    results = [...await firstObserved, ...(secondObserved === undefined ? [] : await secondObserved)];
-  }
+  } finally { release(); results = [...await firstObserved, ...(secondObserved === undefined ? [] : await secondObserved)]; }
   return results;
 }
 
-/** The second operation must settle before the first admission is released. */
+/** The second operation settles before the first native finalization resumes. */
 export const overlappingSnapshotRace = Effect.fn("PayloadTest.overlappingSnapshotRace")(
   (first: Effect.Effect<unknown, unknown>, second: Effect.Effect<unknown, unknown>, entered: Promise<void>, release: () => void) =>
     Effect.scoped(Effect.gen(function* () {
       const firstFiber = yield* first.pipe(Effect.result, Effect.forkScoped);
-      yield* Effect.raceFirst(Effect.promise(() => entered), Fiber.join(firstFiber).pipe(
-        Effect.andThen(Effect.fail(new Error("Snapshot race exited before its barrier"))),
-      ));
+      yield* Effect.raceFirst(Effect.promise(() => entered), Fiber.join(firstFiber).pipe(Effect.andThen(Effect.fail(new Error("Snapshot race exited before its barrier")))));
       const secondFiber = yield* second.pipe(Effect.result, Effect.forkScoped);
       const secondResult = yield* Fiber.join(secondFiber);
       yield* Effect.sync(release);

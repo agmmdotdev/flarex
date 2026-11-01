@@ -41,8 +41,6 @@ import { cmsHostFixture } from "../cmsTransaction/cmsHostFixture";
 import { installationBindingReference } from "../../installation/frameworkSchema/frameworkDataBindingPhysicalTestSupport";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import { payloadPreferencePublicationScenario } from "./payloadPreferencePublicationScenario";
-import { payloadRelationScenario } from "../../integration/payload/payloadRelationScenario";
-import { payloadPopulationScenario } from "../../integration/payload/payloadPopulationScenario";
 import { payloadManyScenario } from "../../integration/payload/payloadManyScenario";
 import { payloadManyUpgradeScenario } from "../../integration/payload/payloadManyUpgradeScenario";
 import { payloadRelationManifest } from "../../integration/payload/payloadRelationFixture";
@@ -50,7 +48,7 @@ import { policyManifestFixture } from "../../application/ownership/applicationWr
 import { createHash } from "node:crypto";
 const decodeGeneration = Schema.decodeUnknownEffect(StorageGenerationSchema);
 
-export async function payloadPreferenceBindingScenario(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession, relationOnly: boolean | "population" | "many" | "many-upgrade" | "joins" = false, reopen?: () => Promise<void>) {
+export async function payloadPreferenceBindingScenario(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession, relationOnly: false | "many" | "many-upgrade" | "joins" = false, reopen?: () => Promise<void>) {
   const schemaName = (await persistence.query<{ name: string }>("select current_schema() as name")).rows[0]?.name;
   if (schemaName === undefined) throw new Error("Missing fixture schema");
   const scalar = await policyManifestFixture(undefined, true, payloadScalarFields, payloadScalarConfiguration);
@@ -116,7 +114,7 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
     clocks: await persistence.drizzle.select().from(fxSystemScopeClocks), unique: await persistence.drizzle.select().from(fxAppUniqueKeys), indexes: await persistence.drizzle.select().from(fxAppIndexEntryCurrent) });
 
   if (relationOnly) {
-    const scenario = relationOnly === "joins" ? payloadJoinScenario : relationOnly === "many-upgrade" ? payloadManyUpgradeScenario : relationOnly === "many" ? payloadManyScenario : relationOnly === "population" ? payloadPopulationScenario : payloadRelationScenario;
+    const scenario = relationOnly === "joins" ? payloadJoinScenario : relationOnly === "many-upgrade" ? payloadManyUpgradeScenario : payloadManyScenario;
     await scenario({ persistence, fixture, bindings, payloadProfiles, hostInput: { ...hostInput, payloadPreferenceTarget: target }, inventory, ...(reopen === undefined ? {} : { reopen }),
       seed: async (id, preferenceIds) => { await persistence.drizzle.insert(table).values(preferenceIds.map(preferenceId => ({
         scope: Result.getOrThrow(projectScopeIdUuidV1Result(reference.scopeId)).scopeUuid, generation: reference.storageGeneration,

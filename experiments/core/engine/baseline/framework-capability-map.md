@@ -48,6 +48,16 @@ owners above the five-table persistence layer. Its selected genuine consumer use
 that replacement; broader Medusa modules, developer-function
 composition, native hosting, retained data and performance remain migration gates.
 
+The [optional-one continuation](../slices/14-native-reference-integrity.md)
+connects configured/fixed direct Payload relations, depth-one population, confined
+preferences and the genuine joint Currency/Payload/trusted audit consumer. Shared
+late-integrity checking and ordinary reverse indexes preserve native observations.
+The selected populated scalar successor and compatible audit-only source change
+use authenticated active/pending policy, shared durable backfill and atomic
+activation. Its selected consumer assembly is retired. Many/joins, Product,
+developer-function borrowing, old query-sync feeds and broader native/hosting/data
+cutover remain named migration gates.
+
 Source identities are the [current Convex pin](../CONVEX-REFERENCE-UPGRADE.md),
 the [recorded Medusa fork](../../../../third_party/medusa/SOURCE.json) at
 48d5cc675e4e8bc821e22c20c88a751acc66fb5f (2.13.4 package baseline), promoted

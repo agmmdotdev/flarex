@@ -132,6 +132,8 @@ maintaining a competing completion log here.
 
 ## Selected native extensions
 
+- [Native strong-reference integrity](./native-strong-references.md): selected optional-one late liveness/restrict validation, shared reverse indexes and ordered-save proof implemented; broader native gates remain.
+- [Confined Payload preference cleanup](./native-payload-preference-cleanup.md): logical installed model, opaque deletion evidence and native lifecycle authority implemented for selected consumers; broader lifecycle/hosting gates remain.
 - [Native source initialization outcomes](./native-source-initialization.md): actual producer seed/readiness and known-failure retry use existing Core native outcomes; selected fresh contract implemented.
 - [Native null-predicate index lowering](./native-null-partial-index.md): selected native active-row access through an authenticated equality-null prefix over a Source index; bounded lowering implemented.
 - [Native index page observations](./native-index-page-observations.md): Currency's examined windows preserve Source prefix/EOF ownership in the native profile; selected page/count path implemented.

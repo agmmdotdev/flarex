@@ -11,7 +11,7 @@ import { decodeDocumentId, normalizeDocumentId } from "flarex-protocol/document-
 import { captureDocumentObject, captureDocumentPatch, encodeDocumentValue, type DocumentObject, type DocumentValue } from "flarex-protocol/document-value";
 import { encodeIndexKey, encodeIndexValue } from "flarex-protocol/index-key";
 import { captureLogicalQuery, compileIndexRange, fingerprintQuery, splitIndexRangeAfter } from "flarex-protocol/index-range";
-import { CoreNativeQueryError, CoreNativeUniqueConflict, CoreQueryInputError, CoreTransactionError, issueFinalizedTransaction, type CoreError, type CoreFinalizedTransaction,
+import { CoreNativeQueryError, CoreNativeUniqueConflict, CoreQueryInputError, CoreTransactionError, issueFinalizedTransaction, issueCoreNativePendingDelete, type CoreNativePendingDelete, type CoreError, type CoreFinalizedTransaction,
   type CoreIndexDefinition, type CoreTableDefinition, type CoreTransaction, type CoreTransactionLimits, type CoreTransactionUsage,
   type CoreReadToken, type CoreProgramDefinition, type CoreNativeOperations, type CoreNativeLimits, type CoreDatabaseOptions } from "./api";
 import type { CoreApplicationInsertOperations } from "./api";
@@ -41,6 +41,7 @@ import { captureCoreNativeWhere, coreNativeUniqueSelection, coreNativeUniqueValu
   coreNativePageInterval, prepareCoreNativePredicate, type CoreNativeScalar } from "./nativeQuery";
 import { captureCoreNativeIndexWindow } from "./nativePage";
 import { captureCoreEntropy, createTransactionIdGenerator, type CoreTransactionIdGenerator } from "./transactionIdGenerator";
+import { coreNativeReferenceTarget, selectCoreNativeReference } from "./nativeReferences";
 
 export interface CoreDocumentChange {
   readonly table: CoreTableDefinition;
@@ -58,6 +59,7 @@ export interface CoreFinalizedState {
   readonly registryAfter?: CoreRegistry;
   readonly claim?: import("./api").CoreRequestClaim;
   readonly usage: CoreTransactionUsage;
+  readonly limits?: CoreTransactionLimits;
   readonly admissionDeadlineUnixMilliseconds?: number;
   readonly nativeObservations?: CoreNativeObservations;
 }
@@ -143,6 +145,9 @@ const NativePageCount = Schema.Int.check(Schema.makeFilter(value => Number.isSaf
 const decodeNativePageOptions = Schema.decodeUnknownEffect(Schema.Struct({ indexName: Schema.NonEmptyString,
   offset: NativePageCount, limit: NativePageCount, order: Schema.optionalKey(Schema.Literal("asc")),
 }).annotate({ parseOptions: { onExcessProperty: "error" } }));
+const decodeNativeIncomingOptions = Schema.decodeUnknownEffect(Schema.Struct({ limit: NativePageCount })
+  .annotate({ parseOptions: { onExcessProperty: "error" } }));
+const decodeNativeBatchIds = Schema.decodeUnknownEffect(Schema.Array(Schema.String));
 const decodeCreationTimestamp = Schema.decodeUnknownEffect(CoreTimestampSchema);
 const decodeAppTableName = Schema.decodeUnknownEffect(SchemaManifestAppTableNameSchema);
 
@@ -205,6 +210,8 @@ export function createCoreTransaction(input: Readonly<{
     ...(input.operationCacheMaxBytes === undefined ? {} : { maxBytes: input.operationCacheMaxBytes }) });
   const reads = new CoreReadSetBuilder();
   const writes = new Map<string, CoreDocumentChange>();
+  const deletedBy = new Map<string, CoreTransactionNativeAccess>();
+  const deletionEvidence = new WeakMap<CoreNativePendingDelete, Readonly<{ access: CoreTransactionNativeAccess; id: string; change: CoreDocumentChange }>>();
   const pendingIndexes = new Map<string, BTree<Uint8Array, DocumentObject | null>>();
   const accounting = new CoreAccounting(input.limits ?? CORE_TRANSACTION_REFERENCE_LIMITS);
   const native = input.nativeRoot ?? input.native;
@@ -573,6 +580,12 @@ export function createCoreTransaction(input: Readonly<{
     yield* assertOpen();
     const captured = document === null ? null : yield* Effect.fromResult(Result.mapError(captureCoreDocument(document, table.name.startsWith("_")), invalid));
     const next = captured?.value ?? null;
+    // Assignment validates the target ID's table, without observing target liveness/body.
+    if (next !== null && access?.kind === "native") for (const reference of table.nativePolicy?.references ?? []) {
+      if (reference.sourceTable !== table.name) continue;
+      const selection = yield* Effect.fromResult(selectCoreNativeReference(registry, table, reference));
+      yield* Effect.fromResult(coreNativeReferenceTarget(selection, next));
+    }
     if (captured !== null) documentSizes.set(captured.value, captured.semanticSizeBytes);
     const retainedBytes = native === undefined || table.name.startsWith("_") ? 0
       : yield* Effect.fromResult(nativeBodyBytes(table, next));
@@ -597,6 +610,8 @@ export function createCoreTransaction(input: Readonly<{
       return Effect.fromResult(Result.map(accounting.write(table.name.startsWith("_"), captured?.semanticSizeBytes ?? 0), () => {
       writes.set(developerId, Object.freeze({ table, id: id.slice(), original: original.original,
         originalDocument: original.document, finalDocument: next }));
+      if (next === null && access?.kind === "native") deletedBy.set(developerId, access);
+      else deletedBy.delete(developerId);
       for (const update of pendingUpdates) {
         const name = encodeBytesToLowercaseHex(update.index.ref.id);
         let tree = pendingIndexes.get(name);
@@ -940,7 +955,8 @@ export function createCoreTransaction(input: Readonly<{
         changes: Object.freeze([...writes.values()]), registry: input.registry,
         ...(nativeObservations === undefined ? {} : { nativeObservations: nativeObservations.snapshot() }),
         ...(registryAfter === undefined ? {} : { registryAfter }),
-        ...(input.claim === undefined ? {} : { claim: input.claim }), usage: accounting.snapshot() }));
+        ...(input.claim === undefined ? {} : { claim: input.claim }), usage: accounting.snapshot(),
+        limits: Object.freeze({ ...(input.limits ?? CORE_TRANSACTION_REFERENCE_LIMITS) }) }));
     })),
     abort: Effect.fn("CoreTransaction.abort")(() => Effect.andThen(Effect.sync(markClosed),
       operations.withPermits(1)(Effect.sync(() => input.onClosed?.())))),
@@ -956,7 +972,7 @@ export function createCoreTransaction(input: Readonly<{
     const matches = prepareCoreNativePredicate(where);
     if (selection.kind === "id") {
       const decoded = yield* Effect.fromResult(Result.mapError(decodeDocumentId(selection.id), cause => new CoreTransactionError({ reason: "invalidDocumentId", cause })));
-      if (decoded.tableNumber !== table.number) return Object.freeze([]);
+      if (decoded.tableNumber !== table.number) return yield* new CoreTransactionError({ reason: "invalidDocumentId" });
       yield* Effect.fromResult(chargePointQuery(table, decoded.internalId));
       const document = yield* read(table, decoded.internalId, access);
       yield* Effect.fromResult(chargeDocument(table, document));
@@ -1006,7 +1022,7 @@ export function createCoreTransaction(input: Readonly<{
     })));
   };
 
-  const nativeFindPage = (access: CoreTransactionNativeAccess | undefined = defaultAccess): CoreNativeOperations["findPage"] => Effect.fn("CoreTransaction.nativeFindPage")((tableName, inputWhere, inputOptions) => operation(Effect.gen(function* () {
+  const nativeFindPage = (access: CoreTransactionNativeAccess | undefined = defaultAccess, withinOperation = false): CoreNativeOperations["findPage"] => Effect.fn("CoreTransaction.nativeFindPage")((tableName, inputWhere, inputOptions) => (withinOperation ? <A>(body: Effect.Effect<A, CoreError>) => body : operation)(Effect.gen(function* () {
     if (nativeObservations === undefined || native === undefined) return yield* invalid();
     const options = yield* decodeNativePageOptions(inputOptions).pipe(Effect.mapError(cause => new CoreNativeQueryError({ reason: "invalidInput", cause })));
     const { table, index } = yield* Effect.fromResult(selectIndex(tableName, options.indexName, access));
@@ -1245,6 +1261,69 @@ export function createCoreTransaction(input: Readonly<{
   const nativeOperationsFor = (access: CoreTransactionNativeAccess | undefined = defaultAccess): CoreNativeOperations => Object.freeze({
     ...userOperations(access), find: nativeFind(access), findPage: nativeFindPage(access),
     writeRows: nativeWriteRows(access), deleteRows: nativeDeleteRows(access), isEmpty: nativeIsEmpty(access),
+    getMany: Effect.fn("CoreTransaction.nativeGetMany")((tableName: string, ids: readonly string[]) => operation(Effect.gen(function* () {
+      if (nativeObservations === undefined || native === undefined || access?.kind !== "native")
+        return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+      const table = yield* Effect.fromResult(tableByName(tableName, false, access));
+      if (!access.authority.definition.references.some(reference => reference.targetTable === table.name))
+        return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+      const limit = yield* Effect.fromResult(nativeObservations.limitsFor(table));
+      const capturedInput = yield* Effect.fromResult(capturePrivateJsonData(ids, CORE_TRANSACTION_REFERENCE_LIMITS.bytesRead,
+        (reason, cause) => reason === "limitExceeded" ? new CoreTransactionError({ reason: "capacity", cause })
+          : new CoreNativeQueryError({ reason: "invalidInput", cause })));
+      const captured = yield* decodeNativeBatchIds(capturedInput.value).pipe(
+        Effect.mapError(cause => new CoreNativeQueryError({ reason: "invalidInput", cause })));
+      if (captured.length > limit.maxIdentities) return yield* new CoreTransactionError({ reason: "capacity" });
+      yield* native.chargeRetained(capturedInput.bytes);
+      // Validate the complete loader batch before importing any first observation.
+      for (const id of captured) {
+        const decoded = yield* Effect.fromResult(Result.mapError(decodeDocumentId(id), cause => new CoreTransactionError({ reason: "invalidDocumentId", cause })));
+        if (decoded.tableNumber !== table.number) return yield* new CoreTransactionError({ reason: "invalidDocumentId" });
+      }
+      const result: Array<DocumentObject | null> = [];
+      const methods = userOperations(access, true);
+      for (const id of captured) result.push(Option.getOrNull(yield* methods.get(id)));
+      return Object.freeze(result);
+    }))),
+    incomingReferences: Effect.fn("CoreTransaction.nativeIncomingReferences")((forwardName: string, targetId: string, options: Readonly<{ limit: number }>) => operation(Effect.gen(function* () {
+      if (access?.kind !== "native") return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+      const captured = yield* decodeNativeIncomingOptions(options).pipe(
+        Effect.mapError(cause => new CoreNativeQueryError({ reason: "invalidInput", cause })));
+      const reference = access.authority.definition.references.find(value => value.declaration.source.forwardName === forwardName);
+      if (reference === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+      const source = yield* Effect.fromResult(tableByName(reference.sourceTable, false, access));
+      const selection = yield* Effect.fromResult(selectCoreNativeReference(registry, source, reference));
+      const selectedTarget = yield* Effect.fromResult(Result.mapError(decodeDocumentId(targetId), cause => new CoreTransactionError({ reason: "invalidDocumentId", cause })));
+      if (selectedTarget.tableNumber !== selection.target.number) return yield* new CoreTransactionError({ reason: "invalidDocumentId" });
+      const page = yield* nativeFindPage(access, true)(source.name, { [reference.field]: targetId },
+        { indexName: reference.indexName, offset: 0, limit: captured.limit });
+      const ids: string[] = [];
+      for (const document of page.documents) {
+        if (typeof document._id !== "string") return yield* new CorePersistenceError({ reason: "corruptData" });
+        ids.push(document._id);
+      }
+      return Object.freeze({ ids: Object.freeze(ids), hasMore: page.hasMore });
+    }))),
+    pendingDelete: Effect.fn("CoreTransaction.nativePendingDelete")((tableName: string, id: string) => operation(Effect.gen(function* () {
+      if (access?.kind !== "native") return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+      const table = yield* Effect.fromResult(tableByName(tableName, false, access));
+      const selected = yield* Effect.fromResult(resolve(id, false, access));
+      const change = writes.get(id);
+      if (!bytesEqual(table.tabletId, selected.table.tabletId) || change?.finalDocument !== null || deletedBy.get(id) !== access)
+        return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+      const evidence = issueCoreNativePendingDelete();
+      deletionEvidence.set(evidence, { access, id, change });
+      return evidence;
+    }))),
+    assertPendingDelete: Effect.fn("CoreTransaction.nativeAssertPendingDelete")((tableName: string, id: string, evidence: CoreNativePendingDelete) => operation(Effect.gen(function* () {
+      if (access?.kind !== "native") return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+      const table = yield* Effect.fromResult(tableByName(tableName, false, access));
+      const selected = yield* Effect.fromResult(resolve(id, false, access));
+      const record = deletionEvidence.get(evidence), change = writes.get(id);
+      if (!bytesEqual(table.tabletId, selected.table.tabletId) || record?.access !== access || record.id !== id
+        || record.change !== change || change?.finalDocument !== null || deletedBy.get(id) !== access)
+        return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+    }))),
   });
   const nativeOperations = defaultAccess === undefined ? undefined : nativeOperationsFor(defaultAccess);
   const applicationInserts = new Map<CoreTransactionNativeAccess, CoreApplicationInsertOperations>();

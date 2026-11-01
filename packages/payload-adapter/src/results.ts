@@ -26,12 +26,17 @@ export const payloadResults = {
   page: (value: unknown) => capture(decodePage, value),
   count: (value: unknown) => capture(decodeCount, value),
 };
-/** Core has already captured canonical JSON. Reuse the result owner for typed
- * operations and stored replay without another getter/cycle/byte capture. */
+function callerResult<A extends Json>(decode: (value: unknown) => Result.Result<A, Schema.SchemaError>, value: Json) {
+  return decode(value).pipe(Result.mapError(cause => cmsError("storedCorruption", cause)),
+    Result.map(decoded => structuredClone(decoded)));
+}
+
+/** Saved outcomes retain immutable canonical values. Every Local API return,
+ * including replay, gives its caller a fresh mutable tree after envelope validation. */
 export const payloadCanonicalResults = {
-  document: (value: Json) => decodeDocument(value).pipe(Result.mapError(cause => cmsError("storedCorruption", cause))),
-  page: (value: Json) => decodePage(value).pipe(Result.mapError(cause => cmsError("storedCorruption", cause))),
-  count: (value: Json) => decodeCount(value).pipe(Result.mapError(cause => cmsError("storedCorruption", cause))),
+  document: (value: Json) => callerResult(decodeDocument, value),
+  page: (value: Json) => callerResult(decodePage, value),
+  count: (value: Json) => callerResult(decodeCount, value),
 };
 export type PayloadDocument = typeof Document.Type;
 export type PayloadPageResult = typeof Page.Type;

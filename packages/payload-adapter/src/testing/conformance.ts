@@ -1,6 +1,6 @@
 import { Effect, type Scope } from "effect";
 import type { BasePayload, CollectionAfterChangeHook, CollectionConfig } from "payload";
-import type { CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
+import { cmsError, type CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
 import type { PayloadContentProfile } from "../contract";
 import { UnsupportedPayloadCapability } from "../errors";
 import { makePayloadNative } from "../runtime/native";
@@ -18,17 +18,30 @@ export interface PayloadConformanceRuntime {
     readonly hookRuns: () => number;
     readonly executions: () => number;
     readonly pendingReads: () => number;
+    readonly heldDeletes: () => number;
+    readonly completedDeletes: () => number;
+    readonly releasePendingDeletes: () => void;
   };
 }
 
 /** Fixed test scenarios only; the ordinary runtime never imports this module. */
 export const makePayloadConformanceRuntime: (
   profile?: PayloadContentProfile,
+  compiled?: CompiledPayloadCollections,
 ) => Effect.Effect<PayloadConformanceRuntime, CmsTransactionError, Scope.Scope> =
-  Effect.fn("PayloadConformance.makeRuntime")(function* (profile: PayloadContentProfile = "payload.scalar") {
+  Effect.fn("PayloadConformance.makeRuntime")(function* (profile?: PayloadContentProfile, compiled?: CompiledPayloadCollections) {
+  if (profile !== undefined && compiled !== undefined && profile !== compiled.configuration.profile)
+    return yield* cmsError("invalidAuthority");
+  const selectedProfile = compiled?.configuration.profile ?? profile ?? "payload.scalar";
   let hookRuns = 0;
   let executions = 0;
   let pendingReads = 0;
+  let completedDeletes = 0;
+  const heldDeletes = new Set<() => void>();
+  const releasePendingDeletes = () => {
+    const releases = [...heldDeletes]; heldDeletes.clear();
+    for (const release of releases) release();
+  };
   const touched = new Set<string>();
   const hook: CollectionAfterChangeHook = async ({ doc, req, operation }) => {
     if (operation !== "create") return doc;
@@ -60,7 +73,11 @@ export const makePayloadConformanceRuntime: (
     return doc;
   };
   const hooks: NonNullable<CollectionConfig["hooks"]> = { afterChange: [hook], afterDelete: [async ({ doc, req }) => {
-    if (doc.title === "delete-unresolved") { pendingReads += 1; await new Promise<void>(() => {}); }
+    if (doc.title === "delete-unresolved") {
+      pendingReads += 1;
+      await new Promise<void>(release => { heldDeletes.add(release); });
+      completedDeletes += 1;
+    }
     if (doc.title === "delete-nested-fail") {
       await req.payload.create({ collection: "posts", data: { title: "delete-child", publishedAt: doc.publishedAt }, req, depth: 0, overrideAccess: false });
       await req.payload.create({ collection: "posts", data: {}, req, depth: 0, overrideAccess: false });
@@ -68,15 +85,17 @@ export const makePayloadConformanceRuntime: (
     return doc;
   }] };
 
-  const native = yield* makePayloadNative(payloadConformanceConfiguration(profile), {
+  const native = yield* makePayloadNative(compiled ?? payloadConformanceConfiguration(selectedProfile), {
     hooks, onExecute: () => { executions += 1; },
     onCollection: collection => { touched.add(collection); },
   });
+  yield* Effect.addFinalizer(() => Effect.sync(releasePendingDeletes));
   const runtime = Object.freeze(bindPayloadDirect(native));
   registerPayloadRuntime(runtime, native);
   return { runtime, payload: native.payload, observations: {
     touched: () => [...touched], hookRuns: () => hookRuns,
     executions: () => executions, pendingReads: () => pendingReads,
+    heldDeletes: () => heldDeletes.size, completedDeletes: () => completedDeletes, releasePendingDeletes,
   } };
 });
 

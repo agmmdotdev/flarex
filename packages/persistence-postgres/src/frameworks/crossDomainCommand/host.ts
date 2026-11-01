@@ -2,7 +2,7 @@ import { Cause, Effect, Exit, Schema } from "effect";
 import { decodeDocumentId } from "flarex-protocol/document-id";
 import type { Json } from "flarex-protocol/json";
 import type { CoreDatabase, CoreNativeBinding, CoreNativeRootBinding, CoreNativeRootBindingMetadata, CoreRequestClaim } from "../../core/api";
-import { CoreNativeBudgetError, CoreTransactionError } from "../../core/api";
+import { CoreNativeBudgetError, isCoreDefinitiveCommitRefusal } from "../../core/api";
 import { capturePrivateCanonicalValue } from "../../installation/frameworkSchema/privateCanonicalValue";
 import { makeBoundedRequestLifetime } from "../../execution/preparation/boundedRequestLifetime";
 import { chargeHostPreparation, retainPreparedHost, PreparedHostRuntimeError, type PreparedHostRuntime } from "../../execution/preparation/preparedHostRuntime";
@@ -142,7 +142,7 @@ const compose = Effect.fn("CurrencyAnnouncement.composeNative")(function* (
       if (Exit.isFailure(committed)) {
         const reason = committed.cause.reasons.length === 1 ? committed.cause.reasons[0] : undefined;
         const mapped = Cause.map(committed.cause, projectCoreCompositeFailure);
-        return reason !== undefined && Cause.isFailReason(reason) && reason.error instanceof CoreTransactionError
+        return reason !== undefined && Cause.isFailReason(reason) && isCoreDefinitiveCommitRefusal(reason.error)
           ? yield* abortWithCause(acquired.claim, mapped) : yield* Effect.failCause(mapped);
       }
       yield* readBinding();

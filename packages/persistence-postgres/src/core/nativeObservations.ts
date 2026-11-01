@@ -29,6 +29,9 @@ export type CoreNativeIndexObservation = CoreNativeUniqueSlot | CoreNativeRangeS
 
 export interface CoreNativeObservations {
   readonly limits: CoreNativeLimits;
+  readonly identities?: readonly string[];
+  readonly sourceCaptures?: readonly Readonly<{ sourceKey: string; tablets: readonly string[];
+    limits: CoreNativeLimits; identities: readonly string[] }>[];
   readonly dependencies: readonly Readonly<{ timestamp: bigint; reads: CoreReadSet }>[];
   readonly indexes: readonly CoreNativeIndexObservation[];
 }
@@ -171,7 +174,17 @@ export class CoreNativeObservationState {
     const indexes: CoreNativeIndexObservation[] = [...this.slots.values()].map(entry => entry.slot);
     indexes.push(...this.ranges.values());
     indexes.push(...this.pages);
+    const sources = new Map<string, { tablets: string[]; limits: CoreNativeLimits }>();
+    for (const [tablet, source] of this.sourcesByTablet) {
+      let capture = sources.get(source.sourceKey);
+      if (capture === undefined) { capture = { tablets: [], limits: source.limits }; sources.set(source.sourceKey, capture); }
+      capture.tablets.push(tablet);
+    }
     return Object.freeze({ limits: Object.freeze({ ...this.limits }),
+      identities: Object.freeze([...this.identities]),
+      sourceCaptures: Object.freeze([...sources].map(([sourceKey, capture]) => Object.freeze({ sourceKey,
+        tablets: Object.freeze(capture.tablets), limits: Object.freeze({ ...capture.limits }),
+        identities: Object.freeze([...(this.sourceIdentities.get(sourceKey) ?? [])]) }))),
       dependencies: Object.freeze([...this.dependencies].map(([timestamp, reads]) =>
       Object.freeze({ timestamp, reads: reads.snapshot() }))),
     indexes: Object.freeze(indexes) });

@@ -19,6 +19,7 @@ import { makeCoreIndexCache, type CoreIndexCache } from "./indexCache";
 import type { CoreResidentIndexes } from "./residentIndex";
 import { prepareCoreNativeIndexes, validateCoreNativeIndexes } from "./nativeValidation";
 import { checkCoreNativeRegistryTransition } from "./nativePolicy";
+import { prepareCoreNativeReferences, validateCoreNativeReferences } from "./nativeReferences";
 
 const decodeGeneratedIdBoundary = Schema.decodeUnknownEffect(CoreTimestampSchema);
 
@@ -316,11 +317,15 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
             const conflict = yield* Effect.fromResult(snapshot.conflict(group.reads, group.timestamp));
             if (conflict !== undefined) return yield* new CoreTransactionError({ reason: "conflict", cause: conflict });
           }
-          const nativeIndexes = transaction.nativeObservations === undefined || indexes.length === 0 ? [] : yield* prepareCoreNativeIndexes(
-            yield* persistence.readSnapshot(snapshot.timestamp, retention), publishedRegistry, indexes,
-            transaction.nativeObservations.limits.maxIdentities);
+          const needsNativeSnapshot = indexes.length > 0 || transaction.changes.some(change => (change.table.nativePolicy?.references?.length ?? 0) > 0);
+          const nativeSnapshot = transaction.nativeObservations === undefined || !needsNativeSnapshot ? undefined
+            : yield* persistence.readSnapshot(snapshot.timestamp, retention);
+          const nativeIndexes = nativeSnapshot === undefined || indexes.length === 0 ? [] : yield* prepareCoreNativeIndexes(
+            nativeSnapshot, publishedRegistry, indexes, transaction.nativeObservations?.limits.maxIdentities ?? 0);
+          const nativeReferences = nativeSnapshot === undefined ? undefined
+            : yield* prepareCoreNativeReferences(nativeSnapshot, publishedRegistry, transaction);
           yield* Effect.yieldNow;
-          return { timestamp: snapshot.timestamp, nativeIndexes };
+          return { timestamp: snapshot.timestamp, nativeIndexes, nativeReferences };
         })));
         const acceptedHere = yield* mutex.withPermits(1)(Effect.gen(function* () {
           if (stopped !== undefined) return yield* Effect.failCause(stopped);
@@ -338,14 +343,20 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
           if (indexes.length > 0 && !Result.match(snapshot.conflict(indexReads, prepared.timestamp), {
             onFailure: () => false, onSuccess: conflict => conflict === undefined,
           })) return false;
+          if (prepared.nativeReferences !== undefined && prepared.nativeReferences.reads.length > 0
+            && !Result.match(snapshot.conflict(prepared.nativeReferences.reads, prepared.timestamp), {
+              onFailure: () => false, onSuccess: conflict => conflict === undefined,
+            })) return false;
           const now = yield* options.now;
           const timestamp = now > assigned ? now : assigned + 1n;
           if (timestamp < 0n || timestamp > 0x7fff_ffff_ffff_ffffn) return yield* new CoreTransactionError({ reason: "capacity" });
           const batch = yield* Effect.fromResult(deriveCoreWriteBatch(transaction, timestamp));
-          const contributingBatches = transaction.nativeObservations === undefined ? new Set<CoreWriteBatch>()
+          const acceptedBatches = [...accepted.values()].map(commit => commit.batch);
+          const contributingBatches = new Set(transaction.nativeObservations === undefined ? []
             : yield* Effect.fromResult(validateCoreNativeIndexes(prepared.nativeIndexes,
-            (function* () { for (const [, commit] of accepted.entries()) yield commit.batch; })(), batch,
-            transaction.nativeObservations.limits.maxIdentities));
+              acceptedBatches, batch, transaction.nativeObservations.limits.maxIdentities)));
+          if (prepared.nativeReferences !== undefined) for (const predecessor of yield* Effect.fromResult(
+            validateCoreNativeReferences(prepared.nativeReferences, acceptedBatches, batch))) contributingBatches.add(predecessor);
           const predecessors = [...accepted.values()].filter(commit => contributingBatches.has(commit.batch))
             .map(commit => commit.durability);
           if (batch.documents.length === 0) {

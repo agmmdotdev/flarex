@@ -4,8 +4,9 @@ import { requirePreparedApplicationSchemaSource, type PreparedApplicationSchemaS
 import { encodeLogicalSchemaSource, logicalTableKey, type QualifiedLogicalTable } from "flarex-protocol/internal/logical-schema-candidate";
 import { encodeCanonicalJson, type Json } from "flarex-protocol/json";
 import { captureCoreSchema, CoreSchemaError, type CoreSchemaDefinition } from "./schemaTypes";
-import { captureCoreTableNamespace, type CoreTableNamespace } from "./namespace";
-import { requireCoreNativeDefinition, type CoreNativeDefinition } from "./nativePolicy";
+import { captureCoreTableNamespace, coreNamespaceKey, type CoreTableNamespace } from "./namespace";
+import { isCoreNativeDefinitionSuccessor, requireCoreNativeDefinition, type CoreNativeDefinition } from "./nativePolicy";
+import { encodeValidatorJsonV1 } from "flarex-protocol/validator-json";
 import { coreNativeTableName } from "./schemaTableName";
 import { serializeCoreSchema } from "./schemaJson";
 import { compileCoreApplicationIndexes } from "../application/coreSchema";
@@ -77,6 +78,58 @@ export function requireCoreSchemaBundle(bundle: CoreSchemaBundle): Result.Result
 export function coreSchemaBundleNative(bundle: CoreSchemaBundle, definition: CoreNativeDefinition): boolean {
   return bundles.has(bundle) && Result.isSuccess(requireCoreNativeDefinition(definition))
     && bundle.nativeDefinitions.some(candidate => candidate.metadata === definition.metadata);
+}
+
+/** Expected targets are captured by the trusted database constructor; an issued
+ * source bundle alone does not authorize adding it to that database. */
+export function coreSchemaBundleExpectedTarget(bundle: CoreSchemaBundle, namespace: CoreTableNamespace,
+  expectedBundles: readonly CoreSchemaBundle[]): boolean {
+  return bundles.has(bundle) && coreNamespaceKey(bundle.namespace) === coreNamespaceKey(namespace)
+    && expectedBundles.some(expected => bundles.has(expected) && expected.metadata === bundle.metadata);
+}
+
+function compatibleApplicationSource(prior: CoreSchemaSource, next: CoreSchemaSource): boolean {
+  if (prior.kind !== "application" || next.kind !== "application") return false;
+  const before = prior.definition.source, after = next.definition.source;
+  if (before.key !== after.key || before.owner !== after.owner || before.writeProfile !== after.writeProfile
+    || before.definition.kind !== "documents" || after.definition.kind !== "documents"
+    || canonical(before.bindings) !== canonical(after.bindings)
+    || canonical(before.definition.indexes) !== canonical(after.definition.indexes)
+    || canonical(before.definition.uniqueConstraints) !== canonical(after.definition.uniqueConstraints)
+    || before.definition.relations.length !== 0 || after.definition.relations.length !== 0
+    || before.definition.tables.length !== after.definition.tables.length) return false;
+  let additions = 0;
+  return before.definition.tables.every((table, position) => {
+    const candidate = after.definition.kind === "documents" ? after.definition.tables[position] : undefined;
+    if (candidate === undefined || table.logicalName !== candidate.logicalName) return false;
+    const previous = table.definition.documentType, validator = candidate.definition.documentType;
+    if (canonical(encodeValidatorJsonV1(previous)) === canonical(encodeValidatorJsonV1(validator))) return true;
+    if (previous.type !== "object" || validator.type !== "object") return false;
+    const extra = Object.keys(validator.value).filter(field => !Object.hasOwn(previous.value, field));
+    if (extra.length !== 1 || ++additions !== 1) return false;
+    const field = extra[0];
+    if (field === undefined || validator.value[field]?.optional !== true || validator.value[field]?.fieldType.type !== "string") return false;
+    const fields = Object.fromEntries(Object.entries(validator.value).filter(([key]) => key !== field));
+    return canonical(encodeValidatorJsonV1(previous)) === canonical(encodeValidatorJsonV1({ type: "object", value: fields }));
+  });
+}
+
+/** Structural compatibility only. Installation separately requires the complete
+ * target bundle in the trusted expected-source set captured by the database. */
+export function isCoreSchemaBundleSuccessor(prior: CoreSchemaBundle, next: CoreSchemaBundle): boolean {
+  if (Result.isFailure(requireCoreSchemaBundle(prior)) || Result.isFailure(requireCoreSchemaBundle(next))
+    || coreNamespaceKey(prior.namespace) !== coreNamespaceKey(next.namespace)) return false;
+  if (prior.metadata === next.metadata) return true;
+  const added = next.sources.filter(source => !prior.sources.some(previous => previous.definition.source.key === source.definition.source.key));
+  if (next.sources.length !== prior.sources.length + added.length || added.length > 1 || added.some(source => source.kind !== "native")) return false;
+  return prior.sources.every(source => {
+    const candidate = next.sources.find(selected => selected.definition.source.key === source.definition.source.key);
+    if (candidate === undefined || source.kind !== candidate.kind || source.definition.source.key !== candidate.definition.source.key) return false;
+    return source.kind === "native" && candidate.kind === "native"
+      ? added.length === 0 ? isCoreNativeDefinitionSuccessor(source.definition, candidate.definition) : source.definition.metadata === candidate.definition.metadata
+      : added.length === 0 ? compatibleApplicationSource(source, candidate)
+        : source.definition.source.sourceSha256 === candidate.definition.source.sourceSha256;
+  });
 }
 
 /** Trusted source composition before Source's existing single-schema lifecycle. */

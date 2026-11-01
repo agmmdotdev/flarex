@@ -1,15 +1,17 @@
-import { Cause, Effect, Option } from "effect";
+import { Cause, Effect, Option, Schema } from "effect";
 import type { DocumentObject } from "flarex-protocol/document-value";
 import { isJsonObject } from "flarex-protocol/json";
 import type { CoreError, CoreNativeOperations } from "../../core/api";
 import type { LogicalDocuments } from "../../storage/documents/logicalDocuments/ports";
-import { capturePrivateJsonData } from "../../values/privateJsonData";
+import { capturePrivateJsonData, useCapturedPrivateJsonData } from "../../values/privateJsonData";
 import type { CmsRequestLifetime } from "./lifetime";
 import { cmsError, cmsLimits, type CmsTransactionError } from "./model";
 import { projectCoreCmsFailure } from "./nativeFailure";
 
 const nativeResult = <A>(work: Effect.Effect<A, CoreError>): Effect.Effect<A, CmsTransactionError> =>
   work.pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCoreCmsFailure))));
+const decodeBatchIds = Schema.decodeUnknownEffect(Schema.Array(Schema.String).check(Schema.makeFilter(ids =>
+  new Set(ids).size === ids.length ? undefined : "CMS batch identities must be distinct")));
 
 /** This translation owns no snapshot, working set, constraint or settlement. */
 export function makeNativeCmsDocuments(operations: CoreNativeOperations, lifetime: CmsRequestLifetime): LogicalDocuments<CmsTransactionError> {
@@ -36,7 +38,16 @@ export function makeNativeCmsDocuments(operations: CoreNativeOperations, lifetim
   });
   return {
     get: (context, id, documentId, table) => lifetime.operation(context, id, "read", get(table, documentId)),
-    getMany: (context, id) => lifetime.operation(context, id, "read", Effect.fail(cmsError("unsupportedProfile"))),
+    getMany: Effect.fn("NativeCmsDocuments.getMany")((context, id, table, ids) => lifetime.operation(context, id, "read", Effect.gen(function* () {
+      const captured = yield* Effect.fromResult(useCapturedPrivateJsonData(ids, lifetime.remainingBytes(), cmsError));
+      if (!Array.isArray(captured.value) || captured.value.length > cmsLimits.pageRows)
+        return yield* Effect.fail(cmsError("limitExceeded"));
+      const batch = yield* decodeBatchIds(captured.value).pipe(Effect.mapError(cause => cmsError("invalidInput", cause)));
+      // Core charges this immutable batch once and validates every typed ID
+      // before reading; this port owns its narrower per-call shape and bound.
+      const values = yield* nativeResult(operations.getMany(table, Object.freeze(batch)));
+      return yield* Effect.forEach(values, value => value === null ? Effect.succeed(null) : document(value));
+    }))),
     find: (context, id, table, query) => lifetime.operation(context, id, "read", Effect.gen(function* () {
       const found = yield* nativeResult(operations.find(table, query.where));
       const ordered = found.toSorted((left, right) => String(left._id) < String(right._id) ? -1 : String(left._id) > String(right._id) ? 1 : 0);

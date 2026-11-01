@@ -360,16 +360,22 @@ and [invalidating-writer baseline](../DESIGN.md#identity-and-invalidating-writer
 Required examples: activation during reads, missing feed history, repair writes,
 expired pinned views and safe cleanup after consumer/data cutover.
 
-### Next question: resumable index backfill
+### Resumable index backfill and native connection
 
-This is the next unresolved question within index lifecycle, not a required
-global next step. A read slice over an already enabled index need not redesign
-the builder. Any new build or activation path still needs this proof.
+The bounded ordinary-index builder is implemented in `core/schemaWorker.ts`,
+`indexBackfill.ts`, `TableIterator` and `indexModel`. It persists index-bound
+progress, resumes with historical reconstruction, maintains pending generations
+on live writes, completes physical chunks before checkpoints and separates
+Backfilled from activation. Its bounded retain-all eligibility does not close
+general retention/cutover. A new native build still needs connected proof; it
+does not need a second builder.
 
 **How do we build an index while writes continue, then resume after a crash
-without missing or duplicating logical entries?** Select the snapshot/cursor
-contract, how ongoing inserts/updates/deletes are covered, what progress is saved
-durably, and the proof required before marking the index Backfilled.
+without missing or duplicating logical entries?** Preserve that implemented
+snapshot/cursor, live-write, durable progress and readiness protocol when
+connecting the [native optional-one successor](./slices/14-native-reference-integrity.md).
+Keep the active policy during pending build and atomically hand off native
+authority with complete schema/index state.
 
 Example: the builder has processed half the carts when Alice adds a cart, Bob
 changes a customer assignment and the DO restarts. Determine which work is safe
@@ -382,9 +388,10 @@ References: pinned Convex [database index worker](../../../../../crates/database
 and [index state](../../../../../crates/common/src/bootstrap_model/index/database_index/index_state.rs);
 Flarex [readiness contract](./02-index-readiness.md) and
 [owner recovery](./01-commit-coordination.md#accepted-uncertainty-recovery).
-Inspect the actual scan, live-write, checkpoint and retention interleavings before
-selecting the replacement. This does not enable the index, implement a builder,
-settle every schema lifecycle question or reopen replication.
+Inspect the actual scan, live-write, checkpoint and retention interleavings for
+each new consumer. Generic builder evidence alone does not enable its native
+policy, establish complete native cutover, settle general lifecycle/retention
+or reopen replication.
 
 ## Q08 - Host adapters, scheduling and hot-shop scaling
 

@@ -4,11 +4,11 @@ import { Effect } from "effect";
 import { makePayloadConformanceRuntime } from "../../../../payload-adapter/src/testing";
 import { isJsonObject } from "flarex-protocol/json";
 import { preparePayloadRelationSuccessor } from "./payloadRelationFixture";
-import { type payloadRelationScenario } from "./payloadRelationScenario";
+import { type LegacyPayloadRelationScenarioInput } from "./payloadRelationScenario";
 import { runEffect } from "../../support/effectTestRuntime";
 
 /** An emptied table still has its authenticated owner; it is never a fresh installation. */
-export async function payloadManyUpgradeScenario(input: Parameters<typeof payloadRelationScenario>[0]) {
+export async function payloadManyUpgradeScenario(input: LegacyPayloadRelationScenarioInput) {
   await runEffect(Effect.scoped(Effect.gen(function* () {
     const conformance = yield* makePayloadConformanceRuntime();
     const host = yield* conformance.runtime.bind(yield* makeCmsCommandBinding({ serving: yield* input.fixture.makeServing(input.hostInput.session),

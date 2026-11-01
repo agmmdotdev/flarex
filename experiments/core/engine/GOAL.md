@@ -333,3 +333,14 @@ retain their identity; construction cancellation and numeric history ordering
 belong to their shared owners. Its bounded proof and displaced-allocator retirement
 are complete. This is a Source-parity correction without a new DO/native algorithm
 exception; broader goal gates remain open.
+
+The [optional-one reference continuation](./slices/14-native-reference-integrity.md)
+has completed independent current/source/design challenge and peer exchange.
+It implements genuine Payload direct relations/population/preferences and the joint
+Currency/Payload/trusted audit consumer, including the named populated
+scalar-to-relation successor and compatible audit-only source evolution. It reuses
+the shared index builder, preserves active native ownership during pending
+preparation, and atomically activates complete policy/index/schema state.
+Native late-integrity checks remain separate from semantic observations.
+The selected replacement and connected two-driver proof are complete; many/joins, Product, developer-UDF
+borrowing, query-sync feed retirement and broader goal gates remain named retained.

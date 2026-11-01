@@ -1,276 +1,178 @@
-import { makeCmsCommandBinding } from "../../../src/frameworks/cmsTransaction/construction";
-import { inspectPayloadHostForTest, inspectPayloadRuntimeForTest } from "../../../../payload-adapter/src/testing";
-import { lockScopeClockForOrdinaryWriteInTransactionEffect, selectScopeClockRows } from "../../../src/scope/scopeClock";
-import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "../../../src/installation/installationLifecycle";
-import { preparedHostTestRuntime } from "../../execution/preparation/preparedHostRuntimeTestSupport";
+import { Effect } from "effect";
 import { expect } from "vitest";
-import { Effect, Result } from "effect";
-import { and, eq } from "drizzle-orm";
-import { randomUUID } from "node:crypto";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
-import { decodeAppDocumentIdentityV1Result, appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
-import { projectScopeIdUuidV1, ScopeIdSchema, ScopeEpochSchema } from "flarex-protocol/storage-authority";
 import { compilePayloadCollections } from "../../../../payload-adapter/src/collections";
 import { makePayloadRuntime } from "../../../../payload-adapter/src/runtime";
 import { makePayloadAccessProbeRuntime } from "../../../../payload-adapter/src/testing/accessProbe";
-import { makeCmsHost } from "../../../src/frameworks/cmsTransaction/host";
+import { inspectPayloadHostForTest, inspectPayloadRuntimeForTest } from "../../../../payload-adapter/src/testing";
+import { createCorePayloadFixture } from "../../../../payload-adapter/test/support/core-payload-fixture";
+import type { CoreWriteBatch } from "../../../src/core/contracts";
 import { defineCmsCommand } from "../../../src/frameworks/cmsTransaction/commands";
 import { cmsError } from "../../../src/frameworks/cmsTransaction/model";
-import { dataBindingActivationRequest } from "../../../src/installation/frameworkSchema/binding/host";
-import { readAdmittedDataBinding } from "../../../src/installation/frameworkSchema/binding/selection";
-import { validateApplicationWriteOwnershipForCommit } from "../../../src/application/ownership/Commit";
-import { insertInitialScopeClockInTransactionResult } from "../../../src/scope/scopeClockInitialization";
-import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes,
-  fxSystemCommitAppRowChanges, fxSystemScopeClocks, fxAppEdgeCurrent, fxAppEdgeAdjacencyVersions,
-  fxSystemCommitRelationAdjacencyChanges } from "../../../src/database/schema";
-import { fxSystemCommitPayloadPreferenceDeletions } from "../../../src/frameworks/payloadPreferences/factsSchema";
-import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
-import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
-import type { RelationalSession } from "../../../src/database/relationalTransaction/session";
-import { cmsHostFixture } from "../../frameworks/cmsTransaction/cmsHostFixture";
-import { installPayloadPreferenceFixture } from "../../frameworks/payloadPreferences/payloadPreferenceFixture";
-import { installationBindingReference } from "../../installation/frameworkSchema/frameworkDataBindingPhysicalTestSupport";
-import { barrier, overlappingSnapshotRace } from "./payloadRelationScenario";
-import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
+import { makeCmsNativeBinding } from "../../../src/frameworks/cmsTransaction/nativeBinding";
+import { readNativePayload, nativeTokenInvalidated, nativePreference, expectNativeFailedWrite } from "./payloadNativeRelationFixture";
 
 function document(value: Json): JsonObject & { id: string } {
   if (!isJsonObject(value) || typeof value.id !== "string") throw new Error("Expected native Payload document");
   return { ...value, id: value.id };
 }
 
-/** Fresh compiler -> Analysis -> native relation readiness -> real Local API, no posts fixture. */
-export async function payloadConfiguredRelationshipScenario(
-  persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession,
-  authorCollection = "authors", relationName = "author", reopen?: () => Promise<void>,
-) {
-  const compiled = await runEffect(compilePayloadCollections([
+/** Compiler -> shared native installation -> genuine Local API, over five tables. */
+export async function payloadConfiguredRelationshipScenario(driver: "pglite" | "postgres", authorCollection = "authors", relationName = "author") {
+  const compiled = await Effect.runPromise(compilePayloadCollections([
     { slug: authorCollection, fields: [{ name: "name", type: "text", required: true }] },
     { slug: "articles", fields: [{ name: "headline", type: "text", required: true, unique: true },
       { name: relationName, type: "relationship", relationTo: authorCollection }] },
   ]));
-  const schemaName = (await persistence.query<{ name: string }>("select current_schema() as name")).rows[0]?.name;
-  if (schemaName === undefined) throw new Error("Missing schema");
-  const { fixture, target, bindings, reference, candidate: contentCandidate } = await cmsHostFixture(persistence,
-    { physicalLocator: { kind: "database_per_scope", databaseKey: "application_relation_readiness_fold_target", schemaName } }, compiled);
-  expect(reference.readiness).toMatchObject({ kind: "policy", relationCount: 1 });
-  const { profile, availability, table } = await installPayloadPreferenceFixture(persistence, target, fixture.deploymentId);
-  const old = await runEffect(bindings.withCurrent(readAdmittedDataBinding));
-  const candidate = await runEffect(bindings.prepare({ ...contentCandidate.frame,
-    payloadLifecycle: { ...installationBindingReference(availability), profiles: [profile.profile] } }));
-  await runEffect(bindings.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration,
-    "configured-relation-preferences", candidate.sha256, old.head)));
-  const db = persistence.drizzle;
-  const inventory = async () => ({ rows: await db.select().from(fxAppRowCurrent), revisions: await db.select().from(fxAppRowRevisions)
-    .orderBy(fxAppRowRevisions.scopeUuid, fxAppRowRevisions.tableId, fxAppRowRevisions.rowId, fxAppRowRevisions.commitSeq),
-    commits: await db.select().from(fxSystemCommits), outcomes: await db.select().from(fxSystemIdempotency), wakes: await db.select().from(fxSystemCommitWakes),
-    facts: await db.select().from(fxSystemCommitAppRowChanges), clocks: await db.select().from(fxSystemScopeClocks),
-    edges: await db.select().from(fxAppEdgeCurrent), adjacency: await db.select().from(fxAppEdgeAdjacencyVersions),
-    relationFacts: await db.select().from(fxSystemCommitRelationAdjacencyChanges), preferences: await db.select().from(table),
-    preferenceFacts: await db.select().from(fxSystemCommitPayloadPreferenceDeletions) });
-  const hostInput = { hostRuntime: preparedHostTestRuntime(db), database: db, controlDatabase: fixture.control.drizzle, session,
-    deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
-    authority: fixture.authorityPorts, application: fixture.relationActivation, pointCommitAuthority: fixture.pointCommitAuthority,
-    identityAndAccessPolicy: { subject: "configured-relationship-test" }, payloadPreferenceTarget: target,
-    materialization: fixture.servingOwners.materialization };
-  const saved = await runEffect(Effect.scoped(Effect.gen(function* () {
-    const runtime = yield* makePayloadRuntime(compiled);
-    const binding = yield* makeCmsCommandBinding({ serving: yield* fixture.makeServing(session),
-      hostRuntime: hostInput.hostRuntime, identityAndAccessPolicy: hostInput.identityAndAccessPolicy,
-      profile: { kind: "fullProof", payloadPreferenceTarget: hostInput.payloadPreferenceTarget } });
-    const host = yield* runtime.bind(binding);
-    const create = (args: Parameters<typeof host.create>[1]) => runEffect(host.create(host.newRequestKey(), args));
-    const update = (args: Parameters<typeof host.update>[1]) => runEffect(host.update(host.newRequestKey(), args));
-    const remove = (args: Parameters<typeof host.delete>[1]) => runEffect(host.delete(host.newRequestKey(), args));
-    const read = (id: string, depth: 0 | 1 = 1) => runEffect(host.findByID({ collection: "articles", id, depth }));
-    return yield* Effect.promise(async () => {
-      const author = document(await create({ collection: authorCollection, data: { name: "Ada" } }));
-      const other = document(await create({ collection: authorCollection, data: { name: "Grace" } }));
-      const foreign = document(await create({ collection: authorCollection, data: { name: "Foreign only" } }));
-      const foreignIdentity = Result.getOrThrow(decodeAppDocumentIdentityV1Result(foreign.id));
-      const foreignRowId = appRowIdHexV1ToBytes(foreignIdentity.rowId);
-      const foreignTemplate = (await db.select().from(fxAppRowRevisions).where(eq(fxAppRowRevisions.rowId, foreignRowId)))[0];
-      if (foreignTemplate === undefined) throw new Error("Missing foreign-scope template");
-      const foreignScope = ScopeIdSchema.make(`scope_${randomUUID()}`);
-      const foreignUuid = projectScopeIdUuidV1(foreignScope).scopeUuid;
-      await db.transaction(async tx => {
-        Result.getOrThrow(await insertInitialScopeClockInTransactionResult(tx, { scopeId: foreignScope, initialEpoch: ScopeEpochSchema.make(`epoch_${randomUUID()}`) }));
-        const clock = (await selectScopeClockRows(tx).where(eq(fxSystemScopeClocks.scopeUuid, foreignUuid)))[0];
-        if (clock?.epochUuid == null) throw new Error("Missing foreign clock");
-        await tx.insert(fxAppRowRevisions).values({ ...foreignTemplate, scopeUuid: foreignUuid, writeEpochUuid: clock.epochUuid });
-        await tx.insert(fxAppRowCurrent).values({ scopeUuid: foreignUuid, tableId: foreignIdentity.tableId, rowId: foreignRowId, commitSeq: foreignTemplate.commitSeq });
-        await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: foreignTemplate.commitSeq }).where(eq(fxSystemScopeClocks.scopeUuid, foreignUuid));
-      });
-      await remove({ collection: authorCollection, id: foreign.id });
-      expect(author).not.toHaveProperty(relationName);
-      expect(author).not.toHaveProperty("relatedPost");
-      const key = host.newRequestKey();
-      const input = { collection: "articles", data: { headline: "First", [relationName]: author.id } };
-      const article = document(await runEffect(host.create(key, input)));
-      const second = document(await create({ collection: "articles", data: { headline: "Second", [relationName]: author.id } }));
-      const empty = document(await create({ collection: "articles", data: { headline: "Empty" } }));
-      expect(article[relationName]).toBe(author.id);
-      expect(empty[relationName]).toBeNull();
-      const stable = await inventory();
-      expect(await runEffect(host.create(key, input))).toEqual(article);
-      expect(document(await read(article.id))[relationName]).toEqual(author);
-      expect(document(await read(article.id, 0))[relationName]).toBe(author.id);
-      expect(document(await runEffect(host.findByID({ collection: "articles", id: article.id })))[relationName]).toBe(author.id);
-      expect(await runEffect(host.findByID({ collection: authorCollection, id: author.id, depth: 1 }))).toEqual(author);
-      const queries: string[] = [];
-      const observedReads = await runEffect(makeCmsHost({ ...hostInput, commands: Object.values(inspectPayloadRuntimeForTest(runtime).commands), expectedContentIdentity: compiled.contentIdentity }, {
-        documentReads: { observeQuery: query => queries.push(query.name) },
-      }));
-      await runEffect(observedReads.read(inspectPayloadRuntimeForTest(runtime).commands.findByID, { collection: authorCollection, id: author.id, depth: 1 }));
-      expect(queries.filter(name => name === "currentCapture")).toHaveLength(1);
-      queries.length = 0;
-      await runEffect(observedReads.read(inspectPayloadRuntimeForTest(runtime).commands.findByID, { collection: "articles", id: second.id, depth: 1 }));
-      expect(queries.filter(name => name === "currentCapture")).toHaveLength(2);
-      const page = await runEffect(host.find({ collection: "articles", depth: 1, limit: 32 }));
-      if (!isJsonObject(page) || !Array.isArray(page.docs)) throw new Error("Expected Payload page");
-      expect(page.totalDocs).toBe(3);
-      for (const root of [article, second]) expect(page.docs.find(value => isJsonObject(value) && value.id === root.id))
-        .toEqual({ ...root, [relationName]: author });
-      expect(await runEffect(host.find({ collection: "articles", depth: 1, page: 2, limit: 1 }))).toMatchObject({ totalDocs: 3, totalPages: 3, page: 2 });
-      expect(await runEffect(host.count({ collection: authorCollection }))).toEqual({ totalDocs: 2 });
-      for (const value of [1, { id: author.id }, [author.id]]) {
-        expect(await runEffectFailure(host.update(host.newRequestKey(), { collection: "articles", id: article.id, data: { [relationName]: value } })))
-          .toMatchObject({ reason: "relationInvalid" });
-      }
-      expect(await runEffectFailure(host.update(host.newRequestKey(), { collection: "articles", id: article.id, data: { [relationName]: article.id } })))
-        .toMatchObject({ reason: "documentInvalid" });
-      expect(await runEffectFailure(host.update(host.newRequestKey(), { collection: "articles", id: article.id, data: { [relationName]: foreign.id } })))
-        .toMatchObject({ reason: "relationTargetMissing" });
-      for (const options of [{ depth: 2 }, { depth: 1, select: { name: true } }, { depth: 1, populate: {} }, { depth: 1, locale: "en" }, { depth: 1, overrideAccess: true }]) {
-        expect(await runEffectFailure(inspectPayloadHostForTest(host).host.read(inspectPayloadHostForTest(host).commands.findByID, { collection: "articles", id: article.id, ...options }))).toMatchObject({ reason: "unsupportedProfile" });
-      }
-      expect(await runEffectFailure(inspectPayloadHostForTest(host).host.read(inspectPayloadHostForTest(host).commands.find, { collection: authorCollection, depth: 1, where: { id: { in: [author.id] } } }))).toMatchObject({ reason: "invalidInput" });
-      expect(await runEffectFailure(inspectPayloadHostForTest(host).host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(runtime).commands.findByID, { collection: "articles", id: article.id, depth: 1 }))).toMatchObject({ reason: "unsupportedProfile" });
-      expect(await runEffectFailure(host.findByID({ collection: "articles", id: author.id }))).toMatchObject({ reason: "invalidInput" });
-      expect(await runEffectFailure(host.delete(host.newRequestKey(), { collection: authorCollection, id: author.id }))).toMatchObject({ reason: "relationDeleteRestricted" });
-      for (const id of [article.id, author.id]) {
-        const tableId = Result.getOrThrow(decodeAppDocumentIdentityV1Result(id)).tableId;
-        const denied = await db.transaction(async tx => {
-          await runEffect(lockInstallationForCurrentTransaction(tx));
-          try {
-            await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.authority.scopeId));
-            return await runEffect(validateApplicationWriteOwnershipForCommit(tx, {
-              scopeId: fixture.authority.scopeId, generation: "application_v1", authenticatedAttemptedTables: [tableId], materialTables: [],
-            }, hostInput.materialization.uniqueConstraints, fixture.pointTarget).pipe(Effect.result));
-          } finally { closeInstallationAdmission(tx); }
-        });
-        expect(Result.isFailure(denied)).toBe(true);
-        if (Result.isFailure(denied)) expect(denied.failure.reason).toBe("writeDenied");
-      }
-      expect(await inventory()).toEqual(stable);
-      const unbound = await runEffect(compilePayloadCollections([
-        { slug: authorCollection, fields: [{ name: "name", type: "text", required: true }] },
-        { slug: "articles", fields: [{ name: "headline", type: "text", required: true, unique: true },
-          { name: `${relationName}Changed`, type: "relationship", relationTo: authorCollection }] },
-      ]));
-      await runEffect(Effect.scoped(Effect.gen(function* () {
-        const unboundRuntime = yield* makePayloadRuntime(unbound);
-        const unboundHost = yield* unboundRuntime.bind(binding);
-        expect(yield* Effect.flip(unboundHost.findByID( { collection: "articles", id: article.id, depth: 1 })))
-          .toMatchObject({ reason: "invalidAuthority" });
-      })));
-      expect(document(await update({ collection: "articles", id: article.id, data: { headline: "Renamed" } }))[relationName]).toBe(author.id);
-      expect(document(await update({ collection: "articles", id: article.id, data: { [relationName]: other.id } }))[relationName]).toBe(other.id);
-      expect(document(await read(article.id))[relationName]).toEqual(other);
-      expect(document(await update({ collection: "articles", id: article.id, data: { [relationName]: null } }))[relationName]).toBeNull();
-      expect(document(await read(article.id))[relationName]).toBeNull();
-
-      // Test-only native access probes use the same composition owner, not an ordinary runtime escape hatch.
-      let probe: "none" | "unobserved" | "wrong-collection" | "foreign-request" | "cross-write" | "unbound" | "projection" | "locale" = "none";
-      await runEffect(Effect.scoped(Effect.gen(function* () {
-        const observed = yield* makePayloadAccessProbeRuntime(compiled, { collection: authorCollection,
-          observedId: author.id, unobservedId: other.id });
-        const guarded = yield* observed.runtime.bind(binding);
-        for (const mode of ["unobserved", "wrong-collection", "foreign-request", "cross-write", "unbound", "projection", "locale"] as const) {
-          observed.selectProbe(mode);
-          yield* Effect.flip(guarded.findByID({ collection: "articles", id: second.id, depth: 1 }));
-        }
-      })));
-      const beforeCorruption = await inventory();
-      const identity = Result.getOrThrow(decodeAppDocumentIdentityV1Result(author.id));
-      const predicate = and(eq(fxAppRowRevisions.scopeUuid, projectScopeIdUuidV1(reference.scopeId).scopeUuid),
-        eq(fxAppRowRevisions.tableId, identity.tableId), eq(fxAppRowRevisions.rowId, appRowIdHexV1ToBytes(identity.rowId)));
-      const retained = (await db.select().from(fxAppRowRevisions).where(predicate))[0];
-      if (retained === undefined || retained.isTombstone) throw new Error("Missing live target revision");
-      // Deliberate corruption witness: preserve FKs and restore the exact body afterwards.
-      await db.update(fxAppRowRevisions).set({ isTombstone: true, valueBytes: null, valueSha256: null }).where(predicate);
-      try {
-        expect(await runEffectFailure(host.findByID({ collection: "articles", id: second.id, depth: 1 })))
-          .toMatchObject({ reason: "storedCorruption", cause: { reason: "relationTargetMissing", documentId: author.id } });
-      } finally {
-        await db.update(fxAppRowRevisions).set({ isTombstone: retained.isTombstone, valueBytes: retained.valueBytes, valueSha256: retained.valueSha256 }).where(predicate);
-      }
-      expect(await inventory()).toEqual(beforeCorruption);
-
-      if ("pool" in persistence) for (const first of ["reader", "writer"] as const) {
-        const entered = barrier<void>(); const release = barrier<void>();
-        const held = await runEffect(makeCmsHost({ ...hostInput, commands: Object.values(inspectPayloadRuntimeForTest(runtime).commands), expectedContentIdentity: compiled.contentIdentity }, first === "reader" ? {
-          documentReads: { beforeRead: selection => selection === "batch" ? Effect.promise(async () => { entered.resolve(); await release.promise; }) : Effect.void },
-        } : { afterAdmission: () => Effect.promise(async () => { entered.resolve(); await release.promise; }) }));
-        const reading = (first === "reader" ? held : inspectPayloadHostForTest(host).host).read(inspectPayloadRuntimeForTest(runtime).commands.findByID, { collection: "articles", id: second.id, depth: 1 });
-        const writer = first === "writer" ? held : inspectPayloadHostForTest(host).host;
-        const writing = writer.run(writer.newRequestKey(), inspectPayloadRuntimeForTest(runtime).commands.delete, { collection: authorCollection, id: author.id });
-        const results = await runEffect(overlappingSnapshotRace(first === "reader" ? reading : writing, first === "reader" ? writing : reading,
-          entered.promise, () => release.resolve()));
-        const readingResult = results[first === "reader" ? 0 : 1];
-        const writingResult = results[first === "writer" ? 0 : 1];
-        expect(readingResult.status).toBe("fulfilled");
-        expect(writingResult.status).toBe("fulfilled");
-        if (readingResult.status === "fulfilled") {
-          expect(Result.isSuccess(readingResult.value)).toBe(true);
-          if (Result.isSuccess(readingResult.value)) expect(readingResult.value.success).toMatchObject({ [relationName]: author });
-        }
-        if (writingResult.status === "fulfilled") {
-          expect(Result.isFailure(writingResult.value)).toBe(true);
-          if (Result.isFailure(writingResult.value)) expect(writingResult.value.failure).toMatchObject({ reason: "relationDeleteRestricted" });
-        }
-      }
-      const scope = projectScopeIdUuidV1(reference.scopeId).scopeUuid;
-      const preference = { scope, generation: reference.storageGeneration, userCollection: "users", userId: "user-a",
-        value: {}, createdAt: "2026-01-01", updatedAt: "2026-01-01" };
-      await db.insert(table).values([
-        { ...preference, id: "article-pref", key: `collection-articles-${second.id}` },
-        { ...preference, id: "author-pref", key: `collection-${authorCollection}-${author.id}` },
-      ]);
-      const beforeDelete = await inventory();
-      const pair = defineCmsCommand({ name: "configured-relation-delete-pair", mode: "write", run: Effect.fn(function* (ctx, args) {
-        yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.delete, { collection: "articles", id: second.id });
-        if (args === false) return yield* Effect.fail(cmsError("invalidInput"));
-        return yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.delete, { collection: authorCollection, id: author.id });
-      }) });
-      const paired = await runEffect(makeCmsHost({ ...hostInput, expectedContentIdentity: compiled.contentIdentity, commands: [pair, ...Object.values(inspectPayloadRuntimeForTest(runtime).commands)] }));
-      await runEffectFailure(paired.run(paired.newRequestKey(), pair, false));
-      expect(await inventory()).toEqual(beforeDelete);
-      const deleteKey = paired.newRequestKey();
-      const deleted = await runEffect(paired.run(deleteKey, pair, true));
-      const afterDelete = await inventory();
-      expect(afterDelete.commits).toHaveLength(beforeDelete.commits.length + 1);
-      expect(afterDelete.facts).toHaveLength(beforeDelete.facts.length + 2);
-      expect(afterDelete.revisions).toHaveLength(beforeDelete.revisions.length + 2);
-      expect(afterDelete.preferenceFacts).toHaveLength(beforeDelete.preferenceFacts.length + 2);
-      expect(afterDelete.preferences).toHaveLength(0);
-      expect(afterDelete.edges).toHaveLength(0);
-      expect(await runEffect(paired.run(deleteKey, pair, true))).toEqual(deleted);
-      expect(await inventory()).toEqual(afterDelete);
-      return { article, key, input, host, snapshot: afterDelete };
-    });
-  })));
-  expect(await runEffectFailure(saved.host.findByID({ collection: "articles", id: saved.article.id }))).toMatchObject({ reason: "closed" });
-  await reopen?.();
-  // New native instance and host reconstruct from admitted durable state, not old loader state.
-  await runEffect(Effect.scoped(Effect.gen(function* () {
-    const runtime = yield* makePayloadRuntime(compiled);
-    const binding = yield* makeCmsCommandBinding({ serving: yield* fixture.makeServing(session),
-      hostRuntime: hostInput.hostRuntime, identityAndAccessPolicy: hostInput.identityAndAccessPolicy,
-      profile: { kind: "fullProof", payloadPreferenceTarget: hostInput.payloadPreferenceTarget } });
-    const host = yield* runtime.bind(binding);
-    expect(yield* host.create(saved.key, saved.input)).toEqual(saved.article);
-    expect(yield* host.findByID({ collection: "articles", id: saved.article.id, depth: 1 }))
-      .toMatchObject({ id: saved.article.id, headline: "Renamed", [relationName]: null });
-  })));
-  expect(await inventory()).toEqual(saved.snapshot);
+  const batches: CoreWriteBatch[] = [];
+  const fixture = await createCorePayloadFixture({ kind: "fresh", driver }, {
+    compiled, preferences: true, makeRuntime: makePayloadRuntime, observeWrite: batch => batches.push(batch),
+  });
+  const foreign = await createCorePayloadFixture({ kind: "physical", physical: fixture.physical, installation: "fresh", instanceName: "foreign" }, {
+    compiled, preferences: true, makeRuntime: makePayloadRuntime,
+    scopeUuid: "45000000-0000-4000-8000-000000000003", epochUuid: "45000000-0000-4000-8000-000000000004",
+  }).catch(async cause => {
+    try { await fixture.close(); }
+    catch (cleanup) { throw new AggregateError([cause, cleanup], "Foreign Payload fixture construction and owner cleanup failed"); }
+    throw cause;
+  });
+  const { run } = fixture;
+  try {
+    const create = (args: Parameters<typeof fixture.writer.create>[1]) => run(fixture.writer.create(fixture.writer.newRequestKey(), args));
+    const update = (args: Parameters<typeof fixture.writer.update>[1]) => run(fixture.writer.update(fixture.writer.newRequestKey(), args));
+    const remove = (args: Parameters<typeof fixture.writer.delete>[1]) => run(fixture.writer.delete(fixture.writer.newRequestKey(), args));
+    const read = (id: string, depth: 0 | 1 = 1) => run(fixture.reader.findByID({ collection: "articles", id, depth }));
+    const author = document(await create({ collection: authorCollection, data: { name: "Ada" } }));
+    const other = document(await create({ collection: authorCollection, data: { name: "Grace" } }));
+    const foreignAuthor = document(await foreign.run(foreign.writer.create(foreign.writer.newRequestKey(), { collection: authorCollection, data: { name: "Foreign only" } })));
+    const foreignBefore = await foreign.inventory();
+    if (foreign.preferences === undefined) throw new Error("Missing actual foreign cleanup profile");
+    expect(await run(Effect.flip(makeCmsNativeBinding({ database: fixture.database, binding: fixture.binding,
+      hostRuntime: fixture.hostRuntime, identityAndAccessPolicy: { profile: "wrong-scope-cleanup" }, preferences: foreign.preferences })))).toMatchObject({ reason: "invalidAuthority" });
+    expect(author).not.toHaveProperty(relationName);
+    expect(author).not.toHaveProperty("relatedPost");
+    const key = fixture.writer.newRequestKey();
+    const input = { collection: "articles", data: { headline: "First", [relationName]: author.id } };
+    const article = document(await run(fixture.writer.create(key, input)));
+    const second = document(await create({ collection: "articles", data: { headline: "Second", [relationName]: author.id } }));
+    const empty = document(await create({ collection: "articles", data: { headline: "Empty" } }));
+    expect(article[relationName]).toBe(author.id);
+    expect(empty[relationName]).toBeNull();
+    const stable = await fixture.inventory();
+    expect(await run(fixture.writer.create(key, input))).toEqual(article);
+    expect(document(await read(article.id))[relationName]).toEqual(author);
+    expect(document(await read(article.id, 0))[relationName]).toBe(author.id);
+    expect(document(await run(fixture.reader.findByID({ collection: "articles", id: article.id })))[relationName]).toBe(author.id);
+    expect(await run(fixture.reader.findByID({ collection: authorCollection, id: author.id, depth: 1 }))).toEqual(author);
+    const page = await run(fixture.reader.find({ collection: "articles", depth: 1, limit: 32 }));
+    if (!isJsonObject(page) || !Array.isArray(page.docs)) throw new Error("Expected Payload page");
+    expect(page.totalDocs).toBe(3);
+    for (const root of [article, second]) expect(page.docs.find(value => isJsonObject(value) && value.id === root.id)).toEqual({ ...root, [relationName]: author });
+    expect(await run(fixture.reader.find({ collection: "articles", depth: 1, page: 2, limit: 1 }))).toMatchObject({ totalDocs: 3, totalPages: 3, page: 2 });
+    expect(await run(fixture.reader.count({ collection: authorCollection }))).toEqual({ totalDocs: 2 });
+    // Population returns a mutable detached tree, including shared loader targets.
+    const populated = document(await read(article.id));
+    if (!isJsonObject(populated[relationName])) throw new Error("Expected populated author");
+    expect(Reflect.set(populated[relationName], "name", "Caller mutation")).toBe(true);
+    expect(document(await read(article.id))[relationName]).toEqual(author);
+    let refused = stable;
+    for (const value of [1, { id: author.id }, [author.id]]) {
+      const refusedKey = fixture.writer.newRequestKey();
+      refused = await expectNativeFailedWrite(fixture, refusedKey, fixture.writer.update(refusedKey,
+        { collection: "articles", id: article.id, data: { [relationName]: value } }), "relationInvalid");
+    }
+    const wrongTableKey = fixture.writer.newRequestKey();
+    refused = await expectNativeFailedWrite(fixture, wrongTableKey, fixture.writer.update(wrongTableKey,
+      { collection: "articles", id: article.id, data: { [relationName]: article.id } }), "documentInvalid");
+    const foreignKey = fixture.writer.newRequestKey();
+    refused = await expectNativeFailedWrite(fixture, foreignKey, fixture.writer.update(foreignKey,
+      { collection: "articles", id: article.id, data: { [relationName]: foreignAuthor.id } }), "relationTargetMissing");
+    const inspected = inspectPayloadHostForTest(fixture.writer);
+    for (const options of [{ depth: 2 }, { depth: 1, select: { name: true } }, { depth: 1, populate: {} }, { depth: 1, locale: "en" }, { depth: 1, overrideAccess: true }]) {
+      expect(await run(Effect.flip(inspected.host.read(inspected.commands.findByID, { collection: "articles", id: article.id, ...options })))).toMatchObject({ reason: "unsupportedProfile" });
+    }
+    expect(await run(Effect.flip(inspected.host.read(inspected.commands.find, { collection: authorCollection, depth: 1, where: { id: { in: [author.id] } } })))).toMatchObject({ reason: "invalidInput" });
+    expect(await run(Effect.flip(inspected.host.run(inspected.host.newRequestKey(), inspected.commands.findByID, { collection: "articles", id: article.id, depth: 1 })))).toMatchObject({ reason: "invalidAuthority" });
+    expect(await run(Effect.flip(fixture.reader.findByID({ collection: "articles", id: author.id })))).toMatchObject({ reason: "invalidInput" });
+    const restrictKey = fixture.writer.newRequestKey();
+    refused = await expectNativeFailedWrite(fixture, restrictKey, fixture.writer.delete(restrictKey,
+      { collection: authorCollection, id: author.id }), "relationDeleteRestricted");
+    // Ordinary Application operations retain no authority over managed tables.
+    await run(Effect.acquireUseRelease(fixture.database.begin(), tx => Effect.gen(function* () {
+      expect(yield* Effect.flip(tx.patch(article.id, { headline: "forged" }))).toMatchObject({ reason: "authorityRevoked" });
+    }), tx => tx.abort()));
+    expect(await fixture.inventory()).toEqual(refused);
+    const unbound = await run(compilePayloadCollections([
+      { slug: authorCollection, fields: [{ name: "name", type: "text", required: true }] },
+      { slug: "articles", fields: [{ name: "headline", type: "text", required: true, unique: true },
+        { name: `${relationName}Changed`, type: "relationship", relationTo: authorCollection }] },
+    ]));
+    const unboundRuntime = await run(makePayloadRuntime(unbound));
+    expect(await run(Effect.result(unboundRuntime.bindNative(fixture.cmsBinding)))).toMatchObject({ failure: { reason: "invalidAuthority" } });
+    // Authentic loader access cannot be borrowed for another request/collection.
+    const probes = await run(makePayloadAccessProbeRuntime(compiled, { collection: authorCollection, observedId: author.id, unobservedId: other.id }));
+    const guarded = await run(probes.runtime.bindNative(fixture.cmsBinding));
+    for (const mode of ["unobserved", "wrong-collection", "foreign-request", "cross-write", "unbound", "projection", "locale"] as const) {
+      probes.selectProbe(mode);
+      expect(await run(Effect.result(guarded.findByID({ collection: "articles", id: second.id, depth: 1 })))).toMatchObject(expect.objectContaining({ failure: expect.anything() }));
+    }
+    const incoming = (target: string, limit = 16) => run(readNativePayload(fixture, operations => operations.incomingReferences(relationName, target, { limit })));
+    const oldIncoming = await incoming(author.id);
+    const newIncoming = await incoming(other.id);
+    expect(oldIncoming.value).toEqual({ ids: [article.id, second.id].toSorted(), hasMore: false });
+    expect(newIncoming.value).toEqual({ ids: [], hasMore: false });
+    expect((await incoming(author.id, 1)).value).toMatchObject({ ids: expect.any(Array), hasMore: true });
+    for (const invalid of [-1, Number.MAX_SAFE_INTEGER, 1.5]) expect(await run(Effect.result(readNativePayload(fixture,
+      operations => operations.incomingReferences(relationName, author.id, { limit: invalid }))))).toMatchObject(expect.objectContaining({ failure: expect.anything() }));
+    expect(await run(Effect.result(readNativePayload(fixture, operations => operations.incomingReferences("forged", author.id, { limit: 16 }))))).toMatchObject(expect.objectContaining({ failure: expect.anything() }));
+    expect(await run(Effect.result(readNativePayload(fixture, operations => operations.incomingReferences(relationName, article.id, { limit: 16 }))))).toMatchObject(expect.objectContaining({ failure: expect.anything() }));
+    expect(document(await update({ collection: "articles", id: article.id, data: { headline: "Renamed" } }))[relationName]).toBe(author.id);
+    const beforeRetarget = batches.length;
+    expect(document(await update({ collection: "articles", id: article.id, data: { [relationName]: other.id } }))[relationName]).toBe(other.id);
+    expect(nativeTokenInvalidated(oldIncoming.token, batches.slice(beforeRetarget))).toBe(true);
+    expect(nativeTokenInvalidated(newIncoming.token, batches.slice(beforeRetarget))).toBe(true);
+    expect(document(await read(article.id))[relationName]).toEqual(other);
+    expect((await incoming(author.id)).value).toEqual({ ids: [second.id], hasMore: false });
+    expect((await incoming(other.id)).value).toEqual({ ids: [article.id], hasMore: false });
+    expect(document(await update({ collection: "articles", id: article.id, data: { [relationName]: null } }))[relationName]).toBeNull();
+    expect(document(await read(article.id))[relationName]).toBeNull();
+    await fixture.seedPreferences([
+      nativePreference("article-pref", `collection-articles-${second.id}`), nativePreference("author-pref", `collection-${authorCollection}-${author.id}`),
+      nativePreference("unrelated-pref", `collection-articles-${article.id}`), nativePreference("prefix-pref", `collection-articles-${second.id}-extra`),
+    ]);
+    const commands = inspectPayloadRuntimeForTest(fixture.runtime).commands;
+    const pair = defineCmsCommand({ name: "configured-relation-delete-pair", mode: "write", run: Effect.fn(function* (ctx, args) {
+      yield* ctx.nested(commands.delete, { collection: "articles", id: second.id });
+      if (args === false) return yield* Effect.fail(cmsError("invalidInput"));
+      return yield* ctx.nested(commands.delete, { collection: authorCollection, id: author.id });
+    }) });
+    const paired = await run(fixture.openHost([pair]));
+    const rejectedDeleteKey = paired.newRequestKey();
+    const beforeDelete = await expectNativeFailedWrite(fixture, rejectedDeleteKey,
+      paired.run(rejectedDeleteKey, pair, false), "invalidInput");
+    const deleteKey = paired.newRequestKey();
+    const deleted = await run(paired.run(deleteKey, pair, true));
+    const afterDelete = await fixture.inventory();
+    expect(afterDelete.outcomes).toHaveLength(beforeDelete.outcomes.length + 1);
+    expect(afterDelete.revisions).toHaveLength(beforeDelete.revisions.length + 4);
+    const timestamp = afterDelete.outcomes.at(-1)?.timestamp;
+    expect(afterDelete.revisions.filter(revision => revision.timestamp === timestamp)).toHaveLength(4);
+    expect(afterDelete.rows.filter(row => row.value.id === "article-pref" || row.value.id === "author-pref")).toEqual([]);
+    expect(afterDelete.rows.filter(row => row.value.id === "unrelated-pref" || row.value.id === "prefix-pref")).toHaveLength(2);
+    expect((await incoming(author.id)).value).toEqual({ ids: [], hasMore: false });
+    expect(await run(paired.run(deleteKey, pair, true))).toEqual(deleted);
+    expect(await fixture.inventory()).toEqual(afterDelete);
+    const oldReader = fixture.reader;
+    await fixture.reopen();
+    expect(await run(Effect.flip(oldReader.findByID({ collection: "articles", id: article.id })))).toMatchObject({ reason: "closed" });
+    expect(await run(fixture.writer.create(key, input))).toEqual(article);
+    expect(await read(article.id)).toMatchObject({ id: article.id, headline: "Renamed", [relationName]: null });
+    expect(await fixture.inventory()).toEqual(afterDelete);
+    expect(await foreign.inventory()).toEqual(foreignBefore);
+    await remove({ collection: "articles", id: empty.id });
+  } finally {
+    const results = await Promise.allSettled([foreign.close(), fixture.close()]);
+    const failures = results.flatMap(result => result.status === "rejected" ? [result.reason] : []);
+    if (failures.length > 0) throw new AggregateError(failures, "Configured Payload fixture cleanup failed");
+  }
 }

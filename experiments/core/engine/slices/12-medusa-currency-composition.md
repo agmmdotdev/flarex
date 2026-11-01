@@ -222,10 +222,12 @@ and initialization retry retain source identity and one durable outcome owner.
 
 `makeLegacyCurrencyAnnouncementHost` remains only for
 `logical-cross-source-admission.test.ts`, whose whole installation includes
-Product/strong-reference extensions, and `jointApplicationRelationsScenario.ts`
-with its two driver wrappers. Their Product/strong-reference and joint relation
-migrations own removal of the Legacy host, participant, publication and old
-materialization/projection closure. The current host has no fallback to it.
+Product/strong-reference extensions. The
+[optional-one continuation](./14-native-reference-integrity.md) migrates
+`jointApplicationRelationsScenario.ts` and its two driver wrappers to the current
+native root. Product/strong-reference migration now owns removal of the remaining
+Legacy host, participant, publication and materialization/projection closure.
+The current host has no fallback to it.
 
 The existing broad `commerce-adapter` barrel remains with named borrowed/atomic/
 workflow consumers. Current selected hosts execute no old SQL session/admission/

@@ -36,14 +36,14 @@ import {
   barrier,
   overlappingSnapshotRace,
   withDeadline,
-  type payloadRelationScenario,
+  type LegacyPayloadRelationScenarioInput,
 } from "./payloadRelationScenario";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 
 const object = (value: Json): JsonObject => { if (!isJsonObject(value)) throw new Error("Expected document"); return value; };
 const id = (value: Json): string => { const valueId = object(value).id; if (typeof valueId !== "string") throw new Error("Expected ID"); return valueId; };
 
-export async function payloadJoinScenario(input: Parameters<typeof payloadRelationScenario>[0]) {
+export async function payloadJoinScenario(input: LegacyPayloadRelationScenarioInput) {
   const { fixture } = input;
   const inventory = async () => {
     const value = await input.inventory();

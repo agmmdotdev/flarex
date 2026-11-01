@@ -6,6 +6,7 @@ import { projectBoundedRequestLifetime, type BoundedRequestLifetime } from "../.
 import { capturePrivateJsonData } from "../../values/privateJsonData";
 import { makeCmsCommandContext } from "../cmsTransaction/context";
 import { makeNativeCmsDocuments } from "../cmsTransaction/nativeDocuments";
+import { makeNativeCmsRelations } from "../cmsTransaction/nativeRelations";
 import { cmsError, CmsTransactionError } from "../cmsTransaction/model";
 import type { CmsCommandContext, getCmsCommand } from "../cmsTransaction/commands";
 import { makeCommerceCommandContext } from "../commerceTransaction/context";
@@ -52,7 +53,7 @@ export const makeNativeCurrencyAnnouncementParticipants = Effect.fn("CurrencyAnn
   const commerce = yield* makeNativeCommerceParticipant(currencyOperations, currency, commerceLifetime,
     commerceLifetime.context, transactionId, operation.unixTime);
   const cmsContext = (context: CmsCommandContext["context"]) => makeCmsCommandContext(cmsLifetime, transactionId, context, {
-    documents, relations: { incoming: (manager, id) => cmsLifetime.operation(manager, id, "read", Effect.fail(cmsError("unsupportedProfile"))) },
+    documents, relations: makeNativeCmsRelations(payloadOperations, cmsLifetime),
     preferences: { deleteForPendingDocument: (manager, id) => cmsLifetime.operation(manager, id, "write", Effect.fail(cmsError("unsupportedProfile"))) },
   }, false, () => Effect.fail(cmsError("invalidAuthority")));
   const commerceContext = (context: CommerceCommandContext["manager"]) => makeCommerceCommandContext(commerceLifetime,

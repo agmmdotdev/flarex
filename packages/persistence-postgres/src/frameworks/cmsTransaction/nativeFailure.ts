@@ -1,4 +1,4 @@
-import { CoreNativeBudgetError, CoreNativeUniqueConflict, CoreNativeQueryError, CoreQueryInputError, CoreTransactionError, type CoreError } from "../../core/api";
+import { CoreNativeBudgetError, CoreNativeUniqueConflict, CoreNativeReferenceError, CoreNativeQueryError, CoreQueryInputError, CoreTransactionError, type CoreError } from "../../core/api";
 import { CorePersistenceError } from "../../core/contracts";
 import { CoreSchemaError } from "../../core/schemaTypes";
 import { cmsError, CmsTransactionError } from "./model";
@@ -8,6 +8,7 @@ export function projectCoreCmsFailure(failure: CoreError): CmsTransactionError {
   if (failure instanceof CoreNativeBudgetError) return failure.cause instanceof CmsTransactionError ? failure.cause
     : cmsError(failure.reason === "unexpectedFailure" ? "resourceFailure" : failure.reason, failure);
   if (failure instanceof CoreNativeQueryError) return cmsError("invalidInput", failure);
+  if (failure instanceof CoreNativeReferenceError) return cmsError(failure.reason, failure);
   if (failure instanceof CoreNativeUniqueConflict) return new CmsTransactionError({ reason: "uniqueConflict", cause: failure,
     uniqueConstraint: { tableName: failure.tableName, orderedFields: failure.fields } });
   if (failure instanceof CorePersistenceError) return cmsError(failure.reason === "uncertainWrite" ? "decisionUncertain" :

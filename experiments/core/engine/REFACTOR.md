@@ -573,3 +573,18 @@ Generated metadata uses fresh-insert semantics and the Source batched history
 check; numeric revision ordering and interruptible transaction preparation stay
 with their shared owners. Broader native migration, retained-data cutover,
 managed hosting and complete-flow performance remain full-goal gates.
+
+The [optional-one native continuation](./slices/14-native-reference-integrity.md)
+implements complete direct Payload relations/population/preferences and the genuine
+joint native consumer after independent peer challenge. Its scope includes the
+existing populated scalar successor and compatible audit-only Application-source
+change, not fresh installation alone. Extend authenticated active/pending native
+policy and atomic handoff through the existing shared lifecycle; reuse durable
+ordinary-index backfill rather than add another builder. Preserve late native
+reference errors without introducing target-body observations or callback replay.
+The recorded Source-compatible readiness correction removes the old whole-data
+sequence fence while keeping actual schema/policy/identity invalidation strict.
+The selected populated successor, cold build/rebinding, native late-integrity,
+opaque cleanup and genuine joint proof are complete. Selected fixtures have
+retired their old relation/catalog materialization and Legacy joint host; named
+many/joins, Product, developer-UDF and query-sync consumers remain separate gates.

@@ -22,6 +22,10 @@ class CoreSchemaFailure extends Data.TaggedError("CoreSchemaError")<Pick<
 class CoreProgramFailure extends Data.TaggedError("CoreApplicationProgramError")<Pick<
   Extract<InvokeApplicationQueryError, { readonly _tag: "CoreApplicationProgramError" }>, "reason" | "cause"
 >> {}
+class CoreReferenceFailure extends Data.TaggedError("CoreNativeReferenceError")<Pick<
+  Extract<InvokeApplicationQueryError, { readonly _tag: "CoreNativeReferenceError" }>,
+  "reason" | "forwardName" | "sourceTable" | "targetTable" | "sourceId" | "targetId"
+>> {}
 
 class QueryInputFailure extends Data.TaggedError("ApplicationQueryInputError")<{
   readonly reason: "invalidFunction" | "invalidArguments" | "invalidIdentity";
@@ -316,6 +320,10 @@ describe("clean Query invocation-error projection", () => {
     [new CoreTransactionFailure({ reason: "tooManyTables" }), "budgetExceeded"],
     [new CoreTransactionFailure({ reason: "documentExists" }), "invalidInput"],
     [new CoreTransactionFailure({ reason: "documentDeleted" }), "invalidInput"],
+    [new CoreReferenceFailure({ reason: "relationTargetMissing", forwardName: "sourceTarget",
+      sourceTable: "sources", targetTable: "targets", sourceId: "source", targetId: "target" }), "invalidConfiguration"],
+    [new CoreReferenceFailure({ reason: "relationDeleteRestricted", forwardName: "sourceTarget",
+      sourceTable: "sources", targetTable: "targets", sourceId: "source", targetId: "target" }), "invalidConfiguration"],
     [new CoreTransactionFailure({ reason: "indexUnavailable" }), "indexUnavailable"],
     [new CoreTransactionFailure({ reason: "authorityRevoked" }), "staleScopeAuthority"],
     [new CoreTransactionFailure({ reason: "closed" }), "unavailable"],

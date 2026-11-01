@@ -17,7 +17,7 @@ import { openApplicationRelationQuerySnapshot, readApplicationRelationQueryIncom
 import { ScopeExecutionLive } from "../../../src/scope/execution/ScopeExecution";
 import { fxAppEdgeCurrent, fxSystemCommits } from "../../../src/database/schema";
 import { fxSystemCommitPayloadPreferenceDeletions } from "../../../src/frameworks/payloadPreferences/factsSchema";
-import { barrier, overlappingSnapshotRace, heldNativeRace, withDeadline, type payloadRelationScenario } from "./payloadRelationScenario";
+import { barrier, overlappingSnapshotRace, heldNativeRace, withDeadline, type LegacyPayloadRelationScenarioInput } from "./payloadRelationScenario";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 
 const object = (value: Json): JsonObject => {
@@ -31,7 +31,7 @@ const id = (value: Json): string => {
 };
 
 /** Both drivers share one populated, fresh-install consumer scenario. */
-export async function payloadManyScenario(input: Parameters<typeof payloadRelationScenario>[0]) {
+export async function payloadManyScenario(input: LegacyPayloadRelationScenarioInput) {
   const { fixture, hostInput } = input;
   const db = input.persistence.drizzle;
   let restoredSource = "";

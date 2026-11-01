@@ -1,8 +1,3 @@
 import { it } from "vitest";
-import { createRelationalPGliteFixture } from "../../database/relationalPGliteWorkerTestSupport";
-import { payloadPreferenceBindingScenario } from "../../frameworks/payloadPreferences/payloadPreferenceBindingScenario";
-
-it("populates bounded Payload reads in the original CMS request", async () => {
-  const fixture = await createRelationalPGliteFixture();
-  await payloadPreferenceBindingScenario(fixture.persistence, fixture.session, "population");
-}, 180000);
+import { payloadPopulationScenario } from "./payloadPopulationScenario";
+it("populates bounded Payload reads in the original native CMS request", () => payloadPopulationScenario("pglite"), 180_000);

@@ -148,11 +148,25 @@ point commits reuse their nominal unique-definition port. Activation recovery
 reuses the held catalog lease before releasing the target transaction. Target
 metadata is never a fallback control catalog. Missing or changed evidence fails
 closed; no new persisted envelope, schema or migration is introduced. Catalog
-availability is required to restore a history containing this successor. A writer
-that commits after candidate readiness can invalidate that candidate: activation
+availability is required to restore a history containing this successor. In this
+retained SQL path, a writer after candidate readiness can invalidate activation:
+activation
 returns `notReady` and retains the old binding. A fresh ready successor is needed.
 If activation holds the lock first, the waiting old-overlay writer is refused
 before its Payload callback; exact rebinding enables subsequent requests.
+
+The selected [translated optional-one continuation](../../../experiments/core/engine/slices/14-native-reference-integrity.md)
+replaces that private whole-data-sequence readiness fence with the pinned shared
+schema/index mechanism. The existing audit-only optional-field proposal remains
+valid after a compatible `posts.score` write when all writers maintain required
+index generations and active/pending validation. Its migrated witness requires
+successful activation with the write and native relation behavior preserved.
+Actual policy/provenance/index/unique drift, incomplete builds and stale identity
+still refuse; active-invalid writes fail, while active-valid/pending-invalid
+writes may commit while atomically failing the proposal. Stable populated row
+IDs/content, the exact authenticated optional-one successor and stale-overlay
+refusal after actual activation remain obligations. This is a selected replacement
+contract; the retained path above still describes unmigrated consumers.
 
 All restored evidence consumes one aggregate 64-record/1 MiB history budget.
 The transition adds two manifest records and, per unique set, one closure plus

@@ -1,243 +1,187 @@
-import { Cause, Effect, Exit, Result } from "effect";
+import { Effect, Exit, Fiber, Result } from "effect";
 import { expect } from "vitest";
+import { decodeDocumentId } from "flarex-protocol/document-id";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { decodeAppDocumentIdentityV1 } from "flarex-protocol/app-document-id";
-import { makePayloadRuntime } from "../../../../payload-adapter/src/runtime";
 import { inspectPayloadRuntimeForTest } from "../../../../payload-adapter/src/testing";
 import { currencyAnnouncementWrite } from "../../../../medusa-adapter/src/modules/currency/service";
-import { lendApplicationBindingRelations } from "../../../src/application/activation/bindingPreparation";
-import { prepareCurrentApplicationBinding } from "../../../src/application/activation/currentBinding";
-import type { FlarexMetadataDatabase } from "../../../src/application/deployments";
-import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
-import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
-import type { RelationalSession } from "../../../src/database/relationalTransaction/session";
+import { CorePersistenceError, type CoreWriteBatch } from "../../../src/core/contracts";
 import { ExecutionDiagnostics, type ExecutionDiagnosticPolicy } from "../../../src/execution/diagnostics/operation";
-import { retainPreparedHost } from "../../../src/execution/preparation/preparedHostRuntime";
-import { makeCmsCommandBinding } from "../../../src/frameworks/cmsTransaction/construction";
-import { prepareSourceCmsDocumentMaterialization } from "../../../src/frameworks/cmsTransaction/contribution";
 import { defineCommerceCommand, getCommerceCommand } from "../../../src/frameworks/commerceTransaction/commands";
-import { makeLegacyCurrencyAnnouncementHost } from "../../../src/frameworks/crossDomainCommand/legacyHost";
-import { ScopeExecutionLive } from "../../../src/scope/execution/ScopeExecution";
-import { prepareLogicalStorageReadiness } from "../../../src/storage/catalog/logicalStorageReadiness";
-import { prepareLogicalApplicationSourceAdmission } from "../../../src/storage/documents/logicalDocuments/applicationAdmission";
-import { prepareLogicalDocumentSourceAdmission } from "../../../src/storage/documents/logicalDocuments/documentAdmission";
-import { prepareLogicalRelationalAdmission } from "../../../src/storage/documents/logicalDocuments/relationalAdmission";
-import { runEffect } from "../../support/effectTestRuntime";
+import { compositeError } from "../../../src/frameworks/crossDomainCommand/model";
+import { coreNativeFixtureData } from "../../core/nativeFixtureInventory";
+import { nativePreference, nativeTokenInvalidated, awaitNativeTestGate } from "../../integration/payload/payloadNativeRelationFixture";
+import { barrier } from "../../integration/payload/payloadRelationScenario";
 import { decodeJointAuthor, decodeJointResult, jointApplicationRelationsFixture } from "./jointApplicationRelationsFixture";
 
-async function verifyGenerationLoans(tested: Awaited<ReturnType<typeof jointApplicationRelationsFixture>>,
-  foreignDatabase?: FlarexMetadataDatabase) {
-  const { fixture, control, currency } = tested;
-  const before = await tested.inventory();
-  await runEffect(Effect.scoped(Effect.gen(function* () {
-    const retained = yield* retainPreparedHost(tested.hostRuntime,
-      prepareCurrentApplicationBinding(fixture.relationActivation, fixture.persistence.drizzle, binding => Effect.gen(function* () {
-        const coordinates = { deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
-          schemaVersionId: tested.schemaVersionId };
-        const catalog = yield* prepareLogicalStorageReadiness(currency.ports, currency.unique, coordinates, binding);
-        if (catalog.status !== "prepared") return yield* Effect.die(new Error("Missing genuine joint catalog"));
-        const construction = { kind: "prepared" as const, catalog };
-        const application = yield* prepareLogicalApplicationSourceAdmission(currency.ports, currency.unique,
-          coordinates, tested.applicationSource, construction);
-        const prepared = yield* prepareLogicalDocumentSourceAdmission(currency.ports, currency.unique,
-          coordinates, tested.compiled.sourceContract, construction);
-        const commerce = yield* prepareLogicalRelationalAdmission(currency.ports, currency.unique,
-          coordinates, currency.source, construction);
-        const source = yield* prepared.lendPreparation();
-        const template = yield* prepareSourceCmsDocumentMaterialization(source, {}, binding, control.drizzle);
-        const loan = yield* lendApplicationBindingRelations(binding, control.drizzle);
-        expect(loan.kind).toBe("relation");
-        expect(yield* Effect.flip(lendApplicationBindingRelations({ ...binding }, control.drizzle)))
-          .toMatchObject({ reason: "invalidComposition" });
-        const foreign = foreignDatabase ?? (control.drizzle === fixture.persistence.drizzle ? undefined : fixture.persistence.drizzle);
-        if (foreign !== undefined) {
-          expect(yield* Effect.flip(prepareSourceCmsDocumentMaterialization(source, {}, binding, foreign)))
-            .toMatchObject({ reason: "invalidAuthority" });
-        }
-        return { binding, source, template, application, commerce };
-      }), { selection: { deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId },
-        candidateIssuer: fixture.pointCommitAuthority }));
-    yield* Effect.addFinalizer(() => retained.close);
-    const original = yield* retained.use(current => current.withEntry(graph => Effect.succeed(Result.succeed(graph.payload))));
-    // An authentic source allocation cannot be combined with a fresh preparation lifetime.
-    expect(yield* Effect.flip(retainPreparedHost(tested.hostRuntime,
-      prepareSourceCmsDocumentMaterialization(original.source, {}, original.binding, control.drizzle))))
-      .toMatchObject({ reason: "invalidAuthority" });
-    yield* retained.close;
-    expect(yield* Effect.flip(original.template.read)).toMatchObject({ reason: "invalidAuthority" });
-  })));
-  expect(await tested.inventory()).toEqual(before);
-}
-
-export async function jointApplicationRelationsScenario(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
-  session: RelationalSession, foreignDatabase?: FlarexMetadataDatabase) {
-  const tested = await jointApplicationRelationsFixture(persistence, session);
-  const inventory = Effect.tryPromise(tested.inventory);
-  await verifyGenerationLoans(tested, foreignDatabase);
-  const { fixture, compiled, control } = tested;
-  await runEffect(Effect.scoped(Effect.gen(function* () {
-    const runtime = yield* makePayloadRuntime(compiled);
-    const cms = yield* runtime.bind(yield* makeCmsCommandBinding({ serving: yield* fixture.makeServing(session),
-      hostRuntime: tested.hostRuntime, identityAndAccessPolicy: { profile: "joint-source-relations" },
-      profile: { kind: "source", schemaVersionId: tested.schemaVersionId, source: compiled.sourceContract } }));
-    const author = decodeJointAuthor(yield* cms.create(cms.newRequestKey(), { collection: "authors", data: { name: "Ada" } }));
-    let payloadCalls = 0;
-    let currencyCalls = 0;
-    const diagnostics: ExecutionDiagnosticPolicy = { observe: (name, work) => name === "PayloadAdapter.call"
-      ? Effect.sync(() => { payloadCalls++; }).pipe(Effect.andThen(work)) : work };
-    const observe = <A, E>(work: Effect.Effect<A, E>) => work.pipe(Effect.provideService(ExecutionDiagnostics, diagnostics));
+export async function jointApplicationRelationsScenario(driver: "pglite" | "postgres") {
+  let failAt: "documents" | "indexes" | undefined;
+  let faults = 0;
+  const batches: CoreWriteBatch[] = [];
+  const tested = await jointApplicationRelationsFixture(driver, {
+    observeWrite: batch => batches.push(batch),
+    wrapRuntimeDriver: original => ({ ...original, transaction: work => original.transaction(connection => work({ ...connection,
+      query: (statement, parameters) => connection.query(statement, parameters).pipe(Effect.tap(() => {
+        if (failAt === undefined || !statement.toLowerCase().startsWith("insert into ") || !statement.includes(`."${failAt}"`)) return Effect.void;
+        failAt = undefined; faults++;
+        return Effect.fail(new CorePersistenceError({ reason: "unavailable", cause: "after actual joint physical write, before SQL commit" }));
+      })),
+    })) }),
+  });
+  const { native } = tested;
+  const { run } = native;
+  let payloadCalls = 0, currencyCalls = 0;
+  const diagnostics: ExecutionDiagnosticPolicy = { observe: (name, work) => name === "PayloadAdapter.call"
+    ? Effect.sync(() => { payloadCalls++; }).pipe(Effect.andThen(work)) : work };
+  const observe = <A, E>(work: Effect.Effect<A, E>) => work.pipe(Effect.provideService(ExecutionDiagnostics, diagnostics));
+  try {
+    const author = decodeJointAuthor(await run(native.payloadWriter.create(native.payloadWriter.newRequestKey(), { collection: "authors", data: { name: "Ada" } })));
     const nativeCurrency = getCommerceCommand(currencyAnnouncementWrite);
-    if (nativeCurrency === undefined) return yield* Effect.die(new Error("Missing native Currency command"));
+    if (nativeCurrency === undefined) throw new Error("Missing genuine native Currency command");
     const currencyCommand = defineCommerceCommand(nativeCurrency.name, nativeCurrency.mode,
       (context, args) => Effect.sync(() => { currencyCalls++; }).pipe(Effect.andThen(nativeCurrency.run(context, args))));
-    const input = { hostRuntime: tested.hostRuntime, database: persistence.drizzle, controlDatabase: control.drizzle,
-      session, deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
-      authority: fixture.authorityPorts, application: fixture.relationActivation,
-      identityAndAccessPolicy: { profile: "joint-source-relations" }, materialization: fixture.servingOwners.materialization,
-      expectedContentIdentity: compiled.contentIdentity, currency: tested.currency,
-      applicationSource: tested.applicationSource, payloadSource: compiled.sourceContract,
-      currencyCommand, cmsCommand: inspectPayloadRuntimeForTest(runtime).commands.create, applicationTable: "audit" };
-    const host = yield* Effect.acquireRelease(makeLegacyCurrencyAnnouncementHost(input), value => value.close);
+    let host = await run(native.announcement({ currencyCommand }));
+    const cleanupBundle = native.cleanupBundle, preferenceDefinition = native.preferenceDefinition;
+    if (cleanupBundle === undefined || preferenceDefinition === undefined) throw new Error("Missing authenticated future preference installation proof");
+    expect(await run(Effect.flip(native.database.bindNative({ definition: preferenceDefinition })))).toMatchObject({ reason: "authorityRevoked" });
+    const pendingCleanup = await run(native.database.prepareSchema({ bundle: cleanupBundle }));
+    expect(await run(Effect.flip(native.database.bindNative({ definition: preferenceDefinition })))).toMatchObject({ reason: "authorityRevoked" });
+    expect(await run(Effect.result(native.database.activateSchema(pendingCleanup, { programs: [], bundle: cleanupBundle })))).toMatchObject({ failure: expect.anything() });
     const args = { currency: { code: "jnt", name: "Joint relation", symbol: "J", symbol_native: "J" },
-      cms: { collection: "articles", data: { headline: "Joint relation", author: author.id } },
-      application: { name: "Joint relation audit" } };
-    const before = yield* inventory;
+      cms: { collection: "articles", data: { headline: "Joint relation", author: author.id } }, application: { name: "Joint relation audit" } };
+    const before = await native.inventory();
+    const absence = await run(tested.incoming(author.id));
+    expect(absence.ids).toEqual([]);
+    const writesBefore = batches.length;
     const key = host.newRequestKey();
-    const result = decodeJointResult(yield* observe(host.run(key, args)));
+    const result = decodeJointResult(await run(observe(host.run(key, args))));
     expect(result.cms.author).toBe(author.id);
     expect(result.currency.code).toBe("jnt");
-    expect(payloadCalls).toBe(1);
-    expect(currencyCalls).toBe(1);
-    const created = yield* inventory;
-    const commit = created.commits.at(-1);
-    if (commit === undefined) return yield* Effect.die(new Error("Missing successful joint commit"));
-    // These precede the relation assertions so the BEFORE witness proves an
-    // actual successful native three-source commit, not a fixture/setup refusal.
+    expect({ payload: payloadCalls, currency: currencyCalls }).toEqual({ payload: 1, currency: 1 });
+    let created = await native.inventory();
     expect(created.rows.length - before.rows.length).toBe(3);
-    expect(created.commits.length - before.commits.length).toBe(1);
     expect(created.outcomes.length - before.outcomes.length).toBe(1);
-    expect(created.facts.length - before.facts.length).toBe(3);
-    // The logical Currency profile publishes its row through the three shared
-    // document facts; it emits no compatibility-table relational fact.
-    expect(created.relationalFacts).toEqual(before.relationalFacts);
-    const committedRows = created.revisions.filter(row => row.commitSeq === commit.commitSeq);
+    const outcome = created.outcomes.find(outcome => outcome.value.key === key);
+    expect(outcome?.value.state).toBe("committed");
+    const timestamp = outcome?.timestamp;
+    expect(timestamp).toBeDefined();
+    const committedRows = created.revisions.filter(row => row.timestamp === timestamp);
     expect(committedRows).toHaveLength(3);
-    expect(committedRows.every(row => row.schemaVersionId === tested.schemaVersionId)).toBe(true);
-    const expectedDocumentIds = [result.applicationId, result.cms.id].map(decodeAppDocumentIdentityV1);
-    for (const identity of expectedDocumentIds) {
-      expect(committedRows.some(row => row.tableId === identity.tableId &&
-        encodeBytesToLowercaseHex(row.rowId) === identity.rowId)).toBe(true);
+    for (const documentId of [result.applicationId, result.cms.id]) {
+      const identity = Result.getOrThrow(decodeDocumentId(documentId));
+      expect(committedRows.some(row => row.id === encodeBytesToLowercaseHex(identity.internalId))).toBe(true);
     }
-    const committedIndexes = created.indexRevisions.filter(index => index.commitSeq === commit.commitSeq);
-    expect(new Set(committedIndexes.map(index => index.tableId)).size).toBe(3);
-    for (const index of committedIndexes) {
-      const definition = tested.indexDefinitions.find(member => member.indexDefinitionId === index.indexDefinitionId);
-      expect(definition?.access.tableId).toBe(index.tableId);
-      expect(definition?.physicalSpecSha256Hex).toBe(encodeBytesToLowercaseHex(index.physicalSpecSha256));
-      if (definition?.access.kind === "developer") {
-        expect(tested.indexBindings).toContainEqual(expect.objectContaining({
-          indexDefinitionId: index.indexDefinitionId, schemaVersionId: tested.schemaVersionId,
-        }));
-      } else expect(definition?.access.kind).toBe("by_creation_time");
-    }
-    const articleIdentity = decodeAppDocumentIdentityV1(result.cms.id);
-    const reverse = tested.indexDefinitions.find(definition => definition.access.tableId === articleIdentity.tableId &&
-      definition.physicalSpec.orderedFields[0]?.kind === "documentPath" &&
-      definition.physicalSpec.orderedFields[0].path === "author");
-    expect(reverse).toBeDefined();
-    expect(committedIndexes.map(index => ({ ...index, rowId: encodeBytesToLowercaseHex(index.rowId) })))
-      .toContainEqual(expect.objectContaining({
-      indexDefinitionId: reverse?.indexDefinitionId, tableId: articleIdentity.tableId,
-      rowId: articleIdentity.rowId, isTombstone: false,
-    }));
-    const incoming = yield* tested.incoming(author.id);
-    expect({ edges: created.edges.length, adjacency: created.adjacency.length,
-      relationFacts: created.relationFacts.length - before.relationFacts.length,
-      incoming: incoming.sources.map(item => item.sourceDocumentId) }).toEqual({
-      edges: 1, adjacency: 2, relationFacts: 2, incoming: [result.cms.id],
-    });
-    expect(created.edges).toHaveLength(1);
-    const relation = fixture.relation.binding.relationBindings[0];
-    if (relation === undefined) return yield* Effect.die(new Error("Missing genuine relation binding"));
-    const article = decodeAppDocumentIdentityV1(result.cms.id);
-    const target = decodeAppDocumentIdentityV1(author.id);
-    expect(created.edges.map(edge => ({ ...edge, sourceRowId: encodeBytesToLowercaseHex(edge.sourceRowId),
-      targetRowId: encodeBytesToLowercaseHex(edge.targetRowId) }))[0]).toMatchObject({ relationId: relation.relationId,
-      edgeDefinitionId: relation.edgeDefinitionId, sourceTableId: article.tableId,
-      sourceRowId: article.rowId, targetTableId: target.tableId,
-      targetRowId: target.rowId, schemaVersionId: fixture.relation.binding.schemaVersionId,
-      commitSeq: commit.commitSeq });
-    const endpoints = [{ direction: "incoming", endpointRowId: target.rowId },
-      { direction: "outgoing", endpointRowId: article.rowId }];
-    expect(created.adjacency).toHaveLength(2);
-    for (const endpoint of endpoints) {
-      expect(created.adjacency.map(row => ({ ...row, endpointRowId: encodeBytesToLowercaseHex(row.endpointRowId) })))
-        .toContainEqual(expect.objectContaining({ ...endpoint,
-        edgeDefinitionId: relation.edgeDefinitionId, lastChangedCommitSeq: commit.commitSeq }));
-      expect(created.relationFacts.map(row => ({ ...row, endpointRowId: encodeBytesToLowercaseHex(row.endpointRowId) })))
-        .toContainEqual(expect.objectContaining({ ...endpoint,
-        edgeDefinitionId: relation.edgeDefinitionId, commitSeq: commit.commitSeq }));
-    }
-    expect(created.relationFacts.length - before.relationFacts.length).toBe(2);
-    expect(commit.relationAdjacencyChangeCount).toBe(2);
-    expect(yield* observe(host.run(key, args))).toEqual(result);
-    expect(payloadCalls).toBe(1);
-    expect(currencyCalls).toBe(1);
-    expect(yield* inventory).toEqual(created);
-    for (const step of ["relationEdgeWritten", "commitRelationAdjacencyChangeWritten", "outcomeWritten"] as const) {
-      let faults = 0;
+    const committedIndexes = created.indexes.filter(index => index.timestamp === timestamp);
+    expect(new Set(committedIndexes.map(index => index.table)).size).toBe(3);
+    const definition = (await run(native.database.readNativeBinding(native.payloadBinding))).definition;
+    const reverse = definition.references[0];
+    if (reverse === undefined) throw new Error("Missing actual native reference policy");
+    expect(committedIndexes).toContainEqual(expect.objectContaining({ table: reverse.sourceTable, name: reverse.indexName,
+      id: encodeBytesToLowercaseHex(Result.getOrThrow(decodeDocumentId(result.cms.id)).internalId) }));
+    expect(await run(tested.incoming(author.id))).toMatchObject({ ids: [result.cms.id], hasMore: false });
+    expect(nativeTokenInvalidated(absence.token, batches.slice(writesBefore))).toBe(true);
+    expect(await run(native.payloadReader.findByID({ collection: "articles", id: result.cms.id, depth: 1 }))).toMatchObject({ author });
+    expect(await run(observe(host.run(key, args)))).toEqual(result);
+    expect({ payload: payloadCalls, currency: currencyCalls }).toEqual({ payload: 1, currency: 1 });
+    expect(await native.inventory()).toEqual(created);
+    // Opaque Core roots and command closure are the current generation-loan authority.
+    expect(await run(Effect.flip(native.database.readNativeRootBinding({ ...native.rootBinding })))).toMatchObject({ reason: "authorityRevoked" });
+    expect(await run(Effect.result(native.announcement({ currencyCommand, cmsCommand: inspectPayloadRuntimeForTest(native.payload.runtime).commands.delete })))).toMatchObject({ failure: { reason: "invalidAuthority" } });
+    expect(await native.inventory()).toEqual(created);
+    for (const phase of ["documents", "indexes"] as const) {
+      const callbacks = { payload: payloadCalls, currency: currencyCalls };
+      const faultsBefore = faults;
       let completedParticipants = 0;
-      const callsBeforeFault = { payload: payloadCalls, currency: currencyCalls };
-      const fault = new Error(`Rollback all joint participants after ${step}`);
-      const failing = yield* Effect.acquireRelease(makeLegacyCurrencyAnnouncementHost({ ...input,
-        materialization: { ...input.materialization, afterTransactionStep: event => {
-          if (event.step === step) { faults++; return Promise.reject(fault); }
-          return Promise.resolve();
-        } } }, { afterSteps: () => Effect.sync(() => { completedParticipants++; }) }), value => value.close);
-      const code = step === "relationEdgeWritten" ? "jra" : step === "commitRelationAdjacencyChangeWritten" ? "jrb" : "jrc";
-      const failed = yield* Effect.exit(observe(failing.run(failing.newRequestKey(), { ...args,
-        currency: { ...args.currency, code }, cms: { ...args.cms, data: { ...args.cms.data, headline: step } } })));
-      expect(failed).toMatchObject({ _tag: "Failure" });
-      if (Exit.isFailure(failed)) {
-        expect(failed.cause.reasons).toHaveLength(1);
-        const reason = failed.cause.reasons[0];
-        if (reason === undefined) return yield* Effect.die(new Error("Missing injected fault cause"));
-        if (step === "relationEdgeWritten") {
-          expect(Cause.isDieReason(reason)).toBe(true);
-          if (Cause.isDieReason(reason)) expect(reason.defect).toBe(fault);
-        } else {
-          expect(Cause.isFailReason(reason)).toBe(true);
-          if (Cause.isFailReason(reason)) {
-            expect(reason.error).toMatchObject({ reason: "resourceFailure" });
-            expect(reason.error.cause).toBe(fault);
-          }
-        }
-      }
-      expect(faults).toBe(1);
+      const failing = await run(native.announcement({ currencyCommand, hooks: { afterSteps: () => Effect.sync(() => {
+        completedParticipants++; failAt = phase;
+      }) } }));
+      const failedKey = failing.newRequestKey();
+      const failedArgs = { ...args, currency: { ...args.currency, code: phase === "documents" ? "jra" : "jrb" },
+        cms: { ...args.cms, data: { ...args.cms.data, headline: phase } } };
+      expect(Exit.isFailure(await run(Effect.exit(observe(failing.run(failedKey, failedArgs)))))).toBe(true);
+      expect(faults).toBe(faultsBefore + 1);
       expect(completedParticipants).toBe(1);
-      expect({ payload: payloadCalls, currency: currencyCalls })
-        .toEqual({ payload: callsBeforeFault.payload + 1, currency: callsBeforeFault.currency + 1 });
-      expect(yield* inventory).toEqual(created);
+      expect({ payload: payloadCalls, currency: currencyCalls }).toEqual({ payload: callbacks.payload + 1, currency: callbacks.currency + 1 });
+      failAt = undefined;
+      await native.reopen();
+      host = await run(native.announcement({ currencyCommand }));
+      expect(await run(Effect.flip(observe(host.run(failedKey, failedArgs))))).toMatchObject({ reason: "requestConflict" });
+      expect({ payload: payloadCalls, currency: currencyCalls }).toEqual({ payload: callbacks.payload + 1, currency: callbacks.currency + 1 });
+      const recovered = await native.inventory();
+      expect(coreNativeFixtureData(recovered)).toEqual(coreNativeFixtureData(created));
+      expect(recovered.outcomes).toHaveLength(created.outcomes.length + 1);
+      expect(recovered.outcomes.find(row => row.value.key === failedKey)?.value.state).toBe("failed");
+      created = recovered;
+      expect(await run(observe(host.run(key, args)))).toEqual(result);
     }
-    const callsBeforeTransition = { payload: payloadCalls, currency: currencyCalls };
-    yield* tested.activatePayloadLifecycle();
-    const transitioned = yield* inventory;
-    expect(transitioned).toEqual({ ...created, clock: created.clock.map(clock => ({ ...clock,
-      lastMetadataSequence: clock.lastMetadataSequence + 1n })) });
-    // This is a genuine changed binding. The old joint preparation must refuse
-    // the lifecycle it cannot admit before invoking either native callback.
-    expect(yield* Effect.flip(observe(host.run(host.newRequestKey(), { ...args,
-      currency: { ...args.currency, code: "jst" },
-      cms: { ...args.cms, data: { ...args.cms.data, headline: "Stale binding" } } }))))
-      .toMatchObject({ reason: "invalidAuthority" });
-    expect({ payload: payloadCalls, currency: currencyCalls }).toEqual(callsBeforeTransition);
-    expect(yield* inventory).toEqual(transitioned);
-    const lifecycleCms = yield* runtime.bind(yield* makeCmsCommandBinding({ serving: yield* fixture.makeServing(session),
-      hostRuntime: tested.hostRuntime, identityAndAccessPolicy: { profile: "joint-source-relations-lifecycle" },
-      profile: { kind: "source", schemaVersionId: tested.schemaVersionId, source: compiled.sourceContract,
-        payloadPreferenceTarget: tested.target } }));
-    expect(yield* Effect.flip(lifecycleCms.delete(lifecycleCms.newRequestKey(), { collection: "authors", id: author.id })))
-      .toMatchObject({ reason: "relationDeleteRestricted" });
-    expect(yield* inventory).toEqual(transitioned);
-  })).pipe(Effect.provide(ScopeExecutionLive)));
+    const failed = await run(native.announcement({ currencyCommand, hooks: { afterSteps: () => Effect.fail(compositeError("invalidInput")) } }));
+    const failedKey = failed.newRequestKey();
+    const failedArgs = { ...args, currency: { ...args.currency, code: "jrc" }, cms: { ...args.cms, data: { ...args.cms.data, headline: "after native steps" } } };
+    const beforeFailure = await native.inventory();
+    const callbacksBeforeFailure = { payload: payloadCalls, currency: currencyCalls };
+    expect(await run(Effect.flip(observe(failed.run(failedKey, failedArgs))))).toMatchObject({ reason: "invalidInput" });
+    const afterFailure = await native.inventory();
+    expect(coreNativeFixtureData(afterFailure)).toEqual(coreNativeFixtureData(beforeFailure));
+    expect(afterFailure.outcomes).toHaveLength(beforeFailure.outcomes.length + 1);
+    expect(afterFailure.outcomes.find(row => row.value.key === failedKey)?.value.state).toBe("failed");
+    expect(await run(Effect.flip(observe(failed.run(failedKey, failedArgs))))).toMatchObject({ reason: "requestConflict" });
+    expect({ payload: payloadCalls, currency: currencyCalls }).toEqual({ payload: callbacksBeforeFailure.payload + 1, currency: callbacksBeforeFailure.currency + 1 });
+    const entered = barrier<void>();
+    const cancelHost = await run(native.announcement({ currencyCommand, hooks: { afterSteps: () => Effect.sync(() => entered.resolve()).pipe(Effect.andThen(Effect.never)) } }));
+    const canceledKey = cancelHost.newRequestKey();
+    const canceledArgs = { ...args, currency: { ...args.currency, code: "jcx" }, cms: { ...args.cms, data: { ...args.cms.data, headline: "cancel all" } } };
+    const beforeCancel = await native.inventory();
+    const cancelFiber = await run(observe(cancelHost.run(canceledKey, canceledArgs)).pipe(Effect.forkScoped));
+    try { await run(awaitNativeTestGate(cancelFiber, Effect.promise(() => entered.promise))); await run(Fiber.interrupt(cancelFiber)); expect(Exit.isFailure(await run(Fiber.await(cancelFiber)))).toBe(true); }
+    finally { await run(Fiber.interrupt(cancelFiber)); }
+    const afterCancel = await native.inventory();
+    expect(coreNativeFixtureData(afterCancel)).toEqual(coreNativeFixtureData(beforeCancel));
+    expect(afterCancel.outcomes.find(row => row.value.key === canceledKey)?.value.state).toBe("failed");
+    // Actual durable root outcome survives a lost save acknowledgement and cold owner replacement.
+    const ackHost = await run(native.announcement({ currencyCommand, hooks: { afterSteps: () => Effect.sync(native.loseNextWriteAcknowledgement) } }));
+    const ackKey = ackHost.newRequestKey();
+    const ackArgs = { ...args, currency: { ...args.currency, code: "jac" }, cms: { ...args.cms, data: { ...args.cms.data, headline: "cold native ack" } } };
+    expect(await run(Effect.flip(observe(ackHost.run(ackKey, ackArgs))))).toMatchObject({ reason: "decisionUncertain" });
+    const callbacksAfterAck = { payload: payloadCalls, currency: currencyCalls };
+    await native.reopen();
+    host = await run(native.announcement({ currencyCommand }));
+    expect(decodeJointResult(await run(observe(host.run(ackKey, ackArgs))))).toMatchObject({ currency: { code: "jac" }, cms: { author: author.id } });
+    expect({ payload: payloadCalls, currency: currencyCalls }).toEqual(callbacksAfterAck);
+    const staleRoot = native.rootBinding;
+    const staleHost = host;
+    const epoch = await run(native.database.readAuthorityEpoch);
+    const beforeTransition = await native.inventory();
+    await run(native.activatePayloadLifecycle());
+    expect(await run(native.database.readAuthorityEpoch)).toBe(epoch + 1n);
+    const transitioned = await native.inventory();
+    expect(coreNativeFixtureData(transitioned)).toEqual(coreNativeFixtureData(beforeTransition));
+    expect(transitioned.outcomes).toEqual(beforeTransition.outcomes);
+    const callsBeforeTransitionRefusal = { payload: payloadCalls, currency: currencyCalls };
+    expect(await run(Effect.flip(observe(staleHost.run(staleHost.newRequestKey(), { ...args,
+      currency: { ...args.currency, code: "jst" }, cms: { ...args.cms, data: { ...args.cms.data, headline: "stale binding" } } }))))).toMatchObject({ reason: "bindingChanged" });
+    expect({ payload: payloadCalls, currency: currencyCalls }).toEqual(callsBeforeTransitionRefusal);
+    expect(await native.inventory()).toEqual(transitioned);
+    await native.seedPreferences([
+      nativePreference("author-pref", `collection-authors-${author.id}`), nativePreference("article-pref", `collection-articles-${result.cms.id}`),
+      nativePreference("retained-pref", "collection-authors-unrelated"),
+    ]);
+    const beforeRestrict = await native.inventory();
+    const restrictedKey = native.payloadWriter.newRequestKey();
+    expect(await run(Effect.flip(native.payloadWriter.delete(restrictedKey, { collection: "authors", id: author.id })))).toMatchObject({ reason: "relationDeleteRestricted" });
+    const afterRestrict = await native.inventory();
+    expect(coreNativeFixtureData(afterRestrict)).toEqual(coreNativeFixtureData(beforeRestrict));
+    expect(afterRestrict.outcomes.find(row => row.value.key === restrictedKey)?.value.state).toBe("failed");
+    await run(native.payloadWriter.delete(native.payloadWriter.newRequestKey(), { collection: "articles", id: result.cms.id }));
+    expect((await native.inventory()).rows.some(row => row.value.id === "article-pref")).toBe(false);
+    // The second joint article still protects Ada until its same-owner source is removed.
+    const articles = await run(native.payloadReader.find({ collection: "articles", limit: 32 }));
+    for (const article of articles.docs) await run(native.payloadWriter.delete(native.payloadWriter.newRequestKey(), { collection: "articles", id: article.id }));
+    await run(native.payloadWriter.delete(native.payloadWriter.newRequestKey(), { collection: "authors", id: author.id }));
+    const cleaned = await native.inventory();
+    expect(cleaned.rows.some(row => row.value.id === "author-pref")).toBe(false);
+    expect(cleaned.rows.some(row => row.value.id === "retained-pref")).toBe(true);
+    expect(await run(tested.incoming(author.id))).toMatchObject({ ids: [], hasMore: false });
+    await native.reopen();
+    expect(await run(Effect.flip(native.database.readNativeRootBinding(staleRoot)))).toMatchObject({ reason: "authorityRevoked" });
+    expect(await native.inventory()).toEqual(cleaned);
+  } finally { await native.close(); }
 }

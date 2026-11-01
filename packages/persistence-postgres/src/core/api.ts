@@ -159,8 +159,22 @@ export class CoreNativeUniqueConflict extends Data.TaggedError("CoreNativeUnique
   readonly descriptor: string;
   readonly fields: readonly string[];
 }> { readonly reason = "uniqueConflict"; }
+export class CoreNativeReferenceError extends Data.TaggedError("CoreNativeReferenceError")<{
+  readonly reason: "relationTargetMissing" | "relationDeleteRestricted";
+  readonly forwardName: string;
+  readonly sourceTable: string;
+  readonly targetTable: string;
+  readonly sourceId: string;
+  readonly targetId: string;
+}> {}
 
-export type CoreError = CoreTransactionError | CorePersistenceError | CoreQueryInputError | CoreSchemaError | CoreNativeUniqueConflict | CoreNativeQueryError | CoreNativeBudgetError;
+export type CoreError = CoreTransactionError | CorePersistenceError | CoreQueryInputError | CoreSchemaError | CoreNativeUniqueConflict | CoreNativeReferenceError | CoreNativeQueryError | CoreNativeBudgetError;
+
+/** These commit refusals originate before durability. The outer host must still
+ * require a sole typed failure; mixed Causes and persistence uncertainty retain their owners. */
+export function isCoreDefinitiveCommitRefusal(error: CoreError): error is CoreTransactionError | CoreNativeUniqueConflict | CoreNativeReferenceError {
+  return error._tag === "CoreTransactionError" || error._tag === "CoreNativeUniqueConflict" || error._tag === "CoreNativeReferenceError";
+}
 
 export interface CoreQueryRequest {
   /** Captured once by the protocol query owner, then resolved against this transaction's registry. */
@@ -241,7 +255,16 @@ export interface CoreTransaction {
 export type CoreReadTransaction = Pick<CoreTransaction, "timestamp" | "unixTime" | "usage" | "selectProgram"
   | "tableNumber" | "tableMappings" | "normalizeId" | "get" | "startQuery" | "scan">;
 
+const nativePendingDeleteBrand: unique symbol = Symbol("CoreNativePendingDelete");
+/** Issued only after this exact native child successfully staged a deletion. */
+export interface CoreNativePendingDelete { readonly [nativePendingDeleteBrand]: true }
+
 export type CoreNativeOperations = Pick<CoreTransaction, "get" | "insert" | "patch" | "replace" | "delete" | "normalizeId"> & {
+  readonly getMany: (table: string, ids: readonly string[]) => Effect.Effect<readonly (DocumentObject | null)[], CoreError>;
+  readonly incomingReferences: (forwardName: string, targetId: string, options: Readonly<{ limit: number }>) =>
+    Effect.Effect<Readonly<{ ids: readonly string[]; hasMore: boolean }>, CoreError>;
+  readonly pendingDelete: (table: string, id: string) => Effect.Effect<CoreNativePendingDelete, CoreError>;
+  readonly assertPendingDelete: (table: string, id: string, evidence: CoreNativePendingDelete) => Effect.Effect<void, CoreError>;
   /** Relational metadata owns full-batch preflight and native mutation phases. */
   readonly writeRows: (table: string, mode: "insert" | "upsert" | "update", rows: unknown) =>
     Effect.Effect<readonly DocumentObject[], CoreError>;
@@ -372,6 +395,9 @@ export function issueCoreNativeRootBinding(): CoreNativeRootBinding {
 }
 export function issueCoreApplicationInsertBinding(): CoreApplicationInsertBinding {
   return Object.freeze({ [applicationInsertBindingBrand]: true as const });
+}
+export function issueCoreNativePendingDelete(): CoreNativePendingDelete {
+  return Object.freeze({ [nativePendingDeleteBrand]: true as const });
 }
 
 export function issueFinalizedTransaction(): CoreFinalizedTransaction {

@@ -3,7 +3,9 @@ import { encodeBytesToLowercaseHex, copyBytesToArrayBuffer } from "@flarex/utils
 import { canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import { encodeCanonicalJson, type Json } from "flarex-protocol/json";
 import { TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
-import { CoreNativeBudgetError, CoreTransactionError, type CoreNativeOperation, type CoreRequestClaim } from "../../core/api";
+import { CoreNativeBudgetError, isCoreDefinitiveCommitRefusal,
+  type CoreNativeCommandDefinition, type CoreNativeOperations,
+  type CoreNativeOperation, type CoreNativeRootOperation, type CoreRequestClaim, type CoreRequestIdentity } from "../../core/api";
 import { chargeHostPreparation, retainPreparedHost, PreparedHostRuntimeError } from "../../execution/preparation/preparedHostRuntime";
 import { capturePrivateJsonData } from "../../values/privateJsonData";
 import { getCmsCommand, type CmsCommand } from "./commands";
@@ -15,6 +17,8 @@ import { cmsError, cmsLimits, type CmsRequestContext, type CmsTransactionError }
 import type { CmsNativeBindingInput } from "./nativeBinding";
 import { makeNativeCmsDocuments } from "./nativeDocuments";
 import { projectCoreCmsFailure } from "./nativeFailure";
+import { makeNativeCmsRelations } from "./nativeRelations";
+import { makeNativePayloadPreferenceCleanup, requirePayloadPreferenceNativeCleanup } from "../payloadPreferences/nativeCleanup";
 
 interface NativeHostInput extends CmsNativeBindingInput {
   readonly requestBudget: NonNullable<CmsNativeBindingInput["requestBudget"]>;
@@ -22,6 +26,9 @@ interface NativeHostInput extends CmsNativeBindingInput {
   readonly expectedContentIdentity: CmsContentIdentity;
   readonly readOnly: boolean;
 }
+type SelectedOperation = Readonly<{ kind: "single"; operation: CoreNativeOperation; operations: CoreNativeOperations;
+  preferenceOperations: undefined }> | Readonly<{ kind: "root"; operation: CoreNativeRootOperation;
+    operations: CoreNativeOperations; preferenceOperations: CoreNativeOperations }>;
 const requestKey = Schema.decodeUnknownEffect(TransactionRequestKeyV1Schema);
 const hash = Effect.fn("CmsNativeHost.hash")(function* (value: Json) {
   const bytes = new TextEncoder().encode(encodeCanonicalJson(value, issue => { throw new Error(`Native CMS correlation: ${issue.reason}`); }));
@@ -47,9 +54,12 @@ export const makeCmsNativeHost = Effect.fn("CmsNativeHost.make")(function* (inpu
 
 const compose = Effect.fn("CmsNativeHost.compose")(function* (input: NativeHostInput) {
   const { database, binding, requestBudget } = input;
+  const preferences = input.preferences === undefined ? undefined
+    : yield* requirePayloadPreferenceNativeCleanup(input.preferences, database, binding);
   const allowed = new Set(input.commands);
   if (allowed.size === 0 || allowed.size > cmsLimits.calls) return yield* Effect.fail(cmsError("invalidAuthority"));
   const readBinding = Effect.fn("CmsNativeHost.readBinding")(function* () {
+    if (input.preferences !== undefined) yield* requirePayloadPreferenceNativeCleanup(input.preferences, database, binding);
     const metadata = yield* database.readNativeBinding(binding).pipe(Effect.mapError(projectCoreCmsFailure));
     const identity = metadata.definition.identity;
     if (identity.configSha256 !== input.expectedContentIdentity.configSha256 || identity.provenanceSha256 !== input.expectedContentIdentity.provenanceSha256)
@@ -76,26 +86,29 @@ const compose = Effect.fn("CmsNativeHost.compose")(function* (input: NativeHostI
     if (command === undefined) return yield* Effect.fail(cmsError("bindingChanged"));
     return { definition, command };
   });
-  const invoke = (operation: CoreNativeOperation, lifetime: CmsRequestLifetime, id: string, root: CmsCommand, args: Json) => {
-    const documents = makeNativeCmsDocuments(operation.operations, lifetime);
+  const invoke = (operations: CoreNativeOperations, command: CoreNativeCommandDefinition, lifetime: CmsRequestLifetime,
+    id: string, root: CmsCommand, args: Json, preferenceOperations?: CoreNativeOperations) => {
+    const documents = makeNativeCmsDocuments(operations, lifetime);
     const unsupported = (context: CmsRequestContext, transactionId: Parameters<CmsRequestLifetime["begin"]>[1]) =>
       lifetime.operation(context, transactionId, "write", Effect.fail(cmsError("unsupportedProfile")));
-    const ports = { documents,
-      relations: { incoming: unsupported }, preferences: { deleteForPendingDocument: unsupported } };
+    const cleanup = preferences === undefined || preferenceOperations === undefined ? undefined
+      : makeNativePayloadPreferenceCleanup(preferences, lifetime, operations, preferenceOperations);
+    const ports = { documents, relations: makeNativeCmsRelations(operations, lifetime),
+      preferences: cleanup?.cleanup ?? { deleteForPendingDocument: unsupported } };
     const call = Effect.fn("CmsNativeHost.invoke")(function* (context: CmsRequestContext, token: CmsCommand, value: Json): Effect.fn.Return<Json, CmsTransactionError> {
       const { definition } = yield* select(token);
-      if (operation.command.mode === "read" && definition.mode !== "read") return yield* Effect.fail(cmsError("invalidAuthority"));
+      if (command.mode === "read" && definition.mode !== "read") return yield* Effect.fail(cmsError("invalidAuthority"));
       yield* lifetime.checkpoint(context);
       const captured = yield* Effect.fromResult(capturePrivateJsonData(value, lifetime.remainingBytes(), cmsError));
       yield* lifetime.fromResult(lifetime.charge(captured.bytes));
       const output = yield* definition.run(makeCmsCommandContext(lifetime, id, context, ports,
-        operation.command.mode === "read" && context === lifetime.context, call, false), captured.value);
+        command.mode === "read" && context === lifetime.context, call), captured.value);
       yield* lifetime.checkpoint(context);
       const result = yield* Effect.fromResult(capturePrivateJsonData(output, lifetime.remainingBytes(), cmsError));
       yield* lifetime.fromResult(lifetime.charge(result.bytes));
       return result.value;
     });
-    return call(lifetime.context, root, args);
+    return call(lifetime.context, root, args).pipe(Effect.map(value => ({ value, applyCleanup: cleanup === undefined ? Effect.void : cleanup.apply() })));
   };
   const execute = Effect.fn("CmsNativeHost.execute")(function* (token: CmsCommand, args: Json, claim?: CoreRequestClaim) {
     const { command } = yield* select(token);
@@ -107,27 +120,39 @@ const compose = Effect.fn("CmsNativeHost.compose")(function* (input: NativeHostI
           ? error.reason : "unexpectedFailure", cause: error,
       })))),
     );
-    return yield* Effect.acquireUseRelease(
-      database.beginNative(binding, { commandName: command.name, limits: { maxIdentities: cmsLimits.identities,
+    const acquire: Effect.Effect<SelectedOperation, CmsTransactionError> = preferences !== undefined && command.mode === "write" ? Effect.gen(function* () {
+      if (claim === undefined) return yield* Effect.fail(cmsError("invalidAuthority"));
+      const operation = yield* database.beginNativeRoot(preferences.root, { claim, chargeRetained }).pipe(Effect.mapError(projectCoreCmsFailure));
+      const operations = yield* operation.native(binding).pipe(Effect.mapError(projectCoreCmsFailure),
+        Effect.onError(() => operation.abort()));
+      const preferenceOperations = yield* operation.native(preferences.preferencesBinding).pipe(Effect.mapError(projectCoreCmsFailure),
+        Effect.onError(() => operation.abort()));
+      return { kind: "root" as const, operation, operations, preferenceOperations };
+    }) : database.beginNative(binding, { commandName: command.name, limits: { maxIdentities: cmsLimits.identities,
         maxDocumentBytes: cmsLimits.documentBytes }, chargeRetained,
-        ...(claim === undefined ? {} : { claim }) }).pipe(Effect.mapError(projectCoreCmsFailure)),
-      operation => Effect.gen(function* () {
-        const native = yield* invoke(operation, lifetime, id, token, args).pipe(lifetime.withinDeadline);
-        const result = yield* canonicalizeSuccessfulResultV1Effect(native).pipe(Effect.mapError(cause => cmsError("invalidInput", cause)));
+        ...(claim === undefined ? {} : { claim }) }).pipe(Effect.mapError(projectCoreCmsFailure),
+        Effect.map(operation => ({ kind: "single" as const, operation, operations: operation.operations, preferenceOperations: undefined })));
+    return yield* Effect.acquireUseRelease(acquire,
+      selected => Effect.gen(function* () {
+        const { operation } = selected;
+        const native = yield* invoke(selected.operations, command, lifetime, id, token, args, selected.preferenceOperations).pipe(lifetime.withinDeadline);
+        const result = yield* canonicalizeSuccessfulResultV1Effect(native.value).pipe(Effect.mapError(cause => cmsError("invalidInput", cause)));
         yield* lifetime.fromResult(lifetime.charge(result.canonicalBytes.byteLength));
         yield* lifetime.seal;
+        yield* native.applyCleanup;
         // Foreign native work has drained before sealing; close the confined
         // request before handing any finalization authority to the core owner.
         yield* lifetime.close;
         yield* readBinding();
         if (command.mode === "read") {
-          yield* operation.finishRead().pipe(Effect.mapError(projectCoreCmsFailure));
+          if (selected.kind !== "single") return yield* Effect.fail(cmsError("invalidAuthority"));
+          yield* selected.operation.finishRead().pipe(Effect.mapError(projectCoreCmsFailure));
           return { value: result.valueJson, deadline: lifetime.deadlineUnixMilliseconds, finalized: undefined };
         }
         return { value: result.valueJson, deadline: lifetime.deadlineUnixMilliseconds,
           finalized: yield* operation.finalize().pipe(Effect.mapError(projectCoreCmsFailure)) };
       }),
-      operation => operation.abort(),
+      selected => selected.operation.abort(),
     ).pipe(Effect.ensuring(lifetime.close));
   });
   const abortWithCause = <Failure>(claim: CoreRequestClaim, cause: Cause.Cause<Failure>) =>
@@ -140,9 +165,12 @@ const compose = Effect.fn("CmsNativeHost.compose")(function* (input: NativeHostI
     const nativeKey = yield* requestKey(key).pipe(Effect.mapError(cause => cmsError("invalidInput", cause)));
     const correlation = yield* Effect.fromResult(capturePrivateJsonData({ native: command.identity, arguments: captured.value,
       policy: input.identityAndAccessPolicy }, requestBudget.commandBytes, cmsError));
-    const identity = { kind: "native" as const, native: command.identity, key: nativeKey, requestHash: yield* hash(correlation.value) };
+    const correlationHash = yield* hash(correlation.value);
+    const identity: CoreRequestIdentity = preferences === undefined
+      ? { kind: "native", native: command.identity, key: nativeKey, requestHash: correlationHash }
+      : { kind: "nativeRoot", root: preferences.metadata.identity, key: nativeKey, requestHash: correlationHash };
     return yield* Effect.uninterruptibleMask(restore => Effect.gen(function* () {
-      const observed = yield* database.claimRequest(identity, binding).pipe(Effect.mapError(projectCoreCmsFailure));
+      const observed = yield* database.claimRequest(identity, preferences?.root ?? binding).pipe(Effect.mapError(projectCoreCmsFailure));
       const acquired = observed.kind === "busy" ? yield* database.recoverRequest(identity).pipe(Effect.mapError(projectCoreCmsFailure)) : observed;
       if (acquired.kind === "committed") { yield* readBinding();
         return (yield* Effect.fromResult(capturePrivateJsonData(acquired.result, requestBudget.commandBytes,
@@ -160,7 +188,7 @@ const compose = Effect.fn("CmsNativeHost.compose")(function* (input: NativeHostI
         // uncertainty; a later request reconciles it before any callback.
         const known = committed.cause.reasons.length === 1 ? committed.cause.reasons[0] : undefined;
         const mapped = Cause.map(committed.cause, projectCoreCmsFailure);
-        return known !== undefined && Cause.isFailReason(known) && known.error instanceof CoreTransactionError
+        return known !== undefined && Cause.isFailReason(known) && isCoreDefinitiveCommitRefusal(known.error)
           ? yield* abortWithCause(acquired.claim, mapped) : yield* Effect.failCause(mapped);
       }
       yield* readBinding();

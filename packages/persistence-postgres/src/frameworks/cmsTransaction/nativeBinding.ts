@@ -11,6 +11,10 @@ import type { CmsReadHost } from "./read/host";
 import { cmsError, cmsLimits, type CmsTransactionError } from "./model";
 import { makeCmsNativeHost } from "./nativeHost";
 import { projectCoreCmsFailure } from "./nativeFailure";
+import { requirePayloadPreferenceNativeCleanup, type PayloadPreferenceNativeCleanup } from "../payloadPreferences/nativeCleanup";
+
+export { makePayloadPreferenceNativeCleanup, type PayloadPreferenceNativeCleanup } from "../payloadPreferences/nativeCleanup";
+export { makePayloadPreferenceNativeDefinition } from "../payloadPreferences/nativeSource";
 
 declare const bindingBrand: unique symbol;
 /** Trusted construction supplies dependencies; framework callbacks receive none. */
@@ -21,6 +25,7 @@ export interface CmsNativeBindingInput {
   readonly hostRuntime: PreparedHostRuntime;
   readonly identityAndAccessPolicy: Json;
   readonly requestBudget?: CmsRequestBudget;
+  readonly preferences?: PayloadPreferenceNativeCleanup;
 }
 interface BindingState {
   readonly input: CmsNativeBindingInput & Readonly<{ requestBudget: CmsRequestBudget }>;
@@ -31,21 +36,26 @@ const bindings = new WeakMap<object, BindingState>();
 
 export const makeCmsNativeBinding = Effect.fn("CmsNativeBinding.make")(function* (input: CmsNativeBindingInput) {
   const { database, binding: nativeBinding, hostRuntime } = input;
+  const preferences = input.preferences;
   const policy = yield* Effect.fromResult(capturePrivateJsonData(input.identityAndAccessPolicy, cmsLimits.documentBytes, cmsError));
   const budget = yield* Effect.fromResult(decodeCmsRequestBudget(input.requestBudget ?? defaultCmsRequestBudget)).pipe(
     Effect.mapError(cause => cmsError("unsupportedProfile", cause)));
   yield* database.readNativeBinding(nativeBinding).pipe(Effect.mapError(projectCoreCmsFailure));
+  if (preferences !== undefined) yield* requirePayloadPreferenceNativeCleanup(preferences, database, nativeBinding);
   const scope = yield* Effect.scope;
   let open = true;
   yield* Scope.addFinalizer(scope, Effect.sync(() => { open = false; }));
   const requireOpen = Effect.suspend(() => open
-    ? database.readNativeBinding(nativeBinding).pipe(Effect.asVoid, Effect.mapError(projectCoreCmsFailure))
+    ? database.readNativeBinding(nativeBinding).pipe(Effect.mapError(projectCoreCmsFailure),
+      Effect.andThen(() => preferences === undefined ? Effect.void
+        : requirePayloadPreferenceNativeCleanup(preferences, database, nativeBinding).pipe(Effect.asVoid)))
     : Effect.fail(cmsError("closed")));
   // SAFETY: only this exact inert token is registered with its checked owner.
   const binding = Object.freeze({}) as CmsNativeBinding;
   bindings.set(binding, { scope, requireOpen,
     input: Object.freeze({ database, binding: nativeBinding, hostRuntime,
-      identityAndAccessPolicy: policy.value, requestBudget: Object.freeze(budget) }) });
+      identityAndAccessPolicy: policy.value, requestBudget: Object.freeze(budget),
+      ...(preferences === undefined ? {} : { preferences }) }) });
   return binding;
 });
 
