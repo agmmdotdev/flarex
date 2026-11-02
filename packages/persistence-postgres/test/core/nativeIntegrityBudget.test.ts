@@ -14,7 +14,7 @@ describe("native integrity query accounting", () => {
     const owner = new CoreAccounting(limits);
     Result.getOrThrow(owner.query(index.ref.id, interval(10, 20)));
     Result.getOrThrow(owner.query(index.ref.id, interval(30, 40)));
-    const budget = new CoreNativeIntegrityBudget({ timestamp: 1n, reads: [], queryReads: owner.queryReads(), changes: [],
+    const budget = new CoreNativeIntegrityBudget({ namespace: null, timestamp: 1n, reads: [], queryReads: owner.queryReads(), changes: [],
       registry: Result.getOrThrow(initialRegistry([])), limits, usage: owner.snapshot() });
     expect(Result.isSuccess(budget.query(index, interval(10, 20)))).toBe(true);
     expect(Result.isSuccess(budget.query(index, interval(12, 18)))).toBe(true);
@@ -26,7 +26,7 @@ describe("native integrity query accounting", () => {
     const limits = { ...CORE_TRANSACTION_REFERENCE_LIMITS, databaseQueries: 1 };
     const owner = new CoreAccounting(limits);
     Result.getOrThrow(owner.query(index.ref.id, interval(10, 20)));
-    const state = { timestamp: 1n, reads: [], changes: [], registry: Result.getOrThrow(initialRegistry([])), limits, usage: owner.snapshot() };
+    const state = { namespace: null, timestamp: 1n, reads: [], changes: [], registry: Result.getOrThrow(initialRegistry([])), limits, usage: owner.snapshot() };
     const budget = new CoreNativeIntegrityBudget({ ...state, queryReads: owner.queryReads() });
     expect(budget.query({ ...index, ref: { id: new Uint8Array(16).fill(2) } }, interval(10, 20)))
       .toMatchObject({ _tag: "Failure", failure: { reason: "capacity" } });

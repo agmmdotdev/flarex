@@ -395,3 +395,22 @@ new operations or authority. Selected obsolete construction is removed; named
 Legacy consumers retain explicit removal gates. Populated conversion, other
 native/Task/finite consumers and wider hosting and performance acceptance remain
 open; the complete rewrite remains active.
+
+The [Inventory deletion and Variant read continuation](./slices/19-native-inventory-and-variant-read-workflows.md)
+owns the complete three retained consumer families after independent challenge
+and renewed peer exchange. Their implemented closure includes the authentic ninth
+Channel/Location Link source and distinct native resource profiles. The shared
+relational lowerer translates admitted composite-key suffix reverse access into
+ordinary Source indexes, preserving authenticated identity and complete-history
+selectivity. Paired owner and genuine native proof cover these mechanisms, and
+the displaced standalone fixtures are retired. Complete consumer coverage passes
+on both database lanes, and connected regressions are complete. Populated
+conversion and other goal gates remain open.
+
+Its genuine setup also requires the
+[native scope-exclusion prerequisite](./slices/19a-native-scope-exclusion.md).
+Trusted Core admission and settlement owners implement the admitted selected-
+callback and competing-writer boundary after independent challenge, with paired
+owner and genuine native proof. Ordinary OCC alone cannot replace that boundary;
+complete consumer coverage and connected regressions are proved. Wider hosting
+and other goal gates remain open.

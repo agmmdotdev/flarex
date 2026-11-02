@@ -1,25 +1,27 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { Cause, Effect, Result, Schema } from "effect";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { Cause, Effect, Exit, Result, Schema } from "effect";
+import { decodeDocumentValue } from "flarex-protocol/document-value";
 import { InventoryModuleService, InventoryLevelService } from "@medusajs/inventory/services";
 import { PricingModuleService } from "@medusajs/pricing/services";
 import { defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { variantInventoryConfirmationResources } from "../src/workflow/policy";
 import { VariantItemPricingCalculationOutput } from "../src/modules/pricing/calculation";
 import { ExactNumericRaw } from "../src/value/exact-numeric";
+import { orderNativeIdRows } from "../src/repository/result";
 import { MathBN } from "@medusajs/framework/utils/portable";
 import { getVariantsAndItemsWithPrices } from "@medusajs/core-flows/cart/get-variants-and-items-with-prices";
 import { confirmVariantInventoryWorkflow } from "@medusajs/core-flows/cart/confirm-variant-inventory";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { getAtomicCommerceParticipant } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import type { AtomicWorkflowHostComposition } from "../src/workflow/host";
-import { prepareLogicalVariantInventoryConfirmation } from "./support/logical-variant-inventory-confirmation-fixture";
-import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
+import { prepareCoreVariantInventoryConfirmation } from "./support/core-variant-inventory-confirmation-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [], caseCleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalVariantInventoryConfirmation>>;
-type Seed = Awaited<ReturnType<Awaited<ReturnType<typeof prepareLogicalVariantInventoryConfirmation>>["seed"]>>;
-type Host = Awaited<ReturnType<Awaited<ReturnType<typeof prepareLogicalVariantInventoryConfirmation>>["prepare"]>>;
+let caseCleanupStart: number | undefined;
+let connected: Awaited<ReturnType<typeof prepareCoreVariantInventoryConfirmation>>;
+type Seed = Awaited<ReturnType<Awaited<ReturnType<typeof prepareCoreVariantInventoryConfirmation>>["seed"]>>;
+type Host = Awaited<ReturnType<Awaited<ReturnType<typeof prepareCoreVariantInventoryConfirmation>>["prepare"]>>;
 type Input = Parameters<Host["run"]>[1];
 let baseline: Seed;
 const first = <Value>(values: readonly Value[]) => {
@@ -28,10 +30,20 @@ const first = <Value>(values: readonly Value[]) => {
 const input = (seed: Seed, items?: Input["items"]): Input => ({ cart: { id: "confirmation-cart", currency_code: "usd" },
   sales_channel_id: "root-channel-0", setPricingContextResult: {},
   items: items ?? seed.variants.map((variant, index) => ({ id: "confirmation-line-" + index, variant_id: variant.id, quantity: 1 })) });
-const snapshot = () => logicalCurrencyInventory(connected.fixture);
+function expectedBaselineLocationIds() {
+  // Native confirmation retains one shared Location union in graph encounter
+  // order. The first rich Link's actual Levels establish that order here.
+  const item = first(baseline.inventoryLinks).inventory_item_id;
+  const levels = orderNativeIdRows(baseline.levels.filter(level => level.inventory_item_id === item), {});
+  const ids = levels.map(level => level.location_id);
+  expect(ids.length).toBeGreaterThan(0);
+  expect(ids).toHaveLength(baseline.locations.length);
+  expect(new Set(ids)).toEqual(new Set(baseline.locations.map(location => location.id)));
+  return ids;
+}
+const snapshot = () => connected.fixture.snapshot();
 const unchangedData = (before: Awaited<ReturnType<typeof snapshot>>, after: Awaited<ReturnType<typeof snapshot>>) => {
-  for (const key of ["rows", "revisions", "indexEntries", "indexRevisions", "uniqueKeys", "searchEntries", "searchBuilds",
-    "indexBuilds", "uniqueBuilds", "rowChanges", "events", "physicalFacts", "initialization"] as const)
+  for (const key of ["rows", "revisions", "indexes", "events", "families", "deliveries"] as const)
     expect(after[key], key).toEqual(before[key]);
 };
 function failureMessages(value: unknown): string[] {
@@ -42,12 +54,12 @@ function failureMessages(value: unknown): string[] {
     ...("type" in value && typeof value.type === "string" ? [value.type] : []), ...failureMessages(value.cause)];
 }
 async function refused(work: Effect.Effect<unknown, unknown>, message: string) {
-  const before = await snapshot(), outcome = await Effect.runPromise(Effect.result(work));
-  if (Result.isSuccess(outcome)) throw new Error("Native confirmation unexpectedly succeeded");
-  const messages = failureMessages(outcome.failure);
+  const before = await snapshot(), outcome = await Effect.runPromiseExit(work);
+  if (Exit.isSuccess(outcome)) throw new Error("Native confirmation unexpectedly succeeded");
+  const messages = failureMessages(outcome.cause);
   expect(messages.some(value => value.includes(message)), messages.join("\n")).toBe(true);
   expect(await snapshot()).toEqual(before);
-  return outcome.failure;
+  return outcome.cause;
 }
 const prepare = async (candidateCallLimit?: number) => {
   const host = await connected.prepare(candidateCallLimit);
@@ -57,12 +69,20 @@ const prepare = async (candidateCallLimit?: number) => {
 async function run(host: Host, value: Input, limit: number) {
   const before = await snapshot(); let calls = 0, outcome: "Success" | "Failure" = "Failure";
   try {
-    const result = await Effect.runPromise(host.run(host.newRequestKey(), value).pipe(Effect.provideService(ExecutionDiagnostics, {
+    const key = host.newRequestKey();
+    const result = await Effect.runPromise(host.run(key, value).pipe(Effect.provideService(ExecutionDiagnostics, {
       observe: (name, observed) => { if (name === "BoundedRequest.enter") calls++; return observed; },
     })));
     outcome = "Success";
     expect(calls).toBeLessThanOrEqual(limit);
-    unchangedData(before, await snapshot());
+    const after = await snapshot();
+    unchangedData(before, after);
+    expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
+    const durable = after.outcomes.filter(outcome => outcome.value.kind === "nativeRoot" && outcome.value.key === key);
+    expect(durable).toHaveLength(1);
+    const encoded = durable[0]?.value.result;
+    if (typeof encoded !== "string") throw new Error("Missing committed native confirmation DTO outcome");
+    expect(Result.getOrThrow(decodeDocumentValue(new TextEncoder().encode(encoded)))).toEqual(result);
     return result;
   } finally {
     // Keep the actual measured failure at the unchanged candidate limit.
@@ -86,13 +106,16 @@ function expectedCombinedSale(setId: string, sale: { readonly list: JsonObject; 
 
 describe("connected native Variant graph and Inventory confirmation", () => {
   beforeAll(async () => {
-    connected = await prepareLogicalVariantInventoryConfirmation(driver, close => cleanup.push(close));
+    connected = await prepareCoreVariantInventoryConfirmation(driver, close => cleanup.push(close));
     baseline = await connected.seed("confirmation-default");
   }, 180_000);
+  beforeEach(() => { caseCleanupStart = cleanup.length; });
   afterEach(async () => {
+    const transient = caseCleanupStart === undefined ? [] : cleanup.splice(caseCleanupStart);
+    caseCleanupStart = undefined;
     const failures: unknown[] = [];
     try {
-      for (const close of caseCleanup.splice(0).reverse()) {
+      for (const close of [...transient, ...caseCleanup.splice(0)].reverse()) {
         try { await close(); } catch (error) { failures.push(error); }
       }
     } finally { vi.restoreAllMocks(); }
@@ -127,12 +150,13 @@ describe("connected native Variant graph and Inventory confirmation", () => {
     expect(composition).not.toHaveProperty("requestEventLimit");
     expect(composition).not.toHaveProperty("events");
     const confirm = vi.spyOn(InventoryModuleService.prototype, "confirmInventory"), available = vi.spyOn(InventoryLevelService.prototype, "getAvailableQuantity");
+    const expectedLocations = expectedBaselineLocationIds();
     const value = input(baseline), original = structuredClone(value), result = await run(host, value, 256);
     expect(value).toEqual(original);
     expect(result.variants.map(variant => variant.id)).toEqual(baseline.variants.map(variant => variant.id));
     expect(result.lineItems).toHaveLength(1);
     expect(result.inventory.items).toEqual(baseline.inventoryLinks.map(link => ({ id: "confirmation-line-0", inventory_item_id: link.inventory_item_id,
-      required_quantity: link.required_quantity, allow_backorder: false, quantity: 1, location_ids: baseline.locations.map(location => location.id) })));
+      required_quantity: link.required_quantity, allow_backorder: false, quantity: 1, location_ids: expectedLocations })));
     expect(confirm).toHaveBeenCalledTimes(2); expect(available).toHaveBeenCalledTimes(2);
     expect(confirm.mock.calls.map(call => call[0])).toEqual(baseline.inventoryLinks.map(link => link.inventory_item_id));
   }, 180_000);
@@ -165,10 +189,11 @@ describe("connected native Variant graph and Inventory confirmation", () => {
     available.mockClear();
     // Neither Location alone has the 30 required units, while their complete
     // active aggregate does. The original native helper selects both Locations.
+    const expectedLocations = expectedBaselineLocationIds();
     const aggregate = await run(host, input(baseline, [{ variant_id: variant.id, quantity: 10 }]), 256);
     expect(aggregate.inventory.items.find(item => item.inventory_item_id === selected.inventory_item_id)?.location_ids)
-      .toEqual(baseline.locations.map(location => location.id));
-    expect(available.mock.calls.find(call => call[0] === selected.inventory_item_id)?.[1]).toEqual(baseline.locations.map(location => location.id));
+      .toEqual(expectedLocations);
+    expect(available.mock.calls.find(call => call[0] === selected.inventory_item_id)?.[1]).toEqual(expectedLocations);
     // Incoming stock exists in this genuine fixture but never covers demand.
     await refused(host.run(host.newRequestKey(), input(baseline, [{ variant_id: variant.id, quantity: 14.2 }])),
       "Some variant does not have the required inventory");

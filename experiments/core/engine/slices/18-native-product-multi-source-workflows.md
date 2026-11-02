@@ -310,14 +310,14 @@ local DB tests alone do not establish deployed Native18 workflows. Performance
 and paused external sessions remain paused.
 
 Replace selected setup/read/host assembly and remove displaced code with its
-complete migrated callers. The old creation→update→deletion→batch fixture chain
-still supplies named separate consumers: inline Task import, standalone Inventory
-Item deletion, variant-item pricing, revision helpers and smaller Pricing/Product
-launch or SalesChannel/ShippingProfile compositions. Either move only their shared
-construction without changing execution authority or retain explicit `Legacy...`
-branches with removal gates. Generic Currency/Product/Pricing/Inventory helpers
-and retained benchmark construction have further callers; no blanket deletion or
-Task/performance resumption is authorized by this slice.
+complete migrated callers. The retained creation→update→deletion→batch fixture
+chain supplies inline Task import. The
+[Inventory/Variant continuation](./19-native-inventory-and-variant-read-workflows.md)
+moves its three complete standalone consumers to Core construction, removing
+their old fixture and revision-helper dependencies. Generic
+Currency/Product/Pricing/Inventory helpers and retained benchmark construction
+have further callers; no blanket deletion or Task/performance resumption is
+authorized by this slice.
 
 The selected retained construction is explicit under
 `test/support/legacy-product-*-fixture.ts`; its exported construction symbols
@@ -327,9 +327,9 @@ authority. The removal gates are:
 | Retained fixture | Named remaining caller | Removal gate |
 | --- | --- | --- |
 | `legacy-product-batch-fixture.ts` | `logical-product-inline-import-fixture.ts` | Migrate the separate Task borrowing/checkpoint consumer and its execution authority. |
-| `legacy-product-deletion-fixture.ts` | `logical-inventory-item-delete-fixture.ts`, retained batch fixture | Migrate standalone Inventory Item deletion and remove the retained batch dependency. |
+| `legacy-product-deletion-fixture.ts` | Retained batch fixture | Remove with its final Task/batch-chain consumer. |
 | `legacy-product-update-fixture.ts` | Retained deletion fixture | Remove with its final deletion-chain consumer. |
-| `legacy-product-creation-fixture.ts` | Retained update fixture, variant-item Pricing fixture and revision-only Pricing/Inventory-confirmation imports | Migrate that chain and variant-item Pricing, then detach the revision-only consumers. |
+| `legacy-product-creation-fixture.ts` | Retained update, deletion and batch fixtures | Remove with the final Task-chain consumers and their revision helpers. |
 
 Retained Legacy fixtures keep their original owner-operated PostgreSQL harness.
 Their selected complete-flow import-parity checks do not extend ordinary-role

@@ -505,6 +505,7 @@ describe("Medusa source-island boundary checker", () => {
         ["nativeRootScenarios.ts", "src/modules/currency/schema"],
         ["nativeSchemaBundle.test.ts", "src/modules/currency/schema"],
         ["nativeSchemaBundleLifecycleScenarios.ts", "src/modules/currency/schema"],
+        ["nativeScopeExclusionScenario.ts", "src/modules/currency/schema"],
       ].map(([file, target]) => ({ importer: `packages/persistence-postgres/test/core/${file}`, target })),
       { importer: "packages/persistence-postgres/test/frameworks/cmsTransaction/nativeReferenceFailure.test.ts",
         target: "src/modules/product/schema" },
@@ -546,6 +547,10 @@ describe("Medusa source-island boundary checker", () => {
     expect(check("packages/persistence-postgres/test/core/nativeRootEventsScenarios.ts",
       "../../../medusa-adapter/src/modules/tax/schema").length).toBeGreaterThan(0);
     expect(check("packages/persistence-postgres/test/core/nativeRootEventsScenarios.ts",
+      "../../../medusa-adapter/src/modules/pricing/schema").length).toBeGreaterThan(0);
+    expect(check("packages/persistence-postgres/test/core/nativeScopeExclusionScenario.ts",
+      "../../../medusa-adapter/src/modules/tax/schema").length).toBeGreaterThan(0);
+    expect(check("packages/persistence-postgres/test/core/nativeScopeExclusionScenario.ts",
       "../../../medusa-adapter/src/modules/pricing/schema").length).toBeGreaterThan(0);
     expect(check("packages/persistence-postgres/test/core/nativeTextPredicateIndexScenario.ts",
       "../../../medusa-adapter/src/modules/product/definition").length).toBeGreaterThan(0);

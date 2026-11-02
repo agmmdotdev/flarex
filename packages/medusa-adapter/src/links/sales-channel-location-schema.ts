@@ -1,5 +1,7 @@
 import { Effect } from "effect";
 import { SalesChannelLocation } from "@medusajs/link-modules";
+import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
+import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
 import { captureLinkMetadata, linkSchemaOrigins, LinkSchemaError } from "./schema";
 import { lowerDmlSchema } from "../schema/lower";
@@ -29,4 +31,19 @@ export const compileSalesChannelLocationLinkDefinition = Effect.fn("SalesChannel
     [metadata.frame], "commerce.link.sales-channel-location", linkSchemaOrigins,
   )));
   return Object.freeze({ schema, provenance: salesChannelLocationLinkProvenance });
+});
+
+/** The pinned native Link source feeds the shared native logical lifecycle. */
+export const compileSalesChannelLocationLinkCoreDefinition = Effect.fn("SalesChannelLocationLink.compileCoreDefinition")(function* (target: Readonly<{
+  scopeUuid: string; epochUuid: string; applicationRead?: boolean;
+}>) {
+  const nativeTarget = Object.freeze({ scopeUuid: target.scopeUuid, epochUuid: target.epochUuid,
+    applicationRead: target.applicationRead ?? false });
+  const definition = yield* compileSalesChannelLocationLinkDefinition();
+  const source = yield* captureLogicalSchemaSource({ key: "medusa.salesChannelLocationLink", owner: "medusa", writeProfile: "medusa.salesChannelLocationLink",
+    evidence: { provenance: definition.provenance, profile: "medusa.salesChannelLocationLink" },
+    definition: { kind: "relational", schema: definition.schema },
+    bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+      table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
+  return yield* makeCoreRelationalNativeDefinition({ ...nativeTarget, source, provenance: definition.provenance, commands: [] });
 });

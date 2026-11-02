@@ -4,6 +4,7 @@ import { createProductVariantsStep } from "@medusajs/core-flows/product/create-p
 import { updatePricePreferencesAsArrayStep } from "@medusajs/core-flows/pricing/update-price-preferences-as-array-step";
 import { makeLocalInventoryCommands, InventoryItemsOutput } from "../../src/modules/inventory/service";
 import { makeLocalPricingCommands } from "../../src/modules/pricing/service";
+import { makeStockLocationCommands } from "../../src/modules/stock-location/service";
 import { BasePriceInput, PriceListsInput, PricePreferencesInput } from "../../src/modules/pricing/input";
 import { InventoryLevelsOutput } from "../../src/modules/inventory/level-input";
 import { StorePreferencePair } from "../../src/modules/pricing/preference-input";
@@ -11,17 +12,13 @@ import { prepareProductCreationWorkflow, ProductCreationOutput } from "../../src
 import { prepareInventoryStockingWorkflow } from "../../src/workflows/inventory/stock";
 import { prepareCreateReservationWorkflow } from "../../src/workflows/inventory/adjust-and-reserve";
 import { prepareCreatePricePreferencesWorkflow } from "../../src/workflows/pricing/create-price-preferences";
+import { prepareStockLocationSalesChannelsWorkflow } from "../../src/workflows/stock-location/sales-channels";
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
-import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./logical-currency-fixture";
-import { connectLegacyProductCreation as connectProductCreation, legacyCreationRevision as creationRevision,
-  legacyProductCreationExecution as productCreationExecution, legacyProductCreationModules as productCreationModules,
-  legacyProductCreationOptions as productCreationOptions, seedLegacyCreationEndpoints as seedCreationEndpoints,
-  seedLegacyCreationReferences as seedCreationReferences } from "./legacy-product-creation-fixture";
-import { prepareInventoryCreateHost } from "./logical-inventory-fixture";
-import { prepareLogicalSalesChannelLocation } from "./logical-sales-channel-location-fixture";
-import { prepareLogicalPricingHost, seedLogicalPricingLists } from "./logical-pricing-fixture";
+import { makeCoreProductCreationFixture, creationRevision, productCreationExecution, productCreationModules,
+  productCreationOptions, seedCreationEndpoints, seedCreationReferences, prepareCoreInventoryCreateHost,
+  seedCorePricingLists, type CoreProductCreationFixtureOptions } from "./core-product-creation-fixture";
 
 const PriceSetLinks = Schema.Array(Schema.Struct({ id: Schema.String, variant_id: Schema.String, price_set_id: Schema.String }));
 const InventoryLinks = Schema.Array(Schema.Struct({ id: Schema.String, variant_id: Schema.String,
@@ -38,42 +35,45 @@ const contextPreferencesWorkflow = createWorkflow("seed-native-context-preferenc
 /** Genuine native roots seed every owner used by the default Variant projection.
  * Setup outputs retain native identities and exact numeric companions; expected
  * read results belong to the workflow tests, not to another fixture graph. */
-export async function prepareLogicalVariantItemPricing(driver: "pglite" | "postgres", registerCleanup: (close: () => Promise<void>) => void,
-  shared?: { readonly resource: LogicalCurrencyFixture["resource"];
-    readonly fixtureIdentity: { readonly deploymentId: string; readonly projectId: string; readonly uuidOffset: number } }) {
-  const configuration = { includeProduct: true, includePricing: true, includeVariantInventory: true,
-    includeSalesChannel: true, includeShippingProfile: true, includeProductSalesChannelLink: true,
-    includeProductShippingProfileLink: true, includeSalesChannelLocationLink: true };
-  const fixture = await (shared === undefined ? logicalCurrencyFixture(driver, registerCleanup, configuration)
-    : logicalCurrencyFixture(driver, registerCleanup, { ...configuration, ...shared }));
-  const creation = await connectProductCreation(fixture);
+export async function prepareCoreVariantItemPricing(driver: "pglite" | "postgres", registerCleanup: (close: () => Promise<void>) => void,
+  shared: CoreProductCreationFixtureOptions = {}) {
+  const creation = await makeCoreProductCreationFixture(driver, registerCleanup, { ...shared, includeSalesChannelLocationLink: true });
+  const fixture = creation.fixture;
   const creationModules = productCreationModules(creation);
   const execution = productCreationExecution(creation);
-  const channelLocations = await prepareLogicalSalesChannelLocation(fixture, registerCleanup);
+  const channelSource = creation.channelLocations;
+  if (channelSource === undefined) throw new Error("Missing authentic Sales Channel Location source");
+  const stock = await Effect.runPromise(makeStockLocationCommands("create"));
+  const channelOptions = { execution, link: { module: channelSource.runtime.workflow, nativeStorage: channelSource.source },
+    revision: "9".repeat(64), subscribers: [{ id: "sales-channel-location", revision: "9".repeat(64) }] };
+  const channelWorkflow = await Effect.runPromise(prepareStockLocationSalesChannelsWorkflow(channelOptions));
+  registerCleanup(() => Effect.runPromise(channelWorkflow.close));
+  const channelLocations = { source: channelSource.source, link: channelSource.runtime, stock,
+    reader: channelSource.reads, options: channelOptions, workflow: channelWorkflow };
   const pricingRead = await Effect.runPromise(makeLocalPricingCommands("variant-item-pricing"));
   const inventoryRead = await Effect.runPromise(makeLocalInventoryCommands("variant-price-calculation"));
   const stockInventory = await Effect.runPromise(makeLocalInventoryCommands("stock"));
   const subscribers = [{ id: "variant-item-pricing-setup", revision: creationRevision("variant-item-pricing-setup") }];
   const stocking = await Effect.runPromise(prepareInventoryStockingWorkflow({ execution,
-    modules: { inventory: { module: stockInventory.workflow, logicalStorage: creationModules.inventory.logicalStorage },
-      stock_location: { module: channelLocations.stock.workflow, logicalStorage: creationModules.stock_location.logicalStorage } },
+    modules: { inventory: { module: stockInventory.workflow, nativeStorage: creationModules.inventory.nativeStorage },
+      stock_location: { module: channelLocations.stock.workflow, nativeStorage: creationModules.stock_location.nativeStorage } },
     revision: creationRevision("variant-item-pricing-stocking"), subscribers }));
   registerCleanup(() => Effect.runPromise(stocking.close));
   const reservations = await Effect.runPromise(prepareCreateReservationWorkflow({ execution,
-    inventory: { module: stockInventory.workflow, logicalStorage: creationModules.inventory.logicalStorage },
+    inventory: { module: stockInventory.workflow, nativeStorage: creationModules.inventory.nativeStorage },
     revision: creationRevision("variant-item-pricing-reservation"), subscribers }));
   registerCleanup(() => Effect.runPromise(reservations.close));
   await seedCreationEndpoints(creation);
   await seedCreationReferences(creation);
   const seedPriceLists = async (data: typeof PriceListsInput.Type) => {
-    const pricing = await prepareLogicalPricingHost(fixture, "product-updates");
-    try { return (await seedLogicalPricingLists(fixture, pricing, data)).result; }
-    finally { await Effect.runPromise(pricing.host.close); }
+    const runtime = await Effect.runPromise(makeLocalPricingCommands("product-updates"));
+    return (await seedCorePricingLists(fixture, { definition: creation.pricing.definition,
+      runtime, source: creation.pricing.source }, data)).result;
   };
   const seedPricePreferences = async (data: typeof PricePreferencesInput.Type) => {
     const pricing = await Effect.runPromise(makeLocalPricingCommands("price-preferences"));
     const host = await Effect.runPromise(prepareCreatePricePreferencesWorkflow({ execution,
-      pricing: { module: pricing.workflow, logicalStorage: creationModules.pricing.logicalStorage },
+      pricing: { module: pricing.workflow, nativeStorage: creationModules.pricing.nativeStorage },
       revision: creationRevision("variant-item-pricing-preferences-setup"), subscribers }));
     try { return await Effect.runPromise(host.run(host.newRequestKey(), data)); }
     finally { await Effect.runPromise(host.close); }
@@ -84,7 +84,7 @@ export async function prepareLogicalVariantItemPricing(driver: "pglite" | "postg
       module: pricing.workflow, methods: ["listPricePreferences", "upsertPricePreferences", "deletePricePreferences"], graph: false,
     } }, true)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ execution,
-      modules: { pricing: { module: pricing.workflow, logicalStorage: creationModules.pricing.logicalStorage } },
+      modules: { pricing: { module: pricing.workflow, nativeStorage: creationModules.pricing.nativeStorage } },
       operationScheduling: "queued", borrowedOperationScheduling: "queued",
       revision: creationRevision("variant-item-pricing-context-preferences-setup"), subscribers,
       workflow: { name: "seedNativeContextPreferences159", resources,
@@ -113,7 +113,7 @@ export async function prepareLogicalVariantItemPricing(driver: "pglite" | "postg
     const variantCount = options.variantCount ?? 1;
     const itemCount = variantCount === 4 ? 4 : 2;
     const locationCount = variantCount === 4 ? 4 : 2;
-    const itemHost = await prepareInventoryCreateHost(fixture, creation.inventory.inventory);
+    const itemHost = await prepareCoreInventoryCreateHost(fixture, creation.inventory.inventory);
     let items: typeof InventoryItemsOutput.Type;
     try {
       const created = await Effect.runPromise(itemHost.host.run(itemHost.host.newRequestKey(), itemHost.create,

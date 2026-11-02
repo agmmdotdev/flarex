@@ -106,17 +106,22 @@ export const readCoreApplicationCandidateEvidence = Effect.fn("CoreApplicationRe
   return Option.some(Object.freeze({ registration, metadata }));
 });
 
-/** Dependencies cover absence, hidden/deleting tables and all program revisions, including a zero-table schema. */
-function trackCatalog(context: RegistrationReadContext): Result.Result<void, CoreError> {
-  for (const name of [TABLES, PROGRAMS]) {
-    const index = context.registry.table(name)?.definition.indexes.find(candidate => candidate.name === "by_id");
-    if (index === undefined) return Result.fail(corrupt());
-    context.addIndexRead(index.ref.id, { start: null, end: null });
-  }
+/** Full catalog dependencies include absence and hidden/deleting metadata. */
+function trackCatalog(context: RegistrationReadContext, name: typeof TABLES | typeof PROGRAMS): Result.Result<void, CoreError> {
+  const index = context.registry.table(name)?.definition.indexes.find(candidate => candidate.name === "by_id");
+  if (index === undefined) return Result.fail(corrupt());
+  context.addIndexRead(index.ref.id, { start: null, end: null });
   return Result.succeed(undefined);
 }
+
+/** Complete publication/emptiness checks consume every revision and head,
+ * including an empty closure and authority metadata in the same catalog. */
+export function trackCoreApplicationPrograms(context: RegistrationReadContext): Result.Result<void, CoreError> {
+  return trackCatalog(context, PROGRAMS);
+}
+
 export const liveCoreApplicationSchemas = (context: RegistrationReadContext): Result.Result<readonly CoreSchemaSelection[], CoreError> => Result.gen(function* () {
-  yield* trackCatalog(context);
+  yield* trackCatalog(context, TABLES);
   const entries: CoreSchemaSelection[] = [];
   for (const record of context.registry.tables.values()) {
     const table = record.definition;
@@ -149,6 +154,7 @@ export const readCoreApplicationRegistration = Effect.fn("CoreApplicationRegistr
   const encoded = selected.metadata.applicationRegistration;
   if (encoded === undefined) return yield* corrupt();
   const proof = yield* Effect.fromResult(decodeProof(encoded).pipe(Result.mapError(corrupt)));
+  yield* Effect.fromResult(trackCoreApplicationPrograms(context));
   const programs: CoreProgramDefinition[] = [];
   if (context.registry.programs.size !== proof.programs.length || context.registry.heads.size !== proof.programs.length)
     return yield* refuse("Application registration program closure differs from its stored proof");
@@ -188,6 +194,7 @@ export const guardCoreApplicationRegistration = Effect.fn("CoreApplicationRegist
       return yield* refuse("Application registration must publish its complete expected program identities and metadata");
   }
   if (live.length === 0) {
+    yield* Effect.fromResult(trackCoreApplicationPrograms(context));
     if (input.mode !== "prepare" || retainedTables(context).length !== 0 || context.registry.programs.size !== 0 || context.registry.heads.size !== 0)
       return yield* refuse("Fresh application registration requires an unused database");
     return proof;
@@ -201,6 +208,7 @@ export const guardCoreApplicationRegistration = Effect.fn("CoreApplicationRegist
   if (existing.metadata.state.state === "active") {
     yield* readCoreApplicationRegistration(context, existing);
   } else {
+    yield* Effect.fromResult(trackCoreApplicationPrograms(context));
     if (input.mode === "publish" || context.registry.programs.size !== 0 || context.registry.heads.size !== 0)
       return yield* refuse("Pending application registration cannot contain published programs");
     for (const table of tables) yield* assertEmpty(table);
@@ -214,10 +222,14 @@ export const readActiveCoreApplicationRegistration = Effect.fn("CoreApplicationR
   const active = live.find(entry => entry.metadata.state.state === "active" && entry.metadata.applicationRegistration !== undefined);
   if (active === undefined) return Option.none<CoreApplicationRegistrationMetadata>();
   if (live.length !== 1 || context.namespace !== null) return yield* refuse("Application registration has a foreign live schema");
-  // Dependencies above are recorded on every operation, including memo hits.
+  // Discovery dependencies are recorded above. Every successful memo reuse
+  // also consumes the full program catalog; a miss records it in the reader.
   // Only successful validation of the complete immutable registry is reusable.
   const previous = checked.get(context.registry);
-  if (previous !== undefined) return Option.some(previous);
+  if (previous !== undefined) {
+    yield* Effect.fromResult(trackCoreApplicationPrograms(context));
+    return Option.some(previous);
+  }
   const registration = yield* readCoreApplicationRegistration(context, active);
   const { programs, candidateMetadata, ...identity } = registration;
   const metadata = Object.freeze({ ...identity, programs: Object.freeze(programs.map(program => Object.freeze({

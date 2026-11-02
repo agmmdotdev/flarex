@@ -2,13 +2,14 @@ import { randomBytes } from "node:crypto";
 import { Deferred, Effect, Fiber, Option, Result } from "effect";
 import { bytesEqual } from "@flarex/utils/bytes";
 import { describe, expect, it, vi } from "vitest";
-import type { CoreApplicationRegistration, CoreDatabase, CoreError, CoreSchemaProposal } from "../../src/core/api";
+import { CoreTransactionError, type CoreApplicationRegistration, type CoreDatabase, type CoreError, type CoreSchemaProposal } from "../../src/core/api";
 import type { CoreIndexScan, CorePersistence } from "../../src/core/contracts";
 import { openCoreDatabase } from "../../src/core/database";
 import { readCoreApplicationCandidateEvidence } from "../../src/core/applicationRegistration";
 import { CoreFinalizationVault, createCoreTransaction, prepareCoreTransactionIds, type CoreFinalizedState } from "../../src/core/transaction";
 import { coreIndexMetadataValue } from "../../src/core/indexState";
-import { INDEXES, TABLES } from "../../src/core/registry";
+import { INDEXES, PROGRAMS, TABLES, publicDocumentId } from "../../src/core/registry";
+import { encodeIndexKey } from "flarex-protocol/index-key";
 import { CORE_SCHEMA_WORKER_TEST_OPTIONS } from "./schemaFixture";
 import { readCoreFixtureRegistry, type CorePersistenceFixture } from "./fixture";
 
@@ -211,6 +212,50 @@ export function registerCoreApplicationCandidateScenarios(label: string, createF
         yield* Deferred.succeed(release, undefined);
         expect(yield* Fiber.join(abandoning)).toMatchObject({ _tag: "Failure", failure: { reason: "conflict" } });
         expect((yield* database.schemaStatus(proposal)).state).toBe("pending");
+      }))); } finally { await fixture.close(); }
+    }, 90_000);
+
+    it("conflicts abandonment against an authority epoch committed after its program-catalog snapshot", async () => {
+      const fixture = await createFixture();
+      try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const captured = yield* Deferred.make<void>(), release = yield* Deferred.make<void>();
+        let pause = false;
+        const persistence: CorePersistence = { ...fixture.persistence, readSnapshot: (timestamp, retention) => Effect.gen(function* () {
+          const snapshot = yield* fixture.persistence.readSnapshot(timestamp, retention);
+          if (pause) { pause = false; yield* Deferred.succeed(captured, undefined); yield* Deferred.await(release); }
+          return snapshot;
+        }) };
+        const database = yield* Effect.acquireRelease(openCoreDatabase(persistence, options), owner => owner.close());
+        const registration = frame(), proposal = yield* database.prepareSchema({ schema, applicationRegistration: registration });
+        const before = yield* database.publishedTimestamp, registry = yield* readCoreFixtureRegistry(fixture, before);
+        const catalog = registry.table(PROGRAMS)?.definition, byId = catalog?.indexes.find(index => index.name === "by_id");
+        const authority = registry.authority, items = registry.table("items")?.definition;
+        if (catalog === undefined || byId === undefined || authority === undefined || items === undefined)
+          return yield* Effect.die(new Error("Missing actual candidate program-catalog owner"));
+        const authorityKey = yield* Effect.fromResult(encodeIndexKey([], yield* Effect.fromResult(publicDocumentId(catalog, authority.id))));
+        yield* Effect.gen(function* () {
+          pause = true;
+          const abandoning = yield* Effect.forkChild(Effect.result(database.abandonApplicationCandidate(proposal)));
+          yield* Deferred.await(captured);
+          // Pending registration forbids an unregistered program publisher.
+          // This real global writer changes only the existing authority row,
+          // isolating the full PROGRAMS-catalog dependency of abandonment.
+          yield* database.advanceAuthorityEpoch(1n);
+          const epochTimestamp = yield* database.publishedTimestamp;
+          expect(epochTimestamp).toBeGreaterThan(before);
+          yield* Deferred.succeed(release, undefined);
+          const outcome = yield* Fiber.join(abandoning);
+          const conflict = Result.isFailure(outcome) ? outcome.failure : undefined;
+          if (!(conflict instanceof CoreTransactionError)) return yield* Effect.die(new Error("Expected the official Core abandonment conflict", { cause: outcome }));
+          expect(conflict.reason).toBe("conflict");
+          expect(conflict.cause).toEqual({ indexId: byId.ref.id, key: authorityKey, timestamp: epochTimestamp });
+          expect(yield* database.readAuthorityEpoch).toBe(1n);
+          const candidate = yield* database.readApplicationCandidate(proposal);
+          expect(Option.isSome(candidate) && candidate.value).toMatchObject({ proposal, state: "pending", abandoned: false,
+            metadata: registration.candidateMetadata });
+          expect((yield* readCoreFixtureRegistry(fixture, epochTimestamp)).table("items")?.definition.tabletId).toEqual(items.tabletId);
+          expect(yield* database.publishedTimestamp).toBe(epochTimestamp);
+        }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)));
       }))); } finally { await fixture.close(); }
     }, 90_000);
 

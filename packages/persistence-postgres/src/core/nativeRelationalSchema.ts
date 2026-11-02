@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { LogicalSchemaSource } from "flarex-protocol/internal/logical-schema-candidate";
-import type { RelationalSchema, RelationalTableDefinition, RelationalIndexPredicate } from "flarex-protocol/internal/relational-schema";
+import { relationalReverseIndexes, type RelationalSchema, type RelationalTableDefinition, type RelationalIndexPredicate } from "flarex-protocol/internal/relational-schema";
 import { type ValidatorJsonV1 } from "flarex-protocol/validator-json";
 import { relationalTextIdentity } from "../values/relationalRows";
 import { CoreSchemaError, type CoreSchemaInputSchema } from "./schemaTypes";
@@ -125,6 +125,17 @@ export const lowerCoreNativeRelationalSchema = Effect.fn("CoreNativeDefinition.l
       sourceFields: Object.freeze(sourceFields), targetFields: Object.freeze(targetFields),
       sourceIndexName: sourceIndex.indexName, targetIndexName: targetIndex.indexName,
       onDelete: constraint.onDelete, onUpdate: constraint.onUpdate }));
+  }
+  // Keep existing FK path identities before deriving membership-only access
+  // for native composite-key suffixes omitted from declared indexes.
+  for (const record of records) for (const reverse of relationalReverseIndexes(record.table)) {
+    const field = reverse.column.columnId;
+    if (record.indexes.some(index => index.requiredPrefix === undefined && index.fields[0] === field)) continue;
+    const table = record.declaration.table;
+    if (table === undefined || record.indexes.some(index => index.kind === "index" && index.nativeId === reverse.descriptor))
+      return yield* unsupported("Relational reverse access path collides with a native declaration");
+    record.indexes.push(Object.freeze({ nativeId: reverse.descriptor, kind: "index",
+      indexName: yield* coreNativeIndexName(table, "index", reverse.descriptor), fields: Object.freeze([field]) }));
   }
   const declarations = records.map(({ declaration, indexes }) => {
     const incident = foreignKeys.filter(foreignKey => foreignKey.sourceTable === declaration.name || foreignKey.targetTable === declaration.name);

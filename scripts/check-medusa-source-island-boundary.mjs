@@ -187,6 +187,9 @@ const finiteContractTestImports = new Map([
   ["packages/persistence-postgres/test/core/nativeSchemaBundleLifecycleScenarios.ts", [{
     specifier: "../../../medusa-adapter/src/modules/currency/schema", target: "packages/medusa-adapter/src/modules/currency/schema.ts",
   }]],
+  ["packages/persistence-postgres/test/core/nativeScopeExclusionScenario.ts", [{
+    specifier: "../../../medusa-adapter/src/modules/currency/schema", target: "packages/medusa-adapter/src/modules/currency/schema.ts",
+  }]],
   ["packages/persistence-postgres/test/frameworks/cmsTransaction/nativeReferenceFailure.test.ts", [{
     specifier: "../../../../medusa-adapter/src/modules/product/schema", target: "packages/medusa-adapter/src/modules/product/schema.ts",
   }]],

@@ -12,6 +12,7 @@ import { coreNativeConstraintAccessFields, coreNativePolicyForTable, coreNativeR
 import { CoreNativeTablePolicySchema } from "../../src/core/nativePolicyTypes";
 import { coreNativeIndexName } from "../../src/core/schemaTableName";
 import { encodeDocumentId } from "flarex-protocol/document-id";
+import oldSuffixMetadata from "./fixtures/native-key-suffix-old-metadata.json" with { type: "json" };
 
 const target = { scopeUuid: "f2bfbf4a-271e-4a44-bcc8-7aa3c7fe59bd", epochUuid: "df564a72-4a2c-4265-8b96-83ac7c90ee1e" };
 const schemaId = Result.getOrThrow(encodeDocumentId(532, new Uint8Array(16).fill(4)));
@@ -24,7 +25,76 @@ const compile = Effect.fn("NativeRelationalSchemaTest.compile")(function* (key: 
   return yield* makeCoreRelationalNativeDefinition({ ...target, source, provenance, commands: [] });
 });
 
+const reverseOrigin = { kind: "synthetic", sourceId: "native-reverse-schema-test" } as const;
+const reverseSchema = (coverage: "missing" | "declared" | "foreignKey" | "collision") => Result.getOrThrow(normalizeRelationalSchema({
+  owner: "medusa", lineageId: reverseOrigin.sourceId, tables: [
+    ...(coverage === "foreignKey" ? [{ tableId: "endpoint", origin: reverseOrigin, columns: [
+      { columnId: "id", type: "text" as const, nullable: false, default: { kind: "none" as const }, origin: reverseOrigin },
+    ], keys: [{ keyId: "endpoint.primary", kind: "primary" as const, columns: ["id"], origin: reverseOrigin }],
+    indexes: [], constraints: [], relationships: [] }] : []),
+    { tableId: "link", origin: reverseOrigin, columns: [
+      ...["left", "right", "note"].map(columnId => ({ columnId, type: "text" as const, nullable: false,
+        default: { kind: "none" as const }, origin: reverseOrigin })),
+      { columnId: "deleted_at", type: "timestamptz", nullable: true, default: { kind: "none" }, origin: reverseOrigin },
+    ], keys: [{ keyId: "link.primary", kind: "primary", columns: ["left", "right"], origin: reverseOrigin }], indexes: [
+      { indexId: "link.active-right", kind: "btree", columns: ["right"],
+        predicate: { kind: "isNull", columnId: "deleted_at" }, origin: reverseOrigin },
+      ...(coverage === "declared" ? [{ indexId: "link.all-right", kind: "btree" as const, columns: ["right", "left"],
+        predicate: null, origin: reverseOrigin }] : []),
+      ...(coverage === "collision" ? [{ indexId: "key-reverse/right", kind: "btree" as const, columns: ["note"],
+        predicate: null, origin: reverseOrigin }] : []),
+    ], constraints: coverage === "foreignKey" ? [{ constraintId: "link.right", kind: "foreignKey", sourceColumns: ["right"],
+      targetColumns: [{ tableId: "endpoint", columnId: "id" }], onDelete: "noAction", onUpdate: "noAction", origin: reverseOrigin }] : [],
+    relationships: [] },
+  ], capabilities: [],
+}));
+
 describe("complete native relational schema lowering", () => {
+  it("infers missing unconditional suffix access without granting endpoint or uniqueness semantics", async () => {
+    const definition = await Effect.runPromise(compile("medusa.reverse-schema-test", reverseSchema("missing"), reverseOrigin));
+    const table = definition.tables[0];
+    if (table?.table === undefined) throw new Error("Missing neutral reverse table");
+    expect(table.indexes?.map(index => index.nativeId)).toEqual(["link.primary", "link.active-right", "key-reverse/right"]);
+    expect(table.indexes?.find(index => index.nativeId === "key-reverse/right")).toEqual({ nativeId: "key-reverse/right", kind: "index",
+      indexName: await Effect.runPromise(coreNativeIndexName(table.table, "index", "key-reverse/right")), fields: ["right"] });
+    expect(table.uniqueConstraints.map(constraint => constraint.descriptor)).toEqual(["link.primary"]);
+    expect(definition.foreignKeys).toBeUndefined();
+    expect(definition.privateTables).toBeUndefined();
+  });
+
+  it("reuses declared unconditional leading coverage without renaming its access path", async () => {
+    const definition = await Effect.runPromise(compile("medusa.reverse-schema-test", reverseSchema("declared"), reverseOrigin));
+    const table = definition.tables[0];
+    expect(table?.indexes?.map(index => index.nativeId)).toEqual(["link.primary", "link.active-right", "link.all-right"]);
+    expect(table?.indexes?.find(index => index.nativeId === "link.all-right")).toMatchObject({ fields: ["right", "left"] });
+    expect(table?.indexes?.filter(index => index.fields[0] === "right" && index.requiredPrefix === undefined)).toHaveLength(1);
+  });
+
+  it("retains the existing FK descriptor and index before deduplicating inferred reverse membership", async () => {
+    const definition = await Effect.runPromise(compile("medusa.reverse-schema-test", reverseSchema("foreignKey"), reverseOrigin));
+    const table = definition.tables.find(table => table.localName === "link");
+    if (table?.table === undefined) throw new Error("Missing neutral FK reverse table");
+    const expected = await Effect.runPromise(coreNativeIndexName(table.table, "index", "foreign-key/link.right"));
+    expect(table.indexes?.map(index => index.nativeId)).toEqual(["link.primary", "link.active-right", "foreign-key/link.right"]);
+    expect(table.indexes?.find(index => index.nativeId === "foreign-key/link.right"))
+      .toEqual({ nativeId: "foreign-key/link.right", kind: "index", indexName: expected, fields: ["right"] });
+    expect(definition.foreignKeys?.[0]).toMatchObject({ descriptor: "link.right", sourceIndexName: expected });
+  });
+
+  it("refuses a native descriptor collision instead of silently shadowing different index fields", async () => {
+    const result = await Effect.runPromise(Effect.result(compile("medusa.reverse-schema-test", reverseSchema("collision"), reverseOrigin)));
+    expect(result).toMatchObject({ _tag: "Failure", failure: { _tag: "CoreSchemaError", reason: "unsupportedCapability",
+      message: "Relational reverse access path collides with a native declaration" } });
+  });
+
+  it("preserves the authentic pre-correction Currency identity and stored metadata exactly", async () => {
+    const previous = oldSuffixMetadata.unaffectedCurrency;
+    const definition = await Effect.runPromise(compileCurrencyCoreDefinition({ scopeUuid: previous.identity.scopeUuid,
+      epochUuid: previous.identity.epochUuid }));
+    expect(definition.identity).toEqual(previous.identity);
+    expect(definition.metadata).toBe(previous.metadata);
+  });
+
   it("lowers the genuine complete Pricing text-predicate index as a nonunique ordinary superset", async () => {
     const native = await Effect.runPromise(compilePricingDefinition());
     const definition = await Effect.runPromise(compilePricingCoreDefinition(target));

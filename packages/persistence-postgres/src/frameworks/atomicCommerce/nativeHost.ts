@@ -159,10 +159,21 @@ const compose = Effect.fn("AtomicCommerceNative.composeHost")(function* (
           reason: failure.reason === "limitExceeded" || failure.reason === "closed" || failure.reason === "rollbackOnly"
             ? failure.reason : "unexpectedFailure", cause: failure,
         })))));
-      const executed = yield* Effect.exit(restore(Effect.acquireUseRelease(core(database.beginNativeRoot(prepared.root,
-        { claim: acquired.claim, chargeRetained })), operation => executeAtomicCommerceNative(configuration, prepared.selected,
-        operation, prepared.eventBinding, lifetime, id, capturedRequest.identity.key, capturedRequest.command,
-        capturedRequest.args, capturedRequest.bytes), operation => operation.abort())
+      // Acquisition and callback execution observe the same lifetime's original
+      // absolute deadline. Restore acquisition explicitly: acquireUseRelease
+      // masks its acquire, but an exclusive grant may need to wait fairly.
+      const executed = yield* Effect.exit(restore(Effect.acquireUseRelease(restore(core(database.beginNativeRoot(prepared.root,
+        { claim: acquired.claim, chargeRetained, admissionDeadlineUnixMilliseconds: lifetime.deadlineUnixMilliseconds }))
+        .pipe(lifetime.withinDeadline)), operation => Effect.gen(function* () {
+        yield* Effect.gen(function* () {
+          yield* lifetime.checkpoint(lifetime.context);
+          for (const participant of prepared.selected) yield* participant.initialization.requireReady;
+          yield* lifetime.checkpoint(lifetime.context);
+        }).pipe(lifetime.withinDeadline);
+        return yield* executeAtomicCommerceNative(configuration, prepared.selected,
+          operation, prepared.eventBinding, lifetime, id, capturedRequest.identity.key, capturedRequest.command,
+          capturedRequest.args, capturedRequest.bytes);
+      }), operation => operation.abort())
         .pipe(Effect.ensuring(lifetime.close))));
       if (Exit.isFailure(executed)) return yield* abortWithCause(acquired.claim, executed.cause);
       const committed = yield* Effect.exit(database.commit(executed.value.finalized, { claim: acquired.claim,

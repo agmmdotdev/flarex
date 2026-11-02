@@ -62,6 +62,7 @@ const Invocation = Schema.Struct({
 });
 const decodeInvocation = Schema.decodeUnknownResult(Invocation, { onExcessProperty: "error" });
 const decodePublication = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal("mixed")));
+const decodeIsolation = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal("scopeExclusive")));
 const invocationPolicy = (member: typeof Invocation.Type) => Object.freeze({
   ...(member.allowReferenceReplacement === true ? { allowReferenceReplacement: true as const } : {}),
   ...(member.setNullPolicy === undefined ? {} : { setNullPolicy: Object.freeze({ ...member.setNullPolicy }) }),
@@ -86,7 +87,8 @@ export function captureAtomicCommerceNativeConfiguration(input: AtomicCommerceNa
     policy: captureCommerceJsonData(input.identityAndAccessPolicy, commerceLimits.commandBytes),
     selectedLimits: Object.freeze({ participants: input.requestParticipantLimit ?? null, calls: input.requestCallLimit ?? null,
       commandBytes: input.requestByteLimit ?? null, eventLimit: input.requestEventLimit ?? null, commandMs: input.requestCommandMs ?? null }),
-    unsupported: input.executionIsolation !== undefined || input.taskControlCommands !== undefined,
+    unsupported: input.taskControlCommands !== undefined,
+    executionIsolation: decodeIsolation(input.executionIsolation),
     limits: decodeLimits({ calls: input.requestCallLimit ?? commerceLimits.calls,
       commandBytes: input.requestByteLimit ?? commerceLimits.commandBytes, commandMs: input.requestCommandMs ?? commerceLimits.commandMs,
       eventLimit: input.requestEventLimit ?? defaultCommerceResources.eventMessages, participantLimit: input.requestParticipantLimit ?? 8,
@@ -98,6 +100,7 @@ export const prepareAtomicCommerceNativeConfiguration = Effect.fn("AtomicCommerc
   captured: ReturnType<typeof captureAtomicCommerceNativeConfiguration> & AtomicCommerceNativeGenerationInput,
 ) {
   const limits = Object.freeze(yield* Effect.fromResult(captured.limits.pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)))));
+  const executionIsolation = yield* Effect.fromResult(captured.executionIsolation.pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause))));
   if (captured.unsupported || limits.borrowedOperationScheduling !== undefined && limits.operationScheduling !== "queued"
     || captured.participants.length === 0 || captured.participants.length > limits.participantLimit)
     return yield* commerceError("unsupportedProfile");
@@ -197,11 +200,12 @@ export const prepareAtomicCommerceNativeConfiguration = Effect.fn("AtomicCommerc
       validation: { call: member.validateLogicalCall !== undefined, aggregate: member.validateLogical !== undefined },
       initialization: { ...member.source.initialization } })) } satisfies Json;
   const rootInput: CoreNativeRootRecoveryInput = { bundle: captured.bundle, contract, participants,
+    ...(executionIsolation === undefined ? {} : { executionIsolation }),
     maxFinalUserDocuments, protectedMetadata: true, retryProvenNoncommit: true };
   const recovery = yield* captured.database.bindNativeRootRecovery(rootInput).pipe(Effect.catchCause(cause =>
     Effect.failCause(Cause.map(cause, projectCoreCommerceFailure))));
   yield* chargeHostPreparation({ root: recovery.identity, contract }).pipe(Effect.mapError(cause => commerceError("resourceFailure", cause)));
-  return Object.freeze({ ...captured, allowed, members: Object.freeze(members), limits, policy: policy.value, eventPolicy,
+  return Object.freeze({ ...captured, allowed, members: Object.freeze(members), limits, policy: policy.value, eventPolicy, executionIsolation,
     rootInput, recovery });
 });
 

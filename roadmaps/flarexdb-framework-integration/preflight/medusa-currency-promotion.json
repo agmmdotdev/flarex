@@ -1134,7 +1134,7 @@
     {
       "target": "packages/medusa-adapter/src/links/sales-channel-location-schema.ts",
       "classification": "authored",
-      "targetSha256": "22a742156c937018fbc61a107020996f982e90538e22ff80eae0b22900bdf570"
+      "targetSha256": "458d923d571dcac5f3ef9c2843fa54ffcc794c4ab348a76557199c7493be7823"
     },
     {
       "target": "packages/medusa-adapter/src/links/sales-channel-location-service.ts",
@@ -4797,9 +4797,19 @@
       "targetSha256": "3aa57e41e688c3618dd3b473c9eae0d4e1504ac1bb568b6ea0e20be44801ca6b"
     },
     {
+      "target": "packages/medusa-adapter/test/core-inventory-link-history.test.ts",
+      "classification": "authored",
+      "targetSha256": "74ebcd2e01bb50caa9dd067e79cf0fb99057b2e93838ef950e087401e3117287"
+    },
+    {
       "target": "packages/medusa-adapter/test/core-links.test.ts",
       "classification": "authored",
       "targetSha256": "7b83cbd70e077ab6af8dbba14b9e20ebd81155b2a77e226666b11e0b5d6e2591"
+    },
+    {
+      "target": "packages/medusa-adapter/test/core-native-scope-exclusion.test.ts",
+      "classification": "authored",
+      "targetSha256": "7d7613f087dcf84c0d7b32e0d7650accef58a00fe41839fe19199ac462f5dfec"
     },
     {
       "target": "packages/medusa-adapter/test/core-payload-native-durability-scenarios.ts",
@@ -5519,7 +5529,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-inventory-item-delete-workflow.test.ts",
       "classification": "authored",
-      "targetSha256": "4ef1526efaf020ccb8d585864dae61cc25395df261a145ea6443d6b2c0836fb2"
+      "targetSha256": "9da0cead46179d05b6e12abf6147509a70a3b0401e2ec407b0f50cd6db351837"
     },
     {
       "target": "packages/medusa-adapter/test/logical-inventory-item-update-workflow.test.ts",
@@ -6119,12 +6129,12 @@
     {
       "target": "packages/medusa-adapter/test/logical-variant-inventory-confirmation-workflow.test.ts",
       "classification": "authored",
-      "targetSha256": "5448337b8d38ce82178ab59b86d31aac7da990cface1bc881d6670d7cdca40e0"
+      "targetSha256": "bcbbdaabb7581d661f65bcb90d3b1524dcb06ef90ad6fa7b2b074cc03fa538c2"
     },
     {
       "target": "packages/medusa-adapter/test/logical-variant-item-pricing-workflow.test.ts",
       "classification": "authored",
-      "targetSha256": "1c4525932ebe5fc4824df586a85c6553f018bea9e7a329a91a638f550646ea25"
+      "targetSha256": "772333a5b202b3d2409a80e3f4ed5d5d6780380bae2c6b2efcee431841265475"
     },
     {
       "target": "packages/medusa-adapter/test/logical-variant-pricing-link-lifecycle.test.ts",
@@ -7314,6 +7324,11 @@
       "targetSha256": "1e7d91fe70c9a1a8423d7cbc208deafab5996e444ff13f97c87e3eb03b92427e"
     },
     {
+      "target": "packages/medusa-adapter/test/support/core-inventory-item-delete-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "a86375e45612bfe19cb291b87a2c11348b520b1832b0f769317ed456fc91ad36"
+    },
+    {
       "target": "packages/medusa-adapter/test/support/core-item-tax-lines-fixture.ts",
       "classification": "authored",
       "targetSha256": "094474e25db1bf8f45fbdf7ede73c50034d6c968ec891837c43aa72b8dc4d7fe"
@@ -7351,7 +7366,7 @@
     {
       "target": "packages/medusa-adapter/test/support/core-product-creation-fixture.ts",
       "classification": "authored",
-      "targetSha256": "3ced0ee7a73ecfa2ab0a815fd47655f7acc21dbfc81968f1b74c6dbaa2507d9a"
+      "targetSha256": "942a1c020c9ab92d4f71dfdf006aca8c9d80c9d7f5355ccb69d118a889007a7d"
     },
     {
       "target": "packages/medusa-adapter/test/support/core-product-deletion-fixture.ts",
@@ -7427,6 +7442,16 @@
       "target": "packages/medusa-adapter/test/support/core-tax-rule-replacement-fixture.ts",
       "classification": "authored",
       "targetSha256": "0f15d904921f373595ba2e3ca1be19b32ae3ad68e20123c2740db3ff9ac970a5"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/core-variant-inventory-confirmation-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "fd11cb462505db88d6a3a5ad0ed1b71bcfccf81a64430f2aec2cf6c0e10ea572"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/core-variant-item-pricing-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "a6f636aff4f3545c13b8f5886e41d3d02cb20b83533a670bb3dd22e3b2ebc461"
     },
     {
       "target": "packages/medusa-adapter/test/support/fixture.ts",
@@ -7592,11 +7617,6 @@
       "target": "packages/medusa-adapter/test/support/logical-inventory-item-create-fixture.ts",
       "classification": "authored",
       "targetSha256": "a3e4959c4be275b9562296b152a2bb1293ceaefe4f25d2a1650688e8a18061fd"
-    },
-    {
-      "target": "packages/medusa-adapter/test/support/logical-inventory-item-delete-fixture.ts",
-      "classification": "authored",
-      "targetSha256": "dd34df04c486f048948f98bdcec56a6e68efc694228fdb8a1b725234ab1a7879"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-inventory-item-update-fixture.ts",
@@ -7952,16 +7972,6 @@
       "target": "packages/medusa-adapter/test/support/logical-store-update-fixture.ts",
       "classification": "authored",
       "targetSha256": "9b85be4b96c4f1d9c8dc2bc8ec221abb9a8637acf6b5614bc0aa9944c4606d2c"
-    },
-    {
-      "target": "packages/medusa-adapter/test/support/logical-variant-inventory-confirmation-fixture.ts",
-      "classification": "authored",
-      "targetSha256": "2857565d043d1b4fc716dad9f460ae745a309087cd59766c83851d28837167a3"
-    },
-    {
-      "target": "packages/medusa-adapter/test/support/logical-variant-item-pricing-fixture.ts",
-      "classification": "authored",
-      "targetSha256": "6f469548d26f64dfb3392d1634a57fe367a2d69535eb9bcd76096debe1c568ff"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-variant-pricing-link-fixture.ts",

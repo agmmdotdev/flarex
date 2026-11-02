@@ -140,6 +140,7 @@ export interface CoreNativeRootBindingInput {
   readonly applicationProgram?: CoreProgramIdentity;
   readonly retryProvenNoncommit?: true;
   readonly protectedMetadata?: true;
+  readonly executionIsolation?: "scopeExclusive";
   readonly maxFinalUserDocuments: number;
 }
 export interface CoreNativeRootBindingMetadata {
@@ -155,6 +156,7 @@ export interface CoreNativeRootBindingMetadata {
   readonly applicationRead?: Readonly<{ binding: CoreApplicationReadBinding; table: CoreTableDefinition; program: CoreProgramIdentity; limits: CoreNativeLimits }>;
   readonly applicationProgram?: CoreProgramIdentity;
   readonly retryProvenNoncommit?: true;
+  readonly executionIsolation?: "scopeExclusive";
 }
 export type CoreNativeRootRecoveryInput = Omit<CoreNativeRootBindingInput, "participants"> & {
   readonly participants: readonly Readonly<{ definition: CoreNativeDefinition;
@@ -428,6 +430,8 @@ export interface CoreNativeRootOperation {
   readonly applicationRead: (binding: CoreApplicationReadBinding) => Effect.Effect<CoreApplicationReadOperations, CoreError>;
   readonly finalize: () => Effect.Effect<CoreFinalizedTransaction, CoreError>;
   readonly abort: () => Effect.Effect<void>;
+  /** Exact live selected root and generation; never a transferable body grant. */
+  readonly requireScopeExclusion: Effect.Effect<void, CoreError>;
 }
 
 /** Trusted completion evidence only; it cannot enter CoreDatabase.commit. */
@@ -479,6 +483,7 @@ export interface CoreDatabase {
   readonly resolveCommittedNativeRootRequest: (evidence: unknown, binding: CoreNativeBinding) => Effect.Effect<CoreCommittedNativeRootRequest, CoreError>;
   readonly readNativeRootBinding: (binding: CoreNativeRootBinding) => Effect.Effect<CoreNativeRootBindingMetadata, CoreError>;
   readonly beginNativeRoot: (binding: CoreNativeRootBinding, options: Readonly<{ claim: CoreRequestClaim;
+    admissionDeadlineUnixMilliseconds?: number;
     chargeRetained: (bytes: number) => Effect.Effect<void, CoreError> }>) => Effect.Effect<CoreNativeRootOperation, CoreError>;
   readonly resolveRequest: (identity: CoreRequestIdentity) => Effect.Effect<CoreRequestResolution, CoreError>;
   /** Fenced predecessor recovery; never executes another body or abandons a current-owner claim. */

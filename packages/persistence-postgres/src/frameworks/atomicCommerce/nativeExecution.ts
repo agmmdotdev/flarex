@@ -6,7 +6,7 @@ import { capturePrivateJsonData } from "../../values/privateJsonData";
 import { canonicalizeJsonOutcome } from "../../values/jsonOutcome";
 import { makeNativeCommerceParticipant } from "../commerceTransaction/nativeStore";
 import { makeNativeCommerceActivity } from "../commerceTransaction/nativeActivity";
-import { getCommerceCommand, type CommerceCommand } from "../commerceTransaction/commands";
+import { getCommerceCommand, type CommerceCommand, type CommerceCommandContext } from "../commerceTransaction/commands";
 import { withCommerceCommandContext } from "../commerceTransaction/context";
 import { makeCommerceOperations } from "../commerceTransaction/operations";
 import { captureCommerceJsonData, projectCommerceJsonFailure } from "../commerceTransaction/json";
@@ -20,6 +20,7 @@ import type { PreparedAtomicCommerceNativeConfiguration } from "./nativeConfigur
 import { prepareCoreRootCommitEventFamily, stageCoreCommitEventFamily } from "../../commit/events/coreStore";
 import { commitEventLimits, type CommitEventError } from "../../commit/events/model";
 import { observeExecution } from "../../execution/diagnostics/operation";
+import { registerAtomicCommerceScopeExclusion } from "./scopeExclusion";
 
 export interface AtomicCommerceNativeParticipant {
   readonly member: PreparedAtomicCommerceNativeConfiguration["members"][number];
@@ -68,6 +69,11 @@ export const executeAtomicCommerceNative = Effect.fn("AtomicCommerceNative.execu
       working: undefined, mutations: 0, lifecycle: 0, calls: [] };
   })));
   const observations: AtomicCommerceCallObservation[] = [];
+  const scopeExclusion = configuration.executionIsolation === undefined ? Effect.fail(commerceError("unsupportedProfile"))
+    : core(operation.requireScopeExclusion);
+  const registerScopeExclusion = (context: CommerceCommandContext): void => {
+    registerAtomicCommerceScopeExclusion(context, lifetime, context.manager, scopeExclusion);
+  };
   let replacementPlanned = false;
   const prepareCapture = (value: unknown) => Result.gen(function* () {
     const captured = yield* captureCommerceJsonData(value, lifetime.remainingBytes());
@@ -88,7 +94,7 @@ export const executeAtomicCommerceNative = Effect.fn("AtomicCommerceNative.execu
       if (participant.working === undefined) participant.working = yield* makeNativeCommerceParticipant(participant.operations,
         participant.metadata, lifetime, manager, transactionId, operation.unixTime, participant.member.resources,
         { ...participant.member.invocation, onRead: participant.activity.onRead });
-      const working = participant.working;
+      const working = { ...participant.working, registerScopeExclusion };
       const result = yield* withCommerceCommandContext(lifetime, working, transactionId, manager,
         (child, command, value) => invoke(participant, child, command, value, emitted).pipe(Effect.map(call => call.result)),
         (child, message) => lifetime.operation(child, transactionId, "write", Effect.gen(function* () {
@@ -172,6 +178,7 @@ export const executeAtomicCommerceNative = Effect.fn("AtomicCommerceNative.execu
       refuse: error => queue === undefined ? lifetime.operation(lifetime.context, transactionId, "write", Effect.fail(error))
         : queue.submit(() => Result.fail(error), () => Effect.fail(error)),
     });
+    registerAtomicCommerceScopeExclusion(context, lifetime, lifetime.context, scopeExclusion);
     yield* lifetime.fromResult(lifetime.charge(evidenceBytes));
     const value = yield* Effect.gen(function* () {
       const output = yield* Effect.uninterruptibleMask(restore => Effect.exit(restore(Effect.suspend(() => rootCommand.run(context, args)))).pipe(

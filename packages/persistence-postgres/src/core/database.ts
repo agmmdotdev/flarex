@@ -3,7 +3,7 @@
  * at db914cf06e2b06ee985646611b9e12ed7a770318: JsonPackedValue is stored as an internal-JSON string.
  * Copyright 2026 Convex, Inc., FSL-1.1-Apache-2.0 (convex-backend/LICENSE.md).
  */
-import { Cause, Effect, Exit, Option, Result, Schema, Semaphore } from "effect";
+import { Cause, Clock, Effect, Exit, Option, Result, Schema, Semaphore } from "effect";
 import { bytesEqual } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { isJsonObject, type Json } from "flarex-protocol/json";
@@ -21,6 +21,7 @@ import { CoreProgramIdentitySchema, CoreNativeRootIdentitySchema, CoreSchemaWork
 import { CorePersistenceError, CoreTimestampSchema, type CoreDocumentLogEntry, type CoreIndexScan, type CoreInterval, type CorePersistence, type CorePersistenceSnapshot } from "./contracts";
 import { allocateCoreBuiltinDefinitions, bootstrapCore } from "./bootstrap";
 import { makeCoreCommitter } from "./committer";
+import { CoreNativeScopeExclusion, type CoreNativeScopeExclusionGrant, type CoreSettlementPurpose } from "./nativeScopeExclusion";
 import { INDEXES, INDEX_BACKFILLS, PROGRAMS, REQUESTS, TABLES, programKey, readDocumentObject,
   tableDocument, SCHEMAS, SCHEMA_VALIDATIONS, SCHEMA_VALIDATION_PROGRESS, publicDocumentId, type CoreRegistry } from "./registry";
 import { CoreFinalizationVault, createCoreTransaction, prepareCoreTransactionIdGenerator, type CoreDocumentChange, type CoreFinalizedState,
@@ -51,7 +52,7 @@ import { CoreRecoveryJournal, type CoreRecoveryEnrollment } from "./recoveryJour
 import { isCoreDefinitiveCommitRefusal } from "./api";
 import { captureCoreApplicationRegistration, guardCoreApplicationRegistration, readActiveCoreApplicationRegistration,
   encodeCoreApplicationCandidateMetadata, readCoreApplicationCandidateEvidence, liveCoreApplicationSchemas,
-  requireCoreApplicationTables } from "./applicationRegistration";
+  requireCoreApplicationTables, trackCoreApplicationPrograms } from "./applicationRegistration";
 import type { CoreSchemaSelection } from "./schemaRegistry";
 import { captureCoreNativeRootIdentity, captureCoreNativeRootRequestEvidence,
   type CoreNativeRootRequestEvidence } from "./nativeRootRequest";
@@ -111,6 +112,10 @@ interface ClaimData {
   readonly identity: CoreRequestIdentity;
   readonly record: RequestRecordData;
   active: boolean;
+  aborting?: boolean;
+  nativeRootStarted?: boolean;
+  nativeRootContext?: CoreTransactionInternals;
+  scopeExclusion?: CoreNativeScopeExclusionGrant;
   readonly recoveryEnrollment?: CoreRecoveryEnrollment;
 }
 type NativeRootAccess = Extract<CoreTransactionNativeAccess, { kind: "native" }>;
@@ -290,7 +295,8 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     .pipe(Effect.mapError(invalid));
   const lease = yield* persistence.acquireLease();
   const initial = yield* bootstrapCore(persistence, lease, options);
-  const committer = yield* makeCoreCommitter(persistence, lease, initial.timestamp, initial.registry, initial.resident, options, initial.retention, recovery);
+  const scopeExclusion = new CoreNativeScopeExclusion();
+  const committer = yield* makeCoreCommitter(persistence, lease, initial.timestamp, initial.registry, initial.resident, options, initial.retention, recovery, scopeExclusion);
   const vault = new CoreFinalizationVault();
   const claims = new WeakMap<CoreRequestClaim, ClaimData>();
   const nativeBindings = new WeakMap<object, CoreNativeAuthority & { readonly commands: readonly CoreNativeCommandDefinition[] }>();
@@ -324,6 +330,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
   const close = Effect.fn("CoreDatabase.close")(() => closing.withPermits(1)(Effect.gen(function* () {
     closed = true;
     recovery?.seal();
+    yield* scopeExclusion.close();
     committer.indexCache.close();
     yield* drainSchemaWork;
     const sessions = [...borrowed];
@@ -462,8 +469,9 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       selected.context.setRegistryAfter(registry);
   });
 
-  const settle=Effect.fn("CoreDatabase.settleSystem")(function*(selected:Effect.Success<ReturnType<typeof make>>){
-    return yield* committer.submit(yield* consume(yield* selected.context.transaction.finalize()));
+  const settle=Effect.fn("CoreDatabase.settleSystem")(function*(selected:Effect.Success<ReturnType<typeof make>>, settlementPurpose: CoreSettlementPurpose = "namespace"){
+    const finalized = yield* consume(yield* selected.context.transaction.finalize());
+    return yield* committer.submit(scopeExclusion.authorize(finalized, settlementPurpose));
   });
   const admin = <A>(namespace:CoreTableNamespace,use:(selected:Effect.Success<ReturnType<typeof make>>)=>Effect.Effect<A,CoreError>)=>
     useTransaction(make(undefined,undefined,false,namespace,true),use);
@@ -672,7 +680,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       }
     }));
     yield* writePrograms(selected,publication);
-    const timestamp=yield* settle(selected);
+    const timestamp=yield* settle(selected, publication.programs.length > 0 || publication.authorityEpoch !== undefined ? "global" : "namespace");
     return {timestamp,tables:[...selected.context.registry.tables.values()].map(record=>record.definition).filter(table=>!isCoreSystemTable(table)&&coreNamespaceKey(table.namespace)===coreNamespaceKey(proposal.namespace))};
   }));
     });
@@ -692,7 +700,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         table => assertEmptyTable(selected, table));
     }));
     yield* writePrograms(selected,publication);
-    const timestamp=yield* settle(selected);
+    const timestamp=yield* settle(selected, "global");
     return {timestamp,tables:[...selected.context.registry.tables.values()].map(record=>record.definition).filter(table=>!isCoreSystemTable(table)&&coreNamespaceKey(table.namespace)===coreNamespaceKey(publication.namespace??null))};
   }));
     });
@@ -738,6 +746,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         if (found.value.metadata.state.state === "active" || found.value.metadata.state.state === "overwritten")
           return yield* nativeUnsupported("An active or overwritten Application candidate cannot be abandoned");
         const live = yield* Effect.fromResult(liveCoreApplicationSchemas(selected.context));
+        yield* Effect.fromResult(trackCoreApplicationPrograms(selected.context));
         if (live.some(schema => schema.id !== proposal.id) || selected.context.registry.programs.size !== 0 || selected.context.registry.heads.size !== 0)
           return yield* nativeUnsupported("Application candidate no longer owns an unactivated database");
         const tables = yield* Effect.fromResult(requireCoreApplicationTables(selected.context, found.value.schema));
@@ -847,6 +856,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     const bundle = requested.bundle;
     const maxFinalUserDocuments = requested.maxFinalUserDocuments;
     const protectedMetadata = requested.protectedMetadata;
+    const executionIsolation = requested.executionIsolation;
     const retryProvenNoncommit = requested.retryProvenNoncommit;
     const requestedProgram = requested.applicationProgram === undefined ? undefined : Object.freeze({ ...requested.applicationProgram });
     const applicationInsert = requested.applicationInsert === undefined ? undefined : Object.freeze({ ...requested.applicationInsert });
@@ -860,6 +870,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       { canonicalNumbers: true, wellFormedUnicode: true });
     yield* assertOpen;
     if (retryProvenNoncommit !== undefined && retryProvenNoncommit !== true) return yield* invalid("Invalid native root abort-retry policy");
+    if (executionIsolation !== undefined && executionIsolation !== "scopeExclusive") return yield* invalid("Invalid native root execution isolation");
     yield* Effect.fromResult(requireCoreSchemaBundle(bundle));
     const capturedContract = yield* Effect.fromResult(contract);
     if (!isJsonObject(capturedContract.value) || !coreSchemaBundleExpectedTarget(bundle, bundle.namespace, schemaBundles)
@@ -910,7 +921,8 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       ...(applicationReadIdentity === undefined ? {} : { applicationRead: applicationReadIdentity }),
       ...(applicationProgram === undefined ? {} : { applicationProgram: { ...applicationProgram } }),
       ...(retryProvenNoncommit === undefined ? {} : { retryProvenNoncommit }),
-      ...(protectedMetadata === undefined ? {} : { protectedMetadata }) });
+      ...(protectedMetadata === undefined ? {} : { protectedMetadata }),
+      ...(executionIsolation === undefined ? {} : { executionIsolation }) });
   });
   const bindNativeRoot: CoreDatabase["bindNativeRoot"] = Effect.fn("CoreDatabase.bindNativeRoot")(function* (input) {
     // Keep exact opaque handles, but own every mutable wrapper before the first
@@ -918,6 +930,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     const bundle = input.bundle;
     const maxFinalUserDocuments = input.maxFinalUserDocuments;
     const selectiveMetadata = input.protectedMetadata;
+    const executionIsolation = input.executionIsolation;
     const retryProvenNoncommit = input.retryProvenNoncommit;
     if (input.participants.length === 0 || input.participants.length > 64
       || input.participants.some(participant => participant.commands.length === 0 || participant.commands.length > 128))
@@ -933,6 +946,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       { canonicalNumbers: true, wellFormedUnicode: true });
     yield* assertOpen;
     if (retryProvenNoncommit !== undefined && retryProvenNoncommit !== true) return yield* invalid("Invalid native root abort-retry policy");
+    if (executionIsolation !== undefined && executionIsolation !== "scopeExclusive") return yield* invalid("Invalid native root execution isolation");
     const capturedContract = yield* Effect.fromResult(contract);
     if (!isJsonObject(capturedContract.value)) return yield* invalid("Native root contract must be an object");
     yield* Effect.fromResult(requireCoreSchemaBundle(bundle));
@@ -1025,13 +1039,15 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       ...(requestedRead === undefined ? {} : { applicationRead: requestedRead }),
       ...(applicationProgram === undefined ? {} : { applicationProgram }),
       ...(retryProvenNoncommit === undefined ? {} : { retryProvenNoncommit }),
-      ...(selectiveMetadata === undefined ? {} : { protectedMetadata: selectiveMetadata }), maxFinalUserDocuments });
+      ...(selectiveMetadata === undefined ? {} : { protectedMetadata: selectiveMetadata }),
+      ...(executionIsolation === undefined ? {} : { executionIsolation }), maxFinalUserDocuments });
     const metadata: CoreNativeRootBindingMetadata = Object.freeze({ identity: capturedRoot.identity, namespace, schemaId: active.value.id, authorityEpoch,
       ...(selectiveMetadata === true ? { contract: capturedContract.value } : {}),
       limits: rootLimits, maxFinalUserDocuments,
       participants: Object.freeze(participants), ...(applicationInsert === undefined ? {} : { applicationInsert }),
       ...(applicationRead === undefined ? {} : { applicationRead }),
       ...(retryProvenNoncommit === undefined ? {} : { retryProvenNoncommit }),
+      ...(executionIsolation === undefined ? {} : { executionIsolation }),
       ...(applicationProgram === undefined ? {} : { applicationProgram }) });
     const data: NativeRootData = Object.freeze({ metadata, frame: capturedRoot.frame, bundle, natives, applicationInserts, applicationReads,
       ...(applicationProgram === undefined ? {} : { applicationProgram }),
@@ -1059,7 +1075,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       const nativeLimits = Object.freeze(yield* decodeNativeLimits(beginOptions.limits).pipe(Effect.mapError(invalid)));
       if (typeof beginOptions.chargeRetained !== "function") return yield* invalid("Native retained-byte owner is required");
       const claimData = beginOptions.claim === undefined ? undefined : claims.get(beginOptions.claim);
-      if (beginOptions.claim !== undefined && (claimData === undefined || !claimData.active
+      if (beginOptions.claim !== undefined && (claimData === undefined || !claimData.active || claimData.aborting
         || claimData.identity.kind !== "native" || !sameNativeCommand(claimData.identity.native, command.identity)))
         return yield* new CoreTransactionError({ reason: "foreignClaim" });
       if (command.mode === "read" && beginOptions.claim !== undefined) return yield* new CoreTransactionError({ reason: "foreignClaim" });
@@ -1110,23 +1126,41 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     }), (selected, exit) => Exit.isSuccess(exit) ? Effect.void : selected.context.transaction.abort())));
 
   const beginNativeRoot: CoreDatabase["beginNativeRoot"] = Effect.fn("CoreDatabase.beginNativeRoot")((binding, beginOptions) =>
-    Effect.flatMap(Effect.gen(function* () {
+    Effect.uninterruptibleMask(restore => Effect.gen(function* () {
       const data = yield* nativeRootAuthority(binding);
       const claimData = claims.get(beginOptions.claim);
-      if (claimData === undefined || !claimData.active || claimData.identity.kind !== "nativeRoot"
-        || !sameNativeRoot(claimData.identity.root, data.metadata.identity))
+      if (claimData === undefined || !claimData.active || claimData.aborting || claimData.identity.kind !== "nativeRoot"
+        || claimData.nativeRootStarted || !sameNativeRoot(claimData.identity.root, data.metadata.identity))
         return yield* new CoreTransactionError({ reason: "foreignClaim" });
       if (typeof beginOptions.chargeRetained !== "function") return yield* invalid("Native retained-byte owner is required");
-      const selected = yield* startNative();
-      yield* Effect.fromResult(validateNativeRoot(selected.registry, data));
-      const assertNativeOpen = data.selectiveMetadata === true ? assertOpen : Effect.andThen(assertOpen, Effect.suspend(() =>
-        Effect.fromResult(validateNativeRoot(committer.currentRegistry(), data))));
-      const capture = Effect.fn("CoreDatabase.captureNativeRoot")(function* () {
-        yield* assertNativeOpen;
-        const observed = yield* startNative();
-        if (data.selectiveMetadata !== true) yield* Effect.fromResult(validateNativeRoot(observed.registry, data));
-        return { snapshot: observed.snapshot, registry: observed.registry, writeLog: observed.writeLog,
-          residentReader: (request: CoreIndexScan) => observed.resident.scan(request) };
+      const deadline = beginOptions.admissionDeadlineUnixMilliseconds;
+      if (deadline !== undefined && !Number.isSafeInteger(deadline)) return yield* invalid("Invalid native admission deadline");
+      // Reserve this authentic claim before any waiting; a second root cannot
+      // borrow its private self-settlement evidence.
+      claimData.nativeRootStarted = true;
+      let grant: CoreNativeScopeExclusionGrant | undefined;
+      const open = Effect.gen(function* () {
+      if (data.metadata.executionIsolation === "scopeExclusive")
+        yield* scopeExclusion.acquireExclusive(data.metadata.namespace, deadline, issued => {
+          grant = issued;
+          claimData.scopeExclusion = issued;
+        });
+      const prepare = Effect.gen(function* () {
+        yield* assertOpen;
+        if (!claimData.active || claimData.aborting) return yield* new CoreTransactionError({ reason: "foreignClaim" });
+        if (deadline !== undefined && (yield* Clock.currentTimeMillis) >= deadline)
+          return yield* new CoreTransactionError({ reason: "admissionExpired" });
+        const selected = yield* startNative();
+        yield* Effect.fromResult(validateNativeRoot(selected.registry, data));
+        const assertNativeOpen = Effect.andThen(assertOpen, Effect.suspend(() => !claimData.active || claimData.aborting
+          ? Effect.fail(new CoreTransactionError({ reason: "foreignClaim" })) : data.selectiveMetadata === true ? Effect.void
+            : Effect.fromResult(validateNativeRoot(committer.currentRegistry(), data))));
+        const capture = Effect.fn("CoreDatabase.captureNativeRoot")(function* () {
+          yield* assertNativeOpen;
+          const observed = yield* startNative();
+          if (data.selectiveMetadata !== true) yield* Effect.fromResult(validateNativeRoot(observed.registry, data));
+          return { snapshot: observed.snapshot, registry: observed.registry, writeLog: observed.writeLog,
+            residentReader: (request: CoreIndexScan) => observed.resident.scan(request) };
       });
       const now = yield* decodeCreationTimestamp(yield* options.now).pipe(Effect.mapError(invalid));
       const idGenerator = yield* prepareCoreTransactionIdGenerator(options);
@@ -1136,44 +1170,65 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         vault, limits, namespace: data.metadata.namespace, schemaBundles,
         nativeRoot: { accesses: data.accesses, limits: data.limits, maxFinalUserDocuments: data.maxFinalUserDocuments,
           chargeRetained: beginOptions.chargeRetained, capture }, assertOwnerOpen: assertNativeOpen,
+        ...(grant === undefined ? {} : { scopeExclusion: grant }),
         onClosed: () => borrowed.delete(context), claim: beginOptions.claim });
       return { selected, context, data, claimData };
-    }), prepared => Effect.acquireUseRelease(registerBorrow(prepared,
-      () => validateNativeRoot(committer.currentRegistry(), prepared.data)), selected => Effect.gen(function* () {
-      const metadataReads = yield* Effect.fromResult(nativeRootMetadataReads(selected.selected.registry, selected.data));
-      for (const read of metadataReads) for (const interval of read.intervals) selected.context.addIndexRead(read.indexId, interval);
-      yield* requireClaimRevision(selected.selected, selected.claimData, selected.context);
-      const native = Effect.fn("CoreNativeRoot.native")(function* (childBinding: CoreNativeBinding) {
-        const access = selected.data.natives.get(childBinding);
-        if (access === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
-        const operations = yield* selected.context.nativeFor(access);
-        if (!nativeRootRequests.has(operations)) {
-          let evidence: CoreNativeRootRequestEvidence | undefined;
-          const readEvidence = () => evidence === undefined ? captureCoreNativeRootRequestEvidence({ key: selected.claimData.identity.key,
-            requestHash: selected.claimData.identity.requestHash, root: selected.data.metadata.identity,
-            source: access.authority.definition.identity, frame: selected.data.frame }).pipe(Result.map(captured => {
-            evidence = captured; return captured;
-          })) : Result.succeed(evidence);
-          const assertCurrent = Effect.suspend(() => selected.claimData.active
-            ? selected.context.nativeFor(access).pipe(Effect.asVoid)
-            : Effect.fail(new CoreTransactionError({ reason: "foreignClaim" })));
-          nativeRootRequests.set(operations, Object.freeze({ evidence: readEvidence, assertCurrent }));
-        }
-        return operations;
       });
-      const applicationInsert = Effect.fn("CoreNativeRoot.applicationInsert")(function* (childBinding: CoreApplicationInsertBinding) {
-        const access = selected.data.applicationInserts.get(childBinding);
-        if (access === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
-        return yield* selected.context.applicationInsertFor(access);
+      return yield* Effect.flatMap(prepare, prepared => Effect.acquireUseRelease(registerBorrow(prepared,
+      () => Result.gen(function* () {
+        if (!claimData.active || claimData.aborting) return yield* Result.fail(new CoreTransactionError({ reason: "foreignClaim" }));
+        yield* validateNativeRoot(committer.currentRegistry(), prepared.data);
+        if (grant !== undefined) yield* grant.attach();
+        // This exact claim owns the real abort before the operation can escape
+        // borrowed registration or a resource-valued deadline wrapper.
+        claimData.nativeRootContext = prepared.context;
+      })), selected => Effect.gen(function* () {
+        const metadataReads = yield* Effect.fromResult(nativeRootMetadataReads(selected.selected.registry, selected.data));
+        for (const read of metadataReads) for (const interval of read.intervals) selected.context.addIndexRead(read.indexId, interval);
+        yield* requireClaimRevision(selected.selected, selected.claimData, selected.context);
+        const native = Effect.fn("CoreNativeRoot.native")(function* (childBinding: CoreNativeBinding) {
+          const access = selected.data.natives.get(childBinding);
+          if (access === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+          const operations = yield* selected.context.nativeFor(access);
+          if (!nativeRootRequests.has(operations)) {
+            let evidence: CoreNativeRootRequestEvidence | undefined;
+            const readEvidence = () => evidence === undefined ? captureCoreNativeRootRequestEvidence({ key: selected.claimData.identity.key,
+              requestHash: selected.claimData.identity.requestHash, root: selected.data.metadata.identity,
+              source: access.authority.definition.identity, frame: selected.data.frame }).pipe(Result.map(captured => {
+              evidence = captured; return captured;
+            })) : Result.succeed(evidence);
+            const assertCurrent = Effect.suspend(() => selected.claimData.active && !selected.claimData.aborting
+              ? selected.context.nativeFor(access).pipe(Effect.asVoid)
+              : Effect.fail(new CoreTransactionError({ reason: "foreignClaim" })));
+            nativeRootRequests.set(operations, Object.freeze({ evidence: readEvidence, assertCurrent }));
+          }
+          return operations;
+        });
+        const applicationInsert = Effect.fn("CoreNativeRoot.applicationInsert")(function* (childBinding: CoreApplicationInsertBinding) {
+          const access = selected.data.applicationInserts.get(childBinding);
+          if (access === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+          return yield* selected.context.applicationInsertFor(access);
+        });
+        const applicationRead = Effect.fn("CoreNativeRoot.applicationRead")(function* (childBinding: CoreApplicationReadBinding) {
+          const access = selected.data.applicationReads.get(childBinding);
+          if (access === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+          return yield* selected.context.applicationReadFor(access);
+        });
+        let live = true;
+        const requireScopeExclusion = Effect.andThen(assertOpen, Effect.suspend(() => !live || !selected.claimData.active || selected.claimData.aborting
+          || grant === undefined || selected.claimData.scopeExclusion !== grant
+          ? Effect.fail(new CoreTransactionError({ reason: "authorityRevoked" })) : grant.assertHeld));
+        const finalize = () => selected.context.transaction.finalize().pipe(Effect.ensuring(Effect.sync(() => { live = false; })));
+        const abort = () => selected.context.transaction.abort().pipe(Effect.ensuring(Effect.andThen(
+          Effect.sync(() => { live = false; }), grant?.drain ?? Effect.void)));
+        return Object.freeze({ unixTime: selected.context.transaction.unixTime, native, applicationInsert, applicationRead,
+          finalize, abort, requireScopeExclusion });
+    }), (selected, exit) => Exit.isSuccess(exit) ? Effect.void : selected.context.transaction.abort()));
       });
-      const applicationRead = Effect.fn("CoreNativeRoot.applicationRead")(function* (childBinding: CoreApplicationReadBinding) {
-        const access = selected.data.applicationReads.get(childBinding);
-        if (access === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
-        return yield* selected.context.applicationReadFor(access);
-      });
-      return Object.freeze({ unixTime: selected.context.transaction.unixTime, native, applicationInsert, applicationRead,
-        finalize: selected.context.transaction.finalize, abort: selected.context.transaction.abort });
-    }), (selected, exit) => Exit.isSuccess(exit) ? Effect.void : selected.context.transaction.abort())));
+      return yield* restore(open).pipe(Effect.onExit(exit => Exit.isSuccess(exit) ? Effect.void : Effect.andThen(
+        claimData.nativeRootContext?.transaction.abort() ?? grant?.cancelAdmission ?? Effect.void,
+        grant?.abandon ?? Effect.void)));
+    })));
 
   const resolveRequest: CoreDatabase["resolveRequest"] = Effect.fn("CoreDatabase.resolveRequest")(function* (requested) {
       const identity = ownRequestIdentity(requested);
@@ -1196,7 +1251,8 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         // terminalization preserves the stored original program and mints no body authority.
         yield* selected.context.writePrivate(REQUESTS, record.id, { ...withoutSystemFields(record.document),
           state: "failed", abandonedByLease: lease.token });
-        yield* committer.submit(yield* consume(yield* selected.context.transaction.finalize()));
+        const finalized = yield* consume(yield* selected.context.transaction.finalize());
+        yield* committer.submit(scopeExclusion.authorize(finalized, "requestControl"));
         return { kind: "failed" as const };
       }));
     });
@@ -1306,7 +1362,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         const table = selected.registry.table(REQUESTS)?.definition;
         if (table === undefined) return yield* Effect.fail(corrupt());
         const enrollment = recovery === undefined ? undefined : yield* Effect.fromResult(recovery.enroll(identity));
-        return yield* Effect.matchCauseEffect(committer.submit(finalized), { onFailure: cause => Effect.gen(function* () {
+        return yield* Effect.matchCauseEffect(committer.submit(scopeExclusion.authorize(finalized, "requestControl")), { onFailure: cause => Effect.gen(function* () {
           // Only this claim's proven nonacceptance can consult pending request data.
           // An accepted request is never retried or turned into another body claim.
           const reason = cause.reasons[0];
@@ -1341,7 +1397,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     }),
     begin: Effect.fn("CoreDatabase.begin")(function* (beginOptions = {}) {
       const claimData = beginOptions.claim === undefined ? undefined : claims.get(beginOptions.claim);
-      if (beginOptions.claim !== undefined && (claimData === undefined || !claimData.active))
+      if (beginOptions.claim !== undefined && (claimData === undefined || !claimData.active || claimData.aborting))
         return yield* Effect.fail(new CoreTransactionError({ reason: "foreignClaim" }));
       if (claimData?.identity.kind === "native" || claimData?.identity.kind === "nativeRoot")
         return yield* new CoreTransactionError({ reason: "foreignClaim" });
@@ -1372,52 +1428,65 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     }),
     commit: Effect.fn("CoreDatabase.commit")(function* (handle, commitOptions = {}) {
       yield* assertOpen;
-      let finalized = yield* consume(handle);
-      const admissionDeadlineUnixMilliseconds = commitOptions.admissionDeadlineUnixMilliseconds;
-      if (admissionDeadlineUnixMilliseconds !== undefined) {
-        if (!Number.isSafeInteger(admissionDeadlineUnixMilliseconds)) return yield* Effect.fail(invalid());
-        finalized = { ...finalized, admissionDeadlineUnixMilliseconds };
-      }
-      if (finalized.claim !== commitOptions.claim) return yield* Effect.fail(new CoreTransactionError({ reason: "foreignClaim" }));
-      let claimData: ClaimData | undefined;
-      if (commitOptions.claim !== undefined) {
-        claimData = claims.get(commitOptions.claim);
-        if (claimData === undefined || !claimData.active) return yield* Effect.fail(new CoreTransactionError({ reason: "foreignClaim" }));
-        const table = finalized.registry.table(REQUESTS)?.definition;
-        if (table === undefined) return yield* Effect.fail(corrupt());
-        const encodedResult = yield* Effect.fromResult(Result.mapError(encodeDocumentValue(commitOptions.result ?? null), invalid));
-        const result = utf8Decoder.decode(encodedResult);
-        const captured = yield* Effect.fromResult(Result.mapError(captureCoreDocument({ ...claimData.record.document, state: "committed", result }, true), invalid));
-        const accounting = new CoreAccounting(limits, finalized.usage);
-        yield* Effect.fromResult(accounting.write(true, captured.semanticSizeBytes));
-        const finalDocument = captured.value;
-        const outcomeChange: CoreDocumentChange = { table, id: claimData.record.id.slice(), original: claimData.record.revision,
-          originalDocument: claimData.record.document, finalDocument };
-        const reads = new CoreReadSetBuilder();
-        for (const read of finalized.reads) for (const interval of read.intervals) reads.add(read.indexId, interval);
-        yield* Effect.fromResult(addTableWriteDependencies(reads, finalized.registry, table));
-        finalized = { ...finalized, reads: reads.snapshot(), changes: Object.freeze([...finalized.changes, outcomeChange]), usage: accounting.snapshot() };
-      }
-      const timestamp = yield* committer.submit(finalized);
-      // A closed owner cannot disclose success; its already committed correlated
-      // outcome remains authoritative and must be reconciled, never aborted.
-      yield* assertOpen.pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause,
-        failure => new CorePersistenceError({ reason: "uncertainWrite", cause: failure })))));
-      if (claimData !== undefined) { claimData.active = false; recovery?.complete(claimData.recoveryEnrollment); }
-      return timestamp;
+      return yield* Effect.uninterruptibleMask(restore => Effect.gen(function* () {
+        let finalized = yield* consume(handle);
+        const scopeGrant = finalized.scopeExclusion;
+        return yield* restore(Effect.ensuring(Effect.gen(function* () {
+          const admissionDeadlineUnixMilliseconds = commitOptions.admissionDeadlineUnixMilliseconds;
+          if (admissionDeadlineUnixMilliseconds !== undefined) {
+            if (!Number.isSafeInteger(admissionDeadlineUnixMilliseconds)) return yield* Effect.fail(invalid());
+            finalized = { ...finalized, admissionDeadlineUnixMilliseconds };
+          }
+          if (finalized.claim !== commitOptions.claim) return yield* Effect.fail(new CoreTransactionError({ reason: "foreignClaim" }));
+          let claimData: ClaimData | undefined;
+          if (commitOptions.claim !== undefined) {
+            claimData = claims.get(commitOptions.claim);
+            if (claimData === undefined || !claimData.active || claimData.aborting) return yield* Effect.fail(new CoreTransactionError({ reason: "foreignClaim" }));
+            if (scopeGrant !== claimData.scopeExclusion) return yield* new CoreTransactionError({ reason: "foreignFinalization" });
+            const table = finalized.registry.table(REQUESTS)?.definition;
+            if (table === undefined) return yield* Effect.fail(corrupt());
+            const encodedResult = yield* Effect.fromResult(Result.mapError(encodeDocumentValue(commitOptions.result ?? null), invalid));
+            const result = utf8Decoder.decode(encodedResult);
+            const captured = yield* Effect.fromResult(Result.mapError(captureCoreDocument({ ...claimData.record.document, state: "committed", result }, true), invalid));
+            const accounting = new CoreAccounting(limits, finalized.usage);
+            yield* Effect.fromResult(accounting.write(true, captured.semanticSizeBytes));
+            const finalDocument = captured.value;
+            const outcomeChange: CoreDocumentChange = { table, id: claimData.record.id.slice(), original: claimData.record.revision,
+              originalDocument: claimData.record.document, finalDocument };
+            const reads = new CoreReadSetBuilder();
+            for (const read of finalized.reads) for (const interval of read.intervals) reads.add(read.indexId, interval);
+            yield* Effect.fromResult(addTableWriteDependencies(reads, finalized.registry, table));
+            finalized = { ...finalized, reads: reads.snapshot(), changes: Object.freeze([...finalized.changes, outcomeChange]), usage: accounting.snapshot() };
+          }
+          const timestamp = yield* committer.submit(finalized);
+          // A closed owner cannot disclose success; its already committed correlated
+          // outcome remains authoritative and must be reconciled, never aborted.
+          yield* assertOpen.pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause,
+            failure => new CorePersistenceError({ reason: "uncertainWrite", cause: failure })))));
+          if (claimData !== undefined) { claimData.active = false; recovery?.complete(claimData.recoveryEnrollment); }
+          return timestamp;
+        }), scopeGrant?.abandon ?? Effect.void));
+      }));
     }),
     abortRequest: Effect.fn("CoreDatabase.abortRequest")(function* (claim) {
       const data = claims.get(claim);
       if (data === undefined || !data.active) return yield* Effect.fail(new CoreTransactionError({ reason: "foreignClaim" }));
+      return yield* Effect.uninterruptible(Effect.gen(function* () {
+      // Revoke late attachment before joining the actual operation. A caller
+      // may have lost its successful acquisition before its bracket owned abort.
+      data.aborting = true;
+      yield* data.nativeRootContext?.transaction.abort() ?? data.scopeExclusion?.cancelAdmission ?? Effect.void;
       return yield* useTransaction(make(), selected => Effect.gen(function* () {
         const current = yield* requireClaimRevision(selected, data, selected.context);
         yield* selected.context.writePrivate(REQUESTS, data.record.id, { ...withoutSystemFields(current.document), state: "failed" });
         const finalized = yield* consume(yield* selected.context.transaction.finalize());
         yield* Effect.uninterruptible(Effect.gen(function* () {
-          yield* committer.submit(finalized);
+          yield* committer.submit(scopeExclusion.authorize(finalized, "requestControl"));
           data.active = false;
           recovery?.complete(data.recoveryEnrollment);
+          yield* data.scopeExclusion?.abandon ?? Effect.void;
         }));
+      }));
       }));
     }),
     publishedTimestamp: committer.publishedTimestamp,
@@ -1430,7 +1499,8 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         if (epoch === authority.epoch) return;
         yield* selected.context.writePrivate(PROGRAMS, authority.id, { kind: "authority", epoch });
         selected.context.setRegistryAfter(selected.registry.withAuthority({ id: authority.id, epoch, ts: null }));
-        yield* committer.submit(yield* consume(yield* selected.context.transaction.finalize()));
+        const finalized = yield* consume(yield* selected.context.transaction.finalize());
+        yield* committer.submit(scopeExclusion.authorize(finalized, "global"));
       }))),
   };
   return Object.freeze({ database: Object.freeze(database), whenStopped: committer.whenStopped, stoppedCause: committer.stoppedCause,

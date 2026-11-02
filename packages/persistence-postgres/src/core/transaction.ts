@@ -18,6 +18,7 @@ import type { CoreApplicationInsertOperations, CoreApplicationReadOperations, Co
 import { CorePersistenceError, CoreTimestampSchema, type CoreDocumentLogEntry, type CoreHydratedIndexEntry, type CoreIndexPage, type CoreIndexScan, type CoreInterval, type CorePersistenceSnapshot, type CoreWriteBatch } from "./contracts";
 import { CoreRegistry, TABLES, INDEXES, SCHEMAS, PROGRAMS, publicDocumentId, readDocumentObject, tableDocument, parseCoreTableRecord } from "./registry";
 import { coreNamespaceKey, type CoreTableNamespace } from "./namespace";
+import type { CoreNativeScopeExclusionGrant, CoreSettlementAuthorization } from "./nativeScopeExclusion";
 import { CoreSchemaModel } from "./schemaModel";
 import type { CoreSchemaRegistry } from "./schemaRegistry";
 import { coreIndexMetadataValue, coreIndexWriteMode, isCoreIndexEnabled, parseCoreIndexRecord, type CoreIndexRecord } from "./indexState";
@@ -64,6 +65,10 @@ export interface CoreDocumentChange {
 }
 
 export interface CoreFinalizedState {
+  readonly namespace: CoreTableNamespace;
+  /** Only the trusted database owner may classify request control or global publication. */
+  readonly settlementAuthorization?: CoreSettlementAuthorization;
+  readonly scopeExclusion?: CoreNativeScopeExclusionGrant;
   readonly timestamp: bigint;
   readonly reads: CoreReadSet;
   /** Exact resource-accounted query intervals, separate from metadata dependencies. */
@@ -241,6 +246,7 @@ export function createCoreTransaction(input: Readonly<{
   readonly?: boolean;
   assertOwnerOpen?: Effect.Effect<void, CoreError>;
   onClosed?: () => void;
+  scopeExclusion?: CoreNativeScopeExclusionGrant;
   schemaBundles?: readonly CoreSchemaBundle[];
   nativeRoot?: Readonly<{
     accesses: readonly CoreTransactionNativeAccess[];
@@ -1378,6 +1384,7 @@ export function createCoreTransaction(input: Readonly<{
       yield* assertOpen();
       if (input.readonly) return yield* new CoreTransactionError({ reason: "readonly" });
       if (inflight !== 0) return yield* new CoreTransactionError({ reason: "inflight" });
+      input.scopeExclusion?.finalized();
       markClosed();
       input.onClosed?.();
       if (input.nativeRoot !== undefined) {
@@ -1387,7 +1394,8 @@ export function createCoreTransaction(input: Readonly<{
           return yield* new CoreTransactionError({ reason: "capacity", cause: "Native final user document limit" });
       }
       if (registryAfter !== undefined) yield* authenticateCoreNativeRegistry(registryAfter, input.registry, input.schemaBundles);
-      return input.vault.issue(Object.freeze({ timestamp: snapshot.timestamp, reads: reads.snapshot(), queryReads: accounting.queryReads(),
+      return input.vault.issue(Object.freeze({ namespace, timestamp: snapshot.timestamp, reads: reads.snapshot(), queryReads: accounting.queryReads(),
+        ...(input.scopeExclusion === undefined ? {} : { scopeExclusion: input.scopeExclusion }),
         changes: Object.freeze([...writes.values()]), registry: input.registry,
         ...(nativeObservations === undefined ? {} : { nativeObservations: Object.freeze({ ...nativeObservations.snapshot(),
           ...(selectiveMetadata ? { selectiveMetadata: true as const } : {}) }) }),
@@ -1395,8 +1403,8 @@ export function createCoreTransaction(input: Readonly<{
         ...(input.claim === undefined ? {} : { claim: input.claim }), usage: accounting.snapshot(),
         limits: Object.freeze({ ...(input.limits ?? CORE_TRANSACTION_REFERENCE_LIMITS) }) }));
     })),
-    abort: Effect.fn("CoreTransaction.abort")(() => Effect.andThen(Effect.sync(markClosed),
-      operations.withPermits(1)(Effect.sync(() => input.onClosed?.())))),
+    abort: Effect.fn("CoreTransaction.abort")(() => Effect.uninterruptible(Effect.andThen(Effect.sync(markClosed),
+      operations.withPermits(1)(Effect.sync(() => input.onClosed?.()))).pipe(Effect.andThen(input.scopeExclusion?.drain ?? Effect.void)))),
   });
 
   const nativeFind = (access: CoreTransactionNativeAccess | undefined = defaultAccess, withinOperation = false): CoreNativeOperations["find"] => {

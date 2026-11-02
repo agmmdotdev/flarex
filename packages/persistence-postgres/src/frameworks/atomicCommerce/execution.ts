@@ -42,6 +42,7 @@ import {
 import type { LogicalCommerceCallObservation } from "./participants";
 import type { TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
 import { confirmAtomicCommerceTaskChild, requireAtomicCommerceTaskChildSettlement } from "./taskChild";
+import { registerAtomicCommerceScopeExclusion } from "./scopeExclusion";
 import {
   hashAtomicCommerceBytes,
   type CapturedAtomicCommerceRequest,
@@ -53,11 +54,7 @@ type ExecutionConfiguration = Pick<
   "members" | "eventPolicy" | "limits" | "eventLimit" | "factLimit" | "owner" | "executionIsolation" | "operationScheduling" | "borrowedOperationScheduling" | "scopeId"
 >;
 
-const scopeExclusions = new WeakMap<AtomicCommerceContext | CommerceCommandContext, Effect.Effect<void, CommerceTransactionError>>();
-/** Authenticate live outer exclusion without lending a clock or transaction. */
-export const requireAtomicCommerceScopeExclusion = Effect.fn("AtomicCommerce.requireScopeExclusion")(
-  (context: AtomicCommerceContext | CommerceCommandContext): Effect.Effect<void, CommerceTransactionError> =>
-    Effect.suspend(() => scopeExclusions.get(context) ?? Effect.fail(commerceError("invalidAuthority"))));
+export { requireAtomicCommerceScopeExclusion } from "./scopeExclusion";
 type CommerceContribution = Readonly<{ kind: "physical"; admission: CommerceAdmission; closure: CommerceRowClosure }> |
   Readonly<{ kind: "logical"; closure: LogicalCommerceClosure }>;
 type PhysicalWorking = Effect.Success<ReturnType<typeof makeCommerceStore>>;
@@ -93,7 +90,7 @@ function makeParticipantInvocation(
   const cursor = detach === undefined || !("activityCursor" in working) ? undefined : working.activityCursor();
   const commandWorking = { ...working,
     registerScopeExclusion: (context: CommerceCommandContext): void => {
-      scopeExclusions.set(context, lifetime.operation(context.manager, id, "read", scopeExclusion));
+      registerAtomicCommerceScopeExclusion(context, lifetime, context.manager, scopeExclusion);
     },
     ...(detach === undefined ? {} : { detachDeletedReference:
       (manager: BoundedRequestContext, selection: Parameters<typeof detach>[1]) => detach(manager, selection, cursor) }),
@@ -160,8 +157,8 @@ function makeAtomicCommerceExecution(
   operations: CommerceOperations | undefined,
 ): AtomicCommerceExecution {
   const { members, eventPolicy, factLimit } = configuration;
-  // This proof runs under the issuing context's lifetime operation. It must not
-  // enter the root FIFO while a participant call is already occupying it.
+  // The issuing manager checkpoint authenticates lineage without entering an
+  // operation or the root FIFO while a participant call is already occupying it.
   const scopeExclusion = Effect.suspend(() => configuration.executionIsolation === "scopeExclusive" &&
     readExactScopeWriteClockObservation(tx, configuration.scopeId) !== undefined
     ? Effect.void : Effect.fail(commerceError("unsupportedProfile")));
@@ -345,7 +342,7 @@ function makeAtomicCommerceExecution(
         ? Effect.fail(commerceError("unadmittedEvent")) : eventCapture.clearPending(contract))),
     call: callParticipant,
   });
-  scopeExclusions.set(context, rootOperation(lifetime.operation(lifetime.context, id, "read", scopeExclusion)));
+  registerAtomicCommerceScopeExclusion(context, lifetime, lifetime.context, scopeExclusion);
   const openMissingContributions = Effect.fnUntraced(function* () {
     // Opening a logical table is a bounded request operation, so admitted but
     // unused participants must be constructed while the lifetime is still open.

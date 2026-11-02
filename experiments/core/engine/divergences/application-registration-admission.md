@@ -41,6 +41,15 @@ make concurrent foreign table, row or program creation conflict or refuse. The
 configured executor consumes this Core capability; it does not reproduce the
 admission algorithm with preflight table inspection.
 
+Schema discovery always observes the table catalog and schema-state ranges,
+including absence across namespaces. The complete program catalog is observed
+when checking fresh/pending program absence, authenticating registered closure,
+returning memoized active authentication or abandoning a candidate. Unregistered
+discovery that does not consume program closure adds no whole-program dependency;
+ordinary program publication retains its exact revision/head observations and
+independent accepted saves. Full closure checks still include unexpected programs
+and zero-table/zero-program registrations.
+
 Profile reads return compact provenance and program identities. Full closure
 authentication is reused through the existing immutable-registry validation
 pattern within one open Core database. Reads still record catalog/schema

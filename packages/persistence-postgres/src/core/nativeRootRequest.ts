@@ -44,6 +44,7 @@ const Frame = Schema.Struct({ format: Schema.Literal("flarex.core-native-root"),
   applicationInsert: Schema.NullOr(JsonObjectSchema), maxFinalUserDocuments: Schema.Int,
   applicationRead: Schema.optionalKey(JsonObjectSchema), applicationProgram: Schema.optionalKey(JsonObjectSchema),
   retryProvenNoncommit: Schema.optionalKey(Schema.Literal(true)), protectedMetadata: Schema.optionalKey(Schema.Literal(true)),
+  executionIsolation: Schema.optionalKey(Schema.Literal("scopeExclusive")),
 }).annotate({ parseOptions: { onExcessProperty: "error" } });
 const decodeFrame = Schema.decodeUnknownResult(Frame, { onExcessProperty: "error" });
 export const CoreNativeRootRequestEvidenceSchema = Schema.Struct({

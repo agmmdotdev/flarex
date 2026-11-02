@@ -25,6 +25,8 @@ import { compileProductLinksCoreDefinition } from "../../src/links/product-defin
 import { prepareLocalProductLinks } from "../../src/links/product-service";
 import { compileVariantLinksCoreDefinition } from "../../src/links/variant-definition";
 import { prepareLocalVariantLinks } from "../../src/links/variant-service";
+import { compileSalesChannelLocationLinkCoreDefinition } from "../../src/links/sales-channel-location-schema";
+import { prepareSalesChannelLocationLink } from "../../src/links/sales-channel-location-service";
 import { prepareProductShippingProfileWorkflow } from "../../src/workflows/product/shipping-profile";
 import { prepareProductNativeLinkResource } from "../../src/links/product-resource";
 import { workflowModuleDefinition } from "../../src/workflow/module";
@@ -36,6 +38,7 @@ export const creationRevision = (name: string) => createHash("sha256").update(na
 export interface CoreProductCreationFixtureOptions extends Pick<CoreNativeWorkflowFixtureOptions,
   "physical" | "wrapPersistence" | "extraSources" | "programs" | "maximumRequests"> {
   readonly target?: Readonly<{ scopeUuid: string; epochUuid: string }>;
+  readonly includeSalesChannelLocationLink?: boolean;
 }
 
 /** Read capabilities come from the installed source and its real command owner. */
@@ -44,7 +47,7 @@ export async function openCoreProductReadHost(fixture: CoreNativeWorkflowFixture
   return fixture.run(fixture.openReadHost(name, commands.filter(command => getCommerceCommand(command)?.mode === "read")));
 }
 
-/** All eight business sources share one genuine Core installation, application
+/** The selected business sources share one genuine Core installation, application
  * owner and private event source. Native services supply every seed operation. */
 export async function makeCoreProductCreationFixture(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
   options: CoreProductCreationFixtureOptions = {}) {
@@ -57,6 +60,8 @@ export async function makeCoreProductCreationFixture(driver: "pglite" | "postgre
   const shippingRuntime = await Effect.runPromise(makeLocalShippingProfileCommands());
   const productLinksRuntime = await Effect.runPromise(prepareLocalProductLinks());
   const variantLinksRuntime = await Effect.runPromise(prepareLocalVariantLinks());
+  const channelLocationsRuntime = options.includeSalesChannelLocationLink === true
+    ? await Effect.runPromise(prepareSalesChannelLocationLink()) : undefined;
   const productDefinition = await Effect.runPromise(compileProductCoreDefinition(target));
   const pricingDefinition = await Effect.runPromise(compilePricingCoreDefinition(target));
   const inventoryDefinition = await Effect.runPromise(compileInventoryCoreDefinition(target));
@@ -65,6 +70,8 @@ export async function makeCoreProductCreationFixture(driver: "pglite" | "postgre
   const shippingDefinition = await Effect.runPromise(compileShippingProfileCoreDefinition(target));
   const productLinksDefinition = await Effect.runPromise(compileProductLinksCoreDefinition(target, { salesChannel: true, shippingProfile: true }));
   const variantLinksDefinition = await Effect.runPromise(compileVariantLinksCoreDefinition(target));
+  const channelLocationsDefinition = channelLocationsRuntime === undefined ? undefined
+    : await Effect.runPromise(compileSalesChannelLocationLinkCoreDefinition(target));
   const eventDefinition = await Effect.runPromise(compileCoreNativeEventStorageDefinition(target));
   const sources: readonly CoreNativeWorkflowSource[] = [
     { name: "product", definition: productDefinition, initialCommands: Object.values(productRuntime.commands), rows: [] },
@@ -75,6 +82,9 @@ export async function makeCoreProductCreationFixture(driver: "pglite" | "postgre
     { name: "fulfillment", definition: shippingDefinition, initialCommands: shippingRuntime.commands, rows: [] },
     { name: "product_links", definition: productLinksDefinition, initialCommands: productLinksRuntime.commands, rows: [] },
     { name: "variant_links", definition: variantLinksDefinition, initialCommands: variantLinksRuntime.commands, rows: [] },
+    ...(channelLocationsDefinition === undefined || channelLocationsRuntime === undefined ? [] : [
+      { name: "sales_channel_locations", definition: channelLocationsDefinition, initialCommands: channelLocationsRuntime.commands, rows: [] },
+    ]),
   ];
   const physical = options.physical === undefined ? undefined : await shareCoreNativeWorkflowPhysical(options.physical);
   const fixture = await createCoreNativeWorkflowFixture(driver, { sources, eventDefinition,
@@ -92,6 +102,11 @@ export async function makeCoreProductCreationFixture(driver: "pglite" | "postgre
   const shippingReads = await openCoreProductReadHost(fixture, "fulfillment", shippingRuntime.commands);
   const productLinksReads = await openCoreProductReadHost(fixture, "product_links", productLinksRuntime.commands);
   const variantLinksReads = await openCoreProductReadHost(fixture, "variant_links", variantLinksRuntime.commands);
+  const channelLocations = channelLocationsDefinition === undefined || channelLocationsRuntime === undefined ? undefined : {
+    definition: channelLocationsDefinition, runtime: channelLocationsRuntime, source: fixture.source("sales_channel_locations"),
+    reads: await openCoreProductReadHost(fixture, "sales_channel_locations", channelLocationsRuntime.commands),
+  };
+  if (channelLocations !== undefined) close(() => Effect.runPromise(channelLocations.reads.close));
   for (const reads of [productReads, pricingReads, inventoryReads, stockReads, salesReads, shippingReads, productLinksReads, variantLinksReads])
     close(() => Effect.runPromise(reads.close));
   const product = { definition: productDefinition, runtime: productRuntime, source: fixture.source("product"), reads: productReads, host: productReads };
@@ -113,7 +128,7 @@ export async function makeCoreProductCreationFixture(driver: "pglite" | "postgre
     return (await fixture.inventory()).rows.filter(row => row.table === table.name)
       .map(row => structuredClone(Result.getOrThrow(coreNativeRelationalRow(row.value))));
   };
-  return { fixture, target, product, pricing, sales, shipping, productLinks, inventory, link, readTable,
+  return { fixture, target, product, pricing, sales, shipping, productLinks, inventory, channelLocations, link, readTable,
     execution: fixture.execution, snapshot: fixture.snapshot };
 }
 export type CoreProductCreationFixture = Awaited<ReturnType<typeof makeCoreProductCreationFixture>>;

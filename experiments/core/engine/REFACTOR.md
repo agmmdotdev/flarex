@@ -637,6 +637,26 @@ Fresh construction, complete paired consumer proof and selected retirement are
 complete. Populated transitions, named retained Task/finite/native consumers,
 native managed hosting and performance retain their separate gates.
 
+The [Inventory deletion and Variant read continuation](./slices/19-native-inventory-and-variant-read-workflows.md)
+implements the three retained consumer replacements and authentic nine-source
+closure after renewed independent challenge. Its shared-lowering prerequisite adds
+missing inferred composite-key reverse access as ordinary Source indexes;
+whole-table capture cannot replace admitted endpoint-selective history. Preserve
+existing FK/index identities, native profiles and metadata authentication.
+Paired owner and genuine native proof cover these mechanisms, and the displaced
+standalone fixtures are retired. Complete consumer coverage passes on both
+database lanes, and connected regressions are complete. Wider goal gates remain
+open.
+
+Genuine setup further exposes the admitted
+[native scope-exclusion prerequisite](./slices/19a-native-scope-exclusion.md).
+Its implemented trusted Core admission/settlement adaptation preserves ordinary
+callback concurrency, selected exclusion, writer fencing and lifecycle recovery
+without holding a SQL transaction across callbacks. Independent challenge and
+paired owner/native proof cover the mechanism and the complete selected consumer
+coverage and connected regressions. Populated conversion, wider hosting and
+performance retain their separate gates.
+
 The [optional-one native continuation](./slices/14-native-reference-integrity.md)
 implements complete direct Payload relations/population/preferences and the genuine
 joint native consumer after independent peer challenge. Its scope includes the

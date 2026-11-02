@@ -8,13 +8,11 @@ import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { makeInventoryConfirmationCommands } from "../../src/modules/inventory/confirmation-service";
 import { makeInventoryItemDeletionCommands } from "../../src/modules/inventory/delete-item-service";
 import { InventoryItemDeletionInput, InventoryItemDeletionOutput } from "../../src/modules/inventory/delete-item-input";
-import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { InventoryConfirmationLocations } from "../../src/modules/inventory/confirmation-input";
 import { VariantInventoryLinkRows } from "../../src/links/variant-service";
 import { ScalarId } from "../../src/repository/scalar-id-read";
-import { prepareInventoryCreateHost } from "./logical-inventory-fixture";
-import { prepareLogicalVariantItemPricing } from "./logical-variant-item-pricing-fixture";
-import { legacyCreationRevision as creationRevision } from "./legacy-product-creation-fixture";
+import { prepareCoreInventoryCreateHost, creationRevision, openCoreProductReadHost } from "./core-product-creation-fixture";
+import { prepareCoreVariantItemPricing } from "./core-variant-item-pricing-fixture";
 
 const LinkTuples = Schema.Array(Schema.Tuple([ScalarId, ScalarId, Schema.Struct({ required_quantity: Schema.Literal(1) })]));
 const VariantFlags = Schema.Struct({ id: ScalarId, allow_backorder: Schema.optionalKey(Schema.Boolean), manage_inventory: Schema.optionalKey(Schema.Boolean) });
@@ -22,9 +20,9 @@ const DirectInput = Schema.Struct({ inventory_item_id: ScalarId, location_ids: I
 
 /** Reuse 159's actual native Product, Pricing, Inventory, Location and Link
  * setup. Every stock change below is another genuine admitted native workflow. */
-export async function prepareLogicalVariantInventoryConfirmation(driver: "pglite" | "postgres",
+export async function prepareCoreVariantInventoryConfirmation(driver: "pglite" | "postgres",
   close: (cleanup: () => Promise<void>) => void) {
-  const base = await prepareLogicalVariantItemPricing(driver, close);
+  const base = await prepareCoreVariantItemPricing(driver, close);
   const prepare = async (requestCallLimit?: number, execution: AtomicWorkflowExecution = base.execution) => {
     // Candidate/default witnesses alter only the trusted test host seam. The
     // public workflow factory always selects its named allowance internally.
@@ -36,17 +34,17 @@ export async function prepareLogicalVariantInventoryConfirmation(driver: "pglite
     };
     const host = await Effect.runPromise(prepareVariantInventoryConfirmationWorkflow({ execution: selectedExecution,
       modules: { ...base.creationModules,
-        pricing: { module: base.pricingRead.workflow, logicalStorage: base.creationModules.pricing.logicalStorage },
-        inventory: { module: base.inventoryRead.workflow, logicalStorage: base.creationModules.inventory.logicalStorage },
+        pricing: { module: base.pricingRead.workflow, nativeStorage: base.creationModules.pricing.nativeStorage },
+        inventory: { module: base.inventoryRead.workflow, nativeStorage: base.creationModules.inventory.nativeStorage },
         sales_channel_locations: { module: base.channelLocations.link.workflow,
-          logicalStorage: base.channelLocations.linkInput.logicalStorage } },
+          nativeStorage: base.channelLocations.source } },
       revision: creationRevision("native-variant-inventory-confirmation"),
     }));
     return host;
   };
   const adjust = async (input: Parameters<Effect.Success<ReturnType<typeof prepareStockAdjustmentsWorkflow>>["run"]>[1]) => {
     const host = await Effect.runPromise(prepareStockAdjustmentsWorkflow({ execution: base.execution,
-      inventory: { module: base.stockInventory.workflow, logicalStorage: base.creationModules.inventory.logicalStorage },
+      inventory: { module: base.stockInventory.workflow, nativeStorage: base.creationModules.inventory.nativeStorage },
       revision: creationRevision("variant-confirmation-stock-setup"),
       subscribers: [{ id: "variant-confirmation-stock-setup", revision: creationRevision("variant-confirmation-stock-subscriber") }],
     }));
@@ -86,7 +84,7 @@ export async function prepareLogicalVariantInventoryConfirmation(driver: "pglite
     finally { await Effect.runPromise(host.close); }
   };
   const createItem = async (id: string) => {
-    const writer = await prepareInventoryCreateHost(base.fixture, base.creation.inventory.inventory);
+    const writer = await prepareCoreInventoryCreateHost(base.fixture, base.creation.inventory.inventory);
     try { return await Effect.runPromise(writer.host.run(writer.host.newRequestKey(), writer.create, { id, sku: id, requires_shipping: false })); }
     finally { await Effect.runPromise(writer.host.close); }
   };
@@ -99,7 +97,7 @@ export async function prepareLogicalVariantInventoryConfirmation(driver: "pglite
       resources.inventory.confirmInventory(value.inventory_item_id, value.location_ids, value.quantity)));
     const flow = createWorkflow("native-direct-inventory-confirmation-root", (input: WorkflowData<typeof DirectInput.Type>) => new WorkflowResponse(call(input)));
     return await Effect.runPromise(prepareAtomicWorkflowHost({ execution: base.execution,
-      modules: { inventory_commands: { module: confirmation.workflow, logicalStorage: base.creationModules.inventory.logicalStorage } },
+      modules: { inventory_commands: { module: confirmation.workflow, nativeStorage: base.creationModules.inventory.nativeStorage } },
       revision: creationRevision("direct-confirmation"),
       workflow: { name: "nativeDirectInventoryConfirmation", resources, prepared: Result.getOrThrow(flow.prepare()), input: DirectInput, output: Schema.Boolean } }));
   };
@@ -112,7 +110,7 @@ export async function prepareLogicalVariantInventoryConfirmation(driver: "pglite
       resources.inventory.softDeleteInventoryItems(ids)));
     const flow = createWorkflow("seed-confirmation-item-soft-delete", (ids: WorkflowData<typeof InventoryItemDeletionInput.Type>) => new WorkflowResponse(call(ids)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ execution: base.execution,
-      modules: { inventory: { module: deletion.workflow, logicalStorage: base.creationModules.inventory.logicalStorage } },
+      modules: { inventory: { module: deletion.workflow, nativeStorage: base.creationModules.inventory.nativeStorage } },
       revision: creationRevision("confirmation-item-soft-delete-setup"),
       subscribers: [{ id: "confirmation-soft-delete", revision: creationRevision("confirmation-soft-delete-subscriber") }],
       workflow: { name: "seedConfirmationItemSoftDelete", resources, prepared: Result.getOrThrow(flow.prepare()),
@@ -122,7 +120,7 @@ export async function prepareLogicalVariantInventoryConfirmation(driver: "pglite
   };
   const readInventoryLinks = async (variantId: string) => {
     const link = base.creation.inventory.link;
-    const reader = await Effect.runPromise(makeCommerceHost({ ...link.hostInput, commands: [link.runtime.countInventory] }));
+    const reader = await openCoreProductReadHost(base.fixture, "variant_links", [link.runtime.countInventory]);
     try {
       const result = await Effect.runPromise(reader.read(link.runtime.countInventory, { filters: { variant_id: variantId },
         config: { select: ["id", "variant_id", "inventory_item_id", "required_quantity", "deleted_at"], relations: [],

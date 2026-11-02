@@ -1,5 +1,6 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Cause, Effect, Exit, Result, Schema } from "effect";
+import { decodeDocumentValue } from "flarex-protocol/document-value";
 import { PricingModuleService } from "@medusajs/pricing/services";
 import { ProductModuleService } from "@medusajs/product/services";
 import { InventoryModuleService } from "@medusajs/inventory/services";
@@ -15,15 +16,15 @@ import { variantItemPricingResources } from "../src/workflow/policy";
 import { prepareVariantItemPricingWorkflow } from "../src/workflows/cart/variant-item-pricing";
 import { ExactNumericRaw } from "../src/value/exact-numeric";
 import { VariantItemPricingCalculationOutput } from "../src/modules/pricing/calculation";
-import { prepareLogicalVariantItemPricing } from "./support/logical-variant-item-pricing-fixture";
-import { legacyCreationRevision as creationRevision } from "./support/legacy-product-creation-fixture";
-import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
+import { prepareCoreVariantItemPricing } from "./support/core-variant-item-pricing-fixture";
+import { creationRevision } from "./support/core-product-creation-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
 const caseCleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalVariantItemPricing>>;
-type Seed = Awaited<ReturnType<Awaited<ReturnType<typeof prepareLogicalVariantItemPricing>>["seed"]>>;
+let caseCleanupStart: number | undefined;
+let connected: Awaited<ReturnType<typeof prepareCoreVariantItemPricing>>;
+type Seed = Awaited<ReturnType<Awaited<ReturnType<typeof prepareCoreVariantItemPricing>>["seed"]>>;
 type Host = Effect.Success<ReturnType<typeof prepareVariantItemPricingWorkflow>>;
 type Input = Parameters<Host["run"]>[1];
 type Item = NonNullable<Input["items"]>[number];
@@ -42,20 +43,19 @@ const input = (seed: Seed, items?: Input["items"]): Input => ({
 const prepare = async (execution = connected.execution) => {
   const host = await Effect.runPromise(prepareVariantItemPricingWorkflow({ execution,
     modules: { ...connected.creationModules,
-      pricing: { module: connected.pricingRead.workflow, logicalStorage: connected.creationModules.pricing.logicalStorage },
-      inventory: { module: connected.inventoryRead.workflow, logicalStorage: connected.creationModules.inventory.logicalStorage },
+      pricing: { module: connected.pricingRead.workflow, nativeStorage: connected.creationModules.pricing.nativeStorage },
+      inventory: { module: connected.inventoryRead.workflow, nativeStorage: connected.creationModules.inventory.nativeStorage },
       sales_channel_locations: { module: connected.channelLocations.link.workflow,
-        logicalStorage: connected.channelLocations.linkInput.logicalStorage } },
+        nativeStorage: connected.channelLocations.source } },
     revision: creationRevision("native-variant-item-pricing159"),
     subscribers: [{ id: "native-variant-item-pricing159", revision: creationRevision("native-variant-item-pricing159-subscriber") }],
   }));
   caseCleanup.push(() => Effect.runPromise(host.close));
   return host;
 };
-const snapshot = () => logicalCurrencyInventory(connected.fixture);
+const snapshot = () => connected.fixture.snapshot();
 const noMutation = (before: Awaited<ReturnType<typeof snapshot>>, after: Awaited<ReturnType<typeof snapshot>>) => {
-  for (const key of ["rows", "revisions", "indexEntries", "indexRevisions", "uniqueKeys", "searchEntries", "searchBuilds",
-    "indexBuilds", "uniqueBuilds", "rowChanges", "events", "physicalFacts", "initialization"] as const)
+  for (const key of ["rows", "revisions", "indexes", "events", "families", "deliveries"] as const)
     expect(after[key], key).toEqual(before[key]);
 };
 function failureMessages(value: unknown): string[] {
@@ -66,23 +66,32 @@ function failureMessages(value: unknown): string[] {
     ...failureMessages(value.cause)];
 }
 async function refused(work: Effect.Effect<unknown, unknown>, message: string) {
-  const before = await snapshot(), outcome = await Effect.runPromise(Effect.result(work));
-  if (Result.isSuccess(outcome)) throw new Error("Native159 failure unexpectedly succeeded");
-  expect(failureMessages(outcome.failure).some(value => value.includes(message))).toBe(true);
+  const before = await snapshot(), outcome = await Effect.runPromiseExit(work);
+  if (Exit.isSuccess(outcome)) throw new Error("Native159 failure unexpectedly succeeded");
+  const messages = failureMessages(outcome.cause);
+  expect(messages.some(value => value.includes(message)), messages.join("\n")).toBe(true);
   expect(await snapshot()).toEqual(before);
-  return outcome.failure;
+  return outcome.cause;
 }
 async function run(host: Host, value: Input, selectedLimit: number = variantItemPricingResources.calls) {
   let calls = 0;
   const before = await snapshot();
   let outcome: "Success" | "Failure" = "Failure";
   try {
-    const result = await Effect.runPromise(host.run(host.newRequestKey(), value).pipe(Effect.provideService(ExecutionDiagnostics, {
+    const key = host.newRequestKey();
+    const result = await Effect.runPromise(host.run(key, value).pipe(Effect.provideService(ExecutionDiagnostics, {
       observe: (name, observed) => { if (name === "BoundedRequest.enter") calls++; return observed; },
     })));
     outcome = "Success";
     expect(calls).toBeGreaterThan(0); expect(calls).toBeLessThanOrEqual(selectedLimit);
-    noMutation(before, await snapshot());
+    const after = await snapshot();
+    noMutation(before, after);
+    expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
+    const durable = after.outcomes.filter(outcome => outcome.value.kind === "nativeRoot" && outcome.value.key === key);
+    expect(durable).toHaveLength(1);
+    const encoded = durable[0]?.value.result;
+    if (typeof encoded !== "string") throw new Error("Missing committed native Pricing DTO outcome");
+    expect(Result.getOrThrow(decodeDocumentValue(new TextEncoder().encode(encoded)))).toEqual(result);
     return result;
   } finally {
     console.info("Variant/item pricing bounded native root", { driver, items: value.items?.length ?? 0, calls, limit: selectedLimit, outcome });
@@ -146,13 +155,16 @@ const expectDefault = (actual: unknown, seed: Seed, optionalRelations = true) =>
 
 describe("native Variant and item pricing on the complete default graph", () => {
   beforeAll(async () => {
-    connected = await prepareLogicalVariantItemPricing(driver, close => cleanup.push(close));
+    connected = await prepareCoreVariantItemPricing(driver, close => cleanup.push(close));
     baseline = await connected.seed("pricing159-default");
   }, 180_000);
+  beforeEach(() => { caseCleanupStart = cleanup.length; });
   afterEach(async () => {
+    const transient = caseCleanupStart === undefined ? [] : cleanup.splice(caseCleanupStart);
+    caseCleanupStart = undefined;
     const failures: unknown[] = [];
     try {
-      for (const close of caseCleanup.splice(0).reverse()) {
+      for (const close of [...transient, ...caseCleanup.splice(0)].reverse()) {
         try { await close(); }
         catch (failure) { failures.push(failure); }
       }
@@ -218,7 +230,7 @@ describe("native Variant and item pricing on the complete default graph", () => 
     expect(captures).toHaveLength(1);
     const captured = first(captures);
     const pricing = captured.participants.find(member => getAtomicCommerceParticipant(member.participant) === "pricing");
-    if (pricing === undefined || !("logicalStorage" in pricing)) throw new Error("Missing original logical Pricing participant");
+    if (pricing === undefined || !("nativeStorage" in pricing)) throw new Error("Missing authentic Core Pricing participant");
     const probe = defineAtomicCommerceCommand("variantItemPricingParticipantIdentity159", ctx => ctx.call(pricing.participant,
       connected.pricingRead.count, { filters: { id: [] }, config: { select: ["id"], relations: [], order: { id: "ASC" }, skip: 0, take: 4 } }));
     const { requestParticipantLimit: _namedAllowance, ...composition } = captured;
