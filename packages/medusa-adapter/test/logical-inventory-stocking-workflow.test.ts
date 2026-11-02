@@ -1,40 +1,31 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { Cause, Deferred, Effect, Fiber } from "effect";
 import { InventoryModuleService } from "@medusajs/inventory/services";
 import { StockLocationModuleService } from "@medusajs/stock-location/services";
 import { CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
-import { fxAppRowCurrent, fxSystemCommitAppRowChanges } from "../../persistence-postgres/src/database/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
 import { prepareInventoryStockingWorkflow, type InventoryStockingHooks, type InventoryStockingInput } from "../src/workflows/inventory/stock";
 import { inventoryStockingResources } from "../src/workflow/policy";
-import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./support/logical-currency-fixture";
-import { prepareLogicalInventoryHosts, prepareInventoryCreateHost, type LogicalInventoryHosts } from "./support/logical-inventory-fixture";
+import { prepareCoreInventoryMaintenance } from "./support/core-inventory-maintenance-fixture";
+import { prepareCoreInventoryCreateHost } from "./support/core-product-creation-fixture";
 import type { AtomicWorkflowExecution } from "../src/workflow/host";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid stocking driver");
 const cleanup: Array<() => Promise<void>> = [];
-type Connected = { fixture: LogicalCurrencyFixture; members: LogicalInventoryHosts };
+let caseCleanupStart: number | undefined;
+type Connected = Awaited<ReturnType<typeof prepareCoreInventoryMaintenance>>;
 let selected: Connected;
 const revision = createHash("sha256").update("native-inventory-stocking").digest("hex");
-const execution = (value: Connected, session = value.fixture.session): AtomicWorkflowExecution => ({
-  identityAndAccessPolicy: value.fixture.hostInput.identityAndAccessPolicy,
-  prepare: composition => makeAtomicCommerceHost({ ...value.fixture.hostInput, session, ...composition }),
-});
-const prepare = (value = selected, hooks: InventoryStockingHooks = {}, execute = execution(value)) => Effect.runPromise(
+const prepare = (value = selected, hooks: InventoryStockingHooks = {}, execute: AtomicWorkflowExecution = value.execution) => Effect.runPromise(
   prepareInventoryStockingWorkflow({ execution: execute, modules: {
-    inventory: { module: value.members.inventory.runtime.workflow, logicalStorage: value.members.inventory.hostInput.logicalStorage },
-    stock_location: { module: value.members.stockLocation.runtime.workflow, logicalStorage: value.members.stockLocation.hostInput.logicalStorage },
+    inventory: { module: value.members.inventory.runtime.workflow, nativeStorage: value.members.inventory.source },
+    stock_location: { module: value.members.stockLocation.runtime.workflow, nativeStorage: value.members.stockLocation.source },
   }, revision, subscribers: [{ id: "inventory-stocking", revision }], hooks }),
 );
-const rows = (value = selected) => value.fixture.persistence.drizzle.select().from(fxAppRowCurrent);
-const events = (value = selected) => value.fixture.persistence.drizzle.select().from(fxSystemCommitEvents)
-  .orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal);
+const rows = async (value = selected) => (await value.fixture.snapshot()).rows;
+const events = async (value = selected) => (await value.fixture.snapshot()).events;
 function nativeFailure(error: unknown): unknown {
   if (error instanceof CommerceTransactionError && error.cause !== undefined) return nativeFailure(error.cause);
   if (Cause.isCause(error)) return nativeFailure(Cause.squash(error));
@@ -61,11 +52,8 @@ const input = (prefix: string, maximum = false): typeof InventoryStockingInput.T
     location_index: maximum ? index % 4 : 0, stocked_quantity: index + 0.25, incoming_quantity: index + 0.5,
   })),
 });
-async function connect(fixture: LogicalCurrencyFixture): Promise<Connected> {
-  return { fixture, members: await prepareLogicalInventoryHosts(fixture, { levels: true, stockLocations: true }) };
-}
 async function seedItems(value: Connected) {
-  const { host, create } = await prepareInventoryCreateHost(value.fixture, value.members.inventory);
+  const { host, create } = await prepareCoreInventoryCreateHost(value.fixture, value.members.inventory);
   try { await Effect.runPromise(host.run(host.newRequestKey(), create,
     Array.from({ length: 4 }, (_, index) => ({ id: "stock-item-" + index, sku: "stock-sku-" + index })))); }
   finally { await Effect.runPromise(host.close); }
@@ -73,11 +61,19 @@ async function seedItems(value: Connected) {
 
 describe("native Stock Location and Inventory-level stocking", () => {
   beforeAll(async () => {
-    selected = await connect(await logicalCurrencyFixture(driver, close => cleanup.push(close), {
-      includeProduct: true, includePricing: true, includeVariantInventory: true,
-    }));
+    selected = await prepareCoreInventoryMaintenance(driver, close => cleanup.push(close));
     await seedItems(selected);
   }, 180_000);
+  beforeEach(() => { caseCleanupStart = cleanup.length; });
+  afterEach(async () => {
+    const transient = caseCleanupStart === undefined ? [] : cleanup.splice(caseCleanupStart);
+    caseCleanupStart = undefined;
+    const failures: unknown[] = [];
+    for (const close of transient.reverse()) {
+      try { await close(); } catch (error) { failures.push(error); }
+    }
+    if (failures.length !== 0) throw new AggregateError(failures, "Unable to close Inventory consumer case hosts");
+  }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
 
   it("stocks the maximum graph with native hooks, exact quantities, one publication and replay", async () => {
@@ -112,13 +108,13 @@ describe("native Stock Location and Inventory-level stocking", () => {
       expect((await rows()).length - beforeRows.length).toBe(16);
       const emitted = (await events()).slice(beforeEvents.length);
       expect(emitted).toHaveLength(16);
-      expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1);
+      expect(new Set(emitted.map(event => event.timestamp)).size).toBe(1);
       expect(new Set(emitted.map(event => event.envelope.contract))).toEqual(new Set([
         "stock_location.stock-location-address.created", "stock_location.stock-location.created", "inventory.inventory-level.created",
       ]));
       const last = emitted.at(-1); if (!last) throw new Error("Missing stocking publication");
-      expect((await selected.fixture.persistence.drizzle.select().from(fxSystemCommitAppRowChanges))
-        .filter(fact => fact.commitSeq === last.commitSeq)).toHaveLength(16);
+      expect((await selected.fixture.snapshot()).revisions
+        .filter(revision => revision.timestamp === last.timestamp)).toHaveLength(16);
       const committedRows = await rows(), committedEvents = await events();
       expect(await Effect.runPromise(host.run(key, value))).toEqual(result);
       expect(locationHook).toHaveBeenCalledTimes(1); expect(stockHook).toHaveBeenCalledTimes(1);
@@ -236,17 +232,12 @@ describe("native Stock Location and Inventory-level stocking", () => {
   }, 120_000);
 
   it("recovers a lost commit acknowledgement without repeating native hooks", async () => {
-    let lose = true;
-    const session = issueRelationalSession(selected.fixture.persistence.drizzle, (profile, work) => runRelationalSession(selected.fixture.session, profile, work).pipe(
-      Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-      Effect.flatMap(value => { if (!lose) return Effect.succeed(value); lose = false;
-        return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost stocking COMMIT acknowledgement") })); }),
-    ));
+    const fault = selected.fixture.loseNextNativeRootAcknowledgement();
     const hook = vi.fn<NonNullable<InventoryStockingHooks["inventoryStocked"]>>(() => undefined);
-    const host = await prepare(selected, { inventoryStocked: hook }, execution(selected, session));
+    const host = await prepare(selected, { inventoryStocked: hook });
     try {
       const key = host.newRequestKey(), value = input("uncertain-stock"), result = await Effect.runPromise(host.run(key, value));
-      expect(lose).toBe(false); expect(hook).toHaveBeenCalledTimes(1);
+      expect(fault.failures).toBe(1); expect(fault.evidence).toBeDefined(); expect(hook).toHaveBeenCalledTimes(1);
       const beforeRows = await rows(), beforeEvents = await events();
       expect(await Effect.runPromise(host.run(key, value))).toEqual(result);
       expect(await rows()).toEqual(beforeRows); expect(await events()).toEqual(beforeEvents);
@@ -254,10 +245,8 @@ describe("native Stock Location and Inventory-level stocking", () => {
   });
 
   it("confines matching Location and Inventory identities to their own shop", async () => {
-    const other = await connect(await logicalCurrencyFixture(driver, close => cleanup.push(close), {
-      includeProduct: true, includePricing: true, includeVariantInventory: true, resource: selected.fixture.resource,
-      fixtureIdentity: { deploymentId: "stock_shop_b", projectId: "stock_shop_b", uuidOffset: 18_000 },
-    }));
+    const other = await prepareCoreInventoryMaintenance(driver, close => cleanup.push(close), { physical: selected.fixture.physical });
+    expect(other.members.inventory.definition.identity.scopeUuid).not.toBe(selected.members.inventory.definition.identity.scopeUuid);
     await seedItems(other);
     const first = await prepare(), second = await prepare(other);
     try {

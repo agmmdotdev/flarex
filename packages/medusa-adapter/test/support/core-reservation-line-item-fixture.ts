@@ -3,8 +3,6 @@ import { createStep, createWorkflow, StepResponse, WorkflowResponse, type Workfl
 import { deleteReservationsByLineItemsWorkflow } from "@medusajs/core-flows/reservation/delete-reservations-by-line-items";
 import type { InventoryModuleService } from "@medusajs/inventory/services";
 import { defineCommerceCommand } from "../../../persistence-postgres/src/frameworks/commerceTransaction/commands";
-import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { ReservationLineItemIds } from "../../src/modules/inventory/reservation-line-item-input";
 import { makeInventoryReservationLineItemCommands } from "../../src/modules/inventory/reservation-line-item-service";
@@ -12,11 +10,11 @@ import { makeLocalInventoryCommands } from "../../src/modules/inventory/service"
 import { InventoryLevelDeletionIds } from "../../src/modules/inventory/delete-level-input";
 import { prepareDeleteReservationsByLineItemsWorkflow } from "../../src/workflows/inventory/reservation-line-items";
 import { prepareUpdateReservationWorkflow, prepareReleaseReservationWorkflow } from "../../src/workflows/inventory/adjust-and-reserve";
-import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution } from "../../src/workflow/host";
+import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
-import { prepareLogicalInventoryLevelUpdate } from "./logical-inventory-level-update-fixture";
-import type { LogicalInventoryMaintenanceShared } from "./logical-inventory-maintenance-fixture";
+import { prepareCoreInventoryLevelUpdate } from "./core-inventory-level-update-fixture";
+import type { CoreInventoryMaintenanceShared } from "./core-inventory-maintenance-fixture";
 
 const native = Result.getOrThrow(deleteReservationsByLineItemsWorkflow.prepare());
 const node = native.nodes.find(entry => entry.kind === "step" && entry.name === "delete-reservations-by-line-items");
@@ -43,21 +41,20 @@ export interface ReservationLineItemSeed {
 /** Existing native Item/Location/Reservation seeds retain all business logic.
  * The new composition only binds the by-Line-Item owner and invokes genuine
  * retained callbacks. Direct reads observe full stored history by primary ID. */
-export async function prepareLogicalReservationLineItems(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  shared?: LogicalInventoryMaintenanceShared) {
-  const common = await prepareLogicalInventoryLevelUpdate(driver, close, shared);
+export async function prepareCoreReservationLineItems(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
+  shared?: CoreInventoryMaintenanceShared) {
+  const common = await prepareCoreInventoryLevelUpdate(driver, close, shared);
   const { fixture, members } = common;
-  const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-    prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, ...composition }) };
+  const execution = fixture.execution;
   const lineItems = await Effect.runPromise(makeInventoryReservationLineItemCommands());
-  const inventory = { module: lineItems.workflow, logicalStorage: members.inventory.hostInput.logicalStorage };
+  const inventory = { module: lineItems.workflow, nativeStorage: members.inventory.source };
   const subscribers = [{ id: "native-reservation-line-items", revision: "d".repeat(64) }];
   const options: Parameters<typeof prepareDeleteReservationsByLineItemsWorkflow>[0] = { execution, inventory, revision: "e".repeat(64), subscribers };
   const prepare = async (revision = options.revision) => {
     const host = await Effect.runPromise(prepareDeleteReservationsByLineItemsWorkflow({ ...options, revision }));
     close(() => Effect.runPromise(host.close)); return host;
   };
-  const raw = await Effect.runPromise(makeCommerceHost({ ...members.inventory.hostInput, commands: [probeCommand] }));
+  const raw = await Effect.runPromise(fixture.openReadHost("inventory", [probeCommand]));
   close(() => Effect.runPromise(raw.close));
   const probeReservations = (ids: readonly string[]) => raw.read(probeCommand, { ids: [...ids] }).pipe(Effect.flatMap(decodeRows));
   const stockOptions = { execution: common.execution, inventory: common.inventory, revision: "f".repeat(64), subscribers };
@@ -133,7 +130,7 @@ export async function prepareLogicalReservationLineItems(driver: "pglite" | "pos
     }));
     const root = createWorkflow("probe-reservation-line-item-level-removal", (ids: WorkflowData<typeof InventoryLevelDeletionIds.Type>) => new WorkflowResponse(invoke(ids)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ execution,
-      modules: { inventory: { module: removal.workflow, logicalStorage: inventory.logicalStorage } }, revision: options.revision, subscribers,
+      modules: { inventory: { module: removal.workflow, nativeStorage: inventory.nativeStorage } }, revision: options.revision, subscribers,
       workflow: { name: "probeReservationLineItemLevelRemoval", resources: selected, prepared: Result.getOrThrow(root.prepare()),
         input: InventoryLevelDeletionIds, output: Schema.Null, events: internalModuleWorkflowEvents } }));
     close(() => Effect.runPromise(host.close)); return host;

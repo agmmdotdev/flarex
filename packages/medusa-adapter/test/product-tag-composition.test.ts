@@ -21,6 +21,7 @@ import { defineCommerceCommand } from "../../persistence-postgres/src/frameworks
 import { defineCommerceEventContract, type ParticipantEventSelection, type CommerceEventContract } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";
 import { commerceError, type CommerceTransactionError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
 import { createCoreProductWorkflowFixture, type CoreProductWorkflowFixture } from "./support/core-product-workflow-fixture";
+import { expectWorkflowTypedFailures } from "./support/workflow-failure-assertions";
 
 const cleanup: Array<() => Promise<void>> = [];
 const testHosts = new Set<AtomicCommerceHost["close"]>();
@@ -361,15 +362,28 @@ describe("native composed Product workflows", () => {
     const forged = Object.freeze({}) as CommerceEventContract;
     let message: unknown = { payload: "owned" };
     const failures: CommerceTransactionError[] = [];
-    const emitted = defineCommerceCommand("emitSelected", "write", ctx => ctx.captureLocalEvent(message).pipe(Effect.as(null)));
-    const command = defineAtomicCommerceCommand("selectParticipantEvent", ctx => ctx.call(participant, emitted, null).pipe(
-      Effect.catch(error => Effect.sync(() => { failures.push(error); return null; })),
-    ));
+    let rootCalls = 0, moduleCalls = 0;
+    const emitted = defineCommerceCommand("emitSelected", "write", ctx => {
+      moduleCalls++;
+      return ctx.captureLocalEvent(message).pipe(Effect.as(null));
+    });
+    const command = defineAtomicCommerceCommand("selectParticipantEvent", ctx => {
+      rootCalls++;
+      return ctx.call(participant, emitted, null).pipe(
+        Effect.catch(error => Effect.sync(() => { failures.push(error); return null; })),
+      );
+    });
     const base = { identityAndAccessPolicy: fixture.currency.execution.identityAndAccessPolicy, commands: [command], events: { producerRevision: revision, contracts: [first, second, external], subscribers, validate: () => Effect.void } };
     const member = { participant, nativeStorage: fixture.product.source, commands: [emitted], validateLogicalCall: () => Effect.void };
     const make = (events?: ParticipantEventSelection) => execution().prepare({ ...base, participants: [{ ...member, ...(events === undefined ? {} : { events }) }] });
+    const beforeInvalidSelection = await inventory();
     for (const contracts of [[forged], [unlisted], [external], [first, first], Array.from({ length: 65 }, () => first)]) {
-      expect(await runEffectFailure(make({ contracts, select: () => Effect.succeed(first) }))).toMatchObject({ reason: "invalidAuthority" });
+      const host = await runEffect(make({ contracts, select: () => Effect.succeed(first) }));
+      try {
+        expect(expectWorkflowTypedFailures(await runEffect(Effect.exit(host.run(host.newRequestKey(), command, null))), "invalidAuthority")).toHaveLength(1);
+        expect(rootCalls).toBe(0); expect(moduleCalls).toBe(0); expect(failures).toEqual([]);
+        expect(await inventory()).toEqual(beforeInvalidSelection);
+      } finally { await closeHost(host); }
     }
     const before = await inventory();
     for (const selected of [forged, second, external, unlisted]) {

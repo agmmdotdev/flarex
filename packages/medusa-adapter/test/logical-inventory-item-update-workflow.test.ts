@@ -1,26 +1,21 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { Cause, Deferred, Effect, Fiber, Result, Schema } from "effect";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { Cause, Deferred, Effect, Fiber, Schema, Exit } from "effect";
 import { InventoryModuleService } from "@medusajs/inventory/services";
 import { CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { fxAppRowCurrent, fxSystemCommits, fxSystemCommitAppRowChanges } from "../../persistence-postgres/src/database/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { InventoryItemUpdateInput } from "../src/workflows/inventory/update-items";
-import { prepareLogicalInventoryItemUpdate } from "./support/logical-inventory-item-update-fixture";
-import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
+import { prepareCoreInventoryItemUpdate } from "./support/core-inventory-item-update-fixture";
+import { expectWorkflowDefect, expectWorkflowRefusal, expectWorkflowTypedFailures } from "./support/workflow-failure-assertions";
 import { registerNativeInventoryUpdateTests, type NativeInventoryUpdateTestService } from "./support/inventory-update-native-tests";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalInventoryItemUpdate>>;
-const rows = () => connected.fixture.persistence.drizzle.select().from(fxAppRowCurrent).orderBy(fxAppRowCurrent.tableId, fxAppRowCurrent.rowId);
-const facts = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommitAppRowChanges).orderBy(fxSystemCommitAppRowChanges.commitSeq, fxSystemCommitAppRowChanges.changeOrdinal);
-const commits = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommits).orderBy(fxSystemCommits.commitSeq);
-const events = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents)
-  .orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal);
-const snapshot = async () => {
-  const inventory = await logicalCurrencyInventory(connected.fixture);
-  return { ...inventory, facts: inventory.rowChanges };
-};
+let caseCleanupStart: number | undefined;
+let connected: Awaited<ReturnType<typeof prepareCoreInventoryItemUpdate>>;
+const rows = async () => (await connected.fixture.snapshot()).rows;
+const revisions = async () => (await connected.fixture.snapshot()).revisions;
+const outcomes = async () => (await connected.fixture.snapshot()).outcomes;
+const events = async () => (await connected.fixture.snapshot()).events;
+const snapshot = () => connected.fixture.snapshot();
 const eventName = "inventory.inventory-item.updated";
 function failurePath(value: unknown): string[] {
   if (Cause.isCause(value)) return value.reasons.flatMap(reason => reason._tag === "Fail" ? failurePath(reason.error)
@@ -30,7 +25,17 @@ function failurePath(value: unknown): string[] {
 }
 
 describe("native Inventory Item attribute updates on shared logical storage", { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalInventoryItemUpdate(driver, close => cleanup.push(close)); }, 180_000);
+  beforeAll(async () => { connected = await prepareCoreInventoryItemUpdate(driver, close => cleanup.push(close)); }, 180_000);
+  beforeEach(() => { caseCleanupStart = cleanup.length; });
+  afterEach(async () => {
+    const transient = caseCleanupStart === undefined ? [] : cleanup.splice(caseCleanupStart);
+    caseCleanupStart = undefined;
+    const failures: unknown[] = [];
+    for (const close of transient.reverse()) {
+      try { await close(); } catch (error) { failures.push(error); }
+    }
+    if (failures.length !== 0) throw new AggregateError(failures, "Unable to close Inventory consumer case hosts");
+  }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
   it("requires the authentic Inventory resource for empty input and publishes no item facts or events", async () => {
@@ -41,8 +46,8 @@ describe("native Inventory Item attribute updates on shared logical storage", { 
       const before = await snapshot(), key = host.newRequestKey();
       expect(await Effect.runPromise(host.run(key, { updates: [] }))).toEqual([]);
       expect(list).not.toHaveBeenCalled(); expect(update).not.toHaveBeenCalled();
-      expect(await rows()).toEqual(before.rows); expect(await facts()).toEqual(before.facts); expect(await events()).toEqual(before.events);
-      expect((await commits()).length - before.commits.length).toBe(1);
+      expect(await rows()).toEqual(before.rows); expect(await revisions()).toEqual(before.revisions); expect(await events()).toEqual(before.events);
+      expect((await outcomes()).length - before.outcomes.length).toBe(1);
       const committed = await snapshot();
       expect(await Effect.runPromise(host.run(key, { updates: [] }))).toEqual([]); expect(await snapshot()).toEqual(committed);
     } finally { list.mockRestore(); update.mockRestore(); }
@@ -74,8 +79,8 @@ describe("native Inventory Item attribute updates on shared logical storage", { 
       expect(emitted.map(event => event.envelope.contract)).toEqual(ids.map(() => eventName));
       expect(emitted.map(event => event.envelope.message)).toEqual(ids.map(id => expect.objectContaining({ data: { id } })));
       expect(emitted.every(event => event.envelope.internal)).toBe(true);
-      expect((await facts()).length - before.facts.length).toBe(4); expect((await commits()).length - before.commits.length).toBe(1);
-      expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1);
+      expect((await revisions()).length - before.revisions.length).toBe(4); expect((await outcomes()).length - before.outcomes.length).toBe(1);
+      expect(new Set(emitted.map(event => event.timestamp)).size).toBe(1);
       const committed = await snapshot();
       expect(await Effect.runPromise(host.run(key, input))).toEqual(result); expect(native).toHaveBeenCalledTimes(1);
       await expect(Effect.runPromise(host.run(key, { updates: [{ id: ids[0]!, title: "Conflict" }] }))).rejects.toMatchObject({ reason: "requestConflict" });
@@ -108,7 +113,7 @@ describe("native Inventory Item attribute updates on shared logical storage", { 
         { id: ids[0], title: "First selected", metadata: { keep: ids[0], nested: { before: 0 }, added: "first" } },
         { id: ids[2], title: "Before 2", description: "Final third patch", metadata: { keep: ids[2], drop: "old", nested: { before: 2 }, added: "third" } },
       ]);
-      expect((await facts()).length - before.facts.length).toBe(2);
+      expect((await revisions()).length - before.revisions.length).toBe(2);
       expect((await events()).slice(before.events.length).map(event => event.envelope.message)).toEqual([ids[0], ids[2]].map(id => expect.objectContaining({ data: { id } })));
     } finally { list.mockRestore(); }
   }, 120_000);
@@ -118,8 +123,8 @@ describe("native Inventory Item attribute updates on shared logical storage", { 
     const original = await Effect.runPromise(connected.list(ids)), before = await snapshot();
     expect(await Effect.runPromise(host.run(host.newRequestKey(), { updates: ids.map(id => ({ id })) }))).toEqual(original);
     expect(await Effect.runPromise(connected.list(ids))).toEqual(original);
-    expect(await rows()).toEqual(before.rows); expect(await facts()).toEqual(before.facts); expect(await events()).toEqual(before.events);
-    expect((await commits()).length - before.commits.length).toBe(1);
+    expect(await rows()).toEqual(before.rows); expect(await revisions()).toEqual(before.revisions); expect(await events()).toEqual(before.events);
+    expect((await outcomes()).length - before.outcomes.length).toBe(1);
   });
 
   it("refuses missing and soft-deleted targets without partial updates", async () => {
@@ -127,9 +132,9 @@ describe("native Inventory Item attribute updates on shared logical storage", { 
     await Effect.runPromise(connected.remove([ids[1]!]));
     for (const missing of ["never-existing-item", ids[1]!]) {
       const before = await snapshot();
-      expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { updates: [
+      expectWorkflowTypedFailures(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { updates: [
         { id: ids[0]!, title: "Must roll back" }, { id: missing, title: "Refused" },
-      ] }))))).toBe(true);
+      ] }))));
       expect(await snapshot()).toEqual(before);
     }
   }, 120_000);
@@ -137,9 +142,9 @@ describe("native Inventory Item attribute updates on shared logical storage", { 
   it("enforces active SKU uniqueness and permits reuse after native soft deletion", async () => {
     const ids = await connected.seed("item-update-sku", 2), host = await connected.prepare();
     const before = await snapshot();
-    expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { updates: [
+    expectWorkflowTypedFailures(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { updates: [
       { id: ids[0]!, title: "Rollback uniqueness" }, { id: ids[1]!, sku: ids[0] + "-sku" },
-    ] }))))).toBe(true); expect(await snapshot()).toEqual(before);
+    ] })))); expect(await snapshot()).toEqual(before);
     await Effect.runPromise(connected.remove([ids[0]!]));
     expect(await Effect.runPromise(host.run(host.newRequestKey(), { updates: [{ id: ids[1]!, sku: ids[0] + "-sku" }] })))
       .toMatchObject([{ id: ids[1], sku: ids[0] + "-sku" }]);
@@ -154,7 +159,7 @@ describe("native Inventory Item attribute updates on shared logical storage", { 
         { updates: [{ id: ids[0], deleted_at: null }] }, { updates: [{ id: ids[0], updated_at: "2000-01-01T00:00:00Z" }] },
         { updates: [{ id: ids[0], weight: Infinity }] }, { updates: [{ id: ids[0], requires_shipping: null }] }]) {
         // @ts-expect-error Deliberately malformed public input exercises capture/decoding, not caller typing.
-        expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), input))))).toBe(true);
+        expectWorkflowTypedFailures(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), input))), "invalidInput");
       }
       expect(update).not.toHaveBeenCalled(); expect(await snapshot()).toEqual(before);
     } finally { update.mockRestore(); }
@@ -165,9 +170,10 @@ describe("native Inventory Item attribute updates on shared logical storage", { 
     for (const mode of ["throw", "result", "event", "malformed-event"] as const) {
       const original = InventoryModuleService.prototype.updateInventoryItems;
       let completed = false;
+      const injectedFailure = new Error("Late Inventory Item update failure");
       const native = vi.spyOn(InventoryModuleService.prototype, "updateInventoryItems").mockImplementation(async function (this: InventoryModuleService, ...args) {
         const result = await Reflect.apply(original, this, args); completed = true;
-        if (mode === "throw") throw new Error("Late Inventory Item update failure");
+        if (mode === "throw") throw injectedFailure;
         if (mode === "result") {
           if (!Array.isArray(result) || result[0] === undefined) throw new Error("Missing genuine array output");
           Object.defineProperty(result[0], "requires_shipping", { value: "invalid", enumerable: true, writable: true, configurable: true });
@@ -185,9 +191,11 @@ describe("native Inventory Item attribute updates on shared logical storage", { 
         return result;
       });
       try {
-        const before = await snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { updates: [{ id: ids[0]!, title: "Rollback" }] })));
-        if (Result.isSuccess(result)) throw new Error("Corrupt update unexpectedly committed");
-        expect(completed).toBe(true); expect(failurePath(result.failure)).toContain(mode === "throw" ? "adapterFailure" : mode === "malformed-event" ? "unadmittedEvent" : "receiptMismatch");
+        const before = await snapshot(), result = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { updates: [{ id: ids[0]!, title: "Rollback" }] })));
+        if (Exit.isSuccess(result)) throw new Error("Corrupt update unexpectedly committed");
+        expect(completed).toBe(true);
+        if (mode === "throw") expectWorkflowDefect(result, injectedFailure);
+        else expectWorkflowRefusal(result, mode === "malformed-event" ? "unadmittedEvent" : "receiptMismatch");
         expect(await snapshot()).toEqual(before);
       } finally { native.mockRestore(); }
     }
@@ -204,7 +212,7 @@ describe("native Inventory Item attribute updates on shared logical storage", { 
     });
     try {
       const before = await snapshot();
-      expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { updates: [{ id: ids[0]!, title: "Poisoned" }] }))))).toBe(true);
+      expectWorkflowTypedFailures(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { updates: [{ id: ids[0]!, title: "Poisoned" }] }))));
       expect(completed).toBe(true); expect(caught).toBe(true); expect(await snapshot()).toEqual(before);
     } finally { native.mockRestore(); }
   });
@@ -230,8 +238,7 @@ describe("native Inventory Item attribute updates on shared logical storage", { 
   }, 120_000);
 
   it("isolates identical IDs, SKU values and request keys across two authentic scopes", async () => {
-    const other = await prepareLogicalInventoryItemUpdate(driver, close => cleanup.push(close), { resource: connected.fixture.resource,
-      fixtureIdentity: { deploymentId: "inventory_item_update_shop_b", projectId: "inventory_item_update_shop_b", uuidOffset: 270_000 } });
+    const other = await prepareCoreInventoryItemUpdate(driver, close => cleanup.push(close), { physical: connected.fixture.physical });
     const ids = await connected.seed("item-update-scope"), otherIds = await other.seed("item-update-scope");
     const left = await connected.prepare(), right = await other.prepare(), key = left.newRequestKey();
     const leftInput = { updates: [{ id: ids[0]!, title: "First scope", sku: "same-updated-sku" }] },

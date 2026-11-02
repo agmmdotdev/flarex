@@ -1,16 +1,17 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { Cause, Deferred, Effect, Fiber, Result, Schema } from "effect";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { Cause, Deferred, Effect, Fiber, Schema, Exit } from "effect";
 import { InventoryModuleService } from "@medusajs/inventory/services";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { CommerceTransactionError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { InventoryLevelBatchInput, prepareInventoryLevelBatchWorkflow } from "../src/workflows/inventory/batch-levels";
-import { prepareLogicalInventoryLevelBatch } from "./support/logical-inventory-level-batch-fixture";
-import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
+import { prepareCoreInventoryLevelBatch } from "./support/core-inventory-level-batch-fixture";
+import { expectWorkflowDefect, expectWorkflowTypedFailures } from "./support/workflow-failure-assertions";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalInventoryLevelBatch>>;
-const snapshot = () => logicalCurrencyInventory(connected.fixture);
+let caseCleanupStart: number | undefined;
+let connected: Awaited<ReturnType<typeof prepareCoreInventoryLevelBatch>>;
+const snapshot = () => connected.fixture.snapshot();
 const decodeIds = Schema.decodeUnknownSync(Schema.Array(Schema.String));
 function reasons(value: unknown): string[] {
   if (Cause.isCause(value)) return value.reasons.flatMap(reason => reason._tag === "Fail" ? reasons(reason.error) : reason._tag === "Die" ? reasons(reason.defect) : ["Interrupt"]);
@@ -33,7 +34,17 @@ function eventIds(events: Awaited<ReturnType<typeof snapshot>>["events"], action
 }
 
 describe("native parallel Inventory Level batch on shared logical storage", { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalInventoryLevelBatch(driver, close => cleanup.push(close)); }, 240_000);
+  beforeAll(async () => { connected = await prepareCoreInventoryLevelBatch(driver, close => cleanup.push(close)); }, 240_000);
+  beforeEach(() => { caseCleanupStart = cleanup.length; });
+  afterEach(async () => {
+    const transient = caseCleanupStart === undefined ? [] : cleanup.splice(caseCleanupStart);
+    caseCleanupStart = undefined;
+    const failures: unknown[] = [];
+    for (const close of transient.reverse()) {
+      try { await close(); } catch (error) { failures.push(error); }
+    }
+    if (failures.length !== 0) throw new AggregateError(failures, "Unable to close Inventory consumer case hosts");
+  }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
   it("preserves omitted versus explicit empty deleted output and genuine empty callback resolution", async () => {
@@ -44,8 +55,8 @@ describe("native parallel Inventory Level batch on shared logical storage", { co
         const before = await snapshot(), key = host.newRequestKey(), output = await Effect.runPromise(host.run(key, input));
         expect(output).toEqual("delete" in input ? { created: [], updated: [], deleted: [] } : { created: [], updated: [] });
         expect(Object.hasOwn(output, "deleted")).toBe("delete" in input); expect(create.mock.calls.at(-1)?.[0]).toEqual([]);
-        const after = await snapshot(); expect(after.rows).toEqual(before.rows); expect(after.events).toEqual(before.events); expect(after.rowChanges).toEqual(before.rowChanges);
-        expect(after.commits.length - before.commits.length).toBe(1); expect(await Effect.runPromise(host.run(key, input))).toEqual(output); expect(await snapshot()).toEqual(after);
+        const after = await snapshot(); expect(after.rows).toEqual(before.rows); expect(after.events).toEqual(before.events); expect(after.revisions).toEqual(before.revisions);
+        expect(after.outcomes.length - before.outcomes.length).toBe(1); expect(await Effect.runPromise(host.run(key, input))).toEqual(output); expect(await snapshot()).toEqual(after);
       }
       expect(create).toHaveBeenCalledTimes(3); expect(update).not.toHaveBeenCalled(); expect(softDelete).not.toHaveBeenCalled();
     } finally { create.mockRestore(); update.mockRestore(); softDelete.mockRestore(); }
@@ -72,8 +83,8 @@ describe("native parallel Inventory Level batch on shared logical storage", { co
     }
     expect(await connected.preserved()).toEqual(preserved); expect(await Effect.runPromise(connected.probe(protectedGraph.items))).toEqual(protectedRows);
     const after = await snapshot(), emitted = after.events.slice(before.events.length);
-    expect(after.commits.length - before.commits.length).toBe(1); expect(after.rowChanges.length - before.rowChanges.length).toBe(16);
-    expect(emitted).toHaveLength(16); expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1); expect(emitted.every(event => event.envelope.internal)).toBe(true);
+    expect(after.outcomes.length - before.outcomes.length).toBe(1); expect(after.revisions.length - before.revisions.length).toBe(16);
+    expect(emitted).toHaveLength(16); expect(new Set(emitted.map(event => event.timestamp)).size).toBe(1); expect(emitted.every(event => event.envelope.internal)).toBe(true);
     expect(eventIds(emitted, "created")).toEqual(output.created.map(row => row.id)); expect(eventIds(emitted, "updated")).toEqual(output.updated.map(row => row.id));
     expect(eventIds(emitted, "deleted")).toEqual([...graph.input.delete!].sort());
     expect(await Effect.runPromise(host.run(key, graph.input))).toEqual(output); expect(await snapshot()).toEqual(after);
@@ -90,11 +101,11 @@ describe("native parallel Inventory Level batch on shared logical storage", { co
 
   it("retains Inventory Item FK enforcement and rolls back a valid sibling create when another Item is missing", async () => {
     const graph = await connected.seed("level-batch-missing-item"), host = await connected.prepare();
-    const before = await snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { create: [
+    const before = await snapshot(), result = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { create: [
       { inventory_item_id: graph.items[0]!, location_id: "level-batch-valid-sibling-location", stocked_quantity: 2.5 },
       { inventory_item_id: "level-batch-absent-inventory-item", location_id: "level-batch-missing-item-location", stocked_quantity: 4.5 },
     ] })));
-    expect(Result.isFailure(result)).toBe(true); expect(await snapshot()).toEqual(before);
+    expectWorkflowTypedFailures(result); expect(await snapshot()).toEqual(before);
   }, 120_000);
 
   it("preserves raw repeated and missing delete IDs while selecting actual Levels and respecting force", async () => {
@@ -102,9 +113,9 @@ describe("native parallel Inventory Level batch on shared logical storage", { co
     await Effect.runPromise(connected.setQuantities(graph.pairs, 0, 5.5));
     const before = await snapshot(), result = await Effect.runPromise(host.run(host.newRequestKey(), { delete: ids }));
     expect(result).toEqual({ created: [], updated: [], deleted: ids });
-    expect((await snapshot()).rowChanges.length - before.rowChanges.length).toBe(2);
+    expect((await snapshot()).revisions.length - before.revisions.length).toBe(2);
     const again = await snapshot(); expect(await Effect.runPromise(host.run(host.newRequestKey(), { delete: ids }))).toEqual(result);
-    const after = await snapshot(); expect(after.rows).toEqual(again.rows); expect(after.events).toEqual(again.events); expect(after.rowChanges).toEqual(again.rowChanges);
+    const after = await snapshot(); expect(after.rows).toEqual(again.rows); expect(after.events).toEqual(again.events); expect(after.revisions).toEqual(again.revisions);
   }, 180_000);
 
   it("retains last keyed update semantics for repeated tuple requests", async () => {
@@ -124,10 +135,10 @@ describe("native parallel Inventory Level batch on shared logical storage", { co
     }), Effect.ensuring(Effect.sync(() => console.info("Native Level creation inverse calls", inverseCalls)))))).toBeNull();
     expect(inverseCalls).toBeGreaterThan(0); expect(inverseCalls).toBeLessThanOrEqual(64);
     const afterPhysical = await snapshot(), removedIds = eventIds(afterPhysical.events.slice(beforePhysical.events.length), "deleted");
-    const physicalCommits = afterPhysical.commits.slice(beforePhysical.commits.length); expect(physicalCommits).toHaveLength(1);
-    const committed = new Set(physicalCommits.map(commit => commit.commitSeq)), tombstones = afterPhysical.revisions.filter(row => committed.has(row.commitSeq));
-    expect(afterPhysical.rowChanges.length - beforePhysical.rowChanges.length).toBe(8); expect(tombstones).toHaveLength(8);
-    expect(tombstones.every(row => row.isTombstone && row.valueBytes === null && row.valueSha256 === null)).toBe(true);
+    const physicalCommits = afterPhysical.outcomes.slice(beforePhysical.outcomes.length); expect(physicalCommits).toHaveLength(1);
+    const committed = new Set(physicalCommits.map(commit => commit.timestamp)), tombstones = afterPhysical.revisions.filter(row => committed.has(row.timestamp));
+    expect(afterPhysical.revisions.length - beforePhysical.revisions.length).toBe(8); expect(tombstones).toHaveLength(8);
+    expect(tombstones.every(row => row.deleted && row.value === null)).toBe(true);
     expect(removedIds).toHaveLength(8); expect(new Set(removedIds)).toEqual(new Set(created.compensation));
     expect(await Effect.runPromise(connected.probe(graph.items))).toEqual(beforeLevels);
     const updates = graph.pairs.map(pair => ({ ...pair, stocked_quantity: -2.5, incoming_quantity: 7.25 }));
@@ -141,7 +152,7 @@ describe("native parallel Inventory Level batch on shared logical storage", { co
     expect(await Effect.runPromise(host.run(host.newRequestKey(), { delete: ids, force: true }))).toMatchObject({ deleted: ids });
     for (const active of [false, true]) {
       const before = await snapshot(); expect(await Effect.runPromise(probes.undoDelete.run(probes.undoDelete.newRequestKey(), ids))).toBeNull();
-      const after = await snapshot(); expect(after.rowChanges.length - before.rowChanges.length).toBe(active ? 0 : 4);
+      const after = await snapshot(); expect(after.revisions.length - before.revisions.length).toBe(active ? 0 : 4);
       expect(eventIds(after.events.slice(before.events.length), "restored")).toEqual([...ids].sort());
     }
     const beforeEmpty = await snapshot(); expect(await Effect.runPromise(probes.undoCreate.run(probes.undoCreate.newRequestKey(), []))).toBeNull();
@@ -155,19 +166,20 @@ describe("native parallel Inventory Level batch on shared logical storage", { co
       ...(mode === "reserved" ? { delete: graph.levels.map(row => row.id), force: true } : {}),
       ...(mode === "missing-update" ? { update: [{ inventory_item_id: graph.items[0]!, location_id: "missing-native-update-location" }] } : {}) };
     if (mode === "duplicate-create") input.create!.push({ ...input.create![0]! });
-    const before = await snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), input)));
-    expect(Result.isFailure(result)).toBe(true); expect(await snapshot()).toEqual(before);
+    const before = await snapshot(), result = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), input)));
+    expectWorkflowTypedFailures(result); expect(await snapshot()).toEqual(before);
   }, 180_000);
 
   it("characterizes overlapping update/delete through native parallel outcomes without a new disjointness rule", async () => {
     const graph = await connected.seed("level-batch-overlap"), host = await connected.prepare(), id = graph.levels[0]!.id;
-    const before = await snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), {
+    const before = await snapshot(), result = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), {
       update: [{ ...graph.pairs[0]!, stocked_quantity: 25 }], delete: [id], force: true })));
-    if (Result.isSuccess(result)) {
-      expect(result.success.updated).toHaveLength(1); expect(result.success.deleted).toEqual([id]);
+    if (Exit.isSuccess(result)) {
+      expect(result.value.updated).toHaveLength(1); expect(result.value.deleted).toEqual([id]);
       expect((await Effect.runPromise(connected.probe(graph.items))).find(row => row.id === id)?.deleted_at).toBeTypeOf("string");
     } else {
-      expect(nativeFailure(result.failure)).toMatchObject({ type: "not_found" }); expect(await snapshot()).toEqual(before);
+      expectWorkflowTypedFailures(result, "adapterFailure");
+      expect(nativeFailure(result.cause)).toMatchObject({ type: "not_found" }); expect(await snapshot()).toEqual(before);
     }
   }, 180_000);
 
@@ -179,7 +191,7 @@ describe("native parallel Inventory Level batch on shared logical storage", { co
         { update: Array.from({ length: 5 }, () => ({ inventory_item_id: "item", location_id: "location" })) }, { delete: Array.from({ length: 5 }, () => "duplicate") },
         { force: "yes" }, { create: null }, { update: [{ id: "only-id" }] }, { delete: { $in: [] } }, { metadata: {} }]) {
         // @ts-expect-error Deliberately malformed public workflow boundary.
-        expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), input))))).toBe(true);
+        expectWorkflowTypedFailures(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), input))), "invalidInput");
       }
       expect(native).not.toHaveBeenCalled(); expect(await snapshot()).toEqual(before);
     } finally { native.mockRestore(); }
@@ -190,17 +202,20 @@ describe("native parallel Inventory Level batch on shared logical storage", { co
     for (const mode of ["update-error", "forged-delete-map"] as const) {
       const originalUpdate = InventoryModuleService.prototype.updateInventoryLevels, originalDelete = InventoryModuleService.prototype.softDeleteInventoryLevels;
       let completed = false;
+      const injectedFailure = new Error("Late native batch update failure");
       const update = vi.spyOn(InventoryModuleService.prototype, "updateInventoryLevels").mockImplementation(async function (this: InventoryModuleService, ...args) {
-        const result = await Reflect.apply(originalUpdate, this, args); if (mode === "update-error") { completed = true; throw new Error("Late native batch update failure"); } return result;
+        const result = await Reflect.apply(originalUpdate, this, args); if (mode === "update-error") { completed = true; throw injectedFailure; } return result;
       });
       const deletion = vi.spyOn(InventoryModuleService.prototype, "softDeleteInventoryLevels").mockImplementation(async function (this: InventoryModuleService, ...args) {
         const result = await Reflect.apply(originalDelete, this, args); if (mode === "forged-delete-map") { completed = true; return { ...result, inventory_level_id: ["forged-batch-result"] }; } return result;
       });
       try {
-        const before = await snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), {
+        const before = await snapshot(), result = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), {
           create: [{ inventory_item_id: graph.items[0]!, location_id: "level-batch-late-new" }], update: [{ ...graph.pairs[0]!, stocked_quantity: 17 }],
           delete: [graph.levels[1]!.id], force: true })));
-        expect(Result.isFailure(result)).toBe(true); expect(completed).toBe(true); expect(await snapshot()).toEqual(before);
+        if (mode === "update-error") expectWorkflowDefect(result, injectedFailure);
+        else expectWorkflowTypedFailures(result);
+        expect(completed).toBe(true); expect(await snapshot()).toEqual(before);
       } finally { update.mockRestore(); deletion.mockRestore(); }
     }
   }, 240_000);
@@ -213,7 +228,7 @@ describe("native parallel Inventory Level batch on shared logical storage", { co
       try { await this.updateInventoryItems({ id: graph.items[0]!, title: "Unadmitted sibling" }); } catch { caught = true; } return result;
     });
     try {
-      const before = await snapshot(); expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { create: [{ inventory_item_id: graph.items[0]!, location_id: "level-batch-poison-new" }] }))))).toBe(true);
+      const before = await snapshot(); expectWorkflowTypedFailures(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { create: [{ inventory_item_id: graph.items[0]!, location_id: "level-batch-poison-new" }] }))));
       expect(caught).toBe(true); expect(await snapshot()).toEqual(before); if (escaped === undefined) throw new Error("Missing escaped native callback");
       await expect(escaped()).rejects.toBeDefined(); expect(await snapshot()).toEqual(before);
     } finally { native.mockRestore(); }
@@ -243,21 +258,21 @@ describe("native parallel Inventory Level batch on shared logical storage", { co
     const native = vi.spyOn(InventoryModuleService.prototype, "softDeleteInventoryLevels").mockImplementation(async function (this: InventoryModuleService, ...args) {
       const result = await Reflect.apply(original, this, args); await Effect.runPromise(Deferred.succeed(reached, undefined)); await new Promise<void>(resolve => { finish = resolve; }); return result;
     });
-    const pending = Effect.runPromise(Effect.result(host.run(host.newRequestKey(), graph.input)));
+    const pending = Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), graph.input)));
     try {
       await Effect.runPromise(Deferred.await(reached).pipe(Effect.timeout(30_000)));
       if (kind === "reservation") await Effect.runPromise(connected.reservations.run(connected.reservations.newRequestKey(), { reservations: [{ ...pair, quantity: 3 }] }).pipe(Effect.timeout(30_000)));
       else if (kind === "adjustment") await Effect.runPromise(connected.adjust.run(connected.adjust.newRequestKey(), [{ ...pair, adjustment: 1 }]).pipe(Effect.timeout(30_000)));
       else await Effect.runPromise(updater.run(updater.newRequestKey(), { updates: [{ ...pair, stocked_quantity: 31 }] }).pipe(Effect.timeout(30_000)));
       const committed = await snapshot(); finish?.(); const result = await pending;
-      if (Result.isSuccess(result)) throw new Error("Stale complete Level batch committed after a native competitor");
-      expect(reasons(result.failure)).toContain("writeConflict"); expect(await snapshot()).toEqual(committed);
+      if (Exit.isSuccess(result)) throw new Error("Stale complete Level batch committed after a native competitor");
+      expectWorkflowTypedFailures(result, "writeConflict");
+      expect(reasons(result.cause)).toContain("writeConflict"); expect(await snapshot()).toEqual(committed);
     } finally { finish?.(); await pending; native.mockRestore(); }
   }, 180_000);
 
   it("isolates actual scopes with identical selectors and request keys", async () => {
-    const other = await prepareLogicalInventoryLevelBatch(driver, close => cleanup.push(close), { resource: connected.fixture.resource,
-      fixtureIdentity: { deploymentId: "inventory_level_batch_shop_b", projectId: "inventory_level_batch_shop_b", uuidOffset: 470_000 } });
+    const other = await prepareCoreInventoryLevelBatch(driver, close => cleanup.push(close), { physical: connected.fixture.physical });
     const leftGraph = await connected.seed("level-batch-scope"), rightGraph = await other.seed("level-batch-scope"), left = await connected.prepare(), right = await other.prepare();
     const key = left.newRequestKey(), input = { delete: leftGraph.levels.map(row => row.id), force: true };
     const rightInput = { delete: rightGraph.levels.map(row => row.id), force: true };
@@ -269,10 +284,11 @@ describe("native parallel Inventory Level batch on shared logical storage", { co
 
   it("refuses a different authentic module profile before preparing callbacks", async () => {
     const before = await snapshot();
-    const result = await Effect.runPromise(Effect.result(prepareInventoryLevelBatchWorkflow({ ...connected.options,
+    const result = await Effect.runPromise(Effect.exit(prepareInventoryLevelBatchWorkflow({ ...connected.options,
       // @ts-expect-error Deliberately wrong authentic module contract.
       modules: { inventory: { ...connected.options.modules.inventory, module: connected.deletion.workflow } },
     })));
-    expect(Result.isFailure(result)).toBe(true); expect(await snapshot()).toEqual(before);
+    expect(expectWorkflowTypedFailures(result).map(failure => failure.reason)).toEqual(["invalidAuthority"]);
+    expect(await snapshot()).toEqual(before);
   });
 });

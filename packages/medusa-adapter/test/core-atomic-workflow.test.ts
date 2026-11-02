@@ -131,14 +131,26 @@ describe(`${driver} ordinary atomic workflow owner`, () => {
         .toEqual(localDefinition.identity);
       expect(localDefinition.identity.scopeUuid).not.toBe(foreignDefinition.identity.scopeUuid);
       expect(await tested.readRows("currency", ["xlo"])).toEqual([expect.objectContaining({ code: "xlo" })]);
-      const forged = await tested.run(Effect.exit(profile(tested,
-        (context, args) => context.call(participant, write, args), { source: new Proxy(portable, {}) }).prepared));
-      expect(failures(forged)).toEqual([expect.objectContaining({ reason: "unsupportedProfile" })]);
       const mismatchedDefinition = await Effect.runPromise(compileCurrencyCoreDefinition({ scopeUuid: randomUUID(), epochUuid: randomUUID(), applicationRead: true }));
       const mismatched = Result.getOrThrow(defineAtomicCommerceNativeSource("currency", mismatchedDefinition));
-      const denied = await tested.run(Effect.exit(profile(tested,
-        (context, args) => context.call(participant, write, args), { source: mismatched }).prepared));
-      expect(failures(denied)).toEqual([expect.objectContaining({ reason: "invalidAuthority" })]);
+      let deniedBodyCalls = 0;
+      for (const attempt of [{ source: new Proxy(portable, {}), reason: "unsupportedProfile", code: "xpx" },
+        { source: mismatched, reason: "invalidAuthority", code: "xmm" }]) {
+        const beforeDenial = await tested.snapshot();
+        const denied = await host(tested, (context, args) => Effect.gen(function* () {
+          deniedBodyCalls++;
+          return yield* context.call(participant, write, args);
+        }), { source: attempt.source });
+        try {
+          const result = await tested.run(Effect.exit(denied.run(denied.selected.newRequestKey(), argumentsFor(attempt.code))));
+          if (Exit.isSuccess(result)) throw new Error("Expected native source refusal before its body");
+          expect(result.cause.reasons).toHaveLength(1);
+          expect(result.cause.reasons.every(Cause.isFailReason)).toBe(true);
+          expect(failures(result)).toEqual([expect.objectContaining({ reason: attempt.reason })]);
+          expect(deniedBodyCalls).toBe(0);
+          expect(await tested.snapshot()).toEqual(beforeDenial);
+        } finally { await Effect.runPromise(denied.selected.close); }
+      }
       await Effect.runPromise(local.selected.close);
       const foreign = defineAtomicCommerceParticipant("foreign");
       const selected = await host(tested, (context, args) => Effect.gen(function* () {

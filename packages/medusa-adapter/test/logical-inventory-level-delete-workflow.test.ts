@@ -1,18 +1,19 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { Cause, Deferred, Effect, Fiber, Result, Schema } from "effect";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { Cause, Deferred, Effect, Fiber, Result, Schema, Exit } from "effect";
 import { InventoryModuleService } from "@medusajs/inventory/services";
 import * as localGraph from "../src/local-graph/query";
 import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { CommerceTransactionError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { InventoryLevelDeletionInput, prepareInventoryLevelDeletionWorkflow } from "../src/workflows/inventory/delete-levels";
 import { InventoryLevelDeletionIds } from "../src/modules/inventory/delete-level-input";
-import { prepareLogicalInventoryLevelDeletion } from "./support/logical-inventory-level-delete-fixture";
-import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
+import { prepareCoreInventoryLevelDeletion } from "./support/core-inventory-level-delete-fixture";
+import { expectWorkflowDefect, expectWorkflowRefusal, expectWorkflowTypedFailures } from "./support/workflow-failure-assertions";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalInventoryLevelDeletion>>;
-const snapshot = () => logicalCurrencyInventory(connected.fixture);
+let caseCleanupStart: number | undefined;
+let connected: Awaited<ReturnType<typeof prepareCoreInventoryLevelDeletion>>;
+const snapshot = () => connected.fixture.snapshot();
 const deleted = "inventory.inventory-level.deleted", restored = "inventory.inventory-level.restored";
 const decodeIds = Schema.decodeUnknownSync(InventoryLevelDeletionIds);
 function failurePath(value: unknown): string[] {
@@ -33,7 +34,17 @@ const eventIds = (events: Awaited<ReturnType<typeof snapshot>>["events"]) => eve
 const ids = (graph: Awaited<ReturnType<typeof connected.seed>>) => graph.levels.map(level => level.id);
 
 describe("native Inventory Level deletion on shared logical storage", { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalInventoryLevelDeletion(driver, close => cleanup.push(close)); }, 180_000);
+  beforeAll(async () => { connected = await prepareCoreInventoryLevelDeletion(driver, close => cleanup.push(close)); }, 180_000);
+  beforeEach(() => { caseCleanupStart = cleanup.length; });
+  afterEach(async () => {
+    const transient = caseCleanupStart === undefined ? [] : cleanup.splice(caseCleanupStart);
+    caseCleanupStart = undefined;
+    const failures: unknown[] = [];
+    for (const close of transient.reverse()) {
+      try { await close(); } catch (error) { failures.push(error); }
+    }
+    if (failures.length !== 0) throw new AggregateError(failures, "Unable to close Inventory consumer case hosts");
+  }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
   it("queries empty selectors completely, skips empty deletion, and retains projected incoming omission on four actual Levels", async () => {
@@ -50,8 +61,8 @@ describe("native Inventory Level deletion on shared logical storage", { concurre
       const beforeEmpty = await snapshot(), emptyKey = host.newRequestKey();
       expect(await Effect.runPromise(host.run(emptyKey, {}))).toBeNull();
       expect(list).toHaveBeenCalledTimes(1); expect(softDelete).not.toHaveBeenCalled();
-      const afterEmpty = await snapshot(); expect(afterEmpty.rows).toEqual(beforeEmpty.rows); expect(afterEmpty.rowChanges).toEqual(beforeEmpty.rowChanges);
-      expect(afterEmpty.events).toEqual(beforeEmpty.events); expect(afterEmpty.commits.length - beforeEmpty.commits.length).toBe(1);
+      const afterEmpty = await snapshot(); expect(afterEmpty.rows).toEqual(beforeEmpty.rows); expect(afterEmpty.revisions).toEqual(beforeEmpty.revisions);
+      expect(afterEmpty.events).toEqual(beforeEmpty.events); expect(afterEmpty.outcomes.length - beforeEmpty.outcomes.length).toBe(1);
       expect(await Effect.runPromise(host.run(emptyKey, {}))).toBeNull(); expect(await snapshot()).toEqual(afterEmpty);
       const graph = await connected.seed("level-delete-all-four", 4); await Effect.runPromise(connected.setQuantities(graph.pairs, 0, 5.25));
       const original = await Effect.runPromise(connected.probe(graph.items)), before = await snapshot(); list.mockClear(); softDelete.mockClear();
@@ -68,7 +79,7 @@ describe("native Inventory Level deletion on shared logical storage", { concurre
       const remaining = await Effect.runPromise(connected.probe(graph.items));
       for (const level of original) expect(remaining.find(row => row.id === level.id))
         .toEqual({ ...level, deleted_at: expect.any(String), updated_at: expect.any(String) });
-      const after = await snapshot(); expect(after.rowChanges.length - before.rowChanges.length).toBe(4);
+      const after = await snapshot(); expect(after.revisions.length - before.revisions.length).toBe(4);
       expect(after.events.slice(before.events.length).map(event => event.envelope.contract)).toEqual(Array.from({ length: 4 }, () => deleted));
     } finally { graph.mockRestore(); list.mockRestore(); softDelete.mockRestore(); }
   }, 180_000);
@@ -89,10 +100,10 @@ describe("native Inventory Level deletion on shared logical storage", { concurre
       for (const row of original) expect(stored.find(level => level.id === row.id)).toEqual({ ...row, deleted_at: expect.any(String), updated_at: expect.any(String) });
       expect(await connected.preserved()).toEqual(preserved);
       const after = await snapshot(), emitted = after.events.slice(before.events.length);
-      expect(after.rowChanges.length - before.rowChanges.length).toBe(4); expect(after.commits.length - before.commits.length).toBe(1);
+      expect(after.revisions.length - before.revisions.length).toBe(4); expect(after.outcomes.length - before.outcomes.length).toBe(1);
       expect(emitted.map(event => event.envelope.contract)).toEqual(selected.map(() => deleted));
       expect(eventIds(emitted)).toEqual([...selected].sort()); expect(emitted.every(event => event.envelope.internal)).toBe(true);
-      expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1);
+      expect(new Set(emitted.map(event => event.timestamp)).size).toBe(1);
       expect(await Effect.runPromise(host.run(key, input))).toBeNull(); expect(native).toHaveBeenCalledTimes(1);
       await expect(Effect.runPromise(host.run(key, { id: [...selected].reverse() }))).rejects.toMatchObject({ reason: "requestConflict" });
       await expect(Effect.runPromise(otherRevision.run(key, input))).rejects.toMatchObject({ reason: "requestConflict" });
@@ -105,7 +116,7 @@ describe("native Inventory Level deletion on shared logical storage", { concurre
     const native = vi.spyOn(InventoryModuleService.prototype, "softDeleteInventoryLevels");
     try {
       expect(graph.levels).toHaveLength(5); const before = await snapshot();
-      expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { location_id: graph.location }))))).toBe(true);
+      expectWorkflowTypedFailures(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { location_id: graph.location }))));
       expect(native).not.toHaveBeenCalled(); expect(await snapshot()).toEqual(before);
       for (const level of await connected.probeCohort(graph.items)) expect(level.deleted_at).toBeNull();
     } finally { native.mockRestore(); }
@@ -117,17 +128,19 @@ describe("native Inventory Level deletion on shared logical storage", { concurre
     try {
       const before = await snapshot();
       for (const force of [false, true]) {
-        const result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { id: ids(protectedGraph), force })));
-        if (Result.isSuccess(result)) throw new Error("Native positive reservation guard was bypassed");
-        expect(nativeFailure(result.failure)).toMatchObject({ type: "not_allowed", message:
+        const result = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { id: ids(protectedGraph), force })));
+        if (Exit.isSuccess(result)) throw new Error("Native positive reservation guard was bypassed");
+        expectWorkflowTypedFailures(result, "adapterFailure");
+        expect(nativeFailure(result.cause)).toMatchObject({ type: "not_allowed", message:
           `Cannot remove Inventory Levels for ${protectedGraph.location} because there are reserved or incoming items at the locations` });
         expect(await snapshot()).toEqual(before);
       }
       expect(native).not.toHaveBeenCalled();
       const graph = await connected.seed("level-delete-stocked", 2), stocked = await snapshot();
-      const result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { id: ids(graph) })));
-      if (Result.isSuccess(result)) throw new Error("Native positive-stock guard was bypassed");
-      expect(nativeFailure(result.failure)).toMatchObject({ type: "not_allowed", message:
+      const result = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { id: ids(graph) })));
+      if (Exit.isSuccess(result)) throw new Error("Native positive-stock guard was bypassed");
+      expectWorkflowTypedFailures(result, "adapterFailure");
+      expect(nativeFailure(result.cause)).toMatchObject({ type: "not_allowed", message:
         `Cannot remove Inventory Levels for ${graph.location} because there are stocked items at the locations. Use force flag to delete anyway.` });
       expect(await snapshot()).toEqual(stocked);
       expect(await Effect.runPromise(host.run(host.newRequestKey(), { id: ids(graph), force: true }))).toBeNull();
@@ -145,7 +158,7 @@ describe("native Inventory Level deletion on shared logical storage", { concurre
         } : { $or: graph.pairs.map(pair => ({ ...pair })) };
       const selected = kind === "combination" ? graph.levels.filter(level => level.inventory_item_id === graph.items[0]) : graph.levels;
       const before = await snapshot(); expect(await Effect.runPromise(host.run(host.newRequestKey(), input))).toBeNull();
-      expect((await snapshot()).rowChanges.length - before.rowChanges.length).toBe(selected.length);
+      expect((await snapshot()).revisions.length - before.revisions.length).toBe(selected.length);
       const stored = await Effect.runPromise(connected.probe(graph.items)), selectedIds = new Set(selected.map(level => level.id));
       for (const level of stored) expect(typeof level.deleted_at === "string").toBe(selectedIds.has(level.id));
     }
@@ -159,12 +172,12 @@ describe("native Inventory Level deletion on shared logical storage", { concurre
       expect(await Effect.runPromise(host.run(host.newRequestKey(), { id: [selected[1]!, "missing-native-level", selected[0]!, selected[1]!] }))).toBeNull();
       // Native buildQuery deduplicates ID-array values at their first occurrence.
       expect(native.mock.calls[0]?.[0]).toEqual([selected[1], selected[0]]);
-      expect((await snapshot()).rowChanges.length - before.rowChanges.length).toBe(2);
+      expect((await snapshot()).revisions.length - before.revisions.length).toBe(2);
       native.mockClear();
       for (const input of [{ id: [] }, { id: "missing-native-level" }, { id: selected }]) {
         const beforeNoop = await snapshot(); expect(await Effect.runPromise(host.run(host.newRequestKey(), input))).toBeNull();
-        const after = await snapshot(); expect(after.rows).toEqual(beforeNoop.rows); expect(after.rowChanges).toEqual(beforeNoop.rowChanges);
-        expect(after.events).toEqual(beforeNoop.events); expect(after.commits.length - beforeNoop.commits.length).toBe(1);
+        const after = await snapshot(); expect(after.rows).toEqual(beforeNoop.rows); expect(after.revisions).toEqual(beforeNoop.revisions);
+        expect(after.events).toEqual(beforeNoop.events); expect(after.outcomes.length - beforeNoop.outcomes.length).toBe(1);
       }
       expect(native).not.toHaveBeenCalled();
     } finally { native.mockRestore(); }
@@ -175,7 +188,7 @@ describe("native Inventory Level deletion on shared logical storage", { concurre
     await Effect.runPromise(connected.setQuantities(graph.pairs));
     const beforeEmpty = await snapshot(); expect(await Effect.runPromise(connected.nativeDelete([]))).toEqual({});
     expect(await Effect.runPromise(connected.nativeRestore([]))).toEqual({});
-    const empty = await snapshot(); expect(empty.rows).toEqual(beforeEmpty.rows); expect(empty.rowChanges).toEqual(beforeEmpty.rowChanges); expect(empty.events).toEqual(beforeEmpty.events);
+    const empty = await snapshot(); expect(empty.rows).toEqual(beforeEmpty.rows); expect(empty.revisions).toEqual(beforeEmpty.revisions); expect(empty.events).toEqual(beforeEmpty.events);
     expect(await Effect.runPromise(host.run(host.newRequestKey(), { id: selected }))).toBeNull();
     expect(await Effect.runPromise(connected.nativeDelete([selected[0]!, "missing-level"]))).toEqual({});
     const native = vi.spyOn(InventoryModuleService.prototype, "restoreInventoryLevels");
@@ -185,12 +198,12 @@ describe("native Inventory Level deletion on shared logical storage", { concurre
         expect(native.mock.calls.at(-1)?.[0]).toEqual(selected);
         expect(await native.mock.results.at(-1)?.value).toEqual({ inventory_level_id: [...selected].sort() });
         expect((await Effect.runPromise(connected.probe(graph.items))).every(level => level.deleted_at === null)).toBe(true);
-        const after = await snapshot(); expect(after.rowChanges.length - before.rowChanges.length).toBe(alreadyActive ? 0 : 2);
+        const after = await snapshot(); expect(after.revisions.length - before.revisions.length).toBe(alreadyActive ? 0 : 2);
         expect(after.events.slice(before.events.length).map(event => event.envelope.contract)).toEqual([restored, restored]);
       }
       native.mockClear(); const before = await snapshot();
       expect(await Effect.runPromise(restore.run(restore.newRequestKey(), []))).toBeNull(); expect(native).not.toHaveBeenCalled();
-      const after = await snapshot(); expect(after.rows).toEqual(before.rows); expect(after.rowChanges).toEqual(before.rowChanges); expect(after.events).toEqual(before.events);
+      const after = await snapshot(); expect(after.rows).toEqual(before.rows); expect(after.revisions).toEqual(before.revisions); expect(after.events).toEqual(before.events);
     } finally { native.mockRestore(); }
   }, 180_000);
 
@@ -203,7 +216,7 @@ describe("native Inventory Level deletion on shared logical storage", { concurre
       const before = await snapshot();
       for (const input of invalid) {
         // @ts-expect-error Deliberately malformed public deletion boundary.
-        expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), input))))).toBe(true);
+        expectWorkflowTypedFailures(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), input))), "invalidInput");
       }
       expect(native).not.toHaveBeenCalled(); expect(list).not.toHaveBeenCalled(); expect(await snapshot()).toEqual(before);
     } finally { native.mockRestore(); list.mockRestore(); }
@@ -213,9 +226,10 @@ describe("native Inventory Level deletion on shared logical storage", { concurre
     const graph = await connected.seed("level-delete-late"), host = await connected.prepare(); await Effect.runPromise(connected.setQuantities(graph.pairs));
     for (const mode of ["throw", "map", "event", "malformed-event"] as const) {
       const original = InventoryModuleService.prototype.softDeleteInventoryLevels; let completed = false;
+      const injectedFailure = new Error("Late native Level deletion failure");
       const native = vi.spyOn(InventoryModuleService.prototype, "softDeleteInventoryLevels").mockImplementation(async function (this: InventoryModuleService, ...args) {
         const result = await Reflect.apply(original, this, args); completed = true;
-        if (mode === "throw") throw new Error("Late native Level deletion failure");
+        if (mode === "throw") throw injectedFailure;
         if (mode === "map") return { ...result, inventory_level_id: ["forged-level-result"] };
         const bus: unknown = Reflect.get(this, "eventBusModuleService_");
         if (typeof bus !== "object" || bus === null) throw new Error("Missing native event bus");
@@ -225,9 +239,11 @@ describe("native Inventory Level deletion on shared logical storage", { concurre
         return result;
       });
       try {
-        const before = await snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { id: ids(graph) })));
-        if (Result.isSuccess(result)) throw new Error("Invalid native deletion committed");
-        expect(completed).toBe(true); expect(failurePath(result.failure)).toContain(mode === "throw" ? "adapterFailure" : mode === "malformed-event" ? "unadmittedEvent" : "receiptMismatch");
+        const before = await snapshot(), result = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { id: ids(graph) })));
+        if (Exit.isSuccess(result)) throw new Error("Invalid native deletion committed");
+        expect(completed).toBe(true);
+        if (mode === "throw") expectWorkflowDefect(result, injectedFailure);
+        else expectWorkflowRefusal(result, mode === "malformed-event" ? "unadmittedEvent" : "receiptMismatch");
         expect(await snapshot()).toEqual(before);
       } finally { native.mockRestore(); }
     }
@@ -241,8 +257,8 @@ describe("native Inventory Level deletion on shared logical storage", { concurre
       return [rows.map(row => ({ ...row, reserved_quantity: 0 })), count];
     });
     try {
-      const before = await snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { id: ids(graph), force: true })));
-      expect(Result.isFailure(result)).toBe(true); expect(await snapshot()).toEqual(before);
+      const before = await snapshot(), result = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { id: ids(graph), force: true })));
+      expectWorkflowTypedFailures(result); expect(await snapshot()).toEqual(before);
     } finally { list.mockRestore(); }
   }, 120_000);
 
@@ -255,7 +271,7 @@ describe("native Inventory Level deletion on shared logical storage", { concurre
       return result;
     });
     try {
-      const before = await snapshot(); expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { id: ids(graph) }))))).toBe(true);
+      const before = await snapshot(); expectWorkflowTypedFailures(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { id: ids(graph) }))));
       expect(caught).toBe(true); expect(await snapshot()).toEqual(before);
       if (escaped === undefined) throw new Error("Missing escaped native callback"); await expect(escaped()).rejects.toBeDefined();
       expect(await snapshot()).toEqual(before);
@@ -288,7 +304,7 @@ describe("native Inventory Level deletion on shared logical storage", { concurre
       const result = await Reflect.apply(original, this, args); await Effect.runPromise(Deferred.succeed(reached, undefined));
       await new Promise<void>(resolve => { finish = resolve; }); return result;
     });
-    const pending = Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { id: ids(graph), force: true })));
+    const pending = Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { id: ids(graph), force: true })));
     try {
       await Effect.runPromise(Deferred.await(reached).pipe(Effect.timeout(30_000)));
       if (kind === "reservation") await Effect.runPromise(connected.reservations.run(connected.reservations.newRequestKey(), {
@@ -296,15 +312,15 @@ describe("native Inventory Level deletion on shared logical storage", { concurre
       else if (kind === "adjustment") await Effect.runPromise(connected.adjust.run(connected.adjust.newRequestKey(), [{ ...graph.pairs[0]!, adjustment: 1 }]).pipe(Effect.timeout(30_000)));
       else await Effect.runPromise(updater.run(updater.newRequestKey(), { updates: [{ ...graph.pairs[0]!, stocked_quantity: 7 }] }).pipe(Effect.timeout(30_000)));
       const committed = await snapshot(); finish?.(); const result = await pending;
-      if (Result.isSuccess(result)) throw new Error("Stale native deletion committed after quantity change");
-      expect(failurePath(result.failure)).toContain("writeConflict"); expect(await snapshot()).toEqual(committed);
+      if (Exit.isSuccess(result)) throw new Error("Stale native deletion committed after quantity change");
+      expectWorkflowTypedFailures(result, "writeConflict");
+      expect(failurePath(result.cause)).toContain("writeConflict"); expect(await snapshot()).toEqual(committed);
       expect((await Effect.runPromise(connected.probe(graph.items)))[0]?.deleted_at).toBeNull();
     } finally { finish?.(); await pending; native.mockRestore(); }
   }, 120_000);
 
   it("isolates identical Item/Location selectors and request keys across actual scopes", async () => {
-    const other = await prepareLogicalInventoryLevelDeletion(driver, close => cleanup.push(close), { resource: connected.fixture.resource,
-      fixtureIdentity: { deploymentId: "inventory_level_deletion_shop_b", projectId: "inventory_level_deletion_shop_b", uuidOffset: 410_000 } });
+    const other = await prepareCoreInventoryLevelDeletion(driver, close => cleanup.push(close), { physical: connected.fixture.physical });
     const leftGraph = await connected.seed("level-delete-scope"), rightGraph = await other.seed("level-delete-scope");
     const left = await connected.prepare(), right = await other.prepare(), key = left.newRequestKey(), input = { inventory_item_id: leftGraph.items, force: true };
     expect(await Effect.runPromise(left.run(key, input))).toBeNull();
@@ -318,10 +334,11 @@ describe("native Inventory Level deletion on shared logical storage", { concurre
 
   it("refuses a different module profile before preparing native callbacks", async () => {
     const before = await snapshot();
-    const result = await Effect.runPromise(Effect.result(prepareInventoryLevelDeletionWorkflow({ ...connected.options,
+    const result = await Effect.runPromise(Effect.exit(prepareInventoryLevelDeletionWorkflow({ ...connected.options,
       // @ts-expect-error Deliberately provide a structurally wrong named module.
       modules: { inventory: { ...connected.options.modules.inventory, module: connected.update.workflow } },
     })));
-    expect(Result.isFailure(result)).toBe(true); expect(await snapshot()).toEqual(before);
+    expect(expectWorkflowTypedFailures(result).map(failure => failure.reason)).toEqual(["invalidAuthority"]);
+    expect(await snapshot()).toEqual(before);
   });
 });

@@ -1,5 +1,5 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { Cause, Deferred, Effect, Exit, Fiber, Schema } from "effect";
 import { InventoryModuleService } from "@medusajs/inventory/services";
 import { StockLocationModuleService } from "@medusajs/stock-location/services";
 import { BigNumber } from "@medusajs/utils/totals/big-number";
@@ -7,14 +7,14 @@ import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/exec
 import { CommerceTransactionError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { prepareInventoryLevelCreationWorkflow } from "../src/workflows/inventory/create-levels";
 import { projectExactNumericColumns } from "../src/value/exact-numeric";
-import { prepareLogicalInventoryLevelCreation } from "./support/logical-inventory-level-create-fixture";
-import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
+import { prepareCoreInventoryLevelCreation } from "./support/core-inventory-level-create-fixture";
+import { expectWorkflowDefect, expectWorkflowTypedFailures } from "./support/workflow-failure-assertions";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalInventoryLevelCreation>>;
-let sharedCleanupCount = 0;
-const snapshot = () => logicalCurrencyInventory(connected.fixture);
+let caseCleanupStart: number | undefined;
+let connected: Awaited<ReturnType<typeof prepareCoreInventoryLevelCreation>>;
+const snapshot = () => connected.fixture.snapshot();
 const decodeIds = Schema.decodeUnknownSync(Schema.Array(Schema.String));
 function reasons(value: unknown): string[] {
   if (Cause.isCause(value)) return value.reasons.flatMap(reason => reason._tag === "Fail" ? reasons(reason.error) : reason._tag === "Die" ? reasons(reason.defect) : ["Interrupt"]);
@@ -33,22 +33,32 @@ function eventIds(events: Awaited<ReturnType<typeof snapshot>>["events"], action
   });
 }
 async function refused(work: Effect.Effect<unknown, CommerceTransactionError>, reason: CommerceTransactionError["reason"], before: Awaited<ReturnType<typeof snapshot>>) {
-  const result = await Effect.runPromise(Effect.result(work));
-  if (Result.isSuccess(result)) throw new Error("Expected named Level creation refusal " + reason);
-  expect(reasons(result.failure), JSON.stringify(reasons(result.failure))).toContain(reason); expect(await snapshot()).toEqual(before); return result.failure;
+  const result = await Effect.runPromise(Effect.exit(work));
+  if (Exit.isSuccess(result)) throw new Error("Expected named Level creation refusal " + reason);
+  expectWorkflowTypedFailures(result);
+  expect(reasons(result.cause), JSON.stringify(reasons(result.cause))).toContain(reason); expect(await snapshot()).toEqual(before); return result.cause;
 }
 function tombstones(before: Awaited<ReturnType<typeof snapshot>>, after: Awaited<ReturnType<typeof snapshot>>, count: number) {
-  const commits = after.commits.slice(before.commits.length); expect(commits).toHaveLength(1);
-  const sequences = new Set(commits.map(commit => commit.commitSeq)), revisions = after.revisions.filter(row => sequences.has(row.commitSeq));
-  expect(after.rowChanges.length - before.rowChanges.length).toBe(count); expect(revisions).toHaveLength(count);
-  expect(revisions.every(row => row.isTombstone && row.valueBytes === null && row.valueSha256 === null)).toBe(true);
+  const commits = after.outcomes.slice(before.outcomes.length); expect(commits).toHaveLength(1);
+  const sequences = new Set(commits.map(commit => commit.timestamp)), revisions = after.revisions.filter(row => sequences.has(row.timestamp));
+  expect(after.revisions.length - before.revisions.length).toBe(count); expect(revisions).toHaveLength(count);
+  expect(revisions.every(row => row.deleted && row.value === null)).toBe(true);
 }
 
 describe("native standalone Inventory Level creation on shared logical storage", { concurrent: false }, () => {
   beforeAll(async () => {
-    connected = await prepareLogicalInventoryLevelCreation(driver, close => cleanup.push(close)); sharedCleanupCount = cleanup.length;
+    connected = await prepareCoreInventoryLevelCreation(driver, close => cleanup.push(close));
   }, 240_000);
-  afterEach(async () => { for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }, 120_000);
+  beforeEach(() => { caseCleanupStart = cleanup.length; });
+  afterEach(async () => {
+    const transient = caseCleanupStart === undefined ? [] : cleanup.splice(caseCleanupStart);
+    caseCleanupStart = undefined;
+    const failures: unknown[] = [];
+    for (const close of transient.reverse()) {
+      try { await close(); } catch (error) { failures.push(error); }
+    }
+    if (failures.length !== 0) throw new AggregateError(failures, "Unable to close Inventory consumer case hosts");
+  }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
   it("performs the required empty Query before the genuine empty Inventory call and replays one settlement", async () => {
@@ -60,8 +70,8 @@ describe("native standalone Inventory Level creation on shared logical storage",
       expect(query.mock.calls.map(call => call[0])).toEqual([{ id: [] }]); expect(levels.mock.calls.map(call => call[0])).toEqual([[]]);
       expect(query.mock.calls[0]?.[1]).toMatchObject({ select: ["id"], relations: [], order: { id: "ASC" }, skip: 0, take: expect.any(Number) });
       expect(query.mock.invocationCallOrder[0]).toBeLessThan(levels.mock.invocationCallOrder[0]!);
-      const after = await snapshot(); expect(after.rows).toEqual(before.rows); expect(after.events).toEqual(before.events); expect(after.rowChanges).toEqual(before.rowChanges);
-      expect(after.commits.length - before.commits.length).toBe(1);
+      const after = await snapshot(); expect(after.rows).toEqual(before.rows); expect(after.events).toEqual(before.events); expect(after.revisions).toEqual(before.revisions);
+      expect(after.outcomes.length - before.outcomes.length).toBe(1);
       expect(await Effect.runPromise(host.run(key, input))).toEqual([]); expect(await snapshot()).toEqual(after);
       expect(query).toHaveBeenCalledTimes(1); expect(levels).toHaveBeenCalledTimes(1);
     } finally { query.mockRestore(); levels.mockRestore(); }
@@ -97,9 +107,9 @@ describe("native standalone Inventory Level creation on shared logical storage",
     expect(graph.input).toEqual(inputBefore); expect(await connected.preserved()).toEqual(preserved);
     expect(await connected.probeCohort(protectedGraph.items)).toEqual(protectedLevels);
     const after = await snapshot(), emitted = after.events.slice(before.events.length);
-    expect(after.commits.length - before.commits.length).toBe(1); expect(after.rowChanges.length - before.rowChanges.length).toBe(8);
+    expect(after.outcomes.length - before.outcomes.length).toBe(1); expect(after.revisions.length - before.revisions.length).toBe(8);
     expect(emitted).toHaveLength(8); expect(emitted.every(event => event.envelope.internal && event.envelope.contract === "inventory.inventory-level.created")).toBe(true);
-    expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1); expect(eventIds(emitted, "created")).toEqual(output.map(row => row.id));
+    expect(new Set(emitted.map(event => event.timestamp)).size).toBe(1); expect(eventIds(emitted, "created")).toEqual(output.map(row => row.id));
     expect(await Effect.runPromise(host.run(key, graph.input))).toEqual(output); expect(await snapshot()).toEqual(after);
     await expect(Effect.runPromise(host.run(key, { inventory_levels: [] }))).rejects.toMatchObject({ reason: "requestConflict" });
     await expect(Effect.runPromise(revision.run(key, graph.input))).rejects.toMatchObject({ reason: "requestConflict" }); expect(await snapshot()).toEqual(after);
@@ -111,11 +121,12 @@ describe("native standalone Inventory Level creation on shared logical storage",
     if (mode === "deleted") { const deletion = await connected.prepareLocationDeletion(); await Effect.runPromise(deletion.run(deletion.newRequestKey(), [selected])); }
     const levels = vi.spyOn(InventoryModuleService.prototype, "createInventoryLevels");
     try {
-      const before = await snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { inventory_levels: [
+      const before = await snapshot(), result = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { inventory_levels: [
         { inventory_item_id: graph.items[0]!, location_id: selected }, { inventory_item_id: graph.items[0]!, location_id: selected },
       ] })));
-      if (Result.isSuccess(result)) throw new Error("Expected native missing-Location refusal");
-      expect(nativeFailure(result.failure)).toMatchObject({ type: "not_found", message: "Stock locations with ids: " + selected + " was not found" });
+      if (Exit.isSuccess(result)) throw new Error("Expected native missing-Location refusal");
+      expectWorkflowTypedFailures(result, "adapterFailure");
+      expect(nativeFailure(result.cause)).toMatchObject({ type: "not_found", message: "Stock locations with ids: " + selected + " was not found" });
       expect(levels).not.toHaveBeenCalled(); expect(await snapshot()).toEqual(before);
     } finally { levels.mockRestore(); }
   }, 180_000);
@@ -177,7 +188,7 @@ describe("native standalone Inventory Level creation on shared logical storage",
     try {
       for (const raw of [[], ids, [ids[0]!, ids[0]!, "level-create-absent-inverse"]]) {
         const previous = await snapshot(); expect(await Effect.runPromise(inverse.run(inverse.newRequestKey(), raw))).toBeNull();
-        const current = await snapshot(); expect(current.rows).toEqual(previous.rows); expect(current.events).toEqual(previous.events); expect(current.rowChanges).toEqual(previous.rowChanges);
+        const current = await snapshot(); expect(current.rows).toEqual(previous.rows); expect(current.events).toEqual(previous.events); expect(current.revisions).toEqual(previous.revisions);
       }
       expect(native.mock.calls.map(call => call[0])).toEqual([ids, [ids[0]!, ids[0]!, "level-create-absent-inverse"]]);
       const previous = await snapshot(); await refused(inverse.run(inverse.newRequestKey(), Array.from({ length: 9 }, () => ids[0]!)), "invalidInput", previous);
@@ -218,9 +229,10 @@ describe("native standalone Inventory Level creation on shared logical storage",
   it.each(["late", "caught", "denied"] as const)("rolls back a %s native failure and revokes escaped callbacks", async mode => {
     const graph = await connected.endpoints("level-create-sticky-" + mode), host = await connected.prepare(), original = InventoryModuleService.prototype.createInventoryLevels;
     let caught = false, escaped: (() => Promise<unknown>) | undefined;
+    const injectedFailure = new Error("Late native standalone Level creation failure");
     const native = vi.spyOn(InventoryModuleService.prototype, "createInventoryLevels").mockImplementation(async function (this: InventoryModuleService, ...args) {
       const result = await Reflect.apply(original, this, args); escaped = () => Reflect.apply(original, this, args);
-      if (mode === "late") throw new Error("Late native standalone Level creation failure");
+      if (mode === "late") throw injectedFailure;
       try {
         const update = { id: graph.items[0]!, title: "Unadmitted sibling" };
         if (mode === "denied") await this.updateInventoryItems(update, args[1]);
@@ -228,10 +240,17 @@ describe("native standalone Inventory Level creation on shared logical storage",
       } catch { caught = true; } return result;
     });
     try {
-      const before = await snapshot(), failure = await refused(host.run(host.newRequestKey(), graph.input),
-        mode === "late" ? "adapterFailure" : mode === "caught" ? "overlappingOperation" : "unsupportedProfile", before);
-      if (mode === "late") expect(reasons(failure)).toContain("Late native standalone Level creation failure");
-      else expect(reasons(failure)).toContain("rollbackOnly");
+      const before = await snapshot(), work = host.run(host.newRequestKey(), graph.input);
+      if (mode === "late") {
+        const exit = await Effect.runPromiseExit(work);
+        if (Exit.isSuccess(exit)) throw new Error("Expected late native Level creation defect");
+        expectWorkflowDefect(exit, injectedFailure);
+        expect(reasons(exit.cause)).toContain("Late native standalone Level creation failure");
+        expect(await snapshot()).toEqual(before);
+      } else {
+        const failure = await refused(work, mode === "caught" ? "overlappingOperation" : "unsupportedProfile", before);
+        expect(reasons(failure)).toContain("rollbackOnly");
+      }
       expect(caught).toBe(mode !== "late");
       if (escaped === undefined) throw new Error("Missing escaped native creation callback");
       await expect(escaped()).rejects.toMatchObject({ reason: "closed" }); expect(await snapshot()).toEqual(before);
@@ -280,44 +299,45 @@ describe("native standalone Inventory Level creation on shared logical storage",
       if (root && mode === "tuple-conflict") { await Effect.runPromise(Deferred.succeed(reached, undefined)); await new Promise<void>(resolve => { finish = resolve; }); }
       return result;
     });
-    const pending = Effect.runPromise(Effect.result(host.run(host.newRequestKey(), graph.input)));
+    const pending = Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), graph.input)));
     try {
       await Effect.runPromise(Deferred.await(reached).pipe(Effect.timeout(30_000)));
       if (mode === "location-delete") await Effect.runPromise(deletion.run(deletion.newRequestKey(), [graph.locations[0]!]).pipe(Effect.timeout(30_000)));
       else await connected.nativeCreateLevel({ ...graph.input.inventory_levels[0]!, stocked_quantity: 17 });
       const committed = await snapshot(); finish?.(); const result = await pending;
-      if (Result.isSuccess(result)) throw new Error("Stale standalone Level creation committed after native competitor");
-      expect(reasons(result.failure)).toContain("writeConflict"); expect(await snapshot()).toEqual(committed);
+      if (Exit.isSuccess(result)) throw new Error("Stale standalone Level creation committed after native competitor");
+      expectWorkflowTypedFailures(result, "writeConflict");
+      expect(reasons(result.cause)).toContain("writeConflict"); expect(await snapshot()).toEqual(committed);
     } finally { finish?.(); await pending; native.mockRestore(); }
   }, 240_000);
 
   it("isolates real scopes with identical endpoints and request keys", async () => {
     const graph = await connected.endpoints("level-create-scope"), host = await connected.prepare();
-    const other = await prepareLogicalInventoryLevelCreation(driver, close => cleanup.push(close), { resource: connected.fixture.resource,
-      fixtureIdentity: { deploymentId: "inventory_level_create_shop_b", projectId: "inventory_level_create_shop_b", uuidOffset: 510_000 } });
-    const right = await other.prepare(), beforeOther = await logicalCurrencyInventory(other.fixture);
-    const missing = await Effect.runPromise(Effect.result(right.run(right.newRequestKey(), graph.input)));
-    if (Result.isSuccess(missing)) throw new Error("Foreign-scope Location satisfied the native existence guard");
-    expect(nativeFailure(missing.failure)).toMatchObject({ type: "not_found", message: "Stock locations with ids: " + graph.locations[0] + " was not found" });
-    expect(await logicalCurrencyInventory(other.fixture)).toEqual(beforeOther);
+    const other = await prepareCoreInventoryLevelCreation(driver, close => cleanup.push(close), { physical: connected.fixture.physical });
+    const right = await other.prepare(), beforeOther = await other.fixture.snapshot();
+    const missing = await Effect.runPromise(Effect.exit(right.run(right.newRequestKey(), graph.input)));
+    if (Exit.isSuccess(missing)) throw new Error("Foreign-scope Location satisfied the native existence guard");
+    expectWorkflowTypedFailures(missing, "adapterFailure");
+    expect(nativeFailure(missing.cause)).toMatchObject({ type: "not_found", message: "Stock locations with ids: " + graph.locations[0] + " was not found" });
+    expect(await other.fixture.snapshot()).toEqual(beforeOther);
     const rightGraph = await other.endpoints("level-create-scope"), key = host.newRequestKey();
     expect(await Effect.runPromise(host.run(key, graph.input))).toMatchObject(graph.input.inventory_levels);
     expect(await other.probeCohort(rightGraph.items)).toEqual([]);
     expect(await Effect.runPromise(right.run(key, rightGraph.input))).toMatchObject(rightGraph.input.inventory_levels);
-    const leftAfter = await snapshot(), rightAfter = await logicalCurrencyInventory(other.fixture);
+    const leftAfter = await snapshot(), rightAfter = await other.fixture.snapshot();
     await Effect.runPromise(host.run(key, graph.input)); await Effect.runPromise(right.run(key, rightGraph.input));
-    expect(await snapshot()).toEqual(leftAfter); expect(await logicalCurrencyInventory(other.fixture)).toEqual(rightAfter);
+    expect(await snapshot()).toEqual(leftAfter); expect(await other.fixture.snapshot()).toEqual(rightAfter);
   }, 240_000);
 
   it("refuses other authentic Inventory and Stock Location profiles before native callbacks", async () => {
     const before = await snapshot(), native = vi.spyOn(InventoryModuleService.prototype, "createInventoryLevels");
     try {
-      const wrongInventory = await Effect.runPromise(Effect.result(prepareInventoryLevelCreationWorkflow({ ...connected.options, modules: { ...connected.options.modules,
+      const wrongInventory = await Effect.runPromise(Effect.exit(prepareInventoryLevelCreationWorkflow({ ...connected.options, modules: { ...connected.options.modules,
         inventory: { ...connected.options.modules.inventory, module: connected.common.creation.workflow } } })));
-      const wrongLocation = await Effect.runPromise(Effect.result(prepareInventoryLevelCreationWorkflow({ ...connected.options, modules: { ...connected.options.modules,
+      const wrongLocation = await Effect.runPromise(Effect.exit(prepareInventoryLevelCreationWorkflow({ ...connected.options, modules: { ...connected.options.modules,
         stock_location: { ...connected.options.modules.stock_location, module: connected.members.stockLocation.runtime.workflow } } })));
-      expect(wrongInventory).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
-      expect(wrongLocation).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+      expect(expectWorkflowTypedFailures(wrongInventory).map(failure => failure.reason)).toEqual(["invalidAuthority"]);
+      expect(expectWorkflowTypedFailures(wrongLocation).map(failure => failure.reason)).toEqual(["invalidAuthority"]);
       expect(native).not.toHaveBeenCalled(); expect(await snapshot()).toEqual(before);
     } finally { native.mockRestore(); }
   });

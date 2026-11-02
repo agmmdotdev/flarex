@@ -672,3 +672,18 @@ opaque cleanup and genuine joint proof are complete. Selected fixtures have
 retired their old relation/catalog materialization and Legacy joint host; named
 Product, developer-UDF and query-sync consumers remain separate gates. The selected
 fresh many/join continuation above replaces its named old consumer assembly.
+
+The [complete Inventory maintenance continuation](./slices/20-native-inventory-maintenance-workflows.md)
+replaces the remaining eleven admitted standalone workflow/read families after
+independent current-core, accepted-direction and pinned-source challenge and peer
+exchange. It preserves genuine two-source and neighboring five-source closures,
+per-facade exclusion, queued-only batches, native inverses and original bounds.
+Its [declared equality prerequisite](./slices/20a-native-declared-equality-indexes.md)
+corrects the shared omission of authenticated unconditional text declarations
+through ordinary Source indexes, preserving existing index identities. Paired
+neutral owner and genuine producer/schema characterization cover the correction;
+complete consumer coverage and connected fixture regressions pass on both database
+lanes. Shared fixture hosts follow the existing lazy selection contract and
+validate authority before callbacks. Selected obsolete fixture construction is
+removed; named direct-service and paused Task consumers retain their own removal
+gates. The full goal remains active.

@@ -237,14 +237,12 @@ export async function createCoreNativeWorkflowFixture(driver: "pglite" | "postgr
         prepare: Effect.fn("CoreNativeWorkflowFixture.prepare")(function* (composition) {
           const profile = captureAtomicCommerceNativeHostProfile({ ...composition, bundle, sources,
             ...(eventDefinition === undefined ? {} : { eventStorage: { definition: eventDefinition } }) });
-          yield* commerce(useGeneration(generation => generation.getHost(profile).pipe(Effect.asVoid)));
           return yield* makeAtomicCommerceNativeOwnerHost({ owner, hostRuntime: facadeRuntime,
             select: generation => generation.getHost(profile), projectOwnerFailure: projectFailure }).pipe(Scope.provide(scope));
         }) };
       const openReadHost: CoreNativeWorkflowFixture["openReadHost"] = (name, commands) => {
         const profile = Object.freeze({ name, commands: Object.freeze([...commands]) });
         return Effect.fn("CoreNativeWorkflowFixture.openReadHost")(function* () {
-          yield* commerce(useGeneration(generation => generation.getReadHost(profile).pipe(Effect.asVoid)));
           const selected = yield* makeNativeOwnerHost({ owner, hostRuntime: facadeRuntime,
             select: generation => generation.getReadHost(profile), projectOwnerFailure: projectFailure }).pipe(Scope.provide(scope));
           return Object.freeze({ read: selected.read, close: selected.close });

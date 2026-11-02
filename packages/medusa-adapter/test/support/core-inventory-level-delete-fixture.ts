@@ -3,7 +3,6 @@ import { createStep, createWorkflow, StepResponse, WorkflowResponse, type Workfl
 import { deleteInventoryLevelsWorkflow } from "@medusajs/core-flows/inventory/delete-inventory-levels";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeLocalInventoryCommands } from "../../src/modules/inventory/service";
 import { InventoryLevelDeletionIds } from "../../src/modules/inventory/delete-level-input";
@@ -11,8 +10,8 @@ import { prepareInventoryLevelDeletionWorkflow } from "../../src/workflows/inven
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
-import { prepareLogicalInventoryLevelUpdate } from "./logical-inventory-level-update-fixture";
-import type { LogicalInventoryMaintenanceShared } from "./logical-inventory-maintenance-fixture";
+import { prepareCoreInventoryLevelUpdate } from "./core-inventory-level-update-fixture";
+import type { CoreInventoryMaintenanceShared } from "./core-inventory-maintenance-fixture";
 
 const prepared = Result.getOrThrow(deleteInventoryLevelsWorkflow.prepare());
 const deletion = prepared.nodes.find(node => node.name === "delete-entities-step");
@@ -22,14 +21,14 @@ const compensate = deletion.compensate;
 
 /** Native creation, quantities and connected endpoint seeds retain their
  * existing owners. This fixture only composes the dedicated deletion profile. */
-export async function prepareLogicalInventoryLevelDeletion(driver: "pglite" | "postgres", registerCleanup: (close: () => Promise<void>) => void,
-  shared?: LogicalInventoryMaintenanceShared) {
-  const common = await prepareLogicalInventoryLevelUpdate(driver, registerCleanup, shared);
+export async function prepareCoreInventoryLevelDeletion(driver: "pglite" | "postgres", registerCleanup: (close: () => Promise<void>) => void,
+  shared?: CoreInventoryMaintenanceShared) {
+  const common = await prepareCoreInventoryLevelUpdate(driver, registerCleanup, shared);
   const { fixture, members, execution } = common;
   const deletion = await Effect.runPromise(makeLocalInventoryCommands("level-deletions"));
   const subscribers = [{ id: "inventory-level-deletion-test", revision: "d".repeat(64) }];
   const options: Parameters<typeof prepareInventoryLevelDeletionWorkflow>[0] = { execution,
-    modules: { inventory: { module: deletion.workflow, logicalStorage: members.inventory.hostInput.logicalStorage } },
+    modules: { inventory: { module: deletion.workflow, nativeStorage: members.inventory.source } },
     revision: "e".repeat(64), subscribers };
   const prepare = async (revision = options.revision) => {
     const host = await Effect.runPromise(prepareInventoryLevelDeletionWorkflow({ ...options, revision }));
@@ -41,8 +40,8 @@ export async function prepareLogicalInventoryLevelDeletion(driver: "pglite" | "p
   const contracts = namedContracts.map(entry => entry.contract);
   const softDelete = defineAtomicCommerceCommand("nativeInventoryLevelSoftDeleteAssertion", (ctx, input) => ctx.call(participant, deletion.softDeleteForWorkflow, input));
   const restore = defineAtomicCommerceCommand("nativeInventoryLevelRestoreAssertion", (ctx, input) => ctx.call(participant, deletion.restoreForWorkflow, input));
-  const native = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
-    participants: [{ participant, logicalStorage: members.inventory.hostInput.logicalStorage, commands: deletion.commands,
+  const native = await Effect.runPromise(execution.prepare({ identityAndAccessPolicy: execution.identityAndAccessPolicy,
+    participants: [{ participant, nativeStorage: members.inventory.source, commands: deletion.commands,
       validateLogicalCall: policy.validateLogicalCall, events: { contracts, select: message => {
         const selected = isJsonObject(message) ? namedContracts.find(entry => entry.name === message.name)?.contract : undefined;
         return selected === undefined ? Effect.fail(commerceError("unadmittedEvent")) : Effect.succeed(selected);

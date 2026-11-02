@@ -59,8 +59,8 @@ export const lowerCoreNativeRelationalSchema = Effect.fn("CoreNativeDefinition.l
         indexName, nullsDistinct: key.kind !== "primary" }));
     }
     for (const index of table.indexes) {
-      // Search and JSON declarations remain authenticated native metadata. They
-      // do not masquerade as ordered Core index access paths.
+      // Declared equality follows existing paths below to preserve their identities.
+      // JSON declarations remain metadata rather than ordered Core access paths.
       if (index.kind === "textEquality" || index.kind === "jsonContainment") continue;
       const eligibility = lowerEligibility(index.predicate);
       if (eligibility === false)
@@ -136,6 +136,20 @@ export const lowerCoreNativeRelationalSchema = Effect.fn("CoreNativeDefinition.l
       return yield* unsupported("Relational reverse access path collides with a native declaration");
     record.indexes.push(Object.freeze({ nativeId: reverse.descriptor, kind: "index",
       indexName: yield* coreNativeIndexName(table, "index", reverse.descriptor), fields: Object.freeze([field]) }));
+  }
+  // Preserve existing key, B-tree, FK and reverse descriptors before adding
+  // authenticated unconditional text equality, with exact-field aliases only.
+  for (const record of records) for (const index of record.table.indexes) {
+    if (index.kind !== "textEquality") continue;
+    const fields = Object.freeze(index.columns.map(column => column.columnId));
+    const existing = record.indexes.find(candidate => candidate.kind === "index" && candidate.nativeId === index.identity.indexId);
+    const table = record.declaration.table;
+    if (table === undefined || existing !== undefined && !sameFields(existing.fields, fields))
+      return yield* unsupported("Relational equality access path collides with a native declaration");
+    if (existing !== undefined) continue;
+    const indexName = record.indexes.find(candidate => sameFields(candidate.fields, fields))?.indexName
+      ?? (yield* coreNativeIndexName(table, "index", index.identity.indexId));
+    record.indexes.push(Object.freeze({ nativeId: index.identity.indexId, kind: "index", indexName, fields }));
   }
   const declarations = records.map(({ declaration, indexes }) => {
     const incident = foreignKeys.filter(foreignKey => foreignKey.sourceTable === declaration.name || foreignKey.targetTable === declaration.name);

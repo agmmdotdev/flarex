@@ -8,8 +8,8 @@ import { InventoryLevelCreationInput, prepareInventoryLevelCreationWorkflow } fr
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
-import { prepareLogicalInventoryItemCreation } from "./logical-inventory-item-create-fixture";
-import type { LogicalInventoryMaintenanceShared } from "./logical-inventory-maintenance-fixture";
+import { prepareCoreInventoryItemCreation } from "./core-inventory-item-create-fixture";
+import type { CoreInventoryMaintenanceShared } from "./core-inventory-maintenance-fixture";
 
 const prepared = Result.getOrThrow(createInventoryLevelsWorkflow.prepare());
 const creation = prepared.nodes.find(node => node.kind === "step" && node.name === "create-inventory-levels");
@@ -20,12 +20,12 @@ const Ids = Schema.Array(InventoryId).pipe(Schema.mutable).check(Schema.isMaxLen
 
 /** Existing native Item/Location seeds and raw Level probes remain with 119/120.
  * This fixture assembles the dedicated existing-endpoint creation profile. */
-export async function prepareLogicalInventoryLevelCreation(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  shared?: LogicalInventoryMaintenanceShared) {
-  const common = await prepareLogicalInventoryItemCreation(driver, close, shared);
+export async function prepareCoreInventoryLevelCreation(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
+  shared?: CoreInventoryMaintenanceShared) {
+  const common = await prepareCoreInventoryItemCreation(driver, close, shared);
   const creation = await Effect.runPromise(makeLocalInventoryCommands("level-creations"));
-  const modules = { inventory: { module: creation.workflow, logicalStorage: common.members.inventory.hostInput.logicalStorage },
-    stock_location: { module: common.locations.workflow, logicalStorage: common.members.stockLocation.hostInput.logicalStorage } };
+  const modules = { inventory: { module: creation.workflow, nativeStorage: common.members.inventory.source },
+    stock_location: { module: common.locations.workflow, nativeStorage: common.members.stockLocation.source } };
   const subscribers = [{ id: "native-inventory-level-creation", revision: "b".repeat(64) }];
   const options: Parameters<typeof prepareInventoryLevelCreationWorkflow>[0] = { execution: common.execution, modules,
     revision: "a".repeat(64), subscribers };

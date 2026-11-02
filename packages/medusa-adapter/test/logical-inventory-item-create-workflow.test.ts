@@ -1,5 +1,5 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { Cause, Deferred, Effect, Fiber, Result, Schema } from "effect";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { Cause, Deferred, Effect, Fiber, Schema, Exit } from "effect";
 import { InventoryModuleService } from "@medusajs/inventory/services";
 import { StockLocationModuleService } from "@medusajs/stock-location/services";
 import { BigNumber } from "@medusajs/utils/totals/big-number";
@@ -7,14 +7,14 @@ import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/exec
 import { CommerceTransactionError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { InventoryItemCreationInput, prepareInventoryItemCreationWorkflow } from "../src/workflows/inventory/create-items";
 import { projectExactNumericColumns } from "../src/value/exact-numeric";
-import { prepareLogicalInventoryItemCreation } from "./support/logical-inventory-item-create-fixture";
-import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
+import { prepareCoreInventoryItemCreation } from "./support/core-inventory-item-create-fixture";
+import { expectWorkflowDefect, expectWorkflowTypedFailures } from "./support/workflow-failure-assertions";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalInventoryItemCreation>>;
-let sharedCleanupCount = 0;
-const snapshot = () => logicalCurrencyInventory(connected.fixture);
+let caseCleanupStart: number | undefined;
+let connected: Awaited<ReturnType<typeof prepareCoreInventoryItemCreation>>;
+const snapshot = () => connected.fixture.snapshot();
 const decodeIds = Schema.decodeUnknownSync(Schema.Array(Schema.String));
 function reasons(value: unknown): string[] {
   if (Cause.isCause(value)) return value.reasons.flatMap(reason => reason._tag === "Fail" ? reasons(reason.error) : reason._tag === "Die" ? reasons(reason.defect) : ["Interrupt"]);
@@ -33,10 +33,10 @@ function eventIds(events: Awaited<ReturnType<typeof snapshot>>["events"], entity
   });
 }
 function changedTombstones(before: Awaited<ReturnType<typeof snapshot>>, after: Awaited<ReturnType<typeof snapshot>>, count: number) {
-  const commits = after.commits.slice(before.commits.length); expect(commits).toHaveLength(1);
-  const sequences = new Set(commits.map(commit => commit.commitSeq)), revisions = after.revisions.filter(row => sequences.has(row.commitSeq));
-  expect(after.rowChanges.length - before.rowChanges.length).toBe(count); expect(revisions).toHaveLength(count);
-  expect(revisions.every(row => row.isTombstone && row.valueBytes === null && row.valueSha256 === null)).toBe(true);
+  const commits = after.outcomes.slice(before.outcomes.length); expect(commits).toHaveLength(1);
+  const sequences = new Set(commits.map(commit => commit.timestamp)), revisions = after.revisions.filter(row => sequences.has(row.timestamp));
+  expect(after.revisions.length - before.revisions.length).toBe(count); expect(revisions).toHaveLength(count);
+  expect(revisions.every(row => row.deleted && row.value === null)).toBe(true);
 }
 
 describe("native standalone Inventory Item creation on shared logical storage", { concurrent: false }, () => {
@@ -62,11 +62,18 @@ describe("native standalone Inventory Item creation on shared logical storage", 
   }, 180_000);
 
   beforeAll(async () => {
-    connected = await prepareLogicalInventoryItemCreation(driver, close => cleanup.push(close));
-    sharedCleanupCount = cleanup.length;
+    connected = await prepareCoreInventoryItemCreation(driver, close => cleanup.push(close));
+
   }, 240_000);
+  beforeEach(() => { caseCleanupStart = cleanup.length; });
   afterEach(async () => {
-    for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close();
+    const transient = caseCleanupStart === undefined ? [] : cleanup.splice(caseCleanupStart);
+    caseCleanupStart = undefined;
+    const failures: unknown[] = [];
+    for (const close of transient.reverse()) {
+      try { await close(); } catch (error) { failures.push(error); }
+    }
+    if (failures.length !== 0) throw new AggregateError(failures, "Unable to close Inventory consumer case hosts");
   }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
@@ -78,8 +85,8 @@ describe("native standalone Inventory Item creation on shared logical storage", 
         const before = await snapshot(), key = host.newRequestKey(); expect(await Effect.runPromise(host.run(key, input))).toEqual([]);
         expect(items.mock.calls.at(-1)?.[0]).toEqual([]); expect(levels.mock.calls.at(-1)?.[0]).toEqual([]);
         expect(query.mock.calls.at(-1)?.[0]).toEqual({ id: [] });
-        const after = await snapshot(); expect(after.rows).toEqual(before.rows); expect(after.events).toEqual(before.events); expect(after.rowChanges).toEqual(before.rowChanges);
-        expect(after.commits.length - before.commits.length).toBe(1); expect(await Effect.runPromise(host.run(key, input))).toEqual([]); expect(await snapshot()).toEqual(after);
+        const after = await snapshot(); expect(after.rows).toEqual(before.rows); expect(after.events).toEqual(before.events); expect(after.revisions).toEqual(before.revisions);
+        expect(after.outcomes.length - before.outcomes.length).toBe(1); expect(await Effect.runPromise(host.run(key, input))).toEqual([]); expect(await snapshot()).toEqual(after);
       }
       expect(items).toHaveBeenCalledTimes(2); expect(levels).toHaveBeenCalledTimes(2); expect(query).toHaveBeenCalledTimes(2);
     } finally { items.mockRestore(); levels.mockRestore(); query.mockRestore(); }
@@ -113,8 +120,8 @@ describe("native standalone Inventory Item creation on shared logical storage", 
     }
     expect(await connected.preserved()).toEqual(preserved); expect(await Effect.runPromise(connected.probeItems(protectedGraph.items))).toEqual(protectedItems);
     const after = await snapshot(), emitted = after.events.slice(before.events.length);
-    expect(after.commits.length - before.commits.length).toBe(1); expect(after.rowChanges.length - before.rowChanges.length).toBe(12); expect(emitted).toHaveLength(12);
-    expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1); expect(emitted.every(event => event.envelope.internal)).toBe(true);
+    expect(after.outcomes.length - before.outcomes.length).toBe(1); expect(after.revisions.length - before.revisions.length).toBe(12); expect(emitted).toHaveLength(12);
+    expect(new Set(emitted.map(event => event.timestamp)).size).toBe(1); expect(emitted.every(event => event.envelope.internal)).toBe(true);
     expect(eventIds(emitted, "item", "created")).toEqual(graph.ids); expect(eventIds(emitted, "level", "created")).toHaveLength(8);
     expect(new Set(eventIds(emitted, "level", "created"))).toEqual(new Set(stored.map(row => row.id)));
     expect(await Effect.runPromise(host.run(key, graph.input))).toEqual(output); expect(await snapshot()).toEqual(after);
@@ -141,8 +148,8 @@ describe("native standalone Inventory Item creation on shared logical storage", 
     const host = await connected.prepare(), location = "item-create-" + mode + "-location";
     if (mode === "deleted") { const [created] = await connected.seedLocations("item-create-deleted", 1); expect(created).toBe(location + "-0"); const deletion = await connected.prepareLocationDeletion(); await Effect.runPromise(deletion.run(deletion.newRequestKey(), [created!])); }
     const selected = mode === "deleted" ? location + "-0" : location, before = await snapshot();
-    const result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { items: [{ sku: "item-create-location-" + mode, location_levels: [{ location_id: selected }] }] })));
-    expect(Result.isFailure(result)).toBe(true); if (Result.isFailure(result)) expect(nativeFailure(result.failure)).toMatchObject({ type: "not_found", message: "Stock locations with ids: " + selected + " was not found" });
+    const result = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { items: [{ sku: "item-create-location-" + mode, location_levels: [{ location_id: selected }] }] })));
+    expectWorkflowTypedFailures(result, "adapterFailure"); if (Exit.isFailure(result)) expect(nativeFailure(result.cause)).toMatchObject({ type: "not_found", message: "Stock locations with ids: " + selected + " was not found" });
     expect(await snapshot()).toEqual(before);
   }, 180_000);
 
@@ -156,8 +163,8 @@ describe("native standalone Inventory Item creation on shared logical storage", 
       for (const [index, row] of result.entries()) { if (index !== 0) continue; if (mode === "metadata") Reflect.set(row, "metadata", { forged: true }); else Reflect.deleteProperty(row, "title"); } return result;
     });
     try {
-      const before = await snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), graph.input)));
-      expect(Result.isFailure(result)).toBe(true); expect(changed).toBe(true); expect(levels).not.toHaveBeenCalled(); expect(await snapshot()).toEqual(before);
+      const before = await snapshot(), result = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), graph.input)));
+      expectWorkflowTypedFailures(result); expect(changed).toBe(true); expect(levels).not.toHaveBeenCalled(); expect(await snapshot()).toEqual(before);
     } finally { forged.mockRestore(); levels.mockRestore(); }
   }, 240_000);
 
@@ -168,7 +175,7 @@ describe("native standalone Inventory Item creation on shared logical storage", 
       if (mode === "reordered") return [...result].reverse();
       for (const [index, row] of result.entries()) { if (index !== 0) continue; if (mode === "quantity") Reflect.set(row, "available_quantity", 9999); else if (mode === "metadata") Reflect.set(row, "metadata", { forged: true }); else Reflect.deleteProperty(row, "deleted_at"); } return result;
     });
-    try { const before = await snapshot(); expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), graph.input))))).toBe(true); expect(changed).toBe(true); expect(await snapshot()).toEqual(before); }
+    try { const before = await snapshot(); expectWorkflowTypedFailures(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), graph.input)))); expect(changed).toBe(true); expect(await snapshot()).toEqual(before); }
     finally { forged.mockRestore(); }
   }, 240_000);
 
@@ -181,8 +188,8 @@ describe("native standalone Inventory Item creation on shared logical storage", 
       if (mode === "count") result[1]++; else { Reflect.set(result, 0, [{ id: mode === "requested-missing" ? requested : other }]); result[1] = 1; } return result;
     });
     try {
-      const before = await snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { items: [{ sku: "item-create-forged-location-sku-" + mode, location_levels: [{ location_id: requested }] }] })));
-      expect(Result.isFailure(result)).toBe(true); if (Result.isFailure(result)) expect(reasons(result.failure)).toContain("receiptMismatch"); expect(changed).toBe(true); expect(await snapshot()).toEqual(before);
+      const before = await snapshot(), result = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { items: [{ sku: "item-create-forged-location-sku-" + mode, location_levels: [{ location_id: requested }] }] })));
+      expectWorkflowTypedFailures(result); if (Exit.isFailure(result)) expect(reasons(result.cause)).toContain("receiptMismatch"); expect(changed).toBe(true); expect(await snapshot()).toEqual(before);
     } finally { forged.mockRestore(); }
   }, 180_000);
 
@@ -199,7 +206,7 @@ describe("native standalone Inventory Item creation on shared logical storage", 
     const afterItems = await snapshot(); changedTombstones(beforeItems, afterItems, 4); expect(eventIds(afterItems.events.slice(beforeItems.events.length), "item", "deleted")).toEqual([...ids].sort());
     expect(await Effect.runPromise(connected.probeItems(ids))).toEqual([]); expect(await connected.probeCohort(ids)).toEqual([]);
     const beforeEmpty = await snapshot(); for (const input of [[], ids]) expect(await Effect.runPromise(probes.undo.run(probes.undo.newRequestKey(), input))).toBeNull();
-    const afterEmpty = await snapshot(); expect(afterEmpty.rows).toEqual(beforeEmpty.rows); expect(afterEmpty.events).toEqual(beforeEmpty.events); expect(afterEmpty.rowChanges).toEqual(beforeEmpty.rowChanges);
+    const afterEmpty = await snapshot(); expect(afterEmpty.rows).toEqual(beforeEmpty.rows); expect(afterEmpty.events).toEqual(beforeEmpty.events); expect(afterEmpty.revisions).toEqual(beforeEmpty.revisions);
   }, 240_000);
 
   it("physically cascades complete active and deleted Item history while emitting only native root Item events", async () => {
@@ -225,13 +232,13 @@ describe("native standalone Inventory Item creation on shared logical storage", 
     if (mode === "levels") { for (const suffix of ["b", "c"]) await connected.nativeCreateLevel({ inventory_item_id: id, location_id: "historical-unresolved-" + suffix }); }
     else for (let index = 0; index < 2; index++) await Effect.runPromise(connected.reservations.run(connected.reservations.newRequestKey(), {
       reservations: [{ inventory_item_id: id, location_id: location, quantity: 1 }] }));
-    const before = await snapshot(); expect(Result.isFailure(await Effect.runPromise(Effect.result(probes.undo.run(probes.undo.newRequestKey(), [id]))))).toBe(true); expect(await snapshot()).toEqual(before);
+    const before = await snapshot(); expectWorkflowTypedFailures(await Effect.runPromise(Effect.exit(probes.undo.run(probes.undo.newRequestKey(), [id])))); expect(await snapshot()).toEqual(before);
   }, 240_000);
 
   it.each(["sku", "tuple"] as const)("preserves native duplicate %s refusal and full root rollback", async mode => {
     const [location] = await connected.seedLocations("item-create-duplicate-" + mode, 1); if (location === undefined) throw new Error("Missing Location");
     const host = await connected.prepare(), input = { items: mode === "sku" ? [{ sku: "item-create-duplicate-sku" }, { sku: "item-create-duplicate-sku" }] : [{ sku: "item-create-duplicate-tuple", location_levels: [{ location_id: location }, { location_id: location }] }] };
-    const before = await snapshot(); expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), input))))).toBe(true); expect(await snapshot()).toEqual(before);
+    const before = await snapshot(); expectWorkflowTypedFailures(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), input)))); expect(await snapshot()).toEqual(before);
   }, 180_000);
 
   it("refuses raw cardinality and managed fields before the first native callback", async () => {
@@ -242,7 +249,7 @@ describe("native standalone Inventory Item creation on shared logical storage", 
         { items: [{ deleted_at: null }] }, { items: [{ location_levels: [{ location_id: "location", reserved_quantity: 1 }] }] },
         { items: [{ location_levels: [{ location_id: "location", inventory_item_id: "foreign" }] }] }]) {
         // @ts-expect-error Deliberately malformed standalone public input.
-        expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), input))))).toBe(true);
+        expectWorkflowTypedFailures(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), input))), "invalidInput");
       }
       expect(items).not.toHaveBeenCalled(); expect(await snapshot()).toEqual(before);
     } finally { items.mockRestore(); }
@@ -253,13 +260,17 @@ describe("native standalone Inventory Item creation on shared logical storage", 
     const host = await connected.prepare(), original = InventoryModuleService.prototype.createInventoryLevels;
     for (const mode of ["late", "caught"] as const) {
       let caught = false, escaped: (() => Promise<unknown>) | undefined;
+      const injectedFailure = new Error("Late native Level child failure");
       const native = vi.spyOn(InventoryModuleService.prototype, "createInventoryLevels").mockImplementation(async function (this: InventoryModuleService, ...args) {
         const result = await Reflect.apply(original, this, args); escaped = () => Reflect.apply(original, this, args);
-        if (mode === "late") throw new Error("Late native Level child failure");
+        if (mode === "late") throw injectedFailure;
         try { await this.updateInventoryItems({ id: "unadmitted-item", title: "Forbidden sibling" }); } catch { caught = true; } return result;
       });
       try {
-        const before = await snapshot(); expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { items: [{ sku: "item-create-sticky-" + mode, location_levels: [{ location_id: location }] }] }))))).toBe(true);
+        const before = await snapshot(), result = await Effect.runPromiseExit(host.run(host.newRequestKey(),
+          { items: [{ sku: "item-create-sticky-" + mode, location_levels: [{ location_id: location }] }] }));
+        if (mode === "late") expectWorkflowDefect(result, injectedFailure);
+        else expectWorkflowTypedFailures(result);
         expect(caught).toBe(mode === "caught"); expect(await snapshot()).toEqual(before); if (escaped === undefined) throw new Error("Missing escaped native child");
         await expect(escaped()).rejects.toBeDefined(); expect(await snapshot()).toEqual(before);
       } finally { native.mockRestore(); }
@@ -275,7 +286,7 @@ describe("native standalone Inventory Item creation on shared logical storage", 
       await Reflect.apply(emit, bus, [[{ name: "inventory.inventory-level.created", data: { id: mode === "malformed-event" ? 42 : "forged-level-creation" },
         metadata: { source: "inventory", object: "inventory_level", action: "created" } }], { internal: true }]); return result;
     });
-    try { const before = await snapshot(); expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), graph.input))))).toBe(true); expect(await snapshot()).toEqual(before); }
+    try { const before = await snapshot(); expectWorkflowTypedFailures(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), graph.input)))); expect(await snapshot()).toEqual(before); }
     finally { native.mockRestore(); }
   }, 240_000);
 
@@ -300,19 +311,19 @@ describe("native standalone Inventory Item creation on shared logical storage", 
     const native = vi.spyOn(InventoryModuleService.prototype, "createInventoryLevels").mockImplementation(async function (this: InventoryModuleService, ...args) {
       const result = await Reflect.apply(original, this, args); await Effect.runPromise(Deferred.succeed(reached, undefined)); await new Promise<void>(resolve => { finish = resolve; }); return result;
     });
-    const pending = Effect.runPromise(Effect.result(host.run(host.newRequestKey(), graph.input)));
+    const pending = Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), graph.input)));
     try {
       await Effect.runPromise(Deferred.await(reached).pipe(Effect.timeout(30_000)));
       if (mode === "location-delete") await Effect.runPromise(deletion.run(deletion.newRequestKey(), [graph.locations[0]!]).pipe(Effect.timeout(30_000)));
       else await connected.nativeCreate({ id: "competing-item-create-sku", sku: graph.input.items![0]!.sku! });
-      const committed = await snapshot(); finish?.(); const result = await pending; if (Result.isSuccess(result)) throw new Error("Stale native Item creation committed after competitor");
-      expect(reasons(result.failure)).toContain("writeConflict"); expect(await snapshot()).toEqual(committed);
+      const committed = await snapshot(); finish?.(); const result = await pending; if (Exit.isSuccess(result)) throw new Error("Stale native Item creation committed after competitor");
+      expectWorkflowTypedFailures(result, "writeConflict");
+      expect(reasons(result.cause)).toContain("writeConflict"); expect(await snapshot()).toEqual(committed);
     } finally { finish?.(); await pending; native.mockRestore(); }
   }, 240_000);
 
   it("isolates actual scopes with identical explicit identities and request keys", async () => {
-    const other = await prepareLogicalInventoryItemCreation(driver, close => cleanup.push(close), { resource: connected.fixture.resource,
-      fixtureIdentity: { deploymentId: "inventory_item_create_shop_b", projectId: "inventory_item_create_shop_b", uuidOffset: 490_000 } });
+    const other = await prepareCoreInventoryItemCreation(driver, close => cleanup.push(close), { physical: connected.fixture.physical });
     const left = await connected.prepare(), right = await other.prepare(), key = left.newRequestKey(), input: typeof InventoryItemCreationInput.Type = { items: [{ id: "item-create-scope", sku: "item-create-scope" }] };
     expect((await Effect.runPromise(left.run(key, input))).map(row => row.id)).toEqual(["item-create-scope"]); expect(await Effect.runPromise(other.probeItems(["item-create-scope"]))).toEqual([]);
     expect((await Effect.runPromise(right.run(key, input))).map(row => row.id)).toEqual(["item-create-scope"]);
@@ -321,11 +332,13 @@ describe("native standalone Inventory Item creation on shared logical storage", 
 
   it("refuses another authentic Inventory or Stock Location profile before callbacks", async () => {
     const before = await snapshot();
-    const wrongInventory = await Effect.runPromise(Effect.result(prepareInventoryItemCreationWorkflow({ ...connected.options, modules: { ...connected.options.modules,
+    const wrongInventory = await Effect.runPromise(Effect.exit(prepareInventoryItemCreationWorkflow({ ...connected.options, modules: { ...connected.options.modules,
       // @ts-expect-error Deliberately wrong authentic profile.
       inventory: { ...connected.options.modules.inventory, module: connected.batch.workflow } } })));
-    const wrongLocation = await Effect.runPromise(Effect.result(prepareInventoryItemCreationWorkflow({ ...connected.options, modules: { ...connected.options.modules,
+    const wrongLocation = await Effect.runPromise(Effect.exit(prepareInventoryItemCreationWorkflow({ ...connected.options, modules: { ...connected.options.modules,
       stock_location: { ...connected.options.modules.stock_location, module: connected.members.stockLocation.runtime.workflow } } })));
-    expect(Result.isFailure(wrongInventory)).toBe(true); expect(Result.isFailure(wrongLocation)).toBe(true); expect(await snapshot()).toEqual(before);
+    expect(expectWorkflowTypedFailures(wrongInventory).map(failure => failure.reason)).toEqual(["invalidAuthority"]);
+    expect(expectWorkflowTypedFailures(wrongLocation).map(failure => failure.reason)).toEqual(["invalidAuthority"]);
+    expect(await snapshot()).toEqual(before);
   });
 });

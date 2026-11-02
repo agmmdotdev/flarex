@@ -1,28 +1,37 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect, Result, Schema } from "effect";
 import { InventoryModuleService } from "@medusajs/inventory/services";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { makeLocalInventoryCommands } from "../src/modules/inventory/service";
 import { prepareLocalGraph } from "../src/local-graph/query";
-import { prepareLogicalInventoryMaintenance } from "./support/logical-inventory-maintenance-fixture";
-import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
+import { prepareCoreInventoryMaintenance } from "./support/core-inventory-maintenance-fixture";
 import { ExactNumericRaw } from "../src/value/exact-numeric";
 import { InventoryLevelsOutput } from "../src/modules/inventory/level-input";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Inventory graph read driver");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalInventoryMaintenance>>;
+let caseCleanupStart: number | undefined;
+let connected: Awaited<ReturnType<typeof prepareCoreInventoryMaintenance>>;
 let inventory: Effect.Success<ReturnType<typeof prepareReadCommands>>;
 const prepareReadCommands = () => makeLocalInventoryCommands("variant-price-calculation");
 const decodeRaw = Schema.decodeUnknownSync(ExactNumericRaw);
 
 describe("native read-only Inventory graph for Variant price calculation", () => {
   beforeAll(async () => {
-    connected = await prepareLogicalInventoryMaintenance(driver, close => cleanup.push(close));
+    connected = await prepareCoreInventoryMaintenance(driver, close => cleanup.push(close));
     inventory = await Effect.runPromise(prepareReadCommands());
   }, 180_000);
+  beforeEach(() => { caseCleanupStart = cleanup.length; });
+  afterEach(async () => {
+    const transient = caseCleanupStart === undefined ? [] : cleanup.splice(caseCleanupStart);
+    caseCleanupStart = undefined;
+    const failures: unknown[] = [];
+    for (const close of transient.reverse()) {
+      try { await close(); } catch (error) { failures.push(error); }
+    }
+    if (failures.length !== 0) throw new AggregateError(failures, "Unable to close Inventory consumer case hosts");
+  }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
   it("reads complete Item and Level cohorts through native counts with exact quantity companions and no mutations", async () => {
@@ -44,13 +53,13 @@ describe("native read-only Inventory graph for Variant price calculation", () =>
     const participant = defineAtomicCommerceParticipant("variantPriceInventoryReads");
     const graph = Result.getOrThrow(prepareLocalGraph([{ participant, module: inventory.graph }]));
     const read = defineAtomicCommerceCommand("variantPriceInventoryReadGraph", (ctx, input) => graph.bind(ctx).graph(input));
-    const host = await Effect.runPromise(makeAtomicCommerceHost({ ...connected.fixture.hostInput, commands: [read],
-      participants: [{ participant, logicalStorage: connected.members.inventory.hostInput.logicalStorage, commands: inventory.commands,
+    const host = await Effect.runPromise(connected.execution.prepare({ identityAndAccessPolicy: connected.execution.identityAndAccessPolicy,
+      commands: [read], participants: [{ participant, nativeStorage: connected.members.inventory.source, commands: inventory.commands,
         validateLogicalCall: inventory.logicalEventPolicy().validateLogicalCall }] }));
     const itemCount = vi.spyOn(InventoryModuleService.prototype, "listAndCountInventoryItems");
     const levelCount = vi.spyOn(InventoryModuleService.prototype, "listAndCountInventoryLevels");
     try {
-      const before = await logicalCurrencyInventory(connected.fixture);
+      const before = await connected.fixture.snapshot();
       const itemRows = await Effect.runPromise(host.run(host.newRequestKey(), read, {
         entity: "inventory_item", fields: ["id", "requires_shipping"], filters: { id: items }, pagination: { take: 8 },
       }));
@@ -76,8 +85,8 @@ describe("native read-only Inventory graph for Variant price calculation", () =>
         entity, fields: ["id"], filters: { id: [] }, pagination: { take: 8 },
       }))).toEqual({ data: [], metadata: { count: 0, skip: 0, take: 8 } });
       expect(itemCount).toHaveBeenCalledTimes(2); expect(levelCount).toHaveBeenCalledTimes(3);
-      const after = await logicalCurrencyInventory(connected.fixture);
-      expect(after.rows).toEqual(before.rows); expect(after.rowChanges).toEqual(before.rowChanges); expect(after.events).toEqual(before.events);
+      const after = await connected.fixture.snapshot();
+      expect(after.rows).toEqual(before.rows); expect(after.revisions).toEqual(before.revisions); expect(after.events).toEqual(before.events);
     } finally {
       itemCount.mockRestore(); levelCount.mockRestore(); await Effect.runPromise(host.close);
     }

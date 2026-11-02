@@ -1,18 +1,19 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { Cause, Deferred, Effect, Fiber, Result, Schema } from "effect";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { Cause, Deferred, Effect, Fiber, Schema, Exit } from "effect";
 import { InventoryModuleService, InventoryLevelService } from "@medusajs/inventory/services";
 import { CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { InventoryLevelUpdateInput, prepareInventoryLevelUpdateWorkflow } from "../src/workflows/inventory/update-levels";
 import { makeLocalInventoryCommands } from "../src/modules/inventory/service";
 import * as levelEventPolicy from "../src/modules/inventory/update-level-events";
-import { prepareLogicalInventoryLevelUpdate } from "./support/logical-inventory-level-update-fixture";
-import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
+import { prepareCoreInventoryLevelUpdate } from "./support/core-inventory-level-update-fixture";
+import { expectWorkflowDefect, expectWorkflowRefusal, expectWorkflowTypedFailures } from "./support/workflow-failure-assertions";
 import { registerNativeInventoryLevelUpdateTests, type NativeInventoryLevelUpdateTestService } from "./support/inventory-level-update-native-tests";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalInventoryLevelUpdate>>;
-const snapshot = () => logicalCurrencyInventory(connected.fixture);
+let caseCleanupStart: number | undefined;
+let connected: Awaited<ReturnType<typeof prepareCoreInventoryLevelUpdate>>;
+const snapshot = () => connected.fixture.snapshot();
 const updated = "inventory.inventory-level.updated";
 const raw = (value: number) => ({ value: value.toPrecision(20), precision: 20 });
 function failurePath(value: unknown): string[] {
@@ -27,7 +28,17 @@ function nativeFailure(value: unknown): unknown {
 }
 
 describe("native absolute Inventory Level updates on shared logical storage", { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalInventoryLevelUpdate(driver, close => cleanup.push(close)); }, 180_000);
+  beforeAll(async () => { connected = await prepareCoreInventoryLevelUpdate(driver, close => cleanup.push(close)); }, 180_000);
+  beforeEach(() => { caseCleanupStart = cleanup.length; });
+  afterEach(async () => {
+    const transient = caseCleanupStart === undefined ? [] : cleanup.splice(caseCleanupStart);
+    caseCleanupStart = undefined;
+    const failures: unknown[] = [];
+    for (const close of transient.reverse()) {
+      try { await close(); } catch (error) { failures.push(error); }
+    }
+    if (failures.length !== 0) throw new AggregateError(failures, "Unable to close Inventory consumer case hosts");
+  }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
   it("resolves the required Inventory module for empty input without listing or updating", async () => {
@@ -37,8 +48,8 @@ describe("native absolute Inventory Level updates on shared logical storage", { 
       const before = await snapshot(), key = host.newRequestKey();
       expect(await Effect.runPromise(host.run(key, { updates: [] }))).toEqual([]);
       expect(list).not.toHaveBeenCalled(); expect(update).not.toHaveBeenCalled();
-      const after = await snapshot(); expect(after.rows).toEqual(before.rows); expect(after.rowChanges).toEqual(before.rowChanges); expect(after.events).toEqual(before.events);
-      expect(after.commits.length - before.commits.length).toBe(1);
+      const after = await snapshot(); expect(after.rows).toEqual(before.rows); expect(after.revisions).toEqual(before.revisions); expect(after.events).toEqual(before.events);
+      expect(after.outcomes.length - before.outcomes.length).toBe(1);
       expect(await Effect.runPromise(host.run(key, { updates: [] }))).toEqual([]); expect(await snapshot()).toEqual(after);
     } finally { list.mockRestore(); update.mockRestore(); }
   });
@@ -67,10 +78,10 @@ describe("native absolute Inventory Level updates on shared logical storage", { 
           reserved_quantity: raw(index === 0 ? 2 : 0).value, raw_stocked_quantity: raw(quantities[index]!) });
       expect(await connected.preserved()).toEqual(retained);
       const after = await snapshot(), emitted = after.events.slice(before.events.length);
-      expect(after.rowChanges.length - before.rowChanges.length).toBe(4); expect(after.commits.length - before.commits.length).toBe(1);
+      expect(after.revisions.length - before.revisions.length).toBe(4); expect(after.outcomes.length - before.outcomes.length).toBe(1);
       expect(emitted.map(event => event.envelope.contract)).toEqual(graph.items.map(() => updated));
       expect(emitted.map(event => event.envelope.message)).toEqual(result.map(row => expect.objectContaining({ data: { id: row.id } })));
-      expect(emitted.every(event => event.envelope.internal)).toBe(true); expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1);
+      expect(emitted.every(event => event.envelope.internal)).toBe(true); expect(new Set(emitted.map(event => event.timestamp)).size).toBe(1);
       expect(await Effect.runPromise(host.run(key, input))).toEqual(result); expect(native).toHaveBeenCalledTimes(1);
       await expect(Effect.runPromise(host.run(key, { updates: [{ ...graph.pairs[0]!, stocked_quantity: 99 }] }))).rejects.toMatchObject({ reason: "requestConflict" });
       await expect(Effect.runPromise(otherRevision.run(key, input))).rejects.toMatchObject({ reason: "requestConflict" });
@@ -108,7 +119,7 @@ describe("native absolute Inventory Level updates on shared logical storage", { 
       return await Reflect.apply(originalList, this, args);
     });
     const host = await Effect.runPromise(prepareInventoryLevelUpdateWorkflow({ ...connected.options,
-      modules: { inventory: { module: module.workflow, logicalStorage: connected.members.inventory.hostInput.logicalStorage } } }));
+      modules: { inventory: { module: module.workflow, nativeStorage: connected.members.inventory.source } } }));
     try {
       for (const positions of [[0], [1, 4, 7, 10]]) {
         const pairs = positions.map(index => cohort.pairs[index]!);
@@ -132,11 +143,12 @@ describe("native absolute Inventory Level updates on shared logical storage", { 
       // location. The point miss must reach the genuine native NOT_FOUND path.
       receipts.length = 0;
       const missing = { ...cohort.pairs[0]!, location_id: "not-stocked-in-cohort" }, before = await snapshot();
-      const result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { updates: [{ ...missing, incoming_quantity: 2 }] })));
-      if (Result.isSuccess(result)) throw new Error("Missing cohort tuple was admitted");
-      expect(nativeFailure(result.failure)).toMatchObject({ type: "not_found",
+      const result = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { updates: [{ ...missing, incoming_quantity: 2 }] })));
+      if (Exit.isSuccess(result)) throw new Error("Missing cohort tuple was admitted");
+      expectWorkflowTypedFailures(result, "adapterFailure");
+      expect(nativeFailure(result.cause)).toMatchObject({ type: "not_found",
         message: `Item ${missing.inventory_item_id} is not stocked at location ${missing.location_id}` });
-      expect(failurePath(result.failure)).not.toContain("receiptMismatch");
+      expect(failurePath(result.cause)).not.toContain("receiptMismatch");
       expect(receipts).toEqual([{ name: "inventoryLevelListForUpdate", ids: [] }]);
       expect(await snapshot()).toEqual(before);
     } finally { list.mockRestore(); await Effect.runPromise(host.close); }
@@ -149,7 +161,7 @@ describe("native absolute Inventory Level updates on shared logical storage", { 
     ] }));
     expect(result.map(row => row.inventory_item_id)).toEqual([graph.items[0], graph.items[2]]);
     expect(result).toMatchObject([{ ...graph.pairs[0], stocked_quantity: 11.5 }, { ...graph.pairs[2], stocked_quantity: 10, incoming_quantity: 3.25 }]);
-    const after = await snapshot(); expect(after.rowChanges.length - before.rowChanges.length).toBe(2);
+    const after = await snapshot(); expect(after.revisions.length - before.revisions.length).toBe(2);
     expect(after.events.slice(before.events.length).map(event => event.envelope.message)).toEqual(result.map(row => expect.objectContaining({ data: { id: row.id } })));
   });
 
@@ -157,7 +169,7 @@ describe("native absolute Inventory Level updates on shared logical storage", { 
     const graph = await connected.seed("level-update-tuple"), host = await connected.prepare(), before = await snapshot();
     const result = await Effect.runPromise(host.run(host.newRequestKey(), { updates: [graph.pairs[0]!] }));
     expect(result).toMatchObject([{ ...graph.pairs[0], stocked_quantity: 10, incoming_quantity: 0, reserved_quantity: 0, available_quantity: 10 }]);
-    const after = await snapshot(); expect(after.rowChanges.length - before.rowChanges.length).toBe(1);
+    const after = await snapshot(); expect(after.revisions.length - before.revisions.length).toBe(1);
     expect(after.events.slice(before.events.length).map(event => event.envelope.contract)).toEqual([updated]);
   });
 
@@ -168,10 +180,11 @@ describe("native absolute Inventory Level updates on shared logical storage", { 
       .toMatchObject([{ id: level.id, incoming_quantity: 2.5 }]);
     const before = await snapshot();
     for (const input of [{ ...graph.pairs[0]!, location_id: "not-stocked", id: level.id }, { ...graph.pairs[0]!, id: "missing-final-level" }]) {
-      const result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { updates: [input] })));
-      if (Result.isSuccess(result)) throw new Error("Missing native pair/ID was admitted");
-      expect(nativeFailure(result.failure)).toMatchObject({ type: "not_found" });
-      if (input.location_id === "not-stocked") expect(nativeFailure(result.failure)).toMatchObject({ message: `Item ${input.inventory_item_id} is not stocked at location not-stocked` });
+      const result = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { updates: [input] })));
+      if (Exit.isSuccess(result)) throw new Error("Missing native pair/ID was admitted");
+      expectWorkflowTypedFailures(result, "adapterFailure");
+      expect(nativeFailure(result.cause)).toMatchObject({ type: "not_found" });
+      if (input.location_id === "not-stocked") expect(nativeFailure(result.cause)).toMatchObject({ message: `Item ${input.inventory_item_id} is not stocked at location not-stocked` });
       expect(await snapshot()).toEqual(before);
     }
   });
@@ -187,10 +200,10 @@ describe("native absolute Inventory Level updates on shared logical storage", { 
       return result;
     });
     try {
-      const before = await snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { updates: requested.pairs.map((pair, index) => ({
+      const before = await snapshot(), result = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { updates: requested.pairs.map((pair, index) => ({
         ...pair, id: targetIds[index]!, stocked_quantity: index + 1,
       })) })));
-      expect(Result.isFailure(result)).toBe(true);
+      expectWorkflowTypedFailures(result);
       expect(seen).toEqual(new Set([...requested.levels, ...targets.levels].map(row => row.id)));
       expect(await snapshot()).toEqual(before);
     } finally { list.mockRestore(); }
@@ -199,7 +212,7 @@ describe("native absolute Inventory Level updates on shared logical storage", { 
   it("rejects soft-deleted levels without changing live peers", async () => {
     const graph = await connected.seed("level-update-deleted", 2), host = await connected.prepare();
     await Effect.runPromise(connected.remove([graph.items[1]!])); const before = await snapshot();
-    expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { updates: graph.pairs.map(pair => ({ ...pair, stocked_quantity: 4 })) }))))).toBe(true);
+    expectWorkflowTypedFailures(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { updates: graph.pairs.map(pair => ({ ...pair, stocked_quantity: 4 })) }))));
     expect(await snapshot()).toEqual(before);
   });
 
@@ -212,7 +225,7 @@ describe("native absolute Inventory Level updates on shared logical storage", { 
         { updates: [{ ...pair, raw_stocked_quantity: raw(2) }] }, { updates: [{ ...pair, metadata: {} }] },
         { updates: [{ ...pair, stocked_quantity: Infinity }] }, { updates: [{ ...pair, incoming_quantity: null }] }]) {
         // @ts-expect-error Deliberately malformed public update contract.
-        expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), input))))).toBe(true);
+        expectWorkflowTypedFailures(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), input))), "invalidInput");
       }
       expect(native).not.toHaveBeenCalled(); expect(await snapshot()).toEqual(before);
     } finally { native.mockRestore(); }
@@ -222,9 +235,10 @@ describe("native absolute Inventory Level updates on shared logical storage", { 
     const graph = await connected.seed("level-update-late"), host = await connected.prepare();
     for (const mode of ["throw", "result", "raw", "event", "malformed-event"] as const) {
       const original = InventoryModuleService.prototype.updateInventoryLevels; let completed = false;
+      const injectedFailure = new Error("Late native absolute-Level failure");
       const native = vi.spyOn(InventoryModuleService.prototype, "updateInventoryLevels").mockImplementation(async function (this: InventoryModuleService, ...args) {
         const result = await Reflect.apply(original, this, args); completed = true;
-        if (mode === "throw") throw new Error("Late native absolute-Level failure");
+        if (mode === "throw") throw injectedFailure;
         if (mode === "result" || mode === "raw") {
           if (!Array.isArray(result) || result[0] === undefined) throw new Error("Missing native array update result");
           Object.defineProperty(result[0], mode === "raw" ? "raw_stocked_quantity" : "stocked_quantity", {
@@ -239,9 +253,11 @@ describe("native absolute Inventory Level updates on shared logical storage", { 
         return result;
       });
       try {
-        const before = await snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { updates: [{ ...graph.pairs[0]!, stocked_quantity: 3.25 }] })));
-        if (Result.isSuccess(result)) throw new Error("Corrupt absolute update committed");
-        expect(completed).toBe(true); expect(failurePath(result.failure)).toContain(mode === "throw" ? "adapterFailure" : mode === "malformed-event" ? "unadmittedEvent" : "receiptMismatch");
+        const before = await snapshot(), result = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { updates: [{ ...graph.pairs[0]!, stocked_quantity: 3.25 }] })));
+        if (Exit.isSuccess(result)) throw new Error("Corrupt absolute update committed");
+        expect(completed).toBe(true);
+        if (mode === "throw") expectWorkflowDefect(result, injectedFailure);
+        else expectWorkflowRefusal(result, mode === "malformed-event" ? "unadmittedEvent" : "receiptMismatch");
         expect(await snapshot()).toEqual(before);
       } finally { native.mockRestore(); }
     }
@@ -257,7 +273,7 @@ describe("native absolute Inventory Level updates on shared logical storage", { 
     });
     try {
       const before = await snapshot();
-      expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { updates: [{ ...graph.pairs[0]!, stocked_quantity: 4 }] }))))).toBe(true);
+      expectWorkflowTypedFailures(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { updates: [{ ...graph.pairs[0]!, stocked_quantity: 4 }] }))));
       expect(caught).toBe(true); expect(await snapshot()).toEqual(before);
     } finally { native.mockRestore(); }
   });
@@ -288,22 +304,22 @@ describe("native absolute Inventory Level updates on shared logical storage", { 
       const result = await Reflect.apply(original, this, args); await Effect.runPromise(Deferred.succeed(reached, undefined));
       await new Promise<void>(resolve => { finish = resolve; }); return result;
     });
-    const pending = Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { updates: [{ ...graph.pairs[0]!, stocked_quantity: 2 }] })));
+    const pending = Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), { updates: [{ ...graph.pairs[0]!, stocked_quantity: 2 }] })));
     try {
       await Effect.runPromise(Deferred.await(reached).pipe(Effect.timeout(30_000)));
       if (kind === "adjustment") await Effect.runPromise(connected.adjust.run(connected.adjust.newRequestKey(), [{ ...graph.pairs[0]!, adjustment: 1 }]).pipe(Effect.timeout(30_000)));
       else await Effect.runPromise(connected.reservations.run(connected.reservations.newRequestKey(), { reservations: [{ ...graph.pairs[0]!, quantity: 3 }] }).pipe(Effect.timeout(30_000)));
       const committed = await snapshot(); finish?.(); const result = await pending;
-      if (Result.isSuccess(result)) throw new Error("Stale absolute Level update overwrote committed stock/reservation");
-      expect(failurePath(result.failure)).toContain("writeConflict"); expect(await snapshot()).toEqual(committed);
+      if (Exit.isSuccess(result)) throw new Error("Stale absolute Level update overwrote committed stock/reservation");
+      expectWorkflowTypedFailures(result, "writeConflict");
+      expect(failurePath(result.cause)).toContain("writeConflict"); expect(await snapshot()).toEqual(committed);
       expect(await Effect.runPromise(connected.probe(graph.items))).toMatchObject([{ stocked_quantity: raw(kind === "adjustment" ? 11 : 10).value,
         reserved_quantity: raw(kind === "reservation" ? 3 : 0).value }]);
     } finally { finish?.(); await pending; native.mockRestore(); }
   }, 120_000);
 
   it("isolates identical item/location pairs and request keys across actual scopes", async () => {
-    const other = await prepareLogicalInventoryLevelUpdate(driver, close => cleanup.push(close), { resource: connected.fixture.resource,
-      fixtureIdentity: { deploymentId: "inventory_level_update_shop_b", projectId: "inventory_level_update_shop_b", uuidOffset: 310_000 } });
+    const other = await prepareCoreInventoryLevelUpdate(driver, close => cleanup.push(close), { physical: connected.fixture.physical });
     const graph = await connected.seed("level-update-scope"), foreign = await other.seed("level-update-scope");
     const left = await connected.prepare(), right = await other.prepare(), key = left.newRequestKey();
     const input = { updates: [{ ...graph.pairs[0]!, stocked_quantity: 4 }] }, otherInput = { updates: [{ ...foreign.pairs[0]!, stocked_quantity: 7 }] };

@@ -1,19 +1,22 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { Cause, Deferred, Effect, Exit, Fiber, Schema } from "effect";
 import { InventoryLevelService, InventoryModuleService } from "@medusajs/inventory/services";
 import { BigNumber } from "@medusajs/utils/totals/big-number";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { CommerceTransactionError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import * as coreCommitters from "../../persistence-postgres/src/core/committer";
+import { coreNamespaceKey } from "../../persistence-postgres/src/core/namespace";
+import type { CoreNativeScopeExclusion } from "../../persistence-postgres/src/core/nativeScopeExclusion";
 import { prepareDeleteReservationsByLineItemsWorkflow } from "../src/workflows/inventory/reservation-line-items";
-import { prepareLogicalReservationLineItems } from "./support/logical-reservation-line-item-fixture";
-import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
+import { prepareCoreReservationLineItems } from "./support/core-reservation-line-item-fixture";
+import { expectWorkflowTypedFailures } from "./support/workflow-failure-assertions";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalReservationLineItems>>;
-let sharedCleanupCount = 0;
-const snapshot = () => logicalCurrencyInventory(connected.fixture);
+let caseCleanupStart: number | undefined;
+let connected: Awaited<ReturnType<typeof prepareCoreReservationLineItems>>;
+let actualScopeGate: CoreNativeScopeExclusion | undefined;
+const snapshot = () => connected.fixture.snapshot();
 const decodeIds = Schema.decodeUnknownSync(Schema.Array(Schema.String));
 function reasons(value: unknown): string[] {
   if (Cause.isCause(value)) return value.reasons.flatMap(reason => reason._tag === "Fail" ? reasons(reason.error) : reason._tag === "Die" ? reasons(reason.defect) : ["Interrupt"]);
@@ -32,10 +35,11 @@ function eventIds(events: Awaited<ReturnType<typeof snapshot>>["events"], contra
   });
 }
 async function refused(work: Effect.Effect<unknown, CommerceTransactionError>, before: Awaited<ReturnType<typeof snapshot>>, reason?: string) {
-  const result = await Effect.runPromise(Effect.result(work));
-  if (Result.isSuccess(result)) throw new Error("Expected native Reservation Line Item refusal");
-  if (reason !== undefined) expect(reasons(result.failure)).toContain(reason);
-  expect(await snapshot()).toEqual(before); return result.failure;
+  const result = await Effect.runPromise(Effect.exit(work));
+  if (Exit.isSuccess(result)) throw new Error("Expected native Reservation Line Item refusal");
+  expectWorkflowTypedFailures(result);
+  if (reason !== undefined) expect(reasons(result.cause)).toContain(reason);
+  expect(await snapshot()).toEqual(before); return result.cause;
 }
 async function refusedDefect(work: Effect.Effect<unknown, CommerceTransactionError>, before: Awaited<ReturnType<typeof snapshot>>, expected: Error | string) {
   const exit = await Effect.runPromiseExit(work);
@@ -57,11 +61,46 @@ async function reserved(items: readonly string[]) {
 }
 const deleted = "inventory.reservation-item.deleted", restored = "inventory.reservation-item.restored", updated = "inventory.inventory-level.updated";
 
+/** Observe the real selected namespace's lock; this neither models a queue nor
+ * supplies a permit/readiness decision. The constructor issues the actual owner. */
+function selectedQueue() {
+  if (actualScopeGate === undefined) throw new Error("Missing actual Core scope-exclusion owner");
+  const namespaces: unknown = Reflect.get(actualScopeGate, "namespaces");
+  if (!(namespaces instanceof Map)) throw new Error("Missing actual Core namespace locks");
+  const lock: unknown = namespaces.get(coreNamespaceKey(connected.fixture.bundle.namespace));
+  if (typeof lock !== "object" || lock === null) throw new Error("Missing selected Core namespace lock");
+  const writers: unknown = Reflect.get(lock, "writers"), queue: unknown = Reflect.get(lock, "queue");
+  if (typeof writers !== "number" || !Array.isArray(queue)) throw new Error("Missing actual Core lock state");
+  const waiting = queue.filter((entry: unknown) => {
+    if (typeof entry !== "object" || entry === null || !("mode" in entry) || !("state" in entry))
+      throw new Error("Missing actual Core waiter state");
+    return entry.mode === "exclusive" && entry.state === "waiting";
+  });
+  return { writers, waiting: waiting.length };
+}
+
 describe("native Reservation deletion by Line Item on shared logical storage", { concurrent: false }, () => {
   beforeAll(async () => {
-    connected = await prepareLogicalReservationLineItems(driver, close => cleanup.push(close)); sharedCleanupCount = cleanup.length;
+    const originalMake = coreCommitters.makeCoreCommitter;
+    const constructor = vi.spyOn(coreCommitters, "makeCoreCommitter").mockImplementation((...parameters) => originalMake(...parameters)
+      .pipe(Effect.tap(() => Effect.sync(() => {
+        const gate = parameters[8];
+        if (gate === undefined) throw new Error("Actual Core constructor omitted its scope-exclusion owner");
+        actualScopeGate = gate;
+      }))));
+    cleanup.push(async () => { constructor.mockRestore(); });
+    connected = await prepareCoreReservationLineItems(driver, close => cleanup.push(close));
   }, 240_000);
-  afterEach(async () => { for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }, 120_000);
+  beforeEach(() => { caseCleanupStart = cleanup.length; });
+  afterEach(async () => {
+    const transient = caseCleanupStart === undefined ? [] : cleanup.splice(caseCleanupStart);
+    caseCleanupStart = undefined;
+    const failures: unknown[] = [];
+    for (const close of transient.reverse()) {
+      try { await close(); } catch (error) { failures.push(error); }
+    }
+    if (failures.length !== 0) throw new AggregateError(failures, "Unable to close Inventory consumer case hosts");
+  }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
   it("calls native Inventory for empty raw selectors, settles once, and skips empty or absent retained inverses", async () => {
@@ -72,7 +111,7 @@ describe("native Reservation deletion by Line Item on shared logical storage", {
       const before = await snapshot(), key = host.newRequestKey(); expect(await Effect.runPromise(host.run(key, { ids: [] }))).toBeNull();
       expect(remove.mock.calls.map(call => call[0])).toEqual([[]]);
       const after = await snapshot(); expect(after.rows).toEqual(before.rows); expect(after.events).toEqual(before.events);
-      expect(after.rowChanges).toEqual(before.rowChanges); expect(after.commits.length - before.commits.length).toBe(1);
+      expect(after.revisions).toEqual(before.revisions); expect(after.outcomes.length - before.outcomes.length).toBe(1);
       expect(await Effect.runPromise(host.run(key, { ids: [] }))).toBeNull(); expect(await snapshot()).toEqual(after); expect(remove).toHaveBeenCalledTimes(1);
       expect(await Effect.runPromise(probes.inverse.run(probes.inverse.newRequestKey(), []))).toBeNull();
       expect(await Effect.runPromise(probes.absent.run(probes.absent.newRequestKey(), null))).toBeNull(); expect(restore).not.toHaveBeenCalled();
@@ -102,9 +141,9 @@ describe("native Reservation deletion by Line Item on shared logical storage", {
       }
       for (const row of await reserved(graph.items)) expect(row.reserved).toEqual(new BigNumber(0).raw);
       const after = await snapshot(), emitted = after.events.slice(before.events.length);
-      expect(after.commits.length - before.commits.length).toBe(1); expect(after.outcomes.length - before.outcomes.length).toBe(1);
-      expect(after.rowChanges.length - before.rowChanges.length).toBe(8); expect(emitted.every(event => event.envelope.internal)).toBe(true);
-      expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1);
+      expect(after.outcomes.length - before.outcomes.length).toBe(1); expect(after.outcomes.length - before.outcomes.length).toBe(1);
+      expect(after.revisions.length - before.revisions.length).toBe(8); expect(emitted.every(event => event.envelope.internal)).toBe(true);
+      expect(new Set(emitted.map(event => event.timestamp)).size).toBe(1);
       expect(eventIds(emitted, deleted)).toEqual([...graph.ids].sort());
       expect(eventIds(emitted, updated)).toEqual([...graph.levels].sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0).map(row => row.id));
       expect(emitted.findIndex(event => event.envelope.contract === updated)).toBeGreaterThan(emitted.map(event => event.envelope.contract).lastIndexOf(deleted));
@@ -158,7 +197,7 @@ describe("native Reservation deletion by Line Item on shared logical storage", {
     expect(stored.filter(row => row.deleted_at !== null)).toHaveLength(2);
     const beforeNoop = await snapshot(); expect(await Effect.runPromise(host.run(host.newRequestKey(), { ids: [line, "missing-line"] }))).toBeNull();
     const afterNoop = await snapshot(); expect(afterNoop.rows).toEqual(beforeNoop.rows); expect(afterNoop.events).toEqual(beforeNoop.events);
-    expect(afterNoop.rowChanges).toEqual(beforeNoop.rowChanges); expect(afterNoop.commits.length - beforeNoop.commits.length).toBe(1);
+    expect(afterNoop.revisions).toEqual(beforeNoop.revisions); expect(afterNoop.outcomes.length - beforeNoop.outcomes.length).toBe(1);
   }, 120_000);
 
   it.each([{ kind: "deleted-only", rows: [{ quantity: 3, deleted: true }], expected: 3 },
@@ -173,7 +212,7 @@ describe("native Reservation deletion by Line Item on shared logical storage", {
         const selected = await Effect.runPromise(connected.probeReservations(graph.ids)); expect(selected.every(row => row.deleted_at === null)).toBe(true);
         expect((await reserved(graph.items))[0]?.reserved).toEqual(new BigNumber(expected).raw);
         const after = await snapshot(); expect(eventIds(after.events.slice(before.events.length), restored)).toEqual([...graph.ids].sort());
-        if (repeated || kind === "active-only") expect(after.rowChanges).toEqual(before.rowChanges);
+        if (repeated || kind === "active-only") expect(after.revisions).toEqual(before.revisions);
       }
     } finally { restore.mockRestore(); }
   }, 180_000);
@@ -224,11 +263,12 @@ describe("native Reservation deletion by Line Item on shared logical storage", {
       const before = await snapshot();
       for (const input of [{ ids: Array.from({ length: 5 }, () => "duplicate") }, { ids: [""] }, { ids: null }, { ids: "line" }, { ids: [], extra: true }]) {
         // @ts-expect-error Deliberately malformed public workflow input.
-        await refused(host.run(host.newRequestKey(), input), before);
+        await refused(host.run(host.newRequestKey(), input), before, "invalidInput");
       }
       const wrong = { ...connected.options, inventory: { ...connected.options.inventory, module: connected.members.inventory.runtime.workflow } };
       // @ts-expect-error Deliberately wrong named module profile.
-      expect(Result.isFailure(await Effect.runPromise(Effect.result(prepareDeleteReservationsByLineItemsWorkflow(wrong))))).toBe(true);
+      expect(expectWorkflowTypedFailures(await Effect.runPromise(Effect.exit(prepareDeleteReservationsByLineItemsWorkflow(wrong))))
+        .map(failure => failure.reason)).toEqual(["invalidAuthority"]);
       expect(native).not.toHaveBeenCalled(); expect(await snapshot()).toEqual(before);
     } finally { native.mockRestore(); }
   });
@@ -246,9 +286,9 @@ describe("native Reservation deletion by Line Item on shared logical storage", {
 
   it("authenticates selected scope exclusion before native work when a host drops the profile", async () => {
     const host = await Effect.runPromise(prepareDeleteReservationsByLineItemsWorkflow({ ...connected.options, execution: {
-      identityAndAccessPolicy: connected.fixture.hostInput.identityAndAccessPolicy,
+      identityAndAccessPolicy: connected.execution.identityAndAccessPolicy,
       prepare: composition => { const { executionIsolation: _selected, ...ordinary } = composition;
-        return makeAtomicCommerceHost({ ...connected.fixture.hostInput, ...ordinary }); },
+        return connected.execution.prepare(ordinary); },
     } }));
     const native = vi.spyOn(InventoryModuleService.prototype, "deleteReservationItemsByLineItem");
     try {
@@ -342,23 +382,16 @@ describe("native Reservation deletion by Line Item on shared logical storage", {
       await Effect.runPromise(Deferred.await(reached).pipe(Effect.timeout(30_000)));
       const pair = graph.pairs[0], other = graph.reservations[1];
       if (pair === undefined || other === undefined) throw new Error("Missing native Reservation competitor endpoints");
+      expect(selectedQueue()).toEqual({ writers: 1, waiting: 0 });
       const otherId = other.id;
       second = kind === "create" ? Effect.runPromise(connected.reservations.run(connected.reservations.newRequestKey(), { reservations: [{ ...pair, quantity: 3 }] }))
         : kind === "update" ? Effect.runPromise(connected.updateReservation.run(connected.updateReservation.newRequestKey(), { updates: [{ id: otherId, quantity: 3 }] }))
         : kind === "release" ? Effect.runPromise(connected.release.run(connected.release.newRequestKey(), { ids: [otherId] }))
         : Effect.runPromise(connected.adjust.run(connected.adjust.newRequestKey(), [{ ...pair, adjustment: 1 }]));
-      if (connected.fixture.resource.kind !== "postgres") throw new Error("Missing ordinary-role PostgreSQL resource");
-      const persistence = connected.fixture.resource.target;
-      await expect.poll(async () => {
-        const result = await persistence.query<{ waiting: boolean }>(`select exists (
-          select 1 from pg_stat_activity activity where activity.datname=current_database() and activity.usename=current_user
-            and activity.wait_event_type='Lock' and cardinality(pg_blocking_pids(activity.pid))>0
-            and position('fx_system_scope_clock' in activity.query)>0
-        ) as waiting`);
-        return result.rows[0]?.waiting ?? false;
-      }, { timeout: 10_000, interval: 25 }).toBe(true);
+      await expect.poll(() => selectedQueue(), { timeout: 10_000, interval: 25 }).toEqual({ writers: 1, waiting: 1 });
       expect(createSpy).not.toHaveBeenCalled(); expect(updateSpy).not.toHaveBeenCalled(); expect(releaseSpy).not.toHaveBeenCalled(); expect(adjustSpy).not.toHaveBeenCalled();
       finish?.(); expect(await first).toBeNull(); await second;
+      expect(selectedQueue()).toEqual({ writers: 0, waiting: 0 });
       expect((await reserved(graph.items))[0]?.reserved).toEqual(new BigNumber(kind === "create" ? 4 : kind === "update" ? 3 : kind === "release" ? 0 : 1).raw);
       const stored = await connected.probeCohort(graph.items); expect(stored[0]?.raw_stocked_quantity).toEqual(new BigNumber(kind === "adjust" ? 11 : 10).raw);
     } finally {
@@ -368,8 +401,7 @@ describe("native Reservation deletion by Line Item on shared logical storage", {
   }, 180_000);
 
   it("confines complete history and identical Line Item selectors to their actual shop scopes", async () => {
-    const other = await prepareLogicalReservationLineItems(driver, close => cleanup.push(close), { resource: connected.fixture.resource,
-      fixtureIdentity: { deploymentId: "reservation_line_item_shop_b", projectId: "reservation_line_item_shop_b", uuidOffset: 610_000 } });
+    const other = await prepareCoreReservationLineItems(driver, close => cleanup.push(close), { physical: connected.fixture.physical });
     const line = "reservation-line-identical", left = await connected.seed("reservation-line-scope", [{ line, quantity: 2 }, { line, quantity: 3, deleted: true }]),
       right = await other.seed("reservation-line-scope", [{ line, quantity: 1 }, { line, quantity: 4, deleted: true }]);
     const leftHost = await connected.prepare(), rightHost = await other.prepare(), key = leftHost.newRequestKey();

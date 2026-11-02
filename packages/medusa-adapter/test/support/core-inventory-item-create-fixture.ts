@@ -3,7 +3,6 @@ import { createStep, createWorkflow, StepResponse, WorkflowResponse, type Workfl
 import { createInventoryItemsWorkflow } from "@medusajs/core-flows/inventory/create-inventory-items";
 import type { StockLocationModuleService } from "@medusajs/stock-location/services";
 import { defineCommerceCommand } from "../../../persistence-postgres/src/frameworks/commerceTransaction/commands";
-import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeLocalInventoryCommands } from "../../src/modules/inventory/service";
 import { makeStockLocationCommands } from "../../src/modules/stock-location/service";
@@ -16,8 +15,8 @@ import { InventoryItemCreationInput, prepareInventoryItemCreationWorkflow } from
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
-import { prepareLogicalInventoryLevelBatch } from "./logical-inventory-level-batch-fixture";
-import type { LogicalInventoryMaintenanceShared } from "./logical-inventory-maintenance-fixture";
+import { prepareCoreInventoryLevelBatch } from "./core-inventory-level-batch-fixture";
+import type { CoreInventoryMaintenanceShared } from "./core-inventory-maintenance-fixture";
 
 const prepared = Result.getOrThrow(createInventoryItemsWorkflow.prepare());
 const itemCreation = prepared.nodes.find(node => node.kind === "step" && node.name === "create-inventory-items");
@@ -40,19 +39,19 @@ const probeCommand = defineCommerceCommand("standaloneInventoryItemCreationProbe
 
 /** Existing native seeds preserve nonempty neighboring graphs. The standalone
  * root binds only the dedicated creation owner and a Location ID-read owner. */
-export async function prepareLogicalInventoryItemCreation(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  shared?: LogicalInventoryMaintenanceShared) {
-  const common = await prepareLogicalInventoryLevelBatch(driver, close, shared);
+export async function prepareCoreInventoryItemCreation(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
+  shared?: CoreInventoryMaintenanceShared) {
+  const common = await prepareCoreInventoryLevelBatch(driver, close, shared);
   const creation = await Effect.runPromise(makeLocalInventoryCommands("item-creations"));
   const locations = await Effect.runPromise(makeStockLocationCommands("read"));
-  const modules = { inventory: { module: creation.workflow, logicalStorage: common.members.inventory.hostInput.logicalStorage },
-    stock_location: { module: locations.workflow, logicalStorage: common.members.stockLocation.hostInput.logicalStorage } };
+  const modules = { inventory: { module: creation.workflow, nativeStorage: common.members.inventory.source },
+    stock_location: { module: locations.workflow, nativeStorage: common.members.stockLocation.source } };
   const subscribers = [{ id: "native-inventory-item-creation", revision: "6".repeat(64) }];
   const options: Parameters<typeof prepareInventoryItemCreationWorkflow>[0] = { execution: common.execution, modules, revision: "7".repeat(64), subscribers };
   const prepare = async (revision = options.revision) => {
     const host = await Effect.runPromise(prepareInventoryItemCreationWorkflow({ ...options, revision })); close(() => Effect.runPromise(host.close)); return host;
   };
-  const rawReader = await Effect.runPromise(makeCommerceHost({ ...common.members.inventory.hostInput, commands: [probeCommand] }));
+  const rawReader = await Effect.runPromise(common.fixture.openReadHost("inventory", [probeCommand]));
   close(() => Effect.runPromise(rawReader.close));
   const probeItems = (ids: readonly string[]) => rawReader.read(probeCommand, [...ids]).pipe(Effect.flatMap(decodeItems));
   const resources = Result.getOrThrow(prepareWorkflowResources({ inventory: { module: creation.workflow,
@@ -92,7 +91,7 @@ export async function prepareLogicalInventoryItemCreation(driver: "pglite" | "po
     }));
     const workflow = createWorkflow("competing-native-location-soft-delete", (input: WorkflowData<typeof StockLocationDeletionIds.Type>) => new WorkflowResponse(invoke(input)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ execution: common.execution,
-      modules: { stock_location: { module: deletion.workflow, logicalStorage: modules.stock_location.logicalStorage } }, revision: options.revision, subscribers,
+      modules: { stock_location: { module: deletion.workflow, nativeStorage: modules.stock_location.nativeStorage } }, revision: options.revision, subscribers,
       workflow: { name: "competingNativeLocationSoftDelete", resources, prepared: Result.getOrThrow(workflow.prepare()),
         input: StockLocationDeletionIds, output: Schema.Null, events: internalModuleWorkflowEvents } }));
     close(() => Effect.runPromise(host.close)); return host;

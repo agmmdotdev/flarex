@@ -1,24 +1,22 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
 import { InventoryModuleService } from "@medusajs/inventory/services";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant, defineCommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { fxAppRowCurrent, fxSystemCommits } from "../../persistence-postgres/src/database/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
-import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
-import { prepareLogicalInventoryHosts, prepareInventoryCreateHost } from "./support/logical-inventory-fixture";
+import { prepareCoreInventoryMaintenance } from "./support/core-inventory-maintenance-fixture";
+import { prepareCoreInventoryCreateHost } from "./support/core-product-creation-fixture";
 import { prepareInventoryStockingWorkflow } from "../src/workflows/inventory/stock";
 import { prepareStockAdjustmentsWorkflow, prepareCreateReservationWorkflow, prepareUpdateReservationWorkflow, prepareReleaseReservationWorkflow } from "../src/workflows/inventory/adjust-and-reserve";
 import type { AtomicWorkflowExecution } from "../src/workflow/host";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid reservation driver");
 const cleanup: Array<() => Promise<void>> = [];
-let fixture: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
-let members: Awaited<ReturnType<typeof prepareLogicalInventoryHosts>>;
+let caseCleanupStart: number | undefined;
+type Connected = Awaited<ReturnType<typeof prepareCoreInventoryMaintenance>>;
+let connected: Connected;
+let fixture: Connected["fixture"];
+let members: Connected["members"];
 let adjust: Effect.Success<ReturnType<typeof prepareStockAdjustmentsWorkflow>>;
 let create: Effect.Success<ReturnType<typeof prepareCreateReservationWorkflow>>;
 let update: Effect.Success<ReturnType<typeof prepareUpdateReservationWorkflow>>;
@@ -34,8 +32,8 @@ function nativeFailure(value: unknown): unknown {
   if (value instanceof Error && value.cause !== undefined) return nativeFailure(value.cause);
   return value;
 }
-const rows = () => fixture.persistence.drizzle.select().from(fxAppRowCurrent);
-const events = () => fixture.persistence.drizzle.select().from(fxSystemCommitEvents);
+const rows = async () => (await fixture.snapshot()).rows;
+const events = async () => (await fixture.snapshot()).events;
 async function seed(location: string, quantity = 5) {
   const created = await run(stock, { locations: [{ id: location, name: location }], inventory_levels: [
     { inventory_item_id: "reserved-item", location_index: 0, stocked_quantity: quantity },
@@ -52,8 +50,9 @@ async function probe(location: string, reservationIds: readonly string[], scope 
       reservations: yield* (yield* ctx.table("reservation_item")).find(ctx.manager, query(reservationIds)) };
   }));
   const command = defineAtomicCommerceCommand("reservationProof", ctx => ctx.call(participant, read, null));
-  const host = await Effect.runPromise(makeAtomicCommerceHost({ ...scope.fixture.hostInput, commands: [command], participants: [{
-    participant, logicalStorage: scope.members.inventory.hostInput.logicalStorage, commands: [read],
+  const host = await Effect.runPromise(scope.fixture.execution.prepare({ identityAndAccessPolicy: scope.fixture.execution.identityAndAccessPolicy,
+    commands: [command], participants: [{
+    participant, nativeStorage: scope.members.inventory.source, commands: [read],
   }] }));
   try { return await Effect.runPromise(host.run(host.newRequestKey(), command, null)); }
   finally { await Effect.runPromise(host.close); }
@@ -61,24 +60,33 @@ async function probe(location: string, reservationIds: readonly string[], scope 
 
 describe("native stock adjustments and individual reservation workflows", () => {
   beforeAll(async () => {
-    fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close), { includeProduct: true, includePricing: true, includeVariantInventory: true });
-    members = await prepareLogicalInventoryHosts(fixture, { stock: true, stockLocations: true });
-    const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-      prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, ...composition }) };
+    connected = await prepareCoreInventoryMaintenance(driver, close => cleanup.push(close));
+    ({ fixture, members } = connected);
+    const execution = connected.execution;
     const options = { execution,
-      inventory: { module: members.inventory.runtime.workflow, logicalStorage: members.inventory.hostInput.logicalStorage }, revision, subscribers };
+      inventory: { module: members.inventory.runtime.workflow, nativeStorage: members.inventory.source }, revision, subscribers };
     adjust = await Effect.runPromise(prepareStockAdjustmentsWorkflow(options));
     create = await Effect.runPromise(prepareCreateReservationWorkflow(options));
     update = await Effect.runPromise(prepareUpdateReservationWorkflow(options));
     release = await Effect.runPromise(prepareReleaseReservationWorkflow(options));
     stock = await Effect.runPromise(prepareInventoryStockingWorkflow({ execution: options.execution, revision, subscribers, modules: {
-      inventory: options.inventory, stock_location: { module: members.stockLocation.runtime.workflow, logicalStorage: members.stockLocation.hostInput.logicalStorage },
+      inventory: options.inventory, stock_location: { module: members.stockLocation.runtime.workflow, nativeStorage: members.stockLocation.source },
     } }));
     for (const host of [adjust, create, update, release, stock]) cleanup.push(() => Effect.runPromise(host.close));
-    const seedHost = await prepareInventoryCreateHost(fixture, members.inventory);
+    const seedHost = await prepareCoreInventoryCreateHost(fixture, members.inventory);
     try { await Effect.runPromise(seedHost.host.run(seedHost.host.newRequestKey(), seedHost.create, [{ id: "reserved-item", sku: "reservation-sku" }])); }
     finally { await Effect.runPromise(seedHost.host.close); }
   }, 180_000);
+  beforeEach(() => { caseCleanupStart = cleanup.length; });
+  afterEach(async () => {
+    const transient = caseCleanupStart === undefined ? [] : cleanup.splice(caseCleanupStart);
+    caseCleanupStart = undefined;
+    const failures: unknown[] = [];
+    for (const close of transient.reverse()) {
+      try { await close(); } catch (error) { failures.push(error); }
+    }
+    if (failures.length !== 0) throw new AggregateError(failures, "Unable to close Inventory consumer case hosts");
+  }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
   it("refuses forged or missing Inventory tokens before inspecting methods or preparing execution", async () => {
@@ -87,7 +95,7 @@ describe("native stock adjustments and individual reservation workflows", () => 
     const prepareExecution = vi.fn(() => Effect.die("Unexpected execution preparation"));
     const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: {}, prepare: prepareExecution };
     for (const token of [forged, undefined, null]) {
-      const inventory = { module: members.inventory.runtime.workflow, logicalStorage: members.inventory.hostInput.logicalStorage };
+      const inventory = { module: members.inventory.runtime.workflow, nativeStorage: members.inventory.source };
       Reflect.set(inventory, "module", token);
       const options = { execution, inventory, revision, subscribers };
       const preparations = [prepareStockAdjustmentsWorkflow(options).pipe(Effect.asVoid), prepareCreateReservationWorkflow(options).pipe(Effect.asVoid),
@@ -103,7 +111,7 @@ describe("native stock adjustments and individual reservation workflows", () => 
 
   it("creates, changes and releases an exact fractional reservation, publishing once and replaying each root", async () => {
     await seed("cycle");
-    const before = await fixture.persistence.drizzle.select().from(fxSystemCommits);
+    const before = (await fixture.snapshot()).outcomes;
     const key = create.newRequestKey(), input = { reservations: [data("cycle", 2.25)] };
     const created = await Effect.runPromise(create.run(key, input));
     expect(created[0]).toMatchObject({ quantity: 2.25, raw_quantity: { value: (2.25).toPrecision(20), precision: 20 } });
@@ -118,7 +126,7 @@ describe("native stock adjustments and individual reservation workflows", () => 
     expect(await Effect.runPromise(release.run(releaseKey, { ids: [id] }))).toBeNull();
     expect(await probe("cycle", [id])).toMatchObject({ levels: [{ reserved_quantity: (0).toPrecision(20), raw_reserved_quantity: { value: (0).toPrecision(20) } }],
       reservations: [{ id, quantity: (0).toPrecision(20), deleted_at: expect.any(String) }] });
-    expect(await fixture.persistence.drizzle.select().from(fxSystemCommits)).toHaveLength(before.length + 5);
+    expect((await fixture.snapshot()).outcomes).toHaveLength(before.length + 5);
   });
 
   it("retains sequential repeated-pair deltas, negative stock and native availability failure", async () => {
@@ -191,10 +199,10 @@ describe("native stock adjustments and individual reservation workflows", () => 
 
   it("authenticates the selected exclusion before native work even when a host drops the profile", async () => {
     const host = await Effect.runPromise(prepareCreateReservationWorkflow({
-      execution: { identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy, prepare: composition => {
+      execution: { identityAndAccessPolicy: fixture.execution.identityAndAccessPolicy, prepare: composition => {
         const { executionIsolation: _selected, ...ordinary } = composition;
-        return makeAtomicCommerceHost({ ...fixture.hostInput, ...ordinary });
-      } }, inventory: { module: members.inventory.runtime.workflow, logicalStorage: members.inventory.hostInput.logicalStorage }, revision, subscribers,
+        return fixture.execution.prepare(ordinary);
+      } }, inventory: { module: members.inventory.runtime.workflow, nativeStorage: members.inventory.source }, revision, subscribers,
     }));
     const native = vi.spyOn(InventoryModuleService.prototype, "createReservationItems");
     try {
@@ -231,20 +239,14 @@ describe("native stock adjustments and individual reservation workflows", () => 
 
   it("recovers uncertain acknowledgement without repeating native reservation creation", async () => {
     await seed("uncertain-reservation");
-    let lose = true;
-    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
-      Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-      Effect.flatMap(value => { if (!lose) return Effect.succeed(value); lose = false;
-        return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost reservation COMMIT acknowledgement") })); }),
-    ));
-    const host = await Effect.runPromise(prepareCreateReservationWorkflow({ execution: {
-      identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy, prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, session, ...composition }),
-    }, inventory: { module: members.inventory.runtime.workflow, logicalStorage: members.inventory.hostInput.logicalStorage }, revision, subscribers }));
+    const fault = fixture.loseNextNativeRootAcknowledgement();
+    const host = await Effect.runPromise(prepareCreateReservationWorkflow({ execution: fixture.execution,
+      inventory: { module: members.inventory.runtime.workflow, nativeStorage: members.inventory.source }, revision, subscribers }));
     const native = vi.spyOn(InventoryModuleService.prototype, "createReservationItems");
     try {
       const key = host.newRequestKey(), input = { reservations: [data("uncertain-reservation")] };
       const result = await Effect.runPromise(host.run(key, input));
-      expect(native).toHaveBeenCalledTimes(1); expect(lose).toBe(false);
+      expect(native).toHaveBeenCalledTimes(1); expect(fault.failures).toBe(1); expect(fault.evidence).toBeDefined();
       const stableRows = await rows(), stableEvents = await events();
       expect(await Effect.runPromise(host.run(key, input))).toEqual(result);
       expect(native).toHaveBeenCalledTimes(1); expect(await rows()).toEqual(stableRows); expect(await events()).toEqual(stableEvents);
@@ -262,19 +264,15 @@ describe("native stock adjustments and individual reservation workflows", () => 
   });
 
   it.skipIf(driver !== "postgres")("confines exclusion and matching native identities to each shop", async () => {
-    const other = await logicalCurrencyFixture("postgres", close => cleanup.push(close), {
-      includeProduct: true, includePricing: true, includeVariantInventory: true, resource: fixture.resource,
-      fixtureIdentity: { deploymentId: "reservation_shop_b", projectId: "reservation_shop_b", uuidOffset: 21_000 },
-    });
-    const otherMembers = await prepareLogicalInventoryHosts(other, { stock: true, stockLocations: true });
-    const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: other.hostInput.identityAndAccessPolicy,
-      prepare: composition => makeAtomicCommerceHost({ ...other.hostInput, ...composition }) };
-    const options = { execution, inventory: { module: otherMembers.inventory.runtime.workflow, logicalStorage: otherMembers.inventory.hostInput.logicalStorage }, revision, subscribers };
+    const otherConnected = await prepareCoreInventoryMaintenance("postgres", close => cleanup.push(close), { physical: fixture.physical });
+    const other = otherConnected.fixture, otherMembers = otherConnected.members, execution = otherConnected.execution;
+    expect(otherMembers.inventory.definition.identity.scopeUuid).not.toBe(members.inventory.definition.identity.scopeUuid);
+    const options = { execution, inventory: { module: otherMembers.inventory.runtime.workflow, nativeStorage: otherMembers.inventory.source }, revision, subscribers };
     const otherCreate = await Effect.runPromise(prepareCreateReservationWorkflow(options));
     const otherStock = await Effect.runPromise(prepareInventoryStockingWorkflow({ execution, revision, subscribers, modules: {
-      inventory: options.inventory, stock_location: { module: otherMembers.stockLocation.runtime.workflow, logicalStorage: otherMembers.stockLocation.hostInput.logicalStorage },
+      inventory: options.inventory, stock_location: { module: otherMembers.stockLocation.runtime.workflow, nativeStorage: otherMembers.stockLocation.source },
     } }));
-    const itemHost = await prepareInventoryCreateHost(other, otherMembers.inventory);
+    const itemHost = await prepareCoreInventoryCreateHost(other, otherMembers.inventory);
     try { await Effect.runPromise(itemHost.host.run(itemHost.host.newRequestKey(), itemHost.create, [{ id: "reserved-item", sku: "other-reservation-sku" }])); }
     finally { await Effect.runPromise(itemHost.host.close); }
     await seed("same-native-identity");

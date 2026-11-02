@@ -25,6 +25,12 @@ this does not implement Source UDF search or promise a separate trigram/JSON
 index engine. Unavailable indexed-null anchors refuse. Candidate capture remains
 bounded; there is no unbounded scan fallback or adapter SQL.
 
+The [declared equality correction](./native-declared-equality-indexes.md) implements
+missing lowering of authenticated unconditional native scalar declarations.
+It reuses these ordinary indexes and observations with paired owner proof;
+complete Native20 consumer acceptance remains open. It grants no search, range,
+JSON or constraint capability.
+
 The existing
 [`transaction native observation owner`](../../../../packages/persistence-postgres/src/core/transaction.ts)
 retains first physical membership, first originals, negative/EOF dependencies

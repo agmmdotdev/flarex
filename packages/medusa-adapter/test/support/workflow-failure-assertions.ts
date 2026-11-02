@@ -2,6 +2,24 @@ import { Cause, Exit } from "effect";
 import { expect } from "vitest";
 import { CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 
+/** Refusal may precede execution or include settlement reasons. Every observed
+ * reason must remain typed; defects and interruption are different outcomes. */
+export function expectWorkflowTypedFailures<Value, Failure>(exit: Exit.Exit<Value, Failure>,
+  expected?: CommerceTransactionError["reason"]): readonly CommerceTransactionError[] {
+  if (Exit.isSuccess(exit)) throw new Error("Expected a typed native workflow refusal");
+  expect(exit.cause.reasons.length).toBeGreaterThan(0);
+  expect(exit.cause.reasons.filter(Cause.isDieReason)).toEqual([]);
+  expect(exit.cause.reasons.filter(Cause.isInterruptReason)).toEqual([]);
+  const failures: CommerceTransactionError[] = [];
+  for (const reason of exit.cause.reasons) {
+    if (!Cause.isFailReason(reason)) throw new Error("Expected every workflow reason to be a typed failure");
+    if (!(reason.error instanceof CommerceTransactionError)) throw new Error("Expected a typed Commerce refusal");
+    failures.push(reason.error);
+  }
+  if (expected !== undefined) expect(failures.map(failure => failure.reason)).toContain(expected);
+  return failures;
+}
+
 function failureReasons<Value, Failure>(exit: Exit.Exit<Value, Failure>) {
   if (Exit.isSuccess(exit)) throw new Error("Expected the native workflow to fail");
   // A rollback marker must accompany the original failure, never replace it.

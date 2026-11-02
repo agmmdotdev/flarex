@@ -2,8 +2,6 @@ import { Effect, Schema } from "effect";
 import { defineCommerceCommand } from "../../../persistence-postgres/src/frameworks/commerceTransaction/commands";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeLocalInventoryCommands } from "../../src/modules/inventory/service";
 import { InventoryLevelUpdateCommandInput } from "../../src/modules/inventory/update-level-input";
@@ -11,9 +9,8 @@ import { InventoryLevelInput, InventoryLevelsOutput } from "../../src/modules/in
 import { prepareInventoryLevelUpdateWorkflow } from "../../src/workflows/inventory/update-levels";
 import { prepareStockAdjustmentsWorkflow } from "../../src/workflows/inventory/adjust-and-reserve";
 import { prepareProductCreateWorkflow } from "../../src/workflows/product/create";
-import { prepareLogicalProductHost } from "./logical-product-fixture";
-import { prepareInventoryCreateHost } from "./logical-inventory-fixture";
-import { prepareLogicalInventoryMaintenance, type LogicalInventoryMaintenanceShared } from "./logical-inventory-maintenance-fixture";
+import { prepareCoreInventoryCreateHost } from "./core-product-creation-fixture";
+import { prepareCoreInventoryMaintenance, type CoreInventoryMaintenanceShared } from "./core-inventory-maintenance-fixture";
 
 const Row = Schema.StructWithRest(Schema.Struct({ id: Schema.String, inventory_item_id: Schema.String, location_id: Schema.String }), [Schema.Record(Schema.String, Schema.Json)]);
 const decodeRows = Schema.decodeUnknownEffect(Schema.Array(Row));
@@ -27,17 +24,17 @@ const probeCommand = defineCommerceCommand("inventoryLevelMaintenanceProbe", "re
 
 /** Shared native seeds and the dedicated absolute-Level owner. Raw quantity
  * probes observe genuine stored companions; they implement no update logic. */
-export async function prepareLogicalInventoryLevelUpdate(driver: "pglite" | "postgres", registerCleanup: (close: () => Promise<void>) => void,
-  shared?: LogicalInventoryMaintenanceShared) {
-  const common = await prepareLogicalInventoryMaintenance(driver, registerCleanup, shared);
+export async function prepareCoreInventoryLevelUpdate(driver: "pglite" | "postgres", registerCleanup: (close: () => Promise<void>) => void,
+  shared?: CoreInventoryMaintenanceShared) {
+  const common = await prepareCoreInventoryMaintenance(driver, registerCleanup, { ...shared, includeGraph: true });
   const { fixture, members, execution } = common;
   const update = await Effect.runPromise(makeLocalInventoryCommands("level-updates"));
-  const rawReader = await Effect.runPromise(makeCommerceHost({ ...members.inventory.hostInput, commands: [probeCommand] }));
+  const rawReader = await Effect.runPromise(fixture.openReadHost("inventory", [probeCommand]));
   registerCleanup(() => Effect.runPromise(rawReader.close));
   const probe = (ids: readonly string[]) => rawReader.read(probeCommand, [...ids]).pipe(Effect.flatMap(decodeRows));
   const subscribers = [{ id: "inventory-level-update-test", revision: "8".repeat(64) }];
   const options: Parameters<typeof prepareInventoryLevelUpdateWorkflow>[0] = { execution,
-    modules: { inventory: { module: update.workflow, logicalStorage: members.inventory.hostInput.logicalStorage } }, revision: "9".repeat(64), subscribers };
+    modules: { inventory: { module: update.workflow, nativeStorage: members.inventory.source } }, revision: "9".repeat(64), subscribers };
   const prepare = async (revision = options.revision) => {
     const host = await Effect.runPromise(prepareInventoryLevelUpdateWorkflow({ ...options, revision })); registerCleanup(() => Effect.runPromise(host.close)); return host;
   };
@@ -47,26 +44,21 @@ export async function prepareLogicalInventoryLevelUpdate(driver: "pglite" | "pos
   const eventName = "inventory.inventory-level.updated";
   const contract = defineCommerceEventContract({ name: eventName, revision: "b".repeat(64), internal: true, decode: policy.capture });
   const nativeRoot = defineAtomicCommerceCommand("nativeInventoryLevelUpdateAssertion", (ctx, input) => ctx.call(participant, update.update, input));
-  const native = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
-    participants: [{ participant, logicalStorage: members.inventory.hostInput.logicalStorage, commands: update.commands,
+  const native = await Effect.runPromise(execution.prepare({ identityAndAccessPolicy: execution.identityAndAccessPolicy,
+    participants: [{ participant, nativeStorage: members.inventory.source, commands: update.commands,
       validateLogicalCall: policy.validateLogicalCall, events: { contracts: [contract], select: message => isJsonObject(message) && message.name === eventName
         ? Effect.succeed(contract) : Effect.fail(commerceError("unadmittedEvent")) } }], commands: [nativeRoot],
     events: { producerRevision: "b".repeat(64), contracts: [contract], subscribers,
       validate: emitted => emitted.some(event => !event.internal) ? Effect.fail(commerceError("unadmittedEvent")) : Effect.void } }));
   registerCleanup(() => Effect.runPromise(native.close));
-  let product: Awaited<ReturnType<typeof prepareLogicalProductHost>> | undefined;
   const seed = async (prefix: string, count = 1, connected = false) => {
     const items = await common.seed(prefix, count, connected), location = prefix + "-location";
     if (!connected) await Effect.runPromise(common.stocking.run(common.stocking.newRequestKey(), {
       locations: [{ id: location, name: location }], inventory_levels: items.map(inventory_item_id => ({ inventory_item_id, location_index: 0, stocked_quantity: 10 })) }));
     if (connected) {
-      if (product === undefined) {
-        const preparedProduct = await prepareLogicalProductHost(fixture); product = preparedProduct;
-        registerCleanup(() => Effect.runPromise(preparedProduct.host.close));
-        await Effect.runPromise(preparedProduct.host.initialize([]));
-      }
+      const product = common.graph().product;
       const creator = await Effect.runPromise(prepareProductCreateWorkflow({ execution, modules: {
-        product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage } }, revision: "c".repeat(64), subscribers }));
+        product: { module: product.runtime.workflow, nativeStorage: product.source } }, revision: "c".repeat(64), subscribers }));
       try { await Effect.runPromise(creator.run(creator.newRequestKey(), { products: [{ id: prefix + "-product", title: prefix,
         options: [{ title: "Size", values: items.map((_, index) => String(index)) }],
         variants: items.map((_, index) => ({ id: prefix + "-unresolved-native-variant-" + index, title: prefix + index, options: { Size: String(index) } })) }] })); }
@@ -95,7 +87,7 @@ export async function prepareLogicalInventoryLevelUpdate(driver: "pglite" | "pos
   // Retained native test setup alone adapts the existing admitted ARRAY create
   // command and checks its single-row result. UPDATE calls preserve native ABI.
   const nativeCreateLevel = async (input: typeof InventoryLevelInput.Type) => {
-    const creator = await prepareInventoryCreateHost(fixture, members.inventory, "levels");
+    const creator = await prepareCoreInventoryCreateHost(fixture, members.inventory, "levels");
     try {
       const rows = await Effect.runPromise(creator.host.run(creator.host.newRequestKey(), creator.create, [input])
         .pipe(Effect.flatMap(decodeCreatedLevels)));
@@ -104,9 +96,9 @@ export async function prepareLogicalInventoryLevelUpdate(driver: "pglite" | "pos
     } finally { await Effect.runPromise(creator.host.close); }
   };
   const preserved = async () => ({
-    product: await common.preserved(["product", "product_variant", "product_option", "product_option_value", "product_variant_option"]),
-    items: await common.preserved(["inventory_item"]), locations: await common.preserved(["stock_location", "stock_location_address"]),
-    links: await common.preserved(["product_variant_inventory_item"]), reservations: await common.preserved(["reservation_item"]),
+    product: await common.preserveTables(["product", "product_variant", "product_option", "product_option_value", "product_variant_option"]),
+    items: await common.preserveTables(["inventory_item"]), locations: await common.preserveTables(["stock_location", "stock_location_address"]),
+    links: await common.preserveTables(["product_variant_inventory_item"]), reservations: await common.preserveTables(["reservation_item"]),
   });
   return { ...common, update, options, prepare, seed, probe, seedCohort, probeCohort, adjust, nativeUpdate, nativeCreateLevel, preserved };
 }

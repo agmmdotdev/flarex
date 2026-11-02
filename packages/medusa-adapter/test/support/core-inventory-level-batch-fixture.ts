@@ -1,7 +1,4 @@
-import { preparePricingPreferencePolicy } from "./logical-pricing-fixture";
 import { Effect, Result, Schema } from "effect";
-import { and, eq } from "drizzle-orm";
-import { fxControlTables, fxAppRowCurrent } from "../../../persistence-postgres/src/database/schema";
 import { createStep, createWorkflow, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { batchInventoryItemLevelsWorkflow } from "@medusajs/core-flows/inventory/batch-inventory-item-levels";
 import { makeLocalInventoryCommands } from "../../src/modules/inventory/service";
@@ -13,13 +10,12 @@ import { InventoryLevelBatchInput, prepareInventoryLevelBatchWorkflow } from "..
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
-import { prepareLogicalInventoryLevelDeletion } from "./logical-inventory-level-delete-fixture";
-import { prepareLogicalPricingHost } from "./logical-pricing-fixture";
-import { pricingLogicalCreateEventPolicy } from "../../src/modules/pricing/events";
+import { prepareCoreInventoryLevelDeletion } from "./core-inventory-level-delete-fixture";
+import { workflowModuleDefinition } from "../../src/workflow/module";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import type { LogicalInventoryMaintenanceShared } from "./logical-inventory-maintenance-fixture";
+import type { CoreInventoryMaintenanceShared } from "./core-inventory-maintenance-fixture";
 
 const prepared = Result.getOrThrow(batchInventoryItemLevelsWorkflow.prepare());
 function callback(name: string) {
@@ -43,11 +39,11 @@ const Updated = Schema.Struct({ output: InventoryLevelRows, compensation: Preima
 /** Existing creation/update/deletion seeds and probes remain native. The test
  * root binds one Level batch profile and no Stock Location provider. Separate
  * probes invoke retained genuine callbacks; they do not replace batch execution. */
-export async function prepareLogicalInventoryLevelBatch(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  shared?: LogicalInventoryMaintenanceShared) {
-  const common = await prepareLogicalInventoryLevelDeletion(driver, close, shared);
+export async function prepareCoreInventoryLevelBatch(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
+  shared?: CoreInventoryMaintenanceShared) {
+  const common = await prepareCoreInventoryLevelDeletion(driver, close, shared);
   const batch = await Effect.runPromise(makeLocalInventoryCommands("level-batches"));
-  const modules = { inventory: { module: batch.workflow, logicalStorage: common.members.inventory.hostInput.logicalStorage } };
+  const modules = { inventory: { module: batch.workflow, nativeStorage: common.members.inventory.source } };
   const subscribers = [{ id: "native-inventory-level-batch", revision: "2".repeat(64) }];
   const options: Parameters<typeof prepareInventoryLevelBatchWorkflow>[0] = { execution: common.execution, modules, revision: "3".repeat(64), subscribers };
   const prepare = async (revision = options.revision) => {
@@ -104,14 +100,14 @@ export async function prepareLogicalInventoryLevelBatch(driver: "pglite" | "post
   const seedProtected = async (prefix: string) => {
     const protectedGraph = await common.seedProtected(prefix);
     if (!pricingSeeded) {
-      const pricing = await prepareLogicalPricingHost(common.fixture); await Effect.runPromise(pricing.host.initialize([]));
-      close(() => Effect.runPromise(pricing.host.close));
-      const participant = defineAtomicCommerceParticipant("pricing"), policy = pricingLogicalCreateEventPolicy(await preparePricingPreferencePolicy());
+      const pricing = common.graph().pricing;
+      const participant = defineAtomicCommerceParticipant("pricing"), policy = workflowModuleDefinition(pricing.runtime.workflow)?.logical;
+      if (policy === undefined) throw new Error("Missing genuine Pricing creation policy");
       const names = ["pricing.price-set.created", "pricing.price.created", "pricing.price-rule.created"];
       const contracts = names.map(name => ({ name, contract: defineCommerceEventContract({ name, revision: "4".repeat(64), internal: true, decode: policy.capture }) }));
       const create = defineAtomicCommerceCommand("levelBatchProtectedPricingSeed", (ctx, input) => ctx.call(participant, pricing.runtime.create, input));
       const host = await Effect.runPromise(common.execution.prepare({ identityAndAccessPolicy: { seed: "level-batch-pricing" },
-        participants: [{ participant, logicalStorage: pricing.hostInput.logicalStorage, commands: [pricing.runtime.create], validateLogicalCall: policy.validateLogicalCall,
+        participants: [{ participant, nativeStorage: pricing.source, commands: [pricing.runtime.create], validateLogicalCall: policy.validateLogicalCall,
           events: { contracts: contracts.map(entry => entry.contract), select: message => {
             const found = isJsonObject(message) ? contracts.find(entry => entry.name === message.name) : undefined;
             return found === undefined ? Effect.fail(commerceError("unadmittedEvent")) : Effect.succeed(found.contract);
@@ -124,11 +120,7 @@ export async function prepareLogicalInventoryLevelBatch(driver: "pglite" | "post
     return protectedGraph;
   };
   const preserved = async () => {
-    const tables = await common.fixture.control.drizzle.select().from(fxControlTables).where(and(eq(fxControlTables.deploymentId, common.fixture.deploymentId),
-      eq(fxControlTables.namespace, "medusa")));
-    const selected = new Set(tables.filter(table => ["price_set", "price", "price_rule"].some(name => table.logicalName.endsWith("/" + name))).map(table => table.tableId));
-    const pricing = (await common.fixture.persistence.drizzle.select().from(fxAppRowCurrent).orderBy(fxAppRowCurrent.tableId, fxAppRowCurrent.rowId)).filter(row => selected.has(row.tableId));
-    return { ...await common.preserved(), pricing };
+    return { ...await common.preserved(), pricing: await common.preserveTables(["price_set", "price", "price_rule"]) };
   };
   return { ...common, batch, options, prepare, prepareProbes, maximum, seedProtected, preserved, prepareUpdate: common.prepareUpdate };
 }
