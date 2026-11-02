@@ -26,6 +26,34 @@ const result = (): CoreApplicationInvocationSuccess => ({ ...query,
   functionPath: input().functionPath, requestKey: input().requestKey });
 
 describe("Core whole-function HTTP boundary", () => {
+  it.each(["query", "mutation"] as const)("returns the concrete %s result of an inferred request", async kind => {
+    const selected: CoreApplicationInvocationResult = kind === "query" ? query
+      : { kind: "mutation", value: "original-result", disposition: "replayed", publishedTimestamp: 100n };
+    const handler = makeCoreApplicationHttpHandler({ route: profile.route, maximumRequestBytes: 4096, maximumResponseBytes: 4096,
+      authorize: () => Effect.succeed(true), execute: request => {
+        expect(request.kind).toBe("infer");
+        return Effect.succeed(selected);
+      } });
+    const client = makeCoreApplicationClient({ profile, capabilityToken: "capability",
+      transport: { fetch: request => Effect.runPromise(handler(request)) } });
+    const response = await Effect.runPromise(client.invoke({ ...input(), kind: "infer" }));
+    expect(response.kind).toBe(kind);
+    expect(response.value).toEqual(selected.value);
+  });
+
+  it.each([
+    { route: { ...profile.route, deploymentId: "other" } },
+    { route: { ...profile.route, epochUuid: "11000000-0000-4000-8000-000000000003" } },
+    { functionPath: "items:other" }, { requestKey: "other" }, { kind: "infer" },
+  ])("rejects an inferred response with invalid correlation or a nonconcrete kind: %j", async patch => {
+    const wire = Result.getOrThrow(encodeCoreApplicationInvocationSuccess(result()));
+    const client = makeCoreApplicationClient({ profile, capabilityToken: "capability", transport: {
+      fetch: async () => Response.json({ ...wire, ...patch }),
+    } });
+    const failed = await Effect.runPromise(client.invoke({ ...input(), kind: "infer" }).pipe(Effect.flip));
+    expect(failed.reason).toBe("invalidResponse");
+  });
+
   it("separates configured control inventory from a ready persisted application", async () => {
     const configured = await Effect.runPromise(lookupCoreApplicationControl({ deploymentId: profile.route.deploymentId,
       capabilityToken: "capability", transport: { fetch: async request => {
@@ -81,6 +109,7 @@ describe("Core whole-function HTTP boundary", () => {
         calls += 1;
         expect(request.args.exact).toBe(9007199254740993n);
         expect(request.sourceArtifactRootSha256).toBe(profile.sourceArtifactRootSha256);
+        expect(request.sourcePackageHash).toBe(profile.sourcePackageHash);
         return query;
       }),
     });

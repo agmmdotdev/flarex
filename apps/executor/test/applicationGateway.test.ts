@@ -79,7 +79,7 @@ describe("configured application gateway", () => {
     const path = `/applications/${encodeURIComponent(f.profile.deploymentId)}`;
     await f.gateway.fetch(f.request(`${path}/profile`), f.env);
     const body = { format: "flarex.core-application.request", version: 1, kind: "query", functionPath: "users:read",
-      requestKey: "request:gateway", sourceArtifactRootSha256: "01".repeat(32),
+      requestKey: "request:gateway", sourceArtifactRootSha256: "01".repeat(32), sourcePackageHash: "02".repeat(32),
       auth: { kind: "anonymous" }, args: {} };
     await f.gateway.fetch(f.request(`${path}/invoke`, body), f.env);
     await f.gateway.fetch(f.request(`${path}/push/start`, { sourcePackage: {} }), f.env);

@@ -1,7 +1,12 @@
 # Fresh ordinary public Application activation
 
-Status: **Fresh ordinary public activation implemented and reviewed;
-production and registered-upgrade gates remain open.**
+Status: **Fresh ordinary public activation baseline completed; production
+activation remains gated.**
+
+The [registered-source continuation](./19-registered-source-upgrades.md) now owns
+ordinary deployment attempts and the one-way migration of this schema-coupled
+candidate representation. The contract below records the fresh-only baseline;
+its changed-source and competing-attempt refusals are superseded by that owner.
 
 Baseline: `402a06a99a01eb4131ac365c7dfa37efa2112f7c`. Reference:
 `db914cf06e2b06ee985646611b9e12ed7a770318`. This completes the public-path

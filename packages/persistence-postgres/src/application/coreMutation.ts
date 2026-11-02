@@ -91,16 +91,21 @@ export function makeCoreApplicationMutationPort<GrantFailure, ExecutionFailure>(
   if (!Number.isSafeInteger(maximumAttempts) || maximumAttempts < 1)
     throw new Error("Application mutation attempt budget must be a positive integer.");
 
-  const readProgram = Effect.fn("CoreApplicationMutation.readProgram")(function* (definition: CoreProgramDefinition) {
+  const readProgram = Effect.fn("CoreApplicationMutation.readProgram")(function* (
+    definition: CoreProgramDefinition, historicalRequest: boolean,
+  ) {
     const program = yield* readCoreApplicationProgram(definition, configuration.sha256).pipe(Effect.mapError(cause =>
       new CoreApplicationMutationError({ reason: cause.reason, cause })));
     if (expectedProgramProfile !== undefined) {
       const expected = yield* Effect.fromResult(expectedProgramProfile).pipe(Effect.mapError(cause =>
         new CoreApplicationMutationError({ reason: cause.reason, cause })));
-      yield* Effect.fromResult(requireCoreApplicationProgramProfile(program, expected)).pipe(
+      // Exact durable correlation supplies the historical source authority.
+      // Scope and epoch routing pins still confine its result to this host.
+      const profile = historicalRequest ? { ...expected,
+        sourceArtifactRootSha256: program.runtimeTarget.sourceArtifactRootSha256 } : expected;
+      yield* Effect.fromResult(requireCoreApplicationProgramProfile(program, profile)).pipe(
         Effect.mapError(cause => new CoreApplicationMutationError({ reason: cause.reason, cause })));
     }
-    if (program.kind !== "mutation") return yield* new CoreApplicationMutationError({ reason: "unsupportedSelection" });
     return program;
   });
   const requireAuthority = Effect.fn("CoreApplicationMutation.requireAuthority")(
@@ -118,17 +123,15 @@ export function makeCoreApplicationMutationPort<GrantFailure, ExecutionFailure>(
     database.abortRequest(claim).pipe(Effect.exit, Effect.flatMap(aborted =>
       Effect.failCause(Exit.isFailure(aborted) ? Cause.combine(cause, aborted.cause) : cause)));
 
-  const invoke = Effect.fn("CoreApplicationMutation.invoke")(function* (
+  const dispatch = Effect.fn("CoreApplicationMutation.dispatch")(function* (
     functionPath: TransactionFunctionPathV1,
     args: unknown,
     requestKey: TransactionRequestKeyV1,
     identityAccessPolicy: CanonicalTransactionGrantIdentityAccessPolicyV1,
+    selection: "mutation" | "infer",
   ) {
-    // The trusted database was selected at construction, before program lookup.
-    const program = yield* readProgram(yield* database.selectProgram(functionPath));
-    const target = program.executionAuthority.authority.runtimeTarget;
-    if (target.function.visibility !== "public")
-      return yield* new CoreApplicationMutationError({ reason: "internalFunction" });
+    // Correlation does not depend on the current catalogue: an authenticated
+    // committed request survives removal and changes to kind or validators.
     const captured = yield* Effect.fromResult(captureDocumentValueWithSize(args)).pipe(
       Effect.mapError(cause => new CoreApplicationMutationError({ reason: "argumentsInvalid", cause })),
     );
@@ -137,9 +140,6 @@ export function makeCoreApplicationMutationPort<GrantFailure, ExecutionFailure>(
     const argumentsValue = captured.value;
     yield* Effect.try({ try: () => requirePointMutationArgumentSemanticSizeV1(captured.semanticSizeBytes),
       catch: cause => new CoreApplicationMutationError({ reason: "argumentsInvalid", cause }) });
-    const admission = yield* database.begin({ program: program.definition.identity });
-    const tables = yield* readTableBindings(admission).pipe(Effect.ensuring(admission.abort()));
-    yield* Effect.fromResult(validateArguments(target.function.args, argumentsValue, tables));
     const canonical = yield* Effect.tryPromise({ try: () => canonicalizeFlarexValueJsonV1(
       canonicalFlarexRuntimeValueToJsonV1(argumentsValue)),
       catch: cause => new CoreApplicationMutationError({ reason: "hashFailure", cause }) });
@@ -147,6 +147,32 @@ export function makeCoreApplicationMutationPort<GrantFailure, ExecutionFailure>(
       deploymentId: configuration.deploymentId, functionPath,
       validatedArgsSha256: TransactionArgumentsSha256V1Schema.make(new Uint8Array(canonical.sha256)), requestKey,
     }), catch: cause => new CoreApplicationMutationError({ reason: "hashFailure", cause }) });
+    const correlation: Json = { requestSha256: encodeBytesToLowercaseHex(request.sha256),
+      identityAccessPolicySha256: identityAccessPolicy.sha256Hex, functionPath };
+    const requestHash = yield* configuration.sha256(new TextEncoder().encode(encodeCanonicalJson(correlation,
+      issue => { throw new Error(`Application request correlation invariant: ${issue.reason}`); }))).pipe(
+      Effect.map(encodeBytesToLowercaseHex),
+      Effect.mapError(cause => new CoreApplicationMutationError({ reason: "hashFailure", cause })),
+    );
+    const original = yield* database.resolveApplicationRequest({ key: requestKey, requestHash, functionPath });
+    const program = yield* readProgram(original.kind === "missing"
+      ? yield* database.selectProgram(functionPath) : original.program, original.kind !== "missing");
+    const target = program.runtimeTarget;
+    if (selection === "mutation" && program.kind !== "mutation")
+      return yield* new CoreApplicationMutationError({ reason: "unsupportedSelection" });
+    if (target.function.visibility !== "public")
+      return yield* new CoreApplicationMutationError({ reason: "internalFunction" });
+    if (program.kind !== "mutation") {
+      // This marker carries no execution authority. The query owner selects
+      // its coherent snapshot and validates arguments under the exact source.
+      if (selection === "infer" && original.kind === "missing") return Object.freeze({ kind: "query" as const });
+      return yield* new CoreApplicationMutationError({ reason: "unsupportedSelection" });
+    }
+    if (original.kind === "missing") {
+      const admission = yield* database.begin({ program: program.definition.identity });
+      const tables = yield* readTableBindings(admission).pipe(Effect.ensuring(admission.abort()));
+      yield* Effect.fromResult(validateArguments(target.function.args, argumentsValue, tables));
+    }
     const grant = yield* configuration.issueGrant({ deploymentId: configuration.deploymentId,
       executionAuthority: program.executionAuthority, policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
       identityAccessPolicy, validatedArgsValueCodecVersion: FlarexValueCodecVersionSchema.make(1),
@@ -155,16 +181,17 @@ export function makeCoreApplicationMutationPort<GrantFailure, ExecutionFailure>(
       authorizationRevocationEpoch: TransactionAuthorizationRevocationEpochSchema.make(yield* database.readAuthorityEpoch),
     });
     yield* requireAuthority(grant);
-    const correlation: Json = { requestSha256: encodeBytesToLowercaseHex(request.sha256),
-      identityAccessPolicySha256: identityAccessPolicy.sha256Hex, functionPath };
-    const requestHash = yield* configuration.sha256(new TextEncoder().encode(encodeCanonicalJson(correlation,
-      issue => { throw new Error(`Application request correlation invariant: ${issue.reason}`); }))).pipe(
-      Effect.map(encodeBytesToLowercaseHex),
-      Effect.mapError(cause => new CoreApplicationMutationError({ reason: "hashFailure", cause })),
-    );
     const identity = Object.freeze({ key: requestKey, requestHash, program: program.definition.identity });
-    return yield* Effect.uninterruptibleMask(restore => Effect.gen(function* () {
-    const observed = yield* database.claimRequest(identity);
+    const admissionPin = original.kind !== "missing" || expectedProgramProfile === undefined ? undefined
+      : yield* Effect.fromResult(expectedProgramProfile).pipe(
+        Effect.mapError(cause => new CoreApplicationMutationError({ reason: cause.reason, cause })),
+        Effect.map(profile => profile.sourcePackageHash === undefined ? undefined : {
+          sourceArtifactRootSha256: profile.sourceArtifactRootSha256, sourcePackageHash: profile.sourcePackageHash,
+        }),
+      );
+    const outcome = yield* Effect.uninterruptibleMask(restore => Effect.gen(function* () {
+    const observed = original.kind === "missing" ? yield* (admissionPin === undefined
+      ? database.claimRequest(identity) : database.claimApplicationRequest(identity, admissionPin)) : original;
     if (observed.kind === "busy") yield* requireAuthority(grant);
     // Explicit recovery only reconciles an already authenticated existing
     // claim. A missing outcome never grants another body implicitly.
@@ -222,8 +249,18 @@ export function makeCoreApplicationMutationPort<GrantFailure, ExecutionFailure>(
     }
     return yield* Effect.die(new Error("Application mutation attempt loop did not terminate."));
     }));
+    return Object.freeze({ kind: "mutation" as const, outcome });
   });
-  return Object.freeze({ invoke });
+  const invoke = Effect.fn("CoreApplicationMutation.invoke")(function* (
+    functionPath: TransactionFunctionPathV1, args: unknown, requestKey: TransactionRequestKeyV1,
+    identityAccessPolicy: CanonicalTransactionGrantIdentityAccessPolicyV1,
+  ) {
+    const selected = yield* dispatch(functionPath, args, requestKey, identityAccessPolicy, "mutation");
+    if (selected.kind === "query") return yield* Effect.die(new Error("Explicit mutation admission returned a query marker."));
+    return selected.outcome;
+  });
+  const infer = Effect.fn("CoreApplicationMutation.infer")((...input: Parameters<typeof invoke>) => dispatch(...input, "infer"));
+  return Object.freeze({ invoke, infer });
 }
 
 export type CoreApplicationMutationPort<GrantFailure, ExecutionFailure> = ReturnType<

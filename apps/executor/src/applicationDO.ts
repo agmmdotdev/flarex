@@ -211,6 +211,11 @@ export function makeApplicationDurableObject<Env extends ApplicationDurableObjec
             const hostedDatabase: CoreDatabase = Object.freeze({ ...coreDatabase,
               prepareSchema: (input: Parameters<CoreDatabase["prepareSchema"]>[0]) => owner.#withSchemaWake(coreDatabase.prepareSchema(input)),
               activateSchema: (proposal: Parameters<CoreDatabase["activateSchema"]>[0], publication: Parameters<CoreDatabase["activateSchema"]>[1]) => owner.#withSchemaWake(coreDatabase.activateSchema(proposal, publication)),
+              prepareApplicationCandidate: (input: Parameters<CoreDatabase["prepareApplicationCandidate"]>[0]) =>
+                owner.#withSchemaWake(coreDatabase.prepareApplicationCandidate(input)),
+              activateApplicationCandidate: (candidateId: Parameters<CoreDatabase["activateApplicationCandidate"]>[0],
+                publication: Parameters<CoreDatabase["activateApplicationCandidate"]>[1]) =>
+                owner.#withSchemaWake(coreDatabase.activateApplicationCandidate(candidateId, publication)),
             });
             if (owner.#failure !== undefined) return yield* Effect.fail(owner.#failure);
             const application = yield* options.application(env, {

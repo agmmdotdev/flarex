@@ -15,7 +15,7 @@ const route = { deploymentId: "core-test", scopeUuid: "11000000-0000-4000-8000-0
 const request = (): CoreApplicationInvocationRequest => ({
   format: "flarex.core-application.request", version: 1, kind: "query",
   functionPath: TransactionFunctionPathV1Schema.make("items:list"), requestKey: TransactionRequestKeyV1Schema.make("query-1"),
-  sourceArtifactRootSha256: "a".repeat(64), auth: { kind: "anonymous" },
+  sourceArtifactRootSha256: "a".repeat(64), sourcePackageHash: "b".repeat(64), auth: { kind: "anonymous" },
   args: Result.getOrThrow(captureDocumentObject({ count: 9007199254740993n, zero: -0,
     bytes: new Uint8Array([1, 2, 3]).buffer })),
 });
@@ -45,8 +45,17 @@ describe("Core whole-function protocol", () => {
     expect(Result.isFailure(decodeCoreApplicationInvocationRequest({ ...wire, [key]: {} }))).toBe(true);
   });
 
+  it("admits internal kind inference only on requests and requires a concrete response kind", () => {
+    const inferred = { ...request(), kind: "infer" as const };
+    const wire = Result.getOrThrow(encodeCoreApplicationInvocationRequest(inferred));
+    expect(Result.getOrThrow(decodeCoreApplicationInvocationRequest(wire))).toEqual(inferred);
+    const response = Result.getOrThrow(encodeCoreApplicationInvocationSuccess(query()));
+    expect(Result.isFailure(decodeCoreApplicationInvocationSuccess({ ...response, kind: "infer" }))).toBe(true);
+  });
+
   it.each([{ kind: "register" }, { requestKey: "" }, { sourceArtifactRootSha256: "bad" },
-    { sourceArtifactRootSha256: undefined }, { auth: { kind: "admin" } }, { args: null }])("refuses invalid invocation %j", patch => {
+    { sourceArtifactRootSha256: undefined }, { sourcePackageHash: undefined }, { sourcePackageHash: "bad" },
+    { sourcePackageHash: "A".repeat(64) }, { auth: { kind: "admin" } }, { args: null }])("refuses invalid invocation %j", patch => {
     const wire = Result.getOrThrow(encodeCoreApplicationInvocationRequest(request()));
     expect(Result.isFailure(decodeCoreApplicationInvocationRequest({ ...wire, ...patch }))).toBe(true);
   });

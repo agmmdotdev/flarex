@@ -63,6 +63,10 @@ owner, preserving exact evaluation and named old-data/profile boundaries.
 The [public activation continuation](./slices/18-public-application-activation.md)
 connects source-only push and normal SDK generation to the same Core candidate,
 activation, discovery and invocation authority for fresh ordinary applications.
+The [registered-source continuation](./slices/19-registered-source-upgrades.md)
+owns independent deployment attempts, populated ordinary schema/index evolution
+and original-outcome recovery across source changes. Its implementation and
+proof gates are separate from deployment and broader native conversions.
 Total rewrite scope permits replacing current core, adapter, schema and installer
 internals. The [framework and migration plan](./REFACTOR.md#framework-adapters-and-shared-schema-installation)
 places Payload/Medusa compilers and runtime adapters above the translated core,

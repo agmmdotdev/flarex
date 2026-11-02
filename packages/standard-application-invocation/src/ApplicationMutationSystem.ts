@@ -633,7 +633,9 @@ export function makeCoreApplicationMutationInvocationPort(live: ApplicationCoreM
     ...(live.expectedProgramProfile === undefined ? {} : { expectedProgramProfile: live.expectedProgramProfile }),
     maximumAttempts: live.maximumAttempts, issueGrant: live.grantIssuer.issue,
     sha256: live.applicationRunner.sha256, execute: makeCoreApplicationMutationRunner(live) });
-  const invoke = Effect.fn("ApplicationMutationSystem.invokeCore")((
+  const makeInvocation = <A, E, R>(name: string,
+    operation: (...input: Parameters<typeof port.invoke>) => Effect.Effect<A, E, R>,
+  ) => Effect.fn(name)((
     functionRef: TransactionFunctionPathV1, args: unknown, requestKey: TransactionRequestKeyV1,
     policy?: CanonicalTransactionGrantIdentityAccessPolicyV1,
   ) => live.admission.withPermit("mutation", Effect.gen(function* () {
@@ -642,9 +644,11 @@ export function makeCoreApplicationMutationInvocationPort(live: ApplicationCoreM
       policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
       auth: { kind: "anonymous" }, capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
     }));
-    return yield* port.invoke(input.functionRef, args, input.requestKey, identity);
+    return yield* operation(input.functionRef, args, input.requestKey, identity);
   })));
-  return Object.freeze({ invoke });
+  const invoke = makeInvocation("ApplicationMutationSystem.invokeCore", port.invoke);
+  const infer = makeInvocation("ApplicationMutationSystem.inferCore", port.infer);
+  return Object.freeze({ invoke, infer });
 }
 
 function makeCoreApplicationMutationSystemLayer(live: ApplicationCoreMutationSystemLive): Layer.Layer<ApplicationMutationSystem> {

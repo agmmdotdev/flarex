@@ -14,7 +14,7 @@ import { canonicalizeApplicationRuntimeTargetV1, canonicalizeApplicationRuntimeT
   type ApplicationRuntimeTargetV1, type ValidatorIdentityEncoding } from "flarex-protocol/internal/application-runtime-target-v1";
 import { projectScopeIdUuidV1Result, ScopeEpochUuidV1Schema, ScopeUuidV1Schema } from "flarex-protocol/storage-authority";
 import { validateValidatorValueV1 } from "flarex-protocol/validator-engine";
-import type { CoreProgramDefinition, CoreReadTransaction } from "../core/api";
+import { CoreApplicationSourcePinSchema, type CoreProgramDefinition, type CoreReadTransaction } from "../core/api";
 import { captureCoreObject } from "../core/document";
 import { requireCoreApplicationSchemaSupport } from "./coreSchema";
 import { readLegacyApplicationProgramManifest, legacyApplicationSchemaFrame,
@@ -40,12 +40,12 @@ export type CoreApplicationProgram = CoreApplicationProgramBase & (
 );
 export interface CoreApplicationTableBinding { readonly tableId: number; readonly logicalName: string }
 const ProgramProfile = Schema.Struct({ scopeUuid: ScopeUuidV1Schema, epochUuid: ScopeEpochUuidV1Schema,
-  sourceArtifactRootSha256: Schema.String.check(Schema.makeFilter(value => /^[0-9a-f]{64}$/.test(value)
-    ? undefined : "Expected a lowercase source SHA-256")) });
+  sourceArtifactRootSha256: CoreApplicationSourcePinSchema.fields.sourceArtifactRootSha256,
+  sourcePackageHash: Schema.optionalKey(CoreApplicationSourcePinSchema.fields.sourcePackageHash) });
 export type CoreApplicationProgramProfile = typeof ProgramProfile.Type;
 const decodeProgramProfile = Schema.decodeUnknownResult(ProgramProfile);
 
-/** Trusted deployment routing pins are checked against the operation's selected program. */
+/** Program metadata checks scope, epoch and source root; Core admission checks the optional package pin. */
 export function captureCoreApplicationProgramProfile(input: unknown): Result.Result<CoreApplicationProgramProfile, CoreApplicationProgramError> {
   return decodeProgramProfile(input).pipe(
     Result.mapError(cause => new CoreApplicationProgramError({ reason: "metadataInvalid", cause })),

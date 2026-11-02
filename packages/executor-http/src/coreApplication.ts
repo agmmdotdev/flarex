@@ -72,7 +72,7 @@ export function makeCoreApplicationHttpHandler<Failure, Requirements>(configurat
     const input = yield* Effect.fromResult(decodeCoreApplicationInvocationRequest(json)).pipe(
       Effect.mapError(cause => error("invalidRequest", cause)));
     const result = yield* configuration.execute(input);
-    if (result.kind !== input.kind) return yield* error("invalidResponse");
+    if (input.kind !== "infer" && result.kind !== input.kind) return yield* error("invalidResponse");
     const output = yield* Effect.fromResult(encodeCoreApplicationInvocationSuccess({ ...result,
       format: "flarex.core-application.response", version: 1, route,
       functionPath: input.functionPath, requestKey: input.requestKey })).pipe(
@@ -244,12 +244,13 @@ export function makeCoreApplicationClient(configuration: ClientConfiguration & R
     input: CoreApplicationClientInvocation,
   ): Effect.fn.Return<CoreApplicationInvocationSuccess, CoreApplicationTransportError> {
     const encoded = yield* Effect.fromResult(encodeCoreApplicationInvocationRequest({ ...input,
-      format: "flarex.core-application.request", version: 1, sourceArtifactRootSha256: profile.sourceArtifactRootSha256 })).pipe(
+      format: "flarex.core-application.request", version: 1, sourceArtifactRootSha256: profile.sourceArtifactRootSha256,
+      sourcePackageHash: profile.sourcePackageHash })).pipe(
       Effect.mapError(cause => error("invalidRequest", cause)));
     const wire = yield* send(client, coreApplicationInvocationPath(profile.route.deploymentId), JSON.stringify(encoded));
     const result = yield* Effect.fromResult(decodeCoreApplicationInvocationSuccess(wire)).pipe(
       Effect.mapError(cause => error("invalidResponse", cause)));
-    if (!sameRoute(result.route, profile.route) || result.kind !== input.kind || result.functionPath !== input.functionPath
+    if (!sameRoute(result.route, profile.route) || (input.kind !== "infer" && result.kind !== input.kind) || result.functionPath !== input.functionPath
       || result.requestKey !== input.requestKey) return yield* error("invalidResponse");
     return result;
   }) });

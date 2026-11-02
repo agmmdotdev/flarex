@@ -3,7 +3,7 @@ import { CoreApplicationTransportError, makeCoreApplicationHttpHandler, readCore
 import { compileCoreApplicationSchema } from "@flarex/persistence-postgres/internal/core-application-schema";
 import { makeCoreApplicationPrograms } from
   "@flarex/persistence-postgres/internal/core-application-program";
-import { CoreSchemaError, type CoreDatabase, type CoreError, type CoreSchemaProposal,
+import { CoreSchemaError, type CoreDatabase, type CoreError,
   type CoreApplicationCandidate as StoredCandidate, type CoreApplicationRegistrationMetadata } from "@flarex/persistence-postgres/internal/core";
 import { makeCoreApplicationMutationInvocationPort, prepareApplicationMutationIdentityAccessPolicy } from
   "@flarex/standard-application-invocation/internal/application-mutation-system";
@@ -121,20 +121,21 @@ function matchesConfiguredRegistration(registration: CoreApplicationRegistration
 
 /** Discovery borrows authenticated active identity; operator inventory has no uploaded source pins. */
 export const assertExecutorApplicationProfile = Effect.fn("ExecutorApplication.assertProfile")(function* (
-  database: CoreDatabase, profile: ExecutorApplicationProfile,
+  database: Pick<CoreDatabase, "readActiveApplicationCandidate">, profile: ExecutorApplicationProfile,
 ): Effect.fn.Return<CoreApplicationCoreProfile, CoreError | ExecutorApplicationCompositionError> {
-  const selected = yield* database.readApplicationRegistration();
-  if (Option.isNone(selected) || !matchesConfiguredRegistration(selected.value, profile)
-    || selected.value.candidateProposal === undefined) return yield* refusal("profileNotReady");
+  const selected = yield* database.readActiveApplicationCandidate();
+  if (Option.isNone(selected) || !matchesConfiguredRegistration(selected.value.registration, profile))
+    return yield* refusal("profileNotReady");
   return Object.freeze({ format: "flarex.core-application.profile", version: 1, kind: "core",
     route: Object.freeze({ deploymentId: profile.deploymentId, scopeUuid: profile.scopeUuid, epochUuid: profile.epochUuid }),
-    sourceArtifactRootSha256: selected.value.sourceArtifactRootSha256, sourcePackageHash: selected.value.sourcePackageHash });
+    sourceArtifactRootSha256: selected.value.registration.sourceArtifactRootSha256,
+    sourcePackageHash: selected.value.registration.sourcePackageHash });
 });
 
 const readExecutorApplicationCandidate = Effect.fn("ExecutorApplication.readCandidate")(function* (
-  database: CoreDatabase, profile: ExecutorApplicationProfile, proposal?: CoreSchemaProposal,
+  database: Pick<CoreDatabase, "readApplicationCandidate">, profile: ExecutorApplicationProfile, candidateId: string,
 ) {
-  const selected = yield* database.readApplicationCandidate(proposal);
+  const selected = yield* database.readApplicationCandidate(candidateId);
   if (Option.isNone(selected)) return null;
   const candidate = selected.value;
   if (!matchesConfiguredRegistration(candidate.registration, profile)) return yield* refusal("candidateInvalid");
@@ -151,48 +152,45 @@ const candidateToWire = Effect.fn("ExecutorApplication.candidateProjection")(fun
   const evidence = yield* candidateEvidence(candidate);
   return yield* Effect.fromResult(encodeCoreApplicationCandidate({ format: "flarex.core-application.candidate", version: 1,
     route: { deploymentId: profile.deploymentId, scopeUuid: profile.scopeUuid, epochUuid: profile.epochUuid },
-    pushId: candidate.proposal.id, state: candidate.abandoned ? "abandoned" : candidate.state === "overwritten" ? "superseded" : candidate.state,
+    pushId: candidate.id, state: candidate.abandoned ? "abandoned" : candidate.state === "overwritten" ? "superseded" : candidate.state,
     sourceArtifactRootSha256: candidate.registration.sourceArtifactRootSha256, sourcePackageHash: candidate.registration.sourcePackageHash,
     canonicalManifest: evidence.canonicalManifest, sourcePackage: evidence.sourcePackage,
     createdAt: candidate.creationTime, updatedAt: candidate.updatedAt, indexesReady: candidate.indexesReady,
     ...(candidate.error === undefined ? {} : { error: candidate.error }) }));
 });
 
-/** Start finalizes and analyzes immutable source, then prepares one inactive Core proposal. */
+/** Start finalizes and analyzes immutable source, then prepares an independent deployment attempt. */
 export const startExecutorApplicationPush = Effect.fn("ExecutorApplication.startPush")(function* (
-  database: CoreDatabase, env: ExecutorApplicationEnv, profile: ExecutorApplicationProfile,
+  database: Pick<CoreDatabase, "prepareApplicationCandidate" | "readApplicationCandidate">,
+  env: ExecutorApplicationEnv, profile: ExecutorApplicationProfile,
   infrastructure: Pick<ApplicationDurableObjectInfrastructure, "source" | "sourceUpload">, sourcePackage: PushSourcePackage,
 ) {
   const upload = infrastructure.sourceUpload;
   if (upload === undefined) return yield* refusal("sourceUploadUnavailable");
   const uploaded = yield* upload(sourcePackage);
-  const existing = yield* readExecutorApplicationCandidate(database, profile);
-  if (existing !== null) {
-    if (existing.registration.sourceArtifactRootSha256 !== uploaded.sourceArtifactRootSha256
-      || existing.registration.sourcePackageHash !== uploaded.sourcePackageHash) return yield* refusal("candidateConflict");
-    return yield* candidateToWire(profile, existing);
-  }
   const definition = yield* prepareExecutorApplicationDefinition(env, profile, infrastructure.source, uploaded.sourceArtifactRootSha256);
   if (definition.canonical.manifest.functions.some(fn => fn.kind !== "query" && fn.kind !== "mutation"))
     return yield* refusal("unsupportedSource");
   const metadata = yield* Effect.fromResult(captureDocumentObject({ format: "flarex.application-candidate-evidence", version: 1,
     canonicalManifest: definition.canonical.canonicalText, sourcePackage: publicApplicationSourcePackageMetadata(uploaded.sourcePackage) }));
-  const proposal = yield* database.prepareSchema({ schema: definition.schema, applicationRegistration: {
+  const candidateId = yield* database.prepareApplicationCandidate({ schema: definition.schema, registration: {
     deploymentId: profile.deploymentId, scopeUuid: profile.scopeUuid, epochUuid: profile.epochUuid,
     sourceArtifactRootSha256: uploaded.sourceArtifactRootSha256, sourcePackageHash: uploaded.sourcePackageHash,
     analyzerIdentity: profile.analyzerIdentity, analyzerPolicyIdentity: profile.analyzerPolicyIdentity,
     compatibilityDate: profile.compatibilityDate, generation: profile.generation, programs: definition.programs, candidateMetadata: metadata,
   } });
-  const prepared = yield* readExecutorApplicationCandidate(database, profile, proposal);
+  const prepared = yield* readExecutorApplicationCandidate(database, profile, candidateId);
   return prepared === null ? yield* refusal("candidateNotFound") : yield* candidateToWire(profile, prepared);
 });
 
 /** Cold finish reconstructs from the exact persisted analysis, never a second analysis authority. */
 export const finishExecutorApplicationPush = Effect.fn("ExecutorApplication.finishPush")(function* (
-  database: CoreDatabase, profile: ExecutorApplicationProfile, proposal: CoreSchemaProposal, activate = true,
+  database: Pick<CoreDatabase, "readApplicationCandidate" | "schemaStatus" | "advanceSchema" | "activateApplicationCandidate">,
+  profile: ExecutorApplicationProfile, candidateId: string, activate = true,
 ) {
-  const candidate = yield* readExecutorApplicationCandidate(database, profile, proposal);
+  const candidate = yield* readExecutorApplicationCandidate(database, profile, candidateId);
   if (candidate === null) return yield* refusal("candidateNotFound");
+  if (candidate.activatedAt !== undefined) return yield* candidateToWire(profile, candidate);
   if (candidate.abandoned || candidate.state === "failed" || candidate.state === "overwritten") return yield* refusal("candidateConflict");
   if (!activate) return yield* candidateToWire(profile, candidate);
   const evidence = yield* candidateEvidence(candidate);
@@ -201,26 +199,28 @@ export const finishExecutorApplicationPush = Effect.fn("ExecutorApplication.fini
   if (canonical.canonicalText !== evidence.canonicalManifest || canonical.manifest.sourceArtifact.rootSha256 !== candidate.registration.sourceArtifactRootSha256)
     return yield* refusal("candidateInvalid");
   const definition = yield* compileExecutorApplicationDefinition(profile, canonical);
-  const registration = { ...candidate.registration, programs: definition.programs, candidateMetadata: candidate.metadata };
   for (let step = 0; step < profile.maximumRegistrationSteps; step++) {
-    const status = yield* database.schemaStatus(proposal);
-    if (status.state === "failed" || status.state === "overwritten") return yield* refusal("candidateConflict");
-    if ((status.state === "validated" || status.state === "active") && status.indexesReady) {
-      yield* database.activateSchema(proposal, { programs: definition.programs, applicationRegistration: registration });
-      const current = yield* readExecutorApplicationCandidate(database, profile, proposal);
-      return current === null ? yield* refusal("candidateNotFound") : yield* candidateToWire(profile, current);
+    const status = yield* database.schemaStatus(candidate.schemaProposal);
+    if (status.state === "failed" || status.state === "overwritten"
+      || (status.state === "validated" || status.state === "active") && status.indexesReady) {
+      // A parallel finish may have activated this attempt before a later source
+      // superseded its schema. Core resolves its durable activation first.
+      return yield* candidateToWire(profile,
+        yield* database.activateApplicationCandidate(candidateId, { programs: definition.programs }).pipe(
+          Effect.catchTag("CoreSchemaError", (error): Effect.Effect<never, CoreSchemaError | ExecutorApplicationCompositionError> =>
+            Effect.fail(error.reason === "schemaFailed" || error.reason === "schemaOverwritten" ? refusal("candidateConflict", error) : error))));
     }
-    yield* database.advanceSchema(proposal, profile.workload.schemaScheduler.work);
+    yield* database.advanceSchema(candidate.schemaProposal, profile.workload.schemaScheduler.work);
   }
   return yield* refusal("registrationIncomplete");
 });
 
 const abandonExecutorApplicationPush = Effect.fn("ExecutorApplication.abandonPush")(function* (
-  database: CoreDatabase, profile: ExecutorApplicationProfile, proposal: CoreSchemaProposal,
+  database: CoreDatabase, profile: ExecutorApplicationProfile, candidateId: string,
 ) {
-  const candidate = yield* readExecutorApplicationCandidate(database, profile, proposal);
+  const candidate = yield* readExecutorApplicationCandidate(database, profile, candidateId);
   if (candidate === null) return yield* refusal("candidateNotFound");
-  return yield* candidateToWire(profile, yield* database.abandonApplicationCandidate(proposal));
+  return yield* candidateToWire(profile, yield* database.abandonApplicationCandidate(candidateId));
 });
 
 export function executorApplicationFailureResponse(cause: Cause.Cause<unknown>): Response {
@@ -263,18 +263,25 @@ export const makeExecutorApplicationComposition = Effect.fn("ExecutorApplication
   };
   const execute = Effect.fn("ExecutorApplication.invoke")(function* (input: CoreApplicationInvocationRequest) {
     const active = yield* assertExecutorApplicationProfile(infrastructure.coreDatabase, profile);
-    if (input.sourceArtifactRootSha256 !== active.sourceArtifactRootSha256) return yield* refusal("sourceMismatch");
     const invocation = { ...live, expectedProgramProfile: { scopeUuid: profile.scopeUuid, epochUuid: profile.epochUuid,
-      sourceArtifactRootSha256: active.sourceArtifactRootSha256 } };
-    if (input.kind === "query") {
-      const captured = yield* Effect.fromResult(captureDocumentValueWithSize(input.args));
-      const evaluation = yield* makeCoreApplicationQueryEvaluationRunner(invocation)(input.functionPath, input.args, captured.semanticSizeBytes, input.auth);
-      return { kind: "query", value: evaluation.value, evaluation: evaluation.token } satisfies CoreApplicationInvocationResult;
+      sourceArtifactRootSha256: input.sourceArtifactRootSha256, sourcePackageHash: input.sourcePackageHash } };
+    if (input.kind !== "query") {
+      const policy = yield* prepareApplicationMutationIdentityAccessPolicy(input.auth);
+      const port = makeCoreApplicationMutationInvocationPort(invocation);
+      const selected = input.kind === "infer"
+        ? yield* port.infer(input.functionPath, input.args, input.requestKey, policy)
+        : { kind: "mutation" as const, outcome: yield* port.invoke(input.functionPath, input.args, input.requestKey, policy) };
+      if (selected.kind === "mutation") {
+        const outcome = selected.outcome;
+        return { kind: "mutation", value: outcome.value, disposition: outcome.disposition,
+          publishedTimestamp: outcome.timestamp } satisfies CoreApplicationInvocationResult;
+      }
     }
-    const policy = yield* prepareApplicationMutationIdentityAccessPolicy(input.auth);
-    const outcome = yield* makeCoreApplicationMutationInvocationPort(invocation).invoke(input.functionPath, input.args, input.requestKey, policy);
-    return { kind: "mutation", value: outcome.value, disposition: outcome.disposition,
-      publishedTimestamp: outcome.timestamp } satisfies CoreApplicationInvocationResult;
+    if (input.sourceArtifactRootSha256 !== active.sourceArtifactRootSha256 || input.sourcePackageHash !== active.sourcePackageHash)
+      return yield* refusal("sourceMismatch");
+    const captured = yield* Effect.fromResult(captureDocumentValueWithSize(input.args));
+    const evaluation = yield* makeCoreApplicationQueryEvaluationRunner(invocation)(input.functionPath, input.args, captured.semanticSizeBytes, input.auth);
+    return { kind: "query", value: evaluation.value, evaluation: evaluation.token } satisfies CoreApplicationInvocationResult;
   });
   const invoke = makeCoreApplicationHttpHandler({ route: { deploymentId: profile.deploymentId, scopeUuid: profile.scopeUuid, epochUuid: profile.epochUuid },
     authorize: (request: Request) => Effect.succeed(Result.isSuccess(admitExecutorRequest(request, env))), execute,
@@ -293,9 +300,11 @@ export const makeExecutorApplicationComposition = Effect.fn("ExecutorApplication
       return yield* boundedJsonResponse(encoded, profile.http.maximumResponseBytes);
     }
     if (path === coreApplicationDeploymentPath(profile.deploymentId) && request.method === "GET") {
-      const candidate = yield* readExecutorApplicationCandidate(infrastructure.coreDatabase, profile);
-      return yield* boundedJsonResponse(candidate === null || candidate.state !== "active" ? null
-        : yield* candidateToWire(profile, candidate), profile.http.maximumResponseBytes);
+      const selected = yield* infrastructure.coreDatabase.readActiveApplicationCandidate();
+      if (Option.isSome(selected) && !matchesConfiguredRegistration(selected.value.registration, profile))
+        return yield* refusal("candidateInvalid");
+      return yield* boundedJsonResponse(Option.isNone(selected) ? null
+        : yield* candidateToWire(profile, selected.value), profile.http.maximumResponseBytes);
     }
     if (path === coreApplicationPushStartPath(profile.deploymentId) && request.method === "POST") {
       const input = yield* Effect.fromResult(decodeCoreApplicationStartRequest(
@@ -309,19 +318,18 @@ export const makeExecutorApplicationComposition = Effect.fn("ExecutorApplication
       const match = /^([^/]+)(?:\/(finish|abandon))?$/.exec(path.slice(prefix.length));
       if (match !== null) {
         const id = yield* Effect.try({ try: () => decodeURIComponent(match[1] ?? ""), catch: cause => refusal("candidateNotFound", cause) });
-        const proposal = { namespace: null, id };
         const action = match[2];
         if (action === undefined && request.method === "GET") {
-          const candidate = yield* readExecutorApplicationCandidate(infrastructure.coreDatabase, profile, proposal);
+          const candidate = yield* readExecutorApplicationCandidate(infrastructure.coreDatabase, profile, id);
           return yield* boundedJsonResponse(candidate === null ? null : yield* candidateToWire(profile, candidate), profile.http.maximumResponseBytes);
         }
         if (request.method === "POST" && (action === "finish" || action === "abandon")) {
           const body = yield* readCoreApplicationJsonBody(request, profile.http.maximumRegistrationRequestBytes);
           const result = yield* infrastructure.admission.withPermit("mutation", action === "finish"
             ? Effect.fromResult(decodeCoreApplicationFinishRequest(body)).pipe(Effect.flatMap(input =>
-              finishExecutorApplicationPush(infrastructure.coreDatabase, profile, proposal, input.activate)))
+              finishExecutorApplicationPush(infrastructure.coreDatabase, profile, id, input.activate)))
             : Effect.fromResult(decodeCoreApplicationAbandonRequest(body)).pipe(Effect.flatMap(() =>
-              abandonExecutorApplicationPush(infrastructure.coreDatabase, profile, proposal))));
+              abandonExecutorApplicationPush(infrastructure.coreDatabase, profile, id))));
           return yield* boundedJsonResponse(result, profile.http.maximumResponseBytes);
         }
       }

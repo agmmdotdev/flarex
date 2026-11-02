@@ -1,3 +1,4 @@
+import { prepareApplication } from "./applicationDeploymentFixture";
 import { randomBytes } from "node:crypto";
 import { Deferred, Effect, Fiber, Option, Result } from "effect";
 import { bytesEqual } from "@flarex/utils/bytes";
@@ -5,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { CoreTransactionError, type CoreApplicationRegistration, type CoreDatabase, type CoreError, type CoreSchemaProposal } from "../../src/core/api";
 import type { CoreIndexScan, CorePersistence } from "../../src/core/contracts";
 import { openCoreDatabase } from "../../src/core/database";
-import { readCoreApplicationCandidateEvidence } from "../../src/core/applicationRegistration";
+import { readCoreApplicationDeploymentEvidence } from "../../src/core/applicationRegistration";
 import { CoreFinalizationVault, createCoreTransaction, prepareCoreTransactionIds, type CoreFinalizedState } from "../../src/core/transaction";
 import { coreIndexMetadataValue } from "../../src/core/indexState";
 import { INDEXES, PROGRAMS, TABLES, publicDocumentId } from "../../src/core/registry";
@@ -42,26 +43,26 @@ export function registerCoreApplicationCandidateScenarios(label: string, createF
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const registration = frame();
         const database = yield* Effect.acquireRelease(openCoreDatabase(fixture.persistence, options), owner => owner.close());
-        expect(yield* database.readApplicationCandidate()).toEqual(Option.none());
-        const proposal = yield* database.prepareSchema({ schema, applicationRegistration: registration });
-        const candidate = yield* database.readApplicationCandidate(proposal);
-        expect(Option.isSome(candidate) && candidate.value).toMatchObject({ proposal, state: "pending", abandoned: false,
-          metadata: registration.candidateMetadata, registration: { candidateProposal: proposal } });
-        expect(yield* database.prepareSchema({ schema, applicationRegistration: frame() })).toEqual(proposal);
+        expect(yield* database.readActiveApplicationCandidate()).toEqual(Option.none());
+        const proposal = yield* prepareApplication(database, { schema, registration: registration });
+        const candidate = yield* database.readApplicationCandidate(proposal.candidateId);
+        expect(Option.isSome(candidate) && candidate.value).toMatchObject({ schemaProposal: { namespace: proposal.namespace, id: proposal.id }, state: "pending", abandoned: false,
+          metadata: registration.candidateMetadata, registration: { candidateId: proposal.candidateId } });
+        expect(yield* prepareApplication(database, { schema, registration: frame() })).toEqual(proposal);
         yield* database.close();
         const reopened = yield* Effect.acquireRelease(openCoreDatabase(yield* Effect.promise(() => fixture.reopen()), options), owner => owner.close());
-        expect(yield* reopened.readApplicationCandidate()).toEqual(candidate);
+        expect(yield* reopened.readApplicationCandidate(proposal.candidateId)).toEqual(candidate);
         yield* ready(reopened, proposal);
-        yield* reopened.activateSchema(proposal, { programs: registration.programs, applicationRegistration: registration });
+        yield* reopened.activateApplicationCandidate(proposal.candidateId, { programs: registration.programs });
         const seed = yield* reopened.begin(); yield* seed.insert("items", { value: "committed" }); yield* reopened.commit(yield* seed.finalize());
         const timestamp = yield* reopened.publishedTimestamp;
-        unsupported(yield* Effect.result(reopened.abandonApplicationCandidate(proposal)));
-        yield* reopened.activateSchema(proposal, { programs: registration.programs, applicationRegistration: registration });
+        unsupported(yield* Effect.result(reopened.abandonApplicationCandidate(proposal.candidateId)));
+        yield* reopened.activateApplicationCandidate(proposal.candidateId, { programs: registration.programs });
         expect(yield* reopened.publishedTimestamp).toBe(timestamp);
-        const active = yield* reopened.readApplicationCandidate(proposal);
+        const active = yield* reopened.readApplicationCandidate(proposal.candidateId);
         expect(Option.isSome(active) && active.value).toMatchObject({ state: "active", metadata: registration.candidateMetadata });
         const compact = yield* reopened.readApplicationRegistration();
-        expect(Option.isSome(compact) && compact.value).toMatchObject({ candidateProposal: proposal });
+        expect(Option.isSome(compact) && compact.value).toMatchObject({ candidateId: proposal.candidateId });
         expect(Option.isSome(compact) && Object.hasOwn(compact.value, "candidateMetadata")).toBe(false);
       }))); } finally { await fixture.close(); }
     }, 90_000);
@@ -79,12 +80,12 @@ export function registerCoreApplicationCandidateScenarios(label: string, createF
         const database = yield* Effect.acquireRelease(openCoreDatabase(persistence, options), owner => owner.close());
         const metadata = { nested: { value: "original" } };
         pause = true;
-        const preparing = yield* Effect.forkChild(database.prepareSchema({ schema, applicationRegistration: { ...frame(), candidateMetadata: metadata } }));
+        const preparing = yield* Effect.forkChild(prepareApplication(database, { schema, registration: { ...frame(), candidateMetadata: metadata } }));
         yield* Deferred.await(observed);
         metadata.nested.value = "changed after invocation";
         yield* Deferred.succeed(release, undefined);
         const proposal = yield* Fiber.join(preparing);
-        const candidate = yield* database.readApplicationCandidate(proposal);
+        const candidate = yield* database.readApplicationCandidate(proposal.candidateId);
         expect(Option.isSome(candidate) && candidate.value.metadata).toEqual({ nested: { value: "original" } });
       }))); } finally { await fixture.close(); }
     }, 90_000);
@@ -93,11 +94,11 @@ export function registerCoreApplicationCandidateScenarios(label: string, createF
       const fixture = await createFixture();
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const database = yield* Effect.acquireRelease(openCoreDatabase(fixture.persistence, options), owner => owner.close());
-        const proposal = yield* database.prepareSchema({ schema, applicationRegistration: frame() });
+        const proposal = yield* prepareApplication(database, { schema, registration: frame() });
         const inserted = yield* database.begin(); const id = yield* inserted.insert("items", { value: "historical" });
         const timestamp = yield* database.commit(yield* inserted.finalize());
         const deleted = yield* database.begin(); yield* deleted.delete(id); yield* database.commit(yield* deleted.finalize());
-        yield* database.abandonApplicationCandidate(proposal);
+        yield* database.abandonApplicationCandidate(proposal.candidateId);
         const historical = yield* database.begin({ at: timestamp });
         const document = yield* historical.get(id);
         expect(Option.isSome(document) && document.value).toMatchObject({ value: "historical" });
@@ -109,19 +110,23 @@ export function registerCoreApplicationCandidateScenarios(label: string, createF
       const fixture = await createFixture();
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const registration = frame(), database = yield* Effect.acquireRelease(openCoreDatabase(fixture.persistence, options), owner => owner.close());
-        const proposal = yield* database.prepareSchema({ schema, applicationRegistration: registration });
-        unsupported(yield* Effect.result(database.prepareSchema({ schema, applicationRegistration: frame("e") })));
+        const proposal = yield* prepareApplication(database, { schema, registration: registration });
+        const competing = yield* prepareApplication(database, { schema, registration: frame("e") });
+        expect(competing.candidateId).not.toBe(proposal.candidateId);
         const changed = { ...registration, candidateMetadata: { changed: true } };
-        unsupported(yield* Effect.result(database.prepareSchema({ schema, applicationRegistration: changed })));
+        const altered = yield* prepareApplication(database, { schema, registration: changed });
+        expect(altered.candidateId).not.toBe(proposal.candidateId);
         yield* ready(database, proposal);
-        unsupported(yield* Effect.result(database.activateSchema(proposal, { programs: registration.programs, applicationRegistration: changed })));
+        unsupported(yield* Effect.result(database.activateApplicationCandidate(proposal.candidateId, { programs: [] })));
         const registry = yield* readCoreFixtureRegistry(fixture, yield* database.publishedTimestamp);
         const byState = registry.table("_schemas")?.definition.indexes.find(index => index.name === "by_state");
         if (byState === undefined) return yield* Effect.die("Missing schema state index");
         const selected = yield* Effect.fromResult(registry.schemas.getByState(null, "validated", byState.ref, () => {}));
         if (Option.isNone(selected)) return yield* Effect.die("Missing candidate");
-        expect(yield* Effect.result(readCoreApplicationCandidateEvidence({ ...selected.value,
-          metadata: { ...selected.value.metadata, applicationCandidate: '{"changed":true}' } })))
+        const record = registry.applicationDeployments.get(proposal.candidateId);
+        if (record === undefined) return yield* Effect.die("Missing deployment record");
+        expect(yield* Effect.result(readCoreApplicationDeploymentEvidence({ ...record,
+          value: { ...record.value, metadata: '{"changed":true}' } }, selected.value)))
           .toMatchObject({ _tag: "Failure", failure: { reason: "corruptData" } });
         expect((yield* database.schemaStatus(proposal)).state).toBe("validated");
       }))); } finally { await fixture.close(); }
@@ -131,26 +136,26 @@ export function registerCoreApplicationCandidateScenarios(label: string, createF
       const fixture = await createFixture();
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const database = yield* Effect.acquireRelease(openCoreDatabase(fixture.persistence, options), owner => owner.close());
-        const registration = frame(), proposal = yield* database.prepareSchema({ schema, applicationRegistration: registration });
+        const registration = frame(), proposal = yield* prepareApplication(database, { schema, registration: registration });
         if (phase === "validated") yield* ready(database, proposal);
         const before = yield* database.publishedTimestamp;
         expect((yield* readCoreFixtureRegistry(fixture, before)).table("items")).toBeDefined();
-        const abandoned = yield* database.abandonApplicationCandidate(proposal);
-        expect(abandoned).toMatchObject({ state: "overwritten", abandoned: true, metadata: registration.candidateMetadata });
+        const abandoned = yield* database.abandonApplicationCandidate(proposal.candidateId);
+        expect(abandoned).toMatchObject({ state: "abandoned", abandoned: true, metadata: registration.candidateMetadata });
         expect((yield* readCoreFixtureRegistry(fixture, yield* database.publishedTimestamp)).table("items")).toBeUndefined();
         expect((yield* readCoreFixtureRegistry(fixture, before)).table("items")).toBeDefined();
         const after = yield* database.publishedTimestamp;
-        expect(yield* database.abandonApplicationCandidate(proposal)).toEqual(abandoned);
+        expect(yield* database.abandonApplicationCandidate(proposal.candidateId)).toEqual(abandoned);
         expect(yield* database.publishedTimestamp).toBe(after);
-        expect(yield* Effect.result(database.activateSchema(proposal, { programs: registration.programs, applicationRegistration: registration })))
+        expect(yield* Effect.result(database.activateApplicationCandidate(proposal.candidateId, { programs: registration.programs })))
           .toMatchObject({ _tag: "Failure", failure: { reason: "schemaOverwritten" } });
-        const next = frame("e"), nextProposal = yield* database.prepareSchema({ schema, applicationRegistration: next });
+        const next = frame("e"), nextProposal = yield* prepareApplication(database, { schema, registration: next });
         expect(nextProposal.id).not.toBe(proposal.id);
-        yield* ready(database, nextProposal); yield* database.activateSchema(nextProposal, { programs: next.programs, applicationRegistration: next });
-        expect(yield* database.readApplicationCandidate(proposal)).toEqual(Option.some(abandoned));
+        yield* ready(database, nextProposal); yield* database.activateApplicationCandidate(nextProposal.candidateId, { programs: next.programs });
+        expect(yield* database.readApplicationCandidate(proposal.candidateId)).toEqual(Option.some(abandoned));
         yield* database.close();
         const reopened = yield* Effect.acquireRelease(openCoreDatabase(yield* Effect.promise(() => fixture.reopen()), options), owner => owner.close());
-        expect(yield* reopened.readApplicationCandidate(proposal)).toEqual(Option.some(abandoned));
+        expect(yield* reopened.readApplicationCandidate(proposal.candidateId)).toEqual(Option.some(abandoned));
       }))); } finally { await fixture.close(); }
     }, 90_000);
 
@@ -158,11 +163,11 @@ export function registerCoreApplicationCandidateScenarios(label: string, createF
       const fixture = await createFixture();
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const database = yield* Effect.acquireRelease(openCoreDatabase(fixture.persistence, options), owner => owner.close());
-        const proposal = yield* database.prepareSchema({ schema, applicationRegistration: frame() });
+        const proposal = yield* prepareApplication(database, { schema, registration: frame() });
         const seed = yield* database.begin(); yield* seed.insert(foreign === "row" ? "items" : "foreign", { value: true });
         yield* database.commit(yield* seed.finalize());
         const timestamp = yield* database.publishedTimestamp;
-        unsupported(yield* Effect.result(database.abandonApplicationCandidate(proposal)));
+        unsupported(yield* Effect.result(database.abandonApplicationCandidate(proposal.candidateId)));
         expect(yield* database.publishedTimestamp).toBe(timestamp);
         expect((yield* database.schemaStatus(proposal)).state).toBe("pending");
       }))); } finally { await fixture.close(); }
@@ -172,16 +177,16 @@ export function registerCoreApplicationCandidateScenarios(label: string, createF
       const fixture = await createFixture();
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const database = yield* Effect.acquireRelease(openCoreDatabase(fixture.persistence, options), owner => owner.close());
-        const registration = frame(), proposal = yield* database.prepareSchema({ schema, applicationRegistration: registration });
+        const registration = frame(), proposal = yield* prepareApplication(database, { schema, registration: registration });
         yield* ready(database, proposal);
         const outcomes = yield* Effect.all([
-          Effect.result(database.activateSchema(proposal, { programs: registration.programs, applicationRegistration: registration })),
-          Effect.result(database.abandonApplicationCandidate(proposal)),
+          Effect.result(database.activateApplicationCandidate(proposal.candidateId, { programs: registration.programs })),
+          Effect.result(database.abandonApplicationCandidate(proposal.candidateId)),
         ], { concurrency: 2 });
         expect(outcomes.filter(outcome => outcome._tag === "Success")).toHaveLength(1);
-        const candidate = yield* database.readApplicationCandidate(proposal);
+        const candidate = yield* database.readApplicationCandidate(proposal.candidateId);
         if (Option.isNone(candidate)) return yield* Effect.die("Missing raced candidate");
-        expect(["active", "overwritten"]).toContain(candidate.value.state);
+        expect(["active", "abandoned"]).toContain(candidate.value.state);
         expect(Option.isSome(yield* database.readApplicationRegistration())).toBe(candidate.value.state === "active");
       }))); } finally { await fixture.close(); }
     }, 90_000);
@@ -203,10 +208,10 @@ export function registerCoreApplicationCandidateScenarios(label: string, createF
           }) };
         }) };
         const database = yield* Effect.acquireRelease(openCoreDatabase(persistence, { ...options, indexCache: { maxBytes: 0 } }), owner => owner.close());
-        const proposal = yield* database.prepareSchema({ schema, applicationRegistration: frame() });
+        const proposal = yield* prepareApplication(database, { schema, registration: frame() });
         target = (yield* readCoreFixtureRegistry(fixture, yield* database.publishedTimestamp)).table("items")?.definition.tabletId;
         expect(target).toBeDefined();
-        const abandoning = yield* Effect.forkChild(Effect.result(database.abandonApplicationCandidate(proposal)));
+        const abandoning = yield* Effect.forkChild(Effect.result(database.abandonApplicationCandidate(proposal.candidateId)));
         yield* Deferred.await(observed);
         const seed = yield* database.begin(); yield* seed.insert("items", { foreign: true }); yield* database.commit(yield* seed.finalize());
         yield* Deferred.succeed(release, undefined);
@@ -226,7 +231,7 @@ export function registerCoreApplicationCandidateScenarios(label: string, createF
           return snapshot;
         }) };
         const database = yield* Effect.acquireRelease(openCoreDatabase(persistence, options), owner => owner.close());
-        const registration = frame(), proposal = yield* database.prepareSchema({ schema, applicationRegistration: registration });
+        const registration = frame(), proposal = yield* prepareApplication(database, { schema, registration: registration });
         const before = yield* database.publishedTimestamp, registry = yield* readCoreFixtureRegistry(fixture, before);
         const catalog = registry.table(PROGRAMS)?.definition, byId = catalog?.indexes.find(index => index.name === "by_id");
         const authority = registry.authority, items = registry.table("items")?.definition;
@@ -235,7 +240,7 @@ export function registerCoreApplicationCandidateScenarios(label: string, createF
         const authorityKey = yield* Effect.fromResult(encodeIndexKey([], yield* Effect.fromResult(publicDocumentId(catalog, authority.id))));
         yield* Effect.gen(function* () {
           pause = true;
-          const abandoning = yield* Effect.forkChild(Effect.result(database.abandonApplicationCandidate(proposal)));
+          const abandoning = yield* Effect.forkChild(Effect.result(database.abandonApplicationCandidate(proposal.candidateId)));
           yield* Deferred.await(captured);
           // Pending registration forbids an unregistered program publisher.
           // This real global writer changes only the existing authority row,
@@ -250,8 +255,8 @@ export function registerCoreApplicationCandidateScenarios(label: string, createF
           expect(conflict.reason).toBe("conflict");
           expect(conflict.cause).toEqual({ indexId: byId.ref.id, key: authorityKey, timestamp: epochTimestamp });
           expect(yield* database.readAuthorityEpoch).toBe(1n);
-          const candidate = yield* database.readApplicationCandidate(proposal);
-          expect(Option.isSome(candidate) && candidate.value).toMatchObject({ proposal, state: "pending", abandoned: false,
+          const candidate = yield* database.readApplicationCandidate(proposal.candidateId);
+          expect(Option.isSome(candidate) && candidate.value).toMatchObject({ schemaProposal: { namespace: proposal.namespace, id: proposal.id }, state: "pending", abandoned: false,
             metadata: registration.candidateMetadata });
           expect((yield* readCoreFixtureRegistry(fixture, epochTimestamp)).table("items")?.definition.tabletId).toEqual(items.tabletId);
           expect(yield* database.publishedTimestamp).toBe(epochTimestamp);
@@ -285,7 +290,7 @@ export function registerCoreApplicationCandidateScenarios(label: string, createF
           }) };
         }) };
         const database = yield* Effect.acquireRelease(openCoreDatabase(persistence, { ...options, indexCache: { maxBytes: 0 } }), owner => owner.close());
-        const proposal = yield* database.prepareSchema({ schema, applicationRegistration: frame() });
+        const proposal = yield* prepareApplication(database, { schema, registration: frame() });
         const timestamp = yield* database.publishedTimestamp;
         const registry = yield* readCoreFixtureRegistry(fixture, timestamp);
         const table = registry.table("items")?.definition;
@@ -294,7 +299,7 @@ export function registerCoreApplicationCandidateScenarios(label: string, createF
         const vault = observedVault.value;
         if (table === undefined || byId === undefined || vault === undefined) return yield* Effect.die("Missing genuine candidate metadata owner");
         target = table.tabletId;
-        const abandoning = yield* Effect.forkChild(Effect.result(database.abandonApplicationCandidate(proposal)));
+        const abandoning = yield* Effect.forkChild(Effect.result(database.abandonApplicationCandidate(proposal.candidateId)));
         yield* Deferred.await(observed);
         const writer = createCoreTransaction({ snapshot: yield* fixture.persistence.readSnapshot(timestamp), registry,
           ...(yield* prepareCoreTransactionIds(options)), vault });
@@ -311,7 +316,7 @@ export function registerCoreApplicationCandidateScenarios(label: string, createF
         expect(current.table("items")).toBeDefined();
         expect(current.indexes.byId(indexId)?.name).toBe("by_phantom");
         expect((yield* database.schemaStatus(proposal)).state).toBe("pending");
-        expect((yield* database.abandonApplicationCandidate(proposal)).abandoned).toBe(true);
+        expect((yield* database.abandonApplicationCandidate(proposal.candidateId)).abandoned).toBe(true);
         const retired = yield* readCoreFixtureRegistry(fixture, yield* database.publishedTimestamp);
         expect(retired.table("items")).toBeUndefined();
         expect(retired.indexes.byId(indexId)).toBeUndefined();

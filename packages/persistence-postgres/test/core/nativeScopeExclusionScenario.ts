@@ -5,10 +5,9 @@ import { prepareApplicationSchemaSource } from "@flarex/analysis/internal/logica
 import { defineSchema, defineTable } from "flarex/server";
 import { v } from "flarex/values";
 import { encodeDocumentId } from "flarex-protocol/document-id";
-import { encodeIndexKey } from "flarex-protocol/index-key";
 import { compileCurrencyCoreDefinition } from "../../../medusa-adapter/src/modules/currency/schema";
-import { CoreTransactionError, type CoreDatabase, type CoreError, type CoreNativeRootBinding, type CoreNativeRootBindingInput,
-  type CoreNativeRootOperation, type CoreRequestClaim, type CoreRequestIdentity } from "../../src/core/api";
+import type { CoreDatabase, CoreError, CoreNativeRootBinding, CoreNativeRootBindingInput,
+  CoreNativeRootOperation, CoreRequestClaim, CoreRequestIdentity } from "../../src/core/api";
 import { makeCoreApplicationOwner } from "../../src/core/applicationOwner";
 import * as committerModule from "../../src/core/committer";
 import type { CoreCommitter } from "../../src/core/committer";
@@ -320,21 +319,23 @@ export function registerNativeScopeExclusionScenarios(label: string, createFixtu
       const registry = yield* readCoreFixtureRegistry(fixture, independentTimestamp);
       const stateIndex = registry.table(SCHEMAS, other.namespace)?.definition.indexes.find(index => index.name === "by_state");
       if (stateIndex === undefined) return yield* Effect.die(new Error("Missing authentic component schema state index"));
-      const pendingKey = yield* Effect.fromResult(encodeIndexKey([{ state: "pending" }], independent.id));
+      const independentState = yield* Effect.fromResult(registry.schemas.getByState(
+        other.namespace, "pending", stateIndex.ref, () => undefined));
+      expect(Option.getOrThrow(independentState).id).toBe(independent.id);
+      expect((yield* graph.database.schemaStatus(independent)).state).toBe("pending");
       yield* pending(done);
       yield* abandon(graph.database, selected);
-      // Application registration records pending-schema absence across every
-      // namespace. Exclusion permits independent publication; Source OCC must
-      // still reject this older administrative snapshot after the grant.
-      const conflict = failure(yield* Fiber.join(blocked));
-      if (!(conflict instanceof CoreTransactionError)) return yield* Effect.die(new Error("Expected the official Core schema conflict", { cause: conflict }));
-      expect(conflict.reason).toBe("conflict");
-      expect(conflict.cause).toEqual({
-        indexId: stateIndex.ref.id, key: pendingKey, timestamp: independentTimestamp,
-      });
-      expect(yield* Deferred.isDone(done)).toBe(false);
+      // The typed Application absence guard does not consume another
+      // namespace's schema state. Exclusion still holds this preparation until
+      // release; the independent proposal does not create a false OCC conflict.
+      const prepared = yield* Effect.fromResult(yield* Fiber.join(blocked));
+      expect(prepared.namespace).toBeNull();
+      expect(yield* Deferred.isDone(done)).toBe(true);
+      expect(yield* graph.database.publishedTimestamp).toBeGreaterThan(independentTimestamp);
+      expect((yield* graph.database.schemaStatus(prepared)).state).toBe("pending");
+      expect((yield* graph.database.schemaStatus(independent)).state).toBe("pending");
       const fresh = yield* graph.database.prepareSchema({ bundle: graph.first.successor });
-      expect(fresh.namespace).toBeNull();
+      expect(fresh).toEqual(prepared);
       expect((yield* graph.database.schemaStatus(fresh)).state).toBe("pending");
     })), 90_000);
 

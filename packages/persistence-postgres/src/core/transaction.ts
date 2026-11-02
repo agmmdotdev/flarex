@@ -10,7 +10,7 @@ import { SchemaManifestAppTableNameSchema } from "flarex-protocol/schema-manifes
 import { decodeDocumentId, normalizeDocumentId } from "flarex-protocol/document-id";
 import { captureDocumentObject, captureDocumentPatch, encodeDocumentValue, type DocumentObject, type DocumentValue } from "flarex-protocol/document-value";
 import { encodeIndexKey, encodeIndexValue } from "flarex-protocol/index-key";
-import { captureLogicalQuery, compileIndexRange, fingerprintQuery, splitIndexRangeAfter } from "flarex-protocol/index-range";
+import { captureLogicalQuery, compileIndexRange, fingerprintQuery, incrementIndexKeyPrefix, splitIndexRangeAfter } from "flarex-protocol/index-range";
 import { CoreNativeQueryError, CoreNativeUniqueConflict, CoreNativeReferencePlanError, CoreNativeSetNullIntentSchema, CoreQueryInputError, CoreTransactionError, issueFinalizedTransaction, issueCoreNativePendingDelete, type CoreNativePendingDelete, type CoreError, type CoreFinalizedTransaction,
   type CoreIndexDefinition, type CoreTableDefinition, type CoreTransaction, type CoreTransactionLimits, type CoreTransactionUsage,
   type CoreReadToken, type CoreProgramDefinition, type CoreNativeOperations, type CoreNativeLimits, type CoreDatabaseOptions } from "./api";
@@ -104,6 +104,7 @@ export interface CoreTransactionInternals {
   readonly deleteSystem: (table: string, id: string) => Effect.Effect<void, CoreError>;
   readonly ensureUserTable: (name: string) => Effect.Effect<CoreTableDefinition, CoreError>;
   readonly tableExists: (name: string) => boolean;
+  readonly applicationSchemaRetained: (schemaId: string) => Result.Result<boolean, CorePersistenceError>;
   readonly schemaTableStateIndex: () => import("./contracts").CoreIndexRef;
   readonly finishRead: () => Effect.Effect<CoreReadToken, CoreError>;
   readonly readPrivate: (table: string, id: Uint8Array) => Effect.Effect<Option.Option<DocumentObject>, CoreError>;
@@ -2265,6 +2266,14 @@ export function createCoreTransaction(input: Readonly<{
     }),
     ensureUserTable,
     tableExists: name => { if(native===undefined){const result=mappingRead(); if(Result.isFailure(result))throw new Error("Missing table mapping index");} return registry.table(name, namespace) !== undefined; },
+    applicationSchemaRetained: schemaId => Result.gen(function* () {
+      const index = registry.table(PROGRAMS)?.definition.indexes.find(candidate => candidate.name === "by_identity");
+      if (index === undefined) return yield* Result.fail(new CorePersistenceError({ reason: "corruptData" }));
+      const start = yield* encodeIndexValue("applicationDeployment").pipe(Result.mapError(cause =>
+        new CorePersistenceError({ reason: "corruptData", cause })));
+      reads.add(index.ref.id, { start, end: incrementIndexKeyPrefix(start) });
+      return [...registry.applicationDeployments.values()].some(record => record.value.schemaId === schemaId);
+    }),
     schemaTableStateIndex: () => {
       const index = registry.table(SCHEMAS, namespace)?.definition.indexes.find(candidate => candidate.name === "by_state");
       if (index === undefined) throw new Error("Schema system table is not initialized");

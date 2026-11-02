@@ -16,6 +16,7 @@ import { CoreSchemaRegistry } from "../../src/core/schemaRegistry";
 import { coreValidatorIsSubset, coreValidatorsEqual } from "../../src/core/validatorSubset";
 import { decodeLegacyTable } from "../../src/core/legacySchema";
 import { CoreSchemaModel, coreSchemaValidationOutcomes } from "../../src/core/schemaModel";
+import { CorePersistenceError } from "../../src/core/contracts";
 import { CoreSchemaValidations } from "../../src/core/schemaValidations";
 import type { CoreSchemaTransaction } from "../../src/core/schemaValidationProgress";
 import type { CoreSystemDocument } from "../../src/core/transaction";
@@ -57,6 +58,7 @@ function metadataStore() {
   const tx: CoreSchemaTransaction = {
     namespace: null, timestamp: 7_200_000_000_000n,
     get schemaRegistry() { return registry; },
+    applicationSchemaRetained: () => Result.succeed(false),
     schemaTableStateIndex: () => ({ id: bytes(1) }), addIndexRead: () => {},
     tableExists: name => tables.has(name),
     ensureUserTable: name => Effect.sync(() => {
@@ -460,6 +462,16 @@ describe("namespaced schema registry", () => {
 });
 
 describe("schema lifecycle and attempt fencing", () => {
+  it("propagates a typed deployment-retention failure before deleting schema history", async () => {
+    const store = metadataStore(), ordinary = new CoreSchemaModel(store.tx);
+    const proposed = await Effect.runPromise(ordinary.submitPending(schema()));
+    const failure = new CorePersistenceError({ reason: "corruptData" });
+    const model = new CoreSchemaModel({ ...store.tx, applicationSchemaRetained: () => Result.fail(failure) });
+    expect(await Effect.runPromise(Effect.result(model.markFailed(proposed.id, "invalid candidate"))))
+      .toEqual(Result.fail(failure));
+    expect(store.rows(SCHEMAS).some(row => row.id === proposed.id)).toBe(true);
+  });
+
   it("selects each table's active, proposed and staged validators independently", async () => {
     const store = metadataStore(); const model = new CoreSchemaModel(store.tx);
     const activeSchema = Result.getOrThrow(captureCoreSchema({ schemaValidation: true, tables: [

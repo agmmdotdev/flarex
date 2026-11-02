@@ -40,7 +40,7 @@ const decodePage = Schema.decodeUnknownSync(Schema.Struct({ page: Schema.Array(d
 /** Observe the owner's completion token without reproducing query/dependency logic. */
 function observeReads(database: CoreDatabase, tokens: CoreReadToken[]): CoreDatabase {
   return Object.freeze({ ...database,
-    beginQuery: (path: string) => database.beginQuery(path).pipe(Effect.map(operation => Object.freeze({ ...operation,
+    beginQuery: (...input: Parameters<CoreDatabase["beginQuery"]>) => database.beginQuery(...input).pipe(Effect.map(operation => Object.freeze({ ...operation,
       finish: () => operation.finish().pipe(Effect.tap(token => Effect.sync(() => { tokens.push(token); }))),
     }))),
   });
@@ -179,7 +179,9 @@ export async function proveCoreApplicationNestedReadonly(fixture: ApplicationCor
         beginCount += 1;
         return fixture.database.begin(options);
       }),
-      beginQuery: (path: string) => Effect.suspend(() => { queryBeginCount += 1; return fixture.database.beginQuery(path); }),
+      beginQuery: (...input: Parameters<CoreDatabase["beginQuery"]>) => Effect.suspend(() => {
+        queryBeginCount += 1; return fixture.database.beginQuery(...input);
+      }),
     });
     const layer = makeApplicationMutationSystemLayer(await makeApplicationMutationTestLive({ ...fixture, database }, loader));
     const result = await runSystemTestEffectV1(Effect.scoped(invokeApplicationMutation(

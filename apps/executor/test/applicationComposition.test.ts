@@ -1,11 +1,15 @@
 import { canonicalizeApplicationManifest } from "@flarex/analysis/application-analysis";
 import { compileCoreApplicationSchema } from "@flarex/persistence-postgres/internal/core-application-schema";
+import type { CoreApplicationCandidate } from "@flarex/persistence-postgres/internal/core";
 import { createCoreApplicationDefinition } from "@flarex/system-test/internal/application-core-definition";
 import { APPLICATION_ANALYSIS_ANALYZER_IDENTITY, APPLICATION_ANALYSIS_POLICY_IDENTITY,
   type ApplicationAnalysisHostResult } from "@flarex/source-analyzer-v2/internal/application-analysis-host";
-import { Effect, Encoding, Result } from "effect";
+import { Effect, Encoding, Option, Result } from "effect";
+import { captureDocumentObject } from "flarex-protocol/document-value";
+import type { PushSourcePackage } from "flarex-protocol/deployment";
 import { beforeAll, describe, expect, it } from "vitest";
-import { makeExecutorApplicationCredentials, prepareExecutorApplicationDefinition } from "../src/applicationComposition";
+import { assertExecutorApplicationProfile, finishExecutorApplicationPush,
+  makeExecutorApplicationCredentials, prepareExecutorApplicationDefinition } from "../src/applicationComposition";
 import { resolveExecutorApplicationProfile } from "../src/applicationConfiguration";
 import { executorApplicationConfigurationFixture, executorApplicationProfileFixture } from "./support/executorApplicationConfiguration";
 
@@ -22,6 +26,74 @@ describe("configured Application composition", () => {
       FLAREX_APPLICATION_PROFILES: JSON.stringify({ version: 1, profiles: [input] }),
     }, input.deploymentId));
   }
+
+  function completedCandidate(): CoreApplicationCandidate {
+    const profile = configuredProfile();
+    const sourcePackage: PushSourcePackage = { modules: definition.source.modules.map(module => ({ path: module.path,
+      environment: "isolate", sha256: module.sourceSha256 })),
+      functions: ["functions/users.js"], execution: definition.source.sourceArtifact.executionModulePath };
+    return { id: "completed-attempt", schemaProposal: { namespace: null, id: "shared-schema" },
+      state: "active", indexesReady: true, abandoned: false, activatedAt: 2000, creationTime: 1000, updatedAt: 2000,
+      registration: { deploymentId: profile.deploymentId, scopeUuid: profile.scopeUuid, epochUuid: profile.epochUuid,
+        candidateId: "completed-attempt", sourceArtifactRootSha256: definition.source.sourceArtifact.rootSha256,
+        sourcePackageHash: "aa".repeat(32), analyzerIdentity: profile.analyzerIdentity, analyzerPolicyIdentity: profile.analyzerPolicyIdentity,
+        compatibilityDate: profile.compatibilityDate, generation: profile.generation, programs: [] },
+      metadata: Result.getOrThrow(captureDocumentObject({ format: "flarex.application-candidate-evidence", version: 1,
+        canonicalManifest: Result.getOrThrow(canonicalizeApplicationManifest(definition.manifest)).canonicalText, sourcePackage })),
+    };
+  }
+
+  it("discovers the active deployment attempt independently of pending schema state", async () => {
+    const candidate = completedCandidate();
+    const profile = await Effect.runPromise(assertExecutorApplicationProfile({
+      readActiveApplicationCandidate: () => Effect.succeed(Option.some(candidate)),
+    }, configuredProfile()));
+    expect(profile.sourceArtifactRootSha256).toBe(candidate.registration.sourceArtifactRootSha256);
+    const unready = await Effect.runPromise(assertExecutorApplicationProfile({
+      readActiveApplicationCandidate: () => Effect.succeed(Option.none()),
+    }, configuredProfile()).pipe(Effect.flip));
+    expect(unready).toMatchObject({ reason: "profileNotReady" });
+    const mismatched = await Effect.runPromise(assertExecutorApplicationProfile({
+      readActiveApplicationCandidate: () => Effect.succeed(Option.some({ ...candidate,
+        registration: { ...candidate.registration, generation: candidate.registration.generation + 1 } })),
+    }, configuredProfile()).pipe(Effect.flip));
+    expect(mismatched).toMatchObject({ reason: "profileNotReady" });
+  });
+
+  it("returns a completed finish by attempt ID without touching its old shared schema or republishing programs", async () => {
+    const candidate = completedCandidate();
+    const finished = await Effect.runPromise(finishExecutorApplicationPush({
+      readApplicationCandidate: id => {
+        expect(id).toBe(candidate.id);
+        return Effect.succeed(Option.some(candidate));
+      },
+      schemaStatus: () => Effect.die("Completed finish read an obsolete shared schema."),
+      advanceSchema: () => Effect.die("Completed finish advanced an obsolete shared schema."),
+      activateApplicationCandidate: () => Effect.die("Completed finish republished its old source."),
+    }, configuredProfile(), candidate.id));
+    expect(finished).toMatchObject({ pushId: candidate.id, state: "active", createdAt: 1000, updatedAt: 2000 });
+    expect(finished.pushId).not.toBe(candidate.schemaProposal.id);
+  });
+
+  it("lets Core recover a parallel completed finish after a newer source supersedes its schema", async () => {
+    const candidate = completedCandidate();
+    const { activatedAt, ...prepared } = candidate;
+    expect(activatedAt).toBe(2000);
+    const finished = await Effect.runPromise(finishExecutorApplicationPush({
+      readApplicationCandidate: () => Effect.succeed(Option.some({ ...prepared, state: "validated" })),
+      schemaStatus: proposal => {
+        expect(proposal).toEqual(candidate.schemaProposal);
+        return Effect.succeed({ proposal, state: "overwritten", indexesReady: false });
+      },
+      advanceSchema: () => Effect.die("An overwritten schema cannot be advanced."),
+      activateApplicationCandidate: (id, publication) => {
+        expect(id).toBe(candidate.id);
+        expect(publication.programs.some(program => program.identity.functionPath === "users:get")).toBe(true);
+        return Effect.succeed(candidate);
+      },
+    }, configuredProfile(), candidate.id));
+    expect(finished).toMatchObject({ pushId: candidate.id, state: "active", updatedAt: 2000 });
+  });
 
   it("passes actual cold Analysis output through the production schema and program producers", async () => {
     expect(definition.coldAnalysisLoads).toBeGreaterThan(0);

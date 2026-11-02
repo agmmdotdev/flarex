@@ -72,7 +72,7 @@ type FixtureGrantFailure = Effect.Error<ReturnType<ApplicationCoreMutationSystem
 type FixtureExecutionFailure = Effect.Error<ReturnType<ReturnType<typeof makeCoreNativeApplicationMutationRunner<ReferenceFailure>>>> | ReferenceFailure;
 type OrdinaryExecutionFailure = Effect.Error<ReturnType<ReturnType<typeof makeCoreApplicationMutationRunner>>> | CommerceTransactionError;
 type NativePort = ReturnType<typeof makeCoreNativeApplicationMutationPort<FixtureGrantFailure, FixtureExecutionFailure>>;
-type OrdinaryPort = ReturnType<typeof makeCoreApplicationMutationPort<FixtureGrantFailure, OrdinaryExecutionFailure>>;
+type OrdinaryPort = Pick<ReturnType<typeof makeCoreApplicationMutationPort<FixtureGrantFailure, OrdinaryExecutionFailure>>, "invoke">;
 interface WorkerGeneration {
   readonly live: Effect.Effect<ApplicationCoreMutationSystemLive, CommerceTransactionError>;
   readonly issueGrant: CoreNativeApplicationMutationConfiguration<FixtureGrantFailure, FixtureExecutionFailure>["issueGrant"];

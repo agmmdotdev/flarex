@@ -7,13 +7,15 @@ code generator, minimal CLI, Vite integration, client/React surface, test SDK,
 and packed-consumer proof. It is not yet a production-ready published ecosystem
 or full Convex SDK/CLI replacement.
 
-For an explicitly configured fresh Core target, normal HTTP codegen/deploy now
+For an explicitly configured ordinary Core target, normal HTTP codegen/deploy now
 discovers the storage profile before bundling. Core keeps canonical SDK imports,
 uses packaged module namespaces, supports validated inline JWT settings, and
 emits only typed API/server/data-model output. Stale legacy runtime files are
 removed; analyzed declaration IDs are not reused as legacy storage identifiers.
-The [public activation contract](../experiments/core/engine/slices/18-public-application-activation.md)
-owns its bounded ordinary profile and remaining activation gates.
+The [registered-source contract](../experiments/core/engine/slices/19-registered-source-upgrades.md)
+owns fresh activation and source upgrades with existing data. Normal SDK deploy
+uses durable independent attempts over shared Core schema/index preparation;
+managed production activation and general conversions retain separate gates.
 
 This roadmap owns:
 

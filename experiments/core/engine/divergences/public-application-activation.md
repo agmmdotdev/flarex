@@ -1,8 +1,9 @@
 # Public Application source and activation
 
-Status: **Bounded fresh public activation implemented and reviewed; unmeasured.**
+Status: **Ordinary public activation implemented and reviewed; unmeasured.**
 
-Owner: [fresh public activation](../slices/18-public-application-activation.md).
+Owners: [public activation baseline](../slices/18-public-application-activation.md)
+and [registered-source upgrades](../slices/19-registered-source-upgrades.md).
 Pin: `db914cf06e2b06ee985646611b9e12ed7a770318`.
 
 ## Pinned mechanism
@@ -41,17 +42,20 @@ still requires its executable auth-module contract. This explicit Core profile
 does not evaluate Convex-style auth modules; it refuses those modules before
 upload/publication. There is no implicit anonymous downgrade or old-config reuse.
 
-The existing PostgreSQL logical `_schemas` registration proposal owns the fresh
-public candidate and its canonical manifest/package evidence. Preparation,
-readiness, cancellation and complete program activation use existing Core admin
-transactions, observations and publication. No extra physical table, backend
+Typed deployment records in the existing PostgreSQL logical `_programs` catalog
+own public attempt identity and canonical manifest/package evidence. The shared
+`_schemas` proposal owns schema validation and index readiness. Preparation,
+cancellation and complete program/source activation use existing Core admin
+transactions, observations and publication. The registered-source owner replaces
+the earlier schema-coupled candidate representation through a one-way metadata
+migration preserving public identities and recovery evidence. No extra physical table, backend
 installer, cross-store transaction or serving-time registration is added.
 Cloudflare public metadata is a projection; the Core profile bypasses the legacy
 SQLite activation gate. Remote upload and analysis never hold a database
 transaction. Cold retries reconstruct from persisted authenticated evidence.
 
 Public candidate identity/status is an admitted recovery obligation. These
-candidate rows survive the ordinary internal failed/overwritten-schema cleanup
+deployment records survive the ordinary internal failed/overwritten-schema cleanup
 window, so a delayed finish/status/abandon retry cannot forget its disposition.
 They retain source evidence and historical schema identity until a separately
 specified public-candidate retention/removal policy permits retirement. This is
@@ -64,8 +68,10 @@ PostgreSQL alone owns active application identity and durable outcomes.
 Competing candidate changes and finish/abandon resolve in the same OCC domain.
 Empty candidate cleanup retires only authenticated staged logical metadata and
 retains physical history; foreign data/ownership prevents it. Exact active retry
-is idempotent after writes. Changed-source runtime upgrades remain refused in
-this bounded fresh profile; this does not claim Convex's full deployment support.
+is idempotent after writes. Registered ordinary source upgrades share the same
+activation authority, preserve existing data and publish in eligible finish
+order. Exact completed-finish retries return their retained result. General
+framework conversions and Convex's full deployment support remain separate.
 
 Preserve exact public visibility, validators, admitted inline JWT identity and
 committed mutation recovery. Do not treat old numeric sync dependencies as Core

@@ -1545,25 +1545,26 @@ one-time compatibility projection is needed only for proven durable rows.
 A schema version is activatable only when its required target-native population,
 any evidence-triggered backfill, and validation have succeeded. For ordinary
 app-document evolution, each scope may have at most one non-active schema-
-validation head. It authenticates one immutable schema version, scans live rows
-at a fixed commit frontier, and remains shadow-enforced by later material point
-commits. A final row that is valid under the active schema but invalid under the
+validation head. It authenticates one immutable schema version, validates fresh
+ById pages at or after the proposal observation, and remains enforced by later
+document writes. A final row that is valid under the active schema but invalid under the
 candidate still commits and atomically fails the candidate; candidate
 deployment cannot make the active application unavailable. Valid concurrent
-writes do not restart the historical scan. Candidate readiness requires the
-exact settled validation receipt, and rollback to an older schema requires a
+writes do not restart completed coverage. Candidate readiness requires the
+exact current validation attempt and completed index builds; rollback to an older schema requires a
 new validation against current data rather than a pointer reversal. The
-detailed bounded lifecycle and implementation gates live in
-`roadmaps/flarexdb-foundation/05-managed-schema-deployment.md`.
+detailed translated lifecycle is owned by the
+[shared schema replacement](../experiments/core/engine/slices/07-shared-schema-lifecycle.md).
+The [registered-source continuation](../experiments/core/engine/slices/19-registered-source-upgrades.md)
+connects that same lifecycle to independent public deployment attempts.
 
-The accepted implementation owner for compatibility, candidate-document
-policy, lifecycle transitions, and service contracts is the separate private
-`@flarex/managed-schema` domain package. It has no PostgreSQL, Worker-runtime,
-point-commit, readiness, activation, or system-test authority. Persistence
-implements its repository and opaque transaction/evidence facets; the existing
-point-commit and readiness owners consume only those narrow authenticated
-facets. System simulations use the live composition and cannot mint schema-
-validation state or receipts.
+The translated Core owns schema compatibility, write-time enforcement,
+validation progress, index builds and atomic activation. Runtime hosts and
+producer adapters borrow those owners. The retained private `@flarex/managed-schema`
+contracts below describe the older compatibility profile and its recorded
+cutover obligations; they do not supply a second installer or validation
+authority for the translated Application path. System simulations use genuine
+Core lifecycle transitions rather than minting validation state or readiness.
 
 `M01-A` now exists inside that package as the pure bounded compatibility
 classifier. It separates document compatibility, physical-requirement drift,

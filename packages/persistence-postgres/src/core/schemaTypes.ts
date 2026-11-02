@@ -43,9 +43,7 @@ export const CoreSchemaStateSchema = Schema.Union([
 export type CoreSchemaState = typeof CoreSchemaStateSchema.Type;
 export type CoreSchemaUniqueState = "pending" | "validated" | "active";
 export const CoreSchemaMetadataSchema = Schema.Struct({ state: CoreSchemaStateSchema, schema: Schema.String,
-  native: Schema.optionalKey(Schema.String), applicationRegistration: Schema.optionalKey(Schema.String),
-  applicationCandidate: Schema.optionalKey(Schema.String), applicationCandidateUpdatedAt: Schema.optionalKey(Schema.Finite),
-  applicationCandidateAbandoned: Schema.optionalKey(Schema.Boolean) });
+  native: Schema.optionalKey(Schema.String) });
 export type CoreSchemaMetadata = typeof CoreSchemaMetadataSchema.Type;
 export const decodeCoreSchemaMetadata = Schema.decodeUnknownResult(CoreSchemaMetadataSchema);
 

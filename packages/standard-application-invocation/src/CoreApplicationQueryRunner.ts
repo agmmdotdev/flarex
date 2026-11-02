@@ -54,10 +54,13 @@ export function makeCoreApplicationQueryEvaluationRunner(configuration: Applicat
     argumentSemanticBytes: number,
     auth: ApplicationWorkerAuthV1,
   ) {
-    return yield* configuration.admission.withPermit("query", Effect.acquireUseRelease(database.beginQuery(functionPath), operation => Effect.gen(function* () {
+    const profile = expectedProfile === undefined ? undefined : yield* Effect.fromResult(expectedProfile);
+    const sourcePin = profile?.sourcePackageHash === undefined ? undefined : {
+      sourceArtifactRootSha256: profile.sourceArtifactRootSha256, sourcePackageHash: profile.sourcePackageHash,
+    };
+    return yield* configuration.admission.withPermit("query", Effect.acquireUseRelease(database.beginQuery(functionPath, sourcePin), operation => Effect.gen(function* () {
       const program = yield* readCoreApplicationProgram(operation.program, runner.sha256);
-      if (expectedProfile !== undefined)
-        yield* Effect.fromResult(requireCoreApplicationProgramProfile(program, yield* Effect.fromResult(expectedProfile)));
+      if (profile !== undefined) yield* Effect.fromResult(requireCoreApplicationProgramProfile(program, profile));
       const target = program.runtimeTarget;
       if (program.kind !== "query" || target.function.visibility !== "public")
         return yield* new CoreApplicationQueryError({ reason: "functionUnsupported" });

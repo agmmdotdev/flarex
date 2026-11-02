@@ -517,6 +517,7 @@ describe("backend artifact runtime route", () => {
       subject: "core-user", issuer: "https://issuer.example.com", tokenIdentifier: "https://issuer.example.com|core-user",
     } });
     expect(calls[0]?.sourceArtifactRootSha256).toBe(profile.sourceArtifactRootSha256);
+    expect(calls[0]?.sourcePackageHash).toBe(profile.sourcePackageHash);
 
     const unauthorized = await harness.mf.dispatchFetch(`http://flarex.test/deployments/${deploymentId}/invoke`, {
       method: "POST", headers: { "content-type": "application/json", authorization: "Bearer invalid-jwt" },
@@ -560,6 +561,61 @@ describe("backend artifact runtime route", () => {
     expect(calls).toHaveLength(4);
     expect(calls[3]?.auth).toEqual(trustedIdentity);
     expect(calls[3]?.requestKey).toBe("trusted-core-key");
+    expect(artifactCalls).toBe(0);
+  });
+
+  it("preserves keyed omitted-kind queries and sends historical mutation kind inference to Core", async () => {
+    const deploymentId = "core-omitted-kind-retry";
+    const { candidate, profile, control } = await coreApplicationCandidateFixture(deploymentId);
+    const calls: CoreApplicationInvocationRequest[] = [];
+    let artifactCalls = 0;
+    const handle = makeCoreApplicationHttpHandler({ route: profile.route,
+      authorize: request => Effect.succeed(request.headers.get("authorization") === "Bearer core-secret"),
+      execute: request => {
+        calls.push(request);
+        return Effect.succeed(request.kind === "mutation" || request.requestKey.startsWith("original:")
+          ? { kind: "mutation" as const, value: "durable-result", disposition: "replayed" as const, publishedTimestamp: 100n }
+          : { kind: "query" as const, value: "current-query", evaluation: { timestamp: 200n, reads: [] } });
+      }, maximumRequestBytes: 1_048_576, maximumResponseBytes: 1_048_576 });
+    const harness = await createBackendHarness({
+      bindings: { FLAREX_EXECUTOR_TRANSPORT: "core_application", FLAREX_EXECUTOR_TOKEN: "core-secret" },
+      serviceBindings: {
+        FLAREX_EXECUTOR: request => {
+          const path = new URL(request.url).pathname;
+          if (path === coreApplicationControlPath(deploymentId))
+            return Response.json(Result.getOrThrow(encodeCoreApplicationControl(control)));
+          if (path === coreApplicationDeploymentPath(deploymentId))
+            return Response.json(Result.getOrThrow(encodeCoreApplicationCandidate(candidate)));
+          return Effect.runPromise(handle(request));
+        },
+        FLAREX_ARTIFACT_RUNTIME: async () => { artifactCalls++; return Response.json({ value: "unexpected-runtime" }); },
+      },
+    });
+    harnesses.push(harness);
+    const invoke = (body: unknown) => harness.mf.dispatchFetch(`http://flarex.test/deployments/${deploymentId}/invoke`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    });
+    for (const path of ["users:removed", "users:get"]) {
+      const response = await invoke({ path, args: { original: true }, idempotencyKey: `original:${path}` });
+      expect(response.status, await response.clone().text()).toBe(200);
+      expect(await response.json()).toEqual({ value: "durable-result" });
+    }
+    expect(calls.map(call => ({ kind: call.kind, path: call.functionPath, key: call.requestKey }))).toEqual([
+      { kind: "infer", path: "users:removed", key: "original:users:removed" },
+      { kind: "infer", path: "users:get", key: "original:users:get" },
+    ]);
+    const explicit = await invoke({ path: "users:get", kind: "query", args: {}, idempotencyKey: "explicit-query" });
+    expect(explicit.status).toBe(200);
+    expect(await explicit.json()).toEqual({ value: "current-query" });
+    const keyedQuery = await invoke({ path: "users:get", args: {}, idempotencyKey: "fresh-keyed-query" });
+    expect(keyedQuery.status).toBe(200);
+    expect(await keyedQuery.json()).toEqual({ value: "current-query" });
+    const inferred = await invoke({ path: "users:get", args: {} });
+    expect(inferred.status).toBe(200);
+    expect(await inferred.json()).toEqual({ value: "current-query" });
+    const missing = await invoke({ path: "users:removed", args: {} });
+    expect(missing.status).toBe(404);
+    expect(calls.map(call => call.kind)).toEqual(["infer", "infer", "query", "infer", "query"]);
     expect(artifactCalls).toBe(0);
   });
 

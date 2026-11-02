@@ -133,6 +133,7 @@ maintaining a competing completion log here.
 
 ## Source wire and retained identities
 
+- [Registered Application deployment attempts](./registered-application-source-upgrades.md): independent code attempts share schema proposals; PostgreSQL retains public status and idempotent finish outcomes through source upgrades.
 - [Public Application source and activation](./public-application-activation.md): genuine framed source, Core-owned public candidates and profile-aware SDK generation; bounded fresh local path, wider activation gates remain.
 - [Validator identity generations for retained Cloudflare artifacts](./validator-authenticated-identities.md): narrow stored CoreProgram byte projection and authenticated fresh encoding 2 implemented; external/native retained-store cutover gates remain.
 

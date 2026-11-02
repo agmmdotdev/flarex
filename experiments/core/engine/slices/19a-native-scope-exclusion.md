@@ -271,29 +271,34 @@ matched the actual program index and alpha revision key, while both namespaces'
 active schemas had no registration proof. Source correctly validated the recorded
 read; the correction places that observation with its registration consumers.
 
-The registration owner retains the full table catalog and every discovered
-namespace's active, pending and validated schema-state dependency, including
-absence. It records the complete program catalog at its actual consumers:
-fresh/pending registration emptiness, direct
-complete closure authentication, every active-registration memo hit or miss, and
-candidate abandonment's program/head absence check. Zero-table/zero-program
-proofs, unexpected revisions/heads, foreign tables and concurrent proof
-introduction retain their protection. Memo misses avoid duplicate observations.
+The [registered-source replacement](./19-registered-source-upgrades.md) stores
+independent deployment attempts and the active pointer in typed program-catalog
+records. Bare unregistered lifecycle checks observe those exact kind prefixes,
+including absence; schema preparation observes active, pending and validated
+state in its actual namespace. Full table/program catalog observations remain
+with consumers authenticating the complete registered closure. Zero-table/zero-
+program proofs, foreign rows and concurrent deployment introduction retain their
+protection without a global scan of unrelated namespaces' schema states.
 
 Independent current-core, accepted-direction and pinned-source challenges agree
-on that bounded owner correction. Do not alter Source conflict checks, snapshots,
-registry-delta merging or errors, add administrative retries, reschedule the
-independent-save witness, or remove the existing exact schema-state conflict.
+on this ownership boundary. Keep Source conflict checks, snapshots, registry-
+delta merging and typed errors. Do not add administrative retries or remove
+conflicts on observations the operation actually consumed.
 
 ### Administrative metadata conflict
 
 The metadata barrier does not rebase a previously prepared administrative
-transaction. Application-registration guards observe active, pending and
-validated schema state across namespaces. Another namespace's pending proposal
-can therefore invalidate a blocked preparation. Preserve the exact Source OCC
-refusal and prove fresh administrative preparation succeeds after release;
-do not weaken conflict validation to promise every concurrent schema operation
-succeeds.
+transaction. Every consumed schema, table, program and deployment observation
+remains subject to Source OCC. With no registered closure consuming another
+namespace's state, an independent pending proposal does not invalidate the
+blocked preparation merely because the old schema-coupled guard scanned it.
+
+The connected witness retains both before-release wait assertions and proves the
+other namespace's authentic pending proposal at its publication timestamp. After
+release the root preparation succeeds, both proposals remain pending, and an
+identical start reuses the root proposal. Genuine same-namespace or typed
+deployment-prefix phantoms still conflict; no conflict check, snapshot, exclusion
+fence or administrative retry policy is weakened.
 
 Retain default OCC parallel-body behavior and its one-winner/stale-conflict
 witness. Prove selected callbacks cannot overlap; ordinary bodies can progress

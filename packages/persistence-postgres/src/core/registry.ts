@@ -19,6 +19,7 @@ import { CoreTableNamespaceSchema, coreNamespaceKey, type CoreTableNamespace } f
 import { CoreIndexRegistry } from "./indexRegistry";
 import { parseCoreIndexRecord, type CoreIndexRecord } from "./indexState";
 import { CoreSchemaRegistry } from "./schemaRegistry";
+import { decodeCoreApplicationDeployment, decodeCoreActiveApplication, type CoreApplicationDeploymentRecord, type CoreActiveApplicationRecord } from "./applicationDeploymentTypes";
 import type { CoreSystemDocument } from "./transaction";
 import { CoreNativeTablePolicySchema } from "./nativePolicyTypes";
 import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
@@ -97,7 +98,9 @@ export class CoreRegistry {
     readonly authority?: CoreAuthorityRecord,
     readonly indexes: CoreIndexRegistry = CoreIndexRegistry.empty(),
     readonly schemas: CoreSchemaRegistry = CoreSchemaRegistry.empty(),
-    captured?: Readonly<{ tables: BTree<string, CoreTableRecord>; lookups: CoreRegistryTableLookups }>) {
+    captured?: Readonly<{ tables: BTree<string, CoreTableRecord>; lookups: CoreRegistryTableLookups }>,
+    readonly applicationDeployments: ReadonlyMap<string, CoreApplicationDeploymentRecord> = new Map(),
+    readonly activeApplication?: CoreActiveApplicationRecord) {
     this.tableRoot = captured?.tables ?? new BTree([...tables.values()].map(record => {
       const enabled = indexes.forTablet(record.definition.tabletId).filter(index => index.state.type === "Enabled")
         .map(index => Object.freeze({ name: index.name, ref: index.ref, fields: index.fields }));
@@ -124,7 +127,7 @@ export class CoreRegistry {
   head(path: string): CoreProgramHead | undefined { return this.heads.get(path); }
   private replaceTableRoot(tables: BTree<string, CoreTableRecord>, lookups: CoreRegistryTableLookups,
     indexes = this.indexes): CoreRegistry {
-    return new CoreRegistry(tables, this.programs, this.heads, this.authority, indexes, this.schemas, { tables, lookups });
+    return new CoreRegistry(tables, this.programs, this.heads, this.authority, indexes, this.schemas, { tables, lookups }, this.applicationDeployments, this.activeApplication);
   }
   withTable(record: CoreTableRecord): CoreRegistry {
     const tables = this.tableRoot.clone(), byNumber = this.lookups.byNumber.clone(), byTablet = this.lookups.byTablet.clone();
@@ -164,18 +167,32 @@ export class CoreRegistry {
   }
   withoutIndex(id: Uint8Array): CoreRegistry { return this.withIndexes(this.indexes.without(id)); }
   withSchemas(schemas: CoreSchemaRegistry): CoreRegistry {
-    return new CoreRegistry(this.tables, this.programs, this.heads, this.authority, this.indexes, schemas, { tables: this.tableRoot, lookups: this.lookups });
+    return new CoreRegistry(this.tables, this.programs, this.heads, this.authority, this.indexes, schemas, { tables: this.tableRoot, lookups: this.lookups }, this.applicationDeployments, this.activeApplication);
   }
   withProgram(record: CoreProgramRecord): CoreRegistry {
     const programs = new Map(this.programs); programs.set(programKey(record.definition.identity), record);
-    return new CoreRegistry(this.tables, programs, this.heads, this.authority, this.indexes, this.schemas, { tables: this.tableRoot, lookups: this.lookups });
+    return new CoreRegistry(this.tables, programs, this.heads, this.authority, this.indexes, this.schemas, { tables: this.tableRoot, lookups: this.lookups }, this.applicationDeployments, this.activeApplication);
   }
   withHead(record: CoreProgramHead): CoreRegistry {
     const heads = new Map(this.heads); heads.set(record.identity.functionPath, record);
-    return new CoreRegistry(this.tables, this.programs, heads, this.authority, this.indexes, this.schemas, { tables: this.tableRoot, lookups: this.lookups });
+    return new CoreRegistry(this.tables, this.programs, heads, this.authority, this.indexes, this.schemas, { tables: this.tableRoot, lookups: this.lookups }, this.applicationDeployments, this.activeApplication);
+  }
+  withoutHead(path: string): CoreRegistry {
+    const heads = new Map(this.heads); heads.delete(path);
+    return new CoreRegistry(this.tables, this.programs, heads, this.authority, this.indexes, this.schemas,
+      { tables: this.tableRoot, lookups: this.lookups }, this.applicationDeployments, this.activeApplication);
+  }
+  withApplicationDeployment(record: CoreApplicationDeploymentRecord): CoreRegistry {
+    const deployments = new Map(this.applicationDeployments); deployments.set(record.value.candidateId, record);
+    return new CoreRegistry(this.tables, this.programs, this.heads, this.authority, this.indexes, this.schemas,
+      { tables: this.tableRoot, lookups: this.lookups }, deployments, this.activeApplication);
+  }
+  withActiveApplication(record: CoreActiveApplicationRecord): CoreRegistry {
+    return new CoreRegistry(this.tables, this.programs, this.heads, this.authority, this.indexes, this.schemas,
+      { tables: this.tableRoot, lookups: this.lookups }, this.applicationDeployments, record);
   }
   withAuthority(authority: CoreAuthorityRecord): CoreRegistry {
-    return new CoreRegistry(this.tables, this.programs, this.heads, authority, this.indexes, this.schemas, { tables: this.tableRoot, lookups: this.lookups });
+    return new CoreRegistry(this.tables, this.programs, this.heads, authority, this.indexes, this.schemas, { tables: this.tableRoot, lookups: this.lookups }, this.applicationDeployments, this.activeApplication);
   }
 }
 export function initialRegistry(definitions: readonly CoreTableDefinition[]): Result.Result<CoreRegistry, CorePersistenceError> {
@@ -257,6 +274,14 @@ export const loadCoreRegistry = Effect.fn("CoreRegistry.load")(function* (
           const stored = yield* Effect.fromResult(Result.mapError(decodeStoredHead(document), corrupt));
           if (registry.head(stored.identity.functionPath) !== undefined) return yield* Effect.fail(corrupt());
           registry = registry.withHead({ identity: stored.identity, id: entry.document.id.slice(), ts: entry.document.ts });
+        } else if (document.kind === "applicationDeployment") {
+          const value = yield* Effect.fromResult(decodeCoreApplicationDeployment(document).pipe(Result.mapError(corrupt)));
+          if (registry.applicationDeployments.has(value.candidateId)) return yield* corrupt();
+          registry = registry.withApplicationDeployment({ value, id: entry.document.id.slice(), ts: entry.document.ts });
+        } else if (document.kind === "activeApplication") {
+          const value = yield* Effect.fromResult(decodeCoreActiveApplication(document).pipe(Result.mapError(corrupt)));
+          if (registry.activeApplication !== undefined) return yield* corrupt();
+          registry = registry.withActiveApplication({ candidateId: value.candidateId, id: entry.document.id.slice(), ts: entry.document.ts });
         } else {
           const stored = yield* Effect.fromResult(Result.mapError(decodeStoredAuthority(document), corrupt));
           if (registry.authority !== undefined) return yield* Effect.fail(corrupt());

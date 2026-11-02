@@ -28,8 +28,8 @@ export type CoreApplicationRouteIdentity = typeof Route.Type;
 
 const requestHeader = {
   format: Schema.Literal("flarex.core-application.request"), version: Schema.Literal(1),
-  kind: Schema.Literals(["query", "mutation"]), functionPath: TransactionFunctionPathV1Schema,
-  requestKey: TransactionRequestKeyV1Schema, sourceArtifactRootSha256: Sha256,
+  kind: Schema.Literals(["query", "mutation", "infer"]), functionPath: TransactionFunctionPathV1Schema,
+  requestKey: TransactionRequestKeyV1Schema, sourceArtifactRootSha256: Sha256, sourcePackageHash: Sha256,
   auth: ExecutionIdentitySchema, args: JsonValue,
 };
 const RequestWire = Schema.Struct(requestHeader).annotate(strict);

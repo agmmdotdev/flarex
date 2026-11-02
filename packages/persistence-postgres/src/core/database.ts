@@ -9,11 +9,11 @@ import { compareUtf16Strings } from "@flarex/utils/strings";
 import { isJsonObject, type Json } from "flarex-protocol/json";
 import { decodeDocumentValue, encodeDocumentValue, type DocumentObject, type DocumentValue } from "flarex-protocol/document-value";
 import { encodeIndexValue } from "flarex-protocol/index-key";
-import { CoreProgramIdentitySchema, CoreNativeRootIdentitySchema, CoreSchemaWorkerOptionsSchema, CoreTransactionLimitsSchema, CoreTransactionError, issueCoreClaim, issueCoreNativeBinding,
+import { CoreProgramIdentitySchema, CoreApplicationSourcePinSchema, CoreNativeRootIdentitySchema, CoreSchemaWorkerOptionsSchema, CoreTransactionLimitsSchema, CoreTransactionError, issueCoreClaim, issueCoreNativeBinding,
   issueCoreNativeRootBinding, issueCoreApplicationInsertBinding, issueCoreApplicationReadBinding, issueCoreNativeInitializationBinding,
   type CoreDatabase, type CoreDatabaseOptions, type CoreError,
   type CoreProgramPublication, type CoreSchemaProposal, type CoreSchemaStatus, type CoreProgramDefinition, type CoreProgramIdentity, type CoreRequestAcquisition,
-  type CoreApplicationRegistrationMetadata, type CoreApplicationCandidate,
+  type CoreApplicationRegistrationMetadata, type CoreApplicationSourcePin,
   type CoreNativeBinding, type CoreNativeCommandDefinition, type CoreNativeCommandIdentity, type CoreNativeOperation,
   type CoreRequestClaim, type CoreRequestIdentity, type CoreRequestResolution, type CoreTableDefinition,
   type CoreNativeRootBindingMetadata, type CoreApplicationInsertBinding,
@@ -50,16 +50,15 @@ import { coreProtectedAuthorityMetadataReads } from "./protectedNativeAuthority"
 import { capturePrivateJsonData } from "../values/privateJsonData";
 import { CoreRecoveryJournal, type CoreRecoveryEnrollment } from "./recoveryJournal";
 import { isCoreDefinitiveCommitRefusal } from "./api";
-import { captureCoreApplicationRegistration, guardCoreApplicationRegistration, readActiveCoreApplicationRegistration,
-  encodeCoreApplicationCandidateMetadata, readCoreApplicationCandidateEvidence, liveCoreApplicationSchemas,
-  requireCoreApplicationTables, trackCoreApplicationPrograms } from "./applicationRegistration";
+import { guardCoreUnregisteredLifecycle, readActiveCoreApplicationRegistration, trackCoreApplicationPrograms } from "./applicationRegistration";
+import { makeCoreApplicationDeploymentOwner } from "./applicationDeployment";
+import { migrateCoreApplicationDeployments } from "./applicationDeploymentMigration";
 import type { CoreSchemaSelection } from "./schemaRegistry";
 import { captureCoreNativeRootIdentity, captureCoreNativeRootRequestEvidence,
   type CoreNativeRootRequestEvidence } from "./nativeRootRequest";
 
 function schemaStatusValue(registry: CoreRegistry, proposal: CoreSchemaProposal, found: CoreSchemaSelection): CoreSchemaStatus {
   const state = found.metadata.state;
-  if (found.metadata.applicationCandidateAbandoned) return { proposal, state: state.state, indexesReady: false };
   const plan = planCoreIndexes(registry, proposal.namespace, found.schema);
   const indexesReady = plan.added.length === 0 && [...plan.identical.filter(index => index.state.type !== "Backfilling"
     || !index.state.backfillState.staged), ...plan.enabled].every(index => index.state.type !== "Backfilling");
@@ -90,6 +89,8 @@ const RequestRecord = Schema.Union([
 ]);
 const decodeRequestRecord = Schema.decodeUnknownResult(RequestRecord, { onExcessProperty: "error" });
 const decodeProgramIdentity = Schema.decodeUnknownResult(CoreProgramIdentitySchema);
+const decodeApplicationSourcePin = Schema.decodeUnknownResult(CoreApplicationSourcePinSchema);
+const decodeApplicationRequestCorrelation = Schema.decodeUnknownResult(Schema.Struct({ key: Schema.String, requestHash: Schema.String, functionPath: Schema.NonEmptyString }));
 const decodeNativeRegistrations = Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({ name: Schema.NonEmptyString,
   mode: Schema.Literals(["read", "write"]) })).check(Schema.isMinLength(1), Schema.isMaxLength(128)));
 const decodeOperationCacheBytes = Schema.decodeUnknownEffect(Schema.Int.check(Schema.makeFilter(value =>
@@ -150,10 +151,7 @@ const copyTableDefinition = (table: CoreTableDefinition): CoreTableDefinition =>
 const ownPublicationFrame = (publication: CoreProgramPublication): Result.Result<CoreProgramPublication, CoreError> => Result.gen(function* () {
   const programs: CoreProgramDefinition[] = [];
   for (const program of publication.programs) programs.push(yield* ownedProgram(program));
-  const applicationRegistration = publication.applicationRegistration === undefined ? undefined
-    : yield* captureCoreApplicationRegistration(publication.applicationRegistration);
-  return Object.freeze({ ...publication, programs: Object.freeze(programs),
-    ...(applicationRegistration === undefined ? {} : { applicationRegistration }) });
+  return Object.freeze({ ...publication, programs: Object.freeze(programs) });
 });
 const checkNativeRoot = (registry: CoreRegistry, data: NativeRootData): Result.Result<void, CoreError> => Result.gen(function* () {
   for (const access of data.accesses) {
@@ -397,13 +395,13 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
   ) => Effect.flatMap(prepare, prepared => Effect.acquireUseRelease(registerBorrow(prepared), use, (selected, exit) =>
     transferOnSuccess && Exit.isSuccess(exit) ? Effect.void : selected.context.transaction.abort())));
 
-  const findRequest = Effect.fn("CoreDatabase.findRequest")(function* (
-    selected: Effect.Success<ReturnType<typeof start>>, identity: CoreRequestIdentity, transaction?: CoreTransactionInternals,
+  const findRequestEntry = Effect.fn("CoreDatabase.findRequestEntry")(function* (
+    selected: Effect.Success<ReturnType<typeof start>>, key: string, transaction?: CoreTransactionInternals,
   ) {
     const table = selected.registry.table(REQUESTS)?.definition;
     const index = table?.indexes.find(value => value.name === "by_key");
     if (table === undefined || index === undefined) return yield* Effect.fail(corrupt());
-    const prefix = yield* Effect.fromResult(Result.mapError(encodeIndexValue(identity.key), invalid));
+    const prefix = yield* Effect.fromResult(Result.mapError(encodeIndexValue(key), invalid));
     const interval = equalityInterval(prefix);
     transaction?.addIndexRead(index.ref.id, interval);
     const page = yield* selected.snapshot.scan({ index: index.ref, tableId: table.tabletId,
@@ -411,7 +409,13 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     if (page.entries.length > 1) return yield* Effect.fail(corrupt());
     const entry = page.entries[0];
     if (entry === undefined) return undefined;
-    return yield* Effect.fromResult(requestRecord(entry.document, table, identity));
+    return { entry: entry.document, table };
+  });
+  const findRequest = Effect.fn("CoreDatabase.findRequest")(function* (
+    selected: Effect.Success<ReturnType<typeof start>>, identity: CoreRequestIdentity, transaction?: CoreTransactionInternals,
+  ) {
+    const found = yield* findRequestEntry(selected, identity.key, transaction);
+    return found === undefined ? undefined : yield* Effect.fromResult(requestRecord(found.entry, found.table, identity));
   });
   const requireClaimRevision = Effect.fn("CoreDatabase.requireClaimRevision")(function* (
     selected: Effect.Success<ReturnType<typeof start>>, data: ClaimData, context: CoreTransactionInternals,
@@ -428,8 +432,17 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     return record === undefined ? Effect.fail(new CoreTransactionError({ reason: "foreignFinalization" })) : Effect.succeed(record);
   };
 
-  const writePrograms = Effect.fn("CoreDatabase.writePrograms")(function* (selected:Effect.Success<ReturnType<typeof make>>,publication:CoreProgramPublication) {
+  const writePrograms = Effect.fn("CoreDatabase.writePrograms")(function* (selected:Effect.Success<ReturnType<typeof make>>,publication:CoreProgramPublication, complete = false) {
       let registry=selected.context.registry;
+      const catalog = registry.table(PROGRAMS)?.definition;
+      if (catalog === undefined) return yield* corrupt();
+      if (complete) {
+        yield* Effect.fromResult(trackCoreApplicationPrograms(selected.context));
+        for (const [path, head] of registry.heads) if (!publication.programs.some(program => program.identity.functionPath === path)) {
+          yield* selected.context.deleteSystem(PROGRAMS, yield* Effect.fromResult(publicDocumentId(catalog, head.id)));
+          registry = registry.withoutHead(path);
+        }
+      }
       for (const inputProgram of publication.programs) {
         const definition = yield* Effect.fromResult(ownedProgram(inputProgram));
         yield* Effect.fromResult(trackMetadataEquality(selected.context, registry, PROGRAMS, "by_identity", [
@@ -437,14 +450,15 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         ]));
         yield* Effect.fromResult(trackMetadataEquality(selected.context, registry, PROGRAMS, "by_head_path", ["head", definition.identity.functionPath]));
         const existing = registry.program(definition.identity);
+
         const id = existing?.id ?? selected.context.idGenerator.nextInternalId();
         const previous = existing === undefined ? undefined
           : yield* Effect.fromResult(Result.mapError(encodeDocumentValue(existing.definition.metadata), invalid));
         const next = yield* Effect.fromResult(Result.mapError(encodeDocumentValue(definition.metadata), invalid));
-        if (previous === undefined || !bytesEqual(previous, next)) {
+        if (previous !== undefined && !bytesEqual(previous, next)) return yield* invalid("Program revisions are immutable");
+        if (previous === undefined) {
           const body = { kind: "revision", identity: { ...definition.identity }, metadata: utf8Decoder.decode(next) };
           if (existing === undefined) yield* selected.context.insertPrivate(PROGRAMS, id, body);
-          else yield* selected.context.writePrivate(PROGRAMS, id, body);
           registry = registry.withProgram({ definition, id, ts: null });
         }
         const oldHead = registry.head(definition.identity.functionPath);
@@ -452,7 +466,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
           const headId = oldHead?.id ?? selected.context.idGenerator.nextInternalId();
           const body = { kind: "head", identity: { ...definition.identity } };
           if (oldHead === undefined) yield* selected.context.insertPrivate(PROGRAMS, headId, body);
-          else yield* selected.context.writePrivate(PROGRAMS, headId, body);
+          else yield* selected.context.replaceSystem(PROGRAMS, yield* Effect.fromResult(publicDocumentId(catalog, headId)), body);
           registry = registry.withHead({ identity: definition.identity, id: headId, ts: null });
         }
       }
@@ -462,7 +476,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         if (authority === undefined) return yield* Effect.fail(corrupt());
         if (epoch < authority.epoch || epoch > 0x7fff_ffff_ffff_ffffn) return yield* Effect.fail(invalid());
         if (epoch !== authority.epoch) {
-          yield* selected.context.writePrivate(PROGRAMS, authority.id, { kind: "authority", epoch });
+          yield* selected.context.replaceSystem(PROGRAMS, yield* Effect.fromResult(publicDocumentId(catalog, authority.id)), { kind: "authority", epoch });
           registry = registry.withAuthority({ id: authority.id, epoch, ts: null });
         }
       }
@@ -567,12 +581,18 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     if(Option.isNone(found))return yield* new CoreSchemaError({reason:"schemaNotFound",message:"Schema proposal does not exist"});
     return schemaStatusValue(selected.context.registry, proposal, found.value);
   }))));
+  const prepareSchemaIndexes = Effect.fn("CoreDatabase.prepareSchemaIndexes")(function* (
+    selected: Effect.Success<ReturnType<typeof make>>, schema: import("./schemaTypes").CoreSchemaDefinition,
+  ) {
+      const plan=planCoreIndexes(selected.context.registry,selected.context.namespace,schema);
+      const allocated:CoreIndexRecord[]=[];
+      for(const declaration of plan.added)allocated.push({ref:{id:selected.context.idGenerator.nextInternalId()},tableId:declaration.tableId,name:declaration.name,fields:declaration.fields,
+        ts:null,state:{type:"Backfilling",backfillState:{indexCreatedLowerBound:selected.timestamp,retentionStarted:false,staged:declaration.staged}}});
+      yield* applyIndexes(selected.context,prepareCoreIndexChanges(plan,allocated));
+  });
   const prepareSchema:CoreDatabase["prepareSchema"]=Effect.fn("CoreDatabase.prepareSchema")((requested)=>{
     const input = Object.freeze({ ...requested });
-    const registration = input.applicationRegistration === undefined ? Result.succeed(undefined)
-      : captureCoreApplicationRegistration(input.applicationRegistration);
     return Effect.gen(function* () {
-    const applicationRegistration = yield* Effect.fromResult(registration);
     return yield* admin(input.namespace??input.bundle?.namespace??null,selected=>Effect.gen(function*(){
     if (input.bundle !== undefined && (input.native !== undefined || input.schema !== undefined))
       return yield* nativeUnsupported("Composed schema is derived only from its authenticated sources");
@@ -588,13 +608,8 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     const result=yield* selected.context.runSystem(Effect.gen(function*(){
       yield* ensureNamespace(selected.context);
       yield* guardNativeLifecycle(selected.context, input.native, input.bundle);
-      const registrationProof = yield* guardCoreApplicationRegistration(selected.context, { mode: "prepare", schema,
-        ...(applicationRegistration === undefined ? {} : { registration: applicationRegistration }),
-        native: input.native !== undefined || input.bundle !== undefined }, table => assertEmptyTable(selected, table));
-      const candidate = applicationRegistration === undefined ? undefined
-        : yield* Effect.fromResult(encodeCoreApplicationCandidateMetadata(applicationRegistration));
-      const pendingProposal=yield* new CoreSchemaModel(selected.context).submitPending(schema, input.bundle?.metadata ?? input.native?.metadata, registrationProof,
-        candidate === undefined ? undefined : { metadata: candidate, updatedAt: selected.context.transaction.unixTime });
+      yield* guardCoreUnregisteredLifecycle(selected.context);
+      const pendingProposal=yield* new CoreSchemaModel(selected.context).submitPending(schema, input.bundle?.metadata ?? input.native?.metadata);
       const definitions = input.bundle?.nativeDefinitions ?? (input.native === undefined ? [] : [input.native]);
       for (const definition of definitions) for (const declaration of coreNativeStoredTables(definition)) {
         const table = selected.context.registry.table(declaration.name, selected.context.namespace)?.definition;
@@ -612,11 +627,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         yield* selected.context.replaceSystem(TABLES, yield* Effect.fromResult(publicDocumentId(catalog, table.tabletId)),
           tableDocument({ ...table, nativePolicy }));
       }
-      const plan=planCoreIndexes(selected.context.registry,selected.context.namespace,schema);
-      const allocated:CoreIndexRecord[]=[];
-      for(const declaration of plan.added)allocated.push({ref:{id:selected.context.idGenerator.nextInternalId()},tableId:declaration.tableId,name:declaration.name,fields:declaration.fields,
-        ts:null,state:{type:"Backfilling",backfillState:{indexCreatedLowerBound:selected.timestamp,retentionStarted:false,staged:declaration.staged}}});
-      yield* applyIndexes(selected.context,prepareCoreIndexChanges(plan,allocated));
+      yield* prepareSchemaIndexes(selected, schema);
       return pendingProposal;
     }));
     yield* settle(selected);
@@ -642,9 +653,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     yield* selected.context.runSystem(Effect.gen(function*(){
       yield* guardNativeLifecycle(selected.context, publication.native, publication.bundle);
       const model=new CoreSchemaModel(selected.context),schema=yield* model.getValidatedOrActive(proposal.id);
-      yield* guardCoreApplicationRegistration(selected.context, { mode: "activate", schema: schema.schema, proposalId: proposal.id,
-        publication: publication.programs, ...(publication.applicationRegistration === undefined ? {} : { registration: publication.applicationRegistration }),
-        native: publication.native !== undefined || publication.bundle !== undefined }, table => assertEmptyTable(selected, table));
+      yield* guardCoreUnregisteredLifecycle(selected.context);
       if (schema.metadata.native !== (publication.bundle?.metadata ?? publication.native?.metadata))
         return yield* nativeUnsupported("Schema activation requires its authenticated producer");
       const definitions = publication.bundle?.nativeDefinitions ?? (publication.native === undefined ? [] : [publication.native]);
@@ -662,12 +671,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       const changes=yield* Effect.fromResult(Result.mapError(finishCoreIndexChanges(planCoreIndexes(selected.context.registry,proposal.namespace,schema.schema)),error=>error.reason==="unavailable"?new CoreTransactionError({reason:"indexUnavailable",cause:error}):error));
       yield* applyIndexes(selected.context,changes);
       yield* model.markActive(proposal.id);
-      if (schema.metadata.applicationCandidate !== undefined && schema.metadata.state.state !== "active") {
-        const activeCandidate = yield* model.get(proposal.id);
-        if (Option.isNone(activeCandidate)) return yield* corrupt();
-        yield* selected.context.replaceSystem(SCHEMAS, proposal.id, { ...activeCandidate.value.metadata,
-          applicationCandidateUpdatedAt: selected.context.transaction.unixTime });
-      }
+
       for (const definition of definitions) for (const declaration of coreNativeStoredTables(definition)) {
         const table = selected.context.registry.table(declaration.name, proposal.namespace)?.definition;
         const catalog = selected.context.registry.table(TABLES)?.definition;
@@ -692,13 +696,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     return yield* admin(publication.namespace??null,selected=>Effect.gen(function*(){
     yield* guardNativeLifecycle(selected.context, publication.native, publication.bundle);
     if (publication.native !== undefined || publication.bundle !== undefined) return yield* nativeUnsupported("Native command publication uses shared schema activation");
-    yield* selected.context.runSystem(Effect.gen(function* () {
-      const active = yield* new CoreSchemaModel(selected.context).active();
-      yield* guardCoreApplicationRegistration(selected.context, { mode: "publish", publication: publication.programs,
-        ...(Option.isNone(active) ? {} : { schema: active.value.schema }),
-        ...(publication.applicationRegistration === undefined ? {} : { registration: publication.applicationRegistration }) },
-        table => assertEmptyTable(selected, table));
-    }));
+    yield* selected.context.runSystem(guardCoreUnregisteredLifecycle(selected.context));
     yield* writePrograms(selected,publication);
     const timestamp=yield* settle(selected, "global");
     return {timestamp,tables:[...selected.context.registry.tables.values()].map(record=>record.definition).filter(table=>!isCoreSystemTable(table)&&coreNamespaceKey(table.namespace)===coreNamespaceKey(publication.namespace??null))};
@@ -709,74 +707,11 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
   const readApplicationRegistration: CoreDatabase["readApplicationRegistration"] = Effect.fn("CoreDatabase.readApplicationRegistration")(
     () => admin(null, selected => selected.context.runSystem(readActiveCoreApplicationRegistration(selected.context, checkedApplicationRegistrations))));
 
-  const applicationCandidate = Effect.fn("CoreDatabase.applicationCandidate")(function* (
-    context: CoreTransactionInternals, schema: CoreSchemaSelection,
-  ) {
-    const evidence = yield* readCoreApplicationCandidateEvidence(schema);
-    if (Option.isNone(evidence)) return Option.none<CoreApplicationCandidate>();
-    if (schema.metadata.state.state === "active")
-      yield* readActiveCoreApplicationRegistration(context, checkedApplicationRegistrations);
-    const proposal = Object.freeze({ namespace: context.namespace, id: schema.id });
-    return Option.some(Object.freeze({ ...schemaStatusValue(context.registry, proposal, schema),
-      registration: evidence.value.registration, metadata: evidence.value.metadata,
-      creationTime: schema.creationTime, updatedAt: schema.metadata.applicationCandidateUpdatedAt ?? schema.creationTime,
-      abandoned: schema.metadata.applicationCandidateAbandoned ?? false }));
-  });
-  const readApplicationCandidate: CoreDatabase["readApplicationCandidate"] = Effect.fn("CoreDatabase.readApplicationCandidate")((requested) => {
-    const proposal = requested === undefined ? undefined : Object.freeze({ ...requested });
-    return admin(null, selected => selected.context.runSystem(Effect.gen(function* () {
-      if (proposal !== undefined && proposal.namespace !== null) return yield* nativeUnsupported("Public Application candidates use the default namespace");
-      const found = proposal === undefined
-        ? Option.fromNullishOr((yield* Effect.fromResult(liveCoreApplicationSchemas(selected.context)))
-          .find(schema => schema.metadata.applicationCandidate !== undefined))
-        : yield* new CoreSchemaModel(selected.context).get(proposal.id);
-      return Option.isNone(found) ? Option.none<CoreApplicationCandidate>() : yield* applicationCandidate(selected.context, found.value);
-    })));
-  });
-  const abandonApplicationCandidate: CoreDatabase["abandonApplicationCandidate"] = Effect.fn("CoreDatabase.abandonApplicationCandidate")((requested) => {
-    const proposal = Object.freeze({ ...requested });
-    return admin(null, selected => Effect.gen(function* () {
-      if (proposal.namespace !== null) return yield* nativeUnsupported("Public Application candidates use the default namespace");
-      yield* selected.context.runSystem(Effect.gen(function* () {
-        const model = new CoreSchemaModel(selected.context), found = yield* model.get(proposal.id);
-        if (Option.isNone(found)) return yield* new CoreSchemaError({ reason: "schemaNotFound", message: "Application candidate does not exist" });
-        const evidence = yield* readCoreApplicationCandidateEvidence(found.value);
-        if (Option.isNone(evidence)) return yield* nativeUnsupported("Schema is not a public Application candidate");
-        if (found.value.metadata.applicationCandidateAbandoned) return;
-        if (found.value.metadata.state.state === "active" || found.value.metadata.state.state === "overwritten")
-          return yield* nativeUnsupported("An active or overwritten Application candidate cannot be abandoned");
-        const live = yield* Effect.fromResult(liveCoreApplicationSchemas(selected.context));
-        yield* Effect.fromResult(trackCoreApplicationPrograms(selected.context));
-        if (live.some(schema => schema.id !== proposal.id) || selected.context.registry.programs.size !== 0 || selected.context.registry.heads.size !== 0)
-          return yield* nativeUnsupported("Application candidate no longer owns an unactivated database");
-        const tables = yield* Effect.fromResult(requireCoreApplicationTables(selected.context, found.value.schema));
-        for (const table of tables) yield* assertEmptyTable(selected, table);
-        yield* model.markOverwritten(proposal.id);
-        const overwritten = yield* model.get(proposal.id);
-        if (Option.isNone(overwritten)) return yield* corrupt();
-        yield* selected.context.replaceSystem(SCHEMAS, proposal.id, { ...overwritten.value.metadata,
-          applicationCandidateAbandoned: true, applicationCandidateUpdatedAt: selected.context.transaction.unixTime });
-        const catalog = selected.context.registry.table(TABLES)?.definition;
-        const indexCatalog = selected.context.registry.table(INDEXES)?.definition;
-        if (catalog === undefined || indexCatalog === undefined) return yield* corrupt();
-        for (const table of tables) {
-          for (const index of selected.context.registry.indexes.forTablet(table.tabletId)) {
-            const indexId = yield* Effect.fromResult(publicDocumentId(indexCatalog, index.ref.id));
-            for (const row of yield* selected.context.querySystem(INDEX_BACKFILLS, "by_index_id", [indexId]))
-              yield* selected.context.deleteSystem(INDEX_BACKFILLS, row.id);
-            yield* selected.context.deleteSystem(INDEXES, indexId);
-          }
-          yield* selected.context.deleteSystem(TABLES, yield* Effect.fromResult(publicDocumentId(catalog, table.tabletId)));
-        }
-      }));
-      const found = yield* selected.context.runSystem(new CoreSchemaModel(selected.context).get(proposal.id));
-      if (Option.isNone(found)) return yield* corrupt();
-      const candidate = yield* selected.context.runSystem(applicationCandidate(selected.context, found.value));
-      if (Option.isNone(candidate)) return yield* corrupt();
-      yield* settle(selected);
-      return candidate.value;
-    }));
-  });
+  const { prepareApplicationCandidate, readApplicationCandidate, readActiveApplicationCandidate,
+    activateApplicationCandidate, abandonApplicationCandidate } = makeCoreApplicationDeploymentOwner<Effect.Success<ReturnType<typeof make>>>({
+      admin: use => admin(null, use), settle: selected => settle(selected, "global"), ensureNamespace,
+      prepareSchemaIndexes, applyIndexes, assertEmptyTable, writePrograms, schemaStatusValue, checkedApplicationRegistrations,
+    });
 
   const readAuthorityEpoch = Effect.gen(function* () {
     yield* assertOpen;
@@ -1266,60 +1201,19 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     });
   });
 
-  const database: CoreDatabase = {
-    assertOpen,
-    readNativeRootRequestEvidence: Effect.fn("CoreDatabase.readNativeRootRequestEvidence")(function* (operations) {
-      yield* assertOpen;
-      const issued = nativeRootRequests.get(operations);
-      if (issued === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
-      yield* issued.assertCurrent;
-      return yield* Effect.fromResult(issued.evidence());
-    }),
-    resolveCommittedNativeRootRequest: Effect.fn("CoreDatabase.resolveCommittedNativeRootRequest")(function* (input, binding) {
-      const evidence = yield* Effect.fromResult(captureCoreNativeRootRequestEvidence(input));
-      const metadata = yield* readNativeBinding(binding);
-      if (!sameCoreNativeIdentity(evidence.source, metadata.definition.identity)
-        || coreNamespaceKey(evidence.frame.namespace) !== coreNamespaceKey(metadata.namespace)
-        || !evidence.frame.participants.some(participant => sameCoreNativeIdentity(participant.source, metadata.definition.identity)))
-        return yield* new CoreTransactionError({ reason: "authorityRevoked" });
-      const root = yield* captureCoreNativeRootIdentity(evidence.frame);
-      if (!sameNativeRoot(root.identity, evidence.root)) return yield* corrupt("Native root request metadata commitment differs");
-      const outcome = yield* resolveRequest({ kind: "nativeRoot", root: root.identity, key: evidence.key, requestHash: evidence.requestHash });
-      if (outcome.kind !== "committed") return yield* corrupt("Native event family has no committed root request");
-      return Object.freeze({ evidence, root: root.identity, contract: evidence.frame.contract,
-        scopeUuid: metadata.definition.identity.scopeUuid, epochUuid: metadata.definition.identity.epochUuid });
-    }),
-    close,
-    beginQuery: Effect.fn("CoreDatabase.beginQuery")((path) =>
-      useTransaction(make(undefined, undefined, true), selected => Effect.gen(function* () {
-        const transaction = selected.context.transaction;
-        const program = yield* transaction.selectProgram(path);
-        const { timestamp, unixTime, usage, selectProgram, tableNumber, tableMappings, normalizeId, get, startQuery, scan } = transaction;
-        return Object.freeze({ program,
-          transaction: Object.freeze({ timestamp, unixTime, usage, selectProgram, tableNumber, tableMappings, normalizeId, get, startQuery, scan }),
-          finish: selected.context.finishRead, abort: transaction.abort });
-      }), true)),
-    prepareSchema,readApplicationRegistration,readApplicationCandidate,abandonApplicationCandidate,schemaStatus,advanceSchema,advanceSchemaWork:schemaWorker.advanceWork,activateSchema,publishPrograms,
-    bindNative, readNativeBinding, beginNative, bindNativeInitialization,
-    bindNativeRoot, readNativeRootBinding, beginNativeRoot, bindNativeRootRecovery,
-    selectProgram: Effect.fn("CoreDatabase.selectProgram")(function* (path) {
-      yield* assertOpen;
-      const registry = committer.currentRegistry();
-      const head = registry.head(path);
-      const program = head === undefined ? undefined : registry.program(head.identity);
-      if (program === undefined) return yield* Effect.fail(new CoreTransactionError({ reason: "programUnavailable" }));
-      return yield* Effect.fromResult(ownedProgram(program.definition));
-    }),
-    lookupProgram: Effect.fn("CoreDatabase.lookupProgram")(function* (identity) {
-      yield* assertOpen;
-      const program = committer.currentRegistry().program(identity);
-      if (program === undefined) return yield* Effect.fail(new CoreTransactionError({ reason: "programUnavailable" }));
-      return yield* Effect.fromResult(ownedProgram(program.definition));
-    }),
-    resolveRequest,
-    recoverRequest,
-    claimRequest: Effect.fn("CoreDatabase.claimRequest")((requested, binding) => {
+  const requireApplicationSourcePin = Effect.fn("CoreDatabase.requireApplicationSourcePin")(function* (
+    context: CoreTransactionInternals, pin: CoreApplicationSourcePin,
+  ) {
+    const registration = yield* context.runSystem(readActiveCoreApplicationRegistration(context, checkedApplicationRegistrations));
+    if (Option.isNone(registration) || registration.value.sourceArtifactRootSha256 !== pin.sourceArtifactRootSha256
+      || registration.value.sourcePackageHash !== pin.sourcePackageHash)
+      return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+  });
+  const acquireRequest = Effect.fn("CoreDatabase.acquireRequest")((requested: CoreRequestIdentity, binding?: RequestBinding,
+    expectedApplication?: CoreApplicationSourcePin) => {
       const identity = ownRequestIdentity(requested);
+      if (expectedApplication !== undefined && (identity.kind === "native" || identity.kind === "nativeRoot"))
+        return Effect.fail(new CoreTransactionError({ reason: "authorityRevoked" }));
       return useTransaction(make(), selected => Effect.gen(function* (): Generator<Effect.Effect<unknown, CoreError>, CoreRequestAcquisition, unknown> {
         let initialization: Readonly<{ binding: CoreNativeBinding; command: CoreNativeCommandDefinition }> | undefined;
         let retryProvenNoncommit = false;
@@ -1340,9 +1234,6 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
           if (command?.mode !== "write") return yield* new CoreTransactionError({ reason: "authorityRevoked" });
           const metadataReads = yield* Effect.fromResult(coreNativeMetadataReads(selected.registry, authority));
           for (const read of metadataReads) for (const interval of read.intervals) selected.context.addIndexRead(read.indexId, interval);
-        } else {
-          const program = selected.registry.program(identity.program);
-          if (program === undefined) return yield* Effect.fail(new CoreTransactionError({ reason: "programUnavailable" }));
         }
         const existing = yield* findRequest(selected, identity, selected.context);
         if (existing !== undefined && existing.leaseToken > lease.token)
@@ -1350,6 +1241,17 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         const reclaimFailed = existing?.state === "failed" && (initialization !== undefined || retryProvenNoncommit);
         if (existing !== undefined && !reclaimFailed) {
           return yield* Effect.fromResult(existingResolution(existing));
+        }
+        if (expectedApplication !== undefined) {
+          yield* requireApplicationSourcePin(selected.context, expectedApplication);
+        }
+        if (identity.kind !== "native" && identity.kind !== "nativeRoot") {
+          const program = selected.registry.program(identity.program), head = selected.registry.head(identity.program.functionPath);
+          if (program === undefined || expectedApplication !== undefined
+            && (head === undefined || programKey(head.identity) !== programKey(identity.program)))
+            return yield* new CoreTransactionError({ reason: "programUnavailable" });
+          yield* selected.context.readPrivate(PROGRAMS, program.id);
+          if (expectedApplication !== undefined && head !== undefined) yield* selected.context.readPrivate(PROGRAMS, head.id);
         }
         const id = existing?.id ?? selected.context.idGenerator.nextInternalId();
         const requestBody = { key: identity.key, requestHash: identity.requestHash,
@@ -1394,6 +1296,89 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
           return { kind: "claimed" as const, claim };
         }) });
       }));
+  });
+  yield* admin(null, selected => Effect.gen(function* () {
+    const changed = yield* selected.context.runSystem(migrateCoreApplicationDeployments(selected.context));
+    if (changed) yield* settle(selected, "global");
+  }));
+  const database: CoreDatabase = {
+    assertOpen,
+    readNativeRootRequestEvidence: Effect.fn("CoreDatabase.readNativeRootRequestEvidence")(function* (operations) {
+      yield* assertOpen;
+      const issued = nativeRootRequests.get(operations);
+      if (issued === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+      yield* issued.assertCurrent;
+      return yield* Effect.fromResult(issued.evidence());
+    }),
+    resolveCommittedNativeRootRequest: Effect.fn("CoreDatabase.resolveCommittedNativeRootRequest")(function* (input, binding) {
+      const evidence = yield* Effect.fromResult(captureCoreNativeRootRequestEvidence(input));
+      const metadata = yield* readNativeBinding(binding);
+      if (!sameCoreNativeIdentity(evidence.source, metadata.definition.identity)
+        || coreNamespaceKey(evidence.frame.namespace) !== coreNamespaceKey(metadata.namespace)
+        || !evidence.frame.participants.some(participant => sameCoreNativeIdentity(participant.source, metadata.definition.identity)))
+        return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+      const root = yield* captureCoreNativeRootIdentity(evidence.frame);
+      if (!sameNativeRoot(root.identity, evidence.root)) return yield* corrupt("Native root request metadata commitment differs");
+      const outcome = yield* resolveRequest({ kind: "nativeRoot", root: root.identity, key: evidence.key, requestHash: evidence.requestHash });
+      if (outcome.kind !== "committed") return yield* corrupt("Native event family has no committed root request");
+      return Object.freeze({ evidence, root: root.identity, contract: evidence.frame.contract,
+        scopeUuid: metadata.definition.identity.scopeUuid, epochUuid: metadata.definition.identity.epochUuid });
+    }),
+    close,
+    beginQuery: Effect.fn("CoreDatabase.beginQuery")((path, expectedApplication) => {
+      const pin = expectedApplication === undefined ? undefined : decodeApplicationSourcePin(expectedApplication).pipe(Result.mapError(invalid));
+      return useTransaction(make(undefined, undefined, true), selected => Effect.gen(function* () {
+        if (pin !== undefined) yield* requireApplicationSourcePin(selected.context, yield* Effect.fromResult(pin));
+        const transaction = selected.context.transaction;
+        const program = yield* transaction.selectProgram(path);
+        const { timestamp, unixTime, usage, selectProgram, tableNumber, tableMappings, normalizeId, get, startQuery, scan } = transaction;
+        return Object.freeze({ program,
+          transaction: Object.freeze({ timestamp, unixTime, usage, selectProgram, tableNumber, tableMappings, normalizeId, get, startQuery, scan }),
+          finish: selected.context.finishRead, abort: transaction.abort });
+      }), true);
+    }),
+    prepareSchema,prepareApplicationCandidate,activateApplicationCandidate,readActiveApplicationCandidate,readApplicationRegistration,readApplicationCandidate,abandonApplicationCandidate,schemaStatus,advanceSchema,advanceSchemaWork:schemaWorker.advanceWork,activateSchema,publishPrograms,
+    bindNative, readNativeBinding, beginNative, bindNativeInitialization,
+    bindNativeRoot, readNativeRootBinding, beginNativeRoot, bindNativeRootRecovery,
+    selectProgram: Effect.fn("CoreDatabase.selectProgram")(function* (path) {
+      yield* assertOpen;
+      const registry = committer.currentRegistry();
+      const head = registry.head(path);
+      const program = head === undefined ? undefined : registry.program(head.identity);
+      if (program === undefined) return yield* Effect.fail(new CoreTransactionError({ reason: "programUnavailable" }));
+      return yield* Effect.fromResult(ownedProgram(program.definition));
+    }),
+    lookupProgram: Effect.fn("CoreDatabase.lookupProgram")(function* (identity) {
+      yield* assertOpen;
+      const program = committer.currentRegistry().program(identity);
+      if (program === undefined) return yield* Effect.fail(new CoreTransactionError({ reason: "programUnavailable" }));
+      return yield* Effect.fromResult(ownedProgram(program.definition));
+    }),
+    resolveApplicationRequest: Effect.fn("CoreDatabase.resolveApplicationRequest")((input) => {
+      const captured = decodeApplicationRequestCorrelation(input);
+      return Effect.gen(function* () {
+        const correlation = yield* Effect.fromResult(captured.pipe(Result.mapError(invalid)));
+        const selected = yield* start(), found = yield* findRequestEntry(selected, correlation.key);
+        if (found === undefined) return { kind: "missing" as const };
+        const document = yield* Effect.fromResult(readDocumentObject(found.entry, found.table));
+        const value = yield* Effect.fromResult(decodeRequestRecord(withoutSystemFields(document)).pipe(Result.mapError(corrupt)));
+        if (value.kind === "native" || value.kind === "nativeRoot" || value.key !== correlation.key
+          || value.requestHash !== correlation.requestHash || value.program.functionPath !== correlation.functionPath)
+          return yield* new CoreTransactionError({ reason: "requestMismatch" });
+        const record = yield* Effect.fromResult(requestRecord(found.entry, found.table, { ...correlation, program: value.program }));
+        const original = selected.registry.program(value.program);
+        if (original === undefined) return yield* corrupt("Request original program revision is missing");
+        const program = yield* Effect.fromResult(ownedProgram(original.definition));
+        const outcome = yield* Effect.fromResult(existingResolution(record));
+        return { ...outcome, program };
+      });
+    }),
+    resolveRequest,
+    recoverRequest,
+    claimRequest: Effect.fn("CoreDatabase.claimRequest")((identity, binding) => acquireRequest(identity, binding)),
+    claimApplicationRequest: Effect.fn("CoreDatabase.claimApplicationRequest")((identity, pin) => {
+      const capturedIdentity = ownRequestIdentity(identity), capturedPin = decodeApplicationSourcePin(pin).pipe(Result.mapError(invalid));
+      return Effect.flatMap(Effect.fromResult(capturedPin), expected => acquireRequest(capturedIdentity, undefined, expected));
     }),
     begin: Effect.fn("CoreDatabase.begin")(function* (beginOptions = {}) {
       const claimData = beginOptions.claim === undefined ? undefined : claims.get(beginOptions.claim);
@@ -1409,9 +1394,11 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         if (programIdentity !== undefined) {
           const program = selected.registry.program(programIdentity);
           const head = selected.registry.head(programIdentity.functionPath);
-          if (program === undefined || head === undefined) return yield* Effect.fail(new CoreTransactionError({ reason: "programUnavailable" }));
+          if (program === undefined || claimData === undefined && head === undefined)
+            return yield* new CoreTransactionError({ reason: "programUnavailable" });
           yield* selected.context.readPrivate(PROGRAMS, program.id);
-          yield* selected.context.readPrivate(PROGRAMS, head.id);
+          yield* Effect.fromResult(trackMetadataEquality(selected.context, selected.registry, PROGRAMS, "by_head_path", ["head", programIdentity.functionPath]));
+          if (head !== undefined) yield* selected.context.readPrivate(PROGRAMS, head.id);
         }
         if (beginOptions.authorityEpoch !== undefined) {
           const authority = selected.registry.authority;

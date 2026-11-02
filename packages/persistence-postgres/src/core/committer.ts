@@ -565,6 +565,9 @@ function applyRegistryChanges(transaction:CoreFinalizedState,current:CoreRegistr
       ...(change.finalDocument===null?{}:{newDocument:parseSchemaDocument(change.finalDocument)})});
     if(schemaUpdates.length>0)next=next.withSchemas(yield* current.schemas.apply(schemaUpdates));
     for(const [name,record]of changes.programs)if(base.programs.get(name)!==record)next=next.withProgram({...record,ts:timestamp});
+    for(const path of base.heads.keys())if(!changes.heads.has(path))next=next.withoutHead(path);
+    for(const [name,record]of changes.applicationDeployments)if(base.applicationDeployments.get(name)!==record)next=next.withApplicationDeployment({...record,ts:timestamp});
+    if(changes.activeApplication!==undefined&&changes.activeApplication!==base.activeApplication)next=next.withActiveApplication({...changes.activeApplication,ts:timestamp});
     for(const [name,record]of changes.heads)if(base.heads.get(name)!==record)next=next.withHead({...record,ts:timestamp});
     if(changes.authority!==undefined&&changes.authority!==base.authority)next=next.withAuthority({...changes.authority,ts:timestamp});
     yield* checkCoreNativeRegistryTransition(next,current,changes);

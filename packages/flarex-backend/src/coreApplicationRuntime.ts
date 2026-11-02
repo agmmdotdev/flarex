@@ -80,10 +80,12 @@ export const invokeBackendCoreApplication = Effect.fn("BackendCoreApplication.in
   if (request.partitionKey !== undefined)
     return yield* new BackendCoreApplicationError({ reason: "unsupportedPartition" });
   const metadata = deployment.analysis.functions.functions.find(fn => fn.path === request.path);
-  const kind = request.kind ?? metadata?.kind;
+  // Core resolves durable mutation correlation before inferring current kind.
+  // A keyed query without an explicit kind retains ordinary query behavior.
+  const kind = request.kind ?? (request.idempotencyKey === undefined ? metadata?.kind : "infer");
   if (kind === undefined)
     return yield* new BackendCoreApplicationError({ reason: "functionUnavailable" });
-  if (kind !== "query" && kind !== "mutation")
+  if (kind !== "query" && kind !== "mutation" && kind !== "infer")
     return yield* new BackendCoreApplicationError({ reason: "unsupportedKind" });
   const functionPath = yield* decodeFunctionPath(request.path).pipe(
     Effect.mapError(cause => new BackendCoreApplicationError({ reason: "invalidFunctionPath", cause })),

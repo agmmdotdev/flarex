@@ -33,6 +33,11 @@ export const CoreProgramIdentitySchema = Schema.Struct({ functionPath: Schema.No
   programHash: Schema.NonEmptyString, schemaHash: Schema.NonEmptyString });
 export type CoreProgramIdentity = typeof CoreProgramIdentitySchema.Type;
 
+const CoreApplicationSourceDigest = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/));
+export const CoreApplicationSourcePinSchema = Schema.Struct({ sourceArtifactRootSha256: CoreApplicationSourceDigest,
+  sourcePackageHash: CoreApplicationSourceDigest });
+export type CoreApplicationSourcePin = typeof CoreApplicationSourcePinSchema.Type;
+
 export interface CoreProgramDefinition {
   readonly identity: CoreProgramIdentity;
   /** Source/runtime manifests and immutable artifact references, never DB capabilities. */
@@ -57,7 +62,7 @@ export interface CoreApplicationRegistration {
 /** Authenticated discovery metadata contains no mutable program-value buffers. */
 export type CoreApplicationRegistrationMetadata = Omit<CoreApplicationRegistration, "programs" | "candidateMetadata"> & Readonly<{
   programs: readonly Readonly<{ identity: CoreProgramIdentity }>[];
-  candidateProposal?: CoreSchemaProposal;
+  candidateId: string;
 }>;
 
 export interface CoreProgramPublication {
@@ -66,7 +71,6 @@ export interface CoreProgramPublication {
   readonly namespace?: CoreTableNamespace;
   readonly native?: CoreNativeDefinition;
   readonly bundle?: CoreSchemaBundle;
-  readonly applicationRegistration?: CoreApplicationRegistration;
 }
 export interface CoreSchemaProposal { readonly namespace: CoreTableNamespace; readonly id: string }
 export interface CoreSchemaStatus {
@@ -76,7 +80,14 @@ export interface CoreSchemaStatus {
   readonly error?: string;
   readonly tableName?: string;
 }
-export interface CoreApplicationCandidate extends CoreSchemaStatus {
+export interface CoreApplicationCandidate {
+  readonly id: string;
+  readonly schemaProposal: CoreSchemaProposal;
+  readonly state: CoreSchemaStatus["state"] | "abandoned";
+  readonly indexesReady: boolean;
+  readonly error?: string;
+  readonly tableName?: string;
+  readonly activatedAt?: number;
   readonly registration: CoreApplicationRegistrationMetadata;
   readonly metadata: DocumentObject;
   readonly creationTime: number;
@@ -453,13 +464,16 @@ export interface CoreDatabase {
   readonly assertOpen: Effect.Effect<void, CoreError>;
   /** Blocks admission and results, then closes and drains every borrowed operation. */
   readonly close: () => Effect.Effect<void>;
-  readonly beginQuery: (functionPath: string) => Effect.Effect<CoreQueryOperation, CoreError>;
+  readonly beginQuery: (functionPath: string, expectedApplication?: CoreApplicationSourcePin) => Effect.Effect<CoreQueryOperation, CoreError>;
   readonly prepareSchema: (input: Readonly<{ namespace?: CoreTableNamespace; schema?: unknown; native?: CoreNativeDefinition;
-    bundle?: CoreSchemaBundle; applicationRegistration?: CoreApplicationRegistration }>) => Effect.Effect<CoreSchemaProposal, CoreError>;
+    bundle?: CoreSchemaBundle }>) => Effect.Effect<CoreSchemaProposal, CoreError>;
   /** Reads only an authenticated active registration and its complete live program closure. */
   readonly readApplicationRegistration: () => Effect.Effect<Option.Option<CoreApplicationRegistrationMetadata>, CoreError>;
-  readonly readApplicationCandidate: (proposal?: CoreSchemaProposal) => Effect.Effect<Option.Option<CoreApplicationCandidate>, CoreError>;
-  readonly abandonApplicationCandidate: (proposal: CoreSchemaProposal) => Effect.Effect<CoreApplicationCandidate, CoreError>;
+  readonly prepareApplicationCandidate: (input: Readonly<{ schema: unknown; registration: CoreApplicationRegistration }>) => Effect.Effect<string, CoreError>;
+  readonly readActiveApplicationCandidate: () => Effect.Effect<Option.Option<CoreApplicationCandidate>, CoreError>;
+  readonly activateApplicationCandidate: (candidateId: string, publication: Readonly<{ programs: readonly CoreProgramDefinition[] }>) => Effect.Effect<CoreApplicationCandidate, CoreError>;
+  readonly readApplicationCandidate: (candidateId: string) => Effect.Effect<Option.Option<CoreApplicationCandidate>, CoreError>;
+  readonly abandonApplicationCandidate: (candidateId: string) => Effect.Effect<CoreApplicationCandidate, CoreError>;
   readonly schemaStatus: (proposal: CoreSchemaProposal) => Effect.Effect<CoreSchemaStatus, CoreError>;
   readonly advanceSchemaWork: (work:CoreSchemaWorkBudget)=>Effect.Effect<Readonly<{hasMore:boolean}>,CoreError>;
   readonly advanceSchema: (proposal: CoreSchemaProposal, work: Readonly<{ pageSize: number; maxPages: number }>) => Effect.Effect<CoreSchemaStatus, CoreError>;
@@ -485,10 +499,17 @@ export interface CoreDatabase {
   readonly beginNativeRoot: (binding: CoreNativeRootBinding, options: Readonly<{ claim: CoreRequestClaim;
     admissionDeadlineUnixMilliseconds?: number;
     chargeRetained: (bytes: number) => Effect.Effect<void, CoreError> }>) => Effect.Effect<CoreNativeRootOperation, CoreError>;
+  /** Authenticates request correlation before consulting current function admission. */
+  readonly resolveApplicationRequest: (correlation: Readonly<{ key: string; requestHash: string; functionPath: string }>) =>
+    Effect.Effect<Readonly<{ kind: "missing" }> | Readonly<{ kind: "busy"; program: CoreProgramDefinition }> | Readonly<{ kind: "failed"; program: CoreProgramDefinition }>
+      | Readonly<{ kind: "committed"; program: CoreProgramDefinition; timestamp: CoreTimestamp; result: DocumentValue }>, CoreError>;
   readonly resolveRequest: (identity: CoreRequestIdentity) => Effect.Effect<CoreRequestResolution, CoreError>;
   /** Fenced predecessor recovery; never executes another body or abandons a current-owner claim. */
   readonly recoverRequest: (identity: CoreRequestIdentity) => Effect.Effect<CoreRequestResolution, CoreError>;
   readonly claimRequest: (identity: CoreRequestIdentity, nativeBinding?: CoreNativeBinding | CoreNativeRootBinding | CoreNativeInitializationBinding) => Effect.Effect<CoreRequestAcquisition, CoreError>;
+  /** Known outcomes precede fresh admission of the complete active source package. */
+  readonly claimApplicationRequest: (identity: Extract<CoreRequestIdentity, { readonly program: CoreProgramIdentity }>,
+    expectedApplication: CoreApplicationSourcePin) => Effect.Effect<CoreRequestAcquisition, CoreError>;
   readonly abortRequest: (claim: CoreRequestClaim) => Effect.Effect<void, CoreError>;
   readonly begin: (options?: Readonly<{
     program?: CoreProgramIdentity; claim?: CoreRequestClaim; at?: CoreTimestamp; authorityEpoch?: bigint; namespace?: CoreTableNamespace;

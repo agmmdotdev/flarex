@@ -11,9 +11,9 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { coreApplicationInvocationPath, coreApplicationProfilePath, coreApplicationPushStartPath, coreApplicationPushPath,
+import { coreApplicationInvocationPath, coreApplicationProfilePath, coreApplicationDeploymentPath, coreApplicationPushStartPath, coreApplicationPushPath,
   decodeCoreApplicationCandidate, decodeCoreApplicationInvocationSuccess, decodeCoreApplicationProfile,
-  encodeCoreApplicationInvocationRequest } from "flarex-protocol/internal/core-application";
+  encodeCoreApplicationInvocationRequest, type CoreApplicationInvocationRequest } from "flarex-protocol/internal/core-application";
 import { TransactionFunctionPathV1Schema, TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
 import { bundleApplicationWorker } from "./support/bundleApplicationWorker";
 import { createExecutorApplicationSecretFixture, executorApplicationProfileFixture } from "./support/executorApplicationConfiguration";
@@ -24,7 +24,7 @@ const endpoints = endpointPath === undefined ? undefined : Schema.decodeUnknownS
 }))(JSON.parse(await readFile(endpointPath, "utf8")));
 const token = "configured-app-owner-private-proof";
 type Profile = ReturnType<typeof executorApplicationProfileFixture>;
-type InvocationProfile = Profile & { sourceArtifactRootSha256: string };
+type InvocationProfile = Profile & Pick<CoreApplicationInvocationRequest, "sourceArtifactRootSha256" | "sourcePackageHash">;
 
 describe.runIf(endpoints !== undefined)("configured production app owner in actual workerd", () => {
   it("prepares public source once, cold-finishes its Core candidate and preserves exact outcomes", async () => {
@@ -92,7 +92,8 @@ describe.runIf(endpoints !== undefined)("configured production app owner in actu
       expect(discovered.status, await discovered.clone().text()).toBe(200);
       expect(Result.getOrThrow(decodeCoreApplicationProfile(await discovered.json()))).toMatchObject({ kind: "core",
         sourceArtifactRootSha256: candidate.sourceArtifactRootSha256, sourcePackageHash: candidate.sourcePackageHash });
-      const invocationProfile = { ...profile, sourceArtifactRootSha256: candidate.sourceArtifactRootSha256 };
+      const invocationProfile = { ...profile, sourceArtifactRootSha256: candidate.sourceArtifactRootSha256,
+        sourcePackageHash: candidate.sourcePackageHash };
       expect((await request(active(), `/applications/${profile.deploymentId}/register`, {})).status).toBe(404);
       const oversized = await active().dispatchFetch(`https://configured-owner.test${path}`, { method: "POST",
         headers: { authorization: `Bearer ${token}` }, body: " ".repeat(profile.http.maximumRequestBytes + 1) });
@@ -129,6 +130,96 @@ describe.runIf(endpoints !== undefined)("configured production app owner in actu
       const again = await request(active(), `${push}/finish`, {});
       expect(again.status, await again.clone().text()).toBe(200);
       expect(Result.getOrThrow(decodeCoreApplicationCandidate(await again.json())).pushId).toBe(candidate.pushId);
+
+      const identicalStart = await request(active(), coreApplicationPushStartPath(profile.deploymentId), { sourcePackage });
+      expect(identicalStart.status, await identicalStart.clone().text()).toBe(200);
+      expect(Result.getOrThrow(decodeCoreApplicationCandidate(await identicalStart.json())).pushId).toBe(candidate.pushId);
+      const changedSourcePackage = (revision: number) => ({ ...sourcePackage, modules: sourcePackage.modules.map(module => {
+        if (module.path !== sourcePackage.execution) return module;
+        const text = `${module.source}\n// Registered source upgrade ${revision}.\n`;
+        return { ...module, source: text,
+          sha256: createHash("sha256").update(sourceModuleDigestInputV1(text, undefined)).digest("hex") };
+      }) });
+      const secondStart = await request(active(), coreApplicationPushStartPath(profile.deploymentId), { sourcePackage: changedSourcePackage(2) });
+      expect(secondStart.status, await secondStart.clone().text()).toBe(200);
+      const second = Result.getOrThrow(decodeCoreApplicationCandidate(await secondStart.json()));
+      expect(second.pushId).not.toBe(candidate.pushId);
+      const deployment = coreApplicationDeploymentPath(profile.deploymentId);
+      expect(Result.getOrThrow(decodeCoreApplicationCandidate(await (await request(active(), deployment)).json())).pushId).toBe(candidate.pushId);
+      const secondFinish = await request(active(), `${coreApplicationPushPath(profile.deploymentId, second.pushId)}/finish`, {});
+      expect(secondFinish.status, await secondFinish.clone().text()).toBe(200);
+      expect(Result.getOrThrow(decodeCoreApplicationCandidate(await secondFinish.json())).pushId).toBe(second.pushId);
+      const readsBeforeHistoricalReplay = await sourceReads(active());
+      const historicalResponse = await request(active(), path, { ...create, kind: "infer" });
+      expect(historicalResponse.status, await historicalResponse.clone().text()).toBe(200);
+      const historical = Result.getOrThrow(decodeCoreApplicationInvocationSuccess(await historicalResponse.json()));
+      expect(historical).toMatchObject({ kind: "mutation", disposition: "replayed", value: id,
+        publishedTimestamp: committed.publishedTimestamp });
+      expect(await sourceReads(active())).toBe(readsBeforeHistoricalReplay);
+      const secondProfile = { ...profile, sourceArtifactRootSha256: second.sourceArtifactRootSha256, sourcePackageHash: second.sourcePackageHash };
+      const inferredQueryResponse = await invoke(active(), secondProfile,
+        "infer", "users:get", { id }, "query:keyed-after-upgrade");
+      expect(inferredQueryResponse.status, await inferredQueryResponse.clone().text()).toBe(200);
+      const inferredQuery = Result.getOrThrow(decodeCoreApplicationInvocationSuccess(await inferredQueryResponse.json()));
+      expect(inferredQuery).toMatchObject({ kind: "query", value: { name: "configured" } });
+      const oldFinish = await request(active(), `${push}/finish`, {});
+      expect(oldFinish.status, await oldFinish.clone().text()).toBe(200);
+      expect(Result.getOrThrow(decodeCoreApplicationCandidate(await oldFinish.json())).pushId).toBe(candidate.pushId);
+      expect(Result.getOrThrow(decodeCoreApplicationCandidate(await (await request(active(), deployment)).json())).pushId).toBe(second.pushId);
+      const thirdStart = await request(active(), coreApplicationPushStartPath(profile.deploymentId), { sourcePackage: changedSourcePackage(3) });
+      expect(thirdStart.status, await thirdStart.clone().text()).toBe(200);
+      const third = Result.getOrThrow(decodeCoreApplicationCandidate(await thirdStart.json()));
+      const abandoned = await request(active(), `${coreApplicationPushPath(profile.deploymentId, third.pushId)}/abandon`, {});
+      expect(abandoned.status, await abandoned.clone().text()).toBe(200);
+      expect(Result.getOrThrow(decodeCoreApplicationCandidate(await abandoned.json())).state).toBe("abandoned");
+      expect(Result.getOrThrow(decodeCoreApplicationCandidate(await (await request(active(), deployment)).json())).pushId).toBe(second.pushId);
+
+      const authMutation = invocation(secondProfile, "mutation", "users:create", { name: "auth-only-original" }, "create:before-auth-only");
+      const authOriginalResponse = await request(active(), path, authMutation);
+      expect(authOriginalResponse.status, await authOriginalResponse.clone().text()).toBe(200);
+      const authOriginal = Result.getOrThrow(decodeCoreApplicationInvocationSuccess(await authOriginalResponse.json()));
+      if (authOriginal.kind !== "mutation") throw new Error("Expected the pre-auth-change mutation outcome.");
+      const authStart = await request(active(), coreApplicationPushStartPath(profile.deploymentId), {
+        sourcePackage: { ...changedSourcePackage(2), authConfig: {
+          providers: [{ domain: "https://auth-only.example.com", applicationID: "configured-proof" }],
+        } },
+      });
+      expect(authStart.status, await authStart.clone().text()).toBe(200);
+      const authCandidate = Result.getOrThrow(decodeCoreApplicationCandidate(await authStart.json()));
+      expect(authCandidate.sourceArtifactRootSha256).toBe(second.sourceArtifactRootSha256);
+      expect(authCandidate.sourcePackageHash).not.toBe(second.sourcePackageHash);
+      const authFinish = await request(active(), `${coreApplicationPushPath(profile.deploymentId, authCandidate.pushId)}/finish`, {});
+      expect(authFinish.status, await authFinish.clone().text()).toBe(200);
+      const authProfile = { ...secondProfile, sourcePackageHash: authCandidate.sourcePackageHash };
+      const readsBeforeStaleAuth = await sourceReads(active());
+      for (const [kind, functionPath, args, requestKey] of [
+        ["query", "users:get", { id }, "auth-only:stale-query"],
+        ["mutation", "users:create", { name: "auth-only-fresh" }, "auth-only:stale-mutation"],
+        ["infer", "users:get", { id }, "auth-only:stale-inferred-query"],
+        ["infer", "users:create", { name: "auth-only-fresh" }, "auth-only:stale-inferred-mutation"],
+      ] as const) {
+        const stale = await invoke(active(), secondProfile, kind, functionPath, args, requestKey);
+        expect(stale.status, await stale.clone().text()).toBe(503);
+      }
+      expect(await sourceReads(active())).toBe(readsBeforeStaleAuth);
+      for (const kind of ["mutation", "infer"] as const) {
+        const recovered = await request(active(), path, { ...authMutation, kind });
+        expect(recovered.status, await recovered.clone().text()).toBe(200);
+        expect(Result.getOrThrow(decodeCoreApplicationInvocationSuccess(await recovered.json()))).toMatchObject({
+          kind: "mutation", disposition: "replayed", value: authOriginal.value, publishedTimestamp: authOriginal.publishedTimestamp,
+        });
+      }
+      expect(await sourceReads(active())).toBe(readsBeforeStaleAuth);
+      const currentAuthMutation = await invoke(active(), authProfile, "mutation", "users:create", { name: "auth-only-fresh" }, "auth-only:stale-mutation");
+      expect(currentAuthMutation.status, await currentAuthMutation.clone().text()).toBe(200);
+      expect(Result.getOrThrow(decodeCoreApplicationInvocationSuccess(await currentAuthMutation.json()))).toMatchObject({
+        kind: "mutation", disposition: "published",
+      });
+      const currentAuthQuery = await invoke(active(), authProfile, "infer", "users:get", { id }, "auth-only:stale-inferred-query");
+      expect(currentAuthQuery.status, await currentAuthQuery.clone().text()).toBe(200);
+      expect(Result.getOrThrow(decodeCoreApplicationInvocationSuccess(await currentAuthQuery.json()))).toMatchObject({
+        kind: "query", value: { name: "configured" },
+      });
       await stop();
 
       const changed = { ...profile, generation: profile.generation + 1 };
@@ -156,13 +247,13 @@ function request(runtime: Miniflare, path: string, body?: unknown, extraHeaders:
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...extraHeaders },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 }
-function invocation(profile: InvocationProfile, kind: "query" | "mutation", functionPath: string, args: Record<string, string>,
+function invocation(profile: InvocationProfile, kind: CoreApplicationInvocationRequest["kind"], functionPath: string, args: Record<string, string>,
   key: string, root = profile.sourceArtifactRootSha256) {
   return Result.getOrThrow(encodeCoreApplicationInvocationRequest({ format: "flarex.core-application.request", version: 1, kind,
     functionPath: TransactionFunctionPathV1Schema.make(functionPath), args, auth: { kind: "anonymous" },
-    requestKey: TransactionRequestKeyV1Schema.make(key), sourceArtifactRootSha256: root }));
+    requestKey: TransactionRequestKeyV1Schema.make(key), sourceArtifactRootSha256: root, sourcePackageHash: profile.sourcePackageHash }));
 }
-function invoke(runtime: Miniflare, profile: InvocationProfile, kind: "query" | "mutation", functionPath: string,
+function invoke(runtime: Miniflare, profile: InvocationProfile, kind: CoreApplicationInvocationRequest["kind"], functionPath: string,
   args: Record<string, string>, key: string, root?: string) {
   return request(runtime, coreApplicationInvocationPath(profile.deploymentId), invocation(profile, kind, functionPath, args, key, root));
 }

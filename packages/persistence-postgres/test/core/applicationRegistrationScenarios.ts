@@ -1,3 +1,4 @@
+import { prepareApplication, activateApplication } from "./applicationDeploymentFixture";
 import { randomBytes } from "node:crypto";
 import { Deferred, Effect, Fiber, Option, Result } from "effect";
 import { bytesEqual } from "@flarex/utils/bytes";
@@ -8,13 +9,13 @@ import { readActiveCoreApplicationRegistration } from "../../src/core/applicatio
 import * as coreDocuments from "../../src/core/document";
 import { compilePayloadCollections } from "../../../payload-adapter/src/collections";
 import { makeCoreNativeDefinition } from "../../src/core/nativePolicy";
-import { readDocumentObject, TABLES, type CoreRegistry } from "../../src/core/registry";
+import { readDocumentObject, PROGRAMS, TABLES, type CoreRegistry } from "../../src/core/registry";
 import { captureCoreSchema } from "../../src/core/schemaTypes";
 import { serializeCoreSchema } from "../../src/core/schemaJson";
 import { encodeDocumentValue } from "flarex-protocol/document-value";
 import { encodeDocumentId } from "flarex-protocol/document-id";
 import type { CoreDocumentLogEntry, CoreIndexScan, CoreInterval, CorePersistence } from "../../src/core/contracts";
-import { CORE_SCHEMA_WORKER_TEST_OPTIONS, activateCoreSchema } from "./schemaFixture";
+import { CORE_SCHEMA_WORKER_TEST_OPTIONS } from "./schemaFixture";
 import { readCoreFixtureRegistry, type CorePersistenceFixture } from "./fixture";
 
 const schema = { tables: [{ tableName: "items", documentType: { type: "any" }, indexes: [], stagedDbIndexes: [] }], schemaValidation: true };
@@ -47,25 +48,25 @@ export function registerCoreApplicationRegistrationScenarios(label: string, crea
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const frame = registration();
         const database = yield* Effect.acquireRelease(openCoreDatabase(fixture.persistence, options), db => db.close());
-        const proposal = yield* database.prepareSchema({ schema, applicationRegistration: frame });
+        const proposal = yield* prepareApplication(database, { schema, registration: frame });
         if (phase === "validated") yield* ready(database, proposal);
         expect((yield* database.schemaStatus(proposal)).state).toBe(phase);
         yield* database.close();
         const reopened = yield* Effect.acquireRelease(openCoreDatabase(yield* Effect.promise(() => fixture.reopen()), options), db => db.close());
         expect(yield* reopened.readApplicationRegistration()).toEqual(Option.none());
-        expect(yield* reopened.prepareSchema({ schema, applicationRegistration: registration() })).toEqual(proposal);
+        expect(yield* prepareApplication(reopened, { schema, registration: registration() })).toEqual(proposal);
         yield* ready(reopened, proposal);
-        yield* reopened.activateSchema(proposal, { programs: frame.programs, applicationRegistration: frame });
+        yield* reopened.activateApplicationCandidate(proposal.candidateId, { programs: frame.programs });
         const seed = yield* reopened.begin(); yield* seed.insert("items", { value: "legitimate" }); yield* reopened.commit(yield* seed.finalize());
         const before = yield* reopened.publishedTimestamp;
         yield* reopened.close();
         const active = yield* Effect.acquireRelease(openCoreDatabase(yield* Effect.promise(() => fixture.reopen()), options), db => db.close());
-        expect(yield* active.prepareSchema({ schema, applicationRegistration: registration() })).toEqual(proposal);
-        yield* active.activateSchema(proposal, { programs: frame.programs, applicationRegistration: frame });
-        yield* active.publishPrograms({ programs: frame.programs, applicationRegistration: frame });
+        expect(yield* prepareApplication(active, { schema, registration: registration() })).toEqual(proposal);
+        yield* active.activateApplicationCandidate(proposal.candidateId, { programs: frame.programs });
+        rejected(yield* Effect.result(active.publishPrograms({ programs: frame.programs })));
         expect(yield* active.publishedTimestamp).toBe(before);
         const actual = yield* active.readApplicationRegistration();
-        expect(Option.isSome(actual) && actual.value).toEqual({ ...frame, programs: [...frame.programs]
+        expect(Option.isSome(actual) && actual.value).toEqual({ ...frame, candidateId: proposal.candidateId, programs: [...frame.programs]
           .sort((a, b) => a.identity.functionPath.localeCompare(b.identity.functionPath)).map(program => ({ identity: program.identity })) });
       }))); } finally { await fixture.close(); }
     }, 90_000);
@@ -75,28 +76,25 @@ export function registerCoreApplicationRegistrationScenarios(label: string, crea
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const frame = registration();
         const database = yield* Effect.acquireRelease(openCoreDatabase(fixture.persistence, options), db => db.close());
-        const proposal = yield* database.prepareSchema({ schema, applicationRegistration: frame });
+        const proposal = yield* prepareApplication(database, { schema, registration: frame });
         const before = yield* database.publishedTimestamp;
         rejected(yield* Effect.result(database.prepareSchema({ schema })));
         const namespace = { kind: "byComponent" as const, id: yield* Effect.fromResult(encodeDocumentId(10001, new Uint8Array(16))) };
         rejected(yield* Effect.result(database.prepareSchema({ schema: emptySchema, namespace })));
         rejected(yield* Effect.result(database.publishPrograms({ programs: frame.programs })));
-        rejected(yield* Effect.result(database.publishPrograms({ programs: frame.programs, applicationRegistration: frame })));
+        rejected(yield* Effect.result(database.publishPrograms({ programs: frame.programs })));
         for (const changed of [registration({ deploymentId: "other" }), registration({ scopeUuid: "a4bd6a8e-8dd1-414b-9515-0f342e8c5762" }),
-          registration({ epochUuid: "a56ca002-c0b7-4881-8105-a8d7c23cf70d" }), registration({ sourceArtifactRootSha256: "2".repeat(64) }), registration({ sourcePackageHash: "2".repeat(64) }),
-          registration({ generation: 2 }), registration({ analyzerIdentity: "2".repeat(64) }), registration({ analyzerPolicyIdentity: "different-policy" }),
-          registration({ compatibilityDate: "2026-10-02" }), registration({ programs: frame.programs.slice(0, 1) })])
-          rejected(yield* Effect.result(database.prepareSchema({ schema, applicationRegistration: changed })));
-        rejected(yield* Effect.result(database.prepareSchema({ schema: emptySchema, applicationRegistration: frame })));
+          registration({ epochUuid: "a56ca002-c0b7-4881-8105-a8d7c23cf70d" })])
+          rejected(yield* Effect.result(prepareApplication(database, { schema, registration: changed })));
         expect(yield* database.publishedTimestamp).toBe(before);
         yield* ready(database, proposal);
         rejected(yield* Effect.result(database.activateSchema(proposal, { programs: frame.programs })));
-        rejected(yield* Effect.result(database.activateSchema(proposal, { programs: frame.programs.slice(0, 1), applicationRegistration: frame })));
+        rejected(yield* Effect.result(database.activateApplicationCandidate(proposal.candidateId, { programs: frame.programs.slice(0, 1) })));
         const changedPrograms = frame.programs.map(program => ({ ...program, metadata: { changed: true } }));
-        rejected(yield* Effect.result(database.activateSchema(proposal, { programs: changedPrograms, applicationRegistration: frame })));
-        yield* database.activateSchema(proposal, { programs: frame.programs, applicationRegistration: frame });
+        rejected(yield* Effect.result(database.activateApplicationCandidate(proposal.candidateId, { programs: changedPrograms })));
+        yield* database.activateApplicationCandidate(proposal.candidateId, { programs: frame.programs });
         rejected(yield* Effect.result(database.publishPrograms({ programs: [] })));
-        rejected(yield* Effect.result(database.prepareSchema({ schema, applicationRegistration: registration({ epochUuid: "a56ca002-c0b7-4881-8105-a8d7c23cf70d" }) })));
+        rejected(yield* Effect.result(prepareApplication(database, { schema, registration: registration({ epochUuid: "a56ca002-c0b7-4881-8105-a8d7c23cf70d" }) })));
       }))); } finally { await fixture.close(); }
     }, 90_000);
 
@@ -116,7 +114,8 @@ export function registerCoreApplicationRegistrationScenarios(label: string, crea
             yield* database.commit(yield* seed.finalize());
           }
           const before = yield* database.publishedTimestamp;
-          rejected(yield* Effect.result(database.prepareSchema({ schema, applicationRegistration: registration() })));
+          expect(yield* database.readApplicationRegistration()).toEqual(Option.none());
+          rejected(yield* Effect.result(prepareApplication(database, { schema, registration: registration() })));
           expect(yield* database.publishedTimestamp).toBe(before);
         }))); } finally { await fixture.close(); }
       }, 90_000);
@@ -128,7 +127,7 @@ export function registerCoreApplicationRegistrationScenarios(label: string, crea
         const native = yield* makeCoreNativeDefinition({ scopeUuid: registration().scopeUuid, epochUuid: registration().epochUuid, source: compiled.sourceContract });
         const database = yield* Effect.acquireRelease(openCoreDatabase(fixture.persistence, options), db => db.close());
         yield* database.prepareSchema({ native });
-        rejected(yield* Effect.result(database.prepareSchema({ schema, applicationRegistration: registration() })));
+        rejected(yield* Effect.result(prepareApplication(database, { schema, registration: registration() })));
       }))); } finally { await fixture.close(); }
     }, 90_000);
 
@@ -137,8 +136,8 @@ export function registerCoreApplicationRegistrationScenarios(label: string, crea
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const frame = registration({ programs: [] });
         const database = yield* Effect.acquireRelease(openCoreDatabase(fixture.persistence, options), db => db.close());
-        yield* activateCoreSchema(database, emptySchema, { programs: [], applicationRegistration: frame });
-        expect(yield* database.readApplicationRegistration()).toEqual(Option.some(frame));
+        yield* activateApplication(database, emptySchema, { programs: [], applicationRegistration: frame });
+        expect(Option.isSome(yield* database.readApplicationRegistration())).toBe(true);
         rejected(yield* Effect.result(database.prepareSchema({ schema: emptySchema })));
         rejected(yield* Effect.result(database.publishPrograms({ programs: [] })));
       }))); } finally { await fixture.close(); }
@@ -149,7 +148,7 @@ export function registerCoreApplicationRegistrationScenarios(label: string, crea
       const capture = vi.spyOn(coreDocuments, "captureCoreObject");
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const frame = registration(), database = yield* Effect.acquireRelease(openCoreDatabase(fixture.persistence, options), db => db.close());
-        yield* activateCoreSchema(database, schema, { programs: frame.programs, applicationRegistration: frame });
+        yield* activateApplication(database, schema, { programs: frame.programs, applicationRegistration: frame });
         const before = capture.mock.calls.length;
         const first = yield* database.readApplicationRegistration();
         const authenticated = capture.mock.calls.length;
@@ -185,7 +184,7 @@ export function registerCoreApplicationRegistrationScenarios(label: string, crea
       const capture = vi.spyOn(coreDocuments, "captureCoreObject");
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const frame = registration(), database = yield* Effect.acquireRelease(openCoreDatabase(fixture.persistence, options), db => db.close());
-        yield* activateCoreSchema(database, schema, { programs: frame.programs, applicationRegistration: frame });
+        yield* activateApplication(database, schema, { programs: frame.programs, applicationRegistration: frame });
         const registry = yield* readCoreFixtureRegistry(fixture, yield* database.publishedTimestamp);
         const memo = new WeakMap<CoreRegistry, CoreApplicationRegistrationMetadata>();
         const reads: Readonly<{ id: Uint8Array; interval: CoreInterval }>[] = [];
@@ -217,20 +216,21 @@ export function registerCoreApplicationRegistrationScenarios(label: string, crea
         const changedSchema = yield* Effect.fromResult(serializeCoreSchema(yield* Effect.fromResult(captureCoreSchema(emptySchema))));
         const schemas = yield* Effect.fromResult(registry.schemas.withDocument(null, oldDocument,
           { ...oldDocument, value: { ...oldDocument.value, schema: changedSchema } }));
-        rejected(yield* Effect.result(readActiveCoreApplicationRegistration(context(registry.withSchemas(schemas)), memo)));
+        expect(yield* Effect.result(readActiveCoreApplicationRegistration(context(registry.withSchemas(schemas)), memo)))
+          .toMatchObject({ _tag: "Failure", failure: { reason: "corruptData" } });
       }))); } finally { capture.mockRestore(); await fixture.close(); }
     }, 90_000);
 
-    it("refuses a foreign row or extra table committed between preparation and activation", async () => {
+    it("activates over compatible populated data and retains omitted table identities", async () => {
       const fixture = await createFixture();
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const frame = registration(), database = yield* Effect.acquireRelease(openCoreDatabase(fixture.persistence, options), db => db.close());
-        const proposal = yield* database.prepareSchema({ schema, applicationRegistration: frame }); yield* ready(database, proposal);
+        const proposal = yield* prepareApplication(database, { schema, registration: frame }); yield* ready(database, proposal);
         const seed = yield* database.begin(); const id = yield* seed.insert("items", { injected: true }); yield* database.commit(yield* seed.finalize());
-        rejected(yield* Effect.result(database.activateSchema(proposal, { programs: frame.programs, applicationRegistration: frame })));
-        rejected(yield* Effect.result(database.prepareSchema({ schema, applicationRegistration: frame })));
-        const remove = yield* database.begin(); yield* remove.delete(id); yield* remove.insert("unexpected", {}); yield* database.commit(yield* remove.finalize());
-        rejected(yield* Effect.result(database.activateSchema(proposal, { programs: frame.programs, applicationRegistration: frame })));
+        yield* database.activateApplicationCandidate(proposal.candidateId, { programs: frame.programs });
+        const omitted = yield* prepareApplication(database, { schema: emptySchema, registration: registration({ programs: [] }) });
+        yield* ready(database, omitted); yield* database.activateApplicationCandidate(omitted.candidateId, { programs: [] });
+        const read = yield* database.begin(); expect(Option.isSome(yield* read.get(id))).toBe(true); yield* read.abort();
       }))); } finally { await fixture.close(); }
     }, 90_000);
 
@@ -239,41 +239,37 @@ export function registerCoreApplicationRegistrationScenarios(label: string, crea
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const database = yield* Effect.acquireRelease(openCoreDatabase(fixture.persistence, options), db => db.close());
         const results = yield* Effect.all([registration(), registration({ sourceArtifactRootSha256: "2".repeat(64) })]
-          .map(frame => Effect.result(database.prepareSchema({ schema, applicationRegistration: frame }))), { concurrency: 2 });
+          .map(frame => Effect.result(prepareApplication(database, { schema, registration: frame }))), { concurrency: 2 });
         expect(results.filter(Result.isSuccess)).toHaveLength(1);
         expect(results.filter(Result.isFailure)).toHaveLength(1);
       }))); } finally { await fixture.close(); }
     }, 90_000);
 
-    it("conflicts when a foreign row commits after activation observed an empty declared table", async () => {
+    it("fences an unregistered publication on the deployment-kind absence observed before registration", async () => {
       const fixture = await createFixture();
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const observed = yield* Deferred.make<void>(), release = yield* Deferred.make<void>();
-        let target: Uint8Array | undefined, paused = false;
+        let pause = false;
         const persistence: CorePersistence = { ...fixture.persistence, readSnapshot: (timestamp, retention) => Effect.gen(function* () {
           const snapshot = yield* fixture.persistence.readSnapshot(timestamp, retention);
-          return { ...snapshot, scan: (request: CoreIndexScan) => Effect.gen(function* () {
-            const page = yield* snapshot.scan(request);
-            if (!paused && target !== undefined && bytesEqual(target, request.tableId) && request.maxResults === 1) {
-              paused = true; expect(page.entries).toHaveLength(0);
-              yield* Deferred.succeed(observed, undefined); yield* Deferred.await(release);
-            }
-            return page;
-          }) };
+          if (pause) { pause = false; yield* Deferred.succeed(observed, undefined); yield* Deferred.await(release); }
+          return snapshot;
         }) };
-        const frame = registration(), database = yield* Effect.acquireRelease(openCoreDatabase(persistence,
-          { ...options, indexCache: { maxBytes: 0 } }), db => db.close());
-        const proposal = yield* database.prepareSchema({ schema, applicationRegistration: frame }); yield* ready(database, proposal);
-        target = (yield* readCoreFixtureRegistry(fixture, yield* database.publishedTimestamp)).table("items")?.definition.tabletId;
-        expect(target).toBeDefined();
-        const activating = yield* Effect.forkChild(Effect.result(database.activateSchema(proposal, { programs: frame.programs, applicationRegistration: frame })));
-        yield* Deferred.await(observed);
-        const seed = yield* database.begin(); yield* seed.insert("items", { foreign: true }); yield* database.commit(yield* seed.finalize());
-        yield* Deferred.succeed(release, undefined);
-        const result = yield* Fiber.join(activating);
-        expect(Result.isFailure(result) && result.failure).toMatchObject({ reason: "conflict" });
-        expect((yield* database.schemaStatus(proposal)).state).toBe("validated");
-        expect(yield* database.readApplicationRegistration()).toEqual(Option.none());
+        const database = yield* Effect.acquireRelease(openCoreDatabase(persistence, options), db => db.close());
+        const registry = yield* readCoreFixtureRegistry(fixture, yield* database.publishedTimestamp);
+        const index = registry.table(PROGRAMS)?.definition.indexes.find(candidate => candidate.name === "by_identity");
+        if (index === undefined) return yield* Effect.die("Missing actual program-identity index");
+        yield* Effect.gen(function* () {
+          pause = true;
+          const publishing = yield* Effect.forkChild(Effect.result(database.publishPrograms({ programs: registration().programs })));
+          yield* Deferred.await(observed);
+          yield* prepareApplication(database, { schema: emptySchema, registration: registration({ programs: [] }) });
+          yield* Deferred.succeed(release, undefined);
+          const result = yield* Fiber.join(publishing);
+          expect(Result.isFailure(result) && result.failure).toMatchObject({ reason: "conflict", cause: { indexId: index.ref.id } });
+          expect(yield* Effect.result(database.selectProgram("items:read")))
+            .toMatchObject({ _tag: "Failure", failure: { reason: "programUnavailable" } });
+        }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)));
       }))); } finally { await fixture.close(); }
     }, 90_000);
 
@@ -289,7 +285,7 @@ export function registerCoreApplicationRegistrationScenarios(label: string, crea
         }) };
         const database = yield* Effect.acquireRelease(openCoreDatabase(persistence, options), db => db.close());
         pause = true;
-        const preparing = yield* Effect.forkChild(Effect.result(database.prepareSchema({ schema: emptySchema, applicationRegistration: registration({ programs: [] }) })));
+        const preparing = yield* Effect.forkChild(Effect.result(prepareApplication(database, { schema: emptySchema, registration: registration({ programs: [] }) })));
         yield* Deferred.await(observed);
         if (foreign === "program") yield* database.publishPrograms({ programs: registration().programs });
         else { const seed = yield* database.begin(); yield* seed.insert("other", {}); yield* database.commit(yield* seed.finalize()); }
@@ -319,7 +315,7 @@ export function registerCoreApplicationRegistrationScenarios(label: string, crea
           [Result.getOrThrow(encodeDocumentValue({ ...document, state })), fixture.instanceName, record.tableId, record.id, record.ts.toString()]);
         await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
           const database = yield* Effect.acquireRelease(openCoreDatabase(yield* Effect.promise(() => fixture.reopen()), options), db => db.close());
-          rejected(yield* Effect.result(database.prepareSchema({ schema, applicationRegistration: registration() })));
+          rejected(yield* Effect.result(prepareApplication(database, { schema, registration: registration() })));
         })));
       } finally { await fixture.close(); }
     }, 90_000);

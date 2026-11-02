@@ -9,7 +9,7 @@ import { coreSchemaCorrupt, CoreSchemaCountSchema, decodeCoreSchemaValidationPro
 export type CoreSchemaTransaction = Pick<CoreTransactionInternals,
   "getSystem" | "querySystem" | "insertSystem" | "replaceSystem" | "deleteSystem"
   | "ensureUserTable" | "tableExists" | "namespace" | "timestamp" | "schemaRegistry"
-  | "schemaTableStateIndex" | "addIndexRead">;
+  | "schemaTableStateIndex" | "addIndexRead" | "applicationSchemaRetained">;
 export interface CoreSchemaProgressRecord {
   readonly document: CoreSystemDocument;
   readonly metadata: CoreSchemaValidationProgressValue;
