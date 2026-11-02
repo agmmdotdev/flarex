@@ -11,7 +11,7 @@ import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { priceListPriceUpdateResources } from "../../src/workflow/policy";
-import { prepareLogicalPriceListCreation } from "./logical-price-list-create-fixture";
+import { prepareCorePriceListCreation } from "./core-price-list-create-fixture";
 
 type Input = typeof PriceListPriceUpdateWorkflowInput.Type;
 type Options = Parameters<typeof prepareUpdatePriceListPricesWorkflow>[0];
@@ -26,8 +26,8 @@ const callbacks = { lists: listValidation.invoke, links: linkValidation.invoke, 
 
 /** The existing installed Pricing/Link catalog and genuine native List creation
  * seed complete graphs. All tested updates/inverses use the corrected callbacks. */
-export async function prepareLogicalPriceListPriceUpdate(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void) {
-  const base = await prepareLogicalPriceListCreation(driver, close);
+export async function prepareCorePriceListPriceUpdate(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void) {
+  const base = await prepareCorePriceListCreation(driver, close);
   const pricing = await Effect.runPromise(makeLocalPricingCommands("price-list-price-updates"));
   const options: Options = { ...base.options, modules: {
     pricing: { ...base.options.modules.pricing, module: pricing.workflow, logicalResources: priceListPriceUpdateResources, logicalPublication: "mixed" },
@@ -80,13 +80,13 @@ export async function prepareLogicalPriceListPriceUpdate(driver: "pglite" | "pos
         input: contracts.Compensation, output: Schema.Null, events: internalModuleWorkflowEvents,
       } })));
   };
-  const prepareWrapped = async (configuration: { readonly lateFailure?: boolean; readonly caughtRefusal?: boolean;
+  const prepareWrapped = async (configuration: { readonly lateFailure?: Error; readonly caughtRefusal?: boolean;
     readonly inspect?: (resources: unknown) => void; readonly escape?: (callback: () => Promise<unknown>) => void } = {}) => {
     const step = createStep("probe156-parent", resources.callback(async (output: unknown, context) => {
       configuration.inspect?.(context.resources);
       configuration.escape?.(() => context.resources.pricing.snapshotPriceListPricesForUpdate([]));
       if (configuration.caughtRefusal) { try { context.container.resolve("region"); } catch { /* Existing refusal remains sticky. */ } }
-      if (configuration.lateFailure) throw new Error("Late parent failure after native Price List Price update");
+      if (configuration.lateFailure !== undefined) throw configuration.lateFailure;
       return output;
     }));
     const flow = createWorkflow("probe156-parent-root", (input: WorkflowData<UpdatePriceListPricesWorkflowInput>) =>
@@ -100,5 +100,6 @@ export async function prepareLogicalPriceListPriceUpdate(driver: "pglite" | "pos
   const seedLists = async (input: Parameters<Awaited<ReturnType<typeof base.prepare>>["run"]>[1]) => {
     const host = await base.prepare(); return Effect.runPromise(host.run(host.newRequestKey(), input));
   };
-  return { ...base, pricing, options, contracts, seedLists, prepare, prepareDefault64, prepareForward, prepareInverse, prepareWrapped, closeCaseHosts };
+  return { ...base, pricing, options, contracts, seedLists, prepare, prepareDefault64, prepareForward, prepareInverse, prepareWrapped, closeCaseHosts,
+    readStorageOrder: (ids: readonly string[]) => base.readStorageOrder(ids, "price_rule") };
 }

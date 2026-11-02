@@ -11,6 +11,7 @@ import { CoreTableIteratorResourceBudgetSchema, CoreIteratorPositiveBudgetSchema
 import type { CoreNativeDefinition, CoreNativeIdentity, CoreNativeTablePolicy } from "./nativePolicy";
 import type { CoreSchemaBundle } from "./schemaBundle";
 import type { CoreNativeRootRequestEvidence, CoreCommittedNativeRootRequest } from "./nativeRootRequest";
+import type { PostgresRelationalPredicateProgram } from "../values/postgresRelationalPredicate";
 
 export interface CoreIndexDefinition {
   readonly name: string;
@@ -394,6 +395,9 @@ export type CoreNativeOperations = Pick<CoreTransaction, "get" | "insert" | "pat
   readonly writeRows: (table: string, mode: "insert" | "upsert" | "upsertPreservingDeletion" | "update", rows: unknown,
     invocation?: Readonly<{ insertValidation?: "entityBatch" }>) =>
     Effect.Effect<readonly DocumentObject[], CoreError>;
+  /** Complete native values require authentic recorded content; internal
+   * destination identity remains with the transaction's mutation owner. */
+  readonly replayRows: (table: string, rows: unknown) => Effect.Effect<readonly DocumentObject[], CoreError>;
   /** Source-confined outgoing FK check; final integrity still runs at acceptance. */
   readonly checkpointReferences: (table: string) => Effect.Effect<void, CoreError>;
   /** Bounded native FK intent after an actual target deletion in this root. */
@@ -411,6 +415,9 @@ export type CoreNativeOperations = Pick<CoreTransaction, "get" | "insert" | "pat
   /** Bounded key-presence proof; empty source observes the complete absence interval. */
   readonly isEmpty: (table: string) => Effect.Effect<boolean, CoreError>;
   readonly find: (table: string, where: JsonObject) => Effect.Effect<readonly DocumentObject[], CoreError>;
+  /** One closed PostgreSQL program over the complete already-captured rows. */
+  readonly matchRelational: (table: string, program: PostgresRelationalPredicateProgram, rows: readonly JsonObject[]) =>
+    Effect.Effect<readonly (boolean | null)[], CoreError>;
   /** Native examined-window semantics, distinct from complete-range find and Source queries. */
   readonly findPage: (table: string, where: JsonObject, options: Readonly<{
     indexName: string; offset: number; limit: number; order?: "asc";
@@ -487,7 +494,8 @@ export interface CoreDatabase {
   readonly bindNativeInitialization: (input: Readonly<{ binding: CoreNativeBinding; commandName: string }>) =>
     Effect.Effect<CoreNativeInitializationBinding, CoreError>;
   readonly beginNative: (binding: CoreNativeBinding, options: Readonly<{ commandName: string; claim?: CoreRequestClaim;
-    limits: CoreNativeLimits; chargeRetained: (bytes: number) => Effect.Effect<void, CoreError> }>) => Effect.Effect<CoreNativeOperation, CoreError>;
+    limits: CoreNativeLimits; remainingBytes: () => number;
+    chargeRetained: (bytes: number) => Effect.Effect<void, CoreError> }>) => Effect.Effect<CoreNativeOperation, CoreError>;
   readonly bindNativeRoot: (input: CoreNativeRootBindingInput) => Effect.Effect<CoreNativeRootBinding, CoreError>;
   readonly bindNativeRootRecovery: (input: CoreNativeRootRecoveryInput) => Effect.Effect<CoreNativeRootRecovery, CoreError>;
   /** Exact metadata evidence issued only for this live claimed root's child. */
@@ -498,6 +506,7 @@ export interface CoreDatabase {
   readonly readNativeRootBinding: (binding: CoreNativeRootBinding) => Effect.Effect<CoreNativeRootBindingMetadata, CoreError>;
   readonly beginNativeRoot: (binding: CoreNativeRootBinding, options: Readonly<{ claim: CoreRequestClaim;
     admissionDeadlineUnixMilliseconds?: number;
+    remainingBytes: () => number;
     chargeRetained: (bytes: number) => Effect.Effect<void, CoreError> }>) => Effect.Effect<CoreNativeRootOperation, CoreError>;
   /** Authenticates request correlation before consulting current function admission. */
   readonly resolveApplicationRequest: (correlation: Readonly<{ key: string; requestHash: string; functionPath: string }>) =>

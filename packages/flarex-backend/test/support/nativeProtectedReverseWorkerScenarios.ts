@@ -69,8 +69,8 @@ export async function nativeProtectedReverseWorkerScenarios(driver: "pglite" | "
     // distinguish cumulative work from the number of distinct captured IDs.
     await run(fixture.useGeneration(({ database }) => Effect.gen(function* () {
       const binding = yield* database.bindNative({ definition: payloadDefinition });
-      const seed = yield* database.beginNative(binding, { commandName: "payload-create", limits,
-        chargeRetained: coreNativeTestBudget().chargeRetained });
+      const seed = yield* database.beginNative(binding, { commandName: "payload-create",
+        ...coreNativeTestBudget(), limits });
       for (let index = 0; index <= cmsLimits.pageRows; index++) yield* seed.operations.insert("articles", {
         headline: `Reverse source ${index}`, featuredProduct: seedProduct.id,
         createdAt: "2026-11-01T00:00:00.000Z", updatedAt: "2026-11-01T00:00:00.000Z" });
@@ -78,8 +78,8 @@ export async function nativeProtectedReverseWorkerScenarios(driver: "pglite" | "
     })));
     const members = await run(fixture.useGeneration(({ database }) => Effect.gen(function* () {
       const binding = yield* database.bindNative({ definition: payloadDefinition });
-      const ordered = yield* database.beginNative(binding, { commandName: "payload-findByID", limits,
-        chargeRetained: coreNativeTestBudget().chargeRetained });
+      const ordered = yield* database.beginNative(binding, { commandName: "payload-findByID",
+        ...coreNativeTestBudget(), limits });
       const page = yield* ordered.operations.protectedReferencePage("article_product", seedProduct.id, { limit: cmsLimits.pageRows });
       yield* ordered.finishRead();
       return page;
@@ -102,8 +102,8 @@ export async function nativeProtectedReverseWorkerScenarios(driver: "pglite" | "
     const patchSource = Effect.fn("NativeProtectedReverseFixture.patchSource")((id: string, headline: string) =>
       fixture.useGeneration(({ database }) => Effect.gen(function* () {
         const selected = yield* database.bindNative({ definition: payloadDefinition });
-        const editing = yield* database.beginNative(selected, { commandName: "payload-update", limits,
-          chargeRetained: coreNativeTestBudget().chargeRetained });
+        const editing = yield* database.beginNative(selected, { commandName: "payload-update",
+          ...coreNativeTestBudget(), limits });
         yield* editing.operations.patch(id, { headline });
         return yield* database.commit(yield* editing.finalize());
       })));

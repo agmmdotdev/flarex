@@ -22,7 +22,8 @@ const unavailable = () => Effect.die("Unexpected unused physical operation");
 function retryWitness(lane: "historical" | "latest", recentTimestamp: Effect.Effect<bigint, CorePersistenceError>,
   scan: (timestamp: bigint) => Effect.Effect<CoreIndexPage, CorePersistenceError>) {
   const snapshots: bigint[] = [];
-  const persistence: CorePersistence = { acquireLease: unavailable, latestTimestamp: unavailable, isFresh: unavailable,
+  const persistence: CorePersistence = { evaluateRelational: unavailable, loadIndexHistory: unavailable,
+      retentionValidator: { validateIndex: unavailable, validateDocument: unavailable }, acquireLease: unavailable, latestTimestamp: unavailable, isFresh: unavailable,
     readRetentionBounds: unavailable, write: unavailable, writeIndexBackfill: unavailable, reconcileIndexBackfill: unavailable,
     putGlobal: unavailable, getGlobal: () => Effect.succeed(Option.none()), previousRevisions: unavailable, previousRevisionsOfDocuments: unavailable,
     loadDocuments: () => Effect.succeed({ documents: [], cursor: null, done: true }),
@@ -49,7 +50,8 @@ describe("source historical TableIterator", () => {
     const logPages = [[foreign, changed], [deletion, inserted], [document(10, "zz", 19n, 15n)]];
     let scans = 0, logs = 0;
     const predecessorWitnesses: bigint[] = [];
-    const persistence: CorePersistence = {
+    const persistence: CorePersistence = { evaluateRelational: unavailable, loadIndexHistory: unavailable,
+      retentionValidator: { validateIndex: unavailable, validateDocument: unavailable },
       acquireLease: unavailable, latestTimestamp: unavailable, isFresh: unavailable, readRetentionBounds: unavailable,
       write: unavailable, writeIndexBackfill: unavailable, reconcileIndexBackfill: unavailable, putGlobal: unavailable,
       getGlobal: () => Effect.succeed(Option.none()),
@@ -90,7 +92,8 @@ describe("source historical TableIterator", () => {
 
   it("does not retry unavailable errors and poisons partially observed state after failure", async () => {
     let scans = 0;
-    const persistence: CorePersistence = { acquireLease: unavailable, latestTimestamp: unavailable, isFresh: unavailable,
+    const persistence: CorePersistence = { evaluateRelational: unavailable, loadIndexHistory: unavailable,
+      retentionValidator: { validateIndex: unavailable, validateDocument: unavailable }, acquireLease: unavailable, latestTimestamp: unavailable, isFresh: unavailable,
       readRetentionBounds: unavailable, write: unavailable, writeIndexBackfill: unavailable, reconcileIndexBackfill: unavailable,
       putGlobal: unavailable, getGlobal: () => Effect.succeed(Option.none()), loadDocuments: unavailable, previousRevisions: unavailable, previousRevisionsOfDocuments: unavailable,
       readSnapshot: timestamp => Effect.succeed({ timestamp, get: unavailable, scan: () => {
@@ -188,7 +191,8 @@ describe("source historical TableIterator", () => {
     const secondOld = { ...document(20, "second", 2n), tableId: second.tabletId,
       jsonValue: Result.getOrThrow(encodeDocumentValue({ _id: Result.getOrThrow(encodeDocumentId(second.number, id(20))), _creationTime: 1, name: "second" })) };
     let walks = 0;
-    const persistence: CorePersistence = { acquireLease: unavailable, latestTimestamp: unavailable, isFresh: unavailable,
+    const persistence: CorePersistence = { evaluateRelational: unavailable, loadIndexHistory: unavailable,
+      retentionValidator: { validateIndex: unavailable, validateDocument: unavailable }, acquireLease: unavailable, latestTimestamp: unavailable, isFresh: unavailable,
       readRetentionBounds: unavailable, write: unavailable, writeIndexBackfill: unavailable, reconcileIndexBackfill: unavailable,
       putGlobal: unavailable, getGlobal: () => Effect.succeed(Option.none()),
       readSnapshot: timestamp => Effect.succeed({ timestamp, get: unavailable, scan: () => Effect.succeed({ entries: [], cursor: { kind: "end" } }) }),
@@ -214,7 +218,8 @@ describe("source historical TableIterator", () => {
     const unchanged = old[0];
     if (unchanged === undefined) throw new Error("Missing test revision");
     const batches: number[] = [];
-    const persistence: CorePersistence = { acquireLease: unavailable, latestTimestamp: unavailable, isFresh: unavailable,
+    const persistence: CorePersistence = { evaluateRelational: unavailable, loadIndexHistory: unavailable,
+      retentionValidator: { validateIndex: unavailable, validateDocument: unavailable }, acquireLease: unavailable, latestTimestamp: unavailable, isFresh: unavailable,
       readRetentionBounds: unavailable, write: unavailable, writeIndexBackfill: unavailable, reconcileIndexBackfill: unavailable,
       putGlobal: unavailable, getGlobal: () => Effect.succeed(Option.none()),
       readSnapshot: timestamp => Effect.succeed({ timestamp, get: unavailable, scan: () => Effect.succeed({ entries: [{ key: key("a", 10), document: unchanged }], cursor: { kind: "end" } }) }),
@@ -239,7 +244,8 @@ describe("source historical TableIterator", () => {
   it("fails closed at predecessor metadata capacity and rejects oversized bodies before decoding or reload", async () => {
     const first = document(10, "a", 1n), second = document(11, "b", 2n);
     let exactReads = 0;
-    const persistence: CorePersistence = { acquireLease: unavailable, latestTimestamp: unavailable, isFresh: unavailable,
+    const persistence: CorePersistence = { evaluateRelational: unavailable, loadIndexHistory: unavailable,
+      retentionValidator: { validateIndex: unavailable, validateDocument: unavailable }, acquireLease: unavailable, latestTimestamp: unavailable, isFresh: unavailable,
       readRetentionBounds: unavailable, write: unavailable, writeIndexBackfill: unavailable, reconcileIndexBackfill: unavailable,
       putGlobal: unavailable, getGlobal: () => Effect.succeed(Option.none()),
       readSnapshot: timestamp => Effect.succeed({ timestamp, get: unavailable, scan: () => Effect.succeed({ entries: [{ key: key("a", 10), document: first }], cursor: { kind: "end" } }) }),

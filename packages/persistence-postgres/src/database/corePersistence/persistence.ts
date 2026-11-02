@@ -11,6 +11,10 @@ import {
   type CoreHydratedIndexEntry,
   type CoreIndexPage,
   type CoreIndexScan,
+  type CoreIndexHistoryRequest,
+  type CoreIndexHistoryCursor,
+  type CoreIndexHistoryEntry,
+  type CoreIndexHistoryPage,
   type CorePersistence,
   type CorePersistenceIndexEntry,
   type CorePersistenceLease,
@@ -18,12 +22,16 @@ import {
   type CoreWriteBatch,
 } from "../../core/contracts";
 import type { CoreSqlConnection, CoreSqlParameter } from "./driver";
+import { PgDialect } from "drizzle-orm/pg-core";
+import { inspectIssuedPostgresRelationalBatch, type PostgresRelationalPredicateFailure } from "../../values/postgresRelationalPredicate";
+import { buildPostgresRelationalPredicateBody } from "../postgresRelationalPredicate";
 import { coreTableName, inspectCorePersistenceTarget, type CorePersistenceTarget } from "./target";
 import {
-  decodeDocumentRows, decodePreviousRevisionRows, decodeIndexRows, documentFromRow, makeStoredRowsDecoder,
+  decodeDocumentRows, decodePreviousRevisionRows, decodeIndexRows, decodeIndexHistoryRows, documentFromRow, makeStoredRowsDecoder,
   internalIdSchema, timestampSchema,
 } from "./rows";
 
+const relationalDialect = new PgDialect();
 const instanceSchema = Schema.NonEmptyString;
 const countSchema = Schema.Int.check(Schema.makeFilter(value => Number.isSafeInteger(value) && value > 0 ? undefined : "Expected a positive safe page size"));
 const decodeCount = Schema.decodeUnknownEffect(countSchema);
@@ -54,7 +62,20 @@ const freshnessSchema = Schema.Array(Schema.Struct({ documents: Schema.Boolean, 
 const pointSchema = Schema.Struct({ tableId: internalIdSchema, id: internalIdSchema });
 const decodeInstance = Schema.decodeUnknownEffect(instanceSchema);
 const decodeTimestamp = Schema.decodeUnknownEffect(timestampSchema);
+const decodeSqlParameters = Schema.decodeUnknownEffect(Schema.Array(Schema.Union([
+  Schema.String, Schema.Finite, Schema.BigInt, Schema.Boolean, Schema.Uint8Array, Schema.Null,
+])));
 const decodeScan = Schema.decodeUnknownEffect(scanSchema);
+const decodeIndexHistoryRequest = Schema.decodeUnknownEffect(Schema.Struct({
+  index: scanSchema.fields.index, tableId: internalIdSchema, interval: scanSchema.fields.interval,
+  start: timestampSchema, end: timestampSchema, maxResults: countSchema,
+  maxBytes: Schema.Int.check(Schema.makeFilter(value => Number.isSafeInteger(value) && value >= 0
+    ? undefined : "Expected a nonnegative safe byte bound")), maxDocumentBytes: countSchema,
+  after: Schema.optionalKey(Schema.Struct({ keyPrefix: Schema.Uint8Array.check(Schema.makeFilter(value =>
+    value.length <= MAX_INDEX_KEY_PREFIX_BYTES ? undefined : "Invalid physical prefix")),
+  keySha256: Schema.Uint8Array.check(Schema.makeFilter(value => value.length === 32 ? undefined : "Invalid physical key digest")),
+  ts: timestampSchema })),
+}));
 const decodeBatch = Schema.decodeUnknownEffect(batchSchema);
 const decodePoint = Schema.decodeUnknownEffect(pointSchema);
 const decodeDocumentLogRequest = Schema.decodeUnknownEffect(Schema.Struct({
@@ -75,6 +96,8 @@ const jsonNull = new TextEncoder().encode("null");
 function invalid(cause: unknown): CorePersistenceError {
   return new CorePersistenceError({ reason: "invalidTarget", cause });
 }
+const relationalPersistenceFailure: PostgresRelationalPredicateFailure<CorePersistenceError> = (reason, cause) =>
+  new CorePersistenceError({ reason: "invalidTarget", cause: { reason, cause } });
 
 function comparePreviousSearches(left: CorePreviousRevisionSearch, right: CorePreviousRevisionSearch): number {
   return compareBytesLexicographically(left.tableId, right.tableId) || compareBytesLexicographically(left.id, right.id)
@@ -313,6 +336,116 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
     );
 
     const persistence: CorePersistence = {
+      retentionValidator: sqlRetention,
+      loadIndexHistory: Effect.fn("CorePersistence.loadIndexHistory")(function* (input: CoreIndexHistoryRequest,
+        retention: CoreRetentionValidator = sqlRetention): Effect.fn.Return<CoreIndexHistoryPage, CorePersistenceError> {
+        const decoded = yield* decodeIndexHistoryRequest(input).pipe(Effect.mapError(invalid));
+        const request = { ...decoded, index: { ...decoded.index, id: copyBytes(decoded.index.id) },
+          tableId: copyBytes(decoded.tableId), interval: { start: decoded.interval.start === null ? null : copyBytes(decoded.interval.start),
+            end: decoded.interval.end === null ? null : copyBytes(decoded.interval.end) }, after: decoded.after === undefined ? undefined
+            : { keyPrefix: copyBytes(decoded.after.keyPrefix), keySha256: copyBytes(decoded.after.keySha256), ts: decoded.after.ts } };
+        if (request.start > request.end) return yield* invalid("Reversed history timestamps");
+        yield* retention.validateIndex(request.start);
+        yield* retention.validateDocument(request.start);
+        const parameters: CoreSqlParameter[] = [instance, request.index.id, request.start, request.end];
+        const predicates = ["instance_name = $1", "index_id = $2"];
+        for (const [bound, lower] of [[request.interval.start, true], [request.interval.end, false]] as const) {
+          if (bound === null) continue;
+          parameters.push(bound.slice(0, MAX_INDEX_KEY_PREFIX_BYTES), new Uint8Array(32).fill(lower ? 0 : 255));
+          predicates.push(`(key_prefix, key_sha256) ${lower ? ">=" : "<="} ($${parameters.length - 1}, $${parameters.length})`);
+        }
+        if (request.after !== undefined) {
+          parameters.push(request.after.keyPrefix, request.after.keySha256, request.after.ts);
+          predicates.push(`(key_prefix, key_sha256, ts) > ($${parameters.length - 2}, $${parameters.length - 1}, $${parameters.length})`);
+        }
+        const pageSize = Math.min(request.maxResults, sqlPageSize ?? request.maxResults);
+        parameters.push(pageSize, request.maxBytes, request.maxDocumentBytes);
+        const n = parameters.length;
+        // LIMIT applies to physical versions before time eligibility or joining.
+        // The byte window prevents oversized suffix/body transfer, including a
+        // coarse collision. No DISTINCT or same-prefix group buffering occurs.
+        const rows = yield* driver.query(`WITH physical AS MATERIALIZED (
+          SELECT ts, key_prefix, key_suffix, key_sha256, deleted, table_id, document_id
+          FROM ${table("indexes")} WHERE ${predicates.join(" AND ")}
+          ORDER BY key_prefix, key_sha256, ts LIMIT $${n - 2}
+        ), measured AS (
+          SELECT a.*, d.ts AS document_ts, d.table_id AS anchor_table_id, d.id AS anchor_document_id,
+            d.json_value, d.deleted AS document_deleted, d.prev_ts,
+            octet_length(a.key_prefix)::bigint + coalesce(octet_length(a.key_suffix), 0)::bigint AS key_bytes,
+            coalesce(octet_length(d.json_value), 0)::bigint AS document_bytes
+          FROM physical a LEFT JOIN ${table("documents")} d ON d.instance_name = $1
+            AND a.ts >= $3 AND a.ts <= $4
+            AND d.ts = a.ts AND d.table_id = a.table_id AND d.id = a.document_id
+        ), bounded AS (
+          SELECT *, sum(key_bytes + document_bytes + 128) OVER (ORDER BY key_prefix, key_sha256, ts
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) > $${n - 1}
+            OR document_bytes > $${n} AS over_budget FROM measured
+        ) SELECT ts::text AS ts, key_prefix, CASE WHEN over_budget THEN NULL ELSE key_suffix END AS key_suffix,
+          key_sha256, deleted, table_id AS index_table_id, document_id AS index_document_id,
+          document_ts::text AS document_ts, anchor_table_id AS table_id, anchor_document_id AS document_id,
+          CASE WHEN over_budget THEN NULL ELSE json_value END AS json_value, document_deleted,
+          prev_ts::text AS prev_ts, key_bytes::text AS key_bytes, document_bytes::text AS document_bytes, over_budget
+          FROM bounded ORDER BY bounded.key_prefix, bounded.key_sha256, bounded.ts`, parameters);
+        const parsed = yield* decodeIndexHistoryRows(rows);
+        yield* retention.validateIndex(request.start);
+        yield* retention.validateDocument(request.start);
+        const keyBytes = parsed.reduce((sum, row) => sum + Number(row.key_bytes), 0);
+        const documentBytes = parsed.reduce((sum, row) => sum + Number(row.document_bytes), 0);
+        if (!Number.isSafeInteger(keyBytes) || !Number.isSafeInteger(documentBytes) || parsed.length > pageSize)
+          return yield* new CorePersistenceError({ reason: "corruptData" });
+        const overBudget = parsed.some(row => row.over_budget || row.document_bytes > BigInt(request.maxDocumentBytes))
+          || keyBytes + documentBytes + parsed.length * 128 > request.maxBytes;
+        let previous: CoreIndexHistoryCursor | undefined = request.after;
+        for (const row of parsed) {
+          const order = previous === undefined ? 1 : compareBytesLexicographically(row.key_prefix, previous.keyPrefix)
+            || compareBytesLexicographically(row.key_sha256, previous.keySha256) || (row.ts > previous.ts ? 1 : row.ts < previous.ts ? -1 : 0);
+          if (order <= 0)
+            return yield* new CorePersistenceError({ reason: "corruptData", cause: "Physical history cursor did not advance" });
+          if (row.deleted ? row.index_table_id !== null || row.index_document_id !== null || row.document_ts !== null
+            : row.index_table_id === null || row.index_document_id === null || !bytesEqual(row.index_table_id, request.tableId))
+            return yield* new CorePersistenceError({ reason: "corruptData", cause: "Physical history target header is invalid" });
+          if ((row.ts < request.start || row.ts > request.end) && (row.document_ts !== null || row.table_id !== null
+            || row.document_id !== null || row.json_value !== null || row.document_deleted !== null || row.prev_ts !== null || row.document_bytes !== 0n))
+            return yield* new CorePersistenceError({ reason: "corruptData", cause: "Time-ineligible history header hydrated a document" });
+          previous = { keyPrefix: row.key_prefix, keySha256: row.key_sha256, ts: row.ts };
+        }
+        const entries: CoreIndexHistoryEntry[] = [];
+        if (!overBudget) for (const row of parsed) {
+          const key = new Uint8Array(row.key_prefix.length + (row.key_suffix?.length ?? 0));
+          key.set(row.key_prefix); if (row.key_suffix !== null) key.set(row.key_suffix, row.key_prefix.length);
+          const split = splitIndexKey(key);
+          if (row.key_bytes !== BigInt(key.length)
+            || !bytesEqual(split.keyPrefix, row.key_prefix) || !bytesEqual(split.keySha256, row.key_sha256)
+            || (split.keySuffix === null) !== (row.key_suffix === null)
+            || row.deleted && (row.index_table_id !== null || row.index_document_id !== null || row.document_ts !== null))
+            return yield* new CorePersistenceError({ reason: "corruptData" });
+          if (row.ts < request.start || row.ts > request.end) continue;
+          let document: CoreDocumentLogEntry | null = null;
+          if (!row.deleted) {
+            if (row.document_ts !== row.ts || row.table_id === null || row.document_id === null || row.json_value === null
+              || row.document_deleted !== false || row.index_table_id === null || row.index_document_id === null
+              || !bytesEqual(row.table_id, request.tableId) || !bytesEqual(row.index_table_id, row.table_id)
+              || !bytesEqual(row.index_document_id, row.document_id) || row.document_bytes !== BigInt(row.json_value.length))
+              return yield* new CorePersistenceError({ reason: "corruptData" });
+            document = documentFromRow({ ts: row.document_ts, table_id: row.table_id, id: row.document_id,
+              json_value: row.json_value, deleted: false, prev_ts: row.prev_ts });
+          }
+          entries.push(Object.freeze({ ts: row.ts, key, document }));
+        }
+        const last = parsed.at(-1);
+        return Object.freeze({ entries: Object.freeze(entries), examined: parsed.length, keyBytes, documentBytes, overBudget,
+          cursor: last === undefined ? null : Object.freeze({ keyPrefix: copyBytes(last.key_prefix), keySha256: copyBytes(last.key_sha256), ts: last.ts }),
+          done: parsed.length < pageSize });
+      }),
+      evaluateRelational: Effect.fn("CorePersistence.evaluateRelational")(function* (batch) {
+        const facts = yield* Effect.fromResult(inspectIssuedPostgresRelationalBatch(batch, relationalPersistenceFailure));
+        const body = yield* Effect.fromResult(buildPostgresRelationalPredicateBody(batch, facts.tableId, relationalPersistenceFailure));
+        const query = relationalDialect.sqlToQuery(body);
+        const parameters: readonly CoreSqlParameter[] = yield* decodeSqlParameters(query.params).pipe(Effect.mapError(invalid));
+        // This closed renderer emits only captured JSON, column keys and scalar
+        // operands. Output has exactly one ordinal/Boolean pair per input row.
+        return yield* driver.query(query.sql, parameters);
+      }),
       loadDocuments: Effect.fn("CorePersistence.loadDocuments")(function* (input: CoreDocumentLogRequest,
         retention: CoreRetentionValidator = sqlRetention) {
         const request = yield* decodeDocumentLogRequest(input).pipe(Effect.mapError(invalid));

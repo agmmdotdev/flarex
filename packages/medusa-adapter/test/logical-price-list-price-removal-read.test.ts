@@ -3,12 +3,11 @@ import { Effect, Result, Schema } from "effect";
 import { buildQuery } from "@medusajs/utils/modules-sdk/build-query";
 import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineCommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
-import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { commerceDecoder } from "../src/value/decoder";
 import { capturePricingMetadata } from "../src/modules/pricing/schema";
 import { compilePriceListPriceRemovalContracts, PriceListPriceRemovalWorkflowInput } from "../src/modules/pricing/price-list-price-removal-input";
 import { readPriceListPriceRemovalRows } from "../src/modules/pricing/price-list-price-removal-repository";
-import { prepareLogicalPriceListCreation } from "./support/logical-price-list-create-fixture";
+import { prepareCorePriceListCreation } from "./support/core-price-list-create-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
@@ -16,7 +15,7 @@ const objects = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject));
 const text = Schema.decodeUnknownSync(Schema.String);
 const id = (row: JsonObject) => text(row.id);
 const prices = (row: JsonObject) => objects(row.prices);
-let base: Awaited<ReturnType<typeof prepareLogicalPriceListCreation>>;
+let base: Awaited<ReturnType<typeof prepareCorePriceListCreation>>;
 let read: (ids: string[]) => Promise<ReturnType<typeof objects>>;
 
 const seed = async (suffix: string, variant: number, currency = "USD") => {
@@ -31,7 +30,7 @@ const seed = async (suffix: string, variant: number, currency = "USD") => {
 
 describe(`native157 independent Price read translation - ${driver}`, { concurrent: false }, () => {
   beforeAll(async () => {
-    base = await prepareLogicalPriceListCreation(driver, close => cleanup.push(close));
+    base = await prepareCorePriceListCreation(driver, close => cleanup.push(close));
     const contracts = Result.getOrThrow(compilePriceListPriceRemovalContracts((await Effect.runPromise(capturePricingMetadata())).frame));
     const decodeInput = commerceDecoder(PriceListPriceRemovalWorkflowInput, "invalidInput");
     // Trusted test-only read composition. This does not admit the removal module
@@ -41,14 +40,11 @@ describe(`native157 independent Price read translation - ${driver}`, { concurren
       return yield* readPriceListPriceRemovalRows(ctx, contracts, buildQuery({ id: selected.ids },
         { relations: ["price_list"], order: { id: "ASC" } }));
     }));
-    const logicalStorage = base.options.modules.pricing.logicalStorage;
-    if (logicalStorage === undefined) throw new Error("Missing initialized Pricing logical source");
-    const host = await Effect.runPromise(makeCommerceHost({ ...base.fixture.hostInput, logicalStorage, commands: [command],
-      identityAndAccessPolicy: { profile: "native157-price-read-probe" } }));
+    const host = await Effect.runPromise(base.fixture.openReadHost("pricing", [command]));
     cleanup.push(() => Effect.runPromise(host.close));
     read = async ids => objects(await Effect.runPromise(host.read(command, { ids })));
   }, 240_000);
-  afterEach(async () => { await base.closeCaseHosts(); }, 120_000);
+  afterEach(async () => { await base?.closeCaseHosts(); }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 180_000);
 
   it("keeps empty, missing and List-ID selectors empty without committed data or event changes", async () => {
@@ -56,7 +52,7 @@ describe(`native157 independent Price read translation - ${driver}`, { concurren
     expect(await read([])).toEqual([]);
     expect(await read(["", "missing157", "plist152-comparison-history", "missing157"])).toEqual([]);
     const after = await base.snapshot();
-    for (const name of ["rows", "revisions", "rowChanges", "physicalFacts", "events"] as const)
+    for (const name of ["rows", "revisions", "indexes", "events", "families", "deliveries"] as const)
       expect(after[name], name).toEqual(before[name]);
   });
 
@@ -79,7 +75,7 @@ describe(`native157 independent Price read translation - ${driver}`, { concurren
       expect(row?.price_set).toEqual({ id: expected.price.price_set_id });
     }
     const after = await base.snapshot();
-    for (const name of ["rows", "revisions", "rowChanges", "physicalFacts", "events"] as const)
+    for (const name of ["rows", "revisions", "indexes", "events", "families", "deliveries"] as const)
       expect(after[name], name).toEqual(before[name]);
   });
 

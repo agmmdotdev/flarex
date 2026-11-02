@@ -34,8 +34,8 @@ export function defineCorePersistenceSchema(namespace: string) {
     documentId: bytea("document_id"),
   }, table => [
     primaryKey({ columns: [table.instanceName, table.indexId, table.keySha256, table.ts] }),
-    index("indexes_by_index_id_key_prefix_key_sha256").on(
-      table.instanceName, table.indexId, table.keyPrefix, table.keySha256,
+    index("indexes_by_index_id_key_prefix_key_sha256_ts").on(
+      table.instanceName, table.indexId, table.keyPrefix, table.keySha256, table.ts,
     ),
   ]);
   const leases = schema.table("leases", {

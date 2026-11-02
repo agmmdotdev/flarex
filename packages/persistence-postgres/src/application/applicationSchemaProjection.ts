@@ -6,7 +6,8 @@ import type {
   CatalogIndexId,
   CatalogTableId,
 } from "flarex-protocol/catalog";
-import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
+import { serializeValidatorSourceResult } from "flarex-protocol/internal/validator-source-serialization";
+import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
 import {
   decodeSchemaManifestAppIndexDeclarationsV1Result,
   captureSchemaManifestAppTableDeclarationsV1Result,
@@ -72,7 +73,7 @@ export function applicationSchemaPublicationInputResult(
     logicalName: table.name,
     definition: {
       kind: "appDocument" as const,
-      definitionVersion: 1 as const,
+      definitionVersion: 2 as const,
       documentType: table.validator,
     },
   }));
@@ -147,7 +148,7 @@ export function projectBoundApplicationSchemaResult(
     const bound = boundTablesByName.get(table.name);
     if (
       bound === undefined ||
-      !canonicalJsonEqual(bound.definition.documentType, table.validator)
+      !validatorSourceEqual(bound.definition.documentType, table.validator)
     ) {
       return projectionFailure();
     }
@@ -198,14 +199,11 @@ function projectionFailure(): Result.Result<
   return Result.fail(new ApplicationSchemaProjectionError("boundProjection"));
 }
 
-function canonicalJsonEqual(left: unknown, right: unknown): boolean {
-  if (!isJson(left) || !isJson(right)) return false;
-  return encodeCanonicalJson(left, canonicalJsonInvariant) ===
-    encodeCanonicalJson(right, canonicalJsonInvariant);
-}
-
-function canonicalJsonInvariant(issue: { readonly reason: string }): never {
-  throw new Error(`Application schema JSON invariant: ${issue.reason}`);
+function validatorSourceEqual(left: ValidatorJsonV1, right: ValidatorJsonV1): boolean {
+  const leftSource = serializeValidatorSourceResult(left);
+  if (!leftSource.ok) return false;
+  const rightSource = serializeValidatorSourceResult(right);
+  return rightSource.ok && leftSource.value === rightSource.value;
 }
 
 function stringArraysEqual(

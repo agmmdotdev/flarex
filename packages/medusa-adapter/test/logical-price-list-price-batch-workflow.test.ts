@@ -1,22 +1,19 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { Cause, Deferred, Effect, Exit, Fiber, References, Result, Schema, Tracer } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, References, Schema, Tracer } from "effect";
 import { PricingModuleService } from "@medusajs/pricing/services";
 import { MedusaError } from "@medusajs/framework/utils/portable";
 import { defaultCommerceResources, isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
 import { makeLocalPricingCommands } from "../src/modules/pricing/service";
 import { PriceListPriceBatchWorkflowInput } from "../src/modules/pricing/price-list-price-batch-input";
 import { prepareBatchPriceListPricesWorkflow } from "../src/workflows/pricing/batch-price-list-prices";
 import { priceListPriceBatchResources } from "../src/workflow/policy";
 import { projectExactNumericColumns } from "../src/value/exact-numeric";
-import { prepareLogicalPriceListPriceBatch } from "./support/logical-price-list-price-batch-fixture";
+import { prepareCorePriceListPriceBatch } from "./support/core-price-list-price-batch-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalPriceListPriceBatch>>;
+let connected: Awaited<ReturnType<typeof prepareCorePriceListPriceBatch>>;
 let protectedRows: Awaited<ReturnType<typeof connected.read>>;
 type Snapshot = Awaited<ReturnType<typeof connected.snapshot>>;
 type Input = typeof PriceListPriceBatchWorkflowInput.Type;
@@ -37,11 +34,11 @@ const completeBefore = async (rows: JsonObject[], selected: string) => {
     connected.updateContracts.tables.price.columns.filter(column => column.type === "bigNumber")));
 };
 const noMutation = (before: Snapshot, after: Snapshot) => {
-  for (const name of ["rows", "revisions", "indexEntries", "indexRevisions", "uniqueKeys", "rowChanges", "physicalFacts", "events"] as const)
+  for (const name of ["rows", "revisions", "indexes", "events", "families", "deliveries"] as const)
     expect(after[name], name).toEqual(before[name]);
 };
 const eventsSince = (before: Snapshot, after: Snapshot) => after.events.filter(event => !before.events.some(prior =>
-  prior.scopeUuid === event.scopeUuid && prior.commitSeq === event.commitSeq && prior.eventOrdinal === event.eventOrdinal));
+  prior.familyId === event.familyId && prior.timestamp === event.timestamp && prior.ordinal === event.ordinal));
 const eventVector = (events: Snapshot["events"]) => events.flatMap(event => {
   const message = event.envelope.message;
   if (!isJsonObject(message) || message.data === undefined || !isJsonObject(message.data)) throw new Error("Missing genuine native Pricing event data");
@@ -107,8 +104,8 @@ const maximum = async () => {
 };
 
 describe(`original native Price List Price batch with combined admission - ${driver}`, { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalPriceListPriceBatch(driver, close => cleanup.push(close)); protectedRows = await connected.read(connected.protectedIds); }, 240_000);
-  afterEach(async () => { await connected.closeCaseHosts(); vi.restoreAllMocks(); expect(await connected.read(connected.protectedIds)).toEqual(protectedRows); }, 120_000);
+  beforeAll(async () => { connected = await prepareCorePriceListPriceBatch(driver, close => cleanup.push(close)); protectedRows = await connected.read(connected.protectedIds); }, 240_000);
+  afterEach(async () => { await connected?.closeCaseHosts(); vi.restoreAllMocks(); expect(await connected.read(connected.protectedIds)).toEqual(protectedRows); }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 180_000);
 
   it("keeps the approved named256-call profile and executes both genuine empty Link queries, both validators and the empty update calls", async () => {
@@ -181,7 +178,7 @@ describe(`original native Price List Price batch with combined admission - ${dri
       ["pricing.price.updated", id(old)], ...oldRules.map(rule => ["pricing.price-rule.deleted", id(rule)]),
       ...newRules.map(rule => ["pricing.price-rule.created", id(rule)]),
       ["pricing.price.deleted", id(deleted)], ...children(deleted, "price_rules").map(rule => ["pricing.price-rule.deleted", id(rule)])];
-    const after = await connected.snapshot(); expect(sorted(eventVector(eventsSince(before, after)))).toEqual(sorted(expected)); expect(after.physicalFacts).toEqual(before.physicalFacts);
+    const after = await connected.snapshot(); expect(sorted(eventVector(eventsSince(before, after)))).toEqual(sorted(expected));
     expect(await Effect.runPromise(host.run(key, input))).toEqual(output); expect(await connected.snapshot()).toEqual(after);
     expect(add).toHaveBeenCalledTimes(1); expect(update).toHaveBeenCalledTimes(1);
   });
@@ -250,7 +247,7 @@ describe(`original native Price List Price batch with combined admission - ${dri
       ...updatedIds.map(value => ["pricing.price.updated", value])];
     const after = await connected.snapshot(), events = eventVector(eventsSince(before, after));
     expect(events).toHaveLength(40); expect(sorted(events)).toEqual(sorted(expectedEvents));
-    expect(events.length).toBeLessThanOrEqual(priceListPriceBatchResources.eventMessages); expect(after.physicalFacts).toEqual(before.physicalFacts);
+    expect(events.length).toBeLessThanOrEqual(priceListPriceBatchResources.eventMessages);
   });
 
   it("retains genuine creation callbacks and honestly preserves destructive physical inverse loss for an existing reused Price", async () => {
@@ -378,17 +375,13 @@ describe(`original native Price List Price batch with combined admission - ${dri
   });
 
   it("recovers a lost acknowledgement without reexecuting the native parent and refuses changed replay identity", async () => {
-    const list = await seed("lost-ack", [price()]), old = children(list, "prices")[0]!, fixture = connected.fixture; let lose = true;
-    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
-      Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-      Effect.flatMap(value => { if (!lose) return Effect.succeed(value); lose = false; return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost Price batch acknowledgement") })); }),
-    ));
-    const host = await Effect.runPromise(prepareBatchPriceListPricesWorkflow({ ...connected.options, execution: { identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-      prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, session, ...composition }) } }));
+    const list = await seed("lost-ack", [price()]), old = children(list, "prices")[0]!, fixture = connected.fixture;
+    const fault = fixture.loseNextNativeRootAcknowledgement();
+    const host = await Effect.runPromise(prepareBatchPriceListPricesWorkflow(connected.options));
     const changed = await Effect.runPromise(prepareBatchPriceListPricesWorkflow({ ...connected.options, revision: "a".repeat(64) })), update = vi.spyOn(PricingModuleService.prototype, "updatePriceListPrices");
     try {
       const key = host.newRequestKey(), input: Input = { data: { id: id(list), create: [], update: [{ ...price(0, "USD", 77), id: id(old) }], delete: [] } };
-      const output = await Effect.runPromise(host.run(key, input)); expect(lose).toBe(false); expect(update).toHaveBeenCalledTimes(1);
+      const output = await Effect.runPromise(host.run(key, input)); expect(fault.armed).toBe(false); expect(fault.failures).toBe(1); expect(update).toHaveBeenCalledTimes(1);
       const committed = await connected.snapshot(); expect(await Effect.runPromise(host.run(key, input))).toEqual(output); expect(update).toHaveBeenCalledTimes(1);
       await expect(Effect.runPromise(changed.run(key, input))).rejects.toMatchObject({ reason: "requestConflict" }); expect(await connected.snapshot()).toEqual(committed);
     } finally { await Effect.runPromise(host.close); await Effect.runPromise(changed.close); }

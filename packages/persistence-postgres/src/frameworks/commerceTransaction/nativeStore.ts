@@ -35,6 +35,8 @@ export interface NativeCommerceInvocation {
   readonly allowReferenceCheckpoints?: true;
   readonly allowActiveRestoreUpdate?: true;
   readonly allowStorageInsertionOrder?: true;
+  readonly allowRecordedRowReplay?: true;
+  readonly allowPreservingDeletionUpsert?: "preserveTimestamps";
   readonly allowReferenceReplacement?: true;
   readonly setNullPolicy?: Readonly<{ managedUpdate: "advance" | "preserve" }>;
   readonly onRead?: (observation: NativeCommerceReadObservation) => Effect.Effect<void, CommerceTransactionError>;
@@ -116,7 +118,8 @@ export const makeNativeCommerceParticipant = Effect.fn("NativeCommerce.makeParti
           invocation?.allowActiveRestoreUpdate === true ? { allowActiveRestoreUpdate: true } : undefined)));
       })),
       write: (context, mode, input) => guard(context, "write", Effect.gen(function* () {
-        if (invocation !== undefined && mode === "upsertPreservingDeletion") return yield* commerceError("invalidAuthority");
+        if (invocation !== undefined && mode === "upsertPreservingDeletion"
+          && invocation.allowPreservingDeletionUpsert !== "preserveTimestamps") return yield* commerceError("invalidAuthority");
         const captured = yield* lifetime.fromResult(useCapturedPrivateJsonData(input, lifetime.remainingBytes(), commerceError));
         yield* lifetime.fromResult(lifetime.charge(captured.bytes));
         return yield* returnedRows(yield* nativeResult(observeExecution(`NativeCommerce.writeRows/${declaration.localName ?? table.name}/${mode}`,
@@ -128,6 +131,13 @@ export const makeNativeCommerceParticipant = Effect.fn("NativeCommerce.makeParti
         yield* lifetime.fromResult(lifetime.charge(captured.bytes));
         return yield* returnedRows(yield* nativeResult(operations.deleteRows(table.name, captured.value)));
       })),
+      ...(invocation?.allowRecordedRowReplay === true ? {
+        replay: (context: BoundedRequestContext, input: unknown) => guard(context, "write", Effect.gen(function* () {
+          const captured = yield* lifetime.fromResult(useCapturedPrivateJsonData(input, lifetime.remainingBytes(), commerceError));
+          yield* lifetime.fromResult(lifetime.charge(captured.bytes));
+          return yield* returnedRows(yield* nativeResult(operations.replayRows(table.name, captured.value)));
+        })),
+      } : {}),
     } satisfies CommerceStore);
     stores.set(declaration.localName ?? declaration.name, store);
   }

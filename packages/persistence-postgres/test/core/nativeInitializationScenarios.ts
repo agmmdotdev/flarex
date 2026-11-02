@@ -22,7 +22,7 @@ const acquire = Effect.fn("NativeInitializationFixture.acquire")(function* (data
   const acquired = yield* database.claimRequest(identity, yield* database.bindNativeInitialization({ binding, commandName: "initialize" }));
   if (acquired.kind !== "claimed") return yield* Effect.die(new Error("Expected an initialization claim"));
   const operation = yield* database.beginNative(binding, { commandName: "initialize", claim: acquired.claim,
-    limits: { maxIdentities: 128, maxDocumentBytes: 65536 }, chargeRetained: coreNativeTestBudget().chargeRetained });
+    ...coreNativeTestBudget(), limits: { maxIdentities: 128, maxDocumentBytes: 65536 } });
   return { claim: acquired.claim, operation };
 });
 const bind = Effect.fn("NativeInitializationFixture.bind")((database: CoreDatabase,
@@ -126,8 +126,7 @@ export function registerNativeInitializationScenarios(label: string, createFixtu
         const id = yield* second.operation.operations.insert("news", body("accepted"));
         yield* tested.database.commit(yield* second.operation.finalize(), { claim: second.claim, result: { id } });
         expect(yield* tested.database.claimRequest(tested.identity, role)).toMatchObject({ kind: "committed", result: { id } });
-        const read = yield* tested.database.beginNative(tested.binding, { commandName: "read", limits: { maxIdentities: 128, maxDocumentBytes: 65536 },
-          chargeRetained: coreNativeTestBudget().chargeRetained });
+        const read = yield* tested.database.beginNative(tested.binding, { commandName: "read", ...coreNativeTestBudget(), limits: { maxIdentities: 128, maxDocumentBytes: 65536 } });
         expect(yield* read.operations.find("news", {})).toMatchObject([{ title: "accepted" }]);
         yield* read.finishRead();
       }))); } finally { await fixture.close(); }
@@ -206,8 +205,7 @@ export function registerNativeInitializationScenarios(label: string, createFixtu
         const thirdBinding = yield* bind(third, tested.definition);
         const thirdRole = yield* third.bindNativeInitialization({ binding: thirdBinding, commandName: "initialize" });
         expect(yield* third.claimRequest(tested.identity, thirdRole)).toMatchObject({ kind: "committed", result: { id } });
-        const read = yield* third.beginNative(thirdBinding, { commandName: "read", limits: { maxIdentities: 128, maxDocumentBytes: 65536 },
-          chargeRetained: coreNativeTestBudget().chargeRetained });
+        const read = yield* third.beginNative(thirdBinding, { commandName: "read", ...coreNativeTestBudget(), limits: { maxIdentities: 128, maxDocumentBytes: 65536 } });
         expect((yield* read.operations.find("news", {})).map(row => row._id)).toEqual([id]); yield* read.finishRead();
       }))); } finally { await fixture.close(); }
     }, 90_000);

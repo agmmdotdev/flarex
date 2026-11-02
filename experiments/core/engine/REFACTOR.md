@@ -687,3 +687,19 @@ lanes. Shared fixture hosts follow the existing lazy selection contract and
 validate authority before callbacks. Selected obsolete fixture construction is
 removed; named direct-service and paused Task consumers retain their own removal
 gates. The full goal remains active.
+
+The [complete Pricing maintenance continuation](./slices/21-native-pricing-maintenance-workflows.md)
+is selected after independent current/design/pinned-source challenge and peer
+reconciliation. Preserve all ten ordinary roots, their removal read and receipt
+callers, original bounds and genuine retained native inverses. Its shared
+prerequisites translate closed PostgreSQL predicates over captured Core rows and
+authenticated native restoration through bounded index/canonical history with
+historical schema proof. The [bounded physical-history prerequisite](./slices/21c-native-history-physical-pages.md)
+extends the existing ordered index with timestamp and limits physical tuples
+before time eligibility. Existing installations require an explicit data-preserving
+platform upgrade after actual runtime/SQL drain. The five tables, Source
+observations, fresh internal-ID rules and one settlement authority remain.
+Native construction and caller retirement, corrected predicate/history owners,
+the data-preserving upgrade and focused plan proof have scoped connected
+acceptance and completed review. Named remaining consumers, paused
+Task/finite/performance work and broader goal gates remain open.

@@ -1,4 +1,5 @@
 import { Data, Schema, type Effect, type Option } from "effect";
+import type { PostgresRelationalPredicateBatch } from "../values/postgresRelationalPredicate";
 
 /** Pinned source: convex-backend db914cf06, common/src/persistence/mod.rs. */
 export type CoreTimestamp = bigint;
@@ -80,6 +81,42 @@ export interface CoreIndexScan {
   readonly maxResults: number;
 }
 
+/** Exclusive actual physical position: versions remain distinct. Its timestamp
+ * may be outside the request's value-eligibility window. */
+export interface CoreIndexHistoryCursor {
+  readonly keyPrefix: Uint8Array;
+  readonly keySha256: Uint8Array;
+  readonly ts: CoreTimestamp;
+}
+export interface CoreIndexHistoryRequest extends Pick<CoreIndexScan, "index" | "tableId" | "interval" | "maxResults"> {
+  /** Inclusive value/body eligibility, applied after the physical maxResults limit. */
+  readonly start: CoreTimestamp;
+  readonly end: CoreTimestamp;
+  readonly maxBytes: number;
+  readonly maxDocumentBytes: number;
+  readonly after?: CoreIndexHistoryCursor;
+}
+export interface CoreIndexHistoryEntry {
+  readonly ts: CoreTimestamp;
+  readonly key: Uint8Array;
+  /** Null is an index tombstone, never an absent live anchor. */
+  readonly document: CoreDocumentLogEntry | null;
+}
+export interface CoreIndexHistoryPage {
+  /** Time-eligible coarse candidates; the transaction owns exact full-key filtering. */
+  readonly entries: readonly CoreIndexHistoryEntry[];
+  /** Usage includes every limited physical header, including time-ineligible rows. */
+  readonly examined: number;
+  readonly keyBytes: number;
+  /** Only time-eligible live anchors are hydrated or charged as body bytes. */
+  readonly documentBytes: number;
+  /** Oversized blobs are measured in SQL and omitted from the wire response. */
+  readonly overBudget: boolean;
+  readonly cursor: CoreIndexHistoryCursor | null;
+  /** Physical EOF; an entries-empty page can still have consumed headers. */
+  readonly done: boolean;
+}
+
 export class CorePersistenceError extends Data.TaggedError("CorePersistenceError")<{
   readonly reason: "leaseLost" | "readOnly" | "outOfRetention" | "corruptData"
     | "unavailable" | "timeout" | "uncertainWrite" | "invalidTarget";
@@ -149,6 +186,12 @@ export interface CorePreviousRevision<Query extends CorePreviousRevisionSearch =
 
 /** Trusted, instance-bound port; never lent to user code or framework callbacks. */
 export interface CorePersistence {
+  /** Live durable floors for this exact captured persistence target. */
+  readonly retentionValidator: CoreRetentionValidator;
+  /** One drained statement over an authentic bounded batch; raw rows stay inside Core. */
+  readonly evaluateRelational: (batch: PostgresRelationalPredicateBatch) => Effect.Effect<readonly unknown[], CorePersistenceError>;
+  readonly loadIndexHistory: (request: CoreIndexHistoryRequest, retention?: CoreRetentionValidator)
+    => Effect.Effect<CoreIndexHistoryPage, CorePersistenceError>;
   /** One bounded timestamp-log SQL page; the document floor is checked after I/O, including empty pages. */
   readonly loadDocuments: (request: CoreDocumentLogRequest, retention?: CoreRetentionValidator)
     => Effect.Effect<CoreDocumentLogPage, CorePersistenceError>;

@@ -4,16 +4,14 @@ import { PricingModuleService } from "@medusajs/pricing/services";
 import { Link } from "@medusajs/modules-sdk/link";
 import { isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
 import { makeLocalPricingCommands } from "../src/modules/pricing/service";
 import { prepareDeletePricePreferencesWorkflow } from "../src/workflows/pricing/delete-price-preferences";
-import { prepareLogicalPricePreferenceDeletion } from "./support/logical-price-preference-delete-fixture";
+import { prepareCorePricePreferenceDeletion } from "./support/core-price-preference-delete-fixture";
+import { expectCapturedWorkflowRefusal } from "./support/workflow-failure-assertions";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalPricePreferenceDeletion>>;
+let connected: Awaited<ReturnType<typeof prepareCorePricePreferenceDeletion>>;
 let primary: Effect.Success<ReturnType<typeof prepareDeletePricePreferencesWorkflow>> | undefined;
 type Snapshot = Awaited<ReturnType<typeof connected.snapshot>>;
 const a = "prpref151-a", b = "prpref151-b", c = "prpref151-c", d = "prpref151-d", missing = "prpref151-missing";
@@ -21,11 +19,11 @@ const run = async (input: string[]) => {
   const host = primary ??= await connected.prepare(); return Effect.runPromise(host.run(host.newRequestKey(), input));
 };
 const noMutation = (before: Snapshot, after: Snapshot) => {
-  for (const name of ["rows", "revisions", "indexEntries", "indexRevisions", "uniqueKeys", "rowChanges", "physicalFacts", "events"] as const)
+  for (const name of ["rows", "revisions", "indexes", "events", "families", "deliveries"] as const)
     expect(after[name], name).toEqual(before[name]);
 };
 const eventsSince = (before: Snapshot, after: Snapshot) => after.events.filter(event => !before.events.some(prior =>
-  prior.scopeUuid === event.scopeUuid && prior.commitSeq === event.commitSeq && prior.eventOrdinal === event.eventOrdinal));
+  prior.familyId === event.familyId && prior.timestamp === event.timestamp && prior.ordinal === event.ordinal));
 const eventIds = (events: Snapshot["events"]) => events.map(event => {
   const message = event.envelope.message;
   if (message === undefined || !isJsonObject(message) || message.data === undefined || !isJsonObject(message.data) || typeof message.data.id !== "string")
@@ -44,11 +42,11 @@ const reasons = (value: unknown): string[] => {
 describe(`genuine native Price Preference deletion - ${driver}`, { concurrent: false }, () => {
   let protectedRows: Awaited<ReturnType<typeof connected.read>>;
   beforeAll(async () => {
-    connected = await prepareLogicalPricePreferenceDeletion(driver, close => cleanup.push(close));
+    connected = await prepareCorePricePreferenceDeletion(driver, close => cleanup.push(close));
     protectedRows = await connected.read(connected.protectedIds);
   }, 240_000);
   afterEach(async () => {
-    primary = undefined; await connected.closeCaseHosts();
+    primary = undefined; await connected?.closeCaseHosts();
     expect(await connected.read(connected.protectedIds)).toEqual(protectedRows);
     await connected.reset();
   }, 120_000);
@@ -259,7 +257,8 @@ describe(`genuine native Price Preference deletion - ${driver}`, { concurrent: f
     if (escaped === undefined) throw new Error("Missing genuine escaped native lifecycle method");
     const before = await connected.snapshot(); await expect(escaped()).rejects.toMatchObject({ reason: "closed" }); noMutation(before, await connected.snapshot());
     const caught = await connected.prepareWrapped({ caughtRefusal: true });
-    await expect(Effect.runPromise(caught.run(caught.newRequestKey(), [a]))).rejects.toMatchObject({ reason: "unsupportedProfile" });
+    const outcome = await Effect.runPromiseExit(caught.run(caught.newRequestKey(), [a]));
+    expectCapturedWorkflowRefusal(outcome, "unsupportedProfile");
     noMutation(before, await connected.snapshot());
   });
 
@@ -296,20 +295,14 @@ describe(`genuine native Price Preference deletion - ${driver}`, { concurrent: f
   });
 
   it("recovers a lost commit acknowledgement and binds both raw payload and workflow revision without reexecuting native calls", async () => {
-    let lose = true; const fixture = connected.fixture;
-    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
-      Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-      Effect.flatMap(value => { if (!lose) return Effect.succeed(value); lose = false;
-        return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost preference deletion commit acknowledgement") })); }),
-    ));
-    const host = await Effect.runPromise(prepareDeletePricePreferencesWorkflow({ ...connected.options, execution: {
-      identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-      prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, session, ...composition }) } }));
+    const fixture = connected.fixture;
+    const fault = fixture.loseNextNativeRootAcknowledgement();
+    const host = await Effect.runPromise(prepareDeletePricePreferencesWorkflow(connected.options));
     const changed = await Effect.runPromise(prepareDeletePricePreferencesWorkflow({ ...connected.options, revision: "f".repeat(64) }));
     const remove = vi.spyOn(PricingModuleService.prototype, "softDeletePricePreferences"), unlink = vi.spyOn(Link.prototype, "delete");
     try {
       const key = host.newRequestKey(), input = [b, a, b];
-      expect(await Effect.runPromise(host.run(key, input))).toBeNull(); expect(lose).toBe(false);
+      expect(await Effect.runPromise(host.run(key, input))).toBeNull(); expect(fault.armed).toBe(false); expect(fault.failures).toBe(1);
       expect(remove).toHaveBeenCalledTimes(1); expect(unlink).toHaveBeenCalledTimes(1);
       const after = await connected.snapshot(); expect(await Effect.runPromise(host.run(key, input))).toBeNull();
       expect(remove).toHaveBeenCalledTimes(1); expect(unlink).toHaveBeenCalledTimes(1);
@@ -357,7 +350,7 @@ describe(`genuine native Price Preference deletion - ${driver}`, { concurrent: f
       })));
       expect(count).toBe(2); expect(results.filter(result => result._tag === "Success")).toHaveLength(1);
       expect(results.flatMap(result => result._tag === "Failure" ? reasons(result.cause) : [])).toContain("writeConflict");
-      const after = await connected.snapshot(); expect(after.commits.length - before.commits.length).toBe(1);
+      const after = await connected.snapshot(); expect(after.outcomes.filter(outcome => outcome.value.kind === "nativeRoot").length - before.outcomes.filter(outcome => outcome.value.kind === "nativeRoot").length).toBe(1);
       expect(eventIds(eventsSince(before, after))).toEqual([a]);
     } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); remove.mockRestore(); }
   }, 120_000);

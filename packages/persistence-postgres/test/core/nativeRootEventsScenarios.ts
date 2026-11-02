@@ -61,7 +61,7 @@ const setup = Effect.fn("NativeRootEventsFixture.setup")(function* (fixture: Cor
       key, requestHash: createHash("sha256").update(key).digest("hex") };
     const claimed = yield* database.claimRequest(identity, root);
     if (claimed.kind !== "claimed") return yield* Effect.die(new Error("Fresh root was not claimed"));
-    const operation = yield* database.beginNativeRoot(root, { claim: claimed.claim, chargeRetained: coreNativeTestBudget().chargeRetained });
+    const operation = yield* database.beginNativeRoot(root, { claim: claimed.claim, ...coreNativeTestBudget() });
     const eventOperations = yield* operation.native(eventBinding);
     return { root, identity, claim: claimed.claim, operation, eventOperations, selectedPolicy };
   });

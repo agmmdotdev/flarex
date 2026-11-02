@@ -264,7 +264,7 @@ export function registerNativeReferenceCommitterScenarios(label: string, createF
             key: "native-many-one-business-document", requestHash: "native-many-thirty-two-members" };
           const acquisition = yield* database.claimRequest(identity, root);
           if (acquisition.kind !== "claimed") return yield* Effect.die(new Error("Fresh accounting request was not claimed"));
-          const operation = yield* database.beginNativeRoot(root, { claim: acquisition.claim, chargeRetained: coreNativeTestBudget().chargeRetained });
+          const operation = yield* database.beginNativeRoot(root, { claim: acquisition.claim, ...coreNativeTestBudget() });
           const selectedSeed = latestSeed;
           if (selectedSeed === undefined) return yield* Effect.die(new Error("Native root did not draw its transaction seed"));
           const preview = yield* Effect.fromResult(createTransactionIdGenerator(selectedSeed, 1_000_000_000n));
@@ -291,7 +291,7 @@ export function registerNativeReferenceCommitterScenarios(label: string, createF
           const excessiveIdentity: CoreRequestIdentity = { ...identity, key: "native-many-two-business-documents", requestHash: "two-business-documents" };
           const excessiveClaim = yield* database.claimRequest(excessiveIdentity, root);
           if (excessiveClaim.kind !== "claimed") return yield* Effect.die(new Error("Fresh excessive request was not claimed"));
-          const excessive = yield* database.beginNativeRoot(root, { claim: excessiveClaim.claim, chargeRetained: coreNativeTestBudget().chargeRetained });
+          const excessive = yield* database.beginNativeRoot(root, { claim: excessiveClaim.claim, ...coreNativeTestBudget() });
           const excessiveOperations = yield* excessive.native(binding);
           yield* excessiveOperations.insert("posts", body("excessive-a", []));
           yield* excessiveOperations.insert("posts", body("excessive-b", []));

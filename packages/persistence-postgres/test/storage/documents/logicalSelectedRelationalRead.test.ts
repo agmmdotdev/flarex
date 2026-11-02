@@ -6,8 +6,8 @@ import { normalizeRelationalSchema, relationalReverseIndexes } from "flarex-prot
 import { compileLogicalRelationalRead, prepareLogicalRelationalRead } from "../../../src/storage/documents/logicalDocuments/relationalQuery";
 import { prepareLogicalRelationalTableMechanics } from "../../../src/storage/documents/logicalDocuments/relationalRows";
 import { syntheticSchemaInput } from "../../installation/frameworkSchema/frameworkMigrationValueFixtures";
-import { buildPostgresRelationalPredicateBody, decodePostgresRelationalMatches, inspectPostgresRelationalBatch,
-  preparePostgresRelationalBatch } from "../../../src/storage/documents/logicalDocuments/postgresRelationalPredicate";
+import { decodePostgresRelationalMatches, inspectPostgresRelationalBatch, preparePostgresRelationalBatch } from "../../../src/values/postgresRelationalPredicate";
+import { buildPostgresRelationalPredicateBody } from "../../../src/database/postgresRelationalPredicate";
 
 const failure = (reason: string) => new Error(reason);
 

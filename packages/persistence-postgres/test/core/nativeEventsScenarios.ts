@@ -65,7 +65,7 @@ const setup = Effect.fn("NativeEventsFixture.setup")(function* (fixture: CorePer
       key: `native-events-${++request}`, requestHash: `arguments-${request}` };
     const acquired = yield* database.claimRequest(identity, bindings.root);
     if (acquired.kind !== "claimed") return yield* Effect.die(new Error("Fresh event root request was not claimed"));
-    const operation = yield* database.beginNativeRoot(bindings.root, { claim: acquired.claim, chargeRetained: coreNativeTestBudget().chargeRetained });
+    const operation = yield* database.beginNativeRoot(bindings.root, { claim: acquired.claim, ...coreNativeTestBudget() });
     return { operation, claim: acquired.claim, identity };
   });
   const write = Effect.fn("NativeEventsFixture.write")(function* (familyId: string, code: string) {

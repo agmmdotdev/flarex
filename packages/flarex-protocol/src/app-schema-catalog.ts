@@ -1,4 +1,5 @@
 import { compareUtf16Strings } from "@flarex/utils/strings";
+import { Result } from "effect";
 
 import { snapshotDecodedProtocolPlainData } from "./decoded-protocol-snapshot";
 import {
@@ -11,7 +12,7 @@ import {
   type AppOrderedIndexPhysicalSpecV1,
 } from "./ordered-index";
 import {
-  decodeSchemaManifestAppSchemaV1,
+  captureSchemaManifestAppSchemaV1Result,
   schemaManifestAppValidatorCanContainFieldPathV1,
   type SchemaManifestAppIndexBindingV1,
   type SchemaManifestAppIndexDescriptor,
@@ -117,7 +118,8 @@ export class AppSchemaCatalogCompilationErrorV1 extends Error {
 }
 
 /**
- * Verify and lower one complete, already-bound app-schema manifest.
+ * Verify and lower one complete, already-bound semantic app-schema manifest.
+ * Decode wire JSON at its transport or storage boundary before compilation.
  *
  * The result is derived evidence only. It contains no source-manifest copy,
  * physical definition ID, lifecycle, build state, or readiness receipt. A
@@ -127,7 +129,7 @@ export class AppSchemaCatalogCompilationErrorV1 extends Error {
 export async function compileAppSchemaCatalogRequirementsV1(
   value: unknown,
 ): Promise<CompiledAppSchemaCatalogRequirementsV1> {
-  const manifest = decodeAndSnapshotManifest(value);
+  const manifest = captureAndSnapshotManifest(value);
   const tables = [...manifest.tableDefinitions.tables].toSorted(compareTables);
   const indexes = [...manifest.indexBindings.indexes].toSorted(compareIndexes);
   const tablesById = new Map(
@@ -201,19 +203,18 @@ export async function compileAppSchemaCatalogRequirementsV1(
   } satisfies CompiledAppSchemaCatalogRequirementsV1);
 }
 
-function decodeAndSnapshotManifest(
+function captureAndSnapshotManifest(
   value: unknown,
 ): SchemaManifestAppSchemaV1 {
-  try {
-    return snapshotDecodedProtocolPlainData(
-      decodeSchemaManifestAppSchemaV1(value),
-    );
-  } catch (cause) {
-    throw new AppSchemaCatalogCompilationErrorV1(
-      { reason: "invalidManifest" },
-      { cause },
-    );
-  }
+  return Result.match(captureSchemaManifestAppSchemaV1Result(value), {
+    onFailure: cause => {
+      throw new AppSchemaCatalogCompilationErrorV1(
+        { reason: "invalidManifest" },
+        { cause },
+      );
+    },
+    onSuccess: manifest => snapshotDecodedProtocolPlainData(manifest),
+  });
 }
 
 function verifyValidatorIdTargets(

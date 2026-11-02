@@ -23,7 +23,7 @@ import type { FiniteSessionJournalParticipantSelection } from "../../src/executi
 import { makeBoundedRequestLifetime, type BoundedRequestLifetime } from "../../src/execution/preparation/boundedRequestLifetime";
 import { withLogicalRelationalAttemptAdmissionEffect, type LogicalRelationalAttemptAdmissionState } from "../../src/storage/documents/logicalDocuments/relationalAdmission";
 import { compileLogicalRelationalRead } from "../../src/storage/documents/logicalDocuments/relationalQuery";
-import { preparePostgresRelationalBatch, decodePostgresRelationalMatches } from "../../src/storage/documents/logicalDocuments/postgresRelationalPredicate";
+import { preparePostgresRelationalBatch, decodePostgresRelationalMatches } from "../../src/values/postgresRelationalPredicate";
 import { requireLogicalDocumentRootEvaluatorOpen } from "../../src/storage/documents/logicalDocuments/rootEvaluator";
 import { makeLogicalDocumentWorkingSet } from "../../src/storage/documents/logicalDocuments/workingSet";
 import type { LogicalFiniteStorageCapture } from "../../src/storage/documents/logicalDocuments/model";

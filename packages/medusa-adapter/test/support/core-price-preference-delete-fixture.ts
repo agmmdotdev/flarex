@@ -1,25 +1,18 @@
+import { prepareCorePricingMaintenance } from "./core-pricing-maintenance-fixture";
 import { Effect, Result, Schema } from "effect";
 import { createStep, createWorkflow, transform, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { deletePricePreferencesWorkflow } from "@medusajs/core-flows/pricing/delete-price-preferences";
 import type { IPricingModuleService } from "@medusajs/framework/types";
 import { Modules } from "@medusajs/framework/utils/portable";
-import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
-import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { makeCommerceHost, type LogicalCommerceHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
-import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
 import { makeLocalPricingCommands } from "../../src/modules/pricing/service";
 import { PricePreferenceDeletionIds, PricePreferenceIds } from "../../src/modules/pricing/preference-input";
 import { preparePricePreferenceDeletionLinkResource } from "../../src/links/price-preference-deletion";
 import { prepareDeletePricePreferencesWorkflow } from "../../src/workflows/pricing/delete-price-preferences";
 import { prepareCreatePricePreferencesWorkflow } from "../../src/workflows/pricing/create-price-preferences";
-import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution } from "../../src/workflow/host";
+import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
-import { projectNativeRow } from "../../src/repository/result";
-import { logicalCurrencyFixture } from "./logical-currency-fixture";
-import { logicalCurrencyInventory } from "./logical-currency-inventory";
 
 const revision = "1".repeat(64), stamp = "2026-01-01T00:00:00.000Z";
 const native = Result.getOrThrow(deletePricePreferencesWorkflow.prepare());
@@ -44,11 +37,8 @@ interface ParentOptions {
 
 /** The fixture initializer owns comparison rows. All exercised lifecycle,
  * inverse and administrative mutations below use genuine native methods. */
-export async function prepareLogicalPricePreferenceDeletion(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void) {
-  const fixture = await logicalCurrencyFixture(driver, close, { includePricing: true });
+export async function prepareCorePricePreferenceDeletion(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void) {
   const pricing = await Effect.runPromise(makeLocalPricingCommands("price-preference-deletions"));
-  const definition = fixture.pricingDefinition;
-  if (definition === undefined) throw new Error("Missing Pricing deletion definition");
   const targetIds = ["prpref151-a", "prpref151-b", "prpref151-c", "prpref151-d"] as const;
   const historyId = "prpref151-history", protectedIds = ["pref151-protected-price-set", "prpref151-protected"] as const;
   const managed = { created_at: stamp, updated_at: stamp, deleted_at: null };
@@ -64,18 +54,10 @@ export async function prepareLogicalPricePreferenceDeletion(driver: "pglite" | "
     { table: "price_preference", row: { id: historyId, attribute: "currency_code", value: "history151", is_tax_inclusive: true, ...managed, deleted_at: stamp } },
     { table: "price_preference", row: { id: protectedIds[1], attribute: "protected151", value: "never-touch", is_tax_inclusive: true, ...managed } },
   ];
-  const dataset = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows: seedRows },
-    1_048_576, { invalidInput: () => new Error("Invalid preference deletion comparison seed"), hashFailure: cause => new Error("Preference deletion seed hash", { cause }) }));
-  const hostInput = { ...fixture.hostInput, commands: pricing.commands, logicalStorage: { ...fixture.hostInput.logicalStorage,
-    source: { sourceKey: "medusa.pricing", writeProfile: "medusa.pricing", schema: definition.schema, evidence: definition.provenance },
-    initialization: { stepId: "pref151-comparison", datasetSha256: dataset.sha256Hex, expectedRowCount: seedRows.length } },
-  } satisfies LogicalCommerceHostInput<unknown>;
-  const initializer = await Effect.runPromise(makeCommerceHost(hostInput));
-  try { await Effect.runPromise(initializer.initialize(seedRows)); } finally { await Effect.runPromise(initializer.close); }
-  const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-    prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, ...composition }) };
+  const connected = await prepareCorePricingMaintenance(driver, close, { pricing, seedRows });
+  const { fixture, execution } = connected;
   const link = Result.getOrThrow(preparePricePreferenceDeletionLinkResource());
-  const options: Options = { execution, pricing: { module: pricing.workflow, logicalStorage: hostInput.logicalStorage }, link, revision,
+  const options: Options = { execution, pricing: { module: pricing.workflow, nativeStorage: connected.pricing.source }, link, revision,
     subscribers: [{ id: "native-price-preference-delete", revision }] };
   const resources = Result.getOrThrow(prepareWorkflowResources({ pricing: { module: pricing.workflow,
     methods: ["softDeletePricePreferences", "restorePricePreferences"], graph: false } }, true, { link }));
@@ -148,7 +130,7 @@ export async function prepareLogicalPricePreferenceDeletion(driver: "pglite" | "
   };
   const restoreHost = await prepareAdministrativeLifecycle(true), softDeleteHost = await prepareAdministrativeLifecycle(false);
   const creation = await Effect.runPromise(makeLocalPricingCommands("price-preferences"));
-  const creationOptions = { execution, pricing: { module: creation.workflow, logicalStorage: hostInput.logicalStorage }, revision: "2".repeat(64),
+  const creationOptions = { execution, pricing: { module: creation.workflow, nativeStorage: connected.pricing.source }, revision: "2".repeat(64),
     subscribers: [{ id: "administrative-price-preference-create", revision }] };
   const creationHost = await Effect.runPromise(prepareCreatePricePreferencesWorkflow(creationOptions));
   close(() => Effect.runPromise(creationHost.close));
@@ -176,20 +158,8 @@ export async function prepareLogicalPricePreferenceDeletion(driver: "pglite" | "
     for (let index = 0; index < extra.length; index += 4) await hardRemove(extra.slice(index, index + 4));
     createdIds.clear(); await restore([...targetIds]); await softDelete([historyId]);
   };
-  const read = async (ids: readonly string[] = targetIds) => {
-    const inventory = await logicalCurrencyInventory(fixture), result: JsonObject[] = [], selected = new Set(ids);
-    for (const current of inventory.rows) {
-      if (current.scopeUuid !== projectScopeIdUuidV1(fixture.application.authority.scopeId).scopeUuid) continue;
-      const version = inventory.revisions.find(row => row.scopeUuid === current.scopeUuid && row.tableId === current.tableId && row.commitSeq === current.commitSeq &&
-        Buffer.from(row.rowId).equals(Buffer.from(current.rowId)));
-      if (version === undefined || version.isTombstone) continue;
-      const decoded = await decodeCanonicalFlarexValueEvidenceV1({ canonicalBytes: version.valueBytes, sha256: version.valueSha256, profile: "appDocument" });
-      const row = Schema.decodeUnknownSync(Schema.JsonObject)(decoded.valueJson);
-      if (typeof row.id === "string" && selected.has(row.id)) result.push(projectNativeRow(row));
-    }
-    return result.sort((left, right) => String(left.id).localeCompare(String(right.id)));
-  };
+  const read = (ids: readonly string[] = targetIds) => connected.read(ids);
   return { fixture, pricing, options, native, targetIds, historyId, protectedIds, initial, prepareForward, prepareInverse, prepareWrapped,
     prepare: async () => own(await Effect.runPromise(prepareDeletePricePreferencesWorkflow(options))),
-    read, create, hardRemove, restore, softDelete, reset, snapshot: () => logicalCurrencyInventory(fixture), closeCaseHosts };
+    read, create, hardRemove, restore, softDelete, reset, snapshot: fixture.snapshot, closeCaseHosts };
 }

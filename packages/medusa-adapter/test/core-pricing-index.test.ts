@@ -10,6 +10,7 @@ import { commerceNativeRegistrations } from "../../persistence-postgres/src/fram
 import { getCommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
 import { CoreNativeQueryError } from "../../persistence-postgres/src/core/api";
 import { coreNativeIndexName } from "../../persistence-postgres/src/core/schemaTableName";
+import { coreNativeTestBudget } from "../../persistence-postgres/test/core/nativeTestBudget";
 import { makeLocalPricingCommands } from "../src/modules/pricing/service";
 import { workflowMethodDefinition, workflowModuleDefinition } from "../src/workflow/module";
 import { openCoreProductReadHost, seedCorePricingLists } from "./support/core-product-creation-fixture";
@@ -68,7 +69,7 @@ const observeCore = Effect.fn("NativePriceListIndex.observeCore")((where: JsonOb
     commands: yield* Effect.fromResult(commerceNativeRegistrations([readerRuntime.listUpdateRead], { readOnly: true })) });
   const { table, index } = activeIndex();
   return yield* Effect.acquireUseRelease(generation.database.beginNative(binding, { commandName: selected.name,
-    limits: { maxIdentities: 4, maxDocumentBytes: 65_536 }, chargeRetained: () => Effect.void }), operation => Effect.gen(function* () {
+    ...coreNativeTestBudget(), limits: { maxIdentities: 4, maxDocumentBytes: 65_536 } }), operation => Effect.gen(function* () {
     const documents = page ? (yield* operation.operations.findPage(table.name, where,
       { indexName: index.indexName, offset: 0, limit: 4 })).documents : yield* operation.operations.find(table.name, where);
     yield* operation.finishRead();

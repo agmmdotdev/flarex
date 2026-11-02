@@ -14,22 +14,49 @@ class CoreLayoutBuildError extends Data.TaggedError("CoreLayoutBuildError")<{
 const root = fileURLToPath(new URL("..", import.meta.url));
 const zero = "00000000-0000-0000-0000-000000000000";
 const baseline = "00000000-0000-4000-8000-000000000001";
+const historyOrder = "00000000-0000-4000-8000-000000000002";
 const templateNamespace = "flarex_core";
 const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
 
 const build = Effect.fn("CoreLayout.build")(function* () {
   const check = process.argv[2] === "check";
-  const previous = generateDrizzleJson({});
-  previous.id = zero;
+  const empty = generateDrizzleJson({});
+  empty.id = zero;
+  empty.prevId = zero;
+  // Reconstruct the one exact predecessor through Drizzle's typed producer and
+  // authenticate it against the immutable original snapshot and SQL. A later,
+  // unrelated schema change cannot silently rewrite the historical baseline.
+  const previous = generateDrizzleJson({ ...corePersistenceSchema });
+  previous.id = baseline;
   previous.prevId = zero;
+  const indexTable = previous.tables[`${templateNamespace}.indexes`];
+  const ordered = indexTable?.indexes.indexes_by_index_id_key_prefix_key_sha256_ts;
+  if (indexTable === undefined || ordered === undefined || Object.keys(indexTable.indexes).length !== 1
+    || ordered.columns.at(-1)?.expression !== "ts")
+    return yield* new CoreLayoutBuildError({ operation: "Expected the one timestamp-ordered index replacement" });
+  indexTable.indexes = { indexes_by_index_id_key_prefix_key_sha256: { ...ordered,
+    name: "indexes_by_index_id_key_prefix_key_sha256", columns: ordered.columns.slice(0, -1) } };
   const current = generateDrizzleJson({ ...corePersistenceSchema });
-  current.id = baseline;
-  current.prevId = zero;
+  current.id = historyOrder;
+  current.prevId = baseline;
+  const priorSnapshot = yield* Effect.tryPromise({ try: () => readFile(resolve(root, "drizzle/core/meta/0000_snapshot.json"), "utf8"),
+    catch: cause => new CoreLayoutBuildError({ operation: "read immutable baseline snapshot", cause }) });
+  if (priorSnapshot.replaceAll("\r\n", "\n") !== json(previous))
+    return yield* new CoreLayoutBuildError({ operation: "Immutable baseline snapshot differs from the exact predecessor" });
+  const previousStatements = yield* Effect.tryPromise({ try: () => generateMigration(empty, previous),
+    catch: cause => new CoreLayoutBuildError({ operation: "authenticate baseline Drizzle migration", cause }) });
+  const previousSql = `${previousStatements.join("\n--> statement-breakpoint\n")}\n`;
+  const priorSql = yield* Effect.tryPromise({ try: () => readFile(resolve(root, "drizzle/core/0000_core.sql"), "utf8"),
+    catch: cause => new CoreLayoutBuildError({ operation: "read immutable baseline SQL", cause }) });
+  if (priorSql.replaceAll("\r\n", "\n") !== previousSql)
+    return yield* new CoreLayoutBuildError({ operation: "Immutable baseline SQL differs from the exact predecessor" });
   const statements = yield* Effect.tryPromise({
-    try: () => generateMigration(previous, current),
+    try: () => generateMigration(empty, current),
     catch: cause => new CoreLayoutBuildError({ operation: "generate Drizzle migration", cause }),
   });
-  const shapes = Object.values(current.tables).map(table => ({
+  const upgrades = yield* Effect.tryPromise({ try: () => generateMigration(previous, current),
+    catch: cause => new CoreLayoutBuildError({ operation: "generate timestamp-order upgrade", cause }) });
+  const shapesOf = (snapshot: typeof current) => Object.values(snapshot.tables).map(table => ({
     name: table.name,
     columns: Object.values(table.columns).map(column => ({ name: column.name, type: column.type,
       notNull: column.notNull, default: column.default ?? null })),
@@ -38,6 +65,8 @@ const build = Effect.fn("CoreLayout.build")(function* () {
     indexes: Object.values(table.indexes).map(index => ({ name: index.name,
       columns: index.columns.map(column => column.expression), unique: index.isUnique, method: index.method })),
   })).toSorted((left, right) => left.name.localeCompare(right.name));
+  const shapes = shapesOf(current);
+  const previousShapes = shapesOf(previous);
   const sql = `${statements.join("\n--> statement-breakpoint\n")}\n`;
   const sqlSha256 = createHash("sha256").update(sql).digest("hex");
   const schemaSha256 = createHash("sha256").update(JSON.stringify(shapes)).digest("hex");
@@ -45,13 +74,18 @@ const build = Effect.fn("CoreLayout.build")(function* () {
     + `export const CORE_PHYSICAL_TEMPLATE_NAMESPACE = ${JSON.stringify(templateNamespace)};\n`
     + `export const CORE_PHYSICAL_SCHEMA_SHA256 = ${JSON.stringify(schemaSha256)};\n`
     + `export const CORE_PHYSICAL_BASELINE_SQL_SHA256 = ${JSON.stringify(sqlSha256)};\n`
+    + `export const CORE_PHYSICAL_PREVIOUS_SCHEMA_SHA256 = ${JSON.stringify(createHash("sha256").update(JSON.stringify(previousShapes)).digest("hex"))};\n`
+    + `export const CORE_PHYSICAL_PREVIOUS_SQL_SHA256 = ${JSON.stringify(createHash("sha256").update(previousSql).digest("hex"))};\n`
     + `export const CORE_PHYSICAL_STATEMENTS = ${json(statements).trimEnd()} as const;\n`
-    + `export const CORE_PHYSICAL_TABLES = ${json(shapes).trimEnd()} as const;\n`;
+    + `export const CORE_PHYSICAL_HISTORY_UPGRADE_STATEMENTS = ${json(upgrades).trimEnd()} as const;\n`
+    + `export const CORE_PHYSICAL_TABLES = ${json(shapes).trimEnd()} as const;\n`
+    + `export const CORE_PHYSICAL_PREVIOUS_TABLES = ${json(previousShapes).trimEnd()} as const;\n`;
   const files = [
-    { path: "drizzle/core/0000_core.sql", content: sql },
-    { path: "drizzle/core/meta/0000_snapshot.json", content: json(current) },
+    { path: "drizzle/core/0001_native_history_order.sql", content: `${upgrades.join("\n--> statement-breakpoint\n")}\n` },
+    { path: "drizzle/core/meta/0001_snapshot.json", content: json(current) },
     { path: "drizzle/core/meta/_journal.json", content: json({ version: "7", dialect: "postgresql", entries: [
       { idx: 0, version: "7", when: 0, tag: "0000_core", breakpoints: true },
+      { idx: 1, version: "7", when: 1, tag: "0001_native_history_order", breakpoints: true },
     ] }) },
     { path: "src/database/corePersistence/layout.generated.ts", content: generated },
   ];

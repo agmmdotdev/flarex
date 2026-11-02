@@ -5,13 +5,15 @@ import type { DocumentObject } from "flarex-protocol/document-value";
 import { isJson, isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import { prepareRelationalRead, relationalSelectionValues, type RelationalSelection } from "../values/relationalQuery";
 import type { NormalizedRelationalPredicate } from "../values/relationalPredicate";
+import { issuePostgresRelationalPredicate } from "../values/postgresRelationalPredicate";
 import { CoreNativeQueryError, CoreQueryInputError, CoreTransactionError, type CoreError, type CoreNativeOperations, type CoreTableDefinition } from "./api";
 import { CorePersistenceError } from "./contracts";
 import type { CoreNativeRelationalRowPolicy, CoreNativeTableDeclaration } from "./nativePolicy";
 
-const failure = (reason: "invalidInput" | "limitExceeded" | "storedCorruption", cause?: unknown): CoreError =>
+const failure = (reason: "invalidInput" | "invalidAuthority" | "limitExceeded" | "storedCorruption", cause?: unknown): CoreError =>
   reason === "storedCorruption" ? new CorePersistenceError({ reason: "corruptData", cause })
     : reason === "limitExceeded" ? new CoreTransactionError({ reason: "capacity", cause })
+      : reason === "invalidAuthority" ? new CoreTransactionError({ reason: "authorityRevoked", cause })
       : new CoreNativeQueryError({ reason: "invalidInput", cause });
 
 export function coreNativeRelationalRow(document: DocumentObject): Result.Result<JsonObject, CoreError> {
@@ -29,8 +31,13 @@ const project = (row: JsonObject, fields: readonly string[]): Result.Result<Json
 });
 
 export function prepareCoreNativeRelationalRead(policy: CoreNativeRelationalRowPolicy, input: unknown, pageRows: number) {
-  return prepareRelationalRead(policy.table, input, pageRows, failure).pipe(Result.flatMap(prepared =>
-    prepared.compile().pipe(Result.map(query => ({ ...query, predicate: prepared.predicate })))));
+  return Result.gen(function* () {
+    const prepared = yield* prepareRelationalRead(policy.table, input, pageRows, failure);
+    const postgresPredicate = prepared.postgresPredicate === undefined ? undefined
+      : yield* issuePostgresRelationalPredicate(policy.table, prepared.postgresPredicate, failure);
+    const query = yield* prepared.compile();
+    return { ...query, postgresPredicate, predicate: prepared.predicate };
+  });
 }
 type Query = Result.Result.Success<ReturnType<typeof prepareCoreNativeRelationalRead>>;
 
@@ -48,15 +55,13 @@ function selectedWhere(table: CoreTableDefinition, selection: RelationalSelectio
   return where;
 }
 
-/** Complete selections retain their first native membership observation. Search
- * and JSON are genuine pure residuals over that bounded indexed cohort; no SQL
- * or second snapshot is introduced. Count precedes projection and population. */
+/** Complete selections retain their first native membership observation. Closed
+ * PostgreSQL programs evaluate only that captured cohort; pure residuals retain
+ * their existing owner. Count precedes projection and population. */
 export const executeCoreNativeRelationalRead = Effect.fn("CoreNativeRelational.read")(function* (
-  operations: Pick<CoreNativeOperations, "find">, table: CoreTableDefinition,
+  operations: Pick<CoreNativeOperations, "find" | "matchRelational">, table: CoreTableDefinition,
   policy: CoreNativeRelationalRowPolicy, query: Query, purpose: "rows" | "count" = "rows",
 ) {
-  if (query.postgresPredicate !== undefined) return yield* new CoreQueryInputError({ reason: "invalidQuery",
-    cause: "PostgreSQL predicate execution is not admitted by this native profile" });
   if (query.selections === null && query.requiresIndexedNullAnchor
     && !query.requiredNulls.some(field => table.indexes.some(index => index.fields[0] === field)))
     return yield* failure("invalidInput");
@@ -68,17 +73,30 @@ export const executeCoreNativeRelationalRead = Effect.fn("CoreNativeRelational.r
       candidates.set(document._id, document);
     }
   }
-  return yield* Effect.fromResult(Result.gen(function* () {
-    const matched: { readonly id: string; readonly row: JsonObject; readonly order: Uint8Array; readonly creationTime: number }[] = [];
+  const inspectedRows = yield* Effect.fromResult(Result.gen(function* () {
+    const rows: { readonly id: string; readonly row: JsonObject; readonly order: Uint8Array;
+      readonly matches: boolean; readonly creationTime: unknown }[] = [];
     for (const [id, document] of candidates) {
       const row = yield* coreNativeRelationalRow(document);
       yield* policy.rows.validate(row, "storedCorruption");
-      const inspected = yield* query.inspect(row);
-      if (inspected.matches) {
-        if (typeof document._creationTime !== "number" || !Number.isFinite(document._creationTime))
-          return yield* Result.fail(failure("storedCorruption"));
-        matched.push({ id, row, order: inspected.order, creationTime: document._creationTime });
-      }
+      const inspected = yield* query.postgresPredicate === undefined ? query.inspect(row)
+        : query.inspectOrder(row).pipe(Result.map(({ order }) => ({ order, matches: false })));
+      if (query.postgresPredicate === undefined && inspected.matches
+        && (typeof document._creationTime !== "number" || !Number.isFinite(document._creationTime)))
+        return yield* Result.fail(failure("storedCorruption"));
+      rows.push({ id, row, ...inspected, creationTime: document._creationTime });
+    }
+    return rows;
+  }));
+  // Even an empty indexed cohort reaches the complete validated SQL tree once.
+  const verdicts = query.postgresPredicate === undefined ? inspectedRows.map(row => row.matches)
+    : yield* operations.matchRelational(table.name, query.postgresPredicate, inspectedRows.map(row => row.row));
+  return yield* Effect.fromResult(Result.gen(function* () {
+    const matched: { readonly id: string; readonly row: JsonObject; readonly order: Uint8Array; readonly creationTime: number }[] = [];
+    for (const [ordinal, member] of inspectedRows.entries()) if (verdicts[ordinal] === true) {
+      if (typeof member.creationTime !== "number" || !Number.isFinite(member.creationTime))
+        return yield* Result.fail(failure("storedCorruption"));
+      matched.push({ ...member, creationTime: member.creationTime });
     }
     matched.sort((left, right) => (query.storageInsertion ? left.creationTime - right.creationTime
       : compareBytesLexicographically(left.order, right.order)) * (query.direction === "asc" ? 1 : -1)

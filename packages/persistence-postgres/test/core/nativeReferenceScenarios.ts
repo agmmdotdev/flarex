@@ -157,7 +157,7 @@ export function registerCoreNativeReferenceScenarios(driver: "pglite" | "postgre
       const readCommand = getCmsCommand(commands.findByID);
       if (readCommand === undefined) throw new Error("Missing actual native read command");
       const limited = await run(Effect.acquireUseRelease(fixture.database.beginNative(fixture.binding, { commandName: readCommand.name,
-        limits: { maxIdentities: 1, maxDocumentBytes: 65_536 }, chargeRetained: coreNativeTestBudget().chargeRetained }),
+        ...coreNativeTestBudget(), limits: { maxIdentities: 1, maxDocumentBytes: 65_536 } }),
       operation => operation.operations.incomingReferences("relatedPost", target, { limit: 16 }).pipe(Effect.result), operation => operation.abort()));
       expect(limited).toMatchObject({ failure: { reason: "capacity" } });
       expect(await fixture.inventory()).toEqual(before);

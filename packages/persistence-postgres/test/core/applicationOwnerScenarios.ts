@@ -64,7 +64,7 @@ const write = Effect.fn("ApplicationOwnerFixture.write")(function* (owner: CoreA
     phase(`${key}:claim-ack`);
     if (acquired.kind !== "claimed") return yield* Effect.die(new Error(`Expected fresh claim: ${acquired.kind}`));
     return yield* Effect.acquireUseRelease(prepared.database.beginNativeRoot(selected.root,
-      { claim: acquired.claim, chargeRetained: coreNativeTestBudget().chargeRetained }), operation => Effect.gen(function* () {
+      { claim: acquired.claim, ...coreNativeTestBudget() }), operation => Effect.gen(function* () {
       yield* beforeBody;
       phase(`${key}:body`);
       yield* body(yield* operation.native(selected.binding));

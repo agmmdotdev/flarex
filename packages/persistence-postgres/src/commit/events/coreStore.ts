@@ -264,6 +264,7 @@ export const makeCoreCommitEventStore = Effect.fn("CoreNativeEvents.makeStore")(
       return yield* Effect.acquireUseRelease(core(database.beginNative(binding, {
         commandName: mode === "read" ? CORE_NATIVE_EVENT_READ : CORE_NATIVE_EVENT_WRITE,
         limits: coreNativeEventLimits, chargeRetained,
+        remainingBytes: () => Math.max(0, CORE_TRANSACTION_REFERENCE_LIMITS.systemBytesWritten - retainedBytes),
       })), operation => Effect.gen(function* () {
         const output = yield* work(operation.operations, metadata.definition, operation.unixTime);
         if (mode === "read") yield* core(operation.finishRead());

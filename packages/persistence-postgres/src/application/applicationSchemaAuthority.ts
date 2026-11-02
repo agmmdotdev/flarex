@@ -23,8 +23,10 @@ import {
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
   MAX_CATALOG_SCHEMA_VERSION,
+  captureSchemaManifestAppSchemaV1Result,
   canonicalizeSchemaManifestV1,
   decodeSchemaManifestAppSchemaV1Result,
+  encodeSchemaManifestAppSchemaV1,
   type CatalogSchemaVersion,
   type CatalogSchemaVersionId,
   type SchemaManifestAppSchemaV1,
@@ -49,7 +51,9 @@ import {
 } from "../database/schema";
 import { snapshotSchemaManifestValue } from "../storage/catalog/schemaManifestValueSnapshot";
 import {
+  getSchemaVersionArtifactByIdEffect,
   getSchemaVersionArtifactWithOriginalByIdEffect,
+  SchemaVersionArtifactPersistenceError,
   type OriginalSchemaVersionRead,
   type ReadSchemaVersionArtifactError,
 } from "../storage/catalog/schemaVersionArtifacts";
@@ -270,6 +274,11 @@ class ApplicationSchemaVersionReservationStaleError extends Error {
   readonly _tag = "ApplicationSchemaVersionReservationStaleError" as const;
 }
 
+type ApplicationSchemaPublicationSelection = Readonly<{
+  schemaVersion: CatalogSchemaVersion;
+  originalManifest: SchemaManifestAppSchemaV1 | undefined;
+}>;
+
 function publishWithAtomicReservation(
   repository: AppSchemaPublicationV1Repository,
   deploymentId: string,
@@ -289,14 +298,16 @@ function publishWithAtomicReservation(
       repository.db,
       deploymentId,
       schemaSha256Bytes,
+      schemaVersionId,
     )
       .pipe(
-        Effect.flatMap(schemaVersion => Effect.fromResult(
+        Effect.flatMap(selection => Effect.fromResult(
           schemaPublicationInput(
             deploymentId,
             schemaVersionId,
-            schemaVersion,
+            selection.schemaVersion,
             manifest,
+            selection.originalManifest,
           ),
         ).pipe(
           Effect.flatMap(publicationInput =>
@@ -312,14 +323,14 @@ function publishWithAtomicReservation(
                   deploymentId,
                   schemaSha256Bytes,
                   schemaVersionId,
-                  schemaVersion,
+                  selection.schemaVersion,
                   publication,
                 ),
               }),
             )
           ),
           Effect.map(publication => Object.freeze({
-            schemaVersion,
+            schemaVersion: selection.schemaVersion,
             publication,
           })),
         )),
@@ -334,14 +345,16 @@ function publishWithAtomicReservation(
   return attempt(3);
 }
 
-function selectApplicationSchemaVersion(
-  db: FlarexMetadataDatabase,
-  deploymentId: string,
-  schemaSha256: Uint8Array,
-): Effect.Effect<CatalogSchemaVersion, ApplicationSchemaAuthorityError> {
-  return Effect.gen(function* () {
+const selectApplicationSchemaVersion = Effect.fn("ApplicationSchemaAuthority.selectSchemaVersion")(
+  function* (
+    db: FlarexMetadataDatabase,
+    deploymentId: string,
+    schemaSha256: Uint8Array,
+    schemaVersionId: CatalogSchemaVersionId,
+  ): Effect.fn.Return<ApplicationSchemaPublicationSelection, ApplicationSchemaAuthorityError> {
     const existing = yield* authorityQuery(() => db.select({
       schemaVersion: fxControlApplicationSchemaAuthoritiesV1.schemaVersion,
+      schemaVersionId: fxControlApplicationSchemaAuthoritiesV1.schemaVersionId,
       status: fxControlApplicationSchemaAuthoritiesV1.status,
     }).from(fxControlApplicationSchemaAuthoritiesV1).where(and(
       eq(fxControlApplicationSchemaAuthoritiesV1.deploymentId, deploymentId),
@@ -351,21 +364,25 @@ function selectApplicationSchemaVersion(
       ),
     )).limit(1));
     if (existing[0] !== undefined) {
-      const artifact = yield* authorityQuery(() => db.select({
-        version: fxControlSchemaVersions.version,
-      }).from(fxControlSchemaVersions).where(and(
-        eq(fxControlSchemaVersions.deploymentId, deploymentId),
-        eq(
-          fxControlSchemaVersions.schemaVersionId,
-          CatalogSchemaVersionIdSchema.make(
-            `application_${encodeBytesToLowercaseHex(schemaSha256)}`,
+      if (existing[0].schemaVersionId !== schemaVersionId) {
+        return yield* authorityFailure("projectionMismatch");
+      }
+      const artifact = yield* getSchemaVersionArtifactByIdEffect(db, deploymentId, schemaVersionId).pipe(
+        Effect.mapError(cause => authorityFailureValue(
+          cause instanceof SchemaVersionArtifactPersistenceError ? "resourceFailure" : "projectionMismatch",
+          cause,
+        )),
+      );
+      if (artifact !== null) {
+        if (artifact.version !== existing[0].schemaVersion) {
+          return yield* authorityFailure("projectionMismatch");
+        }
+        const originalManifest = yield* Effect.fromResult(
+          decodeSchemaManifestAppSchemaV1Result(artifact.manifestJson).pipe(
+            Result.mapError(cause => authorityFailureValue("projectionMismatch", cause)),
           ),
-        ),
-      )).limit(1));
-      if (artifact[0] !== undefined) {
-        return artifact[0].version === existing[0].schemaVersion
-          ? existing[0].schemaVersion
-          : yield* authorityFailure("projectionMismatch");
+        );
+        return Object.freeze({ schemaVersion: artifact.version, originalManifest });
       }
       if (existing[0].status === "published") {
         return yield* authorityFailure("projectionMismatch");
@@ -402,9 +419,9 @@ function selectApplicationSchemaVersion(
     if (maximum >= MAX_CATALOG_SCHEMA_VERSION) {
       return yield* authorityFailure("projectionMismatch");
     }
-    return CatalogSchemaVersionSchema.make(maximum + 1);
-  });
-}
+    return Object.freeze({ schemaVersion: CatalogSchemaVersionSchema.make(maximum + 1), originalManifest: undefined });
+  },
+);
 
 function reserveApplicationSchemaVersion(
   tx: StableTableCatalogTransaction,
@@ -567,7 +584,7 @@ const verifyPublicationArtifact = Effect.fn(
     return yield* authorityFailure("projectionMismatch");
   }
   const manifest = yield* Effect.fromResult(
-    decodeSchemaManifestAppSchemaV1Result(publication.manifest).pipe(
+    captureSchemaManifestAppSchemaV1Result(publication.manifest).pipe(
       Result.mapError(cause => authorityFailureValue(
         "projectionMismatch",
         cause,
@@ -575,7 +592,7 @@ const verifyPublicationArtifact = Effect.fn(
     ),
   );
   const canonical = yield* Effect.tryPromise({
-    try: () => canonicalizeSchemaManifestV1(manifest),
+    try: () => canonicalizeSchemaManifestV1(encodeSchemaManifestAppSchemaV1(manifest)),
     catch: cause => authorityFailureValue("projectionMismatch", cause),
   });
   if (publication.artifact.manifestCodecVersion !== canonical.codecVersion ||
@@ -597,7 +614,27 @@ function schemaPublicationInput(
   schemaVersionId: CatalogSchemaVersionId,
   schemaVersion: CatalogSchemaVersion,
   manifest: ApplicationManifestV1,
+  originalManifest: SchemaManifestAppSchemaV1 | undefined,
 ): Result.Result<PublishAppSchemaV1Input, ApplicationSchemaAuthorityError> {
+  if (originalManifest !== undefined) {
+    return Result.gen(function* () {
+      yield* projectBoundApplicationSchemaResult(manifest.schema, originalManifest).pipe(
+        Result.mapError(cause => authorityFailureValue("projectionMismatch", cause)),
+      );
+      const names = new Map(originalManifest.tableDefinitions.tables.map(table => [table.tableId, table.logicalName] as const));
+      const indexes: PublishAppSchemaV1Input["indexes"][number][] = [];
+      for (const index of originalManifest.indexBindings.indexes) {
+        const tableLogicalName = names.get(index.tableId);
+        if (tableLogicalName === undefined) return yield* Result.fail(authorityFailureValue("projectionMismatch"));
+        indexes.push({ tableLogicalName, descriptor: index.descriptor, fields: index.spec.fields,
+          ...(index.spec.decimalFields === undefined ? {} : { decimalFields: index.spec.decimalFields }) });
+      }
+      // Replay the authenticated declaration generation through the full existing
+      // catalog/artifact gate; a stored artifact alone is not publication proof.
+      return Object.freeze({ deploymentId, schemaVersionId, version: schemaVersion,
+        tables: originalManifest.tableDefinitions.tables.map(table => ({ logicalName: table.logicalName, definition: table.definition })), indexes });
+    });
+  }
   return applicationSchemaPublicationInputResult(
     deploymentId,
     schemaVersionId,

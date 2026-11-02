@@ -7,6 +7,7 @@ import { CoreTransactionError } from "../../persistence-postgres/src/core/api";
 import { CommerceTransactionError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
 import { CorePersistenceError } from "../../persistence-postgres/src/core/contracts";
 import { readDocumentObject } from "../../persistence-postgres/src/core/registry";
+import { prepareCorePriceListCreation } from "./support/core-price-list-create-fixture";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Core Links driver");
@@ -49,6 +50,34 @@ function retainedCoreFailures(cause: Cause.Cause<unknown>, visited = new Set<obj
     return Cause.isCause(error.cause) ? retainedCoreFailures(error.cause, visited) : [];
   });
 }
+
+describe("standalone native Pricing and Variant Link Core installation", () => {
+  const cleanup: Array<() => Promise<void>> = [];
+  let connected: Awaited<ReturnType<typeof prepareCorePriceListCreation>>;
+  beforeAll(async () => { connected = await prepareCorePriceListCreation(driver, close => cleanup.push(close)); }, 180_000);
+  afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
+
+  it("installs Pricing6 plus its one native flat Link and private events over exactly five physical tables", async () => {
+    expect(connected.fixture.sources.map(source => source.definition.tables.length)).toEqual([6, 1]);
+    expect(connected.fixture.sources.map(source => source.definition.source.key)).toEqual(["medusa.pricing", "medusa.variant-pricing-link"]);
+    expect(connected.fixture.eventDefinition).toBeDefined();
+    const link = connected.fixture.sources[1]?.definition;
+    if (link === undefined) throw new Error("Missing actual standalone native Link source");
+    expect(link.foreignKeys).toBeUndefined();
+    expect(link.tables).toHaveLength(1);
+    expect(await connected.fixture.physical.query(`select table_name as name from information_schema.tables
+      where table_schema = $1 and table_type = 'BASE TABLE' order by table_name`, [connected.fixture.physical.namespace]))
+      .toEqual(["documents", "indexes", "leases", "persistence_globals", "read_only"].map(name => ({ name })));
+    const variantId = connected.variantIds[0], priceSetId = connected.setIds[0];
+    if (variantId === undefined || priceSetId === undefined) throw new Error("Missing genuine standalone Link comparison seed");
+    const host = await Effect.runPromise(connected.fixture.openReadHost("variant_pricing_link", [connected.link.count]));
+    try {
+      expect(await Effect.runPromise(host.read(connected.link.count, { filters: { variant_id: [variantId] },
+        config: { select: ["variant_id", "price_set_id"], relations: [], skip: 0, take: 4, order: { variant_id: "ASC" } } })))
+        .toEqual([[{ variant_id: variantId, price_set_id: priceSetId }], 1]);
+    } finally { await Effect.runPromise(host.close); }
+  }, 120_000);
+});
 
 describe("actual stored Module Links through Core", () => {
   beforeAll(async () => {

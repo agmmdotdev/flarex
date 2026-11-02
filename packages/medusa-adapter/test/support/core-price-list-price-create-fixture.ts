@@ -9,7 +9,7 @@ import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { priceListPriceCreationResources } from "../../src/workflow/policy";
-import { prepareLogicalPriceListCreation } from "./logical-price-list-create-fixture";
+import { prepareCorePriceListCreation } from "./core-price-list-create-fixture";
 
 const Ids = Schema.Array(Schema.String).check(Schema.isMaxLength(8));
 type Input = typeof PriceListPriceCreationWorkflowInput.Type;
@@ -25,8 +25,8 @@ const callbacks = { lists: listValidation.invoke, links: linkValidation.invoke, 
 
 /** Reuse the installed Pricing/Link fixture and native List creation for seeds.
  * The tested branch and retained inverse always call original native callbacks. */
-export async function prepareLogicalPriceListPriceCreation(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void) {
-  const base = await prepareLogicalPriceListCreation(driver, close);
+export async function prepareCorePriceListPriceCreation(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void) {
+  const base = await prepareCorePriceListCreation(driver, close);
   const pricing = await Effect.runPromise(makeLocalPricingCommands("price-list-price-creations"));
   const options: Options = { ...base.options, modules: { ...base.options.modules,
     pricing: { ...base.options.modules.pricing, module: pricing.workflow, logicalResources: priceListPriceCreationResources, logicalPublication: "mixed" },
@@ -71,12 +71,12 @@ export async function prepareLogicalPriceListPriceCreation(driver: "pglite" | "p
     return own(await Effect.runPromise(prepareAtomicWorkflowHost({ ...options, operationScheduling: "queued", borrowedOperationScheduling: "queued", requestCallLimit: priceListPriceCreationResources.calls, workflow: { name: "probePriceListPriceInverse", resources,
       prepared: Result.getOrThrow(flow.prepare()), input: Ids, output: Schema.Null, events: internalModuleWorkflowEvents } })));
   };
-  const prepareWrapped = async (configuration: { readonly lateFailure?: boolean; readonly caughtRefusal?: boolean;
+  const prepareWrapped = async (configuration: { readonly lateFailure?: Error; readonly caughtRefusal?: boolean;
     readonly escape?: (callback: () => Promise<unknown>) => void } = {}) => {
     const step = createStep("probe155-parent", resources.callback(async (output: unknown, context) => {
       configuration.escape?.(() => context.resources.pricing.addPriceListPrices([]));
       if (configuration.caughtRefusal) { try { context.container.resolve("region"); } catch { /* Authentic caught refusal remains sticky. */ } }
-      if (configuration.lateFailure) throw new Error("Late parent failure after native Price List Price creation");
+      if (configuration.lateFailure !== undefined) throw configuration.lateFailure;
       return output;
     }));
     const flow = createWorkflow("probe155-parent-root", (input: WorkflowData<CreatePriceListPricesWorkflowInput>) => {
@@ -89,5 +89,6 @@ export async function prepareLogicalPriceListPriceCreation(driver: "pglite" | "p
   const seedLists = async (input: Parameters<Awaited<ReturnType<typeof base.prepare>>["run"]>[1]) => {
     const host = await base.prepare(); return Effect.runPromise(host.run(host.newRequestKey(), input));
   };
-  return { ...base, pricing, options, contracts, seedLists, prepare, prepareDefault64, prepareForward, prepareInverse, prepareWrapped, closeCaseHosts };
+  return { ...base, pricing, options, contracts, seedLists, prepare, prepareDefault64, prepareForward, prepareInverse, prepareWrapped, closeCaseHosts,
+    readStorageOrder: (ids: readonly string[]) => base.readStorageOrder(ids, "price") };
 }

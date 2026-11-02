@@ -4,25 +4,23 @@ import { PricingModuleService } from "@medusajs/pricing/services";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
 import { PriceListWorkflowInput } from "../src/modules/pricing/list-input";
 import { makeLocalPricingCommands } from "../src/modules/pricing/service";
 import { prepareCreatePriceListsWorkflow } from "../src/workflows/pricing/create-price-lists";
-import { prepareLogicalPriceListCreation } from "./support/logical-price-list-create-fixture";
+import { prepareCorePriceListCreation } from "./support/core-price-list-create-fixture";
+import { expectWorkflowDefect } from "./support/workflow-failure-assertions";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalPriceListCreation>>;
+let connected: Awaited<ReturnType<typeof prepareCorePriceListCreation>>;
 type Snapshot = Awaited<ReturnType<typeof connected.snapshot>>;
 type Input = typeof PriceListWorkflowInput.Type;
 const noMutation = (before: Snapshot, after: Snapshot) => {
-  for (const name of ["rows", "revisions", "indexEntries", "indexRevisions", "uniqueKeys", "rowChanges", "physicalFacts", "events"] as const)
+  for (const name of ["rows", "revisions", "indexes", "events", "families", "deliveries"] as const)
     expect(after[name], name).toEqual(before[name]);
 };
 const eventsSince = (before: Snapshot, after: Snapshot) => after.events.filter(event => !before.events.some(prior =>
-  prior.scopeUuid === event.scopeUuid && prior.commitSeq === event.commitSeq && prior.eventOrdinal === event.eventOrdinal));
+  prior.familyId === event.familyId && prior.timestamp === event.timestamp && prior.ordinal === event.ordinal));
 const readObjects = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject));
 const children = (root: JsonObject, field: string) => readObjects(root[field]);
 const ids = (rows: readonly JsonObject[]) => rows.map(row => Schema.decodeUnknownSync(Schema.String)(row.id));
@@ -51,8 +49,8 @@ const maximum = (suffix: string): Input => ({ price_lists_data: Array.from({ len
 })) });
 
 describe(`genuine native Price List creation - ${driver}`, { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalPriceListCreation(driver, close => cleanup.push(close)); }, 240_000);
-  afterEach(async () => { await connected.closeCaseHosts(); }, 120_000);
+  beforeAll(async () => { connected = await prepareCorePriceListCreation(driver, close => cleanup.push(close)); }, 240_000);
+  afterEach(async () => { await connected?.closeCaseHosts(); }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 180_000);
 
   it("resolves the native empty root without module writes and skips the genuine empty inverse", async () => {
@@ -106,7 +104,7 @@ describe(`genuine native Price List creation - ${driver}`, { concurrent: false }
       });
       const after = await connected.snapshot(), emitted = eventsSince(before, after);
       expect(after.rows.length - before.rows.length).toBe(36); expect(emitted).toHaveLength(36);
-      expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1);
+      expect(new Set(emitted.map(event => event.timestamp)).size).toBe(1);
       expect(eventVector(emitted)).toEqual([
         ...ids(output).map(id => ["pricing.price-list.created", id]),
         ...output.flatMap(root => ids(children(root, "price_list_rules"))).map(id => ["pricing.price-list-rule.created", id]),
@@ -236,22 +234,21 @@ describe(`genuine native Price List creation - ${driver}`, { concurrent: false }
   it("rolls back the full pending graph once on the known late-parent failure and latches a caught resource refusal", async () => {
     const create = vi.spyOn(PricingModuleService.prototype, "createPriceLists"), remove = vi.spyOn(PricingModuleService.prototype, "deletePriceLists");
     try {
-      const late = await connected.prepareWrapped({ lateFailure: true }), before = await connected.snapshot();
-      await expect(Effect.runPromise(late.run(late.newRequestKey(), maximum("late")))).rejects.toMatchObject({
-        reason: "adapterFailure", cause: { message: "Late parent failure after genuine Price List creation" },
-      });
+      const injected = new Error("Late parent failure after genuine Price List creation");
+      const late = await connected.prepareWrapped({ lateFailure: injected }), before = await connected.snapshot();
+      expectWorkflowDefect(await Effect.runPromiseExit(late.run(late.newRequestKey(), maximum("late"))), injected);
       expect(create).toHaveBeenCalledTimes(1); expect(remove).not.toHaveBeenCalled();
       const created = create.mock.results[0];
       if (!created || created.type !== "return") throw new Error("Missing completed genuine native Price List creation");
       const staged = readObjects(await created.value);
       expect(staged).toHaveLength(4); expect(graphIds(staged)).toHaveLength(36);
       const failed = await connected.snapshot(); noMutation(before, failed);
-      expect(failed.outcomes).toEqual(before.outcomes); expect(failed.commits).toEqual(before.commits);
+      expect(failed.outcomes).toEqual(before.outcomes); expect(failed.outcomes.filter(outcome => outcome.value.kind === "nativeRoot")).toEqual(before.outcomes.filter(outcome => outcome.value.kind === "nativeRoot"));
       const caught = await connected.prepareWrapped({ caughtRefusal: true });
       await expect(Effect.runPromise(caught.run(caught.newRequestKey(), single("caught152")))).rejects.toBeDefined();
       expect(create).toHaveBeenCalledTimes(2); expect(remove).not.toHaveBeenCalled();
       const refused = await connected.snapshot(); noMutation(before, refused);
-      expect(refused.outcomes).toEqual(before.outcomes); expect(refused.commits).toEqual(before.commits);
+      expect(refused.outcomes).toEqual(before.outcomes); expect(refused.outcomes.filter(outcome => outcome.value.kind === "nativeRoot")).toEqual(before.outcomes.filter(outcome => outcome.value.kind === "nativeRoot"));
     } finally { create.mockRestore(); remove.mockRestore(); }
   });
 
@@ -307,20 +304,14 @@ describe(`genuine native Price List creation - ${driver}`, { concurrent: false }
   });
 
   it("recovers a lost acknowledgement without native reexecution and binds the revision", async () => {
-    const fixture = connected.fixture; let lose = true;
-    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
-      Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-      Effect.flatMap(value => { if (!lose) return Effect.succeed(value); lose = false;
-        return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost Price List commit acknowledgement") })); }),
-    ));
-    const host = await Effect.runPromise(prepareCreatePriceListsWorkflow({ ...connected.options, execution: {
-      identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-      prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, session, ...composition }) } }));
+    const fixture = connected.fixture;
+    const fault = fixture.loseNextNativeRootAcknowledgement();
+    const host = await Effect.runPromise(prepareCreatePriceListsWorkflow(connected.options));
     const changed = await Effect.runPromise(prepareCreatePriceListsWorkflow({ ...connected.options, revision: "a".repeat(64) }));
     const create = vi.spyOn(PricingModuleService.prototype, "createPriceLists");
     try {
       const key = host.newRequestKey(), input = single("uncertain152"), output = await Effect.runPromise(host.run(key, input));
-      expect(lose).toBe(false); expect(create).toHaveBeenCalledTimes(1);
+      expect(fault.armed).toBe(false); expect(fault.failures).toBe(1); expect(create).toHaveBeenCalledTimes(1);
       const after = await connected.snapshot(); expect(await Effect.runPromise(host.run(key, input))).toEqual(output);
       expect(create).toHaveBeenCalledTimes(1); await expect(Effect.runPromise(changed.run(key, input))).rejects.toMatchObject({ reason: "requestConflict" });
       expect(await connected.snapshot()).toEqual(after);

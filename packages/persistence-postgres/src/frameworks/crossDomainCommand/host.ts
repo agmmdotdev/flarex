@@ -106,7 +106,7 @@ const compose = Effect.fn("CurrencyAnnouncement.composeNative")(function* (
         reason: failure.reason === "limitExceeded" || failure.reason === "closed" || failure.reason === "rollbackOnly"
           ? failure.reason : "unexpectedFailure", cause: failure,
       })))));
-    return yield* Effect.acquireUseRelease(coreResult(database.beginNativeRoot(rootBinding, { claim, chargeRetained })),
+    return yield* Effect.acquireUseRelease(coreResult(database.beginNativeRoot(rootBinding, { claim, chargeRetained, remainingBytes: lifetime.remainingBytes })),
       operation => Effect.gen(function* () {
         const result = yield* Effect.gen(function* () {
           yield* lifetime.fromResult(lifetime.charge(inputBytes));

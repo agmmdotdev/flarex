@@ -58,7 +58,7 @@ describe("native relational plans over Core observations", () => {
       order: { column: "id", direction: "asc" }, predicate: { kind: "and", children: [
         { kind: "isNull", column: "deleted_at" }, { kind: "textLikeAscii", column: "title", pattern: "%MATCH%" },
       ] } }, 2048));
-    const result = await Effect.runPromise(executeCoreNativeRelationalRead({ find: (_table, where) => {
+    const result = await Effect.runPromise(executeCoreNativeRelationalRead({ matchRelational: () => Effect.die("Unexpected PostgreSQL predicate operation"), find: (_table, where) => {
       captured.push(where); return Effect.succeed(rows);
     } }, table, policy, query));
     expect(captured).toEqual([{ deleted_at: null }]);
@@ -72,11 +72,11 @@ describe("native relational plans over Core observations", () => {
     const json = Result.getOrThrow(prepareCoreNativeRelationalRead(policy, { fields: ["id"], order: { column: "id", direction: "asc" },
       predicate: { kind: "and", children: [{ kind: "isNull", column: "deleted_at" },
         { kind: "jsonContains", column: "metadata", value: { channel: ["retail"] } }] } }, 2048));
-    expect(await Effect.runPromise(executeCoreNativeRelationalRead({ find: () => Effect.succeed(rows) }, table, policy, json)))
+    expect(await Effect.runPromise(executeCoreNativeRelationalRead({ matchRelational: () => Effect.die("Unexpected PostgreSQL predicate operation"), find: () => Effect.succeed(rows) }, table, policy, json)))
       .toEqual({ rows: [{ id: "a" }], count: 1, returned: 1 });
     const insertion = Result.getOrThrow(prepareCoreNativeRelationalRead(policy, { fields: ["id"], order: { kind: "storageInsertion", direction: "asc" },
       predicate: { kind: "in", column: "id", values: ["a", "z"] } }, 2048));
-    expect(await Effect.runPromise(executeCoreNativeRelationalRead({ find: () => Effect.succeed(rows) }, table, policy, insertion)))
+    expect(await Effect.runPromise(executeCoreNativeRelationalRead({ matchRelational: () => Effect.die("Unexpected PostgreSQL predicate operation"), find: () => Effect.succeed(rows) }, table, policy, insertion)))
       .toEqual({ rows: [{ id: "z" }, { id: "a" }], count: 2, returned: 2, orderedIdentities: [{ id: "z" }, { id: "a" }] });
   });
 
@@ -93,7 +93,7 @@ describe("native relational plans over Core observations", () => {
     expect(plan({ sku: "shared" }).kind).not.toBe("unique");
   });
 
-  it("keeps examined pages on the native window and refuses unadmitted PostgreSQL predicates before reads", async () => {
+  it("keeps examined pages on the native window and refuses PostgreSQL page predicates before reads", async () => {
     const { table, policy } = select("product");
     const declaration = definition.tables.find(candidate => candidate.name === table.name);
     if (declaration === undefined) throw new Error("Missing Product declaration");
@@ -110,9 +110,9 @@ describe("native relational plans over Core observations", () => {
       predicate: { kind: "and", children: [{ kind: "in", column: "id", values: ["page"] },
         { kind: "postgresText", column: "title", operator: "regex", value: "P.*" }] } }, 2048));
     let reads = 0;
-    await expect(Effect.runPromise(executeCoreNativeRelationalRead({ find: () => {
-      reads++; return Effect.succeed([row]);
-    } }, table, policy, postgres))).rejects.toMatchObject({ _tag: "CoreQueryInputError", reason: "invalidQuery" });
+    await expect(Effect.runPromise(executeCoreNativeRelationalPage({ findPage: () => {
+      reads++; return Effect.succeed({ documents: [row], hasMore: false });
+    } }, table, declaration, policy, postgres))).rejects.toMatchObject({ _tag: "CoreQueryInputError", reason: "invalidQuery" });
     expect(reads).toBe(0);
   });
 });

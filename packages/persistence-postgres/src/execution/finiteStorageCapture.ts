@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 import { captureDriverDecoder, compileFiniteCaptureResultMapper, type CaptureProjectionField } from "./finiteStorageCaptureProjection";
 import { Cause, Data, Effect, Result, Schema } from "effect";
 import { sql, type SQL } from "drizzle-orm";
-import { buildPostgresRelationalPredicateBody, decodePostgresRelationalMatches, inspectPostgresRelationalBatch, type PostgresRelationalPredicateBatch } from "../storage/documents/logicalDocuments/postgresRelationalPredicate";
+import { decodePostgresRelationalMatches, inspectPostgresRelationalBatch, type PostgresRelationalPredicateBatch } from "../values/postgresRelationalPredicate";
+import { buildPostgresRelationalPredicateBody } from "../database/postgresRelationalPredicate";
 import { alias } from "drizzle-orm/pg-core";
 import { inspectLogicalRelationalRealBatch, executeLogicalRelationalRealBatch, type LogicalRelationalRealBatch } from "../storage/documents/logicalDocuments/relationalRows";
 import type { JsonObject } from "flarex-protocol/json";
@@ -65,7 +66,7 @@ export type FiniteStorageCaptureOperation =
   | Readonly<{ kind: "admission" }>
   | Readonly<{ kind: "rows"; input: ReadAppRowsAtSnapshotV1Input; maximumTotalValueBytes?: number; settlementWindow?: true }>
   | Readonly<{ kind: "indexPage"; input: ScanAppIndexAtSnapshotV1Input; tableId: CatalogTableId }>
-  | Readonly<{ kind: "relationalPredicate"; tableId: CatalogTableId; batch: PostgresRelationalPredicateBatch }>
+  | Readonly<{ kind: "relationalPredicate"; tableId: CatalogTableId; batch: PostgresRelationalPredicateBatch<CatalogTableId> }>
   | Readonly<{ kind: "relationalReal"; tableId: CatalogTableId; batch: LogicalRelationalRealBatch }>
   | Readonly<{ kind: "ownership"; tableId: CatalogTableId }>
   | Readonly<{ kind: "historicalIdentity"; tableId: CatalogTableId; rowId: Uint8Array }>

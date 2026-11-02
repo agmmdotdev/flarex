@@ -6,7 +6,7 @@ import type { LogicalDocumentFailure } from "./model";
 import { prepareLogicalRelationalRowValues, relationalTextIdentity, hasPreparedLogicalRelationalTableMechanics,
   inspectLogicalRelationalCanonicalRow, type PreparedLogicalRelationalTableMechanics } from "./relationalRows";
 import { prepareRelationalRead, type RelationalReadAccess } from "../../../values/relationalQuery";
-import { issuePostgresRelationalPredicate } from "./postgresRelationalPredicate";
+import { issuePostgresRelationalPredicate } from "../../../values/postgresRelationalPredicate";
 
 export { relationalReadLimits, relationalSelectionValues as logicalRelationalSelectionValues } from "../../../values/relationalQuery";
 export type { StorageInsertionOrder, RelationalReadAccess as LogicalRelationalReadAccess,
@@ -19,7 +19,7 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
 }
 
 /** Retained execution authority wraps the shared value compiler. Canonical row
- * validation and PostgreSQL program issuance never enter the SQL-free owner. */
+ * validation and exact source binding remain this wrapper's responsibilities. */
 export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTableDefinition, capabilities: readonly RelationalPersistenceCapability[], input: unknown,
   pageRows: number, error: LogicalDocumentFailure<Failure>, mechanics?: PreparedLogicalRelationalTableMechanics) {
   return Result.gen(function* () {

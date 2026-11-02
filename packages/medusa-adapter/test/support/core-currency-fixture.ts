@@ -225,7 +225,7 @@ export async function createCoreCurrencyFixture(driver: "pglite" | "postgres", o
         const command = getCommerceCommand(currencyAnnouncementWrite);
         if (table === undefined || command === undefined) return yield* Effect.die(new Error("Missing fixture Currency maintenance target"));
         const operation = yield* database.beginNative(currencyBinding, { commandName: command.name,
-          limits: { maxIdentities: 128, maxDocumentBytes: 65_536 }, chargeRetained: coreNativeTestBudget().chargeRetained });
+          ...coreNativeTestBudget(), limits: { maxIdentities: 128, maxDocumentBytes: 65_536 } });
         return { operation, table: table.name };
       }), ({ operation, table }) => Effect.gen(function* () {
         const rows = yield* "insert" in input ? operation.operations.writeRows(table, "insert", input.insert)

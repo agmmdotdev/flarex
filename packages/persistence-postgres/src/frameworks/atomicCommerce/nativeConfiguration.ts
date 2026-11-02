@@ -57,6 +57,8 @@ const Invocation = Schema.Struct({
   setNullPolicy: Schema.UndefinedOr(LogicalSetNullPolicy),
   allowActiveRestoreUpdate: Schema.UndefinedOr(Schema.Literal(true)),
   allowStorageInsertionOrder: Schema.UndefinedOr(Schema.Literal(true)),
+  allowRecordedRowReplay: Schema.UndefinedOr(Schema.Literal(true)),
+  allowPreservingDeletionUpsert: Schema.UndefinedOr(Schema.Literal("preserveTimestamps")),
   allowReferenceCheckpoints: Schema.UndefinedOr(Schema.Literal(true)),
   insertValidation: Schema.UndefinedOr(LogicalInsertValidation),
 });
@@ -68,6 +70,8 @@ const invocationPolicy = (member: typeof Invocation.Type) => Object.freeze({
   ...(member.setNullPolicy === undefined ? {} : { setNullPolicy: Object.freeze({ ...member.setNullPolicy }) }),
   ...(member.allowActiveRestoreUpdate === true ? { allowActiveRestoreUpdate: true as const } : {}),
   ...(member.allowStorageInsertionOrder === true ? { allowStorageInsertionOrder: true as const } : {}),
+  ...(member.allowRecordedRowReplay === true ? { allowRecordedRowReplay: true as const } : {}),
+  ...(member.allowPreservingDeletionUpsert === undefined ? {} : { allowPreservingDeletionUpsert: member.allowPreservingDeletionUpsert }),
   ...(member.allowReferenceCheckpoints === true ? { allowReferenceCheckpoints: true as const } : {}),
   ...(member.insertValidation === undefined ? {} : { insertValidation: member.insertValidation }),
 });
@@ -127,8 +131,7 @@ export const prepareAtomicCommerceNativeConfiguration = Effect.fn("AtomicCommerc
     const source = selection === undefined ? undefined : captured.sources.find(candidate => atomicCommerceNativeSourceIdentity(candidate.source)?.name === selection.name);
     if (name === undefined || !isCommerceDefinitionName(name) || names.has(name) || tokens.has(member.participant) || source === undefined || selection === undefined
       || member.profile !== undefined || member.logicalStorage !== undefined || member.commands.length === 0
-      || member.validate !== undefined || member.reconstitution !== undefined || member.allowPreservingDeletionUpsert !== undefined
-      || member.allowRecordedRowReplay !== undefined || member.detachDeletedReferences !== undefined
+      || member.validate !== undefined || member.reconstitution !== undefined || member.detachDeletedReferences !== undefined
       || selectedSources.has(source.definition.identity.sourceKey)) return yield* commerceError("unsupportedProfile");
     const identity = source.definition.identity;
     if (selection.sourceKey !== identity.sourceKey || selection.sourceSha256 !== identity.sourceSha256
@@ -138,7 +141,8 @@ export const prepareAtomicCommerceNativeConfiguration = Effect.fn("AtomicCommerc
     yield* Effect.fromResult(decodePublication(member.logicalPublication).pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause))));
     const invocation = yield* Effect.fromResult(decodeInvocation({ allowReferenceReplacement: member.allowReferenceReplacement,
       setNullPolicy: member.setNullPolicy, allowActiveRestoreUpdate: member.allowActiveRestoreUpdate,
-      allowStorageInsertionOrder: member.allowStorageInsertionOrder, allowReferenceCheckpoints: member.allowReferenceCheckpoints,
+      allowStorageInsertionOrder: member.allowStorageInsertionOrder, allowRecordedRowReplay: member.allowRecordedRowReplay,
+      allowPreservingDeletionUpsert: member.allowPreservingDeletionUpsert, allowReferenceCheckpoints: member.allowReferenceCheckpoints,
       insertValidation: member.insertValidation }).pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause))));
     const resources = yield* Effect.fromResult(captureCommerceResources(member.logicalResources ?? defaultCommerceResources));
     if (limits.commandBytes > resources.commandBytes)
@@ -161,6 +165,8 @@ export const prepareAtomicCommerceNativeConfiguration = Effect.fn("AtomicCommerc
     const validated = member.validateLogical !== undefined || member.validateLogicalCall !== undefined;
     if (events !== undefined && !validated || invocation.setNullPolicy !== undefined && !validated
       || invocation.allowActiveRestoreUpdate === true && !validated || invocation.allowStorageInsertionOrder === true && !validated
+      || invocation.allowRecordedRowReplay === true && member.validateLogicalCall === undefined
+      || invocation.allowPreservingDeletionUpsert !== undefined && member.validateLogicalCall === undefined
       || invocation.allowReferenceCheckpoints === true && member.validateLogicalCall === undefined
       || invocation.insertValidation !== undefined && member.validateLogicalCall === undefined
       || invocation.allowReferenceReplacement === true && (!validated || member.derivedIdEvent === undefined

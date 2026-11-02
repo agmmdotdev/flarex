@@ -1,20 +1,23 @@
 import { Effect, Result, Schema } from "effect";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { requirePreparedApplicationSchemaSource, type PreparedApplicationSchemaSource } from "@flarex/analysis/internal/logical-application-source";
-import { encodeLogicalSchemaSource, logicalTableKey, type QualifiedLogicalTable } from "flarex-protocol/internal/logical-schema-candidate";
+import { encodeLogicalSchemaSource, logicalTableKey, LogicalSchemaSourceSchema, QualifiedLogicalTableSchema,
+  type QualifiedLogicalTable } from "flarex-protocol/internal/logical-schema-candidate";
 import { encodeCanonicalJson, type Json } from "flarex-protocol/json";
 import { captureCoreSchema, CoreSchemaError, type CoreSchemaDefinition } from "./schemaTypes";
-import { captureCoreTableNamespace, coreNamespaceKey, type CoreTableNamespace } from "./namespace";
+import { captureCoreTableNamespace, CoreTableNamespaceSchema, coreNamespaceKey, type CoreTableNamespace } from "./namespace";
 import { isCoreNativeDefinitionSuccessor, requireCoreNativeDefinition, type CoreNativeDefinition } from "./nativePolicy";
 import { encodeValidatorJsonV1 } from "flarex-protocol/validator-json";
 import { coreNativeTableName } from "./schemaTableName";
 import { serializeCoreSchema } from "./schemaJson";
 import { compileCoreApplicationIndexes } from "../application/coreSchema";
 import type { PreparedLogicalSchemaCandidate } from "@flarex/analysis/internal/logical-schema-candidate";
-import type { CoreNativeProtectedReference } from "./nativePolicyTypes";
+import { CoreNativeProtectedReferenceSchema, type CoreNativeProtectedReference } from "./nativePolicyTypes";
 import { lowerCoreProtectedReferences } from "./nativeProtectedSchema";
 import { coreProtectedNativeReferenceMeaning } from "./protectedNativeMetadata";
 import { SchemaManifestJsonSchema } from "flarex-protocol/schema-manifest";
+import { CorePersistenceError } from "./contracts";
+import type { CoreTableDefinition } from "./api";
 
 export interface CoreSchemaTableBinding {
   readonly sourceKey: string;
@@ -49,10 +52,82 @@ const SourceEnvelope = Schema.Union([
 const decodeSourceEnvelope = Schema.decodeUnknownResult(SourceEnvelope, { onExcessProperty: "error" });
 const decodeSourceCount = Schema.decodeUnknownResult(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 64 })));
 const captureNativeBindings = Schema.decodeUnknownResult(SchemaManifestJsonSchema);
-const decodeNativeBindings = Schema.decodeUnknownResult(Schema.Array(Schema.Struct({ sourceKey: Schema.NonEmptyString,
+const NativeBindings = Schema.Array(Schema.Struct({ sourceKey: Schema.NonEmptyString,
   selected: Schema.Boolean }).annotate({ parseOptions: { onExcessProperty: "error" } })).check(Schema.isMaxLength(64),
   Schema.makeFilter(values => new Set(values.map(value => value.sourceKey)).size === values.length
-    ? undefined : "Native binding source selections must be distinct")), { onExcessProperty: "error" });
+    ? undefined : "Native binding source selections must be distinct"));
+const decodeNativeBindings = Schema.decodeUnknownResult(NativeBindings, { onExcessProperty: "error" });
+const StoredBundleSource = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("application"), source: LogicalSchemaSourceSchema })
+    .annotate({ parseOptions: { onExcessProperty: "error" } }),
+  Schema.Struct({ kind: Schema.Literal("native"), source: LogicalSchemaSourceSchema, native: Schema.String })
+    .annotate({ parseOptions: { onExcessProperty: "error" } }),
+]);
+const StoredBundle = Schema.Struct({ format: Schema.Literal("flarex.core-schema-bundle"), version: Schema.Literal(1),
+  loweringVersion: Schema.Literal(1), namespace: CoreTableNamespaceSchema,
+  sources: Schema.Array(StoredBundleSource).check(Schema.isMinLength(1), Schema.isMaxLength(64),
+    Schema.makeFilter(sources => new Set(sources.map(source => source.source.key)).size === sources.length
+      ? undefined : "Stored schema source keys must be distinct")),
+  bindings: Schema.Array(Schema.Struct({ sourceKey: Schema.NonEmptyString, localName: Schema.NonEmptyString,
+    table: QualifiedLogicalTableSchema, coreTableName: Schema.NonEmptyString })
+    .annotate({ parseOptions: { onExcessProperty: "error" } })).check(Schema.isMaxLength(256),
+    Schema.makeFilter(bindings => new Set(bindings.map(binding => binding.coreTableName)).size === bindings.length
+      && new Set(bindings.map(binding => `${binding.sourceKey}\0${binding.localName}`)).size === bindings.length
+      ? undefined : "Stored schema table bindings must be distinct")),
+  protectedReferences: Schema.optionalKey(Schema.Array(CoreNativeProtectedReferenceSchema)),
+  nativeBindings: Schema.optionalKey(NativeBindings), schema: Schema.String,
+}).annotate({ parseOptions: { onExcessProperty: "error" } });
+const decodeStoredBundle = Schema.decodeUnknownResult(StoredBundle, { onExcessProperty: "error" });
+const corruptHistoricalBundle = (cause?: unknown) => new CorePersistenceError({ reason: "corruptData",
+  ...(cause === undefined ? {} : { cause }) });
+
+/** A retained bundle can prove inclusion of one currently issued source. It
+ * cannot issue a historical definition or authenticate its unrelated sources. */
+export function coreHistoricalSchemaBundleIncludes(metadata: string, schema: CoreSchemaDefinition,
+  definition: CoreNativeDefinition, table: CoreTableDefinition, currentSchema: CoreSchemaDefinition):
+  Result.Result<void, CorePersistenceError> {
+  return Result.gen(function* () {
+    yield* Result.mapError(requireCoreNativeDefinition(definition), corruptHistoricalBundle);
+    const prior = schema.tables.find(candidate => candidate.tableName === table.name);
+    const current = currentSchema.tables.find(candidate => candidate.tableName === table.name);
+    if (prior === undefined || current === undefined)
+      return yield* Result.fail(corruptHistoricalBundle("Historical native table has no schema declaration"));
+    const priorTable = yield* Result.mapError(serializeCoreSchema({ ...schema, tables: [prior] }), corruptHistoricalBundle);
+    const currentTable = yield* Result.mapError(serializeCoreSchema({ ...currentSchema, tables: [current] }), corruptHistoricalBundle);
+    if (priorTable !== currentTable)
+      return yield* Result.fail(corruptHistoricalBundle("Historical native table declaration differs from the selected source"));
+    // The exact standalone native frame is already issuer-authenticated. Tagged
+    // bundles require the closed inclusion decoder below, never reconstruction.
+    if (metadata === definition.metadata) return;
+    const parsed = yield* Result.try({ try: (): unknown => JSON.parse(metadata), catch: corruptHistoricalBundle });
+    const json = yield* Result.mapError(captureNativeBindings(parsed), corruptHistoricalBundle);
+    if (canonical(json) !== metadata)
+      return yield* Result.fail(corruptHistoricalBundle("Historical schema bundle is not canonical"));
+    const bundle = yield* Result.mapError(decodeStoredBundle(json), corruptHistoricalBundle);
+    if (coreNamespaceKey(bundle.namespace) !== coreNamespaceKey(table.namespace)
+      || bundle.schema !== (yield* Result.mapError(serializeCoreSchema(schema), corruptHistoricalBundle)))
+      return yield* Result.fail(corruptHistoricalBundle("Historical bundle differs from its retained schema record"));
+    const source = bundle.sources.find(candidate => candidate.source.key === definition.source.key);
+    if (source?.kind !== "native" || source.native !== definition.metadata
+      || canonical(encodeLogicalSchemaSource(source.source)) !== canonical(encodeLogicalSchemaSource(definition.source)))
+      return yield* Result.fail(corruptHistoricalBundle("Historical bundle does not include the exact selected native source"));
+    const bindings = bundle.bindings.filter(binding => binding.sourceKey === definition.source.key);
+    if (bindings.length !== definition.source.bindings.length)
+      return yield* Result.fail(corruptHistoricalBundle("Historical native source binding closure differs"));
+    for (const binding of definition.source.bindings) {
+      const declaration = definition.tables.find(candidate => (candidate.localName ?? candidate.name) === binding.localName);
+      const recorded = bindings.find(candidate => candidate.localName === binding.localName);
+      if (binding.kind !== "definition" || declaration === undefined || recorded === undefined
+        || recorded.coreTableName !== declaration.name || logicalTableKey(recorded.table) !== logicalTableKey(binding.table))
+        return yield* Result.fail(corruptHistoricalBundle("Historical native source binding differs"));
+    }
+    if (!bindings.some(binding => binding.coreTableName === table.name) || table.nativePolicy?.bindingSelected === false
+      || bundle.nativeBindings?.find(binding => binding.sourceKey === definition.source.key)?.selected !== table.nativePolicy?.bindingSelected
+      || canonical(bundle.protectedReferences?.filter(reference => reference.sourceTable === table.name || reference.targetTable === table.name) ?? [])
+        !== canonical(table.nativePolicy?.protectedReferences ?? []))
+      return yield* Result.fail(corruptHistoricalBundle("Historical native source-local exposure differs"));
+  });
+}
 
 /** Capture only the envelope. Opaque definitions retain their exact issuer
  * identity; foreign getters and wrappers never survive into asynchronous work. */

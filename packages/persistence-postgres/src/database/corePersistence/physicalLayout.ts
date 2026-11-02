@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import { CorePersistenceError } from "../../core/contracts";
 import type { CoreSqlConnection } from "./driver";
-import { CORE_PHYSICAL_TABLES } from "./layout.generated";
+import { CORE_PHYSICAL_PREVIOUS_TABLES, CORE_PHYSICAL_TABLES } from "./layout.generated";
 
 export const CorePersistenceNamespaceSchema = Schema.NonEmptyString.check(Schema.makeFilter(value =>
   /^[a-z][a-z0-9_]{0,62}$/.test(value) && value !== "public" && !value.startsWith("pg_") && value !== "information_schema"
@@ -38,7 +38,7 @@ const same = (left: readonly string[], right: readonly string[]) => left.length 
  * Every other checked property affects the generated layout or write behavior.
  */
 export const verifyCorePhysicalLayout = Effect.fn("CorePersistence.verifyPhysicalLayout")(function* (
-  connection: CoreSqlConnection, namespace: string,
+  connection: CoreSqlConnection, namespace: string, generation: "current" | "baseline" | "adoptable" = "current",
 ) {
   const relations = yield* Schema.decodeUnknownEffect(Relations)(yield* connection.query(`SELECT c.relname AS table_name,
     c.relkind::text AS kind, c.relrowsecurity AS row_security, c.relforcerowsecurity AS force_row_security
@@ -75,6 +75,12 @@ export const verifyCorePhysicalLayout = Effect.fn("CorePersistence.verifyPhysica
     FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class tab ON tab.oid=i.indrelid
     JOIN pg_catalog.pg_namespace n ON n.oid=tab.relnamespace JOIN pg_catalog.pg_class idx ON idx.oid=i.indexrelid
     JOIN pg_catalog.pg_am am ON am.oid=idx.relam WHERE n.nspname=$1 ORDER BY tab.relname,idx.relname`, [namespace])).pipe(Effect.mapError(invalidPhysicalLayout));
+  // The unmarked historical adoption input may have either exact supported
+  // layout. All catalog properties below are still verified against that one
+  // generated shape; a partial upgrade or redundant secondary fails closed.
+  const baseline = generation === "baseline" || generation === "adoptable" && indexes.some(index =>
+    index.table_name === "indexes" && index.index_name === "indexes_by_index_id_key_prefix_key_sha256");
+  const expectedTables = baseline ? CORE_PHYSICAL_PREVIOUS_TABLES : CORE_PHYSICAL_TABLES;
   const constraints = yield* Schema.decodeUnknownEffect(Constraints)(yield* connection.query(`SELECT c.relname AS table_name,
     k.contype::text AS constraint_type FROM pg_catalog.pg_constraint k
     JOIN pg_catalog.pg_class c ON c.oid=k.conrelid JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
@@ -88,7 +94,7 @@ export const verifyCorePhysicalLayout = Effect.fn("CorePersistence.verifyPhysica
   if (constraints.some(constraint => constraint.constraint_type !== "p" && constraint.constraint_type !== "n") || triggers.length !== 0)
     return yield* invalidPhysicalLayout("Unexpected physical constraints or triggers");
 
-  for (const table of CORE_PHYSICAL_TABLES) {
+  for (const table of expectedTables) {
     const actualColumns = columns.filter(column => column.table_name === table.name);
     if (actualColumns.length !== table.columns.length) return yield* invalidPhysicalLayout(`Unexpected columns in ${table.name}`);
     for (let position = 0; position < table.columns.length; position += 1) {
@@ -117,4 +123,5 @@ export const verifyCorePhysicalLayout = Effect.fn("CorePersistence.verifyPhysica
         || actual.method !== expected.method) return yield* invalidPhysicalLayout(`Physical index differs in ${table.name}`);
     }
   }
+  return baseline ? "baseline" as const : "current" as const;
 });

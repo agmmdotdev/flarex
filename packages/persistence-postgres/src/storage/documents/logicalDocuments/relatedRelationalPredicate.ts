@@ -3,7 +3,7 @@ import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { RelationalPersistenceCapability, RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
 import { prepareLogicalRelationalRead, relationalReadLimits } from "./relationalQuery";
 import { decodeRelatedPredicateNodeLimit } from "../../../execution/preparation/frameworkExecutionPolicy";
-import { issuePostgresRelatedRelationalPredicate, type NormalizedRelatedRelationalPredicate } from "./postgresRelationalPredicate";
+import { issuePostgresRelatedRelationalPredicate, type NormalizedRelatedRelationalPredicate } from "../../../values/postgresRelationalPredicate";
 import type { LogicalDocumentFailure } from "./model";
 
 const Query = Schema.Struct({ childTable: Schema.String, foreignKey: Schema.String, predicate: Schema.Unknown });

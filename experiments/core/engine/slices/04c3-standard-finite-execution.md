@@ -86,6 +86,19 @@ sequence overlapping owners rather than inventing duplicate enforcement.
 
 ## Required connected evidence
 
+Strict finite source admission requires the Application publisher and analyzed
+logical source to supply matching V2 definitions. Their shared-owner correction
+belongs to
+[09](./09-source-validator-wire-parity.md#remaining-application-publication-producer-convergence),
+including authenticated original V1 publication replay. Keep exact definition
+and bidirectional index checks unchanged; this prerequisite does not resume the
+paused Standard finite implementation. PostgreSQL validation of the retained
+file-scoped owner fixture requires its ordinary schema-owner endpoint; actual
+target, activation and managed serving roles remain separately restricted.
+Supplying a serving-only login to fixture installation is a validation-profile
+error and does not justify widening runtime privileges or changing the shared
+fixture's 93 callers.
+
 - Ordinary Standard public/authenticated/internal/preselected and Task/action
   consumers record `finiteRoot`, with no displaced new durable child journals.
 - Exact selected A followed by head B never silently substitutes B. Preserve

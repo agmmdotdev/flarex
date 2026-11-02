@@ -4,8 +4,8 @@ import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import { expect, it } from "vitest";
 import { compileLogicalRelationalRead } from "../../../src/storage/documents/logicalDocuments/relationalQuery";
 import { prepareRelatedRelationalPredicate, decodeRelatedRelationalQuery } from "../../../src/storage/documents/logicalDocuments/relatedRelationalPredicate";
-import { preparePostgresRelationalBatch, buildPostgresRelationalPredicateBody, decodePostgresRelationalMatches,
-  inspectPostgresRelationalBatch } from "../../../src/storage/documents/logicalDocuments/postgresRelationalPredicate";
+import { preparePostgresRelationalBatch, decodePostgresRelationalMatches, inspectPostgresRelationalBatch } from "../../../src/values/postgresRelationalPredicate";
+import { buildPostgresRelationalPredicateBody } from "../../../src/database/postgresRelationalPredicate";
 import { relatedPredicateParent, relatedPredicateChild, numericRelatedPredicate, relatedQuery } from "./relatedRelationalPredicate.schema";
 const parent = relatedPredicateParent, child = relatedPredicateChild;
 if (parent === undefined || child === undefined) throw new Error("Missing genuine neutral tables");

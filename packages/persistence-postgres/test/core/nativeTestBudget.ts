@@ -8,5 +8,6 @@ export const CORE_NATIVE_TEST_LIMITS = Object.freeze({ maxIdentities: 256, maxDo
 export function coreNativeTestBudget() {
   const accounting = new CoreAccounting({ ...CORE_TRANSACTION_REFERENCE_LIMITS, bytesRead: 1_048_576 });
   return { limits: CORE_NATIVE_TEST_LIMITS,
+    remainingBytes: () => Math.max(0, 1_048_576 - accounting.snapshot().user.bytesRead),
     chargeRetained: (bytes: number) => Effect.fromResult(accounting.read(false, bytes)) };
 }

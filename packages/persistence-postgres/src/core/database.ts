@@ -18,7 +18,7 @@ import { CoreProgramIdentitySchema, CoreApplicationSourcePinSchema, CoreNativeRo
   type CoreRequestClaim, type CoreRequestIdentity, type CoreRequestResolution, type CoreTableDefinition,
   type CoreNativeRootBindingMetadata, type CoreApplicationInsertBinding,
   type CoreNativeRootIdentity, type CoreNativeLimits, type CoreApplicationReadBinding, type CoreNativeOperations } from "./api";
-import { CorePersistenceError, CoreTimestampSchema, type CoreDocumentLogEntry, type CoreIndexScan, type CoreInterval, type CorePersistence, type CorePersistenceSnapshot } from "./contracts";
+import { CorePersistenceError, CoreTimestampSchema, type CoreDocumentLogEntry, type CoreIndexHistoryRequest, type CoreIndexScan, type CoreInterval, type CorePersistence, type CorePersistenceSnapshot, type CoreRetentionValidator } from "./contracts";
 import { allocateCoreBuiltinDefinitions, bootstrapCore } from "./bootstrap";
 import { makeCoreCommitter } from "./committer";
 import { CoreNativeScopeExclusion, type CoreNativeScopeExclusionGrant, type CoreSettlementPurpose } from "./nativeScopeExclusion";
@@ -355,6 +355,39 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     const selected = yield* Effect.fromResult(committer.selectNativeSnapshot());
     return { ...selected, snapshot: yield* openSnapshot(selected.timestamp, selected.registry) };
   });
+
+  const capturedNativeHistory = (timestamp: bigint) => {
+    const { indexMinimumTimestamp, documentMinimumTimestamp } = initial.retentionBounds;
+    const minimumTimestamp = indexMinimumTimestamp > documentMinimumTimestamp ? indexMinimumTimestamp : documentMinimumTimestamp;
+    const retention: CoreRetentionValidator = Object.freeze({
+      validateIndex: (at: bigint) => Effect.andThen(initial.retention.validateIndex(at), persistence.retentionValidator.validateIndex(at)),
+      validateDocument: (at: bigint) => Effect.andThen(initial.retention.validateDocument(at), persistence.retentionValidator.validateDocument(at)),
+    });
+    const validate = Effect.gen(function* () {
+      yield* retention.validateIndex(minimumTimestamp);
+      yield* retention.validateDocument(minimumTimestamp);
+      yield* assertOpen;
+    });
+    return Object.freeze({ minimumTimestamp, validate,
+      page: Effect.fn("CoreDatabase.nativeHistoryPage")(function* (request: Omit<CoreIndexHistoryRequest, "start" | "end">) {
+        yield* validate;
+        const page = yield* persistence.loadIndexHistory({ ...request, start: minimumTimestamp, end: timestamp }, retention);
+        yield* validate;
+        return page;
+      }),
+      get: Effect.fn("CoreDatabase.nativeHistoricalPoint")(function* (at: bigint, tableId: Uint8Array, id: Uint8Array) {
+        yield* validate;
+        if (at < minimumTimestamp) return yield* new CorePersistenceError({ reason: "outOfRetention" });
+        if (at > timestamp) return yield* new CorePersistenceError({ reason: "invalidTarget" });
+        yield* retention.validateDocument(at);
+        const snapshot = yield* persistence.readSnapshot(at, retention);
+        const document = yield* snapshot.get(tableId, id);
+        yield* retention.validateDocument(at);
+        yield* validate;
+        return document;
+      }),
+    });
+  };
 
   const make = Effect.fn("CoreDatabase.transaction")(function* (at?: bigint, claim?: CoreRequestClaim, readonly = false, namespace:CoreTableNamespace = null, system = false) {
     namespace=yield* Effect.fromResult(Result.mapError(captureCoreTableNamespace(namespace),invalid));
@@ -1008,7 +1041,8 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       const command = authority.commands.find(candidate => candidate.name === beginOptions.commandName);
       if (command === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
       const nativeLimits = Object.freeze(yield* decodeNativeLimits(beginOptions.limits).pipe(Effect.mapError(invalid)));
-      if (typeof beginOptions.chargeRetained !== "function") return yield* invalid("Native retained-byte owner is required");
+      if (typeof beginOptions.chargeRetained !== "function" || typeof beginOptions.remainingBytes !== "function")
+        return yield* invalid("Native retained-byte owner and remaining-byte getter are required");
       const claimData = beginOptions.claim === undefined ? undefined : claims.get(beginOptions.claim);
       if (beginOptions.claim !== undefined && (claimData === undefined || !claimData.active || claimData.aborting
         || claimData.identity.kind !== "native" || !sameNativeCommand(claimData.identity.native, command.identity)))
@@ -1025,6 +1059,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         const metadata = authority.selectiveMetadata === true && command.mode === "read"
           ? yield* Effect.fromResult(committer.selectNativeSnapshot()) : undefined;
         return { snapshot: observed.snapshot, registry: observed.registry, writeLog: observed.writeLog,
+          history: capturedNativeHistory(observed.timestamp),
           ...(metadata === undefined ? {} : { metadata: { registry: metadata.registry, timestamp: metadata.timestamp } }),
           residentReader: (request: CoreIndexScan) => observed.resident.scan(request) };
       });
@@ -1035,7 +1070,8 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         residentReader: request => selected.resident.scan(request), operationCacheMaxBytes, now, idGenerator,
         vault, limits, namespace: authority.namespace, schemaBundles,
         readonly: command.mode === "read", native: { authority, visibility: command.mode === "read" ? "snapshot" : "command", capture,
-          limits: nativeLimits, chargeRetained: beginOptions.chargeRetained },
+          limits: nativeLimits, chargeRetained: beginOptions.chargeRetained, remainingBytes: beginOptions.remainingBytes,
+          evaluateRelational: persistence.evaluateRelational },
         assertOwnerOpen: assertNativeOpen, onClosed: () => borrowed.delete(context),
         ...(beginOptions.claim === undefined ? {} : { claim: beginOptions.claim }) });
       return { selected, context, command, authority, claimData };
@@ -1067,7 +1103,8 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       if (claimData === undefined || !claimData.active || claimData.aborting || claimData.identity.kind !== "nativeRoot"
         || claimData.nativeRootStarted || !sameNativeRoot(claimData.identity.root, data.metadata.identity))
         return yield* new CoreTransactionError({ reason: "foreignClaim" });
-      if (typeof beginOptions.chargeRetained !== "function") return yield* invalid("Native retained-byte owner is required");
+      if (typeof beginOptions.chargeRetained !== "function" || typeof beginOptions.remainingBytes !== "function")
+        return yield* invalid("Native retained-byte owner and remaining-byte getter are required");
       const deadline = beginOptions.admissionDeadlineUnixMilliseconds;
       if (deadline !== undefined && !Number.isSafeInteger(deadline)) return yield* invalid("Invalid native admission deadline");
       // Reserve this authentic claim before any waiting; a second root cannot
@@ -1095,6 +1132,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
           const observed = yield* startNative();
           if (data.selectiveMetadata !== true) yield* Effect.fromResult(validateNativeRoot(observed.registry, data));
           return { snapshot: observed.snapshot, registry: observed.registry, writeLog: observed.writeLog,
+            history: capturedNativeHistory(observed.timestamp),
             residentReader: (request: CoreIndexScan) => observed.resident.scan(request) };
       });
       const now = yield* decodeCreationTimestamp(yield* options.now).pipe(Effect.mapError(invalid));
@@ -1104,7 +1142,8 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         residentReader: request => selected.resident.scan(request), operationCacheMaxBytes, now, idGenerator,
         vault, limits, namespace: data.metadata.namespace, schemaBundles,
         nativeRoot: { accesses: data.accesses, limits: data.limits, maxFinalUserDocuments: data.maxFinalUserDocuments,
-          chargeRetained: beginOptions.chargeRetained, capture }, assertOwnerOpen: assertNativeOpen,
+          chargeRetained: beginOptions.chargeRetained, remainingBytes: beginOptions.remainingBytes,
+          evaluateRelational: persistence.evaluateRelational, capture }, assertOwnerOpen: assertNativeOpen,
         ...(grant === undefined ? {} : { scopeExclusion: grant }),
         onClosed: () => borrowed.delete(context), claim: beginOptions.claim });
       return { selected, context, data, claimData };

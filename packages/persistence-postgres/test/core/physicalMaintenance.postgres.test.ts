@@ -1,10 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { Effect, Schema } from "effect";
-import { describe } from "vitest";
+import { describe, expect, it } from "vitest";
 import { Pool } from "pg";
 import { makeCorePostgresDriver } from "../../src/database/corePersistence/driver";
-import { registerCorePhysicalMaintenanceScenarios } from "./physicalMaintenanceScenarios";
+import { installManagedPreviousLayout, registerCorePhysicalMaintenanceScenarios } from "./physicalMaintenanceScenarios";
+import { upgradeCorePersistenceAfterDrain } from "../../src/database/corePersistence/target";
+import { readCorePhysicalBaseline } from "../../src/database/corePersistence/physicalMaintenance";
 
 const path = process.env.FLAREX_CORE_POSTGRES_ENDPOINTS_FILE;
 const endpoints = path === undefined ? undefined : Schema.decodeUnknownSync(Schema.Struct({
@@ -14,6 +16,36 @@ const Role = Schema.Array(Schema.Struct({ role_name: Schema.String, rolsuper: Sc
   rolbypassrls: Schema.Boolean, rolcreatedb: Schema.Boolean, rolcreaterole: Schema.Boolean }));
 
 describe.runIf(endpoints !== undefined)("ordinary-role physical maintenance", () => {
+  it("refuses an undrained indexes writer before lease locking and upgrades only after its actual SQL drain", async () => {
+    if (endpoints === undefined) throw new Error("PostgreSQL maintenance endpoints were not selected");
+    const namespace = `physical_${randomUUID().replaceAll("-", "")}`;
+    const management = new Pool({ connectionString: endpoints.provisioningConnectionString, max: 2,
+      statement_timeout: 5_000 });
+    const maintenance = makeCorePostgresDriver(management);
+    try {
+      await Effect.runPromise(installManagedPreviousLayout({ namespace, maintenance }));
+      await management.query(`INSERT INTO "${namespace}".leases VALUES ('app',41)`);
+      const before = await Effect.runPromise(readCorePhysicalBaseline(maintenance, namespace));
+      const blocker = await management.connect();
+      try {
+        await blocker.query("BEGIN");
+        await blocker.query(`LOCK TABLE "${namespace}".indexes IN ROW EXCLUSIVE MODE`);
+        const outcome = await Effect.runPromise(Effect.result(upgradeCorePersistenceAfterDrain(maintenance, namespace)));
+        expect(outcome).toMatchObject({ failure: { reason: "unavailable", cause: { code: "55P03" } } });
+        expect(await management.query(`SELECT ts::text AS token FROM "${namespace}".leases WHERE instance_name='app'`))
+          .toMatchObject({ rows: [{ token: "41" }] });
+        expect(await Effect.runPromise(readCorePhysicalBaseline(maintenance, namespace))).toEqual(before);
+      } finally {
+        try { await blocker.query("ROLLBACK"); } finally { blocker.release(); }
+      }
+      await Effect.runPromise(upgradeCorePersistenceAfterDrain(maintenance, namespace));
+      expect(await management.query(`SELECT ts::text AS token FROM "${namespace}".leases WHERE instance_name='app'`))
+        .toMatchObject({ rows: [{ token: "42" }] });
+    } finally {
+      try { await management.query(`DROP SCHEMA IF EXISTS "${namespace}" CASCADE`); } finally { await management.end(); }
+    }
+  }, 30_000);
+
   if (endpoints !== undefined) registerCorePhysicalMaintenanceScenarios("PostgreSQL", async () => {
     const namespace = `physical_${randomUUID().replaceAll("-", "")}`;
     const management = new Pool({ connectionString: endpoints.provisioningConnectionString, max: 2 });

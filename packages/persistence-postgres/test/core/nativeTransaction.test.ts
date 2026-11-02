@@ -94,6 +94,8 @@ async function fixture(visibility: "command" | "snapshot" = "command", maxIdenti
   const context = createCoreTransaction({ ...initial, now: 10n, vault, readonly: visibility === "snapshot",
     idGenerator: Result.getOrThrow(createTransactionIdGenerator(new Uint8Array(32), 10n)), assertOwnerOpen,
     native: { authority, visibility, limits: { maxIdentities, maxDocumentBytes },
+      remainingBytes: () => Math.max(0, retainedMaximum - retained.snapshot().user.bytesRead),
+      evaluateRelational: () => Effect.die("Unexpected PostgreSQL predicate operation"),
       chargeRetained: bytesRead => Effect.fromResult(retained.read(false, bytesRead)), capture: () => Effect.andThen(assertOwnerOpen,
       Effect.sync(() => visibility === "snapshot" ? initial : current)) } });
   const operations = context.nativeOperations;

@@ -125,14 +125,14 @@ const compose = Effect.fn("CmsNativeHost.compose")(function* (input: NativeHostI
     );
     const acquire: Effect.Effect<SelectedOperation, CmsTransactionError> = preferences !== undefined && command.mode === "write" ? Effect.gen(function* () {
       if (claim === undefined) return yield* Effect.fail(cmsError("invalidAuthority"));
-      const operation = yield* database.beginNativeRoot(preferences.root, { claim, chargeRetained }).pipe(Effect.mapError(projectCoreCmsFailure));
+      const operation = yield* database.beginNativeRoot(preferences.root, { claim, chargeRetained, remainingBytes: lifetime.remainingBytes }).pipe(Effect.mapError(projectCoreCmsFailure));
       const operations = yield* operation.native(binding).pipe(Effect.mapError(projectCoreCmsFailure),
         Effect.onError(() => operation.abort()));
       const preferenceOperations = yield* operation.native(preferences.preferencesBinding).pipe(Effect.mapError(projectCoreCmsFailure),
         Effect.onError(() => operation.abort()));
       return { kind: "root" as const, operation, operations, preferenceOperations };
     }) : database.beginNative(binding, { commandName: command.name, limits: { maxIdentities: cmsLimits.identities,
-        maxDocumentBytes: cmsLimits.documentBytes }, chargeRetained,
+        maxDocumentBytes: cmsLimits.documentBytes }, chargeRetained, remainingBytes: lifetime.remainingBytes,
         ...(claim === undefined ? {} : { claim }) }).pipe(Effect.mapError(projectCoreCmsFailure),
         Effect.map(operation => ({ kind: "single" as const, operation, operations: operation.operations, preferenceOperations: undefined })));
     return yield* Effect.acquireUseRelease(acquire,

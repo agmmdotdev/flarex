@@ -1,4 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { Result } from "effect";
 
 import {
   APP_SCHEMA_CATALOG_COMPILER_VERSION_V1,
@@ -10,7 +11,12 @@ import {
   type CompiledAppSchemaCatalogRequirementsV1,
 } from "../src/app-schema-catalog";
 import type { CatalogIndexId, CatalogTableId } from "../src/catalog";
-import { encodeValidatorJsonV1, type ValidatorJsonV1 } from "../src/validator-json";
+import {
+  captureSchemaManifestAppSchemaV1Result,
+  decodeSchemaManifestAppSchemaV1,
+  encodeSchemaManifestAppSchemaV1,
+} from "../src/schema-manifest";
+import type { ValidatorJsonV1 } from "../src/validator-json";
 
 type ForbiddenCompiledAuthority = Extract<
   keyof CompiledAppSchemaCatalogRequirementsV1,
@@ -253,13 +259,6 @@ describe("app-schema catalog requirement compilation", () => {
         handles: field({ type: "array", value: { type: "function", args: { type: "id", tableName: "missingNested" } } }),
       },
     };
-    function currentManifest(validator: ValidatorJsonV1, fieldPath?: string) {
-      const manifest = appManifest([], fieldPath === undefined ? [] : [appIndex(1, 1, "byField", [fieldPath])]);
-      return { ...manifest, tableDefinitions: { ...manifest.tableDefinitions, tables: [{
-        tableId: 1, namespace: "app", logicalName: "records",
-        definition: { kind: "appDocument", definitionVersion: 2, documentType: JSON.stringify(encodeValidatorJsonV1(validator)) },
-      }] } };
-    }
     for (const fieldPath of [undefined, "handle", "timestamp", "handles"]) {
       await expect(compileAppSchemaCatalogRequirementsV1(currentManifest(documentType, fieldPath))).resolves.toMatchObject({ creationTimeIndexes: [{ tableId: 1 }] });
     }
@@ -267,6 +266,80 @@ describe("app-schema catalog requirement compilation", () => {
       await expect(compileAppSchemaCatalogRequirementsV1(currentManifest(documentType, fieldPath))).rejects.toMatchObject({ issue: { reason: "impossibleIndexField", fieldPath } });
     }
     await expect(compileAppSchemaCatalogRequirementsV1(currentManifest({ type: "object", value: { owner: field({ type: "id", tableName: "missingArgs" }) } }))).rejects.toMatchObject({ issue: { reason: "unknownIdTarget", targetTableName: "missingArgs" } });
+  });
+
+  it("compiles semantic V2 Source roots with the same requirements as explicitly decoded wire", async () => {
+    const roots: readonly ValidatorJsonV1[] = [
+      { type: "object", value: {
+        integer: field({ type: "literal", value: 9223372036854775807n }),
+        zero: field({ type: "literal", value: -0 }),
+        text: field({ type: "literal", value: "embedded\u0000literal" }),
+        bytes: field({ type: "bytes" }),
+      } },
+      { type: "any" },
+      { type: "union", value: [
+        { type: "object", value: { bytes: field({ type: "bytes" }) } },
+        { type: "object", value: { other: field({ type: "string" }) } },
+      ] },
+    ];
+    for (const documentType of roots) {
+      const manifest = currentManifest(documentType, "bytes");
+      const captured = Result.getOrThrow(captureSchemaManifestAppSchemaV1Result(manifest));
+      const decoded = decodeSchemaManifestAppSchemaV1(encodeSchemaManifestAppSchemaV1(captured));
+      expect(decoded.tableDefinitions.tables[0]?.definition.documentType).toEqual(documentType);
+      const compiled = await compileAppSchemaCatalogRequirementsV1(manifest);
+      expect(compiled).toEqual(await compileAppSchemaCatalogRequirementsV1(decoded));
+      expect(compiled.developerIndexes[0]?.canonical.physicalSpec.orderedFields).toEqual([
+        { kind: "documentPath", path: "bytes" },
+        { kind: "systemCreationTime" },
+      ]);
+    }
+  });
+
+  it("requires V2 wire declarations to be decoded before compilation", async () => {
+    const manifest = Result.getOrThrow(captureSchemaManifestAppSchemaV1Result(currentManifest(emptyDocument())));
+    const wire = encodeSchemaManifestAppSchemaV1(manifest);
+    expect(typeof wire.tableDefinitions.tables[0]?.definition.documentType).toBe("string");
+    await expect(compileAppSchemaCatalogRequirementsV1(wire)).rejects.toMatchObject({
+      issue: { reason: "invalidManifest" },
+    });
+    expect(await compileAppSchemaCatalogRequirementsV1(decodeSchemaManifestAppSchemaV1(wire)))
+      .toEqual(await compileAppSchemaCatalogRequirementsV1(manifest));
+  });
+
+  it("keeps frozen V1 object roots and current V2 document-root admission distinct", async () => {
+    for (const manifest of [
+      appManifest([appTable(1, "records", { type: "any" })], []),
+      appManifest([appTable(1, "records", { type: "union", value: [emptyDocument()] })], []),
+      currentManifest({ type: "string" }),
+    ]) await expect(compileAppSchemaCatalogRequirementsV1(manifest)).rejects.toMatchObject({
+      issue: { reason: "invalidManifest" },
+    });
+    const unknownVersion = currentManifest(emptyDocument());
+    Object.assign(unknownVersion.tableDefinitions.tables[0]?.definition ?? {}, { definitionVersion: 3 });
+    await expect(compileAppSchemaCatalogRequirementsV1(unknownVersion)).rejects.toMatchObject({
+      issue: { reason: "invalidManifest" },
+    });
+  });
+
+  it("rejects accessor and cyclic semantic declarations without invoking foreign getters", async () => {
+    const accessor = currentManifest(emptyDocument());
+    const definition = accessor.tableDefinitions.tables[0]?.definition;
+    if (definition === undefined) throw new Error("Missing Source table fixture");
+    let reads = 0;
+    Object.defineProperty(definition, "documentType", { enumerable: true, get: () => {
+      reads++;
+      return emptyDocument();
+    } });
+    await expect(compileAppSchemaCatalogRequirementsV1(accessor)).rejects.toMatchObject({
+      issue: { reason: "invalidManifest" },
+    });
+    expect(reads).toBe(0);
+    const cyclic: ValidatorJsonV1 = { type: "object", value: {} };
+    Object.assign(cyclic.value, { self: field(cyclic) });
+    await expect(compileAppSchemaCatalogRequirementsV1(currentManifest(cyclic))).rejects.toMatchObject({
+      issue: { reason: "invalidManifest" },
+    });
   });
 
   it("strictly rejects caller-authored physical or lifecycle authority", async () => {
@@ -362,6 +435,14 @@ function representativeManifest() {
       appIndex(4, 2, "byEmail", ["profile.email"]),
     ],
   );
+}
+
+function currentManifest(documentType: ValidatorJsonV1, fieldPath?: string) {
+  const manifest = appManifest([], fieldPath === undefined ? [] : [appIndex(1, 1, "byField", [fieldPath])]);
+  return { ...manifest, tableDefinitions: { ...manifest.tableDefinitions, tables: [{
+    tableId: 1, namespace: "app", logicalName: "records",
+    definition: { kind: "appDocument", definitionVersion: 2, documentType },
+  }] } };
 }
 
 function oneIndexManifest(

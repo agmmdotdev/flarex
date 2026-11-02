@@ -90,7 +90,7 @@ const setup = Effect.fn("NativeRootFixture.setup")(function* (fixture: CorePersi
       key: `native-root-${++requests}`, requestHash: `arguments-${requests}` };
     const acquired = yield* database.claimRequest(identity, root);
     if (acquired.kind !== "claimed") return yield* Effect.die(new Error("Fresh root request was not claimed"));
-    const operation = yield* database.beginNativeRoot(root, { claim: acquired.claim, chargeRetained: coreNativeTestBudget().chargeRetained });
+    const operation = yield* database.beginNativeRoot(root, { claim: acquired.claim, ...coreNativeTestBudget() });
     return { operation, claim: acquired.claim, identity };
   });
   return { database, options, bundle, payload, currency, payloadBinding, currencyBinding, currencyTable,
@@ -292,7 +292,7 @@ export function registerNativeRootScenarios(label: string, createFixture: () => 
         expect(failure(yield* Effect.result(tested.database.commit(oldFinalized, { claim: first.claim, result: null }))))
           .toMatchObject({ reason: "foreignClaim" });
         expect(yield* tested.database.claimRequest(first.identity, tested.root)).toEqual({ kind: "busy" });
-        const second = yield* tested.database.beginNativeRoot(tested.root, { claim: reclaimed.claim, chargeRetained: coreNativeTestBudget().chargeRetained });
+        const second = yield* tested.database.beginNativeRoot(tested.root, { claim: reclaimed.claim, ...coreNativeTestBudget() });
         const id = yield* (yield* second.native(tested.payloadBinding)).insert("posts", payloadBody("accepted explicit retry"));
         const timestamp = yield* tested.database.commit(yield* second.finalize(), { claim: reclaimed.claim, result: { id } });
         expect(yield* tested.database.claimRequest(first.identity, tested.root)).toEqual({ kind: "committed", timestamp, result: { id } });
@@ -352,7 +352,7 @@ export function registerNativeRootScenarios(label: string, createFixture: () => 
         const metadata = yield* reopened.readNativeRootBinding(currentRoot);
         const child = metadata.participants.find(participant => participant.definition.identity.sourceKey === "payload");
         if (child === undefined) return yield* Effect.die(new Error("Missing current Payload participant"));
-        const operation = yield* reopened.beginNativeRoot(currentRoot, { claim: acquired.claim, chargeRetained: coreNativeTestBudget().chargeRetained });
+        const operation = yield* reopened.beginNativeRoot(currentRoot, { claim: acquired.claim, ...coreNativeTestBudget() });
         const id = yield* (yield* operation.native(child.binding)).insert("posts", payloadBody("durable one body"));
         loseAcknowledgement = true;
         expect(failure(yield* Effect.result(reopened.commit(yield* operation.finalize(), { claim: acquired.claim, result: { id } }))))

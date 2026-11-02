@@ -1,7 +1,8 @@
 # Native Product, Links and protected reference replacement
 
-Status: **Selected Core implementation, connected database/DO/Worker proof,
-independent review and scoped retirement disposition complete.
+Status: **Selected Core implementation, scoped retirement disposition and
+protected Worker schema-authoring proof complete at the isolated checkpoint.
+Fresh Source publication alignment is complete; wider acceptance remains open.
 Named Legacy consumers and broader full-goal gates remain below.**
 
 Baseline: `6854f9ee299b7ec5b3b6d644f3d40d61859387e4`. Convex pin:
@@ -64,6 +65,62 @@ pinned Source, exchanged counterexamples, and agreed on the following contract.
 - Preserve sticky failure, actual foreign-work drain, exact point/prefix/EOF
   observations, accepted-prefix integrity, ordered publication and actual
   contributing predecessor durability. Do not make native callbacks replayable.
+
+## Protected Worker schema authoring
+
+Status: **Caller migration and full composed Worker proof complete at the
+isolated checkpoint; the connected fresh Source publication correction is verified.**
+
+All five selected suites pass with actual Worker execution on both PGlite and
+ordinary PostgreSQL in the isolated App-plus-Native candidate. The retained
+finite suite requires matching Application and analyzed V2 declarations.
+The producer correction belongs to
+[09](./09-source-validator-wire-parity.md#remaining-application-publication-producer-convergence)
+and preserves strict finite source admission. Keep the Worker proof distinct
+from retained finite execution and its wider cutover obligations.
+
+Implementation baseline: Application commit `2aad7311da14a983fcf1d5cb1530a35031f06b7c`
+with preserved Native working changes. The completed independent challenge
+inspected those executing mechanisms before the commit; the Application commit
+changed no working runtime bytes. Own only
+`packages/flarex-backend/test/support/nativeProtectedWorkerFixture.ts` and this
+slice note. The original Native-only tree
+`f86401a9327cd0eb90b55ce4a2ddda66b0b1dbee` remains a distinct frozen reference.
+
+The current protected fixture's Application tables must explicitly select the
+admitted global profile. Bare `defineTable` leaves placement unspecified and the
+retained analyzer defaults it to `partitionBy("_id")`; the ordinary Application
+compiler correctly refuses that placement. Change both the in-process schema
+and genuine emitted schema source to existing `defineGlobalTable`. Keep actual
+analysis and regenerate the source, artifact and program commitments through the
+existing pipeline. Do not edit authenticated manifests or change public analyzer
+defaults or the ordinary support guard in this bounded caller migration.
+
+Independent current-core, accepted-direction and pinned-Convex readers challenged
+this boundary and reconciled their findings. At the pin, `_id` identifies a
+document inside its selected table/component namespace; it does not impose a
+per-document owner partition. The configured Application producer already uses
+explicit global authoring. No named consumer in the five protected Worker suites
+requires the fixture's accidental `_id` placement. This selection adds no new
+engine mechanism divergence; the existing protected Worker and outcome records
+retain their authority and recovery obligations.
+
+Preserve the full Application/Payload/Product candidate, all three protected
+reference extensions, authentic bundles and source commitments, native root and
+participant authority, principal/grants/limits and ordinary-write integrity.
+Global placement does not replace the distinct persistence `instanceName` in the
+two-app witness or scope/epoch and program provenance. Preserve compatible
+metadata handoff, actor ABA, foreign-policy/root refusal, sticky failures,
+cancellation and drain, one settlement, lost-ACK reconciliation and cold committed
+replay without Worker/native callback reexecution.
+
+All five genuine protected Worker suites remain required: foundation, reverse,
+races/recovery/scope, metadata and authorization, ten cases per configured driver.
+Run actual Worker execution with PGlite and ordinary-role real PostgreSQL and
+retain every original meaningful assertion. A schema-admission pass alone does
+not establish native-reference enforcement or completion. The separately retained
+finite/journal source-catalog migration and paused performance work remain with
+their named owners; this fixture correction does not close or resume them.
 
 ## Delete closure and native presentation
 

@@ -40,33 +40,45 @@ still report the PostgreSQL error in those cohorts.
 
 ## Current ownership
 
-`packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts`
-owns the one predicate decoder, checked column/type lookup, node/depth/operand
+`packages/persistence-postgres/src/values/relationalPredicate.ts` and
+`values/relationalQuery.ts` own the shared predicate decoder, checked column/type lookup, node/depth/operand
 limits, normalized tree, required-null facts and selected index/point/search
 demands. A PostgreSQL-dependent tree issues a private program; existing pure
 predicates retain their established execution and compatibility semantics.
 
-`postgresRelationalPredicate.ts` owns program and batch identity, immutable
-candidate capture, closed SQL construction and exact result decoding. The
-new `postgresText` family selects native text comparison, LIKE, ILIKE, regex,
+`values/postgresRelationalPredicate.ts` owns program and batch identity, immutable
+candidate capture and exact result decoding. The database owner's
+`database/postgresRelationalPredicate.ts` renders the closed parameterized SQL.
+The `postgresText` family selects native text comparison, LIKE, ILIKE, regex,
 SIMPLE `to_tsvector`/`plainto_tsquery`, not-in and existence operations. Existing
 node families can occur anywhere in the complete tree. Their earlier contracts,
 including ASCII-only LIKE and UTF-8 ordering/comparison where already selected,
 remain distinct from the new native PostgreSQL leaves.
 
 Programs bind the original relational table metadata. Genuine immutable batches
-bind that program, the actual catalog table ID and detached candidate values.
+bind that program and detached candidate values. Retained Legacy batches bind
+their exact catalog table ID; translated Core batches bind the actual resolved
+table object. These owner identities are not interchangeable.
 Cloned tokens, foreign objects and substituted table identities refuse without
 reading caller-authored getters. Column keys, patterns, values and candidate JSON
 are SQL parameters; no caller supplies SQL text, database identifiers, callbacks,
 database handles or settlement authority.
 
-`workingSet.ts` acquires the original snapshot evidence and current pending
+In the retained Legacy profile, `workingSet.ts` acquires original snapshot evidence and current pending
 values through existing selected candidate paths. It validates complete rows
 before presentation, evaluates the actual current candidates, and retains normal
 row-use and read dependencies. Page execution applies the same predicate before
 accepting a frontier member. A batch or verdict never survives as a reusable
 query-specific cache; intervening pending writes require current evaluation.
+
+The translated `core/nativeRelationalQuery.ts` keeps Core candidate observations,
+pending overlays, ordering and projection. Its closed matcher runs inside the
+existing native operation, uses one drained value-only statement, and validates
+source admission before SQL and after successful decoding and charging. It does
+not copy Legacy SQL-session choreography. Complete reads are admitted; the
+separate Core PostgreSQL examined-page restriction remains closed. The
+[Core predicate slice](../../experiments/core/engine/slices/21a-native-postgres-predicates.md)
+owns those replacement boundaries.
 
 The ordinary checked transaction and installed finite capture use the same
 closed SQL body. The finite operation is named `relationalPredicate` and retains

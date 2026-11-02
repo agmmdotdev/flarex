@@ -4,25 +4,22 @@ import { Cause, Deferred, Effect, Fiber, Schema } from "effect";
 import { PricingModuleService } from "@medusajs/pricing/services";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
 import { PricePreferencesInput } from "../src/modules/pricing/input";
 import { makeLocalPricingCommands } from "../src/modules/pricing/service";
 import { prepareCreatePricePreferencesWorkflow } from "../src/workflows/pricing/create-price-preferences";
-import { prepareLogicalPricePreferenceCreation } from "./support/logical-price-preference-create-fixture";
+import { prepareCorePricePreferenceCreation } from "./support/core-price-preference-create-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalPricePreferenceCreation>>;
+let connected: Awaited<ReturnType<typeof prepareCorePricePreferenceCreation>>;
 let primary: Effect.Success<ReturnType<typeof prepareCreatePricePreferencesWorkflow>> | undefined;
 type Snapshot = Awaited<ReturnType<typeof connected.snapshot>>;
 const noMutation = (before: Snapshot, after: Snapshot) => {
-  for (const name of ["rows", "revisions", "indexEntries", "indexRevisions", "uniqueKeys", "rowChanges", "physicalFacts", "events"] as const)
+  for (const name of ["rows", "revisions", "indexes", "events", "families", "deliveries"] as const)
     expect(after[name], name).toEqual(before[name]);
 };
 const eventsSince = (before: Snapshot, after: Snapshot) => after.events.filter(event => !before.events.some(prior =>
-  prior.scopeUuid === event.scopeUuid && prior.commitSeq === event.commitSeq && prior.eventOrdinal === event.eventOrdinal));
+  prior.familyId === event.familyId && prior.timestamp === event.timestamp && prior.ordinal === event.ordinal));
 const run = async (input: typeof PricePreferencesInput.Type) => {
   const host = primary ??= await connected.prepare(); return Effect.runPromise(host.run(host.newRequestKey(), input));
 };
@@ -40,8 +37,8 @@ function failures(value: unknown): string[] {
 }
 
 describe(`genuine native Price Preference creation - ${driver}`, { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalPricePreferenceCreation(driver, close => cleanup.push(close)); }, 240_000);
-  afterEach(async () => { primary = undefined; await connected.closeCaseHosts(); }, 120_000);
+  beforeAll(async () => { connected = await prepareCorePricePreferenceCreation(driver, close => cleanup.push(close)); }, 240_000);
+  afterEach(async () => { primary = undefined; await connected?.closeCaseHosts(); }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 180_000);
 
   it("keeps the empty native Pricing call, skips its retained inverse, and replays without writes", async () => {
@@ -201,20 +198,14 @@ describe(`genuine native Price Preference creation - ${driver}`, { concurrent: f
   });
 
   it("recovers a lost commit acknowledgement without native reexecution and binds the revision", async () => {
-    let lose = true; const fixture = connected.fixture;
-    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
-      Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-      Effect.flatMap(value => { if (!lose) return Effect.succeed(value); lose = false;
-        return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost Price Preference commit acknowledgement") })); }),
-    ));
-    const host = await Effect.runPromise(prepareCreatePricePreferencesWorkflow({ ...connected.options, execution: {
-      identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-      prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, session, ...composition }) } }));
+    const fixture = connected.fixture;
+    const fault = fixture.loseNextNativeRootAcknowledgement();
+    const host = await Effect.runPromise(prepareCreatePricePreferencesWorkflow(connected.options));
     const changed = await Effect.runPromise(prepareCreatePricePreferencesWorkflow({ ...connected.options, revision: "a".repeat(64) }));
     const create = vi.spyOn(PricingModuleService.prototype, "createPricePreferences");
     try {
       const key = host.newRequestKey(), input = [{ attribute: "uncertain149", value: "new" }];
-      const output = await Effect.runPromise(host.run(key, input)); expect(lose).toBe(false); expect(create).toHaveBeenCalledTimes(1);
+      const output = await Effect.runPromise(host.run(key, input)); expect(fault.armed).toBe(false); expect(fault.failures).toBe(1); expect(create).toHaveBeenCalledTimes(1);
       const after = await connected.snapshot(); expect(await Effect.runPromise(host.run(key, input))).toEqual(output);
       expect(create).toHaveBeenCalledTimes(1); await expect(Effect.runPromise(changed.run(key, input))).rejects.toMatchObject({ reason: "requestConflict" });
       expect(await connected.snapshot()).toEqual(after);
@@ -257,7 +248,7 @@ describe(`genuine native Price Preference creation - ${driver}`, { concurrent: f
       })));
       expect(count).toBe(2); expect(results.filter(result => result._tag === "Success")).toHaveLength(1);
       expect(results.flatMap(result => result._tag === "Failure" ? failures(result.cause) : [])).toContain("writeConflict");
-      const after = await connected.snapshot(); expect(after.commits.length - before.commits.length).toBe(1);
+      const after = await connected.snapshot(); expect(after.outcomes.filter(outcome => outcome.value.kind === "nativeRoot").length - before.outcomes.filter(outcome => outcome.value.kind === "nativeRoot").length).toBe(1);
       expect(eventsSince(before, after)).toHaveLength(1);
     } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); create.mockRestore(); }
   }, 120_000);

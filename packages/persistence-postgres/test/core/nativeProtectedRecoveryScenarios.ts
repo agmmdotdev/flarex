@@ -50,7 +50,7 @@ export function registerNativeProtectedRecoveryScenarios(label: string, fixture:
         const acquisition = yield* database.claimRequest(request, root);
         if (acquisition.kind !== "claimed") return yield* Effect.die(new Error("Fresh protected request was not claimed"));
         const operation = yield* database.beginNativeRoot(root, { claim: acquisition.claim,
-          chargeRetained: coreNativeTestBudget().chargeRetained });
+          ...coreNativeTestBudget() });
         const payload = yield* operation.native(binding);
         const id = yield* payload.insert("posts", { title: "One native invocation", createdAt: "2026-11-01T00:00:00.000Z",
           updatedAt: "2026-11-01T00:00:00.000Z" });

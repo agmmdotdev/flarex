@@ -163,7 +163,7 @@ const compose = Effect.fn("AtomicCommerceNative.composeHost")(function* (
       // absolute deadline. Restore acquisition explicitly: acquireUseRelease
       // masks its acquire, but an exclusive grant may need to wait fairly.
       const executed = yield* Effect.exit(restore(Effect.acquireUseRelease(restore(core(database.beginNativeRoot(prepared.root,
-        { claim: acquired.claim, chargeRetained, admissionDeadlineUnixMilliseconds: lifetime.deadlineUnixMilliseconds }))
+        { claim: acquired.claim, chargeRetained, remainingBytes: lifetime.remainingBytes, admissionDeadlineUnixMilliseconds: lifetime.deadlineUnixMilliseconds }))
         .pipe(lifetime.withinDeadline)), operation => Effect.gen(function* () {
         yield* Effect.gen(function* () {
           yield* lifetime.checkpoint(lifetime.context);

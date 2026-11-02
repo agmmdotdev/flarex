@@ -17,7 +17,7 @@ import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { priceListPriceBatchResources } from "../../src/workflow/policy";
-import { prepareLogicalPriceListCreation } from "./logical-price-list-create-fixture";
+import { prepareCorePriceListCreation } from "./core-price-list-create-fixture";
 
 const native = Result.getOrThrow(batchPriceListPricesWorkflow.prepare());
 const nativeCreate = Result.getOrThrow(createPriceListPricesWorkflow.prepare());
@@ -43,8 +43,8 @@ type Options = Parameters<typeof prepareBatchPriceListPricesWorkflow>[0];
  * Actual parent execution retains its three native parallel child workflows.
  * Separate probes below prove each original child callback/inverse under the
  * combined admission; they do not simulate native parent cancellation order. */
-export async function prepareLogicalPriceListPriceBatch(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void) {
-  const base = await prepareLogicalPriceListCreation(driver, close);
+export async function prepareCorePriceListPriceBatch(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void) {
+  const base = await prepareCorePriceListCreation(driver, close);
   const pricing = await Effect.runPromise(makePriceListPriceBatchCommands());
   const options: Options = { ...base.options, modules: {
     pricing: { ...base.options.modules.pricing, module: pricing.workflow, logicalResources: priceListPriceBatchResources, logicalPublication: "mixed" },

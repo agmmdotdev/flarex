@@ -36,14 +36,14 @@ export async function nativeProtectedWorkerScenario(driver: "pglite" | "postgres
     // source bodies are never substituted for the serving consumer's own reads.
     const ordered = await run(tested.useGeneration(({ database }) => Effect.gen(function* () {
       const seedBinding = yield* database.bindNative({ definition: payloadDefinition });
-      const seeding = yield* database.beginNative(seedBinding, { commandName: "payload-create", limits,
-        chargeRetained: coreNativeTestBudget().chargeRetained });
+      const seeding = yield* database.beginNative(seedBinding, { commandName: "payload-create",
+        ...coreNativeTestBudget(), limits });
       for (let index = 0; index < 40; index++) yield* seeding.operations.insert("articles", {
         headline: `Native reverse article ${index}`, featuredProduct: product.id,
         createdAt: "2026-11-01T00:00:00.000Z", updatedAt: "2026-11-01T00:00:00.000Z" });
       yield* database.commit(yield* seeding.finalize());
-      const reading = yield* database.beginNative(seedBinding, { commandName: "payload-findByID", limits,
-        chargeRetained: coreNativeTestBudget().chargeRetained });
+      const reading = yield* database.beginNative(seedBinding, { commandName: "payload-findByID",
+        ...coreNativeTestBudget(), limits });
       const firstMembers = yield* reading.operations.protectedReferencePage("article_product", product.id, { limit: 32 });
       if (firstMembers.position === null) throw new Error("Missing actual reverse source continuation");
       const lastMembers = yield* reading.operations.protectedReferencePage("article_product", product.id,
@@ -133,8 +133,8 @@ export async function nativeProtectedWorkerScenario(driver: "pglite" | "postgres
       .article.featuredProduct).toBe(retainedTarget.id);
     await run(tested.useGeneration(({ database }) => Effect.gen(function* () {
       const seedBinding = yield* database.bindNative({ definition: payloadDefinition });
-      const retainedMembership = yield* database.beginNative(seedBinding, { commandName: "payload-findByID", limits,
-        chargeRetained: coreNativeTestBudget().chargeRetained });
+      const retainedMembership = yield* database.beginNative(seedBinding, { commandName: "payload-findByID",
+        ...coreNativeTestBudget(), limits });
       expect((yield* retainedMembership.operations.protectedReferencePage("article_product", retainedTarget.id, { limit: 32 })).ids)
         .toEqual([retainedSource.id]);
       yield* retainedMembership.finishRead();

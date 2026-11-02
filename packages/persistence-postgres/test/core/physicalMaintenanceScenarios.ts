@@ -1,7 +1,7 @@
 import { Effect, Option, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { installCorePersistence, loadCorePersistenceTarget, adoptCorePersistenceAfterDrain,
-  inspectCorePersistenceTarget } from "../../src/database/corePersistence/target";
+  upgradeCorePersistenceAfterDrain, inspectCorePersistenceTarget } from "../../src/database/corePersistence/target";
 import { CORE_PHYSICAL_BASELINE_SQL_SHA256, CORE_PHYSICAL_SCHEMA_SHA256,
   CORE_PHYSICAL_STATEMENTS, CORE_PHYSICAL_TEMPLATE_NAMESPACE } from "../../src/database/corePersistence/layout.generated";
 import { CORE_PHYSICAL_METADATA_KEY, readCorePhysicalBaseline } from "../../src/database/corePersistence/physicalMaintenance";
@@ -35,6 +35,26 @@ const failure = (result: Result.Result<unknown, CorePersistenceError>) => {
 const leaseState = (fixture: CorePhysicalMaintenanceFixture) => fixture.maintenance.query(
   `SELECT instance_name,ts::text AS token FROM "${fixture.namespace}".leases ORDER BY instance_name`).pipe(Effect.map(leaseRows));
 
+// Exact managed marker emitted before Native21c. The old physical fixture is
+// frozen independently of the current Drizzle declaration and installer.
+const previousBaseline = Object.freeze({ version: 1, migration: "drizzle-baseline",
+  schemaSha256: "f096046d9525cb6aec9189fe99dd34a1856f11fe441c3760bab81998105ac36e",
+  sqlSha256: "4b2a7ed5f7453d370b93f13c95303cf837c498b7ce32eb15bfc534ff30e1bdb4",
+  disposition: "executed", appliedAtNanos: "1" });
+export const installManagedPreviousLayout = Effect.fn("PhysicalFixture.installManagedPreviousLayout")(function* (
+  fixture: Pick<CorePhysicalMaintenanceFixture, "namespace" | "maintenance">,
+) {
+  yield* installC554PhysicalFixture(fixture.maintenance, fixture.namespace);
+  yield* fixture.maintenance.query(`INSERT INTO "${fixture.namespace}".persistence_globals VALUES ('',$1,$2)`,
+    [CORE_PHYSICAL_METADATA_KEY, new TextEncoder().encode(JSON.stringify(previousBaseline))]);
+});
+const capturePhysicalRows = Effect.fn("PhysicalFixture.captureRows")(function* (fixture: CorePhysicalMaintenanceFixture) {
+  const rows: Record<string, readonly unknown[]> = {};
+  for (const table of CORE_PHYSICAL_TABLES) rows[table.name] = yield* fixture.maintenance.query(
+    `SELECT * FROM "${fixture.namespace}"."${table.name}" ORDER BY ${table.primaryKey.map(column => `"${column}"`).join(",")}`);
+  return rows;
+});
+
 export function registerCorePhysicalMaintenanceScenarios(name: string, createFixture: () => Promise<CorePhysicalMaintenanceFixture>) {
   describe(name, () => {
     it("executes generated Drizzle SQL atomically and serves through SELECT-only catalog verification", async () => {
@@ -49,7 +69,8 @@ export function registerCorePhysicalMaintenanceScenarios(name: string, createFix
         expect(executed.filter(sql => sql.startsWith("CREATE "))).toEqual(CORE_PHYSICAL_STATEMENTS.map(sql =>
           sql.replaceAll(`"${CORE_PHYSICAL_TEMPLATE_NAMESPACE}"`, `"${fixture.namespace}"`)));
         expect(Option.getOrThrow(yield* readCorePhysicalBaseline(fixture.maintenance, fixture.namespace))).toMatchObject({
-          schemaSha256: CORE_PHYSICAL_SCHEMA_SHA256, sqlSha256: CORE_PHYSICAL_BASELINE_SQL_SHA256, disposition: "executed" });
+          version: 2, migration: "drizzle-native-history-order", schemaSha256: CORE_PHYSICAL_SCHEMA_SHA256,
+          sqlSha256: CORE_PHYSICAL_BASELINE_SQL_SHA256, disposition: "executed" });
         yield* fixture.grantServing();
         const reads: string[] = [];
         const selectOnly: CoreSqlDriver = { ...fixture.serving,
@@ -235,6 +256,108 @@ export function registerCorePhysicalMaintenanceScenarios(name: string, createFix
         expect(Option.isNone(yield* readCorePhysicalBaseline(fixture.maintenance, fixture.namespace))).toBe(true);
       })); } finally { await fixture.close(); }
     }, 30_000);
+
+    it("upgrades the exact managed baseline without changing retained application storage and replays without refencing", async () => {
+      const fixture = await createFixture();
+      const store = await readC554CapturedStore();
+      try { await Effect.runPromise(Effect.gen(function* () {
+        yield* installManagedPreviousLayout(fixture);
+        yield* seedC554CapturedStore(fixture.maintenance, fixture.namespace, store);
+        const before = yield* capturePhysicalRows(fixture);
+        const priorLeases = yield* leaseState(fixture);
+        failure(yield* Effect.result(loadCorePersistenceTarget(fixture.maintenance, fixture.namespace)));
+        const upgraded = yield* upgradeCorePersistenceAfterDrain(fixture.maintenance, fixture.namespace);
+        expect(inspectCorePersistenceTarget(upgraded)?.namespace).toBe(fixture.namespace);
+        const after = yield* capturePhysicalRows(fixture);
+        for (const name of ["documents", "indexes", "read_only"] as const) expect(after[name]).toEqual(before[name]);
+        const globals = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ instance_name: Schema.String,
+          key: Schema.String, json_value: Schema.Uint8Array })));
+        const applicationGlobals = (rows: unknown) => globals(rows)
+          .filter(row => row.instance_name !== "" || row.key !== CORE_PHYSICAL_METADATA_KEY);
+        expect(applicationGlobals(after.persistence_globals)).toEqual(applicationGlobals(before.persistence_globals));
+        expect(yield* leaseState(fixture)).toEqual(priorLeases.map(row => ({ instance_name: row.instance_name,
+          token: (BigInt(row.token) + 1n).toString() })));
+        const metadata = Option.getOrThrow(yield* readCorePhysicalBaseline(fixture.maintenance, fixture.namespace));
+        expect(metadata).toMatchObject({ version: 2, schemaSha256: CORE_PHYSICAL_SCHEMA_SHA256,
+          sqlSha256: CORE_PHYSICAL_BASELINE_SQL_SHA256, disposition: "upgraded" });
+        yield* verifyCorePhysicalLayout(fixture.maintenance, fixture.namespace);
+        const upgradedLeases = yield* leaseState(fixture);
+        yield* upgradeCorePersistenceAfterDrain(fixture.maintenance, fixture.namespace);
+        expect(Option.getOrThrow(yield* readCorePhysicalBaseline(fixture.maintenance, fixture.namespace))).toEqual(metadata);
+        expect(yield* leaseState(fixture)).toEqual(upgradedLeases);
+        yield* fixture.grantServing();
+        yield* loadCorePersistenceTarget(fixture.serving, fixture.namespace);
+      })); } finally { await fixture.close(); }
+    }, 30_000);
+
+    it.each(["index replacement", "marker replacement"] as const)("rolls the complete managed upgrade back after %s failure", async phase => {
+      const fixture = await createFixture();
+      try { await Effect.runPromise(Effect.gen(function* () {
+        yield* installManagedPreviousLayout(fixture);
+        yield* fixture.maintenance.query(`INSERT INTO "${fixture.namespace}".leases VALUES ('app',41)`);
+        const before = yield* capturePhysicalRows(fixture);
+        const injected = new CorePersistenceError({ reason: "unavailable", cause: phase });
+        const failing: CoreSqlDriver = { ...fixture.maintenance, transaction: run => fixture.maintenance.transaction(connection =>
+          run({ query: (sql, parameters) => (phase === "index replacement" ? sql.startsWith("CREATE INDEX")
+            : (sql.startsWith("UPDATE ") || sql.startsWith("INSERT INTO ")) && parameters?.[0] === CORE_PHYSICAL_METADATA_KEY)
+            ? Effect.fail(injected) : connection.query(sql, parameters) })) };
+        const outcome = yield* Effect.result(upgradeCorePersistenceAfterDrain(failing, fixture.namespace));
+        expect(outcome).toMatchObject({ failure: injected });
+        expect(yield* capturePhysicalRows(fixture)).toEqual(before);
+        failure(yield* Effect.result(loadCorePersistenceTarget(fixture.maintenance, fixture.namespace)));
+        yield* upgradeCorePersistenceAfterDrain(fixture.maintenance, fixture.namespace);
+        expect(yield* leaseState(fixture)).toEqual([{ instance_name: "app", token: "42" }]);
+        yield* verifyCorePhysicalLayout(fixture.maintenance, fixture.namespace);
+      })); } finally { await fixture.close(); }
+    }, 30_000);
+
+    it("reconciles an actually committed upgrade after lost acknowledgement without fencing a successor twice", async () => {
+      const fixture = await createFixture();
+      try { await Effect.runPromise(Effect.gen(function* () {
+        yield* installManagedPreviousLayout(fixture);
+        yield* fixture.maintenance.query(`INSERT INTO "${fixture.namespace}".leases VALUES ('app',7)`);
+        const lost = new CorePersistenceError({ reason: "uncertainWrite", cause: "Upgrade acknowledgement was lost after COMMIT" });
+        const lostAcknowledgement: CoreSqlDriver = { ...fixture.maintenance,
+          transaction: run => fixture.maintenance.transaction(run).pipe(Effect.andThen(Effect.fail(lost))) };
+        expect(yield* Effect.result(upgradeCorePersistenceAfterDrain(lostAcknowledgement, fixture.namespace)))
+          .toMatchObject({ failure: lost });
+        yield* verifyCorePhysicalLayout(fixture.maintenance, fixture.namespace);
+        const committed = Option.getOrThrow(yield* readCorePhysicalBaseline(fixture.maintenance, fixture.namespace));
+        expect(committed.version).toBe(2);
+        expect(yield* leaseState(fixture)).toEqual([{ instance_name: "app", token: "8" }]);
+        const target = yield* loadCorePersistenceTarget(fixture.maintenance, fixture.namespace);
+        const successor = yield* createCorePersistence(target, "app", { leaseTimestamp: Effect.succeed(10n) });
+        const successorLease = yield* successor.acquireLease();
+        yield* upgradeCorePersistenceAfterDrain(fixture.maintenance, fixture.namespace);
+        expect(Option.getOrThrow(yield* readCorePhysicalBaseline(fixture.maintenance, fixture.namespace))).toEqual(committed);
+        yield* successor.putGlobal(successorLease, "after-upgrade-replay", Uint8Array.of(1, 2, 3));
+        expect(Option.getOrThrow(yield* successor.getGlobal("after-upgrade-replay"))).toEqual(Uint8Array.of(1, 2, 3));
+      })); } finally { await fixture.close(); }
+    }, 30_000);
+
+    it.each(["unknown checksum", "partial layout", "redundant index", "missing metadata"] as const)(
+      "refuses a managed upgrade with %s without changing its physical data or marker", async kind => {
+        const fixture = await createFixture();
+        try { await Effect.runPromise(Effect.gen(function* () {
+          yield* installManagedPreviousLayout(fixture);
+          yield* fixture.maintenance.query(`INSERT INTO "${fixture.namespace}".leases VALUES ('app',41)`);
+          if (kind === "unknown checksum") yield* fixture.maintenance.query(
+            `UPDATE "${fixture.namespace}".persistence_globals SET json_value=$2 WHERE instance_name='' AND key=$1`,
+            [CORE_PHYSICAL_METADATA_KEY, new TextEncoder().encode(JSON.stringify({ ...previousBaseline, sqlSha256: "0".repeat(64) }))]);
+          else if (kind === "missing metadata") yield* fixture.maintenance.query(
+            `DELETE FROM "${fixture.namespace}".persistence_globals WHERE instance_name='' AND key=$1`, [CORE_PHYSICAL_METADATA_KEY]);
+          else {
+            if (kind === "partial layout") yield* fixture.maintenance.query(
+              `DROP INDEX "${fixture.namespace}".indexes_by_index_id_key_prefix_key_sha256`);
+            yield* fixture.maintenance.query(`CREATE INDEX indexes_by_index_id_key_prefix_key_sha256_ts
+              ON "${fixture.namespace}".indexes(instance_name,index_id,key_prefix,key_sha256,ts)`);
+          }
+          const before = yield* capturePhysicalRows(fixture);
+          failure(yield* Effect.result(upgradeCorePersistenceAfterDrain(fixture.maintenance, fixture.namespace)));
+          expect(yield* capturePhysicalRows(fixture)).toEqual(before);
+          failure(yield* Effect.result(loadCorePersistenceTarget(fixture.maintenance, fixture.namespace)));
+        })); } finally { await fixture.close(); }
+      }, 30_000);
 
     it.each([
       ["extra table", 'CREATE TABLE "NAMESPACE".unexpected(id integer)'],

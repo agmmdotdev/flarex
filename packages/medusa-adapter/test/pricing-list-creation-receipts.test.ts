@@ -8,7 +8,7 @@ import { compilePriceListCreationContracts } from "../src/modules/pricing/list-i
 import { pricingListCreationPolicy } from "../src/modules/pricing/list-creation-receipt";
 import { commerceRelationReadQuery } from "../src/query/relations";
 import { validateRelationalRowValues } from "flarex-protocol/internal/relational-schema";
-import { priceListCreationComparisonRows } from "./support/logical-price-list-create-fixture";
+import { priceListCreationComparisonRows } from "./support/pricing-list-comparison-rows";
 
 type Call = Parameters<LogicalCallReceiptValidation>[0];
 type Activity = Parameters<LogicalCallReceiptValidation>[1];

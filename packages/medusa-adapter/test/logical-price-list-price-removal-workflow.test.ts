@@ -2,18 +2,15 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { Cause, Deferred, Effect, Fiber, Result, Schema } from "effect";
 import { PricingModuleService } from "@medusajs/pricing/services";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
 import { capturePricingMetadata } from "../src/modules/pricing/schema";
 import { makeLocalPricingCommands } from "../src/modules/pricing/service";
 import { compilePriceListPriceRemovalContracts } from "../src/modules/pricing/price-list-price-removal-input";
 import { prepareRemovePriceListPricesWorkflow } from "../src/workflows/pricing/remove-price-list-prices";
-import { prepareLogicalPriceListPriceRemoval } from "./support/logical-price-list-price-removal-fixture";
+import { prepareCorePriceListPriceRemoval } from "./support/core-price-list-price-removal-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalPriceListPriceRemoval>>;
+let connected: Awaited<ReturnType<typeof prepareCorePriceListPriceRemoval>>;
 let contracts: Result.Result.Success<ReturnType<typeof compilePriceListPriceRemovalContracts>>;
 let protectedRows: Awaited<ReturnType<typeof connected.read>>;
 type Snapshot = Awaited<ReturnType<typeof connected.snapshot>>;
@@ -25,11 +22,11 @@ const text = Schema.decodeUnknownSync(Schema.String);
 const id = (row: Rows[number]["row"]) => text(row.id);
 const children = (row: Rows[number]["row"], key: string) => objects(row[key]);
 const noMutation = (before: Snapshot, after: Snapshot) => {
-  for (const name of ["rows", "revisions", "indexEntries", "indexRevisions", "uniqueKeys", "rowChanges", "physicalFacts", "events"] as const)
+  for (const name of ["rows", "revisions", "indexes", "events", "families", "deliveries"] as const)
     expect(after[name], name).toEqual(before[name]);
 };
 const eventsSince = (before: Snapshot, after: Snapshot) => after.events.filter(event => !before.events.some(prior =>
-  prior.scopeUuid === event.scopeUuid && prior.commitSeq === event.commitSeq && prior.eventOrdinal === event.eventOrdinal));
+  prior.familyId === event.familyId && prior.timestamp === event.timestamp && prior.ordinal === event.ordinal));
 const decodeMessage = Schema.decodeUnknownSync(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ object: Schema.String, action: Schema.String }), data: Schema.Struct({ id: Schema.Union([Schema.String, Schema.Array(Schema.String)]) }) }));
 const eventVector = (events: Snapshot["events"]) => events.flatMap(event => {
@@ -78,12 +75,12 @@ const maximum = async (suffix: string) => {
 
 describe(`approved portable original Price List Price removal - ${driver}`, { concurrent: false }, () => {
   beforeAll(async () => {
-    connected = await prepareLogicalPriceListPriceRemoval(driver, close => cleanup.push(close));
+    connected = await prepareCorePriceListPriceRemoval(driver, close => cleanup.push(close));
     contracts = Result.getOrThrow(compilePriceListPriceRemovalContracts((await Effect.runPromise(capturePricingMetadata())).frame));
     protectedRows = await connected.read(connected.protectedIds);
   }, 240_000);
   afterEach(async () => {
-    await connected.closeCaseHosts(); vi.restoreAllMocks();
+    await connected?.closeCaseHosts(); vi.restoreAllMocks();
     expect(await connected.read(connected.protectedIds)).toEqual(protectedRows);
   }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 180_000);
@@ -143,8 +140,8 @@ describe(`approved portable original Price List Price removal - ${driver}`, { co
     expect(graph(afterRows, selected)).toHaveLength(24); expect(graph(afterRows, selected).every(entry => typeof entry.row.deleted_at === "string")).toBe(true);
     expect(stable(graph(afterRows, selected))).toEqual(stable(expected));
     expect(eventVector(eventsSince(before, after))).toEqual(expectedEvents(expected));
-    expect(eventsSince(before, after)).toHaveLength(24); expect(after.physicalFacts).toEqual(before.physicalFacts);
-    expect(after.rowChanges).toHaveLength(before.rowChanges.length + 24);
+    expect(eventsSince(before, after)).toHaveLength(24);
+    expect(after.revisions).toHaveLength(before.revisions.length + 24);
     const touched = new Set(expected.map(entry => entry.table + "/" + entry.row.id));
     expect(afterRows.filter(entry => !touched.has(entry.table + "/" + entry.row.id))).toEqual(beforeRows.filter(entry => !touched.has(entry.table + "/" + entry.row.id)));
     expect(await Effect.runPromise(host.run(key, { ids: [...selected].reverse() }))).toEqual(selected);
@@ -178,7 +175,7 @@ describe(`approved portable original Price List Price removal - ${driver}`, { co
       expect(restore).toHaveBeenCalledTimes(cycle + 1); expect(restore.mock.calls[cycle]?.[0]).toEqual(selected);
       const restored = graph(await connected.readRows(), selected); expect(stable(restored)).toEqual(stable(original));
       expect(restored.every(entry => entry.row.deleted_at === null)).toBe(true);
-      const after = await connected.snapshot(); expect(eventsSince(before, after)).toEqual([]); expect(after.physicalFacts).toEqual(before.physicalFacts);
+      const after = await connected.snapshot(); expect(eventsSince(before, after)).toEqual([]);
       expect(await Effect.runPromise(inverse.run(key, retained.compensation))).toBeNull(); expect(await connected.snapshot()).toEqual(after);
       expect(restore).toHaveBeenCalledTimes(cycle + 1);
     }
@@ -288,8 +285,8 @@ describe(`approved portable original Price List Price removal - ${driver}`, { co
     expect(restored.map(entry => [entry.table, id(entry.row)])).toEqual(original.map(entry => [entry.table, id(entry.row)]));
     expect(stable(restored)).toEqual(stable(original)); expect(restored.every(entry => entry.row.deleted_at === null)).toBe(true);
     expect(restored.find(entry => entry.table === "price_rule" && entry.row.id === active.row.id)?.row).toEqual(active.row);
-    const after = await connected.snapshot(); expect(eventsSince(before, after)).toEqual([]); expect(after.physicalFacts).toEqual(before.physicalFacts);
-    expect(after.rowChanges).toHaveLength(before.rowChanges.length + 2);
+    const after = await connected.snapshot(); expect(eventsSince(before, after)).toEqual([]);
+    expect(after.revisions).toHaveLength(before.revisions.length + 2);
   });
 
   it("keeps a physically removed retained root and its Rules absent", async () => {
@@ -322,7 +319,7 @@ describe(`approved portable original Price List Price removal - ${driver}`, { co
     const after = await connected.snapshot(); noMutation(before, after);
     // A fresh committed call records its durable outcome even though native
     // dirty detection preserves every managed row clock and mutation family.
-    expect(after.commits).toHaveLength(before.commits.length + 1); expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
+    expect(after.outcomes.filter(outcome => outcome.value.kind === "nativeRoot")).toHaveLength(before.outcomes.filter(outcome => outcome.value.kind === "nativeRoot").length + 1); expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
   });
 
   it("repeats the real retained inverse but replays its durable request without calling native restore again", async () => {
@@ -378,19 +375,13 @@ describe(`approved portable original Price List Price removal - ${driver}`, { co
   });
 
   it("recovers lost acknowledgement and refuses changed durable replay identity", async () => {
-    const list = await seed("uncertain", [price()]), ids = [id(children(list, "prices")[0]!)], fixture = connected.fixture; let lose = true;
-    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
-      Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-      Effect.flatMap(value => { if (!lose) return Effect.succeed(value); lose = false;
-        return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost Price removal acknowledgement") })); }),
-    ));
-    const host = await Effect.runPromise(prepareRemovePriceListPricesWorkflow({ ...connected.options, execution: {
-      identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy, prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, session, ...composition }),
-    } }));
+    const list = await seed("uncertain", [price()]), ids = [id(children(list, "prices")[0]!)], fixture = connected.fixture;
+    const fault = fixture.loseNextNativeRootAcknowledgement();
+    const host = await Effect.runPromise(prepareRemovePriceListPricesWorkflow(connected.options));
     const changed = await Effect.runPromise(prepareRemovePriceListPricesWorkflow({ ...connected.options, revision: "a".repeat(64) }));
     const remove = vi.spyOn(PricingModuleService.prototype, "softDeletePrices");
     try {
-      const key = host.newRequestKey(); expect(await Effect.runPromise(host.run(key, { ids }))).toEqual(ids); expect(lose).toBe(false); expect(remove).toHaveBeenCalledTimes(1);
+      const key = host.newRequestKey(); expect(await Effect.runPromise(host.run(key, { ids }))).toEqual(ids); expect(fault.armed).toBe(false); expect(fault.failures).toBe(1); expect(remove).toHaveBeenCalledTimes(1);
       const after = await connected.snapshot(); expect(await Effect.runPromise(host.run(key, { ids }))).toEqual(ids); expect(remove).toHaveBeenCalledTimes(1);
       await expect(Effect.runPromise(changed.run(key, { ids }))).rejects.toMatchObject({ reason: "requestConflict" }); expect(await connected.snapshot()).toEqual(after);
     } finally { await Effect.runPromise(host.close); await Effect.runPromise(changed.close); }

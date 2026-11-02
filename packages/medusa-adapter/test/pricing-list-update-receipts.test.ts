@@ -7,7 +7,7 @@ import { capturePricingMetadata, compilePricingDefinition } from "../src/modules
 import { compilePriceListUpdateContracts, type PriceListUpdateContracts } from "../src/modules/pricing/list-update-input";
 import { pricingListUpdatePolicy } from "../src/modules/pricing/list-update-receipt";
 import { commerceRelationReadQuery } from "../src/query/relations";
-import { priceListUpdateComparisonRows } from "./support/logical-price-list-update-fixture";
+import { priceListUpdateComparisonRows } from "./support/pricing-list-comparison-rows";
 
 type Call = Parameters<LogicalCallReceiptValidation>[0];
 type Activity = Parameters<LogicalCallReceiptValidation>[1];

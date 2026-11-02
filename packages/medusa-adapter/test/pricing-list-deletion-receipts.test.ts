@@ -7,7 +7,7 @@ import { capturePricingMetadata, compilePricingDefinition } from "../src/modules
 import { compilePriceListDeletionContracts } from "../src/modules/pricing/list-deletion-input";
 import { pricingListDeletionPolicy } from "../src/modules/pricing/list-deletion-receipt";
 import { commerceRelationReadQuery } from "../src/query/relations";
-import { priceListDeletionComparisonRows, type DeletionScenario } from "./support/logical-price-list-delete-fixture";
+import { priceListDeletionComparisonRows, type DeletionScenario } from "./support/pricing-list-comparison-rows";
 
 type Call = Parameters<LogicalCallReceiptValidation>[0];
 type Activity = Parameters<LogicalCallReceiptValidation>[1];

@@ -4,7 +4,7 @@ import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-sc
 import { compileProductLinksCoreDefinition } from "../../src/links/product-definition";
 import { prepareLocalProductLinks } from "../../src/links/product-service";
 import { compileVariantInventoryLinkDefinition, captureVariantInventoryLinkMetadata } from "../../src/composition/product-variant-inventory-schema";
-import { compileVariantPricingLinkDefinition, captureVariantPricingLinkMetadata } from "../../src/composition/product-variant-pricing-schema";
+import { compileVariantPricingLinkCoreDefinition, captureVariantPricingLinkMetadata } from "../../src/composition/product-variant-pricing-schema";
 import { captureProductSalesChannelLinkMetadata } from "../../src/links/product-sales-channel-schema";
 import { captureProductShippingProfileLinkMetadata } from "../../src/links/product-shipping-profile-schema";
 import { prepareLinkService } from "../../src/links/service";
@@ -124,7 +124,6 @@ export async function createCoreLinksFixture(driver: "pglite" | "postgres", opti
       const product = yield* compileProductLinksCoreDefinition(target, { salesChannel: true, shippingProfile: true });
       const variants = yield* Effect.forEach([
         { key: "medusa.variant-inventory-link", compiled: compileVariantInventoryLinkDefinition() },
-        { key: "medusa.variant-pricing-link", compiled: compileVariantPricingLinkDefinition() },
       ], item => Effect.gen(function* () {
         const native = yield* item.compiled;
         const source = yield* captureLogicalSchemaSource({ key: item.key, owner: "medusa", writeProfile: item.key,
@@ -133,8 +132,8 @@ export async function createCoreLinksFixture(driver: "pglite" | "postgres", opti
             table: { namespace: "medusa", logicalName: `${native.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
         return yield* makeCoreRelationalNativeDefinition({ ...target, source, provenance: native.provenance, commands: [] });
       }));
-      const inventory = variants[0], pricing = variants[1];
-      if (inventory === undefined || pricing === undefined) return yield* Effect.die(new Error("Missing authentic Variant Link sources"));
+      const inventory = variants[0], pricing = yield* compileVariantPricingLinkCoreDefinition(target);
+      if (inventory === undefined) return yield* Effect.die(new Error("Missing authentic Variant Link sources"));
       const definitions = { sales: product, shipping: product, inventory, pricing };
       const productRuntime = yield* prepareLocalProductLinks("product-updates");
       const services = { sales: yield* prepareLinkService(yield* captureProductSalesChannelLinkMetadata()),

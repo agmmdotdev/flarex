@@ -27,8 +27,9 @@ import type { RelationalPersistenceCapability, RelationalTableDefinition } from 
 import { encodeValidatorJsonV1 } from "flarex-protocol/validator-json";
 import { prepareRelationalRows, type RelationalRowFailureDiagnostic } from "../values/relationalRows";
 import { coreNativeReferenceTableName, coreNativeTableName } from "./schemaTableName";
-import { coreSchemaBundleNative, isCoreSchemaBundleSuccessor, requireCoreSchemaBundle, type CoreSchemaBundle } from "./schemaBundle";
+import { coreHistoricalSchemaBundleIncludes, coreSchemaBundleNative, isCoreSchemaBundleSuccessor, requireCoreSchemaBundle, type CoreSchemaBundle } from "./schemaBundle";
 import { lowerCoreNativeRelationalSchema } from "./nativeRelationalSchema";
+import { coreProtectedNativePolicyMeaning } from "./protectedNativeMetadata";
 
 import { CoreNativeIdentitySchema, CoreNativeUniqueConstraintSchema as Unique, type CoreNativeIdentity,
   type CoreNativeTablePolicy, type CoreNativeReference, coreNativeConstraintFields, coreNativeConstraintNullsDistinct,
@@ -448,6 +449,28 @@ export function sameCoreNativeTablePolicy(left: CoreNativeTablePolicy, right: Co
     && canonical(left.protectedReferences ?? []) === canonical(right.protectedReferences ?? [])
     && sameNativeConstraints(left.uniqueConstraints, right.uniqueConstraints)
     && canonical(left.references ?? []) === canonical(right.references ?? []);
+}
+
+/** The caller reads both retained system records at the proving row revision.
+ * The current registry supplies expected meaning only, never historical proof. */
+export function assertCoreHistoricalNativeTable(definition: CoreNativeDefinition, currentTable: CoreTableDefinition,
+  historicalTable: CoreTableDefinition, historicalSchema: Pick<CoreSchemaSelection, "id" | "metadata" | "schema">,
+  currentSchema: CoreSchemaDefinition): Result.Result<void, CorePersistenceError> {
+  return Result.gen(function* () {
+    yield* Result.mapError(requireCoreNativeDefinition(definition), corrupt);
+    const current = currentTable.nativePolicy, prior = historicalTable.nativePolicy;
+    if (currentTable.state !== "active" || historicalTable.state !== "active"
+      || !bytesEqual(currentTable.tabletId, historicalTable.tabletId) || currentTable.number !== historicalTable.number
+      || currentTable.name !== historicalTable.name || coreNamespaceKey(currentTable.namespace) !== coreNamespaceKey(historicalTable.namespace)
+      || current?.state !== "active" || prior?.state !== "active" || current.bindingSelected === false || prior.bindingSelected === false
+      || prior.schemaId !== historicalSchema.id || historicalSchema.metadata.state.state !== "active"
+      || historicalSchema.metadata.native === undefined || !sameCoreNativeIdentity(prior.identity, definition.identity)
+      || !nativePolicyMatches(prior, definition, historicalTable.name) || !nativePolicyMatches(current, definition, currentTable.name)
+      || canonical(coreProtectedNativePolicyMeaning(prior)) !== canonical(coreProtectedNativePolicyMeaning(current)))
+      return yield* Result.fail(corrupt("Historical native table does not prove the selected source-local policy"));
+    yield* coreHistoricalSchemaBundleIncludes(historicalSchema.metadata.native, historicalSchema.schema,
+      definition, historicalTable, currentSchema);
+  });
 }
 
 /** A same-owner upgrade adds only its authenticated canonical optional reference.

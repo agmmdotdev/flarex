@@ -1,5 +1,5 @@
 import { Effect, Result } from "effect";
-import { isJsonObject } from "flarex-protocol/json";
+import { isJsonObject, type JsonObject } from "flarex-protocol/json";
 import { CoreTransactionError, type CoreError, type CoreNativeActivity, type CoreNativeActivityCursor,
   type CoreNativeLifecycleActivity, type CoreNativeMutationActivity, type CoreNativeSetNullIntent,
   type CoreNativeReferenceReplacement } from "./api";
@@ -9,7 +9,7 @@ import type { CoreTransactionNativeAccess } from "./transaction";
 type Mutation = Omit<CoreNativeMutationActivity, "ordinal">;
 type NativeSource = Extract<CoreTransactionNativeAccess, { readonly kind: "native" }>;
 interface SourceActivity {
-  readonly mutations: CoreNativeMutationActivity[];
+  readonly mutations: (CoreNativeMutationActivity & Readonly<{ documentId: string }>)[];
   readonly lifecycle: CoreNativeLifecycleActivity[];
   readonly uses: Map<string, Readonly<{ table: string; id: string; ordinal: number }>>;
   observations: number;
@@ -26,6 +26,18 @@ export class CoreNativeActivityOwner {
   constructor(readonly chargeRetained: (bytes: number) => Effect.Effect<void, CoreError>) {}
 
   active(source: NativeSource): boolean { return this.#sources.has(source); }
+
+  /** Borrow actual successful source-local evidence; rollback truncates the
+   * same arrays. This iterator neither retains a second ledger nor issues rows. */
+  *recordedRows(source: NativeSource, table: string): Generator<Readonly<{ documentId: string; row: JsonObject }>> {
+    const activity = this.#sources.get(source);
+    if (activity === undefined) return;
+    for (const mutation of activity.mutations) {
+      if (mutation.table !== table) continue;
+      if (mutation.before !== null) yield { documentId: mutation.documentId, row: mutation.before };
+      if (mutation.after !== null) yield { documentId: mutation.documentId, row: mutation.after };
+    }
+  }
 
   checkpoint(): () => void {
     const positions = new Map([...this.#sources].map(([source, activity]) => [source,
@@ -76,7 +88,9 @@ export class CoreNativeActivityOwner {
       || position.lifecycle > activity.lifecycle.length || position.setNull > activity.setNull.length
       || position.referenceReplacements > activity.referenceReplacements.length)
       return Result.fail(new CoreTransactionError({ reason: "authorityRevoked" }));
-    const mutations = activity.mutations.slice(position.mutations).map((entry, ordinal) => Object.freeze({ ...entry, ordinal }));
+    const mutations = activity.mutations.slice(position.mutations).map((entry, ordinal) => Object.freeze({ table: entry.table,
+      operation: entry.operation, ordinal, before: entry.before, after: entry.after,
+      ...(entry.realNormalization === undefined ? {} : { realNormalization: entry.realNormalization }) }));
     const lifecycle: CoreNativeLifecycleActivity[] = [];
     for (const entry of activity.lifecycle.slice(position.lifecycle)) {
       if (entry.attemptOrdinal !== null && entry.attemptOrdinal < position.mutations)
@@ -88,7 +102,7 @@ export class CoreNativeActivityOwner {
       referenceReplacements: Object.freeze(activity.referenceReplacements.slice(position.referenceReplacements)) }));
   }
 
-  prepareMutation = Effect.fn("CoreNativeActivity.prepareMutation")((source: NativeSource, entry: Mutation) => Effect.suspend(() => {
+  prepareMutation = Effect.fn("CoreNativeActivity.prepareMutation")((source: NativeSource, entry: Mutation, documentId: string) => Effect.suspend(() => {
     const activity = this.#sources.get(source), charge = this.chargeRetained;
     if (activity === undefined) return Effect.succeed(() => {});
     const table = entry.table, operation = entry.operation;
@@ -106,7 +120,7 @@ export class CoreNativeActivityOwner {
       return yield* new CoreTransactionError({ reason: "invalidValue" });
     // Reserve retained evidence before the actual write. Publishing this
     // already captured record after a successful stage cannot fail a budget.
-    return () => { activity.mutations.push(Object.freeze({ table, operation, ordinal: activity.mutations.length,
+    return () => { activity.mutations.push(Object.freeze({ table, operation, documentId, ordinal: activity.mutations.length,
       before, after, ...(realNormalization === undefined ? {} : { realNormalization }) })); };
     });
   }));

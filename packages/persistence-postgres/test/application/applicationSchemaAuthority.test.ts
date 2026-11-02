@@ -27,6 +27,7 @@ import type { StableTableCatalogTransaction } from
 import { deployments, fxControlApplicationSchemaAuthoritiesV1, fxControlSchemaVersions } from "../../src/database/schema";
 import { runEffect } from "../support/effectTestRuntime";
 import { createMigratedPGlitePersistence } from "../support/pgliteTestFixture";
+import { registerApplicationSchemaPublicationScenarios } from "./applicationSchemaPublicationScenarios";
 
 let persistence: PGlitePersistence;
 let dispose: (() => Promise<void>) | undefined;
@@ -42,6 +43,8 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => { await dispose?.(); }, 120_000);
+
+registerApplicationSchemaPublicationScenarios("Application schema Source publication on PGlite", () => persistence);
 
 describe("Application schema authority", { concurrent: false }, () => {
   it("returns the published schema with detached original stored evidence", async () => {
@@ -139,14 +142,16 @@ describe("Application schema authority", { concurrent: false }, () => {
     }]);
   });
 
-  it("rejects an analyzed table outside the existing object-document schema", async () => {
+  it("rejects a primitive document root at Application manifest admission", async () => {
     const deploymentId = "deployment_application_schema_invalid";
     await insertDeployment(persistence, deploymentId);
     const publisher = makeApplicationSchemaAuthorityPublisher({
       db: persistence.drizzle,
       runTransaction: run => persistence.drizzle.transaction(run),
     });
-    const invalid = applicationManifest({ validator: { type: "string" } });
+    const manifest = applicationManifest();
+    const invalid = { ...manifest, schema: { ...manifest.schema,
+      tables: manifest.schema.tables.map(table => ({ ...table, validator: { type: "string" } })) } };
     const result = await runEffect(Effect.result(
       publisher.publish({
         deploymentId,
@@ -156,7 +161,7 @@ describe("Application schema authority", { concurrent: false }, () => {
 
     expect(Result.isFailure(result)).toBe(true);
     if (Result.isFailure(result)) {
-      expect(result.failure).toMatchObject({ reason: "invalidSchema" });
+      expect(result.failure).toMatchObject({ reason: "invalidManifest" });
     }
     expect((await persistence.query<{ count: string }>(
       "select count(*)::text as count from fx_control_schema_version where deployment_id = $1",

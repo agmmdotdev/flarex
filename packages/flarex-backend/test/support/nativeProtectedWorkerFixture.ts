@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { Effect, Exit, Schema, Scope } from "effect";
 
-import { defineSchema, defineTable, mutation } from "flarex/server";
+import { defineSchema, defineGlobalTable, mutation } from "flarex/server";
 import { v } from "flarex/values";
 import { analyzeLoadedApplicationSourcePackageEffect } from "@flarex/analysis";
 import { makeApplicationManifestV1 } from "@flarex/analysis/application-analysis";
@@ -116,8 +116,8 @@ export interface NativeProtectedWorkerFixture {
 export async function createNativeProtectedWorkerFixture(driver: "pglite" | "postgres", options: NativeProtectedWorkerFixtureOptions = {}): Promise<NativeProtectedWorkerFixture> {
   const target = Object.freeze({ ...(options.target ?? coreProductFixtureTarget) });
   let armLostAcknowledgement = false, loseNextAcknowledgement = false;
-  const schema = defineSchema({ users: defineTable({ name: v.string(), product: v.optional(v.string()) }),
-    news: defineTable({ headline: v.string(), product: v.optional(v.string()) }), permissions: defineTable({ policy: v.any() }) });
+  const schema = defineSchema({ users: defineGlobalTable({ name: v.string(), product: v.optional(v.string()) }),
+    news: defineGlobalTable({ headline: v.string(), product: v.optional(v.string()) }), permissions: defineGlobalTable({ policy: v.any() }) });
   const handlerSource = options.handlerSource ?? `export async function save(ctx, args) {
     if (args.operation === "large-result") return "x".repeat(args.bytes);
     if (args.operation === "many-patches") {
@@ -173,7 +173,7 @@ export async function createNativeProtectedWorkerFixture(driver: "pglite" | "pos
   }`;
   const modules = [
     { path: "_flarex/application.js", roles: 8, source: 'import { mutation } from "flarex/server"; import * as users from "../functions/users.js"; export default {users:{save:mutation({handler:users.save})}};' },
-    { path: "_flarex/schema.js", roles: 2, source: 'import {defineSchema,defineTable} from "flarex/server";import {v} from "flarex/values";export default defineSchema({users:defineTable({name:v.string(),product:v.optional(v.string())}),news:defineTable({headline:v.string(),product:v.optional(v.string())}),permissions:defineTable({policy:v.any()})});' },
+    { path: "_flarex/schema.js", roles: 2, source: 'import {defineSchema,defineGlobalTable} from "flarex/server";import {v} from "flarex/values";export default defineSchema({users:defineGlobalTable({name:v.string(),product:v.optional(v.string())}),news:defineGlobalTable({headline:v.string(),product:v.optional(v.string())}),permissions:defineGlobalTable({policy:v.any()})});' },
     { path: "functions/users.js", roles: 1, source: handlerSource },
   ].map(module => ({ ...module, sourceSha256: digest(module.source), sourceByteLength: new TextEncoder().encode(module.source).byteLength }));
   const identities = modules.map(({ source: _source, ...identity }) => identity);
@@ -365,7 +365,7 @@ export async function createNativeProtectedWorkerFixture(driver: "pglite" | "pos
         seal: core.seal.pipe(Effect.tap(() => Effect.sync(() => {
           lastSealedCalls = lifetime.usedCalls();
           if (executionCompleted && armLostAcknowledgement) { armLostAcknowledgement = false; loseNextAcknowledgement = true; }
-        }))), chargeRetained: bytes => core.fromResult(core.charge(bytes)) };
+        }))), chargeRetained: bytes => core.fromResult(core.charge(bytes)), remainingBytes: core.remainingBytes };
     });
     const port = (historicalRoot = root, selection?: NativeProtectedReadSelection): NativePort => ({
       invoke: (...args) => fixture.useGeneration(generation => generation.extension === undefined ? Effect.fail(commerceError("closed"))

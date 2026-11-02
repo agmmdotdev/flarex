@@ -1,6 +1,72 @@
 # Source validator wire and parser parity
 
-Status: **Implemented for the bounded current Source path; external/native activation and wider goal gates remain open**.
+Status: **Implemented for the bounded current Source path and existing fresh
+Application publication producers. External/native activation and wider goal
+gates remain open**.
+
+## Remaining Application publication producer convergence
+
+The independent current-owner, accepted-direction and pinned-source challenge
+selects a connected correction at the existing Application publication owner.
+The previous fresh `applicationSchemaProjection` constructed `appDocument` V1,
+while the analyzed logical source constructed the accepted V2 Source DTO text.
+Both current producers use V2 through the existing Source codec. Strict finite
+source admission retains full definition and bidirectional index equality;
+the fixture and adapter cannot normalize conflicting declarations into agreement.
+
+Translate the pinned schema export/parser/metadata split
+(`isolate/src/environment/schema.rs`, `common/src/schemas/json.rs`,
+`common/src/bootstrap_model/schema_metadata.rs`, and
+`database/src/bootstrap_model/schema/` at the active pin): new metadata uses the
+current Source serializer, and stored original metadata remains authenticated
+and readable. Existing Source validator encoding owns literal comparison;
+generic JSON equality cannot represent bigint, bytes and signed zero faithfully.
+No new DO/native mechanism divergence is selected.
+
+The Application manifest frame determines its schema-version identity before
+the declaration wrapper. Therefore an occupied V1 publication must retain its
+original bytes/hash/key. At the existing pre-publication version selection,
+authenticate an existing artifact and correlate its original declarations with
+the requested analyzed schema. Replay those declarations through the existing
+full catalog, binding, physical-definition and immutable-artifact publication
+verification. A genuinely absent artifact selects fresh V2. Keep corrupt,
+foreign, contradictory and published-without-artifact cases as refusals;
+reserved-without-artifact repair and existing bounded stale retries retain their
+owners. Do not return early from `readPublished`, overwrite an artifact, change
+the identity frame, add a transaction/lifetime, or weaken exact replay checks.
+
+Production ownership starts at `applicationSchemaProjection.ts`,
+`applicationSchemaAuthority.ts` and their direct owner regression tests. Reuse
+the protocol Source codec and existing artifact reader; migrate direct callers
+only where this contract requires it. The finite source-admission and mixed
+fixture implementations remain paused and untouched. The coordinator owns this
+record, the finite prerequisite pointer and isolated validation orchestration.
+
+The connected fresh-publication witness exposed a shared compiler boundary:
+`compileAppSchemaCatalogRequirementsV1` now captures its already-bound semantic
+manifest through the existing protocol owner. Both production callers supply semantic values; index reconciliation
+has already decoded its stored wire artifact. V1's overlapping shapes concealed
+the error, while V2 requires Source text at wire ingress and a validator value in
+memory. Independent current-owner and pinned/accepted readers converge on the
+existing semantic capture codec at compiler ingress, with the existing snapshot
+before hashing. Keep wire decoding at the artifact boundary. Extend ownership
+only to `flarex-protocol/src/app-schema-catalog.ts` and its direct test file;
+migrate its wire-shaped V2 test builder explicitly. Do not infer a representation,
+retry another decoder, add a codec, or relax declaration/reference checks.
+Prove semantic V1/V2 compilation, direct V2 wire refusal, explicit wire decode
+then compilation, Source literal distinctions, document roots, invalid ID/index
+targets, malformed/extra/accessor data, and mutation during asynchronous hashing.
+
+Required evidence: fresh producer/composer declaration equality; valid Source
+roots and bigint/bytes/signed-zero/union-order comparisons; fresh publication,
+repeat publication and cold reads; actual occupied V1 positive replay with exact
+stored bytes; unchanged immutable-artifact mismatch, corrupt evidence, version
+correlation and partial catalog replay refusals; genuine relation publication;
+and the finite permission/catalog/numeric regressions on PGlite and ordinary
+PostgreSQL separately. Actual occupied stores needing V1-to-V2 conversion still
+require their named correlated cutover disposition. This fresh-only correction
+does not select conversion, deletion or reset, nor complete the wider goal.
+
 This is a source-alignment requirement, not an accepted DO/native divergence.
 The numeric literal translation and ordered source-semantic record admission in
 [08](./08-validator-literal-parity.md) do not claim complete raw validator wire

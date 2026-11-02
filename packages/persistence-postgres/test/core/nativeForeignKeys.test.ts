@@ -1,3 +1,4 @@
+import { coreNativeTestBudget } from "./nativeTestBudget";
 import { describe, expect, it } from "vitest";
 import { Effect, Option, Result } from "effect";
 import { BTreeEx as BTree } from "sorted-btree/extended/index.js";
@@ -105,7 +106,8 @@ describe("native key and frozen graph integrity", () => {
     const transaction = createCoreTransaction({ snapshot, registry, vault,
       ...(yield* prepareCoreTransactionIds({ now: Effect.succeed(1n), randomBytes: length => Effect.succeed(new Uint8Array(length)) })),
       native: { authority: { definition, namespace: null, schemaId: publicId(parent, 8), authorityEpoch: 1n, tables: [] },
-        limits, visibility: "command", chargeRetained: () => Effect.void,
+        ...coreNativeTestBudget(), limits, visibility: "command",
+        evaluateRelational: () => Effect.die("Unexpected PostgreSQL predicate operation"),
         capture: () => Effect.succeed({ snapshot, registry, writeLog: new CoreWriteLog(0n).snapshot() }) } });
     const operations = transaction.nativeOperations;
     if (operations === undefined) return yield* Effect.die(new Error("Missing native operations"));

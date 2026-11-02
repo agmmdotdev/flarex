@@ -1,15 +1,8 @@
+import { prepareCorePricingMaintenance } from "./core-pricing-maintenance-fixture";
 import { Effect, Result, Schema } from "effect";
-import { and, eq } from "drizzle-orm";
 import { createStep, createWorkflow, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { removePriceListPricesWorkflow } from "@medusajs/core-flows/price-list/remove-price-list-prices";
 import { createPriceListPricesWorkflow } from "@medusajs/core-flows/price-list/create-price-list-prices";
-import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
-import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
-import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { makeCommerceHost, type LogicalCommerceHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
-import { fxControlTables } from "../../../persistence-postgres/src/database/schema";
-import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
 import { captureVariantPricingLinkMetadata } from "../../src/composition/product-variant-pricing-schema";
 import { prepareVariantPricingLink } from "../../src/links/variant-pricing-service";
 import { makeLocalPricingCommands } from "../../src/modules/pricing/service";
@@ -20,13 +13,10 @@ import { PriceListPriceUpdateWorkflowInput } from "../../src/modules/pricing/pri
 import { prepareCreatePriceListsWorkflow } from "../../src/workflows/pricing/create-price-lists";
 import { prepareUpdatePriceListPricesWorkflow } from "../../src/workflows/pricing/update-price-list-prices";
 import { prepareRemovePriceListPricesWorkflow } from "../../src/workflows/pricing/remove-price-list-prices";
-import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution } from "../../src/workflow/host";
+import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
-import { projectNativeRow } from "../../src/repository/result";
-import { priceListCreationComparisonRows } from "./logical-price-list-create-fixture";
-import { logicalCurrencyFixture } from "./logical-currency-fixture";
-import { logicalCurrencyInventory } from "./logical-currency-inventory";
+import { priceListCreationComparisonRows } from "./pricing-list-comparison-rows";
 
 const revision = "7".repeat(64), stamp = "2026-01-01T00:00:00.000Z";
 const native = Result.getOrThrow(removePriceListPricesWorkflow.prepare());
@@ -95,32 +85,14 @@ function comparisonRows(linkTable: string) {
 /** Canonical initialization owns comparison history; genuine native 152/155/156
  * callbacks own every subsequent setup mutation. The 157 root borrows Pricing
  * alone. Installed stored Links are protected data, never its authority. */
-export async function prepareLogicalPriceListPriceRemoval(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void) {
-  const fixture = await logicalCurrencyFixture(driver, close, { includeProduct: true, includePricing: true, includeVariantPricingLink: true });
+export async function prepareCorePriceListPriceRemoval(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void) {
   const pricing = await Effect.runPromise(makeLocalPricingCommands("price-list-price-removals"));
   const create = await Effect.runPromise(makeLocalPricingCommands("price-list-creations"));
   const link = await Effect.runPromise(prepareVariantPricingLink());
-  const pricingDefinition = fixture.pricingDefinition, linkDefinition = fixture.variantPricingLinkDefinition;
-  if (!pricingDefinition || !linkDefinition) throw new Error("Missing installed Pricing/Link source");
   const comparison = comparisonRows((await Effect.runPromise(captureVariantPricingLinkMetadata())).frame.name);
-  const initialize = async (sourceKey: string, definition: typeof pricingDefinition | typeof linkDefinition,
-    commands: LogicalCommerceHostInput<unknown>["commands"], rows: readonly { table: string; row: JsonObject }[]) => {
-    const inputRows = definition.schema.tables.length === 1 ? rows.map(entry => entry.row) : rows;
-    const dataset = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows: inputRows }, 1_048_576,
-      { invalidInput: () => new Error("Invalid Price removal comparison seed"), hashFailure: cause => new Error("Price removal comparison hash", { cause }) }));
-    const input = { ...fixture.hostInput, commands, logicalStorage: { ...fixture.hostInput.logicalStorage,
-      source: { sourceKey, writeProfile: sourceKey, schema: definition.schema, evidence: definition.provenance },
-      initialization: { stepId: sourceKey.toLowerCase() + ".157-comparison", datasetSha256: dataset.sha256Hex, expectedRowCount: rows.length },
-    } } satisfies LogicalCommerceHostInput<unknown>;
-    const host = await Effect.runPromise(makeCommerceHost(input));
-    try { await Effect.runPromise(host.initialize(inputRows)); } finally { await Effect.runPromise(host.close); }
-    return input.logicalStorage;
-  };
-  const logicalStorage = await initialize("medusa.pricing", pricingDefinition, pricing.commands, comparison.seedRows);
-  const linkStorage = await initialize("medusa.link.productVariantPriceSet", linkDefinition, link.commands, comparison.linkRows);
-  const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-    prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, ...composition }) };
-  const options: Options = { execution, pricing: { module: pricing.workflow, logicalStorage, logicalPublication: "mixed" }, revision,
+  const connected = await prepareCorePricingMaintenance(driver, close, { pricing, link, seedRows: comparison.seedRows, linkRows: comparison.linkRows });
+  const { fixture, execution } = connected;
+  const options: Options = { execution, pricing: { module: pricing.workflow, nativeStorage: connected.pricing.source, logicalPublication: "mixed" }, revision,
     subscribers: [{ id: "native-price-removal", revision }] };
   const resources = Result.getOrThrow(prepareWorkflowResources({ pricing: {
     module: pricing.workflow, methods: ["listPrices", "softDeletePrices", "restorePrices"], graph: false,
@@ -164,13 +136,13 @@ export async function prepareLogicalPriceListPriceRemoval(driver: "pglite" | "po
   };
   const seedLists = async (input: typeof PriceListWorkflowInput.Type) => {
     const host = own(await Effect.runPromise(prepareCreatePriceListsWorkflow({ execution, revision, subscribers: options.subscribers,
-      modules: { pricing: { module: create.workflow, logicalStorage }, link: { module: link.workflow, logicalStorage: linkStorage } } })));
+      modules: { pricing: { module: create.workflow, nativeStorage: connected.pricing.source }, link: { module: link.workflow, nativeStorage: connected.link.source } } })));
     return Effect.runPromise(host.run(host.newRequestKey(), input));
   };
   const outsideUpdate = async (input: typeof PriceListPriceUpdateWorkflowInput.Type) => {
     const update = await Effect.runPromise(makeLocalPricingCommands("price-list-price-updates"));
     const host = own(await Effect.runPromise(prepareUpdatePriceListPricesWorkflow({ execution, revision, subscribers: options.subscribers,
-      modules: { pricing: { module: update.workflow, logicalStorage, logicalPublication: "mixed" }, link: { module: link.workflow, logicalStorage: linkStorage } } })));
+      modules: { pricing: { module: update.workflow, nativeStorage: connected.pricing.source, logicalPublication: "mixed" }, link: { module: link.workflow, nativeStorage: connected.link.source } } })));
     return Effect.runPromise(host.run(host.newRequestKey(), input));
   };
   const preparePhysicalDeletion = async () => {
@@ -180,29 +152,27 @@ export async function prepareLogicalPriceListPriceRemoval(driver: "pglite" | "po
       await physicalInverse(ids, context); return new StepResponse(null);
     }));
     const flow = createWorkflow("fixture157-original-physical-root", (ids: WorkflowData<typeof PriceListPriceRemovalIds.Type>) => new WorkflowResponse(step(ids)));
-    return own(await Effect.runPromise(prepareAtomicWorkflowHost({ ...options, modules: { pricing: { module: module.workflow, logicalStorage } }, operationScheduling: "queued", borrowedOperationScheduling: "queued",
+    return own(await Effect.runPromise(prepareAtomicWorkflowHost({ ...options, modules: { pricing: { module: module.workflow, nativeStorage: connected.pricing.source } }, operationScheduling: "queued", borrowedOperationScheduling: "queued",
       workflow: { name: "fixturePriceRemovalPhysicalInverse", resources: selected, prepared: Result.getOrThrow(flow.prepare()),
         input: PriceListPriceRemovalIds, output: Schema.Null, events: internalModuleWorkflowEvents } })));
   };
-  const direct = await Effect.runPromise(makeCommerceHost({ ...fixture.hostInput, logicalStorage, commands: pricing.commands }));
+  const direct = await Effect.runPromise(fixture.openReadHost("pricing", [pricing.priceRemovalRead]));
   close(() => Effect.runPromise(direct.close));
-  const readRows = async (ids?: readonly string[]) => {
-    const inventory = await logicalCurrencyInventory(fixture), rows: Array<{ table: string; row: JsonObject }> = [];
-    const tables = await fixture.control.drizzle.select().from(fxControlTables).where(and(eq(fxControlTables.deploymentId, fixture.deploymentId), eq(fxControlTables.namespace, "medusa")));
-    const selected = ids === undefined ? undefined : new Set(ids);
-    for (const current of inventory.rows) {
-      if (current.scopeUuid !== projectScopeIdUuidV1(fixture.application.authority.scopeId).scopeUuid) continue;
-      const version = inventory.revisions.find(row => row.scopeUuid === current.scopeUuid && row.tableId === current.tableId && row.commitSeq === current.commitSeq && Buffer.from(row.rowId).equals(Buffer.from(current.rowId)));
-      if (!version || version.isTombstone) continue;
-      const decoded = await decodeCanonicalFlarexValueEvidenceV1({ canonicalBytes: version.valueBytes, sha256: version.valueSha256, profile: "appDocument" });
-      const row = projectNativeRow(Schema.decodeUnknownSync(Schema.JsonObject)(decoded.valueJson));
-      if (typeof row.id !== "string" || selected && !selected.has(row.id)) continue;
-      const table = tables.find(table => table.tableId === current.tableId);
-      if (!table) throw new Error("Missing installed comparison table");
-      rows.push({ table: table.logicalName.slice(table.logicalName.lastIndexOf("/") + 1), row });
-    }
-    return rows.sort((left, right) => (left.table + "/" + left.row.id).localeCompare(right.table + "/" + right.row.id));
-  };
+  // Observe the genuine service's restore map. The retained SDK compensator
+  // deliberately returns null and is tested separately by prepareInverse.
+  const restoreResultStep = createStep("fixture157-native-restore-result", resources.callback(async (
+    ids: typeof PriceListPriceRemovalIds.Type, context,
+  ) => new StepResponse(await context.resources.pricing.restorePrices([...ids]))));
+  const restoreResultWorkflow = createWorkflow("fixture157-native-restore-result-root", (
+    ids: WorkflowData<typeof PriceListPriceRemovalIds.Type>,
+  ) => new WorkflowResponse(restoreResultStep(ids)));
+  const restoreResultHost = await Effect.runPromise(prepareAtomicWorkflowHost({ ...options,
+    modules: { pricing: options.pricing }, operationScheduling: "queued", borrowedOperationScheduling: "queued",
+    workflow: { name: "fixturePriceRemovalNativeRestoreResult", resources,
+      prepared: Result.getOrThrow(restoreResultWorkflow.prepare()), input: PriceListPriceRemovalIds,
+      output: Schema.JsonObject, events: internalModuleWorkflowEvents } }));
+  close(() => Effect.runPromise(restoreResultHost.close));
+  const readRows = (ids?: readonly string[]) => connected.readRows(ids);
   return { fixture, pricing, options, native, ...comparison, seedLists, outsideUpdate, prepareForward, prepareInverse, prepareWrapped, preparePhysicalDeletion,
     closeCaseHosts, readRows, read: async (ids?: readonly string[]) => (await readRows(ids)).map(entry => entry.row),
     prepare: async () => own(await Effect.runPromise(prepareRemovePriceListPricesWorkflow(options))),
@@ -211,6 +181,6 @@ export async function prepareLogicalPriceListPriceRemoval(driver: "pglite" | "po
       const host = own(await Effect.runPromise(prepareRemovePriceListPricesWorkflow(options)));
       return Effect.runPromise(host.run(host.newRequestKey(), { ids: [...ids] }));
     },
-    restorePrices: (ids: readonly string[]) => Effect.runPromise(direct.run(direct.newRequestKey(), pricing.priceRemovalRestore, [...ids])),
-    snapshot: () => logicalCurrencyInventory(fixture) };
+    restorePrices: (ids: readonly string[]) => Effect.runPromise(restoreResultHost.run(restoreResultHost.newRequestKey(), [...ids])),
+    snapshot: fixture.snapshot };
 }

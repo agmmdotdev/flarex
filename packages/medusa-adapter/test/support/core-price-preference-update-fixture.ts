@@ -1,24 +1,17 @@
+import { prepareCorePricingMaintenance } from "./core-pricing-maintenance-fixture";
 import { Effect, Result, Schema } from "effect";
 import { createStep, createWorkflow, transform, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { updatePricePreferencesWorkflow } from "@medusajs/core-flows/pricing/update-price-preferences";
 import type { IPricingModuleService, PricingWorkflow } from "@medusajs/framework/types";
 import { Modules } from "@medusajs/framework/utils/portable";
-import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
-import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { makeCommerceHost, type LogicalCommerceHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
-import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
 import { makeLocalPricingCommands } from "../../src/modules/pricing/service";
 import { PricePreferenceUpdateInput, PricePreferenceUpdateUpserts, compilePricePreferenceContracts } from "../../src/modules/pricing/preference-input";
 import { capturePricingMetadata } from "../../src/modules/pricing/schema";
 import { prepareUpdatePricePreferencesWorkflow } from "../../src/workflows/pricing/update-price-preferences";
-import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution } from "../../src/workflow/host";
+import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
-import { projectNativeRow } from "../../src/repository/result";
-import { logicalCurrencyFixture } from "./logical-currency-fixture";
-import { logicalCurrencyInventory } from "./logical-currency-inventory";
 
 const revision = "5".repeat(64), stamp = "2026-01-01T00:00:00.000Z";
 const prepared = Result.getOrThrow(updatePricePreferencesWorkflow.prepare());
@@ -44,11 +37,8 @@ const resourcesFor = (module: Effect.Success<ReturnType<typeof makeLocalPricingC
 /** A separate canonical fixture owns exactly four active preference rows.
  * Native empty selectors can select all four while the protected historical
  * preference and unrelated PriceSet remain outside their active selection. */
-export async function prepareLogicalPricePreferenceUpdate(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void) {
-  const fixture = await logicalCurrencyFixture(driver, close, { includePricing: true });
+export async function prepareCorePricePreferenceUpdate(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void) {
   const pricing = await Effect.runPromise(makeLocalPricingCommands("price-preference-updates"));
-  const definition = fixture.pricingDefinition;
-  if (definition === undefined) throw new Error("Missing installed Pricing definition");
   const targetIds = ["prpref150-a", "prpref150-b", "prpref150-c", "prpref150-d"] as const;
   const initial: Inverse = [
     { id: targetIds[0], attribute: "currency_code", value: "usd", is_tax_inclusive: false },
@@ -64,17 +54,9 @@ export async function prepareLogicalPricePreferenceUpdate(driver: "pglite" | "po
     { table: "price_preference", row: { id: protectedIds[1], attribute: "currency_code", value: "history150",
       is_tax_inclusive: false, ...managed, deleted_at: stamp } },
   ];
-  const dataset = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows: seedRows },
-    1_048_576, { invalidInput: () => new Error("Invalid preference update seed"), hashFailure: cause => new Error("Preference update seed hash", { cause }) }));
-  const hostInput = { ...fixture.hostInput, commands: pricing.commands, logicalStorage: { ...fixture.hostInput.logicalStorage,
-    source: { sourceKey: "medusa.pricing", writeProfile: "medusa.pricing", schema: definition.schema, evidence: definition.provenance },
-    initialization: { stepId: "pref150-comparison", datasetSha256: dataset.sha256Hex, expectedRowCount: seedRows.length } },
-  } satisfies LogicalCommerceHostInput<unknown>;
-  const initializer = await Effect.runPromise(makeCommerceHost(hostInput));
-  try { await Effect.runPromise(initializer.initialize(seedRows)); } finally { await Effect.runPromise(initializer.close); }
-  const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-    prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, ...composition }) };
-  const options: Options = { execution, pricing: { module: pricing.workflow, logicalStorage: hostInput.logicalStorage }, revision,
+  const connected = await prepareCorePricingMaintenance(driver, close, { pricing, seedRows });
+  const { fixture, execution } = connected;
+  const options: Options = { execution, pricing: { module: pricing.workflow, nativeStorage: connected.pricing.source }, revision,
     subscribers: [{ id: "native-price-preference-update", revision }] };
   const resources = Result.getOrThrow(resourcesFor(pricing.workflow));
   const contracts = Result.getOrThrow(compilePricePreferenceContracts((await Effect.runPromise(capturePricingMetadata())).frame));
@@ -126,20 +108,7 @@ export async function prepareLogicalPricePreferenceUpdate(driver: "pglite" | "po
       name: "probePricePreferenceUpdateParent", resources, prepared: Result.getOrThrow(workflow.prepare()),
       input: PricePreferenceUpdateInput, output: contracts.Output, events: internalModuleWorkflowEvents } })));
   };
-  const read = async (ids: readonly string[] = targetIds) => {
-    const inventory = await logicalCurrencyInventory(fixture), result: JsonObject[] = [];
-    const selected = new Set(ids);
-    for (const current of inventory.rows) {
-      if (current.scopeUuid !== projectScopeIdUuidV1(fixture.application.authority.scopeId).scopeUuid) continue;
-      const version = inventory.revisions.find(row => row.scopeUuid === current.scopeUuid && row.tableId === current.tableId && row.commitSeq === current.commitSeq &&
-        Buffer.from(row.rowId).equals(Buffer.from(current.rowId)));
-      if (version === undefined || version.isTombstone) continue;
-      const decoded = await decodeCanonicalFlarexValueEvidenceV1({ canonicalBytes: version.valueBytes, sha256: version.valueSha256, profile: "appDocument" });
-      const row = Schema.decodeUnknownSync(Schema.JsonObject)(decoded.valueJson);
-      if (typeof row.id === "string" && selected.has(row.id)) result.push(projectNativeRow(row));
-    }
-    return result.sort((left, right) => String(left.id).localeCompare(String(right.id)));
-  };
+  const read = (ids: readonly string[] = targetIds) => connected.read(ids);
   // Administrative fixture reset is a genuine module call, explicitly separate
   // from the original compensation callback tested above.
   const resetStep = createStep("fixture150-reset", resources.callback(async (input: Inverse, context) => {
@@ -155,5 +124,5 @@ export async function prepareLogicalPricePreferenceUpdate(driver: "pglite" | "po
     prepare: async () => own(await Effect.runPromise(prepareUpdatePricePreferencesWorkflow(options))),
     set: (input: Inverse) => Effect.runPromise(resetHost.run(resetHost.newRequestKey(), input)),
     reset: () => Effect.runPromise(resetHost.run(resetHost.newRequestKey(), initial)),
-    snapshot: () => logicalCurrencyInventory(fixture), closeCaseHosts };
+    snapshot: fixture.snapshot, closeCaseHosts };
 }

@@ -10,7 +10,7 @@ function coreOperations(getMany: CoreNativeOperations["getMany"], normalizeId?: 
   const unexpected = () => Effect.die(new Error("Unexpected Core operation in CMS batch-input test"));
   return { getMany, get: unexpected, insert: unexpected, patch: unexpected, replace: unexpected, delete: unexpected,
     nativeActivityCursor: () => { throw new Error("Unexpected Core activity in CMS batch-input test"); },
-    nativeActivitySince: unexpected, checkpointReferences: unexpected, planSetNullReferences: unexpected,
+    nativeActivitySince: unexpected, matchRelational: unexpected, replayRows: unexpected, checkpointReferences: unexpected, planSetNullReferences: unexpected,
     normalizeId: normalizeId ?? unexpected, incomingReferences: unexpected, pendingDelete: unexpected, assertPendingDelete: unexpected,
     writeRows: unexpected, deleteRows: unexpected, lifecycle: unexpected, prepareDeleteClosure: unexpected,
     replaceReferenceSet: unexpected, referenceReplacementChanges: unexpected, protectedReferencePage: unexpected,

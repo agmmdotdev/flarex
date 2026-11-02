@@ -283,7 +283,7 @@ const compose = Effect.fn("CommerceNativeHost.compose")(function* (hostInput: Re
       && command.mode === "write" && token !== null ? Effect.gen(function* () {
         if (claim === undefined) return yield* commerceError("invalidAuthority");
         yield* coreResult(database.readNativeRootBinding(root));
-        const operation = yield* coreResult(database.beginNativeRoot(root, { claim, chargeRetained }));
+        const operation = yield* coreResult(database.beginNativeRoot(root, { claim, chargeRetained, remainingBytes: lifetime.remainingBytes }));
         const prepared = yield* Effect.exit(Effect.gen(function* () {
           return { unixTime: operation.unixTime, operations: yield* coreResult(operation.native(binding)),
             eventOperations: yield* coreResult(operation.native(eventInput.binding)), finalize: operation.finalize, abort: operation.abort };
@@ -294,7 +294,7 @@ const compose = Effect.fn("CommerceNativeHost.compose")(function* (hostInput: Re
         }
         return prepared.value;
       }) : coreResult(database.beginNative(binding, { commandName, limits: nativeLimits,
-        chargeRetained, ...(claim === undefined ? {} : { claim }) }));
+        chargeRetained, remainingBytes: lifetime.remainingBytes, ...(claim === undefined ? {} : { claim }) }));
     return yield* Effect.acquireUseRelease(beginOperation, operation => body(operation),
     operation => operation.abort()).pipe(Effect.ensuring(lifetime.close));
   });

@@ -202,7 +202,9 @@ const migrateLegacy = Effect.fn("CoreBootstrap.migrateLegacy")(function* (
 export const bootstrapCore = Effect.fn("CoreBootstrap.open")(function* (
   persistence: CorePersistence, lease: CorePersistenceLease, options: CoreDatabaseOptions,
 ) {
-  const retention = makeCoreLeaderRetention(yield* persistence.readRetentionBounds(lease));
+  const capturedRetentionBounds = yield* persistence.readRetentionBounds(lease);
+  const retentionBounds = Object.freeze({ ...capturedRetentionBounds });
+  const retention = makeCoreLeaderRetention(retentionBounds);
   if (yield* persistence.isFresh(lease)) {
     yield* retention.validateIndex(0n);
     yield* retention.validateDocument(0n);
@@ -240,5 +242,5 @@ export const bootstrapCore = Effect.fn("CoreBootstrap.open")(function* (
   if (Option.isNone(marker)) yield* putValue(persistence, lease, CORE_SCHEMA_CUTOVER_GLOBAL, global.document.ts);
   yield* authenticateCoreNativeRegistry(registry, undefined, options.schemaBundles);
   const resident = yield* Effect.fromResult(CoreResidentIndexes.create(registry, revisions));
-  return { timestamp, registry, retention, resident };
+  return { timestamp, registry, retention, retentionBounds, resident };
 });

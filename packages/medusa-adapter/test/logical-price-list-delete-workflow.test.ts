@@ -3,35 +3,33 @@ import { Cause, Context, Deferred, Effect, Exit, Fiber, Option, References, Resu
 import { PricingModuleService } from "@medusajs/pricing/services";
 import { Link } from "@medusajs/modules-sdk/link";
 import { ExecutionDiagnostics, type ExecutionDiagnosticPolicy } from "@flarex/persistence-postgres/internal/execution-diagnostics";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
 import { compilePriceListDeletionContracts } from "../src/modules/pricing/list-deletion-input";
 import { capturePricingMetadata } from "../src/modules/pricing/schema";
 import { makeLocalPricingCommands } from "../src/modules/pricing/service";
 import { prepareDeletePriceListsWorkflow } from "../src/workflows/pricing/delete-price-lists";
 import { priceListDeletionResources } from "../src/workflow/policy";
-import { prepareLogicalPriceListDeletion, type DeletionScenario } from "./support/logical-price-list-delete-fixture";
+import { prepareCorePriceListDeletion } from "./support/core-price-list-delete-fixture";
+import type { DeletionScenario } from "./support/pricing-list-comparison-rows";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalPriceListDeletion>>;
+let connected: Awaited<ReturnType<typeof prepareCorePriceListDeletion>>;
 let protectedRows: Awaited<ReturnType<typeof connected.read>> | undefined;
 let contracts: Result.Result.Success<ReturnType<typeof compilePriceListDeletionContracts>>;
 type Snapshot = Awaited<ReturnType<typeof connected.snapshot>>;
 type Rows = Awaited<ReturnType<typeof connected.readRows>>;
 const a = "plist154-a", b = "plist154-b", c = "plist154-c", d = "plist154-d", missing = "plist154-missing";
 const setup = async (scenario: DeletionScenario = "maximum") => {
-  connected = await prepareLogicalPriceListDeletion(driver, dispose => cleanup.push(dispose), scenario);
+  connected = await prepareCorePriceListDeletion(driver, dispose => cleanup.push(dispose), scenario);
   protectedRows = await connected.read(connected.protectedIds);
   contracts = Result.getOrThrow(compilePriceListDeletionContracts((await Effect.runPromise(capturePricingMetadata())).frame));
 };
 const noMutation = (before: Snapshot, after: Snapshot) => {
-  for (const name of ["rows", "revisions", "indexEntries", "indexRevisions", "uniqueKeys", "rowChanges", "physicalFacts", "events"] as const)
+  for (const name of ["rows", "revisions", "indexes", "events", "families", "deliveries"] as const)
     expect(after[name], name).toEqual(before[name]);
 };
 const eventsSince = (before: Snapshot, after: Snapshot) => after.events.filter(event => !before.events.some(prior =>
-  prior.scopeUuid === event.scopeUuid && prior.commitSeq === event.commitSeq && prior.eventOrdinal === event.eventOrdinal));
+  prior.familyId === event.familyId && prior.timestamp === event.timestamp && prior.ordinal === event.ordinal));
 const decodeMessage = Schema.decodeUnknownSync(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ object: Schema.String, action: Schema.String }), data: Schema.Struct({ id: Schema.Union([Schema.String, Schema.Array(Schema.String)]) }) }));
 const eventVector = (events: Snapshot["events"]) => events.flatMap(event => {
@@ -91,7 +89,7 @@ function diagnoseMaximum<Value, Failure, Requirements>(label: string, work: Effe
 describe(`approved portable original Price List deletion - ${driver}`, { concurrent: false }, () => {
   beforeEach(() => { protectedRows = undefined; });
   afterEach(async () => {
-    try { if (protectedRows) { await connected.closeCaseHosts(); expect(await connected.read(connected.protectedIds)).toEqual(protectedRows); } }
+    try { if (protectedRows) { await connected?.closeCaseHosts(); expect(await connected.read(connected.protectedIds)).toEqual(protectedRows); } }
     finally { for (const dispose of cleanup.splice(0).reverse()) await dispose(); }
   }, 180_000);
 
@@ -170,7 +168,7 @@ describe(`approved portable original Price List deletion - ${driver}`, { concurr
       expect(failed._tag).toBe("Failure"); if (failed._tag !== "Failure") throw new Error("Default64 maximum unexpectedly completed");
       expect(reasons(failed.cause)).toEqual(expect.arrayContaining(["limitExceeded", "rollbackOnly"]));
       const refused = await connected.snapshot(); noMutation(before, refused); expect(refused.outcomes).toEqual(before.outcomes);
-      expect(refused.commits).toEqual(before.commits); expect(remove).toHaveBeenCalledTimes(1); expect(unlink).not.toHaveBeenCalled();
+      expect(refused.outcomes.filter(outcome => outcome.value.kind === "nativeRoot")).toEqual(before.outcomes.filter(outcome => outcome.value.kind === "nativeRoot")); expect(remove).toHaveBeenCalledTimes(1); expect(unlink).not.toHaveBeenCalled();
       const admitted = await connected.prepare(), key = admitted.newRequestKey();
       expect(await Effect.runPromise(admitted.run(key, input))).toBeNull(); const committed = await connected.snapshot();
       expect(remove).toHaveBeenCalledTimes(2); expect(unlink).toHaveBeenCalledTimes(1);
@@ -268,7 +266,7 @@ describe(`approved portable original Price List deletion - ${driver}`, { concurr
         const failed = await Effect.runPromise(Effect.exit(inverse.run(key, retained))); expect(failed._tag).toBe("Failure");
         if (failed._tag !== "Failure") throw new Error("Native collision unexpectedly restored");
         expect(reasons(failed.cause)).toEqual(expect.arrayContaining(["invalidInput", "rollbackOnly"]));
-        const after = await connected.snapshot(); noMutation(before, after); expect(after.outcomes).toEqual(before.outcomes); expect(after.commits).toEqual(before.commits);
+        const after = await connected.snapshot(); noMutation(before, after); expect(after.outcomes).toEqual(before.outcomes); expect(after.outcomes.filter(outcome => outcome.value.kind === "nativeRoot")).toEqual(before.outcomes.filter(outcome => outcome.value.kind === "nativeRoot"));
         expect(await connected.readRows()).toEqual(beforeRows);
       }
       expect(restore).toHaveBeenCalledTimes(2); expect(relink).toHaveBeenCalledTimes(2);
@@ -319,7 +317,7 @@ describe(`approved portable original Price List deletion - ${driver}`, { concurr
       expect(reasons(failed.cause).join(" -> ")).toContain("Late parent failure after genuine Price List deletion");
       expect(remove).toHaveBeenCalledTimes(1); expect(Result.getOrThrow(contracts.decodeOutput(await remove.mock.results[0]?.value)).price_rule_id).toHaveLength(16);
       expect(restore).not.toHaveBeenCalled(); expect(relink).not.toHaveBeenCalled(); const after = await connected.snapshot(); noMutation(before, after);
-      expect(after.outcomes).toEqual(before.outcomes); expect(after.commits).toEqual(before.commits); expect(calls).toBeLessThanOrEqual(priceListDeletionResources.calls);
+      expect(after.outcomes).toEqual(before.outcomes); expect(after.outcomes.filter(outcome => outcome.value.kind === "nativeRoot")).toEqual(before.outcomes.filter(outcome => outcome.value.kind === "nativeRoot")); expect(calls).toBeLessThanOrEqual(priceListDeletionResources.calls);
       console.info("Price List deletion late parent maximum", { calls });
     } finally { remove.mockRestore(); restore.mockRestore(); relink.mockRestore(); }
   }, 240_000);
@@ -362,17 +360,13 @@ describe(`approved portable original Price List deletion - ${driver}`, { concurr
   }, 240_000);
 
   it("recovers lost acknowledgement once and refuses changed replay identity", async () => {
-    await setup(); let lose = true; const fixture = connected.fixture;
-    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
-      Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-      Effect.flatMap(value => { if (!lose) return Effect.succeed(value); lose = false; return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost Price List deletion acknowledgement") })); }),
-    ));
-    const host = await Effect.runPromise(prepareDeletePriceListsWorkflow({ ...connected.options, execution: { identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-      prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, session, ...composition }) } }));
+    await setup(); const fixture = connected.fixture;
+    const fault = fixture.loseNextNativeRootAcknowledgement();
+    const host = await Effect.runPromise(prepareDeletePriceListsWorkflow(connected.options));
     const changed = await Effect.runPromise(prepareDeletePriceListsWorkflow({ ...connected.options, revision: "a".repeat(64) }));
     const remove = vi.spyOn(PricingModuleService.prototype, "softDeletePriceLists"), unlink = vi.spyOn(Link.prototype, "delete");
     try {
-      const key = host.newRequestKey(), input = { ids: [a] }; expect(await Effect.runPromise(host.run(key, input))).toBeNull(); expect(lose).toBe(false);
+      const key = host.newRequestKey(), input = { ids: [a] }; expect(await Effect.runPromise(host.run(key, input))).toBeNull(); expect(fault.armed).toBe(false); expect(fault.failures).toBe(1);
       expect(remove).toHaveBeenCalledTimes(1); expect(unlink).toHaveBeenCalledTimes(1); const after = await connected.snapshot();
       expect(await Effect.runPromise(host.run(key, input))).toBeNull(); expect(remove).toHaveBeenCalledTimes(1);
       await expect(Effect.runPromise(changed.run(key, input))).rejects.toMatchObject({ reason: "requestConflict" }); expect(await connected.snapshot()).toEqual(after);

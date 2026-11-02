@@ -1,3 +1,4 @@
+import { coreNativeTestBudget } from "./nativeTestBudget";
 import { Effect, Option, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { encodeDocumentId } from "flarex-protocol/document-id";
@@ -70,7 +71,8 @@ describe("native optional-one final-state integrity", () => {
         now: 1_000_000_000n, vault: new CoreFinalizationVault(),
         idGenerator: yield* Effect.fromResult(createTransactionIdGenerator(new Uint8Array(32), 1_000_000_000n)),
         native: { authority: { definition, namespace: null, schemaId, authorityEpoch: 0n, tables }, visibility: "command",
-          limits: { maxIdentities: 16, maxDocumentBytes: 65_536 }, chargeRetained: () => Effect.void,
+          ...coreNativeTestBudget(), limits: { maxIdentities: 16, maxDocumentBytes: 65_536 },
+          evaluateRelational: () => Effect.die("Unexpected PostgreSQL predicate operation"),
           capture: () => Effect.suspend(() => { captures += 1; return Effect.fail(unavailable); }) } });
       const operations = internals.nativeOperations;
       if (operations === undefined) return yield* Effect.die(new Error("Missing native test operations"));

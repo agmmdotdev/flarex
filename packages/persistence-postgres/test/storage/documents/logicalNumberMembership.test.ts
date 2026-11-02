@@ -3,7 +3,8 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import { compileLogicalRelationalRead, relationalReadLimits } from "../../../src/storage/documents/logicalDocuments/relationalQuery";
-import { buildPostgresRelationalPredicateBody, preparePostgresRelationalBatch } from "../../../src/storage/documents/logicalDocuments/postgresRelationalPredicate";
+import { preparePostgresRelationalBatch } from "../../../src/values/postgresRelationalPredicate";
+import { buildPostgresRelationalPredicateBody } from "../../../src/database/postgresRelationalPredicate";
 import { numberMembershipSchema } from "../relationalSchema/numberMembershipSchema";
 
 const table = numberMembershipSchema.tables[0];

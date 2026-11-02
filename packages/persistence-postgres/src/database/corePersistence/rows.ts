@@ -2,6 +2,7 @@ import { Effect, Schema } from "effect";
 import { copyBytes } from "@flarex/utils/bytes";
 import { CanonicalNonNegativePostgresBigIntFromString } from "flarex-protocol/internal/postgres-bigint";
 import { InternalDocumentIdSchema } from "flarex-protocol/document-id";
+import { MAX_INDEX_KEY_PREFIX_BYTES } from "flarex-protocol/index-key";
 import { CorePersistenceError, type CoreDocumentLogEntry } from "../../core/contracts";
 
 export const timestampSchema = Schema.Union([
@@ -37,6 +38,31 @@ export const indexRowsSchema = Schema.Array(Schema.Struct({
   prev_ts: Schema.NullOr(timestampSchema),
 }));
 
+const byteCountSchema = timestampSchema.check(Schema.makeFilter(value => value <= BigInt(Number.MAX_SAFE_INTEGER)
+  ? undefined : "Expected an exactly representable byte count"));
+/** One physical history tuple, before exact interval filtering. Index targets
+ * remain separate from the joined anchor so corruption cannot hide in the join. */
+export const indexHistoryRowsSchema = Schema.Array(Schema.Struct({
+  ts: timestampSchema,
+  key_prefix: Schema.Uint8Array.check(Schema.makeFilter(value => value.byteLength <= MAX_INDEX_KEY_PREFIX_BYTES
+    ? undefined : "Invalid physical index prefix")),
+  key_suffix: Schema.NullOr(Schema.Uint8Array),
+  key_sha256: Schema.Uint8Array.check(Schema.makeFilter(value => value.byteLength === 32
+    ? undefined : "Expected a SHA-256 digest")),
+  deleted: Schema.Boolean,
+  index_table_id: Schema.NullOr(internalIdSchema),
+  index_document_id: Schema.NullOr(internalIdSchema),
+  document_ts: Schema.NullOr(timestampSchema),
+  table_id: Schema.NullOr(internalIdSchema),
+  document_id: Schema.NullOr(internalIdSchema),
+  json_value: Schema.NullOr(Schema.Uint8Array),
+  document_deleted: Schema.NullOr(Schema.Boolean),
+  prev_ts: Schema.NullOr(timestampSchema),
+  key_bytes: byteCountSchema,
+  document_bytes: byteCountSchema,
+  over_budget: Schema.Boolean,
+}));
+
 export function makeStoredRowsDecoder<S extends Schema.Top>(schema: S) {
   const decode = Schema.decodeUnknownEffect(schema);
   return (input: unknown) => decode(input).pipe(Effect.mapError(cause =>
@@ -49,6 +75,7 @@ export const decodePreviousRevisionRows = makeStoredRowsDecoder(Schema.Array(Sch
   ...documentShape, query_ts: timestampSchema,
 })));
 export const decodeIndexRows = makeStoredRowsDecoder(indexRowsSchema);
+export const decodeIndexHistoryRows = makeStoredRowsDecoder(indexHistoryRowsSchema);
 
 export function documentFromRow(row: typeof documentRowSchema.Type): CoreDocumentLogEntry {
   return Object.freeze({

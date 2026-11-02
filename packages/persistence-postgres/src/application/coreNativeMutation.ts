@@ -41,6 +41,7 @@ export interface CoreNativeApplicationMutationConfiguration<GrantFailure, Execut
   readonly open: (input: NativeExecutionInput) => Effect.Effect<Readonly<{
     binding: CoreNativeRootBinding;
     chargeRetained: (bytes: number) => Effect.Effect<void, CoreError>;
+    remainingBytes: () => number;
     seal: Effect.Effect<void, CoreError | ExecutionFailure>;
     admissionDeadlineUnixMilliseconds: number;
     execute: (input: NativeExecutionInput & Readonly<{ operation: CoreNativeRootOperation; root: CoreNativeRootBindingMetadata }>) =>
@@ -131,7 +132,7 @@ export function makeCoreNativeApplicationMutationPort<GrantFailure, ExecutionFai
       if (acquired.kind !== "claimed") return yield* new CoreApplicationMutationError({ reason: acquired.kind === "busy" ? "inProgress" : "terminalRequest" });
       claim = acquired.claim;
       const body = yield* restore(Effect.acquireUseRelease(database.beginNativeRoot(prepared.binding,
-        { claim: acquired.claim, chargeRetained: prepared.chargeRetained }), operation => Effect.gen(function* () {
+        { claim: acquired.claim, chargeRetained: prepared.chargeRetained, remainingBytes: prepared.remainingBytes }), operation => Effect.gen(function* () {
         const executed = yield* Effect.exit(prepared.execute({ ...execution, operation, root: metadata }));
         if (Exit.isFailure(executed)) {
           const sealed = yield* Effect.exit(prepared.seal);

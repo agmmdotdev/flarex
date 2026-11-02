@@ -101,7 +101,7 @@ const claim = Effect.fn("NativeScopeExclusionFixture.claim")(function* (database
 const begin = Effect.fn("NativeScopeExclusionFixture.begin")(function* (database: CoreDatabase, claimed: ClaimedRoot,
   deadline?: number): Effect.fn.Return<OpenRoot, CoreError> {
   const operation = yield* database.beginNativeRoot(claimed.root, { claim: claimed.claim,
-    chargeRetained: coreNativeTestBudget().chargeRetained,
+    ...coreNativeTestBudget(),
     ...(deadline === undefined ? {} : { admissionDeadlineUnixMilliseconds: deadline }) });
   return { ...claimed, operation };
 });
@@ -364,7 +364,7 @@ export function registerNativeScopeExclusionScenarios(label: string, createFixtu
       const selected = yield* claim(graph.database, scope.selected, "issuer-selected");
       expect(failure(yield* Effect.result(graph.database.readNativeRootBinding({ ...scope.selected })))).toMatchObject({ reason: "authorityRevoked" });
       expect(failure(yield* Effect.result(graph.database.beginNativeRoot(new Proxy(scope.selected, {}), {
-        claim: selected.claim, chargeRetained: coreNativeTestBudget().chargeRetained })))).toMatchObject({ reason: "authorityRevoked" });
+        claim: selected.claim, ...coreNativeTestBudget() })))).toMatchObject({ reason: "authorityRevoked" });
       expect(failure(yield* Effect.result(graph.database.abortRequest({ ...selected.claim })))).toMatchObject({ reason: "foreignClaim" });
       const ordinary = yield* begin(graph.database, yield* claim(graph.database, scope.ordinary, "issuer-ordinary"));
       expect(failure(yield* Effect.result(ordinary.operation.requireScopeExclusion))).toMatchObject({ reason: "authorityRevoked" });

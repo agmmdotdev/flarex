@@ -1,20 +1,16 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber, Schema } from "effect";
 import { PricingModuleService } from "@medusajs/pricing/services";
-import { sql } from "drizzle-orm";
 import { isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
 import { PricePreferenceUpdateInput } from "../src/modules/pricing/preference-input";
 import { makeLocalPricingCommands } from "../src/modules/pricing/service";
 import { prepareUpdatePricePreferencesWorkflow } from "../src/workflows/pricing/update-price-preferences";
-import { PricePreferenceUpdateProbeOutput, prepareLogicalPricePreferenceUpdate } from "./support/logical-price-preference-update-fixture";
+import { PricePreferenceUpdateProbeOutput, prepareCorePricePreferenceUpdate } from "./support/core-price-preference-update-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalPricePreferenceUpdate>>;
+let connected: Awaited<ReturnType<typeof prepareCorePricePreferenceUpdate>>;
 let primary: Effect.Success<ReturnType<typeof prepareUpdatePricePreferencesWorkflow>> | undefined;
 type Input = typeof PricePreferenceUpdateInput.Type;
 type Snapshot = Awaited<ReturnType<typeof connected.snapshot>>;
@@ -26,11 +22,11 @@ const run = async (input: Input) => {
   catch (cause) { throw new Error(`Native Price Preference update failed for ${JSON.stringify(input)}`, { cause }); }
 };
 const noMutation = (before: Snapshot, after: Snapshot) => {
-  for (const name of ["rows", "revisions", "indexEntries", "indexRevisions", "uniqueKeys", "rowChanges", "physicalFacts", "events"] as const)
+  for (const name of ["rows", "revisions", "indexes", "events", "families", "deliveries"] as const)
     expect(after[name], name).toEqual(before[name]);
 };
 const eventsSince = (before: Snapshot, after: Snapshot) => after.events.filter(event => !before.events.some(previous =>
-  previous.scopeUuid === event.scopeUuid && previous.commitSeq === event.commitSeq && previous.eventOrdinal === event.eventOrdinal));
+  previous.familyId === event.familyId && previous.timestamp === event.timestamp && previous.ordinal === event.ordinal));
 const eventIds = (events: Snapshot["events"]) => events.flatMap(event => {
   const message = event.envelope.message;
   if (message === undefined || !isJsonObject(message) || message.data === undefined || !isJsonObject(message.data))
@@ -48,12 +44,12 @@ const reasons = (value: unknown): string[] => {
 describe(`genuine native Price Preference update - ${driver}`, { concurrent: false }, () => {
   let protectedRows: Awaited<ReturnType<typeof connected.read>>;
   beforeAll(async () => {
-    connected = await prepareLogicalPricePreferenceUpdate(driver, close => cleanup.push(close));
+    connected = await prepareCorePricePreferenceUpdate(driver, close => cleanup.push(close));
     protectedRows = await connected.read(connected.protectedIds);
   }, 240_000);
   afterEach(async () => {
     primary = undefined;
-    await connected.closeCaseHosts();
+    await connected?.closeCaseHosts();
     expect(await connected.read(connected.protectedIds)).toEqual(protectedRows);
     await connected.reset();
   }, 120_000);
@@ -124,12 +120,11 @@ describe(`genuine native Price Preference update - ${driver}`, { concurrent: fal
   it("retains native PostgreSQL escaping, Unicode characters, case and simple fulltext semantics", async () => {
     // Locale is engine provenance, not an adapter case-folding rule. Probe the
     // same fixture database using ASCII-only SQL and explicit Unicode codepoints.
-    const locale = await connected.fixture.persistence.drizzle.select({
-      collation: sql<string>`datcollate::text`, ctype: sql<string>`datctype::text`,
-      lower_match: sql<boolean>`('caf' || chr(233)) ilike ('CaF' || chr(201))`,
-      upper_match: sql<boolean>`('CAF' || chr(201)) ilike ('CaF' || chr(201))`,
-      explicit_c_lower_match: sql<boolean>`(('caf' || chr(233)) collate "C") ilike ('CaF' || chr(201))`,
-    }).from(sql`pg_catalog.pg_database`).where(sql`datname = current_database()`);
+    const locale = await connected.fixture.physical.query(`select datcollate::text as collation, datctype::text as ctype,
+      ('caf' || chr(233)) ilike ('CaF' || chr(201)) as lower_match,
+      ('CAF' || chr(201)) ilike ('CaF' || chr(201)) as upper_match,
+      (('caf' || chr(233)) collate "C") ilike ('CaF' || chr(201)) as explicit_c_lower_match
+      from pg_catalog.pg_database where datname = current_database()`);
     expect(locale).toEqual([{ collation: "C", ctype: driver === "pglite" ? "C.UTF-8" : "C",
       lower_match: driver === "pglite", upper_match: true, explicit_c_lower_match: false }]);
     // Corpus rows use distinct raw attributes so native immediate uniqueness
@@ -404,18 +399,13 @@ describe(`genuine native Price Preference update - ${driver}`, { concurrent: fal
   }, 120_000);
 
   it("recovers an uncertain commit acknowledgement without rerunning native update", async () => {
-    let lose = true; const fixture = connected.fixture;
-    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
-      Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-      Effect.flatMap(value => { if (!lose) return Effect.succeed(value); lose = false;
-        return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost update acknowledgement") })); })));
-    const host = await Effect.runPromise(prepareUpdatePricePreferencesWorkflow({ ...connected.options, execution: {
-      identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-      prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, session, ...composition }) } }));
+    const fixture = connected.fixture;
+    const fault = fixture.loseNextNativeRootAcknowledgement();
+    const host = await Effect.runPromise(prepareUpdatePricePreferencesWorkflow(connected.options));
     const update = vi.spyOn(PricingModuleService.prototype, "updatePricePreferences");
     try {
       const key = host.newRequestKey(), input: Input = { selector: { id: a }, update: { value: "uncertain150" } };
-      const output = await Effect.runPromise(host.run(key, input)); expect(lose).toBe(false); expect(update).toHaveBeenCalledTimes(1);
+      const output = await Effect.runPromise(host.run(key, input)); expect(fault.armed).toBe(false); expect(fault.failures).toBe(1); expect(update).toHaveBeenCalledTimes(1);
       const after = await connected.snapshot(); expect(await Effect.runPromise(host.run(key, input))).toEqual(output);
       expect(update).toHaveBeenCalledTimes(1); expect(await connected.snapshot()).toEqual(after);
     } finally { update.mockRestore(); await Effect.runPromise(host.close); }

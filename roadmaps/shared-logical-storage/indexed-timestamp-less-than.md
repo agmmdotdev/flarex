@@ -16,7 +16,8 @@ scan/filter fallback, raw SQL escape, another query engine or a new resource lim
 - Accepted shared logical storage and the existing relational query owners.
 - `packages/persistence-postgres/src/frameworks/commerceTransaction/store.ts`.
 - `packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts`.
-- `packages/persistence-postgres/src/storage/documents/logicalDocuments/postgresRelationalPredicate.ts`.
+- `packages/persistence-postgres/src/values/postgresRelationalPredicate.ts`.
+- `packages/persistence-postgres/src/database/postgresRelationalPredicate.ts`.
 - `packages/persistence-postgres/test/storage/documents/logicalTimestampComparison.test.ts`.
 - The [API Key preflight](../flarexdb-framework-integration/preflight/api-key-workflows.md).
 

@@ -57,8 +57,8 @@ import { decodeLogicalFindQuery, isLogicalRange, selectLogicalIndex, selectLogic
 import { prepareLogicalRelationalRead, logicalRelationalSelectionValues, type LogicalRelationalReadDemand } from "./relationalQuery";
 import { decodeRelatedRelationalQuery, prepareRelatedRelationalPredicate } from "./relatedRelationalPredicate";
 import { decodeRelatedPredicateNodeLimit, relationalReadLimits } from "../../../execution/preparation/frameworkExecutionPolicy";
-import { preparePostgresRelationalBatch, inspectPostgresRelationalBatch, buildPostgresRelationalPredicateBody,
-  decodePostgresRelationalMatches, type PostgresRelationalPredicateBatch } from "./postgresRelationalPredicate";
+import { preparePostgresRelationalBatch, inspectPostgresRelationalBatch, decodePostgresRelationalMatches, type PostgresRelationalPredicateBatch } from "../../../values/postgresRelationalPredicate";
+import { buildPostgresRelationalPredicateBody } from "../../../database/postgresRelationalPredicate";
 import { rowsFromDriverExecuteResult } from "../../../database/driverExecuteResult";
 import { decodeLogicalAggregate, sumLogicalRows } from "./aggregate";
 import { relationalTextIdentity } from "./relationalRows";
@@ -1339,7 +1339,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
   /** Candidate acquisition owns dependencies; PostgreSQL evaluates the captured
    * current values without rereading committed rows or retaining a verdict.
    * Find/page retain their existing outer diagnostic operation boundaries. */
-  const evaluatePostgresRelationalBatch = Effect.fnUntraced(function* (tableId: CatalogTableId, batch: PostgresRelationalPredicateBatch) {
+  const evaluatePostgresRelationalBatch = Effect.fnUntraced(function* (tableId: CatalogTableId, batch: PostgresRelationalPredicateBatch<CatalogTableId>) {
     const inspected = yield* Effect.fromResult(inspectPostgresRelationalBatch(batch, tableId, error));
     yield* charge(inspected.inputBytes);
     const result = yield* (finiteProfile === undefined ? runStorageRead({ kind: "rows", tableId: tableId },

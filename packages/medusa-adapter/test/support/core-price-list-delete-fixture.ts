@@ -1,30 +1,21 @@
+import { prepareCorePricingMaintenance } from "./core-pricing-maintenance-fixture";
+import { priceListDeletionComparisonRows, type DeletionScenario } from "./pricing-list-comparison-rows";
 import { Effect, Result, Schema } from "effect";
-import { and, eq } from "drizzle-orm";
 import { createStep, createWorkflow, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { deletePriceListsWorkflow } from "@medusajs/core-flows/price-list/delete-price-lists";
 import { createPriceListsWorkflow } from "@medusajs/core-flows/price-list/create-price-lists";
-import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
-import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
-import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { makeCommerceHost, type LogicalCommerceHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
-import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
-import { fxControlTables } from "../../../persistence-postgres/src/database/schema";
 import { makeLocalPricingCommands } from "../../src/modules/pricing/service";
 import { PriceListDeletionIds } from "../../src/modules/pricing/list-input";
 import { PriceListDeletionWorkflowInput } from "../../src/modules/pricing/list-deletion-input";
 import { PriceListUpdatesInput } from "../../src/modules/pricing/list-update-input";
 import { preparePriceListDeletionLinkResource } from "../../src/links/price-list-deletion";
 import { prepareDeletePriceListsWorkflow } from "../../src/workflows/pricing/delete-price-lists";
-import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution } from "../../src/workflow/host";
+import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { priceListDeletionResources } from "../../src/workflow/policy";
-import { projectNativeRow } from "../../src/repository/result";
-import { logicalCurrencyFixture } from "./logical-currency-fixture";
-import { logicalCurrencyInventory } from "./logical-currency-inventory";
 
-const revision = "4".repeat(64), stamp = "2026-01-01T00:00:00.000Z";
+const revision = "4".repeat(64);
 const native = Result.getOrThrow(deletePriceListsWorkflow.prepare());
 function callbacks(name: string) {
   const node = native.nodes.find(candidate => candidate.name === name);
@@ -40,72 +31,20 @@ export const PriceListDeletionRetained = Schema.Struct({ pricing: PriceListDelet
   link: Schema.Struct({ pricing: Schema.Struct({ price_list_id: PriceListDeletionIds }) }) });
 type Retained = typeof PriceListDeletionRetained.Type;
 type Options = Parameters<typeof prepareDeletePriceListsWorkflow>[0];
-export type DeletionScenario = "maximum" | "history" | "mixed-history" | "collision" | "same-model-id";
 interface ParentOptions { readonly lateFailure?: boolean; readonly caughtRefusal?: boolean;
   readonly inspect?: (value: unknown) => void; readonly escape?: (work: () => Promise<unknown>) => void; }
 
 /** Canonical comparison history is setup data, never a native administrative
  * API. Every forward, inverse and outside edit below uses existing native owners. */
-export function priceListDeletionComparisonRows(scenario: DeletionScenario = "maximum") {
-  const managed = { created_at: stamp, updated_at: stamp, deleted_at: null };
-  const targetIds = (scenario === "maximum" ? ["plist154-a", "plist154-b", "plist154-c", "plist154-d"] : ["plist154-a"]);
-  const protectedRootId = "plist154-protected", setId = "pset154-shared";
-  const seedRows: Array<{ table: string; row: JsonObject }> = [];
-  const root = (id: string): JsonObject => ({ id, title: "Original154 " + id, description: "Original154", status: "draft", type: "sale",
-    starts_at: null, ends_at: null, rules_count: id === protectedRootId ? 1 : (scenario === "history" || scenario === "mixed-history") ? 3 : 2, ...managed });
-  const price = (id: string, listId: string | null, rules = 2): JsonObject => ({ id, title: null, currency_code: "USD", amount: "25.000000000000000000",
-    raw_amount: { value: "25.000000000000000000", precision: 20 }, min_quantity: null, raw_min_quantity: null,
-    max_quantity: null, raw_max_quantity: null, rules_count: rules, price_set_id: setId, price_list_id: listId, ...managed });
-  seedRows.push({ table: "price_set", row: { id: setId, ...managed } }, { table: "price", row: price("price154-base", null, 0) });
-  for (const id of [...targetIds, protectedRootId]) {
-    const extra = (scenario === "history" || scenario === "mixed-history") && id === targetIds[0];
-    const historicalRoot = scenario === "history" && id === targetIds[0];
-    seedRows.push({ table: "price_list", row: { ...root(id), ...(historicalRoot ? { deleted_at: stamp } : {}) } });
-    for (let index = 0; index < (id === protectedRootId ? 1 : extra ? 3 : 2); index++) {
-      const listRuleId = scenario === "same-model-id" && id === targetIds[0] && index === 0 ? "same-id154" : "plrule154-" + id + "-" + index;
-      const priceId = "price154-" + id + "-" + index;
-      seedRows.push({ table: "price_list_rule", row: { id: listRuleId, price_list_id: id, attribute: "list154-" + index, value: ["value154"], ...managed,
-        ...((extra && index !== 1 || scenario === "same-model-id" && id === targetIds[0] && index === 0) ? { deleted_at: stamp } : {}) } },
-      { table: "price", row: { ...price(priceId, id, extra && index === 0 ? 3 : id === protectedRootId ? 1 : 2), ...(extra && index === 0 ? { deleted_at: stamp } : {}) } });
-      for (let priority = 0; priority < (extra && index === 0 ? 3 : id === protectedRootId ? 1 : 2); priority++) {
-        const ruleId = scenario === "same-model-id" && id === targetIds[0] && index === 0 && priority === 0 ? "same-id154" : "prule154-" + id + "-" + index + "-" + priority;
-        seedRows.push({ table: "price_rule", row: { id: ruleId, price_id: priceId, attribute: "rule154-" + priority, value: "value154", operator: "eq", priority,
-          ...managed, ...((extra && priority !== 1 || scenario === "collision" && id === targetIds[0] && index === 0 && priority === 0) ? { deleted_at: stamp } : {}) } });
-      }
-    }
-  }
-  if (scenario === "collision") seedRows.push({ table: "price_rule", row: { id: "prule154-active-twin", price_id: "price154-plist154-a-0",
-    attribute: "rule154-0", value: "value154", operator: "eq", priority: 0, ...managed } });
-  seedRows.push({ table: "price_preference", row: { id: "prpref154-protected", attribute: "protected154", value: "never-touch", is_tax_inclusive: true, ...managed } });
-  const protectedIds = seedRows.filter(entry => entry.table === "price_set" || entry.table === "price_preference" || entry.row.id === "price154-base" ||
-    entry.row.id === protectedRootId || entry.row.price_list_id === protectedRootId || String(entry.row.price_id).includes(protectedRootId)).map(entry => String(entry.row.id));
-  // Reuse the initializer's adjacent-table batch owner. Stable grouping keeps
-  // every canonical row and each family's source order while respecting FKs.
-  const initializationTableOrder = ["price_set", "price_list", "price_list_rule", "price", "price_rule", "price_preference"];
-  const groupedRows = initializationTableOrder.flatMap(table => seedRows.filter(entry => entry.table === table));
-  if (groupedRows.length !== seedRows.length) throw new Error("Unknown canonical initialization table");
-  return { targetIds, protectedIds, protectedRootId, seedRows: groupedRows, sourceRows: seedRows, initializationTableOrder, stamp, scenario };
-}
 
-export async function prepareLogicalPriceListDeletion(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
+export async function prepareCorePriceListDeletion(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
   scenario: DeletionScenario = "maximum") {
-  const fixture = await logicalCurrencyFixture(driver, close, { includePricing: true });
   const pricing = await Effect.runPromise(makeLocalPricingCommands("price-list-deletions"));
-  const definition = fixture.pricingDefinition;
-  if (!definition) throw new Error("Missing installed Pricing source");
   const comparison = priceListDeletionComparisonRows(scenario), { seedRows, targetIds } = comparison;
-  const dataset = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows: seedRows },
-    1_048_576, { invalidInput: () => new Error("Invalid Price List deletion comparison seed"), hashFailure: cause => new Error("Price List deletion seed hash", { cause }) }));
-  const hostInput = { ...fixture.hostInput, commands: pricing.commands, logicalStorage: { ...fixture.hostInput.logicalStorage,
-    source: { sourceKey: "medusa.pricing", writeProfile: "medusa.pricing", schema: definition.schema, evidence: definition.provenance },
-    initialization: { stepId: "price-list154-comparison", datasetSha256: dataset.sha256Hex, expectedRowCount: seedRows.length } },
-  } satisfies LogicalCommerceHostInput<unknown>;
-  const initializer = await Effect.runPromise(makeCommerceHost(hostInput));
-  try { await Effect.runPromise(initializer.initialize(seedRows)); } finally { await Effect.runPromise(initializer.close); }
-  const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-    prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, ...composition }) };
+  const connected = await prepareCorePricingMaintenance(driver, close, { pricing, seedRows });
+  const { fixture, execution } = connected;
   const link = Result.getOrThrow(preparePriceListDeletionLinkResource());
-  const options: Options = { execution, pricing: { module: pricing.workflow, logicalStorage: hostInput.logicalStorage }, link, revision,
+  const options: Options = { execution, pricing: { module: pricing.workflow, nativeStorage: connected.pricing.source }, link, revision,
     subscribers: [{ id: "native-price-list-delete", revision }] };
   const resources = Result.getOrThrow(prepareWorkflowResources({ pricing: { module: pricing.workflow,
     methods: ["softDeletePriceLists", "restorePriceLists"], graph: false } }, true, { link }));
@@ -189,24 +128,8 @@ export async function prepareLogicalPriceListDeletion(driver: "pglite" | "postgr
       workflow: { name: "fixturePriceListPhysicalInverse", resources: selected, prepared: Result.getOrThrow(flow.prepare()), input: PriceListDeletionIds,
         output: Schema.Null, events: internalModuleWorkflowEvents } })));
   };
-  const readRows = async (ids?: readonly string[]) => {
-    const inventory = await logicalCurrencyInventory(fixture), rows: Array<{ table: string; row: JsonObject }> = [];
-    const tables = await fixture.control.drizzle.select().from(fxControlTables).where(and(eq(fxControlTables.deploymentId, fixture.deploymentId), eq(fxControlTables.namespace, "medusa")));
-    const selected = ids === undefined ? undefined : new Set(ids);
-    for (const current of inventory.rows) {
-      if (current.scopeUuid !== projectScopeIdUuidV1(fixture.application.authority.scopeId).scopeUuid) continue;
-      const version = inventory.revisions.find(row => row.scopeUuid === current.scopeUuid && row.tableId === current.tableId && row.commitSeq === current.commitSeq && Buffer.from(row.rowId).equals(Buffer.from(current.rowId)));
-      if (!version || version.isTombstone) continue;
-      const decoded = await decodeCanonicalFlarexValueEvidenceV1({ canonicalBytes: version.valueBytes, sha256: version.valueSha256, profile: "appDocument" });
-      const row = projectNativeRow(Schema.decodeUnknownSync(Schema.JsonObject)(decoded.valueJson));
-      if (typeof row.id !== "string" || selected && !selected.has(row.id)) continue;
-      const table = tables.find(table => table.tableId === current.tableId);
-      if (!table) throw new Error("Missing installed Pricing table");
-      rows.push({ table: table.logicalName.slice(table.logicalName.lastIndexOf("/") + 1), row });
-    }
-    return rows.sort((left, right) => (left.table + "/" + left.row.id).localeCompare(right.table + "/" + right.row.id));
-  };
+  const readRows = (ids?: readonly string[]) => connected.readRows(ids);
   return { fixture, pricing, options, native, ...comparison, prepareForward, prepareInverse, prepareWrapped, prepareRestore, prepareDefault64,
     prepareOutsideUpdate, preparePhysicalDeletion, readRows, read: async (ids?: readonly string[]) => (await readRows(ids)).map(item => item.row),
-    prepare: async () => own(await Effect.runPromise(prepareDeletePriceListsWorkflow(options))), snapshot: () => logicalCurrencyInventory(fixture), closeCaseHosts };
+    prepare: async () => own(await Effect.runPromise(prepareDeletePriceListsWorkflow(options))), snapshot: fixture.snapshot, closeCaseHosts };
 }

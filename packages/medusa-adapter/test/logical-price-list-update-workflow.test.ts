@@ -3,17 +3,16 @@ import { Deferred, Effect, Fiber, Schema } from "effect";
 import { PricingModuleService } from "@medusajs/pricing/services";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
+import { CoreTransactionError } from "../../persistence-postgres/src/core/api";
 import { makeLocalPricingCommands } from "../src/modules/pricing/service";
 import { PriceListUpdateWorkflowInput } from "../src/modules/pricing/list-update-input";
 import { prepareUpdatePriceListsWorkflow } from "../src/workflows/pricing/update-price-lists";
-import { prepareLogicalPriceListUpdate } from "./support/logical-price-list-update-fixture";
+import { prepareCorePriceListUpdate } from "./support/core-price-list-update-fixture";
+import { expectWorkflowDefect, expectWorkflowRefusal } from "./support/workflow-failure-assertions";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalPriceListUpdate>>;
+let connected: Awaited<ReturnType<typeof prepareCorePriceListUpdate>>;
 type Input = typeof PriceListUpdateWorkflowInput.Type;
 type Snapshot = Awaited<ReturnType<typeof connected.snapshot>>;
 const objects = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject));
@@ -21,24 +20,22 @@ const text = Schema.decodeUnknownSync(Schema.String);
 const ids = (rows: readonly JsonObject[]) => rows.map(row => text(row.id));
 const children = (root: JsonObject) => objects(root.price_list_rules);
 const noMutation = (before: Snapshot, after: Snapshot) => {
-  for (const name of ["rows", "revisions", "indexEntries", "indexRevisions", "uniqueKeys", "rowChanges", "physicalFacts", "events"] as const)
+  for (const name of ["rows", "revisions", "indexes", "events", "families", "deliveries"] as const)
     expect(after[name], name).toEqual(before[name]);
 };
 const sameBodyRevision = (before: Snapshot, after: Snapshot) => {
-  expect(after.rows.map(({ commitSeq: _, ...identity }) => identity)).toEqual(before.rows.map(({ commitSeq: _, ...identity }) => identity));
-  const added = after.revisions.filter(row => !before.revisions.some(previous => previous.scopeUuid === row.scopeUuid && previous.tableId === row.tableId &&
-    Buffer.from(previous.rowId).equals(Buffer.from(row.rowId)) && previous.commitSeq === row.commitSeq));
+  expect(after.rows.map(({ timestamp: _, ...identity }) => identity)).toEqual(before.rows.map(({ timestamp: _, ...identity }) => identity));
+  const added = after.revisions.filter(row => !before.revisions.some(previous => previous.table === row.table && previous.id === row.id && previous.timestamp === row.timestamp));
   expect(added).toHaveLength(1);
   const current = added[0]; if (!current) throw new Error("Missing genuine native no-op revision");
-  const previous = before.revisions.find(row => row.scopeUuid === current.scopeUuid && row.tableId === current.tableId &&
-    Buffer.from(row.rowId).equals(Buffer.from(current.rowId)) && row.commitSeq === current.prevCommitSeq);
+  const previous = before.revisions.find(row => row.table === current.table && row.id === current.id && row.timestamp === current.previous);
   if (!previous) throw new Error("Missing linked native no-op preimage revision");
-  expect(current.commitSeq).toBeGreaterThan(previous.commitSeq); expect(current.isTombstone).toBe(false);
-  for (const field of ["valueBytes", "valueSha256", "creationTime", "insertionCommitSeq", "insertionAttemptOrdinal"] as const) expect(current[field], field).toEqual(previous[field]);
-  expect(after.rows.find(row => row.scopeUuid === current.scopeUuid && row.tableId === current.tableId && Buffer.from(row.rowId).equals(Buffer.from(current.rowId)))?.commitSeq).toBe(current.commitSeq);
+  expect(current.timestamp).toBeGreaterThan(previous.timestamp); expect(current.deleted).toBe(false);
+  expect(current.value).toEqual(previous.value);
+  expect(after.rows.find(row => row.table === current.table && row.value._id === current.value?._id)?.timestamp).toBe(current.timestamp);
 };
 const eventsSince = (before: Snapshot, after: Snapshot) => after.events.filter(event => !before.events.some(prior =>
-  prior.scopeUuid === event.scopeUuid && prior.commitSeq === event.commitSeq && prior.eventOrdinal === event.eventOrdinal));
+  prior.familyId === event.familyId && prior.timestamp === event.timestamp && prior.ordinal === event.ordinal));
 const eventVector = (events: Snapshot["events"]) => events.flatMap(event => {
   const message = event.envelope.message;
   if (!isJsonObject(message) || message.data === undefined || !isJsonObject(message.data)) throw new Error("Missing genuine Pricing event data");
@@ -57,8 +54,8 @@ const activeRules = async (roots: readonly string[]) => (await connected.readRow
 const controls = async () => (await connected.readRows()).filter(item => !["price_list", "price_list_rule"].includes(item.table));
 
 describe(`genuine native Price List update - ${driver}`, { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalPriceListUpdate(driver, close => cleanup.push(close)); }, 240_000);
-  afterEach(async () => { await connected.closeCaseHosts(); }, 120_000);
+  beforeAll(async () => { connected = await prepareCorePriceListUpdate(driver, close => cleanup.push(close)); }, 240_000);
+  afterEach(async () => { await connected?.closeCaseHosts(); }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 180_000);
 
   it("resolves both empty native steps without Pricing calls and stores the original void result as null", async () => {
@@ -117,7 +114,7 @@ describe(`genuine native Price List update - ${driver}`, { concurrent: false }, 
       for (const child of children(row)) { expect(Object.keys(child).sort()).toEqual(["id", "attribute", "value", "price_list_id"].sort()); expect(child.price_list_id).toBe(row.id); }
     }
     const after = await connected.snapshot(), emitted = eventsSince(before, after);
-    expect(emitted).toHaveLength(20); expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1);
+    expect(emitted).toHaveLength(20); expect(new Set(emitted.map(event => event.timestamp)).size).toBe(1);
     expect(eventVector(emitted)).toEqual([
       ...output.flatMap(row => ids(children(row))).map(id => ["pricing.price-list-rule.created", id]),
       ...ids(output).map(id => ["pricing.price-list.updated", id]), ...oldOrder.map(id => ["pricing.price-list-rule.deleted", id]),
@@ -147,7 +144,7 @@ describe(`genuine native Price List update - ${driver}`, { concurrent: false }, 
       const completed = update.mock.results[0]; if (completed?.type !== "return") throw new Error("Missing completed actual-root native update");
       const output = objects(await completed.value); expect(output).toHaveLength(4); expect(ids(output)).toEqual(connected.targetIds);
       const after = await connected.snapshot(), emitted = eventsSince(before, after); expect(emitted).toHaveLength(20);
-      expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1);
+      expect(new Set(emitted.map(event => event.timestamp)).size).toBe(1);
       expect(eventVector(emitted)).toEqual([
         ...output.flatMap(row => ids(children(row))).map(id => ["pricing.price-list-rule.created", id]),
         ...connected.targetIds.map(id => ["pricing.price-list.updated", id]), ...oldOrder.map(id => ["pricing.price-list-rule.deleted", id]),
@@ -240,11 +237,13 @@ describe(`genuine native Price List update - ${driver}`, { concurrent: false }, 
     const deletion = await connected.preparePhysicalDeletion(); await Effect.runPromise(deletion.run(deletion.newRequestKey(), [id]));
     const before = await connected.snapshot(), update = vi.spyOn(PricingModuleService.prototype, "updatePriceLists");
     try {
-      await expect(Effect.runPromise(inverse.run(inverse.newRequestKey(), result.compensation))).rejects.toMatchObject({ reason: "rollbackOnly" });
+      const outcome = await Effect.runPromiseExit(inverse.run(inverse.newRequestKey(), result.compensation));
+      const failure = expectWorkflowRefusal(outcome, "adapterFailure");
+      expect(failure.cause).toMatchObject({ type: "invalid_data", message: `Price lists with ids: '${id}' not found` });
       expect(update).toHaveBeenCalledTimes(1); const rejected = update.mock.results[0];
       if (rejected?.type !== "return") throw new Error("Missing rejected genuine native inverse call");
       await expect(rejected.value).rejects.toMatchObject({ type: "invalid_data", message: `Price lists with ids: '${id}' not found` });
-      const after = await connected.snapshot(); noMutation(before, after); expect(after.outcomes).toEqual(before.outcomes); expect(after.commits).toEqual(before.commits);
+      const after = await connected.snapshot(); noMutation(before, after); expect(after.outcomes).toEqual(before.outcomes); expect(after.outcomes.filter(outcome => outcome.value.kind === "nativeRoot")).toEqual(before.outcomes.filter(outcome => outcome.value.kind === "nativeRoot"));
       expect(await connected.read([id])).toEqual([]);
     } finally { update.mockRestore(); }
   });
@@ -254,26 +253,32 @@ describe(`genuine native Price List update - ${driver}`, { concurrent: false }, 
       : kind === "historical" ? { id: connected.historicalRootId, title: "history" } : kind === "date" ? { id, starts_at: "invalid153" }
       : kind === "null-description" ? { id, description: null } : { id, title: "duplicate153" };
     const before = await connected.snapshot(), update = vi.spyOn(PricingModuleService.prototype, "updatePriceLists"), host = await connected.prepare();
-    const phases: string[] = [];
     const reachesUpdate = kind === "duplicate" || kind === "date" || kind === "null-description";
     try {
-      await expect(Effect.runPromise(host.run(host.newRequestKey(), { price_lists_data: kind === "duplicate" ? [row, row] : [row] }).pipe(
-        Effect.provideService(ExecutionDiagnostics, { observe: (name, work) => Effect.sync(() => { phases.push(name); }).pipe(Effect.andThen(work)) }),
-      ))).rejects.toMatchObject({ reason: reachesUpdate ? "rollbackOnly" : "adapterFailure" });
+      const attempt = host.run(host.newRequestKey(), { price_lists_data: kind === "duplicate" ? [row, row] : [row] });
+      const failure = reachesUpdate ? expectWorkflowRefusal(await Effect.runPromiseExit(attempt),
+        kind === "null-description" ? "invalidInput" : "adapterFailure") : undefined;
+      if (!reachesUpdate) await expect(Effect.runPromise(attempt)).rejects.toMatchObject({ reason: "adapterFailure" });
       expect(update).toHaveBeenCalledTimes(reachesUpdate ? 1 : 0);
       if (reachesUpdate) {
         const rejected = update.mock.results[0]; if (rejected?.type !== "return") throw new Error("Missing rejected genuine native update call");
-        await expect(rejected.value).rejects.toMatchObject(kind === "null-description" ? { reason: "rollbackOnly" } : {
-          type: "invalid_data", message: kind === "duplicate" ? "Price lists with ids: '' not found" : "Cannot set price list starts at with with invalid date string: invalid153",
-        });
         if (kind === "null-description") {
+          if (failure === undefined) throw new Error("Missing actual rejecting Core write failure");
+          expect(failure.cause).toBeInstanceOf(CoreTransactionError);
+          expect(failure.cause).toMatchObject({ reason: "documentValidation" });
+          await expect(rejected.value).rejects.toBe(failure);
           expect(update.mock.calls[0]?.[0]).toEqual([{ id, description: null }]);
-          // This shared write is reachable only after the genuine module's
-          // existing-root read, normalization and native upsertWithReplace.
-          expect(phases.filter(name => name === "LogicalDocuments.relationalChange")).toHaveLength(1);
+          // The genuine module reached the actual Core document validator;
+          // old logical-working-set phase names are no longer its authority.
+        } else {
+          const native = { type: "invalid_data", message: kind === "duplicate" ? "Price lists with ids: '' not found"
+            : "Cannot set price list starts at with with invalid date string: invalid153" };
+          if (failure === undefined) throw new Error("Missing retained genuine native refusal");
+          expect(failure.cause).toMatchObject(native);
+          await expect(rejected.value).rejects.toMatchObject(native);
         }
       }
-      const after = await connected.snapshot(); noMutation(before, after); expect(after.outcomes).toEqual(before.outcomes); expect(after.commits).toEqual(before.commits);
+      const after = await connected.snapshot(); noMutation(before, after); expect(after.outcomes).toEqual(before.outcomes); expect(after.outcomes.filter(outcome => outcome.value.kind === "nativeRoot")).toEqual(before.outcomes.filter(outcome => outcome.value.kind === "nativeRoot"));
     } finally { update.mockRestore(); }
   });
 
@@ -281,21 +286,22 @@ describe(`genuine native Price List update - ${driver}`, { concurrent: false }, 
     const update = vi.spyOn(PricingModuleService.prototype, "updatePriceLists");
     try {
       let calls = 0, parentReached = false;
-      const phases: string[] = [], before = await connected.snapshot(), late = await connected.prepareWrapped({ lateFailure: true,
+      const injected = new Error("Late parent failure after genuine Price List update");
+      const phases: string[] = [], before = await connected.snapshot(), late = await connected.prepareWrapped({ lateFailure: injected,
         afterNative: async () => { parentReached = true; phases.push("parent-callback"); } });
       const attempt = late.run(late.newRequestKey(), maximum("late")).pipe(Effect.provideService(ExecutionDiagnostics, {
         observe: (name, work) => Effect.sync(() => { if (name === "BoundedRequest.enter") calls++; phases.push(name); }).pipe(Effect.andThen(work)),
       }), Effect.onExit(exit => Effect.sync(() => { console.info("Price List maximum parent diagnostics", { calls, parentReached, nativeCalls: update.mock.calls.length,
         result: exit._tag, lastPhases: phases.slice(-16) }); })));
-      await expect(Effect.runPromise(attempt)).rejects.toMatchObject({ reason: "adapterFailure", cause: { message: "Late parent failure after genuine Price List update" } });
+      expectWorkflowDefect(await Effect.runPromiseExit(attempt), injected);
       expect(parentReached).toBe(true); expect(calls).toBeLessThanOrEqual(64);
       expect(update).toHaveBeenCalledTimes(1); const failed = await connected.snapshot(); noMutation(before, failed);
-      expect(failed.outcomes).toEqual(before.outcomes); expect(failed.commits).toEqual(before.commits);
+      expect(failed.outcomes).toEqual(before.outcomes); expect(failed.outcomes.filter(outcome => outcome.value.kind === "nativeRoot")).toEqual(before.outcomes.filter(outcome => outcome.value.kind === "nativeRoot"));
       const staged = update.mock.results[0]; if (staged?.type !== "return") throw new Error("Missing completed original update call");
       expect(objects(await staged.value)).toHaveLength(4);
       const caught = await connected.prepareWrapped({ caughtRefusal: true }); await expect(Effect.runPromise(caught.run(caught.newRequestKey(), single("caught153")))).rejects.toBeDefined();
       expect(update).toHaveBeenCalledTimes(2); const refused = await connected.snapshot(); noMutation(before, refused);
-      expect(refused.outcomes).toEqual(before.outcomes); expect(refused.commits).toEqual(before.commits);
+      expect(refused.outcomes).toEqual(before.outcomes); expect(refused.outcomes.filter(outcome => outcome.value.kind === "nativeRoot")).toEqual(before.outcomes.filter(outcome => outcome.value.kind === "nativeRoot"));
     } finally { update.mockRestore(); }
   });
 
@@ -337,17 +343,13 @@ describe(`genuine native Price List update - ${driver}`, { concurrent: false }, 
   });
 
   it("recovers one native update after lost acknowledgement and refuses a conflicting replay", async () => {
-    let lose = true; const fixture = connected.fixture;
-    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
-      Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-      Effect.flatMap(value => { if (!lose) return Effect.succeed(value); lose = false; return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost Price List update acknowledgement") })); }),
-    ));
-    const host = await Effect.runPromise(prepareUpdatePriceListsWorkflow({ ...connected.options, execution: { identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-      prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, session, ...composition }) } }));
+    const fixture = connected.fixture;
+    const fault = fixture.loseNextNativeRootAcknowledgement();
+    const host = await Effect.runPromise(prepareUpdatePriceListsWorkflow(connected.options));
     const changed = await Effect.runPromise(prepareUpdatePriceListsWorkflow({ ...connected.options, revision: "a".repeat(64) }));
     const update = vi.spyOn(PricingModuleService.prototype, "updatePriceLists");
     try {
-      const key = host.newRequestKey(), input = single("uncertain153"); expect(await Effect.runPromise(host.run(key, input))).toBeNull(); expect(lose).toBe(false); expect(update).toHaveBeenCalledTimes(1);
+      const key = host.newRequestKey(), input = single("uncertain153"); expect(await Effect.runPromise(host.run(key, input))).toBeNull(); expect(fault.armed).toBe(false); expect(fault.failures).toBe(1); expect(update).toHaveBeenCalledTimes(1);
       const after = await connected.snapshot(); expect(await Effect.runPromise(host.run(key, input))).toBeNull(); expect(update).toHaveBeenCalledTimes(1);
       await expect(Effect.runPromise(changed.run(key, input))).rejects.toMatchObject({ reason: "requestConflict" }); expect(await connected.snapshot()).toEqual(after);
     } finally { update.mockRestore(); await Effect.runPromise(host.close); await Effect.runPromise(changed.close); }

@@ -457,7 +457,7 @@ export function registerNativeCheckpointScenarios(label: string, createFixture: 
       const identity: CoreRequestIdentity = { kind: "nativeRoot", root: metadata.identity, key: "source-seal-control", requestHash: "source-seal-control" };
       const acquired = yield* graph.database.claimRequest(identity, root);
       if (acquired.kind !== "claimed") return yield* Effect.die(new Error("Fresh source seal request was not claimed"));
-      const operation = yield* graph.database.beginNativeRoot(root, { claim: acquired.claim, chargeRetained: coreNativeTestBudget().chargeRetained });
+      const operation = yield* graph.database.beginNativeRoot(root, { claim: acquired.claim, ...coreNativeTestBudget() });
       const source = yield* operation.native(graph.binding), other = yield* operation.native(graph.foreignBinding);
       yield* source.deleteRows(parent, ["source-parent"]);
       yield* source.planSetNullReferences({ sourceTable: child, sourceColumn: "parent_id", targetTable: parent,
