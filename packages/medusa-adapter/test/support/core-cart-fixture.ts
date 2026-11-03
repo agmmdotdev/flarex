@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import { compileCoreNativeEventStorageDefinition } from "../../../persistence-postgres/src/commit/events/coreDefinition";
 import { makeCartCompletionCommands } from "../../src/modules/cart/payment-service";
-import { compileCartCoreDefinition } from "../../src/modules/cart/schema";
+import { compileCartCoreDefinition } from "../../src/modules/cart/creation-schema";
 import { makeOrderCheckoutCommands } from "../../src/modules/order/finance-service";
 import { compileOrderCoreDefinition } from "../../src/modules/order/schema";
 import { createCoreNativeWorkflowFixture, type CoreNativeWorkflowSource } from "./core-native-workflow-fixture";

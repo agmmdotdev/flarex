@@ -3,6 +3,8 @@ import { cartCreationModels } from "@medusajs/cart/creation-models";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
 import { capturePrivateCanonicalValue, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
+import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
+import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
 import { decodeCompiledDml } from "../../schema/compiled";
 import { lowerDmlSchema } from "../../schema/lower";
 import { cartSourceProvenance } from "./schema";
@@ -27,4 +29,19 @@ export const compileCartCreationDefinition = Effect.fn("CartCreation.compileDefi
   const metadata = yield* captureCartCreationMetadata();
   const schema = yield* Effect.fromResult(normalizeRelationalSchema(lowerDmlSchema(metadata.frame.tables, "commerce.cart")));
   return Object.freeze({ schema, provenance: cartSourceProvenance });
+});
+
+/** One fresh Core Cart source, including the three native creation records. */
+export const compileCartCoreDefinition = Effect.fn("Cart.compileCoreDefinition")(function* (target: Readonly<{
+  scopeUuid: string;
+  epochUuid: string;
+}>) {
+  const { scopeUuid, epochUuid } = target;
+  const { schema, provenance } = yield* compileCartCreationDefinition();
+  const source = yield* captureLogicalSchemaSource({ key: "medusa.cart", owner: "medusa", writeProfile: "medusa.cart",
+    evidence: { provenance, profile: "medusa.cart", authoredModels: ["packages/medusa-cart/src/creation/models.ts"] },
+    definition: { kind: "relational", schema },
+    bindings: schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+      table: { namespace: "medusa", logicalName: `${schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
+  return yield* makeCoreRelationalNativeDefinition({ scopeUuid, epochUuid, applicationRead: false, source, provenance, commands: [] });
 });

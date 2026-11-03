@@ -6,43 +6,26 @@ import { setTaxLinesForItemsStep, type SetTaxLinesForItemsStepInput } from "@med
 import { createLineItemAdjustmentsStep, type CreateLineItemAdjustmentsCartStepInput } from "@medusajs/core-flows/cart/create-line-item-adjustments-step";
 import { createShippingMethodAdjustmentsStep } from "@medusajs/core-flows/cart/create-shipping-method-adjustments-step";
 import { removeShippingMethodAdjustmentsStep } from "@medusajs/core-flows/cart/remove-shipping-method-adjustments-step";
-import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { capturePrivateCanonicalValue, commerceError, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
-import { defineCommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { commerceError, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
+import { coreNativeRelationalRow } from "../../persistence-postgres/src/core/nativeRelationalQuery";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";
-import { compileCartCreationDefinition } from "../src/modules/cart/creation-schema";
 import { makeCartCreationWorkflowCommands } from "../src/modules/cart/refresh-service";
 import type { LogicalCallReceiptValidation } from "../src/repository/call-receipt";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution } from "../src/workflow/host";
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../src/workflow/events";
 import { captureNativeNumericDto } from "../src/value/native-numeric";
-import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
+import { prepareCoreCartFixture } from "./support/core-cart-fixture";
+import { finishOrderFixture } from "./support/core-order-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
 let connected: Awaited<ReturnType<typeof prepare>>;
 async function prepare() {
-  const cart = await Effect.runPromise(makeCartCreationWorkflowCommands()), definition = await Effect.runPromise(compileCartCreationDefinition());
-  const source = await Effect.runPromise(captureLogicalSchemaSource({ key: "medusa.cart-creation-refresh", owner: "medusa", writeProfile: "medusa.cart-creation-refresh",
-    evidence: definition.provenance, definition: { kind: "relational", schema: definition.schema }, bindings: definition.schema.tables.map(table => ({
-      kind: "definition", localName: table.identity.tableId, table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` },
-    })) }));
-  const fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close), { additionalSources: [source] });
-  const dataset = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows: [] }, 1_048_576,
-    { invalidInput: () => new Error("Invalid Cart refresh empty dataset"), hashFailure: cause => new Error("Cart refresh hash", { cause }) }));
-  const storage = { ...fixture.hostInput.logicalStorage, source: { sourceKey: source.key, writeProfile: source.writeProfile, schema: definition.schema, evidence: definition.provenance },
-    initialization: { stepId: "cart-refresh-empty", datasetSha256: dataset.sha256Hex, expectedRowCount: 0 } };
-  const read = defineCommerceCommand("cartRefreshRead", "read", Effect.fn(function* (ctx, input) {
-    const table = yield* Schema.decodeUnknownEffect(Schema.Literals(definition.schema.tables.map(table => table.identity.tableId)))(input)
-      .pipe(Effect.mapError(cause => commerceError("invalidInput", cause)));
-    return [...yield* (yield* ctx.table(table)).find(ctx.manager, { take: 256, order: { column: "id", direction: "asc" }, predicate: { kind: "and", children: [] } })];
-  }));
-  const reader = await Effect.runPromise(makeCommerceHost({ ...fixture.hostInput, logicalStorage: storage, commands: [read] }));
-  cleanup.push(() => Effect.runPromise(reader.close)); await Effect.runPromise(reader.initialize([]));
+  const cart = await Effect.runPromise(makeCartCreationWorkflowCommands());
+  const { fixture, cartDefinition } = await prepareCoreCartFixture(driver, close => cleanup.push(close), []);
+  const nativeStorage = fixture.source("cart");
   const participant = defineAtomicCommerceParticipant("cartCreationRefresh"), roots = {
     create: defineAtomicCommerceCommand("cartRefreshCreateRoot", (ctx, input) => ctx.call(participant, cart.create, input)),
     setTax: defineAtomicCommerceCommand("cartRefreshSetTaxRoot", (ctx, input) => ctx.call(participant, cart.setItemTax, input)),
@@ -58,19 +41,20 @@ async function prepare() {
   };
   const traces: Array<{ call: Parameters<LogicalCallReceiptValidation>[0]; activity: Parameters<LogicalCallReceiptValidation>[1] }> = [];
   const policy = cart.logicalEventPolicy(), event = defineCommerceEventContract({ name: "cartRefreshEvents", revision: "a".repeat(64), internal: true, decode: policy.capture });
-  const host = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
-    participants: [{ participant, logicalStorage: storage, logicalResources: { ...defaultCommerceResources, calls: 512 }, commands: cart.commands,
-      events: { contracts: [event], select: () => Effect.succeed(event) }, validateLogicalCall: (call, activity) => Effect.gen(function* () {
-        traces.push({ call, activity }); yield* policy.validateLogicalCall(call, activity);
+  const host = await Effect.runPromise(fixture.execution.prepare({ identityAndAccessPolicy: fixture.execution.identityAndAccessPolicy,
+    participants: [{ participant, nativeStorage, logicalResources: { ...defaultCommerceResources, calls: 512 }, commands: cart.commands,
+      events: { contracts: [event], select: () => Effect.succeed(event) }, validateLogicalCall: Effect.fn("CartRefreshTest.observeRootReceipt")(function* (call, activity) {
+        yield* policy.validateLogicalCall(call, activity);
+        traces.push({ call, activity });
       }) }], events: { producerRevision: "b".repeat(64), subscribers: [{ id: "cartRefreshProbe", revision: "c".repeat(64) }], contracts: [event],
       validate: messages => messages.some(message => !message.internal) ? Effect.fail(commerceError("unadmittedEvent")) : Effect.void },
     requestCallLimit: 512, executionIsolation: "scopeExclusive", operationScheduling: "queued", borrowedOperationScheduling: "queued", commands: Object.values(roots) }));
   cleanup.push(() => Effect.runPromise(host.close));
-  const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-    prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, ...composition,
-      participants: composition.participants.map(registration => ({ ...registration, validateLogicalCall: (call, activity, command) => Effect.gen(function* () {
-        traces.push({ call, activity });
+  const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: fixture.execution.identityAndAccessPolicy,
+    prepare: composition => fixture.execution.prepare({ ...composition,
+      participants: composition.participants.map(registration => ({ ...registration, validateLogicalCall: Effect.fn("CartRefreshTest.observeWorkflowReceipt")(function* (call, activity, command) {
         if (registration.validateLogicalCall !== undefined) yield* registration.validateLogicalCall(call, activity, command);
+        traces.push({ call, activity });
       }) })) }) };
   const nativeTax = createWorkflow("probe-native-cart-tax-preimage", (input: WorkflowData<SetTaxLinesForItemsStepInput>) => new WorkflowResponse(setTaxLinesForItemsStep(input)));
   const nativeAdjustment = createWorkflow("probe-native-cart-adjustment-preimage", (input: WorkflowData<CreateLineItemAdjustmentsCartStepInput>) => new WorkflowResponse(createLineItemAdjustmentsStep(input)));
@@ -109,21 +93,27 @@ async function prepare() {
       return new StepResponse(null);
     }));
     const flow = createWorkflow("probe-native-cart-retained-child-inverse", (input: WorkflowData<Record<string, unknown>>) => new WorkflowResponse(step(input)));
-    const probe = await Effect.runPromise(prepareAtomicWorkflowHost({ execution, modules: { cart: { module: cart.workflow, logicalStorage: storage,
+    const probe = await Effect.runPromise(prepareAtomicWorkflowHost({ execution, modules: { cart: { module: cart.workflow, nativeStorage,
       logicalResources: { ...defaultCommerceResources, calls: 512 } } }, revision: "d".repeat(64), subscribers: [{ id: "nativeCartChildInverse", revision: "e".repeat(64) }],
       requestCallLimit: 512, executionIsolation: "scopeExclusive", operationScheduling: "queued", borrowedOperationScheduling: "queued",
       workflow: { name: "nativeCartChildInverse", resources, prepared: Result.getOrThrow(flow.prepare()), input: Schema.JsonObject, output: Schema.Null, events: internalModuleWorkflowEvents } }));
     cleanup.push(() => Effect.runPromise(probe.close)); return probe;
   };
-  return { cart, host, roots, traces, makeNativeInverseProbe, inverseCounts,
-    read: async (table: string) => Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject))(await Effect.runPromise(reader.read(read, table))) };
+  return { cart, cartDefinition, fixture, host, roots, traces, makeNativeInverseProbe, inverseCounts,
+    read: async (table: string) => {
+      const declaration = cartDefinition.tables.find(candidate => candidate.localName === table);
+      if (declaration === undefined) throw new Error("Unknown Core Cart table: " + table);
+      return (await fixture.inventory()).rows.filter(row => row.table === declaration.name)
+        .map(row => Result.getOrThrow(coreNativeRelationalRow(row.value)))
+        .toSorted((left, right) => String(left.id).localeCompare(String(right.id)));
+    } };
 }
 beforeAll(async () => { connected = await prepare(); }, 240_000);
 afterAll(async () => {
   try {
     if (process.env.FLAREX_CART_REFRESH_TRACE !== undefined && typeof connected !== "undefined")
       writeFileSync(process.env.FLAREX_CART_REFRESH_TRACE, JSON.stringify(connected.traces, null, 2));
-  } finally { for (const close of cleanup.reverse()) await close(); }
+  } finally { await finishOrderFixture(cleanup.reverse()); }
 }, 180_000);
 
 it("creates native nullable context and separate exact LineItems through the complete profile", async () => {
@@ -217,25 +207,51 @@ it("executes genuine native Tax preimages and retained inverse before commit and
   if (cart === undefined) throw new Error("Missing genuine selected Cart for native Tax callback");
   const input = { cart, item_tax_lines: [{ line_item_id: "cali-refresh", code: "NEW", rate: 9, name: "Native Tax" }], shipping_tax_lines: [] };
   const probe = await connected.makeNativeInverseProbe("tax");
+  const traceStart = connected.traces.length;
   expect(await Effect.runPromise(probe.run(probe.newRequestKey(), input))).toBeNull();
   expect(connected.inverseCounts.tax).toBe(1);
   expect((await connected.read("cart_line_item_tax_line")).filter(row => row.deleted_at === null)).toEqual([expect.objectContaining({ code: "OLD", rate: 3 })]);
-  const retained = connected.traces.findLast(trace => trace.call.commandName === "cartSetItemTaxForCreation");
-  if (retained === undefined) throw new Error("Missing genuine native Tax inverse trace");
-  const selected = new Set(retained.activity.relationalReads.flatMap(read => read.table === "cart_line_item_tax_line"
-    ? (read.orderedIdentities ?? []).map(identity => identity.id) : [])), changed = new Set(retained.activity.mutations.map(mutation => mutation.after?.id));
-  const excluded = retained.activity.observedRows.find(observation => observation.table === "cart_line_item_tax_line" &&
-    typeof observation.row.deleted_at === "string" && !selected.has(observation.row.id) && !changed.has(observation.row.id));
-  if (excluded === undefined) throw new Error("Missing actual excluded pending Tax cohort member");
+  const taxTable = "cart_line_item_tax_line";
+  const taxCalls = connected.traces.slice(traceStart).filter(trace => trace.call.commandName === "cartSetItemTaxForCreation");
+  expect(taxCalls).toHaveLength(2);
+  const [forward, retained] = taxCalls;
+  if (forward === undefined || retained === undefined) throw new Error("Missing genuine native Tax forward or inverse trace");
+  const excluded = forward.activity.observedRows.find(observation => observation.table === taxTable
+    && observation.row.code === "OLD" && typeof observation.row.deleted_at === "string");
+  const newTaxId = forward.activity.mutations.find(mutation => mutation.table === taxTable && mutation.operation === "insert")?.after?.id;
+  const restoredTaxId = retained.activity.mutations.find(mutation => mutation.table === taxTable && mutation.operation === "insert")?.after?.id;
+  if (excluded === undefined || typeof newTaxId !== "string" || typeof restoredTaxId !== "string")
+    throw new Error("Missing accepted native Tax mutation evidence");
+  expect(excluded.row.item_id).toBe("cali-refresh");
+  expect(restoredTaxId).not.toBe(excluded.row.id);
+  expect(connected.cartDefinition.tables.find(table => table.localName === taxTable)?.indexes)
+    .toContainEqual(expect.objectContaining({ nativeId: "IDX_cart_line_item_tax_line_item_id",
+      fields: ["deleted_at", "item_id"], requiredPrefix: { field: "deleted_at", value: null } }));
+  expect(retained.activity.relationalReads.at(-1)).toEqual({ table: taxTable,
+    query: { take: defaultCommerceResources.queryRows, order: { column: "id", direction: "asc" }, includeIdentities: true,
+      predicate: { kind: "and", children: [{ kind: "and", children: [
+        { kind: "in", column: "item_id", values: ["cali-refresh"] },
+        { kind: "postgresText", column: "id", operator: "notIn", values: [restoredTaxId] },
+      ] }, { kind: "isNull", column: "deleted_at" }] } },
+    total: 1, returned: 1, orderedIdentities: [{ id: newTaxId }],
+  });
+  expect(retained.activity.observedRows.some(observation =>
+    observation.table === taxTable && observation.row.id === excluded.row.id)).toBe(false);
+
+  // The earlier accepted receipt contains the actual pending soft-deleted
+  // row. Add that evidence only to the isolated validator probes.
+  const policy = connected.cart.logicalEventPolicy();
+  await Effect.runPromise(policy.validateLogicalCall(retained.call,
+    { ...retained.activity, observedRows: [...retained.activity.observedRows, excluded] }));
   for (const patch of [{ item_id: "cali-outside-parent" }, { deleted_at: null }]) {
-    expect(Exit.isFailure(await Effect.runPromiseExit(connected.cart.logicalEventPolicy().validateLogicalCall(retained.call,
-      { ...retained.activity, observedRows: retained.activity.observedRows.map(observation => observation === excluded
-        ? { ...observation, row: { ...observation.row, ...patch } } : observation) })))).toBe(true);
+    const result = await Effect.runPromise(Effect.result(policy.validateLogicalCall(retained.call,
+      { ...retained.activity, observedRows: [...retained.activity.observedRows, { ...excluded, row: { ...excluded.row, ...patch } }] })));
+    expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch", cause: { phase: "unaccountedObservations" } } });
   }
-  const before = await connected.read("cart_line_item_tax_line"), failure = await connected.makeNativeInverseProbe("tax", true);
+  const before = await connected.fixture.snapshot(), failure = await connected.makeNativeInverseProbe("tax", true);
   expect(Exit.isFailure(await Effect.runPromiseExit(failure.run(failure.newRequestKey(), input)))).toBe(true);
   expect(connected.inverseCounts.tax).toBe(2);
-  expect(await connected.read("cart_line_item_tax_line")).toEqual(before);
+  expect(await connected.fixture.snapshot()).toEqual(before);
 });
 
 it("executes genuine native Adjustment and empty Shipping retained compensators", async () => {

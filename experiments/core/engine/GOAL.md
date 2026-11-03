@@ -504,3 +504,8 @@ The [Cart completion and exact-price continuation](./slices/29-native-cart-compl
 moves both workflows onto Core through the complete nine-model Cart source
 and the existing Order participant. The Legacy PaymentCollection fixture
 retired both profile switches. Paired acceptance is complete.
+
+The [Cart creation and refresh continuation](./slices/30-native-cart-creation-refresh.md)
+moves creation, refresh and ownership onto the same twelve-model Core Cart
+source used by completion and exact-price checkout. Paired acceptance is
+complete.

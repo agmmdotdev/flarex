@@ -762,3 +762,8 @@ The [Cart completion and exact-price continuation](./slices/29-native-cart-compl
 uses the complete nine-model Cart source with an ordinary index lowering for
 its CreditLine history declaration. Both workflows passed paired verification
 through the existing Core transaction and native decimal owners.
+
+The [Cart creation and refresh continuation](./slices/30-native-cart-creation-refresh.md)
+uses one fresh Cart source with three logical generation records for retained
+compensation across requests. The selected workflows passed paired verification
+through the existing Core settlement owner.

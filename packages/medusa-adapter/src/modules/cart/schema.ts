@@ -4,8 +4,6 @@ import { Address, Cart, CreditLine, LineItem, LineItemAdjustment, LineItemTaxLin
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
 import { capturePrivateCanonicalValue, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
-import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
 import { decodeCompiledDml } from "../../schema/compiled";
 import { lowerDmlSchema } from "../../schema/lower";
 
@@ -34,18 +32,4 @@ export const compileCartDefinition = Effect.fn("Cart.compileDefinition")(functio
   const metadata = yield* captureCartMetadata();
   const schema = yield* Effect.fromResult(normalizeRelationalSchema(lowerDmlSchema(metadata.frame.tables, "commerce.cart")));
   return Object.freeze({ schema, provenance: cartSourceProvenance });
-});
-
-/** Fresh Core installation of the complete Cart source. */
-export const compileCartCoreDefinition = Effect.fn("Cart.compileCoreDefinition")(function* (target: Readonly<{
-  scopeUuid: string;
-  epochUuid: string;
-}>) {
-  const { scopeUuid, epochUuid } = target;
-  const { schema, provenance } = yield* compileCartDefinition();
-  const source = yield* captureLogicalSchemaSource({ key: "medusa.cart", owner: "medusa", writeProfile: "medusa.cart",
-    evidence: { provenance, profile: "medusa.cart" }, definition: { kind: "relational", schema },
-    bindings: schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-      table: { namespace: "medusa", logicalName: `${schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
-  return yield* makeCoreRelationalNativeDefinition({ scopeUuid, epochUuid, applicationRead: false, source, provenance, commands: [] });
 });
