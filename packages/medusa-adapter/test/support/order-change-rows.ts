@@ -1,7 +1,7 @@
-import type { OrderInitialRow } from "./logical-order-fixture";
+import type { CoreOrderInitialRow as OrderInitialRow } from "./core-order-fixture";
 import { orderCompletionRows } from "./order-completion-rows";
 
-export type { OrderInitialRow } from "./logical-order-fixture";
+export type { OrderInitialRow };
 
 export const orderChangeUpdateStamp = "2020-02-03T04:05:06.000Z";
 export const orderChangeUpdateIds = ["ordch-update-d", "ordch-update-b", "ordch-update-c", "ordch-update-a"] as const;

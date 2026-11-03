@@ -179,6 +179,8 @@ type LogicalCurrencyResource =
       control: PostgresFlarexPersistence }> }>;
 
 type FixtureIdentity = Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }>;
+export type SharedLogicalCurrencyFixture = Readonly<{ resource: LogicalCurrencyResource; fixtureIdentity: FixtureIdentity }>;
+
 type LogicalCurrencyFixtureOptions = Readonly<{
   /** Fixed fixture installation phase, before protected serving proofs exist. */
   preparePhysicalProfile?: (resources: Readonly<{ control: PostgresFlarexPersistence;
@@ -211,8 +213,7 @@ type LogicalCurrencyFixtureOptions = Readonly<{
   applicationAcceptanceScale?: ApplicationNativeMutationFixtureOptions["acceptanceScale"];
   readinessRuntimeHostIdentity?: string;
   includeApplicationTask?: boolean;
-}> & (Readonly<{ resource?: never; fixtureIdentity?: FixtureIdentity }>
-  | Readonly<{ resource: LogicalCurrencyResource; fixtureIdentity: FixtureIdentity }>);
+}> & (Readonly<{ resource?: never; fixtureIdentity?: FixtureIdentity }> | SharedLogicalCurrencyFixture);
 
 export interface LogicalCurrencyFixture {
   readonly resource: LogicalCurrencyResource;

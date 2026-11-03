@@ -1,34 +1,11 @@
 import { Cause, Effect, Exit, Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { prepareLogicalOrderCheckout } from "./support/logical-order-checkout-fixture";
 import { prepareLogicalPaymentFinance } from "./support/logical-payment-finance-fixture";
 import { paymentCollectionId } from "./support/logical-payment-session-fixture";
 import { prepareNativePaymentRecreation, prepareRetainedCheckoutPayment } from "./support/logical-checkout-payment-compensation-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const object = Schema.decodeUnknownSync(Schema.JsonObject), string = Schema.decodeUnknownSync(Schema.String);
-const cleanup: Array<() => Promise<void>> = [];
-
-describe("genuine checkout child steps", () => {
-  let order: Awaited<ReturnType<typeof prepareLogicalOrderCheckout>>;
-  beforeAll(async () => { order = await prepareLogicalOrderCheckout(driver, close => cleanup.push(close)); }, 240_000);
-  afterAll(async () => { for (const close of cleanup.splice(0).reverse()) await close(); }, 120_000);
-  it("retains actual native creation IDs and executes the native Order inverse completely", async () => {
-    const forward = await order.retainedCreation(), inverse = await order.retainedCreation(true);
-    const created = object(await Effect.runPromise(forward.run(forward.newRequestKey(), [{ currency_code: "usd",
-      items: [{ title: "Native inverse item", quantity: 1, unit_price: "12.5", requires_shipping: false }] }])));
-    const retained = Schema.decodeUnknownSync(Schema.Array(Schema.String))(created.retained);
-    expect(retained).toHaveLength(1);
-    expect(created.output).toMatchObject([{ id: retained[0], items: [{ title: "Native inverse item" }] }]);
-    const before = await order.snapshot(), key = inverse.newRequestKey();
-    expect(await Effect.runPromise(inverse.run(key, retained))).toBeNull();
-    const after = await order.snapshot();
-    expect(after.rowChanges.length - before.rowChanges.length).toBe(4);
-    expect(await order.read(retained)).toEqual([]);
-    expect(await Effect.runPromise(inverse.run(key, retained))).toBeNull();
-    expect(await order.snapshot()).toEqual(after);
-  }, 240_000);
-});
 
 describe("native checkout Payment recreation child", () => {
   const releases: Array<() => Promise<void>> = [];

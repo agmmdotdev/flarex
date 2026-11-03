@@ -1,8 +1,10 @@
-import type { OrderInitialRow } from "./logical-order-fixture";
+import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+
+export type OrderFinanceInitialRow = Readonly<{ table: string; row: JsonObject }>;
 
 /** Existing Order with real item and shipping rows. No synthetic totals reader,
  * storage/default implementation or financial algorithm lives in this fixture. */
-export const orderFinanceRows: readonly OrderInitialRow[] = [
+export const orderFinanceRows: readonly OrderFinanceInitialRow[] = [
   { table: "order", row: { id: "order-finance", display_id: 400, currency_code: "usd", version: 1, status: "pending" } },
   { table: "order_summary", row: { id: "ordsum-finance", order_id: "order-finance", version: 1,
     totals: { paid_total: 0, refunded_total: 0, transaction_total: 0, pending_difference: 15, original_order_total: 15,

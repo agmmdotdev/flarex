@@ -28,17 +28,17 @@ import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution } from "../../s
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { projectNativeRow } from "../../src/repository/result";
-import { logicalCurrencyFixture } from "./logical-currency-fixture";
+import { logicalCurrencyFixture, type SharedLogicalCurrencyFixture } from "./logical-currency-fixture";
 import { logicalCurrencyInventory } from "./logical-currency-inventory";
-import { orderFinanceRows } from "./logical-order-finance-fixture";
-import type { OrderInitialRow, OrderFixtureShared } from "./logical-order-fixture";
+import { orderFinanceRows, type OrderFinanceInitialRow } from "./logical-order-finance-fixture";
 import { paymentCollectionId, paymentSessionSeed } from "./logical-payment-session-fixture";
 
 /** Three genuine schema owners share one application/scope. Setup initializes
  * each existing dataset through its actual trusted initializer; workflow writes
  * subsequently borrow one atomic outer settlement across those participants. */
 export async function prepareLogicalPaymentFinance(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  nativeOrderRows: readonly OrderInitialRow[] = orderFinanceRows, association: "linked" | "unlinked" = "linked", shared?: OrderFixtureShared,
+  nativeOrderRows: readonly OrderFinanceInitialRow[] = orderFinanceRows, association: "linked" | "unlinked" = "linked",
+  shared?: SharedLogicalCurrencyFixture,
   paymentAmount = "15") {
   const definitions = [
     { key: "medusa.payment", definition: await Effect.runPromise(compilePaymentDefinition()) },

@@ -31,10 +31,9 @@ import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { PaymentSessionRootInput, PaymentSessionCreate } from "../../src/modules/payment/input";
 import { CreateCartCollectionInput, CollectionCreates } from "../../src/modules/payment/collection-input";
 import { commerceDecoder } from "../../src/value/decoder";
-import { logicalCurrencyFixture } from "./logical-currency-fixture";
+import { logicalCurrencyFixture, type SharedLogicalCurrencyFixture } from "./logical-currency-fixture";
 import { logicalCurrencyInventory } from "./logical-currency-inventory";
 import { orderFinanceRows } from "./logical-order-finance-fixture";
-import type { OrderFixtureShared } from "./logical-order-fixture";
 
 export const collectionCartRows: readonly JsonObject[] = [
   { table: "cart", row: { id: "cart-collections", currency_code: "usd" } },
@@ -47,7 +46,7 @@ export const collectionCartRows: readonly JsonObject[] = [
 ];
 
 export async function prepareLogicalPaymentCollections(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  shared?: OrderFixtureShared, cartRows: readonly JsonObject[] = collectionCartRows, paymentRows: readonly JsonObject[] = [],
+  shared?: SharedLogicalCurrencyFixture, cartRows: readonly JsonObject[] = collectionCartRows, paymentRows: readonly JsonObject[] = [],
   cartProfile: "payment" | "completion" = "payment", orderProfile: "finance" | "checkout" = "finance") {
   const definitions = [
     { key: "medusa.payment", definition: await Effect.runPromise(compilePaymentDefinition()) },

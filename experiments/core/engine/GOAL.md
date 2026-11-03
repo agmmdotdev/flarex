@@ -494,3 +494,8 @@ moves standalone Order creation and deletion and Order Change Action ordering
 to Core. The ordinary descending query and existing commit validation preserve
 native max-plus-one values. The neutral owner and both direct consumers passed
 paired acceptance. The checkout participant remains a separate cutover.
+
+The [checkout Order continuation](./slices/28-native-checkout-order.md) moves
+the existing Order workflow participant onto Core, including native graph
+accounting and the retained inverse. The paired Order cases passed. Full
+Cart checkout and Payment finance retain their connected gates.

@@ -1,8 +1,7 @@
 import { Effect, Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prepareLogicalPaymentFinance } from "./support/logical-payment-finance-fixture";
-import { orderFinanceRows } from "./support/logical-order-finance-fixture";
-import type { OrderInitialRow } from "./support/logical-order-fixture";
+import { orderFinanceRows, type OrderFinanceInitialRow } from "./support/logical-order-finance-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const object = Schema.decodeUnknownSync(Schema.JsonObject), text = Schema.decodeUnknownSync(Schema.String);
@@ -10,7 +9,7 @@ const json = Schema.decodeUnknownSync(Schema.Json);
 
 // A real discounted item and manual shipping preserve the original total of
 // 15 while exercising native adjustment cloning and preview relation reads.
-const previewRows: readonly OrderInitialRow[] = [
+const previewRows: readonly OrderFinanceInitialRow[] = [
   ...orderFinanceRows.map(value => {
     const row = { ...value.row };
     if (value.table === "order_shipping_method") delete row.shipping_option_id;

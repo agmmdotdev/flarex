@@ -2,7 +2,7 @@ import { describe, expect, inject, it } from "vitest";
 import { Effect, Result, Schema } from "effect";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
 import { Order, OrderAddress, OrderChange, OrderChangeAction, OrderClaim, OrderExchange, OrderItem,
-  OrderLineItem, OrderSummary, Return } from "@medusajs/order/models";
+  OrderLineItem, OrderSummary, OrderTransaction, Return } from "@medusajs/order/models";
 import { OrderModuleService, OrderService } from "@medusajs/order/services";
 import { orderModuleExports, orderModuleModels, orderStaticResources } from "@medusajs/order/static-manifest";
 import { updateOrderChangesWorkflow } from "@medusajs/core-flows/order/update-order-changes";
@@ -17,6 +17,7 @@ import { archiveOrderWorkflow } from "@medusajs/core-flows/order/archive-orders"
 import { archiveOrdersStep, archiveOrdersStepId } from "@medusajs/core-flows/order/archive-orders-step";
 import { completeOrderWorkflow } from "@medusajs/core-flows/order/complete-orders";
 import { completeOrdersStep, completeOrdersStepId } from "@medusajs/core-flows/order/complete-orders-step";
+import { createOrdersStep } from "@medusajs/core-flows/order/create-orders-step";
 import { createWorkflow } from "@medusajs/workflows-sdk";
 import { executeWorkflow } from "@medusajs/workflows-sdk/native";
 import { compileOrderCoreDefinition, compileOrderDefinition } from "../src/modules/order/schema";
@@ -40,6 +41,8 @@ const loaded: Record<typeof nativeOrderSourceTargets[number]["name"], unknown> =
   "Order Line Item model": OrderLineItem,
   "Order Item model": OrderItem,
   "Order Summary model": OrderSummary,
+  "Order Transaction model": OrderTransaction,
+  "Checkout Create Orders step": createOrdersStep,
   "DML schema compiler": compileDmlSchema,
   "Update Order Changes workflow": updateOrderChangesWorkflow,
   "Update Order Changes step": updateOrderChangesStep,
@@ -74,7 +77,7 @@ describe("Order native Source execution provenance", () => {
     expect(orderStaticResources.moduleService).toBe(OrderModuleService);
     expect(orderStaticResources.services).toContain(OrderService);
     expect(orderStaticResources.models).toBe(orderModuleModels);
-    expect(orderModuleModels).toEqual(expect.arrayContaining([Order, OrderAddress, OrderChange, OrderChangeAction]));
+    expect(orderModuleModels).toEqual(expect.arrayContaining([Order, OrderAddress, OrderChange, OrderChangeAction, OrderTransaction]));
     for (const [workflow, stepId] of [
       [updateOrderChangesWorkflow, updateOrderChangesStepId],
       [cancelOrderChangeWorkflow, cancelOrderChangeStepId],
