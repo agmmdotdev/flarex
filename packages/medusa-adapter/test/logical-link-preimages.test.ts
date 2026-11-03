@@ -3,14 +3,15 @@ import { Cause, Effect, Exit, Schema } from "effect";
 import { LinkPreimageOperationHandleSchema } from "@medusajs/link-modules";
 import { PromotionActions } from "@medusajs/framework/utils/portable";
 import type { LinkPreimageOperationRequest } from "@medusajs/types";
-import { prepareLogicalLinkPreimages } from "./support/logical-link-preimage-fixture";
+import { prepareCoreLinkPreimages } from "./support/core-link-preimage-fixture";
+import { finishOrderFixture } from "./support/core-order-fixture";
 import { projectNativeRow } from "../src/repository/result";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalLinkPreimages>>;
-beforeAll(async () => { connected = await prepareLogicalLinkPreimages(driver, close => cleanup.push(close)); }, 240_000);
-afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 180_000);
+let connected: Awaited<ReturnType<typeof prepareCoreLinkPreimages>>;
+beforeAll(async () => { connected = await prepareCoreLinkPreimages(driver, close => cleanup.push(close)); }, 240_000);
+afterAll(() => finishOrderFixture(cleanup.reverse()), 180_000);
 const request = (name: string, mutations: LinkPreimageOperationRequest["mutations"]): LinkPreimageOperationRequest => ({ kind: "preimage", operationId: name, mutations });
 const pair = (name: string) => ({ primary: "cart-" + name, foreign: "promotion-" + name });
 const selected = async (cart: string) => (await connected.rows()).filter(row => row.cart_id === cart).map(projectNativeRow);
@@ -21,7 +22,7 @@ function failureReasons(value: unknown): string[] {
   return [...("reason" in value && typeof value.reason === "string" ? [value.reason] : []), ...failureReasons(value.cause)];
 }
 
-describe("native exact Link preimages on logical storage", { concurrent: false }, () => {
+describe("native exact Link preimages on Core", { concurrent: false }, () => {
   it("executes the genuine native empty ADD callback through the real stored Link query without writing an operation", async () => {
     const cart = "cart-native-empty";
     await connected.run({ action: "create", pairs: [[cart, "native-empty-existing", {}]] });
@@ -108,12 +109,21 @@ describe("native exact Link preimages on logical storage", { concurrent: false }
   }, 120_000);
   it("rolls forward and inverse faults back with receipts, history and events, then permits retry", async () => {
     const target = pair("fault"), input = request("fault-preimage", [{ action: "create", pairs: [target] }]);
+    const expectLateFailure = async (args: Parameters<typeof connected.host.run>[1]) => {
+      const key = connected.host.newRequestKey();
+      const exit = await Effect.runPromiseExit(connected.host.run(key, args));
+      if (Exit.isSuccess(exit)) throw new Error("Expected native Link rollback");
+      expect(Cause.pretty(exit.cause)).toContain("Late native Link preimage parent fault");
+      expect((await connected.fixture.inventory()).outcomes).toContainEqual(expect.objectContaining({
+        value: expect.objectContaining({ key, kind: "nativeRoot", state: "failed" }),
+      }));
+    };
     const before = await connected.snapshot();
-    const failed = await Effect.runPromiseExit(connected.host.run(connected.host.newRequestKey(), { action: "apply", request: input, failAfter: true }));
-    expect(Exit.isFailure(failed)).toBe(true); expect(await connected.snapshot()).toEqual(before);
+    await expectLateFailure({ action: "apply", request: input, failAfter: true });
+    expect(await connected.snapshot()).toEqual(before);
     await connected.run({ action: "apply", request: input }); const applied = await connected.snapshot();
-    const inverseFailed = await Effect.runPromiseExit(connected.host.run(connected.host.newRequestKey(), { action: "compensate", handle: connected.handle(input), failAfter: true }));
-    expect(Exit.isFailure(inverseFailed)).toBe(true); expect(await connected.snapshot()).toEqual(applied);
+    await expectLateFailure({ action: "compensate", handle: connected.handle(input), failAfter: true });
+    expect(await connected.snapshot()).toEqual(applied);
     const key = connected.host.newRequestKey(), args: Parameters<typeof connected.host.run>[1] = { action: "compensate", handle: connected.handle(input) };
     const result = await Effect.runPromise(connected.host.run(key, args)), after = await connected.snapshot();
     expect(await Effect.runPromise(connected.host.run(key, args))).toEqual(result); expect(await connected.snapshot()).toEqual(after);

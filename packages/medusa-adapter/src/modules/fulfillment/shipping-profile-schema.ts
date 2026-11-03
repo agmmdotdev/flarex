@@ -1,7 +1,7 @@
 import { Data, Effect, Schema } from "effect";
 import { fulfillmentModuleModels } from "@medusajs/fulfillment/static-manifest";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
-import { capturePrivateCanonicalValue } from "@flarex/persistence-postgres/internal/commerce-values";
+import { capturePrivateCanonicalValue, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
 import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
 import { decodeCompiledDml } from "../../schema/compiled";
@@ -97,19 +97,27 @@ export const compileShippingProfileDefinition = Effect.fn("ShippingProfile.compi
   return Object.freeze({ schema, provenance: shippingProfileSourceProvenance });
 });
 
-/** Only the scalar ShippingProfile source feeds this shared native lifecycle. */
-export const compileShippingProfileCoreDefinition = Effect.fn("ShippingProfile.compileCoreDefinition")(function* (target: Readonly<{
+type FulfillmentCoreTarget = Readonly<{
   scopeUuid: string; epochUuid: string; applicationRead?: boolean;
-}>) {
+}>;
+
+const issueFulfillmentCoreDefinition = Effect.fn("Fulfillment.issueCoreDefinition")(function* (
+  target: FulfillmentCoreTarget, definition: Readonly<{ schema: Effect.Success<ReturnType<typeof compileSelectedDefinition>>; provenance: Json }>,
+) {
+  const key = "medusa.shippingProfile";
+  const { schema, provenance } = definition;
+  const source = yield* captureLogicalSchemaSource({ key, owner: "medusa", writeProfile: key,
+    evidence: { provenance, profile: key }, definition: { kind: "relational", schema },
+    bindings: schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+      table: { namespace: "medusa", logicalName: `${schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
+  return yield* makeCoreRelationalNativeDefinition({ ...target, source, provenance, commands: [] });
+});
+
+/** Only the scalar ShippingProfile source feeds this shared native lifecycle. */
+export const compileShippingProfileCoreDefinition = Effect.fn("ShippingProfile.compileCoreDefinition")(function* (target: FulfillmentCoreTarget) {
   const nativeTarget = Object.freeze({ scopeUuid: target.scopeUuid, epochUuid: target.epochUuid,
     applicationRead: target.applicationRead ?? false });
-  const definition = yield* compileShippingProfileDefinition();
-  const source = yield* captureLogicalSchemaSource({ key: "medusa.shippingProfile", owner: "medusa", writeProfile: "medusa.shippingProfile",
-    evidence: { provenance: definition.provenance, profile: "medusa.shippingProfile" },
-    definition: { kind: "relational", schema: definition.schema },
-    bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-      table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
-  return yield* makeCoreRelationalNativeDefinition({ ...nativeTarget, source, provenance: definition.provenance, commands: [] });
+  return yield* issueFulfillmentCoreDefinition(nativeTarget, yield* compileShippingProfileDefinition());
 });
 
 /** Fresh explicit six-table composition; no populated installation upgrade. */
@@ -129,18 +137,10 @@ export const compileServiceZoneCreationDefinition = Effect.fn("ServiceZone.compi
 });
 
 /** The existing eight-table source feeds a fresh Core scope without a populated upgrade. */
-export const compileServiceZoneCreationCoreDefinition = Effect.fn("ServiceZone.compileCreationCoreDefinition")(function* (target: Readonly<{
-  scopeUuid: string; epochUuid: string; applicationRead?: boolean;
-}>) {
+export const compileServiceZoneCreationCoreDefinition = Effect.fn("ServiceZone.compileCreationCoreDefinition")(function* (target: FulfillmentCoreTarget) {
   const nativeTarget = Object.freeze({ scopeUuid: target.scopeUuid, epochUuid: target.epochUuid,
     applicationRead: target.applicationRead ?? false });
-  const definition = yield* compileServiceZoneCreationDefinition();
-  const source = yield* captureLogicalSchemaSource({ key: "medusa.shippingProfile", owner: "medusa", writeProfile: "medusa.shippingProfile",
-    evidence: { provenance: definition.provenance, profile: "medusa.shippingProfile" },
-    definition: { kind: "relational", schema: definition.schema },
-    bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-      table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
-  return yield* makeCoreRelationalNativeDefinition({ ...nativeTarget, source, provenance: definition.provenance, commands: [] });
+  return yield* issueFulfillmentCoreDefinition(nativeTarget, yield* compileServiceZoneCreationDefinition());
 });
 
 /** Fresh twelve-table composition; this does not upgrade installed eight-table sources. */
@@ -151,4 +151,12 @@ export const compileFulfillmentCreationDefinition = Effect.fn("Fulfillment.compi
       "packages/modules/fulfillment/src/static-manifest.ts", "packages/database/drizzle/src/schema.ts"]),
   });
   return Object.freeze({ schema, provenance });
+});
+
+/** One fresh Core source for the complete native Fulfillment definition. */
+export const compileFulfillmentCreationCoreDefinition = Effect.fn("Fulfillment.compileCreationCoreDefinition")(function* ({ scopeUuid, epochUuid }: Readonly<{
+  scopeUuid: string;
+  epochUuid: string;
+}>) {
+  return yield* issueFulfillmentCoreDefinition({ scopeUuid, epochUuid, applicationRead: false }, yield* compileFulfillmentCreationDefinition());
 });

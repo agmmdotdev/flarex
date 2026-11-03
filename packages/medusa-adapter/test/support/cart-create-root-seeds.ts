@@ -1,8 +1,8 @@
-import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import type { CoreNativeWorkflowSource } from "./core-native-workflow-fixture";
 
 /** Existing business endpoints only. Cart/Address/LineItem/TaxLine/Adjustment
  * rows are produced exclusively by the genuine Cart root under test. */
-export const cartCreateRootSeeds: Readonly<Record<string, readonly JsonObject[]>> = {
+export const cartCreateRootSeeds: Readonly<Record<string, CoreNativeWorkflowSource["rows"]>> = {
   customer: [{ table: "customer", row: { id: "cus-create-root", email: "native-cart@example.com", has_account: true,
     first_name: "Native", last_name: "Cart" } },
   { table: "customer_group", row: { id: "cusgroup-create-root", name: "Cart group" } },
@@ -13,7 +13,7 @@ export const cartCreateRootSeeds: Readonly<Record<string, readonly JsonObject[]>
   pricing: [{ table: "price_set", row: { id: "pset-create-root" } },
   { table: "price", row: { id: "price-create-root", price_set_id: "pset-create-root", currency_code: "usd", amount: "12.5",
     raw_amount: { value: "12.5", precision: 20 } } }],
-  inventory: [{ table: "inventory_item", row: { id: "iitem-create-root", sku: "stock-cart-sku", title: "Native Cart stock", requires_shipping: true } },
+  inventory: [{ table: "inventory_item", row: { id: "iitem-create-root", sku: "stock-cart-sku", title: "Native Cart stock", requires_shipping: false } },
   { table: "inventory_level", row: { id: "ilev-create-root", inventory_item_id: "iitem-create-root", location_id: "sloc-create-root",
     stocked_quantity: "3", raw_stocked_quantity: { value: "3", precision: 20 }, reserved_quantity: "0", raw_reserved_quantity: { value: "0", precision: 20 },
     incoming_quantity: "0", raw_incoming_quantity: { value: "0", precision: 20 } } }],
@@ -23,7 +23,7 @@ export const cartCreateRootSeeds: Readonly<Record<string, readonly JsonObject[]>
   { table: "product_shipping_profile", row: { id: "prodsp-create-root", product_id: "prod-create-root", shipping_profile_id: "sp-create-root" } }],
   variant_links: [{ table: "product_variant_price_set", row: { id: "varps-create-root", variant_id: "variant-create-root", price_set_id: "pset-create-root" } },
   { table: "product_variant_inventory_item", row: { id: "variitem-create-root", variant_id: "variant-create-root", inventory_item_id: "iitem-create-root", required_quantity: 1 } }],
-  sales_channel_locations: [{ id: "scloc-create-root", sales_channel_id: "sc-create-root", stock_location_id: "sloc-create-root" }],
+  sales_channel_locations: [{ table: "sales_channel_stock_location", row: { id: "scloc-create-root", sales_channel_id: "sc-create-root", stock_location_id: "sloc-create-root" } }],
   tax: [{ table: "tax_provider", row: { id: "tp_system", is_enabled: true } },
   { table: "tax_region", row: { id: "txreg-create-root", country_code: "us", provider_id: "tp_system" } },
   { table: "tax_rate", row: { id: "txr-create-root", tax_region_id: "txreg-create-root", rate: 10, code: "NATIVE-US", name: "Native Cart tax", is_default: true } }],

@@ -18,24 +18,24 @@ import { prepareLocalVariantLinks } from "../../src/links/variant-service";
 import { prepareSalesChannelLocationLink } from "../../src/links/sales-channel-location-service";
 import { prepareCartPromotionPreimageLinks } from "../../src/links/cart-promotion-preimages";
 import { prepareCartPaymentCollectionLinkRead } from "../../src/links/cart-payment-collection-service";
-import { compileCartCreationDefinition } from "../../src/modules/cart/creation-schema";
-import { compileCustomerDefinition } from "../../src/modules/customer/schema";
-import { compileRegionDefinition } from "../../src/modules/region/schema";
-import { compileStoreDefinition } from "../../src/modules/store/schema";
-import { compilePromotionDefinition } from "../../src/modules/promotion/schema";
-import { compileTaxDefinition } from "../../src/modules/tax/schema";
-import { compilePaymentDefinition } from "../../src/modules/payment/schema";
-import { compileProductDefinition } from "../../src/modules/product/definition";
-import { compilePricingDefinition } from "../../src/modules/pricing/schema";
-import { compileInventoryDefinition } from "../../src/modules/inventory/schema";
-import { compileStockLocationDefinition } from "../../src/modules/stock-location/schema";
-import { compileSalesChannelDefinition } from "../../src/modules/sales-channel/schema";
-import { compileFulfillmentCreationDefinition } from "../../src/modules/fulfillment/shipping-profile-schema";
-import { compileProductLinksDefinition } from "../../src/links/product-definition";
-import { compileVariantLinksDefinition } from "../../src/links/variant-definition";
-import { compileSalesChannelLocationLinkDefinition } from "../../src/links/sales-channel-location-schema";
-import { compileCartPromotionCreationLinkDefinition } from "../../src/links/cart-promotion-creation-schema";
-import { compileCartPaymentCollectionLinkDefinition } from "../../src/links/cart-payment-collection-schema";
+import { compileCartCoreDefinition } from "../../src/modules/cart/creation-schema";
+import { compileCustomerCoreDefinition } from "../../src/modules/customer/schema";
+import { compileRegionCoreDefinition } from "../../src/modules/region/schema";
+import { compileStoreCoreDefinition } from "../../src/modules/store/schema";
+import { compilePromotionCoreDefinition } from "../../src/modules/promotion/schema";
+import { compileTaxCoreDefinition } from "../../src/modules/tax/schema";
+import { compilePaymentCoreDefinition } from "../../src/modules/payment/schema";
+import { compileProductCoreDefinition } from "../../src/modules/product/schema";
+import { compilePricingCoreDefinition } from "../../src/modules/pricing/schema";
+import { compileInventoryCoreDefinition } from "../../src/modules/inventory/schema";
+import { compileStockLocationCoreDefinition } from "../../src/modules/stock-location/schema";
+import { compileSalesChannelCoreDefinition } from "../../src/modules/sales-channel/schema";
+import { compileFulfillmentCreationCoreDefinition } from "../../src/modules/fulfillment/shipping-profile-schema";
+import { compileProductLinksCoreDefinition } from "../../src/links/product-definition";
+import { compileVariantLinksCoreDefinition } from "../../src/links/variant-definition";
+import { compileSalesChannelLocationLinkCoreDefinition } from "../../src/links/sales-channel-location-schema";
+import { compileCartPromotionCreationLinkCoreDefinition } from "../../src/links/cart-promotion-creation-schema";
+import { compileCartPaymentCollectionLinkCoreDefinition } from "../../src/links/cart-payment-collection-schema";
 
 /** These are actual native module constructions, shared by graph-only and
  * connected root tests. No Cart business response is supplied by the fixture. */
@@ -67,25 +67,25 @@ export async function cartCreationRuntimes() {
   return { workflows, salesChannelRead: sales.cartReadWorkflow, link: promotionLinks.resource, logger: payment.loggerResource, errors };
 }
 
-export async function cartCreationDefinitions() {
-  return [
-    { name: "cart", definition: await Effect.runPromise(compileCartCreationDefinition()) },
-    { name: "customer", definition: await Effect.runPromise(compileCustomerDefinition()) },
-    { name: "region", definition: await Effect.runPromise(compileRegionDefinition()) },
-    { name: "store", definition: await Effect.runPromise(compileStoreDefinition()) },
-    { name: "promotion", definition: await Effect.runPromise(compilePromotionDefinition()) },
-    { name: "tax", definition: await Effect.runPromise(compileTaxDefinition()) },
-    { name: "payment", definition: await Effect.runPromise(compilePaymentDefinition()) },
-    { name: "product", definition: await Effect.runPromise(compileProductDefinition()) },
-    { name: "pricing", definition: await Effect.runPromise(compilePricingDefinition()) },
-    { name: "inventory", definition: await Effect.runPromise(compileInventoryDefinition()) },
-    { name: "stock_location", definition: await Effect.runPromise(compileStockLocationDefinition()) },
-    { name: "sales_channel", definition: await Effect.runPromise(compileSalesChannelDefinition()) },
-    { name: "fulfillment", definition: await Effect.runPromise(compileFulfillmentCreationDefinition()) },
-    { name: "product_links", definition: await Effect.runPromise(compileProductLinksDefinition({ salesChannel: true, shippingProfile: true })) },
-    { name: "variant_links", definition: await Effect.runPromise(compileVariantLinksDefinition()) },
-    { name: "sales_channel_locations", definition: await Effect.runPromise(compileSalesChannelLocationLinkDefinition()) },
-    { name: "cart_promotion_links", definition: await Effect.runPromise(compileCartPromotionCreationLinkDefinition()) },
-    { name: "cart_payment_collection_links", definition: await Effect.runPromise(compileCartPaymentCollectionLinkDefinition()) },
-  ] as const;
+export function cartCreationCoreDefinitions(target: Readonly<{ scopeUuid: string; epochUuid: string }>) {
+  return Effect.all({
+    cart: compileCartCoreDefinition(target),
+    customer: compileCustomerCoreDefinition(target),
+    region: compileRegionCoreDefinition(target),
+    store: compileStoreCoreDefinition(target),
+    promotion: compilePromotionCoreDefinition(target),
+    tax: compileTaxCoreDefinition(target),
+    payment: compilePaymentCoreDefinition(target),
+    product: compileProductCoreDefinition(target),
+    pricing: compilePricingCoreDefinition(target),
+    inventory: compileInventoryCoreDefinition(target),
+    stock_location: compileStockLocationCoreDefinition(target),
+    sales_channel: compileSalesChannelCoreDefinition(target),
+    fulfillment: compileFulfillmentCreationCoreDefinition(target),
+    product_links: compileProductLinksCoreDefinition(target, { salesChannel: true, shippingProfile: true }),
+    variant_links: compileVariantLinksCoreDefinition(target),
+    sales_channel_locations: compileSalesChannelLocationLinkCoreDefinition(target),
+    cart_promotion_links: compileCartPromotionCreationLinkCoreDefinition(target),
+    cart_payment_collection_links: compileCartPaymentCollectionLinkCoreDefinition(target),
+  });
 }

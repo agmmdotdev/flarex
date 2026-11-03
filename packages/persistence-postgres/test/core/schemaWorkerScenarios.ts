@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { Deferred, Effect, Fiber, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { encodeDocumentId } from "flarex-protocol/document-id";
+import { MAX_FLAREX_APP_DOCUMENT_SEMANTIC_BYTES_V1 } from "flarex-protocol/internal/value-runtime-core";
 import * as workerWalks from "../../src/core/schemaWorkerWalks";
 import { openCoreDatabase } from "../../src/core/database";
 import type { CorePersistence } from "../../src/core/contracts";
@@ -10,6 +11,8 @@ import { activateCoreSchema, CORE_SCHEMA_WORKER_TEST_OPTIONS } from "./schemaFix
 import { loadBootstrapRegistry } from "../../src/core/bootstrap";
 import { loadCoreRegistry } from "../../src/core/registry";
 import type { CoreDatabase, CoreSchemaProposal } from "../../src/core/api";
+import { captureCoreSchema, type CoreSchemaDefinition } from "../../src/core/schemaTypes";
+import { serializeCoreSchema } from "../../src/core/schemaJson";
 
 const options={now:Effect.succeed(1_000_000_000n),randomBytes:(length:16|32)=>Effect.sync(()=>randomBytes(length)),schemaWorker:CORE_SCHEMA_WORKER_TEST_OPTIONS};
 const idle=Effect.fn("CoreSchemaWorkerFixture.idle")(function*(database:CoreDatabase){
@@ -23,6 +26,42 @@ const registryFor=Effect.fn("CoreSchemaWorkerFixture.registry")(function*(persis
 
 export function registerCoreSchemaWorkerScenarios(label:string,createFixture:(options?:CorePersistenceFixtureOptions)=>Promise<CorePersistenceFixture>):void {
   describe(label,()=>{
+    it("activates and reopens system schema metadata larger than an application document", async () => {
+      const fixture = await createFixture();
+      try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const database = yield* openCoreDatabase(fixture.persistence, options);
+        const items = { tableName: "items", indexes: [], stagedDbIndexes: [] };
+        yield* activateCoreSchema(database, { tables: [items], schemaValidation: true });
+        // Each validator accepts a valid application document. Their combined
+        // serialized definition crosses the application-document byte limit.
+        const literalTable = (tableName: string, character: string): CoreSchemaDefinition["tables"][number] => ({
+          tableName, indexes: [], stagedDbIndexes: [], documentType: { type: "object", value: {
+            value: { fieldType: { type: "literal", value: character.repeat(600 * 1024) }, optional: false },
+          } },
+        });
+        const schema = yield* Effect.fromResult(captureCoreSchema({ schemaValidation: true,
+          tables: [items, literalTable("first_literal", "a"), literalTable("second_literal", "b")],
+        }));
+        const serialized = yield* Effect.fromResult(serializeCoreSchema(schema));
+        expect(new TextEncoder().encode(serialized).byteLength).toBeGreaterThan(MAX_FLAREX_APP_DOCUMENT_SEMANTIC_BYTES_V1);
+        const proposal = yield* database.prepareSchema({ schema });
+        const status = yield* database.advanceSchema(proposal, { pageSize: 32, maxPages: 16 });
+        expect(status).toMatchObject({ state: "validated", indexesReady: true });
+        yield* database.activateSchema(proposal, { programs: [] });
+        yield* database.close();
+
+        const persistence = yield* Effect.tryPromise(() => fixture.reopen());
+        const reopened = yield* openCoreDatabase(persistence, options);
+        expect(yield* reopened.schemaStatus(proposal)).toMatchObject({ state: "active", indexesReady: true });
+        const transaction = yield* reopened.begin();
+        const oversized = yield* Effect.result(transaction.insert("items", { value: "x".repeat(MAX_FLAREX_APP_DOCUMENT_SEMANTIC_BYTES_V1) }));
+        expect(oversized).toMatchObject({ _tag: "Failure", failure: { reason: "invalidValue", cause: {
+          issue: { reason: "valueTooLarge", profile: "appDocument" },
+        } } });
+        yield* transaction.abort();
+      }))); } finally { await fixture.close(); }
+    }, 60_000);
+
     it("reconstructs active staged index work after a cold reopen and enables only on explicit activation",async()=>{
       const fixture=await createFixture();
       try{await Effect.runPromise(Effect.scoped(Effect.gen(function*(){

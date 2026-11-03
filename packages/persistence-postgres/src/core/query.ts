@@ -13,6 +13,7 @@ import { CoreTransactionError, type CoreError, type CoreIndexDefinition, type Co
 import type { CoreHydratedIndexEntry, CoreIndexCursor, CoreInterval, CoreOrder } from "./contracts";
 import { captureCoreDocument } from "./document";
 import type { CoreIndexSnapshot } from "./indexSnapshot";
+import { isCoreSystemTable } from "./nativeTableAccess";
 import { readDocumentObject } from "./registry";
 import { copyInterval, keyInInterval } from "./writeLog";
 
@@ -163,7 +164,7 @@ export function createCoreQuery(input: Readonly<{
         }
         continue;
       }
-      const measured = yield* Effect.fromResult(Result.mapError(captureCoreDocument(selected.document, false), invalid));
+      const measured = yield* Effect.fromResult(Result.mapError(captureCoreDocument(selected.document, isCoreSystemTable(input.table)), invalid));
       const encoded = yield* Effect.fromResult(Result.mapError(encodeDocumentValue(measured.value), invalid));
       const nextPosition: CoreIndexCursor = Object.freeze({ kind: "after", key: selected.key.slice() });
       const nextBytes = bytes + encoded.byteLength + (documents.length === 0 ? 0 : 1);

@@ -784,3 +784,7 @@ The [Cart PaymentCollection continuation](./slices/34-native-cart-payment-collec
 uses Core's native index, reference and settlement owners for genuine
 creation, Link attachment and linked refresh. The synchronous diagnostic
 uses the existing callback drain. Paired acceptance is complete.
+
+The [full native Cart creation continuation](./slices/35-native-cart-creation.md)
+uses complete Fulfillment and Cart Promotion Link sources on one Core bundle
+with the sixteen existing sources. Paired acceptance is complete.

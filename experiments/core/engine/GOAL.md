@@ -525,3 +525,7 @@ sources under one Core root. Paired acceptance is complete.
 The [Cart PaymentCollection continuation](./slices/34-native-cart-payment-collections.md)
 moves genuine collection creation and linked refresh onto Core through the
 complete Payment and Cart Link sources. Paired acceptance is complete.
+
+The [full native Cart creation continuation](./slices/35-native-cart-creation.md)
+moves the genuine eighteen-participant root and the dedicated Promotion Link
+preimage workflows onto Core. Paired acceptance is complete.
