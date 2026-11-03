@@ -1,13 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect, Exit, Result, Schema } from "effect";
 import { revokeApiKeysWorkflow } from "@medusajs/core-flows/api-key/revoke-api-keys";
-import { apiKeyFailureMessages, prepareLogicalApiKeys } from "./support/logical-api-key-fixture";
+import { apiKeyFailureMessages, prepareCoreApiKeys } from "./support/core-api-key-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let base: Awaited<ReturnType<typeof prepareLogicalApiKeys>>, ordinal = 0;
-const scenario = () => prepareLogicalApiKeys(driver, close => cleanup.push(close), { resource: base.fixture.resource,
-  fixtureIdentity: { deploymentId: `api-key-lifecycle-${++ordinal}`, projectId: "api-key-lifecycle-tests", uuidOffset: 9_100_000 + ordinal * 10_000 } });
+let base: Awaited<ReturnType<typeof prepareCoreApiKeys>>;
+const scenario = () => prepareCoreApiKeys(driver, close => cleanup.push(close), { physical: base.fixture.physical });
 const decodeRows = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject));
 const decodeObject = Schema.decodeUnknownSync(Schema.JsonObject);
 const decodeJson = Schema.decodeUnknownSync(Schema.Json);
@@ -18,7 +17,7 @@ async function seed(connected: Awaited<ReturnType<typeof scenario>>, count = 1) 
     ({ type: "publishable", title: `title-${index}`, created_by: "owner" })) })));
 }
 
-beforeAll(async () => { base = await prepareLogicalApiKeys(driver, close => cleanup.push(close)); }, 240_000);
+beforeAll(async () => { base = await prepareCoreApiKeys(driver, close => cleanup.push(close)); }, 240_000);
 afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
 describe("bounded native publishable API Key lifecycle", { concurrent: false }, () => {

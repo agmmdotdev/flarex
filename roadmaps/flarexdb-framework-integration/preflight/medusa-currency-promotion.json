@@ -889,7 +889,7 @@
     {
       "target": "packages/medusa-adapter/src/links/api-key-sales-channel-schema.ts",
       "classification": "authored",
-      "targetSha256": "2364148db811bfd9d4b2745d6bb9d96b09bc94da9e86694ee9c167a7d797fc6a"
+      "targetSha256": "14c110bbb09ce30e0dc2a96fec55b2712779a69f2ae0c1b9dd868d4d4ac74a57"
     },
     {
       "target": "packages/medusa-adapter/src/links/cart-payment-collection-schema.ts",
@@ -1359,7 +1359,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/api-key/schema.ts",
       "classification": "authored",
-      "targetSha256": "e7e684bb61b7fd64490f7dd1a8b5a2708bbdadf1297805f0452cca02d54a5c01"
+      "targetSha256": "e1fbbbb911df6875a2b4ebe657a5aa94b827820b068547067c2aa30773be1fdc"
     },
     {
       "target": "packages/medusa-adapter/src/modules/api-key/service.ts",
@@ -3929,7 +3929,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow/policy.ts",
       "classification": "authored",
-      "targetSha256": "6a12aaf8d5182d0c1cba36fceabd585fd4f07f5a03d5b8356de5d18f778d791f"
+      "targetSha256": "3c198e6b16f9294b1cc7f4c2ce09a6cc15ca47cbd013d0960cc46dee4df9877e"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/preimage.ts",
@@ -3969,7 +3969,7 @@
     {
       "target": "packages/medusa-adapter/src/workflows/api-key/delete.ts",
       "classification": "authored",
-      "targetSha256": "19cc84b7a40f0365a72af9f418b3d2e505474ca09578435643e0e3992d1f9ad7"
+      "targetSha256": "68b7da250f0dd093806a41ca7c58c8c00dea1dad6caeacb41f0d7ac7b4c1540d"
     },
     {
       "target": "packages/medusa-adapter/src/workflows/api-key/participant.ts",
@@ -5259,22 +5259,22 @@
     {
       "target": "packages/medusa-adapter/test/logical-api-key-association-workflow.test.ts",
       "classification": "authored",
-      "targetSha256": "f9e692878612e38586690ac00e077b5e3ac3792162fdfff85aff12b9752eb4df"
+      "targetSha256": "d8012f93650fbac9be8bec8fdd4ce97e644850c08a198981e01cf359d85c3002"
     },
     {
       "target": "packages/medusa-adapter/test/logical-api-key-creation-workflow.test.ts",
       "classification": "authored",
-      "targetSha256": "d598c46dce4ee899117114c10a944aa6d02163ef8d303e0fcd59ea1209b8388d"
+      "targetSha256": "18b87e34836580bad6b5e3a4245b52a4501cb28634b18177debc2f7a97e607e3"
     },
     {
       "target": "packages/medusa-adapter/test/logical-api-key-deletion-workflow.test.ts",
       "classification": "authored",
-      "targetSha256": "21361f89c961bfa311f8a0f346a5fc08376e2df1309f168bdc2b9e2ff16606d7"
+      "targetSha256": "cbe1733c6617af2398e0eacba4c56d52ee6c3910082dbbaef7af914148f2223c"
     },
     {
       "target": "packages/medusa-adapter/test/logical-api-key-lifecycle-workflow.test.ts",
       "classification": "authored",
-      "targetSha256": "6f616259b1cfcd5a3af9fda2f2de7420ff74e54f74ed706c1d4adff7b2558b10"
+      "targetSha256": "98541657b9f841f46f84ff72230a5dfb6d52177e9b6a6f74a6491d5de4947a51"
     },
     {
       "target": "packages/medusa-adapter/test/logical-atomic-stored-workflow.test.ts",
@@ -6190,6 +6190,11 @@
       "target": "packages/medusa-adapter/test/module-events.test.ts",
       "classification": "authored",
       "targetSha256": "5f562a1c3e4f13e938049f07f7d43dfdc427abd7a12e7175da2414bda7365a9d"
+    },
+    {
+      "target": "packages/medusa-adapter/test/native-api-key-source-provenance.proof.ts",
+      "classification": "authored",
+      "targetSha256": "2954d4a59709bf82900ef755cdf3775f861ff96692fa4d72874ce03057bf703b"
     },
     {
       "target": "packages/medusa-adapter/test/native-cart-create-root-declaration.test.ts",
@@ -7334,6 +7339,21 @@
       "targetSha256": "6862074b6874783de22d36f602e44b3e36bf85f4d96724832488af8db5ef0c9e"
     },
     {
+      "target": "packages/medusa-adapter/test/support/core-api-key-association-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "bb2618d5b42b1f12bc1c6b034b24a5a32021494e9a4544e28f3614ff31331946"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/core-api-key-deletion-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "25f2ae9b8bd59e0214183681fd25455f96f5021fea618f112886b355e894554f"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/core-api-key-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "76e8b95ed1f6a89661224c6b7be09950cbef10b67384d57222dcf929107bcef4"
+    },
+    {
       "target": "packages/medusa-adapter/test/support/core-currency-fixture.ts",
       "classification": "authored",
       "targetSha256": "6446d2ac53df2bdc6da2fe941995ab39778efc1bd4738cab1a46088109affb12"
@@ -7704,21 +7724,6 @@
       "targetSha256": "2996312d3ce87b8dccf54f47d30117f7ad2f84b32b7fcb1fb23df0505d48f892"
     },
     {
-      "target": "packages/medusa-adapter/test/support/logical-api-key-association-fixture.ts",
-      "classification": "authored",
-      "targetSha256": "857465989f0922ff78a4d2449d520921283b804ffe6a141c1defff2342cee0ef"
-    },
-    {
-      "target": "packages/medusa-adapter/test/support/logical-api-key-deletion-fixture.ts",
-      "classification": "authored",
-      "targetSha256": "c1233c8bb903de300ab954488e495eb75c5fc28ee0aa911c460eb7bfd6db8600"
-    },
-    {
-      "target": "packages/medusa-adapter/test/support/logical-api-key-fixture.ts",
-      "classification": "authored",
-      "targetSha256": "fccb7837d6b3e4d95573ce0a7ad3665abb63e382a661fd2dfaec608a09139907"
-    },
-    {
       "target": "packages/medusa-adapter/test/support/logical-cart-context-read-fixture.ts",
       "classification": "authored",
       "targetSha256": "3839f62f9bb656fe7d6622430534474361645a9f709657298afa0221f1801f92"
@@ -8027,6 +8032,11 @@
       "target": "packages/medusa-adapter/test/support/logical-volume-graph.ts",
       "classification": "authored",
       "targetSha256": "3f14b4ef265f90865d22a0dd47281b58f303ecc07ec9cdc55715c17a56ae6ab3"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/native-api-key-source-provenance.ts",
+      "classification": "authored",
+      "targetSha256": "3f9ef1caf5de2c70d019a31fd8820b7175dd45ec1f22c42ec2191c97e4469114"
     },
     {
       "target": "packages/medusa-adapter/test/support/native-cart-pricing-context.ts",
@@ -8392,7 +8402,7 @@
     {
       "target": "packages/medusa-adapter/tsconfig.json",
       "classification": "authored",
-      "targetSha256": "083c76a30366d438aea5cc6ce2be9f935aa917fe6d680c7273291b8afaec29a9"
+      "targetSha256": "b06a61496d22d477e45c194376ce05fdd5e88b650262e76340634aebe48e3f7d"
     },
     {
       "target": "packages/medusa-adapter/vitest.config.ts",
@@ -8433,6 +8443,11 @@
       "target": "packages/medusa-adapter/vitest.mixed-native-read.config.ts",
       "classification": "authored",
       "targetSha256": "90bc8a6028da5e7b2c971658c46fa0db580d88fc5f8be864f7f29a1ea217b408"
+    },
+    {
+      "target": "packages/medusa-adapter/vitest.native-api-key.config.ts",
+      "classification": "authored",
+      "targetSha256": "922eec00e5df1b8a5f0a8883d06a51367352f79503b67263c0ba8090aa5c8ca8"
     },
     {
       "target": "packages/medusa-adapter/vitest.native-retrieval.config.ts",

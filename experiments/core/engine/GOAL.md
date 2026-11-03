@@ -466,3 +466,12 @@ timestamp policy. Recorded historical replay remains separate. Dedicated old
 Store fixtures are retired; required scoped validation and review are complete.
 API Key follows as a separate complete connected slice. Broader native, hosted,
 Task and performance gates remain open; the full goal is unchanged.
+
+The selected [API Key continuation](./slices/24-native-api-key-workflows.md) has
+replaced all five admitted roots and retired their dedicated Legacy fixtures.
+Core schema producers preserve exact source grants, durable Link operation
+receipts and pair revisions. Trusted SDK invocation identity and native replay,
+fencing and cancellation remain with their existing owners. The trusted deletion
+facade selects a named allowance for the complete graph, with ordinary-budget
+rollback preserved. Bounded connected validation and review are complete. The
+full goal remains open; finite, Task and performance work remains paused.

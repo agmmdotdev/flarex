@@ -1,22 +1,20 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Effect, Exit, Schema } from "effect";
-import { apiKeyFailureMessages, prepareLogicalApiKeys } from "./support/logical-api-key-fixture";
+import { ApiKeyModuleService } from "@medusajs/api-key/services";
+import { apiKeyFailureMessages, prepareCoreApiKeys } from "./support/core-api-key-fixture";
 import { prepareApiKeyCreationWorkflow } from "../src/workflows/api-key/create";
 import type { ApiKeyCreationInput } from "../src/modules/api-key/contracts";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let base: Awaited<ReturnType<typeof prepareLogicalApiKeys>>, ordinal = 0;
-const scenario = () => prepareLogicalApiKeys(driver, close => cleanup.push(close), {
-  resource: base.fixture.resource,
-  fixtureIdentity: { deploymentId: `api-key-creation-${++ordinal}`, projectId: "api-key-creation-tests", uuidOffset: 8_700_000 + ordinal * 10_000 },
-});
+let base: Awaited<ReturnType<typeof prepareCoreApiKeys>>;
+const scenario = () => prepareCoreApiKeys(driver, close => cleanup.push(close), { physical: base.fixture.physical });
 const input = (title: string): typeof ApiKeyCreationInput.Type => ({ api_keys: [{ type: "publishable", title, created_by: "native-owner" }] });
 const decodeRows = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject));
 const decodeObject = Schema.decodeUnknownSync(Schema.JsonObject);
 const decodeJson = Schema.decodeUnknownSync(Schema.Json);
 
-beforeAll(async () => { base = await prepareLogicalApiKeys(driver, close => cleanup.push(close)); }, 240_000);
+beforeAll(async () => { base = await prepareCoreApiKeys(driver, close => cleanup.push(close)); }, 240_000);
 afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
 describe("bounded native publishable API Key creation", { concurrent: false }, () => {
@@ -99,11 +97,36 @@ describe("bounded native publishable API Key creation", { concurrent: false }, (
     expect(after.rows).toEqual(before.rows); expect(after.revisions).toEqual(before.revisions); expect(after.events).toEqual(before.events);
   }, 240_000);
 
-  it("keeps separately admitted shop scopes independent", async () => {
+  it("keeps separate Core instances sharing physical storage independent", async () => {
     const first = await scenario(), second = await scenario(), create = await first.prepareCreate();
     await Effect.runPromise(create.run(create.newRequestKey(), input("First shop")));
     expect(await first.read()).toHaveLength(1);
     expect(await second.read()).toEqual([]);
+  }, 240_000);
+
+  it("recovers the committed credential after lost acknowledgement without native reexecution", async () => {
+    const connected = await scenario(), host = await connected.prepareCreate();
+    const changed = await connected.prepareCreate("d".repeat(64));
+    const create = vi.spyOn(ApiKeyModuleService.prototype, "createApiKeys");
+    try {
+      const before = await connected.snapshot(), fault = connected.fixture.loseNextNativeRootAcknowledgement();
+      const key = host.newRequestKey(), data = input("Lost acknowledgement");
+      const output = decodeRows(await Effect.runPromise(host.run(key, data)));
+      expect(output).toHaveLength(1);
+      expect(output[0]?.token).toMatch(/^pk_[0-9a-f]{64}$/);
+      expect(fault.armed).toBe(false); expect(fault.failures).toBe(1); expect(fault.evidence).toBeDefined();
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(await connected.read()).toEqual([{ ...output[0], salt: "" }]);
+      const after = await connected.snapshot();
+      expect(after.revisions.length - before.revisions.length).toBe(1);
+      expect(after.events.length - before.events.length).toBe(1);
+      expect(after.outcomes.length - before.outcomes.length).toBe(1);
+      const recovered = await connected.prepareCreate();
+      expect(await Effect.runPromise(recovered.run(key, data))).toEqual(output);
+      await expect(Effect.runPromise(changed.run(key, data))).rejects.toMatchObject({ reason: "requestConflict" });
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(await connected.snapshot()).toEqual(after);
+    } finally { create.mockRestore(); }
   }, 240_000);
 
   it("confines the privileged inverse to the fixed native graph", async () => {

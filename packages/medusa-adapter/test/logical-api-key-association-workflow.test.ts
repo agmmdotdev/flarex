@@ -1,14 +1,16 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Cause, Effect, Exit, Schema } from "effect";
-import { prepareLogicalApiKeyAssociations } from "./support/logical-api-key-association-fixture";
-import { apiKeyFailureMessages } from "./support/logical-api-key-fixture";
+import { LINKS } from "@medusajs/framework/utils/portable";
+import { LinkOperationResultSchema, LinkOperationStore } from "@medusajs/link-modules";
+import { prepareCoreApiKeyAssociations } from "./support/core-api-key-association-fixture";
+import { apiKeyFailureMessages } from "./support/core-api-key-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
+const decodeOperationResult = Schema.decodeUnknownSync(LinkOperationResultSchema);
 const cleanup: Array<() => Promise<void>> = [];
-let base: Awaited<ReturnType<typeof prepareLogicalApiKeyAssociations>>, ordinal = 0;
-const scenario = () => prepareLogicalApiKeyAssociations(driver, close => cleanup.push(close), { resource: base.fixture.resource,
-  fixtureIdentity: { deploymentId: `api-key-association-${++ordinal}`, projectId: "api-key-association-tests", uuidOffset: 10_500_000 + ordinal * 10_000 } });
-beforeAll(async () => { base = await prepareLogicalApiKeyAssociations(driver, close => cleanup.push(close)); }, 240_000);
+let base: Awaited<ReturnType<typeof prepareCoreApiKeyAssociations>>;
+const scenario = () => prepareCoreApiKeyAssociations(driver, close => cleanup.push(close), { physical: base.fixture.physical });
+beforeAll(async () => { base = await prepareCoreApiKeyAssociations(driver, close => cleanup.push(close)); }, 240_000);
 afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
 describe("bounded native API Key Sales Channel associations", { concurrent: false }, () => {
@@ -122,5 +124,81 @@ describe("bounded native API Key Sales Channel associations", { concurrent: fals
     expect(await Effect.runPromise(foreignInverse.run(foreignInverse.newRequestKey(), retained))).toBeNull();
     expect({ links: await first.readLinks([selected.id]), keys: await first.read() }).toEqual(before);
     expect((await first.readLinks([selected.id])).filter(row => row.deleted_at === null)).toHaveLength(2);
+  }, 240_000);
+
+  it("recovers the same committed association receipt and heads after a lost acknowledgement", async () => {
+    const connected = await scenario(), selected = await connected.seed("Association ACK", false), channel = selected.channel + "-ack";
+    await connected.createChannel(channel);
+    const host = await connected.prepareAssociate(), request = host.newRequestKey();
+    const entry = vi.spyOn(LinkOperationStore.prototype, "withTransaction");
+    try {
+      const fault = connected.fixture.loseNextNativeRootAcknowledgement();
+      expect(await Effect.runPromise(host.run(request, { id: selected.id, add: [channel] }))).toBeNull();
+      expect(fault.armed).toBe(false); expect(fault.failures).toBe(1); expect(fault.evidence).toBeDefined();
+      const entries = entry.mock.calls.length;
+      expect(entries).toBeGreaterThan(0);
+      const committed = await connected.snapshot(), recovered = await connected.prepareAssociate();
+      expect(await Effect.runPromise(recovered.run(request, { id: selected.id, add: [channel] }))).toBeNull();
+      expect(entry).toHaveBeenCalledTimes(entries);
+      expect(await connected.snapshot()).toEqual(committed);
+      expect((await connected.readLinks([selected.id])).filter(row => row.deleted_at === null)).toHaveLength(2);
+    } finally { entry.mockRestore(); }
+  }, 240_000);
+
+  it("rejects a retained inverse after a genuine add/remove/add ABA transition", async () => {
+    const connected = await scenario(), selected = await connected.seed("ABA", false), channel = selected.channel + "-aba";
+    await connected.createChannel(channel);
+    const forward = await connected.prepareRetainedAssociation(), inverse = await connected.prepareRetainedAssociation(true);
+    const retained = await Effect.runPromise(forward.run(forward.newRequestKey(), { id: selected.id, add: [channel] }));
+    const mutate = await connected.prepareAssociate();
+    await Effect.runPromise(mutate.run(mutate.newRequestKey(), { id: selected.id, remove: [channel] }));
+    await Effect.runPromise(mutate.run(mutate.newRequestKey(), { id: selected.id, add: [channel] }));
+    expect((await connected.readLinks([selected.id])).some(row => row.sales_channel_id === channel && row.deleted_at === null)).toBe(true);
+    const before = await connected.snapshot();
+    expect(Exit.isFailure(await Effect.runPromiseExit(inverse.run(inverse.newRequestKey(), retained)))).toBe(true);
+    expect(await connected.snapshot()).toEqual(before);
+  }, 240_000);
+
+  it("records cancellation before apply and refuses the delayed operation", async () => {
+    const connected = await scenario(), selected = await connected.seed("Cancel before apply", false), channel = selected.channel + "-cancel";
+    await connected.createChannel(channel);
+    const request = { operationId: "native-protocol-cancel-before-apply", add: [{ primary: selected.id, foreign: channel }], remove: [] };
+    const inverse = await connected.prepareProtocol(true), forward = await connected.prepareProtocol();
+    expect(await Effect.runPromise(inverse.run(inverse.newRequestKey(), {
+      operationId: request.operationId, serviceName: LINKS.PublishableApiKeySalesChannel, request,
+    }))).toMatchObject({ status: "notApplied", changedPairs: 0 });
+    const cancelled = await connected.snapshot();
+    const outcome = decodeOperationResult(await Effect.runPromise(forward.run(forward.newRequestKey(), request)));
+    expect(outcome).toMatchObject({ state: "cancelled", replayed: true, changedPairs: 0 });
+    const after = await connected.snapshot();
+    expect(after.rows).toEqual(cancelled.rows); expect(after.revisions).toEqual(cancelled.revisions); expect(after.events).toEqual(cancelled.events);
+    expect((await connected.readLinks([selected.id])).some(row => row.sales_channel_id === channel)).toBe(false);
+  }, 240_000);
+
+  it("refuses an operation ID replay with a changed ordered request", async () => {
+    const connected = await scenario(), selected = await connected.seed("Changed request", false), first = selected.channel + "-first", second = selected.channel + "-second";
+    await connected.createChannel(first); await connected.createChannel(second);
+    const host = await connected.prepareProtocol(), request = { operationId: "native-protocol-ordered-request",
+      add: [{ primary: selected.id, foreign: first }, { primary: selected.id, foreign: second }], remove: [] };
+    await Effect.runPromise(host.run(host.newRequestKey(), request));
+    const before = await connected.snapshot();
+    expect(Exit.isFailure(await Effect.runPromiseExit(host.run(host.newRequestKey(), { ...request, add: [...request.add].reverse() })))).toBe(true);
+    expect(await connected.snapshot()).toEqual(before);
+  }, 240_000);
+
+  it("serializes two native roots sharing an operation ID without duplicate Link work", async () => {
+    const connected = await scenario(), selected = await connected.seed("Same operation", false), channel = selected.channel + "-concurrent";
+    await connected.createChannel(channel);
+    const left = await connected.prepareProtocol(), right = await connected.prepareProtocol();
+    const request = { operationId: "native-protocol-concurrent-operation", add: [{ primary: selected.id, foreign: channel }], remove: [] };
+    const outcomes = await Promise.all([
+      Effect.runPromise(left.run(left.newRequestKey(), request)), Effect.runPromise(right.run(right.newRequestKey(), request)),
+    ]);
+    const decoded = outcomes.map(value => decodeOperationResult(value));
+    expect(decoded.map(row => row.replayed).sort()).toEqual([false, true]);
+    expect(decoded.every(row => row.state === "applied" && row.changedPairs === 1)).toBe(true);
+    expect((await connected.readLinks([selected.id])).filter(row => row.sales_channel_id === channel && row.deleted_at === null)).toHaveLength(1);
+    const rows = await connected.readRows();
+    expect(rows.filter(row => row.id === request.operationId)).toHaveLength(1);
   }, 240_000);
 });

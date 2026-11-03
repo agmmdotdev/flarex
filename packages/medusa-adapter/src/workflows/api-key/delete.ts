@@ -8,6 +8,7 @@ import { ApiKeyIds } from "../../modules/api-key/contracts";
 import type { prepareApiKeyDeletionLinks } from "../../links/api-key-deletion";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { internalModuleWorkflowEvents } from "../../workflow/events";
+import { apiKeyDeletionResources } from "../../workflow/policy";
 import { captureInstalledWorkflowModules, prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type InstalledWorkflowModule } from "../../workflow/host";
 import { workflowModuleDefinition } from "../../workflow/module";
 import { prepareWorkflowResources } from "../../workflow/resources";
@@ -50,6 +51,7 @@ export const prepareApiKeyDeletionWorkflow = Effect.fn("ApiKey.prepareDeletionWo
   const prepared = yield* Effect.fromResult(deleteApiKeysWorkflow.prepare()).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   return yield* prepareAtomicWorkflowHost({ execution: options.execution, modules, revision: options.revision, subscribers: options.subscribers,
     operationScheduling: "queued", borrowedOperationScheduling: "queued",
+    requestCallLimit: apiKeyDeletionResources.calls,
     workflow: { name: "deleteApiKeysWorkflow", resources, prepared, input: ApiKeyDeletionInput, output: Schema.Null,
       events: internalModuleWorkflowEvents } });
 });

@@ -3,6 +3,8 @@ import { apiKeyModuleModels } from "@medusajs/api-key/static-manifest";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
 import { capturePrivateCanonicalValue, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
+import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
+import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
 import { decodeCompiledDml } from "../../schema/compiled";
 import { lowerDmlSchema } from "../../schema/lower";
 
@@ -28,4 +30,19 @@ export const compileApiKeyDefinition = Effect.fn("ApiKey.compileDefinition")(fun
   const metadata = yield* captureApiKeyMetadata();
   const schema = yield* Effect.fromResult(normalizeRelationalSchema(lowerDmlSchema(metadata.frame.tables, "commerce.api-key")));
   return Object.freeze({ schema, provenance: apiKeySourceProvenance });
+});
+
+/** Native schema production is independent of the separately admitted commands. */
+export const compileApiKeyCoreDefinition = Effect.fn("ApiKey.compileCoreDefinition")(function* (target: Readonly<{
+  scopeUuid: string; epochUuid: string; applicationRead?: boolean;
+}>) {
+  const nativeTarget = Object.freeze({ scopeUuid: target.scopeUuid, epochUuid: target.epochUuid,
+    applicationRead: target.applicationRead ?? false });
+  const definition = yield* compileApiKeyDefinition();
+  const source = yield* captureLogicalSchemaSource({ key: "medusa.api-key", owner: "medusa", writeProfile: "medusa.api-key",
+    evidence: { provenance: definition.provenance, profile: "medusa.api-key" },
+    definition: { kind: "relational", schema: definition.schema },
+    bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+      table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
+  return yield* makeCoreRelationalNativeDefinition({ ...nativeTarget, source, provenance: definition.provenance, commands: [] });
 });

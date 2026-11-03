@@ -279,7 +279,7 @@ workflow policy and atomic host. The atomic owner includes this selection in
 request identity, enforces it and preserves physical participant caps. Business
 inputs cannot select a limit. Four additions, four removals, 64 events, ordinary
 byte/deadline limits and the genuine retained inverse remain bounded separately.
-Creation, update, revocation and deletion keep their existing selections.
+Creation, update and revocation keep their existing selections.
 
 The native protocol retains the initial combined sorted rotation and individual
 cold or mixed head writes. Only heads actually written and reread-verified may
@@ -291,6 +291,27 @@ The named maximum forward, replay and retained inverse have both-driver private
 adapter proof. The ordinary default-budget refusal remains a separate control.
 Native Link keeps CommonJS output with package-local NodeNext resolution;
 emitted-package imports and declarations remain separate validation gates.
+
+## Deletion request profile
+
+The complete four-Key/eight-Link deletion needs 65 calls through the executing
+native Source graph. Both Core construction and the retained Legacy construction
+refuse the final runtime result capture under the ordinary 64-call profile,
+after tentative business mutations and events. The expected complete deletion
+therefore requires a correction in the trusted API Key deletion facade, rather
+than weaker shared accounting or native revision fences. Earlier passing runs
+do not establish the provenance or cause of this admission gap.
+
+Deletion selects its own named 128-call allowance through the existing workflow
+policy and atomic host. Business inputs cannot select limits; selected limits
+remain authenticated in request identity and committed-outcome recovery. Keep
+an authentic default-64 native-graph control with complete root rollback, and
+verify successful maximum deletion and callback-free lost-acknowledgement
+recovery under the named profile. Four Keys, eight historical Links, ninth-Link
+refusal, and existing data, byte, event, deadline and identity limits remain.
+Preserve individual cold head writes, authoritative rereads and exact-owner
+verified-write caching. No Core accounting, generic limit or Link protocol
+change is admitted by this profile correction.
 
 ## Association default compatibility
 
