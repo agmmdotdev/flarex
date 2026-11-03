@@ -7,11 +7,11 @@ import { prepareOrderCompletionWorkflow } from "../../src/workflows/order/comple
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents, orderedWorkflowIdEvents } from "../../src/workflow/events";
-import { prepareLogicalOrderFixture, type OrderFixtureShared, type OrderInitialRow } from "./logical-order-fixture";
+import type { CorePersistenceFixture } from "../../../persistence-postgres/test/core/fixture";
+import { orderFixtureHosts, prepareCoreOrderFixture, type CoreOrderInitialRow } from "./core-order-fixture";
 import { orderCompletionRows } from "./order-completion-rows";
 
-export type { OrderInitialRow } from "./logical-order-fixture";
-export { orderCompletionIds, orderCompletionRows, orderCompletionStamp } from "./order-completion-rows";
+export const orderCompletionSubscriberId = "native-order-completion";
 
 type Input = typeof OrderCompletionInput.Type;
 const node = Result.getOrThrow(completeOrderWorkflow.prepare()).nodes.find(value => value.name === "complete-orders");
@@ -21,19 +21,16 @@ const retained = { invoke: node.invoke, compensate: node.compensate };
 
 /** Reuse the existing Order model install, initialization and inventory owner.
  * Every completion operation below uses its independent confined service. */
-export async function prepareLogicalOrderCompletion(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  rows: readonly OrderInitialRow[] = orderCompletionRows(), shared?: OrderFixtureShared) {
+export async function prepareCoreOrderCompletion(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
+  rows: readonly CoreOrderInitialRow[] = orderCompletionRows(), physical?: CorePersistenceFixture) {
   const order = await Effect.runPromise(makeOrderCompletionCommands());
-  const base = await prepareLogicalOrderFixture(driver, close, order.commands, "order-complete", rows, shared);
-  const modules = { order: { module: order.workflow, logicalStorage: base.logicalStorage } };
+  const base = await prepareCoreOrderFixture(driver, close, order.commands, rows, physical);
+  const modules = { order: { module: order.workflow, nativeStorage: base.source } };
   const options: Parameters<typeof prepareOrderCompletionWorkflow>[0] = { execution: base.execution, modules,
-    revision: "7".repeat(64), subscribers: [{ id: "native-order-completion", revision: "8".repeat(64) }] };
+    revision: "7".repeat(64), subscribers: [{ id: orderCompletionSubscriberId, revision: "8".repeat(64) }] };
   const resources = Result.getOrThrow(prepareWorkflowResources({ order: { module: order.workflow,
     methods: ["listOrders", "completeOrder", "updateOrders"], graph: false } }, true));
-  const hosts: Array<() => Promise<void>> = [];
-  const own = <H extends { readonly close: Effect.Effect<void> }>(host: H) => { hosts.push(() => Effect.runPromise(host.close)); return host; };
-  const closeCaseHosts = async () => { for (const dispose of hosts.splice(0).reverse()) await dispose(); };
-  close(closeCaseHosts);
+  const { own, closeCaseHosts } = orderFixtureHosts(close);
   const prepare = async (hooks: NonNullable<typeof options.hooks> = {}) =>
     own(await Effect.runPromise(prepareOrderCompletionWorkflow({ ...options, hooks })));
   const prepareForward = async (roundtrip = false) => {

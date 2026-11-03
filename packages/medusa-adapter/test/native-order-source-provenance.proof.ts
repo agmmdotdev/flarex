@@ -1,6 +1,6 @@
 import { describe, expect, inject, it } from "vitest";
 import { Effect, Result, Schema } from "effect";
-import { Order, OrderChange, OrderChangeAction } from "@medusajs/order/models";
+import { Order, OrderAddress, OrderChange, OrderChangeAction } from "@medusajs/order/models";
 import { OrderModuleService, OrderService } from "@medusajs/order/services";
 import { orderModuleExports, orderModuleModels, orderStaticResources } from "@medusajs/order/static-manifest";
 import { updateOrderChangesWorkflow } from "@medusajs/core-flows/order/update-order-changes";
@@ -11,18 +11,25 @@ import { declineOrderChangeWorkflow } from "@medusajs/core-flows/order/decline-o
 import { declineOrderChangeStep, declineOrderChangeStepId } from "@medusajs/core-flows/order/decline-order-change-step";
 import { deleteOrderChangeWorkflow } from "@medusajs/core-flows/order/delete-order-change";
 import { deleteOrderChangesStep, deleteOrderChangesStepId } from "@medusajs/core-flows/order/delete-order-changes-step";
+import { archiveOrderWorkflow } from "@medusajs/core-flows/order/archive-orders";
+import { archiveOrdersStep, archiveOrdersStepId } from "@medusajs/core-flows/order/archive-orders-step";
+import { completeOrderWorkflow } from "@medusajs/core-flows/order/complete-orders";
+import { completeOrdersStep, completeOrdersStepId } from "@medusajs/core-flows/order/complete-orders-step";
 import { createWorkflow } from "@medusajs/workflows-sdk";
 import { executeWorkflow } from "@medusajs/workflows-sdk/native";
 import { compileOrderCoreDefinition, compileOrderDefinition } from "../src/modules/order/schema";
 import { NativeSourceEvidenceSchema } from "./support/native-stock-sales-source-provenance";
-import { nativeOrderChangeSourceTargets } from "./support/native-order-change-source-provenance";
+import { nativeOrderSourceTargets } from "./support/native-order-source-provenance";
 
 const decodeEvidence = Schema.decodeUnknownSync(NativeSourceEvidenceSchema);
-const loaded: Record<typeof nativeOrderChangeSourceTargets[number]["name"], unknown> = {
+const archive = Result.getOrThrow(archiveOrderWorkflow.prepare());
+const completion = Result.getOrThrow(completeOrderWorkflow.prepare());
+const loaded: Record<typeof nativeOrderSourceTargets[number]["name"], unknown> = {
   "Order module service": OrderModuleService,
   "Order service": OrderService,
   "Order static manifest": orderStaticResources,
   "Order model": Order,
+  "Order Address model": OrderAddress,
   "Order Change model": OrderChange,
   "Order Change Action model": OrderChangeAction,
   "Update Order Changes workflow": updateOrderChangesWorkflow,
@@ -33,14 +40,20 @@ const loaded: Record<typeof nativeOrderChangeSourceTargets[number]["name"], unkn
   "Decline Order Change step": declineOrderChangeStep,
   "Delete Order Change workflow": deleteOrderChangeWorkflow,
   "Delete Order Changes step": deleteOrderChangesStep,
+  "Archive Orders workflow": archiveOrderWorkflow,
+  "Archive Orders step": archiveOrdersStep,
+  "Archive event step": archive.nodes.find(node => node.name === "emit-event-step"),
+  "Complete Orders workflow": completeOrderWorkflow,
+  "Complete Orders step": completeOrdersStep,
+  "Completion event step": completion.nodes.find(node => node.name === "emit-event-step"),
   "Native SDK definition": createWorkflow,
   "Native SDK execution": executeWorkflow,
 };
 
-describe("Order Change native Source execution provenance", () => {
-  it.each(nativeOrderChangeSourceTargets)("loads the promoted $name implementation", target => {
-    const evidence = decodeEvidence(inject("nativeOrderChangeSource"));
-    expect(evidence.entries).toHaveLength(nativeOrderChangeSourceTargets.length);
+describe("Order native Source execution provenance", () => {
+  it.each(nativeOrderSourceTargets)("loads the promoted $name implementation", target => {
+    const evidence = decodeEvidence(inject("nativeOrderSource"));
+    expect(evidence.entries).toHaveLength(nativeOrderSourceTargets.length);
     expect(evidence.entries.filter(entry => entry.name === target.name)).toMatchObject([{
       specifier: target.specifier, entry: target.entry, leaf: target.leaf, external: false,
     }]);
@@ -52,7 +65,7 @@ describe("Order Change native Source execution provenance", () => {
     expect(orderStaticResources.moduleService).toBe(OrderModuleService);
     expect(orderStaticResources.services).toContain(OrderService);
     expect(orderStaticResources.models).toBe(orderModuleModels);
-    expect(orderModuleModels).toEqual(expect.arrayContaining([Order, OrderChange, OrderChangeAction]));
+    expect(orderModuleModels).toEqual(expect.arrayContaining([Order, OrderAddress, OrderChange, OrderChangeAction]));
     for (const [workflow, stepId] of [
       [updateOrderChangesWorkflow, updateOrderChangesStepId],
       [cancelOrderChangeWorkflow, cancelOrderChangeStepId],
@@ -63,6 +76,18 @@ describe("Order Change native Source execution provenance", () => {
         name: stepId, kind: "step", compensation: "transactionCovered", compensate: expect.any(Function),
       }]);
     }
+  });
+
+  it("keeps the status roots' event, compensation and hook order", () => {
+    expect(archive.nodes).toMatchObject([
+      { name: "emit-event-step", kind: "step" },
+      { name: archiveOrdersStepId, kind: "step", compensation: "transactionCovered", compensate: expect.any(Function) },
+    ]);
+    expect(completion.nodes).toMatchObject([
+      { name: completeOrdersStepId, kind: "step", compensation: "transactionCovered", compensate: expect.any(Function) },
+      { name: "emit-event-step", kind: "step" },
+      { name: "ordersCompleted", kind: "step", hook: true },
+    ]);
   });
 
   it("lowers the complete preserve-mode Order source without command or Application grants", async () => {

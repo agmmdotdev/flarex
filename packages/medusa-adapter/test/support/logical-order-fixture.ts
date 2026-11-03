@@ -1,16 +1,11 @@
-import { createHash } from "node:crypto";
-import { and, eq } from "drizzle-orm";
-import { Effect, Result, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
 import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
-import { TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
 import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { makeCommerceHost, type LogicalCommerceHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
-import { canonicalizeJsonOutcome } from "../../../persistence-postgres/src/values/jsonOutcome";
-import { fxSystemIdempotency } from "../../../persistence-postgres/src/database/schema";
 import { compileOrderDefinition } from "../../src/modules/order/schema";
 import type { AtomicWorkflowExecution } from "../../src/workflow/host";
 import { projectNativeRow } from "../../src/repository/result";
@@ -59,22 +54,5 @@ export async function prepareLogicalOrderFixture(driver: "pglite" | "postgres", 
     }
     return output.sort((left, right) => String(left.id).localeCompare(String(right.id)));
   };
-  /** Fault only one genuine committed JSON result using its canonical owner.
-   * Request identity, commit linkage, rows and events remain untouched. Restore
-   * the original evidence even when the replay assertion fails. */
-  const withStoredOrderResult = async (key: string, value: unknown, work: () => Promise<void>) => {
-    const db = fixture.persistence.drizzle, scopeUuid = projectScopeIdUuidV1(fixture.application.authority.scopeId).scopeUuid;
-    const requestKey = Schema.decodeUnknownSync(TransactionRequestKeyV1Schema)(key);
-    const match = and(eq(fxSystemIdempotency.scopeUuid, scopeUuid), eq(fxSystemIdempotency.requestKey, requestKey));
-    const [original] = await db.select().from(fxSystemIdempotency).where(match);
-    if (original?.resultState !== "available" || original.resultEncoding !== "json" || original.resultBytes === null
-      || original.resultSha256 === null || original.resultSemanticBytes === null) throw new Error("Missing genuine committed Order JSON result");
-    const canonical = Result.getOrThrow(canonicalizeJsonOutcome(value)), bytes = canonical.canonicalBytes;
-    await db.update(fxSystemIdempotency).set({ resultBytes: bytes, resultSha256: createHash("sha256").update(bytes).digest(),
-      resultSemanticBytes: canonical.semanticSizeBytes }).where(match);
-    try { await work(); }
-    finally { await db.update(fxSystemIdempotency).set({ resultBytes: original.resultBytes,
-      resultSha256: original.resultSha256, resultSemanticBytes: original.resultSemanticBytes }).where(match); }
-  };
-  return { fixture, definition, logicalStorage: input.logicalStorage, execution, snapshot, read, withStoredOrderResult };
+  return { fixture, definition, logicalStorage: input.logicalStorage, execution, snapshot, read };
 }

@@ -6,7 +6,7 @@ import { commerceRelationReadQuery } from "../src/query/relations";
 import { captureOrderMetadata } from "../src/modules/order/schema";
 import { prepareOrderArchiveRepository } from "../src/modules/order/repository";
 import { orderArchivePolicy } from "../src/modules/order/receipt";
-import { orderArchiveRows } from "./support/logical-order-archive-fixture";
+import { orderArchiveRows } from "./support/order-archive-rows";
 
 type Call = Parameters<LogicalCallReceiptValidation>[0];
 type Activity = Parameters<LogicalCallReceiptValidation>[1];

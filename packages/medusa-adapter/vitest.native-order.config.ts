@@ -5,9 +5,13 @@ export default defineConfig({
   ...nativeStockSales,
   test: {
     ...nativeStockSales.test,
-    globalSetup: ["./test/support/native-order-change-source-provenance.ts"],
+    globalSetup: ["./test/support/native-order-source-provenance.ts"],
     include: [
-      "test/native-order-change-source-provenance.proof.ts",
+      "test/native-order-source-provenance.proof.ts",
+      "test/logical-order-archive-workflow.test.ts",
+      "test/logical-order-complete-workflow.test.ts",
+      "test/order-archive-receipts.test.ts",
+      "test/order-completion-receipts.test.ts",
       "test/logical-order-change-update-workflow.test.ts",
       "test/logical-order-change-cancellation-workflow.test.ts",
       "test/logical-order-change-decline-workflow.test.ts",

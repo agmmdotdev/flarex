@@ -13,7 +13,7 @@ import { captureExactNumericRow } from "../../src/value/exact-numeric";
 import { captureCommerceInput } from "../../src/value/input";
 import { compileCompleteRow } from "../../src/value/complete-row";
 import { prepareLogicalOrderFixture } from "./logical-order-fixture";
-import { orderCompletionRows } from "./logical-order-complete-fixture";
+import { orderCompletionRows } from "./order-completion-rows";
 
 const Input = Schema.Struct({ order_change_id: Schema.String, action: Schema.Literal("CREDIT_LINE_ADD"),
   amount: Schema.String, details: Schema.Struct({ reference: Schema.Literal("refund"), reference_id: Schema.String }) });

@@ -740,3 +740,9 @@ dedicated Legacy fixtures. The complete 23-model source retains its 34
 conditional declarations through the [shared index lowering](./slices/25a-native-non-null-indexes.md).
 Authenticated bindings use ordinary Core field indexes. Paired acceptance for
 this family is complete. Broader native and hosted gates remain open.
+
+The [Order Archive and Completion continuation](./slices/26-native-order-status-workflows.md)
+has moved both admitted status roots to the shared Core Order fixture and
+retired their dedicated Legacy fixtures. Both preserve the full Order source,
+retained status inverses, ordered events and callback-free recovery.
+Completion retains its confined finite hook. Bounded paired acceptance is complete.

@@ -7,7 +7,7 @@ import { captureOrderMetadata } from "../src/modules/order/schema";
 import { prepareOrderCompletionRepository } from "../src/modules/order/repository";
 import { orderCompletionPolicy } from "../src/modules/order/receipt";
 import { decodeOrderArchiveStatuses, decodeOrderCompletionStatuses } from "../src/modules/order/input";
-import { orderArchiveRows } from "./support/logical-order-archive-fixture";
+import { orderArchiveRows } from "./support/order-archive-rows";
 
 type Call = Parameters<LogicalCallReceiptValidation>[0];
 type Activity = Parameters<LogicalCallReceiptValidation>[1];

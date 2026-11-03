@@ -8,7 +8,7 @@ import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import type { CorePersistenceFixture } from "../../../persistence-postgres/test/core/fixture";
-import { prepareCoreOrderChangeFixture } from "./core-order-change-fixture";
+import { prepareCoreOrderFixture } from "./core-order-fixture";
 import { orderChangeUpdateIds, orderChangeUpdateRows, orderChangeUpdateStamp, type OrderInitialRow } from "./order-change-rows";
 
 export const orderChangeCancellationIds = orderChangeUpdateIds;
@@ -29,7 +29,7 @@ const retained = { invoke: node.invoke, compensate: node.compensate };
 export async function prepareCoreOrderChangeCancellation(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
   rows: readonly OrderInitialRow[] = orderChangeCancellationRows(), physical?: CorePersistenceFixture) {
   const order = await Effect.runPromise(makeOrderChangeCancellationCommands());
-  const base = await prepareCoreOrderChangeFixture(driver, close, order.commands, rows, physical);
+  const base = await prepareCoreOrderFixture(driver, close, order.commands, rows, physical);
   const modules = { order: { module: order.workflow, nativeStorage: base.source } };
   const options: Parameters<typeof prepareOrderChangeCancellationWorkflow>[0] = { execution: base.execution, modules,
     revision: "b".repeat(64), subscribers: [{ id: "native-order-change-cancellation", revision: "c".repeat(64) }] };

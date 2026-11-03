@@ -8,7 +8,7 @@ import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import type { CorePersistenceFixture } from "../../../persistence-postgres/test/core/fixture";
-import { prepareCoreOrderChangeFixture } from "./core-order-change-fixture";
+import { prepareCoreOrderFixture } from "./core-order-fixture";
 import { orderChangeUpdateRows, orderChangeUpdateIds, type OrderInitialRow } from "./order-change-rows";
 
 export function maximumOrderChangeUpdateInput(): typeof OrderChangeUpdateInput.Type {
@@ -35,7 +35,7 @@ const retained = { invoke: node.invoke, compensate: node.compensate };
 export async function prepareCoreOrderChangeUpdate(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
   rows: readonly OrderInitialRow[] = orderChangeUpdateRows(), physical?: CorePersistenceFixture) {
   const order = await Effect.runPromise(makeOrderChangeUpdateCommands());
-  const base = await prepareCoreOrderChangeFixture(driver, close, order.commands, rows, physical);
+  const base = await prepareCoreOrderFixture(driver, close, order.commands, rows, physical);
   const modules = { order: { module: order.workflow, nativeStorage: base.source } };
   const options: Parameters<typeof prepareOrderChangeUpdateWorkflow>[0] = { execution: base.execution, modules,
     revision: "9".repeat(64), subscribers: [{ id: "native-order-change-update", revision: "a".repeat(64) }] };
