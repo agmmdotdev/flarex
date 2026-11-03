@@ -1,21 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect, Schema } from "effect";
-import { fxAppRowCurrent, fxSystemCommits, fxSystemCommitAppRowChanges } from "../../persistence-postgres/src/database/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
-import { prepareLogicalStockLocationUpdate } from "./support/logical-stock-location-update-fixture";
+import { prepareCoreStockLocation } from "./support/core-stock-location-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalStockLocationUpdate>>;
-const snapshot = async () => ({ rows: await connected.fixture.persistence.drizzle.select().from(fxAppRowCurrent),
-  facts: await connected.fixture.persistence.drizzle.select().from(fxSystemCommitAppRowChanges),
-  commits: await connected.fixture.persistence.drizzle.select().from(fxSystemCommits),
-  events: await connected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents)
-    .orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal) });
+let connected: Awaited<ReturnType<typeof prepareCoreStockLocation>>;
+const snapshot = () => connected.fixture.snapshot();
 const child = (id?: string) => ({ ...(id === undefined ? {} : { id }), address_1: "First street", country_code: "US" });
 
 describe(`genuine native Stock Location create identity normalization - ${driver}`, { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalStockLocationUpdate(driver, close => cleanup.push(close)); }, 240_000);
+  beforeAll(async () => { connected = await prepareCoreStockLocation(driver, close => cleanup.push(close)); }, 240_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
   it("returns every alias with final selected child values while committing only the unique graph and replaying it", async () => {
@@ -34,8 +28,8 @@ describe(`genuine native Stock Location create identity normalization - ${driver
     expect(await Effect.runPromise(connected.list(["stock-alias-a", "stock-alias-b"], true))).toEqual(result.slice(0, 2));
     expect(await Effect.runPromise(connected.addresses(["stock-alias-child-ignored"]))).toEqual([]);
     const after = await snapshot(), emitted = after.events.slice(before.events.length);
-    expect(after.rows.length - before.rows.length).toBe(4); expect(after.facts.length - before.facts.length).toBe(4);
-    expect(after.commits.length - before.commits.length).toBe(1);
+    expect(after.rows.length - before.rows.length).toBe(4); expect(after.revisions.length - before.revisions.length).toBe(4);
+    expect(after.outcomes.length - before.outcomes.length).toBe(1);
     expect(emitted.map(row => row.envelope.contract)).toEqual([
       "stock_location.stock-location-address.created", "stock_location.stock-location-address.created",
       "stock_location.stock-location.created", "stock_location.stock-location.created",

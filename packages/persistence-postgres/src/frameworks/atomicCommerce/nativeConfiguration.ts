@@ -1,6 +1,6 @@
 import { Cause, Effect, Result, Schema } from "effect";
 import type { Json } from "flarex-protocol/json";
-import type { CoreDatabase, CoreNativeRootRecoveryInput } from "../../core/api";
+import type { CoreDatabase, CoreNativeLimits, CoreNativeRootRecoveryInput } from "../../core/api";
 import { CORE_TRANSACTION_REFERENCE_LIMITS } from "../../core/accounting";
 import { requireCoreNativeDefinition, type CoreNativeDefinition } from "../../core/nativePolicy";
 import type { CoreSchemaBundle } from "../../core/schemaBundle";
@@ -12,7 +12,7 @@ import { getCommerceCommand, type CommerceCommand } from "../commerceTransaction
 import type { CommerceInitialization } from "../commerceTransaction/initializationContract";
 import { commerceError, commerceLimits } from "../commerceTransaction/model";
 import { projectCoreCommerceFailure } from "../commerceTransaction/nativeFailure";
-import { captureCommerceResources, defaultCommerceResources } from "../commerceTransaction/resources";
+import { captureCommerceResources, defaultCommerceResources, logicalCommerceWorkingSetLimits } from "../commerceTransaction/resources";
 import { getAtomicCommerceCommand, getAtomicCommerceParticipant, isCommerceDefinitionName } from "./commands";
 import type { AtomicCommerceHostInput } from "./configuration";
 import type { AtomicCommerceParticipantBase } from "./participants";
@@ -145,6 +145,8 @@ export const prepareAtomicCommerceNativeConfiguration = Effect.fn("AtomicCommerc
       allowPreservingDeletionUpsert: member.allowPreservingDeletionUpsert, allowReferenceCheckpoints: member.allowReferenceCheckpoints,
       insertValidation: member.insertValidation }).pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause))));
     const resources = yield* Effect.fromResult(captureCommerceResources(member.logicalResources ?? defaultCommerceResources));
+    const nativeLimits: CoreNativeLimits = Object.freeze({ maxIdentities: member.logicalResources === undefined
+      ? logicalCommerceWorkingSetLimits.identities : resources.catalogRows, maxDocumentBytes: commerceLimits.rowBytes });
     if (limits.commandBytes > resources.commandBytes)
       return yield* commerceError("unsupportedProfile");
     const commands = new Set<CommerceCommand>();
@@ -174,7 +176,7 @@ export const prepareAtomicCommerceNativeConfiguration = Effect.fn("AtomicCommerc
       || member.derivedIdEvent !== undefined && invocation.allowReferenceReplacement !== true)
       return yield* commerceError("unsupportedProfile");
     members.push(Object.freeze({ participant: member.participant, name, source, commands, registrations: Object.freeze(registrations),
-      resources, invocation: invocationPolicy(invocation), publication: member.logicalPublication, events, eventContracts,
+      resources, nativeLimits, invocation: invocationPolicy(invocation), publication: member.logicalPublication, events, eventContracts,
       derivedContract: derived === undefined ? null : Object.freeze({ name: derived.name, revision: derived.revision }), validateLogicalCall: member.validateLogicalCall,
       validateLogical: member.validateLogical, derivedIdEvent: member.derivedIdEvent }));
   }
@@ -189,7 +191,7 @@ export const prepareAtomicCommerceNativeConfiguration = Effect.fn("AtomicCommerc
   if (members.some(member => member.derivedIdEvent !== undefined) !== (eventPolicy?.derivedIdValidation === "capturedOnly"))
     return yield* commerceError("invalidAuthority");
   const participants: CoreNativeRootRecoveryInput["participants"][number][] = members.map(member => ({ definition: member.source.definition, commands: member.registrations,
-    limits: { maxIdentities: member.resources.catalogRows, maxDocumentBytes: commerceLimits.rowBytes } }));
+    limits: member.nativeLimits }));
   if (eventPolicy !== undefined && captured.eventStorage !== undefined) participants.push({ definition: captured.eventStorage.definition,
     commands: [{ name: CORE_NATIVE_EVENT_WRITE, mode: "write" }], limits: coreNativeEventLimits });
   const maxFinalUserDocuments = members.reduce((total, member) => total + member.resources.facts, 0);

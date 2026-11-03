@@ -1,24 +1,26 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Effect, Result, Schema } from "effect";
 import { createStep, createWorkflow, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { deleteSalesChannelsWorkflow } from "@medusajs/core-flows/sales-channel/delete-sales-channels";
-import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import type { CorePersistenceFixture } from "../../../persistence-postgres/test/core/fixture";
+import { compileCoreNativeEventStorageDefinition } from "../../../persistence-postgres/src/commit/events/coreDefinition";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
-import { makeCommerceHost, type LogicalCommerceHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
-import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
-import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution } from "../../src/workflow/host";
+import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { workflowMethodDefinition } from "../../src/workflow/module";
+import { compileProductCoreDefinition } from "../../src/modules/product/schema";
+import { makeLocalProductCommands } from "../../src/modules/product/service";
+import { compileProductLinksCoreDefinition } from "../../src/links/product-definition";
+import { prepareProductSalesChannelLink } from "../../src/links/product-sales-channel-service";
+import { compileStoreCoreDefinition } from "../../src/modules/store/schema";
 import { makeStoreGuardCommands } from "../../src/modules/store/service";
 import { prepareSalesChannelDeletionLinks } from "../../src/links/sales-channel-deletion";
 import { prepareSalesChannelDeletionWorkflow, SalesChannelDeletionInput } from "../../src/workflows/sales-channel/delete";
-import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./logical-currency-fixture";
-import { prepareLogicalSalesChannelLocation } from "./logical-sales-channel-location-fixture";
-import { prepareLogicalProductHost } from "./logical-product-fixture";
-import { prepareLogicalProductSalesChannelLinkHost } from "./logical-product-sales-channel-link-fixture";
+import { attachCoreSalesChannelLocation, prepareCoreSalesChannelLocationSources } from "./core-sales-channel-location-fixture";
+import { createCoreNativeWorkflowFixture, shareCoreNativeWorkflowPhysical } from "./core-native-workflow-fixture";
 
 const revision = (name: string) => createHash("sha256").update(name).digest("hex");
 const decodeRows = Schema.decodeUnknownEffect(Schema.Array(Schema.JsonObject));
@@ -33,59 +35,54 @@ function nativeCompensator(name: string) {
 }
 const restoreChannels = nativeCompensator("delete-sales-channels"), restoreLinks = nativeCompensator("remove-remote-links");
 
-/** Native endpoint creation and both genuine Link families share the existing
- * source/initialization owners. Only Store uses canonical initial data, because
- * this read-only guard profile deliberately grants no Store mutation method. */
-export async function prepareLogicalSalesChannelDeletion(
-  driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  options?: Readonly<{ resource: LogicalCurrencyFixture["resource"];
-    fixtureIdentity: Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }>;
-    stores?: readonly StoreSeed[] }>,
-) {
-  const configuration = { includeProduct: true, includeSalesChannel: true, includeStockLocation: true,
-    includeProductSalesChannelLink: true, includeSalesChannelLocationLink: true, includeStore: true };
-  const fixture = await logicalCurrencyFixture(driver, close, options === undefined ? configuration : { ...configuration,
-    resource: options.resource, fixtureIdentity: options.fixtureIdentity });
-  const location = await prepareLogicalSalesChannelLocation(fixture, close);
-  const product = await prepareLogicalProductHost(fixture);
-  close(() => Effect.runPromise(product.host.close));
-  await Effect.runPromise(product.host.initialize([]));
-  const salesLinks = await prepareLogicalProductSalesChannelLinkHost(fixture);
-  close(() => Effect.runPromise(salesLinks.host.close));
-  await Effect.runPromise(salesLinks.host.initialize([]));
-  const links = await Effect.runPromise(prepareSalesChannelDeletionLinks());
+/** The full native deletion graph uses one Core installation. Store receives
+ * its actual read guard and initial data, without a Store mutation facade. */
+export async function prepareCoreSalesChannelDeletion(driver: "pglite" | "postgres",
+  close: (cleanup: () => Promise<void>) => void,
+  options: Readonly<{ physical?: CorePersistenceFixture; stores?: readonly StoreSeed[] }> = {}) {
+  const target = Object.freeze({ scopeUuid: randomUUID(), epochUuid: randomUUID() });
+  const selected = await Effect.runPromise(prepareCoreSalesChannelLocationSources(target));
+  const productRuntime = await Effect.runPromise(makeLocalProductCommands());
+  const productDefinition = await Effect.runPromise(compileProductCoreDefinition(target));
+  const salesLinksRuntime = await Effect.runPromise(prepareProductSalesChannelLink());
+  const productLinksDefinition = await Effect.runPromise(compileProductLinksCoreDefinition(target, { salesChannel: true, shippingProfile: false }));
   const store = await Effect.runPromise(makeStoreGuardCommands());
-  const storeDefinition = fixture.storeDefinition, stockDefinition = fixture.stockLocationDefinition;
-  if (storeDefinition === undefined || stockDefinition === undefined) throw new Error("Missing Store/Stock Location sources");
-  const dataset = async (rows: Json) => Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows }, 1_048_576,
-    { invalidInput: () => new Error("Invalid deletion seed"), hashFailure: cause => new Error("Deletion seed hash", { cause }) }));
-  const empty = await dataset([]);
-  const sourceInput = (sourceKey: string, definition: typeof storeDefinition, commands: LogicalCommerceHostInput<unknown>["commands"]) => ({
-    ...fixture.hostInput, identityAndAccessPolicy: { profile: sourceKey + ".sales-channel-deletion-test" }, commands,
-    logicalStorage: { ...fixture.hostInput.logicalStorage,
-      source: { sourceKey, writeProfile: sourceKey, schema: definition.schema, evidence: definition.provenance },
-      initialization: { stepId: sourceKey.toLowerCase() + ".empty", datasetSha256: empty.sha256Hex, expectedRowCount: 0 } },
-  } satisfies LogicalCommerceHostInput<unknown>);
-  const stores = (options?.stores ?? []).map(value => ({ id: value.id, name: "Guard " + value.id,
+  const storeDefinition = await Effect.runPromise(compileStoreCoreDefinition(target));
+  const stores = (options.stores ?? []).map(value => ({ id: value.id, name: "Guard " + value.id,
     default_sales_channel_id: value.defaultSalesChannelId, default_region_id: null, default_location_id: null,
     metadata: null, created_at: "2026-10-16T00:00:00.000Z", updated_at: "2026-10-16T00:00:00.000Z", deleted_at: null }));
-  const storeRows = stores.map(row => ({ table: "store", row }));
-  const storeSeed = await dataset(storeRows);
-  const baseStore = sourceInput("medusa.store", storeDefinition, store.commands);
-  const storeInput = { ...baseStore, logicalStorage: { ...baseStore.logicalStorage,
-    initialization: { stepId: "store-sales-channel-guard-initial", datasetSha256: storeSeed.sha256Hex, expectedRowCount: stores.length } } };
-  const storeHost = await Effect.runPromise(makeCommerceHost(storeInput));
-  try { await Effect.runPromise(storeHost.initialize(storeRows)); } finally { await Effect.runPromise(storeHost.close); }
-  const stockInput = sourceInput("medusa.stockLocation", stockDefinition, location.stock.commands);
-  const stockReader = await Effect.runPromise(makeCommerceHost(stockInput));
-  close(() => Effect.runPromise(stockReader.close));
-  const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-    prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, ...composition }) };
+  const eventDefinition = await Effect.runPromise(compileCoreNativeEventStorageDefinition(target));
+  const physical = options.physical === undefined ? undefined : await shareCoreNativeWorkflowPhysical(options.physical);
+  const fixture = await createCoreNativeWorkflowFixture(driver, { eventDefinition, sources: [
+    ...selected.sources,
+    { name: "product", definition: productDefinition, initialCommands: Object.values(productRuntime.commands), rows: [] },
+    { name: "product_sales_channel_links", definition: productLinksDefinition, initialCommands: salesLinksRuntime.commands, rows: [] },
+    { name: "store", definition: storeDefinition, initialCommands: store.commands, rows: stores.map(row => ({ table: "store", row })) },
+  ], ...(physical === undefined ? {} : { physical }) });
+  close(fixture.close);
+  const location = await attachCoreSalesChannelLocation(fixture, selected, close);
+  const productHost = await fixture.run(fixture.openReadHost("product", [productRuntime.commands.internalProductList]));
+  const salesLinkHost = await fixture.run(fixture.openReadHost("product_sales_channel_links", [salesLinksRuntime.list]));
+  for (const host of [productHost, salesLinkHost]) close(() => Effect.runPromise(host.close));
+  const product = { runtime: productRuntime, source: fixture.source("product"), host: productHost };
+  const salesLinks = { runtime: salesLinksRuntime, source: fixture.source("product_sales_channel_links"), host: salesLinkHost };
+  const links = await Effect.runPromise(prepareSalesChannelDeletionLinks());
+  const storeSource = fixture.source("store"), stockReader = location.stockReader;
+  const execution = fixture.execution;
+  const productParticipant = defineAtomicCommerceParticipant("productSeed");
+  const createProducts = defineAtomicCommerceCommand("seedSalesChannelDeletionProducts", (ctx, input) =>
+    ctx.call(productParticipant, productRuntime.commands.internalProductCreate, input));
+  const productSeedHost = await Effect.runPromise(execution.prepare({
+    identityAndAccessPolicy: { seed: "native-sales-channel-deletion-products" },
+    participants: [{ participant: productParticipant, nativeStorage: product.source, commands: [productRuntime.commands.internalProductCreate] }],
+    commands: [createProducts],
+  }));
+  close(() => Effect.runPromise(productSeedHost.close));
   const modules: Parameters<typeof prepareSalesChannelDeletionWorkflow>[0]["modules"] = {
-    store: { module: store.workflow, logicalStorage: storeInput.logicalStorage },
-    sales_channel: { module: location.sales.runtime.deleteWorkflow, logicalStorage: location.sales.hostInput.logicalStorage },
-    product_sales_channel_links: { module: links.sales.workflow, logicalStorage: salesLinks.hostInput.logicalStorage },
-    sales_channel_location_links: { module: links.location.workflow, logicalStorage: location.linkInput.logicalStorage },
+    store: { module: store.workflow, nativeStorage: storeSource },
+    sales_channel: { module: location.sales.runtime.deleteWorkflow, nativeStorage: location.sales.source },
+    product_sales_channel_links: { module: links.sales.workflow, nativeStorage: salesLinks.source },
+    sales_channel_location_links: { module: links.location.workflow, nativeStorage: location.linkSource },
   };
   const workflowOptions = { execution, modules, link: links.resource,
     revision: revision("native-sales-channel-deletion-112"), subscribers: [{ id: "native-sales-channel-deletion", revision: "a".repeat(64) }] };
@@ -119,8 +116,8 @@ export async function prepareLogicalSalesChannelDeletion(
 
   const participants = { sales: defineAtomicCommerceParticipant("productLinks"), location: defineAtomicCommerceParticipant("locationLinks") };
   const entries = [
-    { participant: participants.sales, logicalStorage: salesLinks.hostInput.logicalStorage, native: links.nativeServices.sales, policy: links.sales.logicalEventPolicy() },
-    { participant: participants.location, logicalStorage: location.linkInput.logicalStorage, native: links.nativeServices.location, policy: links.location.logicalEventPolicy() },
+    { participant: participants.sales, nativeStorage: salesLinks.source, native: links.nativeServices.sales, policy: links.sales.logicalEventPolicy() },
+    { participant: participants.location, nativeStorage: location.linkSource, native: links.nativeServices.location, policy: links.location.logicalEventPolicy() },
   ];
   const contracts = entries.flatMap(entry => {
     const method = workflowMethodDefinition(entry.native.createMethod);
@@ -134,7 +131,7 @@ export async function prepareLogicalSalesChannelDeletion(
     return null;
   }));
   const linkSeedHost = await Effect.runPromise(execution.prepare({ identityAndAccessPolicy: { seed: "native-sales-channel-deletion-links" },
-    participants: entries.map(entry => ({ participant: entry.participant, logicalStorage: entry.logicalStorage, commands: [entry.native.create],
+    participants: entries.map(entry => ({ participant: entry.participant, nativeStorage: entry.nativeStorage, commands: [entry.native.create],
       validateLogicalCall: entry.policy.validateLogicalCall, events: { contracts: contracts.map(contract => contract.token), select: message => {
         const selected = isJsonObject(message) ? contracts.find(contract => contract.name === message.name) : undefined;
         return selected === undefined ? Effect.fail(commerceError("unadmittedEvent")) : Effect.succeed(selected.token);
@@ -159,7 +156,7 @@ export async function prepareLogicalSalesChannelDeletion(
         locations: locations.slice(offset, offset + 4).map(id => ({ id, name: id })),
       }));
     for (let offset = 0; offset < products.length; offset += 4)
-      await Effect.runPromise(product.host.run(product.host.newRequestKey(), product.runtime.commands.internalProductCreate,
+      await Effect.runPromise(productSeedHost.run(productSeedHost.newRequestKey(), createProducts,
         products.slice(offset, offset + 4).map(id => ({ id, title: id, handle: id }))));
     const sales: Pair[] = channels.flatMap(channel => products.map(id => [id, channel, { id: prefix + "-product-link-" + channel + "-" + id }]));
     const stock: Pair[] = channels.flatMap(channel => locations.map(id => [channel, id, { id: prefix + "-location-link-" + channel + "-" + id }]));
@@ -176,6 +173,6 @@ export async function prepareLogicalSalesChannelDeletion(
     { filters: { id: [...ids] }, config: { take: 256, withDeleted: true } }).pipe(Effect.flatMap(decodeRows)));
   const readLocations = (ids: readonly string[]) => Effect.runPromise(stockReader.read(location.stock.count,
     { filters: { id: [...ids] }, config: { take: 256 } }).pipe(Effect.flatMap(value => Schema.decodeUnknownEffect(Schema.Tuple([Schema.Array(Schema.JsonObject), Schema.Number]))(value)), Effect.map(([rows]) => rows)));
-  return { fixture, links,
+  return { fixture, target, location, links,
     prepare, prepareRestore, seed, attach, readChannels, readProductLinks, readLocationLinks, readProducts, readLocations };
 }

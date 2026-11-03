@@ -3,6 +3,8 @@ import { Store, StoreCurrency, StoreLocale } from "@medusajs/store/models";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
 import { capturePrivateCanonicalValue, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
+import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
+import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
 import { decodeCompiledDml } from "../../schema/compiled";
 import { lowerDmlSchema } from "../../schema/lower";
 
@@ -41,4 +43,19 @@ export const compileStoreDefinition = Effect.fn("Store.compileDefinition")(funct
       origin: { kind: "derived" as const, sourceId: "store.default-sales-channel-equality" },
     }] }) }));
   return Object.freeze({ schema, provenance: storeSourceProvenance });
+});
+
+/** The complete constructor closure feeds Core; callers separately admit guard reads. */
+export const compileStoreCoreDefinition = Effect.fn("Store.compileCoreDefinition")(function* (target: Readonly<{
+  scopeUuid: string; epochUuid: string; applicationRead?: boolean;
+}>) {
+  const nativeTarget = Object.freeze({ scopeUuid: target.scopeUuid, epochUuid: target.epochUuid,
+    applicationRead: target.applicationRead ?? false });
+  const definition = yield* compileStoreDefinition();
+  const source = yield* captureLogicalSchemaSource({ key: "medusa.store", owner: "medusa", writeProfile: "medusa.store",
+    evidence: { provenance: definition.provenance, profile: "medusa.store" },
+    definition: { kind: "relational", schema: definition.schema },
+    bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+      table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
+  return yield* makeCoreRelationalNativeDefinition({ ...nativeTarget, source, provenance: definition.provenance, commands: [] });
 });

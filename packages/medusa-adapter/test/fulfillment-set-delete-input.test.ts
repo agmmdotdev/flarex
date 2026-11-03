@@ -5,7 +5,7 @@ import { compileFulfillmentSetDeletionContracts, decodeFulfillmentSetDeletionIds
   decodeFulfillmentSetDeletionOutput } from "../src/modules/fulfillment/fulfillment-set-delete-input";
 import { decodeFulfillmentSetLifecycleArguments, decodeFulfillmentSetLifecycleIds, decodeFulfillmentSetRepositoryIds } from "../src/modules/fulfillment/fulfillment-set-delete-input";
 import { fulfillmentServiceRouting } from "../src/modules/fulfillment/fulfillment-module";
-import { fulfillmentSetDeletionGraph } from "./support/logical-fulfillment-set-deletion-fixture";
+import { fulfillmentSetDeletionGraph } from "./support/native-fulfillment-graph-fixture";
 
 let contracts: Result.Result.Success<ReturnType<typeof compileFulfillmentSetDeletionContracts>>;
 const graph = fulfillmentSetDeletionGraph("set-delete-input", { geos: 1, options: 1, rules: 1 });

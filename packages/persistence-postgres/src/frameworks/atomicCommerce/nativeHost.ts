@@ -91,7 +91,7 @@ const compose = Effect.fn("AtomicCommerceNative.composeHost")(function* (
         commands: [{ name: CORE_NATIVE_EVENT_WRITE, mode: "write" }] }));
     const participants = selected.map(participant => ({ binding: participant.binding,
       commands: participant.member.registrations.map(command => command.name),
-      limits: { maxIdentities: participant.member.resources.catalogRows, maxDocumentBytes: 65_536 } }));
+      limits: participant.member.nativeLimits }));
     const expectedEvent = configuration.rootInput.participants.find(participant => participant.definition === configuration.eventStorage?.definition);
     if (eventBinding !== undefined && expectedEvent !== undefined) participants.push({ binding: eventBinding,
       commands: [CORE_NATIVE_EVENT_WRITE], limits: { ...expectedEvent.limits } });

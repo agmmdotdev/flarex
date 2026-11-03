@@ -46,6 +46,15 @@ callback. No untrusted caller receives the charging or finalization capability.
 
 ## Required proof
 
+Ordinary Commerce participants retain the selected implicit/explicit identity
+admission: omitted resources use the existing 128-identity policy; explicitly
+selected resources use their captured `catalogRows`. Prepare that numeric limit
+once and reuse it in live/recovery participant frames. Root call, byte and
+final-document accounting remain distinct. The
+[atomic admission correction](../slices/22a-native-atomic-admission.md) owns this
+host-lowering prerequisite and its neutral/consumer gates; it changes no native
+budget meaning or Core accounting algorithm.
+
 Real Local API count/select operations over fewer than 256 large matching rows
 must exhaust the shared command budget even when their output is tiny. Prove
 arguments and retained rows consume the same counter, caught failures remain

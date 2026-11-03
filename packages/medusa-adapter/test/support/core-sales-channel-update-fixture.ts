@@ -5,15 +5,15 @@ import { defineCommerceEventContract } from "../../../persistence-postgres/src/f
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import { prepareSalesChannelUpdateWorkflow } from "../../src/workflows/sales-channel/update";
-import { prepareLogicalSalesChannelCreation } from "./logical-sales-channel-creation-fixture";
+import { prepareCoreSalesChannelCreation } from "./core-sales-channel-creation-fixture";
 
 /** Reuse creation's genuine source, initialization, read host and execution.
  * Seed cleanup invokes the existing native module delete command, not SQL. */
-export async function prepareLogicalSalesChannelUpdate(
+export async function prepareCoreSalesChannelUpdate(
   driver: "pglite" | "postgres", registerCleanup: (close: () => Promise<void>) => void,
-  shared?: Parameters<typeof prepareLogicalSalesChannelCreation>[2],
+  shared?: Parameters<typeof prepareCoreSalesChannelCreation>[2],
 ) {
-  const creation = await prepareLogicalSalesChannelCreation(driver, registerCleanup, shared);
+  const creation = await prepareCoreSalesChannelCreation(driver, registerCleanup, shared);
   const participant = defineAtomicCommerceParticipant("sales_channel");
   const policy = creation.sales.runtime.logicalEventPolicy();
   const deletedName = buildModuleResourceEventName({ prefix: Modules.SALES_CHANNEL,
@@ -24,7 +24,7 @@ export async function prepareLogicalSalesChannelUpdate(
     ctx.call(participant, creation.sales.runtime.delete, input));
   const cleanupHost = await Effect.runPromise(creation.execution.prepare({
     identityAndAccessPolicy: { profile: "native-sales-channel-update-cleanup" },
-    participants: [{ participant, logicalStorage: creation.sales.hostInput.logicalStorage,
+    participants: [{ participant, nativeStorage: creation.sales.source,
       commands: [creation.sales.runtime.delete], validateLogicalCall: policy.validateLogicalCall,
       events: { contracts: [deleted], select: message => isJsonObject(message) && message.name === deletedName
         ? Effect.succeed(deleted) : Effect.fail(commerceError("unadmittedEvent")) } }],
@@ -36,7 +36,7 @@ export async function prepareLogicalSalesChannelUpdate(
   registerCleanup(() => Effect.runPromise(cleanupHost.close));
   const options: Parameters<typeof prepareSalesChannelUpdateWorkflow>[0] = {
     execution: creation.execution,
-    modules: { sales_channel: { module: creation.sales.runtime.updateWorkflow, logicalStorage: creation.sales.hostInput.logicalStorage } },
+    modules: { sales_channel: { module: creation.sales.runtime.updateWorkflow, nativeStorage: creation.sales.source } },
     revision: createHash("sha256").update("native-sales-channel-update-111").digest("hex"),
     subscribers: [{ id: "native-sales-channel-update", revision: "d".repeat(64) }],
   };

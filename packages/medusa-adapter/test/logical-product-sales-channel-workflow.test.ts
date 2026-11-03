@@ -3,49 +3,33 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Effect, Result } from "effect";
 import { createHash } from "node:crypto";
 import { createStep, createWorkflow, WorkflowResponse, type WorkflowData, type StepExecutionContext } from "@medusajs/workflows-sdk";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { fxAppRowCurrent } from "../../persistence-postgres/src/database/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
-import { fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commit/events/schema";
-import { makeCommitEventPump } from "../../persistence-postgres/src/commit/events/pump";
+import { makeCoreCommitEventPump } from "../../persistence-postgres/src/commit/events/coreStore";
 import { CommitEventSubscriberFailure } from "../../persistence-postgres/src/commit/events/model";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
-
-
-
 import { prepareProductSalesChannelWorkflow, productSalesChannelWorkflow, ProductSalesChannelInput,
   ProductSalesChannelOutput } from "../src/workflows/product/sales-channel";
-import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type AtomicWorkflowHostComposition } from "../src/workflow/host";
+import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution } from "../src/workflow/host";
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../src/workflow/events";
-import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
-import { prepareLogicalProductHost } from "./support/logical-product-fixture";
-import { prepareLogicalSalesChannelHost } from "./support/logical-sales-channel-fixture";
-import { prepareLogicalProductSalesChannelLinkHost } from "./support/logical-product-sales-channel-link-fixture";
+import { createCoreProductSalesChannelLinkFixture, type CoreProductSalesChannelLinkFixture } from "./support/core-product-sales-channel-link-fixture";
+import { expectWorkflowDefect, expectWorkflowTypedFailures } from "./support/workflow-failure-assertions";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Link workflow driver");
 const cleanup: Array<() => Promise<void>> = [];
-let selected: {
-  fixture: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
-  product: Awaited<ReturnType<typeof prepareLogicalProductHost>>;
-  sales: Awaited<ReturnType<typeof prepareLogicalSalesChannelHost>>;
-  link: Awaited<ReturnType<typeof prepareLogicalProductSalesChannelLinkHost>>;
-};
+let selected: CoreProductSalesChannelLinkFixture;
+const snapshot = () => selected.fixture.snapshot();
 const revision = (value: string) => createHash("sha256").update(value).digest("hex");
 const input = (prefix: string, count = 1) => ({ salesChannel: { id: prefix + "-channel", name: prefix },
   products: Array.from({ length: count }, (_, index) => ({ id: prefix + "-" + index, title: prefix + "-" + index })) });
 const modules = () => {
   const { product, sales, link } = selected;
   return {
-      product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage },
-      sales_channel: { module: sales.runtime.workflow, logicalStorage: sales.hostInput.logicalStorage },
-      link: { module: link.runtime.workflow, logicalStorage: link.hostInput.logicalStorage },
+      product: { module: product.runtime.workflow, nativeStorage: product.source },
+      sales_channel: { module: sales.runtime.workflow, nativeStorage: sales.source },
+      link: { module: link.runtime.workflow, nativeStorage: link.source },
     };
 };
-const execution = (session = selected.fixture.session) => ({ identityAndAccessPolicy: selected.fixture.hostInput.identityAndAccessPolicy,
-  prepare: (composition: AtomicWorkflowHostComposition) => makeAtomicCommerceHost({ ...selected.fixture.hostInput, session, ...composition }) });
+const execution = () => selected.execution;
 async function prepare() {
   return Effect.runPromise(prepareProductSalesChannelWorkflow({
     execution: execution(), modules: modules(), revision: revision("logical-product-sales-channel-workflow"),
@@ -74,50 +58,38 @@ async function observe(after: (value: unknown, context: StepExecutionContext) =>
 
 describe("native Product–SalesChannel workflow on shared logical storage", () => {
   beforeAll(async () => {
-    const fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close), {
-      includeProduct: true, includeSalesChannel: true, includeProductSalesChannelLink: true,
-    });
-    const product = await prepareLogicalProductHost(fixture);
-    const sales = await prepareLogicalSalesChannelHost(fixture);
-    const link = await prepareLogicalProductSalesChannelLinkHost(fixture);
-    for (const member of [product, sales, link]) {
-      await Effect.runPromise(member.host.initialize([]));
-      await Effect.runPromise(member.host.close);
-    }
-    selected = { fixture, product, sales, link };
+    selected = await createCoreProductSalesChannelLinkFixture(driver, close => cleanup.push(close));
   }, 150_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
 
   it("admits the native Link with a scoped pair key and no generated module table", async () => {
-    const { fixture, link } = selected;
-    expect(link.definition.schema.tables.map(table => table.identity.tableId)).toEqual(["product_sales_channel"]);
-    const table = link.definition.schema.tables[0];
+    const { link } = selected;
+    expect(selected.product.definition.tables).toHaveLength(13);
+    expect(selected.sales.definition.tables).toHaveLength(1);
+    expect(link.schema.tables.map(table => table.identity.tableId)).toEqual(["product_sales_channel"]);
+    const table = link.schema.tables[0];
     expect(table?.keys.find(key => key.kind === "primary")?.columns.map(column => column.columnId))
       .toEqual(["product_id", "sales_channel_id"]);
     expect(table?.constraints.filter(item => item.kind === "foreignKey")).toEqual([]);
-    expect((await fixture.persistence.query<{ name: string }>(
-      "select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows)
-      .toEqual(fixture.physicalTablesBeforeCandidate);
+    expect(await selected.readPhysicalTables()).toEqual(selected.physicalTablesBeforeCandidate);
   });
 
   it("creates all three native participants atomically with pending Link reads and replay", async () => {
     const host = await prepare();
     try {
-      const beforeRows = await selected.fixture.persistence.drizzle.select().from(fxAppRowCurrent);
-      const beforeEvents = await selected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const before = await snapshot();
       const key = host.newRequestKey();
       const result = await Effect.runPromise(host.run(key, input("connected", 4)));
       expect(result.products).toHaveLength(4);
       expect(result.salesChannels).toHaveLength(1);
       expect(result.links).toHaveLength(4);
       expect(result.links.map(link => link.product_id).sort()).toEqual(result.products.map(product => product.id).sort());
-      const rows = await selected.fixture.persistence.drizzle.select().from(fxAppRowCurrent);
-      const events = await selected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents);
-      expect(rows.length).toBeGreaterThan(beforeRows.length);
-      expect(events.length - beforeEvents.length).toBe(6);
+      const committed = await snapshot();
+      expect(committed.rows.length).toBeGreaterThan(before.rows.length);
+      expect(committed.events.length - before.events.length).toBe(6);
+      expect(committed.outcomes.length - before.outcomes.length).toBe(1);
       expect(await Effect.runPromise(host.run(key, input("connected", 4)))).toEqual(result);
-      expect(await selected.fixture.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(rows);
-      expect(await selected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(events);
+      expect(await snapshot()).toEqual(committed);
     } finally { await Effect.runPromise(host.close); }
   }, 120_000);
 
@@ -129,20 +101,19 @@ describe("native Product–SalesChannel workflow on shared logical storage", () 
       }));
       expect(result.links).toMatchObject([{ product_id: result.products[0]?.id,
         sales_channel_id: result.salesChannels[0]?.id }]);
-      const before = await selected.fixture.persistence.drizzle.select().from(fxAppRowCurrent);
+      const before = await snapshot();
       await expect(Effect.runPromise(host.run(host.newRequestKey(), input("oversized", 5)))).rejects.toBeDefined();
-      expect(await selected.fixture.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(before);
+      expect(await snapshot()).toEqual(before);
     } finally { await Effect.runPromise(host.close); }
   }, 120_000);
 
   it("rolls back every participant on a late native callback failure", async () => {
-    const host = await observe(() => { throw new Error("late workflow failure"); });
+    const original = new Error("late workflow failure");
+    const host = await observe(() => { throw original; });
     try {
-      const beforeRows = await selected.fixture.persistence.drizzle.select().from(fxAppRowCurrent);
-      const beforeEvents = await selected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents);
-      await expect(Effect.runPromise(host.run(host.newRequestKey(), input("late-failure")))).rejects.toBeDefined();
-      expect(await selected.fixture.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
-      expect(await selected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);
+      const before = await snapshot();
+      expectWorkflowDefect(await Effect.runPromiseExit(host.run(host.newRequestKey(), input("late-failure"))), original);
+      expect(await snapshot()).toEqual(before);
     } finally { await Effect.runPromise(host.close); }
   }, 120_000);
 
@@ -158,38 +129,29 @@ describe("native Product–SalesChannel workflow on shared logical storage", () 
       link: { ...selectedModules.link, module: withWorkflowPolicy(selectedModules.link.module, policy => ({ ...policy, capture })) },
     });
     try {
-      const beforeRows = await selected.fixture.persistence.drizzle.select().from(fxAppRowCurrent);
-      const beforeEvents = await selected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents);
-      await expect(Effect.runPromise(host.run(host.newRequestKey(), input("forged-event"))))
-        .rejects.toMatchObject({ reason: "rollbackOnly" });
+      const before = await snapshot();
+      expectWorkflowTypedFailures(await Effect.runPromiseExit(host.run(host.newRequestKey(), input("forged-event"))), "receiptMismatch");
       expect(capture).toHaveBeenCalled();
-      expect(await selected.fixture.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
-      expect(await selected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);
+      expect(await snapshot()).toEqual(before);
     } finally { await Effect.runPromise(host.close); }
   }, 120_000);
 
   it("recovers an uncertain commit without replaying native callbacks", async () => {
-    let lose = true;
     const { fixture } = selected;
-    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) =>
-      runRelationalSession(fixture.session, profile, work).pipe(
-        Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-        Effect.flatMap(value => {
-          if (!lose) return Effect.succeed(value);
-          lose = false;
-          return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain",
-            cause: new Error("Lost logical workflow COMMIT acknowledgement") }));
-        })));
     const reached = vi.fn((value: unknown) => value);
-    const host = await observe(reached, modules(), execution(session));
+    const host = await observe(reached);
     try {
+      const fault = fixture.loseNextNativeRootAcknowledgement();
       const key = host.newRequestKey();
-      const before = await fixture.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const before = await snapshot();
       const result = await Effect.runPromise(host.run(key, input("uncertain")));
-      const committed = await fixture.persistence.drizzle.select().from(fxSystemCommitEvents);
-      expect(committed.length - before.length).toBe(3);
+      const committed = await snapshot();
+      expect(fault.armed).toBe(false); expect(fault.failures).toBe(1);
+      expect(fault.evidence?.inventory).toEqual(await fixture.inventory());
+      expect(committed.events.length - before.events.length).toBe(3);
+      expect(committed.outcomes.length - before.outcomes.length).toBe(1);
       expect(await Effect.runPromise(host.run(key, input("uncertain")))).toEqual(result);
-      expect(await fixture.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(committed);
+      expect(await snapshot()).toEqual(committed);
       expect(reached).toHaveBeenCalledTimes(1);
     } finally { await Effect.runPromise(host.close); }
   }, 120_000);
@@ -199,19 +161,27 @@ describe("native Product–SalesChannel workflow on shared logical storage", () 
     try {
       const key = host.newRequestKey();
       const result = await Effect.runPromise(host.run(key, input("subscriber")));
-      const beforeRows = await selected.fixture.persistence.drizzle.select().from(fxAppRowCurrent);
-      const beforeEvents = await selected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents);
-      const last = beforeEvents.at(-1);
+      const before = await snapshot();
+      const last = before.events.at(-1);
       if (last === undefined) throw new Error("Missing workflow commit");
       const handle = vi.fn(() => Effect.fail(new CommitEventSubscriberFailure({ retryable: true, code: "offline" })));
       const subscribers = [{ id: "logical-product-sales-channel", revision: "a".repeat(64), handle }];
-      const pump = await Effect.runPromise(makeCommitEventPump(selected.fixture.hostInput, subscribers));
-      await Effect.runPromise(pump.runNext(last.commitSeq - 1n));
+      const previous = before.families.map(family => family.value.id).filter((id): id is string => typeof id === "string")
+        .toSorted().filter(id => id < last.familyId).at(-1);
+      await selected.fixture.run(selected.fixture.useGeneration(generation => Effect.gen(function* () {
+        const definition = selected.fixture.eventDefinition;
+        if (definition === undefined) return yield* Effect.die(new Error("Missing Core native event source"));
+        const binding = yield* generation.database.bindNative({ definition });
+        const pump = yield* makeCoreCommitEventPump({ database: generation.database, binding }, subscribers);
+        yield* pump.runNext(previous);
+      })));
       expect(handle).toHaveBeenCalledTimes(3);
-      expect(await selected.fixture.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
-      expect(await selected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);
-      expect((await selected.fixture.persistence.drizzle.select().from(fxSystemCommitEventDeliveries))
-        .filter(row => row.commitSeq === last.commitSeq).every(row => row.attempts === 1 && row.state !== "delivered")).toBe(true);
+      const after = await snapshot();
+      for (const key of ["rows", "revisions", "indexes", "events", "families", "outcomes"] as const)
+        expect(after[key], key).toEqual(before[key]);
+      const deliveries = after.deliveries.filter(row => row.value.family_id === last.familyId);
+      expect(deliveries).toHaveLength(3);
+      expect(deliveries.every(row => row.value.attempts === 1 && row.value.state !== "delivered")).toBe(true);
       expect(await Effect.runPromise(host.run(key, input("subscriber")))).toEqual(result);
     } finally { await Effect.runPromise(host.close); }
   }, 120_000);

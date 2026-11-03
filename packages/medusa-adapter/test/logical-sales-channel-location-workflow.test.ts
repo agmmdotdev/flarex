@@ -4,30 +4,23 @@ import { Link } from "@medusajs/modules-sdk/link";
 import { createStep, createWorkflow, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import type { LinkWorkflowInput } from "@medusajs/types";
 import { linkSalesChannelsToStockLocationWorkflow } from "@medusajs/core-flows/stock-location/link-sales-channels";
-import { fxAppRowCurrent, fxSystemCommits } from "../../persistence-postgres/src/database/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
-import { makeApplicationAnalysisRepository } from "../../persistence-postgres/src/application/applicationAnalysisRegistration";
 import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { makeSchemaComposer } from "../src/composition/schema";
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import { prepareAtomicWorkflowHost } from "../src/workflow/host";
 import { internalModuleWorkflowEvents } from "../src/workflow/events";
 import { prepareLocalGraph } from "../src/local-graph/query";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { prepareStockLocationSalesChannelsWorkflow, StockLocationSalesChannelsInput } from "../src/workflows/stock-location/sales-channels";
-import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
-import { prepareLogicalSalesChannelLocation } from "./support/logical-sales-channel-location-fixture";
+import { prepareCoreSalesChannelLocation } from "./support/core-sales-channel-location-fixture";
+import { expectWorkflowDefect } from "./support/workflow-failure-assertions";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Sales Channel Location driver");
 const cleanup: Array<() => Promise<void>> = [];
-let members: Awaited<ReturnType<typeof prepareLogicalSalesChannelLocation>>;
-const rows = () => members.fixture.persistence.drizzle.select().from(fxAppRowCurrent);
-const events = () => members.fixture.persistence.drizzle.select().from(fxSystemCommitEvents).orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal);
-const commits = () => members.fixture.persistence.drizzle.select().from(fxSystemCommits);
+let members: Awaited<ReturnType<typeof prepareCoreSalesChannelLocation>>;
+const rows = async () => (await members.fixture.snapshot()).rows;
+const events = async () => (await members.fixture.snapshot()).events;
+const commits = async () => (await members.fixture.snapshot()).outcomes;
 const decodeRows = Schema.decodeUnknownEffect(Schema.Array(Schema.JsonObject));
 const run = (input: typeof StockLocationSalesChannelsInput.Type, scope = members) => Effect.runPromise(scope.workflow.run(scope.workflow.newRequestKey(), input));
 const read = (filters: JsonObject, withDeleted = false, scope = members) => Effect.runPromise(scope.reader.read(scope.link.list,
@@ -53,10 +46,7 @@ function failurePath(value: unknown): string[] {
 
 describe("native Sales Channel and Stock Location links", () => {
   beforeAll(async () => {
-    const fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close), {
-      includeSalesChannel: true, includeStockLocation: true, includeSalesChannelLocationLink: true,
-    });
-    members = await prepareLogicalSalesChannelLocation(fixture, close => cleanup.push(close));
+    members = await prepareCoreSalesChannelLocation(driver, close => cleanup.push(close));
   }, 180_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
@@ -178,24 +168,20 @@ describe("native Sales Channel and Stock Location links", () => {
     expect(getter).not.toHaveBeenCalled(); expect(prepare).not.toHaveBeenCalled();
   });
 
-  it("requires both endpoint sources and retains native aliases with a separate event entity", async () => {
-    expect(members.fixture.productDefinition).toBeUndefined(); expect(members.fixture.pricingDefinition).toBeUndefined();
-    expect((await members.fixture.persistence.query<{ name: string }>(
-      "select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows)
-      .toEqual(members.fixture.physicalTablesBeforeCandidate);
-    const repository = makeApplicationAnalysisRepository(members.fixture.persistence.drizzle);
-    for (const medusaModules of [["salesChannelLocationLink"], ["salesChannelLocationLink", "salesChannel"], ["salesChannelLocationLink", "stockLocation"]] as const) {
-      const compose = makeSchemaComposer({ deploymentId: members.fixture.deploymentId, authority: members.fixture.application.authority,
-        applicationAnalyses: repository, medusaModules });
-      await expect(Effect.runPromise(compose({}))).rejects.toMatchObject({ reason: "missingModuleDependency" });
-    }
+  it("selects the complete endpoint source graph and retains native aliases with a separate event entity", async () => {
+    expect(members.fixture.sources.map(entry => entry.definition.source.key).toSorted()).toEqual([
+      "medusa.salesChannel", "medusa.salesChannelLocationLink", "medusa.stockLocation",
+    ]);
+    expect(await members.fixture.physical.query(
+      "select tablename as name from pg_tables where schemaname = $1 order by tablename", [members.fixture.physical.namespace]))
+      .toEqual(["documents", "indexes", "leases", "persistence_globals", "read_only"].map(name => ({ name })));
     const participant = defineAtomicCommerceParticipant("link");
     const graph = await Effect.runPromise(Effect.fromResult(prepareLocalGraph([{ participant, module: members.link.graph }])));
     expect(graph.entities).toEqual(["sales_channel_location", "sales_channel_locations"]);
     const readPending = defineAtomicCommerceCommand("nativeLocationLinkAliases", ctx => graph.bind(ctx).graph({
       entity: "sales_channel_locations", fields: ["id", "sales_channel_id", "stock_location_id"], filters: { stock_location_id: "maximum-location" }, pagination: { take: 4 } }));
-    const host = await Effect.runPromise(makeAtomicCommerceHost({ ...members.fixture.hostInput, commands: [readPending],
-      participants: [{ participant, logicalStorage: members.linkInput.logicalStorage, commands: [members.link.count] }] }));
+    const host = await Effect.runPromise(members.execution.prepare({ identityAndAccessPolicy: members.execution.identityAndAccessPolicy, commands: [readPending],
+      participants: [{ participant, nativeStorage: members.linkSource, commands: [members.link.count] }] }));
     try { expect(await Effect.runPromise(host.run(host.newRequestKey(), readPending, null))).toMatchObject({ data: expect.any(Array), metadata: { count: 4, take: 4, skip: 0 } }); }
     finally { await Effect.runPromise(host.close); }
   });
@@ -204,13 +190,17 @@ describe("native Sales Channel and Stock Location links", () => {
     const input = await seed("late", 1), channel = input.channels[0]!;
     await run({ id: input.id, add: [channel] });
     const original = Link.prototype.dismiss;
+    const failure = new Error("late location link failure");
     const native = vi.spyOn(Link.prototype, "dismiss").mockImplementation(async function (this: Link, ...args) {
-      await Reflect.apply(original, this, args); throw new Error("late location link failure");
+      await Reflect.apply(original, this, args); throw failure;
     });
     try {
       const beforeRows = await rows(), beforeEvents = await events();
-      await expect(run({ id: input.id, add: [channel], remove: [channel] }).catch(error => { throw failurePath(error); })).rejects.toContain("late location link failure");
+      const before = await members.fixture.snapshot();
+      const result = await Effect.runPromiseExit(members.workflow.run(members.workflow.newRequestKey(), { id: input.id, add: [channel], remove: [channel] }));
+      expectWorkflowDefect(result, failure);
       expect(await rows()).toEqual(beforeRows); expect(await events()).toEqual(beforeEvents);
+      expect(await members.fixture.snapshot()).toEqual(before);
       expect(native).toHaveBeenCalledTimes(1);
     } finally { native.mockRestore(); }
   });
@@ -259,20 +249,16 @@ describe("native Sales Channel and Stock Location links", () => {
   }, 120_000);
 
   it("recovers a lost acknowledgement without repeating native linking and binds replay identity", async () => {
-    let lose = true;
     const fixture = members.fixture;
-    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
-      Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-      Effect.flatMap(value => { if (!lose) return Effect.succeed(value); lose = false;
-        return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost Link COMMIT acknowledgement") })); }),
-    ));
-    const host = await Effect.runPromise(prepareStockLocationSalesChannelsWorkflow({ ...members.options, execution: {
-      identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy, prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, session, ...composition }) } }));
+    const host = await Effect.runPromise(prepareStockLocationSalesChannelsWorkflow(members.options));
     const changed = await Effect.runPromise(prepareStockLocationSalesChannelsWorkflow({ ...members.options, revision: "a".repeat(64) }));
     const native = vi.spyOn(Link.prototype, "create");
     try {
       const key = host.newRequestKey(), input = { id: "uncertain", add: ["uncertain"] };
-      expect(await Effect.runPromise(host.run(key, input))).toBeNull(); expect(lose).toBe(false); expect(native).toHaveBeenCalledTimes(1);
+      const fault = fixture.loseNextNativeRootAcknowledgement();
+      expect(await Effect.runPromise(host.run(key, input))).toBeNull();
+      expect(fault.armed).toBe(false); expect(fault.failures).toBe(1); expect(native).toHaveBeenCalledTimes(1);
+      expect(fault.evidence?.inventory).toEqual(await fixture.inventory());
       const stableRows = await rows(), stableEvents = await events();
       expect(await Effect.runPromise(host.run(key, input))).toBeNull(); expect(native).toHaveBeenCalledTimes(1);
       await expect(Effect.runPromise(changed.run(key, input))).rejects.toMatchObject({ reason: "requestConflict" });
@@ -303,11 +289,7 @@ describe("native Sales Channel and Stock Location links", () => {
   });
 
   it("confines matching endpoint IDs and request keys to each shop", async () => {
-    const otherFixture = await logicalCurrencyFixture(driver, close => cleanup.push(close), {
-      includeSalesChannel: true, includeStockLocation: true, includeSalesChannelLocationLink: true, resource: members.fixture.resource,
-      fixtureIdentity: { deploymentId: "sales_channel_location_shop_b", projectId: "sales_channel_location_shop_b", uuidOffset: 23_000 },
-    });
-    const other = await prepareLogicalSalesChannelLocation(otherFixture, close => cleanup.push(close));
+    const other = await prepareCoreSalesChannelLocation(driver, close => cleanup.push(close), members.fixture.physical);
     const left = await seed("scoped", 1), right = await seed("scoped", 1, other);
     expect(left).toEqual(right);
     const key = members.workflow.newRequestKey(), request = { id: left.id, add: left.channels };

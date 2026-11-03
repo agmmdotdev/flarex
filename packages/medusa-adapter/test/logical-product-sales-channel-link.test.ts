@@ -1,27 +1,19 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect } from "effect";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";
-import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import { fxAppRowCurrent } from "../../persistence-postgres/src/database/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
-import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
-import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
-import { prepareLogicalProductSalesChannelLinkHost } from "./support/logical-product-sales-channel-link-fixture";
+import { createCoreProductSalesChannelLinkFixture, type CoreProductSalesChannelLinkFixture } from "./support/core-product-sales-channel-link-fixture";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Link driver");
 const cleanup: Array<() => Promise<void>> = [];
-let fixture: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
-let link: Awaited<ReturnType<typeof prepareLogicalProductSalesChannelLinkHost>>;
-const events = () => fixture.persistence.drizzle.select().from(fxSystemCommitEvents)
-  .orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal);
+let selected: CoreProductSalesChannelLinkFixture;
+const events = async () => (await selected.fixture.snapshot()).events;
 const pair = (product: string, channel: string, id?: string) => ({ product: { product_id: product },
   sales_channel: { sales_channel_id: channel }, ...(id === undefined ? {} : { data: { id } }) });
 
-async function prepareLifecycleHost(selectedFixture = fixture, selectedLink = link) {
+async function prepareLifecycleHost(selectedFixture = selected.fixture, selectedLink = selected.link) {
   const participant = defineAtomicCommerceParticipant("link");
   const create = defineAtomicCommerceCommand("nativeLinkCreate", (ctx, input) => ctx.call(participant, selectedLink.runtime.create, input));
   const reattach = defineAtomicCommerceCommand("nativeLinkReattach", ctx => Effect.gen(function* () {
@@ -52,9 +44,9 @@ async function prepareLifecycleHost(selectedFixture = fixture, selectedLink = li
   const select = (message: Json) => isJsonObject(message) && message.name === "LinkProductSalesChannel.attached"
     ? Effect.succeed(attached) : isJsonObject(message) && message.name === "LinkProductSalesChannel.detached"
       ? Effect.succeed(detached) : Effect.fail(commerceError("unadmittedEvent"));
-  const host = await Effect.runPromise(makeAtomicCommerceHost({ ...selectedFixture.hostInput,
+  const host = await Effect.runPromise(selectedFixture.execution.prepare({
     identityAndAccessPolicy: { profile: "logical-product-sales-channel-link-lifecycle" },
-    participants: [{ participant, logicalStorage: selectedLink.hostInput.logicalStorage,
+    participants: [{ participant, nativeStorage: selectedLink.source,
       commands: [selectedLink.runtime.create, selectedLink.runtime.dismiss, selectedLink.runtime.delete, selectedLink.runtime.restore],
       validateLogicalCall: policy.validateLogicalCall, events: { contracts: [attached, detached], select } }],
     commands: [create, reattach, dismiss, remove, restore, restoreThenDismiss, restoreThenReattach],
@@ -68,17 +60,12 @@ async function prepareLifecycleHost(selectedFixture = fixture, selectedLink = li
 
 describe("native Product–SalesChannel Link on shared logical storage", () => {
   beforeAll(async () => {
-    fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close), {
-      includeProduct: true, includeSalesChannel: true, includeProductSalesChannelLink: true,
-    });
-    link = await prepareLogicalProductSalesChannelLinkHost(fixture);
-    await Effect.runPromise(link.host.initialize([]));
-    await Effect.runPromise(link.host.close);
+    selected = await createCoreProductSalesChannelLinkFixture(driver, close => cleanup.push(close));
   }, 150_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
 
   it("rejects an unattested native Link event", async () => {
-    const policy = link.runtime.logicalEventPolicy();
+    const policy = selected.link.runtime.logicalEventPolicy();
     const result = await Effect.runPromise(Effect.result(policy.validateLogicalCall({
       commandName: "linkCreate", mode: "write", input: [], result: [], events: [], fromAttempt: 0, toAttempt: 1,
       fromLifecycle: 0, toLifecycle: 0,
@@ -94,19 +81,16 @@ describe("native Product–SalesChannel Link on shared logical storage", () => {
       const key = host.newRequestKey();
       expect(await Effect.runPromise(host.run(key, create, original)))
         .toMatchObject([{ id: "prodsc_original", product_id: "p1", sales_channel_id: "s1" }]);
-      const firstRows = await fixture.persistence.drizzle.select().from(fxAppRowCurrent);
+      const firstRows = await selected.fixture.snapshot();
       expect(await Effect.runPromise(host.run(key, create, original)))
         .toMatchObject([{ id: "prodsc_original" }]);
-      expect(await fixture.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(firstRows);
+      expect(await selected.fixture.snapshot()).toEqual(firstRows);
       expect(await Effect.runPromise(host.run(host.newRequestKey(), create, pair("p1", "s1", "prodsc_replaced"))))
         .toMatchObject([{ id: "prodsc_replaced" }]);
       expect(await Effect.runPromise(host.run(host.newRequestKey(), dismiss, pair("p1", "s1"))))
         .toMatchObject([{ id: "prodsc_replaced" }]);
-      const reader = await Effect.runPromise(makeCommerceHost(link.hostInput));
-      try {
-        expect(await Effect.runPromise(reader.read(link.runtime.count, { filters: { product_id: "p1" },
+      expect(await Effect.runPromise(selected.link.reads.read(selected.link.runtime.count, { filters: { product_id: "p1" },
           config: { select: ["id"], take: 1 } }))).toEqual([[], 0]);
-      } finally { await Effect.runPromise(reader.close); }
       await Effect.runPromise(host.run(host.newRequestKey(), restore, { sales_channel: { sales_channel_id: "s1" } }));
       expect((await events()).map(event => event.envelope.contract)).toEqual([
         "LinkProductSalesChannel.attached", "LinkProductSalesChannel.attached",
@@ -125,14 +109,11 @@ describe("native Product–SalesChannel Link on shared logical storage", () => {
       const emitted = (await events()).slice(before.length).map(event => event.envelope.message);
       expect(emitted)
         .toMatchObject([{ data: { id: "prodsc_previous" } }, { data: { id: "prodsc_current" } }]);
-      const policy = link.runtime.logicalEventPolicy();
+      const policy = selected.link.runtime.logicalEventPolicy();
       expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({ commandName: "linkCreate", mode: "write", input: null, result: null, events: [emitted[1]!], fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0 }, { mutations: [{ ordinal: 0, table: "product_sales_channel", operation: "insert", before: null,
           after: { id: "prodsc_previous", product_id: "repeat-product", sales_channel_id: "repeat-channel", deleted_at: null } }], lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] })))).toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
-      const reader = await Effect.runPromise(makeCommerceHost(link.hostInput));
-      try {
-        expect(await Effect.runPromise(reader.read(link.runtime.count, { filters: { product_id: "repeat-product" },
+      expect(await Effect.runPromise(selected.link.reads.read(selected.link.runtime.count, { filters: { product_id: "repeat-product" },
           config: { select: ["id"], take: 1 } }))).toMatchObject([[{ id: "prodsc_current" }], 1]);
-      } finally { await Effect.runPromise(reader.close); }
       expect(await Effect.runPromise(host.run(key, reattach, null))).toEqual(result);
     } finally { await Effect.runPromise(host.close); }
   }, 120_000);
@@ -160,12 +141,12 @@ describe("native Product–SalesChannel Link on shared logical storage", () => {
   it("keeps duplicate endpoint attempts and invalid input atomic", async () => {
     const { host, create } = await prepareLifecycleHost();
     try {
-      const rows = await fixture.persistence.drizzle.select().from(fxAppRowCurrent);
+      const rows = await selected.fixture.snapshot();
       const before = await events();
       await expect(Effect.runPromise(host.run(host.newRequestKey(), create, [pair("duplicate", "s"), pair("duplicate", "s")]))).rejects.toBeDefined();
       await expect(Effect.runPromise(host.run(host.newRequestKey(), create, [{ product: { product_id: 42 },
         sales_channel: { sales_channel_id: "s" } }]))).rejects.toBeDefined();
-      expect(await fixture.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(rows);
+      expect(await selected.fixture.snapshot()).toEqual(rows);
       expect(await events()).toEqual(before);
     } finally { await Effect.runPromise(host.close); }
   });
@@ -175,11 +156,8 @@ describe("native Product–SalesChannel Link on shared logical storage", () => {
     try {
       const target = pair("endpoint-product", "endpoint-channel", "prodsc_endpoint");
       await Effect.runPromise(host.run(host.newRequestKey(), create, target));
-      const reader = await Effect.runPromise(makeCommerceHost(link.hostInput));
-      try {
-        expect(await Effect.runPromise(reader.read(link.runtime.links, pair("endpoint-product", "endpoint-channel"))))
+      expect(await Effect.runPromise(selected.link.reads.read(selected.link.runtime.links, pair("endpoint-product", "endpoint-channel"))))
           .toEqual([pair("endpoint-product", "endpoint-channel")]);
-      } finally { await Effect.runPromise(reader.close); }
       const endpoint = { product: { product_id: "endpoint-product" } };
       await Effect.runPromise(host.run(host.newRequestKey(), remove, endpoint));
       const afterDelete = await events();
@@ -192,34 +170,20 @@ describe("native Product–SalesChannel Link on shared logical storage", () => {
   }, 120_000);
 
   it("keeps colliding endpoint pairs isolated for two shops on the same physical row family", async () => {
-    const other = await logicalCurrencyFixture(driver, close => cleanup.push(close), {
-      resource: fixture.resource, fixtureIdentity: { deploymentId: "deployment_product_channel_link_shop_b",
-        projectId: "project_product_channel_link_shop_b", uuidOffset: 6_000 },
-      includeProduct: true, includeSalesChannel: true, includeProductSalesChannelLink: true,
-    });
-    const otherLink = await prepareLogicalProductSalesChannelLinkHost(other);
-    await Effect.runPromise(otherLink.host.initialize([]));
-    await Effect.runPromise(otherLink.host.close);
+    const other = await createCoreProductSalesChannelLinkFixture(driver, close => cleanup.push(close), selected.fixture.physical);
     const first = await prepareLifecycleHost();
-    const second = await prepareLifecycleHost(other, otherLink);
+    const second = await prepareLifecycleHost(other.fixture, other.link);
     try {
       const same = pair("shared-product", "shared-channel", "prodsc_shared");
-      const firstScope = projectScopeIdUuidV1(fixture.application.authority.scopeId).scopeUuid;
-      const secondScope = projectScopeIdUuidV1(other.application.authority.scopeId).scopeUuid;
-      expect(firstScope).not.toBe(secondScope);
+      expect(selected.target.scopeUuid).not.toBe(other.target.scopeUuid);
+      expect(selected.fixture.physical.namespace).toBe(other.fixture.physical.namespace);
       await Effect.runPromise(first.host.run(first.host.newRequestKey(), first.create, same));
-      const firstRows = (await fixture.persistence.drizzle.select().from(fxAppRowCurrent))
-        .filter(row => row.scopeUuid === firstScope);
-      const secondRowsBefore = (await fixture.persistence.drizzle.select().from(fxAppRowCurrent))
-        .filter(row => row.scopeUuid === secondScope);
+      const firstRows = await selected.fixture.snapshot();
+      const secondRowsBefore = await other.fixture.snapshot();
       await Effect.runPromise(second.host.run(second.host.newRequestKey(), second.create, same));
-      expect((await fixture.persistence.drizzle.select().from(fxAppRowCurrent))
-        .filter(row => row.scopeUuid === firstScope)).toEqual(firstRows);
-      expect((await fixture.persistence.drizzle.select().from(fxAppRowCurrent))
-        .filter(row => row.scopeUuid === secondScope)).toHaveLength(secondRowsBefore.length + 1);
-      expect((await fixture.persistence.query<{ name: string }>(
-        "select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows)
-        .toEqual(fixture.physicalTablesBeforeCandidate);
+      expect(await selected.fixture.snapshot()).toEqual(firstRows);
+      expect((await other.fixture.snapshot()).rows).toHaveLength(secondRowsBefore.rows.length + 1);
+      expect(await selected.readPhysicalTables()).toEqual(selected.physicalTablesBeforeCandidate);
     } finally { await Effect.runPromise(first.host.close); await Effect.runPromise(second.host.close); }
   }, 150_000);
 });

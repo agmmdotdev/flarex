@@ -128,6 +128,21 @@ export const compileServiceZoneCreationDefinition = Effect.fn("ServiceZone.compi
   return Object.freeze({ schema, provenance });
 });
 
+/** The existing eight-table source feeds a fresh Core scope without a populated upgrade. */
+export const compileServiceZoneCreationCoreDefinition = Effect.fn("ServiceZone.compileCreationCoreDefinition")(function* (target: Readonly<{
+  scopeUuid: string; epochUuid: string; applicationRead?: boolean;
+}>) {
+  const nativeTarget = Object.freeze({ scopeUuid: target.scopeUuid, epochUuid: target.epochUuid,
+    applicationRead: target.applicationRead ?? false });
+  const definition = yield* compileServiceZoneCreationDefinition();
+  const source = yield* captureLogicalSchemaSource({ key: "medusa.shippingProfile", owner: "medusa", writeProfile: "medusa.shippingProfile",
+    evidence: { provenance: definition.provenance, profile: "medusa.shippingProfile" },
+    definition: { kind: "relational", schema: definition.schema },
+    bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+      table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
+  return yield* makeCoreRelationalNativeDefinition({ ...nativeTarget, source, provenance: definition.provenance, commands: [] });
+});
+
 /** Fresh twelve-table composition; this does not upgrade installed eight-table sources. */
 export const compileFulfillmentCreationDefinition = Effect.fn("Fulfillment.compileCreationDefinition")(function* () {
   const schema = yield* compileSelectedDefinition(yield* captureFulfillmentCreationMetadata());

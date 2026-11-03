@@ -6,8 +6,7 @@ import { captureServiceZoneCreationMetadata } from "../src/modules/fulfillment/s
 import { compileFulfillmentSetDeletionContracts } from "../src/modules/fulfillment/fulfillment-set-delete-input";
 import { fulfillmentServiceRouting } from "../src/modules/fulfillment/fulfillment-module";
 import { fulfillmentSetDeletionPolicy } from "../src/modules/fulfillment/fulfillment-set-delete-receipt";
-import { fulfillmentSetDeletionGraph } from "./support/logical-fulfillment-set-deletion-fixture";
-import { serviceZoneSeedTime } from "./support/logical-service-zone-creation-fixture";
+import { fulfillmentSetDeletionGraph, serviceZoneSeedTime } from "./support/native-fulfillment-graph-fixture";
 
 type Call = Parameters<LogicalCallReceiptValidation>[0];
 type Activity = Parameters<LogicalCallReceiptValidation>[1];

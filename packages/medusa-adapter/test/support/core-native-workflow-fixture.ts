@@ -226,7 +226,7 @@ export async function createCoreNativeWorkflowFixture(driver: "pglite" | "postgr
               return yield* Effect.acquireRelease(makeCommerceNativeHost({ database, binding, hostRuntime,
                 commands: profile.commands, initialization: selectedSource.initialization, readOnly: true,
                 identityAndAccessPolicy: { profile: "native-workflow-observation", source: profile.name },
-                resources: logicalCommerceBatchResources, nativeLimits: { maxIdentities: 2048, maxDocumentBytes: 65_536 } }), host => host.close);
+              }), host => host.close);
             }).pipe(Scope.provide(generationScope))));
             readCache.set(profile, selected); return selected;
           })).pipe(Effect.flatten);

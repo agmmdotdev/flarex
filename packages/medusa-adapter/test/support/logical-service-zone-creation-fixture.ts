@@ -1,3 +1,5 @@
+import { serviceZoneSeedTime, serviceZoneParents, serviceZoneDeletionGraph } from "./native-fulfillment-graph-fixture";
+export { serviceZoneSeedTime, serviceZoneParents, serviceZoneDeletionGraph } from "./native-fulfillment-graph-fixture";
 import { createHash } from "node:crypto";
 import { Effect, Result, Schema } from "effect";
 import { createStep, createWorkflow, transform, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
@@ -29,7 +31,6 @@ import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./logical-c
 import { logicalCurrencyInventory } from "./logical-currency-inventory";
 
 const revision = (name: string) => createHash("sha256").update(name).digest("hex");
-export const serviceZoneSeedTime = "2026-10-18T00:00:00.000Z";
 const managed = (deleted = false) => ({ created_at: serviceZoneSeedTime, updated_at: serviceZoneSeedTime, deleted_at: deleted ? serviceZoneSeedTime : null });
 const native = Result.getOrThrow(createServiceZonesWorkflow.prepare());
 type NativeCreationInput = Parameters<typeof createServiceZonesWorkflow.runAsStep>[0]["input"];
@@ -37,33 +38,7 @@ const retained = native.nodes.find(node => node.name === "create-service-zones")
 if (retained?.kind !== "step" || retained.compensation !== "transactionCovered" || retained.compensate === undefined)
   throw new Error("Missing genuine ServiceZone retained inverse");
 const compensate = retained.compensate;
-export const serviceZoneParents = { active: "zone-create-active-set", historical: "zone-create-historical-set", other: "zone-create-other-set", race: "zone-create-race-set" } as const;
 type Seed = Readonly<{ table: string; row: JsonObject }>;
-
-/** Canonical initial data exercises the installed cascade graph; it does not
- * grant Option/Rule or FulfillmentSet public creation authority. */
-export function serviceZoneDeletionGraph(prefix: string, options: Readonly<{
-  roots?: number; geos?: number; options?: number; rules?: number; historical?: boolean;
-}> = {}) {
-  const ids = Array.from({ length: options.roots ?? 1 }, (_, index) => `${prefix}-zone-${index}`);
-  const geoIds = Array.from({ length: options.geos ?? 0 }, (_, index) => `${prefix}-geo-${index}`);
-  const optionIds = Array.from({ length: options.options ?? 0 }, (_, index) => `${prefix}-option-${index}`);
-  const ruleIds = Array.from({ length: options.rules ?? 0 }, (_, index) => `${prefix}-rule-${index}`);
-  if (ids.length === 0 || (ruleIds.length > 0 && optionIds.length === 0)) throw new Error("Invalid ServiceZone comparison graph");
-  const rows: Seed[] = [
-    ...ids.map((id, index) => ({ table: "service_zone", row: { id, name: id, fulfillment_set_id: serviceZoneParents.active,
-      metadata: { fixture: prefix }, ...managed(options.historical === true && index % 2 === 0) } })),
-    ...geoIds.map((id, index) => ({ table: "geo_zone", row: { id, type: "country", country_code: "Raw" + index,
-      province_code: null, city: null, postal_expression: null, metadata: null, service_zone_id: ids[index % ids.length]!,
-      ...managed(options.historical === true && index % 2 === 0) } })),
-    ...optionIds.map((id, index) => ({ table: "shipping_option", row: { id, name: id, price_type: "flat", data: null, metadata: null,
-      service_zone_id: ids[index % ids.length]!, shipping_profile_id: "zone-create-protected-profile", provider_id: "zone-create-provider",
-      shipping_option_type_id: "zone-create-type", ...managed(options.historical === true && index % 2 === 0) } })),
-    ...ruleIds.map((id, index) => ({ table: "shipping_option_rule", row: { id, attribute: "native.rule", operator: "eq", value: { retained: index },
-      shipping_option_id: optionIds[index % optionIds.length]!, ...managed(options.historical === true && index % 2 === 0) } })),
-  ];
-  return { ids, geoIds, optionIds, ruleIds, allIds: [...ids, ...geoIds, ...optionIds, ...ruleIds], rows };
-}
 
 /** All four native GeoZone kinds, retaining case and arbitrary postal JSON. */
 export function maximumServiceZoneCreationInput(prefix: string): typeof ServiceZoneCreationInput.Type {

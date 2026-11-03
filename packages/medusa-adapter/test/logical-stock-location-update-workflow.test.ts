@@ -2,19 +2,17 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { StockLocationModuleService } from "@medusajs/stock-location/services";
 import { CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { fxAppRowCurrent, fxSystemCommits, fxSystemCommitAppRowChanges } from "../../persistence-postgres/src/database/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
-import { prepareLogicalStockLocationUpdate } from "./support/logical-stock-location-update-fixture";
+import { coreNativeRelationalRows } from "../../persistence-postgres/src/core/nativePolicy";
+import { prepareCoreStockLocation } from "./support/core-stock-location-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalStockLocationUpdate>>;
-const rows = () => connected.fixture.persistence.drizzle.select().from(fxAppRowCurrent);
-const facts = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommitAppRowChanges);
-const commits = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommits);
-const events = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents)
-  .orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal);
-const snapshot = async () => ({ rows: await rows(), facts: await facts(), commits: await commits(), events: await events() });
+let connected: Awaited<ReturnType<typeof prepareCoreStockLocation>>;
+const rows = async () => (await connected.fixture.snapshot()).rows;
+const revisions = async () => (await connected.fixture.snapshot()).revisions;
+const outcomes = async () => (await connected.fixture.snapshot()).outcomes;
+const events = async () => (await connected.fixture.snapshot()).events;
+const snapshot = () => connected.fixture.snapshot();
 const locationUpdated = "stock_location.stock-location.updated";
 const addressUpdated = "stock_location.stock-location-address.updated";
 const addressCreated = "stock_location.stock-location-address.created";
@@ -26,7 +24,7 @@ function failurePath(value: unknown): string[] {
 }
 
 describe("native Stock Location selector and Address update on shared logical storage", { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalStockLocationUpdate(driver, close => cleanup.push(close)); }, 180_000);
+  beforeAll(async () => { connected = await prepareCoreStockLocation(driver, close => cleanup.push(close)); }, 180_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
   it("preserves zero matches, empty native Address calls and successful undefined as public null", async () => {
@@ -41,8 +39,8 @@ describe("native Stock Location selector and Address update on shared logical st
       expect(list.mock.calls[0]?.[0]).toEqual({ id: [] });
       expect(upsert.mock.calls[0]?.[0]).toEqual([]);
       expect(await update.mock.results[0]?.value).toBeUndefined();
-      expect(await rows()).toEqual(before.rows); expect(await facts()).toEqual(before.facts); expect(await events()).toEqual(before.events);
-      expect((await commits()).length - before.commits.length).toBe(1);
+      expect(await rows()).toEqual(before.rows); expect(await revisions()).toEqual(before.revisions); expect(await events()).toEqual(before.events);
+      expect((await outcomes()).length - before.outcomes.length).toBe(1);
       const committed = await snapshot();
       expect(await Effect.runPromise(host.run(key, input))).toBeNull();
       expect(update).toHaveBeenCalledTimes(1); expect(await snapshot()).toEqual(committed);
@@ -58,7 +56,8 @@ describe("native Stock Location selector and Address update on shared logical st
       const before = await snapshot(), key = host.newRequestKey();
       const result = await Effect.runPromise(host.run(key, input));
       expect(Array.isArray(result)).toBe(false); expect(result).toMatchObject({ id: ids[0], name: input.update.name });
-      const table = connected.definition.schema.tables.find(value => value.identity.tableId === "stock_location");
+      const declaration = connected.definition.tables.find(value => value.localName === "stock_location");
+      const table = declaration === undefined ? undefined : coreNativeRelationalRows(connected.definition, declaration.name)?.table;
       if (table === undefined || result === null) throw new Error("Missing genuine Stock Location output");
       expect(Object.keys(result).sort()).toEqual(table.columns.map(column => column.identity.columnId).sort());
       expect(await Effect.runPromise(connected.list(ids, true))).toMatchObject(ids.map((id, index) => ({ id, name: input.update.name,
@@ -67,9 +66,9 @@ describe("native Stock Location selector and Address update on shared logical st
       expect(emitted.map(event => event.envelope.contract)).toEqual([...ids.map(() => addressUpdated), ...ids.map(() => locationUpdated)]);
       expect(emitted.map(event => event.envelope.message)).toEqual([...addressIds, ...ids].map(id => expect.objectContaining({ data: { id } })));
       expect(emitted.every(event => event.envelope.internal)).toBe(true);
-      expect((await facts()).length - before.facts.length).toBe(8);
-      expect((await commits()).length - before.commits.length).toBe(1);
-      expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1);
+      expect((await revisions()).length - before.revisions.length).toBe(8);
+      expect((await outcomes()).length - before.outcomes.length).toBe(1);
+      expect(new Set(emitted.map(event => event.familyId)).size).toBe(1);
       const committed = await snapshot();
       expect(await Effect.runPromise(host.run(key, input))).toEqual(result); expect(native).toHaveBeenCalledTimes(1);
       await expect(Effect.runPromise(host.run(key, { ...input, update: { name: "Conflict" } }))).rejects.toMatchObject({ reason: "requestConflict" });
@@ -87,9 +86,9 @@ describe("native Stock Location selector and Address update on shared logical st
     }))).toBeNull();
     const after = await snapshot();
     expect(after.rows).toEqual(before.rows);
-    expect(after.facts).toEqual(before.facts);
+    expect(after.revisions).toEqual(before.revisions);
     expect(after.events).toEqual(before.events);
-    expect(after.commits.length - before.commits.length).toBe(1);
+    expect(after.outcomes.length - before.outcomes.length).toBe(1);
   }, 120_000);
 
   it("retains partial Address patches and ordered metadata merge while Address-only input leaves Location rows untouched", async () => {
@@ -103,11 +102,11 @@ describe("native Stock Location selector and Address update on shared logical st
     expect(await Effect.runPromise(connected.addresses(addressIds))).toMatchObject(addressIds.map((id, index) => ({ id,
       address_1: "Street " + index, country_code: "US", city: "City-only patch", metadata: { keep: "address-" + index, added: true } })));
     expect(await Effect.runPromise(connected.list(ids))).toEqual(beforeLocations);
-    expect((await facts()).length - before.facts.length).toBe(2);
+    expect((await revisions()).length - before.revisions.length).toBe(2);
     expect((await events()).slice(before.events.length).map(event => event.envelope.contract)).toEqual([addressUpdated, addressUpdated]);
     const beforeEmpty = await snapshot();
     await Effect.runPromise(host.run(host.newRequestKey(), { selector: { id: ids }, update: { address: {} } }));
-    expect(await rows()).toEqual(beforeEmpty.rows); expect(await facts()).toEqual(beforeEmpty.facts); expect(await events()).toEqual(beforeEmpty.events);
+    expect(await rows()).toEqual(beforeEmpty.rows); expect(await revisions()).toEqual(beforeEmpty.revisions); expect(await events()).toEqual(beforeEmpty.events);
     await Effect.runPromise(host.run(host.newRequestKey(), { selector: { id: ids }, update: { metadata: { drop: "", added: true } } }));
     // The genuine selector path shares its patch across rows. Its final
     // cumulative merge reaches every write and reintroduces the second drop.
@@ -136,14 +135,14 @@ describe("native Stock Location selector and Address update on shared logical st
         { id: ids[2], address_id: "stock-update-mixed-address-2", address: { id: "stock-update-mixed-address-2" } },
         { id: ids[3], address_id: null, address: null },
       ]);
-      expect((await facts()).length - before.facts.length).toBe(8);
+      expect((await revisions()).length - before.revisions.length).toBe(8);
       const emitted = (await events()).slice(before.events.length);
       expect(emitted.map(event => event.envelope.contract)).toEqual([
         addressCreated, addressCreated, addressUpdated, addressUpdated, ...ids.map(() => locationUpdated),
       ]);
       expect(emitted.map(event => event.envelope.message)).toEqual([...created, ...updated, ...ids.map(id => ({ id }))]
         .map(row => expect.objectContaining({ data: { id: row.id } })));
-      expect((await commits()).length - before.commits.length).toBe(1);
+      expect((await outcomes()).length - before.outcomes.length).toBe(1);
     } finally { upsert.mockRestore(); }
   }, 120_000);
 
@@ -155,8 +154,8 @@ describe("native Stock Location selector and Address update on shared logical st
     const result = await Effect.runPromise(host.run(host.newRequestKey(), { selector: { id: [first, first, "missing-native-location"] },
       update: { address_id: "nonexistent-ignored-address" } }));
     expect(result).toEqual(previous[0]);
-    expect(await rows()).toEqual(before.rows); expect(await facts()).toEqual(before.facts); expect(await events()).toEqual(before.events);
-    expect((await commits()).length - before.commits.length).toBe(1);
+    expect(await rows()).toEqual(before.rows); expect(await revisions()).toEqual(before.revisions); expect(await events()).toEqual(before.events);
+    expect((await outcomes()).length - before.outcomes.length).toBe(1);
   }, 120_000);
 
   it("refuses an incomplete create branch in a mixed selection and preserves the full root", async () => {
@@ -244,10 +243,7 @@ describe("native Stock Location selector and Address update on shared logical st
   }, 120_000);
 
   it("isolates identical selectors, native IDs and update request keys across two real scopes", async () => {
-    const other = await prepareLogicalStockLocationUpdate(driver, close => cleanup.push(close), {
-      resource: connected.fixture.resource,
-      fixtureIdentity: { deploymentId: "stock_location_update_shop_b", projectId: "stock_location_update_shop_b", uuidOffset: 150_000 },
-    });
+    const other = await prepareCoreStockLocation(driver, close => cleanup.push(close), { physical: connected.fixture.physical });
     const ids = await connected.seed("stock-update-scope"), otherIds = await other.seed("stock-update-scope");
     const left = await connected.prepare(), right = await other.prepare(), key = left.newRequestKey();
     const leftInput = { selector: { id: ids }, update: { name: "First shop", address: { city: "Left" } } };

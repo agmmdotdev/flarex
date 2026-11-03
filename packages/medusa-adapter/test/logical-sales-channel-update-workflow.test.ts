@@ -1,20 +1,18 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { Cause, Effect, Result, Schema } from "effect";
+import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { SalesChannelModuleService } from "@medusajs/sales-channel/services";
 import { CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { fxAppRowCurrent, fxSystemCommits, fxSystemCommitAppRowChanges } from "../../persistence-postgres/src/database/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
-import { prepareLogicalSalesChannelUpdate } from "./support/logical-sales-channel-update-fixture";
+import { prepareCoreSalesChannelUpdate } from "./support/core-sales-channel-update-fixture";
+import { expectWorkflowDefect, expectWorkflowRefusal } from "./support/workflow-failure-assertions";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalSalesChannelUpdate>>;
-const rows = () => connected.fixture.persistence.drizzle.select().from(fxAppRowCurrent);
-const facts = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommitAppRowChanges);
-const commits = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommits);
-const events = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents)
-  .orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal);
-const snapshot = async () => ({ rows: await rows(), facts: await facts(), commits: await commits(), events: await events() });
+let connected: Awaited<ReturnType<typeof prepareCoreSalesChannelUpdate>>;
+const rows = async () => (await connected.fixture.snapshot()).rows;
+const facts = async () => (await connected.fixture.snapshot()).revisions;
+const commits = async () => (await connected.fixture.snapshot()).outcomes;
+const events = async () => (await connected.fixture.snapshot()).events;
+const snapshot = () => connected.fixture.snapshot();
 function failurePath(value: unknown): string[] {
   if (Cause.isCause(value)) return value.reasons.flatMap(reason => reason._tag === "Fail" ? failurePath(reason.error)
     : reason._tag === "Die" ? failurePath(reason.defect) : ["Interrupt"]);
@@ -23,7 +21,7 @@ function failurePath(value: unknown): string[] {
 }
 
 describe("native Sales Channel selector update on shared logical storage", { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalSalesChannelUpdate(driver, close => cleanup.push(close)); }, 180_000);
+  beforeAll(async () => { connected = await prepareCoreSalesChannelUpdate(driver, close => cleanup.push(close)); }, 180_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
   it("retains native zero-match undefined through the genuine composer failure", async () => {
@@ -38,13 +36,17 @@ describe("native Sales Channel selector update on shared logical storage", { con
     const host = await connected.prepareUpdate();
     try {
       const before = await snapshot();
-      const result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), {
+      const result = await Effect.runPromiseExit(host.run(host.newRequestKey(), {
         selector: { id: "missing-native-sales-channel" }, update: { name: "Unused" },
-      })));
-      if (Result.isSuccess(result)) throw new Error("Native zero-match workflow unexpectedly succeeded");
+      }));
+      if (Exit.isSuccess(result)) throw new Error("Native zero-match workflow unexpectedly succeeded");
       expect(returnedUndefined).toBe(true); expect(native).toHaveBeenCalledTimes(1);
-      expect(failurePath(result.failure)).toContain("adapterFailure");
-      expect(failurePath(result.failure).some(message => message.includes("Cannot read properties of undefined"))).toBe(true);
+      const defects = result.cause.reasons.filter(Cause.isDieReason).map(reason => reason.defect);
+      expect(defects).toHaveLength(1);
+      const [originalFailure] = defects;
+      if (!(originalFailure instanceof TypeError)) throw new Error("Native composer lost its original TypeError");
+      expect(originalFailure.message).toBe("Cannot read properties of undefined (reading 'id')");
+      expectWorkflowDefect(result, originalFailure);
       expect(await snapshot()).toEqual(before);
     } finally { native.mockRestore(); }
   }, 120_000);
@@ -60,7 +62,7 @@ describe("native Sales Channel selector update on shared logical storage", { con
       expect(Array.isArray(result)).toBe(false);
       expect(result).toMatchObject({ id: ids[0], ...input.update });
       expect(await Effect.runPromise(connected.list(ids))).toMatchObject(ids.map(id => ({ id, ...input.update })));
-      const table = connected.sales.definition.schema.tables.find(value => value.identity.tableId === "sales_channel");
+      const table = connected.sales.schema.tables.find(value => value.identity.tableId === "sales_channel");
       if (table === undefined) throw new Error("Missing genuine Sales Channel schema");
       expect(Object.keys(result).sort()).toEqual(table.columns.map(column => column.identity.columnId).sort());
       const emitted = (await events()).slice(before.events.length);
@@ -71,8 +73,8 @@ describe("native Sales Channel selector update on shared logical storage", { con
         .toEqual(ids.map(id => expect.objectContaining({ data: { id } })));
       expect(emitted.filter(event => !event.envelope.internal).map(event => event.envelope.message))
         .toEqual([expect.objectContaining({ data: { id: ids[0] } })]);
-      expect((await commits()).length - before.commits.length).toBe(1);
-      expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1);
+      expect((await commits()).length - before.outcomes.length).toBe(1);
+      expect(new Set(emitted.map(event => event.timestamp)).size).toBe(1);
       const committed = await snapshot();
       expect(await Effect.runPromise(host.run(key, input))).toEqual(result);
       expect(native).toHaveBeenCalledTimes(1);
@@ -95,10 +97,10 @@ describe("native Sales Channel selector update on shared logical storage", { con
       const before = await snapshot();
       const result = await Effect.runPromise(host.run(host.newRequestKey(), { selector: { id: first }, update: {} }));
       expect(result).toMatchObject({ id: first });
-      expect(await rows()).toEqual(before.rows); expect(await facts()).toEqual(before.facts);
+      expect(await rows()).toEqual(before.rows); expect(await facts()).toEqual(before.revisions);
       expect((await events()).slice(before.events.length).map(event => ({ contract: event.envelope.contract, internal: event.envelope.internal })))
         .toEqual([{ contract: "sales-channel.updated", internal: false }]);
-      expect((await commits()).length - before.commits.length).toBe(1);
+      expect((await commits()).length - before.outcomes.length).toBe(1);
       await Effect.runPromise(host.run(host.newRequestKey(), { selector: { id: first }, update: { metadata: null } }));
       expect(await Effect.runPromise(connected.list([first]))).toMatchObject([{ id: first, metadata: null }]);
       await Effect.runPromise(host.run(host.newRequestKey(), { selector: { id: first }, update: { metadata: {} } }));
@@ -141,24 +143,25 @@ describe("native Sales Channel selector update on shared logical storage", { con
     try {
       for (const mode of ["throw", "malformed"] as const) {
         const original = SalesChannelModuleService.prototype.updateSalesChannels;
+        const failure = new Error("Late native Sales Channel update failure");
         let nativeCompleted = false;
         const native = vi.spyOn(SalesChannelModuleService.prototype, "updateSalesChannels")
           .mockImplementation(async function (this: SalesChannelModuleService, ...args) {
             const result = await Reflect.apply(original, this, args);
             nativeCompleted = true;
-            if (mode === "throw") throw new Error("Late native Sales Channel update failure");
+            if (mode === "throw") throw failure;
             if (typeof result !== "object" || result === null || Array.isArray(result)) throw new Error("Missing genuine scalar native update result");
             Object.defineProperty(result, "is_disabled", { value: "invalid", enumerable: true, writable: true, configurable: true });
             return result;
           });
         try {
           const before = await snapshot();
-          const result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { selector: { id: first }, update: { name: "Must roll back" } })));
-          if (Result.isSuccess(result)) throw new Error("Late native update failure unexpectedly committed");
+          const result = await Effect.runPromiseExit(host.run(host.newRequestKey(), { selector: { id: first }, update: { name: "Must roll back" } }));
           expect(nativeCompleted).toBe(true); expect(native).toHaveBeenCalledTimes(1);
           // The logical-call receipt validates native results before the method
           // decoder; a forged return therefore fails at that earlier owner.
-          expect(failurePath(result.failure)).toContain(mode === "throw" ? "adapterFailure" : "receiptMismatch");
+          if (mode === "throw") expectWorkflowDefect(result, failure);
+          else expectWorkflowRefusal(result, "receiptMismatch");
           expect(await snapshot()).toEqual(before);
         } finally { native.mockRestore(); }
       }
@@ -166,9 +169,8 @@ describe("native Sales Channel selector update on shared logical storage", { con
   }, 120_000);
 
   it("isolates selectors and identical update request keys in two genuine scopes", async () => {
-    const other = await prepareLogicalSalesChannelUpdate(driver, close => cleanup.push(close), {
-      resource: connected.fixture.resource,
-      fixtureIdentity: { deploymentId: "sales_channel_update_shop_b", projectId: "sales_channel_update_shop_b", uuidOffset: 140_000 },
+    const other = await prepareCoreSalesChannelUpdate(driver, close => cleanup.push(close), {
+      physical: connected.fixture.physical,
     });
     const ids = await connected.seed("sales-update-shared"), otherIds = await other.seed("sales-update-shared");
     const first = await connected.prepareUpdate(), second = await other.prepareUpdate(), key = first.newRequestKey();
@@ -179,10 +181,10 @@ describe("native Sales Channel selector update on shared logical storage", { con
       const rightResult = await Effect.runPromise(second.run(key, right));
       expect(await Effect.runPromise(connected.list(ids))).toMatchObject([{ id: ids[0], name: "First shop update", is_disabled: false }]);
       expect(await Effect.runPromise(other.list(otherIds))).toMatchObject([{ id: otherIds[0], name: "Second shop update", is_disabled: true }]);
-      const before = await snapshot();
+      const before = await Promise.all([snapshot(), other.fixture.snapshot()]);
       expect(await Effect.runPromise(first.run(key, left))).toEqual(leftResult);
       expect(await Effect.runPromise(second.run(key, right))).toEqual(rightResult);
-      expect(await snapshot()).toEqual(before);
+      expect(await Promise.all([snapshot(), other.fixture.snapshot()])).toEqual(before);
     } finally { await Effect.runPromise(connected.remove(ids)); await Effect.runPromise(other.remove(otherIds)); }
   }, 180_000);
 });

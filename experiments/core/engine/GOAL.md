@@ -445,3 +445,14 @@ Native construction and caller retirement, corrected predicate/history owners,
 the data-preserving upgrade and focused plan proof have scoped connected
 acceptance and completed review. Named remaining consumers, paused
 Task/finite/performance work and broader goal gates remain open.
+
+The [Stock Location/Sales Channel continuation](./slices/22-native-stock-location-sales-channel.md)
+has migrated the complete already-admitted ordinary consumer construction to
+Core, including required Links, Location/Fulfillment Set creation and the existing
+Fulfillment Set deletion forest. Source producers preserve logical storage and
+data-only setup; native callbacks, retained inverses and exact publication retain
+their existing owners. The [atomic admission correction](./slices/22a-native-atomic-admission.md)
+preserves implicit and explicitly selected native identity limits in live and
+recovery frames. Selected obsolete fixtures are retired after caller migration.
+Bounded connected validation and review are complete; named remaining consumers,
+Task-backed fulfillment, hosting, component-scope and performance gates remain open.

@@ -1,24 +1,21 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result, Schema } from "effect";
 import { createStep, createWorkflow, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
-import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { makeStockLocationCommands } from "../src/modules/stock-location/service";
 import { StockLocationDeletionIds } from "../src/modules/stock-location/delete-input";
 import { prepareAtomicWorkflowHost } from "../src/workflow/host";
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../src/workflow/events";
-import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
-import { prepareLogicalStockLocationUpdate } from "./support/logical-stock-location-update-fixture";
+import { prepareCoreStockLocation } from "./support/core-stock-location-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const LifecycleInput = Schema.Struct({ operation: Schema.Literals(["softDelete", "restore"]), ids: StockLocationDeletionIds });
 const decodeRows = Schema.decodeUnknownEffect(Schema.Array(Schema.JsonObject));
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalStockLocationUpdate>>;
+let connected: Awaited<ReturnType<typeof prepareCoreStockLocation>>;
 let lifecycle: Awaited<ReturnType<typeof prepareLifecycle>>;
-let reader: Effect.Success<ReturnType<typeof makeCommerceHost>>;
-const snapshot = () => logicalCurrencyInventory(connected.fixture);
-const roots = (ids: readonly string[]) => Effect.runPromise(reader.read(connected.stock.list,
+const snapshot = () => connected.fixture.snapshot();
+const roots = (ids: readonly string[]) => Effect.runPromise(connected.reader.read(connected.stock.list,
   { filters: { id: [...ids] }, config: { withDeleted: true, order: { id: "ASC" } } }).pipe(Effect.flatMap(decodeRows)));
 const address = (id: string) => ({ id, address_1: "Retained street", country_code: "US", metadata: { retained: true } });
 
@@ -35,7 +32,7 @@ async function prepareLifecycle() {
   const workflow = createWorkflow("probe-stock-one-to-one-lifecycle", (input: WorkflowData<typeof LifecycleInput.Type>) =>
     new WorkflowResponse(invoke(input)));
   return Effect.runPromise(prepareAtomicWorkflowHost({ execution: connected.execution,
-    modules: { stock_location: { module: native.workflow, logicalStorage: connected.options.modules.stock_location.logicalStorage } },
+    modules: { stock_location: { module: native.workflow, nativeStorage: connected.source } },
     revision: "7".repeat(64), subscribers: [{ id: "native-stock-reference-lifecycle", revision: "8".repeat(64) }],
     workflow: { name: "probeStockOneToOneLifecycle", resources, prepared: Result.getOrThrow(workflow.prepare()),
       input: LifecycleInput, output: Schema.Null, events: internalModuleWorkflowEvents },
@@ -47,10 +44,7 @@ const runLifecycle = (operation: typeof LifecycleInput.Type["operation"], ids: r
 
 describe(`genuine native Stock Location active one-to-one constraints - ${driver}`, { concurrent: false }, () => {
   beforeAll(async () => {
-    connected = await prepareLogicalStockLocationUpdate(driver, close => cleanup.push(close));
-    reader = await Effect.runPromise(makeCommerceHost({ ...connected.fixture.hostInput,
-      commands: connected.stock.commands, logicalStorage: connected.options.modules.stock_location.logicalStorage }));
-    cleanup.push(() => Effect.runPromise(reader.close));
+    connected = await prepareCoreStockLocation(driver, close => cleanup.push(close));
     lifecycle = await prepareLifecycle();
     cleanup.push(() => Effect.runPromise(lifecycle.close));
   }, 240_000);
@@ -68,7 +62,7 @@ describe(`genuine native Stock Location active one-to-one constraints - ${driver
     expect(await Effect.runPromise(connected.addresses())).toEqual([]);
     const after = await snapshot();
     expect(after.rows.length - before.rows.length).toBe(2);
-    expect(after.rowChanges.length - before.rowChanges.length).toBe(2);
+    expect(after.revisions.length - before.revisions.length).toBe(2);
     expect(after.events.slice(before.events.length).map(event => event.envelope)).toMatchObject([
       { contract: "stock_location.stock-location.created", message: { data: { id: "stock-null-reference-a" } } },
       { contract: "stock_location.stock-location.created", message: { data: { id: "stock-null-reference-b" } } },
@@ -91,7 +85,7 @@ describe(`genuine native Stock Location active one-to-one constraints - ${driver
     for (const row of deleted) expect(row).toEqual({ ...original.find(value => value.id === row.id),
       deleted_at: expect.any(String), updated_at: expect.any(String) });
     const afterDeletion = await snapshot();
-    expect(afterDeletion.rowChanges.length - beforeDeletion.rowChanges.length).toBe(2);
+    expect(afterDeletion.revisions.length - beforeDeletion.revisions.length).toBe(2);
     expect(afterDeletion.events.slice(beforeDeletion.events.length).map(event => event.envelope)).toMatchObject([
       { contract: "stock_location.stock-location.deleted", message: { data: { id: peer } } },
       { contract: "stock_location.stock-location.deleted", message: { data: { id: old } } },
@@ -104,7 +98,7 @@ describe(`genuine native Stock Location active one-to-one constraints - ${driver
     expect(created).toMatchObject([{ id: replacement, address_id: shared }]);
     const afterReuse = await snapshot();
     expect(afterReuse.rows.length - afterDeletion.rows.length).toBe(1);
-    expect(afterReuse.rowChanges.length - afterDeletion.rowChanges.length).toBe(1);
+    expect(afterReuse.revisions.length - afterDeletion.revisions.length).toBe(1);
     expect(afterReuse.events.slice(afterDeletion.events.length).map(event => event.envelope)).toMatchObject([
       { contract: "stock_location.stock-location.created", message: { data: { id: replacement } } },
     ]);
@@ -127,10 +121,10 @@ describe(`genuine native Stock Location active one-to-one constraints - ${driver
     expect(await roots([cold])).toEqual(original.filter(row => row.id === cold));
     expect(await Effect.runPromise(connected.addresses([shared, peerAddress, coldAddress]))).toEqual(retainedAddresses);
     const afterRestore = await snapshot();
-    expect(afterRestore.rows.map(row => row.rowId)).toEqual(beforeRestore.rows.map(row => row.rowId));
-    expect(afterRestore.revisions).toEqual(expect.arrayContaining(beforeRestore.revisions));
+    expect(afterRestore.rows.map(row => row.value._id)).toEqual(beforeRestore.rows.map(row => row.value._id));
+    expect(afterRestore.revisions).toEqual(expect.arrayContaining([...beforeRestore.revisions]));
     expect(afterRestore.revisions.length - beforeRestore.revisions.length).toBe(2);
-    expect(afterRestore.rowChanges.length - beforeRestore.rowChanges.length).toBe(2);
+    expect(afterRestore.outcomes.length - beforeRestore.outcomes.length).toBe(1);
     expect(afterRestore.events.slice(beforeRestore.events.length).map(event => event.envelope)).toMatchObject([
       { contract: "stock.stock-location.restored", message: { data: { id: peer } } },
       { contract: "stock.stock-location.restored", message: { data: { id: old } } },

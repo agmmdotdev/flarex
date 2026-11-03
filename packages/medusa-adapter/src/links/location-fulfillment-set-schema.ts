@@ -1,6 +1,8 @@
 import { Effect } from "effect";
 import { LocationFulfillmentSet } from "@medusajs/link-modules";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
+import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
+import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
 import { captureLinkMetadata, linkSchemaOrigins, LinkSchemaError } from "./schema";
 import { lowerDmlSchema } from "../schema/lower";
 
@@ -31,4 +33,19 @@ export const compileLocationFulfillmentSetLinkDefinition = Effect.fn("LocationFu
     [metadata.frame], "commerce.link.location-fulfillment-set", linkSchemaOrigins,
   )));
   return Object.freeze({ schema, provenance: locationFulfillmentSetLinkProvenance });
+});
+
+/** Preserve native pair/cardinality policy through the existing Core source owner. */
+export const compileLocationFulfillmentSetLinkCoreDefinition = Effect.fn("LocationFulfillmentSetLink.compileCoreDefinition")(function* (target: Readonly<{
+  scopeUuid: string; epochUuid: string; applicationRead?: boolean;
+}>) {
+  const nativeTarget = Object.freeze({ scopeUuid: target.scopeUuid, epochUuid: target.epochUuid,
+    applicationRead: target.applicationRead ?? false });
+  const definition = yield* compileLocationFulfillmentSetLinkDefinition();
+  const source = yield* captureLogicalSchemaSource({ key: "medusa.link.locationFulfillmentSet", owner: "medusa", writeProfile: "medusa.link.locationFulfillmentSet",
+    evidence: { provenance: definition.provenance, profile: "medusa.link.locationFulfillmentSet" },
+    definition: { kind: "relational", schema: definition.schema },
+    bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+      table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
+  return yield* makeCoreRelationalNativeDefinition({ ...nativeTarget, source, provenance: definition.provenance, commands: [] });
 });

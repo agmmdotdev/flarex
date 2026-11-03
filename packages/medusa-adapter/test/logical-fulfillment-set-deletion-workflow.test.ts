@@ -9,16 +9,18 @@ import { CommerceTransactionError, commerceError, defaultCommerceResources, type
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { fulfillmentSetDeletionResources, fulfillmentSetDeletionCommandMs } from "../src/workflow/policy";
 import { prepareFulfillmentSetDeletionWorkflow } from "../src/workflows/fulfillment/delete-fulfillment-sets";
-import { prepareLogicalFulfillmentSetDeletion, fulfillmentSetDeletionGraph } from "./support/logical-fulfillment-set-deletion-fixture";
-import { serviceZoneParents, serviceZoneSeedTime } from "./support/logical-service-zone-creation-fixture";
+import { prepareCoreFulfillmentSetDeletion } from "./support/core-fulfillment-set-deletion-fixture";
+import { expectWorkflowRefusal } from "./support/workflow-failure-assertions";
+import { fulfillmentSetDeletionGraph, serviceZoneParents, serviceZoneSeedTime } from "./support/native-fulfillment-graph-fixture";
+import { atomicCommerceNativeSourceIdentity } from "../../persistence-postgres/src/frameworks/atomicCommerce/nativeSelection";
 import { workflowModuleDefinition } from "../src/workflow/module";
 import type { AtomicWorkflowHostComposition } from "../src/workflow/host";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const locationSetFamily = LocationFulfillmentSet.serviceName;
 if (locationSetFamily === undefined) throw new Error("Missing native Location Fulfillment Set family");
-const cleanup: Array<() => Promise<void>> = []; let sharedCleanupCount = 0, scopeOrdinal = 0;
-let connected: Awaited<ReturnType<typeof prepareLogicalFulfillmentSetDeletion>>;
+const cleanup: Array<() => Promise<void>> = []; let sharedCleanupCount = 0;
+let connected: Awaited<ReturnType<typeof prepareCoreFulfillmentSetDeletion>>;
 const graph = {
   maximum: fulfillmentSetDeletionGraph("set-delete-max", { sets: 4, zones: 4, geos: 16, options: 8, rules: 16 }),
   mixed: fulfillmentSetDeletionGraph("set-delete-mixed", { sets: 2, zones: 2, geos: 2, options: 2, rules: 2, history: { sets: 1 } }),
@@ -41,12 +43,8 @@ const eventFamilies = (value: ReturnType<typeof fulfillmentSetDeletionGraph>, ac
   .flatMap(([table, ids]) => ids.map(() => "fulfillment." + table.replaceAll("_", "-") + "." + action));
 type Inventory = Awaited<ReturnType<typeof connected.snapshot>>;
 function newEvents(before: Inventory, after: Inventory) {
-  // Commit sequences are scope-local. New scopes sharing this DB can insert
-  // events before older scopes' array tails; retain actual durable order while
-  // selecting new rows by the complete immutable event primary key.
-  const identity = (event: Inventory["events"][number]) => JSON.stringify([
-    event.scopeUuid, event.epochUuid, event.commitSeq.toString(), event.eventOrdinal,
-  ]);
+  // Select actual immutable Core event identities while retaining durable order.
+  const identity = (event: Inventory["events"][number]) => JSON.stringify([event.familyId, event.ordinal]);
   const previous = new Set(before.events.map(identity));
   const added = after.events.filter(event => !previous.has(identity(event)));
   expect(after.events).toHaveLength(before.events.length + added.length);
@@ -71,14 +69,12 @@ function retainedTap() {
   return { get: () => { if (values.length !== 2) throw new Error("Expected exactly the genuine Set and Link retained values"); return { set: values[0], link: values[1] }; },
     restore: () => spy.mockRestore() };
 }
-async function scenario(name: string, graphs: readonly ReturnType<typeof fulfillmentSetDeletionGraph>[]) {
-  const ordinal = ++scopeOrdinal;
-  return prepareLogicalFulfillmentSetDeletion(driver, close => cleanup.push(close), graphs, { resource: connected.fixture.resource,
-    fixtureIdentity: { deploymentId: "set-delete-" + name + "-" + ordinal, projectId: "set-delete-134", uuidOffset: 1_500_000 + ordinal * 10_000 } });
+async function scenario(_name: string, graphs: readonly ReturnType<typeof fulfillmentSetDeletionGraph>[]) {
+  return prepareCoreFulfillmentSetDeletion(driver, close => cleanup.push(close), graphs, { physical: connected.fixture.physical });
 }
 
 describe("genuine Fulfillment Set deletion and retained Set/Link inverses", { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalFulfillmentSetDeletion(driver, close => cleanup.push(close), Object.values(graph)); sharedCleanupCount = cleanup.length; }, 240_000);
+  beforeAll(async () => { connected = await prepareCoreFulfillmentSetDeletion(driver, close => cleanup.push(close), Object.values(graph)); sharedCleanupCount = cleanup.length; }, 240_000);
   afterEach(async () => { for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
@@ -98,7 +94,7 @@ describe("genuine Fulfillment Set deletion and retained Set/Link inverses", { co
     expect(captured[0]?.participants).toHaveLength(5);
     expect(captured[0]?.requestCommandMs).toBe(fulfillmentSetDeletionCommandMs);
     expect(captured[0]?.participants.filter(member => member.logicalPublication === "mixed").map(member =>
-      Schema.decodeUnknownSync(Schema.Struct({ sourceKey: Schema.String }))(member.logicalStorage?.source).sourceKey)).toEqual(["medusa.pricing"]);
+      member.nativeStorage === undefined ? undefined : atomicCommerceNativeSourceIdentity(member.nativeStorage)?.sourceKey)).toEqual(["medusa.pricing"]);
   });
 
   it.each([false, true])("retains the complete installed locfs forest and genuine double restore (history=%s)", async history => {
@@ -131,7 +127,7 @@ describe("genuine Fulfillment Set deletion and retained Set/Link inverses", { co
         + JSON.stringify({ calls, eventMessages: events.length, history }) + "\n");
       expect(calls).toBeLessThanOrEqual(fulfillmentSetDeletionResources.calls);
       expect(events).toHaveLength(146); expect(events.every(event => event.envelope.internal)).toBe(true);
-      expect(after.rowChanges).toHaveLength(before.rowChanges.length + 52);
+      expect(after.revisions).toHaveLength(before.revisions.length + 52);
       expect((await fixture.read(selected.allIds)).map(stable)).toEqual(original.map(stable));
       expect((await fixture.read([...selected.allIds, ...fixture.linkRows.map(row => String(row.row.id))])).every(row => row.deleted_at === null)).toBe(true);
       expect(await fixture.read(protectedIds)).toEqual(untouched);
@@ -248,8 +244,8 @@ describe("genuine Fulfillment Set deletion and retained Set/Link inverses", { co
       })));
       expect(arrivals).toBe(2); expect(outcomes.filter(Exit.isSuccess)).toHaveLength(1); expect(outcomes.filter(Exit.isFailure)).toHaveLength(1);
       const failed = outcomes.find(Exit.isFailure); if (failed !== undefined && Exit.isFailure(failed)) expect(reasons(failed.cause)).toContain("writeConflict");
-      const after = await fixture.snapshot(); expect(after.commits).toHaveLength(before.commits.length + 1);
-      expect(after.rowChanges).toHaveLength(before.rowChanges.length + 2);
+      const after = await fixture.snapshot(); expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
+      expect(after.revisions).toHaveLength(before.revisions.length + 2);
     } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); link.mockRestore(); }
   }, 240_000);
 
@@ -273,7 +269,7 @@ describe("genuine Fulfillment Set deletion and retained Set/Link inverses", { co
       const current = await connected.read(graph.maximum.allIds); expect(current).toHaveLength(48); expect(current.map(stable)).toEqual(original.map(stable));
       expect(current.every(row => row.deleted_at === null && row.updated_at !== serviceZoneSeedTime)).toBe(true); expect(await connected.read(protectedIds)).toEqual(protectedRows);
       const after = await connected.snapshot(), emitted = newEvents(before, after);
-      expect(after.commits).toHaveLength(before.commits.length + 1); expect(after.rowChanges).toHaveLength(before.rowChanges.length + 48);
+      expect(after.outcomes).toHaveLength(before.outcomes.length + 1); expect(after.revisions).toHaveLength(before.revisions.length + 48);
       expect(emitted).toHaveLength(96); expect(emitted.every(event => event.envelope.internal)).toBe(true);
       expect(emitted.map(event => event.envelope.contract)).toEqual([...eventFamilies(graph.maximum, "deleted"), ...eventFamilies(graph.maximum, "restored")]);
       expect(await Effect.runPromise(host.run(key, { ids }))).toBeNull(); expect(remove).toHaveBeenCalledTimes(1); expect(await connected.snapshot()).toEqual(after);
@@ -293,7 +289,8 @@ describe("genuine Fulfillment Set deletion and retained Set/Link inverses", { co
       }), Effect.ensuring(Effect.sync(() => process.stdout.write("FulfillmentSet unchanged full graph default-call refusal "
         + JSON.stringify({ boundedRequestEnter: calls }) + "\n"))))));
       expect(Result.isFailure(outcome)).toBe(true); if (Result.isFailure(outcome)) expect(reasons(outcome.failure)).toContain("limitExceeded");
-      expect(calls).toBeGreaterThan(defaultCommerceResources.calls); expect(await connected.snapshot()).toEqual(before);
+      // Queued admission refuses the next job before it enters the lifetime.
+      expect(calls).toBe(defaultCommerceResources.calls); expect(await connected.snapshot()).toEqual(before);
     } finally { tap.restore(); }
   }, 300_000);
 
@@ -318,7 +315,7 @@ describe("genuine Fulfillment Set deletion and retained Set/Link inverses", { co
       completeMap(await remove.mock.results[0]?.value, selected); completeMap(await restore.mock.results[0]?.value, selected);
       const current = await fixture.read(selected.allIds); expect(current.map(stable)).toEqual(original.map(stable));
       expect(current.every(row => row.deleted_at === null && row.updated_at !== serviceZoneSeedTime)).toBe(true);
-      const after = await fixture.snapshot(); expect(after.commits).toHaveLength(before.commits.length + 1); expect(after.rowChanges).toHaveLength(before.rowChanges.length + 48);
+      const after = await fixture.snapshot(); expect(after.outcomes).toHaveLength(before.outcomes.length + 1); expect(after.revisions).toHaveLength(before.revisions.length + 48);
       expect(newEvents(before, after).map(event => event.envelope.contract)).toEqual([...eventFamilies(selected, "deleted"), ...eventFamilies(selected, "restored")]);
     } finally { tap.restore(); remove.mockRestore(); restore.mockRestore(); }
   }, 300_000);
@@ -378,7 +375,7 @@ describe("genuine Fulfillment Set deletion and retained Set/Link inverses", { co
       completeMap(await Effect.runPromise(lifecycle.run(lifecycle.newRequestKey(), { ids: selected.ids, restore: true })), selected);
       const after = await fixture.snapshot(), current = await fixture.read(selected.allIds);
       expect(current.map(stable)).toEqual(rows.map(stable)); expect(current.every(row => row.deleted_at === null && row.updated_at !== serviceZoneSeedTime)).toBe(true);
-      expect(after.rowChanges).toHaveLength(before.rowChanges.length + 12); expect(newEvents(before, after).map(event => event.envelope.contract)).toEqual(eventFamilies(selected, "restored"));
+      expect(after.revisions).toHaveLength(before.revisions.length + 12); expect(newEvents(before, after).map(event => event.envelope.contract)).toEqual(eventFamilies(selected, "restored"));
     }
   }, 240_000);
 
@@ -391,7 +388,7 @@ describe("genuine Fulfillment Set deletion and retained Set/Link inverses", { co
       expect(await remove.mock.results[0]?.value).toEqual({ fulfillment_set_id: graph.scalar.ids }); expect(await remove.mock.results[1]?.value).toEqual({});
       expect(link.mock.calls.map(value => value[0])).toEqual([endpoint(graph.scalar.ids), endpoint(graph.scalar.ids)]);
       for (let attempt = 0; attempt < 2; attempt++) expect(await Effect.runPromise(lifecycle.run(lifecycle.newRequestKey(), { ids: graph.scalar.ids, restore: true }))).toEqual({ fulfillment_set_id: graph.scalar.ids });
-      const after = await connected.snapshot(); expect(after.rowChanges).toHaveLength(before.rowChanges.length + 3);
+      const after = await connected.snapshot(); expect(after.revisions).toHaveLength(before.revisions.length + 3);
       expect(newEvents(before, after).map(event => event.envelope.contract)).toEqual([
         "fulfillment.fulfillment-set.deleted", "fulfillment.fulfillment-set.restored", "fulfillment.fulfillment-set.restored"]);
     } finally { remove.mockRestore(); link.mockRestore(); }
@@ -436,11 +433,11 @@ describe("genuine Fulfillment Set deletion and retained Set/Link inverses", { co
     if (typeof name !== "string") throw new Error("Missing native name collision preimage");
     const seeded = { ...blocker, rows: blocker.rows.map(value => value.table === table ? { ...value, row: { ...value.row, name } } : value) };
     const fixture = await scenario("collision-" + table, [deleted, seeded]), host = await fixture.prepareLifecycle(), before = await fixture.snapshot();
-    const outcome = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { ids: deleted.ids, restore: true })));
-    // Native Drizzle formats its unique-index error. The shared working-set
-    // owner instead preserves typed invalidInput inside sticky rollbackOnly.
-    expect(outcome).toMatchObject({ _tag: "Failure", failure: { reason: "rollbackOnly" } });
-    if (Result.isFailure(outcome)) expect(reasons(outcome.failure)).toContain("invalidInput"); expect(await fixture.snapshot()).toEqual(before);
+    const outcome = await Effect.runPromiseExit(host.run(host.newRequestKey(), { ids: deleted.ids, restore: true }));
+    // Preserve the shared uniqueness refusal and the atomic rollback marker;
+    // observing only the first typed failure loses the complete Cause.
+    expectWorkflowRefusal(outcome, "invalidInput");
+    expect(await fixture.snapshot()).toEqual(before);
   }, 180_000);
 
   it("rolls back a late failure after both genuine retained callbacks", async () => {
@@ -542,7 +539,7 @@ describe("genuine Fulfillment Set deletion and retained Set/Link inverses", { co
       })));
       expect(Exit.isFailure(outcome)).toBe(true); if (Exit.isFailure(outcome)) expect(reasons(outcome.cause)).toContain("writeConflict");
       expect((await connected.read(graph.race.ids))[0]?.deleted_at).toBeNull();
-      const after = await connected.snapshot(); expect(after.commits).toHaveLength(before.commits.length + 1); expect(newEvents(before, after).map(event => event.envelope.contract)).toEqual(["fulfillment.service-zone.created"]);
+      const after = await connected.snapshot(); expect(after.outcomes).toHaveLength(before.outcomes.length + 1); expect(newEvents(before, after).map(event => event.envelope.contract)).toEqual(["fulfillment.service-zone.created"]);
     } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); native.mockRestore(); }
   }, 240_000);
 
@@ -564,7 +561,7 @@ describe("genuine Fulfillment Set deletion and retained Set/Link inverses", { co
       expect(arrivals).toBe(2); expect(outcomes.filter(Exit.isSuccess)).toHaveLength(1); expect(outcomes.filter(Exit.isFailure)).toHaveLength(1);
       expect((await fixture.read(selected.ids)).filter(row => row.deleted_at === null)).toHaveLength(1);
       expect((await fixture.read(selected.zoneIds)).filter(row => row.deleted_at === null)).toHaveLength(1); expect((await fixture.read(selected.geoIds)).filter(row => row.deleted_at === null)).toHaveLength(1);
-      const after = await fixture.snapshot(); expect(after.commits).toHaveLength(before.commits.length + 1); expect(newEvents(before, after).map(event => event.envelope.contract)).toEqual([
+      const after = await fixture.snapshot(); expect(after.outcomes).toHaveLength(before.outcomes.length + 1); expect(newEvents(before, after).map(event => event.envelope.contract)).toEqual([
         "fulfillment.fulfillment-set.restored", "fulfillment.service-zone.restored", "fulfillment.geo-zone.restored"]);
     } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); native.mockRestore(); }
   }, 240_000);

@@ -3,16 +3,16 @@ import { Effect, Schema } from "effect";
 import { StepResponse } from "@medusajs/workflows-sdk";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { locationFulfillmentSetCreationResources } from "../src/workflow/policy";
-import { prepareLogicalLocationFulfillmentSetCreation, linkedCreationLocations } from "./support/logical-location-fulfillment-set-creation-fixture";
+import { prepareCoreLocationFulfillmentSetCreation, linkedCreationLocations } from "./support/core-location-fulfillment-set-creation-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalLocationFulfillmentSetCreation>>;
+let connected: Awaited<ReturnType<typeof prepareCoreLocationFulfillmentSetCreation>>;
 const input = (location: string, name: string) => ({ location_id: location, fulfillment_set_data: { name, type: " Raw TYPE " } });
 type Inventory = Awaited<ReturnType<typeof connected.snapshot>>;
 const eventDelta = (before: Inventory, after: Inventory) => {
-  const keys = new Set(before.events.map(event => JSON.stringify([event.scopeUuid, event.commitSeq.toString(), event.eventOrdinal])));
-  return after.events.filter(event => !keys.has(JSON.stringify([event.scopeUuid, event.commitSeq.toString(), event.eventOrdinal])));
+  const keys = new Set(before.events.map(event => JSON.stringify([event.familyId, event.ordinal])));
+  return after.events.filter(event => !keys.has(JSON.stringify([event.familyId, event.ordinal])));
 };
 function retainedTap() {
   const getter = Object.getOwnPropertyDescriptor(StepResponse.prototype, "compensateInput")?.get;
@@ -32,7 +32,7 @@ function retainedTap() {
 }
 
 describe("genuine linked Location FulfillmentSet creation", { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalLocationFulfillmentSetCreation(driver, close => cleanup.push(close)); }, 240_000);
+  beforeAll(async () => { connected = await prepareCoreLocationFulfillmentSetCreation(driver, close => cleanup.push(close)); }, 240_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
   it.each(["active", "missing", "historical"] as const)("creates for %s Location without liveness enforcement, returns void and replays once", async mode => {
@@ -49,7 +49,7 @@ describe("genuine linked Location FulfillmentSet creation", { concurrent: false 
     expect(link).toMatchObject({ id: expect.stringMatching(/^locfs_/), deleted_at: null });
     const after = await connected.snapshot(), events = eventDelta(before, after);
     expect(events.map(event => event.envelope.contract)).toEqual(["fulfillment.fulfillment-set.created", "LinkLocationFulfillmentSet.attached"]);
-    expect(new Set(events.map(event => event.commitSeq)).size).toBe(1);
+    expect(new Set(events.map(event => event.familyId)).size).toBe(1);
     expect(await Effect.runPromise(host.run(key, value))).toBeNull(); expect(await connected.snapshot()).toEqual(after);
     await expect(Effect.runPromise(host.run(key, input(value.location_id, name + " changed")))).rejects.toMatchObject({ reason: "requestConflict" });
   }, 240_000);
@@ -78,7 +78,7 @@ describe("genuine linked Location FulfillmentSet creation", { concurrent: false 
       const after = await connected.snapshot(), events = eventDelta(before, after);
       expect(events.map(event => event.envelope.contract)).toEqual(["fulfillment.fulfillment-set.created", "LinkLocationFulfillmentSet.attached",
         "LinkLocationFulfillmentSet.detached", "fulfillment.fulfillment-set.deleted"]);
-      expect(new Set(events.map(event => event.commitSeq)).size).toBe(1);
+      expect(new Set(events.map(event => event.familyId)).size).toBe(1);
       const actual = tap.get(), rows = await connected.read();
       expect(rows.some(row => row.name === value.fulfillment_set_data.name)).toBe(false);
       expect(rows.find(row => row.fulfillment_set_id === actual.creation?.[0])).toMatchObject({ stock_location_id: value.location_id, deleted_at: expect.any(String) });

@@ -1,40 +1,27 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { Cause, Deferred, Effect, Fiber, Schema } from "effect";
+import { Deferred, Effect, Fiber, Schema } from "effect";
 import { Link } from "@medusajs/modules-sdk/link";
 import { StepResponse } from "@medusajs/workflows-sdk";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
 import { prepareProductSalesChannelMembershipWorkflow, ProductSalesChannelMembershipInput } from "../src/workflows/product/sales-channel-membership";
-import { prepareLogicalProductSalesChannelMembership } from "./support/logical-product-sales-channel-membership-fixture";
+import { prepareCoreProductSalesChannelMembership } from "./support/core-product-sales-channel-membership-fixture";
+import { expectWorkflowDefect, expectWorkflowTypedFailures } from "./support/workflow-failure-assertions";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalProductSalesChannelMembership>>;
+let connected: Awaited<ReturnType<typeof prepareCoreProductSalesChannelMembership>>;
 let primary: Effect.Success<ReturnType<typeof prepareProductSalesChannelMembershipWorkflow>> | undefined;
 type Snapshot = Awaited<ReturnType<typeof connected.snapshot>>;
 const eventsSince = (before: Snapshot, after: Snapshot) => after.events.filter(event => !before.events.some(prior =>
-  prior.scopeUuid === event.scopeUuid && prior.commitSeq === event.commitSeq && prior.eventOrdinal === event.eventOrdinal));
+  prior.familyId === event.familyId && prior.ordinal === event.ordinal));
 const noMutation = (before: Snapshot, after: Snapshot) => {
-  for (const key of ["rows", "revisions", "indexEntries", "indexRevisions", "uniqueKeys", "rowChanges", "physicalFacts", "events"] as const)
+  for (const key of ["rows", "revisions", "indexes", "events", "families", "deliveries"] as const)
     expect(after[key], key).toEqual(before[key]);
 };
 const run = async (input: typeof ProductSalesChannelMembershipInput.Type) => {
   const host = primary ??= await connected.prepare(); return Effect.runPromise(host.run(host.newRequestKey(), input));
 };
-function failurePath(value: unknown): string[] {
-  if (Cause.isCause(value)) return value.reasons.flatMap(reason => {
-    switch (reason._tag) {
-      case "Fail": return failurePath(reason.error);
-      case "Die": return failurePath(reason.defect);
-      case "Interrupt": return [reason._tag];
-    }
-  });
-  if (!(value instanceof Error)) return [];
-  return ["reason" in value && typeof value.reason === "string" ? value.reason : value.message, ...failurePath(value.cause)];
-}
 /** Observe the native callbacks' real retained definitions. Inverses below use
  * these values rather than reconstructing a supposed preimage from stored rows. */
 function retainedTap() {
@@ -52,7 +39,7 @@ function retainedTap() {
 }
 
 describe(`genuine native Product–Sales Channel membership - ${driver}`, { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalProductSalesChannelMembership(driver, close => cleanup.push(close)); }, 240_000);
+  beforeAll(async () => { connected = await prepareCoreProductSalesChannelMembership(driver, close => cleanup.push(close)); }, 240_000);
   afterEach(async () => { primary = undefined; await connected.closeCaseHosts(); }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 180_000);
 
@@ -76,7 +63,7 @@ describe(`genuine native Product–Sales Channel membership - ${driver}`, { conc
       expect(await connected.readEndpoints()).toEqual(endpoints);
       const after = await connected.snapshot(), emitted = eventsSince(before, after);
       expect(emitted.map(event => event.envelope.contract)).toEqual(["LinkProductSalesChannel.attached", "LinkProductSalesChannel.detached"]);
-      expect(after.commits.length - before.commits.length).toBe(1); expect(calls).toBeGreaterThan(0); expect(calls).toBeLessThanOrEqual(64);
+      expect(after.outcomes.length - before.outcomes.length).toBe(1); expect(calls).toBeGreaterThan(0); expect(calls).toBeLessThanOrEqual(64);
       console.info("Product Sales Channel membership maximum", { calls, messages: emitted.length });
       expect(await Effect.runPromise(host.run(requestKey, input))).toBeNull();
       expect(create).toHaveBeenCalledTimes(1); expect(dismiss).toHaveBeenCalledTimes(1);
@@ -257,9 +244,9 @@ describe(`genuine native Product–Sales Channel membership - ${driver}`, { conc
     if (mode !== "new-add") await run({ id, add: [product] });
     const input = mode === "new-add" ? { id, add: [added] } : mode === "existing-remove" ? { id, remove: [product] }
       : mode === "mixed" ? { id, add: [added], remove: [product] } : { id, add: [product] };
-    const before = await connected.snapshot(), host = await connected.prepareWrapped({ lateFailure: true });
-    await expect(Effect.runPromise(host.run(host.newRequestKey(), input)).catch(error => { throw failurePath(error); }))
-      .rejects.toContain("Late native Product membership parent failure");
+    const original = new Error("Late native Product membership parent failure");
+    const before = await connected.snapshot(), host = await connected.prepareWrapped({ lateFailure: original });
+    expectWorkflowDefect(await Effect.runPromiseExit(host.run(host.newRequestKey(), input)), original);
     noMutation(before, await connected.snapshot());
   });
 
@@ -270,8 +257,7 @@ describe(`genuine native Product–Sales Channel membership - ${driver}`, { conc
         { id: "bounded", remove: Array(5).fill("product") }, { id: "bounded", add: [""] },
         { id: "bounded", add: null }, { id: "bounded", data: { id: "forged148" } }]) {
         const before = await connected.snapshot();
-        await expect(Effect.runPromise(Reflect.apply(host.run, host, [host.newRequestKey(), input])).catch(error => { throw failurePath(error); }))
-          .rejects.toContain("invalidInput");
+        expectWorkflowTypedFailures(await Effect.runPromiseExit(Reflect.apply(host.run, host, [host.newRequestKey(), input])), "invalidInput");
         noMutation(before, await connected.snapshot());
       }
       expect(create).not.toHaveBeenCalled(); expect(dismiss).not.toHaveBeenCalled();
@@ -354,21 +340,16 @@ describe(`genuine native Product–Sales Channel membership - ${driver}`, { conc
   }, 120_000);
 
   it("recovers a lost acknowledgement without native re-execution and binds revision identity", async () => {
-    let lose = true;
     const fixture = connected.fixture;
-    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
-      Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-      Effect.flatMap(value => { if (!lose) return Effect.succeed(value); lose = false;
-        return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost membership COMMIT acknowledgement") })); }),
-    ));
-    const host = await Effect.runPromise(prepareProductSalesChannelMembershipWorkflow({ ...connected.options, execution: {
-      identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-      prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, session, ...composition }) } }));
+    const host = await connected.prepare();
     const changed = await Effect.runPromise(prepareProductSalesChannelMembershipWorkflow({ ...connected.options, revision: "a".repeat(64) }));
     const create = vi.spyOn(Link.prototype, "create");
     try {
       const key = host.newRequestKey(), input = { id: "membership148-uncertain", add: ["membership148-uncertain-product"] };
-      expect(await Effect.runPromise(host.run(key, input))).toBeNull(); expect(lose).toBe(false); expect(create).toHaveBeenCalledTimes(1);
+      const fault = fixture.loseNextNativeRootAcknowledgement();
+      expect(await Effect.runPromise(host.run(key, input))).toBeNull();
+      expect(fault.armed).toBe(false); expect(fault.failures).toBe(1); expect(create).toHaveBeenCalledTimes(1);
+      expect(fault.evidence?.inventory).toEqual(await fixture.inventory());
       const after = await connected.snapshot();
       expect(await Effect.runPromise(host.run(key, input))).toBeNull(); expect(create).toHaveBeenCalledTimes(1);
       await expect(Effect.runPromise(changed.run(key, input))).rejects.toMatchObject({ reason: "requestConflict" });
@@ -394,9 +375,9 @@ describe(`genuine native Product–Sales Channel membership - ${driver}`, { conc
         return [yield* Fiber.join(first), yield* Fiber.join(second)];
       })));
       expect(results.filter(result => result._tag === "Success")).toHaveLength(1);
-      expect(results.flatMap(result => result._tag === "Failure" ? failurePath(result.cause) : [])).toContain("writeConflict");
+      for (const result of results) if (result._tag === "Failure") expectWorkflowTypedFailures(result, "writeConflict");
       expect(await connected.read({ sales_channel_id: input.id })).toHaveLength(1);
-      const after = await connected.snapshot(); expect(after.commits.length - before.commits.length).toBe(1);
+      const after = await connected.snapshot(); expect(after.outcomes.length - before.outcomes.length).toBe(1);
       expect(eventsSince(before, after)).toHaveLength(1);
     } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); create.mockRestore(); }
   }, 120_000);
