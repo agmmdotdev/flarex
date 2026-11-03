@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { PaymentModuleService } from "@medusajs/payment/services";
 import { SystemPaymentProvider } from "@medusajs/payment/providers/system";
 import { prepareLogicalCheckout } from "./support/logical-checkout-fixture";
-import { customerRow } from "./support/logical-customer-selection-fixture";
+import { customerRow } from "./support/customer-rows";
 import { prepareRetainedCheckoutPaymentWithResources } from "./support/logical-checkout-payment-compensation-fixture";
 import { prepareCustomerCheckoutModules } from "../src/workflows/cart/checkout-graph";
 import { prepareCustomerCheckoutResources, prepareCustomerCompleteCartWorkflow } from "../src/workflows/cart/complete-cart";

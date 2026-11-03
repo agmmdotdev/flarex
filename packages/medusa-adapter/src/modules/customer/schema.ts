@@ -1,6 +1,8 @@
 import { Effect } from "effect";
 import { customerModuleModels } from "@medusajs/customer/static-manifest";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
+import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
+import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
 import { capturePrivateCanonicalValue, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
 import { decodeCompiledDml } from "../../schema/compiled";
@@ -39,4 +41,16 @@ export const compileCustomerDefinition = Effect.fn("Customer.compileDefinition")
   const metadata = yield* captureCustomerMetadata();
   const schema = yield* Effect.fromResult(normalizeRelationalSchema(lowerDmlSchema(metadata.frame.tables, "commerce.customer")));
   return Object.freeze({ schema, provenance: customerSourceProvenance });
+});
+
+export const compileCustomerCoreDefinition = Effect.fn("Customer.compileCoreDefinition")(function* ({ scopeUuid, epochUuid }: Readonly<{
+  scopeUuid: string;
+  epochUuid: string;
+}>) {
+  const { schema, provenance } = yield* compileCustomerDefinition();
+  const source = yield* captureLogicalSchemaSource({ key: "medusa.customer", owner: "medusa", writeProfile: "medusa.customer",
+    evidence: { provenance, profile: "medusa.customer" }, definition: { kind: "relational", schema },
+    bindings: schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+      table: { namespace: "medusa", logicalName: `${schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
+  return yield* makeCoreRelationalNativeDefinition({ scopeUuid, epochUuid, applicationRead: false, source, provenance, commands: [] });
 });

@@ -4,17 +4,30 @@ import { StepResponse } from "@medusajs/workflows-sdk";
 import { CustomerModuleService } from "@medusajs/customer/services";
 import { CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
-import { prepareLogicalCustomerSelection, customerDescendants, customerRow } from "./support/logical-customer-selection-fixture";
+import { prepareCoreCustomerSelection } from "./support/core-customer-fixture";
+import { customerDescendants, customerRow, type CustomerInitialRow } from "./support/customer-rows";
+import { finishOrderFixture } from "./support/core-order-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalCustomerSelection>>, sharedCleanupCount = 0, scopeOrdinal = 0;
+let connected: Awaited<ReturnType<typeof prepareCoreCustomerSelection>>, sharedCleanupCount = 0;
 const object = Schema.decodeUnknownSync(Schema.JsonObject), text = Schema.decodeUnknownSync(Schema.String);
 type Inventory = Awaited<ReturnType<typeof connected.snapshot>>;
 function newEvents(before: Inventory, after: Inventory) {
-  const identity = (event: Inventory["events"][number]) => JSON.stringify([event.scopeUuid, event.epochUuid, event.commitSeq.toString(), event.eventOrdinal]);
+  const identity = (event: Inventory["events"][number]) => JSON.stringify([event.familyId, event.ordinal]);
   const previous = new Set(before.events.map(identity));
   return after.events.filter(event => !previous.has(identity(event)));
+}
+function committedTimestamp(before: Inventory, after: Inventory, key: string) {
+  const outcome = after.outcomes.find(record => record.value.key === key);
+  if (outcome === undefined) throw new Error("Missing committed Customer outcome");
+  expect(outcome.value).toMatchObject({ kind: "nativeRoot", state: "committed" });
+  expect(after.outcomes.filter(record => record !== outcome)).toEqual(before.outcomes);
+  return outcome.timestamp;
+}
+function committedRevisions(before: Inventory, after: Inventory, timestamp: bigint) {
+  expect(after.revisions.filter(row => row.timestamp !== timestamp)).toEqual(before.revisions);
+  return after.revisions.filter(row => row.timestamp === timestamp);
 }
 function reasons(value: unknown): string[] {
   if (Cause.isCause(value)) return value.reasons.flatMap(reason => Cause.isFailReason(reason) ? reasons(reason.error)
@@ -59,16 +72,14 @@ function retainedTap() {
     restore: () => spy.mockRestore(),
   };
 }
-async function scenario(name: string, rows: Parameters<typeof prepareLogicalCustomerSelection>[2]) {
-  const ordinal = ++scopeOrdinal;
-  return prepareLogicalCustomerSelection(driver, close => cleanup.push(close), rows, { resource: connected.fixture.resource,
-    fixtureIdentity: { deploymentId: "customer-selection-" + name + "-" + ordinal, projectId: "customer-selection-162", uuidOffset: 2_500_000 + ordinal * 10_000 } });
+async function scenario(rows: readonly CustomerInitialRow[]) {
+  return prepareCoreCustomerSelection(driver, close => cleanup.push(close), rows, connected.fixture.physical);
 }
 
 describe("genuine Customer selection and guest creation", { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalCustomerSelection(driver, close => cleanup.push(close)); sharedCleanupCount = cleanup.length; }, 240_000);
-  afterEach(async () => { for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }, 120_000);
-  afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
+  beforeAll(async () => { connected = await prepareCoreCustomerSelection(driver, close => cleanup.push(close)); sharedCleanupCount = cleanup.length; }, 240_000);
+  afterEach(() => finishOrderFixture(cleanup.splice(sharedCleanupCount).reverse()), 120_000);
+  afterAll(() => finishOrderFixture(cleanup.splice(0).reverse()), 120_000);
 
   it.each([
     [{}, {}], [{ customerId: null, email: null }, { customer: null, email: null }],
@@ -137,7 +148,8 @@ describe("genuine Customer selection and guest creation", { concurrent: false },
       const output = object(await Effect.runPromise(host.run(key, input).pipe(Effect.provideService(ExecutionDiagnostics, {
         observe: (name, work) => Effect.sync(() => { if (name === "BoundedRequest.enter") calls++; }).pipe(Effect.andThen(work)),
       }))));
-      console.info("Customer complete scalar create BoundedRequest.enter", calls); expect(calls).toBeLessThanOrEqual(64);
+      console.info("Customer complete scalar create BoundedRequest.enter", calls);
+      expect(calls).toBeGreaterThan(0); expect(calls).toBeLessThanOrEqual(64);
       const customer = object(output.customer), id = text(customer.id);
       expect(output.email).toBe(email); expect(customer).toMatchObject({ id: expect.stringMatching(/^cus_/),
         email, has_account: false, company_name: null, first_name: null, last_name: null,
@@ -147,9 +159,15 @@ describe("genuine Customer selection and guest creation", { concurrent: false },
       expect(addresses.mock.calls.map(call => call[0])).toEqual([[]]);
       expect(list.mock.calls.map(call => call[0])).toEqual([{ email, ...(withOriginal ? { has_account: false } : {}) }]);
       const after = await connected.snapshot(), events = newEvents(before, after);
-      expect(events.map(event => event.envelope.contract)).toEqual(["customer.customer.created"]);
-      expect(events[0]?.envelope.message).toMatchObject({ data: { id } }); expect(events[0]?.envelope.internal).toBe(true);
-      expect(after.commits.length - before.commits.length).toBe(1); expect(after.rowChanges.length - before.rowChanges.length).toBe(1);
+      const timestamp = committedTimestamp(before, after, key);
+      expect(events).toMatchObject([{ timestamp, ordinal: 0,
+        envelope: { contract: "customer.customer.created", internal: true, message: { data: { id } } } }]);
+      const revisions = committedRevisions(before, after, timestamp);
+      expect(revisions).toMatchObject([{ table: connected.customerTable, previous: null, deleted: false, value: { id } }]);
+      expect(after.rows.filter(row => row.timestamp !== timestamp)).toEqual(before.rows);
+      expect(after.rows.filter(row => row.timestamp === timestamp)).toEqual([
+        { table: connected.customerTable, timestamp, value: revisions[0]?.value },
+      ]);
       const { groups: _groups, addresses: _addresses, ...scalar } = customer; expect(await connected.read([id])).toEqual([scalar]);
       expect(await Effect.runPromise(host.run(key, input))).toEqual(output); expect(create).toHaveBeenCalledTimes(1); expect(await connected.snapshot()).toEqual(after);
       await expect(Effect.runPromise(host.run(key, { email: "another@example.invalid" }))).rejects.toMatchObject({ reason: "requestConflict" });
@@ -162,13 +180,27 @@ describe("genuine Customer selection and guest creation", { concurrent: false },
   ] as const)("uses the actual retained creation flag for physical compensation of %j", async (input, created) => {
     const tap = retainedTap(), remove = vi.spyOn(CustomerModuleService.prototype, "deleteCustomers");
     try {
-      const host = await connected.prepareRoundtrip(tap.get), before = await connected.snapshot(), output = object(await Effect.runPromise(host.run(host.newRequestKey(), input)));
+      const host = await connected.prepareRoundtrip(tap.get), before = await connected.snapshot(), key = host.newRequestKey();
+      const output = object(await Effect.runPromise(host.run(key, input)));
       expect(tap.complete()).toMatchObject({ customerWasCreated: created }); expect(remove).toHaveBeenCalledTimes(created ? 1 : 0);
-      const after = await connected.snapshot(); expect(after.rows).toEqual(before.rows); expect(after.revisions).toEqual(before.revisions);
+      const after = await connected.snapshot(), timestamp = committedTimestamp(before, after, key);
+      expect(after.rows).toEqual(before.rows);
+      expect(after.indexes).toEqual(before.indexes);
+      const revisions = committedRevisions(before, after, timestamp), events = newEvents(before, after);
       if (created) {
         const id = text(object(output.customer).id); expect(remove.mock.calls.map(call => call[0])).toEqual([id]); expect(await connected.read([id])).toEqual([]);
-        expect(newEvents(before, after).map(event => event.envelope.contract)).toEqual(["customer.customer.created", "customer.customer.deleted"]);
-      } else expect(newEvents(before, after)).toEqual([]);
+        expect(revisions).toMatchObject([{ table: connected.customerTable, id: expect.stringMatching(/^[0-9a-f]{32}$/),
+          timestamp, previous: null, deleted: true, value: null }]);
+        expect(before.revisions.some(row => row.table === connected.customerTable && row.id === revisions[0]?.id)).toBe(false);
+        expect(events).toMatchObject([
+          { timestamp, ordinal: 0, envelope: { contract: "customer.customer.created", internal: true, message: { data: { id } } } },
+          { timestamp, familyId: events[0]?.familyId, ordinal: 1,
+            envelope: { contract: "customer.customer.deleted", internal: true, message: { data: { id } } } },
+        ]);
+      } else {
+        expect(revisions).toEqual([]);
+        expect(events).toEqual([]);
+      }
     } finally { tap.restore(); remove.mockRestore(); }
   }, 240_000);
 
@@ -187,22 +219,30 @@ describe("genuine Customer selection and guest creation", { concurrent: false },
     const prefix = "cus-physical-" + deleted, graph = customerDescendants(prefix, 1, deleted).filter(entry => entry.table !== "customer_group_customer")
       .map(entry => entry.table === "customer_address" && deleted ? { ...entry, row: { ...entry.row, deleted_at: "2026-10-22T00:00:00.000Z" } } : entry),
       protectedRow = customerRow(prefix + "-protected", "protected-" + deleted + "@example.invalid");
-    const local = await scenario("physical-" + deleted, [...graph, protectedRow]), host = await local.prepareInverse();
+    const local = await scenario([...graph, protectedRow]), host = await local.prepareInverse();
     const ids = graph.map(entry => text(entry.row.id)), groups = graph.filter(entry => entry.table === "customer_group").map(entry => text(entry.row.id));
     const preserved = await local.read([...groups, text(protectedRow.row.id)]), before = await local.snapshot(); let calls = 0;
-    expect(await Effect.runPromise(host.run(host.newRequestKey(), prefix).pipe(Effect.provideService(ExecutionDiagnostics, {
+    const key = host.newRequestKey();
+    expect(await Effect.runPromise(host.run(key, prefix).pipe(Effect.provideService(ExecutionDiagnostics, {
       observe: (name, work) => Effect.sync(() => { if (name === "BoundedRequest.enter") calls++; }).pipe(Effect.andThen(work)),
     })))).toBeNull();
-    console.info("Customer one root plus one Address physical inverse BoundedRequest.enter", calls); expect(calls).toBeLessThanOrEqual(64);
+    console.info("Customer one root plus one Address physical inverse BoundedRequest.enter", calls);
+    expect(calls).toBeGreaterThan(0); expect(calls).toBeLessThanOrEqual(64);
     expect(await local.read(ids.filter(id => !groups.includes(id)))).toEqual([]); expect(await local.read([...groups, text(protectedRow.row.id)])).toEqual(preserved);
-    const after = await local.snapshot(); expect(after.rowChanges.length - before.rowChanges.length).toBe(2);
-    expect(newEvents(before, after).map(event => event.envelope.contract)).toEqual(["customer.customer.deleted"]);
+    const after = await local.snapshot(), timestamp = committedTimestamp(before, after, key);
+    const previous = before.revisions.filter(revision => revision.value?.id === prefix || revision.value?.id === prefix + "-address-0");
+    expect(previous).toHaveLength(2);
+    expect(committedRevisions(before, after, timestamp)).toEqual(previous.map(revision => ({
+      ...revision, timestamp, previous: revision.timestamp, deleted: true, value: null,
+    })));
+    expect(newEvents(before, after)).toMatchObject([{ timestamp, ordinal: 0,
+      envelope: { contract: "customer.customer.deleted", message: { data: { id: prefix } } } }]);
   }, 240_000);
 
   it.each([false, true])("explicitly refuses a complete historical membership cohort with deleted membership %s before writes", async deleted => {
     const prefix = "cus-membership-" + deleted, graph = customerDescendants(prefix, 1).map(entry => entry.table === "customer_group_customer" && deleted
       ? { ...entry, row: { ...entry.row, deleted_at: "2026-10-22T00:00:00.000Z" } } : entry);
-    const local = await scenario("membership-" + deleted, graph), host = await local.prepareInverse(), before = await local.snapshot();
+    const local = await scenario(graph), host = await local.prepareInverse(), before = await local.snapshot();
     const result = await Effect.runPromiseExit(host.run(host.newRequestKey(), prefix));
     expect(Exit.isFailure(result)).toBe(true); if (Exit.isFailure(result)) expect(reasons(result.cause)).toContain("unsupportedProfile");
     expect(await local.snapshot()).toEqual(before);
@@ -210,10 +250,10 @@ describe("genuine Customer selection and guest creation", { concurrent: false },
 
   it("refuses an incomplete physical descendant cohort before publishing and rolls back late inverse failure", async () => {
     const graph = customerDescendants("cus-too-many", 2).filter(entry => entry.table !== "customer_group_customer"),
-      local = await scenario("oversized", graph), host = await local.prepareInverse(), before = await local.snapshot();
+      local = await scenario(graph), host = await local.prepareInverse(), before = await local.snapshot();
     const result = await Effect.runPromiseExit(host.run(host.newRequestKey(), "cus-too-many"));
     expect(Exit.isFailure(result)).toBe(true); expect(await local.snapshot()).toEqual(before);
-    const late = await scenario("late-inverse", customerDescendants("cus-late-inverse", 1).filter(entry => entry.table !== "customer_group_customer")),
+    const late = await scenario(customerDescendants("cus-late-inverse", 1).filter(entry => entry.table !== "customer_group_customer")),
       lateHost = await late.prepareInverse(true), lateBefore = await late.snapshot();
     expect(Exit.isFailure(await Effect.runPromiseExit(lateHost.run(lateHost.newRequestKey(), "cus-late-inverse")))).toBe(true);
     expect(await late.snapshot()).toEqual(lateBefore);

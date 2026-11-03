@@ -513,3 +513,7 @@ complete.
 The [selected native Promotion related-predicate continuation](./slices/31-native-promotion-related.md)
 uses the existing Core transaction and evaluator owners for the two related
 cohorts required by automatic Promotion. Paired acceptance is complete.
+
+The [Customer selection and Cart group read continuation](./slices/32-native-customer-selection.md)
+moves both selected Customer consumers onto the complete four-model Core
+source. Paired acceptance is complete.

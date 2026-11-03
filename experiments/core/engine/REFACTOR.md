@@ -771,3 +771,7 @@ through the existing Core settlement owner.
 The [selected native Promotion related-predicate continuation](./slices/31-native-promotion-related.md)
 uses exact complete Core reads and the existing closed predicate evaluator
 for the selected native Rule and Value operation. Paired acceptance is complete.
+
+The [Customer selection and Cart group read continuation](./slices/32-native-customer-selection.md)
+uses existing Core source, index and settlement owners for the two native
+Customer consumers. Paired acceptance is complete.

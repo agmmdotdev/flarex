@@ -30,7 +30,7 @@ import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { projectNativeRow } from "../../src/repository/result";
 import { logicalCurrencyFixture } from "./logical-currency-fixture";
 import { logicalCurrencyInventory } from "./logical-currency-inventory";
-import { customerRow } from "./logical-customer-selection-fixture";
+import { customerRow } from "./customer-rows";
 
 const stamp = "2026-10-28T00:00:00.000Z";
 export const accountCustomer = "cus-account-workflow", accountCollection = "paycol-customer-account";

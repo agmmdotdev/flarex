@@ -46,6 +46,11 @@ unique releases or weaken accepted-prefix integrity.
 Complete reads count matched roots before their projected window. Storage
 insertion ordering uses the Core envelope's creation time and stable storage-ID
 tie. Other admitted ordering uses the existing native byte/numeric encodings.
+The selected Customer Cart read uses this order for group pivots, including
+pending membership. Core allocation order can differ from Legacy settlement
+order under overlapping writers. The selected Customer profiles admit no
+membership writer. Independent membership writers require a connected
+ordering witness before activation.
 Examined pages remain a distinct, narrower capability: their supported ascending
 ordinary-index shape delegates to native `findPage` and
 [`nativePage.ts`](../../../../packages/persistence-postgres/src/core/nativePage.ts),
