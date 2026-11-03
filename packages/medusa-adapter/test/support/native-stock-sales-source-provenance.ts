@@ -29,38 +29,62 @@ export const NativeSourceEvidenceSchema = Schema.Struct({
 });
 export type NativeSourceEvidence = typeof NativeSourceEvidenceSchema.Type;
 
+type NativeSourceTarget = Pick<NativeSourceEvidence["entries"][number], "name" | "specifier" | "entry" | "leaf"> & {
+  readonly imports: readonly string[];
+};
+
 declare module "vitest" {
   interface ProvidedContext {
     nativeStockSalesSource: NativeSourceEvidence;
   }
 }
 
-/** Use the environment running the tests, rather than another resolver or a
- * separate Vite server. Fail closed if the installed runner changes that seam. */
-export default async function nativeSourceEvidence(project: TestProject): Promise<void> {
-  if (project.config.environment !== "node") throw new Error("Native Source proof requires the configured Node test environment");
+/** Resolve through the SSR environment executing the proof and fail closed if the runner changes that seam. */
+export async function captureNativeSourceEvidence(project: TestProject, proof: {
+  readonly name: string;
+  readonly importer: string;
+  readonly targets: readonly NativeSourceTarget[];
+}): Promise<NativeSourceEvidence> {
+  if (project.config.environment !== "node") throw new Error(`${proof.name} Source proof requires the Node test environment`);
   const environment = project.vite.environments.ssr;
-  if (environment === undefined) throw new Error("Native Source proof requires the actual Vitest module-runner environment");
+  if (environment === undefined) throw new Error(`${proof.name} Source proof requires the actual Vitest module-runner environment`);
   const workspace = path.resolve(project.config.root, "../..");
-  const importer = path.resolve(project.config.root, "test/native-stock-sales-source-provenance.proof.ts");
+  const importer = path.resolve(project.config.root, proof.importer);
   const entries: NativeSourceEvidence["entries"][number][] = [];
   const digest = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
   const physical = (id: string) => realpathSync(id.split("?")[0] ?? id);
-  for (const target of nativeSourceTargets) {
-    const specifier = `@medusajs/${target.package}/services`;
-    const entry = await environment.pluginContainer.resolveId(specifier, importer);
-    if (entry === null || entry.external) throw new Error(`Native Source export is unresolved or external: ${specifier}`);
-    const leaf = await environment.pluginContainer.resolveId(`./${target.leaf}`, entry.id);
-    if (leaf === null || leaf.external) throw new Error(`Native Source implementation is unresolved or external: ${specifier}`);
-    const entryFile = physical(entry.id), leafFile = physical(leaf.id);
-    const expectedEntry = `packages/medusa-${target.package}/src/services/index.ts`;
-    const expectedLeaf = `packages/medusa-${target.package}/src/services/${target.leaf}.ts`;
-    if (entryFile !== realpathSync(path.resolve(workspace, expectedEntry)) ||
-      leafFile !== realpathSync(path.resolve(workspace, expectedLeaf))) {
-      throw new Error(`Native test resolution did not select the promoted Source implementation: ${specifier}; entry=${entryFile}; leaf=${leafFile}; workspace=${workspace}`);
+  for (const target of proof.targets) {
+    const entry = await environment.pluginContainer.resolveId(target.specifier, importer);
+    if (entry === null || entry.external) throw new Error(`${proof.name} Source export is unresolved or external: ${target.specifier}`);
+    let leaf = entry;
+    for (const specifier of target.imports) {
+      const resolved = await environment.pluginContainer.resolveId(specifier, leaf.id);
+      if (resolved === null || resolved.external) throw new Error(`${proof.name} Source implementation is unresolved or external: ${target.name}/${specifier}`);
+      leaf = resolved;
     }
-    entries.push({ name: target.name, specifier, entry: expectedEntry, leaf: expectedLeaf,
+    const entryFile = physical(entry.id);
+    const leafFile = physical(leaf.id);
+    if (entryFile !== realpathSync(path.resolve(workspace, target.entry)) ||
+      leafFile !== realpathSync(path.resolve(workspace, target.leaf))) {
+      throw new Error(`${proof.name} test resolution did not select the promoted Source implementation: ${target.name}; entry=${entryFile}; leaf=${leafFile}; workspace=${workspace}`);
+    }
+    entries.push({ name: target.name, specifier: target.specifier, entry: target.entry, leaf: target.leaf,
       entrySha256: digest(entryFile), leafSha256: digest(leafFile), external: false });
   }
-  project.provide("nativeStockSalesSource", Schema.decodeUnknownSync(NativeSourceEvidenceSchema)({ environment: "ssr", entries }));
+  return Schema.decodeUnknownSync(NativeSourceEvidenceSchema)({ environment: "ssr", entries });
+}
+
+export default async function nativeSourceEvidence(project: TestProject): Promise<void> {
+  const evidence = await captureNativeSourceEvidence(project, {
+    name: "Native",
+    importer: "test/native-stock-sales-source-provenance.proof.ts",
+    targets: nativeSourceTargets.map(target => ({
+      name: target.name,
+      specifier: `@medusajs/${target.package}/services`,
+      entry: `packages/medusa-${target.package}/src/services/index.ts`,
+      imports: [`./${target.leaf}`],
+      leaf: `packages/medusa-${target.package}/src/services/${target.leaf}.ts`,
+    })),
+  });
+  project.provide("nativeStockSalesSource", evidence);
 }

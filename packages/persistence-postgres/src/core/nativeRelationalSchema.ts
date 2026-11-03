@@ -62,6 +62,7 @@ export const lowerCoreNativeRelationalSchema = Effect.fn("CoreNativeDefinition.l
       // Declared equality follows existing paths below to preserve their identities.
       // JSON declarations remain metadata rather than ordered Core access paths.
       if (index.kind === "textEquality" || index.kind === "jsonContainment") continue;
+      if (index.predicate?.kind === "isNotNull" || index.predicate?.kind === "isNullAndNotNull") continue;
       const eligibility = lowerEligibility(index.predicate);
       if (eligibility === false)
         return yield* unsupported("Relational index requires an ordinary or admitted equality-predicate B-tree lowering");
@@ -150,6 +151,27 @@ export const lowerCoreNativeRelationalSchema = Effect.fn("CoreNativeDefinition.l
     const indexName = record.indexes.find(candidate => sameFields(candidate.fields, fields))?.indexName
       ?? (yield* coreNativeIndexName(table, "index", index.identity.indexId));
     record.indexes.push(Object.freeze({ nativeId: index.identity.indexId, kind: "index", indexName, fields }));
+  }
+  // Existing bindings own equal-field backings and their access policy. New
+  // non-null aliases come last so FK, reverse and equality access stay stable.
+  for (const record of records) for (const index of record.table.indexes) {
+    const predicate = index.predicate;
+    if (predicate?.kind !== "isNotNull" && predicate?.kind !== "isNullAndNotNull") continue;
+    const requiredNonNull = (predicate.kind === "isNotNull" ? predicate.column : predicate.notNullColumn).columnId;
+    if (index.kind !== "btree" || index.columns.length !== 1 || index.columns[0]?.columnId !== requiredNonNull)
+      return yield* unsupported("Relational non-null predicate requires a nonunique B-tree on its single tested key");
+    const requiredPrefix = predicate.kind === "isNullAndNotNull"
+      ? Object.freeze({ field: predicate.nullColumn.columnId, value: null }) : undefined;
+    const fields = Object.freeze(requiredPrefix === undefined ? [requiredNonNull] : [requiredPrefix.field, requiredNonNull]);
+    if (!ordered(record.table, fields)) return yield* unsupported("Relational index requires admitted ordered scalar columns");
+    const table = record.declaration.table;
+    if (table === undefined) return yield* unsupported("Relational table has no authenticated binding");
+    if (record.indexes.some(candidate => candidate.kind === "index" && candidate.nativeId === index.identity.indexId))
+      return yield* unsupported("Relational non-null access path collides with an existing binding");
+    const indexName = record.indexes.find(candidate => sameFields(candidate.fields, fields))?.indexName
+      ?? (yield* coreNativeIndexName(table, "index", index.identity.indexId));
+    record.indexes.push(Object.freeze({ nativeId: index.identity.indexId, kind: "index", indexName, fields, requiredNonNull,
+      ...(requiredPrefix === undefined ? {} : { requiredPrefix }) }));
   }
   const declarations = records.map(({ declaration, indexes }) => {
     const incident = foreignKeys.filter(foreignKey => foreignKey.sourceTable === declaration.name || foreignKey.targetTable === declaration.name);

@@ -6,7 +6,7 @@ import { commerceRelationReadQuery } from "../src/query/relations";
 import { captureOrderMetadata } from "../src/modules/order/schema";
 import { compileOrderChangeDeletionContracts, decodeOrderChangeDeletionArguments, decodeOrderChangeDeletionIds } from "../src/modules/order/change-deletion-input";
 import { orderChangeDeletionPolicy } from "../src/modules/order/change-deletion-receipt";
-import { orderChangeUpdateRows } from "./support/logical-order-change-update-fixture";
+import { orderChangeUpdateRows } from "./support/order-change-rows";
 
 type Call = Parameters<LogicalCallReceiptValidation>[0];
 type Activity = Parameters<LogicalCallReceiptValidation>[1];

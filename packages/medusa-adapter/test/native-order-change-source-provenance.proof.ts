@@ -1,0 +1,98 @@
+import { describe, expect, inject, it } from "vitest";
+import { Effect, Result, Schema } from "effect";
+import { Order, OrderChange, OrderChangeAction } from "@medusajs/order/models";
+import { OrderModuleService, OrderService } from "@medusajs/order/services";
+import { orderModuleExports, orderModuleModels, orderStaticResources } from "@medusajs/order/static-manifest";
+import { updateOrderChangesWorkflow } from "@medusajs/core-flows/order/update-order-changes";
+import { updateOrderChangesStep, updateOrderChangesStepId } from "@medusajs/core-flows/order/update-order-changes-step";
+import { cancelOrderChangeWorkflow } from "@medusajs/core-flows/order/cancel-order-change";
+import { cancelOrderChangeStep, cancelOrderChangeStepId } from "@medusajs/core-flows/order/cancel-order-change-step";
+import { declineOrderChangeWorkflow } from "@medusajs/core-flows/order/decline-order-change";
+import { declineOrderChangeStep, declineOrderChangeStepId } from "@medusajs/core-flows/order/decline-order-change-step";
+import { deleteOrderChangeWorkflow } from "@medusajs/core-flows/order/delete-order-change";
+import { deleteOrderChangesStep, deleteOrderChangesStepId } from "@medusajs/core-flows/order/delete-order-changes-step";
+import { createWorkflow } from "@medusajs/workflows-sdk";
+import { executeWorkflow } from "@medusajs/workflows-sdk/native";
+import { compileOrderCoreDefinition, compileOrderDefinition } from "../src/modules/order/schema";
+import { NativeSourceEvidenceSchema } from "./support/native-stock-sales-source-provenance";
+import { nativeOrderChangeSourceTargets } from "./support/native-order-change-source-provenance";
+
+const decodeEvidence = Schema.decodeUnknownSync(NativeSourceEvidenceSchema);
+const loaded: Record<typeof nativeOrderChangeSourceTargets[number]["name"], unknown> = {
+  "Order module service": OrderModuleService,
+  "Order service": OrderService,
+  "Order static manifest": orderStaticResources,
+  "Order model": Order,
+  "Order Change model": OrderChange,
+  "Order Change Action model": OrderChangeAction,
+  "Update Order Changes workflow": updateOrderChangesWorkflow,
+  "Update Order Changes step": updateOrderChangesStep,
+  "Cancel Order Change workflow": cancelOrderChangeWorkflow,
+  "Cancel Order Change step": cancelOrderChangeStep,
+  "Decline Order Change workflow": declineOrderChangeWorkflow,
+  "Decline Order Change step": declineOrderChangeStep,
+  "Delete Order Change workflow": deleteOrderChangeWorkflow,
+  "Delete Order Changes step": deleteOrderChangesStep,
+  "Native SDK definition": createWorkflow,
+  "Native SDK execution": executeWorkflow,
+};
+
+describe("Order Change native Source execution provenance", () => {
+  it.each(nativeOrderChangeSourceTargets)("loads the promoted $name implementation", target => {
+    const evidence = decodeEvidence(inject("nativeOrderChangeSource"));
+    expect(evidence.entries).toHaveLength(nativeOrderChangeSourceTargets.length);
+    expect(evidence.entries.filter(entry => entry.name === target.name)).toMatchObject([{
+      specifier: target.specifier, entry: target.entry, leaf: target.leaf, external: false,
+    }]);
+    expect(loaded[target.name]).toBeDefined();
+  });
+
+  it("uses the promoted model, service and retained step definitions", () => {
+    expect(orderModuleExports.service).toBe(OrderModuleService);
+    expect(orderStaticResources.moduleService).toBe(OrderModuleService);
+    expect(orderStaticResources.services).toContain(OrderService);
+    expect(orderStaticResources.models).toBe(orderModuleModels);
+    expect(orderModuleModels).toEqual(expect.arrayContaining([Order, OrderChange, OrderChangeAction]));
+    for (const [workflow, stepId] of [
+      [updateOrderChangesWorkflow, updateOrderChangesStepId],
+      [cancelOrderChangeWorkflow, cancelOrderChangeStepId],
+      [declineOrderChangeWorkflow, declineOrderChangeStepId],
+      [deleteOrderChangeWorkflow, deleteOrderChangesStepId],
+    ] as const) {
+      expect(Result.getOrThrow(workflow.prepare()).nodes).toMatchObject([{
+        name: stepId, kind: "step", compensation: "transactionCovered", compensate: expect.any(Function),
+      }]);
+    }
+  });
+
+  it("lowers the complete preserve-mode Order source without command or Application grants", async () => {
+    const target = { scopeUuid: "98f9ef45-9cc8-4a23-883f-0be3a3a2ad69", epochUuid: "bda6935a-b2a6-4c08-b934-1f51d5301da8" };
+    const [native, compiled] = await Effect.runPromise(Effect.all([
+      compileOrderCoreDefinition(target), compileOrderDefinition("preserve"),
+    ]));
+    expect(native.identity).toMatchObject({ ...target, sourceKey: "medusa.order" });
+    expect(native.source).toMatchObject({ key: "medusa.order", writeProfile: "medusa.order", owner: "medusa",
+      definition: { kind: "relational", schema: compiled.schema },
+      evidence: { provenance: compiled.provenance, profile: "medusa.order" } });
+    expect(native.applicationRead).toBe(false);
+    expect(native.commands).toEqual([]);
+    expect(native.source.bindings).toHaveLength(23);
+    expect(native.tables.map(table => table.localName).toSorted())
+      .toEqual(compiled.schema.tables.map(table => table.identity.tableId).toSorted());
+    const sourceConditions = compiled.schema.tables.flatMap(table => table.indexes.flatMap(index => {
+      const predicate = index.predicate;
+      if (predicate?.kind !== "isNotNull" && predicate?.kind !== "isNullAndNotNull") return [];
+      const nonNull = (predicate.kind === "isNotNull" ? predicate.column : predicate.notNullColumn).columnId;
+      const prefix = predicate.kind === "isNullAndNotNull" ? { field: predicate.nullColumn.columnId, value: null } : undefined;
+      return [{ table: table.identity.tableId, index: index.identity.indexId, nonNull, prefix }];
+    }));
+    expect(sourceConditions).toHaveLength(34);
+    for (const condition of sourceConditions) {
+      const declaration = native.tables.find(table => table.localName === condition.table);
+      const index = declaration?.indexes?.find(index => index.nativeId === condition.index);
+      expect(index).toMatchObject({ kind: "index", requiredNonNull: condition.nonNull,
+        fields: condition.prefix === undefined ? [condition.nonNull] : [condition.prefix.field, condition.nonNull] });
+      expect(index?.requiredPrefix).toEqual(condition.prefix);
+    }
+  });
+});

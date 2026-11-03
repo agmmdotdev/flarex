@@ -1,9 +1,5 @@
-import { createHash } from "node:crypto";
-import { readFileSync, realpathSync } from "node:fs";
-import path from "node:path";
-import { Schema } from "effect";
 import type { TestProject } from "vitest/node";
-import { NativeSourceEvidenceSchema, type NativeSourceEvidence } from "./native-stock-sales-source-provenance";
+import { captureNativeSourceEvidence, type NativeSourceEvidence } from "./native-stock-sales-source-provenance";
 
 /** Each chain follows real runtime imports from the selected package export.
  * Private implementation leaves do not need new package exports for this proof. */
@@ -56,30 +52,11 @@ declare module "vitest" {
   }
 }
 
-/** Resolve through the SSR environment that actually runs these tests. */
 export default async function nativeApiKeySourceEvidence(project: TestProject): Promise<void> {
-  if (project.config.environment !== "node") throw new Error("API Key Source proof requires the Node test environment");
-  const environment = project.vite.environments.ssr;
-  if (environment === undefined) throw new Error("API Key Source proof requires the actual Vitest module-runner environment");
-  const workspace = path.resolve(project.config.root, "../..");
-  const importer = path.resolve(project.config.root, "test/native-api-key-source-provenance.proof.ts");
-  const digest = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
-  const physical = (id: string) => realpathSync(id.split("?")[0] ?? id);
-  const entries: NativeSourceEvidence["entries"][number][] = [];
-  for (const target of nativeApiKeySourceTargets) {
-    const entry = await environment.pluginContainer.resolveId(target.specifier, importer);
-    if (entry === null || entry.external) throw new Error(`API Key Source export is unresolved or external: ${target.specifier}`);
-    let leaf = entry;
-    for (const specifier of target.imports) {
-      const resolved = await environment.pluginContainer.resolveId(specifier, leaf.id);
-      if (resolved === null || resolved.external) throw new Error(`API Key Source implementation is unresolved or external: ${target.name}/${specifier}`);
-      leaf = resolved;
-    }
-    const entryFile = physical(entry.id), leafFile = physical(leaf.id);
-    if (entryFile !== realpathSync(path.resolve(workspace, target.entry)) || leafFile !== realpathSync(path.resolve(workspace, target.leaf)))
-      throw new Error(`API Key test resolution did not select Source: ${target.name}; entry=${entryFile}; leaf=${leafFile}`);
-    entries.push({ name: target.name, specifier: target.specifier, entry: target.entry, leaf: target.leaf,
-      entrySha256: digest(entryFile), leafSha256: digest(leafFile), external: false });
-  }
-  project.provide("nativeApiKeySource", Schema.decodeUnknownSync(NativeSourceEvidenceSchema)({ environment: "ssr", entries }));
+  const evidence = await captureNativeSourceEvidence(project, {
+    name: "API Key",
+    importer: "test/native-api-key-source-provenance.proof.ts",
+    targets: nativeApiKeySourceTargets,
+  });
+  project.provide("nativeApiKeySource", evidence);
 }

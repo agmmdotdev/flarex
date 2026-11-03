@@ -475,3 +475,10 @@ fencing and cancellation remain with their existing owners. The trusted deletion
 facade selects a named allowance for the complete graph, with ordinary-budget
 rollback preserved. Bounded connected validation and review are complete. The
 full goal remains open; finite, Task and performance work remains paused.
+
+The [Order Change continuation](./slices/25-native-order-change-workflows.md)
+has replaced all four admitted ordinary workflow roots and retired their
+dedicated Legacy fixtures. The complete 23-model source retains its 34
+conditional declarations through the [shared index lowering](./slices/25a-native-non-null-indexes.md).
+Authenticated bindings use ordinary Core field indexes. Paired acceptance for
+this family is complete. Broader native and hosted gates remain open.

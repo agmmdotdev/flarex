@@ -3,11 +3,11 @@ import { Cause, Effect, Exit, Schema } from "effect";
 import { OrderModuleService } from "@medusajs/order/services";
 import { CommerceTransactionError, isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { prepareOrderChangeDeletionWorkflow } from "../src/workflows/order/delete-order-change";
-import { prepareLogicalOrderChangeDeletion, orderChangeDeletionGraph, orderChangeDeletionStamp } from "./support/logical-order-change-deletion-fixture";
+import { prepareCoreOrderChangeDeletion, orderChangeDeletionGraph, orderChangeDeletionStamp } from "./support/core-order-change-deletion-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalOrderChangeDeletion>>, sharedCleanupCount = 0;
+let connected: Awaited<ReturnType<typeof prepareCoreOrderChangeDeletion>>, sharedCleanupCount = 0;
 const graph = {
   maximum: orderChangeDeletionGraph("change-delete-maximum", 4, 2),
   membership: orderChangeDeletionGraph("change-delete-membership"),
@@ -39,8 +39,11 @@ function reasons(value: unknown): string[] {
   return value instanceof Error ? [value.message, ...reasons(value.cause)] : [];
 }
 function eventsSince(before: Inventory, after: Inventory) {
-  return after.events.filter(event => !before.events.some(prior => prior.scopeUuid === event.scopeUuid &&
-    prior.commitSeq === event.commitSeq && prior.eventOrdinal === event.eventOrdinal));
+  return after.events.filter(event => !before.events.some(prior => prior.familyId === event.familyId && prior.ordinal === event.ordinal));
+}
+function expectUnchangedBusinessAndPublication(before: Inventory, after: Inventory) {
+  for (const field of ["rows", "revisions", "indexes", "events", "families", "deliveries"] as const)
+    expect(after[field]).toEqual(before[field]);
 }
 function expectEvents(events: Inventory["events"], selected: Graph, action: "deleted" | "restored") {
   expect(events).toHaveLength(identities(selected).length);
@@ -56,7 +59,7 @@ function expectEvents(events: Inventory["events"], selected: Graph, action: "del
     });
     expect(sorted(actual)).toEqual(sorted(ids));
   }
-  expect(new Set(events.map(event => event.commitSeq)).size).toBe(1);
+  expect(new Set(events.map(event => event.timestamp)).size).toBe(1);
 }
 function expectOnlyManagedFields(before: readonly JsonObject[], after: readonly JsonObject[], deleted: boolean) {
   expect(after).toHaveLength(before.length);
@@ -71,9 +74,20 @@ function expectOnlyManagedFields(before: readonly JsonObject[], after: readonly 
 
 describe(`genuine native Delete Order Change workflow - ${driver}`, { concurrent: false }, () => {
   beforeAll(async () => {
-    const rows = Object.values(graph).flatMap(value => value.rows);
+    const selectedAction = graph.maximum.actions[0], unrelatedAction = graph.neighbor.actions[0];
+    const selectedOrder = graph.maximum.orders[0], unrelatedOrder = graph.neighbor.orders[0];
+    if (selectedAction === undefined || unrelatedAction === undefined || selectedOrder === undefined || unrelatedOrder === undefined)
+      throw new Error("Missing independent Action ownership witnesses");
+    // Change membership follows order_change_id independently of the Action's
+    // scalar Order and version. The maximum case observes both sides.
+    const rows = Object.values(graph).flatMap(value => value.rows).map(entry => {
+      if (entry.table !== "order_change_action") return entry;
+      if (entry.row.id === selectedAction) return { ...entry, row: { ...entry.row, order_id: unrelatedOrder, version: 99 } };
+      if (entry.row.id === unrelatedAction) return { ...entry, row: { ...entry.row, order_id: selectedOrder, version: 1 } };
+      return entry;
+    });
     const ordered = ["order", "order_change", "order_change_action"].flatMap(table => rows.filter(value => value.table === table));
-    connected = await prepareLogicalOrderChangeDeletion(driver, close => cleanup.push(close), ordered); sharedCleanupCount = cleanup.length;
+    connected = await prepareCoreOrderChangeDeletion(driver, close => cleanup.push(close), ordered); sharedCleanupCount = cleanup.length;
   }, 240_000);
   afterEach(async () => {
     vi.restoreAllMocks();
@@ -89,9 +103,9 @@ describe(`genuine native Delete Order Change workflow - ${driver}`, { concurrent
     expect(native).toHaveBeenCalledTimes(1); expect(native.mock.calls[0]?.[0]).toEqual([]);
     expect(await native.mock.results[0]?.value).toEqual({});
     const after = await connected.snapshot();
-    expect(after.rows).toEqual(before.rows); expect(after.revisions).toEqual(before.revisions);
-    expect(after.rowChanges).toEqual(before.rowChanges); expect(after.events).toEqual(before.events);
-    expect(after.commits).toHaveLength(before.commits.length + 1); expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
+    expectUnchangedBusinessAndPublication(before, after);
+    expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
+    expect(after.outcomes.find(record => record.value.key === key)?.value).toMatchObject({ kind: "nativeRoot", state: "committed" });
     expect(await Effect.runPromise(host.run(key, { ids: [] }))).toBeNull();
     expect(native).toHaveBeenCalledTimes(1); expect(await connected.snapshot()).toEqual(after);
   }, 120_000);
@@ -108,9 +122,17 @@ describe(`genuine native Delete Order Change workflow - ${driver}`, { concurrent
     expect(await connected.read(selected.orders)).toEqual(beforeParents);
     expect(await connected.read(allIdentities(graph.neighbor))).toEqual(beforeNeighbor);
     const after = await connected.snapshot(); expect(after.rows).toHaveLength(before.rows.length);
-    expect(after.revisions).toHaveLength(before.revisions.length + 12); expect(after.rowChanges).toHaveLength(before.rowChanges.length + 12);
-    expect(after.commits).toHaveLength(before.commits.length + 1); expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
-    expectEvents(eventsSince(before, after), selected, "deleted");
+    const outcome = after.outcomes.find(record => record.value.key === key);
+    expect(outcome?.value).toMatchObject({ kind: "nativeRoot", state: "committed" });
+    expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
+    expect(after.revisions).toHaveLength(before.revisions.length + 12);
+    expect(sorted(after.revisions.filter(row => row.timestamp === outcome?.timestamp).map(row => String(row.value?.id))))
+      .toEqual(sorted(identities(selected)));
+    const events = eventsSince(before, after);
+    expectEvents(events, selected, "deleted");
+    expect(events.every(event => event.timestamp === outcome?.timestamp)).toBe(true);
+    expect(after.families).toHaveLength(before.families.length + 1);
+    expect(after.deliveries).toHaveLength(before.deliveries.length + 12);
     expect(await Effect.runPromise(host.run(key, request))).toBeNull(); expect(native).toHaveBeenCalledTimes(1);
     expect(await connected.snapshot()).toEqual(after);
     await expect(Effect.runPromise(host.run(key, { ids: [...ids].reverse() }))).rejects.toMatchObject({ reason: "requestConflict" });
@@ -126,11 +148,11 @@ describe(`genuine native Delete Order Change workflow - ${driver}`, { concurrent
     expect(result).toEqual({ output: { order_change_id: [id], OrderChangeAction: await connected.read(selected.actions) }, retainedIds: ids });
     expect(ids).toEqual(owned); expect(native.mock.calls[0]?.[0]).toEqual(ids);
     const after = await connected.snapshot(); expectEvents(eventsSince(before, after), selected, "deleted");
-    expect(after.rowChanges).toHaveLength(before.rowChanges.length + 3);
+    expect(after.revisions).toHaveLength(before.revisions.length + 3);
     const repeated = await Effect.runPromise(host.run(host.newRequestKey(), { ids }));
     expect(repeated).toEqual({ output: {}, retainedIds: ids });
     const again = await connected.snapshot();
-    expect(again.rows).toEqual(after.rows); expect(again.rowChanges).toEqual(after.rowChanges); expect(again.events).toEqual(after.events);
+    expectUnchangedBusinessAndPublication(after, again);
   }, 120_000);
 
   it("rewrites complete historical Action descendants and emits their native delete events", async () => {
@@ -141,7 +163,7 @@ describe(`genuine native Delete Order Change workflow - ${driver}`, { concurrent
     const afterRows = await connected.read(identities(selected)), after = await connected.snapshot();
     expectOnlyManagedFields(beforeRows, afterRows, true);
     expect(afterRows.every(row => row.deleted_at !== orderChangeDeletionStamp)).toBe(true);
-    expect(after.rowChanges).toHaveLength(before.rowChanges.length + 6); expectEvents(eventsSince(before, after), selected, "deleted");
+    expect(after.revisions).toHaveLength(before.revisions.length + 6); expectEvents(eventsSince(before, after), selected, "deleted");
     expect(await connected.read(selected.orders)).toEqual(parents);
   }, 120_000);
 
@@ -151,8 +173,7 @@ describe(`genuine native Delete Order Change workflow - ${driver}`, { concurrent
     expect(await Effect.runPromise(forward.run(forward.newRequestKey(), { ids }))).toEqual({ output: {}, retainedIds: ids });
     expect(await connected.read(allIdentities(selected))).toEqual(beforeRows);
     const after = await connected.snapshot();
-    expect(after.rows).toEqual(before.rows); expect(after.revisions).toEqual(before.revisions);
-    expect(after.rowChanges).toEqual(before.rowChanges); expect(after.events).toEqual(before.events);
+    expectUnchangedBusinessAndPublication(before, after);
   }, 120_000);
 
   it("refuses a ninth historical Action before any root or child transition", async () => {
@@ -172,8 +193,7 @@ describe(`genuine native Delete Order Change workflow - ${driver}`, { concurrent
       .toEqual({ output: {}, retainedIds: selected.changes });
     expect(await connected.read(allIdentities(selected))).toEqual(beforeRows);
     const after = await connected.snapshot();
-    expect(after.rows).toEqual(before.rows); expect(after.revisions).toEqual(before.revisions);
-    expect(after.rowChanges).toEqual(before.rowChanges); expect(after.events).toEqual(before.events);
+    expectUnchangedBusinessAndPublication(before, after);
   }, 120_000);
 
   it("restores selected historical Changes and Actions beneath historical Orders while retaining the parent history", async () => {
@@ -182,7 +202,7 @@ describe(`genuine native Delete Order Change workflow - ${driver}`, { concurrent
     expect(await Effect.runPromise(restore.run(restore.newRequestKey(), { ids: selected.changes }))).toBeNull();
     expectOnlyManagedFields(beforeRows, await connected.read(identities(selected)), false);
     expect(await connected.read(selected.orders)).toEqual(beforeParents);
-    const after = await connected.snapshot(); expect(after.rowChanges).toHaveLength(before.rowChanges.length + 3);
+    const after = await connected.snapshot(); expect(after.revisions).toHaveLength(before.revisions.length + 3);
     expectEvents(eventsSince(before, after), selected, "restored");
   }, 120_000);
 
@@ -199,12 +219,13 @@ describe(`genuine native Delete Order Change workflow - ${driver}`, { concurrent
     expectOnlyManagedFields(beforeRows, afterRows, false);
     expect(afterRows.every(row => row.deleted_at === null)).toBe(true);
     expect(await connected.read(selected.orders)).toEqual(parents);
-    expect(after.rowChanges).toHaveLength(before.rowChanges.length + 12); expectEvents(eventsSince(before, after), selected, "restored");
+    expect(after.revisions).toHaveLength(before.revisions.length + 12); expectEvents(eventsSince(before, after), selected, "restored");
     const repeatBefore = await connected.snapshot();
     expect(await Effect.runPromise(restore.run(restore.newRequestKey(), { ids }))).toBeNull();
     const repeated = await connected.snapshot();
     expect(await connected.read(identities(selected))).toEqual(afterRows);
-    expect(repeated.rowChanges).toEqual(repeatBefore.rowChanges); expect(repeated.revisions).toEqual(repeatBefore.revisions);
+    expect(repeated.rows).toEqual(repeatBefore.rows); expect(repeated.revisions).toEqual(repeatBefore.revisions);
+    expect(repeated.indexes).toEqual(repeatBefore.indexes);
     expectEvents(eventsSince(repeatBefore, repeated), selected, "restored");
   }, 240_000);
 
@@ -213,8 +234,7 @@ describe(`genuine native Delete Order Change workflow - ${driver}`, { concurrent
       before = await connected.snapshot();
     expect(await Effect.runPromise(restore.run(restore.newRequestKey(), { ids: [] }))).toBeNull();
     expect(native).toHaveBeenCalledTimes(1); expect(native.mock.calls[0]?.[0]).toEqual([]); expect(await native.mock.results[0]?.value).toEqual({});
-    const after = await connected.snapshot(); expect(after.rows).toEqual(before.rows); expect(after.revisions).toEqual(before.revisions);
-    expect(after.rowChanges).toEqual(before.rowChanges); expect(after.events).toEqual(before.events);
+    expectUnchangedBusinessAndPublication(before, await connected.snapshot());
   }, 120_000);
 
   it("forwards raw duplicate, missing and empty inverse IDs without recreating absent Changes", async () => {
@@ -227,7 +247,7 @@ describe(`genuine native Delete Order Change workflow - ${driver}`, { concurrent
     expect(await native.mock.results[0]?.value).toEqual({ order_change_id: selected.changes, OrderChangeAction: await connected.read(selected.actions) });
     expectOnlyManagedFields(beforeRows, await connected.read(identities(selected)), false);
     const after = await connected.snapshot(); expect(after.rows).toHaveLength(before.rows.length);
-    expect(after.rowChanges).toHaveLength(before.rowChanges.length + 3); expectEvents(eventsSince(before, after), selected, "restored");
+    expect(after.revisions).toHaveLength(before.revisions.length + 3); expectEvents(eventsSince(before, after), selected, "restored");
     expect(await connected.read(["", "missing-inverse-change"])).toEqual([]);
   }, 120_000);
 
@@ -244,10 +264,10 @@ describe(`genuine native Delete Order Change workflow - ${driver}`, { concurrent
     const after = await connected.snapshot(), emitted = eventsSince(before, after);
     expectEvents(emitted.filter(event => event.envelope.contract.endsWith(".deleted")), selected, "deleted");
     expectEvents(emitted.filter(event => event.envelope.contract.endsWith(".restored")), selected, "restored");
-    expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1);
+    expect(new Set(emitted.map(event => event.timestamp)).size).toBe(1);
   }, 120_000);
 
-  it("rolls back the complete historical cascade, indexes, facts, events and outcomes after late parent failure", async () => {
+  it("rolls back the complete historical cascade, indexes, events and outcomes after late parent failure", async () => {
     const host = await connected.prepareLateFailure(), native = vi.spyOn(OrderModuleService.prototype, "softDeleteOrderChanges"),
       before = await connected.snapshot(), failed = await Effect.runPromiseExit(host.run(host.newRequestKey(), { ids: graph.late.changes }));
     expect(native).toHaveBeenCalledTimes(1); expect(Exit.isFailure(failed)).toBe(true);
@@ -271,9 +291,8 @@ describe(`genuine native Delete Order Change workflow - ${driver}`, { concurrent
   }, 120_000);
 
   it("confines identical Order, Change and Action identities and a shared request key to independent project scopes", async () => {
-    const peer = await prepareLogicalOrderChangeDeletion(driver, close => cleanup.push(close), graph.scope.rows, {
-      resource: connected.fixture.resource, fixtureIdentity: { deploymentId: "order-change-deletion-peer", projectId: "order-change-deletion-peer", uuidOffset: 29_000_000 },
-    }), host = await connected.prepare(), other = await peer.prepare(), key = host.newRequestKey(),
+    const peer = await prepareCoreOrderChangeDeletion(driver, close => cleanup.push(close), graph.scope.rows, connected.fixture.physical),
+      host = await connected.prepare(), other = await peer.prepare(), key = host.newRequestKey(),
       peerBefore = await peer.read(allIdentities(graph.scope));
     expect(await Effect.runPromise(host.run(key, { ids: graph.scope.changes }))).toBeNull();
     expect(await peer.read(allIdentities(graph.scope))).toEqual(peerBefore);
@@ -290,7 +309,8 @@ describe(`genuine native Delete Order Change workflow - ${driver}`, { concurrent
     for (const damaged of [{ forged: true }, [], "undefined"]) await connected.withStoredOrderResult(key, damaged, async () => {
       const before = await connected.snapshot(), failed = await Effect.runPromiseExit(host.run(key, request));
       expect(Exit.isFailure(failed)).toBe(true);
-      if (Exit.isFailure(failed)) expect(reasons(failed.cause)).toContain("storedCorruption");
+      if (Exit.isFailure(failed)) expect(failed.cause.reasons.some(reason => Cause.isFailReason(reason)
+        && reason.error.reason === "storedCorruption" && Schema.isSchemaError(reason.error.cause))).toBe(true);
       expect(native).toHaveBeenCalledTimes(1); expect(await connected.snapshot()).toEqual(before);
     });
     expect(await Effect.runPromise(host.run(key, request))).toBeNull(); expect(native).toHaveBeenCalledTimes(1);

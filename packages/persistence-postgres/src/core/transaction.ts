@@ -1521,8 +1521,11 @@ export function createCoreTransaction(input: Readonly<{
     const options = yield* decodeNativePageOptions(inputOptions).pipe(Effect.mapError(cause => new CoreNativeQueryError({ reason: "invalidInput", cause })));
     const { table, index } = yield* Effect.fromResult(selectIndex(tableName, options.indexName, access));
     const where = yield* Effect.fromResult(captureCoreNativeWhere(inputWhere));
-    const prefix = access?.kind === "native" ? access.authority.definition.tables.find(declaration => declaration.name === table.name)
-      ?.indexes?.find(declaration => declaration.indexName === index.name)?.requiredPrefix : undefined;
+    const binding = access?.kind === "native" ? access.authority.definition.tables.find(declaration => declaration.name === table.name)
+      ?.indexes?.find(declaration => declaration.indexName === index.name) : undefined;
+    if (binding?.requiredNonNull !== undefined)
+      return yield* new CoreNativeQueryError({ reason: "invalidInput", cause: "Native non-null index does not admit named pages" });
+    const prefix = binding?.requiredPrefix;
     if (prefix !== undefined && !coreNativeEligibilityMatches(prefix, where))
       return yield* new CoreNativeQueryError({ reason: "invalidInput", cause: "Native index requires its declared predicate prefix" });
     const interval = yield* Effect.fromResult(coreNativePageInterval(index, where));

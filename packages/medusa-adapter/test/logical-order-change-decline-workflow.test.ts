@@ -4,12 +4,13 @@ import { OrderModuleService } from "@medusajs/order/services";
 import { MedusaError } from "@medusajs/framework/utils/portable";
 import { CommerceTransactionError, isJsonObject, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { prepareOrderChangeDeclineWorkflow } from "../src/workflows/order/decline-order-change";
-import { prepareLogicalOrderChangeDecline, orderChangeDeclineIds, orderChangeDeclineRows,
-  orderChangeDeclineStamp, type OrderInitialRow } from "./support/logical-order-change-decline-fixture";
+import { prepareCoreOrderChangeDecline, orderChangeDeclineIds, orderChangeDeclineRows,
+  orderChangeDeclineStamp } from "./support/core-order-change-decline-fixture";
+import type { OrderInitialRow } from "./support/order-change-rows";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalOrderChangeDecline>>, sharedCleanupCount = 0, ordinal = 0;
+let connected: Awaited<ReturnType<typeof prepareCoreOrderChangeDecline>>, sharedCleanupCount = 0;
 type Local = typeof connected;
 type Inventory = Awaited<ReturnType<Local["snapshot"]>>;
 const withoutUpdated = (row: JsonObject) => { const { updated_at: _updated, ...rest } = row; return rest; };
@@ -37,8 +38,7 @@ function expectNativeRefusal(exit: Exit.Exit<unknown, CommerceTransactionError>,
   expect(exit.cause.reasons.some(Cause.isDieReason)).toBe(false);
 }
 function eventsSince(before: Inventory, after: Inventory) {
-  return after.events.filter(event => !before.events.some(prior => prior.scopeUuid === event.scopeUuid &&
-    prior.commitSeq === event.commitSeq && prior.eventOrdinal === event.eventOrdinal));
+  return after.events.filter(event => !before.events.some(prior => prior.familyId === event.familyId && prior.ordinal === event.ordinal));
 }
 function eventVector(events: Inventory["events"]) {
   return events.map(event => {
@@ -49,10 +49,21 @@ function eventVector(events: Inventory["events"]) {
     return [event.envelope.contract, message.data.id];
   });
 }
-async function scenario(name: string, rows: readonly OrderInitialRow[] = orderChangeDeclineRows()) {
-  const number = ++ordinal;
-  return prepareLogicalOrderChangeDecline(driver, close => cleanup.push(close), rows, { resource: connected.fixture.resource,
-    fixtureIdentity: { deploymentId: `order-change-decline-${name}-${number}`, projectId: "order-change-decline", uuidOffset: 20_000_000 + number * 10_000 } });
+function expectCommittedUpdates(before: Inventory, after: Inventory, key: string, ids: readonly string[]) {
+  const outcome = after.outcomes.find(record => record.value.key === key);
+  expect(outcome?.value).toMatchObject({ kind: "nativeRoot", state: "committed" });
+  const added = after.revisions.filter(row => !before.revisions.some(prior => prior.table === row.table &&
+    prior.id === row.id && prior.timestamp === row.timestamp));
+  expect(added.map(row => row.value?.id).toSorted()).toEqual(ids.toSorted());
+  expect(added.every(row => row.timestamp === outcome?.timestamp && !row.deleted)).toBe(true);
+  const events = eventsSince(before, after);
+  expect(eventVector(events)).toEqual(ids.map(id => ["order.order-change.updated", id]));
+  expect(events.every(event => event.timestamp === outcome?.timestamp)).toBe(true);
+  expect(after.families).toHaveLength(before.families.length + 1);
+  expect(after.deliveries).toHaveLength(before.deliveries.length + ids.length);
+}
+function scenario(rows?: readonly OrderInitialRow[]) {
+  return prepareCoreOrderChangeDecline(driver, close => cleanup.push(close), rows, connected.fixture.physical);
 }
 async function selected(local: Local, id: string = orderChangeDeclineIds[0]) {
   const row = (await local.readChanges()).find(value => value.id === id);
@@ -65,15 +76,17 @@ const retainedFrom = (row: JsonObject, metadata: boolean) => ({ ...Object.fromEn
 
 describe(`genuine native Order Change decline workflow - ${driver}`, { concurrent: false }, () => {
   beforeAll(async () => {
-    connected = await prepareLogicalOrderChangeDecline(driver, close => cleanup.push(close)); sharedCleanupCount = cleanup.length;
+    connected = await prepareCoreOrderChangeDecline(driver, close => cleanup.push(close)); sharedCleanupCount = cleanup.length;
   }, 240_000);
   afterEach(async () => {
-    vi.restoreAllMocks(); for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close();
+    vi.restoreAllMocks();
+    try { await connected?.closeCaseHosts(); }
+    finally { for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }
   }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
   it("declines one pending Change, preserves all other tables and inputs, and replays the void root once", async () => {
-    const local = await scenario("root"), id = orderChangeDeclineIds[0], request = { id, declined_by: "native-actor" },
+    const local = connected, id = orderChangeDeclineIds[0], request = { id, declined_by: "native-actor" },
       owned = structuredClone(request), beforeRows = await local.readChanges(), beforeOther = await local.read(unaffectedIds()), before = await local.snapshot(),
       retrieve = vi.spyOn(OrderModuleService.prototype, "retrieveOrderChange"), decline = vi.spyOn(OrderModuleService.prototype, "declineOrderChange"),
       host = await local.prepare(), key = host.newRequestKey();
@@ -87,10 +100,7 @@ describe(`genuine native Order Change decline workflow - ${driver}`, { concurren
     expect(beforeOther.filter(row => actionIds.includes(row.id))).toHaveLength(actionIds.length);
     expect(afterRows.filter(row => row.id !== id)).toEqual(beforeRows.filter(row => row.id !== id));
     expect(await local.read(unaffectedIds())).toEqual(beforeOther); expect(after.rows).toHaveLength(before.rows.length);
-    const additions = after.revisions.filter(row => !before.revisions.some(prior => prior.scopeUuid === row.scopeUuid &&
-      prior.tableId === row.tableId && prior.commitSeq === row.commitSeq && Buffer.from(prior.rowId).equals(Buffer.from(row.rowId))));
-    expect(additions).toHaveLength(1); expect(after.rowChanges.length - before.rowChanges.length).toBe(1);
-    expect(eventVector(eventsSince(before, after))).toEqual([["order.order-change.updated", id]]);
+    expectCommittedUpdates(before, after, key, [id]);
     expect(retrieve).toHaveBeenCalledTimes(1); expect(decline).toHaveBeenCalledTimes(1);
     expect(await Effect.runPromise(host.run(key, request))).toBeNull();
     expect(retrieve).toHaveBeenCalledTimes(1); expect(decline).toHaveBeenCalledTimes(1); expect(await local.snapshot()).toEqual(after);
@@ -99,7 +109,7 @@ describe(`genuine native Order Change decline workflow - ${driver}`, { concurren
 
   it("retains and restores requested status and pre-existing decline scalars through the genuine inverse", async () => {
     const id = orderChangeDeclineIds[2], rows = orderChangeDeclineRows().map(value => value.table === "order_change" && value.row.id === id
-      ? { ...value, row: { ...value.row, status: "requested" } } : value), local = await scenario("requested", rows),
+      ? { ...value, row: { ...value.row, status: "requested" } } : value), local = await scenario(rows),
       beforeRows = await local.readChanges(), prior = await selected(local, id),
       beforeOther = await local.read(unaffectedIds()), forward = await local.prepareForward(),
       result = await Effect.runPromise(forward.run(forward.newRequestKey(), { id, declined_by: "" }));
@@ -120,8 +130,8 @@ describe(`genuine native Order Change decline workflow - ${driver}`, { concurren
     { name: "empty", patch: {}, expected: {} },
     { name: "null-value", patch: { retained_null: null },
       expected: { ordinal: 0, nested: { unchanged: orderChangeDeclineIds[0] }, literal_empty: "", retained_null: null } },
-  ])("preserves native forward metadata $name and exactly restores the detached retained JSON including literal empty strings", async ({ name, patch, expected }) => {
-    const local = await scenario("metadata-" + name), id = orderChangeDeclineIds[0], prior = await selected(local),
+  ])("preserves native forward metadata $name and exactly restores the detached retained JSON including literal empty strings", async ({ patch, expected }) => {
+    const local = await scenario(), id = orderChangeDeclineIds[0], prior = await selected(local),
       beforeOther = await local.read(unaffectedIds()), forward = await local.prepareForward(), request = { id, metadata: patch }, owned = structuredClone(request),
       result = await Effect.runPromise(forward.run(forward.newRequestKey(), request));
     expect(request).toEqual(owned); expect(result.preimage).toEqual(retainedFrom(prior, true));
@@ -140,7 +150,7 @@ describe(`genuine native Order Change decline workflow - ${driver}`, { concurren
   }, 240_000);
 
   it("executes genuine forward and exact inverse in one borrowed root without changing Actions or other Change fields", async () => {
-    const local = await scenario("roundtrip"), beforeRows = await local.readChanges(), beforeOther = await local.read(unaffectedIds()),
+    const local = await scenario(), beforeRows = await local.readChanges(), beforeOther = await local.read(unaffectedIds()),
       forward = await local.prepareForward(true), before = await local.snapshot();
     await Effect.runPromise(forward.run(forward.newRequestKey(), { id: orderChangeDeclineIds[0], metadata: { temporary: { key: "value" } } }));
     expect((await local.readChanges()).map(withoutUpdated)).toEqual(beforeRows.map(withoutUpdated));
@@ -152,7 +162,7 @@ describe(`genuine native Order Change decline workflow - ${driver}`, { concurren
 
   it("restores prior null metadata exactly rather than replacing it with an empty object", async () => {
     const rows = orderChangeDeclineRows().map(value => value.table === "order_change" && value.row.id === orderChangeDeclineIds[0]
-      ? { ...value, row: { ...value.row, metadata: null } } : value), local = await scenario("prior-null", rows), prior = await selected(local),
+      ? { ...value, row: { ...value.row, metadata: null } } : value), local = await scenario(rows), prior = await selected(local),
       forward = await local.prepareForward(), result = await Effect.runPromise(forward.run(forward.newRequestKey(), { id: orderChangeDeclineIds[0], metadata: { new: true } })),
       inverse = await local.prepareInverse();
     expect(result.preimage.metadata).toBeNull(); expectDeclinedRow(prior, await selected(local), { metadata: { new: true } });
@@ -164,7 +174,7 @@ describe(`genuine native Order Change decline workflow - ${driver}`, { concurren
     const terminal = ["confirmed", "declined", "canceled", null], rows = orderChangeDeclineRows().map(value => {
       const index = orderChangeDeclineIds.findIndex(id => id === value.row.id);
       return value.table === "order_change" && index >= 0 ? { ...value, row: { ...value.row, status: terminal[index]! } } : value;
-    }), local = await scenario("terminal", rows), host = await local.prepare();
+    }), local = await scenario(rows), host = await local.prepare();
     for (const id of orderChangeDeclineIds) {
       const before = await local.snapshot(), failed = await Effect.runPromiseExit(host.run(host.newRequestKey(), { id }));
       expect(Exit.isFailure(failed)).toBe(true);
@@ -176,7 +186,7 @@ describe(`genuine native Order Change decline workflow - ${driver}`, { concurren
 
   it("refuses missing and historical Changes through the native service without persisting failed outcomes", async () => {
     const rows = orderChangeDeclineRows().map(value => value.table === "order_change" && value.row.id === orderChangeDeclineIds[0]
-      ? { ...value, row: { ...value.row, deleted_at: orderChangeDeclineStamp } } : value), local = await scenario("missing", rows), host = await local.prepare();
+      ? { ...value, row: { ...value.row, deleted_at: orderChangeDeclineStamp } } : value), local = await scenario(rows), host = await local.prepare();
     for (const id of ["ordch-missing", orderChangeDeclineIds[0]]) {
       const before = await local.snapshot(), failed = await Effect.runPromiseExit(host.run(host.newRequestKey(), { id }));
       expect(Exit.isFailure(failed)).toBe(true);
@@ -191,7 +201,7 @@ describe(`genuine native Order Change decline workflow - ${driver}`, { concurren
     if (change === undefined || typeof change.row.order_id !== "string") throw new Error("Missing existing Change parent");
     const historical = rows.map(value => value.table === "order" && value.row.id === change.row.order_id
       ? { ...value, row: { ...value.row, deleted_at: orderChangeDeclineStamp } } : value),
-      local = await scenario("historical-parent", historical), host = await local.prepare(), before = await local.snapshot(),
+      local = await scenario(historical), host = await local.prepare(), before = await local.snapshot(),
       retrieve = vi.spyOn(OrderModuleService.prototype, "retrieveOrderChange"), list = vi.spyOn(OrderModuleService.prototype, "listOrderChanges"),
       decline = vi.spyOn(OrderModuleService.prototype, "declineOrderChange"),
       failed = await Effect.runPromiseExit(host.run(host.newRequestKey(), { id, metadata: { must_not_persist: true } }));
@@ -203,7 +213,7 @@ describe(`genuine native Order Change decline workflow - ${driver}`, { concurren
     expect(await local.snapshot()).toEqual(before);
   }, 240_000);
   it("never recreates a missing Change while applying a genuine retained inverse", async () => {
-    const local = await scenario("inverse-missing"), forward = await local.prepareForward(),
+    const local = await scenario(), forward = await local.prepareForward(),
       result = await Effect.runPromise(forward.run(forward.newRequestKey(), { id: orderChangeDeclineIds[0], metadata: { temporary: true } })),
       inverse = await local.prepareInverse(), before = await local.snapshot(),
       failed = await Effect.runPromiseExit(inverse.run(inverse.newRequestKey(), { ...result.preimage, id: "ordch-inverse-missing" }));
@@ -212,8 +222,8 @@ describe(`genuine native Order Change decline workflow - ${driver}`, { concurren
     expectNativeRefusal(failed, MedusaError.Types.NOT_FOUND, "ordch-inverse-missing");
     expect(await local.snapshot()).toEqual(before);
   }, 240_000);
-  it("rolls back rows, indexes, facts, events and outcomes after a late native parent failure", async () => {
-    const local = await scenario("late-parent"), host = await local.prepareLateFailure(), before = await local.snapshot(),
+  it("rolls back rows, revisions, indexes, events and outcomes after a late native parent failure", async () => {
+    const local = await scenario(), host = await local.prepareLateFailure(), before = await local.snapshot(),
       decline = vi.spyOn(OrderModuleService.prototype, "declineOrderChange"), failed = await Effect.runPromiseExit(host.run(host.newRequestKey(),
         { id: orderChangeDeclineIds[0], declined_by: "rollback-actor", metadata: { must_rollback: true } }));
     expect(Exit.isFailure(failed)).toBe(true); expect(decline).toHaveBeenCalledTimes(1);
@@ -227,7 +237,7 @@ describe(`genuine native Order Change decline workflow - ${driver}`, { concurren
   }, 240_000);
 
   it("rejects unsupported fields and plural input before any native execution", async () => {
-    const local = await scenario("unsupported"), host = await local.prepare(), before = await local.snapshot(),
+    const local = await scenario(), host = await local.prepare(), before = await local.snapshot(),
       retrieve = vi.spyOn(OrderModuleService.prototype, "retrieveOrderChange"), decline = vi.spyOn(OrderModuleService.prototype, "declineOrderChange");
     for (const extra of [{ status: "declined" }, { declined_at: orderChangeDeclineStamp }, { declined_by: null }, { metadata: [] },
       { declined_reason: "forged" }, { canceled_by: "forged" }, { canceled_at: orderChangeDeclineStamp },
@@ -239,7 +249,7 @@ describe(`genuine native Order Change decline workflow - ${driver}`, { concurren
   }, 180_000);
 
   it("serializes concurrent retained child resource calls and publishes exactly two native events", async () => {
-    const local = await scenario("concurrent-children"), ids: string[] = [orderChangeDeclineIds[0], orderChangeDeclineIds[1]],
+    const local = await scenario(), ids: string[] = [orderChangeDeclineIds[0], orderChangeDeclineIds[1]],
       beforeRows = await local.readChanges(), beforeOther = await local.read(unaffectedIds()), before = await local.snapshot(),
       original = OrderModuleService.prototype.declineOrderChange;
     let active = 0, peak = 0;
@@ -247,8 +257,8 @@ describe(`genuine native Order Change decline workflow - ${driver}`, { concurren
       active++; peak = Math.max(peak, active);
       try { await Reflect.apply(original, this, args); } finally { active--; }
     });
-    const host = await local.prepareConcurrent();
-    expect(await Effect.runPromise(host.run(host.newRequestKey(), ids.map(id => ({ id, declined_by: "concurrent-native-actor" }))))).toBeNull();
+    const host = await local.prepareConcurrent(), key = host.newRequestKey();
+    expect(await Effect.runPromise(host.run(key, ids.map(id => ({ id, declined_by: "concurrent-native-actor" }))))).toBeNull();
     expect(decline).toHaveBeenCalledTimes(2); expect(peak).toBe(1); expect(active).toBe(0);
     const afterRows = await local.readChanges(), after = await local.snapshot();
     expect(afterRows.filter(row => ids.includes(String(row.id))).map(row => [row.id, row.status, row.declined_by])).toEqual(
@@ -260,39 +270,42 @@ describe(`genuine native Order Change decline workflow - ${driver}`, { concurren
     }
     expect(afterRows.filter(row => !ids.includes(String(row.id)))).toEqual(beforeRows.filter(row => !ids.includes(String(row.id))));
     expect(await local.read(unaffectedIds())).toEqual(beforeOther); expect(after.rows).toHaveLength(before.rows.length);
-    expect(after.revisions.length - before.revisions.length).toBe(2); expect(after.rowChanges.length - before.rowChanges.length).toBe(2);
-    expect(eventVector(eventsSince(before, after))).toEqual(ids.map(id => ["order.order-change.updated", id]));
+    expectCommittedUpdates(before, after, key, ids);
   }, 240_000);
   it("keeps a caught sibling refusal sticky and rejects escaped methods after settlement", async () => {
-    const local = await scenario("authority"), host = await local.prepareDeniedSibling(), before = await local.snapshot(),
+    const local = await scenario(), host = await local.prepareDeniedSibling(), before = await local.snapshot(),
       failed = await Effect.runPromiseExit(host.run(host.newRequestKey(), { id: orderChangeDeclineIds[0] }));
     expect(Exit.isFailure(failed)).toBe(true); expect(await local.snapshot()).toEqual(before);
     await expect(local.callEscaped()).rejects.toBeDefined(); expect(await local.snapshot()).toEqual(before);
   }, 180_000);
 
-  it("confines identical Change and parent IDs to their project scope", async () => {
-    const local = await scenario("scope-one"), peerRows = orderChangeDeclineRows().map(value => value.table === "order_change"
+  it("confines identical Change and parent IDs to their independent Core instances", async () => {
+    const local = await scenario(), peerRows = orderChangeDeclineRows().map(value => value.table === "order_change"
       ? { ...value, row: { ...value.row, metadata: { peer: true }, declined_by: "peer" } } : value),
-      peer = await scenario("scope-two", peerRows), beforePeer = await peer.readChanges(), host = await local.prepare();
+      peer = await scenario(peerRows), beforePeer = await peer.snapshot(), host = await local.prepare();
+    expect(local.fixture.physical.instanceName).not.toBe(peer.fixture.physical.instanceName);
     await Effect.runPromise(host.run(host.newRequestKey(), { id: orderChangeDeclineIds[0], metadata: { local: true } }));
-    expect(await peer.readChanges()).toEqual(beforePeer);
+    expect(await peer.snapshot()).toEqual(beforePeer);
   }, 240_000);
 
   it("refuses corrupted durable void results on replay without invoking the native service again", async () => {
-    const local = await scenario("corrupt-replay"), host = await local.prepare(), key = host.newRequestKey(), request = { id: orderChangeDeclineIds[0] },
+    const local = await scenario(), host = await local.prepare(), key = host.newRequestKey(), request = { id: orderChangeDeclineIds[0] },
       decline = vi.spyOn(OrderModuleService.prototype, "declineOrderChange");
     expect(await Effect.runPromise(host.run(key, request))).toBeNull();
+    const committed = await local.snapshot();
     for (const damaged of [{ forged: true }, [], "undefined"]) await local.withStoredOrderResult(key, damaged, async () => {
       const before = await local.snapshot(), failed = await Effect.runPromiseExit(host.run(key, request));
       expect(Exit.isFailure(failed)).toBe(true);
-      if (Exit.isFailure(failed)) expect(reasons(failed.cause)).toContain("storedCorruption");
+      if (Exit.isFailure(failed)) expect(failed.cause.reasons.some(reason => Cause.isFailReason(reason) &&
+        reason.error.reason === "storedCorruption" && Schema.isSchemaError(reason.error.cause))).toBe(true);
       expect(decline).toHaveBeenCalledTimes(1); expect(await local.snapshot()).toEqual(before);
     });
     expect(await Effect.runPromise(host.run(key, request))).toBeNull(); expect(decline).toHaveBeenCalledTimes(1);
+    expect(await local.snapshot()).toEqual(committed);
   }, 240_000);
 
   it("rejects unadmitted workflow options before execution", async () => {
-    const local = await scenario("construction"), before = await local.snapshot();
+    const local = await scenario(), before = await local.snapshot();
     for (const extra of [{ hooks: {} }, { logicalResources: {} }])
       expect(Exit.isFailure(await Effect.runPromiseExit(prepareOrderChangeDeclineWorkflow({ ...local.options, ...extra })))).toBe(true);
     expect(await local.snapshot()).toEqual(before);

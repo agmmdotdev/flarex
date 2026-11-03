@@ -81,6 +81,8 @@ export interface CoreNativeRelationalIndex {
   readonly indexName: string;
   readonly fields: readonly string[];
   readonly requiredPrefix?: CoreNativeEligibility;
+  /** Non-null native predicate retained on a full ordinary backing index. */
+  readonly requiredNonNull?: string;
 }
 export interface CoreNativeRelationalRowPolicy {
   readonly table: RelationalTableDefinition;

@@ -7,10 +7,10 @@ import { OrderChangeDeletionInput, prepareOrderChangeDeletionWorkflow } from "..
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
-import { prepareLogicalOrderFixture, type OrderFixtureShared, type OrderInitialRow } from "./logical-order-fixture";
-import { orderChangeUpdateRows, orderChangeUpdateStamp } from "./logical-order-change-update-fixture";
+import type { CorePersistenceFixture } from "../../../persistence-postgres/test/core/fixture";
+import { prepareCoreOrderChangeFixture } from "./core-order-change-fixture";
+import { orderChangeUpdateRows, orderChangeUpdateStamp, type OrderInitialRow } from "./order-change-rows";
 
-export type { OrderInitialRow } from "./logical-order-fixture";
 export const orderChangeDeletionStamp = orderChangeUpdateStamp;
 
 /** Canonical existing data only. Full native row shapes come from the existing
@@ -48,11 +48,11 @@ const retained = { invoke: node.invoke, compensate: node.compensate };
 
 /** Reuse complete Order initialization and observation. Every mutation calls the
  * retained genuine SDK callback against the confined native Order service. */
-export async function prepareLogicalOrderChangeDeletion(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  rows: readonly OrderInitialRow[] = orderChangeDeletionGraph("order-change-delete").rows, shared?: OrderFixtureShared) {
+export async function prepareCoreOrderChangeDeletion(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
+  rows: readonly OrderInitialRow[] = orderChangeDeletionGraph("order-change-delete").rows, physical?: CorePersistenceFixture) {
   const order = await Effect.runPromise(makeOrderChangeDeletionCommands());
-  const base = await prepareLogicalOrderFixture(driver, close, order.commands, "order-change-deletion", rows, shared);
-  const modules = { order: { module: order.workflow, logicalStorage: base.logicalStorage } };
+  const base = await prepareCoreOrderChangeFixture(driver, close, order.commands, rows, physical);
+  const modules = { order: { module: order.workflow, nativeStorage: base.source } };
   const options: Parameters<typeof prepareOrderChangeDeletionWorkflow>[0] = { execution: base.execution, modules,
     revision: "d".repeat(64), subscribers: [{ id: "native-order-change-deletion", revision: "e".repeat(64) }] };
   const resources = Result.getOrThrow(prepareWorkflowResources({ order: { module: order.workflow,

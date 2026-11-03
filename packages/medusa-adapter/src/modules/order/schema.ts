@@ -3,6 +3,8 @@ import { orderModuleModels } from "@medusajs/order/static-manifest";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
 import { capturePrivateCanonicalValue, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
+import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
+import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
 import { decodeCompiledDml } from "../../schema/compiled";
 import { dmlSchemaOrigins, lowerDmlSchema } from "../../schema/lower";
 
@@ -48,4 +50,18 @@ export const compileOrderDefinition = Effect.fn("Order.compileDefinition")(funct
   const metadata = yield* captureOrderMetadata();
   const schema = yield* Effect.fromResult(normalizeRelationalSchema(lowerDmlSchema(metadata.frame.tables, "commerce.order", dmlSchemaOrigins, serialDefaults)));
   return Object.freeze({ schema, provenance: orderSourceProvenance });
+});
+
+/** Capture all native models with their existing serial values for Core installation. */
+export const compileOrderCoreDefinition = Effect.fn("Order.compileCoreDefinition")(function* (target: Readonly<{
+  scopeUuid: string;
+  epochUuid: string;
+}>) {
+  const { scopeUuid, epochUuid } = target;
+  const { schema, provenance } = yield* compileOrderDefinition("preserve");
+  const source = yield* captureLogicalSchemaSource({ key: "medusa.order", owner: "medusa", writeProfile: "medusa.order",
+    evidence: { provenance, profile: "medusa.order" }, definition: { kind: "relational", schema },
+    bindings: schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+      table: { namespace: "medusa", logicalName: `${schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
+  return yield* makeCoreRelationalNativeDefinition({ scopeUuid, epochUuid, applicationRead: false, source, provenance, commands: [] });
 });

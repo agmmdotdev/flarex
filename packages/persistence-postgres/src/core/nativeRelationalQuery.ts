@@ -140,7 +140,8 @@ export const executeCoreNativeRelationalPage = Effect.fn("CoreNativeRelational.p
   if (query.selections?.length === 0) return { rows: Object.freeze([]), hasMore: false };
   const where = yield* Effect.fromResult(pageWhere(query.predicate));
   const index = table.indexes.find(candidate => candidate.fields[0] === query.orderColumn
-    && declaration.indexes?.some(binding => binding.indexName === candidate.name && binding.requiredPrefix === undefined));
+    && declaration.indexes?.some(binding => binding.indexName === candidate.name
+      && binding.requiredPrefix === undefined && binding.requiredNonNull === undefined));
   if (index === undefined) return yield* new CoreQueryInputError({ reason: "invalidQuery" });
   const page = yield* operations.findPage(table.name, where,
     { indexName: index.name, offset: query.offset, limit: query.limit, order: "asc" });

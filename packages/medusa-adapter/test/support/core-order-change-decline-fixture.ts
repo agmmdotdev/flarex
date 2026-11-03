@@ -7,10 +7,10 @@ import { prepareOrderChangeDeclineWorkflow } from "../../src/workflows/order/dec
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
-import { prepareLogicalOrderFixture, type OrderFixtureShared, type OrderInitialRow } from "./logical-order-fixture";
-import { orderChangeUpdateIds, orderChangeUpdateRows, orderChangeUpdateStamp } from "./logical-order-change-update-fixture";
+import type { CorePersistenceFixture } from "../../../persistence-postgres/test/core/fixture";
+import { prepareCoreOrderChangeFixture } from "./core-order-change-fixture";
+import { orderChangeUpdateIds, orderChangeUpdateRows, orderChangeUpdateStamp, type OrderInitialRow } from "./order-change-rows";
 
-export type { OrderInitialRow } from "./logical-order-fixture";
 export const orderChangeDeclineIds = orderChangeUpdateIds;
 export const orderChangeDeclineStamp = orderChangeUpdateStamp;
 export function orderChangeDeclineRows(): readonly OrderInitialRow[] {
@@ -29,11 +29,11 @@ const retained = { invoke: node.invoke, compensate: node.compensate };
 
 /** Initialization and observation reuse the existing Order fixture. Every
  * mutation below uses the retained native decline callback and its inverse. */
-export async function prepareLogicalOrderChangeDecline(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  rows: readonly OrderInitialRow[] = orderChangeDeclineRows(), shared?: OrderFixtureShared) {
+export async function prepareCoreOrderChangeDecline(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
+  rows: readonly OrderInitialRow[] = orderChangeDeclineRows(), physical?: CorePersistenceFixture) {
   const order = await Effect.runPromise(makeOrderChangeDeclineCommands());
-  const base = await prepareLogicalOrderFixture(driver, close, order.commands, "order-change-decline", rows, shared);
-  const modules = { order: { module: order.workflow, logicalStorage: base.logicalStorage } };
+  const base = await prepareCoreOrderChangeFixture(driver, close, order.commands, rows, physical);
+  const modules = { order: { module: order.workflow, nativeStorage: base.source } };
   const options: Parameters<typeof prepareOrderChangeDeclineWorkflow>[0] = { execution: base.execution, modules,
     revision: "b".repeat(64), subscribers: [{ id: "native-order-change-decline", revision: "c".repeat(64) }] };
   const resources = Result.getOrThrow(prepareWorkflowResources({ order: { module: order.workflow,

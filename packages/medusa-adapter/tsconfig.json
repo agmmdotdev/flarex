@@ -28,6 +28,7 @@
     "vitest.fulfillment-delivery.config.ts",
     "vitest.native-stock-sales.config.ts",
     "vitest.native-api-key.config.ts",
+    "vitest.native-order-change.config.ts",
     "vitest.postgres.config.ts",
     "vitest.sales-channel.config.ts",
     "vitest.sales-channel-upstream.config.ts",
