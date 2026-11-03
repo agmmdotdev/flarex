@@ -5,11 +5,11 @@
  * FSL-1.1-Apache-2.0 (convex-backend/LICENSE.md).
  */
 import { Effect, Random, Result, Schema } from "effect";
-import { bytesEqual, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { bytesEqual, copyBytes, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { encodeIndexKey } from "flarex-protocol/index-key";
 import { CoreTransactionError } from "./api";
 import { CorePersistenceError, type CoreIndexPage, type CoreIndexScan,
-  type CorePersistenceSnapshot, type CoreWriteBatch } from "./contracts";
+  type CorePersistenceSnapshot, type CoreRetentionValidator, type CoreWriteBatch } from "./contracts";
 import { INDEXES, publicDocumentId, type CoreRegistry } from "./registry";
 import { copyInterval, pointInterval, type CoreWriteLogSnapshot } from "./writeLog";
 import { CoreIndexCachePolicy } from "./indexCachePolicy";
@@ -34,14 +34,21 @@ interface CachedPage {
   readonly indexKey: string;
   readonly request: CoreIndexScan;
   readonly page: CoreIndexPage;
+  physicalTimestamp: bigint;
   ready: boolean;
 }
 
+interface CoreIndexCacheScan {
+  readonly snapshot: CorePersistenceSnapshot;
+  readonly registry: CoreRegistry;
+  readonly request: CoreIndexScan;
+}
+
 export interface CoreIndexCache {
-  readonly scan: (input: Readonly<{
-    snapshot: CorePersistenceSnapshot;
-    registry: CoreRegistry;
-    request: CoreIndexScan;
+  readonly scan: (input: CoreIndexCacheScan) => Effect.Effect<CoreIndexPage, CorePersistenceError>;
+  /** Reuse physical evidence at exactly this timestamp, otherwise scan persistence. */
+  readonly scanForAdmission: (input: CoreIndexCacheScan & Readonly<{
+    retention: CoreRetentionValidator;
   }>) => Effect.Effect<CoreIndexPage, CorePersistenceError>;
   /** Called synchronously after log append and before a newer snapshot is exposed. */
   readonly invalidate: (batch: CoreWriteBatch, oldRegistry: CoreRegistry, newRegistry: CoreRegistry) => void;
@@ -49,8 +56,8 @@ export interface CoreIndexCache {
 }
 
 function copyRequest(request: CoreIndexScan): CoreIndexScan {
-  return Object.freeze({ ...request, index: Object.freeze({ ...request.index, id: request.index.id.slice() }),
-    tableId: request.tableId.slice(), interval: copyInterval(request.interval) });
+  return Object.freeze({ ...request, index: Object.freeze({ ...request.index, id: copyBytes(request.index.id) }),
+    tableId: copyBytes(request.tableId), interval: copyInterval(request.interval) });
 }
 
 function cacheKey(request: CoreIndexScan): string {
@@ -61,11 +68,23 @@ function cacheKey(request: CoreIndexScan): string {
 }
 
 function copyPage(page: CoreIndexPage): CoreIndexPage {
-  return Object.freeze({ entries: Object.freeze(page.entries.map(entry => Object.freeze({ key: entry.key.slice(),
-    document: Object.freeze({ ...entry.document, tableId: entry.document.tableId.slice(),
-      id: entry.document.id.slice(), jsonValue: entry.document.jsonValue.slice() }),
+  return Object.freeze({ entries: Object.freeze(page.entries.map(entry => Object.freeze({ key: copyBytes(entry.key),
+    document: Object.freeze({ ...entry.document, tableId: copyBytes(entry.document.tableId),
+      id: copyBytes(entry.document.id), jsonValue: copyBytes(entry.document.jsonValue) }),
   }))), cursor: page.cursor.kind === "end" ? Object.freeze({ kind: "end" as const })
-    : Object.freeze({ kind: "after" as const, key: page.cursor.key.slice() }) });
+    : Object.freeze({ kind: "after" as const, key: copyBytes(page.cursor.key) }) });
+}
+
+function knownIndex(registry: CoreRegistry, request: CoreIndexScan): boolean {
+  const selected = registry.indexById(request.index.id);
+  return selected !== undefined && selected.index.state.type === "Enabled"
+    && bytesEqual(selected.table.tabletId, request.tableId)
+    && selected.index.ref.persistenceIndexId === request.index.persistenceIndexId;
+}
+
+function samePageSource(cached: CachedPage, request: CoreIndexScan): boolean {
+  return bytesEqual(cached.request.tableId, request.tableId)
+    && cached.request.index.persistenceIndexId === request.index.persistenceIndexId;
 }
 
 /** Like upstream's heap-size weight this accounts residency, not total JS heap. */
@@ -135,7 +154,7 @@ export const makeCoreIndexCache = Effect.fn("CoreIndexCache.make")(function* (
       Result.mapError(cause => new CorePersistenceError({ reason: "corruptData", cause })),
     ));
     const indexKey = encodeBytesToLowercaseHex(request.index.id);
-    const page: CachedPage = { beginTimestamp: snapshot.timestamp, populateId: nextPopulateId++,
+    const page: CachedPage = { beginTimestamp: snapshot.timestamp, physicalTimestamp: snapshot.timestamp, populateId: nextPopulateId++,
       indexKey, request, page: copyPage(fetched), ready: false };
     if (!policy.insert(key, page, weight)) return;
     let intervals = registrations.get(indexKey);
@@ -164,10 +183,7 @@ export const makeCoreIndexCache = Effect.fn("CoreIndexCache.make")(function* (
 
   const scan: CoreIndexCache["scan"] = Effect.fn("CoreIndexCache.scan")(function* (input) {
     const request = copyRequest(input.request);
-    const selected = input.registry.indexById(request.index.id);
-    const known = selected !== undefined && selected.index.state.type === "Enabled"
-      && bytesEqual(selected.table.tabletId, request.tableId)
-      && selected.index.ref.persistenceIndexId === request.index.persistenceIndexId;
+    const known = knownIndex(input.registry, request);
     const key = cacheKey(request);
     const cached = closed || !known ? undefined : policy.get(key);
     if (cached !== undefined && cached.ready && input.snapshot.timestamp >= cached.beginTimestamp) {
@@ -180,6 +196,11 @@ export const makeCoreIndexCache = Effect.fn("CoreIndexCache.make")(function* (
           if (!pagesEqual(cached.page, persisted)) return yield* Effect.die(new Error(
             "Shared index cache disagrees with persistence; possible data corruption.",
           ));
+          // A verification that raced eviction or invalidation cannot certify a replacement.
+          if (input.snapshot.timestamp > cached.physicalTimestamp && samePageSource(cached, request)
+            && policy.peek(key) === cached && registrations.get(cached.indexKey)?.has(key)) {
+            cached.physicalTimestamp = input.snapshot.timestamp;
+          }
         }
         return copyPage(cached.page);
       }
@@ -187,6 +208,20 @@ export const makeCoreIndexCache = Effect.fn("CoreIndexCache.make")(function* (
     const fetched = yield* input.snapshot.scan(request);
     if (known && !closed) yield* populate(key, request, input.snapshot, input.registry, fetched);
     return fetched;
+  });
+
+  const scanForAdmission: CoreIndexCache["scanForAdmission"] = Effect.fn("CoreIndexCache.scanForAdmission")(function* (input) {
+    const { snapshot, registry, request, retention } = input;
+    if (closed || !knownIndex(registry, request)) return yield* snapshot.scan(request);
+    const key = cacheKey(request);
+    const cached = policy.peek(key);
+    if (cached === undefined || !cached.ready || cached.physicalTimestamp !== snapshot.timestamp
+      || !samePageSource(cached, request) || !registrations.get(cached.indexKey)?.has(key))
+      return yield* snapshot.scan(request);
+    yield* retention.validateIndex(snapshot.timestamp);
+    const page = copyPage(cached.page);
+    yield* retention.validateIndex(snapshot.timestamp);
+    return page;
   });
 
   const invalidate: CoreIndexCache["invalidate"] = (batch, oldRegistry, newRegistry) => {
@@ -206,5 +241,5 @@ export const makeCoreIndexCache = Effect.fn("CoreIndexCache.make")(function* (
       for (const key of registered.query(write.key)) policy.remove(key);
     }
   };
-  return Object.freeze({ scan, invalidate, close: () => { closed = true; policy.clear(); } });
+  return Object.freeze({ scan, scanForAdmission, invalidate, close: () => { closed = true; policy.clear(); } });
 });

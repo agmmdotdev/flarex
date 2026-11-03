@@ -1,9 +1,11 @@
+import { Buffer } from "node:buffer";
 import { Cause, Deferred, Effect, Exit, Fiber, Option, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { encodeIndexKey } from "flarex-protocol/index-key";
 import { makeCoreIndexCache, type CoreIndexCache } from "../../src/core/indexCache";
 import { CorePersistenceError, type CoreDocumentLogEntry, type CoreIndexPage, type CoreIndexScan,
-  type CorePersistenceIndexEntry, type CorePersistenceSnapshot, type CoreWriteBatch } from "../../src/core/contracts";
+  type CorePersistenceIndexEntry, type CorePersistenceSnapshot, type CoreRetentionValidator,
+  type CoreWriteBatch } from "../../src/core/contracts";
 import { INDEXES, initialRegistry, publicDocumentId } from "../../src/core/registry";
 import { CoreWriteLog, indexKeysFromWrites } from "../../src/core/writeLog";
 import type { CoreTableDefinition } from "../../src/core/api";
@@ -43,6 +45,12 @@ function scan(cache: CoreIndexCache, raw: CorePersistenceSnapshot, selected = re
   return cache.scan({ snapshot: raw, registry, request: selected });
 }
 
+const retained: CoreRetentionValidator = { validateIndex: () => Effect.void, validateDocument: () => Effect.void };
+
+function admit(cache: CoreIndexCache, raw: CorePersistenceSnapshot, selected = request, retention = retained) {
+  return cache.scanForAdmission({ snapshot: raw, registry, request: selected, retention });
+}
+
 function write(key: number, ts: bigint, deleted = false): CorePersistenceIndexEntry {
   return { mode: "scanComplete", ts, index: rangeIndex, key: byte(key),
     value: deleted ? null : { tableId: items.tabletId, documentId: id(key) }, prev: null };
@@ -63,6 +71,127 @@ function publish(cache: CoreIndexCache, log: CoreWriteLog, ts: bigint, batch: Co
 }
 
 describe("translated shared exact index pages", () => {
+  it("detaches physical evidence and keeps ordinary verification on a same-snapshot hit", async () => {
+    await Effect.runPromise(Effect.gen(function* () {
+      const cache = yield* makeCoreIndexCache({}, Effect.succeed(new CoreWriteLog(0n).snapshot()));
+      const originalKey = Buffer.of(2);
+      const originalDocument = document(2);
+      const originalBody = Buffer.from(originalDocument.jsonValue);
+      const raw: CoreIndexPage = {
+        entries: [{ key: originalKey, document: { ...originalDocument, jsonValue: originalBody } }],
+        cursor: { kind: "after", key: originalKey },
+      };
+      let reads = 0;
+      const onRead = () => { reads += 1; };
+      yield* scan(cache, snapshot(0n, raw, onRead));
+      originalKey.fill(99);
+      originalBody.fill(99);
+      const same = snapshot(0n, page(2, 0n, true), onRead);
+      expect(yield* scan(cache, same)).toEqual(page(2, 0n, true));
+      const admitted = yield* admit(cache, same);
+      expect(admitted).toEqual(page(2, 0n, true));
+      admitted.entries[0]?.document.jsonValue.fill(99);
+      if (admitted.cursor.kind === "after") admitted.cursor.key.fill(99);
+      expect(yield* admit(cache, same)).toEqual(page(2, 0n, true));
+      expect(reads).toBe(2);
+    }));
+  });
+
+  it("reuses only the newest physically verified timestamp when verification overlaps", async () => {
+    await Effect.runPromise(Effect.gen(function* () {
+      const cache = yield* makeCoreIndexCache({}, Effect.succeed(new CoreWriteLog(0n).snapshot()));
+      const entered = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      yield* scan(cache, snapshot(0n, page(2)));
+      const earlier = { ...snapshot(1n, empty), scan: () => Effect.gen(function* () {
+        yield* Deferred.succeed(entered, undefined);
+        yield* Deferred.await(release);
+        return page(2);
+      }) };
+      const verification = yield* Effect.forkChild(scan(cache, earlier));
+      yield* Deferred.await(entered);
+      yield* scan(cache, snapshot(2n, page(2)));
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(verification);
+      expect(yield* admit(cache, snapshot(2n, empty))).toEqual(page(2));
+      expect(yield* admit(cache, snapshot(1n, empty))).toEqual(empty);
+    }));
+  });
+
+  it("does not certify a replacement page when old verification finishes after publication", async () => {
+    await Effect.runPromise(Effect.gen(function* () {
+      const log = new CoreWriteLog(0n);
+      const cache = yield* makeCoreIndexCache({}, Effect.sync(() => log.snapshot()));
+      const entered = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      yield* scan(cache, snapshot(0n, page(2)));
+      const historical = { ...snapshot(1n, empty), scan: () => Effect.gen(function* () {
+        yield* Deferred.succeed(entered, undefined);
+        yield* Deferred.await(release);
+        return page(2);
+      }) };
+      const verification = yield* Effect.forkChild(scan(cache, historical));
+      yield* Deferred.await(entered);
+      publish(cache, log, 2n, { documents: [], indexes: [write(2, 2n)] });
+      yield* scan(cache, snapshot(2n, page(2, 2n)));
+      yield* Deferred.succeed(release, undefined);
+      expect(yield* Fiber.join(verification)).toEqual(page(2));
+      expect(yield* admit(cache, snapshot(1n, empty))).toEqual(empty);
+      expect(yield* admit(cache, snapshot(2n, empty))).toEqual(page(2, 2n));
+    }));
+  });
+
+  it("misses admission on unverified timestamps, mismatched requests and closed caches", async () => {
+    await Effect.runPromise(Effect.gen(function* () {
+      const cache = yield* makeCoreIndexCache({ verifyPercent: 0 }, Effect.succeed(new CoreWriteLog(0n).snapshot()));
+      yield* scan(cache, snapshot(0n, page(2)));
+      const newer = snapshot(1n, empty);
+      expect(yield* scan(cache, newer)).toEqual(page(2));
+      expect(yield* admit(cache, newer)).toEqual(empty);
+      expect(yield* admit(cache, snapshot(0n, empty))).toEqual(page(2));
+      for (const selected of [
+        { ...request, maxResults: 1 },
+        { ...request, interval: { start: byte(3), end: null } },
+        { ...request, order: "desc" as const },
+        { ...request, tableId: id(99) },
+        { ...request, index: { ...rangeIndex, persistenceIndexId: 99n } },
+      ]) {
+        expect(yield* admit(cache, snapshot(0n, empty), selected)).toEqual(empty);
+      }
+      const foreign = { ...rangeIndex, persistenceIndexId: 99n };
+      const index = registry.indexById(rangeIndex.id);
+      if (index === undefined) throw new Error("Missing cache fixture index");
+      const rebound = yield* Effect.fromResult(registry.withIndex({ ...index.index, ref: foreign }));
+      expect(yield* cache.scanForAdmission({
+        snapshot: snapshot(0n, empty), registry: rebound, request: { ...request, index: foreign }, retention: retained,
+      })).toEqual(empty);
+      const uncached = { ...request, maxResults: 1 };
+      expect(yield* admit(cache, snapshot(0n, page(3)), uncached)).toEqual(page(3));
+      expect(yield* admit(cache, snapshot(0n, page(4)), uncached)).toEqual(page(4));
+      cache.close();
+      expect(yield* admit(cache, snapshot(0n, empty))).toEqual(empty);
+    }));
+  });
+
+  it.each([1, 2])("keeps retention failure at admission validation %s without a physical retry", async failingCheck => {
+    await Effect.runPromise(Effect.gen(function* () {
+      const cache = yield* makeCoreIndexCache({}, Effect.succeed(new CoreWriteLog(0n).snapshot()));
+      yield* scan(cache, snapshot(0n, page(2)));
+      let checks = 0;
+      let reads = 0;
+      const failure = new CorePersistenceError({ reason: "outOfRetention" });
+      const retention = { ...retained, validateIndex: (at: bigint) => Effect.suspend(() => {
+        expect(at).toBe(0n);
+        checks += 1;
+        return checks === failingCheck ? Effect.fail(failure) : Effect.void;
+      }) };
+      const raw = snapshot(0n, empty, () => { reads += 1; });
+      expect(yield* Effect.result(admit(cache, raw, request, retention))).toEqual(Result.fail(failure));
+      expect(checks).toBe(failingCheck);
+      expect(reads).toBe(0);
+    }));
+  });
+
   it("reuses exact pages at newer timestamps and detaches original/result bytes", async () => {
     await Effect.runPromise(Effect.gen(function* () {
       const log = new CoreWriteLog(0n);
@@ -285,6 +414,7 @@ describe("translated shared exact index pages", () => {
       const exit = yield* Effect.exit(scan(cache, snapshot(1n, different)));
       expect(Exit.isFailure(exit) && exit.cause.reasons.some(reason => Cause.isDieReason(reason)
         && reason.defect instanceof Error && reason.defect.message.includes("corruption"))).toBe(true);
+      expect(yield* admit(cache, snapshot(1n, empty))).toEqual(empty);
     }));
   });
 
@@ -295,6 +425,7 @@ describe("translated shared exact index pages", () => {
       const failure = new CorePersistenceError({ reason: "unavailable" });
       const exit = yield* Effect.exit(scan(cache, { ...snapshot(1n, empty), scan: () => Effect.fail(failure) }));
       expect(Exit.isFailure(exit) && exit.cause.reasons.some(reason => Cause.isFailReason(reason) && reason.error === failure)).toBe(true);
+      expect(yield* admit(cache, snapshot(1n, empty))).toEqual(empty);
     }));
   });
 

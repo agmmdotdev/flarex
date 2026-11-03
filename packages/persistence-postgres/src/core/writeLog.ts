@@ -5,7 +5,7 @@
  */
 import { BTreeEx as BTree } from "sorted-btree/extended/index.js";
 import { Result } from "effect";
-import { compareBytesLexicographically, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { compareBytesLexicographically, copyBytes, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { CorePersistenceError, type CoreInterval, type CorePersistenceIndexEntry, type CoreTimestamp } from "./contracts";
 
 /** Pinned source: db914cf06 database/src/write_log.rs, WriteLogSnapshot/PendingKeysInIndex. */
@@ -24,7 +24,8 @@ export function keyInInterval(key: Uint8Array, interval: CoreInterval): boolean 
 }
 
 export function copyInterval(interval: CoreInterval): CoreInterval {
-  return Object.freeze({ start: interval.start?.slice() ?? null, end: interval.end?.slice() ?? null });
+  const { start, end } = interval;
+  return Object.freeze({ start: start === null ? null : copyBytes(start), end: end === null ? null : copyBytes(end) });
 }
 
 export function pointInterval(key: Uint8Array): CoreInterval {

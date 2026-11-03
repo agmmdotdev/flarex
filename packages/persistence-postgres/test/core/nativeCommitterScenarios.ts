@@ -5,9 +5,9 @@ import { describe, expect, it } from "vitest";
 import { encodeIndexValue } from "flarex-protocol/index-key";
 import { incrementIndexKeyPrefix } from "flarex-protocol/index-range";
 import type { CoreDatabaseOptions, CoreRequestIdentity, CoreTableDefinition } from "../../src/core/api";
-import { CorePersistenceError, type CorePersistence } from "../../src/core/contracts";
+import { CorePersistenceError, type CorePersistence, type CoreRetentionValidator } from "../../src/core/contracts";
 import { bootstrapCore } from "../../src/core/bootstrap";
-import { makeCoreCommitter } from "../../src/core/committer";
+import { makeCoreCommitter, type CoreCommitter } from "../../src/core/committer";
 import { openCoreDatabase } from "../../src/core/database";
 import type { CoreNativeUniqueSlot } from "../../src/core/nativeObservations";
 import { coreNativeTestBudget, CORE_NATIVE_TEST_LIMITS } from "./nativeTestBudget";
@@ -39,12 +39,12 @@ const install = Effect.fn("NativeCommitterFixture.install")(function* (fixture: 
 });
 
 const open = Effect.fn("NativeCommitterFixture.open")(function* (persistence: CorePersistence,
-  overrides: Partial<CoreDatabaseOptions> = {}) {
+  overrides: Partial<CoreDatabaseOptions> = {}, wrapRetention?: (validator: CoreRetentionValidator) => CoreRetentionValidator) {
   const runtimeOptions = { ...options, ...overrides };
   const lease = yield* persistence.acquireLease();
   const initial = yield* bootstrapCore(persistence, lease, runtimeOptions);
   const committer = yield* makeCoreCommitter(persistence, lease, initial.timestamp,
-    initial.registry, initial.resident, runtimeOptions, initial.retention);
+    initial.registry, initial.resident, runtimeOptions, wrapRetention?.(initial.retention) ?? initial.retention);
   const vault = new CoreFinalizationVault();
   const begin = Effect.fn("NativeCommitterFixture.begin")(function* () {
     const selected = yield* Effect.fromResult(committer.selectSnapshot());
@@ -69,6 +69,27 @@ function slot(table: CoreTableDefinition, title: string, owners: readonly string
 const observing = (state: CoreFinalizedState, ...uniqueSlots: readonly CoreNativeUniqueSlot[]): CoreFinalizedState => ({
   ...state, nativeObservations: { dependencies: [], indexes: uniqueSlots, limits: CORE_NATIVE_TEST_LIMITS },
 });
+
+const readPublishedTitlePage = Effect.fn("NativeCommitterFixture.readPublishedTitlePage")(function* (
+  committer: CoreCommitter, persistence: CorePersistence, demand: CoreNativeUniqueSlot,
+) {
+  const published = yield* Effect.fromResult(committer.selectSnapshot());
+  const snapshot = yield* persistence.readSnapshot(published.timestamp);
+  return yield* committer.indexCache.scan({ snapshot, registry: published.registry, request: {
+    index: demand.index.ref, tableId: demand.table.tabletId, interval: demand.interval, order: "asc", maxResults: 128,
+  } });
+});
+
+function countIndexScans(persistence: CorePersistence, index: Uint8Array) {
+  let count = 0;
+  const readSnapshot: CorePersistence["readSnapshot"] = (at, retention) => Effect.map(
+    persistence.readSnapshot(at, retention), snapshot => ({ ...snapshot, scan: request => Effect.suspend(() => {
+      if (bytesEqual(request.index.id, index)) count += 1;
+      return snapshot.scan(request);
+    }) }),
+  );
+  return { readSnapshot, count: () => count };
+}
 
 export function registerNativeCommitterScenarios(name: string, createFixture: () => Promise<CorePersistenceFixture>) {
   describe(name, () => {
@@ -358,7 +379,41 @@ export function registerNativeCommitterScenarios(name: string, createFixture: ()
       } finally { await fixture.close(); }
     }, 30_000);
 
-    it("folds an accepted unpublished removal before comparing a published mismatch", async () => {
+    it("reuses a committed page only at the exact admission timestamp", async () => {
+      const fixture = await createFixture();
+      try {
+        await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+          const table = yield* install(fixture);
+          const demand = slot(table, "K");
+          const scans = countIndexScans(fixture.persistence, demand.index.ref.id);
+          const persistence = { ...fixture.persistence, readSnapshot: scans.readSnapshot };
+          const { committer, begin, finish } = yield* open(persistence);
+          const held = observing(yield* finish(yield* begin()), demand);
+          expect((yield* readPublishedTitlePage(committer, persistence, demand)).entries).toEqual([]);
+          const before = scans.count();
+          expect(yield* committer.submit(held)).toBe(held.timestamp);
+          expect(scans.count()).toBe(before);
+
+          // An unrelated publication keeps the range eligible for ordinary reads.
+          // Admission still needs physical evidence at the new timestamp.
+          const unrelated = yield* begin();
+          yield* unrelated.insert("news", { title: "L" });
+          yield* committer.submit(yield* finish(unrelated));
+          expect(yield* committer.submit(held)).toBe(held.timestamp);
+          expect(scans.count()).toBe(before + 1);
+
+          const conflicting = yield* begin();
+          yield* conflicting.insert("news", { title: "K" });
+          yield* committer.submit(yield* finish(conflicting));
+          expect(yield* Effect.result(committer.submit(held))).toMatchObject({
+            _tag: "Failure", failure: { reason: "conflict" },
+          });
+          expect(scans.count()).toBe(before + 2);
+        })));
+      } finally { await fixture.close(); }
+    }, 30_000);
+
+    it.each(["physical", "reused"] as const)("folds an accepted unpublished removal after a %s committed page", async mode => {
       const fixture = await createFixture();
       try {
         await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
@@ -368,7 +423,9 @@ export function registerNativeCommitterScenarios(name: string, createFixture: ()
           const observerAdmitting = yield* Deferred.make<void>();
           let markObserver = false;
           let delay = false;
-          const persistence: CorePersistence = { ...fixture.persistence, write: (lease, batch) => Effect.gen(function* () {
+          const demand = slot(table, "K");
+          const scans = countIndexScans(fixture.persistence, demand.index.ref.id);
+          const persistence: CorePersistence = { ...fixture.persistence, readSnapshot: scans.readSnapshot, write: (lease, batch) => Effect.gen(function* () {
             if (delay) { yield* Deferred.succeed(started, undefined); yield* Deferred.await(release); }
             yield* fixture.persistence.write(lease, batch);
           }) };
@@ -383,6 +440,7 @@ export function registerNativeCommitterScenarios(name: string, createFixture: ()
           const create = yield* begin();
           const id = yield* create.insert("news", { title: "K" });
           yield* committer.submit(observing(yield* finish(create), slot(table, "K")));
+          if (mode === "reused") expect((yield* readPublishedTitlePage(committer, persistence, demand)).entries).toHaveLength(1);
           const rename = yield* begin();
           yield* rename.patch(id, { title: "L" });
           yield* Effect.ensuring(Effect.gen(function* () {
@@ -392,8 +450,10 @@ export function registerNativeCommitterScenarios(name: string, createFixture: ()
             yield* Deferred.await(started);
             // Request-discovery pendingDocuments omits this key's tombstone.
             markObserver = true;
+            const before = scans.count();
             const observingRemoval = yield* Effect.forkChild(committer.submit(held));
             yield* Deferred.await(observerAdmitting);
+            expect(scans.count()).toBe(before + (mode === "physical" ? 1 : 0));
             // The clock runs inside acceptance. This real mutex-protected read
             // completes after that decision, while the rename is still unsaved.
             // Merely forking first does not order PostgreSQL prevalidation I/O.
@@ -411,7 +471,7 @@ export function registerNativeCommitterScenarios(name: string, createFixture: ()
       } finally { await fixture.close(); }
     }, 30_000);
 
-    it("refreshes only validation when a relevant title publishes during preparation", async () => {
+    it.each(["physical", "reused"] as const)("refreshes %s preparation when a relevant title publishes", async mode => {
       const fixture = await createFixture();
       try {
         await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
@@ -421,24 +481,40 @@ export function registerNativeCommitterScenarios(name: string, createFixture: ()
           let gate = false;
           let delayed = false;
           let captures = 0;
-          const titleIndex = slot(table, "K").index.ref.id;
+          let retentionChecks = 0;
+          const demand = slot(table, "K");
+          const titleIndex = demand.index.ref.id;
+          const pause = Effect.gen(function* () {
+            delayed = true;
+            yield* Deferred.succeed(scanned, undefined);
+            yield* Deferred.await(release);
+          });
           const persistence: CorePersistence = { ...fixture.persistence, readSnapshot: (at, retention) => Effect.gen(function* () {
             const snapshot = yield* fixture.persistence.readSnapshot(at, retention);
             return { ...snapshot, scan: request => Effect.gen(function* () {
               const page = yield* snapshot.scan(request);
               if (gate && bytesEqual(request.index.id, titleIndex)) {
                 captures += 1;
-                if (!delayed) { delayed = true; yield* Deferred.succeed(scanned, undefined); yield* Deferred.await(release); }
+                if (mode === "physical" && !delayed) yield* pause;
               }
               return page;
             }) };
           }) };
-          const { committer, begin, finish } = yield* open(persistence);
-          const held = observing(yield* finish(yield* begin()), slot(table, "K"));
+          const { committer, begin, finish } = yield* open(persistence, {}, retention => ({
+            ...retention,
+            validateIndex: at => Effect.andThen(retention.validateIndex(at), Effect.suspend(() => {
+              // Snapshot opening and pre-copy validation precede this post-copy check.
+              if (mode === "reused" && gate && !delayed && ++retentionChecks === 3) return pause;
+              return Effect.void;
+            })),
+          }));
+          const held = observing(yield* finish(yield* begin()), demand);
+          if (mode === "reused") expect((yield* readPublishedTitlePage(committer, persistence, demand)).entries).toEqual([]);
           yield* Effect.ensuring(Effect.gen(function* () {
             gate = true;
             const settling = yield* Effect.forkChild(committer.submit(held));
             yield* Deferred.await(scanned);
+            expect(captures).toBe(mode === "physical" ? 1 : 0);
             const create = yield* begin();
             const id = yield* create.insert("news", { title: "K" });
             yield* committer.submit(observing(yield* finish(create), slot(table, "K")));

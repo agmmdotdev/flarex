@@ -1,5 +1,7 @@
 # Convex mechanism divergence records
 
+- [Exact pages in native admission](./native-admission-exact-pages.md) retain physical provenance for admission at the same published snapshot.
+
 - [Scoped app-generation supervision](./app-owner-recovery.md): preserve Source's committer stop and durable reconstruction through a portable scoped supervisor and Cloudflare host adapter.
 
 - [Caller retry after proven noncommit](./native-proven-noncommit-retry.md): selected Product and protected retry behavior requires authenticated manual reclaim after proven noncommit; automatic callback replay remains forbidden.

@@ -7,7 +7,7 @@ import { Cause, Clock, Deferred, Duration, Effect, Exit, Option, Queue, Result, 
 import { BTreeEx as BTree } from "sorted-btree/extended/index.js";
 import { compareBytesLexicographically, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { CoreTransactionError, type CoreDatabaseOptions, type CoreError } from "./api";
-import { CorePersistenceError, CoreTimestampSchema, type CoreDocumentLogEntry, type CoreInterval, type CorePersistence, type CorePersistenceIndexEntry, type CorePersistenceLease, type CoreRetentionValidator, type CoreWriteBatch } from "./contracts";
+import { CorePersistenceError, CoreTimestampSchema, type CoreDocumentLogEntry, type CoreInterval, type CorePersistence, type CorePersistenceIndexEntry, type CorePersistenceLease, type CorePersistenceSnapshot, type CoreRetentionValidator, type CoreWriteBatch } from "./contracts";
 import { CoreRegistry, SCHEMAS } from "./registry";
 import { CoreTableCounts, type CoreTableCountDelta } from "./tableCounts";
 import type { CoreSchemaRegistryUpdate } from "./schemaRegistry";
@@ -354,8 +354,13 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
             const needsNativeSnapshot = indexes.length > 0 || transaction.changes.some(change =>
               (change.table.nativePolicy?.references?.length ?? 0) > 0 || (change.table.nativePolicy?.foreignKeys?.length ?? 0) > 0)
               || needsProtectedSnapshot;
-            const nativeSnapshot = !needsNativeSnapshot || transaction.nativeObservations === undefined && !needsProtectedSnapshot ? undefined
+            const physicalSnapshot = !needsNativeSnapshot || transaction.nativeObservations === undefined && !needsProtectedSnapshot ? undefined
               : yield* persistence.readSnapshot(snapshot.timestamp, retention);
+            const nativeSnapshot: CorePersistenceSnapshot | undefined = physicalSnapshot === undefined ? undefined : {
+              ...physicalSnapshot,
+              scan: request => indexCache.scanForAdmission({ snapshot: physicalSnapshot, registry: publishedRegistry, request,
+                retention: retention ?? persistence.retentionValidator }),
+            };
             const nativeIndexes = nativeSnapshot === undefined || indexes.length === 0 ? [] : yield* prepareCoreNativeIndexes(
               nativeSnapshot, publishedRegistry, indexes, transaction.nativeObservations?.limits.maxIdentities ?? 0);
             const integrityBudget = new CoreNativeIntegrityBudget(transaction);
