@@ -36,7 +36,8 @@ function fixture() {
   };
   const operations: CoreNativeOperations = {
     nativeActivityCursor: () => { throw new Error("Fixed event records do not request native activity"); },
-    nativeActivitySince: unexpected, matchRelational: unexpected, replayRows: unexpected, checkpointReferences: unexpected, planSetNullReferences: unexpected,
+    nativeActivitySince: unexpected, matchRelational: unexpected, replayRows: unexpected, reconstituteRows: unexpected,
+    checkpointReferences: unexpected, planSetNullReferences: unexpected,
     get: unexpected, getMany: unexpected, patch: unexpected, replace: unexpected,
     delete: unexpected, normalizeId: unexpected, incomingReferences: unexpected, pendingDelete: unexpected, assertPendingDelete: unexpected,
     deleteRows: unexpected, lifecycle: unexpected, prepareDeleteClosure: unexpected, replaceReferenceSet: unexpected,

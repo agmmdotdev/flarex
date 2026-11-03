@@ -1,3 +1,4 @@
+import { newStoreRevisions, storeRevisionIdentity, storeRowIdentity } from "./support/core-store-evidence";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
 import { StoreModuleService } from "@medusajs/store/services";
@@ -10,11 +11,12 @@ import { makeStoreDeletionCommands } from "../src/modules/store/delete-service";
 import { makeLocalPricingCommands } from "../src/modules/pricing/service";
 import { prepareStoreCreationWorkflow, StoreCreationInput } from "../src/workflows/store/create";
 import { storeCreationResources } from "../src/workflow/policy";
-import { prepareLogicalStoreCreation } from "./support/logical-store-create-fixture";
+import { prepareCoreStoreCreation } from "./support/core-store-create-fixture";
+import { expectWorkflowDefect } from "./support/workflow-failure-assertions";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalStoreCreation>>;
+let connected: Awaited<ReturnType<typeof prepareCoreStoreCreation>>;
 let sharedCleanupCount = 0;
 const rows = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject));
 const id = Schema.decodeUnknownSync(Schema.String);
@@ -45,13 +47,15 @@ function eventIds(events: Awaited<ReturnType<typeof connected.snapshot>>["events
 
 describe("genuine Store creation on shared logical storage", { concurrent: false }, () => {
   beforeAll(async () => {
-    connected = await prepareLogicalStoreCreation(driver, close => cleanup.push(close));
+    connected = await prepareCoreStoreCreation(driver, close => cleanup.push(close));
     sharedCleanupCount = cleanup.length;
   }, 240_000);
   afterEach(async () => { for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
   it("keeps the empty Store callback, installed Pricing closure and replay without preference mutations", async () => {
+    expect(connected.fixture.sources.map(source => source.definition.identity.sourceKey)).toEqual(["medusa.store", "medusa.pricing"]);
+    expect(connected.fixture.sources.map(source => source.definition.tables.length)).toEqual([3, 6]);
     const host = await connected.prepare(), create = vi.spyOn(StoreModuleService.prototype, "createStores");
     const list = vi.spyOn(PricingModuleService.prototype, "listPricePreferences"), upsert = vi.spyOn(PricingModuleService.prototype, "upsertPricePreferences");
     try {
@@ -61,8 +65,8 @@ describe("genuine Store creation on shared logical storage", { concurrent: false
       expect(await create.mock.results[0]?.value).toEqual([]);
       expect(list).not.toHaveBeenCalled(); expect(upsert).not.toHaveBeenCalled();
       const after = await connected.snapshot();
-      expect(after.rows).toEqual(before.rows); expect(after.rowChanges).toEqual(before.rowChanges); expect(after.events).toEqual(before.events);
-      expect(after.commits).toHaveLength(before.commits.length + 1);
+      expect(after.rows).toEqual(before.rows); expect(after.revisions).toEqual(before.revisions); expect(after.events).toEqual(before.events);
+      expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
       expect(await Effect.runPromise(host.run(key, { stores: [] }))).toEqual([]); expect(await connected.snapshot()).toEqual(after);
       expect(create).toHaveBeenCalledTimes(1);
     } finally { create.mockRestore(); list.mockRestore(); upsert.mockRestore(); }
@@ -133,16 +137,16 @@ describe("genuine Store creation on shared logical storage", { concurrent: false
       }
       expect(await connected.read(connected.protectedIds)).toEqual(protectedBefore);
       const after = await connected.snapshot(), emitted = after.events.slice(before.events.length);
-      expect(after.commits).toHaveLength(before.commits.length + 1); expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
-      expect(after.rowChanges).toHaveLength(before.rowChanges.length + 24); expect(emitted).toHaveLength(24);
-      expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1); expect(emitted.every(event => event.envelope.internal)).toBe(true);
+      expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
+      expect(after.revisions).toHaveLength(before.revisions.length + 24); expect(emitted).toHaveLength(24);
+      expect(new Set(emitted.map(event => event.timestamp)).size).toBe(1); expect(emitted.every(event => event.envelope.internal)).toBe(true);
       expect(eventIds(emitted, eventName("store", "store", "created"))).toEqual(ids(output));
       expect(new Set(eventIds(emitted, eventName("store", "store_currency", "created")))).toEqual(new Set(ids(currencies)));
       expect(new Set(eventIds(emitted, eventName("store", "store_locale", "created")))).toEqual(new Set(ids(locales)));
       expect(eventIds(emitted, eventName("pricing", "price_preference", "created"))).toEqual(ids(preferenceOutput.slice(0, 2)));
       expect(eventIds(emitted, eventName("pricing", "price_preference", "updated"))).toEqual(ids(preferenceOutput.slice(2)));
-      const changed = new Set(after.rowChanges.slice(before.rowChanges.length).map(row => `${row.scopeUuid}:${row.tableId}:${Buffer.from(row.rowId).toString("hex")}`));
-      const untouched = (values: typeof after.rows) => values.filter(row => !changed.has(`${row.scopeUuid}:${row.tableId}:${Buffer.from(row.rowId).toString("hex")}`));
+      const changed = new Set(newStoreRevisions(before, after).map(storeRevisionIdentity));
+      const untouched = (values: typeof after.rows) => values.filter(row => !changed.has(storeRowIdentity(row)));
       expect(untouched(after.rows)).toEqual(untouched(before.rows));
       expect(await Effect.runPromise(host.run(key, input))).toEqual(output); expect(await connected.snapshot()).toEqual(after);
       await expect(Effect.runPromise(host.run(key, { stores: [] }))).rejects.toMatchObject({ reason: "requestConflict" });
@@ -161,18 +165,17 @@ describe("genuine Store creation on shared logical storage", { concurrent: false
         expect(await connected.read(ids(preferenceOutput))).toEqual([...preferenceOutput].sort((left, right) => id(left.id).localeCompare(id(right.id))));
         expect(await connected.read(connected.protectedIds)).toEqual(protectedBefore);
         const removed = await connected.snapshot(), inverseEvents = removed.events.slice(beforeInverse.events.length),
-          inverseFacts = removed.rowChanges.slice(beforeInverse.rowChanges.length);
-        expect(removed.commits).toHaveLength(beforeInverse.commits.length + 1);
+          inverseFacts = newStoreRevisions(beforeInverse, removed);
         expect(removed.outcomes).toHaveLength(beforeInverse.outcomes.length + 1);
         expect(inverseFacts).toHaveLength(20); expect(inverseEvents).toHaveLength(4);
         expect(eventIds(inverseEvents, eventName("store", "store", "deleted")).sort()).toEqual([...ids(output)].sort());
         expect(inverseEvents.every(event => event.envelope.internal && event.envelope.contract === eventName("store", "store", "deleted"))).toBe(true);
-        const inverseSequences = new Set(removed.commits.slice(beforeInverse.commits.length).map(commit => commit.commitSeq));
-        const inverseRevisions = removed.revisions.filter(row => inverseSequences.has(row.commitSeq));
+        const inverseSequences = new Set(removed.outcomes.slice(beforeInverse.outcomes.length).map(commit => commit.timestamp));
+        const inverseRevisions = removed.revisions.filter(row => inverseSequences.has(row.timestamp));
         expect(inverseRevisions).toHaveLength(20);
-        expect(inverseRevisions.every(row => row.isTombstone && row.valueBytes === null && row.valueSha256 === null)).toBe(true);
-        const inverseChanged = new Set(inverseFacts.map(row => `${row.scopeUuid}:${row.tableId}:${Buffer.from(row.rowId).toString("hex")}`));
-        const inverseUntouched = (values: typeof removed.rows) => values.filter(row => !inverseChanged.has(`${row.scopeUuid}:${row.tableId}:${Buffer.from(row.rowId).toString("hex")}`));
+        expect(inverseRevisions.every(row => row.deleted && row.value === null)).toBe(true);
+        const inverseChanged = new Set(inverseFacts.map(storeRevisionIdentity));
+        const inverseUntouched = (values: typeof removed.rows) => values.filter(row => !inverseChanged.has(storeRowIdentity(row)));
         expect(inverseUntouched(removed.rows)).toEqual(inverseUntouched(beforeInverse.rows));
       } finally { removeStore.mockRestore(); }
     } finally { create.mockRestore(); list.mockRestore(); upsert.mockRestore(); }
@@ -332,16 +335,16 @@ describe("genuine Store creation on shared logical storage", { concurrent: false
       expect(restored[0]?.updated_at).not.toBe(old[0]?.updated_at);
       expect(await connected.read(changed.compensation.newDataIds)).toEqual([]);
       const afterPricing = await connected.snapshot();
-      expect(afterPricing.rowChanges).toHaveLength(beforeUndo.rowChanges.length + 2);
-      const undoSequences = new Set(afterPricing.commits.slice(beforeUndo.commits.length).map(commit => commit.commitSeq));
-      const removedRevisions = afterPricing.revisions.filter(row => undoSequences.has(row.commitSeq) && row.isTombstone);
-      expect(removedRevisions).toHaveLength(1); expect(removedRevisions[0]).toMatchObject({ valueBytes: null, valueSha256: null });
+      expect(afterPricing.revisions).toHaveLength(beforeUndo.revisions.length + 2);
+      const undoSequences = new Set(afterPricing.outcomes.slice(beforeUndo.outcomes.length).map(commit => commit.timestamp));
+      const removedRevisions = afterPricing.revisions.filter(row => undoSequences.has(row.timestamp) && row.deleted);
+      expect(removedRevisions).toHaveLength(1); expect(removedRevisions[0]).toMatchObject({ value: null });
       expect(await Effect.runPromise(probes.undo.run(probes.undo.newRequestKey(), created.compensation))).toBeNull();
       expect(removeStore.mock.calls[0]?.[0]).toEqual(created.compensation);
       expect(await removeStore.mock.results[0]?.value).toBeUndefined();
       expect(await connected.read(createdIds)).toEqual([]);
       const afterStore = await connected.snapshot(), emitted = afterStore.events.slice(afterPricing.events.length);
-      expect(afterStore.rowChanges).toHaveLength(afterPricing.rowChanges.length + 3);
+      expect(afterStore.revisions).toHaveLength(afterPricing.revisions.length + 3);
       expect(eventIds(emitted, eventName("store", "store", "deleted"))).toEqual(ids(storeOutput));
       expect(emitted).toHaveLength(1); // Native physical Store inverse announces roots only.
       expect(await connected.read(connected.protectedIds)).toEqual(protectedBefore);
@@ -369,11 +372,9 @@ describe("genuine Store creation on shared logical storage", { concurrent: false
     try {
       const before = await connected.snapshot();
       const result = mode === "pricing"
-        ? await Effect.runPromise(Effect.result(probes.undoPricing.run(probes.undoPricing.newRequestKey(), changed.compensation)))
-        : await Effect.runPromise(Effect.result(probes.undo.run(probes.undo.newRequestKey(), created.compensation)));
-      expect(Result.isFailure(result)).toBe(true);
-      if (Result.isFailure(result)) expect(failures(result.failure)).toContain(mode === "pricing"
-        ? "Late probe failure after genuine Pricing inverse" : "Late probe failure after genuine Store physical inverse");
+        ? await Effect.runPromiseExit(probes.undoPricing.run(probes.undoPricing.newRequestKey(), changed.compensation))
+        : await Effect.runPromiseExit(probes.undo.run(probes.undo.newRequestKey(), created.compensation));
+      expectWorkflowDefect(result, probes.inverseFailure);
       if (mode === "pricing") {
         expect(upsert).toHaveBeenCalledTimes(1); expect(removePreference).toHaveBeenCalledTimes(1); expect(removeStore).not.toHaveBeenCalled();
         expect(upsert.mock.calls[0]?.[0]).toEqual(prior);
@@ -401,9 +402,9 @@ describe("genuine Store creation on shared logical storage", { concurrent: false
       expect(await removeStore.mock.results[0]?.value).toBeUndefined();
       const after = await connected.snapshot();
       expect(after.rows).toEqual(before.rows); expect(after.revisions).toEqual(before.revisions);
-      expect(after.rowChanges).toEqual(before.rowChanges); expect(after.events).toEqual(before.events);
-      expect(after.indexEntries).toEqual(before.indexEntries); expect(after.uniqueKeys).toEqual(before.uniqueKeys);
-      expect(after.commits).toHaveLength(before.commits.length + 1); expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
+      expect(after.events).toEqual(before.events);
+      expect(after.indexes).toEqual(before.indexes);
+      expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
       expect(await Effect.runPromise(probes.undo.run(probes.undo.newRequestKey(), []))).toBeNull();
       expect(removeStore).toHaveBeenCalledTimes(1);
     } finally { removeStore.mockRestore(); }
@@ -461,9 +462,8 @@ describe("genuine Store creation on shared logical storage", { concurrent: false
     expect(await connected.snapshot()).toEqual(before);
   });
 
-  it("isolates equal raw preference keys, protected seed IDs and request keys in another real scope", async () => {
-    const other = await prepareLogicalStoreCreation(driver, close => cleanup.push(close), { resource: connected.fixture.resource,
-      fixtureIdentity: { deploymentId: "store_create_shop_b", projectId: "store_create_shop_b", uuidOffset: 220_000 } });
+  it("isolates equal raw preference keys, protected seed IDs and request keys across Core instances sharing physical storage", async () => {
+    const other = await prepareCoreStoreCreation(driver, close => cleanup.push(close), { physical: connected.fixture.physical });
     const left = await connected.prepare(), right = await other.prepare(), key = left.newRequestKey();
     const beforeOther = await other.read([other.preferenceIds.USD, ...other.protectedIds]);
     const input = { stores: [{ name: "Scoped Store", supported_currencies: [{ currency_code: "USD", is_default: true, is_tax_inclusive: false }] }] };
@@ -478,6 +478,26 @@ describe("genuine Store creation on shared logical storage", { concurrent: false
     expect(await Effect.runPromise(right.run(key, input))).toEqual(rightOutput);
     expect(await connected.snapshot()).toEqual(settled);
   }, 240_000);
+
+  it("recovers a committed Store and Pricing root after a lost acknowledgement without native reexecution", async () => {
+    const host = await connected.prepare(), changed = await connected.prepare("f".repeat(64));
+    const create = vi.spyOn(StoreModuleService.prototype, "createStores"), upsert = vi.spyOn(PricingModuleService.prototype, "upsertPricePreferences");
+    try {
+      const before = await connected.snapshot(), fault = connected.fixture.loseNextNativeRootAcknowledgement(), key = host.newRequestKey();
+      const input = { stores: [{ name: "Lost acknowledgement Store", supported_currencies: [{ currency_code: "ack23", is_default: true }] }] };
+      const output = await Effect.runPromise(host.run(key, input));
+      expect(fault.armed).toBe(false); expect(fault.failures).toBe(1); expect(fault.evidence).toBeDefined();
+      expect(create).toHaveBeenCalledTimes(1); expect(upsert).toHaveBeenCalledTimes(1);
+      expect(await connected.read(allStoreIds(rows(output)))).toHaveLength(2);
+      const after = await connected.snapshot();
+      expect(newStoreRevisions(before, after)).toHaveLength(3);
+      expect(after.outcomes.length - before.outcomes.length).toBe(1); expect(after.events.length - before.events.length).toBe(3);
+      expect(await Effect.runPromise(host.run(key, input))).toEqual(output);
+      await expect(Effect.runPromise(changed.run(key, input))).rejects.toMatchObject({ reason: "requestConflict" });
+      expect(create).toHaveBeenCalledTimes(1); expect(upsert).toHaveBeenCalledTimes(1);
+      expect(await connected.snapshot()).toEqual(after);
+    } finally { create.mockRestore(); upsert.mockRestore(); }
+  }, 180_000);
 
   it.skipIf(driver !== "postgres").each(["existing", "new"] as const)("settles one of two native roots targeting the same %s preference pair", async mode => {
     const left = await connected.prepare(), right = await connected.prepare(), value = mode === "existing" ? "CHF" : "AUD";
@@ -504,8 +524,8 @@ describe("genuine Store creation on shared logical storage", { concurrent: false
       const winner = rows(successes[0]?.value); expect(winner).toHaveLength(1);
       expect(await connected.read(allStoreIds(winner))).toHaveLength(2);
       const after = await connected.snapshot();
-      expect(after.commits).toHaveLength(before.commits.length + 1); expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
-      expect(after.rowChanges).toHaveLength(before.rowChanges.length + 3); expect(after.events).toHaveLength(before.events.length + 3);
+      expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
+      expect(after.revisions).toHaveLength(before.revisions.length + 3); expect(after.events).toHaveLength(before.events.length + 3);
       const nativeResults = await Promise.all(native.mock.results.map(result => result.value));
       const writtenPreferenceIds = nativeResults.flatMap(result => ids(rows(result)));
       const committed = await connected.read(writtenPreferenceIds);

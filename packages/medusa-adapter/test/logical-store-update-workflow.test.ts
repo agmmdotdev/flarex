@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { Cause, Deferred, Effect, Fiber, Result, Schema } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
 import { StoreModuleService } from "@medusajs/store/services";
 import { PricingModuleService } from "@medusajs/pricing/services";
 import { buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
@@ -11,11 +11,15 @@ import { makeStoreDeletionCommands } from "../src/modules/store/delete-service";
 import { makeLocalPricingCommands } from "../src/modules/pricing/service";
 import { prepareStoreUpdateWorkflow, StoreUpdateWorkflowInput } from "../src/workflows/store/update";
 import { storeUpdateResources } from "../src/workflow/policy";
-import { prepareLogicalStoreUpdate, storeUpdateGraph } from "./support/logical-store-update-fixture";
+import { prepareCoreStoreUpdate, storeUpdateGraph } from "./support/core-store-update-fixture";
+import * as committerModule from "../../persistence-postgres/src/core/committer";
+import type { CoreNativeScopeExclusion } from "../../persistence-postgres/src/core/nativeScopeExclusion";
+import { expectWorkflowDefect } from "./support/workflow-failure-assertions";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalStoreUpdate>>, sharedCleanupCount = 0;
+let connected: Awaited<ReturnType<typeof prepareCoreStoreUpdate>>, sharedCleanupCount = 0;
+let scopeGate: CoreNativeScopeExclusion | undefined;
 const rows = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject)), text = Schema.decodeUnknownSync(Schema.String);
 const ids = (values: readonly JsonObject[]) => values.map(row => text(row.id));
 const children = (values: readonly JsonObject[], field: "supported_currencies" | "supported_locales") => values.flatMap(row => rows(row[field]));
@@ -52,7 +56,15 @@ function eventIds(events: Awaited<ReturnType<typeof connected.snapshot>>["events
 }
 
 describe("genuine Store updates on shared logical storage", { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalStoreUpdate(driver, close => cleanup.push(close), initial); sharedCleanupCount = cleanup.length; }, 240_000);
+  beforeAll(async () => {
+    const make = committerModule.makeCoreCommitter;
+    const observe = vi.spyOn(committerModule, "makeCoreCommitter").mockImplementation((...parameters) => make(...parameters)
+      .pipe(Effect.tap(() => Effect.sync(() => { scopeGate = parameters[8]; }))));
+    try {
+      connected = await prepareCoreStoreUpdate(driver, close => cleanup.push(close), initial);
+      sharedCleanupCount = cleanup.length;
+    } finally { observe.mockRestore(); }
+  }, 240_000);
   afterEach(async () => { for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
@@ -94,8 +106,8 @@ describe("genuine Store updates on shared logical storage", { concurrent: false 
         { id: undefined, attribute: "currency_code", value: "eur", is_tax_inclusive: true },
       ]);
       const after = await connected.snapshot(), emitted = after.events.slice(before.events.length);
-      expect(after.commits).toHaveLength(before.commits.length + 1); expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
-      expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1); expect(emitted.every(event => event.envelope.internal)).toBe(true);
+      expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
+      expect(new Set(emitted.map(event => event.timestamp)).size).toBe(1); expect(emitted.every(event => event.envelope.internal)).toBe(true);
       expect(sorted(eventIds(emitted, eventName("store", "updated")))).toEqual(sorted(maximum.stores));
       expect(sorted(eventIds(emitted, eventName("store_currency", "created")))).toEqual(sorted(ids(currencies)));
       expect(sorted(eventIds(emitted, eventName("store_locale", "created")))).toEqual(sorted(ids(locales)));
@@ -173,7 +185,7 @@ describe("genuine Store updates on shared logical storage", { concurrent: false 
       expect(pricing).not.toHaveBeenCalled();
       const after = await connected.snapshot(), emitted = after.events.slice(before.events.length);
       expect(emitted).toHaveLength(1); expect(eventIds(emitted, eventName("store", "updated"))).toEqual(protectedGraph.stores);
-      expect(after.rowChanges).toHaveLength(before.rowChanges.length + 1);
+      expect(after.revisions).toHaveLength(before.revisions.length + 1);
     } finally { pricing.mockRestore(); }
   }, 180_000);
 
@@ -189,7 +201,7 @@ describe("genuine Store updates on shared logical storage", { concurrent: false 
       const after = await connected.snapshot(), emitted = after.events.slice(before.events.length);
       expect(sorted(eventIds(emitted, eventName("store_currency", "deleted")))).toEqual(sorted(oneRelation.currencies));
       expect(eventIds(emitted, eventName("store", "updated"))).toEqual(oneRelation.stores);
-      expect(emitted).toHaveLength(3); expect(after.rowChanges).toHaveLength(before.rowChanges.length + 3);
+      expect(emitted).toHaveLength(3); expect(after.revisions).toHaveLength(before.revisions.length + 3);
     } finally { pricing.mockRestore(); }
   }, 180_000);
 
@@ -308,11 +320,11 @@ describe("genuine Store updates on shared logical storage", { concurrent: false 
 
   it("rolls back Store replacement, native Pricing changes and managed inverse after late failure", async () => {
     const probe = await connected.prepareRoundtrip(), before = await connected.snapshot();
-    const result = await Effect.runPromise(Effect.result(probe.run(probe.newRequestKey(), { fail: true, input: { selector: { id: failure.stores },
+    const result = await Effect.runPromiseExit(probe.run(probe.newRequestKey(), { fail: true, input: { selector: { id: failure.stores },
       update: { supported_currencies: [], supported_locales: [] } }, pricing: [
         { attribute: "currency_code", value: "USD", is_tax_inclusive: true }, { attribute: "currency_code", value: "inverse-new", is_tax_inclusive: true },
-      ] })));
-    expect(Result.isFailure(result)).toBe(true); if (Result.isFailure(result)) expect(failures(result.failure)).toContain("Late native Store roundtrip failure");
+      ] }));
+    expectWorkflowDefect(result, connected.roundtripFailure);
     expect(await connected.snapshot()).toEqual(before);
   }, 180_000);
 
@@ -400,9 +412,8 @@ describe("genuine Store updates on shared logical storage", { concurrent: false 
     } finally { finish?.(); native.mockRestore(); }
   }, 180_000);
 
-  it("confines identical Store IDs and request keys to the actual accepted scope", async () => {
-    const other = await prepareLogicalStoreUpdate(driver, close => cleanup.push(close), scoped.rows, { resource: connected.fixture.resource,
-      fixtureIdentity: { deploymentId: "store_update_shop_b", projectId: "store_update_shop_b", uuidOffset: 720_000 } });
+  it("isolates identical Store IDs and request keys across Core instances sharing physical storage", async () => {
+    const other = await prepareCoreStoreUpdate(driver, close => cleanup.push(close), scoped.rows, { physical: connected.fixture.physical });
     const left = await connected.prepare(), right = await other.prepare(), key = left.newRequestKey(), beforeOther = await other.read(scoped.stores);
     const input = { selector: { id: scoped.stores }, update: { name: "Scoped Store update" } };
     await Effect.runPromise(left.run(key, input)); expect(await other.read(scoped.stores)).toEqual(beforeOther);
@@ -413,40 +424,70 @@ describe("genuine Store updates on shared logical storage", { concurrent: false 
   it.skipIf(driver !== "postgres").each(["update", "delete", "preferences"] as const)("settles safely against a real competing %s root", async kind => {
     const graph = racing[kind], left = await connected.prepare(), right = await connected.prepare();
     const deletion = await connected.prepareDelete(), preferences = await connected.preparePreferences(), reached = Deferred.makeUnsafe<void>();
-    const original = StoreModuleService.prototype.updateStores; let finish: (() => void) | undefined, arrivals = 0;
+    const releaseFirst = Deferred.makeUnsafe<void>();
+    const original = StoreModuleService.prototype.updateStores; let arrivals = 0;
     const update = vi.spyOn(StoreModuleService.prototype, "updateStores").mockImplementation(async function (this: StoreModuleService, ...args) {
       arrivals++; const result = await Reflect.apply(original, this, args);
-      if (arrivals === 1) { await Effect.runPromise(Deferred.succeed(reached, undefined)); await new Promise<void>(resolve => { finish = resolve; }); } return result;
+      if (arrivals === 1) { await Effect.runPromise(Deferred.succeed(reached, undefined)); await Effect.runPromise(Deferred.await(releaseFirst)); } return result;
     });
     const remove = vi.spyOn(StoreModuleService.prototype, "softDeleteStores"), price = vi.spyOn(PricingModuleService.prototype, "upsertPricePreferences");
+    const gate = scopeGate;
+    if (gate === undefined) throw new Error("Missing actual Core scope-exclusion owner");
+    const gateReached = Deferred.makeUnsafe<void>();
+    const readinessOrder: string[] = [];
+    let observeCompetitor = false;
+    const acquire = gate.acquireExclusive, settlement = gate.settlement;
+    // Record successful return from the real admission/settlement readiness,
+    // preserving its ticket, permit, deadline and ownership callback. The
+    // attempt marker precedes private queue insertion; it is not a queue probe.
+    const attempted = Effect.sync(() => { readinessOrder.push("attempted"); }).pipe(
+      Effect.andThen(Deferred.succeed(gateReached, undefined)));
+    const ready = Effect.sync(() => { readinessOrder.push("ready"); });
+    const selectedAdmission = vi.spyOn(gate, "acquireExclusive").mockImplementation((...parameters) =>
+      observeCompetitor && kind !== "delete"
+        ? Effect.andThen(attempted, acquire(...parameters)).pipe(Effect.tap(() => ready)) : acquire(...parameters));
+    const storeSource = connected.fixture.sources.find(source => source.definition.identity.sourceKey === "medusa.store");
+    if (storeSource === undefined) throw new Error("Missing genuine Store source");
+    const storeTables = new Set(storeSource.definition.tables.map(table => table.name));
+    const ordinaryAcceptance = vi.spyOn(gate, "settlement").mockImplementation((transaction, ownPermit) => {
+      const observed = observeCompetitor && kind === "delete" && transaction.scopeExclusion === undefined
+        && transaction.changes.some(change => storeTables.has(change.table.name));
+      return observed ? Effect.andThen(attempted, settlement(transaction, ownPermit)).pipe(Effect.tap(() => ready))
+        : settlement(transaction, ownPermit);
+    });
     const first = Effect.runPromise(left.run(left.newRequestKey(), { selector: { id: graph.stores }, update: { name: "First serialized Store update" } }));
-    let second: Promise<unknown> | undefined;
+    let second: Promise<Exit.Exit<unknown, CommerceTransactionError>> | undefined;
     try {
       await Effect.runPromise(Deferred.await(reached).pipe(Effect.timeout(30_000)));
-      second = kind === "update" ? Effect.runPromise(right.run(right.newRequestKey(), { selector: { id: graph.stores }, update: { name: "Second serialized Store update" } }))
-        : kind === "delete" ? Effect.runPromise(deletion.run(deletion.newRequestKey(), { ids: graph.stores }))
-        : Effect.runPromise(preferences.run(preferences.newRequestKey(), [{ attribute: "currency_code", value: "USD", is_tax_inclusive: true }]));
-      if (connected.fixture.resource.kind !== "postgres") throw new Error("Missing ordinary-role PostgreSQL resource");
-      const target = connected.fixture.resource.target;
-      await expect.poll(async () => {
-        const value = await target.query<{ waiting: boolean }>(`select exists (
-          select 1 from pg_stat_activity activity where activity.datname=current_database() and activity.usename=current_user
-            and activity.wait_event_type='Lock' and cardinality(pg_blocking_pids(activity.pid))>0
-            and position('fx_system_scope_clock' in activity.query)>0
-        ) as waiting`); return value.rows[0]?.waiting ?? false;
-      }, { timeout: 10_000, interval: 25 }).toBe(true);
-      expect(arrivals).toBe(1); if (kind !== "delete") expect(remove).not.toHaveBeenCalled(); expect(price).not.toHaveBeenCalled();
-      finish?.(); await first;
-      const competitor = await Promise.allSettled([second]);
-      if (kind !== "delete") expect(competitor[0]?.status).toBe("fulfilled");
+      observeCompetitor = true;
+      const work = kind === "update" ? right.run(right.newRequestKey(), { selector: { id: graph.stores }, update: { name: "Second serialized Store update" } })
+        : kind === "delete" ? deletion.run(deletion.newRequestKey(), { ids: graph.stores })
+        : preferences.run(preferences.newRequestKey(), [{ attribute: "currency_code", value: "USD", is_tax_inclusive: true }]);
+      second = Effect.runPromiseExit(work);
+      await Effect.runPromise(Deferred.await(gateReached).pipe(Effect.timeout(30_000)));
+      expect(arrivals).toBe(1);
+      if (kind === "delete") expect(remove).toHaveBeenCalledTimes(1);
+      else expect(remove).not.toHaveBeenCalled();
+      expect(price).not.toHaveBeenCalled();
+      readinessOrder.push("first-released");
+      await Effect.runPromise(Deferred.succeed(releaseFirst, undefined));
+      await first;
+      const competitor = await second;
+      expect(readinessOrder).toEqual(["attempted", "first-released", "ready"]);
+      if (kind !== "delete") expect(competitor).toMatchObject({ _tag: "Success" });
       const stored = await connected.read(graph.stores);
       if (kind === "update") expect(stored[0]?.name).toBe("Second serialized Store update");
       else if (kind === "delete") {
-        const outcome = competitor[0];
-        if (outcome?.status === "fulfilled") expect(stored[0]?.deleted_at).not.toBeNull();
-        else { expect(failures(outcome?.reason)).toContain("writeConflict"); expect(stored[0]).toMatchObject({ name: "First serialized Store update", deleted_at: null }); }
+        expect(competitor).toMatchObject({ _tag: "Failure" });
+        if (Exit.isSuccess(competitor)) throw new Error("Stale ordinary Store deletion committed");
+        expect(failures(competitor.cause)).toContain("writeConflict");
+        expect(stored[0]).toMatchObject({ name: "First serialized Store update", deleted_at: null });
       }
       else expect((await connected.read([connected.preferenceIds.USD]))[0]?.is_tax_inclusive).toBe(true);
-    } finally { finish?.(); await Promise.allSettled(second === undefined ? [first] : [first, second]); update.mockRestore(); remove.mockRestore(); price.mockRestore(); }
+    } finally {
+      await Effect.runPromise(Deferred.succeed(releaseFirst, undefined));
+      await Promise.allSettled(second === undefined ? [first] : [first, second]);
+      selectedAdmission.mockRestore(); ordinaryAcceptance.mockRestore(); update.mockRestore(); remove.mockRestore(); price.mockRestore();
+    }
   }, 180_000);
 });

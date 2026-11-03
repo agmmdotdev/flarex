@@ -1,16 +1,15 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { compileCoreNativeEventStorageDefinition } from "../../../persistence-postgres/src/commit/events/coreDefinition";
+import type { CorePersistenceFixture } from "../../../persistence-postgres/test/core/fixture";
+import { compileStoreCoreDefinition } from "../../src/modules/store/schema";
+import { compilePricingCoreDefinition } from "../../src/modules/pricing/schema";
+import { createCoreNativeWorkflowFixture, shareCoreNativeWorkflowPhysical } from "./core-native-workflow-fixture";
 import { Effect, Result, Schema } from "effect";
 import { createStep, createWorkflow, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { createStoresWorkflow } from "@medusajs/core-flows/store/create-stores";
-import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
-import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { makeCommerceHost, type LogicalCommerceHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
-import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
-import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution } from "../../src/workflow/host";
+import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
-import { projectNativeRow } from "../../src/repository/result";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { storeCreationResources } from "../../src/workflow/policy";
 import { makeStoreCreationCommands } from "../../src/modules/store/create-service";
@@ -18,8 +17,6 @@ import { StoreCreates, StorePhysicalDeletionIds } from "../../src/modules/store/
 import { makeLocalPricingCommands } from "../../src/modules/pricing/service";
 import { PricePreferenceIds, StorePreferenceUpserts } from "../../src/modules/pricing/preference-input";
 import { prepareStoreCreationWorkflow, StoreCreationInput } from "../../src/workflows/store/create";
-import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./logical-currency-fixture";
-import { logicalCurrencyInventory } from "./logical-currency-inventory";
 
 const revision = (name: string) => createHash("sha256").update(name).digest("hex");
 const stamp = "2026-01-01T00:00:00.000Z";
@@ -58,16 +55,10 @@ export function maximumStoreCreationInput(): typeof StoreCreationInput.Type {
 
 /** Initializes only pre-existing comparison/protected rows. Store creation
  * under test always executes the genuine installed workflow or native step. */
-export async function prepareLogicalStoreCreation(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  shared?: Readonly<{ resource: LogicalCurrencyFixture["resource"];
-    fixtureIdentity: Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }> }>) {
-  const fixture = await logicalCurrencyFixture(driver, close, shared === undefined
-    ? { includeStore: true, includePricing: true }
-    : { includeStore: true, includePricing: true, ...shared });
+export async function prepareCoreStoreCreation(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
+  shared: Readonly<{ physical?: CorePersistenceFixture }> = {}) {
   const store = await Effect.runPromise(makeStoreCreationCommands());
   const pricing = await Effect.runPromise(makeLocalPricingCommands("price-preferences"));
-  const storeDefinition = fixture.storeDefinition, pricingDefinition = fixture.pricingDefinition;
-  if (storeDefinition === undefined || pricingDefinition === undefined) throw new Error("Missing installed Store/Pricing source");
   const storeRows: Array<{ table: string; row: JsonObject }> = [
     { table: "store", row: { id: "store-create-protected", name: "Protected Store", default_sales_channel_id: "protected-channel",
       default_region_id: "protected-region", default_location_id: "protected-location", metadata: { protected: true }, ...managed } },
@@ -82,33 +73,20 @@ export async function prepareLogicalStoreCreation(driver: "pglite" | "postgres",
       is_tax_inclusive: true, ...managed,
     } })),
   ];
-  const storeDataset = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows: storeRows }, 1_048_576,
-    { invalidInput: () => new Error("Invalid Store creation comparison seed"), hashFailure: cause => new Error("Store seed hash", { cause }) }));
-  const pricingDataset = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows: pricingRows }, 1_048_576,
-    { invalidInput: () => new Error("Invalid Pricing preference comparison seed"), hashFailure: cause => new Error("Pricing seed hash", { cause }) }));
-  // Parents precede children and each table remains adjacent so the existing
-  // canonical initializer batches it within the unchanged resource budget.
-  const storeInput = { ...fixture.hostInput, commands: store.commands,
-    identityAndAccessPolicy: { profile: "logical-store-create-comparison-initialization" },
-    logicalStorage: { ...fixture.hostInput.logicalStorage,
-      source: { sourceKey: "medusa.store", writeProfile: "medusa.store", schema: storeDefinition.schema, evidence: storeDefinition.provenance },
-      initialization: { stepId: "store-create-comparison-initial", datasetSha256: storeDataset.sha256Hex, expectedRowCount: storeRows.length } },
-  } satisfies LogicalCommerceHostInput<unknown>;
-  const pricingInput = { ...fixture.hostInput, commands: pricing.commands,
-    identityAndAccessPolicy: { profile: "logical-store-preference-comparison-initialization" },
-    logicalStorage: { ...fixture.hostInput.logicalStorage,
-      source: { sourceKey: "medusa.pricing", writeProfile: "medusa.pricing", schema: pricingDefinition.schema, evidence: pricingDefinition.provenance },
-      initialization: { stepId: "store-create-pricing-comparison-initial", datasetSha256: pricingDataset.sha256Hex, expectedRowCount: pricingRows.length } },
-  } satisfies LogicalCommerceHostInput<unknown>;
-  const storeInitializer = await Effect.runPromise(makeCommerceHost(storeInput));
-  try { await Effect.runPromise(storeInitializer.initialize(storeRows)); } finally { await Effect.runPromise(storeInitializer.close); }
-  const pricingInitializer = await Effect.runPromise(makeCommerceHost(pricingInput));
-  try { await Effect.runPromise(pricingInitializer.initialize(pricingRows)); } finally { await Effect.runPromise(pricingInitializer.close); }
-  const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-    prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, ...composition }) };
+  const target = { scopeUuid: randomUUID(), epochUuid: randomUUID() };
+  const storeDefinition = await Effect.runPromise(compileStoreCoreDefinition(target));
+  const pricingDefinition = await Effect.runPromise(compilePricingCoreDefinition(target));
+  const eventDefinition = await Effect.runPromise(compileCoreNativeEventStorageDefinition(target));
+  const physical = shared.physical === undefined ? undefined : await shareCoreNativeWorkflowPhysical(shared.physical);
+  const fixture = await createCoreNativeWorkflowFixture(driver, { eventDefinition, sources: [
+    { name: "store", definition: storeDefinition, initialCommands: store.commands, rows: storeRows },
+    { name: "pricing", definition: pricingDefinition, initialCommands: pricing.commands, rows: pricingRows },
+  ], ...(physical === undefined ? {} : { physical }) });
+  close(fixture.close);
+  const execution = fixture.execution;
   const options: Parameters<typeof prepareStoreCreationWorkflow>[0] = { execution,
-    modules: { store: { module: store.workflow, logicalStorage: storeInput.logicalStorage },
-      pricing: { module: pricing.workflow, logicalStorage: pricingInput.logicalStorage } },
+    modules: { store: { module: store.workflow, nativeStorage: fixture.source("store") },
+      pricing: { module: pricing.workflow, nativeStorage: fixture.source("pricing") } },
     revision: revision("native-store-create-124"), subscribers: [{ id: "native-store-create", revision: "c".repeat(64) }] };
   const prepare = async (selectedRevision = options.revision) => {
     const host = await Effect.runPromise(prepareStoreCreationWorkflow({ ...options, revision: selectedRevision }));
@@ -117,6 +95,8 @@ export async function prepareLogicalStoreCreation(driver: "pglite" | "postgres",
   // Explicit callback probes borrow authentic installed methods. They do not
   // stand in for the workflow or claim automatic atomic-runtime compensation.
   const prepareProbes = async (failAfterInverse?: "pricing" | "store") => {
+    const inverseFailure = new Error(failAfterInverse === "pricing"
+      ? "Late probe failure after genuine Pricing inverse" : "Late probe failure after genuine Store physical inverse");
     const resources = Result.getOrThrow(prepareWorkflowResources({
       store: { module: store.workflow, methods: ["createStores", "deleteStores"], graph: false },
       pricing: { module: pricing.workflow, methods: ["listPricePreferences", "upsertPricePreferences", "deletePricePreferences"], graph: false },
@@ -136,12 +116,12 @@ export async function prepareLogicalStoreCreation(driver: "pglite" | "postgres",
     }));
     const undoStore = createStep("probe-retained-store-create-inverse", resources.callback(async (input: typeof StorePhysicalDeletionIds.Type, context) => {
       await storeCallbacks.compensate(input, context);
-      if (failAfterInverse === "store") throw new Error("Late probe failure after genuine Store physical inverse");
+      if (failAfterInverse === "store") throw inverseFailure;
       return new StepResponse(null);
     }));
     const undoPreferences = createStep("probe-retained-store-preferences-inverse", resources.callback(async (input: typeof Compensation.Type, context) => {
       await preferenceCallbacks.compensate(input, context);
-      if (failAfterInverse === "pricing") throw new Error("Late probe failure after genuine Pricing inverse");
+      if (failAfterInverse === "pricing") throw inverseFailure;
       return new StepResponse(null);
     }));
     const storeForward = createWorkflow("probe-native-store-create", (input: WorkflowData<typeof StoreCreates.Type>) => new WorkflowResponse(forwardStore(input)));
@@ -171,23 +151,10 @@ export async function prepareLogicalStoreCreation(driver: "pglite" | "postgres",
         prepared: Result.getOrThrow(workflow.prepare()), input: StorePhysicalDeletionIds, output: Schema.Null, events: internalModuleWorkflowEvents } }));
       close(() => Effect.runPromise(host.close)); return host;
     };
-    return { create, preferences, undo, undoPricing, prepareDirectDelete };
+    return { create, preferences, undo, undoPricing, prepareDirectDelete, inverseFailure };
   };
-  /** Read committed canonical evidence only, scoped to this fixture. */
-  const read = async (ids: readonly string[]) => {
-    const inventory = await logicalCurrencyInventory(fixture), selected = new Set(ids), result: JsonObject[] = [];
-    for (const current of inventory.rows) {
-      if (current.scopeUuid !== projectScopeIdUuidV1(fixture.application.authority.scopeId).scopeUuid) continue;
-      const value = inventory.revisions.find(row => row.scopeUuid === current.scopeUuid && row.tableId === current.tableId
-        && row.commitSeq === current.commitSeq && Buffer.from(row.rowId).equals(Buffer.from(current.rowId)));
-      if (value === undefined || value.isTombstone) continue;
-      const decoded = await decodeCanonicalFlarexValueEvidenceV1({ canonicalBytes: value.valueBytes, sha256: value.valueSha256, profile: "appDocument" });
-      const row = Schema.decodeUnknownSync(Schema.JsonObject)(decoded.valueJson);
-      if (typeof row.id === "string" && selected.has(row.id)) result.push(projectNativeRow(row));
-    }
-    return result.sort((left, right) => String(left.id).localeCompare(String(right.id)));
-  };
-  return { fixture, store, pricing, options, prepare, prepareProbes, read,
+  return { fixture, store, pricing, options, prepare, prepareProbes,
+    read: (ids: readonly string[]) => fixture.readRows(undefined, ids),
     maximumInput: maximumStoreCreationInput, protectedIds: storeCreationProtectedIds, preferenceIds: storeCreationPreferenceIds,
-    snapshot: () => logicalCurrencyInventory(fixture) };
+    snapshot: fixture.snapshot };
 }

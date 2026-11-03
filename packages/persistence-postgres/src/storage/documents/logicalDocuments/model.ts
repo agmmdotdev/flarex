@@ -4,6 +4,7 @@ import type {
   FiniteStorageCaptureError,
 } from "../../../execution/finiteStorageCapture";
 import { Schema, type Effect } from "effect";
+import { CoreNativeReconstitutionPolicySchema } from "../../../core/api";
 
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
@@ -46,7 +47,7 @@ export type LogicalInsertValidation = typeof LogicalInsertValidation.Type;
 /** Trusted terminal reference maintenance; native profiles choose timestamp semantics. */
 export const LogicalSetNullPolicy = Schema.Struct({ managedUpdate: Schema.Literals(["advance", "preserve"]) });
 /** Exact same-root deleted-row reuse selects its managed update-time behavior. */
-export const LogicalReconstitutionPolicy = Schema.Literals(["advanceUpdatedAt", "preserveTimestamps"]);
+export const LogicalReconstitutionPolicy = CoreNativeReconstitutionPolicySchema;
 export type LogicalReconstitutionPolicy = typeof LogicalReconstitutionPolicy.Type;
 /** Conflict merges choose native managed-field behavior explicitly. */
 export const LogicalPreservingDeletionUpsertPolicy = Schema.Union([Schema.Literal(true), Schema.Literal("preserveTimestamps")]);

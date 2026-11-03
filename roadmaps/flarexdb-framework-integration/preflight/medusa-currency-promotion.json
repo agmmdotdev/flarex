@@ -6094,17 +6094,17 @@
     {
       "target": "packages/medusa-adapter/test/logical-store-create-workflow.test.ts",
       "classification": "authored",
-      "targetSha256": "29f227a36cfea6a706524914c96e2461e1c7d5156e6331d92acaafd21719f32f"
+      "targetSha256": "d9a64ec4197c708ce6ef6eaa5ffe2a707b00edb4a86e2048625254a586c2dc34"
     },
     {
       "target": "packages/medusa-adapter/test/logical-store-deletion-workflow.test.ts",
       "classification": "authored",
-      "targetSha256": "d8897b55854659d78cba67a56063d5b83b9b1fa020e1c5c58ac7681a39f32cf8"
+      "targetSha256": "7296141b1da62a37f0bc19c08fc442aae31f7175fd286fb1f47459f908741395"
     },
     {
       "target": "packages/medusa-adapter/test/logical-store-update-workflow.test.ts",
       "classification": "authored",
-      "targetSha256": "c31498708aa033359a85500e7420f3e9bacee70b988f5036f5e952eb8e32265d"
+      "targetSha256": "4f60577bcae32dd1ec1c910338a65b24dc3ac09a94100872fa1d9696381432d6"
     },
     {
       "target": "packages/medusa-adapter/test/logical-tax-rate-create-workflow.test.ts",
@@ -7579,6 +7579,31 @@
       "targetSha256": "88f03505b31f0440a3d1d61c0d5b1723bfb800429c27800ebc158388b1aa46b7"
     },
     {
+      "target": "packages/medusa-adapter/test/support/core-store-create-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "caa961719b94b0bdad0fcc98dee190c4af7a0af3236d92f12e3e5187b3defe56"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/core-store-deletion-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "4fb98d6caf638a90e2ce598e7931bbae17fb4ab705ac72fa2547ae94e6f9f247"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/core-store-evidence.ts",
+      "classification": "authored",
+      "targetSha256": "b72906ff0284f6f490b44a49937ccc991f63bcb376e8fc529454c49a91271ac8"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/core-store-graph.ts",
+      "classification": "authored",
+      "targetSha256": "272b098719eead0bcdd9979252dd2de4ff2aede65caebfffbcb87422f0cfa62f"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/core-store-update-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "487d8c943deb5dff255bde1258bfc2d4a3816e8523b6ac3e3f7d13e8af062b0a"
+    },
+    {
       "target": "packages/medusa-adapter/test/support/core-tax-rate-create-fixture.ts",
       "classification": "authored",
       "targetSha256": "b66321d501729e62f77249387e1a52623d32d9077f9b36dc1ed68bbbe0b00f7d"
@@ -7992,21 +8017,6 @@
       "target": "packages/medusa-adapter/test/support/logical-shipping-profile-update-fixture.ts",
       "classification": "authored",
       "targetSha256": "0261b4c95c7c74bf5de38b4e51bf25d14f8a63def6be7b6bfbed335181d701d3"
-    },
-    {
-      "target": "packages/medusa-adapter/test/support/logical-store-create-fixture.ts",
-      "classification": "authored",
-      "targetSha256": "65b4c4137d11b8677c6daabaf9a51a045efacf82975f45a2d755defe38328cf9"
-    },
-    {
-      "target": "packages/medusa-adapter/test/support/logical-store-deletion-fixture.ts",
-      "classification": "authored",
-      "targetSha256": "8a39bfbbac53c8e57602d1b60d659fe9c56bc3affd7758e09d48adecf561e26f"
-    },
-    {
-      "target": "packages/medusa-adapter/test/support/logical-store-update-fixture.ts",
-      "classification": "authored",
-      "targetSha256": "9b85be4b96c4f1d9c8dc2bc8ec221abb9a8637acf6b5614bc0aa9944c4606d2c"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-variant-pricing-link-fixture.ts",
@@ -8433,6 +8443,11 @@
       "target": "packages/medusa-adapter/vitest.native-stock-sales.config.ts",
       "classification": "authored",
       "targetSha256": "68d32881e1bcd50f06fd21ad0859f3e48833af89c5da56c0ac3277e647386684"
+    },
+    {
+      "target": "packages/medusa-adapter/vitest.native-store.config.ts",
+      "classification": "authored",
+      "targetSha256": "da33fa2ccfe5e31f878c5aa939183a350fe5b9982939b92d394fb3b1a8356712"
     },
     {
       "target": "packages/medusa-adapter/vitest.postgres.config.ts",

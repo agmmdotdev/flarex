@@ -377,6 +377,9 @@ export interface CoreNativeActivity {
   readonly referenceReplacements: readonly CoreNativeReferenceReplacement[];
 }
 
+export const CoreNativeReconstitutionPolicySchema = Schema.Literals(["advanceUpdatedAt", "preserveTimestamps"]);
+export type CoreNativeReconstitutionPolicy = typeof CoreNativeReconstitutionPolicySchema.Type;
+
 export type CoreNativeOperations = Pick<CoreTransaction, "get" | "insert" | "patch" | "replace" | "delete" | "normalizeId"> & {
   /** Actual already-loaded native row semantics; this grants no storage access. */
   readonly nativeActivityCursor: () => CoreNativeActivityCursor;
@@ -398,6 +401,10 @@ export type CoreNativeOperations = Pick<CoreTransaction, "get" | "insert" | "pat
   /** Complete native values require authentic recorded content; internal
    * destination identity remains with the transaction's mutation owner. */
   readonly replayRows: (table: string, rows: unknown) => Effect.Effect<readonly DocumentObject[], CoreError>;
+  /** Exact physical-deletion preimages from this accepting root only. The
+   * trusted native host fixes the admitted timestamp policy per invocation. */
+  readonly reconstituteRows: (table: string, rows: unknown, policy: CoreNativeReconstitutionPolicy) =>
+    Effect.Effect<readonly DocumentObject[], CoreError>;
   /** Source-confined outgoing FK check; final integrity still runs at acceptance. */
   readonly checkpointReferences: (table: string) => Effect.Effect<void, CoreError>;
   /** Bounded native FK intent after an actual target deletion in this root. */

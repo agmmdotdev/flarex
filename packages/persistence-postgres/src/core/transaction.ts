@@ -11,7 +11,7 @@ import { decodeDocumentId, normalizeDocumentId } from "flarex-protocol/document-
 import { captureDocumentObject, captureDocumentPatch, encodeDocumentValue, type DocumentObject, type DocumentValue } from "flarex-protocol/document-value";
 import { encodeIndexKey, encodeIndexValue } from "flarex-protocol/index-key";
 import { captureLogicalQuery, compileIndexRange, fingerprintQuery, incrementIndexKeyPrefix, splitIndexRangeAfter } from "flarex-protocol/index-range";
-import { CoreNativeQueryError, CoreNativeUniqueConflict, CoreNativeReferencePlanError, CoreNativeSetNullIntentSchema, CoreQueryInputError, CoreTransactionError, issueFinalizedTransaction, issueCoreNativePendingDelete, type CoreNativePendingDelete, type CoreError, type CoreFinalizedTransaction,
+import { CoreNativeQueryError, CoreNativeUniqueConflict, CoreNativeReferencePlanError, CoreNativeSetNullIntentSchema, CoreNativeReconstitutionPolicySchema, CoreQueryInputError, CoreTransactionError, issueFinalizedTransaction, issueCoreNativePendingDelete, type CoreNativePendingDelete, type CoreError, type CoreFinalizedTransaction,
   type CoreIndexDefinition, type CoreTableDefinition, type CoreTransaction, type CoreTransactionLimits, type CoreTransactionUsage,
   type CoreReadToken, type CoreProgramDefinition, type CoreNativeOperations, type CoreNativeLimits, type CoreDatabaseOptions } from "./api";
 import type { CoreApplicationInsertOperations, CoreApplicationReadOperations, CoreNativeSetNullIntent, CoreNativeReferenceReplacement } from "./api";
@@ -199,6 +199,7 @@ const decodeNativeWriteInvocation = Schema.decodeUnknownEffect(Schema.UndefinedO
 const decodeNativeLifecycleInvocation = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Struct({
   allowActiveRestoreUpdate: Schema.optionalKey(Schema.Literal(true)),
 }).annotate({ parseOptions: { onExcessProperty: "error" } })));
+const decodeNativeReconstitutionPolicy = Schema.decodeUnknownEffect(CoreNativeReconstitutionPolicySchema);
 const decodeNativeReferenceReplacement = Schema.decodeUnknownEffect(Schema.Struct({
   sourceTable: Schema.NonEmptyString, sourceColumn: Schema.NonEmptyString, targetTable: Schema.NonEmptyString,
   targetColumn: Schema.NonEmptyString, targetKey: Schema.NonEmptyString,
@@ -1848,6 +1849,53 @@ export function createCoreTransaction(input: Readonly<{
       return Object.freeze(result);
     })));
 
+  const nativeReconstituteRows = (access: Extract<CoreTransactionNativeAccess, { readonly kind: "native" }>): CoreNativeOperations["reconstituteRows"] =>
+    Effect.fn("CoreTransaction.nativeReconstituteRows")((tableName, inputRows, inputPolicy) => nativeBatch(access, Effect.gen(function* () {
+      const selectedPolicy = yield* decodeNativeReconstitutionPolicy(inputPolicy)
+        .pipe(Effect.mapError(cause => new CoreNativeQueryError({ reason: "invalidInput", cause })));
+      const { table, policy, rows } = yield* prepareNativeRowBatch(tableName, inputRows, false, access);
+      // Defaults and normalization cannot turn a partial or forged DTO into
+      // proof. Only the exact latest physical-deletion body in this root grants
+      // reuse of its existing internal identity; committed history is irrelevant.
+      for (const { row } of rows) yield* Effect.fromResult(policy.rows.validate(row, "documentInvalid"));
+      yield* nativeCapture(table, access);
+      const result: DocumentObject[] = [];
+      for (const { identity, row } of rows) {
+        if ((yield* nativeFind(access, true)(table.name, identity)).length !== 0)
+          return yield* new CoreNativeQueryError({ reason: "invalidInput", cause: "Occupied reconstitution destination" });
+        let destination: Readonly<{ document: DocumentObject; pending: CoreDocumentChange }> | undefined;
+        for (const [id, document] of deletedDocuments) {
+          const pending = writes.get(id);
+          if (pending === undefined || pending.finalDocument !== null || !bytesEqual(pending.table.tabletId, table.tabletId)
+            || deletedBy.get(id) !== access || !policy.rows.keyColumns.every(key => document[key] === identity[key])) continue;
+          if (destination !== undefined)
+            return yield* new CoreNativeQueryError({ reason: "invalidInput", cause: "Ambiguous reconstitution destination" });
+          destination = { document, pending };
+        }
+        if (destination === undefined)
+          return yield* new CoreNativeQueryError({ reason: "invalidInput", cause: "No same-root physical-deletion preimage" });
+        const { document, pending } = destination;
+        yield* Effect.fromResult(chargeDocument(table, document));
+        const preimage = yield* Effect.fromResult(coreNativeRelationalRow(document));
+        if (encodeNativeRecordedRow(preimage) !== encodeNativeRecordedRow(row)
+          || policy.rows.deletedAt !== undefined && preimage[policy.rows.deletedAt] !== null)
+          return yield* new CoreNativeQueryError({ reason: "invalidInput", cause: "Reconstitution preimage differs" });
+        if (typeof document._id !== "string" || typeof document._creationTime !== "number")
+          return yield* new CorePersistenceError({ reason: "corruptData" });
+        const body = yield* validateUserBody(table, row, document, access,
+          selectedPolicy === "preserveTimestamps" ? "preserve" : "advance");
+        const next = { ...body, _id: document._id, _creationTime: document._creationTime };
+        const record = yield* prepareNativeMutation(access, table, "insert", null, next, body);
+        yield* stage(table, pending.id, next, access);
+        record(); markNativeUse(table, next, access);
+        const written = writes.get(document._id)?.finalDocument;
+        if (written === undefined || written === null) return yield* new CorePersistenceError({ reason: "corruptData" });
+        result.push(written);
+      }
+      yield* nativeCapture(table, access);
+      return Object.freeze(result);
+    })));
+
   const nativeCheckpointReferences = (access: CoreTransactionNativeAccess | undefined = defaultAccess): CoreNativeOperations["checkpointReferences"] =>
     Effect.fn("CoreTransaction.checkpointReferences")((tableName) => nativeOperation(access, Effect.gen(function* () {
       if (access?.kind !== "native" || native === undefined || nativeObservations === undefined)
@@ -2197,6 +2245,7 @@ export function createCoreTransaction(input: Readonly<{
     })),
     writeRows: nativeWriteRows(access), deleteRows: nativeDeleteRows(access), lifecycle: nativeLifecycle(access),
     replayRows: nativeReplayRows(access),
+    reconstituteRows: nativeReconstituteRows(access),
     checkpointReferences: nativeCheckpointReferences(access),
     planSetNullReferences: nativePlanSetNull(access),
     prepareDeleteClosure: nativePrepareDeleteClosure(access), isEmpty: nativeIsEmpty(access),

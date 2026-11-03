@@ -17,7 +17,8 @@ function operations(overrides: Pick<CoreNativeOperations, "get" | "normalizeId" 
   const unexpected = () => Effect.die(new Error("Unexpected Core operation in join admission test"));
   return { ...overrides, getMany: unexpected, insert: unexpected, patch: unexpected, replace: unexpected, delete: unexpected,
     nativeActivityCursor: () => { throw new Error("Unexpected Core activity in join admission test"); },
-    nativeActivitySince: unexpected, matchRelational: unexpected, replayRows: unexpected, checkpointReferences: unexpected, planSetNullReferences: unexpected,
+    nativeActivitySince: unexpected, matchRelational: unexpected, replayRows: unexpected, reconstituteRows: unexpected,
+    checkpointReferences: unexpected, planSetNullReferences: unexpected,
     pendingDelete: unexpected, assertPendingDelete: unexpected, writeRows: unexpected, deleteRows: unexpected,
     lifecycle: unexpected, prepareDeleteClosure: unexpected,
     replaceReferenceSet: unexpected, referenceReplacementChanges: unexpected, protectedReferencePage: unexpected,

@@ -1,3 +1,4 @@
+import { newStoreRevisions, storeRevisionIdentity, storeRowIdentity } from "./support/core-store-evidence";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
 import { Link } from "@medusajs/modules-sdk/link";
@@ -5,13 +6,14 @@ import { StoreModuleService } from "@medusajs/store/services";
 import { buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import { CommerceTransactionError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
-import { prepareLogicalStoreDeletion, storeDeletionGraph } from "./support/logical-store-deletion-fixture";
+import { prepareCoreStoreDeletion, storeDeletionGraph } from "./support/core-store-deletion-fixture";
 import { makeStoreGuardCommands } from "../src/modules/store/service";
 import { prepareStoreDeletionWorkflow } from "../src/workflows/store/delete";
+import { expectWorkflowDefect } from "./support/workflow-failure-assertions";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalStoreDeletion>>;
+let connected: Awaited<ReturnType<typeof prepareCoreStoreDeletion>>;
 let sharedCleanupCount = 0;
 const graph = {
   maximum: storeDeletionGraph("store-delete-maximum", 4, 2, 2),
@@ -44,13 +46,15 @@ const idsIn = (events: Awaited<ReturnType<typeof connected.snapshot>>["events"])
 
 describe("native Store deletion on shared logical storage", { concurrent: false }, () => {
   beforeAll(async () => {
-    connected = await prepareLogicalStoreDeletion(driver, close => cleanup.push(close), Object.values(graph).flatMap(value => value.rows));
+    connected = await prepareCoreStoreDeletion(driver, close => cleanup.push(close), Object.values(graph).flatMap(value => value.rows));
     sharedCleanupCount = cleanup.length;
   }, 240_000);
   afterEach(async () => { for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
   it("retains both native empty calls and refuses malformed raw IDs before callbacks", async () => {
+    expect(connected.fixture.sources.map(source => source.definition.identity.sourceKey)).toEqual(["medusa.store"]);
+    expect(connected.fixture.sources[0]?.definition.tables.map(table => table.localName)).toEqual(["store", "store_currency", "store_locale"]);
     const host = await connected.prepare(), store = vi.spyOn(StoreModuleService.prototype, "softDeleteStores"), link = vi.spyOn(Link.prototype, "delete");
     try {
       const before = await connected.snapshot();
@@ -65,8 +69,8 @@ describe("native Store deletion on shared logical storage", { concurrent: false 
       expect(link).toHaveBeenCalledTimes(1); expect(link.mock.calls[0]?.[0]).toEqual({ store: { store_id: [] } });
       expect(await link.mock.results[0]?.value).toEqual([null, {}]);
       const after = await connected.snapshot();
-      expect(after.rows).toEqual(before.rows); expect(after.rowChanges).toEqual(before.rowChanges); expect(after.events).toEqual(before.events);
-      expect(after.commits).toHaveLength(before.commits.length + 1);
+      expect(after.rows).toEqual(before.rows); expect(after.revisions).toEqual(before.revisions); expect(after.events).toEqual(before.events);
+      expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
       expect(await Effect.runPromise(host.run(key, { ids: [] }))).toBeNull(); expect(await connected.snapshot()).toEqual(after);
       expect(store).toHaveBeenCalledTimes(1); expect(link).toHaveBeenCalledTimes(1);
     } finally { store.mockRestore(); link.mockRestore(); }
@@ -98,10 +102,10 @@ describe("native Store deletion on shared logical storage", { concurrent: false 
       for (const [object, expected] of [["store", selected.stores], ["store_currency", selected.currencies], ["store_locale", selected.locales]] as const)
         expect(idsIn(emitted.filter(event => event.envelope.contract === name(object, "deleted")))).toEqual(expected);
       expect(emitted).toHaveLength(20); expect(emitted.every(event => event.envelope.internal)).toBe(true);
-      expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1);
-      expect(after.rowChanges).toHaveLength(before.rowChanges.length + 20); expect(after.commits).toHaveLength(before.commits.length + 1);
-      const changes = new Set(after.rowChanges.slice(before.rowChanges.length).map(row => `${row.scopeUuid}:${row.tableId}:${Buffer.from(row.rowId).toString("hex")}`));
-      const protectedPointers = (rows: typeof after.rows) => rows.filter(row => !changes.has(`${row.scopeUuid}:${row.tableId}:${Buffer.from(row.rowId).toString("hex")}`));
+      expect(new Set(emitted.map(event => event.timestamp)).size).toBe(1);
+      expect(after.revisions).toHaveLength(before.revisions.length + 20); expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
+      const changes = new Set(newStoreRevisions(before, after).map(storeRevisionIdentity));
+      const protectedPointers = (rows: typeof after.rows) => rows.filter(row => !changes.has(storeRowIdentity(row)));
       expect(protectedPointers(after.rows)).toEqual(protectedPointers(before.rows));
       expect(await Effect.runPromise(host.run(key, { ids }))).toBeNull(); expect(store).toHaveBeenCalledTimes(1);
       await expect(Effect.runPromise(host.run(key, { ids: [...ids].reverse() }))).rejects.toMatchObject({ reason: "requestConflict" });
@@ -119,13 +123,13 @@ describe("native Store deletion on shared logical storage", { concurrent: false 
       expect(await Effect.runPromise(host.run(host.newRequestKey(), { ids }))).toBeNull();
       expect(await store.mock.results[0]?.value).toEqual({ store_id: [id], store_currency_id: selected.currencies, store_locale_id: selected.locales });
       expect(link.mock.calls[0]?.[0]).toEqual({ store: { store_id: ids } });
-      const after = await connected.snapshot(); expect(after.rowChanges).toHaveLength(before.rowChanges.length + 3);
+      const after = await connected.snapshot(); expect(after.revisions).toHaveLength(before.revisions.length + 3);
       expect(idsIn(after.events.slice(before.events.length))).toEqual(identities(selected));
       expect(await Effect.runPromise(host.run(host.newRequestKey(), { ids: [id, "missing-native-store"] }))).toBeNull();
       expect(await store.mock.results[1]?.value).toEqual({});
       expect(link.mock.calls[1]?.[0]).toEqual({ store: { store_id: [id, "missing-native-store"] } });
       const repeated = await connected.snapshot();
-      expect(repeated.rows).toEqual(after.rows); expect(repeated.rowChanges).toEqual(after.rowChanges); expect(repeated.events).toEqual(after.events);
+      expect(repeated.rows).toEqual(after.rows); expect(repeated.revisions).toEqual(after.revisions); expect(repeated.events).toEqual(after.events);
     } finally { store.mockRestore(); link.mockRestore(); }
   }, 120_000);
 
@@ -138,7 +142,7 @@ describe("native Store deletion on shared logical storage", { concurrent: false 
     for (const row of beforeRows) expect(remaining.find(value => value.id === row.id)).toEqual({ ...row,
       deleted_at: expect.any(String), updated_at: expect.any(String) });
     expect(remaining.every(row => row.deleted_at !== "2026-10-17T00:00:00.000Z")).toBe(true);
-    expect(after.rowChanges).toHaveLength(before.rowChanges.length + 7);
+    expect(after.revisions).toHaveLength(before.revisions.length + 7);
     const emitted = after.events.slice(before.events.length);
     expect(idsIn(emitted)).toEqual(identities(selected));
     expect(emitted.map(event => event.envelope.contract)).toEqual([
@@ -157,13 +161,13 @@ describe("native Store deletion on shared logical storage", { concurrent: false 
 
   it("rolls back both child families, complete history, facts, events and outcomes after late native Link failure", async () => {
     const host = await connected.prepare(), original = Link.prototype.delete; let completed = false;
+    const lateFailure = new Error("Late native Store Link failure");
     const link = vi.spyOn(Link.prototype, "delete").mockImplementation(async function (this: Link, ...args) {
-      await Reflect.apply(original, this, args); completed = true; throw new Error("Late native Store Link failure");
+      await Reflect.apply(original, this, args); completed = true; throw lateFailure;
     });
     try {
-      const before = await connected.snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { ids: graph.late.stores })));
-      if (Result.isSuccess(result)) throw new Error("Late Store Link failure committed");
-      expect(completed).toBe(true); expect(failurePath(result.failure)).toContain("Late native Store Link failure");
+      const before = await connected.snapshot(), result = await Effect.runPromiseExit(host.run(host.newRequestKey(), { ids: graph.late.stores }));
+      expect(completed).toBe(true); expectWorkflowDefect(result, lateFailure);
       expect(await connected.snapshot()).toEqual(before);
     } finally { link.mockRestore(); }
   }, 120_000);
@@ -232,14 +236,14 @@ describe("native Store deletion on shared logical storage", { concurrent: false 
         for (const [object, ids] of [["store", selected.stores], ["store_currency", selected.currencies], ["store_locale", selected.locales]] as const)
           expect(idsIn(emitted.filter(event => event.envelope.contract === name(object, "restored")))).toEqual(ids);
         expect(emitted.every(event => event.envelope.internal)).toBe(true);
-        expect(after.rowChanges).toHaveLength(before.rowChanges.length + (alreadyActive ? 0 : 20));
+        expect(after.revisions).toHaveLength(before.revisions.length + (alreadyActive ? 0 : 20));
       }
       store.mockClear(); link.mockClear(); const before = await connected.snapshot();
       expect(await Effect.runPromise(restore.run(restore.newRequestKey(), { ids: [] }))).toBeNull();
       expect(store).not.toHaveBeenCalled(); expect(link).toHaveBeenCalledTimes(1);
       expect(link.mock.calls[0]?.[0]).toEqual({ store: { store_id: [] } });
       const after = await connected.snapshot();
-      expect(after.rows).toEqual(before.rows); expect(after.rowChanges).toEqual(before.rowChanges); expect(after.events).toEqual(before.events);
+      expect(after.rows).toEqual(before.rows); expect(after.revisions).toEqual(before.revisions); expect(after.events).toEqual(before.events);
     } finally { store.mockRestore(); link.mockRestore(); }
   }, 180_000);
 
@@ -274,15 +278,13 @@ describe("native Store deletion on shared logical storage", { concurrent: false 
       for (const result of native.mock.results) expect(await result.value).toEqual({ store_id: selected.stores,
         store_currency_id: selected.currencies, store_locale_id: selected.locales });
       const after = await connected.snapshot(), emitted = after.events.slice(before.events.length);
-      expect(after.commits).toHaveLength(before.commits.length + 1);
-      expect(after.rowChanges).toHaveLength(before.rowChanges.length + 3);
-      expect(after.revisions).toHaveLength(before.revisions.length + 3);
       expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
+      expect(after.revisions).toHaveLength(before.revisions.length + 3);
       expect(emitted).toHaveLength(3); expect(idsIn(emitted)).toEqual(identities(selected));
       expect(emitted.map(event => event.envelope.contract)).toEqual([
         name("store", "deleted"), name("store_currency", "deleted"), name("store_locale", "deleted"),
       ]);
-      expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1);
+      expect(new Set(emitted.map(event => event.timestamp)).size).toBe(1);
       expect(await connected.read(identities(selected), false)).toEqual([]);
       expect(await connected.read(identities(selected))).toHaveLength(3);
     } finally {
@@ -310,10 +312,9 @@ describe("native Store deletion on shared logical storage", { concurrent: false 
     } finally { native.mockRestore(); }
   });
 
-  it("isolates identical Store/child identities and request keys in a second genuine scope", async () => {
-    const other = await prepareLogicalStoreDeletion(driver, close => cleanup.push(close), graph.scope.rows, {
-      resource: connected.fixture.resource,
-      fixtureIdentity: { deploymentId: "store_delete_shop_b", projectId: "store_delete_shop_b", uuidOffset: 210_000 },
+  it("isolates identical Store/child identities and request keys across Core instances sharing physical storage", async () => {
+    const other = await prepareCoreStoreDeletion(driver, close => cleanup.push(close), graph.scope.rows, {
+      physical: connected.fixture.physical,
     });
     const left = await connected.prepare(), right = await other.prepare(), key = left.newRequestKey();
     const neighbor = await other.read(identities(graph.scope));

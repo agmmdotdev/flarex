@@ -10,6 +10,7 @@ import { useCapturedPrivateJsonData } from "../../values/privateJsonData";
 import { commerceError, type CommerceTransactionError } from "./model";
 import { defaultCommerceResources, type CommerceResources } from "./resources";
 import type { CommerceStore } from "./storeModel";
+import type { LogicalReconstitutionPolicy } from "../../storage/documents/logicalDocuments/model";
 import { projectCoreCommerceFailure } from "./nativeFailure";
 import { observeExecution } from "../../execution/diagnostics/operation";
 import type { CommerceReferenceReplacement, CommerceSetNullSelection } from "./commands";
@@ -36,6 +37,7 @@ export interface NativeCommerceInvocation {
   readonly allowActiveRestoreUpdate?: true;
   readonly allowStorageInsertionOrder?: true;
   readonly allowRecordedRowReplay?: true;
+  readonly reconstitution?: LogicalReconstitutionPolicy;
   readonly allowPreservingDeletionUpsert?: "preserveTimestamps";
   readonly allowReferenceReplacement?: true;
   readonly setNullPolicy?: Readonly<{ managedUpdate: "advance" | "preserve" }>;
@@ -138,6 +140,15 @@ export const makeNativeCommerceParticipant = Effect.fn("NativeCommerce.makeParti
           return yield* returnedRows(yield* nativeResult(operations.replayRows(table.name, captured.value)));
         })),
       } : {}),
+      ...(invocation?.reconstitution === undefined ? {} : {
+        reconstitute: Effect.fn("NativeCommerce.reconstitute")((context: BoundedRequestContext, input: unknown) => guard(context, "write", Effect.gen(function* () {
+          const reconstitutionPolicy = invocation.reconstitution;
+          if (reconstitutionPolicy === undefined) return yield* commerceError("invalidAuthority");
+          const captured = yield* lifetime.fromResult(useCapturedPrivateJsonData(input, lifetime.remainingBytes(), commerceError));
+          yield* lifetime.fromResult(lifetime.charge(captured.bytes));
+          return yield* returnedRows(yield* nativeResult(operations.reconstituteRows(table.name, captured.value, reconstitutionPolicy)));
+        }))),
+      }),
     } satisfies CommerceStore);
     stores.set(declaration.localName ?? declaration.name, store);
   }

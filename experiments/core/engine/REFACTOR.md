@@ -714,3 +714,13 @@ preserves implicit and explicitly selected native identity limits in live and
 recovery frames. Selected obsolete fixtures are retired after caller migration.
 Bounded connected validation and review are complete; named remaining consumers,
 Task-backed fulfillment, hosting, component-scope and performance gates remain open.
+
+The [Store continuation](./slices/23-native-store-workflows.md) has replaced
+complete admitted creation/update/deletion construction, including genuine
+Pricing callbacks and retained inverses. Independent challenges identified and
+translated same-root child reconstitution through existing Core pending/deleted/
+original owners, preserving proven identity/creation time and its authenticated
+timestamp policy. Recorded historical replay remains separate. Dedicated old
+Store fixtures are retired; required scoped validation and review are complete.
+API Key follows as a separate complete connected slice. Broader native, hosted,
+Task and performance gates remain open; the full goal is unchanged.
