@@ -8,6 +8,54 @@ const changes = (key: number) => [{ indexId: index, keys: [bytes(key)] }];
 const reads = (key: number) => [{ indexId: index, intervals: [pointInterval(bytes(key))] }];
 
 describe("translated indexed conflict history", () => {
+  it("reuses a frozen snapshot until a publication advances the log", () => {
+    const log = new CoreWriteLog(0n);
+    const initial = log.snapshot();
+    expect(Object.isFrozen(initial)).toBe(true);
+    expect(log.snapshot()).toBe(initial);
+    expect(new CoreWriteLog(0n).snapshot()).not.toBe(initial);
+    expect(() => log.append(0n, changes(2))).toThrow("publication must be increasing");
+    expect(log.snapshot()).toBe(initial);
+
+    log.append(1n, []);
+    const published = log.snapshot();
+    expect(published).not.toBe(initial);
+    expect(published.timestamp).toBe(1n);
+    expect(log.snapshot()).toBe(published);
+    expect(initial.timestamp).toBe(0n);
+  });
+
+  it("replaces only the current snapshot when retention prunes without publication", () => {
+    const log = new CoreWriteLog(0n, { minRetentionNanoseconds: 1n, maxRetentionNanoseconds: 1n, softMaxBytes: 0 });
+    log.append(1n, changes(2), undefined, changes(2));
+    const held = log.snapshot();
+    log.enforceRetention(2n);
+    expect(log.snapshot()).toBe(held);
+
+    log.enforceRetention(3n);
+    const pruned = log.snapshot();
+    expect(pruned).not.toBe(held);
+    expect(pruned.timestamp).toBe(held.timestamp);
+    expect(pruned.minimumTimestamp).toBe(1n);
+    expect(Result.isFailure(pruned.conflict(reads(2), 0n))).toBe(true);
+    expect(Result.isFailure(pruned.nativeKeyTransition(index, bytes(2), 0n))).toBe(true);
+    expect(Result.getOrThrow(pruned.conflict(reads(2), 1n))).toBeUndefined();
+    expect(Result.getOrThrow(pruned.nativeKeyTransition(index, bytes(2), 1n))).toBeUndefined();
+
+    const transitionKey = Buffer.from([2]);
+    const conflict = Result.getOrThrow(held.conflict(reads(2), 0n));
+    const transition = Result.getOrThrow(held.nativeKeyTransition(index, transitionKey, 0n));
+    if (conflict === undefined || transition === undefined) throw new Error("Held snapshot lost committed history");
+    for (const found of [conflict, transition]) {
+      found.indexId.fill(7);
+      found.key.fill(7);
+    }
+    expect(transitionKey[0]).toBe(2);
+    expect(held.minimumTimestamp).toBe(0n);
+    expect(Result.getOrThrow(held.conflict(reads(2), 0n))).toEqual({ timestamp: 1n, indexId: index, key: bytes(2) });
+    expect(Result.getOrThrow(held.nativeKeyTransition(index, bytes(2), 0n))).toEqual({ timestamp: 1n, indexId: index, key: bytes(2) });
+  });
+
   it("keeps frozen prevalidation history and checks the later published suffix", () => {
     const log = new CoreWriteLog(0n);
     const prevalidated = log.snapshot();

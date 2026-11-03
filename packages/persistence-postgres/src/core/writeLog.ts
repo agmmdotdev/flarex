@@ -149,36 +149,44 @@ export function indexTransitionsFromWrites(writes: readonly CorePersistenceIndex
 
 /** COW B+tree clones share immutable index batches without copying document bodies. */
 export class CoreWriteLogSnapshot {
+  readonly #indexes: ReadonlyMap<string, IndexedKeys>;
+  readonly #transitions: ReadonlyMap<string, IndexedKeys>;
+
   constructor(
     readonly timestamp: CoreTimestamp,
     readonly minimumTimestamp: CoreTimestamp,
-    private readonly indexes: ReadonlyMap<string, IndexedKeys>,
-    private readonly transitions: ReadonlyMap<string, IndexedKeys>,
-  ) {}
+    indexes: ReadonlyMap<string, IndexedKeys>,
+    transitions: ReadonlyMap<string, IndexedKeys>,
+  ) {
+    this.#indexes = indexes;
+    this.#transitions = transitions;
+    Object.freeze(this);
+  }
 
   /** Native first-capture coherence, distinct from Source's every-write conflicts. */
   nativeKeyTransition(indexId: Uint8Array, key: Uint8Array, after: CoreTimestamp): Result.Result<CoreConflict | undefined, CorePersistenceError> {
     if (after < this.minimumTimestamp) return Result.fail(new CorePersistenceError({ reason: "outOfRetention" }));
     if (after > this.timestamp) return Result.fail(new CorePersistenceError({ reason: "invalidTarget" }));
-    const entry = this.transitions.get(encodeBytesToLowercaseHex(indexId));
+    const entry = this.#transitions.get(encodeBytesToLowercaseHex(indexId));
     const timestamp = entry?.tree.get(key);
     return Result.succeed(entry !== undefined && timestamp !== undefined && timestamp > after
-      ? { indexId: entry.id.slice(), key: key.slice(), timestamp } : undefined);
+      ? { indexId: copyBytes(entry.id), key: copyBytes(key), timestamp } : undefined);
   }
 
   conflict(reads: CoreReadSet, after: CoreTimestamp): Result.Result<CoreConflict | undefined, CorePersistenceError> {
     if (after < this.minimumTimestamp) return Result.fail(new CorePersistenceError({ reason: "outOfRetention" }));
     for (const read of reads) {
-      const entry = this.indexes.get(encodeBytesToLowercaseHex(read.indexId));
+      const entry = this.#indexes.get(encodeBytesToLowercaseHex(read.indexId));
       if (entry === undefined) continue;
       const found = overlap(entry.tree, read.intervals, after, value => value);
-      if (found !== undefined) return Result.succeed({ indexId: entry.id.slice(), key: found[0].slice(), timestamp: found[1] });
+      if (found !== undefined) return Result.succeed({ indexId: copyBytes(entry.id), key: copyBytes(found[0]), timestamp: found[1] });
     }
     return Result.succeed(undefined);
   }
 }
 
 export class CoreWriteLog {
+  #currentSnapshot: CoreWriteLogSnapshot | undefined;
   private readonly indexes = new Map<string, IndexedKeys>();
   private readonly transitions = new Map<string, IndexedKeys>();
   private readonly batches = new BTree<CoreTimestamp, Readonly<{
@@ -197,7 +205,7 @@ export class CoreWriteLog {
   }
 
   snapshot(): CoreWriteLogSnapshot {
-    return new CoreWriteLogSnapshot(this.latest, this.minimum, new Map(
+    return this.#currentSnapshot ??= new CoreWriteLogSnapshot(this.latest, this.minimum, new Map(
       [...this.indexes].map(([name, entry]) => [name, { id: entry.id, tree: entry.tree.clone() }]),
     ), new Map([...this.transitions].map(([name, entry]) => [name, { id: entry.id, tree: entry.tree.clone() }])));
   }
@@ -205,6 +213,7 @@ export class CoreWriteLog {
   append(timestamp: CoreTimestamp, changes: readonly CoreIndexKeys[], retainedBytes?: number,
     transitions: readonly CoreIndexKeys[] = []): void {
     if (timestamp <= this.latest) throw new Error("Write log publication must be increasing");
+    this.#currentSnapshot = undefined;
     this.appendKeys(this.indexes, timestamp, changes);
     this.appendKeys(this.transitions, timestamp, transitions);
     const bytes = (retainedBytes ?? this.keyBytes(changes)) + this.keyBytes(transitions);
@@ -240,6 +249,7 @@ export class CoreWriteLog {
         ? this.retention.minRetentionNanoseconds : this.retention.maxRetentionNanoseconds;
       const limit = currentTimestamp > duration ? currentTimestamp - duration : 0n;
       if (oldest >= limit) break;
+      this.#currentSnapshot = undefined;
       const expired = this.batches.get(oldest);
       this.batches.delete(oldest);
       this.minimum = oldest;
