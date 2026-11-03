@@ -8,7 +8,7 @@ it.each(["unique", "compound", "unrelatedKey"] as const)("refuses non-null %s ou
   expect(result).toMatchObject({ _tag: "Failure", failure: { _tag: "CoreSchemaError", reason: "unsupportedCapability" } });
 });
 
-it.each(["unique", "testedKey", "singleOffKey", "unorderedPredicate"] as const)("refuses compound non-null %s outside the selected declaration shape", async shape => {
+it.each(["unique", "testedKey", "singleOffKeyUnique", "unorderedPredicate"] as const)("refuses off-key non-null %s outside the selected declaration shape", async shape => {
   const result = await Effect.runPromise(Effect.result(compileNativeCompoundNonNullIndex(shape)));
   expect(result).toMatchObject({ _tag: "Failure", failure: { _tag: "CoreSchemaError", reason: "unsupportedCapability" } });
 });

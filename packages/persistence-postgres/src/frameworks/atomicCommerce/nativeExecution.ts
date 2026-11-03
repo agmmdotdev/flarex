@@ -1,6 +1,6 @@
 import { Cause, Effect, Exit, Result } from "effect";
 import type { Json } from "flarex-protocol/json";
-import type { CoreNativeBinding, CoreNativeBindingMetadata, CoreNativeOperations, CoreNativeRootOperation } from "../../core/api";
+import type { CoreNativeBinding, CoreNativeBindingMetadata, CoreNativeRootOperation, CoreNativeRootOperations } from "../../core/api";
 import type { BoundedRequestContext, BoundedRequestLifetime } from "../../execution/preparation/boundedRequestLifetime";
 import { capturePrivateJsonData } from "../../values/privateJsonData";
 import { canonicalizeJsonOutcome } from "../../values/jsonOutcome";
@@ -28,7 +28,7 @@ export interface AtomicCommerceNativeParticipant {
   readonly metadata: CoreNativeBindingMetadata;
 }
 interface ParticipantExecution extends AtomicCommerceNativeParticipant {
-  readonly operations: CoreNativeOperations;
+  readonly operations: CoreNativeRootOperations;
   readonly activity: ReturnType<typeof makeNativeCommerceActivity>;
   readonly original: ReturnType<ReturnType<typeof makeNativeCommerceActivity>["cursor"]>;
   working: Effect.Success<ReturnType<typeof makeNativeCommerceParticipant>> | undefined;
@@ -93,7 +93,7 @@ export const executeAtomicCommerceNative = Effect.fn("AtomicCommerceNative.execu
       const captured = capturedInput ?? (yield* lifetime.fromResult(prepareCapture(input)));
       if (participant.working === undefined) participant.working = yield* makeNativeCommerceParticipant(participant.operations,
         participant.metadata, lifetime, manager, transactionId, operation.unixTime, participant.member.resources,
-        { ...participant.member.invocation, onRead: participant.activity.onRead });
+        { ...participant.member.invocation, onRead: participant.activity.onRead, readRelated: participant.operations.readRelated });
       const working = { ...participant.working, registerScopeExclusion };
       const result = yield* withCommerceCommandContext(lifetime, working, transactionId, manager,
         (child, command, value) => invoke(participant, child, command, value, emitted).pipe(Effect.map(call => call.result)),

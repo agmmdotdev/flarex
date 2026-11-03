@@ -16,7 +16,7 @@ import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { createMixedMutationProductFixture } from "../../../executor/test/performance/support/mixedMutationProductFixture";
 import { runNativeStandaloneProductMutation, runNativeStandaloneProductUpdate, seedNativeProductAttemptGraph } from "../../../medusa-adapter/test/support/native-product-attempt-seed";
 import { fxControlLogicalReadTables } from "../../src/database/schema/catalogLogicalReads";
-import { prepareRelatedRelationalPredicate } from "../../src/storage/documents/logicalDocuments/relatedRelationalPredicate";
+import { prepareRelatedRelationalPredicate } from "../../src/values/relatedRelationalPredicate";
 import { fxAppRowRevisions } from "../../src/database/schema";
 import { LogicalParticipantInvocationError } from "../../src/storage/documents/logicalDocuments/participantErrors";
 import type { FiniteSessionJournalParticipantSelection } from "../../src/execution/journal/api";
@@ -611,7 +611,7 @@ describe.each(drivers)("finite indexed body permission on %s", driver => {
         // Invalid PostgreSQL regex makes premature body planning observable,
         // even for an empty candidate cohort. Only child provenance changes.
         const prepared = yield* Effect.fromResult(prepareRelatedRelationalPredicate(parent.definition, definition, childId,
-          permission.schema.capabilities, { childTable: child.localName, foreignKey,
+          { childTable: child.localName, foreignKey,
             predicate: { kind: "child", predicate: { kind: "postgresText", column: "title", operator: "regex", value: "[" } } }, 8, failure));
         const batch = yield* Effect.fromResult(preparePostgresRelationalBatch(prepared.program, parent.definition, parent.tableId, [],
           { rows: 8, bytes: 65_536 }, failure, { table: definition, tableId: childId, rows: [] }));

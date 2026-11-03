@@ -5,16 +5,17 @@ import type { DocumentObject } from "flarex-protocol/document-value";
 import { isJson, isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import { prepareRelationalRead, relationalSelectionValues, type RelationalSelection } from "../values/relationalQuery";
 import type { NormalizedRelationalPredicate } from "../values/relationalPredicate";
-import { issuePostgresRelationalPredicate } from "../values/postgresRelationalPredicate";
+import { issuePostgresRelationalPredicate, type PostgresRelationalPredicateFailure } from "../values/postgresRelationalPredicate";
 import { CoreNativeQueryError, CoreQueryInputError, CoreTransactionError, type CoreError, type CoreNativeOperations, type CoreTableDefinition } from "./api";
 import { CorePersistenceError } from "./contracts";
 import type { CoreNativeRelationalRowPolicy, CoreNativeTableDeclaration } from "./nativePolicy";
 
-const failure = (reason: "invalidInput" | "invalidAuthority" | "limitExceeded" | "storedCorruption", cause?: unknown): CoreError =>
+export const coreNativeRelationalQueryFailure: PostgresRelationalPredicateFailure<CoreError> = (reason, cause) =>
   reason === "storedCorruption" ? new CorePersistenceError({ reason: "corruptData", cause })
     : reason === "limitExceeded" ? new CoreTransactionError({ reason: "capacity", cause })
       : reason === "invalidAuthority" ? new CoreTransactionError({ reason: "authorityRevoked", cause })
       : new CoreNativeQueryError({ reason: "invalidInput", cause });
+const failure = coreNativeRelationalQueryFailure;
 
 export function coreNativeRelationalRow(document: DocumentObject): Result.Result<JsonObject, CoreError> {
   const { _id, _creationTime, ...row } = document;
@@ -55,27 +56,30 @@ function selectedWhere(table: CoreTableDefinition, selection: RelationalSelectio
   return where;
 }
 
-/** Complete selections retain their first native membership observation. Closed
- * PostgreSQL programs evaluate only that captured cohort; pure residuals retain
- * their existing owner. Count precedes projection and population. */
-export const executeCoreNativeRelationalRead = Effect.fn("CoreNativeRelational.read")(function* (
-  operations: Pick<CoreNativeOperations, "find" | "matchRelational">, table: CoreTableDefinition,
-  policy: CoreNativeRelationalRowPolicy, query: Query, purpose: "rows" | "count" = "rows",
+interface InspectedRow {
+  readonly id: string;
+  readonly row: JsonObject;
+  readonly order: Uint8Array;
+  readonly matches: boolean;
+  readonly creationTime: unknown;
+}
+
+const inspectCoreNativeRelationalCohort = Effect.fn("CoreNativeRelational.inspectCohort")(function* (
+  find: CoreNativeOperations["find"], table: CoreTableDefinition, policy: CoreNativeRelationalRowPolicy, query: Query,
 ) {
   if (query.selections === null && query.requiresIndexedNullAnchor
     && !query.requiredNulls.some(field => table.indexes.some(index => index.fields[0] === field)))
     return yield* failure("invalidInput");
   const candidates = new Map<string, DocumentObject>();
   for (const selection of query.selections ?? [null]) {
-    const documents = yield* operations.find(table.name, selectedWhere(table, selection, query));
+    const documents = yield* find(table.name, selectedWhere(table, selection, query));
     for (const document of documents) {
       if (typeof document._id !== "string") return yield* failure("storedCorruption");
       candidates.set(document._id, document);
     }
   }
-  const inspectedRows = yield* Effect.fromResult(Result.gen(function* () {
-    const rows: { readonly id: string; readonly row: JsonObject; readonly order: Uint8Array;
-      readonly matches: boolean; readonly creationTime: unknown }[] = [];
+  return yield* Effect.fromResult(Result.gen(function* () {
+    const rows: InspectedRow[] = [];
     for (const [id, document] of candidates) {
       const row = yield* coreNativeRelationalRow(document);
       yield* policy.rows.validate(row, "storedCorruption");
@@ -88,12 +92,14 @@ export const executeCoreNativeRelationalRead = Effect.fn("CoreNativeRelational.r
     }
     return rows;
   }));
-  // Even an empty indexed cohort reaches the complete validated SQL tree once.
-  const verdicts = query.postgresPredicate === undefined ? inspectedRows.map(row => row.matches)
-    : yield* operations.matchRelational(table.name, query.postgresPredicate, inspectedRows.map(row => row.row));
-  return yield* Effect.fromResult(Result.gen(function* () {
+});
+
+function projectCoreNativeRelationalCohort(inspectedRows: readonly InspectedRow[], query: Query, purpose: "rows" | "count" | "complete",
+  verdicts?: readonly (boolean | null)[]) {
+  return Result.gen(function* () {
     const matched: { readonly id: string; readonly row: JsonObject; readonly order: Uint8Array; readonly creationTime: number }[] = [];
-    for (const [ordinal, member] of inspectedRows.entries()) if (verdicts[ordinal] === true) {
+    for (const [ordinal, member] of inspectedRows.entries()) {
+      if (!(verdicts === undefined ? member.matches : verdicts[ordinal] === true)) continue;
       if (typeof member.creationTime !== "number" || !Number.isFinite(member.creationTime))
         return yield* Result.fail(failure("storedCorruption"));
       matched.push({ ...member, creationTime: member.creationTime });
@@ -103,8 +109,8 @@ export const executeCoreNativeRelationalRead = Effect.fn("CoreNativeRelational.r
       || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
     const rows: JsonObject[] = [];
     const orderedIdentities: Readonly<Record<string, string>>[] = [];
-    for (const member of purpose === "count" ? matched : matched.slice(query.offset, query.offset + query.limit)) {
-      if (purpose === "rows") rows.push(yield* project(member.row, query.fields));
+    for (const member of purpose === "rows" ? matched.slice(query.offset, query.offset + query.limit) : matched) {
+      if (purpose !== "count") rows.push(yield* project(member.row, query.fields));
       if (query.storageInsertion || query.includeIdentities) {
         const identity: Record<string, string> = {};
         for (const field of query.identityColumns) {
@@ -117,7 +123,34 @@ export const executeCoreNativeRelationalRead = Effect.fn("CoreNativeRelational.r
     }
     return { rows, count: matched.length, returned: purpose === "count" ? matched.length : rows.length,
       ...(query.storageInsertion || query.includeIdentities ? { orderedIdentities: Object.freeze(orderedIdentities) } : {}) };
-  }));
+  });
+}
+
+/** Complete selections retain their first native membership observation. Closed
+ * PostgreSQL programs evaluate only that captured cohort; pure residuals retain
+ * their existing owner. Count precedes projection and population. */
+export const executeCoreNativeRelationalRead = Effect.fn("CoreNativeRelational.read")(function* (
+  operations: Pick<CoreNativeOperations, "find" | "matchRelational">, table: CoreTableDefinition,
+  policy: CoreNativeRelationalRowPolicy, query: Query, purpose: "rows" | "count" = "rows",
+) {
+  const inspected = yield* inspectCoreNativeRelationalCohort(operations.find, table, policy, query);
+  // Even an empty indexed cohort reaches the complete validated SQL tree once.
+  const verdicts = query.postgresPredicate === undefined ? undefined
+    : yield* operations.matchRelational(table.name, query.postgresPredicate, inspected.map(row => row.row));
+  return yield* Effect.fromResult(projectCoreNativeRelationalCohort(inspected, query, purpose, verdicts));
+});
+
+export const captureCoreNativeRelatedCohort = Effect.fn("CoreNativeRelational.captureRelatedCohort")(function* (
+  find: CoreNativeOperations["find"], table: CoreTableDefinition, policy: CoreNativeRelationalRowPolicy,
+  primaryColumn: string, pageRows: number,
+) {
+  const query = Object.freeze({ order: Object.freeze({ column: primaryColumn, direction: "asc" }), includeIdentities: true });
+  const prepared = yield* Effect.fromResult(prepareCoreNativeRelationalRead(policy, query, pageRows));
+  if (prepared.postgresPredicate !== undefined) return yield* failure("invalidInput");
+  const inspected = yield* inspectCoreNativeRelationalCohort(find, table, policy, prepared);
+  const cohort = yield* Effect.fromResult(projectCoreNativeRelationalCohort(inspected, prepared, "complete"));
+  if (cohort.orderedIdentities === undefined) return yield* failure("storedCorruption");
+  return Object.freeze({ ...cohort, query, rows: Object.freeze(cohort.rows), orderedIdentities: cohort.orderedIdentities });
 });
 
 const pageWhere = (predicate: NormalizedRelationalPredicate): Result.Result<JsonObject, CoreError> => Result.gen(function* () {

@@ -1,7 +1,8 @@
 import { Cause, Effect, Result, Schema } from "effect";
 import type { DocumentObject } from "flarex-protocol/document-value";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
-import { CoreNativeSetNullIntentSchema, type CoreError, type CoreNativeBindingMetadata, type CoreNativeOperations } from "../../core/api";
+import { CoreNativeSetNullIntentSchema, type CoreError, type CoreNativeBindingMetadata,
+  type CoreNativeOperations, type CoreNativeRootOperations } from "../../core/api";
 import { coreNativeRelationalRows } from "../../core/nativePolicy";
 import { coreNativeRelationalRow, executeCoreNativeRelationalRead, executeCoreNativeRelationalPage,
   prepareCoreNativeRelationalRead } from "../../core/nativeRelationalQuery";
@@ -27,6 +28,7 @@ export interface NativeCommerceReadObservation {
   readonly returned: number;
   readonly rows: readonly JsonObject[];
   readonly orderedIdentities?: readonly Readonly<Record<string, string>>[];
+  readonly related?: Readonly<{ childTable: string; foreignKeyConstraintId: string }>;
 }
 /** The trusted host supplies these fields from its authentic selected command
  * policy; native arguments never construct invocation controls or observers.
@@ -42,6 +44,7 @@ export interface NativeCommerceInvocation {
   readonly allowReferenceReplacement?: true;
   readonly setNullPolicy?: Readonly<{ managedUpdate: "advance" | "preserve" }>;
   readonly onRead?: (observation: NativeCommerceReadObservation) => Effect.Effect<void, CommerceTransactionError>;
+  readonly readRelated?: CoreNativeRootOperations["readRelated"];
 }
 
 /** Core owns row, key, default, observation and mutation semantics. This owner
@@ -53,6 +56,8 @@ export const makeNativeCommerceParticipant = Effect.fn("NativeCommerce.makeParti
   invocation?: NativeCommerceInvocation,
 ) {
   const stores = new Map<string, CommerceStore>();
+  const onRead = invocation?.onRead;
+  const readRelated = invocation?.readRelated;
   const retain = <Value>(value: Value) => Effect.gen(function* () {
     const captured = yield* lifetime.fromResult(useCapturedPrivateJsonData(value, lifetime.remainingBytes(), commerceError));
     yield* lifetime.fromResult(lifetime.charge(captured.bytes));
@@ -112,6 +117,23 @@ export const makeNativeCommerceParticipant = Effect.fn("NativeCommerce.makeParti
       find: (context, input) => read(context, input, {}).pipe(Effect.map(result => result.rows)),
       findPage: (context, input) => readPage(context, input, {}),
       count: (context, input) => read(context, input, {}, "count").pipe(Effect.map(result => result.count)),
+      ...(onRead === undefined || readRelated === undefined ? {} : {
+        related: Effect.fn("NativeCommerce.readRelated")((context: BoundedRequestContext, input: unknown) => guard(context, "read", Effect.gen(function* () {
+          const query = yield* retain(input);
+          const selected = yield* nativeResult(readRelated(table.name, query, { pageRows: resources.queryRows,
+            ...(resources.relatedPredicateNodes === undefined ? {} : { relatedPredicateNodes: resources.relatedPredicateNodes }) }));
+          const { parent, child, matched, childTable, foreignKeyConstraintId } = selected;
+          yield* onRead({ table: table.name, operation: "find", query: parent.query, total: parent.count, returned: parent.returned,
+            rows: parent.rows, orderedIdentities: parent.orderedIdentities });
+          yield* onRead({ table: childTable, operation: "find", query: child.query, total: child.count, returned: child.returned,
+            rows: child.rows, orderedIdentities: child.orderedIdentities });
+          yield* onRead({ table: table.name, operation: "find", query, total: matched.count, returned: matched.returned,
+            rows: matched.rows, orderedIdentities: matched.orderedIdentities, related: { childTable, foreignKeyConstraintId } });
+          const rows = yield* retain(matched.rows);
+          if (!Array.isArray(rows) || !rows.every(isJsonObject)) return yield* commerceError("storedCorruption");
+          return rows;
+        }))),
+      }),
       aggregate: context => guard(context, "read", Effect.fail(commerceError("unsupportedProfile"))),
       lifecycle: (context, mode, input) => guard(context, "write", Effect.gen(function* () {
         const captured = yield* lifetime.fromResult(useCapturedPrivateJsonData(input, lifetime.remainingBytes(), commerceError));

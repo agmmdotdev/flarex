@@ -1,10 +1,12 @@
 import { Result } from "effect";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
+import type { RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
 import { expect, it } from "vitest";
 import { compileLogicalRelationalRead } from "../../../src/storage/documents/logicalDocuments/relationalQuery";
-import { prepareRelatedRelationalPredicate, decodeRelatedRelationalQuery } from "../../../src/storage/documents/logicalDocuments/relatedRelationalPredicate";
-import { preparePostgresRelationalBatch, decodePostgresRelationalMatches, inspectPostgresRelationalBatch } from "../../../src/values/postgresRelationalPredicate";
+import { prepareRelatedRelationalPredicate, decodeRelatedRelationalQuery } from "../../../src/values/relatedRelationalPredicate";
+import { MAX_POSTGRES_RELATIONAL_PREDICATE_BYTES, preparePostgresRelationalBatch, decodePostgresRelationalMatches,
+  inspectPostgresRelationalBatch } from "../../../src/values/postgresRelationalPredicate";
 import { buildPostgresRelationalPredicateBody } from "../../../src/database/postgresRelationalPredicate";
 import { relatedPredicateParent, relatedPredicateChild, numericRelatedPredicate, relatedQuery } from "./relatedRelationalPredicate.schema";
 const parent = relatedPredicateParent, child = relatedPredicateChild;
@@ -12,7 +14,7 @@ if (parent === undefined || child === undefined) throw new Error("Missing genuin
 const failure = (reason: string) => new Error(reason);
 const tableId = decodeCatalogTableId(1), childId = decodeCatalogTableId(2);
 const prepare = (predicate: unknown = numericRelatedPredicate, foreignKey = "child.parent") =>
-  prepareRelatedRelationalPredicate(parent, child, childId, [],
+  prepareRelatedRelationalPredicate(parent, child, childId,
     Result.getOrThrow(decodeRelatedRelationalQuery({ ...relatedQuery(predicate), foreignKey })), 8, failure);
 
 it("admits a checked parent/child program while preserving scalar dotted-column refusal", () => {
@@ -48,6 +50,35 @@ it("retains exact program and pair identity and refuses omitted, copied or misma
     .toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
   expect(decodePostgresRelationalMatches(batch, tableId, [], failure)).toMatchObject({ _tag: "Success", success: { matches: [] } });
   expect(prepare(undefined, "missing")).toMatchObject({ _tag: "Failure", failure: { message: "invalidInput" } });
+});
+
+it("binds a Core byte table token by identity", () => {
+  const parentToken = Uint8Array.of(1), childToken = Uint8Array.of(2);
+  const prepared = Result.getOrThrow(prepareRelatedRelationalPredicate(parent, child, childToken,
+    relatedQuery(numericRelatedPredicate), 8, failure));
+  const args = [prepared.program, parent, parentToken, [], { rows: 8, bytes: 8192 }, failure] as const;
+  expect(preparePostgresRelationalBatch(...args, { table: child, tableId: childToken.slice(), rows: [] }))
+    .toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+  const batch = Result.getOrThrow(preparePostgresRelationalBatch(...args, { table: child, tableId: childToken, rows: [] }));
+  expect(Result.getOrThrow(inspectPostgresRelationalBatch(batch, parentToken, failure)).child?.tableId).toBe(childToken);
+});
+
+it("requires a text primary key even when a child order could use an integer column", () => {
+  const numericKeyChild: RelationalTableDefinition = { ...child, columns: child.columns.map(column =>
+    column.identity.columnId === "id" ? { ...column, type: "integer" } : column) };
+  const query = relatedQuery({ kind: "child", predicate: { kind: "isNull", column: "value" } });
+  expect(prepareRelatedRelationalPredicate(parent, numericKeyChild, childId, query, 8, failure))
+    .toMatchObject({ _tag: "Failure", failure: { message: "invalidInput" } });
+});
+
+it("refuses an oversized PostgreSQL leaf before a later invalid node", () => {
+  const largeLeaf = { kind: "child", predicate: { kind: "postgresText", column: "value", operator: "regex",
+    value: "x".repeat(MAX_POSTGRES_RELATIONAL_PREDICATE_BYTES) } };
+  const invalidLeaf = { kind: "unsupported" };
+  expect(prepare({ kind: "and", children: [largeLeaf, invalidLeaf] }))
+    .toMatchObject({ _tag: "Failure", failure: { message: "limitExceeded" } });
+  expect(prepare({ kind: "and", children: [invalidLeaf, largeLeaf] }))
+    .toMatchObject({ _tag: "Failure", failure: { message: "invalidInput" } });
 });
 
 it("applies one node/depth/operand budget across every scalar wrapper", () => {

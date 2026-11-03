@@ -14,7 +14,7 @@ import { captureLogicalQuery, compileIndexRange, fingerprintQuery, incrementInde
 import type { ValidatorIdPolicyV1 } from "flarex-protocol/validator-engine";
 import { CoreNativeQueryError, CoreNativeUniqueConflict, CoreNativeReferencePlanError, CoreNativeSetNullIntentSchema, CoreNativeReconstitutionPolicySchema, CoreQueryInputError, CoreTransactionError, issueFinalizedTransaction, issueCoreNativePendingDelete, type CoreNativePendingDelete, type CoreError, type CoreFinalizedTransaction,
   type CoreIndexDefinition, type CoreTableDefinition, type CoreTransaction, type CoreTransactionLimits, type CoreTransactionUsage,
-  type CoreReadToken, type CoreProgramDefinition, type CoreNativeOperations, type CoreNativeLimits, type CoreDatabaseOptions } from "./api";
+  type CoreReadToken, type CoreProgramDefinition, type CoreNativeOperations, type CoreNativeRootOperations, type CoreNativeLimits, type CoreDatabaseOptions } from "./api";
 import type { CoreApplicationInsertOperations, CoreApplicationReadOperations, CoreNativeSetNullIntent, CoreNativeReferenceReplacement } from "./api";
 import { CorePersistenceError, CoreTimestampSchema, type CoreDocumentLogEntry, type CoreHydratedIndexEntry, type CoreIndexPage, type CoreIndexScan, type CoreInterval, type CorePersistence, type CorePersistenceSnapshot, type CoreWriteBatch } from "./contracts";
 import { CoreRegistry, TABLES, INDEXES, SCHEMAS, PROGRAMS, publicDocumentId, readDocumentObject, tableDocument, parseCoreTableRecord } from "./registry";
@@ -42,11 +42,14 @@ import { decodeCoreSchemaMetadata } from "./schemaTypes";
 import { parseCoreSchema } from "./schemaJson";
 import { capturePrivateJsonData, useCapturedPrivateJsonData } from "../values/privateJsonData";
 import { preparePostgresRelationalBatch, inspectPostgresRelationalBatch, decodePostgresRelationalMatches,
-  type PostgresRelationalPredicateFailure } from "../values/postgresRelationalPredicate";
+  MAX_POSTGRES_RELATIONAL_PREDICATE_BYTES, type PostgresRelationalPredicateProgram } from "../values/postgresRelationalPredicate";
+import { decodeRelatedRelationalQuery, prepareRelatedRelationalPredicate } from "../values/relatedRelationalPredicate";
 import { inspectRelationalRealNormalization } from "../values/relationalRows";
 import { retainRelationalFailure } from "../values/relationalFailure";
 import { CoreNativeActivityOwner } from "./nativeActivity";
-import { coreNativeRelationalRow } from "./nativeRelationalQuery";
+import { captureCoreNativeRelatedCohort, coreNativeRelationalQueryFailure as nativeRelationalPredicateFailure,
+  coreNativeRelationalRow } from "./nativeRelationalQuery";
+import type { CoreNativeRelationalRowPolicy, CoreNativeTableDeclaration } from "./nativePolicy";
 import { CoreNativeObservationState, type CoreNativeMembership,
   type CoreNativeObservations } from "./nativeObservations";
 import { captureCoreNativeWhere, coreNativeUniqueSelection, coreNativeUniqueValues, planCoreNativeQuery,
@@ -98,7 +101,7 @@ export interface CoreTransactionInternals {
   readonly schemaRegistry: CoreSchemaRegistry;
   readonly transaction: CoreTransaction;
   readonly nativeOperations?: CoreNativeOperations;
-  readonly nativeFor: (access: Extract<CoreTransactionNativeAccess, { kind: "native" }>) => Effect.Effect<CoreNativeOperations, CoreError>;
+  readonly nativeFor: (access: Extract<CoreTransactionNativeAccess, { kind: "native" }>) => Effect.Effect<CoreNativeRootOperations, CoreError>;
   readonly applicationInsertFor: (access: Extract<CoreTransactionNativeAccess, { kind: "applicationInsert" }>) => Effect.Effect<CoreApplicationInsertOperations, CoreError>;
   readonly applicationReadFor: (access: Extract<CoreTransactionNativeAccess, { kind: "applicationRead" }>) => Effect.Effect<CoreApplicationReadOperations, CoreError>;
   readonly count: (tableId:Uint8Array) => Effect.Effect<Option.Option<bigint>,CoreError>;
@@ -174,10 +177,6 @@ export class CoreFinalizationVault {
 function invalid(cause?: unknown): CoreTransactionError {
   return new CoreTransactionError({ reason: "invalidValue", ...(cause === undefined ? {} : { cause }) });
 }
-const nativeRelationalPredicateFailure: PostgresRelationalPredicateFailure<CoreError> = (reason, cause) => reason === "storedCorruption"
-  ? new CorePersistenceError({ reason: "corruptData", cause }) : reason === "limitExceeded"
-    ? new CoreTransactionError({ reason: "capacity", cause }) : reason === "invalidAuthority"
-      ? new CoreTransactionError({ reason: "authorityRevoked", cause }) : new CoreNativeQueryError({ reason: "invalidInput", cause });
 const encodeNativeRecordedRow = (row: JsonObject): string => encodeCanonicalJson(row, issue => {
   throw new Error("Captured native row lost canonical JSON", { cause: issue });
 });
@@ -270,6 +269,11 @@ export const prepareCoreTransactionIds = Effect.fn("CoreTransaction.prepareIds")
 });
 
 /** The source snapshot and explicit native observations share one write and resource owner. */
+const nativeRelatedPrimaryIndex = (declaration: CoreNativeTableDeclaration, policy: CoreNativeRelationalRowPolicy) => {
+  const primary = policy.table.keys.find(key => key.kind === "primary");
+  return declaration.indexes?.find(index => index.kind === "key" && index.nativeId === primary?.identity.keyId);
+};
+
 export function createCoreTransaction(input: Readonly<{
   snapshot: CorePersistenceSnapshot;
   residentReader?: (request: CoreIndexScan) => CoreIndexPage | undefined;
@@ -295,6 +299,7 @@ export function createCoreTransaction(input: Readonly<{
     remainingBytes: () => number;
     evaluateRelational: CorePersistence["evaluateRelational"];
     capture: () => Effect.Effect<CoreNativeCapture, CoreError>;
+    assertScopeExclusion: Effect.Effect<void, CoreError>;
   }>;
   native?: Readonly<{
     authority: CoreNativeAuthority;
@@ -1631,14 +1636,19 @@ export function createCoreTransaction(input: Readonly<{
       operations.withPermits(1)(Effect.sync(() => input.onClosed?.()))).pipe(Effect.andThen(input.scopeExclusion?.drain ?? Effect.void)))),
   });
 
-  const nativeFind = (access: CoreTransactionNativeAccess | undefined = defaultAccess, withinOperation = false): CoreNativeOperations["find"] => {
+  const nativeFind = (access: CoreTransactionNativeAccess | undefined = defaultAccess, withinOperation = false,
+    rangeIndexName?: string): CoreNativeOperations["find"] => {
     const run = withinOperation ? <Value>(body: Effect.Effect<Value, CoreError>) => body
       : <Value>(body: Effect.Effect<Value, CoreError>) => nativeOperation(access, body);
     return Effect.fn("CoreTransaction.nativeFind")((tableName, inputWhere) => run(Effect.gen(function* () {
     if (nativeObservations === undefined) return yield* invalid();
     const table = yield* Effect.fromResult(tableByName(tableName, false, access));
     const where = yield* Effect.fromResult(captureCoreNativeWhere(inputWhere));
-    const selection = yield* Effect.fromResult(planCoreNativeQuery(table, where));
+    const rangeIndex = rangeIndexName === undefined ? undefined : table.indexes.find(index => index.name === rangeIndexName);
+    if (rangeIndexName !== undefined && rangeIndex === undefined) return yield* new CoreTransactionError({ reason: "indexUnavailable" });
+    const selection = yield* Effect.fromResult(planCoreNativeQuery(table, where, rangeIndex));
+    if (rangeIndex !== undefined && (selection.kind !== "range" || selection.index !== rangeIndex))
+      return yield* new CoreTransactionError({ reason: "indexUnavailable" });
     const matches = prepareCoreNativePredicate(where);
     if (selection.kind === "id") {
       const decoded = yield* Effect.fromResult(Result.mapError(decodeDocumentId(selection.id), cause => new CoreTransactionError({ reason: "invalidDocumentId", cause })));
@@ -1667,7 +1677,8 @@ export function createCoreTransaction(input: Readonly<{
         const selected = yield* nativeSlot(table, selection.constraint, selection.values, charged, false, access);
         capturedOwners = new Set(selected.membership.members.map(member => member.id));
       }
-    } else if (!nativeObservations.hasTable(table) || nativeObservations.range(selection.index, selection.interval) !== undefined) {
+    } else if (rangeIndex !== undefined || !nativeObservations.hasTable(table)
+      || nativeObservations.range(selection.index, selection.interval) !== undefined) {
       const selected = yield* nativeRange(table, selection.index, selection.interval, charged, access);
       capturedOwners = new Set(selected.members.map(member => member.id));
     }
@@ -2389,6 +2400,23 @@ export function createCoreTransaction(input: Readonly<{
     });
   };
 
+  const evaluateNativeRelational = Effect.fn("CoreTransaction.evaluateNativeRelational")(function* (
+    table: CoreTableDefinition, policy: CoreNativeRelationalRowPolicy, program: PostgresRelationalPredicateProgram,
+    rows: readonly JsonObject[], child?: Readonly<{ table: CoreNativeRelationalRowPolicy["table"];
+      tableId: CoreTableDefinition; rows: readonly JsonObject[] }>,
+  ) {
+    if (native === undefined || nativeObservations === undefined) return yield* invalid();
+    const limits = yield* Effect.fromResult(nativeObservations.limitsFor(table));
+    const batch = yield* Effect.fromResult(preparePostgresRelationalBatch(program, policy.table, table, rows,
+      { rows: limits.maxIdentities, bytes: native.remainingBytes() }, nativeRelationalPredicateFailure, child));
+    const inspected = yield* Effect.fromResult(inspectPostgresRelationalBatch(batch, table, nativeRelationalPredicateFailure));
+    yield* native.chargeRetained(inspected.inputBytes);
+    const raw = yield* native.evaluateRelational(batch);
+    const decoded = yield* Effect.fromResult(decodePostgresRelationalMatches(batch, table, raw, nativeRelationalPredicateFailure));
+    yield* native.chargeRetained(decoded.bytes);
+    return decoded.matches;
+  });
+
   const nativeMatchRelational = (access: Extract<CoreTransactionNativeAccess, { readonly kind: "native" }>): CoreNativeOperations["matchRelational"] =>
     Effect.fn("CoreTransaction.matchRelational")((tableName, program, rows) => nativeOperation(access, Effect.gen(function* () {
       if (native === undefined || nativeObservations === undefined) return yield* invalid();
@@ -2398,21 +2426,67 @@ export function createCoreTransaction(input: Readonly<{
       // Membership and originals were already captured by find. This source
       // capture validates admission even for cached, pending-only or empty rows.
       yield* nativeCapture(table, access);
-      const limits = yield* Effect.fromResult(nativeObservations.limitsFor(table));
-      const batch = yield* Effect.fromResult(preparePostgresRelationalBatch(program, policy.table, table, rows,
-        { rows: limits.maxIdentities, bytes: native.remainingBytes() }, nativeRelationalPredicateFailure));
-      const inspected = yield* Effect.fromResult(inspectPostgresRelationalBatch(batch, table, nativeRelationalPredicateFailure));
-      yield* native.chargeRetained(inspected.inputBytes);
-      const raw = yield* native.evaluateRelational(batch);
-      const decoded = yield* Effect.fromResult(decodePostgresRelationalMatches(batch, table, raw, nativeRelationalPredicateFailure));
-      yield* native.chargeRetained(decoded.bytes);
+      const matches = yield* evaluateNativeRelational(table, policy, program, rows);
       // Success-only source validation preserves the complete original Cause
       // when planning, transport, decoding or the byte owner refuses the body.
       yield* nativeCapture(table, access);
-      return decoded.matches;
+      return matches;
     })));
 
-  const nativeOperationsFor = (access: Extract<CoreTransactionNativeAccess, { readonly kind: "native" }>): CoreNativeOperations => Object.freeze({
+  const nativeReadRelated = (access: Extract<CoreTransactionNativeAccess, { readonly kind: "native" }>): CoreNativeRootOperations["readRelated"] =>
+    Effect.fn("CoreTransaction.readRelated")((tableName, inputQuery, bounds) => nativeOperation(access, Effect.gen(function* () {
+      const root = input.nativeRoot;
+      if (root === undefined) return yield* nativeRelationalPredicateFailure("invalidAuthority");
+      yield* root.assertScopeExclusion;
+      if (!Number.isSafeInteger(bounds.pageRows) || bounds.pageRows < 1) return yield* nativeRelationalPredicateFailure("invalidInput");
+      // The native facade retains the original query. The evaluator separately
+      // accounts for its normalized program and both immutable row payloads.
+      const captured = yield* Effect.fromResult(useCapturedPrivateJsonData(inputQuery,
+        MAX_POSTGRES_RELATIONAL_PREDICATE_BYTES, nativeRelationalPredicateFailure));
+      const query = yield* Effect.fromResult(decodeRelatedRelationalQuery(captured.value)
+        .pipe(Result.mapError(cause => nativeRelationalPredicateFailure("invalidInput", cause))));
+      const definition = access.authority.definition;
+      const parentDeclaration = definition.tables.find(table => table.name === tableName);
+      const childDeclaration = definition.tables.find(table => table.localName === query.childTable);
+      if (parentDeclaration === undefined || childDeclaration === undefined)
+        return yield* nativeRelationalPredicateFailure("invalidAuthority");
+      const parentBinding = yield* Effect.fromResult(tableByName(parentDeclaration.name, false, access));
+      const childBinding = yield* Effect.fromResult(tableByName(childDeclaration.name, false, access));
+      yield* nativeCapture(parentBinding, access);
+      const selected = yield* nativeCapture(childBinding, access);
+      const parent = selected.registry.table(parentBinding.name, namespace)?.definition;
+      const child = selected.registry.table(childBinding.name, namespace)?.definition;
+      const parentPolicy = coreNativeRelationalRows(definition, parentBinding.name);
+      const childPolicy = coreNativeRelationalRows(definition, childBinding.name);
+      if (parent === undefined || child === undefined || parentPolicy === undefined || childPolicy === undefined)
+        return yield* nativeRelationalPredicateFailure("invalidAuthority");
+      const foreignKey = child.nativePolicy?.foreignKeys?.find(value => value.descriptor === query.foreignKey
+        && value.sourceTable === child.name && value.targetTable === parent.name);
+      if (foreignKey === undefined) return yield* nativeRelationalPredicateFailure("invalidAuthority");
+      const selectedForeignKey = yield* Effect.fromResult(selectCoreNativeForeignKey(selected.registry, child, foreignKey));
+      if (selectedForeignKey.source !== child || selectedForeignKey.target !== parent)
+        return yield* nativeRelationalPredicateFailure("invalidAuthority");
+      const prepared = yield* Effect.fromResult(prepareRelatedRelationalPredicate(parentPolicy.table, childPolicy.table,
+        child, query, bounds.pageRows, nativeRelationalPredicateFailure, bounds.relatedPredicateNodes));
+      const parentIndex = nativeRelatedPrimaryIndex(parentDeclaration, parentPolicy);
+      const childIndex = nativeRelatedPrimaryIndex(childDeclaration, childPolicy);
+      if (parentIndex === undefined || childIndex === undefined) return yield* new CoreTransactionError({ reason: "indexUnavailable" });
+      const parents = yield* captureCoreNativeRelatedCohort(nativeFind(access, true, parentIndex.indexName),
+        parent, parentPolicy, prepared.parentColumn, bounds.pageRows);
+      const children = yield* captureCoreNativeRelatedCohort(nativeFind(access, true, childIndex.indexName),
+        child, childPolicy, prepared.childPrimaryColumn, bounds.pageRows);
+      const matches = yield* evaluateNativeRelational(parent, parentPolicy, prepared.program, parents.rows,
+        { table: childPolicy.table, tableId: child, rows: children.rows });
+      const rows = Object.freeze(parents.rows.filter((_, ordinal) => matches[ordinal] === true));
+      const orderedIdentities = Object.freeze(parents.orderedIdentities.filter((_, ordinal) => matches[ordinal] === true));
+      yield* nativeCapture(parent, access);
+      yield* nativeCapture(child, access);
+      yield* root.assertScopeExclusion;
+      return Object.freeze({ parent: parents, child: children, matched: Object.freeze({ rows, orderedIdentities,
+        count: rows.length, returned: rows.length }), childTable: child.name, foreignKeyConstraintId: foreignKey.descriptor });
+    })));
+
+  const nativeOperationsFor = (access: Extract<CoreTransactionNativeAccess, { readonly kind: "native" }>): CoreNativeOperations => ({
     ...userOperations(access), find: nativeFind(access), findPage: nativeFindPage(access), matchRelational: nativeMatchRelational(access),
     nativeActivityCursor: () => nativeActivity.cursor(access),
     nativeActivitySince: cursor => operation(Effect.gen(function* () {
@@ -2615,7 +2689,7 @@ export function createCoreTransaction(input: Readonly<{
         return yield* new CoreTransactionError({ reason: "authorityRevoked" });
     }))),
   });
-  const nativeOperations = defaultAccess === undefined ? undefined : nativeOperationsFor(defaultAccess);
+  const nativeOperations = defaultAccess === undefined ? undefined : Object.freeze(nativeOperationsFor(defaultAccess));
   const applicationInserts = new Map<CoreTransactionNativeAccess, CoreApplicationInsertOperations>();
   const applicationReads = new Map<CoreTransactionNativeAccess, CoreApplicationReadOperations>();
 
@@ -2627,9 +2701,10 @@ export function createCoreTransaction(input: Readonly<{
     ...(nativeOperations === undefined ? {} : { nativeOperations }),
     nativeFor: Effect.fn("CoreTransaction.nativeFor")(function* (access) {
       yield* assertOpen();
-      if (!nativeAccesses.has(access) || access.kind !== "native") return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+      if (input.nativeRoot === undefined || !nativeAccesses.has(access) || access.kind !== "native")
+        return yield* new CoreTransactionError({ reason: "authorityRevoked" });
       yield* Effect.fromResult(checkCoreNativeAuthority(registry, access.authority));
-      return nativeOperationsFor(access);
+      return Object.freeze({ ...nativeOperationsFor(access), readRelated: nativeReadRelated(access) });
     }),
     applicationInsertFor: Effect.fn("CoreTransaction.applicationInsertFor")(function* (access) {
       yield* assertOpen();

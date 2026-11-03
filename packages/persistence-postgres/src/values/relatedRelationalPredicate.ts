@@ -1,10 +1,10 @@
 import { Result, Schema } from "effect";
-import type { CatalogTableId } from "flarex-protocol/catalog";
-import type { RelationalPersistenceCapability, RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
-import { prepareLogicalRelationalRead, relationalReadLimits } from "./relationalQuery";
-import { decodeRelatedPredicateNodeLimit } from "../../../execution/preparation/frameworkExecutionPolicy";
-import { issuePostgresRelatedRelationalPredicate, type NormalizedRelatedRelationalPredicate } from "../../../values/postgresRelationalPredicate";
-import type { LogicalDocumentFailure } from "./model";
+import type { RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
+import { decodeRelatedPredicateNodeLimit, relationalReadLimits } from "../execution/preparation/frameworkExecutionPolicy";
+import { prepareRelationalRead } from "./relationalQuery";
+import { capturePrivateJsonData } from "./privateJsonData";
+import { issuePostgresRelatedRelationalPredicate, MAX_POSTGRES_RELATIONAL_PREDICATE_BYTES,
+  type NormalizedRelatedRelationalPredicate, type PostgresRelationalPredicateFailure } from "./postgresRelationalPredicate";
 
 const Query = Schema.Struct({ childTable: Schema.String, foreignKey: Schema.String, predicate: Schema.Unknown });
 const Node = Schema.Union([
@@ -14,12 +14,11 @@ const Node = Schema.Union([
 export const decodeRelatedRelationalQuery = Schema.decodeUnknownResult(Query, { onExcessProperty: "error" });
 const decodeNode = Schema.decodeUnknownResult(Node, { onExcessProperty: "error" });
 
-/** The caller is the genuine source-bound working set. It resolves both names
- * before compilation and keeps admission/group proofs outside the query data. */
-export function prepareRelatedRelationalPredicate<Failure>(parent: RelationalTableDefinition,
-  child: RelationalTableDefinition, childTableId: CatalogTableId,
-  capabilities: readonly RelationalPersistenceCapability[], query: typeof Query.Type,
-  pageRows: number, error: LogicalDocumentFailure<Failure>, selectedNodeLimit: number = relationalReadLimits.filterNodes) {
+/** The execution owner resolves both names and proves source admission before
+ * compilation. The child token remains bound to the protected batch. */
+export function prepareRelatedRelationalPredicate<Binding, Failure>(parent: RelationalTableDefinition,
+  child: RelationalTableDefinition, childTableId: Binding, query: typeof Query.Type,
+  pageRows: number, error: PostgresRelationalPredicateFailure<Failure>, selectedNodeLimit: number = relationalReadLimits.filterNodes) {
   return Result.gen(function* () {
     const nodeLimit = yield* decodeRelatedPredicateNodeLimit(selectedNodeLimit).pipe(Result.mapError(cause => error("invalidInput", cause)));
     const constraint = child.constraints.find(member => member.identity.constraintId === query.foreignKey);
@@ -50,10 +49,14 @@ export function prepareRelatedRelationalPredicate<Failure>(parent: RelationalTab
       }
       const table = node.kind === "parent" ? parent : child;
       const column = node.kind === "parent" ? parentColumn : childPrimaryColumn;
-      // Reuse the scalar owner's actual node decoder, column checks, exact
+      // Reuse the scalar owner's text identity, decoder, column checks,
       // normalization and complexity counters. No leaf runs in JavaScript.
-      const scalar = yield* prepareLogicalRelationalRead(table, capabilities,
+      const scalar = yield* prepareRelationalRead(table,
         { predicate: node.predicate, order: { column, direction: "asc" } }, pageRows, error);
+      // A PostgreSQL scalar's capture limit precedes later related nodes.
+      // The completed tree below issues the only evaluation token.
+      if (scalar.postgresPredicate !== undefined)
+        yield* capturePrivateJsonData(scalar.postgresPredicate, MAX_POSTGRES_RELATIONAL_PREDICATE_BYTES, error);
       nodes += scalar.complexity.nodes;
       operands += scalar.complexity.operands;
       if (nodes > nodeLimit || operands > relationalReadLimits.filterOperands ||

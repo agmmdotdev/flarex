@@ -6,6 +6,7 @@ import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-sc
 import { compileIndexRange } from "flarex-protocol/index-range";
 import { normalizeRelationalSchema, type RelationalSchema } from "flarex-protocol/internal/relational-schema";
 import type { DocumentObject } from "flarex-protocol/document-value";
+import type { JsonObject } from "flarex-protocol/json";
 import type { CoreError, CoreNativeOperations } from "../../src/core/api";
 import type { CoreIndexPage, CoreIndexScan, CorePersistence } from "../../src/core/contracts";
 import { openCoreDatabase } from "../../src/core/database";
@@ -63,7 +64,7 @@ export const compileNativeNonNullIndex = Effect.fn("NativeNonNullIndexTest.compi
   return yield* compileDefinition(relational);
 });
 
-type CompoundShape = "admitted" | "unique" | "testedKey" | "singleOffKey" | "unorderedPredicate";
+type CompoundShape = "admitted" | "unique" | "testedKey" | "singleOffKey" | "singleOffKeyUnique" | "unorderedPredicate";
 const tuple = ["reference", "reference_id"];
 const textColumn = (columnId: string) => ({ columnId, type: "text", nullable: false, default: { kind: "none" }, origin } as const);
 
@@ -84,8 +85,9 @@ export const compileNativeCompoundNonNullIndex = Effect.fn("NativeNonNullIndexTe
       ], keys: [{ keyId: "record.primary", kind: "primary", columns: ["id"], origin }], indexes: [
         { indexId: "record.active", kind: "btree", columns: ["deleted_at"],
           predicate: { kind: "isNull", columnId: "deleted_at" }, origin: lifecycleOrigin },
-        { indexId: "record.compound-history", kind: shape === "unique" ? "uniqueBtree" : "btree",
-          columns: shape === "testedKey" ? ["reference", "deleted_at"] : shape === "singleOffKey" ? ["reference"] : tuple,
+        { indexId: "record.compound-history", kind: shape === "unique" || shape === "singleOffKeyUnique" ? "uniqueBtree" : "btree",
+          columns: shape === "testedKey" ? ["reference", "deleted_at"]
+            : shape === "singleOffKey" || shape === "singleOffKeyUnique" ? ["reference"] : tuple,
           predicate: { kind: "isNotNull", columnId: shape === "unorderedPredicate" ? "payload" : "deleted_at" }, origin },
       ], constraints: [{ constraintId: "record.parent", kind: "foreignKey", sourceColumns: tuple,
         targetColumns: tuple.map(columnId => ({ tableId: "parent", columnId })), onDelete: "noAction", onUpdate: "noAction", origin }],
@@ -216,19 +218,23 @@ export function registerNativeNonNullIndexScenarios(label: string, createFixture
       expect(generic).toMatchObject({ _tag: "Failure", failure: { _tag: "CoreQueryInputError", reason: "invalidQuery" } });
     })), 120_000);
 
-    it("reads the exact compound interval under the examined limit and keeps historical FK membership", run(fixture => Effect.gen(function* () {
+    it.each(["admitted", "singleOffKey"] as const)("reads the exact %s off-key interval under the examined limit and keeps historical FK membership", shape => run(fixture => Effect.gen(function* () {
       const scans: Array<Readonly<{ request: CoreIndexScan; page: CoreIndexPage }>> = [];
       const persistence: CorePersistence = { ...fixture.persistence, readSnapshot: (...args) =>
         fixture.persistence.readSnapshot(...args).pipe(Effect.map(snapshot => ({ ...snapshot, scan: request =>
           snapshot.scan(request).pipe(Effect.tap(page => Effect.sync(() => { scans.push({ request, page }); }))),
         }))) };
-      const graph = yield* setup(persistence, compileNativeCompoundNonNullIndex()), { table } = graph;
+      const graph = yield* setup(persistence, compileNativeCompoundNonNullIndex(shape)), { table } = graph;
       const parent = graph.definition.tables.find(candidate => candidate.localName === "parent");
       const guarded = graph.declaration.indexes?.find(index => index.nativeId === "record.compound-history");
       const reverse = graph.declaration.indexes?.find(index => index.nativeId === "foreign-key/record.parent");
       if (parent === undefined || guarded === undefined || reverse === undefined)
-        return yield* Effect.die(new Error("Missing compound history and independent reverse bindings"));
-      const fields = [...tuple, "deleted_at"];
+        return yield* Effect.die(new Error("Missing history and independent reverse bindings"));
+      const prefix: Readonly<Record<string, string>> = shape === "singleOffKey"
+        ? { reference: selectedReference.reference } : selectedReference;
+      const sibling = shape === "singleOffKey" ? { ...otherReference, reference: "other-source" } : otherReference;
+      const history = { ...prefix, deleted_at: { gt: null } };
+      const fields = [...Object.keys(prefix), "deleted_at"];
       expect(guarded).toMatchObject({ fields, requiredNonNull: "deleted_at" });
       expect(reverse.fields).toEqual(tuple);
       expect(reverse).not.toHaveProperty("requiredNonNull");
@@ -237,48 +243,48 @@ export function registerNativeNonNullIndexScenarios(label: string, createFixture
       expect(graph.declaration.uniqueConstraints.map(constraint => constraint.descriptor)).toEqual(["record.primary"]);
 
       yield* graph.write(operations => Effect.gen(function* () {
-        yield* operations.writeRows(parent.name, "insert", [selectedReference, otherReference]);
+        yield* operations.writeRows(parent.name, "insert", [selectedReference, sibling]);
         yield* operations.writeRows(table, "insert", [
-          { id: "selected-history", ...selectedReference }, { id: "other-history", ...otherReference },
+          { id: "selected-history", ...selectedReference }, { id: "other-history", ...sibling },
           ...Array.from({ length: 12 }, (_, position) => ({ id: "active-" + position, ...selectedReference })),
         ]);
         yield* operations.lifecycle(table, "softDelete", [{ id: "selected-history" }, { id: "other-history" }]);
       }));
 
-      const selected = yield* Effect.fromResult(planCoreNativeQuery(graph.installed, compoundHistory));
-      if (selected.kind !== "range") return yield* Effect.die(new Error("Expected compound ordinary range"));
+      const selected = yield* Effect.fromResult(planCoreNativeQuery(graph.installed, history));
+      if (selected.kind !== "range") return yield* Effect.die(new Error("Expected ordinary off-key range"));
       const interval = yield* Effect.fromResult(compileIndexRange([
-        { op: "eq", field: "reference", value: selectedReference.reference },
-        { op: "eq", field: "reference_id", value: selectedReference.reference_id },
+        ...Object.entries(prefix).map(([field, value]) => ({ op: "eq" as const, field, value })),
         { op: "gt", field: "deleted_at", value: null },
       ], fields));
       expect(selected.index.name).toBe(guarded.indexName);
       expect(selected.interval).toEqual(interval);
       scans.length = 0;
-      expect(ids(yield* graph.read(operations => operations.find(table, compoundHistory)))).toEqual(["selected-history"]);
+      expect(ids(yield* graph.read(operations => operations.find(table, history)))).toEqual(["selected-history"]);
       expect(scans.filter(({ request }) => Buffer.from(request.index.id).equals(selected.index.ref.id))
         .map(({ request, page }) => ({ interval: request.interval, examined: page.entries.length, cursor: page.cursor })))
         .toEqual([{ interval, examined: 1, cursor: { kind: "end" } }]);
 
-      const incomplete = yield* Effect.result(graph.read(operations =>
-        operations.find(table, { reference: selectedReference.reference, reference_id: { gt: null }, deleted_at: { gt: null } })));
+      const incompleteWhere: JsonObject = shape === "singleOffKey" ? prefix
+        : { reference: selectedReference.reference, reference_id: { gt: null }, deleted_at: { gt: null } };
+      const incomplete = yield* Effect.result(graph.read(operations => operations.find(table, incompleteWhere)));
       expect(incomplete).toMatchObject({ _tag: "Failure", failure: { reason: "capacity", cause: "Native complete index capture limit" } });
-      const page = yield* Effect.result(graph.read(operations => operations.findPage(table, compoundHistory,
+      const page = yield* Effect.result(graph.read(operations => operations.findPage(table, history,
         { indexName: guarded.indexName, offset: 0, limit: 1 })));
       expect(page).toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput", cause: "Native non-null index does not admit named pages" } });
 
-      expect(ids(yield* graph.read(operations => operations.find(table, otherReference)))).toEqual(["other-history"]);
-      const restricted = yield* Effect.result(graph.write(operations => operations.deleteRows(parent.name, [otherReference])));
+      expect(ids(yield* graph.read(operations => operations.find(table, sibling)))).toEqual(["other-history"]);
+      const restricted = yield* Effect.result(graph.write(operations => operations.deleteRows(parent.name, [sibling])));
       expect(restricted).toMatchObject({ _tag: "Failure", failure: { _tag: "CoreNativeForeignKeyError", reason: "deleteRestricted" } });
 
       yield* graph.write(operations => Effect.gen(function* () {
-        expect(ids(yield* operations.find(table, compoundHistory))).toEqual(["selected-history"]);
+        expect(ids(yield* operations.find(table, history))).toEqual(["selected-history"]);
         yield* operations.lifecycle(table, "softDelete", [{ id: "active-0" }]);
         yield* operations.lifecycle(table, "restore", [{ id: "selected-history" }]);
-        expect(ids(yield* operations.find(table, compoundHistory))).toEqual(["active-0"]);
+        expect(ids(yield* operations.find(table, history))).toEqual(["active-0"]);
       }));
-      expect(ids(yield* graph.read(operations => operations.find(table, compoundHistory)))).toEqual(["active-0"]);
-    })), 120_000);
+      expect(ids(yield* graph.read(operations => operations.find(table, history)))).toEqual(["active-0"]);
+    }))(), 120_000);
 
     it("conflicts when a competitor enters a negative history interval and ignores active siblings", run(fixture => Effect.gen(function* () {
       const graph = yield* setup(fixture.persistence, compileNativeCompoundNonNullIndex()), { table } = graph;

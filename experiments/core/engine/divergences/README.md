@@ -148,9 +148,11 @@ maintaining a competing completion log here.
 
 ## Selected native extensions
 
-- [Native compound non-null indexes](./native-compound-non-null-indexes.md) lower the selected history predicates to ordinary index ranges. Paired verification passed.
+- [Native off-key non-null indexes](./native-compound-non-null-indexes.md) lower the selected history predicates to ordinary index ranges. Paired verification passed.
 
 - [Native Cart creation generation records](./native-cart-creation-generations.md) preserve generation and compensation facts across native requests. Paired verification passed.
+
+- [Selected native related predicates](./native-related-predicates.md) evaluate the existing closed predicate over two authenticated Core cohorts. Paired verification passed.
 
 - [Native in-flight request joining](./native-inflight-request-joining.md): bounded exact duplicates share a live app-owner execution and captured correlation; Core remains durable authority, no native replay; selected Native17 replacement and paired admitted consumer proof complete.
 

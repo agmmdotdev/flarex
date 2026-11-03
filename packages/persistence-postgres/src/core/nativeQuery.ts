@@ -113,7 +113,8 @@ export function coreNativePageInterval(index: CoreIndexDefinition, where: CoreNa
 }
 
 /** Deterministic ID, complete unique tuple, longest ordinary prefix, then table. */
-export function planCoreNativeQuery(table: CoreTableDefinition, where: CoreNativeWhere): Result.Result<CoreNativeQueryPlan, CoreError> {
+export function planCoreNativeQuery(table: CoreTableDefinition, where: CoreNativeWhere, rangeIndex?: CoreIndexDefinition):
+  Result.Result<CoreNativeQueryPlan, CoreError> {
   return Result.gen(function* () {
     if (Object.hasOwn(where, "_id")) {
       if (typeof where._id !== "string") return yield* Result.fail(invalid());
@@ -135,7 +136,7 @@ export function planCoreNativeQuery(table: CoreTableDefinition, where: CoreNativ
       return { kind: "unique", constraint, values, ...selected };
     }
     let selected: Readonly<{ index: CoreIndexDefinition; expressions: readonly CapturedIndexRangeExpression[]; count: number }> | undefined;
-    for (const index of table.indexes) {
+    for (const index of rangeIndex === undefined ? table.indexes : [rangeIndex]) {
       if (index.name === "by_id" || index.name === "by_creation_time"
         || (table.nativePolicy !== undefined && isCoreNativeSerialIndexName(index.name))) continue;
       const expressions: CapturedIndexRangeExpression[] = [];

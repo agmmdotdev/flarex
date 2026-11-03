@@ -17,14 +17,20 @@ export function makeNativeCommerceActivity(operations: CoreNativeOperations, met
   const onRead = Effect.fn("NativeCommerceActivity.read")(function* (observation: NativeCommerceReadObservation) {
     const table = localName(observation.table);
     if (table === undefined) return yield* commerceError("invalidAuthority");
-    const captured = yield* lifetime.fromResult(useCapturedPrivateJsonData({ table, query: observation.query,
+    let related: NativeCommerceReadObservation["related"];
+    if (observation.related !== undefined) {
+      const childTable = localName(observation.related.childTable);
+      if (childTable === undefined) return yield* commerceError("invalidAuthority");
+      related = Object.freeze({ childTable, foreignKeyConstraintId: observation.related.foreignKeyConstraintId });
+    }
+    const read = { table, query: observation.query,
       total: observation.total, returned: observation.returned,
-      ...(observation.orderedIdentities === undefined ? {} : { orderedIdentities: observation.orderedIdentities }) },
-    lifetime.remainingBytes(), commerceError));
+      ...(related === undefined ? {} : { related }),
+      ...(observation.orderedIdentities === undefined ? {} : { orderedIdentities: observation.orderedIdentities }) };
+    const captured = yield* lifetime.fromResult(useCapturedPrivateJsonData(read, lifetime.remainingBytes(), commerceError));
     yield* lifetime.fromResult(lifetime.charge(captured.bytes));
     // Keep the compiler's exact native query and already-owned identity values.
-    reads.push(Object.freeze({ table, query: observation.query, total: observation.total, returned: observation.returned,
-      ...(observation.orderedIdentities === undefined ? {} : { orderedIdentities: observation.orderedIdentities }) }));
+    reads.push(Object.freeze(read));
   });
   const since = Effect.fn("NativeCommerceActivity.since")(function* (position: ReturnType<typeof cursor>): Effect.fn.Return<LogicalCommerceActivity, CommerceTransactionError> {
     const activity = yield* operations.nativeActivitySince(position.core).pipe(Effect.catchCause(cause =>

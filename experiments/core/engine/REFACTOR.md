@@ -767,3 +767,7 @@ The [Cart creation and refresh continuation](./slices/30-native-cart-creation-re
 uses one fresh Cart source with three logical generation records for retained
 compensation across requests. The selected workflows passed paired verification
 through the existing Core settlement owner.
+
+The [selected native Promotion related-predicate continuation](./slices/31-native-promotion-related.md)
+uses exact complete Core reads and the existing closed predicate evaluator
+for the selected native Rule and Value operation. Paired acceptance is complete.

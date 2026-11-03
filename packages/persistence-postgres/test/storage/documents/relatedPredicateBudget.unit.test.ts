@@ -7,7 +7,7 @@ import { captureCommerceResources, defaultCommerceResources } from "../../../src
 import { makeBoundedRequestLifetime } from "../../../src/execution/preparation/boundedRequestLifetime";
 import { decodeScopeClockRecord } from "../../../src/scope/scopeClock";
 import { makeLogicalDocumentWorkingSet } from "../../../src/storage/documents/logicalDocuments/workingSet";
-import { prepareRelatedRelationalPredicate, decodeRelatedRelationalQuery } from "../../../src/storage/documents/logicalDocuments/relatedRelationalPredicate";
+import { prepareRelatedRelationalPredicate, decodeRelatedRelationalQuery } from "../../../src/values/relatedRelationalPredicate";
 import { prepareLogicalRelationalRead } from "../../../src/storage/documents/logicalDocuments/relationalQuery";
 import { relatedPredicateParent, relatedPredicateChild, relatedQuery } from "./relatedRelationalPredicate.schema";
 import { relatedPredicateNodes } from "./relatedPredicateBudget.programs";
@@ -15,7 +15,7 @@ import { relatedPredicateNodes } from "./relatedPredicateBudget.programs";
 const parent = relatedPredicateParent, child = relatedPredicateChild;
 if (parent === undefined || child === undefined) throw new Error("Missing neutral related budget tables");
 const error = (reason: string) => new Error(reason);
-const prepare = (predicate: JsonObject, limit?: number) => prepareRelatedRelationalPredicate(parent, child, decodeCatalogTableId(2), [],
+const prepare = (predicate: JsonObject, limit?: number) => prepareRelatedRelationalPredicate(parent, child, decodeCatalogTableId(2),
   Result.getOrThrow(decodeRelatedRelationalQuery(relatedQuery(predicate))), 8, error, limit);
 
 it("keeps default 64/65 and explicitly selected 256/257 aggregate node boundaries", () => {

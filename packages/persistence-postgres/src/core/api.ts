@@ -380,6 +380,23 @@ export interface CoreNativeActivity {
 export const CoreNativeReconstitutionPolicySchema = Schema.Literals(["advanceUpdatedAt", "preserveTimestamps"]);
 export type CoreNativeReconstitutionPolicy = typeof CoreNativeReconstitutionPolicySchema.Type;
 
+interface CoreNativeRelatedRows {
+  readonly rows: readonly JsonObject[];
+  readonly count: number;
+  readonly returned: number;
+  readonly orderedIdentities: readonly Readonly<Record<string, string>>[];
+}
+
+type CoreNativeRelatedCohort = CoreNativeRelatedRows & Readonly<{ query: JsonObject }>;
+
+interface CoreNativeRelatedRead {
+  readonly parent: CoreNativeRelatedCohort;
+  readonly child: CoreNativeRelatedCohort;
+  readonly matched: CoreNativeRelatedRows;
+  readonly childTable: string;
+  readonly foreignKeyConstraintId: string;
+}
+
 export type CoreNativeOperations = Pick<CoreTransaction, "get" | "insert" | "patch" | "replace" | "delete" | "normalizeId"> & {
   /** Actual already-loaded native row semantics; this grants no storage access. */
   readonly nativeActivityCursor: () => CoreNativeActivityCursor;
@@ -430,6 +447,11 @@ export type CoreNativeOperations = Pick<CoreTransaction, "get" | "insert" | "pat
     indexName: string; offset: number; limit: number; order?: "asc";
   }>) => Effect.Effect<Readonly<{ documents: readonly DocumentObject[]; hasMore: boolean }>, CoreError>;
 };
+export type CoreNativeRootOperations = CoreNativeOperations & {
+  /** Complete related cohorts and their actual match under one scope-exclusive root. */
+  readonly readRelated: (table: string, input: unknown, bounds: Readonly<{ pageRows: number; relatedPredicateNodes?: number }>) =>
+    Effect.Effect<CoreNativeRelatedRead, CoreError>;
+};
 export interface CoreNativeLimits { readonly maxIdentities: number; readonly maxDocumentBytes: number }
 /** Trusted outer host owns this operation; only operations may enter a framework facade. */
 export interface CoreNativeOperation {
@@ -450,7 +472,7 @@ export interface CoreApplicationReadOperations {
 }
 export interface CoreNativeRootOperation {
   readonly unixTime: number;
-  readonly native: (binding: CoreNativeBinding) => Effect.Effect<CoreNativeOperations, CoreError>;
+  readonly native: (binding: CoreNativeBinding) => Effect.Effect<CoreNativeRootOperations, CoreError>;
   readonly applicationInsert: (binding: CoreApplicationInsertBinding) => Effect.Effect<CoreApplicationInsertOperations, CoreError>;
   readonly applicationRead: (binding: CoreApplicationReadBinding) => Effect.Effect<CoreApplicationReadOperations, CoreError>;
   readonly finalize: () => Effect.Effect<CoreFinalizedTransaction, CoreError>;

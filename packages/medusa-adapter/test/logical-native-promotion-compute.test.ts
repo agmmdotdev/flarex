@@ -1,19 +1,16 @@
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { Effect, Schema } from "effect";
-import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { capturePrivateCanonicalValue, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineCommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
-import { compilePromotionDefinition } from "../src/modules/promotion/schema";
 import { makePromotionComputeCommands } from "../src/modules/promotion/compute-service";
-import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import type { LogicalCallReceiptValidation } from "../src/repository/call-receipt";
 import { workflowModuleDefinition } from "../src/workflow/module";
 import { prepareLocalGraph } from "../src/local-graph/query";
 import { captureCommerceInput } from "../src/value/input";
 import { promotionComputeResources } from "../src/workflow/policy";
+import { finishOrderFixture } from "./support/core-order-fixture";
+import { prepareCorePromotionFixture } from "./support/core-promotion-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
@@ -22,12 +19,7 @@ const Seed = Schema.Struct({ campaign: Schema.optionalKey(Schema.Struct({ start:
   usage: Schema.optionalKey(Schema.Number), automatic: Schema.Boolean, value: Schema.String, value2: Schema.optionalKey(Schema.String),
   global: Schema.optionalKey(Schema.Struct({ attribute: Schema.String, value: Schema.String })), target: Schema.optionalKey(Schema.String) });
 async function prepare() {
-  const definition = await Effect.runPromise(compilePromotionDefinition()), promotion = await Effect.runPromise(makePromotionComputeCommands());
-  const source = await Effect.runPromise(captureLogicalSchemaSource({ key: "medusa.promotion-compute", owner: "medusa", writeProfile: "medusa.promotion-compute",
-    evidence: definition.provenance, definition: { kind: "relational", schema: definition.schema }, bindings: definition.schema.tables.map(table => ({
-      kind: "definition", localName: table.identity.tableId, table: { namespace: "medusa", logicalName: definition.schema.coordinate.lineageId + "/" + table.identity.tableId },
-    })) }));
-  const fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close), { additionalSources: [source] });
+  const promotion = await Effect.runPromise(makePromotionComputeCommands());
   const seed = defineCommerceCommand("nativePromotionComputeSeed", "write", (ctx, input) => Effect.gen(function* () {
     const data = yield* Schema.decodeUnknownEffect(Seed)(input).pipe(Effect.mapError(cause => commerceError("invalidInput", cause)));
     const order = ["promotion_campaign_budget_usage", "promotion_rule_value", "promotion_promotion_rule", "application_method_target_rules", "application_method_buy_rules",
@@ -71,12 +63,7 @@ async function prepare() {
     return null;
   }));
   const commands = [...promotion.commands, seed];
-  const dataset = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows: [] }, 1_048_576,
-    { invalidInput: () => commerceError("invalidInput"), hashFailure: cause => commerceError("resourceFailure", cause) }));
-  const logicalStorage = { ...fixture.hostInput.logicalStorage, source: { sourceKey: source.key, writeProfile: source.writeProfile, schema: definition.schema, evidence: definition.provenance },
-    initialization: { stepId: "native-promotion-compute-empty", datasetSha256: dataset.sha256Hex, expectedRowCount: 0 } };
-  const initializer = await Effect.runPromise(makeCommerceHost({ ...fixture.hostInput, logicalStorage, commands }));
-  cleanup.push(() => Effect.runPromise(initializer.close)); await Effect.runPromise(initializer.initialize([]));
+  const fixture = await prepareCorePromotionFixture(driver, close => cleanup.push(close), commands);
   const seedRoot = defineAtomicCommerceCommand("nativePromotionComputeSeedRoot", (ctx, input) => ctx.call(participant, seed, input));
   const computeRoot = defineAtomicCommerceCommand("nativePromotionComputeRoot", (ctx, input) => ctx.call(participant, promotion.compute, input));
   const module = workflowModuleDefinition(promotion.workflow);
@@ -85,9 +72,15 @@ async function prepare() {
   const graphRoot = defineAtomicCommerceCommand("nativePromotionGraphRoot", (ctx, input) => graph.bind(ctx).graph(input)
     .pipe(Effect.flatMap(value => Effect.fromResult(captureCommerceInput(value)))));
   const receipts: { call: Parameters<LogicalCallReceiptValidation>[0]; activity: Parameters<LogicalCallReceiptValidation>[1] }[] = [], policy = promotion.logicalEventPolicy();
-  const host = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput, executionIsolation: "scopeExclusive", commands: [seedRoot, computeRoot, graphRoot],
-    participants: [{ participant, logicalStorage, logicalResources: promotionComputeResources, commands, validateLogicalCall: (call, activity) => call.commandName === "nativePromotionComputeSeed"
-      ? Effect.void : policy.validateLogicalCall(call, activity).pipe(Effect.andThen(Effect.sync(() => { receipts.push({ call, activity }); }))) }] }));
+  const host = await Effect.runPromise(fixture.execution.prepare({ identityAndAccessPolicy: fixture.execution.identityAndAccessPolicy,
+    executionIsolation: "scopeExclusive", operationScheduling: "queued", borrowedOperationScheduling: "queued",
+    commands: [seedRoot, computeRoot, graphRoot], participants: [{ participant, nativeStorage: fixture.source("promotion"),
+      logicalResources: promotionComputeResources, commands,
+      validateLogicalCall: Effect.fn("PromotionComputeTest.observeReceipt")(function* (call, activity, command) {
+        if (command === seed) return;
+        yield* policy.validateLogicalCall(call, activity);
+        receipts.push({ call, activity });
+      }) }] }));
   cleanup.push(() => Effect.runPromise(host.close));
   return { host, computeRoot, receipts, policy, seed: (input: typeof Seed.Type) => Effect.runPromise(host.run(host.newRequestKey(), seedRoot, input)),
     compute: (input: Schema.Json) => Effect.runPromise(host.run(host.newRequestKey(), computeRoot, input)),
@@ -95,7 +88,7 @@ async function prepare() {
 }
 let connected: Awaited<ReturnType<typeof prepare>>;
 beforeAll(async () => { connected = await prepare(); }, 240_000);
-afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 180_000);
+afterAll(() => finishOrderFixture(cleanup.reverse()), 180_000);
 const context = { currency_code: "usd", customer: { id: "customer1" }, items: [{ id: "item1", quantity: 1, subtotal: "100", original_total: "100",
   is_discountable: true, product: { id: "product1", collection_id: null, type_id: null } }] };
 
@@ -107,6 +100,19 @@ it("executes genuine native automatic calculation through the complete graph and
   const calls = connected.receipts.length;
   expect(await Effect.runPromise(connected.host.run(key, connected.computeRoot, input))).toEqual(result);
   expect(connected.receipts).toHaveLength(calls);
+  const receipt = connected.receipts.at(-1);
+  if (receipt === undefined) throw new Error("The genuine automatic calculation did not retain its receipt");
+  const { call, activity } = receipt;
+  const related = activity.relationalReads.findIndex(read => read.related !== undefined);
+  expect(related).toBeGreaterThanOrEqual(2);
+  expect(activity.relationalReads.slice(related - 2, related + 1)).toMatchObject([
+    { table: "promotion_rule", orderedIdentities: [{ id: "global" }, { id: "target" }] },
+    { table: "promotion_rule_value", orderedIdentities: [{ id: "globalValue" }, { id: "targetValue" }] },
+    { table: "promotion_rule", related: { childTable: "promotion_rule_value" } },
+  ]);
+  const withoutChild = activity.relationalReads.filter((_read, index) => index !== related - 1);
+  expect(await Effect.runPromise(Effect.result(connected.policy.validateLogicalCall(call, { ...activity, relationalReads: withoutChild }))))
+    .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
 });
 
 it("preserves manual selection, exact large amounts, and existing-adjustment removal", async () => {

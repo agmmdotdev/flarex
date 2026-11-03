@@ -509,3 +509,7 @@ The [Cart creation and refresh continuation](./slices/30-native-cart-creation-re
 moves creation, refresh and ownership onto the same twelve-model Core Cart
 source used by completion and exact-price checkout. Paired acceptance is
 complete.
+
+The [selected native Promotion related-predicate continuation](./slices/31-native-promotion-related.md)
+uses the existing Core transaction and evaluator owners for the two related
+cohorts required by automatic Promotion. Paired acceptance is complete.

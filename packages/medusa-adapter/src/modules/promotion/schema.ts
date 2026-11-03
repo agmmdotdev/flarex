@@ -1,6 +1,8 @@
 import { Effect } from "effect";
 import { promotionModuleModels } from "@medusajs/promotion/static-manifest";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
+import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
+import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
 import { capturePrivateCanonicalValue, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
 import { decodeCompiledDml } from "../../schema/compiled";
@@ -23,4 +25,16 @@ export const compilePromotionDefinition = Effect.fn("Promotion.compileDefinition
   const metadata = yield* capturePromotionMetadata();
   const schema = yield* Effect.fromResult(normalizeRelationalSchema(lowerDmlSchema(metadata.frame.tables, "commerce.promotion")));
   return Object.freeze({ schema, provenance: promotionSourceProvenance });
+});
+
+export const compilePromotionCoreDefinition = Effect.fn("Promotion.compileCoreDefinition")(function* ({ scopeUuid, epochUuid }: Readonly<{
+  scopeUuid: string;
+  epochUuid: string;
+}>) {
+  const { schema, provenance } = yield* compilePromotionDefinition();
+  const source = yield* captureLogicalSchemaSource({ key: "medusa.promotion", owner: "medusa", writeProfile: "medusa.promotion",
+    evidence: { provenance, profile: "medusa.promotion" }, definition: { kind: "relational", schema },
+    bindings: schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+      table: { namespace: "medusa", logicalName: `${schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
+  return yield* makeCoreRelationalNativeDefinition({ scopeUuid, epochUuid, applicationRead: false, source, provenance, commands: [] });
 });

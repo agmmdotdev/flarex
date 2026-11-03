@@ -160,7 +160,7 @@ export async function createCorePayloadFixture(target: CorePayloadFixtureTarget,
     let reader: PayloadReadHost;
     let preferencesBinding: CoreNativeBinding | undefined;
     let preferences: Effect.Success<ReturnType<typeof makePayloadPreferenceNativeCleanup>> | undefined;
-    const instrument = (operations: CoreNativeOperations): CoreNativeOperations => ({ ...operations,
+    const instrument = <Operations extends CoreNativeOperations>(operations: Operations): Operations => ({ ...operations,
       getMany: (table, ids) => operations.getMany(table, ids).pipe(
         Effect.tap(() => options.nativeHooks?.afterGetMany?.() ?? Effect.void)),
     });
@@ -190,7 +190,7 @@ export async function createCorePayloadFixture(target: CorePayloadFixtureTarget,
         finalize: () => (options.nativeHooks?.beforeFinalize?.() ?? Effect.void).pipe(Effect.andThen(operation.finalize()),
           Effect.tap(() => options.nativeHooks?.afterFinalize?.() ?? Effect.void)),
       }))), beginNativeRoot: (selected, input) => original.beginNativeRoot(selected, input).pipe(Effect.map(operation => ({ ...operation,
-        native: child => operation.native(child).pipe(Effect.map(instrument)),
+        native: child => operation.native(child).pipe(Effect.map(operations => instrument(operations))),
         finalize: () => (options.nativeHooks?.beforeFinalize?.() ?? Effect.void).pipe(Effect.andThen(operation.finalize()),
           Effect.tap(() => options.nativeHooks?.afterFinalize?.() ?? Effect.void)),
       }))) };

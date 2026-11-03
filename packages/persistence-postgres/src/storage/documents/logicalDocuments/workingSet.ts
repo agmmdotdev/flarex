@@ -55,7 +55,7 @@ import { decodeCapturedAppIndexSnapshotPageEffect,
   MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, type AppIndexRangeCursorV1, type AppIndexRangePageV1 } from "../../indexes/appIndexEntries";
 import { decodeLogicalFindQuery, isLogicalRange, selectLogicalIndex, selectLogicalPageIndex, prepareLogicalQueryPredicate, logicalWhereValues, logicalSelectionWhere, selectLogicalUniqueValues, selectLogicalIndexValues, type LogicalSelectionValues, type LogicalWhere } from "./query";
 import { prepareLogicalRelationalRead, logicalRelationalSelectionValues, type LogicalRelationalReadDemand } from "./relationalQuery";
-import { decodeRelatedRelationalQuery, prepareRelatedRelationalPredicate } from "./relatedRelationalPredicate";
+import { decodeRelatedRelationalQuery, prepareRelatedRelationalPredicate } from "../../../values/relatedRelationalPredicate";
 import { decodeRelatedPredicateNodeLimit, relationalReadLimits } from "../../../execution/preparation/frameworkExecutionPolicy";
 import { preparePostgresRelationalBatch, inspectPostgresRelationalBatch, decodePostgresRelationalMatches, type PostgresRelationalPredicateBatch } from "../../../values/postgresRelationalPredicate";
 import { buildPostgresRelationalPredicateBody } from "../../../database/postgresRelationalPredicate";
@@ -2191,7 +2191,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
           parent.relational === undefined || child.relational === undefined)
           return yield* Effect.fail(error("invalidAuthority"));
         const prepared = yield* Effect.fromResult(prepareRelatedRelationalPredicate(parent.relational, child.relational,
-          child.tableId, state.relationalCapabilities, query, limits.pageRows, error, state.relatedPredicateNodes));
+          child.tableId, query, limits.pageRows, error, state.relatedPredicateNodes));
         // Complete current cohorts use the existing bounded PK index owner,
         // including pending writes and exact snapshot dependencies.
         const parents = yield* readRelationalSelection(tableName,

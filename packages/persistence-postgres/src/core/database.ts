@@ -1116,6 +1116,9 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       // borrow its private self-settlement evidence.
       claimData.nativeRootStarted = true;
       let grant: CoreNativeScopeExclusionGrant | undefined;
+      const assertScopeExclusion = Effect.andThen(assertOpen, Effect.suspend(() => !claimData.active || claimData.aborting
+        || grant === undefined || claimData.scopeExclusion !== grant
+        ? Effect.fail(new CoreTransactionError({ reason: "authorityRevoked" })) : grant.assertHeld));
       const open = Effect.gen(function* () {
       if (data.metadata.executionIsolation === "scopeExclusive")
         yield* scopeExclusion.acquireExclusive(data.metadata.namespace, deadline, issued => {
@@ -1148,7 +1151,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         vault, limits, namespace: data.metadata.namespace, schemaBundles,
         nativeRoot: { accesses: data.accesses, limits: data.limits, maxFinalUserDocuments: data.maxFinalUserDocuments,
           chargeRetained: beginOptions.chargeRetained, remainingBytes: beginOptions.remainingBytes,
-          evaluateRelational: persistence.evaluateRelational, capture }, assertOwnerOpen: assertNativeOpen,
+          evaluateRelational: persistence.evaluateRelational, capture, assertScopeExclusion }, assertOwnerOpen: assertNativeOpen,
         ...(grant === undefined ? {} : { scopeExclusion: grant }),
         onClosed: () => borrowed.delete(context), claim: beginOptions.claim });
       return { selected, context, data, claimData };
@@ -1194,9 +1197,8 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
           return yield* selected.context.applicationReadFor(access);
         });
         let live = true;
-        const requireScopeExclusion = Effect.andThen(assertOpen, Effect.suspend(() => !live || !selected.claimData.active || selected.claimData.aborting
-          || grant === undefined || selected.claimData.scopeExclusion !== grant
-          ? Effect.fail(new CoreTransactionError({ reason: "authorityRevoked" })) : grant.assertHeld));
+        const requireScopeExclusion = Effect.suspend(() => live ? assertScopeExclusion
+          : Effect.andThen(assertOpen, Effect.fail(new CoreTransactionError({ reason: "authorityRevoked" }))));
         const finalize = () => selected.context.transaction.finalize().pipe(Effect.ensuring(Effect.sync(() => { live = false; })));
         const abort = () => selected.context.transaction.abort().pipe(Effect.ensuring(Effect.andThen(
           Effect.sync(() => { live = false; }), grant?.drain ?? Effect.void)));
