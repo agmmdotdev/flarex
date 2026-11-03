@@ -47,17 +47,18 @@ export interface CorePostgresPool {
   readonly connect: () => Promise<CorePostgresClient>;
 }
 
+// pg query rejection is the documented foreign operation boundary. Waiting
+// uninterruptibly drains the actual query before the checkout can be reused.
+const queryPostgres = Effect.fn("CorePostgres.query")((
+  client: CorePostgresClient, statement: string, parameters: readonly CoreSqlParameter[] = [],
+) => Effect.uninterruptible(Effect.tryPromise({
+  try: () => client.query<Record<string, unknown>>(statement, [...parameters]),
+  catch: classifyCoreQueryFailure,
+}).pipe(Effect.map(result => result.rows))));
+
 function pgConnection(client: CorePostgresClient): CoreSqlConnection {
-  return Object.freeze({
-    // pg query rejection is the documented foreign operation boundary. Waiting
-    // uninterruptibly drains the actual query before the checkout can be reused.
-    query: Effect.fn("CorePostgres.query")((statement: string, parameters: readonly CoreSqlParameter[] = []) =>
-      Effect.uninterruptible(Effect.tryPromise({
-        try: () => client.query<Record<string, unknown>>(statement, [...parameters]),
-        catch: classifyCoreQueryFailure,
-      }).pipe(Effect.map(result => result.rows))),
-    ),
-  });
+  const query: CoreSqlConnection["query"] = (statement, parameters) => queryPostgres(client, statement, parameters);
+  return Object.freeze({ query });
 }
 
 function releasePostgresCheckout(owned: Readonly<{
@@ -87,7 +88,7 @@ export function makeCorePostgresDriver(pool: CorePostgresPool): CoreSqlDriver {
       }), releasePostgresCheckout),
     query: Effect.fn("CorePostgres.read")((statement: string, parameters: readonly CoreSqlParameter[] = []) =>
       Effect.acquireUseRelease(acquire, owned => Effect.gen(function* () {
-        const rows = yield* pgConnection(owned.client).query(statement, parameters);
+        const rows = yield* queryPostgres(owned.client, statement, parameters);
         const failure = owned.errors.failure();
         if (failure !== undefined) return yield* Effect.fail(unavailable(failure));
         return rows;

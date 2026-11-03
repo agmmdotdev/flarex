@@ -7,12 +7,14 @@ import { addTableSemanticDependency } from "./dependencies";
 import { coreNamespaceKey } from "./namespace";
 import { authenticatedCoreNativeSchemaProof, coreNativeSchemaIncludes,
   type CoreNativeAuthority, type CoreApplicationReadAuthority, type CoreApplicationInsertAuthority } from "./nativePolicy";
-import { SCHEMAS, PROGRAMS, publicDocumentId, type CoreRegistry } from "./registry";
+import { SCHEMAS, PROGRAMS, publicDocumentId, isStoredCoreNativeTablePolicy, type CoreRegistry } from "./registry";
 import { serializeCoreSchema } from "./schemaJson";
 import { CoreReadSetBuilder, pointInterval, type CoreReadSet } from "./writeLog";
 import { coreProtectedNativePolicyMeaning } from "./protectedNativeMetadata";
+import type { CoreNativeTablePolicy } from "./nativePolicyTypes";
 
 const revoked = () => new CoreTransactionError({ reason: "authorityRevoked" });
+const verifiedProtectedPolicies = new WeakSet<CoreNativeTablePolicy>();
 
 function addAuthorityDependency(reads: CoreReadSetBuilder, registry: CoreRegistry, epoch: bigint): Result.Result<void, CoreError> {
   return Result.gen(function* () {
@@ -57,7 +59,13 @@ export function checkCoreProtectedNativeAuthority(registry: CoreRegistry, author
       const current = registry.table(table.name, authority.namespace)?.definition;
       if (current === undefined || !sameTable(table, current) || current.nativePolicy === undefined || table.nativePolicy === undefined)
         return yield* Result.fail(revoked());
+      const sameStoredPolicy = current.nativePolicy === table.nativePolicy && isStoredCoreNativeTablePolicy(table.nativePolicy);
+      if (sameStoredPolicy && verifiedProtectedPolicies.has(table.nativePolicy)) continue;
       const before = yield* Result.mapError(encodeDocumentValue(coreProtectedNativePolicyMeaning(table.nativePolicy)), revoked);
+      if (sameStoredPolicy) {
+        verifiedProtectedPolicies.add(table.nativePolicy);
+        continue;
+      }
       const after = yield* Result.mapError(encodeDocumentValue(coreProtectedNativePolicyMeaning(current.nativePolicy)), revoked);
       if (!bytesEqual(before, after)) return yield* Result.fail(revoked());
     }

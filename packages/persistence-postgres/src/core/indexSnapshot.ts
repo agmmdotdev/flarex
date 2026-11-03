@@ -128,7 +128,7 @@ export function createCoreIndexSnapshot(input: Readonly<{
     });
   }
 
-  const scan = Effect.fn("CoreIndexSnapshot.scan")(function* (request: CoreIndexScan) {
+  const scan = Effect.fnUntraced(function* (request: CoreIndexScan) {
     const selected = input.registry.tableByTablet(request.tableId);
     const index = selected?.definition.indexes.find(candidate => bytesEqual(candidate.ref.id, request.index.id));
     if (selected === undefined || index === undefined) {
@@ -169,7 +169,7 @@ export function createCoreIndexSnapshot(input: Readonly<{
     yield* Effect.fromResult(populate(request.index.id, selected.definition, misses, observed));
     return Object.freeze({ entries: Object.freeze(results.map(copyEntry)), cursor: cursor.kind === "end"
       ? Object.freeze({ kind: "end" as const }) : Object.freeze({ kind: "after" as const, key: cursor.key.slice() }) });
-  });
+  }, effect => Effect.withSpan(effect, "CoreIndexSnapshot.scan", { captureStackTrace: false }));
 
   return Object.freeze({ timestamp: input.snapshot.timestamp, scan });
 }

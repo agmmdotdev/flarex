@@ -238,7 +238,7 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
       },
     );
 
-    const scan = Effect.fn("CorePersistence.indexPage")(
+    const scan = Effect.fnUntraced(
       function* (at: bigint, input: CoreIndexScan, retention: CoreRetentionValidator): Effect.fn.Return<CoreIndexPage, CorePersistenceError> {
         const decoded = yield* decodeScan(input).pipe(Effect.mapError(invalid));
         const request = Object.freeze({ ...decoded,
@@ -332,8 +332,20 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
         return Object.freeze({ entries: Object.freeze(selected), cursor: complete || last === undefined
           ? Object.freeze({ kind: "end" as const })
           : Object.freeze({ kind: "after" as const, key: copyBytes(last.key) }) });
-      },
+      }, effect => Effect.withSpan(effect, "CorePersistence.indexPage", { captureStackTrace: false }),
     );
+
+    const get = Effect.fn("CorePersistence.get")(function* (
+      at: bigint, retention: CoreRetentionValidator, tableId: Uint8Array, id: Uint8Array,
+    ) {
+      const decoded = yield* decodePoint({ tableId, id }).pipe(Effect.mapError(invalid));
+      const rows = yield* driver.query(`SELECT ts::text AS ts, table_id, id, json_value, deleted, prev_ts::text AS prev_ts
+        FROM ${table("documents")} WHERE instance_name = $1 AND table_id = $2 AND id = $3 AND ts <= $4
+        ORDER BY ${table("documents")}.ts DESC LIMIT 1`, [instance, copyBytes(decoded.tableId), copyBytes(decoded.id), at]);
+      const stored = yield* decodeDocumentRows(rows);
+      yield* retention.validateDocument(at);
+      return stored[0] === undefined ? Option.none<CoreDocumentLogEntry>() : Option.some(documentFromRow(stored[0]));
+    });
 
     const persistence: CorePersistence = {
       retentionValidator: sqlRetention,
@@ -609,16 +621,7 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
         yield* decodeTimestamp(at).pipe(Effect.mapError(invalid));
         yield* retention.validateIndex(at);
         return Object.freeze({ timestamp: at,
-          get: Effect.fn("CorePersistence.get")(function* (tableId: Uint8Array, id: Uint8Array) {
-            const decoded = yield* decodePoint({ tableId, id })
-              .pipe(Effect.mapError(invalid));
-            const rows = yield* driver.query(`SELECT ts::text AS ts, table_id, id, json_value, deleted, prev_ts::text AS prev_ts
-              FROM ${table("documents")} WHERE instance_name = $1 AND table_id = $2 AND id = $3 AND ts <= $4
-              ORDER BY ${table("documents")}.ts DESC LIMIT 1`, [instance, copyBytes(decoded.tableId), copyBytes(decoded.id), at]);
-            const stored = yield* decodeDocumentRows(rows);
-            yield* retention.validateDocument(at);
-            return stored[0] === undefined ? Option.none<CoreDocumentLogEntry>() : Option.some(documentFromRow(stored[0]));
-          }),
+          get: (tableId: Uint8Array, id: Uint8Array) => get(at, retention, tableId, id),
           scan: (request: CoreIndexScan) => scan(at, request, retention),
         });
       }),

@@ -1,5 +1,8 @@
 # Convex mechanism divergence records
 
+- [Native policy match reuse](./native-policy-match-reuse.md) retains immutable comparison evidence while the live registry owns authority.
+- [Core Effect scan spans](./core-effect-hot-scan-spans.md) retain named scan boundaries and hoist stable operations.
+
 - [Exact pages in native admission](./native-admission-exact-pages.md) retain physical provenance for admission at the same published snapshot.
 
 - [Scoped app-generation supervision](./app-owner-recovery.md): preserve Source's committer stop and durable reconstruction through a portable scoped supervisor and Cloudflare host adapter.

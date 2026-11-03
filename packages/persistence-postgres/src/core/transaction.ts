@@ -514,12 +514,11 @@ export function createCoreTransaction(input: Readonly<{
     if (access === undefined || !nativeAccesses.has(access)) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
     const metadataRegistry = selected.metadata?.registry ?? selected.registry;
     const metadataTimestamp = selected.metadata?.timestamp ?? selected.snapshot.timestamp;
-    const metadata = access.kind === "native" ? yield* Effect.gen(function* () {
-      yield* Effect.fromResult(checkCoreNativeAuthority(metadataRegistry, access.authority, table.name));
-      return yield* Effect.fromResult(coreNativeMetadataReads(metadataRegistry, access.authority, table.name));
-    }) : yield* Effect.fromResult(access.kind === "applicationRead"
-      ? coreApplicationReadMetadataReads(metadataRegistry, access.authority)
-      : coreApplicationInsertMetadataReads(metadataRegistry, access.authority));
+    const metadata = yield* Effect.fromResult(access.kind === "native"
+      ? coreNativeMetadataReads(metadataRegistry, access.authority, table.name)
+      : access.kind === "applicationRead"
+        ? coreApplicationReadMetadataReads(metadataRegistry, access.authority)
+        : coreApplicationInsertMetadataReads(metadataRegistry, access.authority));
     nativeObservations.addReads(metadataTimestamp, metadata);
     if (index !== undefined) yield* Effect.fromResult(observeNativeIndex(nativeObservations, metadataRegistry, metadataTimestamp, indexedTable, index));
     return { ...selected, registry: metadataRegistry, indexSnapshot: createCoreIndexSnapshot({ snapshot: selected.snapshot, registry: metadataRegistry,

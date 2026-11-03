@@ -61,9 +61,9 @@ export class CoreSchemaModel {
   readonly getByState = Effect.fn("CoreSchemaModel.getByState")((state: CoreSchemaUniqueState) =>
     this.tx.tableExists(SCHEMAS) ? Effect.fromResult(this.tx.schemaRegistry.getByState(this.tx.namespace, state,
       this.tx.schemaTableStateIndex(), this.tx.addIndexRead)) : Effect.succeed(Option.none<CoreSchemaSelection>()));
-  readonly active = Effect.fn("CoreSchemaModel.active")(() => this.getByState("active"));
-  readonly pending = Effect.fn("CoreSchemaModel.pending")(() => this.getByState("pending"));
-  readonly validated = Effect.fn("CoreSchemaModel.validated")(() => this.getByState("validated"));
+  readonly active = () => this.getByState("active");
+  readonly pending = () => this.getByState("pending");
+  readonly validated = () => this.getByState("validated");
 
   readonly get = Effect.fn("CoreSchemaModel.get")((id: string) => Effect.gen({ self: this }, function* () {
     const document = yield* this.tx.getSystem(SCHEMAS, id);

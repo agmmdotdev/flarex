@@ -2,8 +2,9 @@ import { Effect, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { encodeDocumentId } from "flarex-protocol/document-id";
 import { compileCurrencyCoreDefinition } from "../../../medusa-adapter/src/modules/currency/schema";
-import { checkCoreTableAccess, coreNativePolicyForTable, sameCoreNativeTablePolicy } from "../../src/core/nativePolicy";
+import { checkCoreTableAccess, coreNativePolicyForTable, coreNativePolicyMatches, sameCoreNativeTablePolicy } from "../../src/core/nativePolicy";
 import { CoreNativeTablePolicySchema } from "../../src/core/nativePolicyTypes";
+import { parseCoreTableRecord } from "../../src/core/registry";
 import { isCoreSchemaBundleSuccessor, makeCoreSchemaBundle } from "../../src/core/schemaBundle";
 import type { CoreTableDefinition } from "../../src/core/api";
 
@@ -11,6 +12,34 @@ const target = { scopeUuid: "f2bfbf4a-271e-4a44-bcc8-7aa3c7fe59bd", epochUuid: "
 const schemaId = Result.getOrThrow(encodeDocumentId(532, new Uint8Array(16).fill(4)));
 
 describe("authenticated native source binding selection", () => {
+  it("reuses only the captured policy and issued definition for the selected table", async () => {
+    const definition = await Effect.runPromise(compileCurrencyCoreDefinition(target));
+    const declaration = definition.tables[0];
+    if (declaration === undefined) throw new Error("Missing Currency table");
+    const identity = { ...definition.identity };
+    const mutable = Object.freeze({ ...coreNativePolicyForTable(definition, declaration, "active", schemaId), identity });
+    const parsed = Result.getOrThrow(parseCoreTableRecord({
+      id: schemaId, creationTime: 0,
+      value: { name: declaration.name, number: 10_001n, state: "active", nativePolicy: mutable },
+    }, 1n)).definition;
+    const owned = parsed.nativePolicy;
+    if (owned === undefined) throw new Error("Missing parsed native policy");
+
+    expect(coreNativePolicyMatches(owned, definition, declaration.name)).toBe(true);
+    expect(coreNativePolicyMatches(owned, definition, declaration.name)).toBe(true);
+    expect(coreNativePolicyMatches(owned, definition, "another_table")).toBe(false);
+    expect(coreNativePolicyMatches(mutable, definition, declaration.name)).toBe(true);
+    identity.sourceKey = "foreign.source";
+    expect(coreNativePolicyMatches(mutable, definition, declaration.name)).toBe(false);
+    expect(coreNativePolicyMatches(owned, definition, declaration.name)).toBe(true);
+
+    const unissuedIdentity = { ...definition.identity };
+    const unissued = { ...definition, identity: unissuedIdentity };
+    expect(coreNativePolicyMatches(owned, unissued, declaration.name)).toBe(true);
+    unissuedIdentity.sourceKey = "foreign.source";
+    expect(coreNativePolicyMatches(owned, unissued, declaration.name)).toBe(false);
+  });
+
   it("preserves omitted profiles and authenticates withdrawal independently of installed data schema", async () => {
     await Effect.runPromise(Effect.gen(function* () {
       const definition = yield* compileCurrencyCoreDefinition(target);

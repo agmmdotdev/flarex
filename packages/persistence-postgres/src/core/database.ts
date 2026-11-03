@@ -356,38 +356,43 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     return { ...selected, snapshot: yield* openSnapshot(selected.timestamp, selected.registry) };
   });
 
-  const capturedNativeHistory = (timestamp: bigint) => {
-    const { indexMinimumTimestamp, documentMinimumTimestamp } = initial.retentionBounds;
-    const minimumTimestamp = indexMinimumTimestamp > documentMinimumTimestamp ? indexMinimumTimestamp : documentMinimumTimestamp;
-    const retention: CoreRetentionValidator = Object.freeze({
-      validateIndex: (at: bigint) => Effect.andThen(initial.retention.validateIndex(at), persistence.retentionValidator.validateIndex(at)),
-      validateDocument: (at: bigint) => Effect.andThen(initial.retention.validateDocument(at), persistence.retentionValidator.validateDocument(at)),
-    });
-    const validate = Effect.gen(function* () {
-      yield* retention.validateIndex(minimumTimestamp);
-      yield* retention.validateDocument(minimumTimestamp);
-      yield* assertOpen;
-    });
-    return Object.freeze({ minimumTimestamp, validate,
-      page: Effect.fn("CoreDatabase.nativeHistoryPage")(function* (request: Omit<CoreIndexHistoryRequest, "start" | "end">) {
-        yield* validate;
-        const page = yield* persistence.loadIndexHistory({ ...request, start: minimumTimestamp, end: timestamp }, retention);
-        yield* validate;
-        return page;
-      }),
-      get: Effect.fn("CoreDatabase.nativeHistoricalPoint")(function* (at: bigint, tableId: Uint8Array, id: Uint8Array) {
-        yield* validate;
-        if (at < minimumTimestamp) return yield* new CorePersistenceError({ reason: "outOfRetention" });
-        if (at > timestamp) return yield* new CorePersistenceError({ reason: "invalidTarget" });
-        yield* retention.validateDocument(at);
-        const snapshot = yield* persistence.readSnapshot(at, retention);
-        const document = yield* snapshot.get(tableId, id);
-        yield* retention.validateDocument(at);
-        yield* validate;
-        return document;
-      }),
-    });
-  };
+  const { indexMinimumTimestamp, documentMinimumTimestamp } = initial.retentionBounds;
+  const minimumTimestamp = indexMinimumTimestamp > documentMinimumTimestamp ? indexMinimumTimestamp : documentMinimumTimestamp;
+  const historyRetention: CoreRetentionValidator = Object.freeze({
+    validateIndex: (at: bigint) => Effect.andThen(initial.retention.validateIndex(at), persistence.retentionValidator.validateIndex(at)),
+    validateDocument: (at: bigint) => Effect.andThen(initial.retention.validateDocument(at), persistence.retentionValidator.validateDocument(at)),
+  });
+  const validateHistory = Effect.gen(function* () {
+    yield* historyRetention.validateIndex(minimumTimestamp);
+    yield* historyRetention.validateDocument(minimumTimestamp);
+    yield* assertOpen;
+  });
+  const nativeHistoryPage = Effect.fn("CoreDatabase.nativeHistoryPage")(function* (
+    timestamp: bigint, request: Omit<CoreIndexHistoryRequest, "start" | "end">,
+  ) {
+    yield* validateHistory;
+    const page = yield* persistence.loadIndexHistory({ ...request, start: minimumTimestamp, end: timestamp }, historyRetention);
+    yield* validateHistory;
+    return page;
+  });
+  const nativeHistoricalPoint = Effect.fn("CoreDatabase.nativeHistoricalPoint")(function* (
+    timestamp: bigint, at: bigint, tableId: Uint8Array, id: Uint8Array,
+  ) {
+    yield* validateHistory;
+    if (at < minimumTimestamp) return yield* new CorePersistenceError({ reason: "outOfRetention" });
+    if (at > timestamp) return yield* new CorePersistenceError({ reason: "invalidTarget" });
+    yield* historyRetention.validateDocument(at);
+    const snapshot = yield* persistence.readSnapshot(at, historyRetention);
+    const document = yield* snapshot.get(tableId, id);
+    yield* historyRetention.validateDocument(at);
+    yield* validateHistory;
+    return document;
+  });
+  const capturedNativeHistory = (timestamp: bigint) => Object.freeze({
+    minimumTimestamp, validate: validateHistory,
+    page: (request: Omit<CoreIndexHistoryRequest, "start" | "end">) => nativeHistoryPage(timestamp, request),
+    get: (at: bigint, tableId: Uint8Array, id: Uint8Array) => nativeHistoricalPoint(timestamp, at, tableId, id),
+  });
 
   const make = Effect.fn("CoreDatabase.transaction")(function* (at?: bigint, claim?: CoreRequestClaim, readonly = false, namespace:CoreTableNamespace = null, system = false) {
     namespace=yield* Effect.fromResult(Result.mapError(captureCoreTableNamespace(namespace),invalid));

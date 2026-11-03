@@ -21,7 +21,7 @@ import { parseCoreIndexRecord, type CoreIndexRecord } from "./indexState";
 import { CoreSchemaRegistry } from "./schemaRegistry";
 import { decodeCoreApplicationDeployment, decodeCoreActiveApplication, type CoreApplicationDeploymentRecord, type CoreActiveApplicationRecord } from "./applicationDeploymentTypes";
 import type { CoreSystemDocument } from "./transaction";
-import { CoreNativeTablePolicySchema } from "./nativePolicyTypes";
+import { CoreNativeTablePolicySchema, type CoreNativeTablePolicy } from "./nativePolicyTypes";
 import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
 
 export const TABLES = "_tables";
@@ -207,13 +207,21 @@ function corrupt(cause?: unknown): CorePersistenceError {
   return new CorePersistenceError({ reason: "corruptData", ...(cause === undefined ? {} : { cause }) });
 }
 
+const storedNativePolicies = new WeakSet<CoreNativeTablePolicy>();
+
+export function isStoredCoreNativeTablePolicy(policy: CoreNativeTablePolicy): boolean {
+  return storedNativePolicies.has(policy);
+}
+
 export const parseCoreTableRecord = (document: CoreSystemDocument, ts: bigint | null)
   : Result.Result<CoreTableRecord, CorePersistenceError> => Result.gen(function* () {
     const metadata = yield* Result.mapError(decodeStoredTable(document.value), corrupt);
     const id = yield* Result.mapError(decodeDocumentId(document.id), corrupt);
+    const nativePolicy = metadata.nativePolicy === undefined ? undefined : snapshotDecodedProtocolPlainData(metadata.nativePolicy);
+    if (nativePolicy !== undefined) storedNativePolicies.add(nativePolicy);
     return { id: id.internalId.slice(), ts, definition: Object.freeze({ name: metadata.name, number: Number(metadata.number),
       state: metadata.state, namespace: metadata.namespace ?? null, tabletId: id.internalId.slice(), indexes: Object.freeze([]),
-      ...(metadata.nativePolicy === undefined ? {} : { nativePolicy: snapshotDecodedProtocolPlainData(metadata.nativePolicy) }) }) };
+      ...(nativePolicy === undefined ? {} : { nativePolicy }) }) };
   });
 export interface CoreRegistryDecoders {
   readonly table: typeof parseCoreTableRecord;

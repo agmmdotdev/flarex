@@ -74,6 +74,24 @@ const keyFor = (entry: CoreHydratedIndexEntry["document"], index = byValue) =>
   Result.getOrThrow(documentIndexKey(index, Result.getOrThrow(readDocumentObject(entry, table))));
 
 describe("translated operation index snapshot", () => {
+  it("defers the scan and retains its named span under the caller's span", async () => {
+    const physical = reader(0);
+    let calls = 0;
+    const snapshot = createCoreIndexSnapshot({ registry, snapshot: { ...physical.snapshot, scan: input => {
+      calls += 1;
+      return Effect.withFiber(fiber => {
+        const span = fiber.currentSpan;
+        expect(span).toMatchObject({ _tag: "Span", name: "CoreIndexSnapshot.scan",
+          parent: { _tag: "Some", value: { name: "request-parent" } } });
+        return physical.snapshot.scan(input);
+      });
+    } } });
+    const scan = snapshot.scan(request());
+    expect(calls).toBe(0);
+    await Effect.runPromise(Effect.withSpan(scan, "request-parent", { captureStackTrace: false }));
+    expect(calls).toBe(1);
+  });
+
   it("warms enabled secondary and ById lookups from one fetched range without charging a user read", async () => {
     const physical = reader();
     const snapshot = createCoreIndexSnapshot({ snapshot: physical.snapshot, registry });

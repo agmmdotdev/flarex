@@ -14,7 +14,7 @@ import { SchemaManifestSemanticInputSchema } from "flarex-protocol/schema-manife
 import { CoreTransactionError, type CoreError, type CoreNativeCommandDefinition, type CoreTableDefinition, type CoreProgramIdentity } from "./api";
 import { captureCoreSchema, CoreSchemaError, type CoreSchemaDefinition, type CoreSchemaInputSchema } from "./schemaTypes";
 import { coreNamespaceKey, type CoreTableNamespace } from "./namespace";
-import { PROGRAMS, SCHEMAS, TABLES, publicDocumentId, programKey, type CoreRegistry } from "./registry";
+import { PROGRAMS, SCHEMAS, TABLES, publicDocumentId, programKey, isStoredCoreNativeTablePolicy, type CoreRegistry } from "./registry";
 import { CoreReadSetBuilder, pointInterval, type CoreReadSet } from "./writeLog";
 import { addIndexMetadataDependency } from "./dependencies";
 import { checkCoreProtectedNativeAuthority, coreProtectedNativeMetadataReads,
@@ -416,10 +416,17 @@ export function coreNativePolicyForTable(definition: CoreNativeDefinition,
     ...(privateEvent === undefined ? {} : { privateEvent }),
     ...(privateReference === undefined ? {} : { privateReference }) });
 }
+const policyMatches = new WeakMap<CoreNativeTablePolicy, WeakMap<CoreNativeDefinition, string>>();
+
 function nativePolicyMatches(policy: CoreNativeTablePolicy, definition: CoreNativeDefinition, tableName: string): boolean {
+  // Both operands of a reusable comparison are owned immutable data. This
+  // proves definition meaning only. Each caller still selects live authority.
+  const owned = isStoredCoreNativeTablePolicy(policy) && definitions.has(definition);
+  const matchesByDefinition = owned ? policyMatches.get(policy) : undefined;
+  if (matchesByDefinition?.get(definition) === tableName) return true;
   const expected = coreNativeStoredTables(definition).find(table => table.name === tableName);
   const privateReference = expected?.privateReference;
-  return expected !== undefined && sameCoreNativeIdentity(policy.identity, definition.identity)
+  const matches = expected !== undefined && sameCoreNativeIdentity(policy.identity, definition.identity)
     && policy.applicationRead === (privateReference === undefined && expected.privateEvent === undefined && definition.applicationRead)
     && canonical(policy.privateReference ?? null) === canonical(privateReference ?? null)
     && canonical(policy.privateEvent ?? null) === canonical(expected.privateEvent ?? null)
@@ -427,6 +434,12 @@ function nativePolicyMatches(policy: CoreNativeTablePolicy, definition: CoreNati
     && canonical(policy.foreignKeys ?? []) === canonical(expected.foreignKeys ?? [])
     && sameNativeConstraints(policy.uniqueConstraints, expected.uniqueConstraints)
     && canonical(policy.references ?? []) === canonical(privateReference === undefined ? definition.references : []);
+  if (owned && matches) {
+    const retained = matchesByDefinition ?? new WeakMap<CoreNativeDefinition, string>();
+    retained.set(definition, tableName);
+    if (matchesByDefinition === undefined) policyMatches.set(policy, retained);
+  }
+  return matches;
 }
 export const coreNativePolicyMatches = nativePolicyMatches;
 function sameNativeConstraints(left: CoreNativeTablePolicy["uniqueConstraints"], right: CoreNativeTablePolicy["uniqueConstraints"]): boolean {
@@ -544,7 +557,9 @@ export function checkCoreNativeAuthority(registry: CoreRegistry, authority: Core
       const table = registry.table(expected.name, authority.namespace)?.definition;
       if (table === undefined || table.state !== "active" || table.number !== expected.number) return yield* Result.fail(revoked());
       yield* checkCoreTableAccess(table, "read", authority);
-      if (JSON.stringify(table.nativePolicy) !== JSON.stringify(expected.nativePolicy)) return yield* Result.fail(revoked());
+      const policy = table.nativePolicy;
+      if (!(policy !== undefined && policy === expected.nativePolicy && isStoredCoreNativeTablePolicy(policy))
+        && JSON.stringify(policy) !== JSON.stringify(expected.nativePolicy)) return yield* Result.fail(revoked());
       for (const index of expected.indexes) {
         const actual = table.indexes.find(candidate => candidate.name === index.name);
         if (actual === undefined || !bytesEqual(index.ref.id, actual.ref.id)
