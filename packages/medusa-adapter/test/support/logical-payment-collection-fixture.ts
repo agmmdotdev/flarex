@@ -19,8 +19,8 @@ import { compileCartPaymentCollectionLinkDefinition } from "../../src/links/cart
 import { compileOrderPaymentCollectionLinkDefinition } from "../../src/links/order-payment-collection-schema";
 import { preparePaymentCollectionLinkLifecycle } from "../../src/links/payment-collection-lifecycle";
 import { makePaymentLifecycleCommands } from "../../src/modules/payment/lifecycle-service";
-import { makeCartCompletionCommands, makeCartPaymentReadCommands } from "../../src/modules/cart/payment-service";
-import { makeOrderCheckoutCommands, makeOrderPaymentFinanceCommands } from "../../src/modules/order/finance-service";
+import { makeCartPaymentReadCommands } from "../../src/modules/cart/payment-service";
+import { makeOrderPaymentFinanceCommands } from "../../src/modules/order/finance-service";
 import { prepareCartPaymentCollectionCreationWorkflow, prepareCartPaymentCollectionRefreshWorkflow,
   prepareOrderPaymentCollectionCreationWorkflow, preparePaymentCollectionCancellationWorkflow } from "../../src/workflows/payment/collections";
 import { preparePaymentAuthorizationWorkflow } from "../../src/workflows/payment/authorize-session";
@@ -46,8 +46,7 @@ export const collectionCartRows: readonly JsonObject[] = [
 ];
 
 export async function prepareLogicalPaymentCollections(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  shared?: SharedLogicalCurrencyFixture, cartRows: readonly JsonObject[] = collectionCartRows, paymentRows: readonly JsonObject[] = [],
-  cartProfile: "payment" | "completion" = "payment", orderProfile: "finance" | "checkout" = "finance") {
+  shared?: SharedLogicalCurrencyFixture, cartRows: readonly JsonObject[] = collectionCartRows, paymentRows: readonly JsonObject[] = []) {
   const definitions = [
     { key: "medusa.payment", definition: await Effect.runPromise(compilePaymentDefinition()) },
     { key: "medusa.cart", definition: await Effect.runPromise(compileCartDefinition()) },
@@ -66,10 +65,9 @@ export async function prepareLogicalPaymentCollections(driver: "pglite" | "postg
   const logger: Logger = { panic() {}, shouldLog: () => false, setLogLevel() {}, unsetLogLevel() {}, activity: value => value,
     progress() {}, error: value => { errors.push(String(value)); }, failure() {}, success: () => ({}), silly() {}, debug() {}, verbose() {},
     http() {}, info() {}, warn() {}, log() {} };
-  const checkoutOrder = orderProfile === "checkout" ? await Effect.runPromise(makeOrderCheckoutCommands()) : undefined;
-  const payment = await Effect.runPromise(makePaymentLifecycleCommands(logger)), cart = await Effect.runPromise(
-    cartProfile === "payment" ? makeCartPaymentReadCommands() : makeCartCompletionCommands()),
-    order = checkoutOrder ?? await Effect.runPromise(makeOrderPaymentFinanceCommands());
+  const payment = await Effect.runPromise(makePaymentLifecycleCommands(logger));
+  const cart = await Effect.runPromise(makeCartPaymentReadCommands());
+  const order = await Effect.runPromise(makeOrderPaymentFinanceCommands());
   const cartLink = await Effect.runPromise(preparePaymentCollectionLinkLifecycle("cart")),
     orderLink = await Effect.runPromise(preparePaymentCollectionLinkLifecycle("order"));
   const initialize = async (index: number, commands: LogicalCommerceHostInput<unknown>["commands"], rows: readonly JsonObject[]) => {
@@ -248,7 +246,7 @@ export async function prepareLogicalPaymentCollections(driver: "pglite" | "postg
   const readHost = await Effect.runPromise(makeCommerceHost({ ...fixture.hostInput, logicalStorage: modules.payment.logicalStorage,
     commands: [payment.collections, payment.sessions], identityAndAccessPolicy: { profile: "fixture-payment-collection-read" } }));
   close(() => Effect.runPromise(readHost.close));
-  return { fixture, payment, cart, order, checkoutOrder, cartLink, orderLink, modules, options, cartModules, orderModules, errors,
+  return { fixture, payment, cart, order, cartLink, orderLink, modules, options, cartModules, orderModules, errors,
     closeWorkflowHosts, prepareCartCreation, prepareCartRefresh, prepareOrderCreation, prepareCancellation, prepareSession, prepareSizedSession, prepareAuthorize, prepareCapture, prepareCreationProbe, prepareLinkInverse, prepareUpdateProbe,
     setPrice: (value: string) => Effect.runPromise(priceHost.run(priceHost.newRequestKey(), setPrice, { unit_price: value, raw_unit_price: { value, precision: 20 } })),
     setCurrency: (value: string) => Effect.runPromise(priceHost.run(priceHost.newRequestKey(), setCurrency, value)),

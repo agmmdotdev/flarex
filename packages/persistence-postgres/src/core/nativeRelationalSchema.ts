@@ -156,11 +156,16 @@ export const lowerCoreNativeRelationalSchema = Effect.fn("CoreNativeDefinition.l
     const predicate = index.predicate;
     if (predicate?.kind !== "isNotNull" && predicate?.kind !== "isNullAndNotNull") continue;
     const requiredNonNull = (predicate.kind === "isNotNull" ? predicate.column : predicate.notNullColumn).columnId;
-    if (index.kind !== "btree" || index.columns.length !== 1 || index.columns[0]?.columnId !== requiredNonNull)
-      return yield* unsupported("Relational non-null predicate requires a nonunique B-tree on its single tested key");
+    const keyFields = index.columns.map(column => column.columnId);
+    const singleTestedKey = keyFields.length === 1 && keyFields[0] === requiredNonNull;
+    const compoundOffKey = predicate.kind === "isNotNull" && keyFields.length > 1 && !keyFields.includes(requiredNonNull);
+    if (index.kind !== "btree" || !(singleTestedKey || compoundOffKey))
+      return yield* unsupported("Relational non-null predicate requires a nonunique B-tree on its tested key or a distinct compound key");
     const requiredPrefix = predicate.kind === "isNullAndNotNull"
       ? Object.freeze({ field: predicate.nullColumn.columnId, value: null }) : undefined;
-    const fields = Object.freeze(requiredPrefix === undefined ? [requiredNonNull] : [requiredPrefix.field, requiredNonNull]);
+    // A complete compound equality prefix leaves one ordinary non-null range.
+    const fields = Object.freeze(compoundOffKey ? [...keyFields, requiredNonNull]
+      : requiredPrefix === undefined ? [requiredNonNull] : [requiredPrefix.field, requiredNonNull]);
     if (!ordered(record.table, fields)) return yield* unsupported("Relational index requires admitted ordered scalar columns");
     const table = record.declaration.table;
     if (table === undefined) return yield* unsupported("Relational table has no authenticated binding");

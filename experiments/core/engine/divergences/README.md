@@ -148,6 +148,8 @@ maintaining a competing completion log here.
 
 ## Selected native extensions
 
+- [Native compound non-null indexes](./native-compound-non-null-indexes.md) lower the selected history predicates to ordinary index ranges. Paired verification passed.
+
 - [Native in-flight request joining](./native-inflight-request-joining.md): bounded exact duplicates share a live app-owner execution and captured correlation; Core remains durable authority, no native replay; selected Native17 replacement and paired admitted consumer proof complete.
 
 - [Native explicit set-null intents](./native-set-null-intents.md): authentic post-delete intent and source seal feed prepared/frozen shared FK patches; selected Native17 replacement and paired admitted consumer proof complete.

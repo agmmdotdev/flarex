@@ -1,10 +1,13 @@
 import { randomBytes } from "node:crypto";
+import { Buffer } from "node:buffer";
 import { Cause, Effect, Exit, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
+import { compileIndexRange } from "flarex-protocol/index-range";
+import { normalizeRelationalSchema, type RelationalSchema } from "flarex-protocol/internal/relational-schema";
 import type { DocumentObject } from "flarex-protocol/document-value";
 import type { CoreError, CoreNativeOperations } from "../../src/core/api";
+import type { CoreIndexPage, CoreIndexScan, CorePersistence } from "../../src/core/contracts";
 import { openCoreDatabase } from "../../src/core/database";
 import { coreNativeRelationalRows, makeCoreRelationalNativeDefinition } from "../../src/core/nativePolicy";
 import { planCoreNativeQuery } from "../../src/core/nativeQuery";
@@ -18,6 +21,16 @@ const origin = { kind: "synthetic", sourceId: "native-non-null-index" } as const
 const lifecycleOrigin = { kind: "implicit", sourceId: "native-non-null-index.lifecycle" } as const;
 const target = { scopeUuid: "8a500000-0000-4000-8000-000000000001", epochUuid: "8a500000-0000-4000-8000-000000000002" };
 type Shape = "admitted" | "unique" | "compound" | "unrelatedKey";
+
+const compileDefinition = Effect.fn("NativeNonNullIndexTest.compileDefinition")(function* (relational: RelationalSchema) {
+  const source = yield* captureLogicalSchemaSource({ key: "medusa.native-non-null-index", owner: "medusa",
+    writeProfile: "medusa.native-non-null-index", evidence: { provenance: origin },
+    definition: { kind: "relational", schema: relational }, bindings: relational.tables.map(table => ({
+      kind: "definition", localName: table.identity.tableId,
+      table: { namespace: "medusa", logicalName: origin.sourceId + "/" + table.identity.tableId },
+    })) });
+  return yield* makeCoreRelationalNativeDefinition({ ...target, source, provenance: origin, commands: [] });
+});
 
 export const compileNativeNonNullIndex = Effect.fn("NativeNonNullIndexTest.compile")(function* (shape: Shape = "admitted") {
   const relational = yield* Effect.fromResult(normalizeRelationalSchema({ owner: "medusa", lineageId: origin.sourceId,
@@ -47,17 +60,51 @@ export const compileNativeNonNullIndex = Effect.fn("NativeNonNullIndexTest.compi
       { capabilityId: "record.lifecycle", kind: "softDelete", deletedAtColumn: { tableId: "record", columnId: "deleted_at" },
         activeRowsIndex: { tableId: "record", indexId: "record.active" }, origin: lifecycleOrigin },
     ] }));
-  const source = yield* captureLogicalSchemaSource({ key: "medusa.native-non-null-index", owner: "medusa",
-    writeProfile: "medusa.native-non-null-index", evidence: { provenance: origin },
-    definition: { kind: "relational", schema: relational }, bindings: [{ kind: "definition", localName: "record",
-      table: { namespace: "medusa", logicalName: origin.sourceId + "/record" } }] });
-  return yield* makeCoreRelationalNativeDefinition({ ...target, source, provenance: origin, commands: [] });
+  return yield* compileDefinition(relational);
 });
 
-const setup = Effect.fn("NativeNonNullIndexTest.setup")(function* (fixture: CorePersistenceFixture) {
-  const definition = yield* compileNativeNonNullIndex();
+type CompoundShape = "admitted" | "unique" | "testedKey" | "singleOffKey" | "unorderedPredicate";
+const tuple = ["reference", "reference_id"];
+const textColumn = (columnId: string) => ({ columnId, type: "text", nullable: false, default: { kind: "none" }, origin } as const);
+
+export const compileNativeCompoundNonNullIndex = Effect.fn("NativeNonNullIndexTest.compileCompound")(function* (
+  shape: CompoundShape = "admitted",
+) {
+  const relational = yield* Effect.fromResult(normalizeRelationalSchema({ owner: "medusa", lineageId: origin.sourceId,
+    tables: [
+      { tableId: "parent", origin, columns: tuple.map(textColumn), keys: [
+        { keyId: "parent.primary", kind: "primary", columns: tuple, origin },
+      ], indexes: [], constraints: [], relationships: [] },
+      { tableId: "record", origin, columns: [
+        textColumn("id"), ...tuple.map(textColumn),
+        ...["created_at", "updated_at"].map(columnId => ({ columnId, type: "timestamptz", nullable: false,
+          default: { kind: "currentTimestamp" }, origin: lifecycleOrigin })),
+        { columnId: "deleted_at", type: "timestamptz", nullable: true, default: { kind: "none" }, origin: lifecycleOrigin },
+        { columnId: "payload", type: "jsonb", nullable: true, default: { kind: "none" }, origin },
+      ], keys: [{ keyId: "record.primary", kind: "primary", columns: ["id"], origin }], indexes: [
+        { indexId: "record.active", kind: "btree", columns: ["deleted_at"],
+          predicate: { kind: "isNull", columnId: "deleted_at" }, origin: lifecycleOrigin },
+        { indexId: "record.compound-history", kind: shape === "unique" ? "uniqueBtree" : "btree",
+          columns: shape === "testedKey" ? ["reference", "deleted_at"] : shape === "singleOffKey" ? ["reference"] : tuple,
+          predicate: { kind: "isNotNull", columnId: shape === "unorderedPredicate" ? "payload" : "deleted_at" }, origin },
+      ], constraints: [{ constraintId: "record.parent", kind: "foreignKey", sourceColumns: tuple,
+        targetColumns: tuple.map(columnId => ({ tableId: "parent", columnId })), onDelete: "noAction", onUpdate: "noAction", origin }],
+      relationships: [] },
+    ], capabilities: [
+      { capabilityId: "record.timestamps", kind: "managedTimestamps", createdAtColumn: { tableId: "record", columnId: "created_at" },
+        updatedAtColumn: { tableId: "record", columnId: "updated_at" }, updateBehavior: "currentTimestampOnUpdate", origin: lifecycleOrigin },
+      { capabilityId: "record.lifecycle", kind: "softDelete", deletedAtColumn: { tableId: "record", columnId: "deleted_at" },
+        activeRowsIndex: { tableId: "record", indexId: "record.active" }, origin: lifecycleOrigin },
+    ] }));
+  return yield* compileDefinition(relational);
+});
+
+const setup = Effect.fn("NativeNonNullIndexTest.setup")(function* (persistence: CorePersistence,
+  definitionEffect: ReturnType<typeof compileNativeNonNullIndex> = compileNativeNonNullIndex(),
+) {
+  const definition = yield* definitionEffect;
   const bundle = yield* makeCoreSchemaBundle({ sources: [{ kind: "native", definition }] });
-  const database = yield* Effect.acquireRelease(openCoreDatabase(fixture.persistence, { schemaBundles: [bundle],
+  const database = yield* Effect.acquireRelease(openCoreDatabase(persistence, { schemaBundles: [bundle],
     now: Effect.succeed(1_000_000_000n), randomBytes: length => Effect.sync(() => randomBytes(length)),
     schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS, maxConcurrentSaves: 2, maxBatchDelayMilliseconds: 0 }), db => db.close());
   const proposal = yield* database.prepareSchema({ bundle });
@@ -73,11 +120,12 @@ const setup = Effect.fn("NativeNonNullIndexTest.setup")(function* (fixture: Core
   }
   const commands = [{ name: "write", mode: "write" }, { name: "read", mode: "read" }] as const;
   const binding = yield* database.bindNative({ definition, commands });
-  const declaration = definition.tables[0], metadata = yield* database.readNativeBinding(binding);
+  const declaration = definition.tables.find(table => table.localName === "record"), metadata = yield* database.readNativeBinding(binding);
   const installed = metadata.tables.find(table => table.name === declaration?.name);
   if (declaration === undefined || installed === undefined) return yield* Effect.die(new Error("Missing native non-null test table"));
+  const begin = () => database.beginNative(binding, { commandName: "write", ...coreNativeTestBudget() });
   const write = Effect.fn("NativeNonNullIndexTest.write")(<A>(body: (operations: CoreNativeOperations) => Effect.Effect<A, CoreError>) =>
-    Effect.acquireUseRelease(database.beginNative(binding, { commandName: "write", ...coreNativeTestBudget() }),
+    Effect.acquireUseRelease(begin(),
       operation => Effect.gen(function* () {
         const value = yield* body(operation.operations);
         yield* database.commit(yield* operation.finalize());
@@ -90,11 +138,14 @@ const setup = Effect.fn("NativeNonNullIndexTest.setup")(function* (fixture: Core
         yield* operation.finishRead();
         return value;
       }), operation => operation.abort()));
-  return { definition, declaration, installed, table: declaration.name, read, write };
+  return { database, begin, definition, declaration, installed, table: declaration.name, read, write };
 });
 
 const ids = (rows: readonly DocumentObject[]) => rows.map(row => row.id).toSorted();
 const activeNonNull = { deleted_at: null, lookup: { gt: null } };
+const selectedReference = { reference: "source", reference_id: "selected" };
+const otherReference = { reference: "source", reference_id: "other" };
+const compoundHistory = { ...selectedReference, deleted_at: { gt: null } };
 
 export function registerNativeNonNullIndexScenarios(label: string, createFixture: () => Promise<CorePersistenceFixture>) {
   describe(label, () => {
@@ -108,7 +159,7 @@ export function registerNativeNonNullIndexScenarios(label: string, createFixture
     };
 
     it("uses the bounded ordinary interval through pending and committed lifecycle transitions", run(fixture => Effect.gen(function* () {
-      const graph = yield* setup(fixture), { table } = graph;
+      const graph = yield* setup(fixture.persistence), { table } = graph;
       yield* graph.write(operations => operations.writeRows(table, "insert", [
         { id: "live", lookup: "shared" }, { id: "empty", lookup: "" }, { id: "deleted", lookup: "shared" },
         ...Array.from({ length: 12 }, (_, position) => ({ id: "null-" + position, lookup: null })),
@@ -132,7 +183,7 @@ export function registerNativeNonNullIndexScenarios(label: string, createFixture
     })), 120_000);
 
     it("retains incumbent page authority and refuses a newly guarded named page", run(fixture => Effect.gen(function* () {
-      const graph = yield* setup(fixture), { table } = graph;
+      const graph = yield* setup(fixture.persistence), { table } = graph;
       const active = graph.declaration.indexes?.find(index => index.nativeId === "record.active");
       const deleted = graph.declaration.indexes?.find(index => index.nativeId === "record.deleted");
       const history = graph.declaration.indexes?.find(index => index.nativeId === "record.history");
@@ -163,6 +214,106 @@ export function registerNativeNonNullIndexScenarios(label: string, createFixture
       const generic = yield* Effect.result(graph.read(operations =>
         executeCoreNativeRelationalPage(operations, graph.installed, graph.declaration, policy, query)));
       expect(generic).toMatchObject({ _tag: "Failure", failure: { _tag: "CoreQueryInputError", reason: "invalidQuery" } });
+    })), 120_000);
+
+    it("reads the exact compound interval under the examined limit and keeps historical FK membership", run(fixture => Effect.gen(function* () {
+      const scans: Array<Readonly<{ request: CoreIndexScan; page: CoreIndexPage }>> = [];
+      const persistence: CorePersistence = { ...fixture.persistence, readSnapshot: (...args) =>
+        fixture.persistence.readSnapshot(...args).pipe(Effect.map(snapshot => ({ ...snapshot, scan: request =>
+          snapshot.scan(request).pipe(Effect.tap(page => Effect.sync(() => { scans.push({ request, page }); }))),
+        }))) };
+      const graph = yield* setup(persistence, compileNativeCompoundNonNullIndex()), { table } = graph;
+      const parent = graph.definition.tables.find(candidate => candidate.localName === "parent");
+      const guarded = graph.declaration.indexes?.find(index => index.nativeId === "record.compound-history");
+      const reverse = graph.declaration.indexes?.find(index => index.nativeId === "foreign-key/record.parent");
+      if (parent === undefined || guarded === undefined || reverse === undefined)
+        return yield* Effect.die(new Error("Missing compound history and independent reverse bindings"));
+      const fields = [...tuple, "deleted_at"];
+      expect(guarded).toMatchObject({ fields, requiredNonNull: "deleted_at" });
+      expect(reverse.fields).toEqual(tuple);
+      expect(reverse).not.toHaveProperty("requiredNonNull");
+      expect(reverse.indexName).not.toBe(guarded.indexName);
+      expect(graph.definition.foreignKeys).toMatchObject([{ descriptor: "record.parent", sourceIndexName: reverse.indexName }]);
+      expect(graph.declaration.uniqueConstraints.map(constraint => constraint.descriptor)).toEqual(["record.primary"]);
+
+      yield* graph.write(operations => Effect.gen(function* () {
+        yield* operations.writeRows(parent.name, "insert", [selectedReference, otherReference]);
+        yield* operations.writeRows(table, "insert", [
+          { id: "selected-history", ...selectedReference }, { id: "other-history", ...otherReference },
+          ...Array.from({ length: 12 }, (_, position) => ({ id: "active-" + position, ...selectedReference })),
+        ]);
+        yield* operations.lifecycle(table, "softDelete", [{ id: "selected-history" }, { id: "other-history" }]);
+      }));
+
+      const selected = yield* Effect.fromResult(planCoreNativeQuery(graph.installed, compoundHistory));
+      if (selected.kind !== "range") return yield* Effect.die(new Error("Expected compound ordinary range"));
+      const interval = yield* Effect.fromResult(compileIndexRange([
+        { op: "eq", field: "reference", value: selectedReference.reference },
+        { op: "eq", field: "reference_id", value: selectedReference.reference_id },
+        { op: "gt", field: "deleted_at", value: null },
+      ], fields));
+      expect(selected.index.name).toBe(guarded.indexName);
+      expect(selected.interval).toEqual(interval);
+      scans.length = 0;
+      expect(ids(yield* graph.read(operations => operations.find(table, compoundHistory)))).toEqual(["selected-history"]);
+      expect(scans.filter(({ request }) => Buffer.from(request.index.id).equals(selected.index.ref.id))
+        .map(({ request, page }) => ({ interval: request.interval, examined: page.entries.length, cursor: page.cursor })))
+        .toEqual([{ interval, examined: 1, cursor: { kind: "end" } }]);
+
+      const incomplete = yield* Effect.result(graph.read(operations =>
+        operations.find(table, { reference: selectedReference.reference, reference_id: { gt: null }, deleted_at: { gt: null } })));
+      expect(incomplete).toMatchObject({ _tag: "Failure", failure: { reason: "capacity", cause: "Native complete index capture limit" } });
+      const page = yield* Effect.result(graph.read(operations => operations.findPage(table, compoundHistory,
+        { indexName: guarded.indexName, offset: 0, limit: 1 })));
+      expect(page).toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput", cause: "Native non-null index does not admit named pages" } });
+
+      expect(ids(yield* graph.read(operations => operations.find(table, otherReference)))).toEqual(["other-history"]);
+      const restricted = yield* Effect.result(graph.write(operations => operations.deleteRows(parent.name, [otherReference])));
+      expect(restricted).toMatchObject({ _tag: "Failure", failure: { _tag: "CoreNativeForeignKeyError", reason: "deleteRestricted" } });
+
+      yield* graph.write(operations => Effect.gen(function* () {
+        expect(ids(yield* operations.find(table, compoundHistory))).toEqual(["selected-history"]);
+        yield* operations.lifecycle(table, "softDelete", [{ id: "active-0" }]);
+        yield* operations.lifecycle(table, "restore", [{ id: "selected-history" }]);
+        expect(ids(yield* operations.find(table, compoundHistory))).toEqual(["active-0"]);
+      }));
+      expect(ids(yield* graph.read(operations => operations.find(table, compoundHistory)))).toEqual(["active-0"]);
+    })), 120_000);
+
+    it("conflicts when a competitor enters a negative history interval and ignores active siblings", run(fixture => Effect.gen(function* () {
+      const graph = yield* setup(fixture.persistence, compileNativeCompoundNonNullIndex()), { table } = graph;
+      const parent = graph.definition.tables.find(candidate => candidate.localName === "parent");
+      if (parent === undefined) return yield* Effect.die(new Error("Missing compound parent binding"));
+      yield* graph.write(operations => operations.writeRows(parent.name, "insert", [selectedReference, otherReference]));
+      const holdEmptyHistory = Effect.fn("NativeNonNullIndexTest.holdEmptyHistory")(function* () {
+        const held = yield* Effect.acquireRelease(graph.begin(), operation => operation.abort());
+        expect(yield* held.operations.find(table, compoundHistory)).toEqual([]);
+        return yield* held.finalize();
+      });
+
+      const activeSibling = yield* holdEmptyHistory();
+      yield* graph.write(operations => operations.writeRows(table, "insert", [{ id: "active", ...selectedReference }]));
+      expect(Result.isSuccess(yield* Effect.result(graph.database.commit(activeSibling)))).toBe(true);
+      const otherTuple = yield* holdEmptyHistory();
+      yield* graph.write(operations => Effect.gen(function* () {
+        yield* operations.writeRows(table, "insert", [{ id: "other", ...otherReference }]);
+        yield* operations.lifecycle(table, "softDelete", [{ id: "other" }]);
+      }));
+      expect(Result.isSuccess(yield* Effect.result(graph.database.commit(otherTuple)))).toBe(true);
+
+      const crossing = yield* holdEmptyHistory();
+      yield* graph.write(operations => operations.lifecycle(table, "softDelete", [{ id: "active" }]));
+      expect(yield* Effect.result(graph.database.commit(crossing))).toMatchObject({ _tag: "Failure", failure: { reason: "conflict" } });
+      expect(ids(yield* graph.read(operations => operations.find(table, compoundHistory)))).toEqual(["active"]);
+      yield* graph.write(operations => operations.lifecycle(table, "restore", [{ id: "active" }]));
+
+      const insertion = yield* holdEmptyHistory();
+      yield* graph.write(operations => Effect.gen(function* () {
+        yield* operations.writeRows(table, "insert", [{ id: "new-history", ...selectedReference }]);
+        yield* operations.lifecycle(table, "softDelete", [{ id: "new-history" }]);
+      }));
+      expect(yield* Effect.result(graph.database.commit(insertion))).toMatchObject({ _tag: "Failure", failure: { reason: "conflict" } });
+      expect(ids(yield* graph.read(operations => operations.find(table, compoundHistory)))).toEqual(["new-history"]);
     })), 120_000);
   });
 }

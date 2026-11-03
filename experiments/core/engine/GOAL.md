@@ -499,3 +499,8 @@ The [checkout Order continuation](./slices/28-native-checkout-order.md) moves
 the existing Order workflow participant onto Core, including native graph
 accounting and the retained inverse. The paired Order cases passed. Full
 Cart checkout and Payment finance retain their connected gates.
+
+The [Cart completion and exact-price continuation](./slices/29-native-cart-completion-exact-price.md)
+moves both workflows onto Core through the complete nine-model Cart source
+and the existing Order participant. The Legacy PaymentCollection fixture
+retired both profile switches. Paired acceptance is complete.
