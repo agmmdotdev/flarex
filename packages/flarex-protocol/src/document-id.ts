@@ -5,16 +5,23 @@
  * The base32 alphabet/bit layout follows that file's MIT-licensed base32 fork;
  * this implementation uses a direct bit accumulator rather than its SIMD code.
  */
+import { isUint8ArrayWithByteLength } from "@flarex/utils/bytes";
 import { sha256 } from "@noble/hashes/sha2.js";
-import { Data, Encoding, Option, Result, Schema } from "effect";
+import { Brand, Data, Encoding, Option, Result, Schema } from "effect";
 
-import { decodeCanonicalDocumentIdParts, encodeCanonicalDocumentId } from "./document-id-core";
+import { decodeCanonicalDocumentIdParts, encodeCanonicalDocumentId, INTERNAL_DOCUMENT_ID_BYTES } from "./document-id-core";
 export const DocumentTableNumberSchema = Schema.Int.check(
   Schema.isBetween({ minimum: 1, maximum: 0xffff_ffff }),
 );
-export const InternalDocumentIdSchema = Schema.Uint8Array.check(Schema.isLengthBetween(16, 16));
+export const InternalDocumentIdSchema = Schema.Uint8Array.check(
+  Schema.isLengthBetween(INTERNAL_DOCUMENT_ID_BYTES, INTERNAL_DOCUMENT_ID_BYTES),
+);
 const decodeTableNumber = Schema.decodeUnknownResult(DocumentTableNumberSchema);
-const decodeInternalId = Schema.decodeUnknownResult(InternalDocumentIdSchema);
+// The fixed-width writer needs intrinsic byte slots. The public schema also
+// supplies the Uint8Array codec metadata used by its consumers.
+const decodeInternalId = Schema.decodeUnknownResult(Schema.declare((value): value is Uint8Array =>
+  isUint8ArrayWithByteLength(value, INTERNAL_DOCUMENT_ID_BYTES),
+));
 const EncodedIdSchema = Schema.String.check(Schema.isLengthBetween(31, 37));
 const decodeEncodedId = Schema.decodeUnknownResult(EncodedIdSchema);
 
@@ -28,10 +35,13 @@ interface DocumentIdParts {
 }
 
 export const DeveloperDocumentIdSchema = Schema.String.check(
-  Schema.makeFilter(value => Result.isSuccess(decodeCanonicalParts(value))
+  Schema.makeFilter(value => decodeCanonicalDocumentIdParts(value) !== undefined
     ? undefined : "Expected a canonical Convex v6 document ID"),
 ).pipe(Schema.brand("FlarexDB/DeveloperDocumentId"));
 export type DeveloperDocumentId = typeof DeveloperDocumentIdSchema.Type;
+
+// Issue only after canonical decoding or encoding with validated parts.
+const brandCanonicalId = Brand.nominal<DeveloperDocumentId>();
 
 /** Owns its result bytes; this proves encoding, never scope or table authority. */
 export function decodeDocumentId(value: unknown): Result.Result<
@@ -42,7 +52,7 @@ export function decodeDocumentId(value: unknown): Result.Result<
       Result.mapError(() => new DocumentIdError({ reason: "invalidId" })),
     );
     const parts = yield* decodeCanonicalParts(text);
-    return Object.freeze({ ...parts, id: DeveloperDocumentIdSchema.make(text) });
+    return Object.freeze({ ...parts, id: brandCanonicalId(text) });
   });
 }
 
@@ -57,7 +67,7 @@ export function encodeDocumentId(
     const id = yield* decodeInternalId(internalId).pipe(
       Result.mapError(() => new DocumentIdError({ reason: "invalidInternalId" })),
     );
-    return DeveloperDocumentIdSchema.make(encodeParts(table, id));
+    return encodeValidatedParts(table, id);
   });
 }
 
@@ -84,14 +94,14 @@ export function normalizeDocumentId(
 
 function normalizeOldId(tableNumber: number, value: string): Option.Option<DeveloperDocumentId> {
   const internal = value.length > 22 ? decodeOldBase62Id(value) : decodeOldBase64Id(value);
-  return Option.map(internal, id => DeveloperDocumentIdSchema.make(encodeParts(tableNumber, id)));
+  return Option.map(internal, id => encodeValidatedParts(tableNumber, id));
 }
 
 function decodeOldBase64Id(value: string): Option.Option<Uint8Array> {
   // URL_SAFE_NO_PAD decodes exactly sixteen bytes with canonical trailing bits.
   return Encoding.decodeBase64Url(value).pipe(Result.match({
     onFailure: () => Option.none(),
-    onSuccess: bytes => bytes.length === 16 && Encoding.encodeBase64Url(bytes) === value
+    onSuccess: bytes => bytes.length === INTERNAL_DOCUMENT_ID_BYTES && Encoding.encodeBase64Url(bytes) === value
       ? Option.some(bytes) : Option.none(),
   }));
 }
@@ -117,13 +127,15 @@ function decodeOldBase62Id(value: string): Option.Option<Uint8Array> {
   while (number > 0n) { encoded.push(Number(number & 255n)); number >>= 8n; }
   if (encoded.length !== 18) return Option.none();
   const bytes = Uint8Array.from(encoded.toReversed().slice(1));
-  const internal = new Uint8Array(16);
+  const internal = new Uint8Array(INTERNAL_DOCUMENT_ID_BYTES);
   internal.set(sha256(bytes.subarray(0, 15)).subarray(0, 14));
   internal.set(bytes.subarray(15, 17), 14);
   return Option.some(internal);
 }
 
-function encodeParts(tableNumber: number, internalId: Uint8Array): string { return encodeCanonicalDocumentId(tableNumber, internalId); }
+function encodeValidatedParts(tableNumber: number, internalId: Uint8Array): DeveloperDocumentId {
+  return brandCanonicalId(encodeCanonicalDocumentId(tableNumber, internalId));
+}
 function decodeCanonicalParts(text: string): Result.Result<DocumentIdParts, DocumentIdError> {
   const parts = decodeCanonicalDocumentIdParts(text);
   return parts === undefined ? invalidId() : Result.succeed(parts);

@@ -11,6 +11,7 @@ import { decodeDocumentId, normalizeDocumentId } from "flarex-protocol/document-
 import { captureDocumentObject, captureDocumentPatch, encodeDocumentValue, type DocumentObject, type DocumentValue } from "flarex-protocol/document-value";
 import { encodeIndexKey, encodeIndexValue } from "flarex-protocol/index-key";
 import { captureLogicalQuery, compileIndexRange, fingerprintQuery, incrementIndexKeyPrefix, splitIndexRangeAfter } from "flarex-protocol/index-range";
+import type { ValidatorIdPolicyV1 } from "flarex-protocol/validator-engine";
 import { CoreNativeQueryError, CoreNativeUniqueConflict, CoreNativeReferencePlanError, CoreNativeSetNullIntentSchema, CoreNativeReconstitutionPolicySchema, CoreQueryInputError, CoreTransactionError, issueFinalizedTransaction, issueCoreNativePendingDelete, type CoreNativePendingDelete, type CoreError, type CoreFinalizedTransaction,
   type CoreIndexDefinition, type CoreTableDefinition, type CoreTransaction, type CoreTransactionLimits, type CoreTransactionUsage,
   type CoreReadToken, type CoreProgramDefinition, type CoreNativeOperations, type CoreNativeLimits, type CoreDatabaseOptions } from "./api";
@@ -853,15 +854,23 @@ export function createCoreTransaction(input: Readonly<{
     }));
   });
 
-  const enforceUserSchema = Effect.fn("CoreTransaction.enforceSchema")((table: CoreTableDefinition, body: DocumentObject) =>
-    new CoreSchemaModel(internals).enforceDocument(table.name, body, {
-      mode: "tableAware", check: (name, id) => {
-        const expected = registry.table(name, namespace);
-        if (expected === undefined) return "unavailable";
-        return Result.match(decodeDocumentId(id), { onFailure: () => "invalid" as const,
-          onSuccess: decoded => decoded.tableNumber === expected.definition.number ? "valid" as const : "invalid" as const });
+  // The model borrows the transaction and both accessors read its live registry.
+  let schemaEnforcement: Readonly<{ model: CoreSchemaModel; idPolicy: ValidatorIdPolicyV1 }> | undefined;
+  const enforceUserSchema = Effect.fn("CoreTransaction.enforceSchema")((table: CoreTableDefinition, body: DocumentObject) => {
+    const { model, idPolicy } = schemaEnforcement ??= {
+      model: new CoreSchemaModel(internals),
+      idPolicy: {
+        mode: "tableAware",
+        check: (name, id) => {
+          const expected = registry.table(name, namespace);
+          if (expected === undefined) return "unavailable";
+          return Result.match(decodeDocumentId(id), { onFailure: () => "invalid" as const,
+            onSuccess: decoded => decoded.tableNumber === expected.definition.number ? "valid" as const : "invalid" as const });
+        },
       },
-    }));
+    };
+    return model.enforceDocument(table.name, body, idPolicy);
+  });
 
   const validateUserBody = Effect.fn("CoreTransaction.validateDocument")(function* (
     table: CoreTableDefinition, value: unknown, previous: DocumentObject | null = null, access: CoreTransactionNativeAccess | undefined = defaultAccess,

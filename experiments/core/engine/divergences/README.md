@@ -130,9 +130,11 @@ maintaining a competing completion log here.
 - [Local model migration lineage](./model-migration-lineage.md).
 
 - [Effect stack tracing in the hardened Worker](./worker-effect-stack-trace.md).
+- [Transaction-owned schema model reuse](./transaction-schema-model-reuse.md).
 
 ## Source wire and retained identities
 
+- [Typed buffers for canonical document IDs](./document-id-typed-buffers.md).
 - [Registered Application deployment attempts](./registered-application-source-upgrades.md): independent code attempts share schema proposals; PostgreSQL retains public status and idempotent finish outcomes through source upgrades.
 - [Public Application source and activation](./public-application-activation.md): genuine framed source, Core-owned public candidates and profile-aware SDK generation; bounded fresh local path, wider activation gates remain.
 - [Validator identity generations for retained Cloudflare artifacts](./validator-authenticated-identities.md): narrow stored CoreProgram byte projection and authenticated fresh encoding 2 implemented; external/native retained-store cutover gates remain.

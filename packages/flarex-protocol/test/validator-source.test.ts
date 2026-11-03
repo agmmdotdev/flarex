@@ -144,6 +144,33 @@ describe("Function and CommitTs value semantics", () => {
     }
     for (const handle of [id, `Function://${id}`, `function://${id}x`, "function://", `function://#${id}`]) expect(isFunctionHandleString(handle)).toBe(false);
   });
+  it("matches canonical handles with poisoned inherited byte operations", () => {
+    const typedArrayPrototype: object = Object.getPrototypeOf(Uint8Array.prototype);
+    const targets = [
+      { target: globalThis, key: "Uint8Array", descriptor: { value: poisoned } },
+      { target: typedArrayPrototype, key: "length", descriptor: { get: poisoned } },
+      { target: Array.prototype, key: "0", descriptor: { set: poisoned } },
+    ].map(item => ({ ...item, original: Object.getOwnPropertyDescriptor(item.target, item.key) }));
+    function poisoned(): never { throw new Error("Mutable byte operation used"); }
+    let canonical: boolean;
+    let alias: boolean;
+    try {
+      for (let index = 0; index < targets.length; index += 1) {
+        const item = targets[index]!;
+        Object.defineProperty(item.target, item.key, { configurable: true, ...item.descriptor });
+      }
+      canonical = isFunctionHandleString(`function://${id}#advisory`);
+      alias = isFunctionHandleString("function://040020g30g2gc1r81450p30d1r7qke9");
+    } finally {
+      for (let index = targets.length - 1; index >= 0; index -= 1) {
+        const item = targets[index]!;
+        if (item.original === undefined) Reflect.deleteProperty(item.target, item.key);
+        else Object.defineProperty(item.target, item.key, item.original);
+      }
+    }
+    expect(canonical).toBe(true);
+    expect(alias).toBe(false);
+  });
   it("treats CommitTs as ordinary signed Int64 at runtime", () => {
     for (const value of [-(1n << 63n), -1n, 0n, (1n << 63n) - 1n]) expect(validateValidatorValueIssueV1({ type: "commitTs" }, value, { idPolicy: { mode: "shapeOnly" } })).toBeUndefined();
     expect(validateValidatorValueIssueV1({ type: "commitTs" }, 0, { idPolicy: { mode: "shapeOnly" } })).toMatchObject({ reason: "typeMismatch", expected: "commitTs" });

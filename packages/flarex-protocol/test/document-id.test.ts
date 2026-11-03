@@ -1,6 +1,7 @@
+import { Buffer } from "node:buffer";
 import { Option, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { decodeDocumentId, DeveloperDocumentIdSchema, encodeDocumentId, normalizeDocumentId } from "../src/document-id";
+import { decodeDocumentId, DeveloperDocumentIdSchema, encodeDocumentId, InternalDocumentIdSchema, normalizeDocumentId } from "../src/document-id";
 
 // Source-derived vectors: pinned id_v6.rs VInt, [0..15] internal ID, footer
 // (sum(bytes), sum(reverse-position*byte)) modulo256, Crockford base32.
@@ -13,6 +14,14 @@ const vectors = [
 ] as const;
 
 describe("Convex v6 document identities", () => {
+  it("retains the public internal ID JSON codec", () => {
+    const bytes = Uint8Array.from({ length: 16 }, (_, index) => index);
+    const codec = Schema.toCodecJson(InternalDocumentIdSchema);
+    const encoded = Schema.encodeSync(codec)(bytes);
+    expect(encoded).toBe("AAECAwQFBgcICQoLDA0ODw==");
+    expect(Schema.decodeUnknownSync(codec)(encoded)).toEqual(bytes);
+  });
+
   it("preserves VInt boundaries, unsigned table numbers and exact source-derived bytes", () => {
     const internal = Uint8Array.from({ length: 16 }, (_, i) => i);
     for (const [tableNumber, text] of vectors) {
@@ -39,6 +48,20 @@ describe("Convex v6 document identities", () => {
       expect(encodeDocumentId(table, new Uint8Array(16))).toMatchObject({ _tag: "Failure", failure: { reason: "invalidTableNumber" } });
     for (const size of [0, 15, 17])
       expect(encodeDocumentId(1, new Uint8Array(size))).toMatchObject({ _tag: "Failure", failure: { reason: "invalidInternalId" } });
+  });
+
+  it("uses the visible byte range of genuine offset views and rejects spoofed lengths", () => {
+    const backing = Uint8Array.from({ length: 18 }, (_, index) => index - 1);
+    const offset = backing.subarray(1, 17);
+    Object.defineProperty(offset, "length", { get() { throw new Error("Caller length was read"); } });
+    expect(Result.getOrThrow(encodeDocumentId(1, offset))).toBe(vectors[0][1]);
+    expect(Result.getOrThrow(encodeDocumentId(1, Buffer.from(backing.buffer, 1, 16)))).toBe(vectors[0][1]);
+
+    const shortView = Object.defineProperty(new Uint8Array(15), "length", { value: 16 });
+    const proxy = new Proxy(new Uint8Array(16), { get: (target, key) => Reflect.get(target, key) });
+    for (const invalid of [shortView, proxy]) {
+      expect(encodeDocumentId(1, invalid)).toMatchObject({ _tag: "Failure", failure: { reason: "invalidInternalId" } });
+    }
   });
 });
 
