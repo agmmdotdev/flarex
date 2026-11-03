@@ -517,3 +517,7 @@ cohorts required by automatic Promotion. Paired acceptance is complete.
 The [Customer selection and Cart group read continuation](./slices/32-native-customer-selection.md)
 moves both selected Customer consumers onto the complete four-model Core
 source. Paired acceptance is complete.
+
+The [native Cart context read continuation](./slices/33-native-cart-context.md)
+uses the complete Region source with the existing Store and Sales Channel
+sources under one Core root. Paired acceptance is complete.

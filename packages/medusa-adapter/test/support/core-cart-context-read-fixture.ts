@@ -1,16 +1,15 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { makeCommerceHost, type LogicalCommerceHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
-import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
+import type { CorePersistenceFixture } from "../../../persistence-postgres/test/core/fixture";
 import { makeStoreCartReadCommands } from "../../src/modules/store/cart-read-service";
+import { compileStoreCoreDefinition } from "../../src/modules/store/schema";
 import { makeLocalRegionCartReadCommands } from "../../src/modules/region/cart-read-service";
+import { compileRegionCoreDefinition } from "../../src/modules/region/schema";
 import { makeLocalSalesChannelCommands } from "../../src/modules/sales-channel/service";
+import { compileSalesChannelCoreDefinition } from "../../src/modules/sales-channel/schema";
 import { prepareCartContextReadWorkflow } from "../../src/workflows/cart/context-read";
-import type { AtomicWorkflowExecution } from "../../src/workflow/host";
-import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./logical-currency-fixture";
-import { logicalCurrencyInventory } from "./logical-currency-inventory";
+import { createCoreNativeWorkflowFixture, shareCoreNativeWorkflowPhysical } from "./core-native-workflow-fixture";
 
 const stamp = "2026-10-22T00:00:00.000Z";
 const managed = { created_at: stamp, updated_at: stamp, deleted_at: null };
@@ -49,38 +48,24 @@ type StoreMode = "defaults" | "none" | "null-region" | "empty-region" | "null-ch
 
 /** Ordinary initialization provides existing endpoints. The actual selections
  * execute native steps, native services and stored Query under one host. */
-export async function prepareLogicalCartContextReads(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  storeMode: StoreMode = "defaults", shared?: Readonly<{ resource: LogicalCurrencyFixture["resource"];
-    fixtureIdentity: Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }> }>, label?: string) {
-  const sources = { includeStore: true, includeRegion: true, includeSalesChannel: true };
-  const fixture = await logicalCurrencyFixture(driver, close, shared === undefined ? sources : { ...sources, ...shared });
-  const store = await Effect.runPromise(makeStoreCartReadCommands());
-  const region = await Effect.runPromise(makeLocalRegionCartReadCommands());
-  const sales = await Effect.runPromise(makeLocalSalesChannelCommands());
-  type Definition = Pick<NonNullable<LogicalCurrencyFixture["storeDefinition"]>, "schema" | "provenance">;
-  const initialize = async (key: string, definition: Definition | undefined,
-    commands: LogicalCommerceHostInput<unknown>["commands"], rows: readonly Seed[]) => {
-    if (definition === undefined) throw new Error("Missing Cart context source " + key);
-    const seeded = label === undefined ? rows : rows.map(entry => ({ ...entry, row: { ...entry.row,
+export async function prepareCoreCartContextReads(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
+  storeMode: StoreMode = "defaults", physical?: CorePersistenceFixture, label?: string) {
+  const target = { scopeUuid: randomUUID(), epochUuid: randomUUID() };
+  const { store, region, sales, storeDefinition, regionDefinition, salesDefinition } = await Effect.runPromise(Effect.all({
+    store: makeStoreCartReadCommands(),
+    region: makeLocalRegionCartReadCommands(),
+    sales: makeLocalSalesChannelCommands(),
+    storeDefinition: compileStoreCoreDefinition(target),
+    regionDefinition: compileRegionCoreDefinition(target),
+    salesDefinition: compileSalesChannelCoreDefinition(target),
+  }));
+  const seed = (rows: readonly Seed[]) => label === undefined ? rows : rows.map(entry => ({ ...entry, row: { ...entry.row,
       ...(typeof entry.row.name === "string" ? { name: label + entry.row.name } : {}),
       ...(typeof entry.row.display_name === "string" ? { display_name: label + entry.row.display_name } : {}),
     } }));
-    const values = definition.schema.tables.length === 1 ? seeded.map(entry => entry.row) : seeded;
-    const dataset = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows: values }, 1_048_576,
-      { invalidInput: () => new Error("Invalid Cart context seed"), hashFailure: cause => new Error("Cart seed hash", { cause }) }));
-    const input = { ...fixture.hostInput, commands, identityAndAccessPolicy: { profile: key + ".cart-context-test" },
-      logicalStorage: { ...fixture.hostInput.logicalStorage,
-        source: { sourceKey: key, writeProfile: key, schema: definition.schema, evidence: definition.provenance },
-        initialization: { stepId: key.toLowerCase() + ".cart-context-initial", datasetSha256: dataset.sha256Hex, expectedRowCount: rows.length } },
-    } satisfies LogicalCommerceHostInput<unknown>;
-    const host = await Effect.runPromise(makeCommerceHost(input));
-    try { await Effect.runPromise(host.initialize(values)); }
-    finally { await Effect.runPromise(host.close); }
-    return input.logicalStorage;
-  };
-  const salesStorage = await initialize("medusa.salesChannel", fixture.salesChannelDefinition, sales.commands,
+  const salesRows = seed(
     [cartContextRows.channel, cartContextRows.disabledChannel, cartContextRows.deletedChannel].map(row => ({ table: "sales_channel", row })));
-  const regionStorage = await initialize("medusa.region", fixture.regionDefinition, region.commands, [
+  const regionRows = seed([
     ...[cartContextRows.region, cartContextRows.emptyRegion, cartContextRows.singleRegion, cartContextRows.deletedRegion]
       .map(row => ({ table: "region", row })),
     ...Object.values(cartContextCountries).map(row => ({ table: "region_country", row })),
@@ -91,24 +76,23 @@ export async function prepareLogicalCartContextReads(driver: "pglite" | "postgre
   const storeZ = { ...storeA, id: "store-cart-context-z", name: "Later Store", default_region_id: cartContextRows.emptyRegion.id,
     default_sales_channel_id: cartContextRows.disabledChannel.id, metadata: null };
   const storeDeleted = { ...storeA, id: "store-cart-context-0", name: "Deleted First Store", deleted_at: stamp };
-  const storeStorage = await initialize("medusa.store", fixture.storeDefinition, store.commands,
+  const storeRows = seed(
     storeMode === "none" ? [] : [storeZ, storeA, storeDeleted].map(row => ({ table: "store", row })));
-  const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-    prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, ...composition }) };
-  const modules = { store: { module: store.workflow, logicalStorage: storeStorage },
-    region: { module: region.workflow, logicalStorage: regionStorage },
-    sales_channel: { module: sales.cartReadWorkflow, logicalStorage: salesStorage } };
-  const options: Parameters<typeof prepareCartContextReadWorkflow>[0] = { execution, modules,
+  const fixture = await createCoreNativeWorkflowFixture(driver, { sources: [
+    { name: "store", definition: storeDefinition, initialCommands: store.commands, rows: storeRows },
+    { name: "region", definition: regionDefinition, initialCommands: region.commands, rows: regionRows },
+    { name: "sales_channel", definition: salesDefinition, initialCommands: sales.commands, rows: salesRows },
+  ], ...(physical === undefined ? {} : { physical: await shareCoreNativeWorkflowPhysical(physical) }) });
+  close(fixture.close);
+  const modules = { store: { module: store.workflow, nativeStorage: fixture.source("store") },
+    region: { module: region.workflow, nativeStorage: fixture.source("region") },
+    sales_channel: { module: sales.cartReadWorkflow, nativeStorage: fixture.source("sales_channel") } };
+  const options: Parameters<typeof prepareCartContextReadWorkflow>[0] = { execution: fixture.execution, modules,
     revision: createHash("sha256").update("native-cart-context-reads").digest("hex") };
-  const prepare = async (selectedExecution = execution) => {
-    const host = await Effect.runPromise(prepareCartContextReadWorkflow({ ...options, execution: selectedExecution }));
+  const prepare = async () => {
+    const host = await Effect.runPromise(prepareCartContextReadWorkflow(options));
     close(() => Effect.runPromise(host.close));
     return host;
   };
-  const snapshot = async () => {
-    const value = await logicalCurrencyInventory(fixture);
-    return { rows: value.rows, revisions: value.revisions, indexEntries: value.indexEntries, indexRevisions: value.indexRevisions,
-      uniqueKeys: value.uniqueKeys, rowChanges: value.rowChanges, physicalFacts: value.physicalFacts, events: value.events };
-  };
-  return { fixture, store, region, sales, storeA, storeZ, options, prepare, snapshot };
+  return { fixture, region, sales, options, prepare, snapshot: fixture.snapshot };
 }

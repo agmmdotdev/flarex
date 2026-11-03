@@ -775,3 +775,7 @@ for the selected native Rule and Value operation. Paired acceptance is complete.
 The [Customer selection and Cart group read continuation](./slices/32-native-customer-selection.md)
 uses existing Core source, index and settlement owners for the two native
 Customer consumers. Paired acceptance is complete.
+
+The [native Cart context read continuation](./slices/33-native-cart-context.md)
+uses complete indexed Region counts and existing relation receipts under
+the same Core root as Store defaults and Sales Channel retrieval. Paired acceptance is complete.
