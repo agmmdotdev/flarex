@@ -4,7 +4,7 @@ import { relationalReverseIndexes, type RelationalSchema, type RelationalTableDe
 import { type ValidatorJsonV1 } from "flarex-protocol/validator-json";
 import { relationalTextIdentity } from "../values/relationalRows";
 import { CoreSchemaError, type CoreSchemaInputSchema } from "./schemaTypes";
-import { coreNativeIndexName, coreNativeTableName } from "./schemaTableName";
+import { coreNativeIndexName, coreNativeSerialIndexName, coreNativeTableName } from "./schemaTableName";
 import type { CoreNativeRelationalIndex, CoreNativeTableDeclaration } from "./nativePolicy";
 import { coreNativeEligibilityTerms, type CoreNativeEligibility, type CoreNativeForeignKey,
   type CoreNativeUniqueConstraintSchema } from "./nativePolicyTypes";
@@ -44,8 +44,6 @@ export const lowerCoreNativeRelationalSchema = Effect.fn("CoreNativeDefinition.l
   for (const table of relational.tables) {
     const binding = bindings.find(candidate => candidate.localName === table.identity.tableId);
     if (binding === undefined) return yield* unsupported("Relational table has no authenticated binding");
-    if (table.columns.some(column => column.default.kind === "serialNext"))
-      return yield* unsupported("Relational serial allocation is not admitted");
     const name = yield* coreNativeTableName(binding.table);
     const indexes: CoreNativeRelationalIndex[] = [];
     const uniqueConstraints: (typeof CoreNativeUniqueConstraintSchema.Type)[] = [];
@@ -178,8 +176,11 @@ export const lowerCoreNativeRelationalSchema = Effect.fn("CoreNativeDefinition.l
     return Object.freeze({ ...declaration, indexes: Object.freeze(indexes),
       ...(incident.length === 0 ? {} : { foreignKeys: Object.freeze(incident) }) });
   });
-  const schemaTables: (typeof CoreSchemaInputSchema.Type)["tables"][number][] = records.map(({ table, declaration, indexes }) => {
+  const schemaTables: (typeof CoreSchemaInputSchema.Type)["tables"][number][] = [];
+  for (const { table, declaration, indexes } of records) {
     const value: Record<string, { fieldType: ValidatorJsonV1; optional: false }> = {};
+    const schemaIndexes = indexes.filter((index, position) => indexes.findIndex(candidate => candidate.indexName === index.indexName) === position)
+      .map(index => ({ indexDescriptor: index.indexName, fields: index.fields }));
     for (const column of table.columns) {
       const fieldType: ValidatorJsonV1 = column.type === "text" || column.type === "timestamptz" ? { type: "string" }
         : column.type === "boolean" ? { type: "boolean" }
@@ -187,10 +188,17 @@ export const lowerCoreNativeRelationalSchema = Effect.fn("CoreNativeDefinition.l
         : column.type === "numeric" ? { type: "union", value: [{ type: "number" }, { type: "string" }] } : { type: "any" };
       value[column.identity.columnId] = { fieldType: column.nullable ? { type: "union", value: [fieldType, { type: "null" }] } : fieldType,
         optional: false };
+      if (column.default.kind !== "serialNext") continue;
+      const field = column.identity.columnId;
+      // Authenticated serials are required integers. An exact ordinary index
+      // already contains every row; other indexes may order by a predicate
+      // field first. A derived backing has no native query alias.
+      if (schemaIndexes.some(index => index.fields.length === 1 && index.fields[0] === field)) continue;
+      if (declaration.table === undefined) return yield* unsupported("Relational table has no authenticated binding");
+      schemaIndexes.push({ indexDescriptor: yield* coreNativeSerialIndexName(declaration.table, field), fields: [field] });
     }
-    return { tableName: declaration.name, documentType: { type: "object", value },
-      indexes: indexes.filter((index, position) => indexes.findIndex(candidate => candidate.indexName === index.indexName) === position)
-        .map(index => ({ indexDescriptor: index.indexName, fields: index.fields })), stagedDbIndexes: [] };
-  });
+    schemaTables.push({ tableName: declaration.name, documentType: { type: "object", value }, indexes: schemaIndexes,
+      stagedDbIndexes: [] });
+  }
   return { declarations: Object.freeze(declarations), schemaTables, foreignKeys: Object.freeze(foreignKeys) };
 });

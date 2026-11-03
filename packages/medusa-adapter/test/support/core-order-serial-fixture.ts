@@ -1,6 +1,5 @@
 import { Effect, Result, Schema } from "effect";
 import { OrderChange, OrderChangeAction } from "@medusajs/order/models";
-import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { defineOrderPersistenceModule } from "../../src/modules/order/module";
 import { captureOrderMetadata } from "../../src/modules/order/schema";
 import { prepareScalarRepository } from "../../src/repository/scalar";
@@ -12,7 +11,7 @@ import { commerceDecoder } from "../../src/value/decoder";
 import { captureExactNumericRow } from "../../src/value/exact-numeric";
 import { captureCommerceInput } from "../../src/value/input";
 import { compileCompleteRow } from "../../src/value/complete-row";
-import { prepareLogicalOrderFixture } from "./logical-order-fixture";
+import { orderFixtureHosts, prepareCoreOrderFixture } from "./core-order-fixture";
 import { orderCompletionRows } from "./order-completion-rows";
 
 const Input = Schema.Struct({ order_change_id: Schema.String, action: Schema.Literal("CREDIT_LINE_ADD"),
@@ -22,7 +21,7 @@ const decodeCreates = commerceDecoder(Schema.Array(Schema.Unknown).check(Schema.
 /** A serial consumer witness, not a financial API or a replacement native DAL.
  * All Order business code and storage allocation execute their real owners.
  * The event bus records native emissions for assertions at this test boundary. */
-export async function prepareLogicalOrderSerial(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void) {
+export async function prepareCoreOrderSerial(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void) {
   const metadata = await Effect.runPromise(captureOrderMetadata());
   const action = metadata.frame.tables.find(table => table.name === "order_change_action"),
     change = metadata.frame.tables.find(table => table.name === "order_change");
@@ -57,14 +56,13 @@ export async function prepareLogicalOrderSerial(driver: "pglite" | "postgres", c
   // genuine native method supplies order/version after validating the Change.
   const parent = orderCompletionRows()[0];
   if (parent === undefined) throw new Error("Missing existing Order seed");
-  const base = await prepareLogicalOrderFixture(driver, close, [create], "order-serial", [parent,
+  const base = await prepareCoreOrderFixture(driver, close, [create], [parent,
     { table: "order_change", row: { id: "ordch-serial", order_id: "order173-d", version: 1, status: "pending" } },
     { table: "order_change_action", row: { id: "ordchact-existing", order_id: "order173-d", order_change_id: "ordch-serial",
       ordering: 203, action: "CREDIT_LINE_ADD", details: {} } },
   ], undefined, "generate");
-  const host = await Effect.runPromise(makeCommerceHost({ ...base.fixture.hostInput, commands: [create],
-    logicalStorage: base.logicalStorage, identityAndAccessPolicy: { profile: "native-order-serial-consumer" } }));
-  close(() => Effect.runPromise(host.close));
+  const hosts = orderFixtureHosts(close);
+  const host = hosts.own(await base.fixture.run(base.fixture.openWriteHost("order", [create])));
   const run = (key: string, refundId: string) => host.run(key, create, Result.getOrThrow(captureCommerceInput({
     order_change_id: "ordch-serial", action: "CREDIT_LINE_ADD", amount: "3.125",
     details: { reference: "refund", reference_id: refundId },

@@ -13,6 +13,7 @@ import type { CoreInterval } from "./contracts";
 import { CORE_TRANSACTION_REFERENCE_LIMITS } from "./accounting";
 import { coreNativeConstraintEligibility, coreNativeConstraintFields, coreNativeConstraintNullsDistinct,
   coreNativeEligibilityTerms, coreNativeEligibilityMatches } from "./nativePolicy";
+import { isCoreNativeSerialIndexName } from "./schemaTableName";
 
 const Scalar = Schema.Union([Schema.String, Schema.Finite, Schema.Boolean, Schema.Null]);
 export type CoreNativeScalar = typeof Scalar.Type;
@@ -135,7 +136,8 @@ export function planCoreNativeQuery(table: CoreTableDefinition, where: CoreNativ
     }
     let selected: Readonly<{ index: CoreIndexDefinition; expressions: readonly CapturedIndexRangeExpression[]; count: number }> | undefined;
     for (const index of table.indexes) {
-      if (index.name === "by_id" || index.name === "by_creation_time") continue;
+      if (index.name === "by_id" || index.name === "by_creation_time"
+        || (table.nativePolicy !== undefined && isCoreNativeSerialIndexName(index.name))) continue;
       const expressions: CapturedIndexRangeExpression[] = [];
       let count = 0;
       for (const field of index.fields) {

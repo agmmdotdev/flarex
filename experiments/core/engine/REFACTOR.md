@@ -746,3 +746,9 @@ has moved both admitted status roots to the shared Core Order fixture and
 retired their dedicated Legacy fixtures. Both preserve the full Order source,
 retained status inverses, ordered events and callback-free recovery.
 Completion retains its confined finite hook. Bounded paired acceptance is complete.
+
+The [generated serial and Order creation continuation](./slices/27-native-order-generated-serials.md)
+moves standalone Order creation and deletion and Order Change Action ordering
+to Core. The ordinary descending query and existing commit validation preserve
+native max-plus-one values. The neutral owner and both direct consumers passed
+paired acceptance. The checkout participant remains a separate cutover.

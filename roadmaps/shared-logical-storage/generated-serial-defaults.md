@@ -2,18 +2,19 @@
 
 ## Status And Scope
 
-Implemented as a bounded private prerequisite. The shared relational schema and logical
-working set own generated signed int32 serial defaults for fresh definitions.
-Native Order Change Action creation is the selected framework consumer; existing
-Order definitions retain their preservation-only default.
+The relational schema declares generated signed int32 defaults for fresh definitions.
+The [Core continuation](../../experiments/core/engine/slices/27-native-order-generated-serials.md)
+moves standalone Order creation and deletion and Order Change Action creation
+to Core. The checkout fixture still uses the Legacy working set. Existing
+preserve-mode Order definitions retain their identities.
 
 ## Current Sources Of Truth
 
 The [accepted shared storage design](../../design-notes/flarexdb-shared-logical-storage.md)
-owns settlement and logical storage. The relational schema protocol, logical
-working set, neutral serial scenarios and native Order serial consumer test own
-the executable contract. The pinned Medusa Drizzle `applyGeneratedSerialValues`
-defines the selected non-primary serial behavior. The
+owns settlement and logical storage. The relational schema protocol, Core transaction
+and neutral and native consumer scenarios own the translated contract. The pinned
+Medusa Drizzle `applyGeneratedSerialValues` defines the selected non-primary
+serial behavior. The
 [Medusa adoption roadmap](../flarexdb-framework-integration/06-medusa-adoption.md)
 owns connected workflow admission.
 
@@ -24,18 +25,23 @@ or null input uses `coalesce(max(column), 0) + 1`. An empty table starts at one;
 a nonempty negative-only table increments its actual negative maximum. Explicit
 values remain unchanged and participate in subsequent allocation.
 
-The existing working-set owner reads the complete bounded identity-index range
-on the same borrowed manager. Its current overlay includes pending inserts,
-updates and soft-deleted rows. Physically deleted rows have no current value,
-so deleting the maximum permits reuse. Independent columns allocate separately.
+Core finds the maximum with an authenticated descending ordinary index query and
+the current transaction overlay. It records the consumed upper interval or
+exhaustion. If the root already observed the complete table, Core uses that
+membership with pending writes. Pending inserts, updates and soft-deleted rows
+count. Physically deleted rows have no current value, so deleting the maximum
+permits reuse. Independent columns allocate separately.
+
+The Legacy working set reads the complete bounded identity range on the same
+borrowed manager. That path remains for the existing checkout fixture.
 
 ## Invariants And Trust Boundaries
 
 The existing scope, schema, index-membership, negative-interval and row
 dependencies remain settlement authority. Allocation adds no durable counter,
 database sequence, extra transaction or adapter SQL. Rollback consumes no value;
-durable request replay returns the committed result. Exhaustion and an incomplete
-or oversized cohort refuse before settlement.
+durable request replay returns the committed result. Int32 overflow, stale
+observations and oversized examined prefixes refuse before settlement.
 
 Complete row validation still requires an int32 value. Pure row-local
 normalization cannot allocate from database membership. Medusa lowering selects
@@ -49,14 +55,13 @@ or application OCC.
 
 ## Known Gaps And Limitations
 
-The complete identity cohort must fit the existing resource bounds. This is no
-unbounded or production-scale allocation claim. Physical-table lowering refuses
+The examined prefix must fit the existing Core resource bounds. Legacy checkout
+still requires the complete cohort to fit. Physical-table lowering refuses
 `serialNext`: PostgreSQL sequence behavior differs in explicit-value handling,
 rollback and maximum reuse. Populated-schema evolution remains gated.
 
 ## Next Correctness Gates
 
-Native Order Action creation, preserved ordinals, replay and subsequent
-allocation are supported on both PGlite and ordinary-role PostgreSQL. Payment
-financial workflow admission remains a separate connected gate. Populated-schema
-upgrades and allocation beyond the existing complete-cohort limits remain gated.
+The neutral allocation scenarios and both direct Order consumers passed on
+PGlite and ordinary-role PostgreSQL. Connected checkout, payment financial
+workflow admission, and populated-schema upgrades have separate gates.

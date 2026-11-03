@@ -35,5 +35,15 @@ export const coreNativeIndexName = Effect.fn("CoreSchema.nativeIndexName")((tabl
   kind: "key" | "index", identity: string) => encodedName(kind === "key" ? "k_" : "i_",
     ["flarex.core.native-index", 1, table.namespace, table.logicalName, kind, identity]));
 
+const serialIndexPrefix = "s_";
+const serialIndexName = new RegExp(`^${serialIndexPrefix}[${alphabet}]{52}$`);
+
+export function isCoreNativeSerialIndexName(name: string): boolean {
+  return serialIndexName.test(name);
+}
+
+export const coreNativeSerialIndexName = Effect.fn("CoreSchema.nativeSerialIndexName")((table: QualifiedLogicalTable,
+  field: string) => encodedName(serialIndexPrefix, ["flarex.core.native-serial-index", 1, table.namespace, table.logicalName, field]));
+
 export const coreNativeReferenceTableName = Effect.fn("CoreSchema.nativeReferenceTableName")((sourceKey: string,
   referenceName: string) => encodedName("r_", ["flarex.core.native-reference-membership", 1, sourceKey, referenceName]));

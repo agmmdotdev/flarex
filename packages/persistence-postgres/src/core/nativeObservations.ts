@@ -64,6 +64,7 @@ export class CoreNativeObservationState {
   private readonly dependencies = new Map<bigint, CoreReadSetBuilder>();
   private readonly ranges = new Map<string, CoreNativeRangeSlot>();
   private readonly pages: CoreNativeRangeSlot[] = [];
+  private readonly serialPagesByTablet = new Map<string, Array<Readonly<{ timestamp: bigint; page: CoreNativeRangeSlot }>>>();
   private readonly identities = new Set<string>();
   private readonly sourceIdentities = new Map<string, Set<string>>();
   private readonly sourcesByTablet = new Map<string, Readonly<{ sourceKey: string; limits: CoreNativeLimits }>>();
@@ -157,9 +158,24 @@ export class CoreNativeObservationState {
   }
 
   /** Fresh native windows are independently observed, rather than memoized ranges. */
-  rememberPage(slot: CoreNativeRangeSlot): void {
-    this.pages.push(Object.freeze({ ...slot, interval: copyInterval(slot.interval),
-      members: Object.freeze(slot.members.map(member => Object.freeze({ id: member.id, key: member.key.slice() }))) }));
+  rememberPage(slot: CoreNativeRangeSlot, serialTimestamp?: bigint): void {
+    const page = Object.freeze({ ...slot, interval: copyInterval(slot.interval),
+      members: Object.freeze(slot.members.map(member => Object.freeze({ id: member.id, key: member.key.slice() }))) });
+    this.pages.push(page);
+    if (serialTimestamp !== undefined) {
+      const tablet = encodeBytesToLowercaseHex(slot.table.tabletId);
+      let serialPages = this.serialPagesByTablet.get(tablet);
+      if (serialPages === undefined) {
+        serialPages = [];
+        this.serialPagesByTablet.set(tablet, serialPages);
+      }
+      serialPages.push({ timestamp: serialTimestamp, page });
+    }
+  }
+
+  /** Only allocator ranges are revalidated before the next allocation. */
+  serialPages(table: CoreTableDefinition): readonly Readonly<{ timestamp: bigint; page: CoreNativeRangeSlot }>[] {
+    return this.serialPagesByTablet.get(encodeBytesToLowercaseHex(table.tabletId)) ?? [];
   }
 
   addReads(timestamp: bigint, reads: CoreReadSet): void {

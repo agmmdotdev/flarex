@@ -1,6 +1,8 @@
 import { describe, expect, inject, it } from "vitest";
 import { Effect, Result, Schema } from "effect";
-import { Order, OrderAddress, OrderChange, OrderChangeAction } from "@medusajs/order/models";
+import { compileDmlSchema } from "@medusajs/drizzle/schema";
+import { Order, OrderAddress, OrderChange, OrderChangeAction, OrderClaim, OrderExchange, OrderItem,
+  OrderLineItem, OrderSummary, Return } from "@medusajs/order/models";
 import { OrderModuleService, OrderService } from "@medusajs/order/services";
 import { orderModuleExports, orderModuleModels, orderStaticResources } from "@medusajs/order/static-manifest";
 import { updateOrderChangesWorkflow } from "@medusajs/core-flows/order/update-order-changes";
@@ -32,6 +34,13 @@ const loaded: Record<typeof nativeOrderSourceTargets[number]["name"], unknown> =
   "Order Address model": OrderAddress,
   "Order Change model": OrderChange,
   "Order Change Action model": OrderChangeAction,
+  "Order Claim model": OrderClaim,
+  "Order Exchange model": OrderExchange,
+  "Return model": Return,
+  "Order Line Item model": OrderLineItem,
+  "Order Item model": OrderItem,
+  "Order Summary model": OrderSummary,
+  "DML schema compiler": compileDmlSchema,
   "Update Order Changes workflow": updateOrderChangesWorkflow,
   "Update Order Changes step": updateOrderChangesStep,
   "Cancel Order Change workflow": cancelOrderChangeWorkflow,
@@ -118,6 +127,40 @@ describe("Order native Source execution provenance", () => {
       expect(index).toMatchObject({ kind: "index", requiredNonNull: condition.nonNull,
         fields: condition.prefix === undefined ? [condition.nonNull] : [condition.prefix.field, condition.nonNull] });
       expect(index?.requiredPrefix).toEqual(condition.prefix);
+    }
+  });
+
+  it("lowers exactly the five source serials with inclusive private backings", async () => {
+    const target = { scopeUuid: "98f9ef45-9cc8-4a23-883f-0be3a3a2ad69", epochUuid: "bda6935a-b2a6-4c08-b934-1f51d5301da8" };
+    const [generated, preserved] = await Effect.runPromise(Effect.all([
+      compileOrderCoreDefinition(target, "generate"), compileOrderCoreDefinition(target),
+    ]));
+    const expected = [
+      "order.display_id", "order_change_action.ordering", "order_claim.display_id",
+      "order_exchange.display_id", "return.display_id",
+    ];
+    expect(orderModuleModels).toEqual(expect.arrayContaining([
+      Order, OrderChangeAction, OrderClaim, OrderExchange, Return, OrderLineItem, OrderItem, OrderSummary,
+    ]));
+    const source = compileDmlSchema(orderModuleModels);
+    expect(source.tables).toHaveLength(23);
+    expect(source.tables.flatMap(table => table.columns.filter(column => column.type === "serial")
+      .map(column => `${table.name}.${column.name}`)).toSorted()).toEqual(expected);
+    const definition = generated.source.definition;
+    if (definition.kind !== "relational") throw new Error("Missing Order relational source");
+    const serials = definition.schema.tables.flatMap(table => table.columns.filter(column => column.default.kind === "serialNext")
+      .map(column => ({ table: table.identity.tableId, field: column.identity.columnId })));
+    expect(serials.map(({ table, field }) => `${table}.${field}`).toSorted()).toEqual(expected);
+    expect(generated.tables).toEqual(preserved.tables);
+    expect(generated.identity.sourceSha256).not.toBe(preserved.identity.sourceSha256);
+    expect(generated.identity.definitionHash).not.toBe(preserved.identity.definitionHash);
+    expect(generated.applicationRead).toBe(false);
+    expect(generated.commands).toEqual([]);
+    for (const { table, field } of serials) {
+      const declaration = generated.tables.find(candidate => candidate.localName === table);
+      const backing = generated.schema.tables.find(candidate => candidate.tableName === declaration?.name)
+        ?.indexes.filter(index => index.indexDescriptor.startsWith("s_"));
+      expect(backing).toMatchObject([{ indexDescriptor: expect.stringMatching(/^s_/u), fields: [field] }]);
     }
   });
 });

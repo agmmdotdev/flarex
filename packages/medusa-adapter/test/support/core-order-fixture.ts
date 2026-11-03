@@ -110,10 +110,10 @@ async function withStoredOrderResult(fixture: CoreNativeWorkflowFixture, key: st
 }
 
 export async function prepareCoreOrderFixture(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  commands: readonly CommerceCommand[], rows: readonly CoreOrderInitialRow[], physical?: CorePersistenceFixture) {
+  commands: readonly CommerceCommand[], rows: readonly CoreOrderInitialRow[], physical?: CorePersistenceFixture, serialDefaults?: "generate") {
   const target = Object.freeze({ scopeUuid: randomUUID(), epochUuid: randomUUID() });
   const [definition, eventDefinition] = await Effect.runPromise(Effect.all([
-    compileOrderCoreDefinition(target),
+    compileOrderCoreDefinition(target, serialDefaults),
     compileCoreNativeEventStorageDefinition(target),
   ]));
   const fixture = await createCoreNativeWorkflowFixture(driver, {

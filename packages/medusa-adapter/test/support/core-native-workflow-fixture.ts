@@ -55,10 +55,14 @@ interface SourceSelection {
 interface WorkflowGeneration {
   readonly database: CoreDatabase;
   readonly getHost: (profile: AtomicCommerceNativeHostProfile) => Effect.Effect<AtomicCommerceNativeHost, CommerceTransactionError>;
-  readonly getReadHost: (profile: NativeReadProfile) => Effect.Effect<CommerceHost, CommerceTransactionError>;
+  readonly getDirectHost: (profile: NativeDirectProfile) => Effect.Effect<CommerceHost, CommerceTransactionError>;
   readonly events: Effect.Effect<EventStore, CoreError | CommitEventError> | undefined;
 }
-interface NativeReadProfile { readonly name: string; readonly commands: readonly CommerceCommand[] }
+interface NativeDirectProfile {
+  readonly name: string;
+  readonly commands: readonly CommerceCommand[];
+  readonly readOnly?: true;
+}
 export interface CoreNativeWorkflowFixture {
   readonly physical: CorePersistenceFixture;
   readonly bundle: CoreSchemaBundle;
@@ -69,6 +73,8 @@ export interface CoreNativeWorkflowFixture {
   readonly source: (name: string) => AtomicCommerceNativeSource;
   readonly openReadHost: (sourceName: string, commands: readonly CommerceCommand[]) =>
     Effect.Effect<Pick<CommerceHost, "read" | "close">, CommerceTransactionError>;
+  readonly openWriteHost: (sourceName: string, commands: readonly CommerceCommand[]) =>
+    Effect.Effect<Pick<CommerceHost, "run" | "newRequestKey" | "close">, CommerceTransactionError>;
   readonly useGeneration: CoreApplicationOwner<WorkflowGeneration, WorkflowFailure>["use"];
   readonly recover: CoreApplicationOwner<WorkflowGeneration, WorkflowFailure>["recover"];
   readonly run: <A, E>(work: Effect.Effect<A, E, Scope.Scope>) => Promise<A>;
@@ -203,7 +209,7 @@ export async function createCoreNativeWorkflowFixture(driver: "pglite" | "postgr
           const hostRuntime = yield* makePreparedHostRuntime({ maximumHosts: 32, maximumPreparedBytes: 8 * 1024 * 1024 })
             .pipe(Effect.mapError(cause => commerceError("resourceFailure", cause)));
           const cache = new WeakMap<AtomicCommerceNativeHostProfile, Effect.Effect<AtomicCommerceNativeHost, CommerceTransactionError>>();
-          const readCache = new WeakMap<NativeReadProfile, Effect.Effect<CommerceHost, CommerceTransactionError>>();
+          const directCache = new WeakMap<NativeDirectProfile, Effect.Effect<CommerceHost, CommerceTransactionError>>();
           const preparation = yield* Semaphore.make(1);
           const eventBinding = eventDefinition === undefined ? undefined : yield* Effect.cached(database.bindNative({ definition: eventDefinition }));
           const events = eventBinding === undefined ? undefined : yield* Effect.cached(eventBinding.pipe(Effect.flatMap(binding => makeCoreCommitEventStore({ database, binding }))));
@@ -215,22 +221,24 @@ export async function createCoreNativeWorkflowFixture(driver: "pglite" | "postgr
             }).pipe(Scope.provide(generationScope))));
             cache.set(profile, selected); return selected;
           })).pipe(Effect.flatten);
-          const getReadHost: WorkflowGeneration["getReadHost"] = profile => preparation.withPermits(1)(Effect.gen(function* () {
-            const existing = readCache.get(profile);
+          const getDirectHost: WorkflowGeneration["getDirectHost"] = profile => preparation.withPermits(1)(Effect.gen(function* () {
+            const existing = directCache.get(profile);
             if (existing !== undefined) return existing;
             const index = configured.findIndex(source => source.name === profile.name), selectedSource = sources[index];
             if (selectedSource === undefined) return yield* commerceError("invalidAuthority");
+            const readOptions = profile.readOnly === undefined ? undefined : { readOnly: profile.readOnly };
             const selected = yield* Effect.cached(commerce(Effect.gen(function* () {
               const binding = yield* database.bindNative({ definition: selectedSource.definition,
-                commands: yield* Effect.fromResult(commerceNativeRegistrations(profile.commands, { readOnly: true })) });
+                commands: yield* Effect.fromResult(commerceNativeRegistrations(profile.commands, readOptions)) });
               return yield* Effect.acquireRelease(makeCommerceNativeHost({ database, binding, hostRuntime,
-                commands: profile.commands, initialization: selectedSource.initialization, readOnly: true,
-                identityAndAccessPolicy: { profile: "native-workflow-observation", source: profile.name },
+                commands: profile.commands, initialization: selectedSource.initialization, ...readOptions,
+                identityAndAccessPolicy: { profile: profile.readOnly === true ? "native-workflow-observation" : "native-direct-writer",
+                  source: profile.name },
               }), host => host.close);
             }).pipe(Scope.provide(generationScope))));
-            readCache.set(profile, selected); return selected;
+            directCache.set(profile, selected); return selected;
           })).pipe(Effect.flatten);
-          return { database, getHost, getReadHost, events } satisfies WorkflowGeneration;
+          return { database, getHost, getDirectHost, events } satisfies WorkflowGeneration;
         }) });
       const useGeneration: CoreNativeWorkflowFixture["useGeneration"] = work => owner.recover.pipe(Effect.andThen(owner.use(work)));
       const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: input.identityAndAccessPolicy ?? { profile: "native-atomic-workflow-fixture" },
@@ -240,15 +248,17 @@ export async function createCoreNativeWorkflowFixture(driver: "pglite" | "postgr
           return yield* makeAtomicCommerceNativeOwnerHost({ owner, hostRuntime: facadeRuntime,
             select: generation => generation.getHost(profile), projectOwnerFailure: projectFailure }).pipe(Scope.provide(scope));
         }) };
-      const openReadHost: CoreNativeWorkflowFixture["openReadHost"] = (name, commands) => {
-        const profile = Object.freeze({ name, commands: Object.freeze([...commands]) });
-        return Effect.fn("CoreNativeWorkflowFixture.openReadHost")(function* () {
-          const selected = yield* makeNativeOwnerHost({ owner, hostRuntime: facadeRuntime,
-            select: generation => generation.getReadHost(profile), projectOwnerFailure: projectFailure }).pipe(Scope.provide(scope));
-          return Object.freeze({ read: selected.read, close: selected.close });
-        })();
+      const openDirectHost = (name: string, commands: readonly CommerceCommand[], readOnly?: true) => {
+        const profile = Object.freeze({ name, commands: Object.freeze([...commands]),
+          ...(readOnly === undefined ? {} : { readOnly }) });
+        return makeNativeOwnerHost({ owner, hostRuntime: facadeRuntime,
+          select: generation => generation.getDirectHost(profile), projectOwnerFailure: projectFailure }).pipe(Scope.provide(scope));
       };
-      return { bundle, databaseOptions, sources: Object.freeze(sources), owner, useGeneration, execution, openReadHost };
+      const openReadHost: CoreNativeWorkflowFixture["openReadHost"] = (name, commands) => openDirectHost(name, commands, true).pipe(
+        Effect.map(({ read, close }) => Object.freeze({ read, close })), Effect.withSpan("CoreNativeWorkflowFixture.openReadHost"));
+      const openWriteHost: CoreNativeWorkflowFixture["openWriteHost"] = (name, commands) => openDirectHost(name, commands).pipe(
+        Effect.map(({ run, newRequestKey, close }) => Object.freeze({ run, newRequestKey, close })), Effect.withSpan("CoreNativeWorkflowFixture.openWriteHost"));
+      return { bundle, databaseOptions, sources: Object.freeze(sources), owner, useGeneration, execution, openReadHost, openWriteHost };
     }));
     const inventory = () => run(prepared.useGeneration(generation => readCoreNativeFixtureInventory(generation.database, physical.persistence)));
     const businessDeclarations = new Map(configured.flatMap(source => source.definition.tables.map(table =>

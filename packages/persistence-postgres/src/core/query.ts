@@ -58,6 +58,8 @@ export function createCoreQuery(input: Readonly<{
   queryFingerprint: Uint8Array;
   initialPosition?: CoreIndexCursor;
   pendingIndex: () => BTree<Uint8Array, DocumentObject | null> | undefined;
+  /** A trusted scan owner may supply the canonical body it already validated. */
+  materializeEntry?: (entry: CoreHydratedIndexEntry) => Result.Result<DocumentObject, CoreError>;
   recordRead: (interval: CoreInterval) => Result.Result<void, CoreTransactionError>;
   chargeDocument: (document: DocumentObject, semanticSizeBytes: number) => Result.Result<void, CoreTransactionError>;
   assertOpen: () => Effect.Effect<void, CoreError>;
@@ -118,7 +120,7 @@ export function createCoreQuery(input: Readonly<{
           return yield* Effect.fail(invalid("Persistence scan did not advance"));
         const decoded: Array<Readonly<{ key: Uint8Array; document: DocumentObject }>> = [];
         for (const entry of page.entries) decoded.push(Object.freeze({ key: entry.key.slice(),
-          document: yield* Effect.fromResult(readDocumentObject(entry.document, input.table)) }));
+          document: yield* Effect.fromResult(input.materializeEntry?.(entry) ?? readDocumentObject(entry.document, input.table)) }));
         buffer = { coverage: copyInterval(coverage), cursor: page.cursor, documents: decoded };
       }
 

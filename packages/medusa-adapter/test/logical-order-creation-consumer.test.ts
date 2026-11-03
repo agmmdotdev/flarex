@@ -1,19 +1,24 @@
-import { Cause, Effect, Exit, Schema } from "effect";
+import { Cause, Effect, Exit, Result, Schema } from "effect";
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { decodeDocumentId } from "flarex-protocol/document-id";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { prepareLogicalOrderCreation } from "./support/logical-order-creation-fixture";
+import { prepareCoreOrderCreation } from "./support/core-order-creation-fixture";
+import { finishOrderFixture } from "./support/core-order-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
 const rows = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject));
 const Id = Schema.decodeUnknownSync(Schema.String);
 const input = [{ currency_code: "usd", items: [{ title: "Digital checkout item", quantity: 2, unit_price: "3.125", requires_shipping: false }] }];
-type Head = Awaited<ReturnType<Awaited<ReturnType<typeof prepareLogicalOrderCreation>>["snapshot"]>>["rows"][number];
-const sameRow = (a: Head, b: Head) => a.scopeUuid === b.scopeUuid && a.tableId === b.tableId && Buffer.from(a.rowId).equals(Buffer.from(b.rowId));
+type OrderFixture = Awaited<ReturnType<typeof prepareCoreOrderCreation>>;
+type Snapshot = Awaited<ReturnType<OrderFixture["snapshot"]>>;
+const insertedRows = (before: Snapshot, after: Snapshot) => after.rows.filter(row =>
+  !before.rows.some(prior => row.value._id === prior.value._id));
 
 describe("native Order creation prerequisites for checkout", () => {
-  let local: Awaited<ReturnType<typeof prepareLogicalOrderCreation>>;
-  beforeAll(async () => { local = await prepareLogicalOrderCreation(driver, close => cleanup.push(close)); }, 240_000);
-  afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
+  let local: OrderFixture;
+  beforeAll(async () => { local = await prepareCoreOrderCreation(driver, close => cleanup.push(close)); }, 240_000);
+  afterAll(() => finishOrderFixture(cleanup.reverse()), 120_000);
 
   it("creates real Order, Summary, LineItem and Item rows with generated display identity", async () => {
     const before = await local.snapshot();
@@ -24,20 +29,37 @@ describe("native Order creation prerequisites for checkout", () => {
     const active = await local.read([id]);
     expect(active).toMatchObject([{ id, display_id: 401, version: 1 }]);
     expect(local.emitted.length).toBeGreaterThan(0);
-    const created = await local.snapshot(), inserted = created.rows.filter(row => !before.rows.some(prior => sameRow(row, prior)));
-    expect(inserted).toHaveLength(4);
+    const inserted = insertedRows(before, await local.snapshot());
+    expect(inserted.map(row => local.definition.tables.find(table => table.name === row.table)?.localName).sort())
+      .toEqual(["order", "order_item", "order_line_item", "order_summary"]);
     await Effect.runPromise(local.host.run(local.host.newRequestKey(), local.remove, [id]));
     expect(await local.read([id])).toEqual([]);
     const after = await local.snapshot();
-    // Physical relational deletion retains generic identity heads and revision
-    // history. Every created graph member must now point at a tombstone.
+    expect(after.rows).toEqual(before.rows);
+    // Each deleted graph member has a tombstone following its actual created revision.
     for (const row of inserted) {
-      const latest = after.rows.find(head => sameRow(head, row));
-      expect(latest).toBeDefined();
-      expect(after.revisions.find(revision => latest !== undefined && sameRow(revision, latest) && revision.commitSeq === latest.commitSeq))
-        .toMatchObject({ isTombstone: true });
+      const documentId = Result.getOrThrow(decodeDocumentId(Id(row.value._id)));
+      const storedId = encodeBytesToLowercaseHex(documentId.internalId);
+      const revisions = after.revisions.filter(revision => revision.table === row.table && revision.id === storedId);
+      expect(revisions).toMatchObject([
+        { timestamp: row.timestamp, previous: null, deleted: false, value: row.value },
+        { previous: row.timestamp, deleted: true, value: null },
+      ]);
     }
-    expect(after.rows.filter(row => before.rows.some(prior => sameRow(row, prior)))).toEqual(before.rows);
+  }, 240_000);
+
+  it("creates the admitted maximum of four Orders with four total items", async () => {
+    const before = await local.snapshot();
+    const batch = Array.from({ length: 4 }, (_, index) => ({ currency_code: "usd", items: [{
+      title: `Digital batch item ${index + 1}`, quantity: 1, unit_price: "3.125", requires_shipping: false,
+    }] }));
+    const created = rows(await Effect.runPromise(local.host.run(local.host.newRequestKey(), local.create, batch)));
+    expect(created.toSorted((a, b) => Number(a.display_id) - Number(b.display_id))).toMatchObject(batch.map(({ items }, index) => ({
+      display_id: 401 + index, items: [{ ...items[0], unit_price: 3.125 }],
+    })));
+    expect(insertedRows(before, await local.snapshot())).toHaveLength(16);
+    await Effect.runPromise(local.host.run(local.host.newRequestKey(), local.remove, created.map(order => Id(order.id))));
+    expect((await local.snapshot()).rows).toEqual(before.rows);
   }, 240_000);
 
   it("replays the settled creation without allocating another Order or display identity", async () => {
@@ -56,6 +78,11 @@ describe("native Order creation prerequisites for checkout", () => {
     }])));
     expect(created).toMatchObject([{ items: [{ unit_price: 9007199254740992,
       raw_unit_price: { value: "9007199254740993.0000", precision: 20 } }] }]);
+    const lineItemTable = local.definition.tables.find(table => table.localName === "order_line_item")?.name;
+    const stored = (await local.snapshot()).rows.filter(row => row.table === lineItemTable);
+    expect(stored).toHaveLength(1);
+    expect(stored[0]?.value).toMatchObject({ unit_price: "9007199254740993.0000",
+      raw_unit_price: { value: "9007199254740993.0000", precision: 20 } });
     await Effect.runPromise(local.host.run(local.host.newRequestKey(), local.remove, [Id(created[0]?.id)]));
   }, 240_000);
 

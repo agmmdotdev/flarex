@@ -52,13 +52,13 @@ export const compileOrderDefinition = Effect.fn("Order.compileDefinition")(funct
   return Object.freeze({ schema, provenance: orderSourceProvenance });
 });
 
-/** Capture all native models with their existing serial values for Core installation. */
+/** Capture all native models for fresh Core installation. Generation is opt-in. */
 export const compileOrderCoreDefinition = Effect.fn("Order.compileCoreDefinition")(function* (target: Readonly<{
   scopeUuid: string;
   epochUuid: string;
-}>) {
+}>, serialDefaults: "preserve" | "generate" = "preserve") {
   const { scopeUuid, epochUuid } = target;
-  const { schema, provenance } = yield* compileOrderDefinition("preserve");
+  const { schema, provenance } = yield* compileOrderDefinition(serialDefaults);
   const source = yield* captureLogicalSchemaSource({ key: "medusa.order", owner: "medusa", writeProfile: "medusa.order",
     evidence: { provenance, profile: "medusa.order" }, definition: { kind: "relational", schema },
     bindings: schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,

@@ -8,6 +8,8 @@ export default defineConfig({
     globalSetup: ["./test/support/native-order-source-provenance.ts"],
     include: [
       "test/native-order-source-provenance.proof.ts",
+      "test/logical-order-creation-consumer.test.ts",
+      "test/logical-order-generated-serial.test.ts",
       "test/logical-order-archive-workflow.test.ts",
       "test/logical-order-complete-workflow.test.ts",
       "test/order-archive-receipts.test.ts",
