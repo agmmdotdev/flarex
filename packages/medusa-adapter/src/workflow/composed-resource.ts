@@ -18,15 +18,32 @@ type ResourceFactory<Methods extends Readonly<Record<string, ComposedResourceMet
   readonly [Key in keyof Methods]: Methods[Key] extends ComposedResourceMethod<infer Args, unknown> ? (...args: Args) => Promise<unknown> : never;
 };
 declare const resourceType: unique symbol;
-export interface ComposedWorkflowResource<Service = unknown> { readonly [resourceType]: Service }
-interface Definition {
-  readonly resource: ComposedWorkflowResource;
+declare const resourceKind: unique symbol;
+type ResourceKind = "promise" | "diagnosticLogger";
+export interface ComposedWorkflowResource<Service = unknown, Kind extends ResourceKind = ResourceKind> {
+  readonly [resourceType]: Service;
+  readonly [resourceKind]: Kind;
+}
+interface PromiseResourceDefinition {
+  readonly kind: "promise";
+  readonly resource: ComposedWorkflowResource<unknown, "promise">;
   readonly identity: Json;
   readonly dependencies: readonly WorkflowMethod[];
   readonly methods: Readonly<Record<string, ComposedResourceMethod>>;
   readonly bind: (invoke: InvokeWorkflowMethod) => object;
   readonly scopeExclusive: boolean;
 }
+export interface WorkflowDiagnosticLogger { readonly error: (message: string) => void }
+interface DiagnosticResourceDefinition {
+  readonly kind: "diagnosticLogger";
+  readonly resource: ComposedWorkflowResource<WorkflowDiagnosticLogger, "diagnosticLogger">;
+  readonly identity: Json;
+  readonly dependencies: readonly [];
+  readonly methods: Readonly<{ error: true }>;
+  readonly scopeExclusive: false;
+  readonly error: WorkflowDiagnosticLogger["error"];
+}
+type Definition = PromiseResourceDefinition | DiagnosticResourceDefinition;
 const definitions = new WeakMap<object, Definition>();
 
 /** A trusted native resource may combine authenticated commands from several
@@ -36,7 +53,7 @@ export function defineComposedWorkflowResource<const Methods extends Readonly<Re
   readonly identity: unknown; readonly dependencies: readonly WorkflowMethod[]; readonly methods: Methods;
   readonly bind: (invoke: InvokeWorkflowMethod) => ResourceFactory<Methods>;
   readonly scopeExclusive?: true;
-}): Result.Result<ComposedWorkflowResource<ResourceService<Methods>>, CommerceTransactionError> {
+}): Result.Result<ComposedWorkflowResource<ResourceService<Methods>, "promise">, CommerceTransactionError> {
   return Result.gen(function* () {
     const captured = yield* captureWorkflowRecord(input);
     if (captured.scopeExclusive !== undefined && captured.scopeExclusive !== true) return yield* Result.fail(commerceError("unsupportedProfile"));
@@ -56,14 +73,33 @@ export function defineComposedWorkflowResource<const Methods extends Readonly<Re
     const identity = yield* captureCommerceInput(captured.identity);
     // SAFETY: the issuer alone associates the inferred service with its runtime
     // argument/output decoders and finite authentic dependency tokens.
-    const token = Object.freeze({}) as ComposedWorkflowResource<ResourceService<Methods>>;
-    definitions.set(token, Object.freeze({ resource: token, identity, dependencies,
+    const token = Object.freeze({}) as ComposedWorkflowResource<ResourceService<Methods>, "promise">;
+    definitions.set(token, Object.freeze({ kind: "promise", resource: token, identity, dependencies,
       methods: Object.freeze(Object.fromEntries(admitted)), bind: captured.bind, scopeExclusive: captured.scopeExclusive === true }));
     return token;
   });
 }
-export const composedWorkflowResourceDefinition = (resource: unknown) =>
-  typeof resource === "object" && resource !== null ? definitions.get(resource) : undefined;
+
+/** Native diagnostic logging has a synchronous void ABI and no workflow authority. */
+export function defineWorkflowDiagnosticLogger(identity: unknown, error: WorkflowDiagnosticLogger["error"]):
+  Result.Result<ComposedWorkflowResource<WorkflowDiagnosticLogger, "diagnosticLogger">, CommerceTransactionError> {
+  return Result.gen(function* () {
+    if (typeof error !== "function") return yield* Result.fail(commerceError("unsupportedProfile"));
+    const captured = yield* captureCommerceInput(identity);
+    // SAFETY: the issuer fixes the sole callable method and its void ABI.
+    const token = Object.freeze({}) as ComposedWorkflowResource<WorkflowDiagnosticLogger, "diagnosticLogger">;
+    const definition: DiagnosticResourceDefinition = { kind: "diagnosticLogger", resource: token, identity: captured,
+      dependencies: Object.freeze([]), methods: Object.freeze({ error: true }), scopeExclusive: false, error };
+    definitions.set(token, Object.freeze(definition));
+    return token;
+  });
+}
+export function composedWorkflowResourceDefinition(resource: ComposedWorkflowResource<unknown, "promise">): PromiseResourceDefinition | undefined;
+export function composedWorkflowResourceDefinition(resource: ComposedWorkflowResource<unknown, "diagnosticLogger">): DiagnosticResourceDefinition | undefined;
+export function composedWorkflowResourceDefinition(resource: unknown): Definition | undefined;
+export function composedWorkflowResourceDefinition(resource: unknown): Definition | undefined {
+  return typeof resource === "object" && resource !== null ? definitions.get(resource) : undefined;
+}
 export type ComposedWorkflowServices<Resources extends Readonly<Record<string, ComposedWorkflowResource>>> = {
   readonly [Key in keyof Resources]: Resources[Key] extends ComposedWorkflowResource<infer Service> ? Service : never;
 };

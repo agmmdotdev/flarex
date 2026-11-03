@@ -779,3 +779,8 @@ Customer consumers. Paired acceptance is complete.
 The [native Cart context read continuation](./slices/33-native-cart-context.md)
 uses complete indexed Region counts and existing relation receipts under
 the same Core root as Store defaults and Sales Channel retrieval. Paired acceptance is complete.
+
+The [Cart PaymentCollection continuation](./slices/34-native-cart-payment-collections.md)
+uses Core's native index, reference and settlement owners for genuine
+creation, Link attachment and linked refresh. The synchronous diagnostic
+uses the existing callback drain. Paired acceptance is complete.

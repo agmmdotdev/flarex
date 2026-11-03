@@ -171,7 +171,10 @@ export function makeCommercePromiseOwner(recordFailure?: FailureObserver) {
         if (Exit.isFailure(cleanup)) return yield* Effect.failCause(observeCompletion(cleanup.cause));
         return result.value;
       }));
-    return Effect.succeed({ run, invoke, close, withClose, reject, assertOpen, hasPending: () => runners.size !== 0 || callbacks.size !== 0 });
+    return Effect.succeed({ run, invoke, close, withClose, reject, assertOpen,
+      // A cancelled native callback may still report its failure while draining.
+      canReportDiagnostic: () => !closed && callbacks.size !== 0,
+      hasPending: () => runners.size !== 0 || callbacks.size !== 0 });
   });
 }
 export type CommercePromiseOwner = Effect.Success<ReturnType<typeof makeCommercePromiseOwner>>;

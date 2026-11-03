@@ -193,3 +193,4 @@ maintaining a competing completion log here.
 - [Direct native read visibility](./native-direct-read-visibility.md): selected direct-command and fixed-read profiles implemented; wider native and hosting gates remain.
 - [Native Promise completion and cancellation](./native-promise-draining.md): actual foreign Promise draining and complete failure preservation at the Payload/request-lifetime owners, including private origin reference equality; selected boundaries implemented and validated, general native hosting open.
 - [Native accepted-state durability dependencies](./native-dependent-save-order.md): selective prerequisite durability is implemented for unpublished slot transitions, retaining independent saves and atomic FIFO batches; broader profile/performance gates remain.
+- [Native workflow diagnostics](./native-workflow-diagnostics.md) preserve Medusa's synchronous logger during the owned callback drain. Paired acceptance is complete.

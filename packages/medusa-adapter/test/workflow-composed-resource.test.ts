@@ -1,12 +1,12 @@
-import { promiseFailureObserver } from "./support/promise-failure-observer";
+import { expectNativePromiseDefect, promiseFailureObserver } from "./support/promise-failure-observer";
 import { describe, expect, it, vi } from "vitest";
-import { Effect, Result, Schema } from "effect";
+import { Cause, Deferred, Effect, Exit, Result, Schema } from "effect";
 import type { AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, commerceLimits } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineGraphReadCommand } from "../src/local-graph/commands";
 import { commerceDecoder } from "../src/value/decoder";
 import { defineWorkflowMethod, defineWorkflowModule } from "../src/workflow/module";
-import { defineComposedWorkflowResource } from "../src/workflow/composed-resource";
+import { composedWorkflowResourceDefinition, defineComposedWorkflowResource, defineWorkflowDiagnosticLogger } from "../src/workflow/composed-resource";
 import { prepareWorkflowResources, workflowResourceSelections } from "../src/workflow/resources";
 import { bindWorkflowResources } from "../src/workflow/binding";
 import { makeCommercePromiseOwner } from "../src/module/promise-owner";
@@ -170,5 +170,78 @@ describe("finite composed resources over authentic source methods", () => {
       }
       expect(call).not.toHaveBeenCalled();
     } finally { await Effect.runPromise(owner.close); }
+  });
+});
+
+async function bindDiagnostic(sink: (message: string) => void) {
+  const token = Result.getOrThrow(defineWorkflowDiagnosticLogger({ profile: "test-diagnostic" }, sink));
+  const resources = Result.getOrThrow(prepareWorkflowResources({}, false, { logger: token }));
+  const recordFailure = promiseFailureObserver();
+  const invoke = vi.fn(() => Effect.fail(commerceError("invalidAuthority")));
+  const ctx: AtomicCommerceContext = { recordFailure, eventGroupId: "diagnostic", checkpoint: Effect.void,
+    capture: invoke, call: invoke, emit: invoke, clearPendingEvents: invoke, refuse: invoke };
+  const owner = await Effect.runPromise(makeCommercePromiseOwner(recordFailure));
+  const members = workflowResourceSelections(resources);
+  if (members === undefined) throw new Error("Missing diagnostic resource selection");
+  const logger = bindWorkflowResources(resources, members, undefined, [], ctx, owner)
+    .resolve<{ error(...args: unknown[]): void }>("logger");
+  return { owner, logger, token, invoke, recordFailure };
+}
+
+describe("native synchronous workflow diagnostics", () => {
+  it("returns void immediately in an active callback and while it drains, then fences stale calls", async () => {
+    const sink = vi.fn<(message: string) => void>();
+    const { owner, logger, token, invoke, recordFailure } = await bindDiagnostic(sink);
+    expect(composedWorkflowResourceDefinition(token)).toMatchObject({ identity: { profile: "test-diagnostic" },
+      methods: { error: true }, dependencies: [], scopeExclusive: false });
+    const started = await Effect.runPromise(Deferred.make<void>());
+    const release = await Effect.runPromise(Deferred.make<void>());
+    const cancellation = new AbortController();
+    const running = Effect.runPromiseExit(owner.invoke(async () => {
+      try {
+        expect(logger.error("running")).toBeUndefined();
+        expect(sink).toHaveBeenCalledWith("running");
+      } finally { Effect.runSync(Deferred.succeed(started, undefined)); }
+      await Effect.runPromise(Deferred.await(release));
+      expect(logger.error("draining")).toBeUndefined();
+    }), { signal: cancellation.signal });
+    try {
+      await Effect.runPromise(Deferred.await(started));
+      cancellation.abort();
+      expect(await running).toMatchObject({ _tag: "Failure" });
+      await expect(owner.run(Effect.void)).rejects.toMatchObject({ reason: "closed" });
+      Effect.runSync(Deferred.succeed(release, undefined));
+      await Effect.runPromise(owner.close);
+      expect(logger.error("stale")).toBeUndefined();
+      expect(sink.mock.calls).toEqual([["running"], ["draining"]]);
+      expect(invoke).not.toHaveBeenCalled();
+      expect(recordFailure).not.toHaveBeenCalled();
+    } finally {
+      Effect.runSync(Deferred.succeed(release, undefined));
+      await Effect.runPromise(owner.close);
+    }
+  });
+
+  it.each([
+    { args: ["message", "extra"], reason: "invalidInput" },
+    { args: ["x".repeat(commerceLimits.commandBytes + 1)], reason: "limitExceeded" },
+  ])("retains $reason when a callback catches diagnostic validation", async ({ args, reason }) => {
+    const sink = vi.fn<(message: string) => void>();
+    const { owner, logger, invoke, recordFailure } = await bindDiagnostic(sink);
+    const exit = await Effect.runPromiseExit(owner.withClose(owner.invoke(async () => {
+      expect(() => logger.error(...args)).toThrow(expect.objectContaining({ reason }));
+    })));
+    if (Exit.isSuccess(exit)) throw new Error("Expected retained diagnostic refusal");
+    expect(exit.cause.reasons.filter(Cause.isFailReason)).toContainEqual(expect.objectContaining({ error: expect.objectContaining({ reason }) }));
+    expect(recordFailure).toHaveBeenCalled();
+    expect(sink).not.toHaveBeenCalled();
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("preserves a trusted sink defect on the owning callback Cause", async () => {
+    const defect = new Error("Diagnostic sink defect");
+    const { owner, logger, invoke } = await bindDiagnostic(() => { throw defect; });
+    await expectNativePromiseDefect(owner.withClose(owner.invoke(async () => { logger.error("message"); })), defect);
+    expect(invoke).not.toHaveBeenCalled();
   });
 });

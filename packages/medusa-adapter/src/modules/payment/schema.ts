@@ -1,6 +1,8 @@
 import { Effect } from "effect";
 import { AccountHolder, Capture, Payment, PaymentCollection, PaymentProvider, PaymentSession, Refund, RefundReason } from "@medusajs/payment/models";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
+import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
+import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
 import { capturePrivateCanonicalValue, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
 import { decodeCompiledDml } from "../../schema/compiled";
@@ -34,4 +36,16 @@ export const compilePaymentDefinition = Effect.fn("Payment.compileDefinition")(f
   const metadata = yield* capturePaymentMetadata();
   const schema = yield* Effect.fromResult(normalizeRelationalSchema(lowerDmlSchema(metadata.frame.tables, "commerce.payment")));
   return Object.freeze({ schema, provenance: paymentSourceProvenance });
+});
+
+export const compilePaymentCoreDefinition = Effect.fn("Payment.compileCoreDefinition")(function* ({ scopeUuid, epochUuid }: Readonly<{
+  scopeUuid: string;
+  epochUuid: string;
+}>) {
+  const { schema, provenance } = yield* compilePaymentDefinition();
+  const source = yield* captureLogicalSchemaSource({ key: "medusa.payment", owner: "medusa", writeProfile: "medusa.payment",
+    evidence: { provenance, profile: "medusa.payment" }, definition: { kind: "relational", schema },
+    bindings: schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+      table: { namespace: "medusa", logicalName: `${schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
+  return yield* makeCoreRelationalNativeDefinition({ scopeUuid, epochUuid, applicationRead: false, source, provenance, commands: [] });
 });

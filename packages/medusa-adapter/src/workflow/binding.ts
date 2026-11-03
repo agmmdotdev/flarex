@@ -24,6 +24,7 @@ const decodeGroupedClear = commerceDecoder(Schema.Tuple([Schema.String,
   Schema.Struct({ eventNames: Schema.Tuple([Schema.String]) }),
 ]), "unadmittedEvent");
 const decodeResolveOptions = commerceDecoder(Schema.Struct({ allowUnregistered: Schema.Literal(true) }), "unsupportedProfile");
+const decodeDiagnostic = commerceDecoder(Schema.Tuple([Schema.String]), "invalidInput");
 
 /** Missing native methods refuse on invocation. Reflection and protocol probes
  * remain inert; the target still exposes only the admitted own properties. */
@@ -66,6 +67,17 @@ export function bindWorkflowResources(selection: PreparedWorkflowResources, memb
   for (const member of workflowComposedResources(selection) ?? []) {
     const definition = composedWorkflowResourceDefinition(member.resource);
     if (!definition) return owner.reject(commerceError("invalidAuthority"));
+    if (definition.kind === "diagnosticLogger") {
+      const error = (...args: unknown[]): void => {
+        if (!owner.canReportDiagnostic()) return;
+        const [message] = Result.match(captureCommerceInput(args).pipe(Result.flatMap(decodeDiagnostic)), {
+          onFailure: owner.reject, onSuccess: value => value,
+        });
+        definition.error(message);
+      };
+      entries.push([member.name, scopedResource({ error }, owner)]);
+      continue;
+    }
     const allowed = new Set(definition.dependencies);
     // SAFETY: authentic method tokens retain their exact argument/output ABI;
     // the existing per-method binder validates both sides of every invocation.

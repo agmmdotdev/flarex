@@ -1,5 +1,7 @@
 import { Effect } from "effect";
 import { CartPaymentCollection } from "@medusajs/link-modules";
+import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
+import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
 import { captureLinkMetadata, linkSchemaOrigins, LinkSchemaError } from "./schema";
 import { lowerDmlSchema } from "../schema/lower";
@@ -25,4 +27,16 @@ export const compileCartPaymentCollectionLinkDefinition = Effect.fn("CartPayment
   const schema = yield* Effect.fromResult(normalizeRelationalSchema(lowerDmlSchema([metadata.frame],
     "commerce.link.cart-payment-collection", linkSchemaOrigins)));
   return Object.freeze({ schema, provenance: cartPaymentCollectionLinkProvenance });
+});
+
+export const compileCartPaymentCollectionLinkCoreDefinition = Effect.fn("CartPaymentCollectionLink.compileCoreDefinition")(function* ({ scopeUuid, epochUuid }: Readonly<{
+  scopeUuid: string;
+  epochUuid: string;
+}>) {
+  const { schema, provenance } = yield* compileCartPaymentCollectionLinkDefinition();
+  const source = yield* captureLogicalSchemaSource({ key: "medusa.link.cartPaymentCollection", owner: "medusa", writeProfile: "medusa.link.cartPaymentCollection",
+    evidence: { provenance, profile: "medusa.link.cartPaymentCollection" }, definition: { kind: "relational", schema },
+    bindings: schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+      table: { namespace: "medusa", logicalName: `${schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
+  return yield* makeCoreRelationalNativeDefinition({ scopeUuid, epochUuid, applicationRead: false, source, provenance, commands: [] });
 });

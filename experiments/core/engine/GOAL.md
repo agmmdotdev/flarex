@@ -521,3 +521,7 @@ source. Paired acceptance is complete.
 The [native Cart context read continuation](./slices/33-native-cart-context.md)
 uses the complete Region source with the existing Store and Sales Channel
 sources under one Core root. Paired acceptance is complete.
+
+The [Cart PaymentCollection continuation](./slices/34-native-cart-payment-collections.md)
+moves genuine collection creation and linked refresh onto Core through the
+complete Payment and Cart Link sources. Paired acceptance is complete.

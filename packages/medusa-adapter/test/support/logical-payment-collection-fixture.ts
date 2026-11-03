@@ -2,15 +2,12 @@ import { Effect, Result, Schema } from "effect";
 import { createStep, createWorkflow, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { createPaymentCollectionForCartWorkflow } from "@medusajs/core-flows/cart/create-payment-collection-for-cart";
 import { createPaymentCollectionsStep } from "@medusajs/core-flows/cart/create-payment-collection-step";
-import { createRemoteLinkStep } from "@medusajs/core-flows/common/create-remote-links-step";
-import { updatePaymentCollectionStep, type UpdatePaymentCollectionStepInput } from "@medusajs/core-flows/payment-collection/update-payment-collection-step";
 import type { Logger } from "@medusajs/framework/types";
 import { createPaymentSessionsWorkflow } from "@medusajs/core-flows/payment-collection/create-payment-session";
 import { createPaymentSessionStep } from "@medusajs/core-flows/payment-collection/create-payment-session-step";
 import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
 import { capturePrivateCanonicalValue, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeCommerceHost, type LogicalCommerceHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
-import { defineCommerceCommand } from "../../../persistence-postgres/src/frameworks/commerceTransaction/commands";
 import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { compilePaymentDefinition } from "../../src/modules/payment/schema";
 import { compileCartDefinition } from "../../src/modules/cart/schema";
@@ -21,7 +18,7 @@ import { preparePaymentCollectionLinkLifecycle } from "../../src/links/payment-c
 import { makePaymentLifecycleCommands } from "../../src/modules/payment/lifecycle-service";
 import { makeCartPaymentReadCommands } from "../../src/modules/cart/payment-service";
 import { makeOrderPaymentFinanceCommands } from "../../src/modules/order/finance-service";
-import { prepareCartPaymentCollectionCreationWorkflow, prepareCartPaymentCollectionRefreshWorkflow,
+import { prepareCartPaymentCollectionCreationWorkflow,
   prepareOrderPaymentCollectionCreationWorkflow, preparePaymentCollectionCancellationWorkflow } from "../../src/workflows/payment/collections";
 import { preparePaymentAuthorizationWorkflow } from "../../src/workflows/payment/authorize-session";
 import { preparePaymentCaptureWorkflow } from "../../src/workflows/payment/capture-payment";
@@ -30,7 +27,6 @@ import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { PaymentSessionRootInput, PaymentSessionCreate } from "../../src/modules/payment/input";
 import { CreateCartCollectionInput, CollectionCreates } from "../../src/modules/payment/collection-input";
-import { commerceDecoder } from "../../src/value/decoder";
 import { logicalCurrencyFixture, type SharedLogicalCurrencyFixture } from "./logical-currency-fixture";
 import { logicalCurrencyInventory } from "./logical-currency-inventory";
 import { orderFinanceRows } from "./logical-order-finance-fixture";
@@ -102,10 +98,6 @@ export async function prepareLogicalPaymentCollections(driver: "pglite" | "postg
     const host = await Effect.runPromise(prepareCartPaymentCollectionCreationWorkflow({ ...options, modules: cartModules }));
     workflowCloses.push(() => Effect.runPromise(host.close)); return host;
   };
-  const prepareCartRefresh = async () => {
-    const host = await Effect.runPromise(prepareCartPaymentCollectionRefreshWorkflow({ ...options, modules: cartModules }));
-    workflowCloses.push(() => Effect.runPromise(host.close)); return host;
-  };
   const prepareOrderCreation = async () => {
     const host = await Effect.runPromise(prepareOrderPaymentCollectionCreationWorkflow({ ...options, modules: orderModules }));
     workflowCloses.push(() => Effect.runPromise(host.close)); return host;
@@ -142,7 +134,7 @@ export async function prepareLogicalPaymentCollections(driver: "pglite" | "postg
       order_payment_collection_links: { ...modules.orderLink, module: orderLink.readWorkflow } } }));
     workflowCloses.push(() => Effect.runPromise(host.close)); return host;
   };
-  const prepareCreationProbe = async (mode: "late" | "forward" | "inverse" | "race" | "stored" | "stored-late" | "callback" | "callback-late" | "callback-caught" | "callback-detached", afterNative?: () => Promise<void>) => {
+  const prepareCreationProbe = async (mode: "forward" | "inverse" | "race" | "stored" | "stored-late" | "callback" | "callback-late" | "callback-caught" | "callback-detached", afterNative?: () => Promise<void>) => {
     const resources = Result.getOrThrow(prepareWorkflowResources({
       payment: { module: payment.cartCollectionWorkflow, methods: ["createPaymentCollections", "deletePaymentCollections"], graph: true },
       cart: { module: cart.workflow, methods: [], graph: true },
@@ -153,7 +145,7 @@ export async function prepareLogicalPaymentCollections(driver: "pglite" | "postg
     if (retained?.kind !== "step" || retained.compensate === undefined) throw new Error("Missing native collection inverse");
     const inverse = retained.compensate, invoke = retained.invoke;
     const probe = createStep("probe-collection-" + mode, resources.callback(async (value: unknown, context) => {
-      if (mode === "late" || mode === "stored-late") throw new Error("Late parent failure after native Cart collection Link");
+      if (mode === "stored-late") throw new Error("Late parent failure after native Cart collection Link");
       if (mode === "stored") return new StepResponse(value);
       if (mode === "race") {
         if (afterNative === undefined) throw new Error("Missing native collection race barrier");
@@ -183,7 +175,7 @@ export async function prepareLogicalPaymentCollections(driver: "pglite" | "postg
         })) : undefined;
     const flow = callback !== undefined
       ? createWorkflow("probe-native-collection-callback-" + mode, (value: WorkflowData<typeof CreateCartCollectionInput.Type>) => new WorkflowResponse(callback(value)))
-      : mode === "late" || mode === "race" || mode === "stored" || mode === "stored-late"
+      : mode === "race" || mode === "stored" || mode === "stored-late"
       ? createWorkflow(declaration, (value: WorkflowData<typeof CreateCartCollectionInput.Type>) =>
         new WorkflowResponse(probe(createPaymentCollectionForCartWorkflow.runAsStep({ input: value }))))
       : createWorkflow("probe-collection-retained-" + mode, (value: WorkflowData<unknown>) => new WorkflowResponse(probe(value)));
@@ -192,65 +184,11 @@ export async function prepareLogicalPaymentCollections(driver: "pglite" | "postg
         prepared: Result.getOrThrow(flow.prepare()), input: Schema.Json, output: Schema.Json, events: internalModuleWorkflowEvents } }));
     workflowCloses.push(() => Effect.runPromise(host.close)); return host;
   };
-  const prepareLinkInverse = async () => {
-    const resources = Result.getOrThrow(prepareWorkflowResources({ link: { module: cartLink.workflow, methods: ["dismiss"], graph: false } }, true));
-    const retained = Result.getOrThrow(createWorkflow("probe-link-inverse-definition", () => new WorkflowResponse(createRemoteLinkStep([]))).prepare()).nodes[0];
-    if (retained?.kind !== "step" || retained.compensate === undefined) throw new Error("Missing native Link inverse");
-    const inverse = retained.compensate;
-    const step = createStep("probe-native-link-inverse", resources.callback(async (input: unknown, context) => {
-      await inverse(input, context); return new StepResponse(null);
-    }));
-    const flow = createWorkflow("probe-native-link-inverse-root", (input: WorkflowData<unknown>) => new WorkflowResponse(step(input)));
-    const host = await Effect.runPromise(prepareAtomicWorkflowHost({ ...options, modules: { link: modules.cartLink },
-      operationScheduling: "queued", borrowedOperationScheduling: "queued", workflow: { name: "probeNativeLinkInverse", resources,
-        prepared: Result.getOrThrow(flow.prepare()), input: Schema.Json, output: Schema.Json, events: internalModuleWorkflowEvents } }));
-    workflowCloses.push(() => Effect.runPromise(host.close)); return host;
-  };
-  const prepareUpdateProbe = async (mode: "forward" | "inverse") => {
-    const resources = Result.getOrThrow(prepareWorkflowResources({ payment: { module: payment.workflow,
-      methods: ["listPaymentCollections", "updatePaymentCollections", "upsertPaymentCollections"], graph: false } }, true));
-    const retained = Result.getOrThrow(createWorkflow("probe-update-definition", (input: WorkflowData<UpdatePaymentCollectionStepInput>) =>
-      new WorkflowResponse(updatePaymentCollectionStep(input))).prepare()).nodes[0];
-    if (retained?.kind !== "step" || retained.compensate === undefined) throw new Error("Missing native update inverse");
-    const invoke = retained.invoke, inverse = retained.compensate;
-    const step = createStep("probe-native-update-" + mode, resources.callback(async (input: unknown, context) => {
-      if (mode === "inverse") { await inverse(input, context); return new StepResponse(null); }
-      const response = await invoke(input, context);
-      if (!(response instanceof StepResponse)) throw new Error("Missing native update response");
-      return new StepResponse({ output: response.output, retained: response.compensateInput });
-    }));
-    const flow = createWorkflow("probe-native-update-root-" + mode, (input: WorkflowData<unknown>) => new WorkflowResponse(step(input)));
-    const host = await Effect.runPromise(prepareAtomicWorkflowHost({ ...options, modules: { payment: modules.payment },
-      operationScheduling: "queued", borrowedOperationScheduling: "queued", workflow: { name: "probeNativeUpdate" + mode, resources,
-        prepared: Result.getOrThrow(flow.prepare()), input: Schema.Json, output: Schema.Json, events: internalModuleWorkflowEvents } }));
-    workflowCloses.push(() => Effect.runPromise(host.close)); return host;
-  };
-  const setPriceInput = Schema.Struct({ unit_price: Schema.String, raw_unit_price: Schema.Struct({ value: Schema.String, precision: Schema.Literal(20) }) });
-  const decodePrice = commerceDecoder(setPriceInput, "invalidInput");
-  const setPrice = defineCommerceCommand("fixtureSetExistingCartPrice", "write", (ctx, input) => Effect.gen(function* () {
-    const row = yield* Effect.fromResult(decodePrice(input));
-    yield* (yield* ctx.table("cart_line_item")).write(ctx.manager, "update", [{ id: "cali-collections", ...row }]); return null;
-  }));
-  const setCurrency = defineCommerceCommand("fixtureSetExistingCartCurrency", "write", (ctx, input) => Effect.gen(function* () {
-    const currency = yield* Effect.fromResult(commerceDecoder(Schema.String, "invalidInput")(input));
-    yield* (yield* ctx.table("cart")).write(ctx.manager, "update", [{ id: "cart-collections", currency_code: currency }]); return null;
-  }));
-  const adjustment = defineCommerceCommand("fixtureInsertCartAdjustment", "write", (ctx, input) => Effect.gen(function* () {
-    const amount = yield* Effect.fromResult(commerceDecoder(Schema.String, "invalidInput")(input));
-    yield* (yield* ctx.table("cart_line_item_adjustment")).write(ctx.manager, "insert", [{ id: "caliadj-collections", item_id: "cali-collections",
-      amount, raw_amount: { value: amount, precision: 20 } }]); return null;
-  }));
-  const priceHost = await Effect.runPromise(makeCommerceHost({ ...fixture.hostInput, logicalStorage: modules.cart.logicalStorage,
-    commands: [setPrice, setCurrency, adjustment], identityAndAccessPolicy: { profile: "fixture-existing-cart-price" } }));
-  close(() => Effect.runPromise(priceHost.close));
   const readHost = await Effect.runPromise(makeCommerceHost({ ...fixture.hostInput, logicalStorage: modules.payment.logicalStorage,
     commands: [payment.collections, payment.sessions], identityAndAccessPolicy: { profile: "fixture-payment-collection-read" } }));
   close(() => Effect.runPromise(readHost.close));
   return { fixture, payment, cart, order, cartLink, orderLink, modules, options, cartModules, orderModules, errors,
-    closeWorkflowHosts, prepareCartCreation, prepareCartRefresh, prepareOrderCreation, prepareCancellation, prepareSession, prepareSizedSession, prepareAuthorize, prepareCapture, prepareCreationProbe, prepareLinkInverse, prepareUpdateProbe,
-    setPrice: (value: string) => Effect.runPromise(priceHost.run(priceHost.newRequestKey(), setPrice, { unit_price: value, raw_unit_price: { value, precision: 20 } })),
-    setCurrency: (value: string) => Effect.runPromise(priceHost.run(priceHost.newRequestKey(), setCurrency, value)),
-    insertAdjustment: (value: string) => Effect.runPromise(priceHost.run(priceHost.newRequestKey(), adjustment, value)),
+    closeWorkflowHosts, prepareCartCreation, prepareOrderCreation, prepareCancellation, prepareSession, prepareSizedSession, prepareAuthorize, prepareCapture, prepareCreationProbe,
     readCollection: (id: string) => Effect.runPromise(readHost.read(payment.collections, { filters: { id }, config: { relations: ["payment_sessions", "payments"] } })),
     snapshot: () => logicalCurrencyInventory(fixture),
   };
