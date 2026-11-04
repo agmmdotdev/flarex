@@ -1,16 +1,17 @@
 import { Effect, Result, Schema } from "effect";
 import { deleteShippingOptionTypesWorkflow } from "@medusajs/core-flows/shipping-options/delete-shipping-option-types";
-import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { matchesAtomicCommerceNativeSource, type AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { ShippingOptionTypeDeletionIds, decodeShippingOptionTypeDeletionIds } from "../../modules/fulfillment/shipping-option-type-delete-input";
 import type { makeShippingOptionTypeDeletionCommands } from "../../modules/fulfillment/shipping-option-type-delete-service";
-import type { prepareShippingOptionTypeDeletionLinkResource } from "../../links/shipping-option-type-deletion";
+import { isShippingOptionTypeDeletionLinkResource, type prepareShippingOptionTypeDeletionLinkResource } from "../../links/shipping-option-type-deletion";
+import { shippingProfileDeletionTables } from "../../modules/fulfillment/shipping-profile-schema";
 import { commerceDecoder } from "../../value/decoder";
 import { captureCommerceInput } from "../../value/input";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { orderedWorkflowIdEvents } from "../../workflow/events";
 import { prepareAtomicWorkflowHost, captureInstalledWorkflowModules, type AtomicWorkflowExecution,
-  type InstalledWorkflowModule } from "../../workflow/host";
+  type OrdinaryNativeInstalledWorkflowModule } from "../../workflow/host";
 import { workflowModuleDefinition } from "../../workflow/module";
 import type { ComposedWorkflowServices } from "../../workflow/composed-resource";
 import { prepareWorkflowResources, type NativeWorkflowContext, type NativeWorkflowResources } from "../../workflow/resources";
@@ -30,7 +31,7 @@ export interface ShippingOptionTypeDeletionHooks {
  * installed Link router share one optimistic outer settlement. */
 export const prepareShippingOptionTypeDeletionWorkflow = Effect.fn("ShippingOptionType.prepareDeletion")(function* (input: {
   readonly execution: AtomicWorkflowExecution;
-  readonly modules: { readonly fulfillment: InstalledWorkflowModule<Fulfillment> };
+  readonly modules: { readonly fulfillment: OrdinaryNativeInstalledWorkflowModule<Fulfillment> };
   readonly link: Links;
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];
@@ -42,8 +43,14 @@ export const prepareShippingOptionTypeDeletionWorkflow = Effect.fn("ShippingOpti
   const registrations = yield* Effect.fromResult(captureWorkflowRecord(options.modules));
   if (Object.keys(registrations).length !== 1) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const modules = yield* Effect.fromResult(captureInstalledWorkflowModules(registrations, ["fulfillment"]));
-  const source = workflowModuleDefinition(modules.fulfillment.module)?.source;
-  if (source?.name !== "flarex-shipping-option-type-delete" || source.profile !== "shipping-option-type-delete")
+  const binding = modules.fulfillment;
+  const source = workflowModuleDefinition(binding.module)?.source;
+  if (binding.logicalResources !== undefined || binding.logicalPublication !== undefined)
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
+  if (source?.name !== "flarex-shipping-option-type-delete" || source.profile !== "shipping-option-type-delete" ||
+    binding.nativeStorage === undefined || binding.logicalStorage !== undefined ||
+    !matchesAtomicCommerceNativeSource(binding.nativeStorage, "fulfillment", "medusa.shippingProfile", shippingProfileDeletionTables) ||
+    !isShippingOptionTypeDeletionLinkResource(options.link))
     return yield* Effect.fail(commerceError("invalidAuthority"));
   const resources = yield* Effect.fromResult(prepareWorkflowResources({ fulfillment: {
     module: modules.fulfillment.module, methods: ["softDeleteShippingOptionTypes", "restoreShippingOptionTypes"], graph: true,
@@ -66,7 +73,8 @@ export const prepareShippingOptionTypeDeletionWorkflow = Effect.fn("ShippingOpti
     if (writes.length !== 1 || call === undefined) return yield* Effect.fail(commerceError("receiptMismatch"));
     return yield* Effect.fromResult(decodeShippingOptionTypeDeletionIds(call.input));
   }));
-  return yield* prepareAtomicWorkflowHost({ ...options, modules, operationScheduling: "queued",
+  return yield* prepareAtomicWorkflowHost({ execution: options.execution, modules, revision: options.revision,
+    subscribers: options.subscribers, operationScheduling: "queued",
     workflow: { name: "deleteShippingOptionTypesWorkflow", resources, prepared,
       input: ShippingOptionTypeDeletionInput, output: Schema.Null, events } });
 });

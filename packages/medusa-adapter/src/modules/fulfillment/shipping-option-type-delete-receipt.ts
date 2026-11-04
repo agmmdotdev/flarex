@@ -70,10 +70,10 @@ export function shippingOptionTypeDeletionPolicy(prepared: Prepared) {
       // only the active native matches, independently of their Type's state.
       const active = [...rows.values()].filter(row => row.deleted_at === null);
       const expected = orderNativeIdRows(active, {}).slice(0, 1).map(row => ({ id: row.id }));
-      // Both methods execute the same prepared read. Count returns its actual
-      // pre-pagination total; its read receipt still records the one-row page.
+      // Both methods execute the same prepared query. Core records projected
+      // page length for find and full matching cardinality for count.
       const read = { table: contracts.option.name, query: plan.query, total: count, returned: expected.length };
-      const reads = [read, read];
+      const reads = [read, { ...read, returned: count }];
       if (active.length !== count || !jsonEqual(output, expected) || !jsonEqual(activity.relationalReads, reads))
         return yield* Effect.fail(commerceError("receiptMismatch"));
       return;

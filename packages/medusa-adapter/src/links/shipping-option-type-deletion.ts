@@ -15,6 +15,8 @@ const decodeEmptyCascade = (value: Parameters<typeof decodeLinkCascade>[0]) => R
     return yield* Result.fail(commerceError("storedCorruption"));
   return tuple;
 });
+const deletionLinks = new WeakSet<object>();
+export const isShippingOptionTypeDeletionLinkResource = (value: object) => deletionLinks.has(value);
 
 /** Type has no installed stored Link family. The genuine scoped router still
  * owns mandatory deletion dispatch and its retained grouped-endpoint inverse. */
@@ -27,5 +29,8 @@ export function prepareShippingOptionTypeDeletionLinkResource() {
       return { delete: input => native.delete(structuredClone(input)),
         restore: input => native.restore(structuredClone(input)) };
     },
-  });
+  }).pipe(Result.map(resource => {
+    deletionLinks.add(resource);
+    return resource;
+  }));
 }

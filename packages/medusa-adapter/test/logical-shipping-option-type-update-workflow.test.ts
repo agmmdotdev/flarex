@@ -1,17 +1,25 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { randomUUID } from "node:crypto";
 import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
 import { FulfillmentModuleService, FulfillmentProviderService } from "@medusajs/fulfillment/services";
+import { MedusaError } from "@medusajs/framework/utils/portable";
 import { updateShippingOptionTypesWorkflow } from "@medusajs/core-flows/shipping-options/update-shipping-option-types";
-import { CommerceTransactionError, defaultCommerceResources, isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { defaultCommerceResources, isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
+import { defineAtomicCommerceNativeSource } from "../../persistence-postgres/src/frameworks/atomicCommerce/nativeSelection";
 import { makeShippingOptionTypeCreationCommands } from "../src/modules/fulfillment/shipping-option-type-service";
+import { compileShippingProfileCoreDefinition } from "../src/modules/fulfillment/shipping-profile-schema";
 import { prepareShippingOptionTypeUpdateWorkflow } from "../src/workflows/fulfillment/update-shipping-option-types";
-import { prepareLogicalShippingOptionTypeUpdate, shippingOptionTypeUpdateSeed, shippingOptionTypeUpdateSeedTime,
-  shippingOptionTypeUpdateLinkedIds } from "./support/logical-shipping-option-type-update-fixture";
+import { expectCheckoutRollback, expectCheckoutSettlement } from "./support/core-checkout-evidence";
+import { finishOrderFixture } from "./support/core-order-fixture";
+import { prepareCoreShippingOptionTypeUpdate, shippingOptionTypeUpdateSeed, shippingOptionTypeUpdateSeedTime,
+  shippingOptionTypeUpdateLinkedIds } from "./support/core-shipping-option-type-update-fixture";
+import { expectWorkflowDefect, expectWorkflowRefusal, expectWorkflowTypedFailures } from "./support/workflow-failure-assertions";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalShippingOptionTypeUpdate>>, sharedCleanupCount = 0;
+let connected: Awaited<ReturnType<typeof prepareCoreShippingOptionTypeUpdate>>, sharedCleanupCount = 0;
+type Snapshot = Awaited<ReturnType<typeof connected.snapshot>>;
 const rows = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject)), text = Schema.decodeUnknownSync(Schema.String);
 const roundtrip = Schema.decodeUnknownSync(Schema.Struct({ output: Schema.Array(Schema.JsonObject), preimages: Schema.Array(Schema.JsonObject) }));
 const ids = (values: readonly JsonObject[]) => values.map(row => text(row.id));
@@ -22,13 +30,7 @@ const seedIds = [...maximum, "sotype-update-noop", "sotype-update-id-inverse", "
 const initial = [...seedIds.map(id => shippingOptionTypeUpdateSeed(id)), shippingOptionTypeUpdateSeed("sotype-update-deleted", true)];
 const updated = "fulfillment.shipping-option-type.updated", created = "fulfillment.shipping-option-type.created", workflowUpdated = "shipping-option-type.updated";
 const withoutUpdated = (row: JsonObject) => { const { updated_at: _updated, ...rest } = row; return rest; };
-function reasons(value: unknown): string[] {
-  if (Cause.isCause(value)) return value.reasons.flatMap(reason => reason._tag === "Fail" ? reasons(reason.error)
-    : reason._tag === "Die" ? reasons(reason.defect) : ["Interrupt"]);
-  if (value instanceof CommerceTransactionError) return [value.reason, ...reasons(value.cause)];
-  return value instanceof Error ? [value.message, ...reasons(value.cause)] : [];
-}
-function eventIds(events: Awaited<ReturnType<typeof connected.snapshot>>["events"], contract: string) {
+function eventIds(events: Snapshot["events"], contract: string) {
   return events.filter(event => event.envelope.contract === contract).map(event => {
     expect(event.envelope.internal).toBe(contract !== workflowUpdated);
     const message = event.envelope.message;
@@ -40,10 +42,27 @@ function scalarRows(output: readonly JsonObject[]) {
   for (const row of output) expect(Object.keys(row).sort()).toEqual(["id", "label", "code", "description", "created_at", "updated_at", "deleted_at"].sort());
 }
 
-describe("genuine Shipping Option Type update and retained upsert on shared logical storage", { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalShippingOptionTypeUpdate(driver, close => cleanup.push(close), initial); sharedCleanupCount = cleanup.length; }, 240_000);
-  afterEach(async () => { for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }, 120_000);
-  afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
+function expectTypeRevisions(before: Snapshot, after: Snapshot, key: string, updatedIds: readonly string[], insertedIds: readonly string[] = []) {
+  const timestamp = expectCheckoutSettlement(before, after, key), revisions = after.revisions.filter(row => row.timestamp === timestamp);
+  expect(revisions.map(row => row.value?.id).sort()).toEqual([...updatedIds, ...insertedIds].sort());
+  for (const revision of revisions) {
+    const previous = before.revisions.findLast(row => row.table === revision.table && row.id === revision.id);
+    if (typeof revision.value?.id !== "string") throw new Error("Missing Shipping Option Type revision identity");
+    if (insertedIds.includes(revision.value.id)) {
+      expect(previous).toBeUndefined(); expect(revision.previous).toBeNull();
+    } else {
+      if (previous === undefined) throw new Error("Missing Shipping Option Type predecessor");
+      expect(revision.previous).toBe(previous.timestamp);
+    }
+    expect(revision.deleted).toBe(false);
+    expect(after.indexes).toContainEqual(expect.objectContaining({ table: revision.table, id: revision.id, name: "by_id", timestamp }));
+  }
+}
+
+describe("genuine Shipping Option Type update and retained upsert on Core", { concurrent: false }, () => {
+  beforeAll(async () => { connected = await prepareCoreShippingOptionTypeUpdate(driver, close => cleanup.push(close), initial); sharedCleanupCount = cleanup.length; }, 240_000);
+  afterEach(() => finishOrderFixture([connected.closeCaseHosts, ...cleanup.splice(sharedCleanupCount).reverse()]), 120_000);
+  afterAll(() => finishOrderFixture(cleanup.reverse()), 120_000);
 
   it("updates the full four-Type root in order with its hook, scalar output, both event families and replay", async () => {
     const value = { selector: { id: [...maximum].reverse() }, update: { label: " Native Label ", code: " Raw CODE ", description: null },
@@ -73,8 +92,8 @@ describe("genuine Shipping Option Type update and retained upsert on shared logi
       expect(await connected.read(["sotype-update-protected", "sotype-update-deleted"])).toEqual(protectedBefore);
       const after = await connected.snapshot(), emitted = after.events.slice(before.events.length);
       expect(eventIds(emitted, updated)).toEqual(value.selector.id); expect(eventIds(emitted, workflowUpdated)).toEqual(value.selector.id);
-      expect(emitted.length).toBeLessThanOrEqual(defaultCommerceResources.eventMessages); expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1);
-      expect(after.commits.length - before.commits.length).toBe(1); expect(after.rowChanges.length - before.rowChanges.length).toBe(4);
+      expect(emitted.length).toBeLessThanOrEqual(defaultCommerceResources.eventMessages);
+      expectTypeRevisions(before, after, key, maximum);
       expect(await Effect.runPromise(host.run(key, value))).toEqual(output); expect(hookCalls).toBe(1); expect(native).toHaveBeenCalledTimes(1);
       await expect(Effect.runPromise(host.run(key, { selector: { id: [] }, update: {} }))).rejects.toMatchObject({ reason: "requestConflict" });
       const changed = await connected.prepare({}, "8".repeat(64)); await expect(Effect.runPromise(changed.run(key, value))).rejects.toMatchObject({ reason: "requestConflict" });
@@ -127,7 +146,8 @@ describe("genuine Shipping Option Type update and retained upsert on shared logi
         if (preimages === undefined) throw new Error("Missing actual native preimages");
         await compensate(preimages, context); inverseCalls++;
       } });
-      const output = rows(await Effect.runPromise(host.run(host.newRequestKey(), { selector: { id: [...maximum] },
+      const key = host.newRequestKey();
+      const output = rows(await Effect.runPromise(host.run(key, { selector: { id: [...maximum] },
         update: { ...(retarget ? { id: target } : {}), label: "Full root temporary", description: null, code: "Full root CODE" } }).pipe(
         Effect.provideService(ExecutionDiagnostics, { observe: (name, work) => Effect.sync(() => {
           if (name === "BoundedRequest.enter") calls++;
@@ -139,7 +159,7 @@ describe("genuine Shipping Option Type update and retained upsert on shared logi
       expect((await connected.read(maximum)).map(withoutUpdated)).toEqual(originals.map(withoutUpdated));
       const after = await connected.snapshot(), emitted = after.events.slice(before.events.length);
       expect(eventIds(emitted, workflowUpdated)).toEqual(ids(output));
-      expect(after.commits.length - before.commits.length).toBe(1);
+      expectTypeRevisions(before, after, key, retarget ? [...maximum, target] : maximum);
     } finally { list.mockRestore(); }
   }, 240_000);
 
@@ -160,9 +180,12 @@ describe("genuine Shipping Option Type update and retained upsert on shared logi
   it("preserves missing and deleted retarget errors while an empty original selector avoids retarget lookup", async () => {
     const host = await connected.prepare();
     for (const target of ["sotype-update-missing", "sotype-update-deleted"]) {
-      const before = await connected.snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { selector: { id: maximum[0]! }, update: { id: target, label: "Never written" } })));
-      expect(Result.isFailure(result)).toBe(true); if (Result.isFailure(result)) expect(reasons(result.failure)).toContain('ShippingOptionType with id "' + target + '" not found');
-      expect(await connected.snapshot()).toEqual(before);
+      const before = await connected.fixture.inventory(), key = host.newRequestKey();
+      const result = await Effect.runPromiseExit(host.run(key, { selector: { id: maximum[0]! }, update: { id: target, label: "Never written" } }));
+      const failure = expectWorkflowRefusal(result, "adapterFailure");
+      expect(failure.cause).toBeInstanceOf(MedusaError);
+      expect(failure.cause).toMatchObject({ type: MedusaError.Types.NOT_FOUND, message: `ShippingOptionType with id "${target}" not found` });
+      await expectCheckoutRollback(connected.fixture, before, key);
       expect(await Effect.runPromise(host.run(host.newRequestKey(), { selector: { id: [] }, update: { id: target, label: "Ignored" } }))).toEqual([]);
     }
   }, 240_000);
@@ -172,7 +195,7 @@ describe("genuine Shipping Option Type update and retained upsert on shared logi
     const empty = rows(await Effect.runPromise(host.run(host.newRequestKey(), { selector: { id }, update: {} })));
     const retargeted = rows(await Effect.runPromise(host.run(host.newRequestKey(), { selector: { id }, update: { id: target } })));
     expect(empty).toEqual(original.filter(row => row.id === id)); expect(retargeted).toEqual(original.filter(row => row.id === target)); scalarRows([...empty, ...retargeted]);
-    const after = await connected.snapshot(); expect(after.rows).toEqual(before.rows); expect(after.revisions).toEqual(before.revisions); expect(after.rowChanges).toEqual(before.rowChanges);
+    const after = await connected.snapshot(); expect(after.rows).toEqual(before.rows); expect(after.revisions).toEqual(before.revisions); expect(after.indexes).toEqual(before.indexes);
     expect(eventIds(after.events.slice(before.events.length), updated)).toEqual([]); expect(eventIds(after.events.slice(before.events.length), workflowUpdated)).toEqual([id, target]);
     const sameValueBefore = await connected.snapshot(), output = rows(await Effect.runPromise(host.run(host.newRequestKey(), { selector: { id }, update: { code: " Native CODE " } })));
     expect(output[0]?.updated_at).not.toBe(shippingOptionTypeUpdateSeedTime); expect(eventIds((await connected.snapshot()).events.slice(sameValueBefore.events.length), updated)).toEqual([id]);
@@ -181,11 +204,12 @@ describe("genuine Shipping Option Type update and retained upsert on shared logi
   it("retains ID-only preimages yet the genuine upsert inverse writes timestamps and emits updated", async () => {
     const host = await connected.prepareRoundtrip(), id = "sotype-update-id-inverse", [prior] = await connected.read([id]), before = await connected.snapshot();
     if (prior === undefined) throw new Error("Missing no-op inverse seed");
-    const result = roundtrip(await Effect.runPromise(host.run(host.newRequestKey(), { input: { selector: { id }, update: {} } })));
+    const key = host.newRequestKey(), result = roundtrip(await Effect.runPromise(host.run(key, { input: { selector: { id }, update: {} } })));
     expect(result.output).toEqual([prior]); expect(result.preimages).toEqual([{ id }]);
     const [afterRow] = await connected.read([id]); if (afterRow === undefined) throw new Error("Missing genuine inverse result");
-    expect(withoutUpdated(afterRow)).toEqual(withoutUpdated(prior)); expect(afterRow.updated_at).not.toBe(prior.updated_at);
-    const after = await connected.snapshot(); expect(after.rowChanges.length - before.rowChanges.length).toBe(1); expect(eventIds(after.events.slice(before.events.length), updated)).toEqual([id]);
+    expect(withoutUpdated(afterRow)).toEqual(withoutUpdated(prior)); expect(text(afterRow.updated_at) > text(prior.updated_at)).toBe(true);
+    const after = await connected.snapshot(); expectTypeRevisions(before, after, key, [id]);
+    expect(eventIds(after.events.slice(before.events.length), updated)).toEqual([id]);
   }, 180_000);
 
   it("preserves empty strings, case, null clearing, omitted fields and description projection", async () => {
@@ -209,7 +233,7 @@ describe("genuine Shipping Option Type update and retained upsert on shared logi
       for (const selected of [[], ["sotype-update-missing"], ["sotype-update-deleted"]])
         expect(await Effect.runPromise(host.run(host.newRequestKey(), { selector: { id: selected }, update: { label: "Ignored" } }))).toEqual([]);
       expect(native).toHaveBeenCalledTimes(3); expect(list).toHaveBeenCalledTimes(3); expect(hook).toHaveBeenCalledTimes(3);
-      const after = await connected.snapshot(); expect(after.rows).toEqual(before.rows); expect(after.revisions).toEqual(before.revisions); expect(after.rowChanges).toEqual(before.rowChanges); expect(after.events).toEqual(before.events);
+      const after = await connected.snapshot(); expect(after.rows).toEqual(before.rows); expect(after.revisions).toEqual(before.revisions); expect(after.indexes).toEqual(before.indexes); expect(after.events).toEqual(before.events);
       const absent = await connected.prepareAbsentInverse(), inverse = vi.spyOn(FulfillmentModuleService.prototype, "upsertShippingOptionTypes");
       try { expect(await Effect.runPromise(absent.run(absent.newRequestKey(), null))).toBeNull(); expect(inverse).not.toHaveBeenCalled(); } finally { inverse.mockRestore(); }
     } finally { native.mockRestore(); list.mockRestore(); }
@@ -232,13 +256,16 @@ describe("genuine Shipping Option Type update and retained upsert on shared logi
   it("executes genuine inverse upsert on existing tombstones without restoring them and can recreate complete missing rows", async () => {
     const host = await connected.prepareInverse(), native = vi.spyOn(FulfillmentModuleService.prototype, "upsertShippingOptionTypes"), deleted = "sotype-update-deleted", missing = "sotype-update-recreated";
     try {
-      const before = await connected.snapshot(); expect(await Effect.runPromise(host.run(host.newRequestKey(), [{ id: deleted, label: "Historical label changed" }, { id: missing, label: "Recreated", code: "" }]))).toBeNull();
+      const before = await connected.snapshot(), key = host.newRequestKey();
+      expect(await Effect.runPromise(host.run(key, [{ id: deleted, label: "Historical label changed" }, { id: missing, label: "Recreated", code: "" }]))).toBeNull();
       const returned = rows(await native.mock.results[0]?.value); scalarRows(returned); expect(ids(returned)).toEqual([deleted, missing]);
-      expect(returned[0]).toMatchObject({ deleted_at: shippingOptionTypeUpdateSeedTime, label: "Historical label changed", description: " Original description " });
-      expect(returned[0]?.updated_at).not.toBe(shippingOptionTypeUpdateSeedTime);
+      expect(returned[0]).toMatchObject({ created_at: shippingOptionTypeUpdateSeedTime, deleted_at: shippingOptionTypeUpdateSeedTime, label: "Historical label changed", description: " Original description " });
+      expect(text(returned[0]?.updated_at) > shippingOptionTypeUpdateSeedTime).toBe(true);
       expect(returned[1]).toMatchObject({ description: null, deleted_at: null, label: "Recreated", code: "" });
       expect(await connected.read([deleted, missing])).toEqual([...returned].sort((a, b) => text(a.id).localeCompare(text(b.id))));
-      const emitted = (await connected.snapshot()).events.slice(before.events.length); expect(eventIds(emitted, updated)).toEqual([deleted]); expect(eventIds(emitted, created)).toEqual([missing]);
+      const after = await connected.snapshot(), emitted = after.events.slice(before.events.length);
+      expectTypeRevisions(before, after, key, [deleted], [missing]);
+      expect(eventIds(emitted, updated)).toEqual([deleted]); expect(eventIds(emitted, created)).toEqual([missing]);
     } finally { native.mockRestore(); }
   }, 240_000);
 
@@ -257,14 +284,10 @@ describe("genuine Shipping Option Type update and retained upsert on shared logi
       for (const preimages of [[{ id: "sotype-update-missing-id-only" }], [{ id: "sotype-update-missing-code", label: "No code" }],
         [{ id: "sotype-update-failure", label: "Temporary prefix write" }, { id: "sotype-update-late-missing", label: "No code" }]]) {
         native.mockClear();
-        const before = await connected.snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), preimages)));
-        expect(native).toHaveBeenCalledTimes(1); expect(Result.isFailure(result)).toBe(true);
-        if (Result.isFailure(result)) {
-          expect(reasons(result.failure)).toContain("invalidInput");
-          for (const refusal of ["unsupportedProfile", "receiptMismatch", "unadmittedEvent"])
-            expect(reasons(result.failure)).not.toContain(refusal);
-        }
-        expect(await connected.snapshot()).toEqual(before);
+        const before = await connected.fixture.inventory(), key = host.newRequestKey();
+        const result = await Effect.runPromiseExit(host.run(key, preimages));
+        expect(native).toHaveBeenCalledTimes(1); expectWorkflowRefusal(result, "invalidInput");
+        await expectCheckoutRollback(connected.fixture, before, key);
       }
     } finally { native.mockRestore(); }
   }, 240_000);
@@ -295,13 +318,16 @@ describe("genuine Shipping Option Type update and retained upsert on shared logi
   }, 240_000);
 
   it("rolls back the exact whole root after hook failure and after a genuine forward/inverse late failure", async () => {
-    const host = await connected.prepare({ shippingOptionTypesUpdated: () => { throw new Error("Native Type update hook failure"); } });
-    const before = await connected.snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { selector: { id: maximum[0]! }, update: { id: "sotype-update-outside", label: "Rolled back outside target" } })));
-    expect(Result.isFailure(result)).toBe(true); expect(await connected.snapshot()).toEqual(before);
-    const inverse = await connected.prepareRoundtrip(), failed = await Effect.runPromise(Effect.result(inverse.run(inverse.newRequestKey(), { fail: true,
-      input: { selector: { id: [...maximum] }, update: { id: "sotype-update-outside", label: "Late failed outside retarget" } } })));
-    expect(Result.isFailure(failed)).toBe(true); if (Result.isFailure(failed)) expect(reasons(failed.failure)).toContain("Late native ShippingOptionType inverse failure");
-    expect(await connected.snapshot()).toEqual(before);
+    const hookFailure = new Error("Native Type update hook failure"), lateFailure = new Error("Late native ShippingOptionType inverse failure");
+    const host = await connected.prepare({ shippingOptionTypesUpdated: () => { throw hookFailure; } });
+    const before = await connected.fixture.inventory(), key = host.newRequestKey();
+    const result = await Effect.runPromiseExit(host.run(key, { selector: { id: maximum[0]! }, update: { id: "sotype-update-outside", label: "Rolled back outside target" } }));
+    expectWorkflowDefect(result, hookFailure); await expectCheckoutRollback(connected.fixture, before, key);
+    const inverse = await connected.prepareRoundtrip(lateFailure), beforeInverse = await connected.fixture.inventory(), inverseKey = inverse.newRequestKey();
+    const failed = await Effect.runPromiseExit(inverse.run(inverseKey, {
+      input: { selector: { id: [...maximum] }, update: { id: "sotype-update-outside", label: "Late failed outside retarget" } },
+    }));
+    expectWorkflowDefect(failed, lateFailure); await expectCheckoutRollback(connected.fixture, beforeInverse, inverseKey);
   }, 240_000);
 
   it("keeps caught sibling denial root-fatal and revokes escaped native continuations", async () => {
@@ -311,13 +337,16 @@ describe("genuine Shipping Option Type update and retained upsert on shared logi
       try { await context.container.resolve<{ createShippingProfiles: (input: unknown) => Promise<unknown> }>("fulfillment").createShippingProfiles({ name: "Denied sibling", type: "default" }); }
       catch { caught = true; }
     } });
-    const before = await connected.snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { selector: { id: maximum[0]! }, update: { label: "Poisoned" } })));
-    expect(caught).toBe(true); expect(Result.isFailure(result)).toBe(true); expect(await connected.snapshot()).toEqual(before);
-    if (escaped === undefined) throw new Error("Missing retained native method"); await expect(escaped()).rejects.toBeDefined(); expect(await connected.snapshot()).toEqual(before);
+    const before = await connected.fixture.inventory(), key = host.newRequestKey();
+    const result = await Effect.runPromiseExit(host.run(key, { selector: { id: maximum[0]! }, update: { label: "Poisoned" } }));
+    expect(caught).toBe(true); expectWorkflowTypedFailures(result, "rollbackOnly");
+    if (escaped === undefined) throw new Error("Missing retained native method");
+    await expect(escaped()).rejects.toBeDefined(); await expectCheckoutRollback(connected.fixture, before, key);
   }, 180_000);
 
   it.each(["order", "membership", "scalar", "relation", "event"] as const)("refuses forged native %s after actual updates", async mode => {
     const original = FulfillmentModuleService.prototype.updateShippingOptionTypes;
+    let forged = false;
     const native = vi.spyOn(FulfillmentModuleService.prototype, "updateShippingOptionTypes").mockImplementation(async function (this: FulfillmentModuleService, ...args) {
       const output = await original.call(this, ...args); if (!Array.isArray(output) || output.length !== 2) throw new Error("Missing genuine two-Type output");
       const first: unknown = output[0]; if (typeof first !== "object" || first === null) throw new Error("Missing genuine Type row");
@@ -328,12 +357,13 @@ describe("genuine Shipping Option Type update and retained upsert on shared logi
         const emit: unknown = Reflect.get(bus, "emit"); if (typeof emit !== "function") throw new Error("Missing native emitter");
         await Reflect.apply(emit, bus, [[{ name: updated, data: { id: "sotype-update-protected" }, metadata: { source: "fulfillment", object: "shipping_option_type", action: "updated" } }], { internal: true }]);
       }
-      return output;
+      forged = true; return output;
     });
     try {
-      const host = await connected.prepare(), before = await connected.snapshot();
-      expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { selector: { id: maximum.slice(0, 2) }, update: { code: "Actual staged code" } }))))).toBe(true);
-      expect(native).toHaveBeenCalledTimes(1); expect(await connected.snapshot()).toEqual(before);
+      const host = await connected.prepare(), before = await connected.fixture.inventory(), key = host.newRequestKey();
+      const result = await Effect.runPromiseExit(host.run(key, { selector: { id: maximum.slice(0, 2) }, update: { code: "Actual staged code" } }));
+      expect(forged).toBe(true); expectWorkflowTypedFailures(result, "rollbackOnly");
+      expect(native).toHaveBeenCalledTimes(1); await expectCheckoutRollback(connected.fixture, before, key);
     } finally { native.mockRestore(); }
   }, 180_000);
 
@@ -342,14 +372,13 @@ describe("genuine Shipping Option Type update and retained upsert on shared logi
     const native = phase === "list" ? vi.spyOn(FulfillmentModuleService.prototype, "listShippingOptionTypes").mockResolvedValue([])
       : vi.spyOn(FulfillmentModuleService.prototype, "updateShippingOptionTypes").mockResolvedValue([]);
     try {
-      const before = await connected.snapshot();
-      const result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), {
+      const before = await connected.fixture.inventory(), key = host.newRequestKey();
+      const result = await Effect.runPromiseExit(host.run(key, {
         selector: { id: maximum[0]! }, update: { label: "Skipped native lookup" },
-      })));
+      }));
       expect(native).toHaveBeenCalledTimes(1);
-      expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "rollbackOnly" } });
-      if (Result.isFailure(result)) expect(reasons(result.failure)).toContain("receiptMismatch");
-      expect(await connected.snapshot()).toEqual(before);
+      expectWorkflowRefusal(result, "receiptMismatch");
+      await expectCheckoutRollback(connected.fixture, before, key);
     } finally { native.mockRestore(); }
   }, 180_000);
 
@@ -363,6 +392,17 @@ describe("genuine Shipping Option Type update and retained upsert on shared logi
     expect(invalid).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
     const forged = await Effect.runPromise(Effect.result(prepareShippingOptionTypeUpdateWorkflow({ ...connected.options, modules: { fulfillment: { ...connected.installed, module: { ...connected.fulfillment.workflow } } } })));
     expect(forged).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+    const scalarDefinition = await Effect.runPromise(compileShippingProfileCoreDefinition({ scopeUuid: randomUUID(), epochUuid: randomUUID() }));
+    const prepare = vi.fn(connected.options.execution.prepare);
+    const wrongSlot = Result.getOrThrow(defineAtomicCommerceNativeSource("foreign_fulfillment", connected.definition));
+    const incomplete = Result.getOrThrow(defineAtomicCommerceNativeSource("fulfillment", scalarDefinition));
+    for (const nativeStorage of [wrongSlot, incomplete]) {
+      const refused = await Effect.runPromise(Effect.result(prepareShippingOptionTypeUpdateWorkflow({ ...connected.options,
+        execution: { ...connected.options.execution, prepare }, modules: { fulfillment: { ...connected.installed, nativeStorage } },
+      })));
+      expect(refused).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+    }
+    expect(prepare).not.toHaveBeenCalled();
     const inherited: unknown = Object.create({ shippingOptionTypesUpdated: () => undefined });
     const invalidHooks: unknown[] = [inherited, { foreign: () => undefined }, { shippingOptionTypesUpdated: "invalid" }];
     for (const hooks of invalidHooks)
@@ -370,13 +410,15 @@ describe("genuine Shipping Option Type update and retained upsert on shared logi
       expect(Result.isFailure(await Effect.runPromise(Effect.result(prepareShippingOptionTypeUpdateWorkflow({ ...connected.options, hooks }))))).toBe(true);
     const host = await connected.prepare(), native = vi.spyOn(FulfillmentModuleService.prototype, "updateShippingOptionTypes");
     try {
-      const before = await connected.snapshot();
       for (const value of [{ selector: {}, update: {} }, { selector: { id: [...maximum, "fifth"] }, update: {} },
         ...["created_at", "updated_at", "deleted_at", "shipping_options", "metadata", "foreign"].map(field => ({ selector: { id: maximum[0] }, update: { [field]: null } })),
-        { selector: { id: maximum[0] }, update: { label: null } }, { selector: { id: maximum[0] }, update: { code: null } }, { selector: { id: maximum[0] }, update: {}, foreign: true }])
+        { selector: { id: maximum[0] }, update: { label: null } }, { selector: { id: maximum[0] }, update: { code: null } }, { selector: { id: maximum[0] }, update: {}, foreign: true }]) {
+        const before = await connected.fixture.inventory(), key = host.newRequestKey();
         // @ts-expect-error Exercise malformed root input at its actual runtime decoder.
-        await expect(Effect.runPromise(host.run(host.newRequestKey(), value))).rejects.toMatchObject({ reason: "invalidInput" });
-      expect(native).not.toHaveBeenCalled(); expect(await connected.snapshot()).toEqual(before);
+        await expect(Effect.runPromise(host.run(key, value))).rejects.toMatchObject({ reason: "invalidInput" });
+        await expectCheckoutRollback(connected.fixture, before, key);
+      }
+      expect(native).not.toHaveBeenCalled();
     } finally { native.mockRestore(); }
   }, 180_000);
 
@@ -388,42 +430,60 @@ describe("genuine Shipping Option Type update and retained upsert on shared logi
       await Effect.runPromise(Deferred.succeed(reached, undefined)); await wait; await Effect.runPromise(Deferred.succeed(finished, undefined));
     } });
     try {
-      const before = await connected.snapshot(), outcome = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-        const fiber = yield* Effect.forkChild(host.run(host.newRequestKey(), { selector: { id: maximum[0]! }, update: { label: "Cancelled Type update" } }));
+      const before = await connected.fixture.inventory(), key = host.newRequestKey();
+      const outcome = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const fiber = yield* Effect.forkChild(host.run(key, { selector: { id: maximum[0]! }, update: { label: "Cancelled Type update" } }));
         yield* Deferred.await(reached).pipe(Effect.timeout(30_000)); yield* Fiber.interrupt(fiber); return yield* Fiber.await(fiber);
       })));
-      expect(Exit.isFailure(outcome)).toBe(true); if (Exit.isFailure(outcome)) expect(reasons(outcome.cause)).toContain("Interrupt");
-      expect(await connected.snapshot()).toEqual(before); if (escaped === undefined) throw new Error("Missing cancelled native resource"); await expect(escaped()).rejects.toBeDefined();
-      finish?.(); await Effect.runPromise(Deferred.await(finished).pipe(Effect.timeout(5_000))); expect(await connected.snapshot()).toEqual(before);
+      expect(Exit.isFailure(outcome)).toBe(true); if (Exit.isFailure(outcome)) expect(Cause.hasInterrupts(outcome.cause)).toBe(true);
+      await expectCheckoutRollback(connected.fixture, before, key);
+      if (escaped === undefined) throw new Error("Missing cancelled native resource"); await expect(escaped()).rejects.toBeDefined();
+      finish?.(); await Effect.runPromise(Deferred.await(finished).pipe(Effect.timeout(5_000)));
+      await expectCheckoutRollback(connected.fixture, before, key);
     } finally { finish?.(); }
   }, 180_000);
 
   it("confines equal Type IDs and request keys to their accepted scope", async () => {
-    const id = "sotype-update-scope", other = await prepareLogicalShippingOptionTypeUpdate(driver, close => cleanup.push(close), [shippingOptionTypeUpdateSeed(id)], {
-      resource: connected.fixture.resource, fixtureIdentity: { deploymentId: "shipping_option_type_update_b", projectId: "shipping_option_type_update_b", uuidOffset: 810_000 },
-    });
-    const left = await connected.prepare(), right = await other.prepare(), key = left.newRequestKey(), beforeOther = await other.read([id]);
+    const id = "sotype-update-scope";
+    const other = await prepareCoreShippingOptionTypeUpdate(driver, close => cleanup.push(close), [shippingOptionTypeUpdateSeed(id)], connected.fixture.physical);
+    const left = await connected.prepare(), right = await other.prepare(), key = left.newRequestKey();
+    const before = await connected.snapshot(), beforeOther = await other.snapshot();
     const input = { selector: { id }, update: { label: "Scoped native Type" } };
-    const output = await Effect.runPromise(left.run(key, input)); expect(await other.read([id])).toEqual(beforeOther);
+    const output = await Effect.runPromise(left.run(key, input)); expect(await other.snapshot()).toEqual(beforeOther);
     const otherOutput = await Effect.runPromise(right.run(key, input)); expect((await other.read([id]))[0]?.label).toBe("Scoped native Type");
-    const after = await connected.snapshot(); expect(await Effect.runPromise(left.run(key, input))).toEqual(output); expect(await Effect.runPromise(right.run(key, input))).toEqual(otherOutput); expect(await connected.snapshot()).toEqual(after);
+    const after = await connected.snapshot(), afterOther = await other.snapshot();
+    expectTypeRevisions(before, after, key, [id]); expectTypeRevisions(beforeOther, afterOther, key, [id]);
+    expect(await Effect.runPromise(left.run(key, input))).toEqual(output); expect(await Effect.runPromise(right.run(key, input))).toEqual(otherOutput);
+    expect(await connected.snapshot()).toEqual(after); expect(await other.snapshot()).toEqual(afterOther);
   }, 240_000);
 
-  it.skipIf(driver !== "postgres")("settles one of two overlapping native updates without lost state", async () => {
+  it("settles one of two overlapping native updates without lost state", async () => {
     const reached = Deferred.makeUnsafe<void>(), release = Deferred.makeUnsafe<void>(); let arrivals = 0;
     const hooks = { shippingOptionTypesUpdated: async () => { arrivals++; if (arrivals === 2) await Effect.runPromise(Deferred.succeed(reached, undefined)); await Effect.runPromise(Deferred.await(release)); } };
     const left = await connected.prepare(hooks), right = await connected.prepare(hooks), id = "sotype-update-race", before = await connected.snapshot();
+    const leftKey = left.newRequestKey(), rightKey = right.newRequestKey();
+    const leftInput = { selector: { id }, update: { label: "Optimistic first" } }, rightInput = { selector: { id }, update: { label: "Optimistic second" } };
     try {
       const outcomes = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-        const first = yield* Effect.forkChild(left.run(left.newRequestKey(), { selector: { id }, update: { label: "Optimistic first" } }).pipe(Effect.timeout(45_000)));
-        const second = yield* Effect.forkChild(right.run(right.newRequestKey(), { selector: { id }, update: { label: "Optimistic second" } }).pipe(Effect.timeout(45_000)));
+        const first = yield* Effect.forkChild(left.run(leftKey, leftInput).pipe(Effect.timeout(45_000)));
+        const second = yield* Effect.forkChild(right.run(rightKey, rightInput).pipe(Effect.timeout(45_000)));
         yield* Deferred.await(reached).pipe(Effect.timeout(30_000), Effect.ensuring(Deferred.succeed(release, undefined)));
-        return [yield* Fiber.await(first), yield* Fiber.await(second)];
+        return [yield* Fiber.await(first), yield* Fiber.await(second)] as const;
       })));
       const winners = outcomes.filter(Exit.isSuccess), rejected = outcomes.filter(Exit.isFailure); expect(arrivals).toBe(2); expect(winners).toHaveLength(1); expect(rejected).toHaveLength(1);
-      expect(reasons(rejected[0]?.cause)).toContain("writeConflict"); expect(await connected.read([id])).toEqual(rows(winners[0]?.value));
-      const after = await connected.snapshot(); expect(after.commits.length - before.commits.length).toBe(1); expect(after.rowChanges.length - before.rowChanges.length).toBe(1);
+      const [loser] = rejected;
+      if (loser === undefined) throw new Error("Missing rejected Shipping Option Type update");
+      expect(expectWorkflowTypedFailures(loser).map(failure => failure.reason), Cause.pretty(loser.cause)).toEqual(["writeConflict"]);
+      const wonLeft = Exit.isSuccess(outcomes[0]), winningKey = wonLeft ? leftKey : rightKey, losingKey = wonLeft ? rightKey : leftKey;
+      const winner = rows(winners[0]?.value); expect(await connected.read([id])).toEqual(winner);
+      const after = await connected.snapshot(), inventory = await connected.fixture.inventory();
+      expectTypeRevisions(before, after, winningKey, [id]);
       const emitted = after.events.slice(before.events.length); expect(eventIds(emitted, updated)).toEqual([id]); expect(eventIds(emitted, workflowUpdated)).toEqual([id]);
+      expect(inventory.outcomes.filter(outcome => outcome.value.key === losingKey)).toMatchObject([
+        { value: { key: losingKey, kind: "nativeRoot", state: "failed" } },
+      ]);
+      expect(await Effect.runPromise(wonLeft ? left.run(leftKey, leftInput) : right.run(rightKey, rightInput))).toEqual(winner);
+      expect(arrivals).toBe(2); expect(await connected.fixture.inventory()).toEqual(inventory);
     } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); }
   }, 240_000);
 });

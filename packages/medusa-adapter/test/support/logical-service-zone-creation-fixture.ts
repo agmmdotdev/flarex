@@ -21,8 +21,6 @@ import { projectNativeRow } from "../../src/repository/result";
 import { makeServiceZoneCreationCommands } from "../../src/modules/fulfillment/service-zone-create-service";
 import { ServiceZonePhysicalDeletionIds } from "../../src/modules/fulfillment/service-zone-create-input";
 import { prepareServiceZoneCreationWorkflow, ServiceZoneCreationInput } from "../../src/workflows/fulfillment/create-service-zones";
-import { makeShippingOptionTypeCreationCommands } from "../../src/modules/fulfillment/shipping-option-type-service";
-import { prepareShippingOptionTypeCreationWorkflow } from "../../src/workflows/fulfillment/create-shipping-option-types";
 import { captureServiceZoneCreationMetadata } from "../../src/modules/fulfillment/shipping-profile-schema";
 import { compileCompleteRow } from "../../src/value/complete-row";
 import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./logical-currency-fixture";
@@ -121,12 +119,6 @@ export async function prepareLogicalServiceZoneCreation(driver: "pglite" | "post
       prepared: Result.getOrThrow(flow.prepare()), input: Schema.Null, output: Schema.Null, events: internalModuleWorkflowEvents } }));
     close(() => Effect.runPromise(host.close)); return host;
   };
-  const prepareExistingType = async () => {
-    const type = await Effect.runPromise(makeShippingOptionTypeCreationCommands());
-    const host = await Effect.runPromise(prepareShippingOptionTypeCreationWorkflow({ execution, revision: revision("service-zone-existing-type-131"),
-      modules: { fulfillment: { module: type.workflow, logicalStorage: input.logicalStorage } }, subscribers: [{ id: "native-service-zone-type-create", revision: "a".repeat(64) }] }));
-    close(() => Effect.runPromise(host.close)); return host;
-  };
   /** Canonical fixture mutation proves FK settlement with a competing parent
    * deletion. It establishes no native FulfillmentSet deletion API support. */
   const prepareParentRemoval = async () => {
@@ -177,7 +169,7 @@ export async function prepareLogicalServiceZoneCreation(driver: "pglite" | "post
     }
     return result.sort((a, b) => String(a.id).localeCompare(String(b.id)));
   };
-  return { fixture, fulfillment, installed, options, execution, prepare, prepareRoundtrip, prepareInverse, prepareAbsentInverse, prepareExistingType,
+  return { fixture, fulfillment, installed, options, execution, prepare, prepareRoundtrip, prepareInverse, prepareAbsentInverse,
     prepareParentRemoval, read,
     snapshot: () => logicalCurrencyInventory(fixture) };
 }

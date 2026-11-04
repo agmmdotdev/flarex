@@ -276,15 +276,11 @@ describe("genuine Service Zone creation on fresh eight-table shared logical stor
     } finally { finish?.(); native.mockRestore(); }
   }, 180_000);
 
-  it("rejects a copied module identity and executes an existing Type profile on the same fresh source", async () => {
+  it("rejects a copied Service Zone module identity before execution", async () => {
     const before = await connected.snapshot();
     expect(Result.isFailure(await Effect.runPromise(Effect.result(prepareServiceZoneCreationWorkflow({ ...connected.options,
       modules: { fulfillment: { ...connected.installed, module: { ...connected.fulfillment.workflow } } } }))))).toBe(true);
     expect(await connected.snapshot()).toEqual(before);
-    const host = await connected.prepareExistingType(), protectedBefore = await connected.read(graph.protected.allIds);
-    expect(rows(await Effect.runPromise(host.run(host.newRequestKey(), { shipping_option_types: [{ id: "zone-co-composed-type", label: "Co-composed", code: "native" }] }))))
-      .toMatchObject([{ id: "zone-co-composed-type", label: "Co-composed", shipping_options: [] }]);
-    expect(await connected.read(graph.protected.allIds)).toEqual(protectedBefore);
   }, 180_000);
 
   it("isolates names, parent IDs and request keys across real scopes", async () => {

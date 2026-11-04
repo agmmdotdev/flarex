@@ -10,7 +10,7 @@ import { commerceRelationReadQuery } from "../src/query/relations";
 import { captureShippingProfileDeletionMetadata } from "../src/modules/fulfillment/shipping-profile-schema";
 import { prepareShippingOptionTypeDeletionRepository } from "../src/modules/fulfillment/shipping-option-type-delete-repository";
 import { shippingOptionTypeDeletionPolicy } from "../src/modules/fulfillment/shipping-option-type-delete-receipt";
-import { shippingOptionTypeDeletionGraph } from "./support/logical-shipping-option-type-deletion-fixture";
+import { shippingOptionTypeDeletionGraph } from "./support/shipping-option-type-deletion-seeds";
 
 type Call = Parameters<LogicalCallReceiptValidation>[0];
 type Activity = Parameters<LogicalCallReceiptValidation>[1];
@@ -28,7 +28,7 @@ const evidence = (ids: readonly string[], rows = options, count = rows.length): 
   }))))).query;
   return { ...empty(), observedRows: rows.map(row => ({ table: "shipping_option", row })), relationalReads: [
     { table: "shipping_option", query, total: count, returned: Math.min(1, rows.length) },
-    { table: "shipping_option", query, total: count, returned: Math.min(1, rows.length) },
+    { table: "shipping_option", query, total: count, returned: count },
   ] };
 };
 const refuse = async (receipt: Call, activity: Activity) => expect(await Effect.runPromise(Effect.result(validate(receipt, activity))))
@@ -66,6 +66,8 @@ describe("native Type deletion exact paginated Option read evidence", () => {
   });
   it("refuses truncated counts, fabricated membership, widened pages and mismatched table/intent", async () => {
     const receipt = call(graph.ids), activity = evidence(graph.ids);
+    await refuse(receipt, { ...activity, relationalReads: activity.relationalReads.map(read => ({ ...read, returned: 1 })) });
+    await refuse(receipt, { ...activity, relationalReads: [...activity.relationalReads].reverse() });
     await refuse({ ...receipt, result: [options.slice(0, 1).map(row => ({ id: row.id! })), 1] }, activity);
     await refuse({ ...receipt, result: [[], 2] }, activity);
     await refuse({ ...receipt, result: [options.map(row => ({ id: row.id! })), 2] }, activity);

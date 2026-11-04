@@ -545,3 +545,7 @@ stored and callback-child consumers to Core. Paired acceptance is complete.
 The [native Shipping Profiles continuation](./slices/39-native-shipping-profiles.md)
 moves create, update, delete and the connected same-source Service Zone
 witness to Core. Paired acceptance is complete for the selected workflows.
+
+The [native Shipping Option Types continuation](./slices/40-native-shipping-option-types.md)
+moves the three genuine Type roots and the connected Service Zone witness to
+Core. Paired acceptance is complete for the selected workflows.

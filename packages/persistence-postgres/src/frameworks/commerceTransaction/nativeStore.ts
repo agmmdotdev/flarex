@@ -11,7 +11,7 @@ import { useCapturedPrivateJsonData } from "../../values/privateJsonData";
 import { commerceError, type CommerceTransactionError } from "./model";
 import { defaultCommerceResources, type CommerceResources } from "./resources";
 import type { CommerceStore } from "./storeModel";
-import type { LogicalReconstitutionPolicy } from "../../storage/documents/logicalDocuments/model";
+import type { LogicalPreservingDeletionUpsertPolicy, LogicalReconstitutionPolicy } from "../../storage/documents/logicalDocuments/model";
 import { projectCoreCommerceFailure } from "./nativeFailure";
 import { observeExecution } from "../../execution/diagnostics/operation";
 import type { CommerceReferenceReplacement, CommerceSetNullSelection } from "./commands";
@@ -40,7 +40,7 @@ export interface NativeCommerceInvocation {
   readonly allowStorageInsertionOrder?: true;
   readonly allowRecordedRowReplay?: true;
   readonly reconstitution?: LogicalReconstitutionPolicy;
-  readonly allowPreservingDeletionUpsert?: "preserveTimestamps";
+  readonly allowPreservingDeletionUpsert?: LogicalPreservingDeletionUpsertPolicy;
   readonly allowReferenceReplacement?: true;
   readonly setNullPolicy?: Readonly<{ managedUpdate: "advance" | "preserve" }>;
   readonly onRead?: (observation: NativeCommerceReadObservation) => Effect.Effect<void, CommerceTransactionError>;
@@ -141,15 +141,19 @@ export const makeNativeCommerceParticipant = Effect.fn("NativeCommerce.makeParti
         return yield* returnedRows(yield* nativeResult(operations.lifecycle(table.name, mode, captured.value,
           invocation?.allowActiveRestoreUpdate === true ? { allowActiveRestoreUpdate: true } : undefined)));
       })),
-      write: (context, mode, input) => guard(context, "write", Effect.gen(function* () {
-        if (invocation !== undefined && mode === "upsertPreservingDeletion"
-          && invocation.allowPreservingDeletionUpsert !== "preserveTimestamps") return yield* commerceError("invalidAuthority");
+      write: Effect.fn("NativeCommerce.write")((context: BoundedRequestContext, mode: Parameters<CommerceStore["write"]>[1], input: unknown) => guard(context, "write", Effect.gen(function* () {
+        const upsertPolicy = invocation?.allowPreservingDeletionUpsert;
+        const insertValidation = invocation?.insertValidation;
+        let writePolicy: Parameters<CoreNativeOperations["writeRows"]>[3] = insertValidation === undefined ? undefined : { insertValidation };
+        if (mode === "upsertPreservingDeletion" && invocation !== undefined) {
+          if (upsertPolicy === true) writePolicy = { advancePreservingDeletionUpdatedAt: true };
+          else if (upsertPolicy !== "preserveTimestamps") return yield* commerceError("invalidAuthority");
+        }
         const captured = yield* lifetime.fromResult(useCapturedPrivateJsonData(input, lifetime.remainingBytes(), commerceError));
         yield* lifetime.fromResult(lifetime.charge(captured.bytes));
         return yield* returnedRows(yield* nativeResult(observeExecution(`NativeCommerce.writeRows/${declaration.localName ?? table.name}/${mode}`,
-          operations.writeRows(table.name, mode, captured.value,
-            invocation?.insertValidation === undefined ? undefined : { insertValidation: invocation.insertValidation }))));
-      })),
+          operations.writeRows(table.name, mode, captured.value, writePolicy))));
+      }))),
       delete: (context, input) => guard(context, "write", Effect.gen(function* () {
         const captured = yield* lifetime.fromResult(useCapturedPrivateJsonData(input, lifetime.remainingBytes(), commerceError));
         yield* lifetime.fromResult(lifetime.charge(captured.bytes));

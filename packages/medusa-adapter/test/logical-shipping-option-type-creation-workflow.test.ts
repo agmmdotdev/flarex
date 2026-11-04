@@ -1,15 +1,22 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { Cause, Deferred, Effect, Fiber, Result, Schema } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
+import { StepResponse } from "@medusajs/workflows-sdk";
 import { FulfillmentModuleService, FulfillmentProviderService } from "@medusajs/fulfillment/services";
 import { createShippingOptionTypesWorkflow } from "@medusajs/core-flows/shipping-options/create-shipping-option-types";
-import { CommerceTransactionError, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
+import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
+import { defineAtomicCommerceNativeSource } from "../../persistence-postgres/src/frameworks/atomicCommerce/nativeSelection";
+import { compileShippingProfileCoreDefinition } from "../src/modules/fulfillment/shipping-profile-schema";
 import { prepareShippingOptionTypeCreationWorkflow } from "../src/workflows/fulfillment/create-shipping-option-types";
-import { prepareLogicalShippingOptionTypeCreation, shippingOptionTypeSeedIds } from "./support/logical-shipping-option-type-creation-fixture";
+import { expectCheckoutRollback, expectCheckoutSettlement } from "./support/core-checkout-evidence";
+import { finishOrderFixture } from "./support/core-order-fixture";
+import { prepareCoreShippingOptionTypeCreation, shippingOptionTypeSeedIds } from "./support/core-shipping-option-type-creation-fixture";
+import { serviceZoneParents } from "./support/native-fulfillment-graph-fixture";
+import { expectCapturedWorkflowRefusal, expectWorkflowDefect, expectWorkflowTypedFailures } from "./support/workflow-failure-assertions";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalShippingOptionTypeCreation>>, sharedCleanupCount = 0;
+let connected: Awaited<ReturnType<typeof prepareCoreShippingOptionTypeCreation>>, sharedCleanupCount = 0;
 const rows = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject)), text = Schema.decodeUnknownSync(Schema.String);
 const input = (prefix: string) => ({ shipping_option_types: [
   { id: prefix + "-rich", label: " Native Label ", code: " Raw CODE ", description: " Native description " },
@@ -17,33 +24,34 @@ const input = (prefix: string) => ({ shipping_option_types: [
   { id: prefix + "-null", label: "Null", code: "", description: null },
   { id: prefix + "-empty", label: "", code: " Raw CODE ", description: "" },
 ] });
-function reasons(value: unknown): string[] {
-  if (Cause.isCause(value)) return value.reasons.flatMap(reason => reason._tag === "Fail" ? reasons(reason.error)
-    : reason._tag === "Die" ? reasons(reason.defect) : ["Interrupt"]);
-  if (value instanceof CommerceTransactionError) return [value.reason, ...reasons(value.cause)];
-  return value instanceof Error ? [value.message, ...reasons(value.cause)] : [];
-}
-
-describe("genuine Shipping Option Type creation on existing shared logical storage", { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalShippingOptionTypeCreation(driver, close => cleanup.push(close)); sharedCleanupCount = cleanup.length; }, 240_000);
-  afterEach(async () => { for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }, 120_000);
-  afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
+describe("genuine Shipping Option Type creation through Core", { concurrent: false }, () => {
+  beforeAll(async () => {
+    connected = await prepareCoreShippingOptionTypeCreation(driver, close => cleanup.push(close));
+    sharedCleanupCount = cleanup.length;
+  }, 240_000);
+  afterEach(() => finishOrderFixture([...cleanup.splice(sharedCleanupCount).reverse(), connected.closeCaseHosts]), 120_000);
+  afterAll(() => finishOrderFixture(cleanup.reverse()), 120_000);
 
   it("preserves native supplied-ID aliases with final description and distinct module/workflow event cohorts", async () => {
-    const host = await connected.prepare(), before = await connected.snapshot();
+    const host = await connected.prepare(), before = await connected.snapshot(), key = host.newRequestKey();
     const value = { shipping_option_types: [
       { id: "sotype-identity-alias", label: "first", code: "first", description: null },
       { id: "sotype-identity-alias", label: "ignored", code: "ignored", description: "filled" },
     ] }, original = structuredClone(value);
-    const output = rows(await Effect.runPromise(host.run(host.newRequestKey(), value)));
+    const output = rows(await Effect.runPromise(host.run(key, value)));
     expect(value).toEqual(original); expect(output).toHaveLength(2); expect(output[1]).toEqual(output[0]);
     expect(output[0]).toMatchObject({ id: "sotype-identity-alias", label: "first", code: "first", description: "filled", shipping_options: [] });
     expect(await connected.read(["sotype-identity-alias"])).toHaveLength(1);
-    const events = (await connected.snapshot()).events.slice(before.events.length);
+    const after = await connected.snapshot(), timestamp = expectCheckoutSettlement(before, after, key);
+    const events = after.events.slice(before.events.length);
     expect(events.map(event => event.envelope.contract)).toEqual(["fulfillment.shipping-option-type.created", "shipping-option-type.created", "shipping-option-type.created"]);
-    const inverse = await connected.prepareInverse();
-    await Effect.runPromise(inverse.run(inverse.newRequestKey(), output.map(row => text(row.id))));
+    const inverse = await connected.prepareInverse(), inverseKey = inverse.newRequestKey();
+    await Effect.runPromise(inverse.run(inverseKey, output.map(row => text(row.id))));
     expect(await connected.read(["sotype-identity-alias"])).toEqual([]);
+    const undone = await connected.snapshot(), inverseTimestamp = expectCheckoutSettlement(after, undone, inverseKey);
+    expect(undone.revisions.filter(revision => revision.timestamp === inverseTimestamp)).toMatchObject([
+      { previous: timestamp, deleted: true, value: null },
+    ]);
   }, 240_000);
 
   it("creates the complete four-Type result in order, executes its hook, emits both event families and replays once", async () => {
@@ -83,8 +91,8 @@ describe("genuine Shipping Option Type creation on existing shared logical stora
       expect(emitted.map(event => event.envelope.internal)).toEqual([...ids.map(() => true), ...ids.map(() => false)]);
       for (const family of ["fulfillment.shipping-option-type.created", "shipping-option-type.created"])
         expect(emitted.filter(event => event.envelope.contract === family).map(event => event.envelope.message)).toEqual(ids.map(id => expect.objectContaining({ data: { id } })));
-      expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1);
-      expect(after.commits.length - before.commits.length).toBe(1); expect(after.rowChanges.length - before.rowChanges.length).toBe(4);
+      const timestamp = expectCheckoutSettlement(before, after, key);
+      expect(after.revisions.filter(revision => revision.timestamp === timestamp).map(revision => revision.value?.id).toSorted()).toEqual(ids.toSorted());
       expect(await connected.read(ids)).toEqual(output.map(({ shipping_options: _shipping, ...row }) => row).sort((a, b) => text(a.id).localeCompare(text(b.id))));
       expect(await Effect.runPromise(host.run(key, value))).toEqual(output); expect(native).toHaveBeenCalledTimes(1); expect(trace).toEqual(["hook"]);
       await expect(Effect.runPromise(host.run(key, { shipping_option_types: [] }))).rejects.toMatchObject({ reason: "requestConflict" });
@@ -102,10 +110,12 @@ describe("genuine Shipping Option Type creation on existing shared logical stora
       expect(typeof context.container.resolve<{ emit: unknown }>("event_bus").emit).toBe("function"); hook();
     } });
     try {
-      const before = await connected.snapshot(); expect(await Effect.runPromise(host.run(host.newRequestKey(), { shipping_option_types: [] }))).toEqual([]);
+      const before = await connected.snapshot(), key = host.newRequestKey();
+      expect(await Effect.runPromise(host.run(key, { shipping_option_types: [] }))).toEqual([]);
       expect(native.mock.calls.map(call => call[0])).toEqual([[]]); expect(hook).toHaveBeenCalledTimes(1);
-      const after = await connected.snapshot(); expect(after.rows).toEqual(before.rows); expect(after.revisions).toEqual(before.revisions);
-      expect(after.events).toEqual(before.events); expect(after.rowChanges).toEqual(before.rowChanges); expect(after.commits.length - before.commits.length).toBe(1);
+      const after = await connected.snapshot();
+      expect(after.outcomes.slice(before.outcomes.length)).toMatchObject([{ value: { key, kind: "nativeRoot", state: "committed" } }]);
+      expect({ ...after, outcomes: before.outcomes }).toEqual(before);
       const inverse = await connected.prepareAbsentInverse(), deletion = vi.spyOn(FulfillmentModuleService.prototype, "deleteShippingOptionTypes");
       try { expect(await Effect.runPromise(inverse.run(inverse.newRequestKey(), null))).toBeNull(); expect(deletion).not.toHaveBeenCalled(); }
       finally { deletion.mockRestore(); }
@@ -138,46 +148,73 @@ describe("genuine Shipping Option Type creation on existing shared logical stora
   it("keeps ordinary insert semantics for existing and tombstoned IDs with no prefix publication", async () => {
     const host = await connected.prepare();
     for (const conflicting of [shippingOptionTypeSeedIds.existing, shippingOptionTypeSeedIds.deleted]) {
-      const before = await connected.snapshot();
+      const before = await connected.fixture.inventory(), key = host.newRequestKey();
       const value = { shipping_option_types: [{ id: "sotype-prefix-" + conflicting, label: "First", code: "same" },
         { id: conflicting, label: "Conflict", code: "same" }] };
-      const outcome = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), value)));
-      expect(Result.isFailure(outcome)).toBe(true); expect(await connected.snapshot()).toEqual(before);
+      expectWorkflowTypedFailures(await Effect.runPromiseExit(host.run(key, value)), "invalidInput");
+      await expectCheckoutRollback(connected.fixture, before, key);
     }
   }, 240_000);
 
   it("executes the full native root and its genuine physical inverse within unchanged limits", async () => {
-    const host = await connected.prepareRoundtrip(), native = vi.spyOn(FulfillmentModuleService.prototype, "deleteShippingOptionTypes");
+    const getter = Object.getOwnPropertyDescriptor(StepResponse.prototype, "compensateInput")?.get;
+    if (getter === undefined) throw new Error("Missing genuine SDK retained-response getter");
+    const retainedValues: unknown[] = [];
+    const retained = vi.spyOn(StepResponse.prototype, "compensateInput", "get").mockImplementation(function (this: StepResponse<unknown, unknown>) {
+      const value: unknown = Reflect.apply(getter, this, []);
+      // The genuine emit-event step retains a separate object for its inverse.
+      if (Array.isArray(value)) retainedValues.push(structuredClone(value));
+      return value;
+    });
+    const actualRetained = () => {
+      if (retainedValues.length !== 1) throw new Error("Expected exactly the genuine Type retained value");
+      return retainedValues[0];
+    };
+    const native = vi.spyOn(FulfillmentModuleService.prototype, "deleteShippingOptionTypes");
     try {
-      const before = await connected.snapshot(); let calls = 0;
-      const output = rows(await Effect.runPromise(host.run(host.newRequestKey(), input("sotype-inverse")).pipe(Effect.provideService(ExecutionDiagnostics, {
+      const host = await connected.prepareRoundtrip(actualRetained), value = input("sotype-inverse");
+      const before = await connected.snapshot(), key = host.newRequestKey(); let calls = 0;
+      const output = rows(await Effect.runPromise(host.run(key, value).pipe(Effect.provideService(ExecutionDiagnostics, {
         observe: (name, work) => Effect.sync(() => { if (name === "BoundedRequest.enter") calls++; }).pipe(Effect.andThen(work)),
       }))));
       console.info("ShippingOptionType maximum root plus inverse BoundedRequest.enter", calls);
-      expect(calls).toBeLessThanOrEqual(defaultCommerceResources.calls); expect(output).toHaveLength(4);
-      expect(native.mock.calls.map(call => call[0])).toEqual([output.map(row => row.id)]);
-      expect(await connected.read(output.map(row => text(row.id)))).toEqual([]);
+      expect(calls).toBeGreaterThan(0); expect(calls).toBeLessThanOrEqual(defaultCommerceResources.calls); expect(output).toHaveLength(4);
+      const ids = output.map(row => text(row.id));
+      expect(actualRetained()).toEqual(ids); expect(native.mock.calls.map(call => call[0])).toEqual([ids]);
+      expect(await connected.read(ids)).toEqual([]);
       const after = await connected.snapshot(), emitted = after.events.slice(before.events.length);
       expect(emitted.filter(event => event.envelope.contract === "fulfillment.shipping-option-type.deleted")).toHaveLength(4);
       expect(emitted.filter(event => event.envelope.contract === "shipping-option-type.created")).toHaveLength(4);
       expect(emitted.length).toBeLessThanOrEqual(defaultCommerceResources.eventMessages);
-    } finally { native.mockRestore(); }
-    const failing = await connected.prepareRoundtrip(true), before = await connected.snapshot();
-    const result = await Effect.runPromise(Effect.result(failing.run(failing.newRequestKey(), input("sotype-late-inverse"))));
-    expect(Result.isFailure(result)).toBe(true); expect(await connected.snapshot()).toEqual(before);
+      const timestamp = expectCheckoutSettlement(before, after, key);
+      const table = connected.definition.tables.find(table => table.localName === "shipping_option_type");
+      if (table === undefined) throw new Error("Missing issued Shipping Option Type table");
+      const tombstones = after.revisions.filter(revision => revision.timestamp === timestamp);
+      expect(tombstones).toHaveLength(4);
+      expect(new Set(tombstones.map(revision => revision.id)).size).toBe(4);
+      for (const revision of tombstones) expect(revision).toMatchObject({ table: table.name, previous: null, deleted: true, value: null });
+      expect(after.rows).toEqual(before.rows); expect(after.indexes).toEqual(before.indexes);
+      expect(await Effect.runPromise(host.run(key, value))).toEqual(output);
+      expect(actualRetained()).toEqual(ids); expect(native).toHaveBeenCalledTimes(1);
+      expect(await connected.snapshot()).toEqual(after);
+
+      retainedValues.length = 0;
+      const failure = new Error("Late native Type inverse failure");
+      const failing = await connected.prepareRoundtrip(actualRetained, failure);
+      const beforeFailure = await connected.fixture.inventory(), failingKey = failing.newRequestKey();
+      expectWorkflowDefect(await Effect.runPromiseExit(failing.run(failingKey, input("sotype-late-inverse"))), failure);
+      await expectCheckoutRollback(connected.fixture, beforeFailure, failingKey);
+    } finally { native.mockRestore(); retained.mockRestore(); }
   }, 240_000);
 
   it.each([shippingOptionTypeSeedIds.linked, shippingOptionTypeSeedIds.historical])("refuses retained physical inverse for active or historical Option reference %s", async id => {
     const host = await connected.prepareInverse(), native = vi.spyOn(FulfillmentModuleService.prototype, "deleteShippingOptionTypes");
     try {
-      const before = await connected.snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), [id])));
-      expect(Result.isFailure(result)).toBe(true);
-      if (Result.isFailure(result)) {
-        const actual = reasons(result.failure);
-        expect(actual).toContain("invalidInput");
-        for (const unrelated of ["unsupportedProfile", "receiptMismatch", "unadmittedEvent"]) expect(actual).not.toContain(unrelated);
-      }
-      expect(native).toHaveBeenCalledTimes(1); expect(await connected.snapshot()).toEqual(before);
+      const before = await connected.fixture.inventory(), key = host.newRequestKey();
+      const failures = expectWorkflowTypedFailures(await Effect.runPromiseExit(host.run(key, [id])), "invalidInput");
+      expect(failures.every(failure => failure.reason === "invalidInput" || failure.reason === "rollbackOnly")).toBe(true);
+      expect(native).toHaveBeenCalledTimes(1);
+      await expectCheckoutRollback(connected.fixture, before, key);
       expect(await connected.read([id])).toHaveLength(1);
       // The pinned native SQLite DAL refuses its attempted required-FK null;
       // shared storage maps noncascade inbound reference refusal to invalidInput.
@@ -187,13 +224,15 @@ describe("genuine Shipping Option Type creation on existing shared logical stora
   it("refuses nested, managed, unknown and oversized inputs before native work", async () => {
     const host = await connected.prepare(), native = vi.spyOn(FulfillmentModuleService.prototype, "createShippingOptionTypes");
     try {
-      const before = await connected.snapshot();
       for (const invalid of [{ shipping_option_types: Array(5).fill({ label: "Too many", code: "code" }) },
         ...["created_at", "updated_at", "deleted_at", "shipping_options", "shipping_option", "shipping_option_id", "metadata"].map(field => ({ shipping_option_types: [{ label: "Invalid", code: "code", [field]: null }] })),
         { shipping_option_types: [{ label: "Invalid", code: null }] }, { shipping_option_types: [{ label: null, code: "code" }] },
-        { shipping_option_types: [{ label: "Invalid", code: "code", foreign: true }] }, { shipping_option_types: [], foreign: true }])
-        await expect(Effect.runPromise(host.run(host.newRequestKey(), invalid))).rejects.toMatchObject({ reason: "invalidInput" });
-      expect(native).not.toHaveBeenCalled(); expect(await connected.snapshot()).toEqual(before);
+        { shipping_option_types: [{ label: "Invalid", code: "code", foreign: true }] }, { shipping_option_types: [], foreign: true }]) {
+        const before = await connected.fixture.inventory(), key = host.newRequestKey();
+        expectWorkflowTypedFailures(await Effect.runPromiseExit(host.run(key, invalid)), "invalidInput");
+        await expectCheckoutRollback(connected.fixture, before, key);
+      }
+      expect(native).not.toHaveBeenCalled();
     } finally { native.mockRestore(); }
   }, 180_000);
 
@@ -209,34 +248,55 @@ describe("genuine Shipping Option Type creation on existing shared logical stora
       return output;
     });
     try {
-      const host = await connected.prepare(), before = await connected.snapshot();
-      expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), input("sotype-forge-" + mode)))))).toBe(true);
-      expect(native).toHaveBeenCalledTimes(1); expect(await connected.snapshot()).toEqual(before);
+      const host = await connected.prepare(), before = await connected.fixture.inventory(), key = host.newRequestKey();
+      expectWorkflowTypedFailures(await Effect.runPromiseExit(host.run(key, input("sotype-forge-" + mode))), "receiptMismatch");
+      expect(native).toHaveBeenCalledTimes(1); await expectCheckoutRollback(connected.fixture, before, key);
     } finally { native.mockRestore(); }
   }, 180_000);
 
   it("rolls back hook failure and a caught sibling denial without publishing staged writes/events", async () => {
     for (const mode of ["throw", "catchDenied"] as const) {
-      let called = false;
+      const failure = new Error("Native Type creation hook failure");
+      let called = false, caught: unknown;
       const host = await connected.prepare({ shippingOptionTypesCreated: async (_payload, context) => {
         called = true;
-        if (mode === "throw") throw new Error("Native Type creation hook failure");
+        if (mode === "throw") throw failure;
         try { await context.container.resolve<{ createShippingProfiles: (value: unknown) => Promise<unknown> }>("fulfillment")
-          .createShippingProfiles({ name: "Denied sibling", type: "default" }); } catch { /* refusal remains root-fatal */ }
+          .createShippingProfiles({ name: "Denied sibling", type: "default" }); } catch (error) { caught = error; }
       } });
-      const before = await connected.snapshot(); expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), input("sotype-hook-" + mode)))))).toBe(true);
-      expect(called).toBe(true); expect(await connected.snapshot()).toEqual(before);
+      const before = await connected.fixture.inventory(), key = host.newRequestKey();
+      const outcome = await Effect.runPromiseExit(host.run(key, input("sotype-hook-" + mode)));
+      if (mode === "throw") expectWorkflowDefect(outcome, failure);
+      else {
+        expect(caught).toMatchObject({ reason: "unsupportedProfile" });
+        expectCapturedWorkflowRefusal(outcome, "unsupportedProfile");
+      }
+      expect(called).toBe(true); await expectCheckoutRollback(connected.fixture, before, key);
     }
   }, 240_000);
 
-  it("rejects forged and unknown hook registrations before execution", async () => {
+  it("rejects forged hooks, module identities, sources and resource overrides before execution", async () => {
+    const before = await connected.fixture.inventory();
+    const prepare = vi.fn(connected.execution.prepare), execution = { ...connected.execution, prepare };
     const inherited: unknown = Object.create({ shippingOptionTypesCreated: () => undefined });
     const invalidHooks: unknown[] = [inherited, { unselectedHook: () => undefined }, { shippingOptionTypesCreated: "invalid" }];
     for (const hooks of invalidHooks)
       // @ts-expect-error Deliberately forged foreign hook registration.
-      expect(Result.isFailure(await Effect.runPromise(Effect.result(prepareShippingOptionTypeCreationWorkflow({ ...connected.options, hooks }))))).toBe(true);
-    expect(Result.isFailure(await Effect.runPromise(Effect.result(prepareShippingOptionTypeCreationWorkflow({ ...connected.options,
-      modules: { fulfillment: { ...connected.installed, module: { ...connected.fulfillment.workflow } } } }))))).toBe(true);
+      expectWorkflowTypedFailures(await Effect.runPromiseExit(prepareShippingOptionTypeCreationWorkflow({ ...connected.options, execution, hooks })));
+    const wrongSlot = Result.getOrThrow(defineAtomicCommerceNativeSource("foreign", connected.definition));
+    const { scopeUuid, epochUuid } = connected.definition.identity;
+    const scalar = await Effect.runPromise(compileShippingProfileCoreDefinition({ scopeUuid, epochUuid }));
+    const missingOptions = Result.getOrThrow(defineAtomicCommerceNativeSource("fulfillment", scalar));
+    for (const fulfillment of [{ ...connected.installed, module: { ...connected.fulfillment.workflow } },
+      { ...connected.installed, nativeStorage: wrongSlot }, { ...connected.installed, nativeStorage: missingOptions },
+      { ...connected.installed, nativeStorage: { ...connected.installed.nativeStorage } }])
+      expectWorkflowTypedFailures(await Effect.runPromiseExit(prepareShippingOptionTypeCreationWorkflow({ ...connected.options, execution, fulfillment })), "invalidAuthority");
+    const override = { ...connected.installed, logicalResources: { ...defaultCommerceResources, calls: 128 } };
+    expectWorkflowTypedFailures(await Effect.runPromiseExit(prepareShippingOptionTypeCreationWorkflow({ ...connected.options, execution,
+      // @ts-expect-error Deliberately verify that a foreign policy override is refused at runtime.
+      fulfillment: override,
+    })), "unsupportedProfile");
+    expect(prepare).not.toHaveBeenCalled(); expect(await connected.fixture.inventory()).toEqual(before);
   });
 
   it("cancels at the native hook and revokes escaped pending resources", async () => {
@@ -248,14 +308,15 @@ describe("genuine Shipping Option Type creation on existing shared logical stora
       await Effect.runPromise(Deferred.succeed(reached, undefined)); await wait; await Effect.runPromise(Deferred.succeed(finished, undefined));
     } });
     try {
-      const before = await connected.snapshot(), interrupted = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-        const fiber = yield* Effect.forkChild(host.run(host.newRequestKey(), input("sotype-cancel")));
+      const before = await connected.fixture.inventory(), key = host.newRequestKey(), interrupted = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const fiber = yield* Effect.forkChild(host.run(key, input("sotype-cancel")));
         yield* Deferred.await(reached).pipe(Effect.timeout(30_000)); yield* Fiber.interrupt(fiber); return yield* Fiber.await(fiber);
       })));
-      expect(interrupted._tag).toBe("Failure"); if (interrupted._tag === "Failure") expect(reasons(interrupted.cause)).toContain("Interrupt");
-      expect(await connected.snapshot()).toEqual(before);
+      expect(Exit.isFailure(interrupted) && Cause.hasInterrupts(interrupted.cause)).toBe(true);
+      await expectCheckoutRollback(connected.fixture, before, key);
       if (escaped === undefined) throw new Error("Missing actual cancelled hook method"); await expect(escaped()).rejects.toBeDefined();
-      finish?.(); await Effect.runPromise(Deferred.await(finished).pipe(Effect.timeout(5_000))); expect(await connected.snapshot()).toEqual(before);
+      finish?.(); await Effect.runPromise(Deferred.await(finished).pipe(Effect.timeout(5_000)));
+      await expectCheckoutRollback(connected.fixture, before, key);
     } finally { finish?.(); }
   }, 180_000);
 
@@ -278,14 +339,13 @@ describe("genuine Shipping Option Type creation on existing shared logical stora
     const host = await connected.prepare({ shippingOptionTypesCreated: async (_payload, context) => {
       await context.resources.fulfillment.createShippingOptionTypes([]);
     } });
-    const before = await connected.snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), input("sotype-hook-second-create"))));
-    expect(Result.isFailure(result)).toBe(true); if (Result.isFailure(result)) expect(reasons(result.failure)).toContain("receiptMismatch");
-    expect(await connected.snapshot()).toEqual(before);
+    const before = await connected.fixture.inventory(), key = host.newRequestKey();
+    expectWorkflowTypedFailures(await Effect.runPromiseExit(host.run(key, input("sotype-hook-second-create"))), "receiptMismatch");
+    await expectCheckoutRollback(connected.fixture, before, key);
   }, 180_000);
 
   it("isolates equal Type IDs and request keys across real scopes", async () => {
-    const other = await prepareLogicalShippingOptionTypeCreation(driver, close => cleanup.push(close), { resource: connected.fixture.resource,
-      fixtureIdentity: { deploymentId: "shipping_option_type_create_b", projectId: "shipping_option_type_create_b", uuidOffset: 790_000 } });
+    const other = await prepareCoreShippingOptionTypeCreation(driver, close => cleanup.push(close), connected.fixture.physical);
     const left = await connected.prepare(), right = await other.prepare(), key = left.newRequestKey();
     const id = "sotype-cross-scope", first = { shipping_option_types: [{ id, label: "First scope", code: "same" }] }, second = { shipping_option_types: [{ id, label: "Second scope", code: "same" }] };
     const output = await Effect.runPromise(left.run(key, first)); expect(await other.read([id])).toEqual([]);
@@ -295,27 +355,57 @@ describe("genuine Shipping Option Type creation on existing shared logical stora
     expect(await connected.snapshot()).toEqual(after);
   }, 240_000);
 
-  it.skipIf(driver !== "postgres")("settles one of two overlapping creates for the same supplied ID", async () => {
+  it("creates a Type beside genuine Service Zone creation on the same eight-table Core source", async () => {
+    const type = await connected.prepare(), zone = await connected.prepareZone();
+    const protectedIds = connected.protectedZoneIds;
+    const protectedBefore = await connected.read(protectedIds), before = await connected.snapshot(), zoneKey = zone.newRequestKey();
+    expect(protectedBefore).toHaveLength(4);
+    const zones = rows(await Effect.runPromise(zone.run(zoneKey, { data: [{ name: "Core co-composed Type Zone", fulfillment_set_id: serviceZoneParents.active }] })));
+    expect(zones).toMatchObject([{ name: "Core co-composed Type Zone", fulfillment_set_id: serviceZoneParents.active, shipping_options: [] }]);
+    const afterZone = await connected.snapshot(), zoneTimestamp = expectCheckoutSettlement(before, afterZone, zoneKey);
+    expect(afterZone.events.filter(event => event.timestamp === zoneTimestamp).map(event => event.envelope.contract)).toEqual(["fulfillment.service-zone.created"]);
+    const zoneIds = zones.map(row => text(row.id)), storedZones = await connected.read(zoneIds);
+    const id = "zone-co-composed-type", typeKey = type.newRequestKey();
+    const value = { shipping_option_types: [{ id, label: "Co-composed", code: "native" }] };
+    const output = rows(await Effect.runPromise(type.run(typeKey, value)));
+    expect(output).toMatchObject([{ id, label: "Co-composed", shipping_options: [] }]);
+    expect(await connected.read(protectedIds)).toEqual(protectedBefore);
+    expect(await connected.read(zoneIds)).toEqual(storedZones);
+    expect(await connected.read([id])).toMatchObject([{ id, label: "Co-composed", code: "native" }]);
+    const after = await connected.snapshot(), timestamp = expectCheckoutSettlement(afterZone, after, typeKey);
+    expect(after.events.filter(event => event.timestamp === timestamp).map(event => event.envelope.contract))
+      .toEqual(["fulfillment.shipping-option-type.created", "shipping-option-type.created"]);
+    expect(await Effect.runPromise(type.run(typeKey, value))).toEqual(output);
+    expect(await connected.snapshot()).toEqual(after);
+  }, 240_000);
+
+  it("settles one of two overlapping creates for the same supplied ID", async () => {
     const reached = Deferred.makeUnsafe<void>(), release = Deferred.makeUnsafe<void>(); let arrivals = 0;
     const hooks = { shippingOptionTypesCreated: async () => {
       arrivals++; if (arrivals === 2) await Effect.runPromise(Deferred.succeed(reached, undefined));
       await Effect.runPromise(Deferred.await(release));
     } };
     const left = await connected.prepare(hooks), right = await connected.prepare(hooks), id = "sotype-concurrent-id", before = await connected.snapshot();
+    const leftKey = left.newRequestKey(), rightKey = right.newRequestKey();
     try {
       const outcomes = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-        const first = yield* Effect.forkChild(left.run(left.newRequestKey(), { shipping_option_types: [{ id, label: "Left", code: "same" }] }));
-        const second = yield* Effect.forkChild(right.run(right.newRequestKey(), { shipping_option_types: [{ id, label: "Right", code: "same" }] }));
+        const first = yield* Effect.forkChild(left.run(leftKey, { shipping_option_types: [{ id, label: "Left", code: "same" }] }).pipe(Effect.timeout(45_000)));
+        const second = yield* Effect.forkChild(right.run(rightKey, { shipping_option_types: [{ id, label: "Right", code: "same" }] }).pipe(Effect.timeout(45_000)));
         yield* Deferred.await(reached).pipe(Effect.timeout(30_000), Effect.ensuring(Deferred.succeed(release, undefined)));
-        return [yield* Fiber.await(first), yield* Fiber.await(second)];
+        return [yield* Fiber.await(first), yield* Fiber.await(second)] as const;
       })));
-      expect(outcomes.filter(outcome => outcome._tag === "Success")).toHaveLength(1);
-      expect(outcomes.filter(outcome => outcome._tag === "Failure")).toHaveLength(1); expect(arrivals).toBe(2);
-      const winner = outcomes.find(outcome => outcome._tag === "Success");
-      if (winner?._tag !== "Success") throw new Error("Missing accepted native Type creation");
+      expect(outcomes.filter(Exit.isSuccess)).toHaveLength(1);
+      expect(outcomes.filter(Exit.isFailure)).toHaveLength(1); expect(arrivals).toBe(2);
+      const [first, second] = outcomes, [winner, failure] = Exit.isSuccess(first) ? [first, second] : [second, first];
+      if (!Exit.isSuccess(winner) || !Exit.isFailure(failure)) throw new Error("Expected one accepted and one rejected Type creation");
+      expect(expectWorkflowTypedFailures(failure).map(error => error.reason)).toEqual(["writeConflict"]);
+      const [committedKey, refusedKey] = Exit.isSuccess(first) ? [leftKey, rightKey] : [rightKey, leftKey];
       const [actual] = await connected.read([id]); expect(actual?.label).toBe(rows(winner.value)[0]?.label);
-      const after = await connected.snapshot(); expect(after.rowChanges.length - before.rowChanges.length).toBe(1);
-      expect(after.events.length - before.events.length).toBe(2); expect(after.commits.length - before.commits.length).toBe(1);
+      const after = await connected.snapshot(), timestamp = expectCheckoutSettlement(before, after, committedKey);
+      expect(after.revisions.filter(revision => revision.timestamp === timestamp)).toHaveLength(1);
+      expect(after.events.length - before.events.length).toBe(2);
+      expect((await connected.fixture.inventory()).outcomes.filter(record => record.value.key === refusedKey))
+        .toMatchObject([{ value: { key: refusedKey, kind: "nativeRoot", state: "failed" } }]);
     } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); }
   }, 240_000);
 });

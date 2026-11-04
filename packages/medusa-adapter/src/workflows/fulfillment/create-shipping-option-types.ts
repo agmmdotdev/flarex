@@ -1,16 +1,16 @@
 import { Effect, Result, Schema } from "effect";
 import { createShippingOptionTypesWorkflow } from "@medusajs/core-flows/shipping-options/create-shipping-option-types";
-import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { matchesAtomicCommerceNativeSource, type AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { commerceError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { ShippingOptionTypeCreates, compileShippingOptionTypeCreationContracts } from "../../modules/fulfillment/shipping-option-type-input";
-import { captureShippingProfileDeletionMetadata } from "../../modules/fulfillment/shipping-profile-schema";
+import { captureShippingProfileDeletionMetadata, shippingProfileDeletionTables } from "../../modules/fulfillment/shipping-profile-schema";
 import type { makeShippingOptionTypeCreationCommands } from "../../modules/fulfillment/shipping-option-type-service";
 import { commerceDecoder } from "../../value/decoder";
 import { captureCommerceInput } from "../../value/input";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { orderedWorkflowIdEvents } from "../../workflow/events";
 import { prepareAtomicWorkflowHost, captureInstalledWorkflowModules, type AtomicWorkflowExecution,
-  type InstalledWorkflowModule } from "../../workflow/host";
+  type OrdinaryNativeInstalledWorkflowModule } from "../../workflow/host";
 import { workflowModuleDefinition } from "../../workflow/module";
 import { prepareWorkflowResources, type NativeWorkflowContext, type NativeWorkflowResources } from "../../workflow/resources";
 
@@ -34,22 +34,25 @@ export interface ShippingOptionTypeCreationHooks {
  * outer settlement. No graph/provider/link resource is admitted by this root. */
 export const prepareShippingOptionTypeCreationWorkflow = Effect.fn("ShippingOptionType.prepareCreation")(function* (input: {
   readonly execution: AtomicWorkflowExecution;
-  readonly modules: { readonly fulfillment: InstalledWorkflowModule<Fulfillment> };
+  readonly fulfillment: OrdinaryNativeInstalledWorkflowModule<Fulfillment>;
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];
   readonly hooks?: ShippingOptionTypeCreationHooks;
 }) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
-  if (Object.keys(options).some(key => !["execution", "modules", "revision", "subscribers", "hooks"].includes(key)))
+  if (Object.keys(options).some(key => !["execution", "fulfillment", "revision", "subscribers", "hooks"].includes(key)))
     return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const registrations = yield* Effect.fromResult(captureWorkflowRecord(options.modules));
-  if (Object.keys(registrations).length !== 1) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const modules = yield* Effect.fromResult(captureInstalledWorkflowModules(registrations, ["fulfillment"]));
-  const source = workflowModuleDefinition(modules.fulfillment.module)?.source;
+  const { fulfillment } = yield* Effect.fromResult(captureInstalledWorkflowModules({ fulfillment: options.fulfillment }, ["fulfillment"]));
+  const source = workflowModuleDefinition(fulfillment.module)?.source;
   if (source?.name !== "flarex-shipping-option-type-create" || source.profile !== "shipping-option-type-create")
     return yield* Effect.fail(commerceError("invalidAuthority"));
+  if (fulfillment.logicalResources !== undefined || fulfillment.logicalPublication !== undefined)
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
+  if (fulfillment.nativeStorage === undefined || fulfillment.logicalStorage !== undefined ||
+    !matchesAtomicCommerceNativeSource(fulfillment.nativeStorage, "fulfillment", "medusa.shippingProfile", shippingProfileDeletionTables))
+    return yield* Effect.fail(commerceError("invalidAuthority"));
   const resources = yield* Effect.fromResult(prepareWorkflowResources({ fulfillment: {
-    module: modules.fulfillment.module, methods: ["createShippingOptionTypes", "deleteShippingOptionTypes"], graph: false,
+    module: fulfillment.module, methods: ["createShippingOptionTypes", "deleteShippingOptionTypes"], graph: false,
   } }, true));
   const metadata = yield* captureShippingProfileDeletionMetadata();
   const contracts = yield* Effect.fromResult(compileShippingOptionTypeCreationContracts(metadata.frame));
@@ -68,11 +71,13 @@ export const prepareShippingOptionTypeCreationWorkflow = Effect.fn("ShippingOpti
   const prepared = yield* Effect.fromResult(createShippingOptionTypesWorkflow.prepare(hooks))
     .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   const events = orderedWorkflowIdEvents("shipping-option-type.created", Effect.fn("ShippingOptionType.createdIds")(function* (calls) {
-    const writes = calls.calls(modules.fulfillment.module.methods.createShippingOptionTypes), call = writes[0];
+    const writes = calls.calls(fulfillment.module.methods.createShippingOptionTypes), call = writes[0];
     if (writes.length !== 1 || call === undefined) return yield* Effect.fail(commerceError("receiptMismatch"));
     return (yield* Effect.fromResult(contracts.decodeRows(call.result))).map(row => row.id);
   }));
-  return yield* prepareAtomicWorkflowHost({ ...options, modules,
+  const modules = { fulfillment: { ...fulfillment, logicalResources: defaultCommerceResources } };
+  return yield* prepareAtomicWorkflowHost({ execution: options.execution, modules, revision: options.revision, subscribers: options.subscribers,
+    requestCallLimit: defaultCommerceResources.calls, requestEventLimit: defaultCommerceResources.eventMessages,
     workflow: { name: "createShippingOptionTypesWorkflow", resources, prepared,
       input: ShippingOptionTypeCreationInput, output: contracts.Output, events } });
 });

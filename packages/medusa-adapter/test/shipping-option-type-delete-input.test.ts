@@ -4,7 +4,7 @@ import { deleteShippingOptionTypesWorkflow } from "@medusajs/core-flows/shipping
 import { compileShippingOptionTypeDeletionContracts, decodeShippingOptionTypeDeletionIds, decodeShippingOptionTypeDeletionRead,
   decodeShippingOptionTypeDeletionOutput } from "../src/modules/fulfillment/shipping-option-type-delete-input";
 import { captureShippingProfileDeletionMetadata } from "../src/modules/fulfillment/shipping-profile-schema";
-import { shippingOptionTypeDeletionGraph } from "./support/logical-shipping-option-type-deletion-fixture";
+import { shippingOptionTypeDeletionGraph } from "./support/shipping-option-type-deletion-seeds";
 
 let contracts: Result.Result.Success<ReturnType<typeof compileShippingOptionTypeDeletionContracts>>;
 beforeAll(async () => { const metadata = await Effect.runPromise(captureShippingProfileDeletionMetadata()); contracts = Result.getOrThrow(compileShippingOptionTypeDeletionContracts(metadata.frame)); });

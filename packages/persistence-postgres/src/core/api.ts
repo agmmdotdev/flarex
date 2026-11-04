@@ -413,7 +413,7 @@ export type CoreNativeOperations = Pick<CoreTransaction, "get" | "insert" | "pat
   readonly assertPendingDelete: (table: string, id: string, evidence: CoreNativePendingDelete) => Effect.Effect<void, CoreError>;
   /** Relational metadata owns full-batch preflight and native mutation phases. */
   readonly writeRows: (table: string, mode: "insert" | "upsert" | "upsertPreservingDeletion" | "update", rows: unknown,
-    invocation?: Readonly<{ insertValidation?: "entityBatch" }>) =>
+    invocation?: Readonly<{ insertValidation?: "entityBatch"; advancePreservingDeletionUpdatedAt?: true }>) =>
     Effect.Effect<readonly DocumentObject[], CoreError>;
   /** Complete native values require authentic recorded content; internal
    * destination identity remains with the transaction's mutation owner. */

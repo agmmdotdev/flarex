@@ -5,18 +5,20 @@
 Status: implemented private admission. This owner defines an
 explicit logical relational conflict merge for trusted synchronous Commerce
 participants. It retains omitted deletion fields and advances managed update
-time, including an identity-only conflict. Ordinary `upsert` retains its existing
+time, including an identity-only conflict. The selected Shipping Option Type
+inverse uses this policy through the translated Core. Ordinary `upsert` retains its existing
 reactivation and managed-time behavior. No schema, durable encoding, data reset,
 new transaction owner or hosted activation is included.
 
 ## Current Sources Of Truth
 
 The accepted [shared logical storage design](../../design-notes/flarexdb-shared-logical-storage.md)
-and package boundaries govern authority. The executing owners are
-`logicalDocuments/workingSet.ts`, its `model.ts`, and trusted participant capture,
-configuration and execution under `atomicCommerce/`. The neutral
-`logicalPreservingDeletionUpsertScenario.ts` and its connected both-driver runner
-own the storage witness. The first consumer is
+and package boundaries govern authority. The shared policy vocabulary lives in
+`logicalDocuments/model.ts`. Core admits it in `atomicCommerce/nativeConfiguration.ts`
+and applies it through the existing `core/transaction.ts` native write operation.
+The retained logical owner is `logicalDocuments/workingSet.ts`. Its neutral
+`logicalPreservingDeletionUpsertScenario.ts` and the Core `nativeCheckpointScenarios.ts`
+have paired database runners. The first consumer is
 [Shipping Option Type updates](../flarexdb-framework-integration/preflight/129-native-shipping-option-type-update-workflow.md).
 
 ## Failure And Correct Owner
@@ -38,8 +40,9 @@ forged clock or local row-store emulation.
 ## Current Architecture And Trust Boundaries
 
 The trusted logical participant explicitly selects
-`allowPreservingDeletionUpsert: true` and supplies logical call or aggregate
-receipt validation. Capture also accepts the explicit `"preserveTimestamps"`
+`allowPreservingDeletionUpsert: true`. Core requires `validateLogicalCall`.
+The retained logical owner accepts call or aggregate receipt validation.
+Capture also accepts the explicit `"preserveTimestamps"`
 selection for native business merges that retain existing managed fields.
 Physical participants refuse it. Selected participant names enter the prepared
 execution identity, preventing reuse of outcomes under a profile that omits the

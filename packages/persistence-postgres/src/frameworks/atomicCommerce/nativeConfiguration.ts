@@ -21,7 +21,7 @@ import { atomicCommerceNativeSourceIdentity, type AtomicCommerceNativeSource } f
 import { coreNativeEventStorage } from "../../commit/events/coreDefinition";
 import { CORE_NATIVE_EVENT_WRITE, coreNativeEventLimits } from "../../commit/events/coreDefinition";
 import { commitEventLimits } from "../../commit/events/model";
-import { LogicalInsertValidation, LogicalReconstitutionPolicy, LogicalSetNullPolicy } from "../../storage/documents/logicalDocuments/model";
+import { LogicalInsertValidation, LogicalPreservingDeletionUpsertPolicy, LogicalReconstitutionPolicy, LogicalSetNullPolicy } from "../../storage/documents/logicalDocuments/model";
 
 export interface AtomicCommerceNativeSourceInput {
   readonly source: AtomicCommerceNativeSource;
@@ -59,7 +59,7 @@ const Invocation = Schema.Struct({
   allowStorageInsertionOrder: Schema.UndefinedOr(Schema.Literal(true)),
   allowRecordedRowReplay: Schema.UndefinedOr(Schema.Literal(true)),
   reconstitution: Schema.UndefinedOr(LogicalReconstitutionPolicy),
-  allowPreservingDeletionUpsert: Schema.UndefinedOr(Schema.Literal("preserveTimestamps")),
+  allowPreservingDeletionUpsert: Schema.UndefinedOr(LogicalPreservingDeletionUpsertPolicy),
   allowReferenceCheckpoints: Schema.UndefinedOr(Schema.Literal(true)),
   insertValidation: Schema.UndefinedOr(LogicalInsertValidation),
 });

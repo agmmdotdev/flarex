@@ -69,13 +69,13 @@ projection; an Option projection cannot pass through a Type creation decoder.
 The actual read/count observations, including empty selection, retain shared
 query dependencies and conflict validation. This workflow guard does not create
 a permanent database invariant forbidding later Option insertion or restoration.
-The native find and count methods execute the same prepared paginated read:
-each relational-read receipt records the one-row page and its actual
-pre-pagination total. Count does not introduce a separate unbounded read shape.
-The adapter receipt authenticates both observations against the existing query
-owner, correlates the ID projection and actual count, and refuses skipped or
-partial evidence. This is a receipt correction, not a change to native query
-business behavior or shared count semantics.
+The native find and count methods execute the same prepared paginated query.
+Both Core receipts record the actual pre-pagination total. The find receipt
+records the projected page size, and the count receipt records the full
+matching count. The adapter authenticates both observations against the query,
+correlates the ID projection and actual count, and refuses skipped or partial
+evidence. Native query behavior and shared count semantics stay with their
+existing owners.
 Indexed dependency candidates can include physical Option tombstones before the
 final active-row predicate. Validate every candidate body and requested FK, then
 derive the native count/page only from active matches. Historical candidates are

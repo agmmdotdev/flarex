@@ -366,6 +366,50 @@ export function registerNativeCheckpointScenarios(label: string, createFixture: 
       expect(yield* graph.read("parent")).toEqual([]);
     })), 120_000);
 
+    it("advances only the selected preserving-deletion timestamp on identity-only upserts", run(fixture => Effect.gen(function* () {
+      let wallTime = 1_000_000_000n;
+      const graph = yield* setup(fixture, false, lifecycleSchema, Effect.sync(() => wallTime));
+      const parent = graph.table("parent");
+      const created = "1970-01-01T00:00:00.100Z", updated = "1970-01-01T00:00:00.200Z", deleted = "1970-01-01T00:00:00.300Z";
+      yield* graph.write(operations => operations.writeRows(parent, "insert", [
+        { id: "active", created_at: created, updated_at: updated, deleted_at: null },
+        { id: "tombstone", created_at: created, updated_at: updated, deleted_at: deleted },
+        { id: "preserved", created_at: created, updated_at: updated, deleted_at: deleted },
+      ]));
+      const before = yield* graph.read("parent");
+      wallTime = 3_000_000_000n;
+      const operation = yield* Effect.acquireRelease(graph.begin(), operation => operation.abort());
+      const { operations, unixTime } = operation;
+      const timestamp = new Date(unixTime).toISOString(), cursor = operations.nativeActivityCursor();
+      const advanced = [
+        { id: "active", created_at: created, updated_at: timestamp, deleted_at: null },
+        { id: "tombstone", created_at: created, updated_at: timestamp, deleted_at: deleted },
+        { id: "inserted", created_at: timestamp, updated_at: timestamp, deleted_at: null },
+      ];
+      expect(timestamp).not.toBe(updated);
+      for (const policy of [true, "preserveTimestamps"] as const) {
+        const name = policy === true ? "advance-upsert" : "preserve-upsert";
+        const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, name, "write"), value => value.close);
+        const selected = yield* makeNativeCommerceParticipant(operations, graph.metadata, lifetime, lifetime.context, name, unixTime,
+          undefined, { allowPreservingDeletionUpsert: policy });
+        const store = yield* selected.table(lifetime.context, "parent");
+        const identities = policy === true ? [{ id: "active" }, { id: "tombstone" }, { id: "inserted" }] : [{ id: "preserved" }];
+        const rows = yield* store.write(lifetime.context, "upsertPreservingDeletion", identities);
+        expect(rows).toEqual(policy === true ? advanced : [{ id: "preserved", created_at: created, updated_at: updated, deleted_at: deleted }]);
+        yield* lifetime.seal;
+      }
+      const activity = yield* operations.nativeActivitySince(cursor);
+      expect(activity.mutations.slice(0, 3)).toMatchObject(advanced.map((row, index) => ({
+        table: parent, operation: index === 2 ? "insert" : "patch", after: row,
+      })));
+      expect(yield* graph.read("parent")).toEqual(before);
+      yield* graph.database.commit(yield* operation.finalize());
+      const committed = yield* graph.read("parent");
+      expect(committed).toHaveLength(4);
+      for (const row of advanced) expect(committed.find(candidate => candidate.id === row.id)).toMatchObject(row);
+      expect(committed.find(row => row.id === "preserved")).toEqual(before.find(row => row.id === "preserved"));
+    })), 120_000);
+
     it("projects every actual replacement patch including a kept reference with a managed update", run(fixture => Effect.gen(function* () {
       let wallTime = 1_000_000_000n;
       const graph = yield* setup(fixture, false, replacementSchema, Effect.sync(() => wallTime)), parent = graph.table("parent"), child = graph.table("child");

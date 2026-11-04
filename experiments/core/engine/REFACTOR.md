@@ -804,3 +804,8 @@ Customer Account/Address profiles in this workflow family. Paired acceptance is 
 The [native Shipping Profiles continuation](./slices/39-native-shipping-profiles.md)
 uses existing Fulfillment and Product Link sources for the selected native
 profiles and retains exact Option and Link observations. Paired acceptance is complete.
+
+The [native Shipping Option Types continuation](./slices/40-native-shipping-option-types.md)
+uses the existing Fulfillment source and extends the trusted native upsert
+owner for the genuine timestamp-advancing update inverse. Paired acceptance
+is complete.

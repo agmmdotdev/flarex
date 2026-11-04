@@ -196,6 +196,7 @@ const decodeProtectedPageOptions = Schema.decodeUnknownEffect(Schema.Struct({ li
 const decodeNativeBatchIds = Schema.decodeUnknownEffect(Schema.Array(Schema.String));
 const decodeNativeWriteInvocation = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Struct({
   insertValidation: Schema.optionalKey(Schema.Literal("entityBatch")),
+  advancePreservingDeletionUpdatedAt: Schema.optionalKey(Schema.Literal(true)),
 }).annotate({ parseOptions: { onExcessProperty: "error" } })));
 const decodeNativeLifecycleInvocation = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Struct({
   allowActiveRestoreUpdate: Schema.optionalKey(Schema.Literal(true)),
@@ -1869,7 +1870,9 @@ export function createCoreTransaction(input: Readonly<{
     if (entityBatch) for (const { row } of rows)
       yield* Effect.fromResult(policy.rows.validateInsertRequired(row, new Date(unixTime).toISOString()));
     const find = nativeFind(access, true);
-    const methods = userOperations(access, true, mode === "upsert" || mode === "upsertPreservingDeletion" ? "preserve" : "advance");
+    const preserveUpdatedAt = mode === "upsert"
+      || (mode === "upsertPreservingDeletion" && selectedInvocation?.advancePreservingDeletionUpdatedAt !== true);
+    const methods = userOperations(access, true, preserveUpdatedAt ? "preserve" : "advance");
     const result: DocumentObject[] = [];
     for (const { identity, row } of rows) {
       const selected = yield* find(table.name, identity);
