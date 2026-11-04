@@ -10,7 +10,7 @@ import { preparePaymentCaptureWorkflow } from "../src/workflows/payment/capture-
 import { preparePaymentRefundWorkflow } from "../src/workflows/payment/refund-payment";
 import { preparePaymentRefundsWorkflow } from "../src/workflows/payment/refund-payments";
 import type { PaymentFinanceWorkflowInput } from "../src/workflows/payment/finance-configuration";
-import type { LegacyInstalledWorkflowModules } from "../src/workflow/host";
+import type { InstalledWorkflowModule, LegacyInstalledWorkflowModules } from "../src/workflow/host";
 import { expectCheckoutRollback, expectCheckoutSettlement } from "./support/core-checkout-evidence";
 import { prepareCorePaymentFinance } from "./support/core-payment-finance-fixture";
 import { finishOrderFixture } from "./support/core-order-fixture";
@@ -89,7 +89,7 @@ describe("genuine native Payment financial roots", () => {
     } finally { capturePayment.mockRestore(); addTransactions.mockRestore(); }
   }, 240_000);
 
-  it("refuses swapped Core selectors and Legacy refund bindings before preparing a finance host", async () => {
+  it("refuses swapped Core selectors and Legacy bindings before preparing a finance host", async () => {
     const { modules } = fixture.options, before = await fixture.fixture.inventory();
     const prepare = vi.fn(fixture.options.execution.prepare);
     const execution = { ...fixture.options.execution, prepare };
@@ -103,7 +103,14 @@ describe("genuine native Payment financial roots", () => {
       modules: { payment: { module: modules.payment.module, nativeStorage: order } },
     })));
     expect(wrongAuthorization).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
-    type LegacyModules = LegacyInstalledWorkflowModules<PaymentFinanceWorkflowInput["modules"]>;
+    type FinanceModules = PaymentFinanceWorkflowInput["modules"];
+    type PaymentBinding = FinanceModules["payment"];
+    expectTypeOf<Omit<PaymentBinding, "logicalPublication"> & { readonly logicalPublication: "mixed" }>().not.toExtend<PaymentBinding>();
+    type LegacyModules = LegacyInstalledWorkflowModules<{
+      readonly [Name in keyof FinanceModules]: InstalledWorkflowModule<FinanceModules[Name]["module"]>;
+    }>;
+    expectTypeOf<LegacyModules>().not.toExtend<Parameters<typeof preparePaymentCaptureWorkflow>[0]["modules"]>();
+    expectTypeOf<Pick<LegacyModules, "payment">>().not.toExtend<Parameters<typeof preparePaymentAuthorizationWorkflow>[0]["modules"]>();
     expectTypeOf<LegacyModules>().not.toExtend<Parameters<typeof preparePaymentRefundWorkflow>[0]["modules"]>();
     expectTypeOf<LegacyModules>().not.toExtend<Parameters<typeof preparePaymentRefundsWorkflow>[0]["modules"]>();
     const legacy = { ...fixture.options, execution, modules: {
@@ -111,6 +118,9 @@ describe("genuine native Payment financial roots", () => {
       order: { module: modules.order.module, logicalStorage: null },
       order_payment_collection_links: { module: modules.order_payment_collection_links.module, logicalStorage: null },
     } };
+    // @ts-expect-error Deliberately unissued envelope exercises runtime refusal before storage preparation.
+    const deniedCapture = await Effect.runPromise(Effect.result(preparePaymentCaptureWorkflow(legacy)));
+    expect(deniedCapture).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
     for (const prepareRefund of [preparePaymentRefundWorkflow, preparePaymentRefundsWorkflow]) {
       // @ts-expect-error Deliberately unissued envelopes exercise runtime refusal before storage preparation.
       const denied = await Effect.runPromise(Effect.result(prepareRefund(legacy)));

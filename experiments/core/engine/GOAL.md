@@ -537,3 +537,7 @@ callbacks onto Core. Paired acceptance is complete.
 The [native Payment finance continuation](./slices/37-native-payment-finance.md)
 moves the linked financial roots, System Payment lifecycle, retained inverses
 and stored Order PaymentCollection Link reads onto Core. Paired acceptance is complete.
+
+The [native Payment collections and Sessions continuation](./slices/38-native-payment-collections-and-sessions.md)
+moves the selected Payment and Customer Account/Address roots and their
+stored and callback-child consumers to Core. Paired acceptance is complete.

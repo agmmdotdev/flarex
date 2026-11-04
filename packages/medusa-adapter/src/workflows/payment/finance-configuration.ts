@@ -5,7 +5,7 @@ import type { makePaymentLifecycleCommands } from "../../modules/payment/lifecyc
 import type { makeOrderPaymentFinanceCommands } from "../../modules/order/finance-service";
 import type { prepareOrderPaymentCollectionLinkRead } from "../../links/order-payment-collection-service";
 import { captureWorkflowRecord } from "../../workflow/configuration";
-import { captureInstalledWorkflowModules, type AtomicWorkflowExecution, type InstalledWorkflowModule } from "../../workflow/host";
+import { captureInstalledWorkflowModules, type AtomicWorkflowExecution, type OrdinaryNativeInstalledWorkflowModule } from "../../workflow/host";
 import { workflowModuleDefinition } from "../../workflow/module";
 
 /** Named trusted allowance for bounded native Payment/Order finance roots.
@@ -24,23 +24,16 @@ const financeSources = {
 const financeModules = ["payment", "order", "order_payment_collection_links"] as const;
 export interface PaymentFinanceWorkflowInput {
   readonly execution: AtomicWorkflowExecution;
-  readonly modules: { readonly payment: InstalledWorkflowModule<Payment["workflow"]>;
-    readonly order: InstalledWorkflowModule<Order["workflow"]>;
-    readonly order_payment_collection_links: InstalledWorkflowModule<Links["workflow"]> };
+  readonly modules: { readonly payment: OrdinaryNativeInstalledWorkflowModule<Payment["workflow"]>;
+    readonly order: OrdinaryNativeInstalledWorkflowModule<Order["workflow"]>;
+    readonly order_payment_collection_links: OrdinaryNativeInstalledWorkflowModule<Links["workflow"]> };
   readonly logger: Payment["loggerResource"];
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];
 }
-export type NativePaymentFinanceWorkflowInput = Omit<PaymentFinanceWorkflowInput, "modules"> & {
-  readonly modules: { readonly [Name in keyof PaymentFinanceWorkflowInput["modules"]]:
-    Extract<PaymentFinanceWorkflowInput["modules"][Name], { readonly nativeStorage: unknown }> };
-};
-
 /** The three financial roots share the same installed authority boundary.
  * Each root separately selects the native methods and events it requires. */
-export const capturePaymentFinanceConfiguration = Effect.fn("Payment.captureFinanceConfiguration")(function* (
-  input: PaymentFinanceWorkflowInput, storage: "installed" | "native",
-) {
+export const capturePaymentFinanceConfiguration = Effect.fn("Payment.captureFinanceConfiguration")(function* (input: PaymentFinanceWorkflowInput) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
   if (Object.keys(options).some(key => !["execution", "modules", "logger", "revision", "subscribers"].includes(key)))
     return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -58,7 +51,7 @@ export const capturePaymentFinanceConfiguration = Effect.fn("Payment.captureFina
     if (installed.logicalResources !== undefined || installed.logicalPublication !== undefined)
       return yield* Effect.fail(commerceError("unsupportedProfile"));
     const native = installed.nativeStorage;
-    if (native === undefined ? storage === "native" : !matchesAtomicCommerceNativeSource(native, name, financeSources[name]))
+    if (native === undefined || installed.logicalStorage !== undefined || !matchesAtomicCommerceNativeSource(native, name, financeSources[name]))
       return yield* Effect.fail(commerceError("invalidAuthority"));
   }
   return { options, modules };

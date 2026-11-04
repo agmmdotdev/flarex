@@ -41,6 +41,12 @@ export type InstalledWorkflowModule<Module extends WorkflowModule = WorkflowModu
   | Readonly<{ nativeStorage: Extract<AtomicCommerceParticipantInput, { readonly nativeStorage: unknown }>["nativeStorage"]; logicalStorage?: never }>
 );
 
+export type OrdinaryNativeInstalledWorkflowModule<Module extends WorkflowModule = WorkflowModule> =
+  Extract<InstalledWorkflowModule<Module>, { readonly nativeStorage: unknown }> & {
+    readonly logicalResources?: never;
+    readonly logicalPublication?: never;
+  };
+
 /** Retained logical hosts return their actual storage branch, rather than
  * widening portable selection metadata to an unissued native alternative. */
 export type LegacyInstalledWorkflowModules<Modules extends Readonly<Record<string, InstalledWorkflowModule>>> = {

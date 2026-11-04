@@ -22,7 +22,7 @@ export const orderPaymentCollectionLinkProvenance = Object.freeze({ kind: "sourc
   paths: Object.freeze(["packages/modules/link-modules/src/definitions/order-payment-collection.ts",
     "packages/modules/link-modules/src/utils/generate-entity.ts"]),
 } as const);
-export const compileOrderPaymentCollectionLinkDefinition = Effect.fn("OrderPaymentCollectionLink.compileDefinition")(function* () {
+const compileOrderPaymentCollectionLinkDefinition = Effect.fn("OrderPaymentCollectionLink.compileDefinition")(function* () {
   const metadata = yield* captureOrderPaymentCollectionLinkMetadata();
   const schema = yield* Effect.fromResult(normalizeRelationalSchema(lowerDmlSchema([metadata.frame],
     "commerce.link.order-payment-collection", linkSchemaOrigins)));

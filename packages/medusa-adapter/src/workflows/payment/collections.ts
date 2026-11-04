@@ -4,7 +4,7 @@ import { createPaymentCollectionForCartWorkflow } from "@medusajs/core-flows/car
 import { refreshPaymentCollectionForCartWorkflow } from "@medusajs/core-flows/cart/refresh-payment-collection";
 import { createOrderPaymentCollectionWorkflow } from "@medusajs/core-flows/order/create-order-payment-collection";
 import { cancelPaymentCollectionWorkflow } from "@medusajs/core-flows/payment-collection/cancel-payment-collection";
-import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { matchesAtomicCommerceNativeSource, type AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { makePaymentLifecycleCommands } from "../../modules/payment/lifecycle-service";
 import type { makeCartPaymentReadCommands } from "../../modules/cart/payment-service";
@@ -13,7 +13,7 @@ import type { preparePaymentCollectionLinkLifecycle } from "../../links/payment-
 import { CancelCollectionInput, CreateCartCollectionInput, RefreshCartCollectionInput, CreateOrderCollectionInput } from "../../modules/payment/collection-input";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { internalModuleWorkflowEvents } from "../../workflow/events";
-import { captureInstalledWorkflowModules, prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type InstalledWorkflowModule } from "../../workflow/host";
+import { captureInstalledWorkflowModules, prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type OrdinaryNativeInstalledWorkflowModule } from "../../workflow/host";
 import { workflowModuleDefinition } from "../../workflow/module";
 import { prepareWorkflowResources } from "../../workflow/resources";
 import { paymentFinanceCallLimit } from "./finance-configuration";
@@ -22,17 +22,23 @@ type Payment = Effect.Success<ReturnType<typeof makePaymentLifecycleCommands>>;
 type Cart = Effect.Success<ReturnType<typeof makeCartPaymentReadCommands>>;
 type Order = Effect.Success<ReturnType<typeof makeOrderPaymentFinanceCommands>>;
 type Link = Effect.Success<ReturnType<typeof preparePaymentCollectionLinkLifecycle>>;
-interface Options<Modules extends Readonly<Record<string, InstalledWorkflowModule>>> {
+interface Options<Modules extends Readonly<Record<string, OrdinaryNativeInstalledWorkflowModule>>> {
   readonly execution: AtomicWorkflowExecution;
   readonly modules: Modules;
   readonly logger: Payment["loggerResource"];
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];
 }
-type PaymentModules = { readonly payment: InstalledWorkflowModule<Payment["workflow"]> };
-type CartModules = { readonly payment: InstalledWorkflowModule<Payment["cartCollectionWorkflow"]>;
-  readonly cart: InstalledWorkflowModule<Cart["workflow"]>; readonly link: InstalledWorkflowModule<Link["workflow"]> };
-type OrderModules = PaymentModules & { readonly order: InstalledWorkflowModule<Order["workflow"]>; readonly link: InstalledWorkflowModule<Link["workflow"]> };
+type PaymentModules = { readonly payment: OrdinaryNativeInstalledWorkflowModule<Payment["workflow"]> };
+type CartModules = { readonly payment: OrdinaryNativeInstalledWorkflowModule<Payment["cartCollectionWorkflow"]>;
+  readonly cart: OrdinaryNativeInstalledWorkflowModule<Cart["workflow"]>; readonly link: OrdinaryNativeInstalledWorkflowModule<Link["workflow"]> };
+type OrderModules = PaymentModules & { readonly order: OrdinaryNativeInstalledWorkflowModule<Order["workflow"]>; readonly link: OrdinaryNativeInstalledWorkflowModule<Link["workflow"]> };
+const cartBindings = {
+  payment: ["payment.cart-collection-lifecycle", "payment", "medusa.payment"],
+  cart: ["cart.payment-collection-read", "cart", "medusa.cart"],
+  link: ["cart-payment-collection-lifecycle", "link", "medusa.link.cartPaymentCollection"],
+} as const;
+const paymentBinding = ["payment.system-lifecycle", "payment", "medusa.payment"] as const;
 
 // Genuine native child invocations establish parent metadata. Native Cart's
 // lock steps then skip under the trusted outer atomic command owner.
@@ -43,9 +49,9 @@ const cartRefresh = createWorkflow("flarex-cart-payment-collection-refresh", (in
 
 /** Exact named owners and ordinary resource profiles are captured before the
  * shared host sees any native callback. No arbitrary module/Link selection. */
-const captureOptions = Effect.fn("PaymentCollection.captureOptions")(function* <Modules extends Readonly<Record<string, InstalledWorkflowModule>>,
+const captureOptions = Effect.fn("PaymentCollection.captureOptions")(function* <Modules extends Readonly<Record<string, OrdinaryNativeInstalledWorkflowModule>>,
   const Keys extends readonly (keyof Modules & string)[]>(
-  input: Options<Modules>, keys: Keys, profiles: Readonly<Record<Keys[number], string>>,
+  input: Options<Modules>, keys: Keys, bindings: Readonly<Record<Keys[number], readonly [profile: string, selector: string, sourceKey: string]>>,
 ) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
   if (Object.keys(options).some(key => !["execution", "modules", "logger", "revision", "subscribers"].includes(key)))
@@ -55,16 +61,20 @@ const captureOptions = Effect.fn("PaymentCollection.captureOptions")(function* <
   const modules = yield* Effect.fromResult(captureInstalledWorkflowModules(registrations, keys));
   for (const key of keys) {
     const installed = modules[key];
-    if (installed === undefined || workflowModuleDefinition(installed.module)?.source.profile !== profiles[key])
+    const [profile, selector, sourceKey] = bindings[key];
+    if (installed === undefined || workflowModuleDefinition(installed.module)?.source.profile !== profile)
       return yield* Effect.fail(commerceError("invalidAuthority"));
     if (installed.logicalResources !== undefined || installed.logicalPublication !== undefined)
       return yield* Effect.fail(commerceError("unsupportedProfile"));
+    if (installed.nativeStorage === undefined || installed.logicalStorage !== undefined ||
+      !matchesAtomicCommerceNativeSource(installed.nativeStorage, selector, sourceKey))
+      return yield* Effect.fail(commerceError("invalidAuthority"));
   }
   return { options, modules };
 });
 
 export const prepareCartPaymentCollectionCreationWorkflow = Effect.fn("PaymentCollection.prepareCartCreation")(function* (input: Options<CartModules>) {
-  const { options, modules } = yield* captureOptions(input, ["payment", "cart", "link"], { payment: "payment.cart-collection-lifecycle", cart: "cart.payment-collection-read", link: "cart-payment-collection-lifecycle" });
+  const { options, modules } = yield* captureOptions(input, ["payment", "cart", "link"], cartBindings);
   const resources = yield* Effect.fromResult(prepareWorkflowResources({
     payment: { module: modules.payment.module, methods: ["createPaymentCollections", "deletePaymentCollections"], graph: true },
     cart: { module: modules.cart.module, methods: [], graph: true },
@@ -78,7 +88,7 @@ export const prepareCartPaymentCollectionCreationWorkflow = Effect.fn("PaymentCo
 });
 
 export const prepareCartPaymentCollectionRefreshWorkflow = Effect.fn("PaymentCollection.prepareCartRefresh")(function* (input: Options<CartModules>) {
-  const { options, modules } = yield* captureOptions(input, ["payment", "cart", "link"], { payment: "payment.cart-collection-lifecycle", cart: "cart.payment-collection-read", link: "cart-payment-collection-lifecycle" });
+  const { options, modules } = yield* captureOptions(input, ["payment", "cart", "link"], cartBindings);
   const resources = yield* Effect.fromResult(prepareWorkflowResources({
     payment: { module: modules.payment.module, methods: ["listPaymentCollections", "updatePaymentCollections", "upsertPaymentCollections",
       "listPaymentSessions", "deletePaymentSession", "createPaymentSession"], graph: true },
@@ -93,7 +103,11 @@ export const prepareCartPaymentCollectionRefreshWorkflow = Effect.fn("PaymentCol
 });
 
 export const prepareOrderPaymentCollectionCreationWorkflow = Effect.fn("PaymentCollection.prepareOrderCreation")(function* (input: Options<OrderModules>) {
-  const { options, modules } = yield* captureOptions(input, ["payment", "order", "link"], { payment: "payment.system-lifecycle", order: "order.payment-finance", link: "order-payment-collection-lifecycle" });
+  const { options, modules } = yield* captureOptions(input, ["payment", "order", "link"], {
+    payment: paymentBinding,
+    order: ["order.payment-finance", "order", "medusa.order"],
+    link: ["order-payment-collection-lifecycle", "order_payment_collection_links", "medusa.link.orderPaymentCollection"],
+  });
   const resources = yield* Effect.fromResult(prepareWorkflowResources({
     payment: { module: modules.payment.module, methods: ["createPaymentCollections", "deletePaymentCollections"], graph: true },
     order: { module: modules.order.module, methods: [], graph: true },
@@ -107,7 +121,7 @@ export const prepareOrderPaymentCollectionCreationWorkflow = Effect.fn("PaymentC
 });
 
 export const preparePaymentCollectionCancellationWorkflow = Effect.fn("PaymentCollection.prepareCancellation")(function* (input: Options<PaymentModules>) {
-  const { options, modules } = yield* captureOptions(input, ["payment"], { payment: "payment.system-lifecycle" });
+  const { options, modules } = yield* captureOptions(input, ["payment"], { payment: paymentBinding });
   const resources = yield* Effect.fromResult(prepareWorkflowResources({ payment: { module: modules.payment.module,
     methods: ["listPaymentCollections", "updatePaymentCollections", "upsertPaymentCollections", "cancelPayment"], graph: true } }, true, { logger: options.logger }));
   const prepared = yield* Effect.fromResult(cancelPaymentCollectionWorkflow.prepare()).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));

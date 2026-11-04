@@ -33,6 +33,7 @@
     "vitest.native-cart-payment-collection.config.ts",
     "vitest.native-checkout.config.ts",
     "vitest.native-payment-finance.config.ts",
+    "vitest.native-payment-collections.config.ts",
     "vitest.native-order.config.ts",
     "vitest.postgres.config.ts",
     "vitest.sales-channel.config.ts",

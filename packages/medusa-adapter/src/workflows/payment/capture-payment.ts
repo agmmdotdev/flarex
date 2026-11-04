@@ -12,7 +12,7 @@ import { capturePaymentFinanceConfiguration, paymentFinanceCallLimit, type Payme
 /** The unchanged native root, including optional Order association, existing
  * transaction deduplication and captured event, borrows one outer settlement. */
 export const preparePaymentCaptureWorkflow = Effect.fn("Payment.prepareCapture")(function* (input: PaymentFinanceWorkflowInput) {
-  const { options, modules } = yield* capturePaymentFinanceConfiguration(input, "installed");
+  const { options, modules } = yield* capturePaymentFinanceConfiguration(input);
   const resources = yield* Effect.fromResult(prepareWorkflowResources({
     payment: { module: modules.payment.module, methods: ["capturePayment"], graph: true },
     order: { module: modules.order.module, methods: ["listOrderTransactions", "addOrderTransactions", "deleteOrderTransactions"], graph: true },

@@ -796,3 +796,7 @@ sources and the queued root scope proof. Paired acceptance is complete.
 The [native Payment finance continuation](./slices/37-native-payment-finance.md)
 uses the existing Payment, generated Order and exact Link sources and Core
 settlement for the selected native roots. Paired acceptance is complete.
+
+The [native Payment collections and Sessions continuation](./slices/38-native-payment-collections-and-sessions.md)
+uses existing sources and one Core settlement for the remaining Payment and
+Customer Account/Address profiles in this workflow family. Paired acceptance is complete.

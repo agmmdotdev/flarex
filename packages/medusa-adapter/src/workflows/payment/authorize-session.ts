@@ -7,7 +7,7 @@ import { PaymentAuthorization } from "../../modules/payment/lifecycle-input";
 import type { makePaymentLifecycleCommands } from "../../modules/payment/lifecycle-service";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { internalModuleWorkflowEvents } from "../../workflow/events";
-import { captureInstalledWorkflowModules, prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type InstalledWorkflowModule } from "../../workflow/host";
+import { captureInstalledWorkflowModules, prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type OrdinaryNativeInstalledWorkflowModule } from "../../workflow/host";
 import { workflowModuleDefinition } from "../../workflow/module";
 import { prepareWorkflowResources } from "../../workflow/resources";
 
@@ -19,7 +19,7 @@ export const paymentAuthorizationWorkflow = createWorkflow("flarex-authorize-pay
 
 export const preparePaymentAuthorizationWorkflow = Effect.fn("Payment.prepareAuthorization")(function* (input: {
   readonly execution: AtomicWorkflowExecution;
-  readonly modules: { readonly payment: InstalledWorkflowModule<Payment["workflow"]> };
+  readonly modules: { readonly payment: OrdinaryNativeInstalledWorkflowModule<Payment["workflow"]> };
   readonly logger: Payment["loggerResource"];
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];
@@ -36,7 +36,7 @@ export const preparePaymentAuthorizationWorkflow = Effect.fn("Payment.prepareAut
   if (modules.payment.logicalResources !== undefined || modules.payment.logicalPublication !== undefined)
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   const native = modules.payment.nativeStorage;
-  if (native !== undefined && !matchesAtomicCommerceNativeSource(native, "payment", "medusa.payment"))
+  if (native === undefined || modules.payment.logicalStorage !== undefined || !matchesAtomicCommerceNativeSource(native, "payment", "medusa.payment"))
     return yield* Effect.fail(commerceError("invalidAuthority"));
   const resources = yield* Effect.fromResult(prepareWorkflowResources({ payment: { module: modules.payment.module,
     methods: ["authorizePaymentSession", "retrievePaymentSession", "cancelPayment"], graph: false } }, true, { logger: options.logger }));

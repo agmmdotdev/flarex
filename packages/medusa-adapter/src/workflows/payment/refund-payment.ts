@@ -6,13 +6,13 @@ import { PaymentRefund, decodePaymentRefund } from "../../modules/payment/lifecy
 import { orderedWorkflowIdEvents } from "../../workflow/events";
 import { prepareAtomicWorkflowHost } from "../../workflow/host";
 import { prepareWorkflowResources } from "../../workflow/resources";
-import { capturePaymentFinanceConfiguration, paymentFinanceCallLimit, type NativePaymentFinanceWorkflowInput } from "./finance-configuration";
+import { capturePaymentFinanceConfiguration, paymentFinanceCallLimit, type PaymentFinanceWorkflowInput } from "./finance-configuration";
 
 
 /** Native single-refund root, including its Order credit-line child and
  * retained inverse, with one trusted settlement and the System provider. */
-export const preparePaymentRefundWorkflow = Effect.fn("Payment.prepareRefund")(function* (input: NativePaymentFinanceWorkflowInput) {
-  const { options, modules } = yield* capturePaymentFinanceConfiguration(input, "native");
+export const preparePaymentRefundWorkflow = Effect.fn("Payment.prepareRefund")(function* (input: PaymentFinanceWorkflowInput) {
+  const { options, modules } = yield* capturePaymentFinanceConfiguration(input);
   const resources = yield* Effect.fromResult(prepareWorkflowResources({
     payment: { module: modules.payment.module, methods: ["refundPayment"], graph: true },
     order: { module: modules.order.module, methods: ["listOrderTransactions", "addOrderTransactions", "deleteOrderTransactions",
