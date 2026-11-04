@@ -6,7 +6,7 @@ import { PaymentRefund } from "../../modules/payment/lifecycle-input";
 import { internalModuleWorkflowEvents } from "../../workflow/events";
 import { prepareAtomicWorkflowHost } from "../../workflow/host";
 import { prepareWorkflowResources } from "../../workflow/resources";
-import { capturePaymentFinanceConfiguration, paymentFinanceCallLimit, type PaymentFinanceWorkflowInput } from "./finance-configuration";
+import { capturePaymentFinanceConfiguration, paymentFinanceCallLimit, type NativePaymentFinanceWorkflowInput } from "./finance-configuration";
 
 const Batch = Schema.Array(Schema.Struct({ payment_id: PaymentRefund.fields.payment_id, amount: PaymentAmount,
   created_by: PaymentRefund.fields.created_by, note: PaymentRefund.fields.note })).check(Schema.isMaxLength(4));
@@ -14,8 +14,8 @@ const Batch = Schema.Array(Schema.Struct({ payment_id: PaymentRefund.fields.paym
 /** Execute the genuine batch root with real stored Order associations. This
  * bounded System-provider profile borrows one atomic settlement; network
  * providers and native independently committed best-effort calls remain gated. */
-export const preparePaymentRefundsWorkflow = Effect.fn("Payment.prepareRefunds")(function* (input: PaymentFinanceWorkflowInput) {
-  const { options, modules } = yield* capturePaymentFinanceConfiguration(input);
+export const preparePaymentRefundsWorkflow = Effect.fn("Payment.prepareRefunds")(function* (input: NativePaymentFinanceWorkflowInput) {
+  const { options, modules } = yield* capturePaymentFinanceConfiguration(input, "native");
   const resources = yield* Effect.fromResult(prepareWorkflowResources({
     payment: { module: modules.payment.module, methods: ["refundPayment"], graph: true },
     order: { module: modules.order.module, methods: ["listOrderTransactions", "addOrderTransactions", "deleteOrderTransactions"], graph: true },

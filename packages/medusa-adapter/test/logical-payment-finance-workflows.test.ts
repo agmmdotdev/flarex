@@ -1,19 +1,30 @@
 import { Effect, Schema } from "effect";
-import { afterAll, beforeAll, describe, expect, it, onTestFinished } from "vitest";
+import { afterAll, beforeAll, describe, expect, expectTypeOf, it, onTestFinished, vi } from "vitest";
+import { PaymentEvents } from "@medusajs/framework/utils/portable";
+import { OrderModuleService } from "@medusajs/order/services";
+import { SystemPaymentProvider } from "@medusajs/payment/providers/system";
+import { PaymentModuleService } from "@medusajs/payment/services";
 import { commerceLimits } from "@flarex/persistence-postgres/internal/commerce-values";
+import { preparePaymentAuthorizationWorkflow } from "../src/workflows/payment/authorize-session";
 import { preparePaymentCaptureWorkflow } from "../src/workflows/payment/capture-payment";
-import { prepareLogicalPaymentFinance } from "./support/logical-payment-finance-fixture";
+import { preparePaymentRefundWorkflow } from "../src/workflows/payment/refund-payment";
+import { preparePaymentRefundsWorkflow } from "../src/workflows/payment/refund-payments";
+import type { PaymentFinanceWorkflowInput } from "../src/workflows/payment/finance-configuration";
+import type { LegacyInstalledWorkflowModules } from "../src/workflow/host";
+import { expectCheckoutRollback, expectCheckoutSettlement } from "./support/core-checkout-evidence";
+import { prepareCorePaymentFinance } from "./support/core-payment-finance-fixture";
+import { finishOrderFixture } from "./support/core-order-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
 const object = Schema.decodeUnknownSync(Schema.JsonObject), text = Schema.decodeUnknownSync(Schema.String);
 
 describe("genuine native Payment financial roots", () => {
-  let fixture: Awaited<ReturnType<typeof prepareLogicalPaymentFinance>>;
-  beforeAll(async () => { fixture = await prepareLogicalPaymentFinance(driver, close => cleanup.push(close)); }, 240_000);
-  afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
+  let fixture: Awaited<ReturnType<typeof prepareCorePaymentFinance>>;
+  beforeAll(async () => { fixture = await prepareCorePaymentFinance(driver, close => cleanup.push(close)); }, 240_000);
+  afterAll(() => finishOrderFixture(cleanup.reverse()), 120_000);
 
-  it("captures a linked Payment and records native Order accounting in the same replayed root", async () => {
+  it("recovers a linked Capture and its Order accounting after losing the commit acknowledgement", async () => {
     const payment = object(await Effect.runPromise(fixture.authorize.run(fixture.authorize.newRequestKey(), { id: "payses_finance" })));
     const id = text(payment.id), request = fixture.capture.newRequestKey(), input = { payment_id: id };
     // Omitted amount deliberately uses the native Capture.raw_amount record
@@ -25,27 +36,93 @@ describe("genuine native Payment financial roots", () => {
       ...fixture.options.execution, prepare: composition => fixture.options.execution.prepare({ ...composition, requestCallLimit: commerceLimits.calls }),
     } }));
     onTestFinished(() => Effect.runPromise(ordinary.close));
-    const before = await fixture.snapshot();
-    expect(await Effect.runPromise(Effect.result(ordinary.run(ordinary.newRequestKey(), input))))
+    const refusedKey = ordinary.newRequestKey(), beforeRefusal = await fixture.fixture.inventory();
+    expect(await Effect.runPromise(Effect.result(ordinary.run(refusedKey, input))))
       .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
-    expect(await fixture.snapshot()).toEqual(before);
-    const captured = object(await Effect.runPromise(fixture.capture.run(request, input)));
-    expect(captured).toMatchObject({ id, captured_at: expect.any(String), captures: [{ amount: 15 }] });
-    expect(await Effect.runPromise(fixture.capture.run(request, input))).toEqual(captured);
-    const rows = await fixture.read(), capture = rows.find(row => typeof row.id === "string" && row.id.startsWith("capt_"));
-    const transactions = rows.filter(row => typeof row.id === "string" && row.id.startsWith("ordtrx_"));
-    expect(transactions).toMatchObject([{ order_id: "order-finance", version: 1, amount: "15.000000000000000000",
-      raw_amount: { value: "15.000000000000000000", precision: 20 }, reference: "capture", reference_id: capture?.id }]);
-    expect(rows.find(row => row.id === "ordsum-finance")?.totals).toMatchObject({ paid_total: 15, refunded_total: 0,
-      transaction_total: 15, pending_difference: 0 });
-    expect(fixture.errors).toEqual([]);
+    await expectCheckoutRollback(fixture.fixture, beforeRefusal, refusedKey);
+
+    const before = await fixture.snapshot(), fault = fixture.fixture.loseNextNativeRootAcknowledgement();
+    const capturePayment = vi.spyOn(PaymentModuleService.prototype, "capturePayment");
+    const addTransactions = vi.spyOn(OrderModuleService.prototype, "addOrderTransactions");
+    try {
+      const captured = object(await Effect.runPromise(fixture.capture.run(request, input)));
+      expect(captured).toMatchObject({ id, captured_at: expect.any(String), captures: [{ amount: 15 }] });
+      expect(fault).toMatchObject({ armed: false, failures: 1 });
+      const rows = await fixture.read(), capture = rows.find(row => typeof row.id === "string" && row.id.startsWith("capt_"));
+      const transactions = rows.filter(row => typeof row.id === "string" && row.id.startsWith("ordtrx_"));
+      expect(transactions).toMatchObject([{ order_id: "order-finance", version: 1, amount: "15.000000000000000000",
+        raw_amount: { value: "15.000000000000000000", precision: 20 }, reference: "capture", reference_id: capture?.id }]);
+      expect(rows.find(row => row.id === "ordsum-finance")?.totals).toMatchObject({ paid_total: 15, refunded_total: 0,
+        transaction_total: 15, pending_difference: 0 });
+
+      const after = await fixture.snapshot(), timestamp = expectCheckoutSettlement(before, after, request);
+      expect(fault.evidence?.timestamp).toBe(timestamp);
+      for (const rowId of [id, text(capture?.id), text(transactions[0]?.id), "ordsum-finance"])
+        expect(after.revisions).toContainEqual(expect.objectContaining({ timestamp, value: expect.objectContaining({ id: rowId }) }));
+      const paymentSource = fixture.fixture.source("payment");
+      const captureTable = fixture.fixture.sources.find(source => source.source === paymentSource)
+        ?.definition.tables.find(table => table.localName === "capture");
+      const paymentIndex = captureTable?.indexes?.find(index => index.nativeId === "IDX_capture_payment_id");
+      const captureRevision = after.revisions.find(row => row.table === captureTable?.name && row.value?.id === capture?.id);
+      if (captureTable === undefined || paymentIndex === undefined || captureRevision === undefined)
+        throw new Error("Missing genuine Capture index or settled document revision");
+      const captureIndexEntries = (snapshot: typeof after) => snapshot.indexes.filter(entry =>
+        entry.table === captureTable.name && entry.name === paymentIndex.indexName && entry.id === captureRevision.id);
+      expect(captureIndexEntries(before)).toEqual([]);
+      expect(captureIndexEntries(after)).toMatchObject([{ timestamp }]);
+      const capturedEvents = after.events.filter(event => event.envelope.contract === PaymentEvents.CAPTURED);
+      expect(capturedEvents).toMatchObject([{ timestamp, envelope: { message: { data: { id } } } }]);
+      expect(after.deliveries).toContainEqual(expect.objectContaining({ timestamp, value: expect.objectContaining({
+        family_id: capturedEvents[0]?.familyId, ordinal: capturedEvents[0]?.ordinal, state: "pending",
+      }) }));
+
+      const recovered = await Effect.runPromise(preparePaymentCaptureWorkflow(fixture.options));
+      onTestFinished(() => Effect.runPromise(recovered.close));
+      const inventory = await fixture.fixture.inventory();
+      expect(await Effect.runPromise(recovered.run(request, input))).toEqual(captured);
+      expect(await Effect.runPromise(Effect.result(recovered.run(request, { ...input, amount: "1" }))))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "requestConflict" } });
+      expect(capturePayment).toHaveBeenCalledTimes(1);
+      expect(addTransactions).toHaveBeenCalledTimes(1);
+      expect(await fixture.fixture.inventory()).toEqual(inventory);
+      expect(fixture.errors).toEqual([]);
+    } finally { capturePayment.mockRestore(); addTransactions.mockRestore(); }
+  }, 240_000);
+
+  it("refuses swapped Core selectors and Legacy refund bindings before preparing a finance host", async () => {
+    const { modules } = fixture.options, before = await fixture.fixture.inventory();
+    const prepare = vi.fn(fixture.options.execution.prepare);
+    const execution = { ...fixture.options.execution, prepare };
+    const payment = fixture.fixture.source("payment"), order = fixture.fixture.source("order");
+    const swapped = await Effect.runPromise(Effect.result(preparePaymentCaptureWorkflow({ ...fixture.options, execution, modules: {
+      ...modules, payment: { module: modules.payment.module, nativeStorage: order },
+      order: { module: modules.order.module, nativeStorage: payment },
+    } })));
+    expect(swapped).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+    const wrongAuthorization = await Effect.runPromise(Effect.result(preparePaymentAuthorizationWorkflow({ ...fixture.options, execution,
+      modules: { payment: { module: modules.payment.module, nativeStorage: order } },
+    })));
+    expect(wrongAuthorization).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+    type LegacyModules = LegacyInstalledWorkflowModules<PaymentFinanceWorkflowInput["modules"]>;
+    expectTypeOf<LegacyModules>().not.toExtend<Parameters<typeof preparePaymentRefundWorkflow>[0]["modules"]>();
+    expectTypeOf<LegacyModules>().not.toExtend<Parameters<typeof preparePaymentRefundsWorkflow>[0]["modules"]>();
+    const legacy = { ...fixture.options, execution, modules: {
+      payment: { module: modules.payment.module, logicalStorage: null },
+      order: { module: modules.order.module, logicalStorage: null },
+      order_payment_collection_links: { module: modules.order_payment_collection_links.module, logicalStorage: null },
+    } };
+    for (const prepareRefund of [preparePaymentRefundWorkflow, preparePaymentRefundsWorkflow]) {
+      // @ts-expect-error Deliberately unissued envelopes exercise runtime refusal before storage preparation.
+      const denied = await Effect.runPromise(Effect.result(prepareRefund(legacy)));
+      expect(denied).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+    }
+    expect(prepare).not.toHaveBeenCalled();
+    expect(await fixture.fixture.inventory()).toEqual(before);
   }, 240_000);
 
   it("executes the native retained refund-transaction inverse and restores ordinary accounting", async () => {
     const forward = await fixture.prepareRetainedTransactions();
-    onTestFinished(() => Effect.runPromise(forward.close));
     const inverse = await fixture.prepareRetainedTransactions(true);
-    onTestFinished(() => Effect.runPromise(inverse.close));
     const key = forward.newRequestKey(), input = [{ order_id: "order-finance", amount: "-3.125", currency_code: "usd",
       reference: "refund", reference_id: "ref-retained-inverse" }];
     const refunded = object(await Effect.runPromise(forward.run(key, input)));
@@ -55,9 +132,15 @@ describe("genuine native Payment financial roots", () => {
     expect(retained).toHaveLength(1);
     expect((await fixture.read()).find(row => row.id === "ordsum-finance")?.totals)
       .toMatchObject({ paid_total: 15, refunded_total: 3.125, transaction_total: 11.875, pending_difference: 3.125 });
-    const undoKey = inverse.newRequestKey();
+    const beforeUndo = await fixture.snapshot(), undoKey = inverse.newRequestKey();
+    const transaction = beforeUndo.revisions.find(row => row.value?.id === retained[0]);
+    if (transaction === undefined) throw new Error("Missing retained Order transaction revision");
     expect(await Effect.runPromise(inverse.run(undoKey, retained))).toBeNull();
     const inventory = await fixture.snapshot();
+    const timestamp = expectCheckoutSettlement(beforeUndo, inventory, undoKey);
+    expect(inventory.revisions).toContainEqual(expect.objectContaining({ table: transaction.table, id: transaction.id,
+      timestamp, previous: transaction.timestamp, deleted: true, value: null }));
+    expect(inventory.indexes.some(entry => entry.table === transaction.table && entry.id === transaction.id)).toBe(false);
     expect(await Effect.runPromise(inverse.run(undoKey, retained))).toBeNull();
     expect(await fixture.snapshot()).toEqual(inventory);
     const after = await fixture.read();
@@ -70,13 +153,9 @@ describe("genuine native Payment financial roots", () => {
 
   it("creates native Change/Actions and executes their retained compensators through authenticated atomic participants", async () => {
     const create = await fixture.prepareRetainedChange("change");
-    onTestFinished(() => Effect.runPromise(create.close));
     const actions = await fixture.prepareRetainedChange("actions");
-    onTestFinished(() => Effect.runPromise(actions.close));
     const removeActions = await fixture.prepareRetainedChange("actions", true);
-    onTestFinished(() => Effect.runPromise(removeActions.close));
     const removeChange = await fixture.prepareRetainedChange("change", true);
-    onTestFinished(() => Effect.runPromise(removeChange.close));
     const key = create.newRequestKey(), input = { order_id: "order-finance", change_type: "credit_line" };
     const change = object(await Effect.runPromise(create.run(key, input)));
     expect(change.output).toMatchObject({ order_id: "order-finance", version: 2, status: "pending", actions: [] });
@@ -94,9 +173,9 @@ describe("genuine native Payment financial roots", () => {
     const retained = Schema.decodeUnknownSync(Schema.Struct({ entityIdentifiers: Schema.Array(Schema.String),
       moduleRegistrationName: Schema.Literal("order"), compensateMethod: Schema.Literal("deleteOrderChangeActions") }))(added.retained);
     expect(retained.entityIdentifiers).toHaveLength(2);
-    const before = await fixture.read();
-    expect(await Effect.runPromise(Effect.result(create.run(create.newRequestKey(), input)))).toMatchObject({ _tag: "Failure" });
-    expect(await fixture.read()).toEqual(before);
+    const before = await fixture.fixture.inventory(), duplicateKey = create.newRequestKey();
+    expect(await Effect.runPromise(Effect.result(create.run(duplicateKey, input)))).toMatchObject({ _tag: "Failure" });
+    await expectCheckoutRollback(fixture.fixture, before, duplicateKey);
     const undoActionsKey = removeActions.newRequestKey();
     expect(await Effect.runPromise(removeActions.run(undoActionsKey, retained))).toBeNull();
     expect(await Effect.runPromise(removeActions.run(undoActionsKey, retained))).toBeNull();
@@ -111,10 +190,14 @@ describe("genuine native Payment financial roots", () => {
     const emptyBefore = await fixture.read();
     expect(await Effect.runPromise(fixture.refunds.run(fixture.refunds.newRequestKey(), []))).toEqual([]);
     expect(await fixture.read()).toEqual(emptyBefore);
+    const before = await fixture.snapshot();
     const request = fixture.refunds.newRequestKey(), input = [{ payment_id: id, amount: "3.125", note: "Native batch refund" }];
     const result = await Effect.runPromise(fixture.refunds.run(request, input));
     expect(result).toMatchObject([{ id, refunds: [{ amount: 3.125, note: "Native batch refund" }] }]);
+    const settled = await fixture.snapshot();
+    expectCheckoutSettlement(before, settled, request);
     expect(await Effect.runPromise(fixture.refunds.run(request, input))).toEqual(result);
+    expect(await fixture.snapshot()).toEqual(settled);
     const after = await fixture.read();
     const refund = after.find(row => row.payment_id === id && typeof row.id === "string" && row.id.startsWith("ref_"));
     expect(refund).toBeDefined();
@@ -122,17 +205,15 @@ describe("genuine native Payment financial roots", () => {
       .toMatchObject([{ order_id: "order-finance", version: 1, amount: "-3.1250000000000000000" }]);
     expect(after.find(row => row.id === "ordsum-finance")?.totals)
       .toMatchObject({ paid_total: 15, refunded_total: 3.125, transaction_total: 11.875, pending_difference: 3.125 });
-    expect(await Effect.runPromise(Effect.result(fixture.refunds.run(fixture.refunds.newRequestKey(), [{ payment_id: id, amount: "12" }]))))
+    const beforeRefusal = await fixture.fixture.inventory(), refusedKey = fixture.refunds.newRequestKey();
+    expect(await Effect.runPromise(Effect.result(fixture.refunds.run(refusedKey, [{ payment_id: id, amount: "12" }]))))
       .toMatchObject({ _tag: "Failure" });
-    expect(await fixture.read()).toEqual(after);
+    await expectCheckoutRollback(fixture.fixture, beforeRefusal, refusedKey);
     expect(fixture.errors).toEqual([]);
   }, 240_000);
 
   it.each(["separate-keys", "one-batch"] as const)("accounts once for each successful partial refund of the same Payment: %s", async mode => {
-    const repeated = await prepareLogicalPaymentFinance(driver, onTestFinished, undefined, "linked", {
-      resource: fixture.fixture.resource, fixtureIdentity: { deploymentId: "payment-finance-repeated-refund-" + mode,
-        projectId: "payment-finance-tests", uuidOffset: mode === "separate-keys" ? 8_020_000 : 8_030_000 },
-    });
+    const repeated = await prepareCorePaymentFinance(driver, onTestFinished, undefined, "linked", fixture.fixture.physical);
     const payment = object(await Effect.runPromise(repeated.authorize.run(repeated.authorize.newRequestKey(), { id: "payses_finance" })));
     const id = text(payment.id);
     await Effect.runPromise(repeated.capture.run(repeated.capture.newRequestKey(), { payment_id: id }));
@@ -160,30 +241,27 @@ describe("genuine native Payment financial roots", () => {
   }, 240_000);
   it("rolls back the first staged refund when the native batch catches a later participant refusal", async () => {
     const rows = await fixture.read(), payment = rows.find(row => row.payment_session_id === "payses_finance"), id = text(payment?.id);
-    const before = await fixture.snapshot();
+    const before = await fixture.fixture.inventory(), key = fixture.refunds.newRequestKey();
     // Each amount fits the queried refundable total. The second invocation
     // must see the first staged refund and fail in the genuine Payment guard;
     // the batch step's native catch cannot clear the outer rollback-only state.
-    const result = await Effect.runPromise(Effect.result(fixture.refunds.run(fixture.refunds.newRequestKey(), [
-      { payment_id: id, amount: "8" }, { payment_id: id, amount: "8" },
-    ])));
-    expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "adapterFailure", cause: {
-      type: "invalid_data", message: "You cannot refund more than what is captured on the payment.",
-    } } });
-    const after = await fixture.snapshot();
-    expect(after.rows).toEqual(before.rows);
-    expect(after.revisions).toEqual(before.revisions);
-    expect(after.events).toEqual(before.events);
-    expect(after.physicalFacts).toEqual(before.physicalFacts);
+    const provider = vi.spyOn(SystemPaymentProvider.prototype, "refundPayment");
+    try {
+      const result = await Effect.runPromise(Effect.result(fixture.refunds.run(key, [
+        { payment_id: id, amount: "8" }, { payment_id: id, amount: "8" },
+      ])));
+      expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "adapterFailure", cause: {
+        type: "invalid_data", message: "You cannot refund more than what is captured on the payment.",
+      } } });
+      expect(provider).toHaveBeenCalledTimes(1);
+      await expectCheckoutRollback(fixture.fixture, before, key);
+    } finally { provider.mockRestore(); }
   }, 240_000);
 
   it("executes the genuine retained transaction inverse beyond Number precision in an independent scope", async () => {
     // Native Summary numeric fields retain their native rounding semantics.
     // Keep this precision witness isolated from subsequent ordinary accounting.
-    const preciseFixture = await prepareLogicalPaymentFinance(driver, onTestFinished, undefined, "linked", {
-      resource: fixture.fixture.resource, fixtureIdentity: { deploymentId: "payment-finance-precision",
-        projectId: "payment-finance-tests", uuidOffset: 8_010_000 },
-    });
+    const preciseFixture = await prepareCorePaymentFinance(driver, onTestFinished, undefined, "linked", fixture.fixture.physical);
     // The genuine native inverse must see its checked raw companion rather
     // than the rounded public amount. This failed receipt validation when the
     // accounting input discarded raw_amount; native summary math is retained.
@@ -201,10 +279,7 @@ describe("genuine native Payment financial roots", () => {
   }, 240_000);
 
   it("captures with a genuinely empty Link dataset and leaves unrelated Order accounting untouched", async () => {
-    const unlinked = await prepareLogicalPaymentFinance(driver, onTestFinished, undefined, "unlinked", {
-      resource: fixture.fixture.resource, fixtureIdentity: { deploymentId: "payment-finance-unlinked",
-        projectId: "payment-finance-tests", uuidOffset: 8_000_000 },
-    });
+    const unlinked = await prepareCorePaymentFinance(driver, onTestFinished, undefined, "unlinked", fixture.fixture.physical);
     const payment = object(await Effect.runPromise(unlinked.authorize.run(unlinked.authorize.newRequestKey(), { id: "payses_finance" })));
     const id = text(payment.id), key = unlinked.capture.newRequestKey(), input = { payment_id: id };
     const result = await Effect.runPromise(unlinked.capture.run(key, input));

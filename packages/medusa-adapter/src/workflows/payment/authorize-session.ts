@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import { createWorkflow, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { authorizePaymentSessionStep } from "@medusajs/core-flows/payment/authorize-payment-session-step";
-import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { matchesAtomicCommerceNativeSource, type AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { PaymentAuthorization } from "../../modules/payment/lifecycle-input";
 import type { makePaymentLifecycleCommands } from "../../modules/payment/lifecycle-service";
@@ -35,6 +35,9 @@ export const preparePaymentAuthorizationWorkflow = Effect.fn("Payment.prepareAut
     return yield* Effect.fail(commerceError("invalidAuthority"));
   if (modules.payment.logicalResources !== undefined || modules.payment.logicalPublication !== undefined)
     return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const native = modules.payment.nativeStorage;
+  if (native !== undefined && !matchesAtomicCommerceNativeSource(native, "payment", "medusa.payment"))
+    return yield* Effect.fail(commerceError("invalidAuthority"));
   const resources = yield* Effect.fromResult(prepareWorkflowResources({ payment: { module: modules.payment.module,
     methods: ["authorizePaymentSession", "retrievePaymentSession", "cancelPayment"], graph: false } }, true, { logger: options.logger }));
   const prepared = yield* Effect.fromResult(paymentAuthorizationWorkflow.prepare()).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));

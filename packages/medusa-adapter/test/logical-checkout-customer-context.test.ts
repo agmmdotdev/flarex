@@ -5,7 +5,7 @@ import { SystemPaymentProvider } from "@medusajs/payment/providers/system";
 import { prepareCoreCheckout } from "./support/core-checkout-fixture";
 import { expectCheckoutRollback, expectCheckoutSettlement } from "./support/core-checkout-evidence";
 import { customerRow } from "./support/customer-rows";
-import { prepareRetainedCheckoutPaymentWithResources } from "./support/logical-checkout-payment-compensation-fixture";
+import { prepareRetainedCheckoutPaymentWithResources } from "./support/checkout-payment-compensation-fixture";
 import { prepareCustomerCheckoutModules } from "../src/workflows/cart/checkout-graph";
 import { prepareCustomerCheckoutResources, prepareCustomerCompleteCartWorkflow } from "../src/workflows/cart/complete-cart";
 import { createPaymentSessionsWorkflow } from "@medusajs/core-flows/payment-collection/create-payment-session";

@@ -10,11 +10,11 @@ import type { PreparedWorkflowResources } from "../../src/workflow/resources";
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { NativePaymentAmount, PaymentId, PaymentSessionRootInput } from "../../src/modules/payment/input";
-import type { prepareLogicalPaymentFinance } from "./logical-payment-finance-fixture";
+import type { prepareCorePaymentFinance } from "./core-payment-finance-fixture";
 
 /** Isolated native child probe only. Production invokes this child through
  * the retained marker's authenticated matching graph, not arbitrary root IDs. */
-export async function prepareNativePaymentRecreation(local: Awaited<ReturnType<typeof prepareLogicalPaymentFinance>>,
+export async function prepareNativePaymentRecreation(local: Awaited<ReturnType<typeof prepareCorePaymentFinance>>,
   close: (cleanup: () => Promise<void>) => void) {
   const resources = Result.getOrThrow(preparePaymentRecreationResources(local.options.modules, local.options.logger));
   const input = Schema.Struct({ payment_collection_id: PaymentId, payment_id: PaymentId,
@@ -31,7 +31,7 @@ export async function prepareNativePaymentRecreation(local: Awaited<ReturnType<t
 /** Invoke the genuine retained callbacks under the same declared child closure
  * as their native step. The production root retains transaction-covered undo;
  * these isolated roots independently prove what its saved inverse executes. */
-export async function prepareRetainedCheckoutPayment(local: Awaited<ReturnType<typeof prepareLogicalPaymentFinance>>,
+export async function prepareRetainedCheckoutPayment(local: Awaited<ReturnType<typeof prepareCorePaymentFinance>>,
   kind: "forward" | "inverse" | "late", close: (cleanup: () => Promise<void>) => void) {
   const resources = Result.getOrThrow(preparePaymentRecreationResources(local.options.modules, local.options.logger));
   return prepareRetainedCheckoutPaymentWithResources(local.options, resources, kind, close);

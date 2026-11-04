@@ -2,7 +2,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Cause, Effect, Exit, Schema } from "effect";
 import { SystemPaymentProvider } from "@medusajs/payment/providers/system";
 import { PaymentModuleService } from "@medusajs/payment/services";
-import { prepareLogicalPaymentSessions, paymentCollectionId, paymentSessionSeed } from "./support/logical-payment-session-fixture";
+import { prepareLogicalPaymentSessions } from "./support/logical-payment-session-fixture";
+import { paymentCollectionId, paymentSessionSeed } from "./support/payment-fixture-data";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];

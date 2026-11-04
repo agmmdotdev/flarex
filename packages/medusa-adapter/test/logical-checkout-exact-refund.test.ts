@@ -1,18 +1,20 @@
 import { Cause, Effect, Exit, Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { prepareLogicalPaymentFinance } from "./support/logical-payment-finance-fixture";
-import { prepareRetainedCheckoutPayment } from "./support/logical-checkout-payment-compensation-fixture";
+import { prepareCorePaymentFinance } from "./support/core-payment-finance-fixture";
+import { finishOrderFixture } from "./support/core-order-fixture";
+import { expectCheckoutSettlement } from "./support/core-checkout-evidence";
+import { prepareRetainedCheckoutPayment } from "./support/checkout-payment-compensation-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const object = Schema.decodeUnknownSync(Schema.JsonObject), id = Schema.decodeUnknownSync(Schema.String);
 const cleanup: Array<() => Promise<void>> = [];
 
 describe("native checkout exact captured-Payment inverse", () => {
-  let local: Awaited<ReturnType<typeof prepareLogicalPaymentFinance>>;
+  let local: Awaited<ReturnType<typeof prepareCorePaymentFinance>>;
   beforeAll(async () => {
-    local = await prepareLogicalPaymentFinance(driver, close => cleanup.push(close), [], "unlinked", undefined, "9007199254740993.0000");
+    local = await prepareCorePaymentFinance(driver, close => cleanup.push(close), [], "unlinked", undefined, "9007199254740993.0000");
   }, 240_000);
-  afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
+  afterAll(() => finishOrderFixture(cleanup.reverse()), 120_000);
   it("refunds the complete stored raw amount beyond Number precision and retains the referenced Session", async () => {
     const payment = object(await Effect.runPromise(local.authorize.run(local.authorize.newRequestKey(), { id: "payses_finance" })));
     await Effect.runPromise(local.capture.run(local.capture.newRequestKey(), { payment_id: id(payment.id) }));
@@ -29,7 +31,7 @@ describe("native checkout exact captured-Payment inverse", () => {
     expect(rows.filter(row => row.status === "pending")).toMatchObject([{ amount: "9007199254740993.0000",
       raw_amount: { value: "9007199254740993.0000", precision: 20 } }]);
     const after = await local.snapshot();
-    expect(after.commits.length - before.commits.length).toBe(1);
+    expectCheckoutSettlement(before, after, key);
     expect(await Effect.runPromise(inverse.run(key, "payses_finance"))).toBeNull();
     expect(await local.snapshot()).toEqual(after);
     expect(local.errors).toEqual([]);

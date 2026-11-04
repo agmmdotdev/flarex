@@ -792,3 +792,7 @@ with the sixteen existing sources. Paired acceptance is complete.
 The [full native checkout continuation](./slices/36-native-checkout.md) uses the
 existing Core owners for both genuine checkout profiles, the four exact Link
 sources and the queued root scope proof. Paired acceptance is complete.
+
+The [native Payment finance continuation](./slices/37-native-payment-finance.md)
+uses the existing Payment, generated Order and exact Link sources and Core
+settlement for the selected native roots. Paired acceptance is complete.

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Effect, Result, Schema } from "effect";
 import { createStep, createWorkflow, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { authorizePaymentSessionStep, authorizePaymentSessionStepId } from "@medusajs/core-flows/payment/authorize-payment-session-step";
@@ -7,18 +8,29 @@ import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { paymentAuthorizationWorkflow, preparePaymentAuthorizationWorkflow } from "../../src/workflows/payment/authorize-session";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
-import { defineCommerceCommand } from "../../../persistence-postgres/src/frameworks/commerceTransaction/commands";
-import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
-import { commerceError, isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { compileCoreNativeEventStorageDefinition } from "../../../persistence-postgres/src/commit/events/coreDefinition";
+import type { CorePersistenceFixture } from "../../../persistence-postgres/test/core/fixture";
 import { makePaymentLifecycleCommands } from "../../src/modules/payment/lifecycle-service";
 import { PaymentAuthorization, PaymentCapture, PaymentRefund } from "../../src/modules/payment/lifecycle-input";
-import { prepareLogicalPaymentSessions, paymentSessionSeed } from "./logical-payment-session-fixture";
+import { compilePaymentCoreDefinition } from "../../src/modules/payment/schema";
+import { createCoreNativeWorkflowFixture, shareCoreNativeWorkflowPhysical, type CoreNativeWorkflowSource } from "./core-native-workflow-fixture";
+import { makePaymentFixtureLogger, paymentCollectionSeed, paymentSessionSeed } from "./payment-fixture-data";
 
-export async function prepareLogicalPaymentLifecycle(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  shared?: Parameters<typeof prepareLogicalPaymentSessions>[3], additionalRows: Parameters<typeof prepareLogicalPaymentSessions>[2] = []) {
-  const base = await prepareLogicalPaymentSessions(driver, close, [paymentSessionSeed("payses_lifecycle"), ...additionalRows], shared);
-  const payment = await Effect.runPromise(makePaymentLifecycleCommands(base.logger));
-  const modules = { payment: { ...base.modules.payment, module: payment.workflow } };
+export async function prepareCorePaymentLifecycle(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
+  additionalRows: CoreNativeWorkflowSource["rows"] = [], physical?: CorePersistenceFixture) {
+  const target = { scopeUuid: randomUUID(), epochUuid: randomUUID() };
+  const { logger, errors } = makePaymentFixtureLogger();
+  const { payment, definition, eventDefinition } = await Effect.runPromise(Effect.all({
+    payment: makePaymentLifecycleCommands(logger),
+    definition: compilePaymentCoreDefinition(target),
+    eventDefinition: compileCoreNativeEventStorageDefinition(target),
+  }));
+  const fixture = await createCoreNativeWorkflowFixture(driver, { eventDefinition, sources: [{
+    name: "payment", definition, initialCommands: payment.commands,
+    rows: [paymentCollectionSeed(), paymentSessionSeed("payses_lifecycle"), ...additionalRows],
+  }], ...(physical === undefined ? {} : { physical: await shareCoreNativeWorkflowPhysical(physical) }) });
+  close(fixture.close);
+  const modules = { payment: { module: payment.workflow, nativeStorage: fixture.source("payment") } };
   const resources = Result.getOrThrow(prepareWorkflowResources({ payment: { module: payment.workflow,
     methods: ["authorizePaymentSession", "retrievePaymentSession", "capturePayment", "refundPayment", "cancelPayment"], graph: true } }, true,
     { logger: payment.loggerResource }));
@@ -26,7 +38,8 @@ export async function prepareLogicalPaymentLifecycle(driver: "pglite" | "postgre
     new WorkflowResponse(capturePaymentStep(input)));
   const refund = createWorkflow("probe-native-payment-refund-step", (input: WorkflowData<typeof PaymentRefund.Type>) =>
     new WorkflowResponse(refundPaymentStep(input)));
-  const options = { execution: base.execution, modules, revision: base.options.revision, subscribers: base.options.subscribers,
+  const options = { execution: fixture.execution, modules, revision: "b".repeat(64),
+    subscribers: [{ id: "native-payment-lifecycle", revision: "c".repeat(64) }],
     operationScheduling: "queued", borrowedOperationScheduling: "queued" } as const;
   const retained = Result.getOrThrow(paymentAuthorizationWorkflow.prepare()).nodes.find(node => node.name === authorizePaymentSessionStepId);
   if (retained?.kind !== "step" || retained.compensate === undefined) throw new Error("Missing native Payment authorization callbacks");
@@ -70,20 +83,6 @@ export async function prepareLogicalPaymentLifecycle(driver: "pglite" | "postgre
       prepared: Result.getOrThrow(refund.prepare()), input: PaymentRefund, output: Schema.JsonObject, events: internalModuleWorkflowEvents } }));
     close(() => Effect.runPromise(host.close)); return host;
   };
-  /** Import existing rows through the actual storage owner, one setup command
-   * at a time. This capability is never installed in a workflow participant.
-   * The guard witness concerns existing state, not atomic dataset publication. */
-  const seedStoredCaptures = async (rows: readonly JsonObject[]) => {
-    const seed = defineCommerceCommand("fixtureStoredPaymentCapture", "write", (ctx, input) => Effect.gen(function* () {
-      if (!isJsonObject(input)) return yield* ctx.refuse(commerceError("invalidInput"));
-      yield* (yield* ctx.table("capture")).write(ctx.manager, "insert", [input]);
-      return null;
-    }));
-    const host = await Effect.runPromise(makeCommerceHost({ ...base.fixture.hostInput, commands: [seed],
-      logicalStorage: modules.payment.logicalStorage, identityAndAccessPolicy: { profile: "fixture-existing-payment-captures" } }));
-    close(() => Effect.runPromise(host.close));
-    for (const row of rows) await Effect.runPromise(host.run(host.newRequestKey(), seed, row));
-  };
-  return { ...base, payment, modules, options, resources, prepareAuthorize, prepareCapture, prepareRefund,
-    prepareRetainedAuthorization, prepareLateAuthorization, lateFailure, seedStoredCaptures };
+  return { fixture, payment, errors, prepareAuthorize, prepareCapture, prepareRefund,
+    prepareRetainedAuthorization, prepareLateAuthorization, lateFailure, snapshot: fixture.snapshot, read: fixture.readRows };
 }

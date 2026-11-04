@@ -13,11 +13,13 @@ const cases = [
     row: { id: "ordch-refund", status: "pending", change_type: "credit_line", actions: [{ id: "ordchact-refund", order_id: "order-refund",
       action: "CREDIT_LINE_ADD", details: {}, reference: null, reference_id: null, internal_note: null }] },
     malformed: { id: "ordch-refund", status: "pending", change_type: "credit_line", actions: [{ id: "ordchact-refund" }] } },
-  { input: { entity: "payments", fields: ["id", "currency_code", "refunds.id", "refunds.amount", "captures.id", "captures.amount",
-      "payment_collection.order.id", "payment_collection.order.currency_code"], filters: { id: ["pay-refund"] }, options: { throwIfKeyNotFound: true } },
-    row: { id: "pay-refund", currency_code: "usd", refunds: [], captures: [{ id: "capt-refund", amount: 15 }],
+  { input: { entity: "payments", fields: ["id", "currency_code", "refunds.id", "refunds.amount", "refunds.raw_amount", "captures.id", "captures.amount",
+      "captures.raw_amount", "payment_collection.order.id", "payment_collection.order.currency_code"], filters: { id: ["pay-refund"] }, options: { throwIfKeyNotFound: true } },
+    row: { id: "pay-refund", currency_code: "usd", refunds: [], captures: [{ id: "capt-refund", amount: 9007199254740994,
+      raw_amount: { value: "9007199254740993.125", precision: 20 } }],
       payment_collection: { order: { id: "order-refund", currency_code: "usd" } } },
-    malformed: { id: "pay-refund", currency_code: "usd", refunds: [], captures: [{ id: "capt-refund", amount: "15" }], payment_collection: null } },
+    malformed: { id: "pay-refund", currency_code: "usd", refunds: [], captures: [{ id: "capt-refund", amount: "15",
+      raw_amount: { value: "15", precision: 20 } }], payment_collection: null } },
 ] as const;
 type Row = typeof Schema.JsonObject.Type;
 const resource = (rows: readonly Row[], calls: unknown[][] = []): WorkflowGraphResource => ({ maxPageSize: 4,

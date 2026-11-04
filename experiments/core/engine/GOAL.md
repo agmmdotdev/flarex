@@ -533,3 +533,7 @@ preimage workflows onto Core. Paired acceptance is complete.
 The [full native checkout continuation](./slices/36-native-checkout.md) moves
 the genuine ordinary and Customer checkout profiles and their connected native
 callbacks onto Core. Paired acceptance is complete.
+
+The [native Payment finance continuation](./slices/37-native-payment-finance.md)
+moves the linked financial roots, System Payment lifecycle, retained inverses
+and stored Order PaymentCollection Link reads onto Core. Paired acceptance is complete.

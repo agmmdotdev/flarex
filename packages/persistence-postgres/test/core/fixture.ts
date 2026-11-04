@@ -68,7 +68,7 @@ export async function createCorePGliteFixture(
 
 const servingRoleRows = Schema.Array(Schema.Struct({
   role_name: Schema.String, rolsuper: Schema.Boolean, rolbypassrls: Schema.Boolean,
-  rolcreatedb: Schema.Boolean, rolcreaterole: Schema.Boolean,
+  rolcreatedb: Schema.Boolean, rolcreaterole: Schema.Boolean, rolreplication: Schema.Boolean,
 }));
 
 export interface CorePostgresFixtureOptions extends CorePersistenceFixtureOptions {
@@ -88,9 +88,9 @@ export async function createCorePostgresFixture(options: CorePostgresFixtureOpti
   try {
     const runtimeDriver = options.wrapRuntimeDriver?.(physicalRuntimeDriver) ?? physicalRuntimeDriver;
     const rows = await Effect.runPromise(runtimeDriver.query(`SELECT current_user AS role_name,
-      rolsuper, rolbypassrls, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname = current_user`));
+      rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication FROM pg_roles WHERE rolname = current_user`));
     const [role] = Schema.decodeUnknownSync(servingRoleRows)(rows);
-    if (role === undefined || role.rolsuper || role.rolbypassrls || role.rolcreatedb || role.rolcreaterole) {
+    if (role === undefined || role.rolsuper || role.rolbypassrls || role.rolcreatedb || role.rolcreaterole || role.rolreplication) {
       throw new Error("Core PostgreSQL fixture requires an ordinary serving role");
     }
     await Effect.runPromise(installCorePersistence(maintenanceDriver, namespace));
