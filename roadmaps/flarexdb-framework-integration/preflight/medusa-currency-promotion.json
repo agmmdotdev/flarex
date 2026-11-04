@@ -914,7 +914,7 @@
     {
       "target": "packages/medusa-adapter/src/links/cart-promotion-schema.ts",
       "classification": "authored",
-      "targetSha256": "a5d5669dcf7c8b93a2207c8ffba40afe53d33bfebd6729fe57c344aa99bae4ea"
+      "targetSha256": "3010139107e464205c510d1b6bfdb9549a404a39a96a273f290a17540bbd80c6"
     },
     {
       "target": "packages/medusa-adapter/src/links/cart-promotion-service.ts",
@@ -944,7 +944,7 @@
     {
       "target": "packages/medusa-adapter/src/links/customer-account-holder-schema.ts",
       "classification": "authored",
-      "targetSha256": "2db3a1c5bfd485a5a4b35262ea7025636069b6d218fa3ca3af283cb2bea337e1"
+      "targetSha256": "58ea358c8b15ca2f82666752c15482186ee687d2b3e573f6128873b73e0f7ec8"
     },
     {
       "target": "packages/medusa-adapter/src/links/customer-account-holder-service.ts",
@@ -1009,7 +1009,7 @@
     {
       "target": "packages/medusa-adapter/src/links/order-cart-schema.ts",
       "classification": "authored",
-      "targetSha256": "7148e607f11412e39893196e071f09d940f7723bedc566e3f560df8bfec8e548"
+      "targetSha256": "a37ef7e2b8ccacaf247c12bd95e9e6e9a297e796fcc75a3b6d4bfd824e271d46"
     },
     {
       "target": "packages/medusa-adapter/src/links/order-cart-service.ts",
@@ -1018,7 +1018,7 @@
     },
     {
       "target": "packages/medusa-adapter/src/links/order-payment-collection-schema.ts",
-      "targetSha256": "1a1b7a339d46f42794df4ffee058512e4c16691378fa4777f5acd749138fbf2a",
+      "targetSha256": "1dd62bdcaa31b5c0cb365a37d349336f79dc9b92afe3588d4db24ae7b02a0a2e",
       "classification": "authored"
     },
     {
@@ -3989,12 +3989,12 @@
     {
       "target": "packages/medusa-adapter/src/workflows/cart/checkout-graph.ts",
       "classification": "authored",
-      "targetSha256": "9ffae0497b7a7f0cf2f5c4975980e096170c4a963d10e4ac85e5fdc3b4c6a02d"
+      "targetSha256": "4678ea7d7f8c362c414a3e739fcaa696d43fd700eccb0dbeee3448c0c69c5b15"
     },
     {
       "target": "packages/medusa-adapter/src/workflows/cart/complete-cart.ts",
       "classification": "authored",
-      "targetSha256": "375e7c8fc30b6a62e9f6c87f038cd8d97d0bcec13066d3ad1e67587704dc0bc2"
+      "targetSha256": "2c643c3444f67c67ef9fa74e68ab138c41fa88cbe5e2144a040fbec9d6c1d2e2"
     },
     {
       "target": "packages/medusa-adapter/src/workflows/cart/context-read.ts",
@@ -4699,12 +4699,12 @@
     {
       "target": "packages/medusa-adapter/test/checkout-customer-context-contracts.test.ts",
       "classification": "authored",
-      "targetSha256": "718dbf2e511deaba030222b276baf1b4204292b352f04a6bf28733bb4dbb53f3"
+      "targetSha256": "ee0f0c4d5478036bee063df503553f3c3c784e3a9af28d6ed8a23e26de0d8ebc"
     },
     {
       "target": "packages/medusa-adapter/test/checkout-customer-identity-preflight.test.ts",
       "classification": "authored",
-      "targetSha256": "2b503297193406208bd61d9ff70a3d6fdfb6406e58cabee8a7567e58de58f255"
+      "targetSha256": "42d3e83e1d791b1fdc4cc61892f0a7c8b5537bcc6dc5801f32407338ca5879d3"
     },
     {
       "target": "packages/medusa-adapter/test/checkout-id-read-receipts.test.ts",
@@ -4714,7 +4714,7 @@
     {
       "target": "packages/medusa-adapter/test/checkout-index-requirements.test.ts",
       "classification": "authored",
-      "targetSha256": "eaf054958a374c8bcc440ab7f10557955832e734b242c593a4d2bbee8e0974b7"
+      "targetSha256": "5564d446808cac7f5250096182d366569886e14094d62927dcaf914bb865c753"
     },
     {
       "target": "packages/medusa-adapter/test/checkout-inventory-receipts.test.ts",
@@ -4764,7 +4764,7 @@
     {
       "target": "packages/medusa-adapter/test/checkout-read-profiles.test.ts",
       "classification": "authored",
-      "targetSha256": "ad3a4fd2e15247e20dee009d2a27ad1a2c4e60bc6a4ddb89ba415bfc01801541"
+      "targetSha256": "fb8bae5f9c70921232b2856f662ab9e7062ef250153b7d840f924eb23b617242"
     },
     {
       "target": "packages/medusa-adapter/test/checkout-reservation-native-prerequisite.test.ts",
@@ -4774,7 +4774,7 @@
     {
       "target": "packages/medusa-adapter/test/checkout-workflow-contracts.test.ts",
       "classification": "authored",
-      "targetSha256": "bc0e4983c38c322c4619a111173ce10b765b3660e3e78a80d01f80f47f5ccd26"
+      "targetSha256": "cef8e23f10b0f28a9c0828f779e3d2e72490e196591f3619daa6d50d23447f5c"
     },
     {
       "target": "packages/medusa-adapter/test/commerce-input.test.ts",
@@ -4814,7 +4814,7 @@
     {
       "target": "packages/medusa-adapter/test/core-native-scope-exclusion.test.ts",
       "classification": "authored",
-      "targetSha256": "7d7613f087dcf84c0d7b32e0d7650accef58a00fe41839fe19199ac462f5dfec"
+      "targetSha256": "c1ebee91e3b3784ef242325524697252b9024e5be8cc330f6ec74301fca5e039"
     },
     {
       "target": "packages/medusa-adapter/test/core-order-checkout-retained.test.ts",
@@ -5219,7 +5219,7 @@
     {
       "target": "packages/medusa-adapter/test/link-preimage-contracts.test.ts",
       "classification": "authored",
-      "targetSha256": "7582fcc5146021817bb2ca386411cbd084e0230bed3b5b326caf4988e4783a22"
+      "targetSha256": "34ac3cd1e66764e10e9af285e94c2d4d7c34b0af27dc5ce3581743aa81214716"
     },
     {
       "target": "packages/medusa-adapter/test/link-storage.test.ts",
@@ -5369,12 +5369,12 @@
     {
       "target": "packages/medusa-adapter/test/logical-checkout-customer-address.test.ts",
       "classification": "authored",
-      "targetSha256": "b4e5105bdd3c7ad225fa8201cb739f12ff82a9ba42db63afe08f0a989952921f"
+      "targetSha256": "eb247bddd99ce186a4d09b5857280400012aeb598a20002f1159810f013d0fc2"
     },
     {
       "target": "packages/medusa-adapter/test/logical-checkout-customer-context.test.ts",
       "classification": "authored",
-      "targetSha256": "921d521774d9db6967173de846546905479966f668deebb761e0235dc2a97ee2"
+      "targetSha256": "11ebe6c5a180d21cb5fd4bed312cb3a02f5c4f04b7b12e2fb29d42471798943e"
     },
     {
       "target": "packages/medusa-adapter/test/logical-checkout-exact-refund.test.ts",
@@ -5389,7 +5389,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-checkout-inventory.test.ts",
       "classification": "authored",
-      "targetSha256": "004d43f93731914f193398617245b5452ddc234c8d4b3c2c52972003810fdb75"
+      "targetSha256": "244e8b37e1d1b98c5084e7725cd392024d895a25f5976bd594afb0d303d0d84c"
     },
     {
       "target": "packages/medusa-adapter/test/logical-checkout-line-price.test.ts",
@@ -5409,7 +5409,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-checkout-workflow.test.ts",
       "classification": "authored",
-      "targetSha256": "cfd81a856cf0792098e0dda9b650abe157b58329ae55ebed37ae729fee4264ed"
+      "targetSha256": "9450a95952365f0e7962aefb9971979957113d5495a03b46e94449cba87e0971"
     },
     {
       "target": "packages/medusa-adapter/test/logical-commerce-mixed-publication.test.ts",
@@ -6245,6 +6245,11 @@
       "target": "packages/medusa-adapter/test/native-cart-source-provenance.proof.ts",
       "classification": "authored",
       "targetSha256": "2c6bfacaaa6f04c5aaa29783f3cd6585153968eb89dc6edcb15f1484911f7f9b"
+    },
+    {
+      "target": "packages/medusa-adapter/test/native-checkout-source-provenance.proof.ts",
+      "classification": "authored",
+      "targetSha256": "70dc12d8138718eccfc8c8a4d95eb70cbe800c9d0bca5db58da919a1b98104cf"
     },
     {
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/cart/utils/__tests__/prepare-confirm-inventory-input.spec.ts",
@@ -7369,19 +7374,19 @@
       "targetSha256": "fedc2e2cff76d9017f778e91f2c496068b42fc831374881d900c1df01692ac66"
     },
     {
-      "target": "packages/medusa-adapter/test/support/checkout-contention.ts",
+      "target": "packages/medusa-adapter/test/support/checkout-core-definitions.ts",
       "classification": "authored",
-      "targetSha256": "38fee57575cd27d48e9e1dc3e624bbd15fb27c2b46b1b5fe340ac6c71c9d1f0a"
+      "targetSha256": "abbfdfe3003eb148fe9739bfaefaefce7eee450caa7b6bec213d88c7f50f9ad9"
     },
     {
       "target": "packages/medusa-adapter/test/support/checkout-inventory-data.ts",
       "classification": "authored",
-      "targetSha256": "b025c6d9291c00aa2f8a959a87c24032cd9a3b6566601d4a6abc96337727f75f"
+      "targetSha256": "fb41e7cc1327fa0ede2343f96951374399670b20bb313862f68c8fb77c938fa8"
     },
     {
       "target": "packages/medusa-adapter/test/support/checkout-inventory-inverse.ts",
       "classification": "authored",
-      "targetSha256": "6862074b6874783de22d36f602e44b3e36bf85f4d96724832488af8db5ef0c9e"
+      "targetSha256": "2d47c345b1f307a4b37c27e1cf2a4c896d414247066390b12058309e49c840dd"
     },
     {
       "target": "packages/medusa-adapter/test/support/core-api-key-association-fixture.ts",
@@ -7417,6 +7422,16 @@
       "target": "packages/medusa-adapter/test/support/core-cart-payment-collection-fixture.ts",
       "classification": "authored",
       "targetSha256": "0abb5d0edeb5e7a2fed5da3985e48a3077ca8c33700be828e65cdee66b57ea6a"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/core-checkout-evidence.ts",
+      "classification": "authored",
+      "targetSha256": "924fbccf5a90785baa78cd0d34a26696a40b77b5c2e002f4660bce6baf30d24a"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/core-checkout-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "10ad2a2315f518054e2108fd02c4d12a67c5a7cf848fe40477694284d241bcab"
     },
     {
       "target": "packages/medusa-adapter/test/support/core-currency-fixture.ts",
@@ -7864,11 +7879,6 @@
       "targetSha256": "3e2fc11dabedd49367a107ad41b97c55e4c147ec361afa11680e3b34b65e60bc"
     },
     {
-      "target": "packages/medusa-adapter/test/support/logical-checkout-fixture.ts",
-      "classification": "authored",
-      "targetSha256": "4c8cf41f8d15d8df562c2f5795f3ec891487090775b017a4afc9890ea17d908d"
-    },
-    {
       "target": "packages/medusa-adapter/test/support/logical-checkout-payment-compensation-fixture.ts",
       "classification": "authored",
       "targetSha256": "fccc873455006577a15d26afd504f4fc9a3711f5382eb2573a3b395cd021e030"
@@ -8127,6 +8137,11 @@
       "target": "packages/medusa-adapter/test/support/native-cart-source-provenance.ts",
       "classification": "authored",
       "targetSha256": "342ed6b36809e6220a6744d8285acd8cb63c672e46d98f610c171951264e3e12"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/native-checkout-source-provenance.ts",
+      "classification": "authored",
+      "targetSha256": "23d8af30abf79e4e02955a2e745cbca80e61544c687808f66faf2d7ce244c363"
     },
     {
       "target": "packages/medusa-adapter/test/support/native-customer-source-provenance.ts",
@@ -8522,7 +8537,7 @@
     {
       "target": "packages/medusa-adapter/tsconfig.json",
       "classification": "authored",
-      "targetSha256": "6f3bc328d5de87cfa393a400824b6de2114ec737a73ec655aa0a3b0966dae803"
+      "targetSha256": "64e681de3f6aa69b16bede69aa1452696fbc112d496313df718caebcf3cc071e"
     },
     {
       "target": "packages/medusa-adapter/vitest.config.ts",
@@ -8583,6 +8598,11 @@
       "target": "packages/medusa-adapter/vitest.native-cart-payment-collection.config.ts",
       "classification": "authored",
       "targetSha256": "266c3d657e8754fab207436bbac6098043248560e53d13831b88bf36e6903ce9"
+    },
+    {
+      "target": "packages/medusa-adapter/vitest.native-checkout.config.ts",
+      "classification": "authored",
+      "targetSha256": "04b37cdf7bea5a2d1c91092d9ff500570a633b38629ad65ebe5d08498bc9709c"
     },
     {
       "target": "packages/medusa-adapter/vitest.native-customer.config.ts",

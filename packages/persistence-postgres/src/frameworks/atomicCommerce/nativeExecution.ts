@@ -178,7 +178,9 @@ export const executeAtomicCommerceNative = Effect.fn("AtomicCommerceNative.execu
       refuse: error => queue === undefined ? lifetime.operation(lifetime.context, transactionId, "write", Effect.fail(error))
         : queue.submit(() => Result.fail(error), () => Effect.fail(error)),
     });
-    registerAtomicCommerceScopeExclusion(context, lifetime, lifetime.context, scopeExclusion);
+    // A queued participant can own the active manager when a sibling asks
+    // for the root proof. Check that proof in the same queue as root calls.
+    registerAtomicCommerceScopeExclusion(context, lifetime, lifetime.context, scopeExclusion, rootOperation);
     yield* lifetime.fromResult(lifetime.charge(evidenceBytes));
     const value = yield* Effect.gen(function* () {
       const output = yield* Effect.uninterruptibleMask(restore => Effect.exit(restore(Effect.suspend(() => rootCommand.run(context, args)))).pipe(

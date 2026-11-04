@@ -1,7 +1,8 @@
 import { Cause, Effect, Exit } from "effect";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { PaymentModuleService } from "@medusajs/payment/services";
-import { prepareLogicalCheckout } from "./support/logical-checkout-fixture";
+import { prepareCoreCheckout } from "./support/core-checkout-fixture";
+import { expectCheckoutRollback } from "./support/core-checkout-evidence";
 import * as cartReceipt from "../src/modules/cart/payment-receipt";
 import type { LogicalCallReceiptValidation } from "../src/repository/call-receipt";
 
@@ -18,7 +19,7 @@ const addresses = [
 
 describe("existing Customer and Cart Addresses in native checkout on " + driver, () => {
   const cleanup: Array<() => Promise<void>> = [];
-  let local: Awaited<ReturnType<typeof prepareLogicalCheckout>>;
+  let local: Awaited<ReturnType<typeof prepareCoreCheckout>>;
   const receipts: Array<{ call: Parameters<LogicalCallReceiptValidation>[0]; activity: Parameters<LogicalCallReceiptValidation>[1];
     validate: LogicalCallReceiptValidation }> = [];
   beforeAll(async () => {
@@ -31,7 +32,7 @@ describe("existing Customer and Cart Addresses in native checkout on " + driver,
         yield* policy.validateLogicalCall(call, activity);
       }) };
     });
-    local = await prepareLogicalCheckout(driver, release => cleanup.push(release), {
+    local = await prepareCoreCheckout(driver, release => cleanup.push(release), {
       onPhase: phase => { if (process.env.FLAREX_CHECKOUT_DIAGNOSTICS === "1") console.info("Customer Address checkout fixture:", phase); },
       additionalCases: [
         { name: "customer-address", customerId, shippingAddressId: "ca-checkout-shipping", billingAddressId: "ca-checkout-billing" },
@@ -86,7 +87,8 @@ describe("existing Customer and Cart Addresses in native checkout on " + driver,
   }, 120_000);
 
   it("rolls back copied Addresses, Order, Links, Payment and Cart completion after native authorization fails late", async () => {
-    const ids = selected("late-address"), before = await local.snapshot(), native = PaymentModuleService.prototype.authorizePaymentSession;
+    const ids = selected("late-address"), before = await local.fixture.inventory(), key = local.host.newRequestKey();
+    const native = PaymentModuleService.prototype.authorizePaymentSession;
     let reached = false;
     const spy = vi.spyOn(PaymentModuleService.prototype, "authorizePaymentSession").mockImplementation(async function (this: PaymentModuleService, ...args) {
       const result = await native.apply(this, args);
@@ -94,11 +96,11 @@ describe("existing Customer and Cart Addresses in native checkout on " + driver,
       return result;
     });
     try {
-      const exit = await Effect.runPromiseExit(local.host.run(local.host.newRequestKey(), { id: ids.cartId }));
+      const exit = await Effect.runPromiseExit(local.host.run(key, { id: ids.cartId }));
       expect(reached).toBe(true); expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit)) expect(Cause.pretty(exit.cause)).toContain("Late Customer Address checkout failure");
     } finally { spy.mockRestore(); }
-    expect(await local.snapshot()).toEqual(before);
+    await expectCheckoutRollback(local.fixture, before, key);
     expect((await Effect.runPromise(local.host.run(local.host.newRequestKey(), { id: ids.cartId }))).id).toMatch(/^order_/);
   }, 120_000);
 

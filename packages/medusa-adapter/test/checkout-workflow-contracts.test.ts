@@ -1,7 +1,7 @@
 import { Effect, Result } from "effect";
 import { expect, it } from "vitest";
 import { defineAtomicCommerceParticipant } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { checkoutRuntimes } from "./support/logical-checkout-fixture";
+import { checkoutRuntimes } from "./support/core-checkout-fixture";
 import { prepareCheckoutGraphs } from "../src/workflows/cart/checkout-graph";
 import { checkoutRoot } from "../src/workflows/cart/complete-cart";
 import { workflowModuleDefinition } from "../src/workflow/module";

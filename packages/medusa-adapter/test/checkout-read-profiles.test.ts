@@ -5,7 +5,7 @@ import { makePromotionCheckoutReadCommands } from "../src/modules/promotion/chec
 import { compilePromotionDefinition } from "../src/modules/promotion/schema";
 import { makeFulfillmentCheckoutReadCommands } from "../src/modules/fulfillment/checkout-read-service";
 import { prepareCartPromotionLinkRead } from "../src/links/cart-promotion-service";
-import { compileCartPromotionLinkDefinition } from "../src/links/cart-promotion-schema";
+import { compileCartPromotionLinkCoreDefinition } from "../src/links/cart-promotion-schema";
 import { workflowModuleDefinition } from "../src/workflow/module";
 
 it("prepares the genuine Customer and Fulfillment counted read profiles", async () => {
@@ -29,5 +29,8 @@ it("uses the genuine many-to-many Cart-Promotion Link without granting writes", 
   const definition = workflowModuleDefinition(link.workflow);
   expect(Object.keys(link.workflow.methods)).toEqual([]);
   expect(definition?.graph.remotePaths?.map(path => path.path)).toEqual(["promotions"]);
-  expect(await Effect.runPromise(compileCartPromotionLinkDefinition())).toBeDefined();
+  const native = await Effect.runPromise(compileCartPromotionLinkCoreDefinition({
+    scopeUuid: "24e6ff2f-9610-488a-9544-a524c1b92d8e", epochUuid: "4c86656f-a9d5-417c-a78c-bee23f8c1d1a",
+  }));
+  expect(native.tables.map(table => table.localName)).toEqual(["cart_promotion"]);
 });

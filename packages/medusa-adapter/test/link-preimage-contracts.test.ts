@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { Effect, Schema } from "effect";
 import { LinkPreimageOperationRequestSchema, LinkPreimageOperationRecordSchema, LinkPreimageRowSchema,
   LinkOperationRecordSchema, linkPreimageRequestKey, linkPreimageRowKey } from "@medusajs/link-modules";
-import { captureCartPromotionLinkMetadata, compileCartPromotionLinkDefinition } from "../src/links/cart-promotion-schema";
-import { captureCartPromotionCreationLinkMetadata, compileCartPromotionCreationLinkDefinition } from "../src/links/cart-promotion-creation-schema";
+import { captureCartPromotionLinkMetadata, compileCartPromotionLinkCoreDefinition } from "../src/links/cart-promotion-schema";
+import { captureCartPromotionCreationLinkMetadata, compileCartPromotionCreationLinkCoreDefinition } from "../src/links/cart-promotion-creation-schema";
 
 const row = { id: "original-link", primary: "cart", foreign: "promotion", created_at: "2026-01-01T00:00:00.123456Z",
   updated_at: "2026-01-01T00:00:00.234567Z", deleted_at: null };
@@ -24,8 +24,13 @@ describe("native ordered Link preimage protocol", () => {
     expect(selected.joiner.databaseConfig).toMatchObject({ workflowOperations: true, preimageOperations: true });
   });
   it("retains the one-table read profile and defines a distinct fresh three-table source", async () => {
-    expect((await Effect.runPromise(compileCartPromotionLinkDefinition())).schema.tables).toHaveLength(1);
-    expect((await Effect.runPromise(compileCartPromotionCreationLinkDefinition())).schema.tables).toHaveLength(3);
+    const target = { scopeUuid: "24e6ff2f-9610-488a-9544-a524c1b92d8e", epochUuid: "4c86656f-a9d5-417c-a78c-bee23f8c1d1a" };
+    const [read, preimage] = await Effect.runPromise(Effect.all([
+      compileCartPromotionLinkCoreDefinition(target), compileCartPromotionCreationLinkCoreDefinition(target),
+    ]));
+    expect(read.tables.map(table => table.localName)).toEqual(["cart_promotion"]);
+    expect(preimage.tables.map(table => table.localName).toSorted()).toEqual(["cart_promotion", "link_pair_revision", "link_workflow_operation"]);
+    expect(read.identity.sourceKey).not.toBe(preimage.identity.sourceKey);
   });
   it("retains exact microseconds and milliseconds without normalizing a stored timestamp", () => {
     const read = Schema.decodeUnknownSync(LinkPreimageRowSchema, { onExcessProperty: "error" });

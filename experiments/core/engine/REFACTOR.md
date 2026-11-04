@@ -788,3 +788,7 @@ uses the existing callback drain. Paired acceptance is complete.
 The [full native Cart creation continuation](./slices/35-native-cart-creation.md)
 uses complete Fulfillment and Cart Promotion Link sources on one Core bundle
 with the sixteen existing sources. Paired acceptance is complete.
+
+The [full native checkout continuation](./slices/36-native-checkout.md) uses the
+existing Core owners for both genuine checkout profiles, the four exact Link
+sources and the queued root scope proof. Paired acceptance is complete.

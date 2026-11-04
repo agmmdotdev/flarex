@@ -2,7 +2,8 @@ import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { PaymentModuleService } from "@medusajs/payment/services";
 import { SystemPaymentProvider } from "@medusajs/payment/providers/system";
-import { prepareLogicalCheckout } from "./support/logical-checkout-fixture";
+import { prepareCoreCheckout } from "./support/core-checkout-fixture";
+import { expectCheckoutRollback, expectCheckoutSettlement } from "./support/core-checkout-evidence";
 import { customerRow } from "./support/customer-rows";
 import { prepareRetainedCheckoutPaymentWithResources } from "./support/logical-checkout-payment-compensation-fixture";
 import { prepareCustomerCheckoutModules } from "../src/workflows/cart/checkout-graph";
@@ -25,9 +26,9 @@ const exact = "9007199254740993.0000";
 describe("native Customer-context checkout on " + driver, () => {
   const cleanup: Array<() => Promise<void>> = [], caseCleanup: Array<() => Promise<void>> = [];
   const keep = <Host extends { readonly close: Effect.Effect<void> }>(host: Host) => { caseCleanup.push(() => Effect.runPromise(host.close)); return host; };
-  let local: Awaited<ReturnType<typeof prepareLogicalCheckout>>;
+  let local: Extract<Awaited<ReturnType<typeof prepareCoreCheckout>>, { profile: "customer" }>;
   beforeAll(async () => {
-    local = await prepareLogicalCheckout(driver, release => cleanup.push(release), { customerContext: true,
+    const prepared = await prepareCoreCheckout(driver, release => cleanup.push(release), { customerContext: true,
       additionalCases: [
         { name: "customer-identity", customerId: customer },
         { name: "customer-place", customerId: customer, shippingAddressId: "cartaddr-full" },
@@ -42,6 +43,8 @@ describe("native Customer-context checkout on " + driver, () => {
         cart: [{ table: "cart_address", row: { id: "cartaddr-full", customer_id: customer, city: "Cart shipping", country_code: "mm" } }],
       }, onPhase: phase => { if (process.env.FLAREX_CHECKOUT_DIAGNOSTICS === "1") console.info("Customer-context checkout:", phase); },
     });
+    if (prepared.profile !== "customer") throw new Error("Missing native Customer checkout profile");
+    local = prepared;
   }, 600_000);
   afterEach(async () => { for (const release of caseCleanup.splice(0).reverse()) await release(); }, 120_000);
   afterAll(async () => { vi.restoreAllMocks(); for (const release of cleanup.reverse()) await release(); }, 120_000);
@@ -93,8 +96,7 @@ describe("native Customer-context checkout on " + driver, () => {
       expect(rows.find(row => row.id === rowId)).toEqual(beforeRows.find(row => row.id === rowId));
     expect(rows.find(row => row.payment_session_id === created.id)).toMatchObject({ payment_collection_id: ids.collectionId });
     const after = await local.snapshot();
-    expect(after.commits.length - before.commits.length).toBe(1);
-    expect(after.outcomes.length - before.outcomes.length).toBe(1);
+    expectCheckoutSettlement(before, after, key);
     expect(after.events.filter(event => event.envelope.contract === "order.placed").length - before.events.filter(event => event.envelope.contract === "order.placed").length).toBe(1);
     expect(await Effect.runPromise(local.host.run(key, { id: ids.cartId }))).toEqual(placed);
     expect(await local.snapshot()).toEqual(after);
@@ -114,18 +116,19 @@ describe("native Customer-context checkout on " + driver, () => {
   }, 180_000);
   it("rolls back complete Customer checkout after a late native authorization failure", async () => {
     const ids = selected("customer-late"), created = await session("customer-late"), native = PaymentModuleService.prototype.authorizePaymentSession;
-    const before = await local.snapshot(); let reached = false;
+    const before = await local.fixture.inventory(), key = local.host.newRequestKey();
+    let reached = false;
     const spy = vi.spyOn(PaymentModuleService.prototype, "authorizePaymentSession").mockImplementation(async function (this: PaymentModuleService, ...args) {
       const output = await native.apply(this, args);
       if (args[0] === created.id) { reached = true; throw new Error("Late Customer-context checkout failure"); }
       return output;
     });
     try {
-      const exit = await Effect.runPromiseExit(local.host.run(local.host.newRequestKey(), { id: ids.cartId }));
+      const exit = await Effect.runPromiseExit(local.host.run(key, { id: ids.cartId }));
       expect(reached).toBe(true); expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit)) expect(Cause.pretty(exit.cause)).toContain("Late Customer-context checkout failure");
     } finally { spy.mockRestore(); }
-    expect(await local.snapshot()).toEqual(before);
+    await expectCheckoutRollback(local.fixture, before, key);
   }, 180_000);
   it("executes the retained Customer refund/recreate child with exact amount, rollback and replay", async () => {
     const ids = selected("customer-inverse"), capture = keep(await local.prepareCapturedPayment());
@@ -133,14 +136,15 @@ describe("native Customer-context checkout on " + driver, () => {
     const forward = await retained("forward"), marker = object(await Effect.runPromise(forward.run(forward.newRequestKey(), ids.sessionId)));
     expect(marker).toEqual({ output: ids.sessionId, retained: ids.sessionId });
     await Effect.runPromise(forward.close);
-    const late = await retained("late"), before = await local.snapshot(), errors = local.runtime.errors.length;
-    const failed = await Effect.runPromiseExit(late.run(late.newRequestKey(), id(marker.retained)));
+    const late = await retained("late"), beforeFailure = await local.fixture.inventory(), failedKey = late.newRequestKey();
+    const errors = local.runtime.errors.length;
+    const failed = await Effect.runPromiseExit(late.run(failedKey, id(marker.retained)));
     expect(Exit.isFailure(failed)).toBe(true);
     if (Exit.isFailure(failed)) expect(Cause.pretty(failed.cause)).toContain("Late failure after native checkout Payment inverse");
     expect(local.runtime.errors).toHaveLength(errors);
-    expect(await local.snapshot()).toEqual(before);
+    await expectCheckoutRollback(local.fixture, beforeFailure, failedKey);
     await Effect.runPromise(late.close);
-    const inverse = await retained("inverse"), key = inverse.newRequestKey();
+    const inverse = await retained("inverse"), before = await local.snapshot(), key = inverse.newRequestKey();
     expect(await Effect.runPromise(inverse.run(key, id(marker.retained)))).toBeNull();
     const rows = await local.rows(), holder = rows.find(row => row.external_id === inverseCustomer);
     expect(holder).toMatchObject({ provider_id: "pp_system_default" });
@@ -151,15 +155,13 @@ describe("native Customer-context checkout on " + driver, () => {
       amount: exact, context: { customer: { id: inverseCustomer, billing_address: { id: "cuaddr-inverse", city: "Mandalay" } }, account_holder: { id: holder?.id } },
     }]);
     const after = await local.snapshot();
-    expect(after.commits.length - before.commits.length).toBe(1);
-    expect(after.outcomes.length - before.outcomes.length).toBe(1);
+    expectCheckoutSettlement(before, after, key);
     expect(await Effect.runPromise(inverse.run(key, id(marker.retained)))).toBeNull();
     expect(await local.snapshot()).toEqual(after);
   }, 240_000);
   it("binds digested and ordinary identities separately on the native three-source Session profile", async () => {
     const ids = selected("customer-identity"), ordinary = keep(await local.prepareCustomerSession());
     const modules = { payment: local.modules.payment, customer: local.modules.customer, customer_account_holder_links: local.modules.customer_account_holder_links };
-    if (local.customerSessionLink === undefined) throw new Error("Missing native Customer Session Link resource");
     const resources = await Effect.runPromise(Effect.fromResult(prepareCustomerPaymentSessionResources(modules, local.runtime.payment.loggerResource, local.customerSessionLink)));
     const prepare = () => prepareAtomicWorkflowHost({ ...local.configuration, modules, identityEncoding: "resourceDigest",
       requestCallLimit: paymentFinanceCallLimit, operationScheduling: "queued", borrowedOperationScheduling: "queued",
@@ -183,10 +185,11 @@ describe("native Customer-context checkout on " + driver, () => {
   it("keeps a missing persisted Customer failure sticky despite the native compensator logger", async () => {
     const ids = selected("customer-missing"), capture = keep(await local.prepareCapturedPayment());
     await Effect.runPromise(capture.run(capture.newRequestKey(), { id: ids.sessionId }));
-    const inverse = await retained("inverse"), before = await local.snapshot(), errors = local.runtime.errors.length;
-    const exit = await Effect.runPromiseExit(inverse.run(inverse.newRequestKey(), ids.sessionId));
+    const inverse = await retained("inverse"), before = await local.fixture.inventory(), key = inverse.newRequestKey();
+    const errors = local.runtime.errors.length;
+    const exit = await Effect.runPromiseExit(inverse.run(key, ids.sessionId));
     expect(Exit.isFailure(exit)).toBe(true);
     expect(local.runtime.errors.length - errors).toBe(1);
-    expect(await local.snapshot()).toEqual(before);
+    await expectCheckoutRollback(local.fixture, before, key);
   }, 180_000);
 });

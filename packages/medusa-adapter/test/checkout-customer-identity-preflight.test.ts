@@ -1,8 +1,13 @@
-import { Effect } from "effect";
+import { randomUUID } from "node:crypto";
+import { Effect, Result } from "effect";
 import { expect, it, vi } from "vitest";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { customerCheckoutRuntimes } from "./support/logical-checkout-fixture";
+import { defineAtomicCommerceNativeSource } from "../../persistence-postgres/src/frameworks/atomicCommerce/nativeSelection";
+import { customerCheckoutRuntimes } from "./support/core-checkout-fixture";
+import { checkoutCoreDefinitions } from "./support/checkout-core-definitions";
 import { prepareCustomerCompleteCartWorkflow } from "../src/workflows/cart/complete-cart";
+import { customerCheckoutModuleNames } from "../src/workflows/cart/checkout-graph";
+import { captureInstalledWorkflowModules } from "../src/workflow/host";
 import * as configuration from "../src/workflow/configuration";
 
 it("captures the complete Customer checkout identity before storage admission", async () => {
@@ -13,11 +18,15 @@ it("captures the complete Customer checkout identity before storage admission", 
     return original(input);
   });
   try {
-    // Deliberately unauthenticated envelopes isolate preparation before the
-    // storage owner; no request or database capability is fabricated here.
-    const modules = Object.fromEntries(Object.entries(runtime.workflows).map(([name, module]) => [name, { module, logicalStorage: null }]));
+    const definitions = await Effect.runPromise(checkoutCoreDefinitions({ scopeUuid: randomUUID(), epochUuid: randomUUID() }, true));
+    // Issued definition selectors exercise preparation without database access.
+    const registrations = Object.fromEntries(customerCheckoutModuleNames.map(name => {
+      const definition = definitions[name];
+      if (definition === undefined) throw new Error("Missing Customer checkout source " + name);
+      return [name, { module: runtime.workflows[name], nativeStorage: Result.getOrThrow(defineAtomicCommerceNativeSource(name, definition)) }];
+    }));
+    const modules = Result.getOrThrow(captureInstalledWorkflowModules(registrations, customerCheckoutModuleNames));
     const effect = prepareCustomerCompleteCartWorkflow({
-      // @ts-expect-error Deliberately unauthenticated storage envelopes test preparation only.
       modules, link: runtime.link,
       logger: runtime.payment.loggerResource, revision: "c".repeat(64), subscribers: [{ id: "customer-identity", revision: "d".repeat(64) }],
       execution: { identityAndAccessPolicy: { profile: "customer-identity-preflight" }, prepare: () => {

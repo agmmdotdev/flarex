@@ -1,5 +1,5 @@
 import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import type { CheckoutCase } from "./logical-checkout-fixture";
+import type { CheckoutCase } from "./core-checkout-fixture";
 
 /** Existing persisted Cart/Variant/stock data. Native checkout, graph reads and
  * Inventory service perform every selection, validation and reservation. */

@@ -2,6 +2,7 @@ import { Effect, Result } from "effect";
 import { CartCustomer, CartRegion, CartProduct, InventoryLevelStockLocation, ProductShippingProfile,
   ProductVariantInventoryItem, SalesChannelLocation } from "@medusajs/link-modules";
 import { describeToManyRelation } from "@medusajs/drizzle/relation-query";
+import { matchesAtomicCommerceNativeSource } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { nativeLinkGraphDirectPaths, localGraphDirectPath } from "../../local-graph/direct-paths";
 import { nativeLinkGraphPaths } from "../../local-graph/links";
@@ -19,9 +20,35 @@ import { defineWorkflowModule, workflowModuleDefinition, type WorkflowModule } f
 export const checkoutModuleNames = ["cart", "order", "payment", "cart_payment_collection_links", "order_payment_collection_links",
   "order_cart_links", "customer", "region", "promotion", "cart_promotion_links", "product", "product_links", "variant_links",
   "inventory", "stock_location", "sales_channel", "sales_channel_locations", "fulfillment"] as const;
-export type CheckoutModules = Readonly<Record<typeof checkoutModuleNames[number], InstalledWorkflowModule>>;
+export type InstalledCheckoutModule = Extract<InstalledWorkflowModule, { readonly nativeStorage: unknown }> & {
+  readonly logicalResources?: never;
+  readonly logicalPublication?: never;
+};
+export type CheckoutModules = Readonly<Record<typeof checkoutModuleNames[number], InstalledCheckoutModule>>;
 export const customerCheckoutModuleNames = [...checkoutModuleNames, "customer_account_holder_links"] as const;
-export type CustomerCheckoutModules = Readonly<Record<typeof customerCheckoutModuleNames[number], InstalledWorkflowModule>>;
+export type CustomerCheckoutModules = Readonly<Record<typeof customerCheckoutModuleNames[number], InstalledCheckoutModule>>;
+
+const checkoutSourceKeys = {
+  cart: "medusa.cart",
+  order: "medusa.order",
+  payment: "medusa.payment",
+  cart_payment_collection_links: "medusa.link.cartPaymentCollection",
+  order_payment_collection_links: "medusa.link.orderPaymentCollection",
+  order_cart_links: "medusa.link.orderCart",
+  customer: "medusa.customer",
+  region: "medusa.region",
+  promotion: "medusa.promotion",
+  cart_promotion_links: "medusa.link.cartPromotion",
+  product: "medusa.product",
+  product_links: "medusa.product-links",
+  variant_links: "medusa.variantLinks",
+  inventory: "medusa.inventory",
+  stock_location: "medusa.stockLocation",
+  sales_channel: "medusa.salesChannel",
+  sales_channel_locations: "medusa.salesChannelLocationLink",
+  fulfillment: "medusa.shippingProfile",
+  customer_account_holder_links: "medusa.link.customerAccountHolder",
+} as const satisfies Readonly<Record<typeof customerCheckoutModuleNames[number], string>>;
 
 /** The exact native Cart selector uses existing source identities and read
  * commands. Empty branches do not replace real target model registrations. */
@@ -126,15 +153,19 @@ const prepareGraphs = Effect.fn("Checkout.prepareGraphs")(function* (input: Read
 export const prepareCheckoutGraphs = (input: Readonly<Record<string, WorkflowModule>>) => prepareGraphs(input, "checkout");
 export const prepareCustomerCheckoutGraphs = (input: Readonly<Record<string, WorkflowModule>>) => prepareGraphs(input, "customer");
 
-const prepareModules = Effect.fn("Checkout.prepareModules")(function* (input: Readonly<Record<string, InstalledWorkflowModule>>, profile: "checkout" | "customer") {
+const prepareModules = Effect.fn("Checkout.prepareModules")(function* (input: Readonly<Record<string, InstalledCheckoutModule>>, profile: "checkout" | "customer") {
   const names = profile === "customer" ? customerCheckoutModuleNames : checkoutModuleNames;
   const record = yield* Effect.fromResult(captureWorkflowRecord(input));
   if (Object.keys(record).length !== names.length) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const installed = yield* Effect.fromResult(captureInstalledWorkflowModules(record, names));
-  for (const key of names) if (installed[key].logicalResources !== undefined || installed[key].logicalPublication !== undefined)
-    return yield* Effect.fail(commerceError("invalidAuthority"));
+  for (const key of names) {
+    const member = installed[key];
+    if (member.logicalResources !== undefined || member.logicalPublication !== undefined || member.logicalStorage !== undefined ||
+      member.nativeStorage === undefined || !matchesAtomicCommerceNativeSource(member.nativeStorage, key, checkoutSourceKeys[key]))
+      return yield* Effect.fail(commerceError("invalidAuthority"));
+  }
   const graphs: Readonly<Record<string, WorkflowModule>> = yield* prepareGraphs(Object.fromEntries(names.map(name => [name, installed[name].module])), profile);
-  const entries: Array<[string, InstalledWorkflowModule]> = [];
+  const entries: Array<[string, InstalledCheckoutModule]> = [];
   for (const key of names) {
     const module = graphs[key];
     if (module === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));

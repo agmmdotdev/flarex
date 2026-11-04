@@ -529,3 +529,7 @@ complete Payment and Cart Link sources. Paired acceptance is complete.
 The [full native Cart creation continuation](./slices/35-native-cart-creation.md)
 moves the genuine eighteen-participant root and the dedicated Promotion Link
 preimage workflows onto Core. Paired acceptance is complete.
+
+The [full native checkout continuation](./slices/36-native-checkout.md) moves
+the genuine ordinary and Customer checkout profiles and their connected native
+callbacks onto Core. Paired acceptance is complete.

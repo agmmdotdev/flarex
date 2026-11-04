@@ -245,6 +245,48 @@ describe(`${driver} genuine native Inventory scope exclusion`, () => {
     expectRefusal(await Effect.runPromiseExit(requireAtomicCommerceScopeExclusion({ ...context, manager: { ...context.manager } })), "invalidAuthority");
   });
 
+  it("queues an authenticated root scope proof behind an active borrowed call", async () => {
+    const participant = defineAtomicCommerceParticipant("inventory");
+    const entered = Deferred.makeUnsafe<void>(), release = Deferred.makeUnsafe<void>();
+    const submitted = Deferred.makeUnsafe<void>();
+    const diagnostics: ExecutionDiagnosticPolicy = { observe: (name, work) => name === "BoundedRequest.withinDeadline"
+      // This diagnostic is installed only for the proof fiber. The queue's
+      // bounded admission completes after its synchronous FIFO offer.
+      ? work.pipe(Effect.tap(() => Deferred.succeed(submitted, undefined))) : work };
+    const nested = defineCommerceCommand("nativeScopeHoldBorrow", "read", ctx => ctx.borrow(child => Effect.gen(function* () {
+      yield* requireAtomicCommerceScopeExclusion(child);
+      yield* Deferred.succeed(entered, undefined);
+      yield* Deferred.await(release);
+      yield* requireAtomicCommerceScopeExclusion(child);
+      return "borrowed";
+    })));
+    const command = defineAtomicCommerceCommand("nativeScopeQueueProof", ctx => Effect.gen(function* () {
+      const call = yield* Effect.forkChild(ctx.call(participant, nested, null));
+      yield* Deferred.await(entered);
+      expectRefusal(yield* Effect.exit(requireAtomicCommerceScopeExclusion({ ...ctx })), "invalidAuthority");
+      const proof = yield* Effect.forkChild(requireAtomicCommerceScopeExclusion(ctx).pipe(
+        Effect.provideService(ExecutionDiagnostics, diagnostics),
+      ));
+      const early = yield* Effect.raceFirst(Deferred.await(submitted).pipe(Effect.as(undefined)), Fiber.await(proof));
+      if (early !== undefined) {
+        if (Exit.isFailure(early)) return yield* Effect.failCause(early.cause);
+        throw new Error("Root scope proof completed before joining the native operation queue");
+      }
+      expect(proof.pollUnsafe()).toBeUndefined();
+      yield* Deferred.succeed(release, undefined);
+      expect(yield* Fiber.join(call)).toBe("borrowed");
+      yield* Fiber.join(proof);
+      return null;
+    }).pipe(Effect.ensuring(Deferred.succeed(release, undefined))));
+    const selected = await Effect.runPromise(connected.execution.prepare({
+      identityAndAccessPolicy: { profile: "native-scope-queue-proof" }, commands: [command],
+      participants: [{ participant, nativeStorage: connected.creation.inventory.inventory.source, commands: [nested] }],
+      executionIsolation: "scopeExclusive", operationScheduling: "queued",
+    }));
+    cleanup.push(() => Effect.runPromise(selected.close));
+    expect(await Effect.runPromise(selected.run(selected.newRequestKey(), command, null))).toBeNull();
+  });
+
   it("cancels a claimed competing reservation before its native callback and leaves later work admissible", async () => {
     const graph = await connected.seed("scope-wait-cancel"), pair = firstPair(graph), held = gate(), controller = new AbortController();
     const original = InventoryModuleService.prototype.createReservationItems;

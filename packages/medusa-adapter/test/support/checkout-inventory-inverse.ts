@@ -6,11 +6,11 @@ import { prepareWorkflowLocking } from "../../src/workflow/locking";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
-import type { prepareLogicalCheckout } from "./logical-checkout-fixture";
+import type { prepareCoreCheckout } from "./core-checkout-fixture";
 
 /** Invoke the actual retained callback from the genuine checkout root. Only
  * the test's outer workflow changes; Inventory owns all writes and arithmetic. */
-export async function prepareCheckoutInventoryInverse(local: Awaited<ReturnType<typeof prepareLogicalCheckout>>,
+export async function prepareCheckoutInventoryInverse(local: Awaited<ReturnType<typeof prepareCoreCheckout>>,
   direction: "forward" | "inverse" | "late", close: (cleanup: () => Promise<void>) => void) {
   const root = Result.getOrThrow(checkoutRoot.prepare()).nodes.find(node => node.kind === "workflow");
   const node = root?.kind === "workflow" ? root.workflow.nodes.find(node => node.name === "reserve-inventory-step") : undefined;

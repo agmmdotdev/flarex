@@ -6,13 +6,13 @@ import { commerceError } from "@flarex/persistence-postgres/internal/commerce-va
 import type { makePaymentLifecycleCommands } from "../../modules/payment/lifecycle-service";
 import { nativeLinkResourceProfile, type prepareCheckoutNativeLinkResource } from "../../links/checkout-resource";
 import { captureWorkflowRecord } from "../../workflow/configuration";
-import { captureInstalledWorkflowModules, prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type WorkflowCallResults, type InstalledWorkflowModule } from "../../workflow/host";
+import { captureInstalledWorkflowModules, prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type WorkflowCallResults } from "../../workflow/host";
 import { prepareWorkflowResources } from "../../workflow/resources";
 import { orderedWorkflowIdEvents } from "../../workflow/events";
 import { commerceDecoder } from "../../value/decoder";
 import { ScalarId } from "../../repository/scalar-id-read";
 import { paymentFinanceCallLimit } from "../payment/finance-configuration";
-import { prepareCheckoutModules, prepareCustomerCheckoutModules, checkoutModuleNames, customerCheckoutModuleNames, type CheckoutModules, type CustomerCheckoutModules } from "./checkout-graph";
+import { prepareCheckoutModules, prepareCustomerCheckoutModules, checkoutModuleNames, customerCheckoutModuleNames, type CheckoutModules, type CustomerCheckoutModules, type InstalledCheckoutModule } from "./checkout-graph";
 import { makeCheckoutInventoryResource } from "../../modules/inventory/checkout-resource";
 import { prepareWorkflowLocking } from "../../workflow/locking";
 
@@ -80,7 +80,7 @@ interface CompleteCartOptions {
   readonly execution: AtomicWorkflowExecution; readonly modules: CheckoutModules; readonly link: Links; readonly logger: Logger;
   readonly revision: string; readonly subscribers: AtomicCommerceEvents["subscribers"];
 }
-const prepareCompleteCartProfile = Effect.fn("Checkout.prepareCompleteCart")(function* (input: Omit<CompleteCartOptions, "modules"> & { readonly modules: Readonly<Record<string, InstalledWorkflowModule>> }, profile: "checkout" | "customer") {
+const prepareCompleteCartProfile = Effect.fn("Checkout.prepareCompleteCart")(function* (input: Omit<CompleteCartOptions, "modules"> & { readonly modules: Readonly<Record<string, InstalledCheckoutModule>> }, profile: "checkout" | "customer") {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
   if (Object.keys(options).some(key => !["execution", "modules", "link", "logger", "revision", "subscribers"].includes(key)))
     return yield* Effect.fail(commerceError("unsupportedProfile"));

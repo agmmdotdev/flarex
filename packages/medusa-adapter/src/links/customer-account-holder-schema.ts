@@ -1,5 +1,7 @@
 import { Effect } from "effect";
 import { CustomerAccountHolder } from "@medusajs/link-modules";
+import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
+import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
 import { captureLinkMetadata, linkSchemaOrigins, LinkSchemaError } from "./schema";
 import { lowerDmlSchema } from "../schema/lower";
@@ -21,4 +23,15 @@ export const compileCustomerAccountHolderLinkDefinition = Effect.fn("CustomerAcc
   const metadata = yield* captureCustomerAccountHolderLinkMetadata();
   const schema = yield* Effect.fromResult(normalizeRelationalSchema(lowerDmlSchema([metadata.frame], "commerce.link.customer-account-holder", linkSchemaOrigins)));
   return Object.freeze({ schema, provenance: customerAccountHolderLinkProvenance });
+});
+
+export const compileCustomerAccountHolderLinkCoreDefinition = Effect.fn("CustomerAccountHolderLink.compileCoreDefinition")(function* ({ scopeUuid, epochUuid }: Readonly<{
+  scopeUuid: string; epochUuid: string;
+}>) {
+  const { schema, provenance } = yield* compileCustomerAccountHolderLinkDefinition();
+  const source = yield* captureLogicalSchemaSource({ key: "medusa.link.customerAccountHolder", owner: "medusa", writeProfile: "medusa.link.customerAccountHolder",
+    evidence: { provenance, profile: "medusa.link.customerAccountHolder" }, definition: { kind: "relational", schema },
+    bindings: schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+      table: { namespace: "medusa", logicalName: `${schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
+  return yield* makeCoreRelationalNativeDefinition({ scopeUuid, epochUuid, applicationRead: false, source, provenance, commands: [] });
 });

@@ -1,37 +1,22 @@
-import { Cause, Effect, Exit, Schema } from "effect";
+import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { CartModuleService } from "@medusajs/cart/services";
 import { PaymentModuleService } from "@medusajs/payment/services";
 import { OrderModuleService } from "@medusajs/order/services";
 import { MathBN } from "@medusajs/framework/utils/portable";
-import { prepareLogicalCheckout } from "./support/logical-checkout-fixture";
-import { expectCheckoutContention } from "./support/checkout-contention";
 import { ExecutionDiagnostics, type ExecutionDiagnosticPolicy } from "../../persistence-postgres/src/execution/diagnostics/operation";
+import { defineAtomicCommerceNativeSource } from "../../persistence-postgres/src/frameworks/atomicCommerce/nativeSelection";
+import { prepareCompleteCartWorkflow } from "../src/workflows/cart/complete-cart";
+import { prepareCoreCheckout } from "./support/core-checkout-fixture";
+import { expectCheckoutRollback, expectCheckoutSettlement } from "./support/core-checkout-evidence";
 
 const driver = process.env.FLAREX_TEST_DRIVER === "postgres" ? "postgres" : "pglite";
 
-it("checks the entire contention Cause and distinguishes repeated SQL observation from independent failure", () => {
-  const sql = { code: "55P03" };
-  const callback = Cause.fail({ reason: "invalidAuthority", cause: { _tag: "ScopeAuthorizationRevocationEpochPersistenceError",
-    operation: "lockForOrdinaryWrite", cause: { cause: sql } } });
-  const resource = (error: unknown, phase = "callback") => Cause.fail({ reason: "resourceFailure", cause: {
-    _tag: "RelationalSessionError", reason: "resourceFailure", cause: { _tag: "PhysicalSessionResourceIssue", phase, cause: error },
-  } });
-  const repeated = Cause.combine(callback, resource(sql));
-  expectCheckoutContention(callback);
-  expectCheckoutContention(repeated);
-  for (const extra of [Cause.die("cleanup defect"), Cause.interrupt(1), Cause.fail("another failure")]) {
-    expect(() => expectCheckoutContention(Cause.combine(callback, extra))).toThrow();
-    expect(() => expectCheckoutContention(Cause.combine(repeated, extra))).toThrow();
-  }
-  expect(() => expectCheckoutContention(Cause.combine(callback, resource({ code: "55P03" })))).toThrow();
-  expect(() => expectCheckoutContention(Cause.combine(callback, resource(sql, "rollback")))).toThrow();
-});
-
 describe("native complete Cart checkout on " + driver, () => {
   const cleanup: Array<() => Promise<void>> = [];
-  let local: Awaited<ReturnType<typeof prepareLogicalCheckout>>;
+  let local: Awaited<ReturnType<typeof prepareCoreCheckout>>;
   let lastPhase = "fixture not started";
-  beforeAll(async () => { local = await prepareLogicalCheckout(driver, release => cleanup.push(release), {
+  beforeAll(async () => { local = await prepareCoreCheckout(driver, release => cleanup.push(release), { captureTraces: true,
     onPhase: phase => { lastPhase = phase; }, additionalCases: [
     { name: "exact", amount: "9007199254740993.0000" },
     { name: "fractional", amount: "1.25", unitPrice: "1", quantity: 1.25, compareAt: "9007199254740993.0000" },
@@ -49,9 +34,10 @@ describe("native complete Cart checkout on " + driver, () => {
     if (selected === undefined) throw new Error("Missing checkout fixture case " + name);
     return selected;
   };
-  it("places one native Order, authorizes Payment, links and completes Cart, then replays and retries", async () => {
+  it("settles one native Order after the pending Payment read and replays through a lost acknowledgement", async () => {
     const before = await local.snapshot();
-    const key = local.host.newRequestKey();
+    const key = local.host.newRequestKey(), fault = local.fixture.loseNextNativeRootAcknowledgement();
+    const from = local.traces.length;
     const pending = new Map<number, string>(), recent: string[] = [], counts = new Map<string, number>();
     let ordinal = 0;
     const diagnostics: ExecutionDiagnosticPolicy = { observe: (name, work) => Effect.suspend(() => {
@@ -65,21 +51,74 @@ describe("native complete Cart checkout on " + driver, () => {
     const result = await Effect.runPromise(diagnostic ? Effect.provideService(run, ExecutionDiagnostics, diagnostics) : run)
       .finally(() => { if (diagnostic) console.info("Checkout callback diagnostic", JSON.stringify({ calls: ordinal, counts: Object.fromEntries(counts), pending: [...pending.values()], recent })); });
     expect(result.id).toMatch(/^order_/);
+    expect(fault).toMatchObject({ armed: false, failures: 1 });
     const rows = await local.rows();
     expect(rows.find(row => row.id === local.cartId)?.completed_at).toEqual(expect.any(String));
     expect(rows.filter(row => row.cart_id === local.cartId && row.order_id === result.id)).toHaveLength(1);
     expect(rows.filter(row => row.order_id === result.id && row.payment_collection_id === local.collectionId)).toHaveLength(1);
-    expect(MathBN.eq(Schema.decodeUnknownSync(Schema.String)(rows.find(row => row.payment_session_id === local.sessionId)?.amount), "12.5")).toBe(true);
+    const payment = rows.find(row => row.payment_session_id === local.sessionId);
+    const paymentId = Schema.decodeUnknownSync(Schema.String)(payment?.id);
+    expect(MathBN.eq(Schema.decodeUnknownSync(Schema.String)(payment?.amount), "12.5")).toBe(true);
+    const traces = local.traces.slice(from);
+    expect(traces.find(trace => trace.call.commandName === "orderCartCount")?.call.result).toEqual([[], 0]);
+    const authorized = traces.findIndex(trace => trace.call.commandName === "paymentSessionAuthorizeForWorkflow");
+    expect(authorized).toBeGreaterThanOrEqual(0);
+    expect(traces.filter(trace => trace.call.commandName === "paymentSessionAuthorizeForWorkflow")).toHaveLength(1);
+    const reloaded = traces.slice(authorized + 1).find(trace => trace.call.commandName === "paymentSessionRetrieveForAuthorization");
+    expect(reloaded?.call.input).toMatchObject({ id: local.sessionId,
+      config: { relations: ["payment", "payment.captures", "payment.refunds"] } });
+    expect(reloaded?.activity.observedRows).toContainEqual(expect.objectContaining({ table: "payment",
+      row: expect.objectContaining({ id: paymentId, payment_session_id: local.sessionId }) }));
     const after = await local.snapshot();
-    expect(after.commits.length - before.commits.length).toBe(1);
-    expect(after.outcomes.length - before.outcomes.length).toBe(1);
+    const timestamp = expectCheckoutSettlement(before, after, key);
+    expect(fault.evidence?.timestamp).toBe(timestamp);
+    for (const id of [local.cartId, local.sessionId, result.id, paymentId])
+      expect(after.revisions).toContainEqual(expect.objectContaining({ timestamp, value: expect.objectContaining({ id }) }));
     const placed = after.events.filter(event => event.envelope.contract === "order.placed");
     expect(placed).toHaveLength(1);
-    expect(placed[0]?.envelope.message).toMatchObject({ options: { priority: 10 } });
+    expect(placed[0]?.envelope.message).toMatchObject({ data: { id: result.id }, options: { priority: 10 } });
+    expect(after.deliveries).toContainEqual(expect.objectContaining({ timestamp,
+      value: expect.objectContaining({ family_id: placed[0]?.familyId, ordinal: placed[0]?.ordinal, state: "pending" }) }));
     expect(await Effect.runPromise(local.host.run(key, { id: local.cartId }))).toEqual(result);
     expect(await local.snapshot()).toEqual(after);
+    expect(local.traces).toHaveLength(from + traces.length);
     expect(await Effect.runPromise(local.host.run(local.host.newRequestKey(), { id: local.cartId }))).toEqual(result);
     expect((await local.rows()).filter(row => row.cart_id === local.cartId && typeof row.order_id === "string")).toHaveLength(1);
+  }, 120_000);
+
+  it("refuses mismatched and swapped Core Link sources before any native checkout callback", async () => {
+    const before = await local.fixture.inventory(), from = local.traces.length;
+    const cartToken = local.fixture.source("order_cart_links"), paymentToken = local.fixture.source("order_payment_collection_links");
+    const paymentLink = local.fixture.sources.find(source => source.source === paymentToken);
+    if (paymentLink === undefined) throw new Error("Missing installed Core Order PaymentCollection Link definition");
+    const incompatible = Result.getOrThrow(defineAtomicCommerceNativeSource("order_cart_links", paymentLink.definition));
+    const cartModule = local.modules.order_cart_links.module, paymentModule = local.modules.order_payment_collection_links.module;
+    const variants = [
+      { label: "mismatched definition", order_cart_links: { module: cartModule, nativeStorage: incompatible } },
+      { label: "swapped authentic tokens", order_cart_links: { module: cartModule, nativeStorage: paymentToken },
+        order_payment_collection_links: { module: paymentModule, nativeStorage: cartToken } },
+    ];
+    const cartRead = vi.spyOn(CartModuleService.prototype, "listAndCountCarts");
+    const prepare = vi.fn(local.configuration.execution.prepare);
+    const execution = { ...local.configuration.execution, prepare };
+    try {
+      for (const { label, ...bindings } of variants) {
+        const result = await Effect.runPromiseExit(Effect.scoped(Effect.gen(function* () {
+          const host = yield* Effect.acquireRelease(prepareCompleteCartWorkflow({ ...local.configuration, execution,
+            modules: { ...local.modules, ...bindings } }), host => host.close);
+          return yield* host.run(host.newRequestKey(), { id: local.cartId });
+        })));
+        if (Exit.isSuccess(result)) throw new Error("Core accepted " + label);
+        expect(prepare, label).not.toHaveBeenCalled();
+        expect(cartRead, label).not.toHaveBeenCalled();
+        const [reason] = result.cause.reasons;
+        expect(result.cause.reasons, Cause.pretty(result.cause)).toHaveLength(1);
+        if (reason === undefined || !Cause.isFailReason(reason)) throw new Error("Expected typed refusal for " + label, { cause: result.cause });
+        expect(reason.error, label).toMatchObject({ reason: "invalidAuthority" });
+      }
+    } finally { cartRead.mockRestore(); }
+    expect(local.traces).toHaveLength(from);
+    expect(await local.fixture.inventory()).toEqual(before);
   }, 120_000);
 
   it("retains exact native line, Order Summary, Session and Payment amounts beyond safe integers", async () => {
@@ -111,18 +150,18 @@ describe("native complete Cart checkout on " + driver, () => {
 
   it("rejects an unprocessable Session without publishing anything", async () => {
     for (const name of ["canceled"]) {
-      const before = await local.snapshot(), ids = selectedCase(name);
-      const exit = await Effect.runPromiseExit(local.host.run(local.host.newRequestKey(), { id: ids.cartId }));
+      const before = await local.fixture.inventory(), ids = selectedCase(name), key = local.host.newRequestKey();
+      const exit = await Effect.runPromiseExit(local.host.run(key, { id: ids.cartId }));
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit)) {
         expect(Cause.pretty(exit.cause)).toContain("Payment sessions are required");
       }
-      expect(await local.snapshot()).toEqual(before);
+      await expectCheckoutRollback(local.fixture, before, key);
     }
   }, 120_000);
 
   it("rolls back actual authorization, native Order/Links, Cart completion and pending events after a late native failure", async () => {
-    const ids = selectedCase("late"), before = await local.snapshot();
+    const ids = selectedCase("late"), before = await local.fixture.inventory(), key = local.host.newRequestKey();
     const native = PaymentModuleService.prototype.authorizePaymentSession;
     let completedNativeAuthorization = false;
     const spy = vi.spyOn(PaymentModuleService.prototype, "authorizePaymentSession").mockImplementation(async function (this: PaymentModuleService, ...args) {
@@ -134,12 +173,12 @@ describe("native complete Cart checkout on " + driver, () => {
       return result;
     });
     try {
-      const exit = await Effect.runPromiseExit(local.host.run(local.host.newRequestKey(), { id: ids.cartId }));
+      const exit = await Effect.runPromiseExit(local.host.run(key, { id: ids.cartId }));
       expect(completedNativeAuthorization).toBe(true);
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit)) expect(Cause.pretty(exit.cause)).toContain("Late native checkout failure after authorization");
     } finally { spy.mockRestore(); }
-    expect(await local.snapshot()).toEqual(before);
+    await expectCheckoutRollback(local.fixture, before, key);
     expect(local.runtime.errors).toEqual([expect.stringContaining("Late native checkout failure after authorization")]);
     const result = await Effect.runPromise(local.host.run(local.host.newRequestKey(), { id: ids.cartId }));
     expect(result.id).toMatch(/^order_/);
@@ -148,23 +187,13 @@ describe("native complete Cart checkout on " + driver, () => {
   it("serializes competing completion requests into one native Order and one placed event", async () => {
     const ids = selectedCase("concurrent"), before = await local.snapshot();
     const keys = [local.host.newRequestKey(), local.host.newRequestKey()];
-    const outcomes = await Promise.all(keys.map(key => Effect.runPromiseExit(local.host.run(key, { id: ids.cartId }))));
-    const successful = outcomes.filter(Exit.isSuccess);
-    expect(successful.length).toBeGreaterThanOrEqual(1);
-    const placed = successful[0]?.value;
-    if (placed === undefined) throw new Error("Neither competing checkout placed an Order");
-    for (const outcome of outcomes) {
-      if (Exit.isSuccess(outcome)) expect(outcome.value).toEqual(placed);
-      else {
-        // The ordinary fixture has a short SQL lock timeout. Its exact bounded
-        // contention refusal must be retryable after the winner has settled;
-        // unrelated authority errors or business failures are not accepted.
-        expect(driver).toBe("postgres");
-        expectCheckoutContention(outcome.cause);
-      }
-    }
+    const [placed, repeated] = await Promise.all(keys.map(key => Effect.runPromise(local.host.run(key, { id: ids.cartId }))));
+    if (placed === undefined) throw new Error("Missing first competing checkout result");
+    expect(placed.id).toMatch(/^order_/);
+    expect(repeated).toEqual(placed);
     for (const key of keys) expect(await Effect.runPromise(local.host.run(key, { id: ids.cartId }))).toEqual(placed);
-    expect((await local.rows()).filter(row => row.cart_id === ids.cartId && typeof row.order_id === "string")).toHaveLength(1);
+    expect((await local.rows()).filter(row => row.cart_id === ids.cartId && typeof row.order_id === "string"))
+      .toMatchObject([{ order_id: placed.id }]);
     const after = await local.snapshot();
     expect(after.events.filter(event => event.envelope.contract === "order.placed").length - before.events.filter(event => event.envelope.contract === "order.placed").length).toBe(1);
   }, 120_000);
@@ -179,7 +208,7 @@ describe("native complete Cart checkout on " + driver, () => {
     expect(transactions[0]).toMatchObject({ amount: "9007199254740993.0000", currency_code: "usd" });
     expect(rows.find(row => row.id === transactions[0]?.reference_id)).toMatchObject({ amount: "9007199254740993.0000" });
     const after = await local.snapshot();
-    expect(after.commits.length - before.commits.length).toBe(1);
+    expectCheckoutSettlement(before, after, key);
     expect(await Effect.runPromise(local.host.run(key, { id: ids.cartId }))).toEqual(result);
     expect(await local.snapshot()).toEqual(after);
   }, 120_000);
@@ -214,7 +243,7 @@ describe("native complete Cart checkout on " + driver, () => {
     const ids = selectedCase("late-refunded"), capture = await local.prepareCapturedPayment(), refund = await local.prepareRefundedPayment();
     const payment = await Effect.runPromise(capture.run(capture.newRequestKey(), { id: ids.sessionId }));
     await Effect.runPromise(refund.run(refund.newRequestKey(), { payment_id: Schema.decodeUnknownSync(Schema.String)(payment.id), amount: "4" }));
-    const before = await local.snapshot(), native = OrderModuleService.prototype.addOrderTransactions;
+    const before = await local.fixture.inventory(), key = local.host.newRequestKey(), native = OrderModuleService.prototype.addOrderTransactions;
     let reached = false;
     const spy = vi.spyOn(OrderModuleService.prototype, "addOrderTransactions").mockImplementation(async function (this: OrderModuleService, ...args) {
       await native.apply(this, args);
@@ -222,12 +251,12 @@ describe("native complete Cart checkout on " + driver, () => {
       throw new Error("Late failure after native Capture and Refund accounting");
     });
     try {
-      const outcome = await Effect.runPromiseExit(local.host.run(local.host.newRequestKey(), { id: ids.cartId }));
+      const outcome = await Effect.runPromiseExit(local.host.run(key, { id: ids.cartId }));
       expect(reached).toBe(true);
       expect(Exit.isFailure(outcome)).toBe(true);
       if (Exit.isFailure(outcome)) expect(Cause.pretty(outcome.cause)).toContain("Late failure after native Capture and Refund accounting");
     } finally { spy.mockRestore(); }
-    expect(await local.snapshot()).toEqual(before);
+    await expectCheckoutRollback(local.fixture, before, key);
     expect((await Effect.runPromise(local.host.run(local.host.newRequestKey(), { id: ids.cartId }))).id).toMatch(/^order_/);
   }, 120_000);
 });

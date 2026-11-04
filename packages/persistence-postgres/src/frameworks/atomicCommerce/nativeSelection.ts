@@ -31,3 +31,9 @@ export function defineAtomicCommerceNativeSource(name: string, definition: CoreN
 }
 
 export const atomicCommerceNativeSourceIdentity = (source: AtomicCommerceNativeSource) => sources.get(source);
+
+/** Authenticates the selection for a framework-owned composition slot. */
+export function matchesAtomicCommerceNativeSource(source: AtomicCommerceNativeSource, name: string, sourceKey: string): boolean {
+  const identity = atomicCommerceNativeSourceIdentity(source);
+  return identity !== undefined && identity.name === name && identity.sourceKey === sourceKey;
+}
