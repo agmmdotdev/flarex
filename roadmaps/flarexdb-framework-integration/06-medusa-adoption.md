@@ -1160,8 +1160,9 @@ activation remain unadmitted. Chunked Product file import and Product export
 remain deferred.
 
 The [native Service Zone update](./preflight/133-native-service-zone-update-workflow.md)
-slice admits zero to four selected Zones, sixteen current GeoZones including
-history and four replacement entries per Zone. It preserves genuine scalar
+slice admits zero to four selected Zones and four replacement entries per Zone.
+Its sixteen-row current GeoZone limit counts active rows and the physical
+history required by an explicit replacement. It preserves genuine scalar
 updates, all four geographic types, projected originals, JSON reference-driven
 child writes and insertion-order relation hydration. Complete old/new replacement
 covers thirty-two distinct Geo identities. The genuine retained inverse removes

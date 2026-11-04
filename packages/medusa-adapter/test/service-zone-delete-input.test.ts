@@ -3,7 +3,7 @@ import { Effect, Result } from "effect";
 import { captureServiceZoneCreationMetadata } from "../src/modules/fulfillment/shipping-profile-schema";
 import { compileServiceZoneDeletionContracts, decodeServiceZoneDeletionIds, decodeServiceZoneDeletionArguments,
   decodeServiceZoneDeletionOutput } from "../src/modules/fulfillment/service-zone-delete-input";
-import { serviceZoneDeletionGraph } from "./support/logical-service-zone-creation-fixture";
+import { serviceZoneDeletionGraph } from "./support/native-fulfillment-graph-fixture";
 
 let contracts: Result.Result.Success<ReturnType<typeof compileServiceZoneDeletionContracts>>;
 const graph = serviceZoneDeletionGraph("zone-delete-input", { geos: 1, options: 1, rules: 1 });

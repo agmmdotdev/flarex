@@ -5,7 +5,7 @@ import type { LogicalCallReceiptValidation } from "../src/repository/call-receip
 import { captureServiceZoneCreationMetadata } from "../src/modules/fulfillment/shipping-profile-schema";
 import { compileServiceZoneDeletionContracts } from "../src/modules/fulfillment/service-zone-delete-input";
 import { serviceZoneDeletionPolicy } from "../src/modules/fulfillment/service-zone-delete-receipt";
-import { serviceZoneDeletionGraph, serviceZoneSeedTime } from "./support/logical-service-zone-creation-fixture";
+import { serviceZoneDeletionGraph, serviceZoneSeedTime } from "./support/native-fulfillment-graph-fixture";
 
 type Call = Parameters<LogicalCallReceiptValidation>[0];
 type Activity = Parameters<LogicalCallReceiptValidation>[1];

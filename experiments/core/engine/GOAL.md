@@ -549,3 +549,8 @@ witness to Core. Paired acceptance is complete for the selected workflows.
 The [native Shipping Option Types continuation](./slices/40-native-shipping-option-types.md)
 moves the three genuine Type roots and the connected Service Zone witness to
 Core. Paired acceptance is complete for the selected workflows.
+
+The [native Service Zones continuation](./slices/41-native-service-zones.md)
+moves the three ordinary roots and their connected witnesses to the shared
+Fulfillment Core source. PGlite and ordinary-role PostgreSQL acceptance is
+complete for these workflows and the connected regression cases.

@@ -80,8 +80,7 @@ export function serviceZoneUpdatePolicy(prepared: Prepared) {
         !jsonEqual(projectNativeRow(observation.row), projectNativeRow(mutation.after)))) return yield* Effect.fail(mismatch());
     }
     const roots = [...initial.get(contracts.zone.name)?.values() ?? []], geos = [...initial.get(contracts.geo.name)?.values() ?? []];
-    if (roots.length > 4 || geos.length > 16 || new Set([...geos.map(row => row.id), ...activity.mutations.filter(row => row.table === contracts.geo.name)
-      .flatMap(row => typeof row.after?.id === "string" ? [row.after.id] : [])]).size > 32) return yield* Effect.fail(mismatch());
+    if (roots.length > 4) return yield* Effect.fail(mismatch());
     const rootIds = new Set(roots.map(row => row.id));
     if (geos.some(row => typeof row.service_zone_id !== "string" || !rootIds.has(row.service_zone_id))) return yield* Effect.fail(mismatch());
     const reads: JsonObject[] = [], selectedGeos = new Set<string>(), selectedRoots = new Set<string>();
@@ -90,7 +89,7 @@ export function serviceZoneUpdatePolicy(prepared: Prepared) {
       if (order === undefined || typeof order === "string") return yield* Result.fail(mismatch());
       const actual = activity.relationalReads[reads.length];
       const identities = yield* decodeOrderedIdentities(actual?.orderedIdentities);
-      if (identities.length !== rows.length || new Set(identities.map(row => row.id)).size !== identities.length)
+      if (rows.length > 16 || identities.length !== rows.length || new Set(identities.map(row => row.id)).size !== identities.length)
         return yield* Result.fail(mismatch());
       const byId = new Map(rows.map(row => [row.id, row])), ordered: Row[] = [];
       for (const { id } of identities) {
@@ -157,6 +156,14 @@ export function serviceZoneUpdatePolicy(prepared: Prepared) {
     if (call.commandName === "serviceZoneUpsertForUpdateInverse" && roots.some(row => !requested.has(row.id))) return yield* Effect.fail(mismatch());
     const hydrated = updates.length ? yield* Effect.fromResult(activeRead(buildQuery({ id: ids }, { relations: ["geo_zones"], take: ids.length }))) : undefined;
     const active = hydrated?.children ?? [], activeDeletes: string[] = [];
+    // The active FK read can observe deleted candidates before the residual
+    // predicate runs. Only explicit Geo replacements read the physical cohort,
+    // including an empty replacement's final refresh.
+    const physicalRoots = new Set(updates.filter(row => row.geo_zones !== undefined).map(row => row.id));
+    const currentGeoIds = new Set(active.map(row => row.id));
+    for (const row of geos) if (typeof row.service_zone_id === "string" && physicalRoots.has(row.service_zone_id)) currentGeoIds.add(row.id);
+    if (currentGeoIds.size > 16 || new Set([...currentGeoIds, ...activity.mutations.filter(row => row.table === contracts.geo.name)
+      .flatMap(row => typeof row.after?.id === "string" ? [row.after.id] : [])]).size > 32) return yield* Effect.fail(mismatch());
     for (const input of updates) if (input.geo_zones !== undefined) {
       const keep = new Set(input.geo_zones.flatMap(row => "id" in row && typeof row.id === "string" ? [row.id] : []));
       for (const geo of active) if (geo.service_zone_id === input.id && !keep.has(geo.id)) activeDeletes.push(geo.id);

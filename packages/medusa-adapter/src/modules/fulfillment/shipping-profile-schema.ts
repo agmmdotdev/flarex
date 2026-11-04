@@ -20,7 +20,7 @@ const decodeNativeInventory = Schema.decodeUnknownEffect(Schema.Struct({
 
 export const shippingProfileDeletionTables = Object.freeze(["shipping_profile", "shipping_option", "service_zone", "fulfillment_set",
   "shipping_option_type", "fulfillment_provider"] as const);
-const serviceZoneCreationTables = [...shippingProfileDeletionTables, "geo_zone", "shipping_option_rule"] as const;
+export const serviceZoneCreationTables = Object.freeze([...shippingProfileDeletionTables, "geo_zone", "shipping_option_rule"] as const);
 const fulfillmentCreationTables = [...serviceZoneCreationTables, "fulfillment_address", "fulfillment", "fulfillment_label", "fulfillment_item"] as const;
 
 const captureSelectedMetadata = Effect.fn("ShippingProfile.captureSelectedMetadata")(function* (names: readonly string[]) {

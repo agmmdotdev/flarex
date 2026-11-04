@@ -39,11 +39,14 @@ export function defineAtomicCommerceNativeSource(name: string, definition: CoreN
 
 export const atomicCommerceNativeSourceIdentity = (source: AtomicCommerceNativeSource) => sources.get(source)?.identity;
 
-/** Authenticates the selection and required relational tables for a framework-owned slot. */
+/** Authenticates the selection and table requirements for a framework-owned slot. */
 export function matchesAtomicCommerceNativeSource(source: AtomicCommerceNativeSource, name: string, sourceKey: string,
-  requiredTables?: readonly string[],
+  requiredTables?: readonly string[] | Readonly<{ exactly: readonly string[] }>,
 ): boolean {
   const selection = sources.get(source);
-  return selection !== undefined && selection.identity.name === name && selection.identity.sourceKey === sourceKey
-    && (requiredTables === undefined || requiredTables.every(table => selection.relationalTables.includes(table)));
+  if (selection === undefined || selection.identity.name !== name || selection.identity.sourceKey !== sourceKey) return false;
+  if (requiredTables === undefined) return true;
+  if ("exactly" in requiredTables) return requiredTables.exactly.length === selection.relationalTables.length
+    && selection.relationalTables.every(table => requiredTables.exactly.includes(table));
+  return requiredTables.every(table => selection.relationalTables.includes(table));
 }

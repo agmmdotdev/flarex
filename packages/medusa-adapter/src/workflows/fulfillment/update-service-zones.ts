@@ -1,16 +1,15 @@
 import { Effect } from "effect";
 import { updateServiceZonesWorkflow } from "@medusajs/core-flows/fulfillment/update-service-zones";
-import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { matchesAtomicCommerceNativeSource, type AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { jsonEqual } from "flarex-protocol/json";
 import { ServiceZoneUpdateInput, compileServiceZoneUpdateContracts } from "../../modules/fulfillment/service-zone-update-input";
 import type { makeServiceZoneUpdateCommands } from "../../modules/fulfillment/service-zone-update-service";
-import { captureServiceZoneCreationMetadata } from "../../modules/fulfillment/shipping-profile-schema";
+import { captureServiceZoneCreationMetadata, serviceZoneCreationTables } from "../../modules/fulfillment/shipping-profile-schema";
 import { serviceZoneUpdateResources } from "../../workflow/policy";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { internalModuleWorkflowEvents } from "../../workflow/events";
 import { prepareAtomicWorkflowHost, captureInstalledWorkflowModules, type AtomicWorkflowExecution,
-  type InstalledWorkflowModule } from "../../workflow/host";
+  type OrdinaryNativeInstalledWorkflowModule } from "../../workflow/host";
 import { workflowModuleDefinition } from "../../workflow/module";
 import { prepareWorkflowResources } from "../../workflow/resources";
 
@@ -19,7 +18,7 @@ export { ServiceZoneUpdateInput };
 
 export const prepareServiceZoneUpdateWorkflow = Effect.fn("ServiceZone.prepareUpdate")(function* (input: {
   readonly execution: AtomicWorkflowExecution;
-  readonly modules: { readonly fulfillment: InstalledWorkflowModule<Fulfillment> };
+  readonly modules: { readonly fulfillment: OrdinaryNativeInstalledWorkflowModule<Fulfillment> };
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];
 }) {
@@ -28,12 +27,15 @@ export const prepareServiceZoneUpdateWorkflow = Effect.fn("ServiceZone.prepareUp
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   const registrations = yield* Effect.fromResult(captureWorkflowRecord(options.modules));
   if (Object.keys(registrations).length !== 1) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const installed = yield* Effect.fromResult(captureInstalledWorkflowModules(registrations, ["fulfillment"]));
-  const source = workflowModuleDefinition(installed.fulfillment.module)?.source;
-  if (source?.name !== "flarex-service-zone-update" || source.profile !== "service-zone-update") return yield* Effect.fail(commerceError("invalidAuthority"));
-  if (installed.fulfillment.logicalResources !== undefined && !jsonEqual(installed.fulfillment.logicalResources, serviceZoneUpdateResources))
+  const { fulfillment } = yield* Effect.fromResult(captureInstalledWorkflowModules(registrations, ["fulfillment"]));
+  const source = workflowModuleDefinition(fulfillment.module)?.source;
+  if (source?.name !== "flarex-service-zone-update" || source.profile !== "service-zone-update" ||
+    fulfillment.nativeStorage === undefined || fulfillment.logicalStorage !== undefined ||
+    !matchesAtomicCommerceNativeSource(fulfillment.nativeStorage, "fulfillment", "medusa.shippingProfile", { exactly: serviceZoneCreationTables }))
+    return yield* Effect.fail(commerceError("invalidAuthority"));
+  if (fulfillment.logicalResources !== undefined || fulfillment.logicalPublication !== undefined)
     return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const modules = { fulfillment: { ...installed.fulfillment, logicalResources: serviceZoneUpdateResources } };
+  const modules = { fulfillment: { ...fulfillment, logicalResources: serviceZoneUpdateResources } };
   const resources = yield* Effect.fromResult(prepareWorkflowResources({ fulfillment: {
     module: modules.fulfillment.module, methods: ["listServiceZones", "updateServiceZones", "upsertServiceZones"], graph: false,
   } }, true));

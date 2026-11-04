@@ -6,7 +6,7 @@ import { jsonEqual } from "flarex-protocol/json";
 import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineCommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import type { CorePersistenceFixture } from "../../../persistence-postgres/test/core/fixture";
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
@@ -17,8 +17,8 @@ import { projectNativeRow } from "../../src/repository/result";
 import { makeServiceZoneUpdateCommands } from "../../src/modules/fulfillment/service-zone-update-service";
 import { ServiceZoneUpdateInput, ServiceZoneUpdateUpserts } from "../../src/modules/fulfillment/service-zone-update-input";
 import { prepareServiceZoneUpdateWorkflow } from "../../src/workflows/fulfillment/update-service-zones";
-import { prepareLogicalServiceZoneCreation, serviceZoneDeletionGraph } from "./logical-service-zone-creation-fixture";
-import type { LogicalCurrencyFixture } from "./logical-currency-fixture";
+import { prepareCoreServiceZoneStorage, prepareCoreServiceZonePhysicalInverse } from "./core-service-zone-creation-fixture";
+import type { serviceZoneDeletionGraph } from "./native-fulfillment-graph-fixture";
 
 const prepared = Result.getOrThrow(updateServiceZonesWorkflow.prepare());
 const retained = prepared.nodes.find(node => node.name === "update-service-zones");
@@ -29,20 +29,18 @@ type NativeInput = Parameters<typeof updateServiceZonesWorkflow.runAsStep>[0]["i
 
 /** Existing fresh eight-table source, graph initialization and scope inventory.
  * Every observed update/inverse calls the genuine Fulfillment methods. */
-export async function prepareLogicalServiceZoneUpdate(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  graphs: readonly ReturnType<typeof serviceZoneDeletionGraph>[], shared?: Readonly<{ resource: LogicalCurrencyFixture["resource"];
-    fixtureIdentity: Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }> }>) {
-  const base = await prepareLogicalServiceZoneCreation(driver, close, graphs, shared);
+export async function prepareCoreServiceZoneUpdate(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
+  graphs: readonly ReturnType<typeof serviceZoneDeletionGraph>[], shared?: CorePersistenceFixture) {
+  const base = await prepareCoreServiceZoneStorage(driver, close, graphs, shared);
   const fulfillment = await Effect.runPromise(makeServiceZoneUpdateCommands());
-  const installed = { module: fulfillment.workflow, logicalStorage: base.installed.logicalStorage, logicalResources: serviceZoneUpdateResources };
+  const installed = { module: fulfillment.workflow, nativeStorage: base.nativeStorage };
   const options: Parameters<typeof prepareServiceZoneUpdateWorkflow>[0] = { execution: base.execution, modules: { fulfillment: installed },
     revision: createHash("sha256").update("native-service-zone-update-133").digest("hex"),
     subscribers: [{ id: "native-service-zone-update", revision: "c".repeat(64) }] };
-  const hostOptions = { execution: options.execution, modules: { fulfillment: installed }, revision: options.revision, subscribers: options.subscribers,
+  const hostOptions = { execution: options.execution, modules: { fulfillment: { ...installed, logicalResources: serviceZoneUpdateResources } },
+    revision: options.revision, subscribers: options.subscribers,
     requestCallLimit: serviceZoneUpdateResources.calls, requestEventLimit: serviceZoneUpdateResources.eventMessages };
-  const prepare = async (revision = options.revision) => {
-    const host = await Effect.runPromise(prepareServiceZoneUpdateWorkflow({ ...options, revision })); close(() => Effect.runPromise(host.close)); return host;
-  };
+  const prepare = async (revision = options.revision) => base.own(await Effect.runPromise(prepareServiceZoneUpdateWorkflow({ ...options, revision })));
   const resources = Result.getOrThrow(prepareWorkflowResources({ fulfillment: { module: fulfillment.workflow,
     methods: ["listServiceZones", "updateServiceZones", "upsertServiceZones"], graph: false } }, true));
   const Input = Schema.Struct({ input: ServiceZoneUpdateInput, fail: Schema.optionalKey(Schema.Boolean) });
@@ -61,7 +59,7 @@ export async function prepareLogicalServiceZoneUpdate(driver: "pglite" | "postgr
       name: roundtrip ? "probeNativeServiceZoneUpdateRoundtrip" : "probeNativeServiceZoneUpdateForward", resources,
       prepared: Result.getOrThrow(flow.prepare()), input: Input, output: Output, events: internalModuleWorkflowEvents,
     } }));
-    close(() => Effect.runPromise(host.close)); return host;
+    return base.own(host);
   };
   const prepareInverse = async () => {
     const undo = createStep("probe-native-service-zone-update-inverse", resources.callback(async (preimages: typeof ServiceZoneUpdateUpserts.Type, context) => {
@@ -70,7 +68,7 @@ export async function prepareLogicalServiceZoneUpdate(driver: "pglite" | "postgr
     const flow = createWorkflow("probe-native-service-zone-update-inverse", (value: WorkflowData<typeof ServiceZoneUpdateUpserts.Type>) => new WorkflowResponse(undo(value)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ ...hostOptions, workflow: { name: "probeNativeServiceZoneUpdateInverse", resources,
       prepared: Result.getOrThrow(flow.prepare()), input: ServiceZoneUpdateUpserts, output: Schema.Null, events: internalModuleWorkflowEvents } }));
-    close(() => Effect.runPromise(host.close)); return host;
+    return base.own(host);
   };
   /** The test supplies a scoped delegating native public-list tap. The full
    * genuine root receives that actual result; no preimage query is reproduced. */
@@ -87,7 +85,7 @@ export async function prepareLogicalServiceZoneUpdate(driver: "pglite" | "postgr
     });
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ ...hostOptions, workflow: { name: "probeNativeServiceZoneFullRootRoundtrip", resources,
       prepared: Result.getOrThrow(flow.prepare()), input: ServiceZoneUpdateInput, output: Output, events: internalModuleWorkflowEvents } }));
-    close(() => Effect.runPromise(host.close)); return host;
+    return base.own(host);
   };
   const prepareAbsentInverse = async () => {
     const undo = createStep("probe-native-service-zone-update-absent-inverse", resources.callback(async (_value: null, context) => {
@@ -96,7 +94,7 @@ export async function prepareLogicalServiceZoneUpdate(driver: "pglite" | "postgr
     const flow = createWorkflow("probe-native-service-zone-update-absent-inverse", (value: WorkflowData<null>) => new WorkflowResponse(undo(value)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ ...hostOptions, workflow: { name: "probeNativeServiceZoneUpdateAbsentInverse", resources,
       prepared: Result.getOrThrow(flow.prepare()), input: Schema.Null, output: Schema.Null, events: internalModuleWorkflowEvents } }));
-    close(() => Effect.runPromise(host.close)); return host;
+    return base.own(host);
   };
   /** One canonical Geo insert for an indexed-read race, granting no public
    * native GeoZone mutation capability or second storage implementation. */
@@ -109,9 +107,9 @@ export async function prepareLogicalServiceZoneUpdate(driver: "pglite" | "postgr
     }));
     const participant = defineAtomicCommerceParticipant("serviceZoneGeoRaceFixture");
     const root = defineAtomicCommerceCommand("serviceZoneGeoRaceFixtureRoot", (ctx, value) => ctx.call(participant, insert, value));
-    const host = await Effect.runPromise(makeAtomicCommerceHost({ ...base.fixture.hostInput,
+    const host = base.own(await Effect.runPromise(base.execution.prepare({
       identityAndAccessPolicy: { profile: "service-zone-geo-canonical-race-fixture" }, commands: [root],
-      participants: [{ participant, logicalStorage: installed.logicalStorage, commands: [insert],
+      participants: [{ participant, nativeStorage: installed.nativeStorage, commands: [insert],
         validateLogicalCall: Effect.fn("ServiceZoneGeoRace.validate")(function* (call, activity, command) {
           if (command !== insert || call.commandName !== "serviceZoneGeoRaceFixtureInsert" || call.mode !== "write" || call.events.length ||
             activity.mutations.length !== 1 || activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length)
@@ -128,10 +126,10 @@ export async function prepareLogicalServiceZoneUpdate(driver: "pglite" | "postgr
           }
         }),
       }],
-    }));
-    close(() => Effect.runPromise(host.close)); return { newRequestKey: host.newRequestKey, run: (key: string, row: JsonObject) => host.run(key, root, row) };
+    })));
+    return { newRequestKey: host.newRequestKey, run: (key: string, row: JsonObject) => host.run(key, root, row) };
   };
   return { ...base, fulfillment, installed, options, hostOptions, resources, prepare, prepareInverse, prepareRootRoundtrip, prepareAbsentInverse,
-    prepareForward: () => prepareCallbacks(false), prepareRoundtrip: () => prepareCallbacks(true), prepareCreation: base.prepare,
-    preparePhysicalDelete: base.prepareInverse, prepareGeoInsertion };
+    prepareForward: () => prepareCallbacks(false), prepareRoundtrip: () => prepareCallbacks(true),
+    preparePhysicalDelete: () => prepareCoreServiceZonePhysicalInverse(base), prepareGeoInsertion };
 }

@@ -4,7 +4,7 @@ import { captureServiceZoneCreationMetadata } from "../src/modules/fulfillment/s
 import { compileShippingOptionDeletionContracts, decodeShippingOptionDeletionArguments, decodeShippingOptionDeletionIds,
   decodeShippingOptionDeletionOutput } from "../src/modules/fulfillment/shipping-option-delete-input";
 import { compileFulfillmentLifecycleGraph } from "../src/modules/fulfillment/fulfillment-graph-contracts";
-import { serviceZoneDeletionGraph } from "./support/logical-service-zone-creation-fixture";
+import { serviceZoneDeletionGraph } from "./support/native-fulfillment-graph-fixture";
 
 let contracts: Result.Result.Success<ReturnType<typeof compileShippingOptionDeletionContracts>>;
 const graph = serviceZoneDeletionGraph("option-delete-input", { geos: 1, options: 1, rules: 1 });

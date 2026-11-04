@@ -3,10 +3,14 @@ import { Effect, Result, Schema } from "effect";
 import { createStep, createWorkflow, transform, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { batchShippingOptionRulesWorkflow } from "@medusajs/core-flows/fulfillment/batch-shipping-option-rules";
 import { jsonEqual } from "flarex-protocol/json";
-import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
+import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
+import { commerceError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineCommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { makeCommerceHost, type LogicalCommerceHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
 import { makeShippingOptionRuleCommands } from "../../src/modules/fulfillment/shipping-option-rule-service";
 import { captureServiceZoneCreationMetadata } from "../../src/modules/fulfillment/shipping-profile-schema";
 import { compileFulfillmentGraphContracts } from "../../src/modules/fulfillment/fulfillment-graph-contracts";
@@ -15,12 +19,13 @@ import { commerceDecoder } from "../../src/value/decoder";
 import { captureCommerceInput } from "../../src/value/input";
 import { ShippingOptionRuleBatchInput, ShippingOptionRuleCreates, ShippingOptionRuleUpdates, ShippingOptionRuleIds } from "../../src/modules/fulfillment/shipping-option-rule-input";
 import { prepareShippingOptionRuleBatchWorkflow } from "../../src/workflows/fulfillment/batch-shipping-option-rules";
-import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
+import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution } from "../../src/workflow/host";
 import { shippingOptionRuleBatchResources } from "../../src/workflow/policy";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
-import { prepareLogicalServiceZoneCreation, serviceZoneDeletionGraph } from "./logical-service-zone-creation-fixture";
-import type { LogicalCurrencyFixture } from "./logical-currency-fixture";
+import { fulfillmentForestRows, serviceZoneDeletionGraph } from "./native-fulfillment-graph-fixture";
+import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./logical-currency-fixture";
+import { logicalCurrencyInventory } from "./logical-currency-inventory";
 
 const revision = createHash("sha256").update("native-shipping-option-rule-batch-136").digest("hex");
 const prepared = Result.getOrThrow(batchShippingOptionRulesWorkflow.prepare());
@@ -66,15 +71,29 @@ export function maximumShippingOptionRuleBatch(prefix: string): typeof ShippingO
   delete: ruleGraph.ruleIds.slice(4, 8) };
 }
 
-/** Reuse the existing canonical eight-table graph installer and complete row
- * inventory. Constructing its Zone module grants no Rule workflow authority. */
+/** The retained Rule Batch owns its Legacy installation and inventory. */
 export async function prepareLogicalShippingOptionRuleBatch(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
   shared?: Readonly<{ resource: LogicalCurrencyFixture["resource"];
     fixtureIdentity: Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }> }>) {
-  const base = await prepareLogicalServiceZoneCreation(driver, close, [ruleGraph], shared);
+  const configuration = { includeShippingProfile: true, includeServiceZoneCreation: true };
+  const fixture = await logicalCurrencyFixture(driver, close, shared === undefined ? configuration : { ...configuration, ...shared });
   const fulfillment = await Effect.runPromise(makeShippingOptionRuleCommands());
-  const installed = { ...base.installed, module: fulfillment.workflow };
-  const options = { execution: base.execution, fulfillment: installed, revision,
+  const definition = fixture.shippingProfileDefinition;
+  if (definition === undefined || definition.schema.tables.length !== 8) throw new Error("Missing Rule Batch Fulfillment source");
+  const initial = fulfillmentForestRows([ruleGraph], true);
+  const dataset = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows: initial }, 1_048_576,
+    { invalidInput: () => new Error("Invalid Rule Batch seed"), hashFailure: cause => new Error("Rule Batch seed hash", { cause }) }));
+  const input = { ...fixture.hostInput, commands: fulfillment.commands, identityAndAccessPolicy: { profile: "logical-rule-batch-initialization" },
+    logicalStorage: { ...fixture.hostInput.logicalStorage,
+      source: { sourceKey: "medusa.shippingProfile", writeProfile: "medusa.shippingProfile", schema: definition.schema, evidence: definition.provenance },
+      initialization: { stepId: "rule-batch-initial", datasetSha256: dataset.sha256Hex, expectedRowCount: initial.length } },
+  } satisfies LogicalCommerceHostInput<unknown>;
+  const initializer = await Effect.runPromise(makeCommerceHost(input));
+  try { await Effect.runPromise(initializer.initialize(initial)); } finally { await Effect.runPromise(initializer.close); }
+  const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
+    prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, ...composition }) };
+  const installed = { module: fulfillment.workflow, logicalStorage: input.logicalStorage };
+  const options = { execution, fulfillment: installed, revision,
     subscribers: [{ id: "native-shipping-option-rule-batch", revision: "f".repeat(64) }] };
   const modules = { fulfillment: { ...installed, logicalResources: shippingOptionRuleBatchResources } };
   const resources = Result.getOrThrow(prepareWorkflowResources({ fulfillment: { module: fulfillment.workflow,
@@ -166,7 +185,7 @@ export async function prepareLogicalShippingOptionRuleBatch(driver: "pglite" | "
     }));
     const participant = defineAtomicCommerceParticipant("ruleUnusedOptionRace");
     const root = defineAtomicCommerceCommand("ruleUnusedOptionRaceRoot", (ctx, value) => ctx.call(participant, remove, value));
-    const host = await Effect.runPromise(makeAtomicCommerceHost({ ...base.fixture.hostInput,
+    const host = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
       identityAndAccessPolicy: { profile: "rule-unused-option-canonical-race-fixture" }, commands: [root],
       participants: [{ participant, logicalStorage: installed.logicalStorage, commands: [remove],
         validateLogicalCall: Effect.fn("RuleUnusedOptionRace.validate")(function* (call, activity, command) {
@@ -192,5 +211,20 @@ export async function prepareLogicalShippingOptionRuleBatch(driver: "pglite" | "
     close(() => Effect.runPromise(host.close));
     return { newRequestKey: host.newRequestKey, run: (key: string) => host.run(key, root, ruleGraph.unusedParentId) };
   };
-  return { ...base, fulfillment, installed, options, modules, resources, prepare, prepareRoundtrip, prepareInverse, prepareLateFailure, prepareUnusedParentRemoval };
+  const snapshot = () => logicalCurrencyInventory(fixture);
+  const read = async (ids: readonly string[]) => {
+    const inventory = await snapshot(), selected = new Set(ids), result: JsonObject[] = [];
+    const scope = projectScopeIdUuidV1(fixture.application.authority.scopeId).scopeUuid;
+    for (const current of inventory.rows) {
+      if (current.scopeUuid !== scope) continue;
+      const record = inventory.revisions.find(row => row.scopeUuid === scope && row.tableId === current.tableId && row.commitSeq === current.commitSeq
+        && Buffer.from(row.rowId).equals(Buffer.from(current.rowId)));
+      if (record === undefined || record.isTombstone) continue;
+      const value = await decodeCanonicalFlarexValueEvidenceV1({ canonicalBytes: record.valueBytes, sha256: record.valueSha256, profile: "appDocument" });
+      const row = Schema.decodeUnknownSync(Schema.JsonObject)(value.valueJson);
+      if (typeof row.id === "string" && selected.has(row.id)) result.push(projectNativeRow(row));
+    }
+    return result.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  };
+  return { fixture, read, snapshot, fulfillment, installed, options, modules, resources, prepare, prepareRoundtrip, prepareInverse, prepareLateFailure, prepareUnusedParentRemoval };
 }

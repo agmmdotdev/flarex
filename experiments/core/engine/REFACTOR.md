@@ -809,3 +809,8 @@ The [native Shipping Option Types continuation](./slices/40-native-shipping-opti
 uses the existing Fulfillment source and extends the trusted native upsert
 owner for the genuine timestamp-advancing update inverse. Paired acceptance
 is complete.
+
+The [native Service Zones continuation](./slices/41-native-service-zones.md)
+uses existing Core graph, lifecycle and constraint owners. Paired validation is
+complete. Wider reference detachment and the Rule Batch initializer have named
+Legacy removal gates.

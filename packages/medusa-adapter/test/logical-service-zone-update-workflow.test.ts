@@ -1,17 +1,19 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
 import { FulfillmentModuleService } from "@medusajs/fulfillment/services";
-import { CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { MedusaError } from "@medusajs/framework/utils/portable";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { serviceZoneUpdateResources } from "../src/workflow/policy";
 import { prepareServiceZoneUpdateWorkflow } from "../src/workflows/fulfillment/update-service-zones";
 import { ServiceZoneUpdateUpserts } from "../src/modules/fulfillment/service-zone-update-input";
-import { prepareLogicalServiceZoneUpdate } from "./support/logical-service-zone-update-fixture";
-import { serviceZoneDeletionGraph, serviceZoneParents, serviceZoneSeedTime } from "./support/logical-service-zone-creation-fixture";
+import { prepareCoreServiceZoneUpdate } from "./support/core-service-zone-update-fixture";
+import { serviceZoneDeletionGraph, serviceZoneParents, serviceZoneSeedTime } from "./support/native-fulfillment-graph-fixture";
+import { expectCheckoutRollback, expectCheckoutSettlement } from "./support/core-checkout-evidence";
+import { expectWorkflowDefect, expectWorkflowRefusal, expectWorkflowTypedFailures } from "./support/workflow-failure-assertions";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalServiceZoneUpdate>>, sharedCleanupCount = 0;
+let connected: Awaited<ReturnType<typeof prepareCoreServiceZoneUpdate>>, sharedCleanupCount = 0;
 const rows = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject)), row = Schema.decodeUnknownSync(Schema.JsonObject), text = Schema.decodeUnknownSync(Schema.String);
 const graph = {
   maximumNew: serviceZoneDeletionGraph("zone-update-max-new", { roots: 4 }),
@@ -53,10 +55,10 @@ const newGeography = () => [
   { type: "city", country_code: "TH", province_code: "BK", city: " Bangkok " },
   { type: "zip", country_code: "GB", province_code: "LND", city: "London", postal_expression: { eq: "SW1" } },
 ];
-function reasons(value: unknown): string[] {
-  if (Cause.isCause(value)) return value.reasons.flatMap(reason => reason._tag === "Fail" ? reasons(reason.error) : reason._tag === "Die" ? reasons(reason.defect) : ["Interrupt"]);
-  if (value instanceof CommerceTransactionError) return [value.reason, ...reasons(value.cause)];
-  return value instanceof Error ? [value.message, ...reasons(value.cause)] : [];
+function expectNativeRefusal(exit: Exit.Exit<unknown, unknown>, type: string, message: string | RegExp) {
+  const failure = expectWorkflowRefusal(exit, "adapterFailure");
+  expect(failure.cause).toBeInstanceOf(MedusaError);
+  expect(failure.cause).toMatchObject({ type, message: typeof message === "string" ? message : expect.stringMatching(message) });
 }
 function nativePreimageTap() {
   const original = FulfillmentModuleService.prototype.listServiceZones; let captured: unknown;
@@ -69,8 +71,11 @@ function nativePreimageTap() {
 const nestedIds = (value: unknown) => rows(value).flatMap(root => root.geo_zones === undefined ? [] : rows(root.geo_zones).map(child => text(child.id)));
 
 describe("genuine Service Zone selector update, geography replacement and retained inverse", { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalServiceZoneUpdate(driver, close => cleanup.push(close), Object.values(graph)); sharedCleanupCount = cleanup.length; }, 240_000);
-  afterEach(async () => { for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }, 120_000);
+  beforeAll(async () => { connected = await prepareCoreServiceZoneUpdate(driver, close => cleanup.push(close), Object.values(graph)); sharedCleanupCount = cleanup.length; }, 240_000);
+  afterEach(async () => {
+    await connected.closeCaseHosts();
+    for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close();
+  }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
   it("accepts the complete four-empty-root to sixteen-new-child genuine root plus retained inverse", async () => {
@@ -91,11 +96,17 @@ describe("genuine Service Zone selector update, geography replacement and retain
       }
       expect(result.preimages).toEqual(ids.map(id => ({ id, geo_zones: [] }))); expect(inverse.mock.calls.map(call => call[0])).toEqual([result.preimages]);
       expect(await connected.read(graph.maximumNew.ids)).toEqual(rootBefore); expect(await connected.read(nestedIds(output))).toEqual([]); expect(await connected.read(parentIds)).toEqual(parents);
-      const after = await connected.snapshot(), emitted = after.events.slice(before.events.length);
-      expect(after.commits).toHaveLength(before.commits.length + 1); expect(emitted.map(event => event.envelope.contract)).toEqual([
+      const after = await connected.snapshot(), timestamp = expectCheckoutSettlement(before, after, key);
+      const emitted = after.events.filter(event => event.timestamp === timestamp);
+      expect(emitted.map(event => event.envelope.contract)).toEqual([
         ...Array(16).fill("fulfillment.geo-zone.created"), ...Array(16).fill("fulfillment.geo-zone.deleted"),
       ]);
-      expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1);
+      const geo = connected.definition.tables.find(table => table.localName === "geo_zone");
+      if (geo === undefined) throw new Error("Missing installed Geo table");
+      const tombstones = after.revisions.filter(revision => revision.timestamp === timestamp);
+      expect(tombstones).toHaveLength(16);
+      for (const revision of tombstones) expect(revision).toMatchObject({ table: geo.name, previous: null, deleted: true, value: null });
+      expect(after.indexes).toEqual(before.indexes);
       expect(await Effect.runPromise(host.run(key, { selector: { id: ids }, update: { geo_zones: newGeography() } }))).toEqual(result);
       expect(inverse).toHaveBeenCalledTimes(1); expect(await connected.snapshot()).toEqual(after);
     } finally { tap.restore(); inverse.mockRestore(); }
@@ -105,13 +116,16 @@ describe("genuine Service Zone selector update, geography replacement and retain
     const tap = nativePreimageTap();
     try {
       const host = await connected.prepareRootRoundtrip(tap.get), before = await connected.snapshot(), ids = [...graph.maximumCurrent.ids].reverse(); let calls = 0;
-      const result = row(await Effect.runPromise(host.run(host.newRequestKey(), { selector: { id: ids }, update: {} }).pipe(
+      const key = host.newRequestKey();
+      const result = row(await Effect.runPromise(host.run(key, { selector: { id: ids }, update: {} }).pipe(
         Effect.provideService(ExecutionDiagnostics, { observe: (name, work) => Effect.sync(() => { if (name === "BoundedRequest.enter") calls++; }).pipe(Effect.andThen(work)) }),
         Effect.ensuring(Effect.sync(() => console.info("ServiceZone update accepting maximum current graph empty root plus inverse BoundedRequest.enter", calls))),
       )));
       expect(calls).toBeLessThanOrEqual(serviceZoneUpdateResources.calls); expect(result.preimages).toEqual(ids.map(id => ({ id })));
       for (const root of rows(result.output)) expect(root).not.toHaveProperty("geo_zones");
       const after = await connected.snapshot(); expect(after.rows).toEqual(before.rows); expect(after.revisions).toEqual(before.revisions); expect(after.events).toEqual(before.events);
+      expect(after.indexes).toEqual(before.indexes);
+      expect(after.outcomes.slice(before.outcomes.length)).toMatchObject([{ value: { key, kind: "nativeRoot", state: "committed" } }]);
     } finally { tap.restore(); }
   }, 240_000);
 
@@ -119,28 +133,34 @@ describe("genuine Service Zone selector update, geography replacement and retain
     const tap = nativePreimageTap();
     try {
       const host = await connected.prepare(), before = await connected.snapshot(), parentBefore = await connected.read(parentIds), ids = [...graph.maximumReplacement.ids].reverse();
-      const output = rows(await Effect.runPromise(host.run(host.newRequestKey(), { selector: { id: ids }, update: { geo_zones: newGeography() } })));
+      const key = host.newRequestKey();
+      const output = rows(await Effect.runPromise(host.run(key, { selector: { id: ids }, update: { geo_zones: newGeography() } })));
       expect(output.map(root => root.id)).toEqual(ids); expect(nestedIds(output)).toHaveLength(16); expect(await connected.read(graph.maximumReplacement.geoIds)).toEqual([]);
       expect(await connected.read(nestedIds(output))).toHaveLength(16); expect(await connected.read(parentIds)).toEqual(parentBefore);
-      const after = await connected.snapshot(); expect(after.rowChanges).toHaveLength(before.rowChanges.length + 32);
-      expect(after.events.slice(before.events.length).map(event => event.envelope.contract)).toEqual([
+      const after = await connected.snapshot(), timestamp = expectCheckoutSettlement(before, after, key);
+      const revisions = after.revisions.filter(revision => revision.timestamp === timestamp);
+      expect(revisions.filter(revision => revision.deleted)).toHaveLength(16);
+      expect(revisions.filter(revision => !revision.deleted)).toHaveLength(16);
+      expect(after.events.filter(event => event.timestamp === timestamp).map(event => event.envelope.contract)).toEqual([
         ...Array(16).fill("fulfillment.geo-zone.deleted"), ...Array(16).fill("fulfillment.geo-zone.created"),
       ]);
       const retained = Schema.decodeUnknownSync(ServiceZoneUpdateUpserts)(tap.get()), first = retained[0]; if (first === undefined) throw new Error("Missing actual retained original Zone");
       const message = "The following geo zones does not exists: " + rows(first.geo_zones).map(child => child.id).join(", ");
-      const inverse = await connected.prepareInverse(), result = await Effect.runPromise(Effect.result(inverse.run(inverse.newRequestKey(), retained)));
-      expect(Result.isFailure(result)).toBe(true); if (Result.isFailure(result)) expect(reasons(result.failure)).toContain(message);
-      expect(await connected.snapshot()).toEqual(after);
+      const inverse = await connected.prepareInverse(), inverseKey = inverse.newRequestKey(), beforeInverse = await connected.fixture.inventory();
+      const result = await Effect.runPromiseExit(inverse.run(inverseKey, retained));
+      expectNativeRefusal(result, MedusaError.Types.NOT_FOUND, message);
+      await expectCheckoutRollback(connected.fixture, beforeInverse, inverseKey);
     } finally { tap.restore(); }
   }, 240_000);
 
   it("rolls back the complete same-attempt maximum replacement when the authentic retained inverse refuses removed IDs", async () => {
     const tap = nativePreimageTap();
     try {
-      const host = await connected.prepareRootRoundtrip(tap.get), before = await connected.snapshot();
-      const result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { selector: { id: graph.maximumCurrent.ids }, update: { geo_zones: newGeography() } })));
-      expect(Result.isFailure(result)).toBe(true); if (Result.isFailure(result)) expect(reasons(result.failure).some(reason => reason.startsWith("The following geo zones does not exists: "))).toBe(true);
-      expect(await connected.snapshot()).toEqual(before); expect(await connected.read(graph.maximumCurrent.geoIds)).toHaveLength(16);
+      const host = await connected.prepareRootRoundtrip(tap.get), before = await connected.fixture.inventory(), key = host.newRequestKey();
+      const result = await Effect.runPromiseExit(host.run(key, { selector: { id: graph.maximumCurrent.ids }, update: { geo_zones: newGeography() } }));
+      expectNativeRefusal(result, MedusaError.Types.NOT_FOUND, /^The following geo zones does not exists: /);
+      await expectCheckoutRollback(connected.fixture, before, key);
+      expect(await connected.read(graph.maximumCurrent.geoIds)).toHaveLength(16);
     } finally { tap.restore(); }
   }, 240_000);
 
@@ -177,13 +197,15 @@ describe("genuine Service Zone selector update, geography replacement and retain
   it("keeps existing-child IDs per parent and refuses historical/missing/foreign membership atomically", async () => {
     const host = await connected.prepare(), id = graph.membership.ids[0]!;
     for (const child of [graph.membership.geoIds[0]!, graph.membership.geoIds[1]!, "missing-geo"]) {
-      const before = await connected.snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { selector: { id }, update: { geo_zones: [{ id: child }] } })));
-      expect(Result.isFailure(result)).toBe(true); if (Result.isFailure(result)) expect(reasons(result.failure)).toContain("The following geo zones does not exists: " + child);
-      expect(await connected.snapshot()).toEqual(before);
+      const before = await connected.fixture.inventory(), key = host.newRequestKey();
+      const result = await Effect.runPromiseExit(host.run(key, { selector: { id }, update: { geo_zones: [{ id: child }] } }));
+      expectNativeRefusal(result, MedusaError.Types.NOT_FOUND, "The following geo zones does not exists: " + child);
+      await expectCheckoutRollback(connected.fixture, before, key);
     }
-    const before = await connected.snapshot();
-    expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { selector: { id: graph.membership.ids }, update: { geo_zones: [{ id: graph.membership.geoIds[2]! }] } }))))).toBe(true);
-    expect(await connected.snapshot()).toEqual(before);
+    const before = await connected.fixture.inventory(), key = host.newRequestKey(), child = graph.membership.geoIds[2]!;
+    const result = await Effect.runPromiseExit(host.run(key, { selector: { id: graph.membership.ids }, update: { geo_zones: [{ id: child }] } }));
+    expectNativeRefusal(result, MedusaError.Types.NOT_FOUND, "The following geo zones does not exists: " + child);
+    await expectCheckoutRollback(connected.fixture, before, key);
   }, 240_000);
 
   it("retains one existing child plus three new children and successfully executes the genuine projected inverse", async () => {
@@ -247,13 +269,16 @@ describe("genuine Service Zone selector update, geography replacement and retain
     for (const [geo, message] of [[{ country_code: "MM" }, "Invalid geo zone type: undefined"],
       [{ type: "unknown" }, "Invalid geo zone type: unknown"], [{ type: "country", country_code: "" }, "Missing required property country_code for geo zone type country"],
       [{ type: "province", country_code: "MM" }, "Missing required property province_code for geo zone type province"]] as const) {
-      const before = await connected.snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { selector: { id }, update: { geo_zones: [geo] } })));
-      expect(Result.isFailure(result)).toBe(true); if (Result.isFailure(result)) expect(reasons(result.failure)).toContain(message); expect(await connected.snapshot()).toEqual(before);
+      const before = await connected.fixture.inventory(), key = host.newRequestKey();
+      const result = await Effect.runPromiseExit(host.run(key, { selector: { id }, update: { geo_zones: [geo] } }));
+      expectNativeRefusal(result, MedusaError.Types.INVALID_DATA, message);
+      await expectCheckoutRollback(connected.fixture, before, key);
     }
     for (const input of [{ selector: { id }, update: { name: null } }, { selector: { id }, update: { name: graph.protected.ids[0]! } },
       { selector: { id: graph.nameRace.ids }, update: { name: "zone-update-duplicate-name" } }]) {
-      const before = await connected.snapshot(), result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), input)));
-      expect(Result.isFailure(result)).toBe(true); if (Result.isFailure(result)) expect(reasons(result.failure)).toContain("invalidInput"); expect(await connected.snapshot()).toEqual(before);
+      const before = await connected.fixture.inventory(), key = host.newRequestKey();
+      expectWorkflowTypedFailures(await Effect.runPromiseExit(host.run(key, input)), "invalidInput");
+      await expectCheckoutRollback(connected.fixture, before, key);
     }
   }, 240_000);
 
@@ -273,19 +298,25 @@ describe("genuine Service Zone selector update, geography replacement and retain
   }, 180_000);
 
   it.each(["late", "caught", "forged"] as const)("rolls back %s native failure and revokes escaped update handles", async mode => {
-    const original = FulfillmentModuleService.prototype.updateServiceZones; let escaped: (() => Promise<unknown>) | undefined;
+    const original = FulfillmentModuleService.prototype.updateServiceZones, late = new Error("Late native ServiceZone update failure");
+    let escaped: (() => Promise<unknown>) | undefined, caught: unknown;
     const native = vi.spyOn(FulfillmentModuleService.prototype, "updateServiceZones").mockImplementation(async function (this: FulfillmentModuleService, ...args) {
       const output = await Reflect.apply(original, this, args); escaped = () => Reflect.apply(original, this, args);
-      if (mode === "late") throw new Error("Late native ServiceZone update failure");
-      if (mode === "caught") { try { await this.deleteServiceZones([...graph.failure.ids]); } catch { /* refusal remains root-fatal */ } return output; }
+      if (mode === "late") throw late;
+      if (mode === "caught") { try { await this.deleteServiceZones([...graph.failure.ids], args[2]); } catch (failure) { caught = failure; } return output; }
       if (!Array.isArray(output) || typeof output[0] !== "object" || output[0] === null) throw new Error("Missing genuine Zone update result");
       Reflect.set(output[0], "shipping_options", [{ id: "forged" }]); return output;
     });
     try {
-      const host = await connected.prepare(), before = await connected.snapshot();
-      expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { selector: { id: graph.failure.ids[0]! }, update: { name: "zone-update-failed" } }))))).toBe(true);
-      expect(await connected.snapshot()).toEqual(before); if (escaped === undefined) throw new Error("Missing genuine escaped update method");
-      await expect(escaped()).rejects.toBeDefined(); expect(await connected.snapshot()).toEqual(before);
+      const host = await connected.prepare(), before = await connected.fixture.inventory(), key = host.newRequestKey();
+      const result = await Effect.runPromiseExit(host.run(key, { selector: { id: graph.failure.ids[0]! }, update: { name: "zone-update-failed" } }));
+      if (mode === "late") expectWorkflowDefect(result, late);
+      else if (mode === "caught") expect(caught).toBe(expectWorkflowRefusal(result, "unsupportedProfile"));
+      else expectWorkflowTypedFailures(result, "rollbackOnly");
+      await expectCheckoutRollback(connected.fixture, before, key);
+      if (escaped === undefined) throw new Error("Missing genuine escaped update method");
+      await expect(escaped()).rejects.toBeDefined();
+      await expectCheckoutRollback(connected.fixture, before, key);
     } finally { native.mockRestore(); }
   }, 180_000);
 
@@ -297,28 +328,53 @@ describe("genuine Service Zone selector update, geography replacement and retain
       await Effect.runPromise(Deferred.succeed(reached, undefined)); await wait; await Effect.runPromise(Deferred.succeed(finished, undefined)); return output;
     });
     try {
-      const host = await connected.prepare(), before = await connected.snapshot(), outcome = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-        const pending = yield* Effect.forkChild(host.run(host.newRequestKey(), { selector: { id: graph.cancel.ids[0]! }, update: { name: "zone-update-cancelled" } }));
+      const host = await connected.prepare(), before = await connected.fixture.inventory(), key = host.newRequestKey();
+      const outcome = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const pending = yield* Effect.forkChild(host.run(key, { selector: { id: graph.cancel.ids[0]! }, update: { name: "zone-update-cancelled" } }));
         yield* Deferred.await(reached).pipe(Effect.timeout(30_000)); yield* Fiber.interrupt(pending); return yield* Fiber.await(pending);
       })));
-      expect(Exit.isFailure(outcome)).toBe(true); if (Exit.isFailure(outcome)) expect(reasons(outcome.cause)).toContain("Interrupt"); expect(await connected.snapshot()).toEqual(before);
+      expect(Exit.isFailure(outcome)).toBe(true); if (Exit.isFailure(outcome)) expect(Cause.hasInterrupts(outcome.cause)).toBe(true);
+      await expectCheckoutRollback(connected.fixture, before, key);
       if (escaped === undefined) throw new Error("Missing cancelled native method"); await expect(escaped()).rejects.toBeDefined();
-      finish?.(); await Effect.runPromise(Deferred.await(finished).pipe(Effect.timeout(5_000))); expect(await connected.snapshot()).toEqual(before);
+      finish?.(); await Effect.runPromise(Deferred.await(finished).pipe(Effect.timeout(5_000)));
+      await expectCheckoutRollback(connected.fixture, before, key);
     } finally { finish?.(); native.mockRestore(); }
   }, 180_000);
 
   it("refuses oversized current-history cohorts in a fresh bounded scenario without partial settlement", async () => {
     const overflow = serviceZoneDeletionGraph("zone-update-overflow", { roots: 4, geos: 17 });
-    const other = await prepareLogicalServiceZoneUpdate(driver, close => cleanup.push(close), [overflow], { resource: connected.fixture.resource,
-      fixtureIdentity: { deploymentId: "service_zone_update_overflow", projectId: "service_zone_update_overflow", uuidOffset: 910_000 } });
-    const host = await other.prepare(), before = await other.snapshot();
-    const result = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { selector: { id: overflow.ids }, update: { geo_zones: [{ type: "country", country_code: "TH" }] } })));
-    expect(Result.isFailure(result)).toBe(true); if (Result.isFailure(result)) expect(reasons(result.failure)).toContain("limitExceeded"); expect(await other.snapshot()).toEqual(before);
+    const other = await prepareCoreServiceZoneUpdate(driver, close => cleanup.push(close), [overflow], connected.fixture.physical);
+    const host = await other.prepare(), before = await other.fixture.inventory(), key = host.newRequestKey();
+    const result = await Effect.runPromiseExit(host.run(key, { selector: { id: overflow.ids }, update: { geo_zones: [{ type: "country", country_code: "TH" }] } }));
+    expectWorkflowRefusal(result, "limitExceeded");
+    await expectCheckoutRollback(other.fixture, before, key);
+  }, 240_000);
+
+  it("admits residual historical Geo candidates for a scalar update and still bounds required physical cohorts", async () => {
+    const historical = serviceZoneDeletionGraph("zone-update-residual-history", { geos: 17 });
+    historical.rows = historical.rows.map(entry => entry.table === "geo_zone"
+      ? { ...entry, row: { ...entry.row, deleted_at: serviceZoneSeedTime } } : entry);
+    const other = await prepareCoreServiceZoneUpdate(driver, close => cleanup.push(close), [historical], connected.fixture.physical);
+    const host = await other.prepare(), before = await other.snapshot(), key = host.newRequestKey(), id = historical.ids[0]!;
+    const old = await other.read(historical.geoIds);
+    const input = { selector: { id }, update: { name: "Native scalar over historical Geo candidates" } };
+    const output = rows(await Effect.runPromise(host.run(key, input)));
+    expect(output).toMatchObject([{ id, name: input.update.name }]);
+    expect(output[0]).not.toHaveProperty("geo_zones");
+    expect(old).toHaveLength(17);
+    expect(await other.read(historical.geoIds)).toEqual(old);
+    const after = await other.snapshot(), timestamp = expectCheckoutSettlement(before, after, key);
+    expect(after.revisions.filter(revision => revision.timestamp === timestamp).map(revision => revision.value?.id)).toEqual([id]);
+    expect(after.events.filter(event => event.timestamp === timestamp).map(event => event.envelope.contract)).toEqual(["fulfillment.service-zone.updated"]);
+    for (const geo_zones of [[], [{ type: "country", country_code: "TH" }]]) {
+      const prior = await other.fixture.inventory(), attempt = host.newRequestKey();
+      expectWorkflowRefusal(await Effect.runPromiseExit(host.run(attempt, { selector: { id }, update: { geo_zones } })), "limitExceeded");
+      await expectCheckoutRollback(other.fixture, prior, attempt);
+    }
   }, 240_000);
 
   it("isolates equal selectors and request keys across scopes, rejects changed replay identity and revokes successful handles", async () => {
-    const other = await prepareLogicalServiceZoneUpdate(driver, close => cleanup.push(close), [graph.protected], { resource: connected.fixture.resource,
-      fixtureIdentity: { deploymentId: "service_zone_update_b", projectId: "service_zone_update_b", uuidOffset: 920_000 } });
+    const other = await prepareCoreServiceZoneUpdate(driver, close => cleanup.push(close), [graph.protected], connected.fixture.physical);
     const left = await connected.prepare(), right = await other.prepare(), changed = await connected.prepare("f".repeat(64)), key = left.newRequestKey(), id = graph.protected.ids[0]!;
     const first = { selector: { id }, update: { name: "Updated first scope" } }, second = { selector: { id }, update: { name: "Updated second scope" } };
     const original = FulfillmentModuleService.prototype.updateServiceZones; let escaped: (() => Promise<unknown>) | undefined;
@@ -337,46 +393,61 @@ describe("genuine Service Zone selector update, geography replacement and retain
     } finally { native.mockRestore(); }
   }, 240_000);
 
-  it.skipIf(driver !== "postgres")("invalidates a complete Geo predicate after a canonical child insertion commits", async () => {
+  it("invalidates a complete Geo predicate after a canonical child insertion commits", async () => {
     const host = await connected.prepare(), insertion = await connected.prepareGeoInsertion(), reached = Deferred.makeUnsafe<void>(), release = Deferred.makeUnsafe<void>();
     const original = FulfillmentModuleService.prototype.updateServiceZones, id = graph.predicateRace.ids[0]!;
     const native = vi.spyOn(FulfillmentModuleService.prototype, "updateServiceZones").mockImplementation(async function (this: FulfillmentModuleService, ...args) {
       const result = await Reflect.apply(original, this, args); await Effect.runPromise(Deferred.succeed(reached, undefined)); await Effect.runPromise(Deferred.await(release)); return result;
     });
     try {
-      const before = await connected.snapshot(), outcome = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-        const pending = yield* Effect.forkChild(host.run(host.newRequestKey(), { selector: { id }, update: { name: "Pending predicate update" } }).pipe(Effect.timeout(45_000)));
+      const before = await connected.snapshot(), key = host.newRequestKey(), winnerKey = insertion.newRequestKey();
+      const outcome = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const pending = yield* Effect.forkChild(host.run(key, { selector: { id }, update: { name: "Pending predicate update" } }).pipe(Effect.timeout(45_000)));
         yield* Deferred.await(reached).pipe(Effect.timeout(30_000));
-        yield* insertion.run(insertion.newRequestKey(), { id: "zone-update-concurrent-geo", type: "country", country_code: "MM", province_code: null, city: null,
+        yield* insertion.run(winnerKey, { id: "zone-update-concurrent-geo", type: "country", country_code: "MM", province_code: null, city: null,
           postal_expression: null, metadata: null, service_zone_id: id, created_at: serviceZoneSeedTime, updated_at: serviceZoneSeedTime, deleted_at: null })
           .pipe(Effect.ensuring(Deferred.succeed(release, undefined)));
         return yield* Fiber.await(pending);
       })));
-      expect(Exit.isFailure(outcome)).toBe(true); if (Exit.isFailure(outcome)) expect(reasons(outcome.cause)).toContain("writeConflict");
+      expect(expectWorkflowTypedFailures(outcome).map(failure => failure.reason)).toEqual(["writeConflict"]);
       expect((await connected.read([id]))[0]?.name).toBe(id); expect(await connected.read(["zone-update-concurrent-geo"])).toHaveLength(1);
-      const after = await connected.snapshot(); expect(after.commits).toHaveLength(before.commits.length + 1); expect(after.events).toEqual(before.events);
+      const after = await connected.snapshot(), timestamp = expectCheckoutSettlement(before, after, winnerKey);
+      expect(after.revisions.filter(revision => revision.timestamp === timestamp).map(revision => revision.value?.id)).toEqual(["zone-update-concurrent-geo"]);
+      expect(after.events).toEqual(before.events);
+      expect((await connected.fixture.inventory()).outcomes.filter(record => record.value.key === key)).toMatchObject([
+        { value: { key, kind: "nativeRoot", state: "failed" } },
+      ]);
     } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); native.mockRestore(); }
   }, 240_000);
 
-  it.skipIf(driver !== "postgres")("refuses stale updates when the genuine physical inverse removes their root and FK children", async () => {
+  it("refuses stale updates when the genuine physical inverse removes their root and FK children", async () => {
     const host = await connected.prepare(), deletion = await connected.preparePhysicalDelete(), reached = Deferred.makeUnsafe<void>(), release = Deferred.makeUnsafe<void>();
     const original = FulfillmentModuleService.prototype.updateServiceZones, id = graph.fkRace.ids[0]!;
     const native = vi.spyOn(FulfillmentModuleService.prototype, "updateServiceZones").mockImplementation(async function (this: FulfillmentModuleService, ...args) {
       const result = await Reflect.apply(original, this, args); await Effect.runPromise(Deferred.succeed(reached, undefined)); await Effect.runPromise(Deferred.await(release)); return result;
     });
     try {
-      const before = await connected.snapshot(), outcome = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-        const pending = yield* Effect.forkChild(host.run(host.newRequestKey(), { selector: { id }, update: { name: "Pending deleted-root update" } }).pipe(Effect.timeout(45_000)));
-        yield* Deferred.await(reached).pipe(Effect.timeout(30_000)); yield* deletion.run(deletion.newRequestKey(), [id]).pipe(Effect.ensuring(Deferred.succeed(release, undefined)));
+      const before = await connected.snapshot(), key = host.newRequestKey(), winnerKey = deletion.newRequestKey();
+      const outcome = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const pending = yield* Effect.forkChild(host.run(key, { selector: { id }, update: { name: "Pending deleted-root update" } }).pipe(Effect.timeout(45_000)));
+        yield* Deferred.await(reached).pipe(Effect.timeout(30_000));
+        yield* deletion.run(winnerKey, [id]).pipe(Effect.ensuring(Deferred.succeed(release, undefined)));
         return yield* Fiber.await(pending);
       })));
-      expect(Exit.isFailure(outcome)).toBe(true); if (Exit.isFailure(outcome)) expect(reasons(outcome.cause)).toContain("writeConflict"); expect(await connected.read(graph.fkRace.allIds)).toEqual([]);
-      const after = await connected.snapshot(); expect(after.commits).toHaveLength(before.commits.length + 1);
-      expect(after.events.slice(before.events.length).map(event => event.envelope.contract)).toEqual(["fulfillment.service-zone.deleted"]);
+      expect(expectWorkflowTypedFailures(outcome).map(failure => failure.reason)).toEqual(["writeConflict"]);
+      expect(await connected.read(graph.fkRace.allIds)).toEqual([]);
+      const after = await connected.snapshot(), timestamp = expectCheckoutSettlement(before, after, winnerKey);
+      const tombstones = after.revisions.filter(revision => revision.timestamp === timestamp);
+      expect(tombstones).toHaveLength(graph.fkRace.allIds.length);
+      for (const revision of tombstones) expect(revision).toMatchObject({ deleted: true, value: null });
+      expect(after.events.filter(event => event.timestamp === timestamp).map(event => event.envelope.contract)).toEqual(["fulfillment.service-zone.deleted"]);
+      expect((await connected.fixture.inventory()).outcomes.filter(record => record.value.key === key)).toMatchObject([
+        { value: { key, kind: "nativeRoot", state: "failed" } },
+      ]);
     } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); native.mockRestore(); }
   }, 240_000);
 
-  it.skipIf(driver !== "postgres")("settles one concurrent native scalar update for a shared global name", async () => {
+  it("settles one concurrent native scalar update for a shared global name", async () => {
     const left = await connected.prepare(), right = await connected.prepare(), reached = Deferred.makeUnsafe<void>(), release = Deferred.makeUnsafe<void>(); let arrivals = 0;
     const original = FulfillmentModuleService.prototype.updateServiceZones;
     const native = vi.spyOn(FulfillmentModuleService.prototype, "updateServiceZones").mockImplementation(async function (this: FulfillmentModuleService, ...args) {
@@ -384,15 +455,25 @@ describe("genuine Service Zone selector update, geography replacement and retain
       await Effect.runPromise(Deferred.await(release)); return result;
     });
     try {
-      const before = await connected.snapshot(), outcomes = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-        const first = yield* Effect.forkChild(left.run(left.newRequestKey(), { selector: { id: graph.nameRace.ids[0]! }, update: { name: "Shared concurrent Zone name" } }).pipe(Effect.timeout(45_000)));
-        const second = yield* Effect.forkChild(right.run(right.newRequestKey(), { selector: { id: graph.nameRace.ids[1]! }, update: { name: "Shared concurrent Zone name" } }).pipe(Effect.timeout(45_000)));
+      const before = await connected.snapshot(), leftKey = left.newRequestKey(), rightKey = right.newRequestKey();
+      const outcomes = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const first = yield* Effect.forkChild(left.run(leftKey, { selector: { id: graph.nameRace.ids[0]! }, update: { name: "Shared concurrent Zone name" } }).pipe(Effect.timeout(45_000)));
+        const second = yield* Effect.forkChild(right.run(rightKey, { selector: { id: graph.nameRace.ids[1]! }, update: { name: "Shared concurrent Zone name" } }).pipe(Effect.timeout(45_000)));
         yield* Deferred.await(reached).pipe(Effect.timeout(30_000), Effect.ensuring(Deferred.succeed(release, undefined)));
-        return [yield* Fiber.await(first), yield* Fiber.await(second)];
+        return [yield* Fiber.await(first), yield* Fiber.await(second)] as const;
       })));
       expect(arrivals).toBe(2); expect(outcomes.filter(Exit.isSuccess)).toHaveLength(1); expect(outcomes.filter(Exit.isFailure)).toHaveLength(1);
+      const [loser] = outcomes.filter(Exit.isFailure);
+      if (loser === undefined) throw new Error("Missing rejected concurrent Zone update");
+      expect(expectWorkflowTypedFailures(loser).map(failure => failure.reason)).toEqual(["writeConflict"]);
       expect((await connected.read(graph.nameRace.ids)).filter(root => root.name === "Shared concurrent Zone name")).toHaveLength(1);
-      const after = await connected.snapshot(); expect(after.commits).toHaveLength(before.commits.length + 1); expect(after.events).toHaveLength(before.events.length + 1);
+      const wonLeft = Exit.isSuccess(outcomes[0]), winnerKey = wonLeft ? leftKey : rightKey, losingKey = wonLeft ? rightKey : leftKey;
+      const after = await connected.snapshot(), timestamp = expectCheckoutSettlement(before, after, winnerKey);
+      expect(after.revisions.filter(revision => revision.timestamp === timestamp).map(revision => revision.value?.id)).toEqual([graph.nameRace.ids[wonLeft ? 0 : 1]]);
+      expect(after.events.filter(event => event.timestamp === timestamp).map(event => event.envelope.contract)).toEqual(["fulfillment.service-zone.updated"]);
+      expect((await connected.fixture.inventory()).outcomes.filter(record => record.value.key === losingKey)).toMatchObject([
+        { value: { key: losingKey, kind: "nativeRoot", state: "failed" } },
+      ]);
     } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); native.mockRestore(); }
   }, 240_000);
 });

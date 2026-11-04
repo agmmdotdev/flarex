@@ -17,7 +17,7 @@ import { FulfillmentSetCreates } from "../../src/modules/fulfillment/fulfillment
 import { makeServiceZoneCreationWithReferenceDetachmentCommands } from "../../src/modules/fulfillment/service-zone-create-service";
 import { makeFulfillmentSetCreationWithReferenceDetachmentCommands } from "../../src/modules/fulfillment/fulfillment-set-create-service";
 import { makeLocalFulfillmentShippingOptionReferenceDetachmentCommands } from "../../src/modules/fulfillment/fulfillment-reference-detachment-service";
-import { prepareServiceZoneCreationWorkflow } from "../../src/workflows/fulfillment/create-service-zones";
+import { prepareLegacyServiceZoneReferenceDetachmentWorkflow } from "../../src/workflows/fulfillment/create-service-zones";
 import { prepareLogicalFulfillmentCreation, fulfillmentCreationInput } from "./logical-fulfillment-create-fixture";
 import { shippingOptionCreationInput, shippingOptionParents, type ShippingOptionRetained } from "./logical-shipping-option-creation-fixture";
 
@@ -73,7 +73,7 @@ export async function prepareLogicalShippingOptionReferenceDetachment(driver: "p
     close(() => Effect.runPromise(host.close)); return host;
   };
   const prepareZone = async () => {
-    const host = await Effect.runPromise(prepareServiceZoneCreationWorkflow({ execution: base.execution,
+    const host = await Effect.runPromise(prepareLegacyServiceZoneReferenceDetachmentWorkflow({ execution: base.execution,
       modules: { fulfillment: registration(zone.workflow) }, revision: "2".repeat(64), subscribers: [{ id: "detach142-zone", revision: "2".repeat(64) }] }));
     close(() => Effect.runPromise(host.close)); return host;
   };
