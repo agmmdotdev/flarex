@@ -1,16 +1,14 @@
 import { Effect } from "effect";
 import { createShippingProfilesWorkflow } from "@medusajs/core-flows/fulfillment/create-shipping-profiles";
-import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { jsonEqual } from "flarex-protocol/json";
+import { matchesAtomicCommerceNativeSource, type AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { commerceError, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { ShippingProfileCreationInput, compileShippingProfileCreationContracts } from "../../modules/fulfillment/shipping-profile-create-input";
-import { captureShippingProfileDeletionMetadata } from "../../modules/fulfillment/shipping-profile-schema";
+import { captureShippingProfileDeletionMetadata, shippingProfileDeletionTables } from "../../modules/fulfillment/shipping-profile-schema";
 import type { makeShippingProfileCreationCommands } from "../../modules/fulfillment/shipping-profile-create-service";
-import { shippingProfileCreationResources } from "../../workflow/policy";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { internalModuleWorkflowEvents } from "../../workflow/events";
 import { prepareAtomicWorkflowHost, captureInstalledWorkflowModules, type AtomicWorkflowExecution,
-  type InstalledWorkflowModule } from "../../workflow/host";
+  type OrdinaryNativeInstalledWorkflowModule } from "../../workflow/host";
 import { workflowModuleDefinition } from "../../workflow/module";
 import { prepareWorkflowResources } from "../../workflow/resources";
 
@@ -21,28 +19,33 @@ type Fulfillment = Effect.Success<ReturnType<typeof makeShippingProfileCreationC
  * The selected full Fulfillment constructor retains native validation/events. */
 export const prepareShippingProfileCreationWorkflow = Effect.fn("ShippingProfile.prepareCreation")(function* (input: {
   readonly execution: AtomicWorkflowExecution;
-  readonly fulfillment: InstalledWorkflowModule<Fulfillment>;
+  readonly fulfillment: OrdinaryNativeInstalledWorkflowModule<Fulfillment>;
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];
 }) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
   if (Object.keys(options).some(key => !["execution", "fulfillment", "revision", "subscribers"].includes(key)))
     return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const installed = yield* Effect.fromResult(captureInstalledWorkflowModules({ fulfillment: options.fulfillment }, ["fulfillment"]));
-  const source = workflowModuleDefinition(installed.fulfillment.module)?.source;
+  const modules = yield* Effect.fromResult(captureInstalledWorkflowModules({ fulfillment: options.fulfillment }, ["fulfillment"]));
+  const { fulfillment } = modules;
+  const source = workflowModuleDefinition(fulfillment.module)?.source;
   if (source?.name !== "flarex-shipping-profile-create" || source.profile !== "shipping-profile-create")
     return yield* Effect.fail(commerceError("invalidAuthority"));
-  if (installed.fulfillment.logicalResources !== undefined && !jsonEqual(installed.fulfillment.logicalResources, shippingProfileCreationResources))
+  if (fulfillment.logicalResources !== undefined || fulfillment.logicalPublication !== undefined)
     return yield* Effect.fail(commerceError("unsupportedProfile"));
+  if (fulfillment.nativeStorage === undefined || fulfillment.logicalStorage !== undefined ||
+    !matchesAtomicCommerceNativeSource(fulfillment.nativeStorage, "fulfillment", "medusa.shippingProfile", shippingProfileDeletionTables))
+    return yield* Effect.fail(commerceError("invalidAuthority"));
   const contracts = yield* Effect.fromResult(compileShippingProfileCreationContracts((yield* captureShippingProfileDeletionMetadata()).frame));
-  const modules = { fulfillment: { ...installed.fulfillment, logicalResources: shippingProfileCreationResources } };
   const resources = yield* Effect.fromResult(prepareWorkflowResources({ fulfillment: {
     module: modules.fulfillment.module, methods: ["createShippingProfiles", "deleteShippingProfiles"], graph: false,
   } }, true));
   const prepared = yield* Effect.fromResult(createShippingProfilesWorkflow.prepare())
     .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
-  return yield* prepareAtomicWorkflowHost({ execution: options.execution, modules, revision: options.revision, subscribers: options.subscribers,
-    requestCallLimit: shippingProfileCreationResources.calls, requestEventLimit: shippingProfileCreationResources.eventMessages,
+  // The retained physical inverse can detach historical Options beyond the active validation cohort.
+  const admitted = { fulfillment: { ...fulfillment, logicalResources: defaultCommerceResources } };
+  return yield* prepareAtomicWorkflowHost({ execution: options.execution, modules: admitted, revision: options.revision, subscribers: options.subscribers,
+    requestCallLimit: defaultCommerceResources.calls, requestEventLimit: defaultCommerceResources.eventMessages,
     workflow: { name: "createShippingProfilesWorkflow", resources, prepared,
       input: ShippingProfileCreationInput, output: contracts.Output, events: internalModuleWorkflowEvents } });
 });

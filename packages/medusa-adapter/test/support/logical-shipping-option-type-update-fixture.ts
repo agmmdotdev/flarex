@@ -17,7 +17,7 @@ import { ShippingOptionTypeUpdateInput, ShippingOptionTypeUpsertRows } from "../
 import { prepareShippingOptionTypeUpdateWorkflow, type ShippingOptionTypeUpdateHooks } from "../../src/workflows/fulfillment/update-shipping-option-types";
 import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./logical-currency-fixture";
 import { logicalCurrencyInventory } from "./logical-currency-inventory";
-import { shippingProfileOptionParents, shippingProfileDeletionSeedTime } from "./logical-shipping-profile-deletion-fixture";
+import { shippingProfileOptionParents, shippingProfileDeletionSeedTime } from "./shipping-profile-seeds";
 
 const revision = (name: string) => createHash("sha256").update(name).digest("hex");
 export const shippingOptionTypeUpdateSeedTime = shippingProfileDeletionSeedTime;

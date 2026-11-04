@@ -156,6 +156,8 @@ describe("native ShippingProfile command receipt correlation", () => {
     const call = deleteCall(), activity: Activity = { ...deletion(), observedRows: [{ table: "shipping_option", row: option }] };
     await Effect.runPromise(policy.validateLogicalCall(call, activity));
     await Effect.runPromise(policy.validateLogicalCall(call, { ...activity, observedRows: [...activity.observedRows, ...activity.observedRows] }));
+    const historical = Array.from({ length: 128 }, (_, index) => ({ table: "shipping_option", row: { ...option, id: `historical-${index}` } }));
+    await Effect.runPromise(policy.validateLogicalCall(call, { ...activity, observedRows: historical }));
     for (const changed of [{ ...option, shipping_profile_id: "outside" }, { ...option, shipping_profile_id: null }, { ...option, deleted_at: null }])
       await refused(call, { ...activity, observedRows: [{ table: "shipping_option", row: changed }] });
     await refused(call, { ...activity, observedRows: [...activity.observedRows,

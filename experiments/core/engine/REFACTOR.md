@@ -800,3 +800,7 @@ settlement for the selected native roots. Paired acceptance is complete.
 The [native Payment collections and Sessions continuation](./slices/38-native-payment-collections-and-sessions.md)
 uses existing sources and one Core settlement for the remaining Payment and
 Customer Account/Address profiles in this workflow family. Paired acceptance is complete.
+
+The [native Shipping Profiles continuation](./slices/39-native-shipping-profiles.md)
+uses existing Fulfillment and Product Link sources for the selected native
+profiles and retains exact Option and Link observations. Paired acceptance is complete.

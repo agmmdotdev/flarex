@@ -4,24 +4,43 @@ import { commerceError, type JsonObject } from "@flarex/persistence-postgres/int
 import { defineCommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import type { AtomicCommerceNativeSource } from "../../../persistence-postgres/src/frameworks/atomicCommerce/nativeSelection";
 import type { LogicalCommerceSelectionInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/logicalSelection";
 import { captureShippingProfileDeletionMetadata } from "../../src/modules/fulfillment/shipping-profile-schema";
 import { compileShippingProfileDeletionContracts } from "../../src/modules/fulfillment/shipping-profile-delete-input";
 import { projectNativeRow } from "../../src/repository/result";
 import { compileCompleteRow } from "../../src/value/complete-row";
 import { commerceDecoder } from "../../src/value/decoder";
+import type { AtomicWorkflowExecution } from "../../src/workflow/host";
+import type { CoreNativeWorkflowFixture } from "./core-native-workflow-fixture";
 import type { LogicalCurrencyFixture } from "./logical-currency-fixture";
 
+interface OptionRaceOptions {
+  readonly afterStaged: Effect.Effect<void>;
+  readonly operation?: "insert" | "restore";
+  readonly close: (cleanup: () => Promise<void>) => void;
+}
+
 /** Canonical fixture mutation for a storage-isolation proof. This deliberately
- * bypasses native ShippingOption/provider behavior and proves none of that API.
- * It uses the actual six-table source and optimistic atomic settlement owner. */
-export async function prepareShippingProfileOptionRaceFixture(options: Readonly<{
-  fixture: LogicalCurrencyFixture;
-  logicalStorage: LogicalCommerceSelectionInput;
-  afterStaged: Effect.Effect<void>;
-  operation?: "insert" | "restore";
-  close: (cleanup: () => Promise<void>) => void;
-}>) {
+ * exercises the installed Option table under the selected attempt owner. */
+export function prepareShippingProfileOptionRaceFixture(options: OptionRaceOptions & {
+  readonly fixture: LogicalCurrencyFixture;
+  readonly logicalStorage: LogicalCommerceSelectionInput;
+}) {
+  return prepareOptionRace(options, { logicalStorage: options.logicalStorage },
+    composition => makeAtomicCommerceHost({ ...options.fixture.hostInput, ...composition }));
+}
+
+export function prepareCoreShippingProfileOptionRaceFixture(options: OptionRaceOptions & {
+  readonly fixture: CoreNativeWorkflowFixture;
+}) {
+  return prepareOptionRace(options, { nativeStorage: options.fixture.source("fulfillment") }, options.fixture.execution.prepare);
+}
+
+async function prepareOptionRace(options: OptionRaceOptions,
+  storage: { readonly logicalStorage: LogicalCommerceSelectionInput } | { readonly nativeStorage: AtomicCommerceNativeSource },
+  prepare: AtomicWorkflowExecution["prepare"],
+) {
   const metadata = await Effect.runPromise(captureShippingProfileDeletionMetadata());
   const contracts = Result.getOrThrow(compileShippingProfileDeletionContracts(metadata.frame));
   const rowDecoders = new Map(metadata.frame.tables.map(table => [table.name, Result.getOrThrow(compileCompleteRow(table))]));
@@ -41,9 +60,9 @@ export async function prepareShippingProfileOptionRaceFixture(options: Readonly<
     yield* options.afterStaged;
     return output;
   }));
-  const host = await Effect.runPromise(makeAtomicCommerceHost({ ...options.fixture.hostInput,
+  const host = await Effect.runPromise(prepare({
     identityAndAccessPolicy: { profile: "shipping-option-canonical-race-fixture" }, commands: [root],
-    participants: [{ participant, logicalStorage: options.logicalStorage, commands: [insert],
+    participants: [{ participant, ...storage, commands: [insert],
       validateLogicalCall: Effect.fn(function* (call, activity, command) {
         if (command !== insert || call.commandName !== commandName || call.mode !== "write" ||
           call.events.length || activity.mutations.length !== 1 || activity.lifecycle.length !== (operation === "restore" ? 1 : 0) || activity.setNull.length || activity.referenceReplacements.length)

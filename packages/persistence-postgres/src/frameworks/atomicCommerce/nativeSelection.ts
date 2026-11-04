@@ -1,5 +1,5 @@
 import { Result } from "effect";
-import { requireCoreNativeDefinition, type CoreNativeDefinition } from "../../core/nativePolicy";
+import { coreNativeRelationalRows, requireCoreNativeDefinition, type CoreNativeDefinition } from "../../core/nativePolicy";
 import { commerceError, type CommerceTransactionError } from "../commerceTransaction/model";
 
 declare const sourceBrand: unique symbol;
@@ -16,7 +16,10 @@ export interface AtomicCommerceNativeSourceIdentity {
   readonly provenanceSha256: string;
   readonly applicationRead: boolean;
 }
-const sources = new WeakMap<object, AtomicCommerceNativeSourceIdentity>();
+const sources = new WeakMap<object, Readonly<{
+  identity: AtomicCommerceNativeSourceIdentity;
+  relationalTables: readonly string[];
+}>>();
 
 export function defineAtomicCommerceNativeSource(name: string, definition: CoreNativeDefinition): Result.Result<AtomicCommerceNativeSource, CommerceTransactionError> {
   return requireCoreNativeDefinition(definition).pipe(Result.mapError(cause => commerceError("invalidAuthority", cause)),
@@ -24,16 +27,23 @@ export function defineAtomicCommerceNativeSource(name: string, definition: CoreN
       // SAFETY: this registry authenticates a semantic definition, never a runtime grant.
       const token = Object.freeze({}) as AtomicCommerceNativeSource;
       const { sourceKey, sourceSha256, configSha256, provenanceSha256 } = definition.identity;
-      sources.set(token, Object.freeze({ name, sourceKey, sourceSha256, configSha256, provenanceSha256,
-        applicationRead: definition.applicationRead }));
+      const relationalTables = definition.tables.filter(table => coreNativeRelationalRows(definition, table.name) !== undefined)
+        .map(table => table.localName ?? table.name);
+      sources.set(token, Object.freeze({
+        identity: Object.freeze({ name, sourceKey, sourceSha256, configSha256, provenanceSha256, applicationRead: definition.applicationRead }),
+        relationalTables: Object.freeze(relationalTables),
+      }));
       return token;
     }));
 }
 
-export const atomicCommerceNativeSourceIdentity = (source: AtomicCommerceNativeSource) => sources.get(source);
+export const atomicCommerceNativeSourceIdentity = (source: AtomicCommerceNativeSource) => sources.get(source)?.identity;
 
-/** Authenticates the selection for a framework-owned composition slot. */
-export function matchesAtomicCommerceNativeSource(source: AtomicCommerceNativeSource, name: string, sourceKey: string): boolean {
-  const identity = atomicCommerceNativeSourceIdentity(source);
-  return identity !== undefined && identity.name === name && identity.sourceKey === sourceKey;
+/** Authenticates the selection and required relational tables for a framework-owned slot. */
+export function matchesAtomicCommerceNativeSource(source: AtomicCommerceNativeSource, name: string, sourceKey: string,
+  requiredTables?: readonly string[],
+): boolean {
+  const selection = sources.get(source);
+  return selection !== undefined && selection.identity.name === name && selection.identity.sourceKey === sourceKey
+    && (requiredTables === undefined || requiredTables.every(table => selection.relationalTables.includes(table)));
 }

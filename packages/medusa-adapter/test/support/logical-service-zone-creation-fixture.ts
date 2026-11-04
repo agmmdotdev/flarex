@@ -23,8 +23,6 @@ import { ServiceZonePhysicalDeletionIds } from "../../src/modules/fulfillment/se
 import { prepareServiceZoneCreationWorkflow, ServiceZoneCreationInput } from "../../src/workflows/fulfillment/create-service-zones";
 import { makeShippingOptionTypeCreationCommands } from "../../src/modules/fulfillment/shipping-option-type-service";
 import { prepareShippingOptionTypeCreationWorkflow } from "../../src/workflows/fulfillment/create-shipping-option-types";
-import { makeShippingProfileUpdateCommands } from "../../src/modules/fulfillment/shipping-profile-update-service";
-import { prepareShippingProfileUpdateWorkflow } from "../../src/workflows/fulfillment/update-shipping-profiles";
 import { captureServiceZoneCreationMetadata } from "../../src/modules/fulfillment/shipping-profile-schema";
 import { compileCompleteRow } from "../../src/value/complete-row";
 import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./logical-currency-fixture";
@@ -129,12 +127,6 @@ export async function prepareLogicalServiceZoneCreation(driver: "pglite" | "post
       modules: { fulfillment: { module: type.workflow, logicalStorage: input.logicalStorage } }, subscribers: [{ id: "native-service-zone-type-create", revision: "a".repeat(64) }] }));
     close(() => Effect.runPromise(host.close)); return host;
   };
-  const prepareExistingProfile = async () => {
-    const profile = await Effect.runPromise(makeShippingProfileUpdateCommands());
-    const host = await Effect.runPromise(prepareShippingProfileUpdateWorkflow({ execution, revision: revision("service-zone-existing-profile-131"),
-      fulfillment: { module: profile.workflow, logicalStorage: input.logicalStorage }, subscribers: [{ id: "native-service-zone-profile-update", revision: "b".repeat(64) }] }));
-    close(() => Effect.runPromise(host.close)); return host;
-  };
   /** Canonical fixture mutation proves FK settlement with a competing parent
    * deletion. It establishes no native FulfillmentSet deletion API support. */
   const prepareParentRemoval = async () => {
@@ -186,6 +178,6 @@ export async function prepareLogicalServiceZoneCreation(driver: "pglite" | "post
     return result.sort((a, b) => String(a.id).localeCompare(String(b.id)));
   };
   return { fixture, fulfillment, installed, options, execution, prepare, prepareRoundtrip, prepareInverse, prepareAbsentInverse, prepareExistingType,
-    prepareExistingProfile, prepareParentRemoval, read,
+    prepareParentRemoval, read,
     snapshot: () => logicalCurrencyInventory(fixture) };
 }

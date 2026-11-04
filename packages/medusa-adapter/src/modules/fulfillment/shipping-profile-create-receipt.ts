@@ -100,7 +100,7 @@ export function shippingProfileCreationPolicy(contracts: Contracts) {
         if (mutation.before === null) return yield* Effect.fail(commerceError("receiptMismatch"));
         yield* record(mutation.table, mutation.before);
       }
-      if (observed.size > 4 || options.size > 8) return yield* Effect.fail(commerceError("receiptMismatch"));
+      if (observed.size > 4) return yield* Effect.fail(commerceError("receiptMismatch"));
       const where = yield* Effect.fromResult(decodeValidationWhere(buildQuery({ id: rawIds }).where));
       const active = orderNativeIdRows([...observed.values()].filter(row => row.deleted_at === null), where);
       // Native deletion validates only active Profiles and active Options, then
@@ -117,7 +117,8 @@ export function shippingProfileCreationPolicy(contracts: Contracts) {
         total: observed.size, returned: observed.size });
       if (!jsonEqual(activity.relationalReads, expectedReads)) return yield* Effect.fail(commerceError("receiptMismatch"));
       // The genuine active guard cannot succeed with any active attached Option.
-      // Historical/other target guard candidates are not invented as mutations;
+      // The active selection limit applies to its results. Historical index
+      // candidates use the source identity allowance and stay read-only here;
       // terminal set-null intents authenticate the full history detachment.
       for (const row of options.values()) if (typeof row.shipping_profile_id !== "string" ||
         !active.some(profile => profile.id === row.shipping_profile_id) || row.deleted_at === null)

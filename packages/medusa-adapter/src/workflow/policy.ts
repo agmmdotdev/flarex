@@ -28,8 +28,6 @@ export const productOptionDeletionResources = Object.freeze({ ...defaultCommerce
 /** Native Image-to-Variants removal retains complete thumbnail preparation. */
 export const productImageVariantResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 export const productShippingProfileResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
-/** Four native ShippingProfile roots and their genuine physical inverse. */
-export const shippingProfileCreationResources = Object.freeze({ ...defaultCommerceResources });
 /** One native Location–Fulfillment Set creation and its retained inverse. */
 export const locationFulfillmentSetCreationResources = Object.freeze({ ...defaultCommerceResources });
 /** Complete native Shipping Option creation and its retained callbacks. */

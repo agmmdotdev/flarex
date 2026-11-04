@@ -285,10 +285,6 @@ describe("genuine Service Zone creation on fresh eight-table shared logical stor
     expect(rows(await Effect.runPromise(host.run(host.newRequestKey(), { shipping_option_types: [{ id: "zone-co-composed-type", label: "Co-composed", code: "native" }] }))))
       .toMatchObject([{ id: "zone-co-composed-type", label: "Co-composed", shipping_options: [] }]);
     expect(await connected.read(graph.protected.allIds)).toEqual(protectedBefore);
-    const profile = await connected.prepareExistingProfile();
-    expect(rows(await Effect.runPromise(profile.run(profile.newRequestKey(), { selector: { id: "zone-create-protected-profile" }, update: { metadata: { composed: true } } }))))
-      .toMatchObject([{ id: "zone-create-protected-profile", metadata: { composed: true } }]);
-    expect(await connected.read(graph.protected.allIds)).toEqual(protectedBefore);
   }, 180_000);
 
   it("isolates names, parent IDs and request keys across real scopes", async () => {

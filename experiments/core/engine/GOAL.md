@@ -541,3 +541,7 @@ and stored Order PaymentCollection Link reads onto Core. Paired acceptance is co
 The [native Payment collections and Sessions continuation](./slices/38-native-payment-collections-and-sessions.md)
 moves the selected Payment and Customer Account/Address roots and their
 stored and callback-child consumers to Core. Paired acceptance is complete.
+
+The [native Shipping Profiles continuation](./slices/39-native-shipping-profiles.md)
+moves create, update, delete and the connected same-source Service Zone
+witness to Core. Paired acceptance is complete for the selected workflows.

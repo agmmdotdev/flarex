@@ -18,7 +18,7 @@ import { prepareShippingOptionTypeDeletionWorkflow, ShippingOptionTypeDeletionIn
   type ShippingOptionTypeDeletionHooks } from "../../src/workflows/fulfillment/delete-shipping-option-types";
 import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./logical-currency-fixture";
 import { logicalCurrencyInventory } from "./logical-currency-inventory";
-import { shippingProfileOptionParents, shippingProfileDeletionSeedTime, type ShippingProfileDeletionInitialRow } from "./logical-shipping-profile-deletion-fixture";
+import { shippingProfileOptionParents, shippingProfileDeletionSeedTime, type ShippingProfileDeletionInitialRow } from "./shipping-profile-seeds";
 
 export const shippingOptionTypeDeletionSeedTime = shippingProfileDeletionSeedTime;
 const managed = (deleted = false) => ({ created_at: shippingOptionTypeDeletionSeedTime, updated_at: shippingOptionTypeDeletionSeedTime,
