@@ -65,6 +65,7 @@ See [overlapped native slot reads](../divergences/native-read-batches.md).
 | `writeRows` inserts and relational reads | Constraint slots from pure normalization and independent selection slots join the same prefetch. |
 | Native authority | Issued definitions are deep-frozen; a successful complete check of a frozen authority is retained per immutable registry. |
 | Leader retention | Constant floor comparisons run without a span or suspension per page. |
+| Index keys | `encodeDocumentIndexKey` skips re-capturing field values of a root the protocol captured; other roots keep the capturing path. |
 
 Unchanged: per-row observations, accounting, typed failure position and class,
 pending overlays, commit admission revalidation, outcome recovery and

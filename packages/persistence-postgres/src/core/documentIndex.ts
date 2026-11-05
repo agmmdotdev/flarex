@@ -5,7 +5,7 @@
  * Copyright 2026 Convex, Inc., FSL-1.1-Apache-2.0 (convex-backend/LICENSE.md).
  */
 import { type DocumentObject, type DocumentValue } from "flarex-protocol/document-value";
-import { encodeIndexKey } from "flarex-protocol/index-key";
+import { encodeDocumentIndexKey } from "flarex-protocol/index-key";
 import { isCanonicalFlarexRuntimeObjectV1 } from "flarex-protocol/internal/value-runtime-core";
 import { Result } from "effect";
 import { CoreTransactionError, type CoreIndexDefinition } from "./api";
@@ -23,6 +23,6 @@ function field(document: DocumentObject, path: string): DocumentValue | undefine
 export function documentIndexKey(index: Pick<CoreIndexDefinition, "fields">, document: DocumentObject): Result.Result<Uint8Array, CoreTransactionError> {
   const id = document._id;
   if (typeof id !== "string") return Result.fail(new CoreTransactionError({ reason: "invalidValue" }));
-  return Result.mapError(encodeIndexKey(index.fields.map(path => field(document, path)), id),
+  return Result.mapError(encodeDocumentIndexKey(document, index.fields.map(path => field(document, path)), id),
     cause => new CoreTransactionError({ reason: "invalidValue", cause }));
 }

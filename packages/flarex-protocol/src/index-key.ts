@@ -7,7 +7,7 @@ import { compareBytesLexicographically } from "@flarex/utils/bytes";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { Data, Result } from "effect";
 import { decodeDocumentId } from "./document-id";
-import { captureDocumentValue, isDocumentArray, type DocumentValue, type DocumentValueError } from "./document-value";
+import { captureDocumentValue, isCapturedDocumentRoot, isDocumentArray, type DocumentValue, type DocumentValueError } from "./document-value";
 
 export const MAX_INDEX_KEY_PREFIX_BYTES = 2500;
 const utf8 = new TextEncoder();
@@ -40,19 +40,39 @@ export function encodeIndexKey(
   developerId: string,
 ): Result.Result<Uint8Array, IndexKeyError> {
   return Result.gen(function* () {
-    const id = yield* decodeDocumentId(developerId).pipe(Result.mapError(() => new IndexKeyError({ reason: "invalidDocumentId" })));
-    const chunks: Uint8Array[] = [];
-    let length = 0;
-    for (const value of [...indexedValues, id.id]) {
-      const chunk = yield* encodeIndexValue(value);
-      chunks.push(chunk);
-      length += chunk.byteLength;
-    }
-    const key = new Uint8Array(length);
-    let offset = 0;
-    for (const chunk of chunks) { key.set(chunk, offset); offset += chunk.byteLength; }
-    return key;
+    const id = yield* decodeKeyId(developerId);
+    const captured: (DocumentValue | undefined)[] = [];
+    for (const value of indexedValues) captured.push(value === undefined ? undefined
+      : yield* captureDocumentValue(value).pipe(Result.mapError(cause => new IndexKeyError({ reason: "invalidValue", cause }))));
+    return writeIndexKey(captured, id);
   });
+}
+
+/** The same key for field values read from `root`. A root this protocol captured
+ * already owns canonical values, so they are not captured again; any other root
+ * takes the capturing path. */
+export function encodeDocumentIndexKey(
+  root: DocumentValue,
+  indexedValues: readonly (DocumentValue | undefined)[],
+  developerId: string,
+): Result.Result<Uint8Array, IndexKeyError> {
+  return isCapturedDocumentRoot(root)
+    ? Result.map(decodeKeyId(developerId), id => writeIndexKey(indexedValues, id))
+    : encodeIndexKey(indexedValues, developerId);
+}
+
+const decodeKeyId = (developerId: string) =>
+  decodeDocumentId(developerId).pipe(Result.mapError(() => new IndexKeyError({ reason: "invalidDocumentId" })));
+
+/** Missing values encode as 1; the developer-ID tie breaker always ends the key. */
+function writeIndexKey(capturedValues: readonly (DocumentValue | undefined)[], id: Readonly<{ id: string }>): Uint8Array {
+  const bytes: number[] = [];
+  for (const value of capturedValues) {
+    if (value === undefined) bytes.push(1);
+    else writeValue(value, bytes);
+  }
+  writeValue(id.id, bytes);
+  return Uint8Array.from(bytes);
 }
 
 /** Owned physical split; the digest covers the complete key, including its ID. */

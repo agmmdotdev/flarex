@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { encodeDocumentId } from "../src/document-id";
-import { encodeIndexKey, encodeIndexValue, compareIndexKeys, splitIndexKey } from "../src/index-key";
-import type { DocumentValue } from "../src/document-value";
+import { encodeDocumentIndexKey, encodeIndexKey, encodeIndexValue, compareIndexKeys, splitIndexKey } from "../src/index-key";
+import { captureDocumentObject, isCapturedDocumentRoot, type DocumentValue } from "../src/document-value";
 
 const hex = (value: DocumentValue | undefined) => Buffer.from(Result.getOrThrow(encodeIndexValue(value))).toString("hex");
 
@@ -55,5 +55,36 @@ describe("Convex ordinary index encoding", () => {
     expect(a[0]).toBe(before);
     expect(splitIndexKey(new Uint8Array(2500)).keySuffix).toBeNull();
     expect(Result.isFailure(encodeIndexKey([1], "1:old-id"))).toBe(true);
+  });
+});
+
+describe("captured document index keys", () => {
+  it("encode exactly like the capturing path, for captured and uncaptured roots alike", () => {
+    const id = Result.getOrThrow(encodeDocumentId(100, new Uint8Array(16).fill(7)));
+    const bytes = new Uint8Array([0, 255, 1]);
+    const document = Result.getOrThrow(captureDocumentObject({ _id: id, _creationTime: 1, nothing: null, int: 9_007_199_254_740_993n,
+      minimum: -(2n ** 63n), maximum: 2n ** 63n - 1n, negative: -0, float: 1.5, nan: Number.NaN, up: Number.POSITIVE_INFINITY,
+      down: Number.NEGATIVE_INFINITY, yes: true, text: "a\u0000b", bytes: bytes.buffer,
+      list: [1, "two", [null]], nested: { b: 2, a: { "": 1 } } }));
+    expect(isCapturedDocumentRoot(document)).toBe(true);
+    const copy = { ...document };
+    expect(isCapturedDocumentRoot(copy)).toBe(false);
+    const fields = ["nothing", "int", "minimum", "maximum", "negative", "float", "nan", "up", "down", "yes", "text", "bytes", "list",
+      "nested", "missing"] as const;
+    const same = (values: readonly (DocumentValue | undefined)[]) => {
+      const expected = Result.getOrThrow(encodeIndexKey(values, id));
+      expect(Result.getOrThrow(encodeDocumentIndexKey(document, values, id))).toEqual(expected);
+      expect(Result.getOrThrow(encodeDocumentIndexKey(copy, values, id))).toEqual(expected);
+    };
+    for (const field of fields) same([document[field]]);
+    same(fields.map(field => document[field]));
+    // A binary leaf is read at encoding time on both paths.
+    const leaf = document.bytes;
+    if (!(leaf instanceof ArrayBuffer)) throw new Error("Missing captured bytes leaf");
+    new Uint8Array(leaf)[0] = 9;
+    same([leaf]);
+    for (const root of [document, copy])
+      expect(encodeDocumentIndexKey(root, [], "not-an-id")).toMatchObject({ _tag: "Failure", failure: { reason: "invalidDocumentId" } });
+    expect(encodeIndexKey([], "not-an-id")).toMatchObject({ _tag: "Failure", failure: { reason: "invalidDocumentId" } });
   });
 });

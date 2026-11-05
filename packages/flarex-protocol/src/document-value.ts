@@ -84,10 +84,19 @@ export function captureDocumentPatch(value: unknown): Result.Result<
   });
 }
 
+/** Container roots issued by capture: their complete trees are normalized and
+ * frozen by the authoritative codec. Binary leaves stay owned by that tree. */
+const capturedRoots = new WeakSet<object>();
+/** True only for a root this module captured; structural checks never qualify. */
+export function isCapturedDocumentRoot(value: DocumentValue): boolean {
+  return typeof value === "object" && value !== null && capturedRoots.has(value);
+}
+
 function capture(value: unknown, profile: FlarexValueProfileV1): Result.Result<CapturedDocumentValue, DocumentValueError> {
   return Result.try({
     try: () => {
       const { value: captured, semanticSizeBytes, nestingDepth } = normalizeFlarexRuntimeValueV1(value, profile);
+      if (typeof captured === "object" && captured !== null && !(captured instanceof ArrayBuffer)) capturedRoots.add(captured);
       return Object.freeze({ value: captured, semanticSizeBytes, nestingDepth });
     },
     catch: (cause: unknown) => {
