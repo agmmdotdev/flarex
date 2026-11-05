@@ -31,6 +31,7 @@ const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String, meta
  * evidence. Shared graph/lifecycle owners remain the sole storage executors. */
 export function shippingOptionCreationPolicy(prepared: Prepared) {
   const { contracts } = prepared, byTable = new Map([...contracts.entities, ...contracts.physicalEntities].map(entity => [entity.table.name, entity]));
+  const statementReferenceChecks = prepared.statementReferenceChecks === true;
   const capture = Effect.fn("ShippingOptionCreate.captureEvent")(function* (input: unknown) {
     const event = yield* decodeEvent(input);
     if (event.name !== buildModuleResourceEventName({ prefix: Modules.FULFILLMENT, objectName: event.metadata.object, action: event.metadata.action }) ||
@@ -40,6 +41,7 @@ export function shippingOptionCreationPolicy(prepared: Prepared) {
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ShippingOptionCreate.validateCall")(function* (call, activity) {
     const mismatch = () => commerceError("receiptMismatch");
     if (activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length) return yield* Effect.fail(mismatch());
+    const nativeCreation = statementReferenceChecks && call.commandName === "shippingOptionCreateForWorkflow";
     const observed = new Map<string, Map<string, Row>>();
     for (const observation of activity.observedRows) {
       const entity = byTable.get(observation.table);
@@ -47,7 +49,7 @@ export function shippingOptionCreationPolicy(prepared: Prepared) {
       const decoded = yield* Effect.fromResult(entity.decodeRow(projectNativeRow(observation.row))).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
       if (typeof decoded.id !== "string") return yield* Effect.fail(mismatch());
       const row: Row = { ...decoded, id: decoded.id }, group = observed.get(observation.table) ?? new Map<string, Row>(), prior = group.get(row.id);
-      if (prior !== undefined && !jsonEqual(prior, row)) return yield* Effect.fail(mismatch());
+      if (prior !== undefined && (nativeCreation || !jsonEqual(prior, row))) return yield* Effect.fail(mismatch());
       group.set(row.id, row); observed.set(observation.table, group);
       if (group.size > entity.maximum) return yield* Effect.fail(mismatch());
     }
@@ -117,10 +119,11 @@ export function shippingOptionCreationPolicy(prepared: Prepared) {
       const output = yield* Effect.fromResult(contracts.decodeRows(call.result));
       if (input.length !== output.length) return yield* Effect.fail(mismatch());
       const inserted = new Map<string, Row[]>();
+      const mutationSequence: Array<{ object: string; id: string }> = [];
       let tablePosition = -1;
       for (const [ordinal, mutation] of activity.mutations.entries()) {
         const position = [contracts.type.name, contracts.option.name, contracts.rule.name].indexOf(mutation.table), entity = byTable.get(mutation.table);
-        if (position < 0 || position < tablePosition || entity === undefined || mutation.ordinal !== ordinal || mutation.operation !== "insert" || mutation.before !== null || mutation.after === null || mutation.deletedReference !== undefined)
+        if (position < 0 || !nativeCreation && position < tablePosition || entity === undefined || mutation.ordinal !== ordinal || mutation.operation !== "insert" || mutation.before !== null || mutation.after === null || mutation.deletedReference !== undefined)
           return yield* Effect.fail(mismatch());
         tablePosition = position;
         const value = yield* Effect.fromResult(entity.decodeRow(projectNativeRow(mutation.after)));
@@ -128,6 +131,7 @@ export function shippingOptionCreationPolicy(prepared: Prepared) {
         const row: Row = { ...value, id: value.id }, group = inserted.get(mutation.table) ?? [];
         if (group.some(prior => prior.id === row.id)) return yield* Effect.fail(mismatch());
         group.push(row); inserted.set(mutation.table, group);
+        mutationSequence.push({ object: mutation.table, id: row.id });
         const observation = observed.get(mutation.table)?.get(row.id);
         if (observation === undefined || !jsonEqual(observation, row)) return yield* Effect.fail(mismatch());
       }
@@ -167,7 +171,29 @@ export function shippingOptionCreationPolicy(prepared: Prepared) {
           matchedRules.add(child.id); expectedEvents.push({ object: contracts.rule.name, id: child.id });
         }
       }
-      if (matchedTypes.size !== types.length || matchedRules.size !== rules.length || [...observed.keys()].some(table => ![contracts.type.name, contracts.option.name, contracts.rule.name].includes(table)))
+      if (matchedTypes.size !== types.length || matchedRules.size !== rules.length)
+        return yield* Effect.fail(mismatch());
+      if (nativeCreation) {
+        if (!jsonEqual(mutationSequence, expectedEvents)) return yield* Effect.fail(mismatch());
+        // A successful Core checkpoint supplies complete physical targets for
+        // this call, including pending graph parents and historical rows. Match
+        // that evidence to actual normalized afterimages; never issue a lookup
+        // or infer existence from an earlier validation/hydration call.
+        const justified = new Map<string, Set<string>>();
+        const justify = (table: string, id: string) => {
+          const ids = justified.get(table) ?? new Set<string>();
+          ids.add(id); justified.set(table, ids);
+        };
+        for (const [table, rows] of inserted) for (const row of rows) justify(table, row.id);
+        for (const reference of contracts.creationReferences) for (const row of inserted.get(reference.source.name) ?? []) {
+          const id = row[reference.column];
+          if (id === null) continue;
+          if (typeof id !== "string" || !observed.get(reference.target.table.name)?.has(id)) return yield* Effect.fail(mismatch());
+          justify(reference.target.table.name, id);
+        }
+        for (const [table, rows] of observed) for (const id of rows.keys())
+          if (!justified.get(table)?.has(id)) return yield* Effect.fail(mismatch());
+      } else if ([...observed.keys()].some(table => ![contracts.type.name, contracts.option.name, contracts.rule.name].includes(table)))
         return yield* Effect.fail(mismatch());
       const external = [...observed.get(contracts.type.name)?.values() ?? []].filter(row => !matchedTypes.has(row.id));
       if (external.some(row => !references.includes(row.id))) return yield* Effect.fail(mismatch());
@@ -189,5 +215,5 @@ export function shippingOptionCreationPolicy(prepared: Prepared) {
     }
     if (emitted !== expectedEvents.length) return yield* Effect.fail(mismatch());
   }, Effect.mapError(cause => cause.reason === "receiptMismatch" ? cause : commerceError("receiptMismatch", cause)));
-  return { capture, validateLogicalCall };
+  return { capture, validateLogicalCall, ...(statementReferenceChecks ? { statementReferenceChecks: true as const } : {}) };
 }

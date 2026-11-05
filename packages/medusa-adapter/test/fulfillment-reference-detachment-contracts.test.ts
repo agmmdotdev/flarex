@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import type { LogicalCommerceCallObservation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import type { Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import { makeLocalShippingOptionCreationCommands, makeLocalShippingOptionCreationWithReferenceDetachmentCommands } from "../src/modules/fulfillment/shipping-option-create-service";
+import { makeLocalShippingOptionCreationCommands, makeLegacyShippingOptionCreationWithReferenceDetachmentCommands } from "../src/modules/fulfillment/shipping-option-create-service";
 import { makeServiceZoneCreationCommands, makeServiceZoneCreationWithReferenceDetachmentCommands } from "../src/modules/fulfillment/service-zone-create-service";
 import { makeFulfillmentSetCreationCommands, makeFulfillmentSetCreationWithReferenceDetachmentCommands } from "../src/modules/fulfillment/fulfillment-set-create-service";
 import { compileFulfillmentOptionSerializerSelection, makeLocalFulfillmentShippingOptionReferenceDetachmentCommands } from "../src/modules/fulfillment/fulfillment-reference-detachment-service";
@@ -50,7 +50,7 @@ describe("explicit native physical reference profiles", () => {
     expect(selected.referenceDetachments).toEqual([{ sourceTable: "fulfillment", sourceColumn: "shipping_option_id", sourceKey: "id",
       targetTable: "shipping_option", targetColumn: "id" }]);
     for (const [ordinary, selectedProfile] of [
-      [await Effect.runPromise(makeLocalShippingOptionCreationCommands()), await Effect.runPromise(makeLocalShippingOptionCreationWithReferenceDetachmentCommands())],
+      [await Effect.runPromise(makeLocalShippingOptionCreationCommands()), await Effect.runPromise(makeLegacyShippingOptionCreationWithReferenceDetachmentCommands())],
       [await Effect.runPromise(makeServiceZoneCreationCommands()), await Effect.runPromise(makeServiceZoneCreationWithReferenceDetachmentCommands())],
       [await Effect.runPromise(makeFulfillmentSetCreationCommands()), await Effect.runPromise(makeFulfillmentSetCreationWithReferenceDetachmentCommands())],
     ]) {

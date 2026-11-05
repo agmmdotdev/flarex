@@ -7,7 +7,7 @@ import { encodeCanonicalJson } from "flarex-protocol/json";
 import { shippingOptionUpdateResources } from "../src/workflow/policy";
 import type { ShippingOptionUpdateInput } from "../src/workflows/fulfillment/update-shipping-options";
 import { prepareLogicalShippingOptionUpdate } from "./support/logical-shipping-option-update-fixture";
-import { shippingOptionCreationInput, shippingOptionParents, shippingOptionRegionIds } from "./support/logical-shipping-option-creation-fixture";
+import { shippingOptionCreationInput, shippingOptionParents, shippingOptionRegionIds } from "./support/shipping-option-creation-fixture-data";
 import { expectWorkflowDefect } from "./support/workflow-failure-assertions";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");

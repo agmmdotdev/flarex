@@ -7,7 +7,8 @@ import { prepareShippingOptionUpdateWorkflow, prepareShippingOptionUpdateResourc
   shippingOptionUpdateEvents } from "../../src/workflows/fulfillment/update-shipping-options";
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { shippingOptionUpdateResources, shippingOptionUpdateCommandMs } from "../../src/workflow/policy";
-import { prepareLogicalShippingOptionCreation, shippingOptionCreationInput, shippingOptionRegionIds } from "./logical-shipping-option-creation-fixture";
+import { prepareLegacyShippingOptionCreation } from "./legacy-shipping-option-creation-fixture";
+import { shippingOptionCreationInput, shippingOptionRegionIds } from "./shipping-option-creation-fixture-data";
 
 const native = Result.getOrThrow(updateShippingOptionsWorkflow.prepare());
 function retained(name: string) {
@@ -19,15 +20,15 @@ function retained(name: string) {
 const undo = { option: retained("create-shipping-options-step"), pricing: retained("set-shipping-options-prices-step"),
   event: retained("emit-event-step") };
 export type ShippingOptionUpdateRetained = { readonly option: unknown; readonly pricing: unknown; readonly event: unknown };
-type Base = Awaited<ReturnType<typeof prepareLogicalShippingOptionCreation>>;
+type Base = Awaited<ReturnType<typeof prepareLegacyShippingOptionCreation>>;
 type NativeInput = Parameters<typeof updateShippingOptionsWorkflow.runAsStep>[0]["input"];
 
 /** Existing creation supplies authentic initial graphs and installed sources.
  * The update profile borrows the same kernel; this fixture invents no service,
  * Query result, provider, timestamp, storage write or inverse payload. */
 export async function prepareLogicalShippingOptionUpdate(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  shared?: Parameters<typeof prepareLogicalShippingOptionCreation>[2]) {
-  const base = await prepareLogicalShippingOptionCreation(driver, close, shared);
+  shared?: Parameters<typeof prepareLegacyShippingOptionCreation>[2]) {
+  const base = await prepareLegacyShippingOptionCreation(driver, close, shared);
   const fulfillment = await Effect.runPromise(makeLocalShippingOptionUpdateCommands());
   const pricing = await Effect.runPromise(makeLocalPricingCommands("shipping-option-updates"));
   const registration = <Module>(module: Module, original: Pick<Base["modules"]["fulfillment"], "logicalStorage">) => ({ module,

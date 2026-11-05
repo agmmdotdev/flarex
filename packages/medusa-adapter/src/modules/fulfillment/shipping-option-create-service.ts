@@ -44,10 +44,12 @@ export function decodeShippingOptionListArguments(input: unknown) {
 
 /** Genuine native Option upsert's create branch, local Manual validation,
  * selected graph reads and retained physical inverse share one outer owner. */
-const makeLocalShippingOptionCreationForProfile = Effect.fn("ShippingOptionAdapter.createCommands")(function* (profile: FulfillmentPhysicalProfile) {
+const makeLocalShippingOptionCreationForProfile = Effect.fn("ShippingOptionAdapter.createCommands")(function* (profile: FulfillmentPhysicalProfile,
+  statementReferenceChecks?: true) {
   const metadata = yield* (profile === "reference-detachment" ? captureFulfillmentCreationMetadata() : captureServiceZoneCreationMetadata());
   return yield* Effect.fromResult(Result.gen(function* () {
-    const prepared = yield* prepareShippingOptionCreationRepository(metadata.frame, profile);
+    const prepared = yield* prepareShippingOptionCreationRepository(metadata.frame, profile,
+      statementReferenceChecks === undefined ? {} : { statementReferenceChecks });
     const module = yield* defineFulfillmentPersistenceModule({ name: profile === "reference-detachment" ? "flarex-shipping-option-create-reference-detachment" : "flarex-shipping-option-create",
       profile: profile === "reference-detachment" ? "shipping-option-create-reference-detachment" : "shipping-option-create", providers: "manual",
       bind: (ctx, owner) => {
@@ -63,9 +65,12 @@ const makeLocalShippingOptionCreationForProfile = Effect.fn("ShippingOptionAdapt
 });
 
 export const makeLocalShippingOptionCreationCommands = Effect.fn("ShippingOptionAdapter.standaloneCreation")(function* () {
+  return yield* makeLocalShippingOptionCreationForProfile("standalone", true);
+});
+export const makeLegacyShippingOptionCreationCommands = Effect.fn("ShippingOptionAdapter.legacyStandaloneCreation")(function* () {
   return yield* makeLocalShippingOptionCreationForProfile("standalone");
 });
-export const makeLocalShippingOptionCreationWithReferenceDetachmentCommands = Effect.fn("ShippingOptionAdapter.referenceDetachment")(function* () {
+export const makeLegacyShippingOptionCreationWithReferenceDetachmentCommands = Effect.fn("ShippingOptionAdapter.legacyReferenceDetachment")(function* () {
   return yield* makeLocalShippingOptionCreationForProfile("reference-detachment");
 });
 

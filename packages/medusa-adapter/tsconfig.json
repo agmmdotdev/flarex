@@ -38,6 +38,7 @@
     "vitest.native-shipping-option-types.config.ts",
     "vitest.native-service-zones.config.ts",
     "vitest.native-shipping-option-rules.config.ts",
+    "vitest.native-shipping-option-creation.config.ts",
     "vitest.native-order.config.ts",
     "vitest.postgres.config.ts",
     "vitest.sales-channel.config.ts",

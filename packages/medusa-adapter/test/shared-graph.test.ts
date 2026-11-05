@@ -660,6 +660,111 @@ describe("explicit storage insertion ordering for child deletion cohorts", () =>
 });
 
 describe("shared graph planning over renamed module keys", () => {
+  const traversal: CreationProfile = { ...creation, root: { ...creation.root,
+    omitRelations: [...creation.root.omitRelations, "publisher"], steps: [
+      { kind: "ownedToOne", name: "publisher", foreignKey: "publisher_slug", node: { entity: label, omitRelations: [], steps: [] } },
+      ...creation.root.steps,
+    ] } };
+  const traversalInput = () => [0, 1].map(index => {
+    const child = { serial: `edition-${index}`, label: `Edition ${index}` };
+    return { isbn: `volume-${index}`, title: `Volume ${index}`, publisher: { slug: `publisher-${index}`, name: `Publisher ${index}` },
+      editions: [child], references: [child], labels: ["featured"] };
+  });
+
+  it("executes captured per-root traversal and accumulates actual receipts across repeated tables", async () => {
+    await run(Effect.gen(function* () {
+      const graph = yield* captureGraph(traversal, traversalInput());
+      expect(graph.insertionOrder).toEqual([0, 1].flatMap(rowIndex => [
+        { table: "labels", rowIndex }, { table: "volumes", rowIndex }, { table: "editions", rowIndex },
+        { table: "volume_references", rowIndex }, { table: "volume_labels", rowIndex },
+      ]));
+      const base = yield* fixture(new Map()), receipts: JsonObject[] = [];
+      const ctx: typeof base.ctx = { ...base.ctx, table: name => base.ctx.table(name).pipe(Effect.map(table => ({ ...table,
+        write: (...args: Parameters<typeof table.write>) => table.write(...args).pipe(Effect.map(rows => rows.map(row => {
+          const actual = { ...row, receipt: receipts.length }; receipts.push(actual); return actual;
+        }))),
+      }))) };
+      const inserted = yield* insertGraphRows(ctx, catalog, graph.rows, { insertionOrder: graph.insertionOrder });
+      expect(base.calls.filter(call => call.operation.startsWith("insert:")).map(call => call.operation)).toEqual([0, 1].flatMap(() => [
+        "insert:labels", "insert:volumes", "insert:editions", "insert:volume_references", "insert:volume_labels",
+      ]));
+      for (const [offset, table] of ["labels", "volumes", "editions", "volume_references", "volume_labels"].entries()) {
+        expect(base.calls.filter(call => call.operation === "table:" + table)).toHaveLength(1);
+        expect(inserted.get(table)).toHaveLength(2);
+        expect(inserted.get(table)?.[0]).toBe(receipts[offset]);
+        expect(inserted.get(table)?.[1]).toBe(receipts[offset + 5]);
+      }
+    }));
+  });
+
+  it.each(["missing", "duplicate", "foreign", "out-of-range", "negative", "fractional", "nonfinite", "excess-property", "foreign-graph"] as const)(
+    "refuses %s traversal coordinates before storage", async mode => {
+      await run(Effect.gen(function* () {
+        const graph = yield* captureGraph(traversal, traversalInput()), base = yield* fixture(new Map());
+        const order = mode === "missing" ? graph.insertionOrder.slice(1) : graph.insertionOrder.map((position, index) => {
+          if (index !== 0) return mode === "duplicate" && index === 1 ? { table: "labels", rowIndex: 0 } : position;
+          return mode === "foreign" ? { ...position, table: "foreign" }
+            : mode === "out-of-range" ? { ...position, rowIndex: 10 }
+              : mode === "negative" ? { ...position, rowIndex: -1 }
+                : mode === "fractional" ? { ...position, rowIndex: 0.5 }
+                  : mode === "nonfinite" ? { ...position, rowIndex: Number.POSITIVE_INFINITY }
+                    : mode === "excess-property" ? { ...position, unexpected: true } : position;
+        });
+        const rows = mode === "foreign-graph" ? new Map([...graph.rows, ["foreign", []]]) : graph.rows;
+        expect(yield* insertGraphRows(base.ctx, catalog, rows, { insertionOrder: order }).pipe(Effect.result))
+          .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+        expect(base.calls).toEqual([]);
+      }));
+    },
+  );
+
+  it("stops at the first owner failure before the next root's owned to-one insert", async () => {
+    await run(Effect.gen(function* () {
+      const graph = yield* captureGraph(traversal, traversalInput()), failure = commerceError("invalidInput", "first owner"),
+        base = yield* fixture(new Map(), new Map(), { operation: "insert:volumes", error: failure });
+      const result = yield* insertGraphRows(base.ctx, catalog, graph.rows, { insertionOrder: graph.insertionOrder }).pipe(Effect.result);
+      expect(Result.isFailure(result) && result.failure).toBe(failure);
+      expect(base.calls.filter(call => call.operation.startsWith("insert:")).map(call => [call.operation, call.input])).toEqual([
+        ["insert:labels", [{ slug: "publisher-0", name: "Publisher 0" }]],
+        ["insert:volumes", [{ isbn: "volume-0", title: "Volume 0", publisher_slug: "publisher-0" }]],
+      ]);
+    }));
+  });
+
+  it.each(["validation", "budget"] as const)("finishes complete graph %s before selected traversal writes", async mode => {
+    await run(Effect.gen(function* () {
+      const base = yield* fixture(new Map()), input = mode === "validation"
+        ? [...traversalInput(), { isbn: "bad", publisher: false }] : traversalInput();
+      const result = yield* Effect.gen(function* () {
+        const graph = yield* captureGraph(traversal, input, mode === "budget" ? { ...defaultCommerceResources, facts: 9 } : defaultCommerceResources);
+        return yield* insertGraphRows(base.ctx, catalog, graph.rows, { insertionOrder: graph.insertionOrder });
+      }).pipe(Effect.result);
+      expect(result).toMatchObject({ _tag: "Failure", failure: { reason: mode === "validation" ? "invalidInput" : "limitExceeded" } });
+      expect(base.calls).toEqual([]);
+    }));
+  });
+
+  it.each([false, true])("preserves ordinary and retained-row cohorts with selected traversal %s", async selected => {
+    await run(Effect.gen(function* () {
+      const previous: JsonObject = { isbn: "retained", title: "Previous", created_at: "recorded" }, written = { ...previous, restored: true },
+        rows = [{ isbn: "ordinary-first" }, previous, { isbn: "ordinary-last" }], base = yield* fixture(new Map()), phases: string[] = [];
+      const ctx: typeof base.ctx = { ...base.ctx, table: name => base.ctx.table(name).pipe(Effect.map(table => ({ ...table,
+        write: (...args: Parameters<typeof table.write>) => {
+          phases.push("insert"); return table.write(...args);
+        },
+        reconstitute: (manager: typeof base.ctx.manager, input: unknown) => Effect.sync(() => {
+          expect(manager).toBe(base.ctx.manager); expect(input).toEqual([previous]); phases.push("reconstitute"); return [written];
+        }),
+      }))) };
+      const result = yield* insertGraphRows(ctx, catalog, new Map([["volumes", rows]]), { allowReconstitution: true,
+        ...(selected ? { insertionOrder: rows.map((_row, rowIndex) => ({ table: "volumes", rowIndex })) } : {}) });
+      expect(phases).toEqual(["insert", "reconstitute", "insert"]);
+      expect(result.get("volumes")).toEqual([rows[0], written, rows[2]]);
+      expect(result.get("volumes")?.[1]).toBe(written);
+      expect(base.calls.filter(call => call.operation === "table:volumes")).toHaveLength(1);
+    }));
+  });
+
   it("captures a new owned to-one before its owner and preserves normalized reference precedence", async () => {
     const owned: CreationProfile = { ...creation, root: { entity: volume, omitRelations: ["publisher"], steps: [
       { kind: "ownedToOne", name: "publisher", foreignKey: "publisher_slug", node: { entity: label, omitRelations: [], steps: [] } },

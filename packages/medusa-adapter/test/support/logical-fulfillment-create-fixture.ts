@@ -13,7 +13,8 @@ import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { fulfillmentCreationResources, fulfillmentCreationCommandMs } from "../../src/workflow/policy";
-import { prepareLogicalShippingOptionCreation, shippingOptionCreationInput, shippingOptionParents } from "./logical-shipping-option-creation-fixture";
+import { prepareLegacyShippingOptionCreation } from "./legacy-shipping-option-creation-fixture";
+import { shippingOptionCreationInput, shippingOptionParents } from "./shipping-option-creation-fixture-data";
 
 type NativeInput = Parameters<typeof createFulfillmentWorkflow.runAsStep>[0]["input"];
 const native = Result.getOrThrow(createFulfillmentWorkflow.prepare());
@@ -39,8 +40,8 @@ export function fulfillmentCreationInput(prefix: string, maximum = false): typeo
 /** Reuse the existing installed Shipping Option source, genuine Manual service
  * and endpoint seeds. All consumers use the same fresh twelve-table source. */
 export async function prepareLogicalFulfillmentCreation(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  shared?: Parameters<typeof prepareLogicalShippingOptionCreation>[2], optionProfile: "standalone" | "reference-detachment" = "standalone") {
-  const base = await prepareLogicalShippingOptionCreation(driver, close, shared, optionProfile);
+  shared?: Parameters<typeof prepareLegacyShippingOptionCreation>[2], optionProfile: "standalone" | "reference-detachment" = "standalone") {
+  const base = await prepareLegacyShippingOptionCreation(driver, close, shared, optionProfile);
   const fulfillment = await Effect.runPromise(makeLocalFulfillmentCreationCommands());
   const stockLocation = await Effect.runPromise(makeStockLocationCommands("update"));
   const modules = { fulfillment: { ...base.modules.fulfillment, module: fulfillment.workflow, logicalResources: fulfillmentCreationResources },

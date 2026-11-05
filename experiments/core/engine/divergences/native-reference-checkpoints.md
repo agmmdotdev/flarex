@@ -45,3 +45,12 @@ later branch deletes that Rule. The existing Core checkpoint owns the indexed
 target read and authenticated failure evidence. A trusted Rule participant
 selects statement checkpoints for ordinary writes. The Tax Region profile
 continues to select the whole-table checkpoint at its entity-batch boundary.
+
+The [ordinary Shipping Option creation profile](../slices/43-native-shipping-option-creation.md)
+selects the same statement checks while its shared graph owner preserves the
+native per-input Type/Option/Rules insertion sequence. Actual same-call physical
+Provider, Zone, Profile and Type observations, plus pending Option targets for
+Rules, must match normalized afterimages. Active-only relation hydration remains
+separate: a historical physical parent can satisfy an FK while its populated
+relation is null. This selection adds no authority for the wider eager-detachment
+profile and does not change the other graph or reconstitution selections.

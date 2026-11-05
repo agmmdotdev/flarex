@@ -1,14 +1,16 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { Cause, Effect, Result, Schema } from "effect";
+import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { StepResponse } from "@medusajs/workflows-sdk";
 import { FulfillmentModuleService } from "@medusajs/fulfillment/services";
 import { PricingModuleService } from "@medusajs/pricing/services";
 import { Link } from "@medusajs/modules-sdk/link";
+import { ShippingOptionPriceSet } from "@medusajs/link-modules";
 import { CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { encodeCanonicalJson } from "flarex-protocol/json";
 import { shippingOptionDeletionResources } from "../src/workflow/policy";
 import { prepareLogicalShippingOptionDeletion } from "./support/logical-shipping-option-delete-fixture";
+import { expectWorkflowDefect } from "./support/workflow-failure-assertions";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = []; let sharedCleanupCount = 0, scopeOrdinal = 0;
@@ -240,15 +242,28 @@ describe("genuine native Shipping Option deletion and retained inverses", { conc
     } finally { remove.mockRestore(); }
   }, 240_000);
 
-  it("refuses the genuine native caught Pricing cascade error tuple and rolls back all three participants", async () => {
-    const options = await seed("delete-pricing-cascade-error"), remove = vi.spyOn(PricingModuleService.prototype, "softDeletePriceSets")
-      .mockRejectedValue(new Error("Native Pricing cascade witness refusal")), router = vi.spyOn(Link.prototype, "delete");
+  it("preserves the caught native Pricing cascade defect and rolls back all three participants", async () => {
+    const options = await seed("delete-pricing-cascade-error"), beforeRows = await connected.read(), selected = graph(beforeRows, options);
+    const priceSetIds = selected.sets.map(row => id(row.id)), linkServiceName = id(ShippingOptionPriceSet.serviceName),
+      injected = new Error("Native Pricing cascade witness refusal");
+    const remove = vi.spyOn(PricingModuleService.prototype, "softDeletePriceSets").mockRejectedValue(injected), router = vi.spyOn(Link.prototype, "delete");
     try {
       const host = await connected.prepare(), before = await connected.snapshot();
-      await failedUnchanged(host.run(host.newRequestKey(), { ids: options }), before, "adapterFailure");
-      expect(remove).toHaveBeenCalledOnce();
+      const outcome = await Effect.runPromiseExit(host.run(host.newRequestKey(), { ids: options }));
+      expectWorkflowDefect(outcome, injected);
+      if (Exit.isSuccess(outcome)) throw new Error("Expected the original native Pricing cascade defect");
+      expect(outcome.cause.reasons.map(reason => reason._tag)).toEqual(["Die", "Fail"]);
+      const rollback = outcome.cause.reasons[1];
+      if (rollback === undefined || !Cause.isFailReason(rollback) || !(rollback.error instanceof CommerceTransactionError))
+        throw new Error("Missing native Pricing cascade rollback marker");
+      expect(rollback.error.reason).toBe("rollbackOnly"); expect(rollback.error.cause).toBeUndefined();
+      expect(remove).toHaveBeenCalledOnce(); expect(router).toHaveBeenCalledOnce();
       const tuple: unknown = await router.mock.results[0]?.value;
-      expect(tuple).toEqual([expect.any(Array), expect.any(Object)]);
+      expect(tuple).toEqual([[{ serviceName: "pricing", method: "softDeletePriceSets", args: { id: priceSetIds },
+        error: { message: injected.message, stack: injected.stack } }], {
+        [linkServiceName]: { shipping_option_id: options, price_set_id: priceSetIds },
+      }]);
+      expect(await connected.snapshot()).toEqual(before); expect(await connected.read()).toEqual(beforeRows);
     } finally { remove.mockRestore(); router.mockRestore(); }
   }, 240_000);
 

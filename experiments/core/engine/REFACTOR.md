@@ -819,3 +819,9 @@ The [native Shipping Option Rule Batch continuation](./slices/42-native-shipping
 uses the shared reference checkpoint owner at each selected native statement
 and moves the standalone Rule workflow and its retained inverses onto Core.
 Paired acceptance is complete for this workflow and its connected controls.
+
+The [native Shipping Option creation continuation](./slices/43-native-shipping-option-creation.md)
+uses the existing Core statement-reference checkpoint and shared captured graph
+order for the complete ordinary root and its four retained callbacks. Paired
+acceptance is complete; the wider twelve-table detachment and paused Task
+consumers retain explicit Legacy removal gates.

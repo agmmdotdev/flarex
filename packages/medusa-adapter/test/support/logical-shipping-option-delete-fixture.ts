@@ -12,7 +12,8 @@ import { prepareShippingOptionDeletionWorkflow, prepareShippingOptionDeletionRes
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { shippingOptionCreationResources, shippingOptionDeletionResources, shippingOptionDeletionCommandMs } from "../../src/workflow/policy";
-import { prepareLogicalShippingOptionCreation, shippingOptionCreationInput, shippingOptionRegionIds } from "./logical-shipping-option-creation-fixture";
+import { prepareLegacyShippingOptionCreation } from "./legacy-shipping-option-creation-fixture";
+import { shippingOptionCreationInput, shippingOptionRegionIds } from "./shipping-option-creation-fixture-data";
 
 const native = Result.getOrThrow(deleteShippingOptionsWorkflow.prepare());
 function retained(name: string) {
@@ -29,8 +30,8 @@ type Limits = Readonly<{ calls: number; eventMessages: number; commandBytes?: nu
  * workflow. Deletion borrows that kernel and never invents persistence, module
  * results, timestamps, Link cascades or retained inverse payloads. */
 export async function prepareLogicalShippingOptionDeletion(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  shared?: Parameters<typeof prepareLogicalShippingOptionCreation>[2]) {
-  const base = await prepareLogicalShippingOptionCreation(driver, close, shared);
+  shared?: Parameters<typeof prepareLegacyShippingOptionCreation>[2]) {
+  const base = await prepareLegacyShippingOptionCreation(driver, close, shared);
   const fulfillment = await Effect.runPromise(makeShippingOptionDeletionCommands());
   const modules = {
     fulfillment: { module: fulfillment.workflow, logicalStorage: base.modules.fulfillment.logicalStorage, logicalResources: shippingOptionDeletionResources },

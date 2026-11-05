@@ -559,3 +559,9 @@ The [native Shipping Option Rule Batch continuation](./slices/42-native-shipping
 moves the standalone workflow and its retained inverses onto the shared
 Fulfillment Core source. Its selected statement reference checks and connected
 Tax and Shipping Option-update controls have completed paired acceptance.
+
+The [native Shipping Option creation continuation](./slices/43-native-shipping-option-creation.md)
+moves the complete seven-participant ordinary root and all four retained
+inverses onto the existing Core source owners. Paired acceptance is complete
+for bounded creation and connected Location/Set deletion; wider detachment and
+Fulfillment consumers retain named Legacy removal gates.

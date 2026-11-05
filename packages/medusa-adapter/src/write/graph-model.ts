@@ -1,4 +1,4 @@
-import type { Effect, Result } from "effect";
+import { Schema, type Effect, type Result } from "effect";
 import type { CommerceTransactionError, Json, JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommerceRelations, CommerceRelationOrder } from "../query/relations";
 import type { SchemaTable } from "../schema/model";
@@ -133,4 +133,13 @@ export interface CreationProfile {
 export interface CreatedGraph {
   readonly roots: readonly string[];
   readonly rows: GraphRows;
+  readonly insertionOrder: readonly GraphInsertion[];
 }
+
+/** Row coordinates retain traversal without granting storage authority or
+ * carrying a second copy of the captured rows. */
+export const GraphInsertion = Schema.Struct({
+  table: Schema.String,
+  rowIndex: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+});
+export type GraphInsertion = typeof GraphInsertion.Type;

@@ -19,7 +19,7 @@ import { makeFulfillmentSetCreationWithReferenceDetachmentCommands } from "../..
 import { makeLocalFulfillmentShippingOptionReferenceDetachmentCommands } from "../../src/modules/fulfillment/fulfillment-reference-detachment-service";
 import { prepareLegacyServiceZoneReferenceDetachmentWorkflow } from "../../src/workflows/fulfillment/create-service-zones";
 import { prepareLogicalFulfillmentCreation, fulfillmentCreationInput } from "./logical-fulfillment-create-fixture";
-import { shippingOptionCreationInput, shippingOptionParents, type ShippingOptionRetained } from "./logical-shipping-option-creation-fixture";
+import { shippingOptionCreationInput, shippingOptionParents, type ShippingOptionRetained } from "./shipping-option-creation-fixture-data";
 
 const native = Result.getOrThrow(createShippingOptionsWorkflow.prepare());
 function retained(name: string) {

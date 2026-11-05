@@ -7,7 +7,7 @@ import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { fulfillmentUpdateResources } from "../../src/workflow/policy";
 import { prepareLogicalFulfillmentCancellation } from "./logical-fulfillment-cancel-fixture";
-import { shippingOptionParents } from "./logical-shipping-option-creation-fixture";
+import { shippingOptionParents } from "./shipping-option-creation-fixture-data";
 
 const native = Result.getOrThrow(updateFulfillmentWorkflow.prepare());
 const update = native.nodes.find(node => node.name === "update-fulfillment");

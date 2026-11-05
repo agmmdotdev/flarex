@@ -29,6 +29,15 @@ real Pricing lifecycle callbacks. A creation-only router does not complete this
 slice. Generic Link administration is separate from this root's execution
 closure.
 
+The [Core replacement](../../../experiments/core/engine/slices/43-native-shipping-option-creation.md)
+also corrects the retained portable path's transient-reference timing: creation
+with a missing Profile or scalar Type could succeed when its actual inverse
+removed the Option before final validation. Native persistence refuses during
+the creation statement. The shared Core checkpoint and graph-insertion owners
+supply that boundary and the native per-input Type/Option/Rules sequence.
+The ordinary eight-table, seven-participant cutover retains the named wider
+Legacy consumers and proves the complete installed deletion closure.
+
 ## Query and reference storage behavior
 
 The native reference uses genuine module services, separate generated Link

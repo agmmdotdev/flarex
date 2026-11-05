@@ -22,8 +22,12 @@ import type { commerceRepositoryContext } from "../../repository/context";
 
 type Metadata = Effect.Success<ReturnType<typeof captureServiceZoneCreationMetadata>>["frame"];
 
-export function prepareShippingOptionCreationRepository(metadata: Metadata, profile: FulfillmentPhysicalProfile = "standalone") {
+export function prepareShippingOptionCreationRepository(metadata: Metadata, profile: FulfillmentPhysicalProfile = "standalone",
+  options: Readonly<{ statementReferenceChecks?: true }> = {}) {
   return Result.gen(function* () {
+    const statementReferenceChecks = options.statementReferenceChecks;
+    if (statementReferenceChecks !== undefined && statementReferenceChecks !== true || statementReferenceChecks === true && profile !== "standalone")
+      return yield* Result.fail(commerceError("unsupportedProfile"));
     const contracts = yield* compileShippingOptionCreationContracts(metadata, profile), graph = prepareShippingOptionCreationGraph(contracts),
       reads = yield* prepareShippingOptionCreationQuery(contracts);
     const scalar = yield* prepareScalarRepository(contracts.option, "ShippingOption", scalarIdWhere);
@@ -43,7 +47,8 @@ export function prepareShippingOptionCreationRepository(metadata: Metadata, prof
         return yield* executeRead({ manager: ctx.manager, table: ctx.table, resources: ctx.resources, admitSelection }, reads.catalog, plan, count);
       });
       const create = Effect.fn("ShippingOptionCreation.create")(function* (ctx: CommerceCommandContext, input: unknown, shared: Parameters<DAL.RepositoryService["create"]>[1]) {
-        const captured = yield* captureGraph(graph.profile, input, ctx.resources), inserted = yield* insertGraphRows(ctx, graph.catalog, captured.rows);
+        const captured = yield* captureGraph(graph.profile, input, ctx.resources), inserted = yield* insertGraphRows(ctx, graph.catalog, captured.rows,
+          statementReferenceChecks === true ? { insertionOrder: captured.insertionOrder } : {});
         const options = (inserted.get(contracts.option.name) ?? []).map(projectNativeRow), rules = (inserted.get(contracts.rule.name) ?? []).map(projectNativeRow),
           types = (inserted.get(contracts.type.name) ?? []).map(projectNativeRow);
         // Native create hydrates a supplied relation for the whole cohort.
@@ -97,6 +102,6 @@ export function prepareShippingOptionCreationRepository(metadata: Metadata, prof
       return { ...bound, repository, denied, zoneRepository: readRepository(contracts.zone.name), setRepository: readRepository(contracts.set.name),
         providerRepository: readRepository(contracts.provider.name) };
     };
-    return { bind, contracts, graph, reads };
+    return { bind, contracts, graph, reads, statementReferenceChecks };
   });
 }

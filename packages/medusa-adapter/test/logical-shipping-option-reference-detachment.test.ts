@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Effect, Result, Schema } from "effect";
 import { StepResponse } from "@medusajs/workflows-sdk";
-import { shippingOptionCreationInput } from "./support/logical-shipping-option-creation-fixture";
+import { shippingOptionCreationInput } from "./support/shipping-option-creation-fixture-data";
 import { fulfillmentCreationInput } from "./support/logical-fulfillment-create-fixture";
 import { prepareLogicalShippingOptionReferenceDetachment } from "./support/logical-shipping-option-reference-detachment-fixture";
 

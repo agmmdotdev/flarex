@@ -65,6 +65,17 @@ export function compileShippingOptionCreationContracts(metadata: Metadata, profi
       entities.push({ table, model, maximum, decodeRow: yield* compileCompleteRow(table) });
     const optionEntity = entities.find(entity => entity.table === option), typeEntity = entities.find(entity => entity.table === type), ruleEntity = entities.find(entity => entity.table === rule);
     if (optionEntity === undefined || typeEntity === undefined || ruleEntity === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+    // This profile's native references all address a complete physical row by
+    // its single identity. The accepting Core owns existence and dependencies;
+    // these checked declarations correlate its actual per-call observations.
+    const creationReferences = [];
+    for (const source of [type, option, rule]) for (const foreignKey of source.foreignKeys) {
+      const target = entities.find(entity => entity.table.name === foreignKey.referencedTable), column = foreignKey.columns[0];
+      if (target === undefined || column === undefined || foreignKey.columns.length !== 1 || foreignKey.referencedColumns.length !== 1 ||
+        foreignKey.referencedColumns[0] !== "id" || !source.columns.some(value => value.name === column))
+        return yield* Result.fail(commerceError("unsupportedProfile"));
+      creationReferences.push({ source, column, target });
+    }
     const descriptors = new Map(option.relationships.map(relationship => [relationship.name, { relationship,
       ownerForeignKeys: option.foreignKeys.filter(key => key.columns[0] === (relationship.name === "provider" ? "provider_id" :
         relationship.name === "shipping_profile" ? "shipping_profile_id" : "")).flatMap(key => key.columns) }]));
@@ -97,7 +108,7 @@ export function compileShippingOptionCreationContracts(metadata: Metadata, profi
       fillNullToOneRelations(result, descriptors); fillEmptyToManyRelations(result, descriptors);
       return yield* decodeRows(result);
     });
-    return { ...graph, tables: metadata.tables, type, profile, provider, entities, optionEntity, typeEntity, ruleEntity, relations, setRelation, rules,
+    return { ...graph, tables: metadata.tables, type, profile, provider, entities, optionEntity, typeEntity, ruleEntity, relations, setRelation, rules, creationReferences,
       physicalEntities: [optionEntity, ruleEntity, ...graph.referenceEntities], decodeRows, initializeRows };
   });
 }

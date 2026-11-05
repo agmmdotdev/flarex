@@ -9,7 +9,7 @@ import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/exec
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { fulfillmentShipmentResources } from "../src/workflow/policy";
 import { prepareLogicalFulfillmentShipment } from "./support/logical-fulfillment-shipment-fixture";
-import { shippingOptionParents } from "./support/logical-shipping-option-creation-fixture";
+import { shippingOptionParents } from "./support/shipping-option-creation-fixture-data";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];

@@ -3,12 +3,12 @@ import { ShippingOptionWorkflowPrice } from "./shipping-option-prices";
 import { createShippingOptionsWorkflow } from "@medusajs/core-flows/fulfillment/create-shipping-options";
 import { ShippingOptionWorkflowEvents } from "@medusajs/framework/utils/portable";
 import { LocationFulfillmentSet, LocationFulfillmentProvider, ShippingOptionPriceSet } from "@medusajs/link-modules";
-import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { matchesAtomicCommerceNativeSource, type AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { jsonEqual } from "flarex-protocol/json";
 import { ShippingOptionCreate, ShippingOptionInlineType, ShippingOptionId,
   compileShippingOptionCreationContracts } from "../../modules/fulfillment/shipping-option-create-input";
-import { captureFulfillmentCreationMetadata, captureServiceZoneCreationMetadata } from "../../modules/fulfillment/shipping-profile-schema";
+import { captureFulfillmentCreationMetadata, captureServiceZoneCreationMetadata, serviceZoneCreationTables } from "../../modules/fulfillment/shipping-profile-schema";
 import type { makeLocalShippingOptionCreationCommands } from "../../modules/fulfillment/shipping-option-create-service";
 import type { makeLocalPricingCommands } from "../../modules/pricing/service";
 import type { makeLocalRegionReadCommands } from "../../modules/region/service";
@@ -18,7 +18,7 @@ import type { prepareShippingOptionCreationLinkResource } from "../../links/ship
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { orderedWorkflowIdEvents } from "../../workflow/events";
 import { prepareAtomicWorkflowHost, withoutWorkflowPublication, captureInstalledWorkflowModules, type AtomicWorkflowExecution,
-  type InstalledWorkflowModule } from "../../workflow/host";
+  type InstalledWorkflowModule, type OrdinaryNativeInstalledWorkflowModule } from "../../workflow/host";
 import { workflowModuleDefinition, type WorkflowMethod } from "../../workflow/module";
 import { prepareWorkflowResources } from "../../workflow/resources";
 import { shippingOptionCreationResources } from "../../workflow/policy";
@@ -105,15 +105,19 @@ export function shippingOptionCreationEvents(fulfillment: Fulfillment, contracts
   }), { pendingCancellation: true });
 }
 
-/** The native root, provider checks, normalization, Links and retained inverses
- * all borrow the existing outer owner. Manual calculation refusal stays native. */
-export const prepareShippingOptionCreationWorkflow = Effect.fn("ShippingOption.prepareCreation")(function* (input: {
+type CreationOptions = {
   readonly execution: AtomicWorkflowExecution;
   readonly modules: { readonly [Key in keyof ShippingOptionCreationModules]: InstalledWorkflowModule<ShippingOptionCreationModules[Key]> };
   readonly link: Link;
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];
-}) {
+};
+type NativeCreationOptions = Omit<CreationOptions, "modules"> & {
+  readonly modules: { readonly [Key in keyof ShippingOptionCreationModules]: OrdinaryNativeInstalledWorkflowModule<ShippingOptionCreationModules[Key]> };
+};
+
+/** Both explicit constructions retain one workflow and settlement owner. */
+const prepareCreation = Effect.fn("ShippingOption.prepareCreation")(function* (input: CreationOptions, storage: "core" | "legacy") {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
   if (Object.keys(options).some(key => !["execution", "modules", "link", "revision", "subscribers"].includes(key)))
     return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -121,6 +125,31 @@ export const prepareShippingOptionCreationWorkflow = Effect.fn("ShippingOption.p
   const keys = ["fulfillment", "pricing", "region", "stockLocation", "locationLinks", "providerLinks", "priceSetLinks"] as const;
   if (Object.keys(registrations).length !== keys.length) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const installed = yield* Effect.fromResult(captureInstalledWorkflowModules(registrations, keys));
+  if (storage === "core") {
+    const sources = [
+      ["fulfillment", "fulfillment", "medusa.shippingProfile"], ["pricing", "pricing", "medusa.pricing"],
+      ["region", "region", "medusa.region"], ["stockLocation", "stock_location", "medusa.stockLocation"],
+      ["locationLinks", "locationLinks", "medusa.link.locationFulfillmentSet"],
+      ["providerLinks", "providerLinks", "medusa.link.locationFulfillmentProvider"],
+      ["priceSetLinks", "priceSetLinks", "medusa.link.shippingOptionPriceSet"],
+    ] as const;
+    for (const [key, name, sourceKey] of sources) {
+      const binding = installed[key];
+      if (binding.nativeStorage === undefined || binding.logicalStorage !== undefined ||
+        !matchesAtomicCommerceNativeSource(binding.nativeStorage, name, sourceKey,
+          key === "fulfillment" ? { exactly: serviceZoneCreationTables } : undefined))
+        return yield* Effect.fail(commerceError("invalidAuthority"));
+      if (binding.logicalResources !== undefined || binding.logicalPublication !== undefined)
+        return yield* Effect.fail(commerceError("unsupportedProfile"));
+    }
+    const policy = workflowModuleDefinition(installed.fulfillment.module)?.logical;
+    if (policy?.statementReferenceChecks !== true || policy.detachDeletedReferences !== undefined)
+      return yield* Effect.fail(commerceError("invalidAuthority"));
+  } else {
+    if (Object.values(installed).some(binding => binding.nativeStorage !== undefined || binding.logicalStorage === undefined) ||
+      workflowModuleDefinition(installed.fulfillment.module)?.logical?.statementReferenceChecks !== undefined)
+      return yield* Effect.fail(commerceError("unsupportedProfile"));
+  }
   const resources = yield* Effect.fromResult(prepareShippingOptionCreationResources({ fulfillment: installed.fulfillment.module,
     pricing: installed.pricing.module, region: installed.region.module, stockLocation: installed.stockLocation.module,
     locationLinks: installed.locationLinks.module, providerLinks: installed.providerLinks.module, priceSetLinks: installed.priceSetLinks.module }, options.link));
@@ -140,4 +169,14 @@ export const prepareShippingOptionCreationWorkflow = Effect.fn("ShippingOption.p
     operationScheduling: "queued", requestCallLimit: shippingOptionCreationResources.calls,
     requestEventLimit: shippingOptionCreationResources.eventMessages, requestByteLimit: shippingOptionCreationResources.commandBytes,
     workflow: { name: "createShippingOptionsWorkflow", resources, prepared, input: ShippingOptionCreationInput, output, events } });
+});
+
+/** The complete ordinary native root uses the seven issued Core sources. */
+export const prepareShippingOptionCreationWorkflow = Effect.fn("ShippingOption.prepareCoreCreation")(function* (input: NativeCreationOptions) {
+  return yield* prepareCreation(input, "core");
+});
+
+/** Retained update/deletion and wider Fulfillment consumers own this removal gate. */
+export const prepareLegacyShippingOptionCreationWorkflow = Effect.fn("ShippingOption.prepareLegacyCreation")(function* (input: CreationOptions) {
+  return yield* prepareCreation(input, "legacy");
 });

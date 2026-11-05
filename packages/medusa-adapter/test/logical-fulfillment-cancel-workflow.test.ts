@@ -9,7 +9,7 @@ import { FulfillmentModuleService } from "@medusajs/fulfillment/services";
 import { buildModuleResourceEventName, MathBN } from "@medusajs/framework/utils/portable";
 import { encodeExactNumeric } from "../src/value/exact-numeric";
 import { prepareLogicalFulfillmentCancellation } from "./support/logical-fulfillment-cancel-fixture";
-import { shippingOptionParents } from "./support/logical-shipping-option-creation-fixture";
+import { shippingOptionParents } from "./support/shipping-option-creation-fixture-data";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
