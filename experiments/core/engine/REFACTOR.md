@@ -814,3 +814,8 @@ The [native Service Zones continuation](./slices/41-native-service-zones.md)
 uses existing Core graph, lifecycle and constraint owners. Paired validation is
 complete. Wider reference detachment and the Rule Batch initializer have named
 Legacy removal gates.
+
+The [native Shipping Option Rule Batch continuation](./slices/42-native-shipping-option-rule-batch.md)
+uses the shared reference checkpoint owner at each selected native statement
+and moves the standalone Rule workflow and its retained inverses onto Core.
+Paired acceptance is complete for this workflow and its connected controls.

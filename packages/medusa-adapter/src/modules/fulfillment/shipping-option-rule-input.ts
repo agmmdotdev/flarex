@@ -37,7 +37,8 @@ export function compileShippingOptionRuleContracts(metadata: Effect.Success<Retu
       Object.keys(ShippingOptionRuleCreate.fields).some(name => !table.columns.some(column => column.name === name)))
       return yield* Result.fail(commerceError("unsupportedProfile"));
     const complete = graph.entities.find(entity => entity.table === table)?.decodeRow;
-    if (complete === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+    const parent = graph.entities.find(entity => entity.table === graph.option);
+    if (complete === undefined || parent === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     const projection = yield* compileRowProjection(table);
     const identified = (input: unknown, full: boolean) => Result.gen(function* () {
       const row = yield* (full ? complete(input) : projection(input));
@@ -73,6 +74,6 @@ export function compileShippingOptionRuleContracts(metadata: Effect.Success<Retu
     const EmptyReference = Schema.Struct({ __type: Schema.Literal("Symbol(WorkflowWorkflowData)") });
     const Output = Schema.Struct({ created: CreatedRows, deleted: Schema.Union([ShippingOptionRuleIds, EmptyReference]),
       updated: Schema.Union([Rows, EmptyReference]) });
-    return { table, decodeRow, decodeRows, decodeCreatedRows, decodePreimages, decodeSerializedRows, decodeCreatedSerializedRows, Rows, CreatedRows, Output };
+    return { table, parent, decodeRow, decodeRows, decodeCreatedRows, decodePreimages, decodeSerializedRows, decodeCreatedSerializedRows, Rows, CreatedRows, Output };
   });
 }

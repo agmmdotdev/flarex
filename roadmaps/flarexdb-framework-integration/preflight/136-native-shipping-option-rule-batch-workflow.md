@@ -6,6 +6,15 @@ compensation characterization. The finite SDK output-representation correction
 and paired portable forward/retained-callback integration are implemented. This
 record admits no public/hosted activation or populated upgrade.
 
+The [Core replacement](../../../experiments/core/engine/slices/42-native-shipping-option-rule-batch.md)
+also requires statement reference checks. Pinned native SQLite rejects a Rule
+insert with a missing Option even when another branch deletes that Rule.
+Native update checks the new Option before SQL. In ordered creation, an earlier
+missing parent takes precedence over a later occupied ID. The retained portable
+path accepted both transient invalid references and reversed that first-failure
+order. The shared Core write/FK owner supplies the selected statement boundary.
+The linked slice owns the connected Rule replacement and paired acceptance.
+
 ## Complete outcome and native authority
 
 Integrate the genuine `batchShippingOptionRulesWorkflow` and its create, update

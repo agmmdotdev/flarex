@@ -24,6 +24,8 @@ type Row = Result.Result.Success<ReturnType<Prepared["contracts"]["decodeRow"]>>
  * Reused native normalization remains the business authority. */
 export function shippingOptionRulePolicy(prepared: Prepared) {
   const maximum = prepared.inputs.maximum;
+  const statementReferenceChecks = prepared.inputs.profile === "batch";
+  const { parent } = prepared.contracts;
   const decodeRead = prepared.inputs.decodeRead;
   const decodeCreates = prepared.inputs.decodeCreates, decodeUpdates = prepared.inputs.decodeUpdates, decodeIds = prepared.inputs.decodeIds;
   const decodeOrderedIdentities = commerceDecoder(Schema.Array(Schema.Struct({ id: Schema.String })).check(Schema.isMaxLength(maximum)), "receiptMismatch");
@@ -36,12 +38,23 @@ export function shippingOptionRulePolicy(prepared: Prepared) {
     const decodeRow = (value: JsonObject) => Effect.fromResult(prepared.contracts.decodeRow(projectNativeRow(value)))
       .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
     const initial = new Map<string, Row>(), observations: Row[] = [];
+    const checkParents = statementReferenceChecks &&
+      (call.commandName === "shippingOptionRuleCreateForBatch" || call.commandName === "shippingOptionRuleUpdateForBatch");
+    const observedParents = new Set<string>();
     for (const observation of activity.observedRows) {
+      if (checkParents && observation.table === parent.table.name) {
+        const row = yield* Effect.fromResult(parent.decodeRow(projectNativeRow(observation.row)))
+          .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+        if (typeof row.id !== "string" || observedParents.has(row.id)) return yield* Effect.fail(mismatch());
+        observedParents.add(row.id);
+        continue;
+      }
       if (observation.table !== prepared.contracts.table.name) return yield* Effect.fail(mismatch());
       const row = yield* decodeRow(observation.row);
       observations.push(row); if (!initial.has(row.id)) initial.set(row.id, row);
     }
     const first = new Set<string>();
+    const expectedParents = new Set<string>();
     const mutations: Array<{ operation: string; before: Row | null; after: Row | null }> = [];
     for (const [ordinal, mutation] of activity.mutations.entries()) {
       if (mutation.ordinal !== ordinal || mutation.table !== prepared.contracts.table.name ||
@@ -52,9 +65,17 @@ export function shippingOptionRulePolicy(prepared: Prepared) {
       if (id === undefined || mutation.operation === "insert" && (before !== null || after === null) ||
         mutation.operation === "patch" && (before === null || after === null || before.id !== after.id) ||
         mutation.operation === "delete" && (before === null || after !== null)) return yield* Effect.fail(mismatch());
+      if (checkParents && after !== null) {
+        if (typeof after.shipping_option_id !== "string") return yield* Effect.fail(mismatch());
+        expectedParents.add(after.shipping_option_id);
+      }
       if (!first.has(id)) { if (before === null) initial.delete(id); else initial.set(id, before); first.add(id); }
       mutations.push({ operation: mutation.operation, before, after });
     }
+    // Core's statement checkpoint reports each distinct physical target once
+    // per call, including historical Options and parents retained by a patch.
+    if (observedParents.size !== expectedParents.size || [...expectedParents].some(id => !observedParents.has(id)))
+      return yield* Effect.fail(mismatch());
     if (initial.size > maximum || observations.some(row => !jsonEqual(initial.get(row.id) ?? null, row) &&
       !mutations.some(mutation => jsonEqual(mutation.before, row) || jsonEqual(mutation.after, row))))
       return yield* Effect.fail(mismatch());
@@ -172,5 +193,6 @@ export function shippingOptionRulePolicy(prepared: Prepared) {
     }
     if (rules.size > (prepared.inputs.profile === "batch" ? 12 : 32) || parents.size > 4) return yield* Effect.fail(commerceError("limitExceeded"));
   });
-  return { capture, validateLogicalCall, validateLogical, allowStorageInsertionOrder: true as const };
+  return { capture, validateLogicalCall, validateLogical, allowStorageInsertionOrder: true as const,
+    ...(statementReferenceChecks ? { statementReferenceChecks: true as const } : {}) };
 }

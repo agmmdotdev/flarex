@@ -37,3 +37,11 @@ its actual pending writes and dependencies. The
 [native Store](../../../../packages/persistence-postgres/src/frameworks/commerceTransaction/nativeStore.ts)
 exposes only the authenticated invocation's selected checkpoint capability;
 the shared failure owner preserves authentic evidence for Tax presentation.
+
+The [Rule Batch continuation](../slices/42-native-shipping-option-rule-batch.md)
+requires a checkpoint at each selected native statement. Pinned Medusa refuses
+an invalid Option reference before advancing to the next Rule, including when a
+later branch deletes that Rule. The existing Core checkpoint owns the indexed
+target read and authenticated failure evidence. A trusted Rule participant
+selects statement checkpoints for ordinary writes. The Tax Region profile
+continues to select the whole-table checkpoint at its entity-batch boundary.

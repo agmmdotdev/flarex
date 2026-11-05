@@ -15,7 +15,7 @@ import { projectCoreCommerceFailure } from "../commerceTransaction/nativeFailure
 import { captureCommerceResources, defaultCommerceResources, logicalCommerceWorkingSetLimits } from "../commerceTransaction/resources";
 import { getAtomicCommerceCommand, getAtomicCommerceParticipant, isCommerceDefinitionName } from "./commands";
 import type { AtomicCommerceHostInput } from "./configuration";
-import type { AtomicCommerceParticipantBase } from "./participants";
+import type { AtomicCommerceParticipantInput } from "./participants";
 import { captureParticipantEvents, captureAtomicCommerceEvents, prepareAtomicCommerceEvents, admitParticipantEvents, isCommerceDerivedIdEventContract } from "./events";
 import { atomicCommerceNativeSourceIdentity, type AtomicCommerceNativeSource } from "./nativeSelection";
 import { coreNativeEventStorage } from "../../commit/events/coreDefinition";
@@ -28,11 +28,7 @@ export interface AtomicCommerceNativeSourceInput {
   readonly definition: CoreNativeDefinition;
   readonly initialization: CommerceInitialization;
 }
-export type AtomicCommerceNativeParticipantInput = AtomicCommerceParticipantBase & Readonly<{
-  nativeStorage: AtomicCommerceNativeSource;
-  logicalResources?: typeof defaultCommerceResources;
-  logicalPublication?: "mixed";
-}>;
+export type AtomicCommerceNativeParticipantInput = Extract<AtomicCommerceParticipantInput, { readonly nativeStorage: AtomicCommerceNativeSource }>;
 export type AtomicCommerceNativeHostInput = Pick<AtomicCommerceHostInput<never>,
   "participants" | "commands" | "events" | "identityAndAccessPolicy" | "requestParticipantLimit" | "requestCallLimit"
   | "requestByteLimit" | "requestEventLimit" | "requestCommandMs" | "executionIsolation" | "operationScheduling"
@@ -61,6 +57,7 @@ const Invocation = Schema.Struct({
   reconstitution: Schema.UndefinedOr(LogicalReconstitutionPolicy),
   allowPreservingDeletionUpsert: Schema.UndefinedOr(LogicalPreservingDeletionUpsertPolicy),
   allowReferenceCheckpoints: Schema.UndefinedOr(Schema.Literal(true)),
+  statementReferenceChecks: Schema.UndefinedOr(Schema.Literal(true)),
   insertValidation: Schema.UndefinedOr(LogicalInsertValidation),
 });
 const decodeInvocation = Schema.decodeUnknownResult(Invocation, { onExcessProperty: "error" });
@@ -75,6 +72,7 @@ const invocationPolicy = (member: typeof Invocation.Type) => Object.freeze({
   ...(member.reconstitution === undefined ? {} : { reconstitution: member.reconstitution }),
   ...(member.allowPreservingDeletionUpsert === undefined ? {} : { allowPreservingDeletionUpsert: member.allowPreservingDeletionUpsert }),
   ...(member.allowReferenceCheckpoints === true ? { allowReferenceCheckpoints: true as const } : {}),
+  ...(member.statementReferenceChecks === true ? { statementReferenceChecks: true as const } : {}),
   ...(member.insertValidation === undefined ? {} : { insertValidation: member.insertValidation }),
 });
 
@@ -146,6 +144,7 @@ export const prepareAtomicCommerceNativeConfiguration = Effect.fn("AtomicCommerc
       allowStorageInsertionOrder: member.allowStorageInsertionOrder, allowRecordedRowReplay: member.allowRecordedRowReplay,
       reconstitution: member.reconstitution,
       allowPreservingDeletionUpsert: member.allowPreservingDeletionUpsert, allowReferenceCheckpoints: member.allowReferenceCheckpoints,
+      statementReferenceChecks: member.statementReferenceChecks,
       insertValidation: member.insertValidation }).pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause))));
     const resources = yield* Effect.fromResult(captureCommerceResources(member.logicalResources ?? defaultCommerceResources));
     const nativeLimits: CoreNativeLimits = Object.freeze({ maxIdentities: member.logicalResources === undefined
@@ -174,6 +173,7 @@ export const prepareAtomicCommerceNativeConfiguration = Effect.fn("AtomicCommerc
       || invocation.allowRecordedRowReplay === true && member.validateLogicalCall === undefined
       || invocation.allowPreservingDeletionUpsert !== undefined && member.validateLogicalCall === undefined
       || invocation.allowReferenceCheckpoints === true && member.validateLogicalCall === undefined
+      || invocation.statementReferenceChecks === true && (typeof member.validateLogicalCall !== "function" || member.logicalPublication !== undefined)
       || invocation.insertValidation !== undefined && member.validateLogicalCall === undefined
       || invocation.allowReferenceReplacement === true && (!validated || member.derivedIdEvent === undefined
         || events === undefined || !events.contracts.includes(member.derivedIdEvent.contract))

@@ -73,6 +73,7 @@ export interface WorkflowLogicalPolicy {
   readonly allowActiveRestoreUpdate?: true;
   readonly allowStorageInsertionOrder?: true;
   readonly allowReferenceCheckpoints?: true;
+  readonly statementReferenceChecks?: true;
   readonly insertValidation?: AtomicCommerceParticipantInput["insertValidation"];
   readonly allowRecordedRowReplay?: true;
   readonly referenceReplacement?: Readonly<{
@@ -131,6 +132,7 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
       supplied.allowActiveRestoreUpdate !== undefined && supplied.allowActiveRestoreUpdate !== true ||
       supplied.allowStorageInsertionOrder !== undefined && supplied.allowStorageInsertionOrder !== true ||
       supplied.allowReferenceCheckpoints !== undefined && supplied.allowReferenceCheckpoints !== true ||
+      supplied.statementReferenceChecks !== undefined && supplied.statementReferenceChecks !== true ||
       supplied.insertValidation !== undefined && supplied.insertValidation !== "entityBatch" ||
       supplied.allowRecordedRowReplay !== undefined && supplied.allowRecordedRowReplay !== true)) return yield* Result.fail(commerceError("unsupportedProfile"));
     const setNullPolicy = supplied?.setNullPolicy === undefined ? undefined : yield* captureCommerceInput(supplied.setNullPolicy)
@@ -164,6 +166,7 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
       ...(supplied.allowActiveRestoreUpdate === undefined ? {} : { allowActiveRestoreUpdate: supplied.allowActiveRestoreUpdate }),
       ...(supplied.allowStorageInsertionOrder === undefined ? {} : { allowStorageInsertionOrder: supplied.allowStorageInsertionOrder }),
       ...(supplied.allowReferenceCheckpoints === undefined ? {} : { allowReferenceCheckpoints: supplied.allowReferenceCheckpoints }),
+      ...(supplied.statementReferenceChecks === undefined ? {} : { statementReferenceChecks: supplied.statementReferenceChecks }),
       ...(supplied.insertValidation === undefined ? {} : { insertValidation: supplied.insertValidation }),
       ...(supplied.allowRecordedRowReplay === undefined ? {} : { allowRecordedRowReplay: supplied.allowRecordedRowReplay }),
       ...(replacement === undefined ? {} : { referenceReplacement: Object.freeze({

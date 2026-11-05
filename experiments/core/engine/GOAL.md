@@ -554,3 +554,8 @@ The [native Service Zones continuation](./slices/41-native-service-zones.md)
 moves the three ordinary roots and their connected witnesses to the shared
 Fulfillment Core source. PGlite and ordinary-role PostgreSQL acceptance is
 complete for these workflows and the connected regression cases.
+
+The [native Shipping Option Rule Batch continuation](./slices/42-native-shipping-option-rule-batch.md)
+moves the standalone workflow and its retained inverses onto the shared
+Fulfillment Core source. Its selected statement reference checks and connected
+Tax and Shipping Option-update controls have completed paired acceptance.

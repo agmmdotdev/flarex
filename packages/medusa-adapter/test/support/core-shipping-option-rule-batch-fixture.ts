@@ -1,31 +1,28 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Effect, Result, Schema } from "effect";
 import { createStep, createWorkflow, transform, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { batchShippingOptionRulesWorkflow } from "@medusajs/core-flows/fulfillment/batch-shipping-option-rules";
 import { jsonEqual } from "flarex-protocol/json";
-import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
-import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
-import { commerceError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineCommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { makeCommerceHost, type LogicalCommerceHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
-import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
+import { compileCoreNativeEventStorageDefinition } from "../../../persistence-postgres/src/commit/events/coreDefinition";
+import type { CorePersistenceFixture } from "../../../persistence-postgres/test/core/fixture";
 import { makeShippingOptionRuleCommands } from "../../src/modules/fulfillment/shipping-option-rule-service";
-import { captureServiceZoneCreationMetadata } from "../../src/modules/fulfillment/shipping-profile-schema";
+import { captureServiceZoneCreationMetadata, compileServiceZoneCreationCoreDefinition } from "../../src/modules/fulfillment/shipping-profile-schema";
 import { compileFulfillmentGraphContracts } from "../../src/modules/fulfillment/fulfillment-graph-contracts";
 import { projectNativeRow } from "../../src/repository/result";
 import { commerceDecoder } from "../../src/value/decoder";
 import { captureCommerceInput } from "../../src/value/input";
 import { ShippingOptionRuleBatchInput, ShippingOptionRuleCreates, ShippingOptionRuleUpdates, ShippingOptionRuleIds } from "../../src/modules/fulfillment/shipping-option-rule-input";
 import { prepareShippingOptionRuleBatchWorkflow } from "../../src/workflows/fulfillment/batch-shipping-option-rules";
-import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution } from "../../src/workflow/host";
+import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { shippingOptionRuleBatchResources } from "../../src/workflow/policy";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { fulfillmentForestRows, serviceZoneDeletionGraph } from "./native-fulfillment-graph-fixture";
-import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./logical-currency-fixture";
-import { logicalCurrencyInventory } from "./logical-currency-inventory";
+import { createCoreNativeWorkflowFixture, shareCoreNativeWorkflowPhysical } from "./core-native-workflow-fixture";
+import { orderFixtureHosts } from "./core-order-fixture";
 
 const revision = createHash("sha256").update("native-shipping-option-rule-batch-136").digest("hex");
 const prepared = Result.getOrThrow(batchShippingOptionRulesWorkflow.prepare());
@@ -71,37 +68,29 @@ export function maximumShippingOptionRuleBatch(prefix: string): typeof ShippingO
   delete: ruleGraph.ruleIds.slice(4, 8) };
 }
 
-/** The retained Rule Batch owns its Legacy installation and inventory. */
-export async function prepareLogicalShippingOptionRuleBatch(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  shared?: Readonly<{ resource: LogicalCurrencyFixture["resource"];
-    fixtureIdentity: Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }> }>) {
-  const configuration = { includeShippingProfile: true, includeServiceZoneCreation: true };
-  const fixture = await logicalCurrencyFixture(driver, close, shared === undefined ? configuration : { ...configuration, ...shared });
-  const fulfillment = await Effect.runPromise(makeShippingOptionRuleCommands());
-  const definition = fixture.shippingProfileDefinition;
-  if (definition === undefined || definition.schema.tables.length !== 8) throw new Error("Missing Rule Batch Fulfillment source");
-  const initial = fulfillmentForestRows([ruleGraph], true);
-  const dataset = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows: initial }, 1_048_576,
-    { invalidInput: () => new Error("Invalid Rule Batch seed"), hashFailure: cause => new Error("Rule Batch seed hash", { cause }) }));
-  const input = { ...fixture.hostInput, commands: fulfillment.commands, identityAndAccessPolicy: { profile: "logical-rule-batch-initialization" },
-    logicalStorage: { ...fixture.hostInput.logicalStorage,
-      source: { sourceKey: "medusa.shippingProfile", writeProfile: "medusa.shippingProfile", schema: definition.schema, evidence: definition.provenance },
-      initialization: { stepId: "rule-batch-initial", datasetSha256: dataset.sha256Hex, expectedRowCount: initial.length } },
-  } satisfies LogicalCommerceHostInput<unknown>;
-  const initializer = await Effect.runPromise(makeCommerceHost(input));
-  try { await Effect.runPromise(initializer.initialize(initial)); } finally { await Effect.runPromise(initializer.close); }
-  const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-    prepare: composition => makeAtomicCommerceHost({ ...fixture.hostInput, ...composition }) };
-  const installed = { module: fulfillment.workflow, logicalStorage: input.logicalStorage };
+export async function prepareCoreShippingOptionRuleBatch(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
+  physical?: CorePersistenceFixture) {
+  const target = { scopeUuid: randomUUID(), epochUuid: randomUUID() };
+  const { fulfillment, definition, eventDefinition } = await Effect.runPromise(Effect.all({
+    fulfillment: makeShippingOptionRuleCommands(),
+    definition: compileServiceZoneCreationCoreDefinition(target),
+    eventDefinition: compileCoreNativeEventStorageDefinition(target),
+  }));
+  const fixture = await createCoreNativeWorkflowFixture(driver, { eventDefinition,
+    sources: [{ name: "fulfillment", definition, initialCommands: fulfillment.commands, rows: fulfillmentForestRows([ruleGraph], true) }],
+    ...(physical === undefined ? {} : { physical: await shareCoreNativeWorkflowPhysical(physical) }),
+  });
+  close(fixture.close);
+  const { own, closeCaseHosts } = orderFixtureHosts(close);
+  const execution = fixture.execution, nativeStorage = fixture.source("fulfillment");
+  const installed = { module: fulfillment.workflow, nativeStorage };
   const options = { execution, fulfillment: installed, revision,
     subscribers: [{ id: "native-shipping-option-rule-batch", revision: "f".repeat(64) }] };
   const modules = { fulfillment: { ...installed, logicalResources: shippingOptionRuleBatchResources } };
   const resources = Result.getOrThrow(prepareWorkflowResources({ fulfillment: { module: fulfillment.workflow,
     methods: ["createShippingOptionRules", "updateShippingOptionRules", "deleteShippingOptionRules", "listShippingOptionRules"], graph: false } }, true));
-  const prepare = async (selectedRevision = revision) => {
-    const host = await Effect.runPromise(prepareShippingOptionRuleBatchWorkflow({ ...options, revision: selectedRevision }));
-    close(() => Effect.runPromise(host.close)); return host;
-  };
+  const prepare = async (selectedRevision = revision) => own(await Effect.runPromise(
+    prepareShippingOptionRuleBatchWorkflow({ ...options, revision: selectedRevision })));
   const prepareRoundtrip = async (retained: (kind: RuleInverse) => unknown, lateFailure = false) => {
     const undo = createStep("probe-native-rule-retained-inverses", resources.callback(async (_input: null, context) => {
       // The actual native scheduler packet starts genuine inverses C/U/D. The
@@ -127,7 +116,7 @@ export async function prepareLogicalShippingOptionRuleBatch(driver: "pglite" | "
       requestEventLimit: shippingOptionRuleBatchResources.eventMessages,
       workflow: { name: "probeNativeRuleBatchRoundtrip", resources, prepared: Result.getOrThrow(flow.prepare()),
         input: ShippingOptionRuleBatchInput, output: fulfillment.output, events: internalModuleWorkflowEvents } }));
-    close(() => Effect.runPromise(host.close)); return host;
+    return own(host);
   };
   const prepareInverse = async (kind: RuleInverse, lateFailure = false) => {
     const callback = callbacks[kind];
@@ -147,7 +136,7 @@ export async function prepareLogicalShippingOptionRuleBatch(driver: "pglite" | "
         requestCallLimit: shippingOptionRuleBatchResources.calls, requestEventLimit: shippingOptionRuleBatchResources.eventMessages,
         workflow: { name: "probeNativeRuleInverse" + kind, resources, prepared: Result.getOrThrow(flow.prepare()), input,
           output: Schema.Null, events: internalModuleWorkflowEvents } }));
-      close(() => Effect.runPromise(host.close));
+      own(host);
       // Actual retained responses enter as unknown. Keep the selected callback's
       // original bounded codec, rather than widening all inverse transports.
       return { ...host, run: Effect.fn("RuleInverseFixture.run")((key: string, value: unknown) =>
@@ -169,7 +158,7 @@ export async function prepareLogicalShippingOptionRuleBatch(driver: "pglite" | "
       requestCallLimit: shippingOptionRuleBatchResources.calls, requestEventLimit: shippingOptionRuleBatchResources.eventMessages,
       workflow: { name: "probeNativeRuleLateFailure", resources, prepared: Result.getOrThrow(flow.prepare()), input: ShippingOptionRuleBatchInput,
         output: Schema.Null, events: internalModuleWorkflowEvents } }));
-    close(() => Effect.runPromise(host.close)); return host;
+    return own(host);
   };
   /** Canonical fixture mutation independently removes the previously unused
    * parent. It grants no native Option CRUD at the Rule facade; core FK and
@@ -185,9 +174,9 @@ export async function prepareLogicalShippingOptionRuleBatch(driver: "pglite" | "
     }));
     const participant = defineAtomicCommerceParticipant("ruleUnusedOptionRace");
     const root = defineAtomicCommerceCommand("ruleUnusedOptionRaceRoot", (ctx, value) => ctx.call(participant, remove, value));
-    const host = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
+    const host = own(await Effect.runPromise(execution.prepare({
       identityAndAccessPolicy: { profile: "rule-unused-option-canonical-race-fixture" }, commands: [root],
-      participants: [{ participant, logicalStorage: installed.logicalStorage, commands: [remove],
+      participants: [{ participant, nativeStorage, commands: [remove],
         validateLogicalCall: Effect.fn("RuleUnusedOptionRace.validate")(function* (call, activity, command) {
           if (command !== remove || call.commandName !== "ruleUnusedOptionRaceRemove" || call.mode !== "write" ||
             call.input !== ruleGraph.unusedParentId || call.events.length || activity.mutations.length !== 1 ||
@@ -207,24 +196,9 @@ export async function prepareLogicalShippingOptionRuleBatch(driver: "pglite" | "
           }
         }),
       }],
-    }));
-    close(() => Effect.runPromise(host.close));
+    })));
     return { newRequestKey: host.newRequestKey, run: (key: string) => host.run(key, root, ruleGraph.unusedParentId) };
   };
-  const snapshot = () => logicalCurrencyInventory(fixture);
-  const read = async (ids: readonly string[]) => {
-    const inventory = await snapshot(), selected = new Set(ids), result: JsonObject[] = [];
-    const scope = projectScopeIdUuidV1(fixture.application.authority.scopeId).scopeUuid;
-    for (const current of inventory.rows) {
-      if (current.scopeUuid !== scope) continue;
-      const record = inventory.revisions.find(row => row.scopeUuid === scope && row.tableId === current.tableId && row.commitSeq === current.commitSeq
-        && Buffer.from(row.rowId).equals(Buffer.from(current.rowId)));
-      if (record === undefined || record.isTombstone) continue;
-      const value = await decodeCanonicalFlarexValueEvidenceV1({ canonicalBytes: record.valueBytes, sha256: record.valueSha256, profile: "appDocument" });
-      const row = Schema.decodeUnknownSync(Schema.JsonObject)(value.valueJson);
-      if (typeof row.id === "string" && selected.has(row.id)) result.push(projectNativeRow(row));
-    }
-    return result.sort((a, b) => String(a.id).localeCompare(String(b.id)));
-  };
-  return { fixture, read, snapshot, fulfillment, installed, options, modules, resources, prepare, prepareRoundtrip, prepareInverse, prepareLateFailure, prepareUnusedParentRemoval };
+  return { fixture, read: (ids: readonly string[]) => fixture.readRows("fulfillment", ids), snapshot: fixture.snapshot,
+    fulfillment, installed, options, closeCaseHosts, prepare, prepareRoundtrip, prepareInverse, prepareLateFailure, prepareUnusedParentRemoval };
 }

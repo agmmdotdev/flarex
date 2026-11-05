@@ -1,15 +1,14 @@
 import { Effect } from "effect";
 import { batchShippingOptionRulesWorkflow } from "@medusajs/core-flows/fulfillment/batch-shipping-option-rules";
-import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { matchesAtomicCommerceNativeSource, type AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { jsonEqual } from "flarex-protocol/json";
 import { ShippingOptionRuleBatchInput, compileShippingOptionRuleContracts } from "../../modules/fulfillment/shipping-option-rule-input";
-import { captureServiceZoneCreationMetadata } from "../../modules/fulfillment/shipping-profile-schema";
+import { captureServiceZoneCreationMetadata, serviceZoneCreationTables } from "../../modules/fulfillment/shipping-profile-schema";
 import type { makeShippingOptionRuleCommands } from "../../modules/fulfillment/shipping-option-rule-service";
 import { shippingOptionRuleBatchResources } from "../../workflow/policy";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { internalModuleWorkflowEvents } from "../../workflow/events";
-import { prepareAtomicWorkflowHost, captureInstalledWorkflowModules, type AtomicWorkflowExecution, type InstalledWorkflowModule } from "../../workflow/host";
+import { prepareAtomicWorkflowHost, captureInstalledWorkflowModules, type AtomicWorkflowExecution, type OrdinaryNativeInstalledWorkflowModule } from "../../workflow/host";
 import { workflowModuleDefinition } from "../../workflow/module";
 import { prepareWorkflowResources } from "../../workflow/resources";
 
@@ -19,7 +18,7 @@ type Fulfillment = Effect.Success<ReturnType<typeof makeShippingOptionRuleComman
 /** Genuine parallel Rule branches share the existing trusted queued owner. */
 export const prepareShippingOptionRuleBatchWorkflow = Effect.fn("ShippingOptionRule.prepareBatch")(function* (input: {
   readonly execution: AtomicWorkflowExecution;
-  readonly fulfillment: InstalledWorkflowModule<Fulfillment>;
+  readonly fulfillment: OrdinaryNativeInstalledWorkflowModule<Fulfillment>;
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];
 }) {
@@ -27,13 +26,15 @@ export const prepareShippingOptionRuleBatchWorkflow = Effect.fn("ShippingOptionR
   if (Object.keys(options).some(key => !["execution", "fulfillment", "revision", "subscribers"].includes(key)))
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   const installed = yield* Effect.fromResult(captureInstalledWorkflowModules({ fulfillment: options.fulfillment }, ["fulfillment"]));
-  const source = workflowModuleDefinition(installed.fulfillment.module)?.source;
-  if (source?.name !== "flarex-shipping-option-rule-batch" || source.profile !== "shipping-option-rule-batch")
+  const { fulfillment } = installed, definition = workflowModuleDefinition(fulfillment.module), source = definition?.source;
+  if (source?.name !== "flarex-shipping-option-rule-batch" || source.profile !== "shipping-option-rule-batch" ||
+    definition?.logical?.statementReferenceChecks !== true || fulfillment.nativeStorage === undefined || fulfillment.logicalStorage !== undefined ||
+    !matchesAtomicCommerceNativeSource(fulfillment.nativeStorage, "fulfillment", "medusa.shippingProfile", { exactly: serviceZoneCreationTables }))
     return yield* Effect.fail(commerceError("invalidAuthority"));
-  if (installed.fulfillment.logicalResources !== undefined && !jsonEqual(installed.fulfillment.logicalResources, shippingOptionRuleBatchResources))
+  if (fulfillment.logicalResources !== undefined || fulfillment.logicalPublication !== undefined)
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   const contracts = yield* Effect.fromResult(compileShippingOptionRuleContracts((yield* captureServiceZoneCreationMetadata()).frame));
-  const modules = { fulfillment: { ...installed.fulfillment, logicalResources: shippingOptionRuleBatchResources } };
+  const modules = { fulfillment: { ...fulfillment, logicalResources: shippingOptionRuleBatchResources } };
   const resources = yield* Effect.fromResult(prepareWorkflowResources({ fulfillment: { module: modules.fulfillment.module,
     methods: ["createShippingOptionRules", "updateShippingOptionRules", "deleteShippingOptionRules", "listShippingOptionRules"], graph: false } }, true));
   const prepared = yield* Effect.fromResult(batchShippingOptionRulesWorkflow.prepare())

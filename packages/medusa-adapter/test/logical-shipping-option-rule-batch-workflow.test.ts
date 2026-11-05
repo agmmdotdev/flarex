@@ -1,17 +1,23 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { randomUUID } from "node:crypto";
 import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
 import { StepResponse } from "@medusajs/workflows-sdk";
 import { FulfillmentModuleService, FulfillmentProviderService } from "@medusajs/fulfillment/services";
 import { CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
+import { CoreNativeForeignKeyError, CoreNativeUniqueConflict } from "../../persistence-postgres/src/core/api";
+import { defineAtomicCommerceNativeSource } from "../../persistence-postgres/src/frameworks/atomicCommerce/nativeSelection";
+import { compileFulfillmentCreationCoreDefinition, compileShippingProfileCoreDefinition } from "../src/modules/fulfillment/shipping-profile-schema";
 import { prepareShippingOptionRuleBatchWorkflow } from "../src/workflows/fulfillment/batch-shipping-option-rules";
 import { shippingOptionRuleBatchResources } from "../src/workflow/policy";
-import { maximumShippingOptionRuleBatch, prepareLogicalShippingOptionRuleBatch, ruleGraph,
-  type RuleInverse } from "./support/logical-shipping-option-rule-batch-fixture";
+import { maximumShippingOptionRuleBatch, prepareCoreShippingOptionRuleBatch, ruleGraph,
+  type RuleInverse } from "./support/core-shipping-option-rule-batch-fixture";
+import { expectCheckoutRollback, expectCheckoutSettlement } from "./support/core-checkout-evidence";
+import { expectWorkflowRefusal, expectWorkflowTypedFailures } from "./support/workflow-failure-assertions";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-let connected: Awaited<ReturnType<typeof prepareLogicalShippingOptionRuleBatch>>, sharedCleanupCount = 0, scopeOrdinal = 0;
+let connected: Awaited<ReturnType<typeof prepareCoreShippingOptionRuleBatch>>, sharedCleanupCount = 0;
 const rows = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject)), record = Schema.decodeUnknownSync(Schema.JsonObject);
 const text = Schema.decodeUnknownSync(Schema.String);
 const marker = { __type: "Symbol(WorkflowWorkflowData)" };
@@ -19,7 +25,7 @@ const create = (id: string, parent = ruleGraph.optionIds[0]!) => ({ id, attribut
 const update = (id: string, value: string) => ({ id, attribute: "native.attribute", operator: "eq", value });
 type Inventory = Awaited<ReturnType<typeof connected.snapshot>>;
 function newEvents(before: Inventory, after: Inventory) {
-  const identity = (event: Inventory["events"][number]) => JSON.stringify([event.scopeUuid, event.epochUuid, event.commitSeq.toString(), event.eventOrdinal]);
+  const identity = (event: Inventory["events"][number]) => JSON.stringify([event.familyId, event.ordinal]);
   const previous = new Set(before.events.map(identity)); return after.events.filter(event => !previous.has(identity(event)));
 }
 function reasons(value: unknown): string[] {
@@ -42,21 +48,22 @@ function retainedTap() {
   return { get: (kind: RuleInverse) => { if (!values.has(kind)) throw new Error("Missing actual Rule retained response: " + kind); return values.get(kind); },
     restore: () => spy.mockRestore() };
 }
-async function scenario(name: string) {
-  const ordinal = ++scopeOrdinal;
-  return prepareLogicalShippingOptionRuleBatch(driver, close => cleanup.push(close), { resource: connected.fixture.resource,
-    fixtureIdentity: { deploymentId: "rule-batch-" + name + "-" + ordinal, projectId: "rule-batch-136", uuidOffset: 2_100_000 + ordinal * 10_000 } });
+async function scenario() {
+  return prepareCoreShippingOptionRuleBatch(driver, close => cleanup.push(close), connected.fixture.physical);
 }
 const nativeBusinessFields = (row: Record<string, unknown>) => ({ id: row.id, attribute: row.attribute, operator: row.operator,
   value: row.value, shipping_option_id: row.shipping_option_id, deleted_at: row.deleted_at });
 
 describe("genuine ShippingOptionRule batch and all retained inverses", { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalShippingOptionRuleBatch(driver, close => cleanup.push(close)); sharedCleanupCount = cleanup.length; }, 240_000);
-  afterEach(async () => { for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }, 120_000);
+  beforeAll(async () => { connected = await prepareCoreShippingOptionRuleBatch(driver, close => cleanup.push(close)); sharedCleanupCount = cleanup.length; }, 240_000);
+  afterEach(async () => {
+    await connected?.closeCaseHosts();
+    for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close();
+  }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
   it("retains native supplied-ID aliases after Rule normalization with one canonical create and physical inverse", async () => {
-    const local = await scenario("identity-alias"), host = await local.prepare(), before = await local.snapshot();
+    const local = await scenario(), host = await local.prepare(), before = await local.snapshot();
     const input = { create: [
       { ...create("sorul-identity-alias"), value: true },
       { ...create("sorul-identity-alias", "ignored-missing-option"), attribute: "ignored", value: "ignored" },
@@ -88,8 +95,9 @@ describe("genuine ShippingOptionRule batch and all retained inverses", { concurr
       expect(updated.map(row => row.id)).toEqual(ruleGraph.ruleIds.slice(0, 4));
       expect(input).toEqual(original); expect(provider).not.toHaveBeenCalled(); expect(native).toHaveBeenCalledTimes(1);
       const after = await connected.snapshot(), emitted = newEvents(before, after);
-      expect(after.commits.length - before.commits.length).toBe(1); expect(emitted).toHaveLength(12);
-      expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1);
+      const timestamp = expectCheckoutSettlement(before, after, key);
+      expect(after.revisions.filter(revision => revision.timestamp === timestamp)).toHaveLength(12);
+      expect(emitted).toHaveLength(12);
       expect(emitted.every(event => event.envelope.internal)).toBe(true);
       expect(emitted.filter(event => event.envelope.contract === "fulfillment.shipping-option-rule.created")).toHaveLength(4);
       expect(emitted.filter(event => event.envelope.contract === "fulfillment.shipping-option-rule.updated")).toHaveLength(4);
@@ -103,11 +111,12 @@ describe("genuine ShippingOptionRule batch and all retained inverses", { concurr
   }, 240_000);
 
   it("executes complete genuine root plus all actual retained callbacks with fresh delete-inverse timestamps", async () => {
-    const fixture = await scenario("roundtrip"), tap = retainedTap();
+    const fixture = await scenario(), tap = retainedTap();
     try {
       const beforeRows = await fixture.read(ruleGraph.ruleIds), before = await fixture.snapshot();
       const host = await fixture.prepareRoundtrip(tap.get); let calls = 0;
-      const output = record(await Effect.runPromise(host.run(host.newRequestKey(), maximumShippingOptionRuleBatch("rule-roundtrip")).pipe(
+      const key = host.newRequestKey();
+      const output = record(await Effect.runPromise(host.run(key, maximumShippingOptionRuleBatch("rule-roundtrip")).pipe(
         Effect.provideService(ExecutionDiagnostics, { observe: (name, work) => Effect.sync(() => { if (name === "BoundedRequest.enter") calls++; }).pipe(Effect.andThen(work)) }),
         Effect.ensuring(Effect.sync(() => console.info("ShippingOptionRule complete4/4/4 root plus actual retained callbacks BoundedRequest.enter", calls))),
       )));
@@ -121,7 +130,11 @@ describe("genuine ShippingOptionRule batch and all retained inverses", { concurr
         expect(row.created_at).toBe(row.updated_at); expect(row.created_at).not.toBe("2026-10-18T00:00:00.000Z");
       }
       expect(await fixture.read(rows(output.created).map(row => text(row.id)))).toEqual([]);
-      const after = await fixture.snapshot(); expect(after.commits.length - before.commits.length).toBe(1); expect(newEvents(before, after)).toHaveLength(24);
+      const after = await fixture.snapshot(), timestamp = expectCheckoutSettlement(before, after, key);
+      const revisions = after.revisions.filter(revision => revision.timestamp === timestamp);
+      expect(revisions).toHaveLength(16);
+      expect(revisions.filter(revision => revision.deleted && revision.previous === null)).toHaveLength(4);
+      expect(newEvents(before, after)).toHaveLength(24);
     } finally { tap.restore(); }
   }, 240_000);
 
@@ -138,7 +151,7 @@ describe("genuine ShippingOptionRule batch and all retained inverses", { concurr
   }, 180_000);
 
   it("preserves raw duplicate update order, last patch and native projected retained order", async () => {
-    const fixture = await scenario("duplicates"), tap = retainedTap();
+    const fixture = await scenario(), tap = retainedTap();
     try {
       const z = ruleGraph.ruleIds[1]!, a = ruleGraph.ruleIds[0]!, host = await fixture.prepare();
       const output = record(await Effect.runPromise(host.run(host.newRequestKey(), { update: [update(z, "first"), update(a, "second"), update(z, "last")] })));
@@ -149,7 +162,7 @@ describe("genuine ShippingOptionRule batch and all retained inverses", { concurr
   }, 180_000);
 
   it("physically deletes historical/missing/duplicate IDs but retains only active preimages for recreation", async () => {
-    const fixture = await scenario("history"), tap = retainedTap();
+    const fixture = await scenario(), tap = retainedTap();
     try {
       const active = ruleGraph.ruleIds[4]!, ids = [ruleGraph.historicalId, active, "missing", active], host = await fixture.prepare();
       const before = await fixture.snapshot(), output = record(await Effect.runPromise(host.run(host.newRequestKey(), { delete: ids })));
@@ -165,7 +178,7 @@ describe("genuine ShippingOptionRule batch and all retained inverses", { concurr
   }, 180_000);
 
   it("preserves native physical delete event order across committed recreation generations", async () => {
-    const fixture = await scenario("storage-order"), host = await fixture.prepare();
+    const fixture = await scenario(), host = await fixture.prepare();
     const inserted = ["rule-order-z", "rule-order-A", "rule-order-é"], raw = [inserted[2]!, "rule-order-missing", inserted[0]!, inserted[1]!];
     const expectedRetained = [inserted[2]!, inserted[0]!, inserted[1]!];
     const eventIds = (before: Inventory, after: Inventory) => newEvents(before, after)
@@ -177,6 +190,12 @@ describe("genuine ShippingOptionRule batch and all retained inverses", { concurr
       creationRetained = Schema.decodeUnknownSync(Schema.Array(Schema.String).pipe(Schema.mutable))(creationTap.get("create"));
       expect(creationRetained).toEqual(inserted);
     } finally { creationTap.restore(); }
+    const firstGeneration = await fixture.snapshot();
+    const originals = inserted.map(id => {
+      const revision = firstGeneration.revisions.find(entry => entry.value?.id === id);
+      if (revision === undefined) throw new Error("Missing first Rule insertion generation");
+      return revision;
+    });
     const parentBefore = await fixture.read(ruleGraph.optionIds), deletionTap = retainedTap();
     let deletionRetained: ReturnType<typeof rows> = [];
     try {
@@ -189,8 +208,18 @@ describe("genuine ShippingOptionRule batch and all retained inverses", { concurr
       expect(await fixture.read(inserted)).toEqual([]);
     } finally { deletionTap.restore(); }
     const inverse = await fixture.prepareInverse("delete"), beforeRecreate = await fixture.snapshot();
+    for (const original of originals) expect(beforeRecreate.revisions.filter(entry => entry.id === original.id))
+      .toMatchObject([{ timestamp: original.timestamp, previous: null, deleted: false },
+        { previous: original.timestamp, deleted: true, value: null }]);
     await Effect.runPromise(inverse.run(inverse.newRequestKey(), deletionRetained));
-    expect(eventIds(beforeRecreate, await fixture.snapshot())).toEqual(expectedRetained);
+    const recreated = await fixture.snapshot();
+    expect(eventIds(beforeRecreate, recreated)).toEqual(expectedRetained);
+    for (const original of originals) {
+      const generation = recreated.revisions.findLast(entry => entry.value?.id === original.value?.id);
+      expect(generation).toMatchObject({ previous: null, deleted: false });
+      expect(generation?.id).not.toBe(original.id);
+      expect(recreated.revisions.filter(entry => entry.id === original.id)).toEqual(beforeRecreate.revisions.filter(entry => entry.id === original.id));
+    }
     const remove = await fixture.prepareInverse("create"), beforeRemove = await fixture.snapshot();
     await Effect.runPromise(remove.run(remove.newRequestKey(), creationRetained));
     // The same external IDs now have fresh physical insertion generations.
@@ -199,24 +228,25 @@ describe("genuine ShippingOptionRule batch and all retained inverses", { concurr
   }, 240_000);
 
   it("preserves real native validation, missing-update and missing-parent refusals without durable prefixes", async () => {
-    const fixture = await scenario("refusals"), host = await fixture.prepare();
+    const fixture = await scenario(), host = await fixture.prepare();
     for (const value of [false, 0, null, "", [], { opaque: true }]) {
-      const before = await fixture.snapshot();
-      expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { create: [{ ...create("invalid-rule"), value }] }))))).toBe(true);
-      expect(await fixture.snapshot()).toEqual(before);
+      const before = await fixture.fixture.inventory(), key = host.newRequestKey();
+      expect(Exit.isFailure(await Effect.runPromiseExit(host.run(key, { create: [{ ...create("invalid-rule"), value }] })))).toBe(true);
+      await expectCheckoutRollback(fixture.fixture, before, key);
     }
     for (const input of [{ update: [{ id: ruleGraph.ruleIds[0]!, value: "partial" }] },
       { update: [update(ruleGraph.ruleIds[0]!, "valid"), update("missing", "invalid")] },
       { update: [update(ruleGraph.historicalId, "historical")] },
       { create: [create("missing-parent-rule", "missing-option")] },
       { create: [create(ruleGraph.ruleIds[0]!)] }]) {
-      const before = await fixture.snapshot(); expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), input))))).toBe(true);
-      expect(await fixture.snapshot()).toEqual(before);
+      const before = await fixture.fixture.inventory(), key = host.newRequestKey();
+      expect(Exit.isFailure(await Effect.runPromiseExit(host.run(key, input)))).toBe(true);
+      await expectCheckoutRollback(fixture.fixture, before, key);
     }
   }, 240_000);
 
   it("retains required physical FK behavior for a historical Option parent and native retarget", async () => {
-    const fixture = await scenario("retarget"), host = await fixture.prepare();
+    const fixture = await scenario(), host = await fixture.prepare();
     const historical = ruleGraph.optionIds[3]!;
     const output = record(await Effect.runPromise(host.run(host.newRequestKey(), { create: [create("historical-parent-rule", historical)],
       update: [{ ...update(ruleGraph.ruleIds[0]!, "retarget"), shipping_option_id: historical }] })));
@@ -225,31 +255,65 @@ describe("genuine ShippingOptionRule batch and all retained inverses", { concurr
     expect((await fixture.read([historical]))[0]?.deleted_at).not.toBeNull();
   }, 180_000);
 
+  it.each(["create-delete", "retarget-delete", "missing-first", "occupied-first"] as const)(
+    "rejects native statement failure before later branch work: %s", async kind => {
+      const fixture = await scenario(), host = await fixture.prepare(), id = "invalid-statement-rule";
+      const missing = create(id, "missing-statement-option"), occupied = create(ruleGraph.ruleIds[0]!);
+      const input = kind === "create-delete" ? { create: [missing], delete: [id] }
+        : kind === "retarget-delete" ? { update: [{ ...update(ruleGraph.ruleIds[0]!, "invalid-retarget"), shipping_option_id: missing.shipping_option_id }], delete: [ruleGraph.ruleIds[0]!] }
+        : { create: kind === "missing-first" ? [missing, occupied] : [occupied, missing] };
+      const before = await fixture.fixture.inventory(), key = host.newRequestKey();
+      const outcome = await Effect.runPromiseExit(host.run(key, input));
+      let failure: CommerceTransactionError;
+      if (kind === "create-delete") {
+        if (Exit.isSuccess(outcome)) throw new Error("Expected the native required-parent refusal");
+        // The genuine Effect.all scheduler interrupts the pending delete
+        // branch. Keep that sibling cancellation and the original typed cause.
+        expect(outcome.cause.reasons.map(reason => reason._tag)).toEqual(["Fail", "Interrupt", "Fail"]);
+        const [original, interrupted, sealed] = outcome.cause.reasons;
+        if (original === undefined || !Cause.isFailReason(original) || !(original.error instanceof CommerceTransactionError) ||
+          interrupted === undefined || !Cause.isInterruptReason(interrupted) || sealed === undefined || !Cause.isFailReason(sealed))
+          throw new Error("Lost the complete native parallel failure Cause");
+        expect(original.error.reason).toBe("invalidInput");
+        expect(sealed.error).toBeInstanceOf(CommerceTransactionError);
+        expect(sealed.error).toMatchObject({ reason: "rollbackOnly" });
+        failure = original.error;
+      } else failure = expectWorkflowRefusal(outcome, "invalidInput");
+      if (kind === "occupied-first") {
+        expect(failure.cause).toBeInstanceOf(CoreNativeUniqueConflict);
+        expect(failure.cause).toMatchObject({ reason: "uniqueConflict", fields: ["id"] });
+      } else {
+        expect(failure.cause).toBeInstanceOf(CoreNativeForeignKeyError);
+        expect(failure.cause).toMatchObject({ reason: "targetMissing", sourceFields: ["shipping_option_id"], targetFields: ["id"] });
+      }
+      await expectCheckoutRollback(fixture.fixture, before, key);
+    }, 240_000);
+
   it("preserves intersecting update/delete native forward success and genuine inverse update refusal", async () => {
-    const fixture = await scenario("overlap"), host = await fixture.prepare(), id = ruleGraph.ruleIds[0]!;
+    const fixture = await scenario(), host = await fixture.prepare(), id = ruleGraph.ruleIds[0]!;
     const input = { update: [update(id, "overlap")], delete: [id] };
     const output = record(await Effect.runPromise(host.run(host.newRequestKey(), input)));
     expect(rows(output.updated)[0]).toMatchObject({ id, value: "overlap" }); expect(output.deleted).toEqual([id]); expect(await fixture.read([id])).toEqual([]);
-    const second = await scenario("overlap-inverse"), tap = retainedTap();
+    const second = await scenario(), tap = retainedTap();
     try {
-      const inverse = await second.prepareRoundtrip(tap.get), before = await second.snapshot();
-      expect(Result.isFailure(await Effect.runPromise(Effect.result(inverse.run(inverse.newRequestKey(), input))))).toBe(true);
-      expect(await second.snapshot()).toEqual(before);
+      const inverse = await second.prepareRoundtrip(tap.get), before = await second.fixture.inventory(), key = inverse.newRequestKey();
+      expect(Exit.isFailure(await Effect.runPromiseExit(inverse.run(key, input)))).toBe(true);
+      await expectCheckoutRollback(second.fixture, before, key);
     } finally { tap.restore(); }
   }, 240_000);
 
   it.each(["update", "delete"] as const)("retains the genuine %s inverse validator refusal for older valid-DML Rule values", async kind => {
-    const fixture = await scenario("legacy-" + kind), tap = retainedTap();
+    const fixture = await scenario(), tap = retainedTap();
     const id = kind === "update" ? ruleGraph.legacyNullId : ruleGraph.legacyObjectId;
     const nativeUpdate = vi.spyOn(FulfillmentModuleService.prototype, "updateShippingOptionRules"),
       nativeCreate = vi.spyOn(FulfillmentModuleService.prototype, "createShippingOptionRules");
     try {
-      const parentBefore = await fixture.read(ruleGraph.optionIds), before = await fixture.snapshot();
+      const parentBefore = await fixture.read(ruleGraph.optionIds), before = await fixture.fixture.inventory();
       const host = await fixture.prepareRoundtrip(action => action === kind || action === "create" ? tap.get(action) : undefined);
       const input = kind === "update" ? { update: [update(id, "valid-forward")] } : { delete: [id] };
-      const outcome = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), input)));
-      expect(Result.isFailure(outcome)).toBe(true);
-      if (Result.isFailure(outcome)) expect(reasons(outcome.failure).some(message => message.includes(kind === "update"
+      const key = host.newRequestKey(), outcome = await Effect.runPromiseExit(host.run(key, input));
+      expect(Exit.isFailure(outcome)).toBe(true);
+      if (Exit.isFailure(outcome)) expect(reasons(outcome.cause).some(message => message.includes(kind === "update"
         ? "Rule must have an attribute, an operator and a value" : "Rule value must be a string, bool, number value"))).toBe(true);
       const retained = rows(tap.get(kind));
       expect(retained).toHaveLength(1); expect(retained[0]).toMatchObject({ id,
@@ -262,46 +326,55 @@ describe("genuine ShippingOptionRule batch and all retained inverses", { concurr
         expect(nativeCreate).toHaveBeenCalledTimes(2); expect(nativeCreate.mock.calls[0]?.[0]).toEqual([]);
         expect(nativeCreate.mock.calls[1]?.[0]).toEqual(retained);
       }
-      expect(await fixture.snapshot()).toEqual(before); expect(await fixture.read(ruleGraph.optionIds)).toEqual(parentBefore);
+      await expectCheckoutRollback(fixture.fixture, before, key);
+      expect(await fixture.read(ruleGraph.optionIds)).toEqual(parentBefore);
     } finally { tap.restore(); nativeUpdate.mockRestore(); nativeCreate.mockRestore(); }
   }, 240_000);
 
   it("preserves new same-ID create/delete branch interaction without an adapter overlap ban", async () => {
-    const fixture = await scenario("create-delete-overlap"), host = await fixture.prepare(), id = "new-overlapping-rule";
-    const before = await fixture.snapshot(), output = record(await Effect.runPromise(host.run(host.newRequestKey(), { create: [create(id)], delete: [id] })));
+    const fixture = await scenario(), host = await fixture.prepare(), id = "new-overlapping-rule";
+    const before = await fixture.snapshot(), key = host.newRequestKey();
+    const output = record(await Effect.runPromise(host.run(key, { create: [create(id)], delete: [id] })));
     expect(rows(output.created).map(row => row.id)).toEqual([id]); expect(output.deleted).toEqual([id]);
-    expect(await fixture.read([id])).toEqual([]); expect(newEvents(before, await fixture.snapshot())).toHaveLength(2);
+    expect(await fixture.read([id])).toEqual([]);
+    const after = await fixture.snapshot(), timestamp = expectCheckoutSettlement(before, after, key);
+    expect(after.revisions.filter(revision => revision.timestamp === timestamp))
+      .toMatchObject([{ previous: null, deleted: true, value: null }]);
+    expect(after.indexes).toEqual(before.indexes);
+    expect(newEvents(before, after)).toHaveLength(2);
   }, 180_000);
 
   it("rolls back a late genuine root or retained-inverse failure with all events suppressed", async () => {
-    const fixture = await scenario("late-root"), host = await fixture.prepareLateFailure(), before = await fixture.snapshot();
-    expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), maximumShippingOptionRuleBatch("rule-late-root")))))).toBe(true);
-    expect(await fixture.snapshot()).toEqual(before);
-    const inverseFixture = await scenario("late-inverse"), tap = retainedTap();
+    const fixture = await scenario(), host = await fixture.prepareLateFailure(), before = await fixture.fixture.inventory(), key = host.newRequestKey();
+    expect(Exit.isFailure(await Effect.runPromiseExit(host.run(key, maximumShippingOptionRuleBatch("rule-late-root"))))).toBe(true);
+    await expectCheckoutRollback(fixture.fixture, before, key);
+    const inverseFixture = await scenario(), tap = retainedTap();
     try {
-      const inverse = await inverseFixture.prepareRoundtrip(tap.get, true), baseline = await inverseFixture.snapshot();
-      expect(Result.isFailure(await Effect.runPromise(Effect.result(inverse.run(inverse.newRequestKey(), maximumShippingOptionRuleBatch("rule-late-inverse")))))).toBe(true);
-      expect(await inverseFixture.snapshot()).toEqual(baseline);
+      const inverse = await inverseFixture.prepareRoundtrip(tap.get, true), baseline = await inverseFixture.fixture.inventory(), inverseKey = inverse.newRequestKey();
+      expect(Exit.isFailure(await Effect.runPromiseExit(inverse.run(inverseKey, maximumShippingOptionRuleBatch("rule-late-inverse"))))).toBe(true);
+      await expectCheckoutRollback(inverseFixture.fixture, baseline, inverseKey);
     } finally { tap.restore(); }
   }, 240_000);
 
   it("refuses forged native complete result after actual storage writes", async () => {
-    const fixture = await scenario("forged-output"), host = await fixture.prepare();
+    const fixture = await scenario(), host = await fixture.prepare();
     const original = FulfillmentModuleService.prototype.createShippingOptionRules;
     const native = vi.spyOn(FulfillmentModuleService.prototype, "createShippingOptionRules").mockImplementation(async function (this: FulfillmentModuleService, ...args) {
       const output = await Reflect.apply(original, this, args);
-      if (Array.isArray(output) && output[0] !== undefined) Reflect.set(output[0], "value", "forged");
+      if (!Array.isArray(output) || output[0] === undefined || !Reflect.set(output[0], "value", "forged"))
+        throw new Error("Could not forge the actual native Rule result");
       return output;
     });
     try {
-      const before = await fixture.snapshot();
-      expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { create: [create("forged-result")] }))))).toBe(true);
-      expect(native).toHaveBeenCalledTimes(1); expect(await fixture.snapshot()).toEqual(before);
+      const before = await fixture.fixture.inventory(), key = host.newRequestKey();
+      expectWorkflowTypedFailures(await Effect.runPromiseExit(host.run(key, { create: [create("forged-result")] })), "receiptMismatch");
+      expect(native).toHaveBeenCalledTimes(1);
+      await expectCheckoutRollback(fixture.fixture, before, key);
     } finally { native.mockRestore(); }
   }, 180_000);
 
   it("keeps caught sibling repository denial sticky and native handles unusable after settlement", async () => {
-    const fixture = await scenario("sticky-lifetime"), host = await fixture.prepare(), original = FulfillmentModuleService.prototype.createShippingOptionRules;
+    const fixture = await scenario(), host = await fixture.prepare(), original = FulfillmentModuleService.prototype.createShippingOptionRules;
     let denied = false, escaped: (() => Promise<unknown>) | undefined;
     const native = vi.spyOn(FulfillmentModuleService.prototype, "createShippingOptionRules").mockImplementation(async function (this: FulfillmentModuleService, ...args) {
       const output = await Reflect.apply(original, this, args); escaped = () => Reflect.apply(original, this, args);
@@ -309,16 +382,18 @@ describe("genuine ShippingOptionRule batch and all retained inverses", { concurr
       return output;
     });
     try {
-      const before = await fixture.snapshot();
-      expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { create: [create("sticky-rule")] }))))).toBe(true);
-      expect(denied).toBe(true); expect(await fixture.snapshot()).toEqual(before);
+      const before = await fixture.fixture.inventory(), key = host.newRequestKey();
+      expectWorkflowTypedFailures(await Effect.runPromiseExit(host.run(key, { create: [create("sticky-rule")] })), "rollbackOnly");
+      expect(denied).toBe(true);
+      await expectCheckoutRollback(fixture.fixture, before, key);
       if (escaped === undefined) throw new Error("Missing actual native service handle");
-      await expect(escaped()).rejects.toBeDefined(); expect(await fixture.snapshot()).toEqual(before);
+      await expect(escaped()).rejects.toBeDefined();
+      await expectCheckoutRollback(fixture.fixture, before, key);
     } finally { native.mockRestore(); }
   }, 180_000);
 
   it("cancels after actual Rule mutation and suppresses publication while draining the native callback", async () => {
-    const fixture = await scenario("cancel"), host = await fixture.prepare(), original = FulfillmentModuleService.prototype.createShippingOptionRules;
+    const fixture = await scenario(), host = await fixture.prepare(), original = FulfillmentModuleService.prototype.createShippingOptionRules;
     const reached = Deferred.makeUnsafe<void>(), finished = Deferred.makeUnsafe<void>();
     let finish: (() => void) | undefined;
     const wait = new Promise<void>(resolve => { finish = resolve; });
@@ -327,28 +402,42 @@ describe("genuine ShippingOptionRule batch and all retained inverses", { concurr
       await wait; await Effect.runPromise(Deferred.succeed(finished, undefined)); return output;
     });
     try {
-      const before = await fixture.snapshot(), outcome = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-        const pending = yield* Effect.forkChild(host.run(host.newRequestKey(), { create: [create("cancelled-rule")] }));
+      const before = await fixture.fixture.inventory(), key = host.newRequestKey();
+      const outcome = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const pending = yield* Effect.forkChild(host.run(key, { create: [create("cancelled-rule")] }));
         yield* Deferred.await(reached).pipe(Effect.timeout(30_000)); yield* Fiber.interrupt(pending); return yield* Fiber.await(pending);
       })));
       expect(Exit.isFailure(outcome)).toBe(true); if (Exit.isFailure(outcome)) expect(reasons(outcome.cause)).toContain("Interrupt");
-      expect(await fixture.snapshot()).toEqual(before); finish?.();
-      await Effect.runPromise(Deferred.await(finished).pipe(Effect.timeout(5_000))); expect(await fixture.snapshot()).toEqual(before);
+      await expectCheckoutRollback(fixture.fixture, before, key); finish?.();
+      await Effect.runPromise(Deferred.await(finished).pipe(Effect.timeout(5_000)));
+      await expectCheckoutRollback(fixture.fixture, before, key);
     } finally { finish?.(); native.mockRestore(); }
   }, 180_000);
 
   it("binds workflow module identity, resource selection and scoped same-ID data", async () => {
-    const left = await scenario("scope-left"), right = await scenario("scope-right"), host = await left.prepare(), id = ruleGraph.ruleIds[0]!;
+    const left = await scenario(), right = await scenario(), host = await left.prepare(), id = ruleGraph.ruleIds[0]!;
     const beforeRight = await right.read([id]);
     await Effect.runPromise(host.run(host.newRequestKey(), { update: [update(id, "left-only")] }));
     expect((await left.read([id]))[0]?.value).toBe("left-only"); expect(await right.read([id])).toEqual(beforeRight);
+    const target = { scopeUuid: randomUUID(), epochUuid: randomUUID() };
+    const definitions = await Effect.runPromise(Effect.all([
+      compileShippingProfileCoreDefinition(target), compileFulfillmentCreationCoreDefinition(target),
+    ]));
+    const wrongSources = definitions.map(definition => Result.getOrThrow(defineAtomicCommerceNativeSource("fulfillment", definition)));
     for (const fulfillment of [{ ...left.installed, module: { ...left.fulfillment.workflow } },
-      { ...left.installed, logicalResources: { ...shippingOptionRuleBatchResources, calls: shippingOptionRuleBatchResources.calls + 1 } }])
-      expect(Result.isFailure(await Effect.runPromise(Effect.result(prepareShippingOptionRuleBatchWorkflow({ ...left.options, fulfillment }))))).toBe(true);
+      { ...left.installed, nativeStorage: { ...left.installed.nativeStorage } },
+      ...wrongSources.map(nativeStorage => ({ ...left.installed, nativeStorage }))])
+      expect(await Effect.runPromise(Effect.result(prepareShippingOptionRuleBatchWorkflow({ ...left.options, fulfillment }))))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+    const override = { ...left.installed, logicalResources: { ...shippingOptionRuleBatchResources, calls: shippingOptionRuleBatchResources.calls + 1 } };
+    expect(await Effect.runPromise(Effect.result(prepareShippingOptionRuleBatchWorkflow({ ...left.options,
+      // @ts-expect-error A foreign resource policy must also be refused at runtime.
+      fulfillment: override }))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
   }, 240_000);
 
-  it.skipIf(driver !== "postgres")("settles one competing same-native-ID creation under ordinary-role PostgreSQL", async () => {
-    const fixture = await scenario("identity-race"), left = await fixture.prepare(), right = await fixture.prepare();
+  it("settles one competing same-native-ID creation with winner-only durable evidence", async () => {
+    const fixture = await scenario(), left = await fixture.prepare(), right = await fixture.prepare();
     const reached = Deferred.makeUnsafe<void>(), release = Deferred.makeUnsafe<void>(), original = FulfillmentModuleService.prototype.createShippingOptionRules;
     let arrivals = 0;
     const native = vi.spyOn(FulfillmentModuleService.prototype, "createShippingOptionRules").mockImplementation(async function (this: FulfillmentModuleService, ...args) {
@@ -356,28 +445,42 @@ describe("genuine ShippingOptionRule batch and all retained inverses", { concurr
       await Effect.runPromise(Deferred.await(release)); return output;
     });
     try {
-      const before = await fixture.snapshot(), outcomes = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      const before = await fixture.snapshot(), keys = [left.newRequestKey(), right.newRequestKey()] as const;
+      const outcomes = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const input = { create: [create("competing-rule")] };
-        const first = yield* Effect.forkChild(left.run(left.newRequestKey(), input).pipe(Effect.timeout(45_000)));
-        const second = yield* Effect.forkChild(right.run(right.newRequestKey(), input).pipe(Effect.timeout(45_000)));
+        const first = yield* Effect.forkChild(left.run(keys[0], input).pipe(Effect.timeout(45_000)));
+        const second = yield* Effect.forkChild(right.run(keys[1], input).pipe(Effect.timeout(45_000)));
         yield* Deferred.await(reached).pipe(Effect.timeout(30_000), Effect.ensuring(Deferred.succeed(release, undefined)));
         return [yield* Fiber.await(first), yield* Fiber.await(second)];
       })));
       expect(arrivals).toBe(2); expect(outcomes.filter(Exit.isSuccess)).toHaveLength(1); expect(outcomes.filter(Exit.isFailure)).toHaveLength(1);
+      const loser = outcomes.find(Exit.isFailure);
+      if (loser === undefined) throw new Error("Missing losing native root");
+      expect(expectWorkflowTypedFailures(loser).map(failure => failure.reason)).toEqual(["writeConflict"]);
       expect(await fixture.read(["competing-rule"])).toHaveLength(1);
-      const after = await fixture.snapshot(); expect(after.commits.length - before.commits.length).toBe(1); expect(newEvents(before, after)).toHaveLength(1);
+      const after = await fixture.snapshot(), inventory = await fixture.fixture.inventory();
+      const durable = inventory.outcomes.filter(outcome => keys.includes(text(outcome.value.key)));
+      expect(durable).toHaveLength(2);
+      for (const [index, key] of keys.entries()) expect(durable.find(outcome => outcome.value.key === key)?.value.state)
+        .toBe(Exit.isSuccess(outcomes[index]!) ? "committed" : "failed");
+      const winner = durable.find(outcome => outcome.value.state === "committed");
+      if (winner === undefined) throw new Error("Missing committed native root");
+      expect(after.revisions.filter(revision => revision.timestamp > before.revisions.reduce((latest, entry) => entry.timestamp > latest ? entry.timestamp : latest, 0n)))
+        .toMatchObject([{ timestamp: winner.timestamp, deleted: false }]);
+      expect(newEvents(before, after)).toMatchObject([{ timestamp: winner.timestamp }]);
     } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); native.mockRestore(); }
   }, 240_000);
 
-  it.skipIf(driver !== "postgres")("invalidates staged Rule creation when canonical physical Option parent deletion commits", async () => {
-    const fixture = await scenario("parent-race"), host = await fixture.prepare(), removal = await fixture.prepareUnusedParentRemoval();
+  it("invalidates observed Rule parent dependencies when canonical Option deletion commits", async () => {
+    const fixture = await scenario(), host = await fixture.prepare(), removal = await fixture.prepareUnusedParentRemoval();
     const reached = Deferred.makeUnsafe<void>(), release = Deferred.makeUnsafe<void>();
     let closures = 0;
     const native = vi.spyOn(FulfillmentModuleService.prototype, "createShippingOptionRules");
     try {
-      const before = await fixture.snapshot(), outcome = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-        const pending = yield* Effect.forkChild(host.run(host.newRequestKey(), { create: [create("orphan-race-rule", ruleGraph.unusedParentId)] }).pipe(
-          Effect.provideService(ExecutionDiagnostics, { observe: (name, work) => name === "LogicalCommerce.close"
+      const before = await fixture.snapshot(), key = host.newRequestKey(), removalKey = removal.newRequestKey();
+      const outcome = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const pending = yield* Effect.forkChild(host.run(key, { create: [create("orphan-race-rule", ruleGraph.unusedParentId)] }).pipe(
+          Effect.provideService(ExecutionDiagnostics, { observe: (name, work) => name === "AtomicEvents.close"
             ? work.pipe(Effect.tap(() => Effect.gen(function* () {
               // The genuine close has now read and authenticated the required
               // parent and frozen its dependency. Pause before publication.
@@ -385,13 +488,51 @@ describe("genuine ShippingOptionRule batch and all retained inverses", { concurr
             }))) : work }), Effect.timeout(45_000),
         ));
         yield* Deferred.await(reached).pipe(Effect.timeout(30_000));
-        yield* removal.run(removal.newRequestKey()).pipe(Effect.ensuring(Deferred.succeed(release, undefined)));
+        yield* removal.run(removalKey).pipe(Effect.ensuring(Deferred.succeed(release, undefined)));
         return yield* Fiber.await(pending);
       })));
-      expect(closures).toBe(1); expect(native).toHaveBeenCalledTimes(1); expect(Exit.isFailure(outcome)).toBe(true);
-      if (Exit.isFailure(outcome)) expect(reasons(outcome.cause)).toContain("writeConflict");
+      expect(closures).toBe(1); expect(native).toHaveBeenCalledTimes(1);
+      expect(expectWorkflowTypedFailures(outcome).map(failure => failure.reason)).toEqual(["writeConflict"]);
       expect(await fixture.read([ruleGraph.unusedParentId, "orphan-race-rule"])).toEqual([]);
-      const after = await fixture.snapshot(); expect(after.commits.length - before.commits.length).toBe(1); expect(newEvents(before, after)).toEqual([]);
+      const after = await fixture.snapshot(), winner = after.outcomes.find(entry => entry.value.key === removalKey);
+      expect(winner?.value.state).toBe("committed");
+      expect((await fixture.fixture.inventory()).outcomes.find(entry => entry.value.key === key)?.value.state).toBe("failed");
+      expect(after.revisions.filter(revision => revision.timestamp === winner?.timestamp))
+        .toMatchObject([{ deleted: true, value: null }]);
+      expect(after.revisions).toHaveLength(before.revisions.length + 1);
+      expect(newEvents(before, after)).toEqual([]);
+    } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); native.mockRestore(); }
+  }, 240_000);
+
+  it("retains authentic targetMissing when canonical Option deletion precedes the first parent probe", async () => {
+    const fixture = await scenario(), host = await fixture.prepare(), removal = await fixture.prepareUnusedParentRemoval();
+    const reached = Deferred.makeUnsafe<void>(), release = Deferred.makeUnsafe<void>(), original = FulfillmentModuleService.prototype.createShippingOptionRules;
+    const native = vi.spyOn(FulfillmentModuleService.prototype, "createShippingOptionRules").mockImplementation(async function (this: FulfillmentModuleService, ...args) {
+      // Freeze at the actual native method entry, before any Rule statement or
+      // parent probe. The committed deletion must therefore be observed as a miss.
+      await Effect.runPromise(Deferred.succeed(reached, undefined));
+      await Effect.runPromise(Deferred.await(release));
+      return Reflect.apply(original, this, args);
+    });
+    try {
+      const before = await fixture.snapshot(), key = host.newRequestKey(), removalKey = removal.newRequestKey();
+      const outcome = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const pending = yield* Effect.forkChild(host.run(key, { create: [create("first-probe-missing-rule", ruleGraph.unusedParentId)] }).pipe(Effect.timeout(45_000)));
+        yield* Deferred.await(reached).pipe(Effect.timeout(30_000));
+        yield* removal.run(removalKey).pipe(Effect.ensuring(Deferred.succeed(release, undefined)));
+        return yield* Fiber.await(pending);
+      })));
+      const failure = expectWorkflowRefusal(outcome, "invalidInput");
+      expect(failure.cause).toBeInstanceOf(CoreNativeForeignKeyError);
+      expect(failure.cause).toMatchObject({ reason: "targetMissing", sourceFields: ["shipping_option_id"], targetFields: ["id"] });
+      expect(native).toHaveBeenCalledTimes(1);
+      expect(await fixture.read([ruleGraph.unusedParentId, "first-probe-missing-rule"])).toEqual([]);
+      const after = await fixture.snapshot(), winner = after.outcomes.find(entry => entry.value.key === removalKey);
+      expect(winner?.value.state).toBe("committed");
+      expect((await fixture.fixture.inventory()).outcomes.find(entry => entry.value.key === key)?.value.state).toBe("failed");
+      expect(after.revisions.filter(revision => revision.timestamp === winner?.timestamp)).toMatchObject([{ deleted: true, value: null }]);
+      expect(after.revisions).toHaveLength(before.revisions.length + 1);
+      expect(newEvents(before, after)).toEqual([]);
     } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); native.mockRestore(); }
   }, 240_000);
 });

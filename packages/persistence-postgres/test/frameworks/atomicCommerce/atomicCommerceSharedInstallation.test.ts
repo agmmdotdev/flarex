@@ -92,12 +92,17 @@ beforeAll(async () => {
 afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120000);
 
 describe("atomic participants sharing physical installation", () => {
-  it("refuses reference checkpoints on physical participants before installation preparation", () => {
+  it.each(["allowReferenceCheckpoints", "statementReferenceChecks"] as const)("refuses %s on physical participants before installation preparation", policy => {
     const member = input.participants[0];
     if (member === undefined) throw new Error("Missing real physical participant");
+    // A JavaScript caller can supply a native-only policy despite the public
+    // physical participant type excluding it.
+    const supplied = { ...member };
+    Object.defineProperty(supplied, policy, { value: true, enumerable: true });
     const prepare = vi.spyOn(installationRuntime, "prepareInstallationRuntime");
     try {
-      expect(captureAtomicCommerceParticipants([{ ...member, allowReferenceCheckpoints: true }]))
+      expect(Result.isSuccess(captureAtomicCommerceParticipants([member]))).toBe(true);
+      expect(captureAtomicCommerceParticipants([supplied]))
         .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
       expect(prepare).not.toHaveBeenCalled();
     } finally { prepare.mockRestore(); }

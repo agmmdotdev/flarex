@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { Cause, Effect, Result, Schema } from "effect";
+import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { StepResponse } from "@medusajs/workflows-sdk";
 import { CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
@@ -8,6 +8,7 @@ import { shippingOptionUpdateResources } from "../src/workflow/policy";
 import type { ShippingOptionUpdateInput } from "../src/workflows/fulfillment/update-shipping-options";
 import { prepareLogicalShippingOptionUpdate } from "./support/logical-shipping-option-update-fixture";
 import { shippingOptionCreationInput, shippingOptionParents, shippingOptionRegionIds } from "./support/logical-shipping-option-creation-fixture";
+import { expectWorkflowDefect } from "./support/workflow-failure-assertions";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = []; let sharedCleanupCount = 0;
@@ -109,10 +110,16 @@ describe("genuine native Shipping Option updates", { concurrent: false }, () => 
 
   it("preserves the native null-array preimage-helper refusal and rolls back the complete root", async () => {
     const seeded = await connected.seed("null-array-refusal"), option = id(seeded[0]?.id), host = await connected.prepare();
-    const before = await connected.snapshot(), outcome = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), [{ id: option,
-      name: "Uncommitted null array", data: { nested: { values: [null, "raw"] } } }])));
-    expect(Result.isFailure(outcome)).toBe(true);
-    if (Result.isFailure(outcome)) expect(failurePath(outcome.failure).join("\n")).toContain("Cannot convert undefined or null to object");
+    const before = await connected.snapshot(), outcome = await Effect.runPromiseExit(host.run(host.newRequestKey(), [{ id: option,
+      name: "Uncommitted null array", data: { nested: { values: [null, "raw"] } } }]));
+    if (Exit.isSuccess(outcome)) throw new Error("Expected the native null-array preimage-helper failure");
+    const original = outcome.cause.reasons[0];
+    if (original === undefined || !Cause.isDieReason(original) || !(original.defect instanceof TypeError))
+      throw new Error("Lost the original native null-array TypeError");
+    expect(original.defect.message).toBe("Cannot convert undefined or null to object");
+    expect(original.defect.stack).toContain("getSelectsAndRelationsFromObjectArray");
+    expectWorkflowDefect(outcome, original.defect);
+    expect(failurePath(outcome.cause)).toEqual([original.defect.message, "rollbackOnly"]);
     expect(await connected.snapshot()).toEqual(before);
   }, 240_000);
 
@@ -357,10 +364,17 @@ describe("genuine native Shipping Option updates", { concurrent: false }, () => 
     const seeded = await connected.seed("late-update-inverse"), option = id(seeded[0]?.id), tap = retainedTap();
     try {
       const host = await connected.prepareRoundtrip(tap.get, true), before = await connected.snapshot();
-      const outcome = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), [{ id: option, prices: [],
-        rules: [{ attribute: "late", operator: "eq", value: "replacement" }] }])));
-      expect(Result.isFailure(outcome)).toBe(true);
-      if (Result.isFailure(outcome)) expect(failurePath(outcome.failure).join("\n")).toContain("Late native Shipping Option update inverse failure");
+      const outcome = await Effect.runPromiseExit(host.run(host.newRequestKey(), [{ id: option, prices: [],
+        rules: [{ attribute: "late", operator: "eq", value: "replacement" }] }]));
+      if (Exit.isSuccess(outcome)) throw new Error("Expected the late native Shipping Option update inverse failure");
+      const original = outcome.cause.reasons[0];
+      if (original === undefined || !Cause.isDieReason(original) || !(original.defect instanceof Error))
+        throw new Error("Lost the original native Shipping Option update inverse Error");
+      expect(original.defect.constructor).toBe(Error);
+      expect(original.defect.message).toBe("Late native Shipping Option update inverse failure");
+      expect(original.defect.stack).toContain("logical-shipping-option-update-fixture.ts");
+      expectWorkflowDefect(outcome, original.defect);
+      expect(failurePath(outcome.cause)).toEqual([original.defect.message, "rollbackOnly"]);
       expect(tap.get().option?.updatedPreviousData).toHaveLength(1);
       expect(await connected.snapshot()).toEqual(before);
     } finally { tap.restore(); }

@@ -193,6 +193,9 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
       || binding.logicalStorage !== undefined && binding.nativeStorage !== undefined)
       return yield* Effect.fail(commerceError("unsupportedProfile"));
     const moduleEvents = definition.logical;
+    const statementReferenceChecks = moduleEvents?.statementReferenceChecks;
+    if (statementReferenceChecks === true && (binding.nativeStorage === undefined || binding.logicalPublication !== undefined || options.allowTaskControl === true))
+      return yield* Effect.fail(commerceError("unsupportedProfile"));
     const commands = new Set<CommerceCommand>();
     const methodIdentities = [];
     const graphIdentities = [];
@@ -265,7 +268,7 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
       } }),
     };
     participants.push({ ...selected, ...(binding.nativeStorage === undefined ? { logicalStorage: binding.logicalStorage }
-      : { nativeStorage: binding.nativeStorage }),
+      : { nativeStorage: binding.nativeStorage, ...(statementReferenceChecks === undefined ? {} : { statementReferenceChecks }) }),
       ...(binding.logicalResources === undefined ? {} : { logicalResources: binding.logicalResources }),
       ...(binding.logicalPublication === undefined ? {} : { logicalPublication: binding.logicalPublication }),
     });

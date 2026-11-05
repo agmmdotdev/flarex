@@ -10,6 +10,7 @@ import { compileCoreNativeEventStorageDefinition } from "../../persistence-postg
 import { defineAtomicCommerceNativeSource, type AtomicCommerceNativeSource } from "../../persistence-postgres/src/frameworks/atomicCommerce/nativeSelection";
 import { CoreNativeRootRequestEvidenceSchema } from "../../persistence-postgres/src/core/nativeRootRequest";
 import { compileCurrencyCoreDefinition } from "../src/modules/currency/schema";
+import type { AtomicWorkflowHostComposition } from "../src/workflow/host";
 import { createCoreNativeWorkflowFixture, type CoreNativeWorkflowFixture } from "./support/core-native-workflow-fixture";
 
 const driver = process.env.FLAREX_TEST_DRIVER === "postgres" ? "postgres" : "pglite";
@@ -49,7 +50,7 @@ async function fixture(maximumRequests = 32) {
 function profile(tested: CoreNativeWorkflowFixture, body: Parameters<typeof defineAtomicCommerceCommand>[1],
   options: Readonly<{ events?: false; padding?: string; source?: AtomicCommerceNativeSource }> = {}) {
   const command = defineAtomicCommerceCommand("neutral-root", body);
-  const prepared = tested.execution.prepare({ identityAndAccessPolicy: { profile: "native-atomic-neutral",
+  const composition = { identityAndAccessPolicy: { profile: "native-atomic-neutral",
     ...(options.padding === undefined ? {} : { padding: options.padding }) }, participants: [{ participant,
     nativeStorage: options.source ?? tested.source("currency"), commands: [write, nestedWrite],
     validateLogicalCall: (call, activity) => call.mode !== "write" || activity.mutations.length !== 1
@@ -59,8 +60,8 @@ function profile(tested: CoreNativeWorkflowFixture, body: Parameters<typeof defi
       ? Effect.fail(commerceError("receiptMismatch")) : Effect.void,
     ...(options.events === false ? {} : { events: { contracts: [contract], select: () => Effect.succeed(contract) } }),
   }], commands: [command], ...(options.events === false ? {} : { events: { producerRevision: revision, contracts: [contract],
-    subscribers: [{ id: "neutral-indexer", revision }], validate: () => Effect.void } }) });
-  return { prepared, command };
+    subscribers: [{ id: "neutral-indexer", revision }], validate: () => Effect.void } }) } satisfies AtomicWorkflowHostComposition;
+  return { composition, prepared: tested.execution.prepare(composition), command };
 }
 async function host(tested: CoreNativeWorkflowFixture, body: Parameters<typeof defineAtomicCommerceCommand>[1],
   options: Readonly<{ events?: false; padding?: string; source?: AtomicCommerceNativeSource }> = {}) {
@@ -70,6 +71,92 @@ async function host(tested: CoreNativeWorkflowFixture, body: Parameters<typeof d
 }
 
 describe(`${driver} ordinary atomic workflow owner`, () => {
+  it.each(["missing-receipt", "aggregate-only", "mixed", "task-control", "invalid-flag"] as const)(
+    "refuses native statement reference checks with %s before callbacks or publication", async shape => {
+      const tested = await fixture();
+      let calls = 0, validations = 0;
+      try {
+        const { composition, command } = profile(tested, (context, args) => Effect.gen(function* () {
+          calls++; return yield* context.call(participant, write, args);
+        }), { events: false });
+        const member = composition.participants[0];
+        if (member === undefined) throw new Error("Missing genuine native participant");
+        const { validateLogicalCall: _validateLogicalCall, ...withoutReceipt } = member;
+        const selectedMember = shape === "missing-receipt" ? { ...withoutReceipt, statementReferenceChecks: true as const }
+          : shape === "aggregate-only" ? { ...withoutReceipt, statementReferenceChecks: true as const,
+            validateLogical: () => Effect.sync(() => { validations++; }) }
+          : { ...member, statementReferenceChecks: true as const,
+            ...(shape === "mixed" ? { logicalPublication: "mixed" as const } : {}) };
+        if (shape === "invalid-flag") Object.defineProperty(selectedMember, "statementReferenceChecks", { value: false, enumerable: true });
+        const selected = await tested.run(tested.execution.prepare({ ...composition, participants: [selectedMember],
+          ...(shape === "task-control" ? { taskControlCommands: [command] } : {}) }));
+        try {
+          const before = await tested.snapshot();
+          const outcome = await Effect.runPromise(Effect.exit(selected.run(selected.newRequestKey(), command, argumentsFor("xsr", "insert", "refused", false))));
+          expect(failures(outcome)).toEqual([expect.objectContaining({ reason: "unsupportedProfile" })]);
+          expect(calls).toBe(0); expect(validations).toBe(0);
+          expect(await tested.snapshot()).toEqual(before);
+        } finally { await Effect.runPromise(selected.close); }
+      } finally { await tested.close(); }
+    }, 120_000,
+  );
+
+  it("binds native statement reference checks to durable replay without replaying the callback", async () => {
+    const tested = await fixture();
+    const hosts: AtomicCommerceHost[] = [];
+    let calls = 0;
+    try {
+      const { composition, command } = profile(tested, (context, args) => Effect.gen(function* () {
+        calls++; return yield* context.call(participant, write, args);
+      }), { events: false });
+      const ordinary = await tested.run(tested.execution.prepare(composition)); hosts.push(ordinary);
+      const selected = await tested.run(tested.execution.prepare({ ...composition,
+        participants: composition.participants.map(member => ({ ...member, statementReferenceChecks: true as const })) }));
+      hosts.push(selected);
+      const key = selected.newRequestKey(), input = argumentsFor("xsf", "insert", "statement", false);
+      const fault = tested.loseNextNativeRootAcknowledgement();
+      const result = await Effect.runPromise(selected.run(key, command, input));
+      expect(result).toMatchObject([{ code: "xsf", name: "statement" }]);
+      expect(fault.failures).toBe(1); expect(calls).toBe(1);
+      const committed = await tested.snapshot();
+      expect(await Effect.runPromise(selected.run(key, command, input))).toEqual(result);
+      const changed = await Effect.runPromise(Effect.exit(ordinary.run(key, command, input)));
+      expect(failures(changed)).toEqual([expect.objectContaining({ reason: "requestConflict" })]);
+      expect(calls).toBe(1); expect(await tested.snapshot()).toEqual(committed);
+    } finally {
+      for (const selected of hosts.reverse()) await Effect.runPromise(selected.close);
+      await tested.close();
+    }
+  }, 120_000);
+
+  it.each(["upsert", "upsertPreservingDeletion"] as const)("refuses %s through the selected native Store while preserving the ordinary profile", async mode => {
+    const tested = await fixture(), hosts: AtomicCommerceHost[] = [];
+    let receipts = 0;
+    try {
+      const command = defineCommerceCommand("neutral-upsert", "write", context => context.store.write(context.manager, mode,
+        [{ code: "xsu", name: mode, symbol: "N", symbol_native: "N" }]));
+      const base = profile(tested, (context, args) => context.call(participant, command, args), { events: false });
+      const members = base.composition.participants.map(member => ({ ...member, commands: [command], allowPreservingDeletionUpsert: true as const,
+        validateLogicalCall: (...args: Parameters<typeof member.validateLogicalCall>) => {
+          receipts++; return member.validateLogicalCall(...args);
+        } }));
+      const ordinary = await tested.run(tested.execution.prepare({ ...base.composition, participants: members })); hosts.push(ordinary);
+      expect(await Effect.runPromise(ordinary.run(ordinary.newRequestKey(), base.command, null))).toMatchObject([{ code: "xsu", name: mode }]);
+      expect(receipts).toBe(1);
+      const before = await tested.snapshot();
+      const selected = await tested.run(tested.execution.prepare({ ...base.composition,
+        participants: members.map(member => ({ ...member, statementReferenceChecks: true as const })) }));
+      hosts.push(selected);
+      const outcome = await Effect.runPromise(Effect.exit(selected.run(selected.newRequestKey(), base.command, null)));
+      expect(failures(outcome)).toEqual(expect.arrayContaining([expect.objectContaining({ reason: "unsupportedProfile" }),
+        expect.objectContaining({ reason: "rollbackOnly" })]));
+      expect(receipts).toBe(1); expect(await tested.snapshot()).toEqual(before);
+    } finally {
+      for (const selected of hosts.reverse()) await Effect.runPromise(selected.close);
+      await tested.close();
+    }
+  }, 120_000);
+
   it("retains three independent owned failures through native body and seal while rolling back the complete root", async () => {
     const tested = await fixture();
     const reused = commerceError("invalidInput"), sameCode = commerceError("invalidInput");

@@ -92,11 +92,13 @@ export interface AtomicCommerceParticipantBase {
   readonly events?: ParticipantEventSelection;
 }
 export type AtomicCommerceParticipantInput = AtomicCommerceParticipantBase & (
-  Readonly<{ profile: CommerceProfile; installation: InstallationBindingReference; logicalStorage?: never; logicalResources?: never; logicalPublication?: never; nativeStorage?: never }> |
+  Readonly<{ profile: CommerceProfile; installation: InstallationBindingReference; logicalStorage?: never; logicalResources?: never; logicalPublication?: never; nativeStorage?: never; statementReferenceChecks?: never }> |
   Readonly<{ logicalStorage: LogicalCommerceSelectionInput; logicalResources?: CommerceResources;
     /** Trusted mixed-packet publication within this source's existing identity budget. */
-    logicalPublication?: "mixed" | undefined; profile?: never; installation?: never; nativeStorage?: never }> |
+    logicalPublication?: "mixed" | undefined; profile?: never; installation?: never; nativeStorage?: never; statementReferenceChecks?: never }> |
   Readonly<{ nativeStorage: AtomicCommerceNativeSource; logicalResources?: CommerceResources; logicalPublication?: "mixed";
+    /** Check references in native insert/update row order, before the next write. */
+    statementReferenceChecks?: true;
     logicalStorage?: never; profile?: never; installation?: never }>
 );
 
@@ -148,7 +150,8 @@ export function captureAtomicCommerceParticipants(input: readonly AtomicCommerce
       return yield* Result.fail(commerceError("unsupportedProfile"));
     const captured = [];
     for (const member of input) {
-      if (member.nativeStorage !== undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+      if (member.nativeStorage !== undefined || member.statementReferenceChecks !== undefined)
+        return yield* Result.fail(commerceError("unsupportedProfile"));
       const publication = yield* decodeLogicalPublication(member.logicalPublication)
         .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
       const reconstitution = yield* decodeReconstitution(member.reconstitution)

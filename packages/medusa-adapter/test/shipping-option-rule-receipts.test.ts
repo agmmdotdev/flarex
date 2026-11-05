@@ -15,13 +15,17 @@ let policy: ReturnType<typeof shippingOptionRulePolicy>, prepared: Result.Result
 const stamp = "2026-10-18T00:00:00.000Z", next = "2026-10-18T01:00:00.000Z";
 const scalar = (id = "rule-a", extra: JsonObject = {}): JsonObject => ({ id, attribute: "a", operator: "eq", value: "v", shipping_option_id: "option-a",
   created_at: stamp, updated_at: stamp, deleted_at: null, ...extra });
+const parent = (id = "option-a", deletedAt: string | null = null): Activity["observedRows"][number] => ({ table: "shipping_option", row: {
+  id, name: id, price_type: "flat", data: null, metadata: null, service_zone_id: "zone-a", shipping_profile_id: "profile-a",
+  provider_id: "provider-a", shipping_option_type_id: "type-a", created_at: stamp, updated_at: stamp, deleted_at: deletedAt,
+} });
 const empty = (): Activity => ({ observedRows: [], relationalReads: [], mutations: [], lifecycle: [], setNull: [], referenceReplacements: [] });
 const event = (id: string, action = "created"): Json => ({ name: "fulfillment.shipping-option-rule." + action,
   metadata: { source: "fulfillment", object: "shipping_option_rule", action }, data: { id } });
 const createCall = (): Call => ({ commandName: "shippingOptionRuleCreateForBatch", mode: "write",
   input: [{ id: "rule-a", attribute: "a", operator: "eq", value: "v", shipping_option_id: "option-a" }], result: [scalar()], events: [event("rule-a")],
   fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0 });
-const creation = (): Activity => ({ ...empty(), observedRows: [{ table: "shipping_option_rule", row: scalar() }],
+const creation = (): Activity => ({ ...empty(), observedRows: [{ table: "shipping_option_rule", row: scalar() }, parent()],
   mutations: [{ ordinal: 0, table: "shipping_option_rule", operation: "insert", before: null, after: scalar() }] });
 const refused = async (call: Call, activity: Activity) => expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall(call, activity))))
   .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
@@ -41,7 +45,7 @@ describe("native ShippingOptionRule receipt correlation", () => {
       { id: "rule-a", attribute: "ignored", operator: "eq", value: "ignored", shipping_option_id: "ignored-option" },
     ], result: [scalar("rule-a", { value: "true" }), scalar("rule-a", { value: "true" })] };
     const row = scalar("rule-a", { value: "true" });
-    const activity: Activity = { ...creation(), observedRows: [{ table: "shipping_option_rule", row }],
+    const activity: Activity = { ...creation(), observedRows: [{ table: "shipping_option_rule", row }, parent()],
       mutations: [{ ordinal: 0, table: "shipping_option_rule", operation: "insert", before: null, after: row }] };
     await Effect.runPromise(policy.validateLogicalCall(call, activity));
     await refused({ ...call, result: [row, scalar("rule-a", { value: "false" })] }, activity);
@@ -54,7 +58,7 @@ describe("native ShippingOptionRule receipt correlation", () => {
     await Effect.runPromise(policy.validateLogicalCall(createCall(), creation()));
     const call = { ...createCall(), input: [{ attribute: "a", operator: "eq", value: true, shipping_option_id: "option-a" }],
       result: [scalar("rule-a", { value: "true" })] };
-    const activity = { ...creation(), observedRows: [], mutations: creation().mutations.map(mutation => ({ ...mutation, after: scalar("rule-a", { value: "true" }) })) };
+    const activity = { ...creation(), observedRows: [parent()], mutations: creation().mutations.map(mutation => ({ ...mutation, after: scalar("rule-a", { value: "true" }) })) };
     await Effect.runPromise(policy.validateLogicalCall(call, activity));
     await refused({ ...call, result: [scalar("rule-a", { value: true })] }, activity);
     await refused({ ...call, input: [{ attribute: "a", operator: "eq", value: false, shipping_option_id: "option-a" }] }, activity);
@@ -74,15 +78,40 @@ describe("native ShippingOptionRule receipt correlation", () => {
     await refused(createCall(), { ...creation(), relationalReads: [selectionRead({ id: "rule-a" })] });
   });
 
+  it("requires the distinct physical parent cohort of the current successful writes", async () => {
+    const second = scalar("rule-b");
+    const call: Call = { ...createCall(), input: [{ id: "rule-a", attribute: "a", operator: "eq", value: "v", shipping_option_id: "option-a" },
+      { id: "rule-b", attribute: "a", operator: "eq", value: "v", shipping_option_id: "option-a" }], result: [scalar(), second],
+      events: [event("rule-a"), event("rule-b")], toAttempt: 2 };
+    const activity: Activity = { ...creation(), mutations: [...creation().mutations,
+      { ordinal: 1, table: "shipping_option_rule", operation: "insert", before: null, after: second }] };
+    await Effect.runPromise(policy.validateLogicalCall(call, { ...activity, observedRows: [parent("option-a", stamp)] }));
+    for (const observedRows of [[], [parent("stale-option")], [parent(), parent("unexpected-option")], [parent(), parent()],
+      [{ table: "shipping_option", row: { id: "option-a" } }]]) await refused(call, { ...activity, observedRows });
+  });
+
+  it("retains the separate Shipping Option update receipt profile", async () => {
+    const metadata = (await Effect.runPromise(captureServiceZoneCreationMetadata())).frame;
+    const updatePrepared = Result.getOrThrow(prepareShippingOptionRuleRepository(metadata, "shipping-option-update"));
+    const updatePolicy = shippingOptionRulePolicy(updatePrepared);
+    expect(updatePolicy.statementReferenceChecks).toBeUndefined();
+    const activity = { ...creation(), observedRows: [{ table: "shipping_option_rule", row: scalar() }] };
+    await Effect.runPromise(updatePolicy.validateLogicalCall(createCall(), activity));
+    expect(await Effect.runPromise(Effect.result(updatePolicy.validateLogicalCall(createCall(), creation()))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+  });
+
   it("binds the actual last-update deduplication, active read and complete output", async () => {
-    const before = scalar(), after = scalar("rule-a", { value: "last", updated_at: next });
+    const before = scalar(), after = scalar("rule-a", { value: "last", shipping_option_id: "option-b", updated_at: next });
     const call: Call = { ...createCall(), commandName: "shippingOptionRuleUpdateForBatch",
-      input: [{ id: "rule-a", attribute: "a", operator: "eq", value: "first" }, { id: "rule-a", attribute: "a", operator: "eq", value: "last" }],
+      input: [{ id: "rule-a", attribute: "a", operator: "eq", value: "first" },
+        { id: "rule-a", attribute: "a", operator: "eq", value: "last", shipping_option_id: "option-b" }],
       result: [after], events: [event("rule-a", "updated")] };
-    const activity: Activity = { ...empty(), observedRows: [{ table: "shipping_option_rule", row: before }],
+    const activity: Activity = { ...empty(), observedRows: [{ table: "shipping_option_rule", row: before }, parent("option-b")],
       relationalReads: [selectionRead({ $or: [{ id: "rule-a" }, { id: "rule-a" }] })],
       mutations: [{ ordinal: 0, table: "shipping_option_rule", operation: "patch", before, after }] };
     await Effect.runPromise(policy.validateLogicalCall(call, activity));
+    await refused(call, { ...activity, observedRows: [{ table: "shipping_option_rule", row: before }, parent()] });
     await refused({ ...call, input: [{ id: "rule-a", value: "last" }] }, activity);
     await refused(call, { ...activity, relationalReads: [] });
     await refused(call, { ...activity, mutations: [] });
@@ -98,6 +127,7 @@ describe("native ShippingOptionRule receipt correlation", () => {
         { kind: "storageInsertion", direction: "asc" }), total: 1, returned: 1, orderedIdentities: [{ id: "rule-a" }] }],
       mutations: [{ ordinal: 0, table: "shipping_option_rule", operation: "delete", before, after: null }] };
     await Effect.runPromise(policy.validateLogicalCall(call, activity));
+    await refused(call, { ...activity, observedRows: [...activity.observedRows, parent()] });
     await refused(call, { ...activity, relationalReads: [] });
     await refused(call, { ...activity, mutations: [] });
     await refused({ ...call, result: ["rule-a"] }, activity);

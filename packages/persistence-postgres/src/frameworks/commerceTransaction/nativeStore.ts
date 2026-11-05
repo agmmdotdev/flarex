@@ -36,6 +36,7 @@ export interface NativeCommerceReadObservation {
 export interface NativeCommerceInvocation {
   readonly insertValidation?: "entityBatch";
   readonly allowReferenceCheckpoints?: true;
+  readonly statementReferenceChecks?: true;
   readonly allowActiveRestoreUpdate?: true;
   readonly allowStorageInsertionOrder?: true;
   readonly allowRecordedRowReplay?: true;
@@ -144,7 +145,12 @@ export const makeNativeCommerceParticipant = Effect.fn("NativeCommerce.makeParti
       write: Effect.fn("NativeCommerce.write")((context: BoundedRequestContext, mode: Parameters<CommerceStore["write"]>[1], input: unknown) => guard(context, "write", Effect.gen(function* () {
         const upsertPolicy = invocation?.allowPreservingDeletionUpsert;
         const insertValidation = invocation?.insertValidation;
-        let writePolicy: Parameters<CoreNativeOperations["writeRows"]>[3] = insertValidation === undefined ? undefined : { insertValidation };
+        const statementReferenceChecks = invocation?.statementReferenceChecks === true;
+        if (statementReferenceChecks && mode !== "insert" && mode !== "update") return yield* commerceError("unsupportedProfile");
+        let writePolicy: Parameters<CoreNativeOperations["writeRows"]>[3] = insertValidation === undefined && !statementReferenceChecks ? undefined : {
+          ...(insertValidation === undefined ? {} : { insertValidation }),
+          ...(statementReferenceChecks ? { statementReferenceChecks: true } : {}),
+        };
         if (mode === "upsertPreservingDeletion" && invocation !== undefined) {
           if (upsertPolicy === true) writePolicy = { advancePreservingDeletionUpdatedAt: true };
           else if (upsertPolicy !== "preserveTimestamps") return yield* commerceError("invalidAuthority");

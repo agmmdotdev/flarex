@@ -197,6 +197,7 @@ const decodeNativeBatchIds = Schema.decodeUnknownEffect(Schema.Array(Schema.Stri
 const decodeNativeWriteInvocation = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Struct({
   insertValidation: Schema.optionalKey(Schema.Literal("entityBatch")),
   advancePreservingDeletionUpdatedAt: Schema.optionalKey(Schema.Literal(true)),
+  statementReferenceChecks: Schema.optionalKey(Schema.Literal(true)),
 }).annotate({ parseOptions: { onExcessProperty: "error" } })));
 const decodeNativeLifecycleInvocation = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Struct({
   allowActiveRestoreUpdate: Schema.optionalKey(Schema.Literal(true)),
@@ -1414,7 +1415,9 @@ export function createCoreTransaction(input: Readonly<{
   });
 
   const userOperations = (access: CoreTransactionNativeAccess | undefined = defaultAccess, withinOperation = false,
-    managedUpdate: "advance" | "preserve" = "advance", recordActivity = true): Pick<CoreTransaction, "normalizeId" | "get" | "insert" | "patch" | "replace" | "delete"> => {
+    managedUpdate: "advance" | "preserve" = "advance", recordActivity = true,
+    checkPatchedReferences?: (id: string, document: DocumentObject) => Effect.Effect<void, CoreError>,
+  ): Pick<CoreTransaction, "normalizeId" | "get" | "insert" | "patch" | "replace" | "delete"> => {
     const run = withinOperation ? <Value>(body: Effect.Effect<Value, CoreError>) => body
       : <Value>(body: Effect.Effect<Value, CoreError>) => nativeOperation(access, body);
     return Object.freeze({
@@ -1488,6 +1491,7 @@ export function createCoreTransaction(input: Readonly<{
       }
       const captured = yield* validateUserBody(selected.table, body, document, access, managedUpdate);
       const next = { ...captured, _id: originalId, _creationTime: originalTime };
+      if (checkPatchedReferences !== undefined) yield* checkPatchedReferences(id, next);
       const record = yield* prepareNativeMutation(access, selected.table, "patch", document, next, captured, recordActivity);
       yield* stage(selected.table, selected.internalId, next, access);
       record();
@@ -1859,12 +1863,37 @@ export function createCoreTransaction(input: Readonly<{
     return { table, policy, rows, access };
   });
 
+  const checkpointNativeRowReferences = Effect.fn("CoreTransaction.checkpointNativeRowReferences")(function* (
+    table: CoreTableDefinition, policy: NonNullable<ReturnType<typeof coreNativeRelationalRows>>,
+    id: string, document: DocumentObject, access: Extract<CoreTransactionNativeAccess, { kind: "native" }>,
+    find: CoreNativeOperations["find"],
+  ) {
+    for (const foreignKey of table.nativePolicy?.foreignKeys ?? []) {
+      if (foreignKey.sourceTable !== table.name) continue;
+      const selected = yield* Effect.fromResult(selectCoreNativeForeignKey(registry, table, foreignKey));
+      const tuple = yield* Effect.fromResult(coreNativeKeyTuple(document, foreignKey.sourceFields, true));
+      if (tuple === null) continue;
+      const where = yield* Effect.fromResult(coreNativeKeyWhere(foreignKey.targetFields, tuple));
+      if ((yield* find(selected.target.name, where)).length > 0) continue;
+      const target = coreNativeRelationalRows(access.authority.definition, selected.target.name);
+      if (target === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
+      return yield* coreNativeForeignKeyError(foreignKey, "targetMissing", { storage: "core", origin: "checkpoint",
+        descriptor: foreignKey.descriptor, child: { identity: policy.table.identity, tableName: policy.table.identity.tableId,
+          documentId: id }, sourceColumns: foreignKey.sourceFields,
+        target: { identity: target.table.identity, tableName: target.table.identity.tableId,
+          columns: foreignKey.targetFields, values: tuple } });
+    }
+  });
+
   const nativeWriteRows = (access: CoreTransactionNativeAccess | undefined = defaultAccess): CoreNativeOperations["writeRows"] => Effect.fn("CoreTransaction.nativeWriteRows")((tableName, mode, inputRows, invocation) => nativeBatch(access, Effect.gen(function* () {
     if (mode !== "insert" && mode !== "upsert" && mode !== "upsertPreservingDeletion" && mode !== "update") return yield* new CoreNativeQueryError({ reason: "invalidInput" });
     // This complete preflight precedes the first selected original. In
     // particular a later malformed/duplicate row cannot follow an earlier write.
     const selectedInvocation = yield* decodeNativeWriteInvocation(invocation)
       .pipe(Effect.mapError(cause => new CoreNativeQueryError({ reason: "invalidInput", cause })));
+    const statementReferenceChecks = selectedInvocation?.statementReferenceChecks === true;
+    if (statementReferenceChecks && mode !== "insert" && mode !== "update")
+      return yield* new CoreNativeQueryError({ reason: "invalidInput" });
     const entityBatch = mode === "insert" && selectedInvocation?.insertValidation === "entityBatch";
     const { table, policy, rows, access: nativeAccess } = yield* prepareNativeRowBatch(tableName, inputRows, false, access, entityBatch);
     if (entityBatch) for (const { row } of rows)
@@ -1872,7 +1901,12 @@ export function createCoreTransaction(input: Readonly<{
     const find = nativeFind(access, true);
     const preserveUpdatedAt = mode === "upsert"
       || (mode === "upsertPreservingDeletion" && selectedInvocation?.advancePreservingDeletionUpdatedAt !== true);
-    const methods = userOperations(access, true, preserveUpdatedAt ? "preserve" : "advance");
+    const checkReferences = statementReferenceChecks ? (id: string, document: DocumentObject) =>
+      checkpointNativeRowReferences(table, policy, id, document, nativeAccess, find) : undefined;
+    // Update checks its normalized afterimage before staging. Insert stages
+    // first so an occupied identity on this row precedes its FK lookup.
+    const methods = userOperations(access, true, preserveUpdatedAt ? "preserve" : "advance", true,
+      mode === "update" ? checkReferences : undefined);
     const result: DocumentObject[] = [];
     for (const { identity, row } of rows) {
       const selected = yield* find(table.name, identity);
@@ -1897,6 +1931,7 @@ export function createCoreTransaction(input: Readonly<{
       }
       const written = writes.get(id)?.finalDocument;
       if (written === undefined || written === null) return yield* new CorePersistenceError({ reason: "corruptData" });
+      if (mode === "insert" && checkReferences !== undefined) yield* checkReferences(id, written);
       result.push(written);
     }
     return Object.freeze(result);
@@ -2117,21 +2152,7 @@ export function createCoreTransaction(input: Readonly<{
       const find = nativeFind(access, true);
       for (const [id, change] of writes) {
         if (change.finalDocument === null || !bytesEqual(change.table.tabletId, table.tabletId)) continue;
-        for (const foreignKey of table.nativePolicy?.foreignKeys ?? []) {
-          if (foreignKey.sourceTable !== table.name) continue;
-          const selected = yield* Effect.fromResult(selectCoreNativeForeignKey(registry, table, foreignKey));
-          const tuple = yield* Effect.fromResult(coreNativeKeyTuple(change.finalDocument, foreignKey.sourceFields, true));
-          if (tuple === null) continue;
-          const where = yield* Effect.fromResult(coreNativeKeyWhere(foreignKey.targetFields, tuple));
-          if ((yield* find(selected.target.name, where)).length > 0) continue;
-          const target = coreNativeRelationalRows(access.authority.definition, selected.target.name);
-          if (target === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
-          return yield* coreNativeForeignKeyError(foreignKey, "targetMissing", { storage: "core", origin: "checkpoint",
-            descriptor: foreignKey.descriptor, child: { identity: policy.table.identity, tableName: policy.table.identity.tableId,
-              documentId: id }, sourceColumns: foreignKey.sourceFields,
-            target: { identity: target.table.identity, tableName: target.table.identity.tableId,
-              columns: foreignKey.targetFields, values: tuple } });
-        }
+        yield* checkpointNativeRowReferences(table, policy, id, change.finalDocument, access, find);
       }
     })));
 

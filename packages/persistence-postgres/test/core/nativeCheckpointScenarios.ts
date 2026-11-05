@@ -125,6 +125,7 @@ const setup = Effect.fn("NativeCheckpointTest.setup")(function* (fixture: CorePe
 });
 
 const failed = <A>(result: Result.Result<A, CoreError>) => Result.isFailure(result) ? result.failure : undefined;
+const statementReferences = { statementReferenceChecks: true } as const;
 
 export function registerNativeCheckpointScenarios(label: string, createFixture: () => Promise<CorePersistenceFixture>) {
   describe(label, () => {
@@ -160,6 +161,8 @@ export function registerNativeCheckpointScenarios(label: string, createFixture: 
       const foreign = graph.foreign.tables[0];
       if (foreign === undefined) return yield* Effect.die(new Error("Missing foreign source"));
       expect(failed(yield* Effect.result(operation.operations.checkpointReferences(foreign.name))))
+        .toMatchObject({ reason: "authorityRevoked" });
+      expect(failed(yield* Effect.result(operation.operations.writeRows(foreign.name, "insert", [{ id: "foreign" }], statementReferences))))
         .toMatchObject({ reason: "authorityRevoked" });
       yield* operation.abort();
       expect(yield* graph.read("child")).toEqual([]);
@@ -203,6 +206,70 @@ export function registerNativeCheckpointScenarios(label: string, createFixture: 
       yield* operation.abort();
     })), 120_000);
 
+    it("refuses the first insert statement before reaching a later occupied identity", run(fixture => Effect.gen(function* () {
+      const graph = yield* setup(fixture), child = graph.table("child");
+      const existing = { id: "occupied", parent_id: "parent", code: "original" };
+      yield* graph.write(operations => Effect.gen(function* () {
+        yield* operations.writeRows(graph.table("parent"), "insert", [{ id: "parent" }]);
+        yield* operations.writeRows(child, "insert", [existing]);
+      }));
+      const operation = yield* graph.begin(), operations = operation.operations;
+      const cursor = operations.nativeActivityCursor();
+      const missing = { id: "missing-target", parent_id: "absent", code: "valid" };
+      const refusal = failed(yield* Effect.result(operations.writeRows(child, "insert", [missing, existing], statementReferences)));
+      if (refusal === undefined) return yield* Effect.die(new Error("Expected a first-row reference refusal"));
+      expect(refusal).toMatchObject({ _tag: "CoreNativeForeignKeyError", reason: "targetMissing", descriptor: "child.parent" });
+      expect(inspectReferenceFailure(projectCoreCommerceFailure(refusal))).toMatchObject({
+        storage: "core", origin: "checkpoint", child: { tableName: "child" }, sourceColumns: ["parent_id"],
+        target: { tableName: "parent", columns: ["id"], values: ["absent"] },
+      });
+      expect(failed(yield* Effect.result(operations.writeRows(child, "insert", [existing, missing], statementReferences))))
+        .toMatchObject({ _tag: "CoreNativeUniqueConflict", descriptor: "child.primary" });
+      for (const mode of ["upsert", "upsertPreservingDeletion"] as const)
+        expect(failed(yield* Effect.result(operations.writeRows(child, mode, [missing], statementReferences))))
+          .toMatchObject({ _tag: "CoreNativeQueryError", reason: "invalidInput" });
+      expect((yield* operations.nativeActivitySince(cursor)).mutations).toEqual([]);
+      expect(yield* operations.find(child, {})).toMatchObject([existing]);
+      yield* operation.abort();
+      expect(yield* graph.read("child")).toMatchObject([existing]);
+    })), 120_000);
+
+    it("checks the actual update afterimage and records only this write's target", run(fixture => Effect.gen(function* () {
+      const graph = yield* setup(fixture), child = graph.table("child"), parent = graph.table("parent");
+      const existing = { id: "current", parent_id: "initial", code: "original" };
+      yield* graph.write(operations => Effect.gen(function* () {
+        yield* operations.writeRows(parent, "insert", [{ id: "initial" }, { id: "selected" }, { id: "prior-only" }]);
+        yield* operations.writeRows(child, "insert", [existing]);
+      }));
+      const operation = yield* graph.begin(), operations = operation.operations;
+      yield* operations.writeRows(child, "insert", [{ id: "prior", parent_id: "prior-only", code: "valid" }], statementReferences);
+      const cursor = operations.nativeActivityCursor();
+      yield* operations.writeRows(child, "update", [{ id: "current", parent_id: "selected" }], statementReferences);
+      const activity = yield* operations.nativeActivitySince(cursor);
+      expect(activity.observedRows.filter(observation => observation.table === parent)).toEqual([
+        { table: parent, row: { id: "selected" } },
+      ]);
+      expect(activity.mutations).toMatchObject([{ ordinal: 0, table: child, operation: "patch",
+        before: existing, after: { ...existing, parent_id: "selected" } }]);
+
+      const partial = operations.nativeActivityCursor();
+      yield* operations.writeRows(child, "update", [{ id: "current", code: "partial" }], statementReferences);
+      expect((yield* operations.nativeActivitySince(partial)).observedRows.filter(observation => observation.table === parent)).toEqual([
+        { table: parent, row: { id: "selected" } },
+      ]);
+
+      const next = operations.nativeActivityCursor();
+      const refusal = failed(yield* Effect.result(operations.writeRows(child, "update", [{ id: "current", parent_id: "absent" }], statementReferences)));
+      if (refusal === undefined) return yield* Effect.die(new Error("Expected a retarget refusal"));
+      expect(inspectReferenceFailure(projectCoreCommerceFailure(refusal))).toMatchObject({ origin: "checkpoint",
+        child: { tableName: "child" }, sourceColumns: ["parent_id"],
+        target: { tableName: "parent", columns: ["id"], values: ["absent"] } });
+      expect((yield* operations.nativeActivitySince(next)).mutations).toEqual([]);
+      expect(yield* operations.find(child, { id: "current" })).toMatchObject([{ ...existing, parent_id: "selected", code: "partial" }]);
+      yield* operation.abort();
+      expect(yield* graph.read("child")).toMatchObject([existing]);
+    })), 120_000);
+
     it("records actual source-confined rows and rebased native operations without extra lookups", run(fixture => Effect.gen(function* () {
       const graph = yield* setup(fixture), operation = yield* graph.begin(), operations = operation.operations;
       const cursor = operations.nativeActivityCursor();
@@ -238,6 +305,25 @@ export function registerNativeCheckpointScenarios(label: string, createFixture: 
       let callbacks = 0;
       const later = yield* Effect.result(lifetime.operation(lifetime.context, "checkpoint-native-request", "write", Effect.sync(() => { callbacks++; })));
       expect(Result.isFailure(later)).toBe(true);
+      expect(callbacks).toBe(0);
+      expect(Result.isFailure(yield* Effect.result(lifetime.seal))).toBe(true);
+      yield* operation.abort();
+      expect(yield* graph.read("child")).toEqual([]);
+    })), 120_000);
+
+    it("keeps a caught statement reference refusal sticky without granting table checkpoint authority", run(fixture => Effect.gen(function* () {
+      const graph = yield* setup(fixture), operation = yield* graph.begin();
+      const request = "statement-native-request";
+      const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, request, "write"), value => value.close);
+      const participant = yield* makeNativeCommerceParticipant(operation.operations, graph.metadata, lifetime, lifetime.context,
+        request, operation.unixTime, undefined, statementReferences);
+      expect(participant.checkpointRelationalReferences).toBeUndefined();
+      const child = yield* participant.table(lifetime.context, "child");
+      const refusal = yield* Effect.result(child.write(lifetime.context, "insert", [{ id: "caught-child", parent_id: "missing", code: "valid" }]));
+      if (Result.isSuccess(refusal)) return yield* Effect.die(new Error("Expected the selected native Store to check the statement reference"));
+      expect(inspectReferenceFailure(refusal.failure)).toMatchObject({ origin: "checkpoint", target: { values: ["missing"] } });
+      let callbacks = 0;
+      expect(Result.isFailure(yield* Effect.result(lifetime.operation(lifetime.context, request, "write", Effect.sync(() => { callbacks++; }))))).toBe(true);
       expect(callbacks).toBe(0);
       expect(Result.isFailure(yield* Effect.result(lifetime.seal))).toBe(true);
       yield* operation.abort();
