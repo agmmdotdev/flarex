@@ -52,12 +52,20 @@ export const makeNativeCommerceInitialization = Effect.fn("NativeCommerce.prepar
   const result = (inputResult: unknown) => decodeResult(inputResult).pipe(Effect.mapError(cause => commerceError("storedCorruption", cause)),
     Effect.flatMap(value => value.rowCount === descriptor.expectedRowCount ? Effect.succeed(value)
       : Effect.fail(commerceError("storedCorruption"))));
+  // A committed request outcome is terminal: Core never deletes request records
+  // and only claimed records change state. Once this exact initialization's
+  // receipt was verified, later readiness checks need only the current binding
+  // identity, which every call still validates before and after.
+  let committedReceipt = false;
   const requireReady = Effect.fn("NativeCommerce.requireInitialization")(function* () {
     yield* readBinding();
-    const observed = yield* projectLookup(database.resolveRequest(identity));
-    const resolved = observed.kind === "busy" ? yield* projectLookup(database.recoverRequest(identity)) : observed;
-    if (resolved.kind !== "committed") return yield* commerceError("seedRequired");
-    yield* result(resolved.result);
+    if (!committedReceipt) {
+      const observed = yield* projectLookup(database.resolveRequest(identity));
+      const resolved = observed.kind === "busy" ? yield* projectLookup(database.recoverRequest(identity)) : observed;
+      if (resolved.kind !== "committed") return yield* commerceError("seedRequired");
+      yield* result(resolved.result);
+      committedReceipt = true;
+    }
     yield* readBinding();
   });
   const verifyRows = Effect.fn("NativeCommerce.verifyInitializationRows")(function* (rows: unknown) {

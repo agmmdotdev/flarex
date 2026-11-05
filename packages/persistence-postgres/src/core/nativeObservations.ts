@@ -208,6 +208,8 @@ export class CoreNativeObservationState {
   }
 }
 
+/** The identity under which a unique slot membership is remembered. */
+export const coreNativeUniqueSlotKey = (index: CoreIndexDefinition, interval: CoreInterval) => slotIdentity("unique", index, interval);
 function slotIdentity(kind: CoreNativeIndexObservation["kind"], index: CoreIndexDefinition, interval: CoreInterval): string {
   return `${kind}:${encodeBytesToLowercaseHex(index.ref.id)}:${interval.start === null ? "-" : encodeBytesToLowercaseHex(interval.start)}:${interval.end === null ? "+" : encodeBytesToLowercaseHex(interval.end)}`;
 }

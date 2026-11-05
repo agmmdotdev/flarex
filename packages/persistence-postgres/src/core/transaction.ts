@@ -4,7 +4,7 @@
  * Copyright 2026 Convex, Inc., FSL-1.1-Apache-2.0 (convex-backend/LICENSE.md).
  */
 import { BTreeEx as BTree } from "sorted-btree/extended/index.js";
-import { Effect, Exit, Option, Result, Schema, Semaphore } from "effect";
+import { Cause, Effect, Exit, Option, Result, Schema, Semaphore } from "effect";
 import { bytesEqual, compareBytesLexicographically, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { SchemaManifestAppTableNameSchema } from "flarex-protocol/schema-manifest";
 import { decodeDocumentId, normalizeDocumentId } from "flarex-protocol/document-id";
@@ -27,8 +27,8 @@ import { CoreReadSetBuilder, keyInInterval, pointInterval, type CoreReadSet, typ
 import { CORE_TRANSACTION_REFERENCE_LIMITS, CoreAccounting } from "./accounting";
 import { captureCoreDocument, captureCoreObject, incrementCoreCreationTime } from "./document";
 import { addIndexMetadataDependency, addTableSemanticDependency, addTableWriteDependencies, coreMetadataReadSet } from "./dependencies";
-import { captureCoreIndexRange, createCoreEmptyQuery, createCoreQuery } from "./query";
-import { createCoreIndexSnapshot } from "./indexSnapshot";
+import { captureCoreIndexRange, CORE_INDEX_CAPTURE_PAGE_SIZE, createCoreEmptyQuery, createCoreQuery } from "./query";
+import { createCoreIndexSnapshot, type CoreIndexRangeBatchOptions } from "./indexSnapshot";
 import type { CoreTableCounts } from "./tableCounts";
 import { documentIndexKey } from "./documentIndex";
 import { authenticateCoreNativeRegistry, assertCoreHistoricalNativeTable, checkCoreNativeAuthority, checkCoreTableAccess, coreNativeMetadataReads,
@@ -51,7 +51,7 @@ import { captureCoreNativeRelatedCohort, coreNativeRelationalQueryFailure as nat
   coreNativeRelationalRow } from "./nativeRelationalQuery";
 import type { CoreNativeRelationalRowPolicy, CoreNativeTableDeclaration } from "./nativePolicy";
 import { CoreNativeObservationState, type CoreNativeMembership,
-  type CoreNativeObservations } from "./nativeObservations";
+  coreNativeUniqueSlotKey, type CoreNativeObservations } from "./nativeObservations";
 import { captureCoreNativeWhere, coreNativeUniqueSelection, coreNativeUniqueValues, planCoreNativeQuery,
   coreNativePageInterval, coreNativePendingIndexDocuments, prepareCoreNativePredicate, type CoreNativeScalar } from "./nativeQuery";
 import { captureCoreNativeIndexWindow } from "./nativePage";
@@ -276,10 +276,40 @@ const nativeRelatedPrimaryIndex = (declaration: CoreNativeTableDeclaration, poli
   return declaration.indexes?.find(index => index.kind === "key" && index.nativeId === primary?.identity.keyId);
 };
 
+type NativeSlotRead = Readonly<{ index: CoreIndexDefinition; interval: CoreInterval }>;
+const noSlots: readonly NativeSlotRead[] = [];
+/** Primary-key identity slots that the per-row native find selects; derivation
+ * failures simply leave that row to its ordinary read. */
+const nativeIdentitySlots = (table: CoreTableDefinition, identities: readonly JsonObject[]) => identities.flatMap(identity =>
+  Result.match(Result.flatMap(captureCoreNativeWhere(identity), where => planCoreNativeQuery(table, where)), {
+    onFailure: () => noSlots,
+    onSuccess: plan => plan.kind === "unique" ? [{ index: plan.index, interval: plan.interval }] : noSlots,
+  }));
+/** Unique slots of complete rows, from insert's first body capture. A key that
+ * later normalization changes only misses its prefetch and is read in place. */
+const nativeInsertSlots = (table: CoreTableDefinition, rows: readonly JsonObject[]) => rows.flatMap(row =>
+  Result.match(captureDocumentObject(row), {
+    onFailure: () => noSlots,
+    onSuccess: document => (table.nativePolicy?.uniqueConstraints ?? []).flatMap(constraint => Result.match(
+      Result.flatMap(coreNativeUniqueValues(constraint, document), values =>
+        values === null ? Result.fail(undefined) : coreNativeUniqueSelection(table, constraint, values)),
+      { onFailure: () => noSlots, onSuccess: ({ index, interval }) => [{ index, interval }] })),
+  }));
+
+/** Trusted Core stagers only: overlap the unique-slot reads of complete rows that
+ * will be inserted next. Not part of CoreNativeOperations; adapters cannot reach it. */
+type NativeInsertGroups = readonly Readonly<{ tableName: string; rows: readonly JsonObject[] }>[];
+const nativeInsertPrefetchers = new WeakMap<object, (groups: NativeInsertGroups) => Effect.Effect<void>>();
+/** One call per batch: it replaces any earlier batch's unconsumed prefetches. */
+export const prefetchCoreNativeInsertSlots = (operations: CoreNativeOperations, groups: NativeInsertGroups) =>
+  nativeInsertPrefetchers.get(operations)?.(groups) ?? Effect.void;
+
 export function createCoreTransaction(input: Readonly<{
   snapshot: CorePersistenceSnapshot;
   residentReader?: (request: CoreIndexScan) => CoreIndexPage | undefined;
   operationCacheMaxBytes?: number;
+  /** Bounded overlap for independent native reads within one batch call. */
+  nativeReadBatch?: CoreIndexRangeBatchOptions;
   registry: CoreRegistry;
   namespace?: CoreTableNamespace;
   counts?: CoreTableCounts;
@@ -569,6 +599,77 @@ export function createCoreTransaction(input: Readonly<{
     return yield* nativeRemember(table, developerId, observation);
   });
 
+  // Overlapped first reads of independent native slots (divergences/native-read-batches.md).
+  // A prefetched physical page is consumed at most once, and only when the
+  // consumer's own fresh capture proves no committed write touched its interval
+  // since the prefetch timestamp; the consumer then observes it at its own timestamp.
+  // Only the current batch call's unconsumed pages are retained: each new batch
+  // replaces them, bounding residency to one submitted batch's slots.
+  type PrefetchedSlot = Readonly<{ timestamp: bigint; entries: readonly CoreHydratedIndexEntry[] }>;
+  const prefetchedSlots = new Map<string, PrefetchedSlot>();
+
+  /** Fetch only: no capture state, accounting, reservation, memo or dependency.
+   * Typed failures are dropped so the sequential consumer reissues the read in
+   * place; defects and interruption propagate. */
+  const prefetchNativeSlots = Effect.fn("CoreTransaction.prefetchNativeSlots")(function* (
+    table: CoreTableDefinition, slots: readonly NativeSlotRead[],
+  ) {
+    const batch = input.nativeReadBatch;
+    if (native === undefined || nativeObservations === undefined || batch === undefined || nativeObservations.hasTable(table)) return;
+    const maxEntries = Result.match(nativeObservations.limitsFor(table), { onFailure: () => undefined, onSuccess: limits => limits.maxIdentities });
+    if (maxEntries === undefined) return;
+    const selected = new Map<string, NativeSlotRead>();
+    for (const slot of slots) {
+      const key = coreNativeUniqueSlotKey(slot.index, slot.interval);
+      if (!selected.has(key) && !prefetchedSlots.has(key) && nativeObservations.slot(slot.index, slot.interval) === undefined)
+        selected.set(key, slot);
+    }
+    // A single independent read has nothing to overlap.
+    if (selected.size < 2) return;
+    // Every typed capture failure means "no prefetch": the consumer's own capture
+    // reports it at its original position. Defects and interruption propagate.
+    const captured = yield* Effect.match(native.capture(), { onFailure: () => undefined, onSuccess: snapshotCapture => snapshotCapture });
+    if (captured === undefined || captured.writeLog.timestamp !== captured.snapshot.timestamp) return;
+    const prefetchSnapshot = createCoreIndexSnapshot({ snapshot: captured.snapshot, registry: captured.registry,
+      ...(captured.residentReader === undefined ? {} : { resident: captured.residentReader }),
+      ...(input.operationCacheMaxBytes === undefined ? {} : { maxBytes: input.operationCacheMaxBytes }) });
+    const keys = [...selected.keys()], requested = [...selected.values()];
+    const outcomes = yield* prefetchSnapshot.rangeBatch(requested.map(slot => ({ index: slot.index.ref, tableId: table.tabletId,
+      interval: slot.interval, order: "asc" as const, maxResults: Math.min(CORE_INDEX_CAPTURE_PAGE_SIZE, maxEntries + 1) })), batch);
+    for (const [position, outcome] of outcomes.entries()) {
+      const key = keys[position];
+      if (key === undefined) continue;
+      if (Exit.isFailure(outcome)) {
+        // Typed failures are reissued in place; defects and interruption keep their complete reasons.
+        const propagated = outcome.cause.reasons.filter((reason): reason is Cause.Die | Cause.Interrupt =>
+          Cause.isDieReason(reason) || Cause.isInterruptReason(reason));
+        if (propagated.length > 0) return yield* Effect.failCause(Cause.fromReasons<never>(propagated));
+        continue;
+      }
+      // Only a complete, within-limit capture is reusable; anything else is reread in place.
+      if (outcome.value.cursor.kind !== "end" || outcome.value.entries.length > maxEntries) continue;
+      prefetchedSlots.set(key, Object.freeze({ timestamp: prefetchSnapshot.timestamp, entries: outcome.value.entries }));
+    }
+  });
+
+  /** Starts one batch call's prefetch, replacing any earlier call's unconsumed pages. */
+  const prefetchNativeBatch = (groups: readonly Readonly<{ table: CoreTableDefinition; slots: readonly NativeSlotRead[] }>[]) =>
+    Effect.andThen(Effect.sync(() => prefetchedSlots.clear()),
+      Effect.forEach(groups, group => prefetchNativeSlots(group.table, group.slots), { concurrency: "unbounded", discard: true }));
+
+  /** The consumer's capture decides: not newer than the consumer, within its
+   * limit, and no committed write to the interval in (prefetch, capture]. */
+  const consumePrefetchedSlot = (index: CoreIndexDefinition, interval: CoreInterval,
+    selected: Readonly<{ snapshot: CorePersistenceSnapshot; writeLog: CoreWriteLogSnapshot }>, maxEntries: number) => {
+    const key = coreNativeUniqueSlotKey(index, interval);
+    const prefetched = prefetchedSlots.get(key);
+    if (prefetched === undefined) return undefined;
+    prefetchedSlots.delete(key);
+    if (prefetched.timestamp > selected.snapshot.timestamp || prefetched.entries.length > maxEntries) return undefined;
+    return Result.match(selected.writeLog.conflict([{ indexId: index.ref.id, intervals: [interval] }], prefetched.timestamp), {
+      onFailure: () => undefined, onSuccess: conflict => conflict === undefined ? prefetched.entries : undefined });
+  };
+
   const nativeMembership = Effect.fn("CoreTransaction.nativeMembership")(function* (
     table: CoreTableDefinition, index: CoreIndexDefinition, interval: CoreInterval, charged?: Set<DocumentObject>, observeRows = true, access: CoreTransactionNativeAccess | undefined = defaultAccess,
   ) {
@@ -576,8 +677,10 @@ export function createCoreTransaction(input: Readonly<{
     const selected = yield* nativeCapture(table, access, index);
     const captureLimits = yield* Effect.fromResult(nativeObservations.limitsFor(table));
     yield* Effect.fromResult(accounting.query(index.ref.id, interval));
-    const entries = yield* captureCoreIndexRange({ snapshot: selected.indexSnapshot, table, index, interval,
-      maxEntries: captureLimits.maxIdentities, assertOpen });
+    const prefetched = consumePrefetchedSlot(index, interval, selected, captureLimits.maxIdentities);
+    if (prefetched !== undefined) yield* assertOpen();
+    const entries = prefetched ?? (yield* captureCoreIndexRange({ snapshot: selected.indexSnapshot, table, index, interval,
+      maxEntries: captureLimits.maxIdentities, assertOpen }));
     const ids = yield* Effect.forEach(entries, entry => Effect.fromResult(publicDocumentId(table, entry.document.id)));
     // Complete physical overflow and the root-wide identity budget precede any
     // first-row coherence verdict, including pending-hidden/residual candidates.
@@ -1898,6 +2001,8 @@ export function createCoreTransaction(input: Readonly<{
     const { table, policy, rows, access: nativeAccess } = yield* prepareNativeRowBatch(tableName, inputRows, false, access, entityBatch);
     if (entityBatch) for (const { row } of rows)
       yield* Effect.fromResult(policy.rows.validateInsertRequired(row, new Date(unixTime).toISOString()));
+    // The complete batch preflight passed; overlap only each row's identity read.
+    yield* prefetchNativeBatch([{ table, slots: nativeIdentitySlots(table, rows.map(({ identity }) => identity)) }]);
     const find = nativeFind(access, true);
     const preserveUpdatedAt = mode === "upsert"
       || (mode === "upsertPreservingDeletion" && selectedInvocation?.advancePreservingDeletionUpdatedAt !== true);
@@ -2158,6 +2263,7 @@ export function createCoreTransaction(input: Readonly<{
 
   const nativeDeleteRows = (access: CoreTransactionNativeAccess | undefined = defaultAccess): CoreNativeOperations["deleteRows"] => Effect.fn("CoreTransaction.nativeDeleteRows")((tableName, inputKeys) => nativeBatch(access, Effect.gen(function* () {
     const { table, rows } = yield* prepareNativeRowBatch(tableName, inputKeys, true, access);
+    yield* prefetchNativeBatch([{ table, slots: nativeIdentitySlots(table, rows.map(({ identity }) => identity)) }]);
     const find = nativeFind(access, true), methods = userOperations(access, true);
     const result: DocumentObject[] = [];
     for (const { identity } of rows) {
@@ -2178,6 +2284,7 @@ export function createCoreTransaction(input: Readonly<{
       .pipe(Effect.mapError(cause => new CoreNativeQueryError({ reason: "invalidInput", cause })));
     const { table, policy, rows } = yield* prepareNativeRowBatch(tableName, inputKeys, true, access);
     if (policy.rows.deletedAt === undefined) return yield* new CoreNativeQueryError({ reason: "invalidInput", cause: "Soft deletion is not admitted" });
+    yield* prefetchNativeBatch([{ table, slots: nativeIdentitySlots(table, rows.map(({ identity }) => identity)) }]);
     const find = nativeFind(access, true), methods = userOperations(access, true);
     const recordLifecycle = Effect.fn("CoreTransaction.recordNativeLifecycle")(function* (
       identity: Readonly<Record<string, string>>, before: DocumentObject, after: DocumentObject, changed: boolean,
@@ -2713,7 +2820,15 @@ export function createCoreTransaction(input: Readonly<{
         return yield* new CoreTransactionError({ reason: "authorityRevoked" });
     }))),
   });
-  const nativeOperations = defaultAccess === undefined ? undefined : Object.freeze(nativeOperationsFor(defaultAccess));
+  /** Registers the trusted insert-slot seam for exactly this issued facade. */
+  const withInsertPrefetch = <Operations extends object>(issued: Operations, access: CoreTransactionNativeAccess) => {
+    nativeInsertPrefetchers.set(issued, groups => prefetchNativeBatch(groups.flatMap(({ tableName, rows }) =>
+      Result.match(tableByName(tableName, false, access), { onFailure: () => [],
+        onSuccess: table => [{ table, slots: nativeInsertSlots(table, rows) }] }))));
+    return issued;
+  };
+  const nativeOperations = defaultAccess === undefined ? undefined
+    : withInsertPrefetch(Object.freeze(nativeOperationsFor(defaultAccess)), defaultAccess);
   const applicationInserts = new Map<CoreTransactionNativeAccess, CoreApplicationInsertOperations>();
   const applicationReads = new Map<CoreTransactionNativeAccess, CoreApplicationReadOperations>();
 
@@ -2728,7 +2843,7 @@ export function createCoreTransaction(input: Readonly<{
       if (input.nativeRoot === undefined || !nativeAccesses.has(access) || access.kind !== "native")
         return yield* new CoreTransactionError({ reason: "authorityRevoked" });
       yield* Effect.fromResult(checkCoreNativeAuthority(registry, access.authority));
-      return Object.freeze({ ...nativeOperationsFor(access), readRelated: nativeReadRelated(access) });
+      return withInsertPrefetch(Object.freeze({ ...nativeOperationsFor(access), readRelated: nativeReadRelated(access) }), access);
     }),
     applicationInsertFor: Effect.fn("CoreTransaction.applicationInsertFor")(function* (access) {
       yield* assertOpen();

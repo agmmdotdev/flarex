@@ -1,6 +1,7 @@
 # Convex mechanism divergence records
 
 - [Write-log generation snapshots](./write-log-generation-snapshots.md) reuse immutable committed conflict views until append or retention pruning.
+- [Overlapped native slot reads](./native-read-batches.md) translate `range_batch` and prefetch independent native unique slots, consumed only when the consumer's write log proves them current.
 
 - [Native policy match reuse](./native-policy-match-reuse.md) retains immutable comparison evidence while the live registry owns authority.
 - [Core Effect scan spans](./core-effect-hot-scan-spans.md) retain named scan boundaries and hoist stable operations.

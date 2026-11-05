@@ -4,12 +4,12 @@ import { bytesEqual, compareBytesLexicographically } from "@flarex/utils/bytes";
 import { encodeDocumentValue } from "flarex-protocol/document-value";
 import { compilePayloadCollections } from "../../../payload-adapter/src/collections";
 import type { CoreTableDefinition } from "../../src/core/api";
-import type { CoreDocumentLogEntry, CoreIndexScan, CorePersistenceSnapshot } from "../../src/core/contracts";
+import { CorePersistenceError, type CoreDocumentLogEntry, type CoreIndexScan, type CorePersistenceSnapshot } from "../../src/core/contracts";
 import { documentIndexKey } from "../../src/core/documentIndex";
 import { checkCoreNativeAuthority, makeCoreNativeDefinition, type CoreNativeAuthority } from "../../src/core/nativePolicy";
 import { initialRegistry, publicDocumentId, readDocumentObject, type CoreRegistry } from "../../src/core/registry";
 import { serializeCoreSchema } from "../../src/core/schemaJson";
-import { CoreFinalizationVault, createCoreTransaction } from "../../src/core/transaction";
+import { CoreFinalizationVault, createCoreTransaction, prefetchCoreNativeInsertSlots } from "../../src/core/transaction";
 import { createTransactionIdGenerator } from "../../src/core/transactionIdGenerator";
 import { CoreWriteLog, keyInInterval, type CoreIndexKeys } from "../../src/core/writeLog";
 import { CoreAccounting, CORE_TRANSACTION_REFERENCE_LIMITS } from "../../src/core/accounting";
@@ -23,7 +23,7 @@ interface Row { readonly id: number; readonly title: string; readonly ts?: bigin
 
 /** Metadata is seeded through actual registry/codec owners; the reader supplies immutable test pages only. */
 async function fixture(visibility: "command" | "snapshot" = "command", maxIdentities = 256,
-  maxDocumentBytes = 65536, retainedMaximum = 1 << 20) {
+  maxDocumentBytes = 65536, retainedMaximum = 1 << 20, nativeReadBatch?: { concurrency: number }) {
   const definition = await Effect.runPromise(Effect.gen(function* () {
     const compiled = yield* compilePayloadCollections([{ slug: "news", fields: [
       { name: "title", type: "text", required: true, unique: true },
@@ -62,6 +62,7 @@ async function fixture(visibility: "command" | "snapshot" = "command", maxIdenti
   })));
   const authority: CoreNativeAuthority = { definition, namespace: null, schemaId, authorityEpoch: 0n, tables: [table] };
   const calls: CoreIndexScan[] = [];
+  let scanFault: ((request: CoreIndexScan) => Effect.Effect<never, CorePersistenceError> | undefined) | undefined;
   const id = (identity: number) => Result.getOrThrow(publicDocumentId(table, bytes(identity)));
   function selected(timestamp: bigint, rows: readonly Row[], selectedRegistry: CoreRegistry = registry) {
     const documents: readonly CoreDocumentLogEntry[] = rows.map(row => ({ ts: row.ts ?? timestamp, tableId: table.tabletId,
@@ -69,7 +70,7 @@ async function fixture(visibility: "command" | "snapshot" = "command", maxIdenti
       deleted: false, prevTs: null }));
     const snapshot: CorePersistenceSnapshot = { timestamp,
       get: () => Effect.die(new Error("Native point reads use the source ById index")),
-      scan: request => Effect.sync(() => {
+      scan: request => scanFault?.(request) ?? Effect.sync(() => {
         calls.push(request);
         const index = table.indexes.find(candidate => bytesEqual(candidate.ref.id, request.index.id));
         if (index === undefined || !bytesEqual(request.tableId, table.tabletId)) throw new Error("Unexpected physical reader request");
@@ -92,6 +93,7 @@ async function fixture(visibility: "command" | "snapshot" = "command", maxIdenti
   const retained = new CoreAccounting({ ...CORE_TRANSACTION_REFERENCE_LIMITS, bytesRead: retainedMaximum });
   const assertOwnerOpen = Effect.suspend(() => Effect.fromResult(checkCoreNativeAuthority(current.registry, authority)));
   const context = createCoreTransaction({ ...initial, now: 10n, vault, readonly: visibility === "snapshot",
+    ...(nativeReadBatch === undefined ? {} : { nativeReadBatch }),
     idGenerator: Result.getOrThrow(createTransactionIdGenerator(new Uint8Array(32), 10n)), assertOwnerOpen,
     native: { authority, visibility, limits: { maxIdentities, maxDocumentBytes },
       remainingBytes: () => Math.max(0, retainedMaximum - retained.snapshot().user.bytesRead),
@@ -102,8 +104,10 @@ async function fixture(visibility: "command" | "snapshot" = "command", maxIdenti
   if (operations === undefined) throw new Error("Native facade was not issued");
   return { table, id, registry, authority, calls, context, operations, vault, retained,
     current: () => current,
-    publish: (timestamp: bigint, rows: readonly Row[], selectedRegistry?: CoreRegistry, transitions: readonly CoreIndexKeys[] = []) => {
-      log.append(timestamp, [], undefined, transitions);
+    setScanFault: (fault: typeof scanFault) => { scanFault = fault; },
+    publish: (timestamp: bigint, rows: readonly Row[], selectedRegistry?: CoreRegistry, transitions: readonly CoreIndexKeys[] = [],
+      changes: readonly CoreIndexKeys[] = []) => {
+      log.append(timestamp, changes, undefined, transitions);
       current = { ...selected(timestamp, rows, selectedRegistry), writeLog: log.snapshot() };
     },
     finalized: async () => {
@@ -604,5 +608,124 @@ describe("native transaction observations over the source transaction", () => {
         .toMatchObject({ _tag: "Failure", failure: { reason: "authorityRevoked" } });
     }
     await Effect.runPromise(transaction.abort());
+  });
+
+  describe("overlapped independent slot reads", () => {
+    const titleIndex = (table: CoreTableDefinition) => {
+      const index = table.indexes.find(candidate => candidate.fields.length === 1 && candidate.fields[0] === "title");
+      if (index === undefined) throw new Error("Missing title index");
+      return index;
+    };
+    const titleScans = (calls: readonly CoreIndexScan[], table: CoreTableDefinition) =>
+      calls.filter(call => bytesEqual(call.index.id, titleIndex(table).ref.id)).length;
+    const outcome = async <A>(work: Effect.Effect<A, unknown>) => {
+      const exit = await Effect.runPromiseExit(work);
+      return exit._tag === "Success" ? { ok: true } : { ok: false, failure: JSON.parse(JSON.stringify(exit.cause.reasons.map(reason =>
+        reason._tag === "Fail" ? { tag: (reason.error as { _tag?: string })._tag, reason: (reason.error as { reason?: string }).reason } : reason._tag))) };
+    };
+
+    it("prefetches complete insert slots together and leaves observations, usage and order unchanged", async () => {
+      const titles = ["batch-a", "batch-b", "batch-c"];
+      const control = await fixture();
+      for (const title of titles) await Effect.runPromise(control.operations.insert(control.table.name, body(title)));
+      const tested = await fixture("command", 256, 65536, 1 << 20, { concurrency: 4 });
+      await Effect.runPromise(prefetchCoreNativeInsertSlots(tested.operations, [{ tableName: tested.table.name, rows: titles.map(body) }]));
+      expect(titleScans(tested.calls, tested.table)).toBe(3);
+      for (const title of titles) await Effect.runPromise(tested.operations.insert(tested.table.name, body(title)));
+      // Each insert consumed its prefetched slot instead of rescanning it.
+      expect(titleScans(tested.calls, tested.table)).toBe(3);
+      expect(titleScans(control.calls, control.table)).toBe(3);
+      expect(await Effect.runPromise(tested.context.transaction.usage)).toEqual(await Effect.runPromise(control.context.transaction.usage));
+      expect((await tested.finalized()).nativeObservations).toEqual((await control.finalized()).nativeObservations);
+    });
+
+    it("rereads a prefetched slot that a competing commit touched before consumption", async () => {
+      const competitor = { id: 300, title: "contested" };
+      const competing = (tested: Awaited<ReturnType<typeof fixture>>) => {
+        const document = Result.getOrThrow(readDocumentObject({ ts: 20n, tableId: tested.table.tabletId, id: bytes(competitor.id),
+          jsonValue: Result.getOrThrow(encodeDocumentValue({ ...body(competitor.title), _id: tested.id(competitor.id), _creationTime: competitor.id })),
+          deleted: false, prevTs: null }, tested.table));
+        const key = Result.getOrThrow(documentIndexKey(titleIndex(tested.table), document));
+        tested.publish(20n, [{ id: 201, title: "first" }, { id: 202, title: "second" }, competitor], undefined, [],
+          [{ indexId: titleIndex(tested.table).ref.id, keys: [key] }]);
+      };
+      const control = await fixture();
+      competing(control);
+      const expected = await outcome(control.operations.insert(control.table.name, body(competitor.title)));
+      expect(expected.ok).toBe(false);
+      const tested = await fixture("command", 256, 65536, 1 << 20, { concurrency: 4 });
+      await Effect.runPromise(prefetchCoreNativeInsertSlots(tested.operations, [{ tableName: tested.table.name, rows: [body(competitor.title), body("unrelated")] }]));
+      const prefetched = titleScans(tested.calls, tested.table);
+      competing(tested);
+      expect(await outcome(tested.operations.insert(tested.table.name, body(competitor.title)))).toEqual(expected);
+      // The stale absence page was rejected by the write-log suffix and reread at the newer frontier.
+      expect(titleScans(tested.calls, tested.table)).toBe(prefetched + 1);
+      // An untouched prefetched slot remains reusable at the newer frontier.
+      await Effect.runPromise(tested.operations.insert(tested.table.name, body("unrelated")));
+      expect(titleScans(tested.calls, tested.table)).toBe(prefetched + 1);
+    });
+
+    it("keeps duplicate keys and their failure position identical to sequential inserts", async () => {
+      const control = await fixture();
+      expect(await outcome(control.operations.insert(control.table.name, body("twice")))).toEqual({ ok: true });
+      const expected = await outcome(control.operations.insert(control.table.name, body("twice")));
+      const tested = await fixture("command", 256, 65536, 1 << 20, { concurrency: 4 });
+      await Effect.runPromise(prefetchCoreNativeInsertSlots(tested.operations, [{ tableName: tested.table.name, rows: [body("twice"), body("twice"), body("once")] }]));
+      expect(titleScans(tested.calls, tested.table)).toBe(2);
+      expect(await outcome(tested.operations.insert(tested.table.name, body("twice")))).toEqual({ ok: true });
+      expect(await outcome(tested.operations.insert(tested.table.name, body("twice")))).toEqual(expected);
+      expect(expected.ok).toBe(false);
+    });
+
+    it("replaces an earlier batch's unconsumed pages with the next batch", async () => {
+      const tested = await fixture("command", 256, 65536, 1 << 20, { concurrency: 4 });
+      await Effect.runPromise(prefetchCoreNativeInsertSlots(tested.operations, [{ tableName: tested.table.name, rows: [body("used"), body("dropped")] }]));
+      await Effect.runPromise(tested.operations.insert(tested.table.name, body("used")));
+      expect(titleScans(tested.calls, tested.table)).toBe(2);
+      await Effect.runPromise(prefetchCoreNativeInsertSlots(tested.operations, [{ tableName: tested.table.name, rows: [body("next-a"), body("next-b")] }]));
+      expect(titleScans(tested.calls, tested.table)).toBe(4);
+      // The first batch's unconsumed page was released, so this slot is read in place.
+      await Effect.runPromise(tested.operations.insert(tested.table.name, body("dropped")));
+      expect(titleScans(tested.calls, tested.table)).toBe(5);
+      await Effect.runPromise(tested.operations.insert(tested.table.name, body("next-a")));
+      expect(titleScans(tested.calls, tested.table)).toBe(5);
+    });
+
+    it("skips a typed prefetch failure and rereads that slot in place", async () => {
+      const control = await fixture();
+      const expected = await outcome(control.operations.insert(control.table.name, body("typed-a")));
+      const tested = await fixture("command", 256, 65536, 1 << 20, { concurrency: 4 });
+      let faulted = 0;
+      tested.setScanFault(request => bytesEqual(request.index.id, titleIndex(tested.table).ref.id)
+        ? (faulted += 1, Effect.fail(new CorePersistenceError({ reason: "unavailable" }))) : undefined);
+      await Effect.runPromise(prefetchCoreNativeInsertSlots(tested.operations, [{ tableName: tested.table.name, rows: [body("typed-a"), body("typed-b")] }]));
+      // Both speculative reads were attempted, failed and left nothing behind.
+      expect(faulted).toBe(2);
+      expect(titleScans(tested.calls, tested.table)).toBe(0);
+      tested.setScanFault(undefined);
+      expect(await outcome(tested.operations.insert(tested.table.name, body("typed-a")))).toEqual(expected);
+      expect(titleScans(tested.calls, tested.table)).toBe(1);
+    });
+
+    it("propagates a defect from a speculative slot read with its complete cause", async () => {
+      const tested = await fixture("command", 256, 65536, 1 << 20, { concurrency: 4 });
+      const defect = new Error("speculative read defect");
+      tested.setScanFault(request => bytesEqual(request.index.id, titleIndex(tested.table).ref.id) ? Effect.die(defect) : undefined);
+      const exit = await Effect.runPromiseExit(prefetchCoreNativeInsertSlots(tested.operations,
+        [{ tableName: tested.table.name, rows: [body("dies-a"), body("dies-b")] }]));
+      expect(exit._tag).toBe("Failure");
+      const reasons = exit._tag === "Failure" ? exit.cause.reasons : [];
+      expect(reasons.length).toBeGreaterThan(0);
+      expect(reasons.every(reason => reason._tag === "Die" && reason.defect === defect)).toBe(true);
+    });
+
+    it("does not prefetch without a host bound or for a single independent read", async () => {
+      const unbounded = await fixture();
+      await Effect.runPromise(prefetchCoreNativeInsertSlots(unbounded.operations, [{ tableName: unbounded.table.name, rows: [body("x"), body("y")] }]));
+      expect(titleScans(unbounded.calls, unbounded.table)).toBe(0);
+      const single = await fixture("command", 256, 65536, 1 << 20, { concurrency: 4 });
+      await Effect.runPromise(prefetchCoreNativeInsertSlots(single.operations, [{ tableName: single.table.name, rows: [body("only")] }]));
+      expect(titleScans(single.calls, single.table)).toBe(0);
+    });
   });
 });

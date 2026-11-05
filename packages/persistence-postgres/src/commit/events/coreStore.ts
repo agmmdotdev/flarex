@@ -10,6 +10,7 @@ import { CoreSchemaError } from "../../core/schemaTypes";
 import { CORE_TRANSACTION_REFERENCE_LIMITS } from "../../core/accounting";
 import { captureCoreObject } from "../../core/document";
 import { coreNativeRelationalRow } from "../../core/nativeRelationalQuery";
+import { prefetchCoreNativeInsertSlots } from "../../core/transaction";
 import { coreNativeRelationalRows, sameCoreNativeIdentity, type CoreNativeDefinition } from "../../core/nativePolicy";
 import { CoreNativeRootRequestEvidenceSchema, type CoreNativeRootRequestEvidence } from "../../core/nativeRootRequest";
 import { capturePrivateCanonicalValue } from "../../installation/frameworkSchema/privateCanonicalValue";
@@ -227,6 +228,9 @@ export const stageCoreCommitEventFamily = Effect.fn("CoreNativeEvents.stageFamil
       yield* core(Effect.fromResult(rowPolicy.rows.validate(record, "documentInvalid")));
     }
   }
+  // Every row is complete and validated: overlap their independent unique-slot
+  // reads, then stage in the original order through ordinary Core insert.
+  yield* prefetchCoreNativeInsertSlots(operations, records.map(group => ({ tableName: group.table.name, rows: group.rows })));
   for (const group of records) yield* observeExecution(`CoreNativeEvents.stage/${group.phase}`, Effect.gen(function* () {
     for (const record of group.rows) yield* core(operations.insert(group.table.name, record));
   }));

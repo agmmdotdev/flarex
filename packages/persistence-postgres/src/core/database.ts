@@ -95,6 +95,8 @@ const decodeNativeRegistrations = Schema.decodeUnknownEffect(Schema.Array(Schema
   mode: Schema.Literals(["read", "write"]) })).check(Schema.isMinLength(1), Schema.isMaxLength(128)));
 const decodeOperationCacheBytes = Schema.decodeUnknownEffect(Schema.Int.check(Schema.makeFilter(value =>
   Number.isSafeInteger(value) && value >= 0 ? undefined : "Expected a nonnegative safe cache size")));
+const decodeNativeReadConcurrency = Schema.decodeUnknownEffect(Schema.Int.check(Schema.makeFilter(value =>
+  Number.isSafeInteger(value) && value > 0 && value <= 64 ? undefined : "Expected a native read concurrency from 1 to 64")));
 const decodeCreationTimestamp = Schema.decodeUnknownEffect(CoreTimestampSchema);
 const utf8 = new TextEncoder();
 const utf8Decoder = new TextDecoder();
@@ -291,6 +293,12 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
   }).pipe(Effect.mapError(invalid));
   const operationCacheMaxBytes = yield* decodeOperationCacheBytes(options.operationCacheMaxBytes ?? 16 * 1024 * 1024)
     .pipe(Effect.mapError(invalid));
+  const nativeReadConcurrency = yield* decodeNativeReadConcurrency(options.nativeReadConcurrency ?? 4).pipe(Effect.mapError(invalid));
+  // One owner-wide bound for overlapped native reads, so concurrent roots cannot
+  // exhaust the host's database connections (see divergences/native-read-batches.md).
+  const nativeReadSlots = yield* Semaphore.make(nativeReadConcurrency);
+  const nativeReadBatch = Object.freeze({ concurrency: nativeReadConcurrency,
+    withPermit: <A, E>(fetch: Effect.Effect<A, E>) => nativeReadSlots.withPermits(1)(fetch) });
   const lease = yield* persistence.acquireLease();
   const initial = yield* bootstrapCore(persistence, lease, options);
   const scopeExclusion = new CoreNativeScopeExclusion();
@@ -1072,7 +1080,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       const idGenerator = yield* prepareCoreTransactionIdGenerator(options);
       yield* assertNativeOpen;
       const context = createCoreTransaction({ snapshot: selected.snapshot, registry: selected.registry,
-        residentReader: request => selected.resident.scan(request), operationCacheMaxBytes, now, idGenerator,
+        residentReader: request => selected.resident.scan(request), operationCacheMaxBytes, nativeReadBatch, now, idGenerator,
         vault, limits, namespace: authority.namespace, schemaBundles,
         readonly: command.mode === "read", native: { authority, visibility: command.mode === "read" ? "snapshot" : "command", capture,
           limits: nativeLimits, chargeRetained: beginOptions.chargeRetained, remainingBytes: beginOptions.remainingBytes,
@@ -1147,7 +1155,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       const idGenerator = yield* prepareCoreTransactionIdGenerator(options);
       yield* assertNativeOpen;
       const context = createCoreTransaction({ snapshot: selected.snapshot, registry: selected.registry,
-        residentReader: request => selected.resident.scan(request), operationCacheMaxBytes, now, idGenerator,
+        residentReader: request => selected.resident.scan(request), operationCacheMaxBytes, nativeReadBatch, now, idGenerator,
         vault, limits, namespace: data.metadata.namespace, schemaBundles,
         nativeRoot: { accesses: data.accesses, limits: data.limits, maxFinalUserDocuments: data.maxFinalUserDocuments,
           chargeRetained: beginOptions.chargeRetained, remainingBytes: beginOptions.remainingBytes,

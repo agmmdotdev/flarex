@@ -5,6 +5,13 @@ const TYPED_ARRAY_BYTE_LENGTH_GETTER = Object.getOwnPropertyDescriptor(
   TYPED_ARRAY_PROTOTYPE,
   "byteLength",
 )?.get;
+const TYPED_ARRAY_LENGTH_GETTER = Object.getOwnPropertyDescriptor(
+  TYPED_ARRAY_PROTOTYPE,
+  "length",
+)?.get;
+const LOWERCASE_HEX_BYTES: readonly string[] = Object.freeze(
+  Array.from({ length: 256 }, (_, byte) => byte.toString(16).padStart(2, "0")),
+);
 const TYPED_ARRAY_TAG_GETTER = Object.getOwnPropertyDescriptor(
   TYPED_ARRAY_PROTOTYPE,
   Symbol.toStringTag,
@@ -65,12 +72,21 @@ export function uint8ArrayByteLength(value: unknown): number | undefined {
  * Intrinsic typed-array iteration reads the actual visible byte range, ignores
  * caller-overridden iterators, and preserves the platform TypeError for
  * detached views instead of treating a formerly non-empty view as empty.
+ *
+ * Other typed arrays, including Uint8Array impostors, are rejected with a
+ * TypeError rather than spelled as bytes.
  */
 export function encodeBytesToLowercaseHex(value: Uint8Array): string {
+  // Creating the intrinsic iterator performs the receiver and detachment
+  // checks; the intrinsic length then bounds direct integer-indexed reads,
+  // which caller-defined iterators or prototype accessors cannot intercept.
+  Uint8Array.prototype.values.call(value);
+  // The iterator accepts every typed array; only actual bytes have a spelling.
+  if (TYPED_ARRAY_TAG_GETTER?.call(value) !== "Uint8Array") throw new TypeError("Expected a Uint8Array");
+  const length: unknown = TYPED_ARRAY_LENGTH_GETTER?.call(value);
+  if (typeof length !== "number") throw new TypeError("Expected a Uint8Array");
   let encoded = "";
-  for (const byte of Uint8Array.prototype.values.call(value)) {
-    encoded += byte.toString(16).padStart(2, "0");
-  }
+  for (let index = 0; index < length; index += 1) encoded += LOWERCASE_HEX_BYTES[value[index] ?? 0];
   return encoded;
 }
 

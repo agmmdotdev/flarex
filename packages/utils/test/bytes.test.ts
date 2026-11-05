@@ -204,6 +204,13 @@ describe("encodeBytesToLowercaseHex", () => {
     expect(encodeBytesToLowercaseHex(new Uint8Array())).toBe("");
   });
 
+  it("rejects other typed arrays presented with the Uint8Array prototype", () => {
+    const impostor = Object.setPrototypeOf(new Uint16Array([0x1ff]), Uint8Array.prototype) as Uint8Array;
+
+    expect(() => encodeBytesToLowercaseHex(impostor)).toThrow(TypeError);
+    expect(() => encodeBytesToLowercaseHex(new Float64Array([0.5]) as unknown as Uint8Array)).toThrow(TypeError);
+  });
+
   it("rejects a detached view instead of encoding it as empty", () => {
     const buffer = new ArrayBuffer(2);
     const bytes = new Uint8Array(buffer);

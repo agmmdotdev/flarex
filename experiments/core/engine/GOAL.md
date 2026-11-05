@@ -559,3 +559,9 @@ The [native Shipping Option Rule Batch continuation](./slices/42-native-shipping
 moves the standalone workflow and its retained inverses onto the shared
 Fulfillment Core source. Its selected statement reference checks and connected
 Tax and Shipping Option-update controls have completed paired acceptance.
+
+The [native read overlap correction](./slices/native-read-batches.md) translates
+`range_batch` for independent native slot reads and memoizes terminal native
+initialization receipts, measured with the paired Product workflow benchmark.
+It shortens serial database latency only; native-relative CPU and
+complete-request performance acceptance remain open.

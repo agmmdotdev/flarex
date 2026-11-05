@@ -287,3 +287,53 @@ describe("translated operation index snapshot", () => {
     await Effect.runPromise(transaction.abort());
   });
 });
+
+describe("translated operation range batch", () => {
+  it("returns one isolated outcome per request in input order and fills only after every fetch", async () => {
+    const physical = reader(6);
+    const keyed = physical.rows.map(row => keyFor(row));
+    let failFor: Uint8Array | undefined = keyed[2];
+    const snapshot = createCoreIndexSnapshot({ registry, snapshot: { ...physical.snapshot, scan: input =>
+      failFor !== undefined && input.interval.start !== null && bytesEqual(input.interval.start, failFor)
+        ? Effect.fail(new CorePersistenceError({ reason: "unavailable" })) : physical.snapshot.scan(input) } });
+    const requests = [4, 2, 0, 5].map(position => request(byValue, pointInterval(keyed[position]!)));
+    const outcomes = await Effect.runPromise(snapshot.rangeBatch(requests, { concurrency: 2 }));
+    expect(outcomes.map(outcome => Exit.isSuccess(outcome))).toEqual([true, false, true, true]);
+    expect(outcomes.map(outcome => Exit.isSuccess(outcome) ? rowValues(outcome.value) : "failed"))
+      .toEqual([[4], "failed", [0], [5]]);
+    const failed = outcomes[1];
+    expect(failed !== undefined && Exit.isFailure(failed) && failed.cause.reasons[0]).toMatchObject({ error: { reason: "unavailable" } });
+    // Successful slots populated the operation cache; the failed slot did not.
+    const before = physical.calls.length;
+    await Effect.runPromise(snapshot.scan(requests[0]!));
+    await Effect.runPromise(snapshot.scan(requests[3]!));
+    expect(physical.calls).toHaveLength(before);
+    failFor = undefined;
+    expect(rowValues(await Effect.runPromise(snapshot.scan(requests[1]!)))).toEqual([2]);
+    expect(physical.calls).toHaveLength(before + 1);
+  });
+
+  it("admits each persistence fetch through the supplied permit and bounds overlap", async () => {
+    const physical = reader(8);
+    let active = 0, peak = 0, admitted = 0;
+    const snapshot = createCoreIndexSnapshot({ registry, snapshot: { ...physical.snapshot, scan: input => Effect.gen(function* () {
+      active += 1; peak = Math.max(peak, active);
+      yield* Effect.yieldNow;
+      yield* Effect.sleep("1 millis");
+      active -= 1;
+      return yield* physical.snapshot.scan(input);
+    }) } });
+    const requests = physical.rows.map(row => request(byValue, pointInterval(keyFor(row))));
+    const outcomes = await Effect.runPromise(snapshot.rangeBatch(requests, { concurrency: 3,
+      withPermit: fetch => Effect.andThen(Effect.sync(() => { admitted += 1; }), fetch) }));
+    expect(outcomes.every(outcome => Exit.isSuccess(outcome))).toBe(true);
+    expect(admitted).toBe(8);
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(3);
+    // Cached components need no persistence admission on a repeated batch.
+    const again = await Effect.runPromise(snapshot.rangeBatch(requests, { concurrency: 3,
+      withPermit: fetch => Effect.andThen(Effect.sync(() => { admitted += 1; }), fetch) }));
+    expect(again.every(outcome => Exit.isSuccess(outcome))).toBe(true);
+    expect(admitted).toBe(8);
+  });
+});

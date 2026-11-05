@@ -586,6 +586,9 @@ export interface CoreDatabaseOptions {
   readonly indexCache?: Readonly<{ maxBytes?: number; verifyPercent?: number }>;
   /** Source operation cache default is 16 MiB, separate from user read limits. */
   readonly operationCacheMaxBytes?: number;
+  /** Owner-wide concurrent native read fetches, an integer from 1 to 64. Source
+   * batches up to 20; hosts keep this below their database connections (default 4). */
+  readonly nativeReadConcurrency?: number;
 }
 
 /** Identity issuance stays internal; structural objects do not gain authority. */

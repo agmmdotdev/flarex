@@ -22,6 +22,9 @@ const boundedInterval = (interval: CoreInterval) => ({ start: interval.start ?? 
 const copyPosition = (position: CoreIndexCursor | null): CoreIndexCursor | null => position?.kind === "after"
   ? Object.freeze({ kind: "after", key: position.key.slice() }) : position;
 
+/** Physical page size of one complete native index capture request. */
+export const CORE_INDEX_CAPTURE_PAGE_SIZE = 128;
+
 /** Complete physical consumption for the bounded native profile, before pending masking.
  * This is not logical Limit exhaustion and does not itself record semantic reads. */
 export const captureCoreIndexRange = Effect.fn("CoreQuery.captureIndexRange")(function* (input: Readonly<{
@@ -36,7 +39,7 @@ export const captureCoreIndexRange = Effect.fn("CoreQuery.captureIndexRange")(fu
   let remaining = copyInterval(input.interval);
   while (true) {
     const page = yield* input.snapshot.scan({ index: input.index.ref, tableId: input.table.tabletId,
-      interval: remaining, order: "asc", maxResults: Math.min(128, input.maxEntries + 1 - entries.length) });
+      interval: remaining, order: "asc", maxResults: Math.min(CORE_INDEX_CAPTURE_PAGE_SIZE, input.maxEntries + 1 - entries.length) });
     yield* input.assertOpen();
     entries.push(...page.entries);
     if (entries.length > input.maxEntries) return yield* new CoreTransactionError({ reason: "capacity",

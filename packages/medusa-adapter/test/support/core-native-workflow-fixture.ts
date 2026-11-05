@@ -46,6 +46,8 @@ export interface CoreNativeWorkflowFixtureOptions {
   readonly wrapPersistence?: (persistence: CorePersistence) => CorePersistence;
   readonly identityAndAccessPolicy?: JsonObject;
   readonly maximumRequests?: number;
+  /** Shared index cache settings; omitted keeps the Source defaults (100 percent verification). */
+  readonly indexCache?: CoreDatabaseOptions["indexCache"];
 }
 interface SourceSelection {
   readonly source: AtomicCommerceNativeSource;
@@ -149,7 +151,8 @@ export async function createCoreNativeWorkflowFixture(driver: "pglite" | "postgr
       ] });
       const databaseOptions: CoreDatabaseOptions = { schemaBundles: [bundle], schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS,
         now: Clock.currentTimeMillis.pipe(Effect.map(value => BigInt(Math.floor(value)) * 1_000_000n)),
-        randomBytes: (length: 16 | 32) => Effect.sync(() => crypto.getRandomValues(new Uint8Array(length))), maxConcurrentSaves: 2 };
+        randomBytes: (length: 16 | 32) => Effect.sync(() => crypto.getRandomValues(new Uint8Array(length))), maxConcurrentSaves: 2,
+        ...(input.indexCache === undefined ? {} : { indexCache: input.indexCache }) };
       const basePersistence = input.wrapPersistence?.(physical.persistence) ?? physical.persistence;
       const persistence: CorePersistence = { ...basePersistence, write: (lease, batch) => basePersistence.write(lease, batch).pipe(Effect.andThen(Effect.gen(function* () {
         const fault = acknowledgement;

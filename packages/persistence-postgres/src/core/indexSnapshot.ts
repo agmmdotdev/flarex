@@ -4,7 +4,7 @@
  * Copyright 2026 Convex, Inc., FSL-1.1-Apache-2.0 (convex-backend/LICENSE.md).
  */
 import { BTreeEx as BTree } from "sorted-btree/extended/index.js";
-import { Effect, Result } from "effect";
+import { Effect, Exit, Result } from "effect";
 import { bytesEqual, compareBytesLexicographically, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { incrementIndexKeyPrefix, indexRangeIsEmpty, splitIndexRangeAfter } from "flarex-protocol/index-range";
 import { CoreTransactionError, type CoreError, type CoreTableDefinition } from "./api";
@@ -27,6 +27,22 @@ type CacheComponent = Readonly<{ kind: "document"; entry: CoreHydratedIndexEntry
 export interface CoreIndexSnapshot {
   readonly timestamp: bigint;
   readonly scan: (request: CoreIndexScan) => Effect.Effect<CoreIndexPage, CoreError>;
+}
+
+/** The operation snapshot owner, which also serves independent range batches. */
+export interface CoreBatchIndexSnapshot extends CoreIndexSnapshot {
+  /** db914cf06 database_index_snapshot.rs::range_batch: independent requests are
+   * fetched concurrently and each keeps its own outcome in input order. Cache
+   * population runs serially after every fetch has settled. */
+  readonly rangeBatch: (requests: readonly CoreIndexScan[], options: CoreIndexRangeBatchOptions)
+    => Effect.Effect<readonly Exit.Exit<CoreIndexPage, CoreError>[]>;
+}
+
+export interface CoreIndexRangeBatchOptions {
+  /** Source uses buffer_unordered(20); hosts supply their own connection bound. */
+  readonly concurrency: number;
+  /** Shared admission for each request's persistence fetch, e.g. a database-wide bound. */
+  readonly withPermit?: <A, E>(fetch: Effect.Effect<A, E>) => Effect.Effect<A, E>;
 }
 
 const MAX_CACHED_RANGES_PER_INTERVAL = 3;
@@ -54,7 +70,7 @@ export function createCoreIndexSnapshot(input: Readonly<{
   registry: CoreRegistry;
   resident?: (request: CoreIndexScan) => CoreIndexPage | undefined;
   maxBytes?: number;
-}>): CoreIndexSnapshot {
+}>): CoreBatchIndexSnapshot {
   const indexes = new Map<string, IndexDocuments>();
   const maxBytes = input.maxBytes ?? REFERENCE_OPERATION_CACHE_BYTES;
   let cacheBytes = 0;
@@ -128,29 +144,32 @@ export function createCoreIndexSnapshot(input: Readonly<{
     });
   }
 
-  const scan = Effect.fnUntraced(function* (request: CoreIndexScan) {
+  /** The concurrent half of a range read: cached components plus persistence
+   * misses, without mutating this operation cache. */
+  const fetch = Effect.fnUntraced(function* (request: CoreIndexScan, withPermit: CoreIndexRangeBatchOptions["withPermit"]) {
     const selected = input.registry.tableByTablet(request.tableId);
     const index = selected?.definition.indexes.find(candidate => bytesEqual(candidate.ref.id, request.index.id));
     if (selected === undefined || index === undefined) {
       // An index created by the current transaction has no committed rows in
       // its starting registry. The bootstrap _index index must always exist.
       if (selected?.definition.name === INDEXES) return yield* new CorePersistenceError({ reason: "corruptData" });
-      return emptyPage();
+      return { page: emptyPage() };
     }
     if (index.ref.persistenceIndexId !== request.index.persistenceIndexId)
       return yield* new CorePersistenceError({ reason: "corruptData" });
     if (!Number.isSafeInteger(request.maxResults) || request.maxResults <= 0)
       return yield* new CoreTransactionError({ reason: "invalidValue" });
-    if (indexRangeIsEmpty(boundedInterval(request.interval))) return emptyPage();
+    if (indexRangeIsEmpty(boundedInterval(request.interval))) return { page: emptyPage() };
     const resident = input.resident?.(request);
-    if (resident !== undefined) return resident;
+    if (resident !== undefined) return { page: resident };
     const results: CoreHydratedIndexEntry[] = [];
     const misses: CoreHydratedIndexEntry[] = [];
     let cursor: CoreIndexPage["cursor"] = Object.freeze({ kind: "end" });
     for (const component of components(request)) {
       if (component.kind === "document") results.push(component.entry);
       else {
-        const page = yield* input.snapshot.scan({ ...request, interval: component.interval });
+        const missRequest = { ...request, interval: component.interval };
+        const page = yield* (withPermit === undefined ? input.snapshot.scan(missRequest) : withPermit(input.snapshot.scan(missRequest)));
         results.push(...page.entries);
         misses.push(...page.entries);
         if (page.cursor.kind !== "end") {
@@ -166,10 +185,27 @@ export function createCoreIndexSnapshot(input: Readonly<{
     }
     const observed = cursor.kind === "end" ? request.interval
       : splitIndexRangeAfter(boundedInterval(request.interval), cursor.key, request.order).observed;
-    yield* Effect.fromResult(populate(request.index.id, selected.definition, misses, observed));
-    return Object.freeze({ entries: Object.freeze(results.map(copyEntry)), cursor: cursor.kind === "end"
+    const page: CoreIndexPage = Object.freeze({ entries: Object.freeze(results.map(copyEntry)), cursor: cursor.kind === "end"
       ? Object.freeze({ kind: "end" as const }) : Object.freeze({ kind: "after" as const, key: cursor.key.slice() }) });
+    return { page, fill: { indexId: request.index.id, table: selected.definition, misses, observed } };
+  });
+  type Fetched = Effect.Success<ReturnType<typeof fetch>>;
+  const fill = (fetched: Fetched) => fetched.fill === undefined ? Result.succeed(fetched.page)
+    : Result.map(populate(fetched.fill.indexId, fetched.fill.table, fetched.fill.misses, fetched.fill.observed), () => fetched.page);
+
+  const scan = Effect.fnUntraced(function* (request: CoreIndexScan) {
+    return yield* Effect.fromResult(fill(yield* fetch(request, undefined)));
   }, effect => Effect.withSpan(effect, "CoreIndexSnapshot.scan", { captureStackTrace: false }));
 
-  return Object.freeze({ timestamp: input.snapshot.timestamp, scan });
+  const rangeBatch: CoreBatchIndexSnapshot["rangeBatch"] = Effect.fn("CoreIndexSnapshot.rangeBatch")(function* (requests, options) {
+    const fetched = yield* Effect.forEach(requests, request => Effect.exit(fetch(request, options.withPermit)),
+      { concurrency: Math.max(1, options.concurrency) });
+    // Source fills the cache only after the concurrent phase; a failed slot
+    // contributes nothing and does not affect any other slot.
+    return fetched.map((outcome): Exit.Exit<CoreIndexPage, CoreError> => Exit.isSuccess(outcome)
+      ? Result.match(fill(outcome.value), { onFailure: error => Exit.fail(error), onSuccess: page => Exit.succeed(page) })
+      : Exit.failCause(outcome.cause));
+  });
+
+  return Object.freeze({ timestamp: input.snapshot.timestamp, scan, rangeBatch });
 }
