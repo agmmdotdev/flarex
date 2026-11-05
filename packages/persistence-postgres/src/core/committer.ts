@@ -360,6 +360,7 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
               ...physicalSnapshot,
               scan: request => indexCache.scanForAdmission({ snapshot: physicalSnapshot, registry: publishedRegistry, request,
                 retention: retention ?? persistence.retentionValidator }),
+              preload: requests => indexCache.preloadMisses({ snapshot: physicalSnapshot, registry: publishedRegistry, requests, admission: true }),
             };
             const nativeIndexes = nativeSnapshot === undefined || indexes.length === 0 ? [] : yield* prepareCoreNativeIndexes(
               nativeSnapshot, publishedRegistry, indexes, transaction.nativeObservations?.limits.maxIdentities ?? 0);

@@ -62,6 +62,7 @@ import { isCoreNativeManyReference, readCoreNativeMembership } from "./nativeRef
 import { coreNativeForeignKeyError, coreNativeKeyInterval, coreNativeKeyTuple, coreNativeKeyWhere, sameCoreNativeKeyTuple, selectCoreNativeForeignKey,
   type CoreNativeForeignKeySelection, type CoreNativeKeyValue } from "./nativeForeignKeys";
 import { isCoreNativeSerialIndexName } from "./schemaTableName";
+import { registerCoreNativePrefetcher } from "./nativePrefetch";
 
 export interface CoreDocumentChange {
   readonly table: CoreTableDefinition;
@@ -278,12 +279,12 @@ const nativeRelatedPrimaryIndex = (declaration: CoreNativeTableDeclaration, poli
 
 type NativeSlotRead = Readonly<{ index: CoreIndexDefinition; interval: CoreInterval }>;
 const noSlots: readonly NativeSlotRead[] = [];
-/** Primary-key identity slots that the per-row native find selects; derivation
- * failures simply leave that row to its ordinary read. */
-const nativeIdentitySlots = (table: CoreTableDefinition, identities: readonly JsonObject[]) => identities.flatMap(identity =>
-  Result.match(Result.flatMap(captureCoreNativeWhere(identity), where => planCoreNativeQuery(table, where)), {
+/** The unique or range slot each native find of these conditions selects first;
+ * derivation failures and other plans simply leave that find to its ordinary read. */
+const nativeQuerySlots = (table: CoreTableDefinition, wheres: readonly JsonObject[]) => wheres.flatMap(where =>
+  Result.match(Result.flatMap(captureCoreNativeWhere(where), captured => planCoreNativeQuery(table, captured)), {
     onFailure: () => noSlots,
-    onSuccess: plan => plan.kind === "unique" ? [{ index: plan.index, interval: plan.interval }] : noSlots,
+    onSuccess: plan => plan.kind === "unique" || plan.kind === "range" ? [{ index: plan.index, interval: plan.interval }] : noSlots,
   }));
 /** Unique slots of complete rows, from insert's first body capture. A key that
  * later normalization changes only misses its prefetch and is read in place. */
@@ -295,14 +296,6 @@ const nativeInsertSlots = (table: CoreTableDefinition, rows: readonly JsonObject
         values === null ? Result.fail(undefined) : coreNativeUniqueSelection(table, constraint, values)),
       { onFailure: () => noSlots, onSuccess: ({ index, interval }) => [{ index, interval }] })),
   }));
-
-/** Trusted Core stagers only: overlap the unique-slot reads of complete rows that
- * will be inserted next. Not part of CoreNativeOperations; adapters cannot reach it. */
-type NativeInsertGroups = readonly Readonly<{ tableName: string; rows: readonly JsonObject[] }>[];
-const nativeInsertPrefetchers = new WeakMap<object, (groups: NativeInsertGroups) => Effect.Effect<void>>();
-/** One call per batch: it replaces any earlier batch's unconsumed prefetches. */
-export const prefetchCoreNativeInsertSlots = (operations: CoreNativeOperations, groups: NativeInsertGroups) =>
-  nativeInsertPrefetchers.get(operations)?.(groups) ?? Effect.void;
 
 export function createCoreTransaction(input: Readonly<{
   snapshot: CorePersistenceSnapshot;
@@ -2001,8 +1994,16 @@ export function createCoreTransaction(input: Readonly<{
     const { table, policy, rows, access: nativeAccess } = yield* prepareNativeRowBatch(tableName, inputRows, false, access, entityBatch);
     if (entityBatch) for (const { row } of rows)
       yield* Effect.fromResult(policy.rows.validateInsertRequired(row, new Date(unixTime).toISOString()));
-    // The complete batch preflight passed; overlap only each row's identity read.
-    yield* prefetchNativeBatch([{ table, slots: nativeIdentitySlots(table, rows.map(({ identity }) => identity)) }]);
+    // The complete batch preflight passed; overlap each row's identity read and,
+    // for inserts of complete rows, the unique slots their staging checks next.
+    // Pure normalization supplies the managed eligibility columns (for example
+    // deleted_at); rows that need serial allocation or fail keep their in-place reads.
+    const normalizedAt = new Date(unixTime).toISOString();
+    const serial = policy.table.columns.some(column => column.default.kind === "serialNext");
+    yield* prefetchNativeBatch([{ table, slots: [...nativeQuerySlots(table, rows.map(({ identity }) => identity)),
+      ...(mode === "insert" && !serial ? nativeInsertSlots(table, rows.flatMap(({ row }) =>
+        Result.match(policy.rows.normalize(row, null, normalizedAt), { onFailure: () => [], onSuccess: normalized => [normalized] })))
+        : noSlots)] }]);
     const find = nativeFind(access, true);
     const preserveUpdatedAt = mode === "upsert"
       || (mode === "upsertPreservingDeletion" && selectedInvocation?.advancePreservingDeletionUpdatedAt !== true);
@@ -2263,7 +2264,7 @@ export function createCoreTransaction(input: Readonly<{
 
   const nativeDeleteRows = (access: CoreTransactionNativeAccess | undefined = defaultAccess): CoreNativeOperations["deleteRows"] => Effect.fn("CoreTransaction.nativeDeleteRows")((tableName, inputKeys) => nativeBatch(access, Effect.gen(function* () {
     const { table, rows } = yield* prepareNativeRowBatch(tableName, inputKeys, true, access);
-    yield* prefetchNativeBatch([{ table, slots: nativeIdentitySlots(table, rows.map(({ identity }) => identity)) }]);
+    yield* prefetchNativeBatch([{ table, slots: nativeQuerySlots(table, rows.map(({ identity }) => identity)) }]);
     const find = nativeFind(access, true), methods = userOperations(access, true);
     const result: DocumentObject[] = [];
     for (const { identity } of rows) {
@@ -2284,7 +2285,7 @@ export function createCoreTransaction(input: Readonly<{
       .pipe(Effect.mapError(cause => new CoreNativeQueryError({ reason: "invalidInput", cause })));
     const { table, policy, rows } = yield* prepareNativeRowBatch(tableName, inputKeys, true, access);
     if (policy.rows.deletedAt === undefined) return yield* new CoreNativeQueryError({ reason: "invalidInput", cause: "Soft deletion is not admitted" });
-    yield* prefetchNativeBatch([{ table, slots: nativeIdentitySlots(table, rows.map(({ identity }) => identity)) }]);
+    yield* prefetchNativeBatch([{ table, slots: nativeQuerySlots(table, rows.map(({ identity }) => identity)) }]);
     const find = nativeFind(access, true), methods = userOperations(access, true);
     const recordLifecycle = Effect.fn("CoreTransaction.recordNativeLifecycle")(function* (
       identity: Readonly<Record<string, string>>, before: DocumentObject, after: DocumentObject, changed: boolean,
@@ -2820,11 +2821,14 @@ export function createCoreTransaction(input: Readonly<{
         return yield* new CoreTransactionError({ reason: "authorityRevoked" });
     }))),
   });
-  /** Registers the trusted insert-slot seam for exactly this issued facade. */
-  const withInsertPrefetch = <Operations extends object>(issued: Operations, access: CoreTransactionNativeAccess) => {
-    nativeInsertPrefetchers.set(issued, groups => prefetchNativeBatch(groups.flatMap(({ tableName, rows }) =>
-      Result.match(tableByName(tableName, false, access), { onFailure: () => [],
-        onSuccess: table => [{ table, slots: nativeInsertSlots(table, rows) }] }))));
+  /** Registers the trusted prefetch seam for exactly this issued facade and its access. */
+  const withInsertPrefetch = <Operations extends Pick<CoreNativeOperations, "find">>(issued: Operations, access: CoreTransactionNativeAccess) => {
+    const tableSlots = (tableName: string, slots: (table: CoreTableDefinition) => readonly NativeSlotRead[]) =>
+      Result.match(tableByName(tableName, false, access), { onFailure: () => [], onSuccess: table => [{ table, slots: slots(table) }] });
+    registerCoreNativePrefetcher(issued, {
+      inserts: groups => prefetchNativeBatch(groups.flatMap(({ tableName, rows }) => tableSlots(tableName, table => nativeInsertSlots(table, rows)))),
+      finds: (tableName, wheres) => prefetchNativeBatch(tableSlots(tableName, table => nativeQuerySlots(table, wheres))),
+    });
     return issued;
   };
   const nativeOperations = defaultAccess === undefined ? undefined

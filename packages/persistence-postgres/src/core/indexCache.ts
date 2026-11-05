@@ -50,6 +50,10 @@ export interface CoreIndexCache {
   readonly scanForAdmission: (input: CoreIndexCacheScan & Readonly<{
     retention: CoreRetentionValidator;
   }>) => Effect.Effect<CoreIndexPage, CorePersistenceError>;
+  /** Preloads first pages only for requests the matching scan path will read from
+   * persistence; pages it serves from this cache without a physical read are skipped. */
+  readonly preloadMisses: (input: Readonly<{ snapshot: CorePersistenceSnapshot; registry: CoreRegistry;
+    requests: readonly CoreIndexScan[]; admission: boolean }>) => Effect.Effect<void, CorePersistenceError>;
   /** Called synchronously after log append and before a newer snapshot is exposed. */
   readonly invalidate: (batch: CoreWriteBatch, oldRegistry: CoreRegistry, newRegistry: CoreRegistry) => void;
   readonly close: () => void;
@@ -224,6 +228,19 @@ export const makeCoreIndexCache = Effect.fn("CoreIndexCache.make")(function* (
     return page;
   });
 
+  const servedWithoutRead = (snapshot: CorePersistenceSnapshot, registry: CoreRegistry, request: CoreIndexScan, admission: boolean) => {
+    if (closed || !knownIndex(registry, request)) return false;
+    const key = cacheKey(request);
+    const cached = policy.peek(key);
+    if (cached === undefined || !cached.ready || !registrations.get(cached.indexKey)?.has(key)) return false;
+    // Ordinary hits are verified against persistence unless verification is off.
+    return admission ? cached.physicalTimestamp === snapshot.timestamp && samePageSource(cached, request)
+      : configuration.verifyPercent === 0 && snapshot.timestamp >= cached.beginTimestamp;
+  };
+  // Filtered when the preload runs (after any permit wait), not when it is built.
+  const preloadMisses: CoreIndexCache["preloadMisses"] = ({ snapshot, registry, requests, admission }) => Effect.suspend(() =>
+    snapshot.preload(requests.filter(request => !servedWithoutRead(snapshot, registry, request, admission))));
+
   const invalidate: CoreIndexCache["invalidate"] = (batch, oldRegistry, newRegistry) => {
     const oldMetadataTable = oldRegistry.table(INDEXES)?.definition.tabletId;
     const newMetadataTable = newRegistry.table(INDEXES)?.definition.tabletId;
@@ -241,5 +258,5 @@ export const makeCoreIndexCache = Effect.fn("CoreIndexCache.make")(function* (
       for (const key of registered.query(write.key)) policy.remove(key);
     }
   };
-  return Object.freeze({ scan, scanForAdmission, invalidate, close: () => { closed = true; policy.clear(); } });
+  return Object.freeze({ scan, scanForAdmission, preloadMisses, invalidate, close: () => { closed = true; policy.clear(); } });
 });

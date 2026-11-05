@@ -1,5 +1,5 @@
 import { Clock, Effect, Option, Schema, Stream } from "effect";
-import { bytesEqual, compareBytesLexicographically, copyBytes } from "@flarex/utils/bytes";
+import { bytesEqual, compareBytesLexicographically, copyBytes, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { MAX_INDEX_KEY_PREFIX_BYTES, splitIndexKey } from "flarex-protocol/index-key";
 import {
   CorePersistenceError,
@@ -125,6 +125,22 @@ interface SqlBound {
   readonly inclusive: boolean;
 }
 
+/** First SQL pages fetched together for one snapshot timestamp, consumed once by
+ * the identical scan. Rows at a fixed timestamp cannot change; retention is still
+ * validated when the scan consumes them. */
+type PreloadedPages = Map<string, readonly unknown[]>;
+const preloadKey = (request: CoreIndexScan, pageSize: number) => JSON.stringify([
+  encodeBytesToLowercaseHex(request.index.id), encodeBytesToLowercaseHex(request.tableId),
+  request.interval.start === null ? null : encodeBytesToLowercaseHex(request.interval.start),
+  request.interval.end === null ? null : encodeBytesToLowercaseHex(request.interval.end), request.order, pageSize]);
+const SQL_HASH_MINIMUM = new Uint8Array(32);
+const SQL_HASH_MAXIMUM = new Uint8Array(32).fill(255);
+/** Bounds one previous-revision statement's JSON parameter; a batch above it uses further statements. */
+const PREVIOUS_REVISION_STATEMENT_LOOKUPS = 1024;
+/** The lookup ordinal a lateral batch row carries; correlation is still verified field by field. */
+const lookupOrdinal = (row: unknown) => typeof row === "object" && row !== null && "ord" in row
+  && typeof row.ord === "number" ? row.ord : undefined;
+
 /** The adapter owns physical I/O; the portable engine owns visibility/acceptance. */
 export const createCorePersistence = Effect.fn("CorePersistence.create")(
   function* (
@@ -238,15 +254,63 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
       },
     );
 
+    const decodeScanRequest = Effect.fnUntraced(function* (input: CoreIndexScan) {
+      const decoded = yield* decodeScan(input).pipe(Effect.mapError(invalid));
+      return Object.freeze({ ...decoded,
+        index: Object.freeze({ ...decoded.index, id: copyBytes(decoded.index.id) }),
+        tableId: copyBytes(decoded.tableId),
+        interval: Object.freeze({ start: decoded.interval.start === null ? null : copyBytes(decoded.interval.start),
+          end: decoded.interval.end === null ? null : copyBytes(decoded.interval.end) }),
+      });
+    });
+    const scanPageSize = (request: CoreIndexScan) => Math.min(sqlPageSize ?? request.maxResults, request.maxResults);
+
+    /** One statement for the first SQL page of each bounded ascending scan; the
+     * per-request SQL is unchanged and later pages are fetched by the scan itself.
+     * Others are left to their ordinary scan. */
+    const preload = Effect.fnUntraced(function* (at: bigint, inputs: readonly CoreIndexScan[],
+      retention: CoreRetentionValidator, preloaded: PreloadedPages) {
+      preloaded.clear();
+      const selected = new Map<string, CoreIndexScan>();
+      for (const input of inputs) {
+        const request = yield* decodeScanRequest(input);
+        const { start, end } = request.interval;
+        if (request.order !== "asc" || start === null || end === null || compareBytesLexicographically(start, end) >= 0) continue;
+        selected.set(preloadKey(request, scanPageSize(request)), request);
+      }
+      if (selected.size < 2) return;
+      yield* retention.validateIndex(at);
+      const keys = [...selected.keys()];
+      const bounds = [...selected.values()].map((request, ord) => ({ ord, index_id: encodeBytesToLowercaseHex(request.index.id),
+        lower: encodeBytesToLowercaseHex((request.interval.start ?? new Uint8Array()).slice(0, MAX_INDEX_KEY_PREFIX_BYTES)),
+        upper: encodeBytesToLowercaseHex((request.interval.end ?? new Uint8Array()).slice(0, MAX_INDEX_KEY_PREFIX_BYTES)),
+        page_size: scanPageSize(request) }));
+      const rows = yield* driver.query(`SELECT b.ord, a.ts::text AS ts, a.key_prefix, a.key_suffix, a.key_sha256, a.deleted,
+        d.ts::text AS document_ts, d.table_id, a.document_id, d.json_value, d.deleted AS document_deleted, d.prev_ts::text AS prev_ts
+        FROM jsonb_to_recordset($3::jsonb) AS b(ord integer, index_id text, lower text, upper text, page_size integer)
+        CROSS JOIN LATERAL (SELECT DISTINCT ON (key_prefix, key_sha256)
+          ts, key_prefix, key_suffix, key_sha256, deleted, table_id, document_id
+          FROM ${table("indexes")} WHERE instance_name = $1 AND index_id = decode(b.index_id, 'hex') AND ts <= $2
+            AND (key_prefix, key_sha256) >= (decode(b.lower, 'hex'), $4) AND (key_prefix, key_sha256) <= (decode(b.upper, 'hex'), $5)
+          ORDER BY key_prefix ASC, key_sha256 ASC, ts DESC LIMIT b.page_size) a
+        -- The exact revision stays an indexed probe per index row whatever the
+        -- planner estimates for the lateral page sizes.
+        LEFT JOIN LATERAL (SELECT ts, table_id, json_value, deleted, prev_ts FROM ${table("documents")}
+          WHERE instance_name = $1 AND ts = a.ts AND table_id = a.table_id AND id = a.document_id OFFSET 0) d ON true
+        ORDER BY b.ord, a.key_prefix ASC, a.key_sha256 ASC`, [instance, at, JSON.stringify(bounds), SQL_HASH_MINIMUM, SQL_HASH_MAXIMUM]);
+      const pages = keys.map((): unknown[] => []);
+      for (const row of rows) {
+        const ord = lookupOrdinal(row);
+        const page = ord === undefined ? undefined : pages[ord];
+        if (page === undefined) return yield* Effect.fail(new CorePersistenceError({ reason: "corruptData" }));
+        page.push(row);
+      }
+      for (const [ord, key] of keys.entries()) preloaded.set(key, pages[ord] ?? []);
+    }, effect => Effect.withSpan(effect, "CorePersistence.preloadIndexPages", { captureStackTrace: false }));
+
     const scan = Effect.fnUntraced(
-      function* (at: bigint, input: CoreIndexScan, retention: CoreRetentionValidator): Effect.fn.Return<CoreIndexPage, CorePersistenceError> {
-        const decoded = yield* decodeScan(input).pipe(Effect.mapError(invalid));
-        const request = Object.freeze({ ...decoded,
-          index: Object.freeze({ ...decoded.index, id: copyBytes(decoded.index.id) }),
-          tableId: copyBytes(decoded.tableId),
-          interval: Object.freeze({ start: decoded.interval.start === null ? null : copyBytes(decoded.interval.start),
-            end: decoded.interval.end === null ? null : copyBytes(decoded.interval.end) }),
-        });
+      function* (at: bigint, input: CoreIndexScan, retention: CoreRetentionValidator, preloaded?: PreloadedPages): Effect.fn.Return<CoreIndexPage, CorePersistenceError> {
+        const request = yield* decodeScanRequest(input);
         yield* retention.validateIndex(at);
         const { start, end } = request.interval;
         if (start !== null && end !== null && compareBytesLexicographically(start, end) >= 0) {
@@ -261,7 +325,10 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
         const ascending = request.order === "asc";
         // Match the pinned reader's caller-sized SQL pages. A smaller explicit
         // transport page is useful for conformance, never a larger prefetch.
-        const pageSize = Math.min(sqlPageSize ?? request.maxResults, request.maxResults);
+        const pageSize = scanPageSize(request);
+        const firstKey = preloaded === undefined || preloaded.size === 0 ? undefined : preloadKey(request, pageSize);
+        let first = firstKey === undefined ? undefined : preloaded?.get(firstKey);
+        if (firstKey !== undefined && first !== undefined) preloaded?.delete(firstKey);
         const entries: CoreHydratedIndexEntry[] = [];
         let buffer: CoreHydratedIndexEntry[] = [];
         let bufferedPrefix: Uint8Array | undefined;
@@ -285,7 +352,7 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
           }
           parameters.push(pageSize);
           const order = ascending ? "ASC" : "DESC";
-          const rows = yield* driver.query(`SELECT a.ts::text AS ts, a.key_prefix, a.key_suffix, a.key_sha256, a.deleted,
+          const rows = first ?? (yield* driver.query(`SELECT a.ts::text AS ts, a.key_prefix, a.key_suffix, a.key_sha256, a.deleted,
             d.ts::text AS document_ts, d.table_id, a.document_id, d.json_value, d.deleted AS document_deleted, d.prev_ts::text AS prev_ts
             FROM (SELECT DISTINCT ON (key_prefix, key_sha256)
               ts, key_prefix, key_suffix, key_sha256, deleted, table_id, document_id
@@ -293,7 +360,8 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
               ORDER BY key_prefix ${order}, key_sha256 ${order}, ts DESC LIMIT $${parameters.length}) a
             LEFT JOIN ${table("documents")} d ON d.instance_name = $1 AND d.ts = a.ts
               AND d.table_id = a.table_id AND d.id = a.document_id
-            ORDER BY a.key_prefix ${order}, a.key_sha256 ${order}`, parameters);
+            ORDER BY a.key_prefix ${order}, a.key_sha256 ${order}`, parameters));
+          first = undefined;
           const parsed = yield* decodeIndexRows(rows);
           for (const row of parsed) {
             if (bufferedPrefix !== undefined && !bytesEqual(bufferedPrefix, row.key_prefix)) flush();
@@ -494,32 +562,30 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
         });
         if (queries.length === 0) return Object.freeze([]);
         const chunks: Array<readonly CorePreviousRevisionSearch[]> = [];
-        let offset = 0;
-        for (; offset + 8 <= queries.length; offset += 8) chunks.push(queries.slice(offset, offset + 8));
-        for (; offset < queries.length; offset += 1) chunks.push(queries.slice(offset, offset + 1));
+        for (let offset = 0; offset < queries.length; offset += PREVIOUS_REVISION_STATEMENT_LOOKUPS)
+          chunks.push(queries.slice(offset, offset + PREVIOUS_REVISION_STATEMENT_LOOKUPS));
         return yield* driver.withConnection(connection => Effect.gen(function* () {
-          // Pinned db914cf06 postgres/lib.rs previous_revisions: eight-way groups, single remainder requests,
-          // and sixteen lazy query futures on one checkout. The transport owns actual wire pipelining.
+          // Pinned db914cf06 postgres/lib.rs previous_revisions issues eight-way groups and single remainders
+          // as sixteen pipelined futures on one checkout. pg does not pipeline a checkout, so the same
+          // per-lookup predicate travels as one lateral statement (divergences/native-read-batches.md).
           const groups = yield* Stream.fromIterable(chunks).pipe(Stream.mapEffect(chunk => Effect.gen(function* () {
-            const parameters: CoreSqlParameter[] = [instance];
-            const selects = chunk.map(query => {
-              parameters.push(query.tableId, query.id, query.ts);
-              const n = parameters.length;
-              return `SELECT $${n}::bigint::text AS query_ts, ts::text AS ts, table_id, id, json_value, deleted, prev_ts::text AS prev_ts
-                FROM ${table("documents")} WHERE instance_name = $1 AND table_id = $${n - 2} AND id = $${n - 1} AND ts < $${n}
-                ORDER BY ${table("documents")}.ts DESC LIMIT 1`;
-            });
-            const statement = chunk.length === 1 ? selects[0]
-              : `WITH ${selects.map((select, index) => `q${index + 1} AS (${select})`).join(", ")}
-                ${selects.map((_, index) => `SELECT * FROM q${index + 1}`).join(" UNION ALL ")}`;
-            if (statement === undefined) return yield* Effect.die(new Error("Nonempty history request lost its statement"));
-            const rows = yield* connection.query(statement, parameters);
+            const lookups = chunk.map((query, ord) => ({ ord, table_id: encodeBytesToLowercaseHex(query.tableId),
+              id: encodeBytesToLowercaseHex(query.id), query_ts: query.ts.toString() }));
+            const rows = yield* connection.query(`SELECT b.ord, b.query_ts::bigint::text AS query_ts, d.ts::text AS ts, d.table_id, d.id,
+              d.json_value, d.deleted, d.prev_ts::text AS prev_ts
+              FROM jsonb_to_recordset($2::jsonb) AS b(ord integer, table_id text, id text, query_ts text)
+              CROSS JOIN LATERAL (SELECT ts, table_id, id, json_value, deleted, prev_ts FROM ${table("documents")}
+                WHERE instance_name = $1 AND table_id = decode(b.table_id, 'hex') AND id = decode(b.id, 'hex')
+                  AND ts < b.query_ts::bigint
+                ORDER BY ts DESC LIMIT 1) d`, [instance, JSON.stringify(lookups)]);
             const decoded = yield* decodePreviousRevisionRows(rows);
             const seen = new Set<CorePreviousRevisionSearch>();
             const result: CorePreviousRevision<CorePreviousRevisionSearch>[] = [];
-            for (const row of decoded) {
-              const query = chunk.find(value => value.ts === row.query_ts && row.ts < value.ts
-                && bytesEqual(value.tableId, row.table_id) && bytesEqual(value.id, row.id));
+            for (const [position, row] of decoded.entries()) {
+              const ord = lookupOrdinal(rows[position]);
+              const candidate = ord === undefined ? undefined : chunk[ord];
+              const query = candidate !== undefined && candidate.ts === row.query_ts && row.ts < candidate.ts
+                && bytesEqual(candidate.tableId, row.table_id) && bytesEqual(candidate.id, row.id) ? candidate : undefined;
               if (query === undefined || seen.has(query))
                 return yield* Effect.fail(new CorePersistenceError({ reason: "corruptData" }));
               seen.add(query);
@@ -543,21 +609,25 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
         if (queries.some(query => query.prevTs >= query.ts)) return yield* Effect.fail(invalid("Predecessor must precede its retention witness"));
         return yield* driver.withConnection(connection => Effect.gen(function* () {
           const result: CorePreviousRevision[] = [];
-          // Source batches eight exact lookups; this read lifetime never opens a SQL transaction.
-          for (let offset = 0; offset < queries.length; offset += 8) {
-            const chunk = queries.slice(offset, offset + 8);
-            const parameters: CoreSqlParameter[] = [instance];
-            const selects = chunk.map(query => {
-              parameters.push(query.ts, query.tableId, query.id, query.prevTs);
-              const n = parameters.length;
-              return `(SELECT $${n - 3}::bigint::text AS query_ts, ts::text AS ts, table_id, id, json_value, deleted, prev_ts::text AS prev_ts
-                FROM ${table("documents")} WHERE instance_name = $1 AND table_id = $${n - 2} AND id = $${n - 1} AND ts = $${n})`;
-            });
-            const rows = yield* connection.query(selects.join(" UNION ALL "), parameters);
+          // Source batches eight exact lookups per pipelined statement; pg does not pipeline a
+          // checkout, so the same exact lookups travel together. This never opens a SQL transaction.
+          for (let offset = 0; offset < queries.length; offset += PREVIOUS_REVISION_STATEMENT_LOOKUPS) {
+            const chunk = queries.slice(offset, offset + PREVIOUS_REVISION_STATEMENT_LOOKUPS);
+            const lookups = chunk.map((query, ord) => ({ ord, table_id: encodeBytesToLowercaseHex(query.tableId),
+              id: encodeBytesToLowercaseHex(query.id), query_ts: query.ts.toString(), prev_ts: query.prevTs.toString() }));
+            // OFFSET 0 keeps each exact lookup an indexed lateral probe rather than a join over documents.
+            const rows = yield* connection.query(`SELECT b.ord, b.query_ts::bigint::text AS query_ts, d.ts::text AS ts, d.table_id, d.id,
+              d.json_value, d.deleted, d.prev_ts::text AS prev_ts
+              FROM jsonb_to_recordset($2::jsonb) AS b(ord integer, table_id text, id text, query_ts text, prev_ts text)
+              CROSS JOIN LATERAL (SELECT ts, table_id, id, json_value, deleted, prev_ts FROM ${table("documents")}
+                WHERE instance_name = $1 AND table_id = decode(b.table_id, 'hex') AND id = decode(b.id, 'hex')
+                  AND ts = b.prev_ts::bigint OFFSET 0) d`, [instance, JSON.stringify(lookups)]);
             const decoded = yield* decodePreviousRevisionRows(rows);
-            for (const row of decoded) {
-              const query = chunk.find(value => value.ts === row.query_ts && value.prevTs === row.ts
-                && bytesEqual(value.tableId, row.table_id) && bytesEqual(value.id, row.id));
+            for (const [position, row] of decoded.entries()) {
+              const ord = lookupOrdinal(rows[position]);
+              const candidate = ord === undefined ? undefined : chunk[ord];
+              const query = candidate !== undefined && candidate.ts === row.query_ts && candidate.prevTs === row.ts
+                && bytesEqual(candidate.tableId, row.table_id) && bytesEqual(candidate.id, row.id) ? candidate : undefined;
               if (query === undefined) return yield* Effect.fail(new CorePersistenceError({ reason: "corruptData" }));
               result.push(Object.freeze({ query, document: documentFromRow(row) }));
             }
@@ -620,9 +690,11 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
       readSnapshot: Effect.fn("CorePersistence.readSnapshot")(function* (at: bigint, retention: CoreRetentionValidator = sqlRetention) {
         yield* decodeTimestamp(at).pipe(Effect.mapError(invalid));
         yield* retention.validateIndex(at);
+        const preloaded: PreloadedPages = new Map();
         return Object.freeze({ timestamp: at,
           get: (tableId: Uint8Array, id: Uint8Array) => get(at, retention, tableId, id),
-          scan: (request: CoreIndexScan) => scan(at, request, retention),
+          scan: (request: CoreIndexScan) => scan(at, request, retention, preloaded),
+          preload: (requests: readonly CoreIndexScan[]) => preload(at, requests, retention, preloaded),
         });
       }),
       write: (lease, batch) => writeBatch(lease, batch),

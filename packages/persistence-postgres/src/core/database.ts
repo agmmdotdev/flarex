@@ -348,6 +348,8 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     const physicalSnapshot = yield* persistence.readSnapshot(timestamp, initial.retention);
     const snapshot: CorePersistenceSnapshot = Object.freeze({ ...physicalSnapshot,
       scan: (request: CoreIndexScan) => committer.indexCache.scan({ snapshot: physicalSnapshot, registry, request }),
+      preload: (requests: readonly CoreIndexScan[]) => committer.indexCache.preloadMisses({ snapshot: physicalSnapshot, registry,
+        requests, admission: false }),
     });
     yield* assertOpen;
     return snapshot;

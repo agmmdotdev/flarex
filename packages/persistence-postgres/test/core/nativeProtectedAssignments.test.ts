@@ -51,7 +51,7 @@ function fixture() {
     { table: target, document: targetDocument, identity: 92 }].map(value => ({ tableId: value.table.tabletId, id: bytes(value.identity),
       ts: 1n, prevTs: null, deleted: false, jsonValue: Result.getOrThrow(encodeDocumentValue(value.document)) }));
   const scanned: string[] = [];
-  const snapshot: CorePersistenceSnapshot = { timestamp: 1n, get: () => Effect.succeed(Option.none()), scan: request => Effect.sync(() => {
+  const snapshot: CorePersistenceSnapshot = { timestamp: 1n, get: () => Effect.succeed(Option.none()), preload: () => Effect.void, scan: request => Effect.sync(() => {
     const selected = registry.indexById(request.index.id);
     if (selected === undefined) throw new Error("Unknown selected test index");
     scanned.push(selected.table.name);

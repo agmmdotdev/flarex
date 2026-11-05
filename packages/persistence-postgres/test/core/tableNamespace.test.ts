@@ -27,7 +27,7 @@ describe("source user table namespace limit",()=>{
     await Effect.runPromise(Effect.gen(function*(){
       const transaction=createCoreTransaction({registry,now:1_000_000_000n,vault:new CoreFinalizationVault(),
         idGenerator:generator,
-        snapshot:{timestamp:0n,get:()=>Effect.die(new Error("Table cap must use captured metadata")),scan:()=>Effect.die(new Error("Table cap must use captured metadata"))}});
+        snapshot:{timestamp:0n,get:()=>Effect.die(new Error("Table cap must use captured metadata")),preload: () => Effect.void, scan:()=>Effect.die(new Error("Table cap must use captured metadata"))}});
       const result=yield* Effect.result(transaction.transaction.insert("overflow",{}));
       expect(Result.isFailure(result)&&result.failure).toMatchObject({reason:"tooManyTables",cause:{limit:10000}});
       expect(generator.nextInternalId()).toEqual(expected.nextInternalId());

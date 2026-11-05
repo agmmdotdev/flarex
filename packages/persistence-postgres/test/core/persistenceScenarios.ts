@@ -5,6 +5,7 @@ import { encodeDocumentValue } from "flarex-protocol/document-value";
 import { encodeIndexKey } from "flarex-protocol/index-key";
 import type { CoreDocumentLogEntry, CorePersistenceIndexEntry, CorePersistenceSnapshot } from "../../src/core/contracts";
 import { createCorePersistence } from "../../src/database/corePersistence/persistence";
+import type { CoreSqlDriver, CoreSqlParameter } from "../../src/database/corePersistence/driver";
 import type { CorePersistenceFixture, CorePersistenceFixtureOptions } from "./fixture";
 
 const tableId = identity(10);
@@ -170,6 +171,85 @@ export function registerCorePersistenceScenarios(
       await fixture.query(`DELETE FROM "${fixture.namespace}".read_only WHERE instance_name = $1`, [fixture.instanceName]);
       await Effect.runPromise(second.write(replacement, { documents: [document(1n, "current")], indexes: [] }));
     }));
+
+    it("serves preloaded first pages exactly once with the ordinary scan result and retention check", async () => {
+      const statements: string[] = [];
+      const fixture = await create({ sqlPageSize: 1, wrapRuntimeDriver: driver => ({ ...driver,
+        query: (statement, parameters) => { statements.push(statement); return driver.query(statement, parameters); } }) });
+      try {
+        const persistence = fixture.persistence;
+        const lease = await Effect.runPromise(persistence.acquireLease());
+        const rows = ["a", "b", "c", "d"].map((name, offset) => ({ name, id: identity(200 + offset) }));
+        await Effect.runPromise(persistence.write(lease, { documents: rows.map(row => document(1n, row.name, row.id)),
+          indexes: rows.map(row => index(1n, row.name, row.id)) }));
+        const deleted = rows[1];
+        if (deleted === undefined) throw new Error("Missing deleted row");
+        await Effect.runPromise(persistence.write(lease, { documents: [], indexes: [index(2n, deleted.name, deleted.id, true)] }));
+        const point = (name: string, id = documentId) => ({ start: key(name, id), end: after(key(name, id)) });
+        const requests = [
+          { interval: point("a", rows[0]?.id), maxResults: 2, order: "asc" as const },
+          { interval: point("b", deleted.id), maxResults: 2, order: "asc" as const },
+          { interval: point("x"), maxResults: 2, order: "asc" as const },
+          // A bounded range that needs further SQL pages after its preloaded first one.
+          { interval: { start: key("a", rows[0]?.id), end: key("d", rows[3]?.id) }, maxResults: 3, order: "asc" as const },
+          // Unbounded and descending scans keep their ordinary statements.
+          { interval: { start: null, end: null }, maxResults: 3, order: "asc" as const },
+          { interval: point("c", rows[2]?.id), maxResults: 2, order: "desc" as const },
+        ].map(request => ({ index: { id: indexId }, tableId, ...request }));
+        const request = (position: number) => {
+          const selected = requests[position];
+          if (selected === undefined) throw new Error("Missing preload request");
+          return selected;
+        };
+        const ordinary = await Effect.runPromise(persistence.readSnapshot(2n));
+        const expected = await Promise.all(requests.map(request => Effect.runPromise(ordinary.scan(request))));
+        const preloaded = await Effect.runPromise(persistence.readSnapshot(2n));
+        statements.length = 0;
+        await Effect.runPromise(preloaded.preload(requests));
+        expect(statements.filter(statement => statement.includes("jsonb_to_recordset"))).toHaveLength(1);
+        for (const [position, request] of requests.entries())
+          expect(await Effect.runPromise(preloaded.scan(request))).toEqual(expected[position]);
+        // Each preloaded first page is consumed once; a repeated scan issues its own statement again.
+        statements.length = 0;
+        expect(await Effect.runPromise(preloaded.scan(request(2)))).toEqual(expected[2]);
+        expect(statements.filter(statement => statement.includes("DISTINCT ON"))).toHaveLength(1);
+        // A preloaded page is never released after retention moved past its timestamp.
+        await Effect.runPromise(preloaded.preload(requests.slice(0, 3)));
+        await Effect.runPromise(persistence.putGlobal(lease, "min_snapshot_ts", utf8.encode("3")));
+        expect(await Effect.runPromise(Effect.result(preloaded.scan(request(0)))))
+          .toMatchObject({ _tag: "Failure", failure: { reason: "outOfRetention" } });
+      } finally { await fixture.close(); }
+    });
+
+    it("plans preloaded first pages as indexed probes", async () => {
+      const issued: Array<Readonly<{ statement: string; parameters: readonly CoreSqlParameter[] }>> = [];
+      let runtime: CoreSqlDriver | undefined;
+      const fixture = await create({ wrapRuntimeDriver: driver => { runtime = driver; return { ...driver,
+        query: (statement, parameters = []) => {
+          if (statement.includes("jsonb_to_recordset")) issued.push({ statement, parameters });
+          return driver.query(statement, parameters);
+        } }; } });
+      try {
+        const persistence = fixture.persistence;
+        const lease = await Effect.runPromise(persistence.acquireLease());
+        const rows = Array.from({ length: 1024 }, (_, offset) => ({ name: `n${String(offset).padStart(4, "0")}`, id: identity(1000 + offset) }));
+        await Effect.runPromise(persistence.write(lease, { documents: rows.map(row => document(1n, row.name, row.id)),
+          indexes: rows.map(row => index(1n, row.name, row.id)) }));
+        await fixture.query(`ANALYZE "${fixture.namespace}".indexes`);
+        await fixture.query(`ANALYZE "${fixture.namespace}".documents`);
+        const snapshot = await Effect.runPromise(persistence.readSnapshot(1n));
+        await Effect.runPromise(snapshot.preload([1, 99, 511, 1023].map(offset => {
+          const row = rows[offset];
+          if (row === undefined) throw new Error("Missing plan row");
+          return { index: { id: indexId }, tableId, order: "asc" as const, maxResults: 2,
+            interval: { start: key(row.name, row.id), end: after(key(row.name, row.id)) } };
+        })));
+        const statement = issued[0];
+        if (statement === undefined || runtime === undefined) throw new Error("Missing preload plan witness");
+        const plan = JSON.stringify(await Effect.runPromise(runtime.query(`EXPLAIN (FORMAT JSON) ${statement.statement}`, statement.parameters)));
+        expect(plan).not.toContain('"Node Type":"Seq Scan"');
+      } finally { await fixture.close(); }
+    });
 
     it("distinguishes missing rows, retention expiry and corrupted retention metadata", () => withFixture(async fixture => {
       const persistence = fixture.persistence;

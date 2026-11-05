@@ -35,7 +35,7 @@ function page(value: number, ts = 0n, after = false): CoreIndexPage {
 const empty: CoreIndexPage = { entries: [], cursor: { kind: "end" } };
 
 function snapshot(timestamp: bigint, result: CoreIndexPage, onRead?: () => void): CorePersistenceSnapshot {
-  return { timestamp, get: () => Effect.succeed(Option.none()), scan: () => Effect.sync(() => {
+  return { timestamp, get: () => Effect.succeed(Option.none()), preload: () => Effect.void, scan: () => Effect.sync(() => {
     onRead?.();
     return result;
   }) };
@@ -208,6 +208,29 @@ describe("translated shared exact index pages", () => {
       expect(yield* scan(cache, snapshot(4n, empty))).toEqual(page(2, 0n, true));
       expect(reads).toBe(1);
       cache.close();
+    }));
+  });
+
+  it("preloads only pages its scan path will read from persistence", async () => {
+    await Effect.runPromise(Effect.gen(function* () {
+      const forwarded: number[] = [];
+      const recording = (timestamp: bigint): CorePersistenceSnapshot => ({ ...snapshot(timestamp, page(2)),
+        preload: requests => Effect.sync(() => { forwarded.push(requests.length); }) });
+      const other = { ...request, maxResults: request.maxResults + 1 };
+      for (const verifyPercent of [0, 100]) {
+        forwarded.length = 0;
+        const log = new CoreWriteLog(0n);
+        const cache = yield* makeCoreIndexCache({ verifyPercent }, Effect.sync(() => log.snapshot()));
+        yield* scan(cache, snapshot(0n, page(2)));
+        yield* cache.preloadMisses({ snapshot: recording(3n), registry, requests: [request, other], admission: false });
+        // A ready unverified hit issues no physical read; a verified hit and a miss both do.
+        expect(forwarded).toEqual([verifyPercent === 0 ? 1 : 2]);
+        // Admission reuses only evidence at exactly its own timestamp.
+        yield* cache.preloadMisses({ snapshot: recording(0n), registry, requests: [request, other], admission: true });
+        yield* cache.preloadMisses({ snapshot: recording(3n), registry, requests: [request, other], admission: true });
+        expect(forwarded.slice(1)).toEqual([1, 2]);
+        cache.close();
+      }
     }));
   });
 

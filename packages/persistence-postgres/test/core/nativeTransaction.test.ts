@@ -9,7 +9,8 @@ import { documentIndexKey } from "../../src/core/documentIndex";
 import { checkCoreNativeAuthority, makeCoreNativeDefinition, type CoreNativeAuthority } from "../../src/core/nativePolicy";
 import { initialRegistry, publicDocumentId, readDocumentObject, type CoreRegistry } from "../../src/core/registry";
 import { serializeCoreSchema } from "../../src/core/schemaJson";
-import { CoreFinalizationVault, createCoreTransaction, prefetchCoreNativeInsertSlots } from "../../src/core/transaction";
+import { CoreFinalizationVault, createCoreTransaction } from "../../src/core/transaction";
+import { prefetchCoreNativeFindSlots, prefetchCoreNativeInsertSlots } from "../../src/core/nativePrefetch";
 import { createTransactionIdGenerator } from "../../src/core/transactionIdGenerator";
 import { CoreWriteLog, keyInInterval, type CoreIndexKeys } from "../../src/core/writeLog";
 import { CoreAccounting, CORE_TRANSACTION_REFERENCE_LIMITS } from "../../src/core/accounting";
@@ -70,7 +71,7 @@ async function fixture(visibility: "command" | "snapshot" = "command", maxIdenti
       deleted: false, prevTs: null }));
     const snapshot: CorePersistenceSnapshot = { timestamp,
       get: () => Effect.die(new Error("Native point reads use the source ById index")),
-      scan: request => scanFault?.(request) ?? Effect.sync(() => {
+      preload: () => Effect.void, scan: request => scanFault?.(request) ?? Effect.sync(() => {
         calls.push(request);
         const index = table.indexes.find(candidate => bytesEqual(candidate.ref.id, request.index.id));
         if (index === undefined || !bytesEqual(request.tableId, table.tabletId)) throw new Error("Unexpected physical reader request");
@@ -166,6 +167,28 @@ describe("native transaction observations over the source transaction", () => {
     if (packet === undefined) throw new Error("Missing native observations");
     const prepared = await Effect.runPromise(prepareCoreNativeIndexes(tested.current().snapshot, tested.registry, packet.indexes, packet.limits.maxIdentities));
     expect(Result.isSuccess(validateCoreNativeIndexes(prepared, [], { documents: [], indexes: [] }, packet.limits.maxIdentities))).toBe(true);
+  });
+
+  it("retains only successful authority verdicts of frozen authorities for one immutable registry", async () => {
+    const tested = await fixture();
+    const { definition } = tested.authority;
+    // Issuance freezes the complete definition tree before it can be bound.
+    const schemaTable = definition.schema.tables[0];
+    expect([definition.schema, definition.schema.tables, schemaTable, schemaTable?.indexes].every(value => Object.isFrozen(value))).toBe(true);
+    const frozen: CoreNativeAuthority = Object.freeze({ ...tested.authority, tables: Object.freeze([...tested.authority.tables]) });
+    expect(Result.isSuccess(checkCoreNativeAuthority(tested.registry, frozen))).toBe(true);
+    expect(Result.isSuccess(checkCoreNativeAuthority(tested.registry, frozen, tested.table.name))).toBe(true);
+    // A retained verdict covers only this authority's own tables and this exact registry.
+    expect(checkCoreNativeAuthority(tested.registry, frozen, "not-bound"))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "authorityRevoked" } });
+    const revoked = tested.registry.withAuthority({ epoch: 1n, id: bytes(61), ts: 2n });
+    expect(checkCoreNativeAuthority(revoked, frozen)).toMatchObject({ _tag: "Failure", failure: { reason: "authorityRevoked" } });
+    // A mutable authority is rechecked on every call, even after it once succeeded.
+    const mutable = { ...tested.authority, tables: [...tested.authority.tables] };
+    expect(Result.isSuccess(checkCoreNativeAuthority(tested.registry, mutable))).toBe(true);
+    mutable.tables = [{ ...tested.table, number: tested.table.number + 1 }];
+    expect(checkCoreNativeAuthority(tested.registry, mutable)).toMatchObject({ _tag: "Failure", failure: { reason: "authorityRevoked" } });
+    await Effect.runPromise(tested.context.transaction.abort());
   });
 
   it("keeps source identity caps inside the shared aggregate allowance", async () => {
@@ -600,7 +623,7 @@ describe("native transaction observations over the source transaction", () => {
     const tested = await fixture();
     const transaction = createCoreTransaction({ snapshot: { timestamp: 10n,
       get: () => Effect.die(new Error("Unauthorized access reached storage")),
-      scan: () => Effect.die(new Error("Unauthorized access reached storage")) }, registry: tested.registry,
+      preload: () => Effect.void, scan: () => Effect.die(new Error("Unauthorized access reached storage")) }, registry: tested.registry,
     now: 10n, idGenerator: Result.getOrThrow(createTransactionIdGenerator(new Uint8Array(32), 10n)), vault: new CoreFinalizationVault() }).transaction;
     for (const operation of [transaction.get(tested.id(201)), transaction.patch(tested.id(201), { title: "bypass" }),
       transaction.insert(tested.table.name, body("bypass"))]) {
@@ -635,6 +658,23 @@ describe("native transaction observations over the source transaction", () => {
       // Each insert consumed its prefetched slot instead of rescanning it.
       expect(titleScans(tested.calls, tested.table)).toBe(3);
       expect(titleScans(control.calls, control.table)).toBe(3);
+      expect(await Effect.runPromise(tested.context.transaction.usage)).toEqual(await Effect.runPromise(control.context.transaction.usage));
+      expect((await tested.finalized()).nativeObservations).toEqual((await control.finalized()).nativeObservations);
+    });
+
+    it("prefetches independent find selections together and leaves observations, usage and results unchanged", async () => {
+      const wheres = [{ title: "first" }, { title: "missing" }, { title: "second" }];
+      const control = await fixture();
+      const expected = [];
+      for (const where of wheres) expected.push(await Effect.runPromise(control.operations.find(control.table.name, where)));
+      const tested = await fixture("command", 256, 65536, 1 << 20, { concurrency: 4 });
+      await Effect.runPromise(prefetchCoreNativeFindSlots(tested.operations, tested.table.name, wheres));
+      expect(titleScans(tested.calls, tested.table)).toBe(3);
+      const actual = [];
+      for (const where of wheres) actual.push(await Effect.runPromise(tested.operations.find(tested.table.name, where)));
+      // Each ordered find consumed its prefetched selection instead of rescanning it.
+      expect(titleScans(tested.calls, tested.table)).toBe(3);
+      expect(actual).toEqual(expected);
       expect(await Effect.runPromise(tested.context.transaction.usage)).toEqual(await Effect.runPromise(control.context.transaction.usage));
       expect((await tested.finalized()).nativeObservations).toEqual((await control.finalized()).nativeObservations);
     });

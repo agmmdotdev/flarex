@@ -10,12 +10,11 @@ import { CorePersistenceError, type CoreRetentionBounds, type CoreRetentionValid
  * the fenced owner before serving again; this value never infers GC progress. */
 export function makeCoreLeaderRetention(bounds: CoreRetentionBounds): CoreRetentionValidator {
   const { indexMinimumTimestamp, documentMinimumTimestamp } = bounds;
+  // Constant-time floor comparisons on every page: no span or suspension per call.
   return Object.freeze({
-    validateIndex: Effect.fn("CoreLeaderRetention.validateIndex")((at: bigint) => Effect.suspend(() =>
-      at < indexMinimumTimestamp
-        ? Effect.fail(new CorePersistenceError({ reason: "outOfRetention" })) : Effect.void)),
-    validateDocument: Effect.fn("CoreLeaderRetention.validateDocument")((at: bigint) => Effect.suspend(() =>
-      at < documentMinimumTimestamp
-        ? Effect.fail(new CorePersistenceError({ reason: "outOfRetention" })) : Effect.void)),
+    validateIndex: (at: bigint) => at < indexMinimumTimestamp
+      ? Effect.fail(new CorePersistenceError({ reason: "outOfRetention" })) : Effect.void,
+    validateDocument: (at: bigint) => at < documentMinimumTimestamp
+      ? Effect.fail(new CorePersistenceError({ reason: "outOfRetention" })) : Effect.void,
   });
 }

@@ -60,12 +60,23 @@ See [overlapped native slot reads](../divergences/native-read-batches.md).
 | Event family staging | Prefetches the complete family, envelope and delivery rows through a module-private seam before ordinary ordered inserts. |
 | Native initialization | A verified committed receipt is terminal and is checked once per prepared owner; every readiness check still validates the current binding identity. |
 | Byte utility | Table-driven lowercase hex with the same detachment contract; other typed arrays are rejected with `TypeError`. |
+| `CorePersistenceSnapshot` | `preload` sends the first SQL pages of one `rangeBatch`'s bounded misses in one statement; the identical scan consumes each once. |
+| Previous-revision readers | Exact lookups travel as one lateral statement instead of unpipelined eight-way groups. |
+| `writeRows` inserts and relational reads | Constraint slots from pure normalization and independent selection slots join the same prefetch. |
+| Native authority | Issued definitions are deep-frozen; a successful complete check of a frozen authority is retained per immutable registry. |
+| Leader retention | Constant floor comparisons run without a span or suspension per page. |
 
 Unchanged: per-row observations, accounting, typed failure position and class,
 pending overlays, commit admission revalidation, outcome recovery and
-settlement. The `checkCoreNativeAuthority` index revalidation on every native
-open (about 3 percent of CPU) is not cached: reusing an authority verdict needs
-proof that the authority object is issuer-owned and deeply immutable.
+settlement. Authority verdicts are kept only for success, and only when the authority
+object, its table array and each table definition are frozen and its issued
+definition tree froze completely; they are keyed by the exact published registry
+object, so any metadata change publishes a new registry and is checked again.
+Byte identifiers inside table definitions cannot be frozen: the retained verdict
+relies on authorities being issued only by the trusted binder (`bindNative` and
+the root binder), which never mutates them. Per-table checks reuse a complete
+verdict only for the authority's own tables. Shared index-cache pages that the
+scan path serves without a physical read are not preloaded.
 
 ## Measured outcome
 
@@ -89,10 +100,29 @@ a baseline. It measured create at 151.4 and 431.1 ms and update at 112.7 and
 304.2 ms, with 136 and 80 exchanges, so lowering verification does not account
 for the improvement.
 
+### Batched transport and authority verdicts
+
+Same harness, 30 samples after 5 warmups, interleaved native, the previous
+commit (`5ea8b01c7`, before) and this change (after), no failures, 100 percent
+verification. Median wall / P95 and median CPU in milliseconds.
+
+| Root | Simulated RTT | Native | Before wall | After wall | Before CPU | After CPU | Exchanges before/after |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Create | 0 | 14.1 / 15.7 | 155.2 / 164.5 | 134.3 / 142.4 | 96.0 | 86.1 | 129 / 51 |
+| Update | 0 | 13.1 / 14.3 | 116.3 / 130.6 | 105.1 / 114.7 | 76.2 | 70.0 | 79 / 47 |
+| Create | 2 ms | 162.9 / 174.5 | 419.2 / 435.7 | 306.2 / 316.7 | 166.8 | 132.5 | 129 / 51 |
+| Update | 2 ms | 157.8 / 168.5 | 301.3 / 318.6 | 259.7 / 274.4 | 123.8 | 106.0 | 79 / 47 |
+
+Native uses 40 and 42 exchanges. The 0 percent verification diagnostic measured
+create at 141.8 and 352.1 ms with 64 exchanges, and update at 109.6 and 282.7 ms
+with 52; why disabling verification adds exchanges is not yet attributed.
+
 ## Remaining gaps
 
-Main-thread CPU, dominated by diffuse Effect runtime overhead across many
-owners, private value capture and per-operation authority checks, remains far
-above native. Remaining serial reads are single relation finds and constraint
-probes whose keys are only known after native normalization. These and the
+Main-thread CPU (about 86 and 70 ms against native's 7) remains the dominant
+gap: it is diffuse across Effect runtime resumption, garbage collection, private
+value capture, canonical JSON measurement and about four thousand traced
+operations per create, with no single owner above a few milliseconds. Each root
+still commits twice (request claim and root settlement), and the remaining
+serial reads are single relation finds and request lookups. These and the
 complete-root native-relative target stay open.

@@ -112,15 +112,21 @@ export function registerPreviousRevisionSearchScenarios(lane: string,
       ]))).toEqual([]);
     }));
 
-    it("uses eight-way groups and singleton remainders with sixteen owned query futures", async () => {
+    it("sends owned lookups together on one checkout without a SQL transaction", async () => {
       const entered = Deferred.makeUnsafe<void>();
       const release = Deferred.makeUnsafe<void>();
       let active = 0, peak = 0, settled = 0;
       const observed = tracker(execute => Effect.uninterruptible(Effect.acquireUseRelease(
-        Effect.sync(() => { active += 1; peak = Math.max(peak, active); if (active === 16) Deferred.doneUnsafe(entered, Effect.void); }),
+        Effect.sync(() => { active += 1; peak = Math.max(peak, active); Deferred.doneUnsafe(entered, Effect.void); }),
         () => execute.pipe(Effect.andThen(rows => Deferred.await(release).pipe(Effect.as(rows)))),
         () => Effect.sync(() => { active -= 1; settled += 1; }),
       )));
+      const lookups = (statement: Readonly<{ parameters: readonly CoreSqlParameter[] }> | undefined) => {
+        const encoded = statement?.parameters[1];
+        if (typeof encoded !== "string") throw new Error("Lookup statement lost its JSON lookups");
+        const decoded: unknown = JSON.parse(encoded);
+        return Array.isArray(decoded) ? decoded.length : -1;
+      };
       await withFixture(async fixture => {
         const lease = await Effect.runPromise(fixture.persistence.acquireLease());
         await Effect.runPromise(fixture.persistence.write(lease, { documents: [row(1n, 2, 136)], indexes: [] }));
@@ -128,15 +134,16 @@ export function registerPreviousRevisionSearchScenarios(lane: string,
         const input = Array.from({ length: 136 }, (_, index) => ({ ...search(2, index + 1, index === 0 ? 11n : 20n) }));
         const pending = Effect.runPromiseExit(fixture.persistence.previousRevisions(input, {
           validateIndex: () => Effect.void,
-          validateDocument: at => Effect.sync(() => { expect(at).toBe(11n); expect(settled).toBe(17); }),
+          validateDocument: at => Effect.sync(() => { expect(at).toBe(11n); expect(settled).toBe(1); }),
         }));
         let exit: Exit.Exit<readonly unknown[], CorePersistenceError>;
         try {
           await Effect.runPromise(Deferred.await(entered).pipe(Effect.timeout(5_000)));
-          expect(observed.state.history).toHaveLength(16);
+          expect(observed.state.history).toHaveLength(1);
+          expect(lookups(observed.state.history[0])).toBe(136);
           expect(observed.state.checkouts).toBe(1);
           expect(observed.state.releases).toBe(0);
-          // This last request has not entered its query yet. It must already be owned.
+          // The caller's array and bytes are already owned by the issued statement.
           const last = input.at(-1);
           if (last === undefined) throw new Error("Missing last request");
           last.tableId.fill(255); last.id.fill(255); last.ts = 0n; input.length = 0;
@@ -146,16 +153,15 @@ export function registerPreviousRevisionSearchScenarios(lane: string,
         }
         expect(Exit.isSuccess(exit)).toBe(true);
         if (Exit.isSuccess(exit)) expect(exit.value).toMatchObject([{ query: { tableId: id(2), id: id(136), ts: 20n }, document: { ts: 1n } }]);
-        expect(peak).toBe(16);
-        expect(observed.state.history).toHaveLength(17);
+        expect(peak).toBe(1);
+        expect(observed.state.history).toHaveLength(1);
         expect(observed.state.transactions).toBe(0);
         expect(observed.state.releases).toBe(1);
-        // Source uses single requests for the incomplete final group.
+        // A batch above one statement's lookup bound continues on the same checkout.
         observed.state.history.length = 0;
-        await Effect.runPromise(fixture.persistence.previousRevisions(Array.from({ length: 19 }, (_, index) => search(2, index + 1, 20n)), noFloor));
-        expect(observed.state.history).toHaveLength(5);
-        expect(observed.state.history.filter(value => value.statement.startsWith("WITH "))).toHaveLength(2);
-        expect(observed.state.history.filter(value => value.statement.startsWith("SELECT "))).toHaveLength(3);
+        await Effect.runPromise(fixture.persistence.previousRevisions(Array.from({ length: 1025 }, (_, index) => search(2, index + 1, 20n)), noFloor));
+        expect(observed.state.history.map(lookups)).toEqual([1024, 1]);
+        expect(observed.state.releases).toBe(2);
       }, { wrapRuntimeDriver: observed.wrap });
     });
 
@@ -216,7 +222,7 @@ export function registerPreviousRevisionSearchScenarios(lane: string,
       let started = 0, settled = 0;
       const observed = tracker(execute => Effect.uninterruptible(Effect.gen(function* () {
         started += 1;
-        if (started === 16) yield* Deferred.succeed(entered, undefined);
+        yield* Deferred.succeed(entered, undefined);
         const rows = yield* execute;
         yield* Deferred.await(release);
         settled += 1;
@@ -237,7 +243,7 @@ export function registerPreviousRevisionSearchScenarios(lane: string,
           result = await pending;
         }
         expect(Exit.isFailure(result) && result.cause.reasons.some(Cause.isInterruptReason)).toBe(true);
-        expect(started).toBe(16);
+        expect(started).toBe(1);
         expect(settled).toBe(started);
         expect(observed.state.releases).toBe(1);
       }, { wrapRuntimeDriver: observed.wrap });
@@ -276,6 +282,21 @@ export function registerPreviousRevisionSearchScenarios(lane: string,
         expect(plan).toContain('"Index Name":"documents_by_table_and_id"');
         expect(plan).not.toContain('"Node Type":"Seq Scan"');
         expect(plan).not.toContain('"Node Type":"Sort"');
+      }, { wrapRuntimeDriver: observed.wrap });
+    });
+
+    it("selects exact predecessors through the ordinary document key index", () => {
+      const observed = tracker();
+      return withFixture(async fixture => {
+        const lease = await Effect.runPromise(fixture.persistence.acquireLease());
+        await Effect.runPromise(fixture.persistence.write(lease, { documents: Array.from({ length: 1024 }, (_, index) => row(BigInt(index + 1), 2, index + 1)), indexes: [] }));
+        await fixture.query(`ANALYZE "${fixture.namespace}".documents`);
+        await Effect.runPromise(fixture.persistence.previousRevisionsOfDocuments([1, 17, 99, 233, 511, 777, 999, 1024]
+          .map(value => ({ ...search(2, value, 2000n), prevTs: BigInt(value) })), noFloor));
+        const query = observed.state.history[0];
+        if (query === undefined) throw new Error("Missing exact predecessor plan witness");
+        const plan = JSON.stringify(await Effect.runPromise(observed.runtime().query(`EXPLAIN (FORMAT JSON) ${query.statement}`, query.parameters)));
+        expect(plan).not.toContain('"Node Type":"Seq Scan"');
       }, { wrapRuntimeDriver: observed.wrap });
     });
 

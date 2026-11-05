@@ -9,6 +9,7 @@ import { issuePostgresRelationalPredicate, type PostgresRelationalPredicateFailu
 import { CoreNativeQueryError, CoreQueryInputError, CoreTransactionError, type CoreError, type CoreNativeOperations, type CoreTableDefinition } from "./api";
 import { CorePersistenceError } from "./contracts";
 import type { CoreNativeRelationalRowPolicy, CoreNativeTableDeclaration } from "./nativePolicy";
+import { prefetchCoreNativeFindSlots } from "./nativePrefetch";
 
 export const coreNativeRelationalQueryFailure: PostgresRelationalPredicateFailure<CoreError> = (reason, cause) =>
   reason === "storedCorruption" ? new CorePersistenceError({ reason: "corruptData", cause })
@@ -66,13 +67,17 @@ interface InspectedRow {
 
 const inspectCoreNativeRelationalCohort = Effect.fn("CoreNativeRelational.inspectCohort")(function* (
   find: CoreNativeOperations["find"], table: CoreTableDefinition, policy: CoreNativeRelationalRowPolicy, query: Query,
+  prefetch?: (wheres: readonly JsonObject[]) => Effect.Effect<void>,
 ) {
   if (query.selections === null && query.requiresIndexedNullAnchor
     && !query.requiredNulls.some(field => table.indexes.some(index => index.fields[0] === field)))
     return yield* failure("invalidInput");
   const candidates = new Map<string, DocumentObject>();
-  for (const selection of query.selections ?? [null]) {
-    const documents = yield* find(table.name, selectedWhere(table, selection, query));
+  const wheres = (query.selections ?? [null]).map(selection => selectedWhere(table, selection, query));
+  // The selections are independent: overlap their first reads, then find them in order.
+  if (prefetch !== undefined && wheres.length > 1) yield* prefetch(wheres);
+  for (const where of wheres) {
+    const documents = yield* find(table.name, where);
     for (const document of documents) {
       if (typeof document._id !== "string") return yield* failure("storedCorruption");
       candidates.set(document._id, document);
@@ -133,7 +138,8 @@ export const executeCoreNativeRelationalRead = Effect.fn("CoreNativeRelational.r
   operations: Pick<CoreNativeOperations, "find" | "matchRelational">, table: CoreTableDefinition,
   policy: CoreNativeRelationalRowPolicy, query: Query, purpose: "rows" | "count" = "rows",
 ) {
-  const inspected = yield* inspectCoreNativeRelationalCohort(operations.find, table, policy, query);
+  const inspected = yield* inspectCoreNativeRelationalCohort(operations.find, table, policy, query,
+    wheres => prefetchCoreNativeFindSlots(operations, table.name, wheres));
   // Even an empty indexed cohort reaches the complete validated SQL tree once.
   const verdicts = query.postgresPredicate === undefined ? undefined
     : yield* operations.matchRelational(table.name, query.postgresPredicate, inspected.map(row => row.row));

@@ -79,7 +79,7 @@ describe("native complete ordinary-index validation", () => {
       const first: CoreHydratedIndexEntry = { key: key(10), document: { ts: 1n, tableId: table.tabletId,
         id: internalId(3), jsonValue: new Uint8Array(), deleted: false, prevTs: null } };
       const second: CoreHydratedIndexEntry = { ...first, key: key(11), document: { ...first.document, id: internalId(4) } };
-      const snapshot: CorePersistenceSnapshot = { timestamp: 1n, get: () => Effect.succeed(Option.none()), scan: request => {
+      const snapshot: CorePersistenceSnapshot = { timestamp: 1n, get: () => Effect.succeed(Option.none()), preload: () => Effect.void, scan: request => {
         requests.push(request.maxResults);
         return Effect.succeed(requests.length === 1 ? { entries: [first], cursor: { kind: "after", key: key(10) } }
           : { entries: overflow ? [second] : [], cursor: { kind: "end" } });

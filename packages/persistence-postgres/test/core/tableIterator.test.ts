@@ -29,7 +29,7 @@ function retryWitness(lane: "historical" | "latest", recentTimestamp: Effect.Eff
     loadDocuments: () => Effect.succeed({ documents: [], cursor: null, done: true }),
     readSnapshot: timestamp => Effect.sync(() => {
       snapshots.push(timestamp);
-      return { timestamp, get: unavailable, scan: () => scan(timestamp) };
+      return { timestamp, get: unavailable, preload: () => Effect.void, scan: () => scan(timestamp) };
     }),
   };
   const budget = { pageSize: 1, documentBytes: 10000, documentCount: 2, logPageSize: 2, maxLogPagesPerStep: 1, maxMetadataEntries: 100 };
@@ -55,7 +55,7 @@ describe("source historical TableIterator", () => {
       acquireLease: unavailable, latestTimestamp: unavailable, isFresh: unavailable, readRetentionBounds: unavailable,
       write: unavailable, writeIndexBackfill: unavailable, reconcileIndexBackfill: unavailable, putGlobal: unavailable,
       getGlobal: () => Effect.succeed(Option.none()),
-      readSnapshot: timestamp => Effect.succeed({ timestamp, get: unavailable, scan: () => Effect.sync(() => {
+      readSnapshot: timestamp => Effect.succeed({ timestamp, get: unavailable, preload: () => Effect.void, scan: () => Effect.sync(() => {
         scans += 1;
         return scans === 1 ? { entries: [{ key: key("c", 11), document: unchanged }, { key: key("e", 13), document: inserted }],
           cursor: { kind: "after" as const, key: key("e", 13) } } : { entries: [{ key: key("zz", 10), document: document(10, "zz", 19n, 15n) }], cursor: { kind: "end" as const } };
@@ -96,7 +96,7 @@ describe("source historical TableIterator", () => {
       retentionValidator: { validateIndex: unavailable, validateDocument: unavailable }, acquireLease: unavailable, latestTimestamp: unavailable, isFresh: unavailable,
       readRetentionBounds: unavailable, write: unavailable, writeIndexBackfill: unavailable, reconcileIndexBackfill: unavailable,
       putGlobal: unavailable, getGlobal: () => Effect.succeed(Option.none()), loadDocuments: unavailable, previousRevisions: unavailable, previousRevisionsOfDocuments: unavailable,
-      readSnapshot: timestamp => Effect.succeed({ timestamp, get: unavailable, scan: () => {
+      readSnapshot: timestamp => Effect.succeed({ timestamp, get: unavailable, preload: () => Effect.void, scan: () => {
         scans += 1; return Effect.fail(new CorePersistenceError({ reason: "unavailable" }));
       } }) };
     const iterator = createCoreTableIterator({ persistence, table, index, snapshotTs: 10n,
@@ -195,7 +195,7 @@ describe("source historical TableIterator", () => {
       retentionValidator: { validateIndex: unavailable, validateDocument: unavailable }, acquireLease: unavailable, latestTimestamp: unavailable, isFresh: unavailable,
       readRetentionBounds: unavailable, write: unavailable, writeIndexBackfill: unavailable, reconcileIndexBackfill: unavailable,
       putGlobal: unavailable, getGlobal: () => Effect.succeed(Option.none()),
-      readSnapshot: timestamp => Effect.succeed({ timestamp, get: unavailable, scan: () => Effect.succeed({ entries: [], cursor: { kind: "end" } }) }),
+      readSnapshot: timestamp => Effect.succeed({ timestamp, get: unavailable, preload: () => Effect.void, scan: () => Effect.succeed({ entries: [], cursor: { kind: "end" } }) }),
       loadDocuments: () => Effect.sync(() => {
         walks += 1;
         return { documents: [{ ...firstOld, ts: 11n, prevTs: 1n }, { ...secondOld, ts: 12n, prevTs: 2n }], done: true, cursor: null };
@@ -222,7 +222,7 @@ describe("source historical TableIterator", () => {
       retentionValidator: { validateIndex: unavailable, validateDocument: unavailable }, acquireLease: unavailable, latestTimestamp: unavailable, isFresh: unavailable,
       readRetentionBounds: unavailable, write: unavailable, writeIndexBackfill: unavailable, reconcileIndexBackfill: unavailable,
       putGlobal: unavailable, getGlobal: () => Effect.succeed(Option.none()),
-      readSnapshot: timestamp => Effect.succeed({ timestamp, get: unavailable, scan: () => Effect.succeed({ entries: [{ key: key("a", 10), document: unchanged }], cursor: { kind: "end" } }) }),
+      readSnapshot: timestamp => Effect.succeed({ timestamp, get: unavailable, preload: () => Effect.void, scan: () => Effect.succeed({ entries: [{ key: key("a", 10), document: unchanged }], cursor: { kind: "end" } }) }),
       loadDocuments: () => Effect.succeed({ documents: old.slice(1).map(value => ({ ...value, ts: value.ts + 10n, prevTs: value.ts })), done: true, cursor: null }),
       previousRevisions: unavailable, previousRevisionsOfDocuments: queries => Effect.sync(() => {
         batches.push(queries.length);
@@ -248,7 +248,7 @@ describe("source historical TableIterator", () => {
       retentionValidator: { validateIndex: unavailable, validateDocument: unavailable }, acquireLease: unavailable, latestTimestamp: unavailable, isFresh: unavailable,
       readRetentionBounds: unavailable, write: unavailable, writeIndexBackfill: unavailable, reconcileIndexBackfill: unavailable,
       putGlobal: unavailable, getGlobal: () => Effect.succeed(Option.none()),
-      readSnapshot: timestamp => Effect.succeed({ timestamp, get: unavailable, scan: () => Effect.succeed({ entries: [{ key: key("a", 10), document: first }], cursor: { kind: "end" } }) }),
+      readSnapshot: timestamp => Effect.succeed({ timestamp, get: unavailable, preload: () => Effect.void, scan: () => Effect.succeed({ entries: [{ key: key("a", 10), document: first }], cursor: { kind: "end" } }) }),
       loadDocuments: () => Effect.succeed({ documents: [{ ...first, ts: 11n, prevTs: 1n }, { ...second, ts: 12n, prevTs: 2n }], done: true, cursor: null }),
       previousRevisions: unavailable, previousRevisionsOfDocuments: () => Effect.sync(() => { exactReads += 1; return []; }),
     };
@@ -267,7 +267,7 @@ describe("source historical TableIterator", () => {
   it("bounds latest validation body pages without skipping unreturned source coverage", async () => {
     const first = document(10, "a", 1n), second = document(11, "b", 2n);
     let scans = 0;
-    const persistence = { readSnapshot: (timestamp: bigint) => Effect.succeed({ timestamp, get: unavailable, scan: () => Effect.sync(() => {
+    const persistence = { readSnapshot: (timestamp: bigint) => Effect.succeed({ timestamp, get: unavailable, preload: () => Effect.void, scan: () => Effect.sync(() => {
       scans += 1;
       return { entries: scans === 1 ? [{ key: key("a", 10), document: first }, { key: key("b", 11), document: second }]
         : [{ key: key("b", 11), document: second }], cursor: { kind: "end" as const } };

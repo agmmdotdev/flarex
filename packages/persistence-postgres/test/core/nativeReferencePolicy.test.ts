@@ -67,7 +67,7 @@ describe("native optional-one final-state integrity", () => {
       let captures = 0;
       const unavailable = new CoreTransactionError({ reason: "unavailable" });
       const internals = createCoreTransaction({ registry, snapshot: { timestamp: 1n,
-        get: () => Effect.succeed(Option.none()), scan: () => Effect.succeed({ entries: [], cursor: { kind: "end" } }) },
+        get: () => Effect.succeed(Option.none()), preload: () => Effect.void, scan: () => Effect.succeed({ entries: [], cursor: { kind: "end" } }) },
         now: 1_000_000_000n, vault: new CoreFinalizationVault(),
         idGenerator: yield* Effect.fromResult(createTransactionIdGenerator(new Uint8Array(32), 1_000_000_000n)),
         native: { authority: { definition, namespace: null, schemaId, authorityEpoch: 0n, tables }, visibility: "command",

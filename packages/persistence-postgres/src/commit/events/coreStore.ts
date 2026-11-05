@@ -10,7 +10,7 @@ import { CoreSchemaError } from "../../core/schemaTypes";
 import { CORE_TRANSACTION_REFERENCE_LIMITS } from "../../core/accounting";
 import { captureCoreObject } from "../../core/document";
 import { coreNativeRelationalRow } from "../../core/nativeRelationalQuery";
-import { prefetchCoreNativeInsertSlots } from "../../core/transaction";
+import { prefetchCoreNativeInsertSlots } from "../../core/nativePrefetch";
 import { coreNativeRelationalRows, sameCoreNativeIdentity, type CoreNativeDefinition } from "../../core/nativePolicy";
 import { CoreNativeRootRequestEvidenceSchema, type CoreNativeRootRequestEvidence } from "../../core/nativeRootRequest";
 import { capturePrivateCanonicalValue } from "../../installation/frameworkSchema/privateCanonicalValue";

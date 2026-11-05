@@ -135,6 +135,10 @@ export interface CorePersistenceSnapshot {
     id: CoreInternalId,
   ) => Effect.Effect<Option.Option<CoreDocumentLogEntry>, CorePersistenceError>;
   readonly scan: (request: CoreIndexScan) => Effect.Effect<CoreIndexPage, CorePersistenceError>;
+  /** Transport only: fetch the first SQL pages of these independent scans together
+   * so identical later `scan` calls at this timestamp consume them instead of
+   * issuing their own first statement. It never changes any scan's result. */
+  readonly preload: (requests: readonly CoreIndexScan[]) => Effect.Effect<void, CorePersistenceError>;
 }
 
 /** Durable deletion floors loaded while holding this persistence owner's lease. */

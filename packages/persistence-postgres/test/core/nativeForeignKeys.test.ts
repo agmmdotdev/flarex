@@ -100,7 +100,7 @@ describe("native key and frozen graph integrity", () => {
       scopeUuid: "11111111-1111-4111-8111-111111111111", epochUuid: "22222222-2222-4222-8222-222222222222" });
     const registry = new CoreRegistry(new BTree(), new Map(), new Map());
     const snapshot = { timestamp: 0n, get: () => Effect.succeed(Option.none()),
-      scan: () => Effect.succeed({ entries: [], cursor: { kind: "end" as const } }) };
+      preload: () => Effect.void, scan: () => Effect.succeed({ entries: [], cursor: { kind: "end" as const } }) };
     const limits: CoreNativeLimits = { maxIdentities: 16, maxDocumentBytes: 1024 };
     const vault = new CoreFinalizationVault();
     const transaction = createCoreTransaction({ snapshot, registry, vault,

@@ -70,7 +70,8 @@ export function registerCoreHistoryScenarios(lane: string, create: (options?: Co
       let settled = 0;
       const witnessed: bigint[] = [];
       await withFixture(async fixture => {
-        const queries = Array.from({ length: 9 }, (_, n) => ({ tableId: id(2), id: id(n + 1), ts: n === 0 ? 11n : 31n, prevTs: 1n }));
+        // One more lookup than a statement carries, so two lookup statements must settle first.
+        const queries = Array.from({ length: 1025 }, (_, n) => ({ tableId: id(2), id: id(n + 1), ts: n === 0 ? 11n : 31n, prevTs: 1n }));
         expect(await Effect.runPromise(fixture.persistence.previousRevisionsOfDocuments(queries, {
           validateIndex: () => Effect.void,
           validateDocument: at => Effect.sync(() => { expect(settled).toBe(2); witnessed.push(at); }),

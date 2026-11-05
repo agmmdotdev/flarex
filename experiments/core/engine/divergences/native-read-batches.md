@@ -54,6 +54,35 @@ Event staging reaches the prefetch through a module-private seam keyed by the
 issued operations object. `CoreNativeOperations`, which framework adapters
 receive, gains no method.
 
+Insert batches in `writeRows` also prefetch each complete row's unique-constraint
+slots from the row's pure managed normalization, so the eligibility columns the
+staging check uses (for example `deleted_at`) are present. Rows that need serial
+allocation or fail normalization keep their in-place reads. Native relational
+reads with several independent selections (for example `id IN (...)`) prefetch
+each selection's unique or range slot before their ordered finds, through the
+same module-private seam (`nativePrefetch.ts`).
+
+## Batched transport
+
+Source fetches the misses of `range_batch` as concurrent persistence futures and
+pipelines previous-revision groups on one checkout. The pg client does neither:
+each statement waits for the previous one. Two transport changes keep every
+per-request predicate and result unchanged:
+
+- `CorePersistenceSnapshot.preload` fetches the first SQL page of each bounded
+  ascending miss of one `rangeBatch` in a single lateral statement at the
+  snapshot timestamp. The identical later `scan` consumes that page once instead
+  of issuing its first statement; further pages, unbounded or descending scans,
+  index-cache verification and population are unchanged. Rows at a fixed
+  timestamp cannot change, and the scan still validates retention after the
+  page. A typed preload failure leaves every scan to report its own outcome;
+  defects and interruption propagate. The preload takes one owner-wide permit.
+- `previousRevisions` and `previousRevisionsOfDocuments` send their exact lookups
+  as one lateral statement of at most 1024 lookups instead of eight-way groups and
+  single remainders. Ownership, one checkout without a SQL transaction,
+  correlation checks, cancellation draining and the retention check after every
+  lookup has settled are unchanged.
+
 ## Necessary differences and bounds
 
 - Source's fan-out is 20 per batch. Hosts supply one owner-wide bound
@@ -76,10 +105,15 @@ receive, gains no method.
 ## Witnesses
 
 Driver-independent owner witnesses: `test/core/indexSnapshot.test.ts` (per-slot
-order, isolation, serial fill, permit admission and per-call bound) and
-`test/core/nativeTransaction.test.ts` (observation and usage parity with a
-sequential control, competing commit after prefetch, duplicate keys, batch
-replacement, no prefetch without a host bound). The genuine Medusa consumer
+order, isolation, serial fill, one shared preload admission, permit admission and
+per-call bound) and `test/core/nativeTransaction.test.ts` (observation and usage
+parity with a sequential control for inserts and independent finds, competing
+commit after prefetch, duplicate keys, batch replacement, no prefetch without a
+host bound). `test/core/persistenceScenarios.ts` (PGlite and PostgreSQL) proves
+preloaded pages equal ordinary scans across tombstones, absences and further SQL
+pages, are consumed once and still fail after retention advances;
+`previousRevisionSearchScenarios.ts` and `historyScenarios.ts` retain ownership,
+checkout, cancellation and retention ordering for the single-statement lookups. The genuine Medusa consumer
 suites and the paired benchmark exercise PGlite and ordinary-role PostgreSQL.
 Not yet witnessed: the owner-wide bound across concurrent transactions and the
 out-of-retention consumer rejection, which fails closed to an ordinary read.

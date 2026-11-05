@@ -47,7 +47,7 @@ function reader(count = 4) {
   const snapshot: CorePersistenceSnapshot = {
     timestamp: 10n,
     get: () => Effect.die(new Error("Normal point reads must use ById index pages")),
-    scan: request => Effect.sync(() => {
+    preload: () => Effect.void, scan: request => Effect.sync(() => {
       calls.push(request);
       const index = table.indexes.find(candidate => bytesEqual(candidate.ref.id, request.index.id));
       if (index === undefined) throw new Error("Unexpected fixture index");
@@ -316,7 +316,9 @@ describe("translated operation range batch", () => {
   it("admits each persistence fetch through the supplied permit and bounds overlap", async () => {
     const physical = reader(8);
     let active = 0, peak = 0, admitted = 0;
-    const snapshot = createCoreIndexSnapshot({ registry, snapshot: { ...physical.snapshot, scan: input => Effect.gen(function* () {
+    const preloaded: number[] = [];
+    const snapshot = createCoreIndexSnapshot({ registry, snapshot: { ...physical.snapshot,
+      preload: inputs => Effect.sync(() => { preloaded.push(inputs.length); }), scan: input => Effect.gen(function* () {
       active += 1; peak = Math.max(peak, active);
       yield* Effect.yieldNow;
       yield* Effect.sleep("1 millis");
@@ -327,13 +329,16 @@ describe("translated operation range batch", () => {
     const outcomes = await Effect.runPromise(snapshot.rangeBatch(requests, { concurrency: 3,
       withPermit: fetch => Effect.andThen(Effect.sync(() => { admitted += 1; }), fetch) }));
     expect(outcomes.every(outcome => Exit.isSuccess(outcome))).toBe(true);
-    expect(admitted).toBe(8);
+    // One shared admission carries every miss's first page, then each fetch is admitted.
+    expect(preloaded).toEqual([8]);
+    expect(admitted).toBe(9);
     expect(peak).toBeGreaterThan(1);
     expect(peak).toBeLessThanOrEqual(3);
     // Cached components need no persistence admission on a repeated batch.
     const again = await Effect.runPromise(snapshot.rangeBatch(requests, { concurrency: 3,
       withPermit: fetch => Effect.andThen(Effect.sync(() => { admitted += 1; }), fetch) }));
     expect(again.every(outcome => Exit.isSuccess(outcome))).toBe(true);
-    expect(admitted).toBe(8);
+    expect(preloaded).toEqual([8]);
+    expect(admitted).toBe(9);
   });
 });

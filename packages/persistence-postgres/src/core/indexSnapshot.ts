@@ -4,7 +4,7 @@
  * Copyright 2026 Convex, Inc., FSL-1.1-Apache-2.0 (convex-backend/LICENSE.md).
  */
 import { BTreeEx as BTree } from "sorted-btree/extended/index.js";
-import { Effect, Exit, Result } from "effect";
+import { Cause, Effect, Exit, Result } from "effect";
 import { bytesEqual, compareBytesLexicographically, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { incrementIndexKeyPrefix, indexRangeIsEmpty, splitIndexRangeAfter } from "flarex-protocol/index-range";
 import { CoreTransactionError, type CoreError, type CoreTableDefinition } from "./api";
@@ -146,7 +146,8 @@ export function createCoreIndexSnapshot(input: Readonly<{
 
   /** The concurrent half of a range read: cached components plus persistence
    * misses, without mutating this operation cache. */
-  const fetch = Effect.fnUntraced(function* (request: CoreIndexScan, withPermit: CoreIndexRangeBatchOptions["withPermit"]) {
+  const fetch = Effect.fnUntraced(function* (request: CoreIndexScan, withPermit: CoreIndexRangeBatchOptions["withPermit"],
+    resident: CoreIndexPage | undefined) {
     const selected = input.registry.tableByTablet(request.tableId);
     const index = selected?.definition.indexes.find(candidate => bytesEqual(candidate.ref.id, request.index.id));
     if (selected === undefined || index === undefined) {
@@ -160,7 +161,6 @@ export function createCoreIndexSnapshot(input: Readonly<{
     if (!Number.isSafeInteger(request.maxResults) || request.maxResults <= 0)
       return yield* new CoreTransactionError({ reason: "invalidValue" });
     if (indexRangeIsEmpty(boundedInterval(request.interval))) return { page: emptyPage() };
-    const resident = input.resident?.(request);
     if (resident !== undefined) return { page: resident };
     const results: CoreHydratedIndexEntry[] = [];
     const misses: CoreHydratedIndexEntry[] = [];
@@ -194,11 +194,31 @@ export function createCoreIndexSnapshot(input: Readonly<{
     : Result.map(populate(fetched.fill.indexId, fetched.fill.table, fetched.fill.misses, fetched.fill.observed), () => fetched.page);
 
   const scan = Effect.fnUntraced(function* (request: CoreIndexScan) {
-    return yield* Effect.fromResult(fill(yield* fetch(request, undefined)));
+    return yield* Effect.fromResult(fill(yield* fetch(request, undefined, input.resident?.(request))));
   }, effect => Effect.withSpan(effect, "CoreIndexSnapshot.scan", { captureStackTrace: false }));
 
   const rangeBatch: CoreBatchIndexSnapshot["rangeBatch"] = Effect.fn("CoreIndexSnapshot.rangeBatch")(function* (requests, options) {
-    const fetched = yield* Effect.forEach(requests, request => Effect.exit(fetch(request, options.withPermit)),
+    // Flarex transport divergence (divergences/native-read-batches.md): the
+    // misses' first SQL pages travel in one statement at this snapshot's
+    // timestamp; each fetch below still performs its ordinary scan. A typed
+    // preload failure leaves every scan to report its own outcome.
+    // Only each request's first miss is certainly scanned by its fetch; resident
+    // pages are evaluated once and handed to that fetch.
+    const residents = requests.map(request => input.resident?.(request));
+    const misses = requests.flatMap((request, position) => {
+      if (residents[position] !== undefined) return [];
+      const miss = components(request).find(component => component.kind === "miss");
+      return miss === undefined ? [] : [{ ...request, interval: miss.interval }];
+    });
+    if (misses.length > 1) {
+      const preload = input.snapshot.preload(misses);
+      const preloaded = yield* Effect.exit(options.withPermit === undefined ? preload : options.withPermit(preload));
+      const propagated = Exit.isFailure(preloaded) ? preloaded.cause.reasons.filter((reason): reason is Cause.Die | Cause.Interrupt =>
+        Cause.isDieReason(reason) || Cause.isInterruptReason(reason)) : [];
+      if (propagated.length > 0) return yield* Effect.failCause(Cause.fromReasons<never>(propagated));
+    }
+    const fetched = yield* Effect.forEach(requests, (request, position) =>
+      Effect.exit(fetch(request, options.withPermit, residents[position])),
       { concurrency: Math.max(1, options.concurrency) });
     // Source fills the cache only after the concurrent phase; a failed slot
     // contributes nothing and does not affect any other slot.

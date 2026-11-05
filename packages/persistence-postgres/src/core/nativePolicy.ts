@@ -131,6 +131,31 @@ const StoredNativeMetadata = Schema.Struct({ source: LogicalSchemaSourceSchema, 
   applicationRead: Schema.Boolean });
 const decodeStoredNativeMetadata = Schema.decodeUnknownEffect(StoredNativeMetadata, { onExcessProperty: "error" });
 const definitions = new WeakSet<object>();
+/** Issued definitions whose complete own-data tree is frozen. Typed arrays,
+ * collections and accessors cannot be frozen, so such a definition never joins. */
+const immutableDefinitions = new WeakSet<object>();
+const freezeIssued = (value: unknown, seen: Set<object>): boolean => {
+  if (value === null || typeof value !== "object" && typeof value !== "function") return true;
+  if (seen.has(value)) return true;
+  seen.add(value);
+  if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer || value instanceof Map || value instanceof Set) return false;
+  let complete = true;
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined) continue;
+    complete = ("value" in descriptor ? freezeIssued(descriptor.value, seen) : false) && complete;
+  }
+  Object.freeze(value);
+  return complete;
+};
+/** Issues a definition: its complete own-data tree is frozen before it can be bound. */
+const issueDefinition = (definition: CoreNativeDefinition) => {
+  if (freezeIssued(definition, new Set())) immutableDefinitions.add(definition);
+  definitions.add(definition);
+};
+/** Successful complete checks of a frozen authority against one published
+ * immutable registry. A verdict is a pure function of both; only success is kept. */
+const verifiedAuthorities = new WeakMap<CoreRegistry, WeakSet<CoreNativeAuthority>>();
 type NativeSchemaProof = CoreNativeDefinition | CoreSchemaBundle;
 const verifiedRegistries = new WeakMap<CoreRegistry, ReadonlyMap<string, NativeSchemaProof>>();
 const canonical = (value: Json): string => encodeCanonicalJson(value, issue => { throw new Error(`Native source lost JSON: ${issue.reason}`); });
@@ -268,7 +293,7 @@ export const makeCoreNativeDefinition = Effect.fn("CoreNativeDefinition.make")(f
   const definition: CoreNativeDefinition = Object.freeze({ identity, source, schema, applicationRead: options.applicationRead,
     commands: Object.freeze(commands), metadata, tables: Object.freeze(tables), references: Object.freeze(references),
     ...(privateTables.length === 0 ? {} : { privateTables: Object.freeze(privateTables) }) });
-  definitions.add(definition);
+  issueDefinition(definition);
   return definition;
 });
 
@@ -383,7 +408,7 @@ export const makeCoreRelationalNativeDefinition = Effect.fn("CoreNativeDefinitio
   const definition: CoreNativeDefinition = Object.freeze({ identity, source, schema, applicationRead: options.applicationRead,
     commands: Object.freeze(commands), metadata, tables: declarations, references: Object.freeze([]),
     ...(lowered.foreignKeys.length === 0 ? {} : { foreignKeys: lowered.foreignKeys }) });
-  definitions.add(definition);
+  issueDefinition(definition);
   relationalPolicies.set(definition, policies);
   return definition;
 });
@@ -542,6 +567,20 @@ export function checkCoreTableAccess(table: CoreTableDefinition, mode: "read" | 
 
 export function checkCoreNativeAuthority(registry: CoreRegistry, authority: CoreNativeAuthority, tableName?: string): Result.Result<void, CoreError> {
   if (authority.selectiveMetadata === true) return checkCoreProtectedNativeAuthority(registry, authority, tableName);
+  // A per-table check is a subset of the complete check for any of its own tables.
+  if (verifiedAuthorities.get(registry)?.has(authority) === true
+    && (tableName === undefined || authority.tables.some(table => table.name === tableName))) return Result.succeed(undefined);
+  const checked = checkCoreNativeAuthorityUncached(registry, authority, tableName);
+  if (tableName === undefined && Result.isSuccess(checked) && immutableDefinitions.has(authority.definition)
+    && Object.isFrozen(authority) && Object.isFrozen(authority.tables) && authority.tables.every(table => Object.isFrozen(table))) {
+    let verified = verifiedAuthorities.get(registry);
+    if (verified === undefined) verifiedAuthorities.set(registry, verified = new WeakSet());
+    verified.add(authority);
+  }
+  return checked;
+}
+
+function checkCoreNativeAuthorityUncached(registry: CoreRegistry, authority: CoreNativeAuthority, tableName?: string): Result.Result<void, CoreError> {
   return Result.gen(function* () {
     if (registry.authority?.epoch !== authority.authorityEpoch) return yield* Result.fail(revoked());
     const schemaTable = registry.table(SCHEMAS, authority.namespace)?.definition;
