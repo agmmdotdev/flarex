@@ -36,9 +36,9 @@ most of `CoreCommitter.submit` is durable save waiting.
 | Untraced inner helpers | Done. Eighteen generator helpers use `Effect.fnUntraced`; outer spans remain. Measured reason below. |
 | Protected references per staged row | Done. Derived once per table for each immutable registry, instead of walking every registry table for each row. |
 | `readNativeBinding` check-only call | Rejected. The copy costs about 0.5 ms per paired create and update, which does not justify a new database method. |
-| Snapshot reuse across captures | Open, needs a [divergence](../divergences/native-direct-read-visibility.md) addendum. Key on owner generation, timestamp and registry identity; keep every per-capture gate and validate retention explicitly, because a consumed prefetched page performs no scan. |
-| Narrow trusted event staging | Open. Keep the ordinary per-row apply, whole-family validation first, generated-ID checks and charges; remove repeated per-row access and capture work. |
-| Synchronous insert and find core | Open and last. One core shared with the Effect path, inside the transaction's exclusive section, with long runs chunked. |
+| Snapshot reuse and cached metadata reads | Rejected after measurement. A transaction-local view keyed on timestamp and registry, plus metadata read sets cached per verified authority, moved CPU by about 1 ms over eight alternating rounds, which does not justify a divergence record. |
+| Event inserts in one operation | Rejected after measurement. Running each event group inside a single operation, keeping the ordinary per-row insert, showed no change over four alternating rounds. |
+| Synchronous insert and find core | Not attempted. Its value depended on the two rejected items, and removing per-row wrappers already showed no measurable effect. |
 
 ## Paused for an owner decision
 
@@ -54,3 +54,9 @@ not part of this slice, as are fewer accounting charges and a higher
 Five alternating rounds against `4620101d5` under background machine load. Best
 round main-thread CPU: create 88 to 81 ms, update 71 to 65 ms. Round medians were
 too noisy to give a finer figure.
+
+The challenge's estimates did not hold: the rejected candidates were each predicted
+to save 3 to 9 ms and measured about zero. Remaining CPU is not concentrated in
+per-call wrappers, so further wrapper removal should be assumed worthless without
+a measured witness. Changing how much work a root does, such as how many private
+event rows it stores, is the remaining untested lever.
