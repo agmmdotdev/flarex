@@ -12,6 +12,13 @@ root/replacement references before timing.
 | `native.ts` | Pinned upstream Medusa 2.13.4 dists: Product, Pricing, Sales Channel, Fulfillment, Inventory, Stock Location and Link modules over MikroORM/PostgreSQL, mock event bus. No Flarex code. |
 | `core.postgres.bench.ts` | The same workflow source through the shared Core owner on ordinary-role PostgreSQL, using the existing Core Product creation/update fixtures. Hosts are prepared once outside timing. |
 
+`workflows-native.ts` and `workflows.postgres.bench.ts` extend the same method to
+further genuine roots with matched inputs (`workflowInputs` in `shared.ts`): Sales
+Channel, Shipping Profile, Inventory Item and Price List create, Product delete,
+Variant update and Inventory Level update. Per-sample seeds run outside timing and
+the Core lane installs one fixture per case. Roots needing modules outside the
+native lane above (Order, Payment, Tax, Store, API Key, Customer) are not covered.
+
 Each sample records wall time, main-thread CPU (`process.threadCpuUsage`), the
 summed driver await and the number of driver exchanges, counted at the pg client
 boundary (promise and callback forms). Summed await overlaps CPU work in other
@@ -39,6 +46,12 @@ NATIVE_BUSINESS_MEDUSA_URL='postgresql://bench@localhost/bench_native' node --im
 ```bash
 cd packages/medusa-adapter && FLAREX_POSTGRES_DATABASE_URL='postgresql://bench@localhost/bench_core' FLAREX_POSTGRES_PROVISIONING_DATABASE_URL='postgresql://owner@localhost/bench_core' npx vitest run --config vitest.product-workflows.config.ts
 ```
+
+For the broader set, run `workflows-native.ts` in the native command, and set
+`BENCH_SUITE=workflows` on the Core command. `BENCH_CASES` selects a comma-separated
+subset of case names.
+Use `BENCH_WARMUPS=40` here: small roots are still JIT-cold after the default 5
+warmups, which roughly doubled the first cases' Core time.
 
 Settings: `BENCH_SAMPLES` (default 30), `BENCH_WARMUPS` (5), `BENCH_OUT` (report
 path; default `work/product-workflows/<lane>-<time>.json`), `BENCH_RTT_MS`

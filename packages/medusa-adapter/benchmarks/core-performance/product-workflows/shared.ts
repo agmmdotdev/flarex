@@ -25,6 +25,19 @@ export const productUpdateInput = (productId: string, ordinal: number) => ({ pro
   sales_channels: [{ id: "replacement-channel-0" }], shipping_profile_id: "root-profile-1",
   images: [{ url: "https://example.test/new/" + ordinal }] }], additional_data: {} });
 
+/** Per-request inputs of the broader matched workflow set; `prefix` keeps each run unique. */
+export const workflowInputs = {
+  salesChannelCreate: (prefix: string) => ({ salesChannelsData: [{ id: prefix + "-channel", name: prefix, description: "Benchmark channel" }] }),
+  shippingProfileCreate: (prefix: string) => ({ data: [{ id: prefix + "-profile", name: prefix, type: "default" }] }),
+  inventoryItemCreate: (prefix: string) => ({ items: [{ id: prefix + "-item", sku: prefix + "-sku", title: prefix, origin_country: "US", requires_shipping: true }] }),
+  productDelete: (prefix: string) => ({ ids: [prefix + "-product"] }),
+  variantUpdate: (prefix: string) => ({ product_variants: [{ id: prefix + "-variant", title: "Changed " + prefix }] }),
+  priceListCreate: (prefix: string, variantId: string) => ({ price_lists_data: [{ title: prefix, description: "Benchmark list",
+    prices: [{ variant_id: variantId, currency_code: "usd", amount: 10 }] }] }),
+  inventoryLevelUpdate: (itemId: string, locationId: string, ordinal: number) => ({ updates: [{ inventory_item_id: itemId, location_id: locationId,
+    stocked_quantity: 20 + ordinal, incoming_quantity: 1 }] }),
+} as const;
+
 export interface Sample { readonly wallMs: number; readonly cpuMs: number; readonly awaitMs: number; readonly exchanges: number;
   readonly ok: boolean; readonly error?: string }
 

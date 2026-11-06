@@ -9,5 +9,5 @@ const config = mergeConfig(common, {
   test: { env: { FLAREX_TEST_DRIVER: "postgres", MEDUSA_COMPARISON_DRIVER: "postgres" },
     hookTimeout: 600_000, testTimeout: 3_600_000 },
 });
-config.test = { ...config.test, include: ["benchmarks/core-performance/product-workflows/core.postgres.bench.ts"], exclude: [] };
+config.test = { ...config.test, include: [`benchmarks/core-performance/product-workflows/${process.env.BENCH_SUITE ?? "core"}.postgres.bench.ts`], exclude: [] };
 export default config;
