@@ -297,6 +297,26 @@ const nativeInsertSlots = (table: CoreTableDefinition, rows: readonly JsonObject
       { onFailure: () => noSlots, onSuccess: ({ index, interval }) => [{ index, interval }] })),
   }));
 
+/** Pure over one published immutable registry, so each table's set is derived once
+ * rather than by walking every registry table for each staged row. */
+const sourcedProtectedReferences = new WeakMap<CoreRegistry, Map<string, ReadonlyMap<string, CoreNativeProtectedReference>>>();
+function protectedReferencesSourcedBy(registry: CoreRegistry, table: CoreTableDefinition) {
+  const namespace = coreNamespaceKey(table.namespace);
+  const key = JSON.stringify([namespace, table.name]);
+  let byTable = sourcedProtectedReferences.get(registry);
+  if (byTable === undefined) sourcedProtectedReferences.set(registry, byTable = new Map());
+  const known = byTable.get(key);
+  if (known !== undefined) return known;
+  const references = new Map<string, CoreNativeProtectedReference>();
+  for (const { definition: owner } of registry.tables.values()) {
+    if (coreNamespaceKey(owner.namespace) !== namespace) continue;
+    for (const reference of owner.nativePolicy?.protectedReferences ?? [])
+      if (reference.sourceTable === table.name) references.set(reference.reference.name, reference);
+  }
+  byTable.set(key, references);
+  return references;
+}
+
 export function createCoreTransaction(input: Readonly<{
   snapshot: CorePersistenceSnapshot;
   residentReader?: (request: CoreIndexScan) => CoreIndexPage | undefined;
@@ -533,7 +553,7 @@ export function createCoreTransaction(input: Readonly<{
     return nativeObservations.remember(table, id, observation);
   });
 
-  const nativeCapture = Effect.fn("CoreTransaction.nativeCapture")(function* (table: CoreTableDefinition, access: CoreTransactionNativeAccess | undefined = defaultAccess,
+  const nativeCapture = Effect.fnUntraced(function* (table: CoreTableDefinition, access: CoreTransactionNativeAccess | undefined = defaultAccess,
     index?: CoreIndexDefinition, indexedTable: CoreTableDefinition = table) {
     if (native === undefined || nativeObservations === undefined) return yield* invalid();
     // The database provider retains fixed data for standalone reads and advances
@@ -663,7 +683,7 @@ export function createCoreTransaction(input: Readonly<{
       onFailure: () => undefined, onSuccess: conflict => conflict === undefined ? prefetched.entries : undefined });
   };
 
-  const nativeMembership = Effect.fn("CoreTransaction.nativeMembership")(function* (
+  const nativeMembership = Effect.fnUntraced(function* (
     table: CoreTableDefinition, index: CoreIndexDefinition, interval: CoreInterval, charged?: Set<DocumentObject>, observeRows = true, access: CoreTransactionNativeAccess | undefined = defaultAccess,
   ) {
     if (nativeObservations === undefined || native === undefined) return yield* invalid();
@@ -702,7 +722,7 @@ export function createCoreTransaction(input: Readonly<{
 
   type NativeConstraint = NonNullable<CoreTableDefinition["nativePolicy"]>["uniqueConstraints"][number];
 
-  const nativeSlot = Effect.fn("CoreTransaction.nativeSlot")(function* (
+  const nativeSlot = Effect.fnUntraced(function* (
     table: CoreTableDefinition, constraint: NativeConstraint, values: readonly CoreNativeScalar[],
     charged?: Set<DocumentObject>, releaseOnly = false, access: CoreTransactionNativeAccess | undefined = defaultAccess,
   ) {
@@ -730,7 +750,7 @@ export function createCoreTransaction(input: Readonly<{
     return { constraint, index, interval, membership };
   });
 
-  const nativeConstraints = Effect.fn("CoreTransaction.nativeConstraints")(function* (
+  const nativeConstraints = Effect.fnUntraced(function* (
     table: CoreTableDefinition, developerId: string, previous: DocumentObject | null, next: DocumentObject | null, access: CoreTransactionNativeAccess | undefined = defaultAccess,
   ) {
     for (const constraint of table.nativePolicy?.uniqueConstraints ?? []) {
@@ -860,7 +880,7 @@ export function createCoreTransaction(input: Readonly<{
   const nativeBatch = <A>(access: CoreTransactionNativeAccess | undefined, body: Effect.Effect<A, CoreError>, terminal = false) =>
     operation(Effect.andThen(terminal ? Effect.void : requireNativeDalOpen(access), withPendingRollback(body)));
 
-  const stageDocument = Effect.fn("CoreTransaction.stageDocument")(function* (table: CoreTableDefinition, id: Uint8Array, document: DocumentObject | null,
+  const stageDocument = Effect.fnUntraced(function* (table: CoreTableDefinition, id: Uint8Array, document: DocumentObject | null,
     access: CoreTransactionNativeAccess | undefined = defaultAccess, mode: "insert" | "update" = "update") {
     if (input.readonly) return yield* new CoreTransactionError({ reason: "readonly" });
     if (isCoreNativeObservedTable(table)) yield* Effect.fromResult(checkAccess(table, "write", access));
@@ -874,13 +894,7 @@ export function createCoreTransaction(input: Readonly<{
     const captured = document === null ? null : yield* Effect.fromResult(Result.mapError(captureCoreDocument(document, isCoreSystemTable(table)), invalid));
     const next = captured?.value ?? null;
     const protectedReferenceAssignments = new Map((pending?.protectedReferenceAssignments ?? []).map(value => [value.referenceName, value]));
-    const protectedReferences = new Map<string, CoreNativeProtectedReference>();
-    for (const { definition: owner } of registry.tables.values()) {
-      if (coreNamespaceKey(owner.namespace) !== coreNamespaceKey(table.namespace)) continue;
-      for (const reference of owner.nativePolicy?.protectedReferences ?? [])
-        if (reference.sourceTable === table.name) protectedReferences.set(reference.reference.name, reference);
-    }
-    for (const reference of protectedReferences.values()) {
+    for (const reference of protectedReferencesSourcedBy(registry, table).values()) {
       const liveness = reference.reference.liveness.source;
       const wasLive = previous !== null && (liveness.kind === "current" || previous[liveness.field] === null);
       const isLive = next !== null && (liveness.kind === "current" || next[liveness.field] === null);
@@ -944,7 +958,7 @@ export function createCoreTransaction(input: Readonly<{
 
   /** One public write and all of its derived records stage atomically. Accounting,
    * actual observations and generator reservations survive a refused attempt. */
-  const stage = Effect.fn("CoreTransaction.stage")(function* (table: CoreTableDefinition, id: Uint8Array, document: DocumentObject | null,
+  const stage = Effect.fnUntraced(function* (table: CoreTableDefinition, id: Uint8Array, document: DocumentObject | null,
     access: CoreTransactionNativeAccess | undefined = defaultAccess, mode: "insert" | "update" = "update") {
     const references = table.nativePolicy?.references?.filter(reference => reference.sourceTable === table.name
       && isCoreNativeManyReference(reference)) ?? [];
@@ -1122,7 +1136,7 @@ export function createCoreTransaction(input: Readonly<{
     return value;
   });
 
-  const normalizeNativeInsert = Effect.fn("CoreTransaction.normalizeNativeInsert")(function* (
+  const normalizeNativeInsert = Effect.fnUntraced(function* (
     table: CoreTableDefinition, body: JsonObject, policy: NonNullable<ReturnType<typeof coreNativeRelationalRows>>,
     access: Extract<CoreTransactionNativeAccess, { kind: "native" }>,
   ) {
@@ -1160,7 +1174,7 @@ export function createCoreTransaction(input: Readonly<{
     return yield* Effect.fromResult(policy.rows.normalize(allocated, null, timestamp));
   });
 
-  const validateUserBody = Effect.fn("CoreTransaction.validateDocument")(function* (
+  const validateUserBody = Effect.fnUntraced(function* (
     table: CoreTableDefinition, value: unknown, previous: DocumentObject | null = null, access: CoreTransactionNativeAccess | undefined = defaultAccess,
     mode: "insert" | "advance" | "preserve" = "advance",
   ) {
@@ -1481,7 +1495,7 @@ export function createCoreTransaction(input: Readonly<{
     return original.document;
   });
 
-  const prepareNativeMutation = Effect.fn("CoreTransaction.prepareNativeMutation")(function* (
+  const prepareNativeMutation = Effect.fnUntraced(function* (
     access: CoreTransactionNativeAccess | undefined, table: CoreTableDefinition,
     kind: "insert" | "patch" | "replace" | "delete", before: DocumentObject | null, after: DocumentObject | null,
     normalizationSource?: DocumentObject, recordActivity = true,

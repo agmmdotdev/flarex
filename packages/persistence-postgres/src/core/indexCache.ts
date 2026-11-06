@@ -143,7 +143,7 @@ export const makeCoreIndexCache = Effect.fn("CoreIndexCache.make")(function* (
     if (policy.peek(key) === page) policy.remove(key);
   };
 
-  const populate = Effect.fn("CoreIndexCache.populate")(function* (
+  const populate = Effect.fnUntraced(function* (
     key: string, request: CoreIndexScan, snapshot: CorePersistenceSnapshot,
     registry: CoreRegistry, fetched: CoreIndexPage,
   ) {
@@ -185,7 +185,7 @@ export const makeCoreIndexCache = Effect.fn("CoreIndexCache.make")(function* (
     }), Effect.sync(() => { if (!page.ready) removeOwn(key, page); }));
   });
 
-  const scan: CoreIndexCache["scan"] = Effect.fn("CoreIndexCache.scan")(function* (input) {
+  const scan: CoreIndexCache["scan"] = Effect.fnUntraced(function* (input) {
     const request = copyRequest(input.request);
     const known = knownIndex(input.registry, request);
     const key = cacheKey(request);
@@ -214,7 +214,7 @@ export const makeCoreIndexCache = Effect.fn("CoreIndexCache.make")(function* (
     return fetched;
   });
 
-  const scanForAdmission: CoreIndexCache["scanForAdmission"] = Effect.fn("CoreIndexCache.scanForAdmission")(function* (input) {
+  const scanForAdmission: CoreIndexCache["scanForAdmission"] = Effect.fnUntraced(function* (input) {
     const { snapshot, registry, request, retention } = input;
     if (closed || !knownIndex(registry, request)) return yield* snapshot.scan(request);
     const key = cacheKey(request);

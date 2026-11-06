@@ -344,7 +344,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
   })));
   yield* Effect.addFinalizer(() => close());
 
-  const openSnapshot = Effect.fn("CoreDatabase.openSnapshot")(function* (timestamp: bigint, registry: CoreRegistry) {
+  const openSnapshot = Effect.fnUntraced(function* (timestamp: bigint, registry: CoreRegistry) {
     const physicalSnapshot = yield* persistence.readSnapshot(timestamp, initial.retention);
     const snapshot: CorePersistenceSnapshot = Object.freeze({ ...physicalSnapshot,
       scan: (request: CoreIndexScan) => committer.indexCache.scan({ snapshot: physicalSnapshot, registry, request }),
@@ -359,7 +359,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     const selected = yield* Effect.fromResult(committer.selectSnapshot(at));
     return { ...selected, snapshot: yield* openSnapshot(selected.timestamp, selected.registry) };
   });
-  const startNative = Effect.fn("CoreDatabase.startNative")(function* () {
+  const startNative = Effect.fnUntraced(function* () {
     yield* assertOpen;
     // Registry, data timestamp and COW history are selected together before I/O.
     const selected = yield* Effect.fromResult(committer.selectNativeSnapshot());
@@ -768,7 +768,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     return authority.epoch;
   });
 
-  const nativeAuthority = Effect.fn("CoreDatabase.nativeAuthority")(function* (binding: RequestBinding) {
+  const nativeAuthority = Effect.fnUntraced(function* (binding: RequestBinding) {
     yield* assertOpen;
     const authority = nativeBindings.get(binding);
     if (authority === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
@@ -811,7 +811,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     nativeBindings.set(binding, authority);
     return binding;
   });
-  const readNativeBinding: CoreDatabase["readNativeBinding"] = Effect.fn("CoreDatabase.readNativeBinding")(function* (binding) {
+  const readNativeBinding: CoreDatabase["readNativeBinding"] = Effect.fnUntraced(function* (binding) {
     const authority = yield* nativeAuthority(binding);
     return Object.freeze({ ...authority, tables: Object.freeze(authority.tables.map(copyTableDefinition)) });
   });
@@ -1145,7 +1145,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         const assertNativeOpen = Effect.andThen(assertOpen, Effect.suspend(() => !claimData.active || claimData.aborting
           ? Effect.fail(new CoreTransactionError({ reason: "foreignClaim" })) : data.selectiveMetadata === true ? Effect.void
             : Effect.fromResult(validateNativeRoot(committer.currentRegistry(), data))));
-        const capture = Effect.fn("CoreDatabase.captureNativeRoot")(function* () {
+        const capture = Effect.fnUntraced(function* () {
           yield* assertNativeOpen;
           const observed = yield* startNative();
           if (data.selectiveMetadata !== true) yield* Effect.fromResult(validateNativeRoot(observed.registry, data));

@@ -687,7 +687,7 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
           return Object.freeze({ indexMinimumTimestamp, documentMinimumTimestamp });
         }),
       )),
-      readSnapshot: Effect.fn("CorePersistence.readSnapshot")(function* (at: bigint, retention: CoreRetentionValidator = sqlRetention) {
+      readSnapshot: Effect.fnUntraced(function* (at: bigint, retention: CoreRetentionValidator = sqlRetention) {
         yield* decodeTimestamp(at).pipe(Effect.mapError(invalid));
         yield* retention.validateIndex(at);
         const preloaded: PreloadedPages = new Map();
