@@ -92,13 +92,13 @@ const compileEventDefinition = Effect.fn("CoreNativeEvents.compileStorage")(func
   const schema = yield* Effect.fromResult(normalizeRelationalSchema({ owner: "system", lineageId: "flarex.native-events",
     tables: [table("native_event_family", [column("id", "text"), column("event_count", "integer"), column("event_sha256", "text", true),
       ...(input.rootBound === true ? [column("root_request", "text")] : [])]),
-      table("native_event_envelope", [column("id", "text"), column("family_id", "text"), column("ordinal", "integer"), column("envelope", "jsonb")],
-        [{ indexId: "native_event_envelope.family", columns: ["family_id", "ordinal"] }]),
-      table("native_event_delivery", [column("id", "text"), column("family_id", "text"), column("ordinal", "integer"),
-        column("subscriber_id", "text"), column("handler_revision", "text"), column("state", "text"), column("attempts", "integer"),
-        column("fence", "text"), column("owner", "text", true), column("lease_expires_at", "timestamptz", true),
-        column("next_attempt_at", "timestamptz"), column("settled_at", "timestamptz", true), column("failure_code", "text", true)],
-        [{ indexId: "native_event_delivery.family", columns: ["family_id", "ordinal", "subscriber_id"] }])], capabilities: [] }));
+      // Immutable ordered envelope chunks, and per-subscriber blocks holding every
+      // ordinal's own delivery state (divergences/native-durable-event-delivery.md).
+      table("native_event_envelope", [column("id", "text"), column("family_id", "text"), column("first_ordinal", "integer"), column("envelopes", "jsonb")],
+        [{ indexId: "native_event_envelope.family", columns: ["family_id", "first_ordinal"] }]),
+      table("native_event_delivery", [column("id", "text"), column("family_id", "text"), column("first_ordinal", "integer"),
+        column("subscriber_id", "text"), column("handler_revision", "text"), column("entries", "jsonb")],
+        [{ indexId: "native_event_delivery.family", columns: ["family_id", "first_ordinal", "subscriber_id"] }])], capabilities: [] }));
   const provenance = { kind: "coreNativeEvents", owner: "system", version: input.rootBound === true ? 2 : 1, policy: captured.value } satisfies Json;
   const source = yield* captureLogicalSchemaSource({ key: "flarex.native-events", owner: "system", writeProfile: "flarex.native-events",
     evidence: { kind: "coreNativeEvents", provenance, policy: captured.value,

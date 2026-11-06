@@ -1,3 +1,4 @@
+import { isJsonObject } from "flarex-protocol/json";
 import { randomUUID } from "node:crypto";
 import { Cause, Clock, Effect, Exit, Result, Scope, Semaphore } from "effect";
 import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -286,7 +287,9 @@ export async function createCoreNativeWorkflowFixture(driver: "pglite" | "postgr
         for (const id of familyIds) {
           const family = yield* store.readFamily(id);
           for (const [ordinal, envelope] of family.events.entries()) {
-            const stored = captured.rows.find(row => row.table === envelopeTable && row.value.family_id === id && row.value.ordinal === ordinal);
+            const stored = captured.rows.find(row => row.table === envelopeTable && row.value.family_id === id
+              && Number(row.value.first_ordinal) <= ordinal && Array.isArray(row.value.envelopes)
+              && ordinal < Number(row.value.first_ordinal) + row.value.envelopes.length);
             if (stored === undefined) return yield* Effect.die(new Error("Missing event envelope from the captured Core snapshot"));
             output.push({ familyId: family.id, ordinal, timestamp: stored.timestamp, envelope });
           }
@@ -298,7 +301,16 @@ export async function createCoreNativeWorkflowFixture(driver: "pglite" | "postgr
         revisions: captured.revisions.filter(row => businessTables.has(row.table)), indexes: captured.indexes.filter(row => businessTables.has(row.table)),
         events: events.toSorted((left, right) => left.timestamp < right.timestamp ? -1 : left.timestamp > right.timestamp ? 1 : left.ordinal - right.ordinal),
         families: captured.rows.filter(row => row.table === familyTable).toSorted((left, right) => left.timestamp < right.timestamp ? -1 : left.timestamp > right.timestamp ? 1 : 0),
-        deliveries: captured.rows.filter(row => row.table === deliveryTable).toSorted((left, right) => left.timestamp < right.timestamp ? -1 : left.timestamp > right.timestamp ? 1
+        // Stored delivery blocks, projected to the per-event records tests compare.
+        deliveries: captured.rows.filter(row => row.table === deliveryTable).flatMap(row => {
+          const { id: _block, first_ordinal: first, entries, ...identity } = row.value;
+          if (typeof first !== "number" || !Array.isArray(entries)) throw new Error("Malformed delivery block");
+          return entries.map((entry, offset) => {
+            if (!isJsonObject(entry)) throw new Error("Malformed delivery entry");
+            const value: typeof row.value = { ...entry, ...identity, ordinal: first + offset };
+            return { ...row, value };
+          });
+        }).toSorted((left, right) => left.timestamp < right.timestamp ? -1 : left.timestamp > right.timestamp ? 1
           : Number(left.value.ordinal) - Number(right.value.ordinal) || String(left.value.subscriber_id).localeCompare(String(right.value.subscriber_id))),
         outcomes: captured.outcomes.filter(outcome => outcome.value.state === "committed") };
     };

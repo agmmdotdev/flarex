@@ -68,11 +68,11 @@ const setup = Effect.fn("NativeEventsFixture.setup")(function* (fixture: CorePer
     const operation = yield* database.beginNativeRoot(bindings.root, { claim: acquired.claim, ...coreNativeTestBudget() });
     return { operation, claim: acquired.claim, identity };
   });
-  const write = Effect.fn("NativeEventsFixture.write")(function* (familyId: string, code: string) {
+  const write = Effect.fn("NativeEventsFixture.write")(function* (familyId: string, code: string, extra: readonly string[] = []) {
     const selected = yield* begin();
     const business = yield* selected.operation.native(bindings.currencyBinding);
     const stored = yield* business.writeRows(currencyTable, "insert", [body(code)]);
-    const values = [event(code)];
+    const values = [code, ...extra].map(value => ({ ...event(code), message: { code: value } }));
     yield* stageCoreCommitEventFamily(yield* selected.operation.native(bindings.eventBinding), events, familyId,
       { values, sha256: yield* commitEventsDigest(values) }, selected.operation.unixTime);
     return { ...selected, stored };
@@ -178,6 +178,48 @@ export function registerNativeEventScenarios(label: string, createFixture: () =>
       }))); } finally { await fixture.close(); }
     }, 120_000);
 
+    it("conflicts rather than losing state when two settlements touch one delivery block", async () => {
+      const fixture = await createFixture();
+      try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const tested = yield* setup(fixture), selected = yield* tested.write("shared", "xag", ["xah"]);
+        yield* tested.database.commit(yield* selected.operation.finalize(), { claim: selected.claim, result: null });
+        const store = yield* makeCoreCommitEventStore({ database: tested.database, binding: tested.eventBinding });
+        const [left, right] = yield* store.claimBatch("shared", [subscriber], 2);
+        if (left === undefined || right === undefined) return yield* Effect.die(new Error("Missing claims"));
+        const table = tested.events.tables.find(table => table.privateEvent?.role === "delivery");
+        if (table === undefined) return yield* Effect.die(new Error("Missing delivery role"));
+        const first = yield* tested.database.beginNative(tested.eventBinding, { ...coreNativeTestBudget(), commandName: CORE_NATIVE_EVENT_WRITE });
+        const second = yield* tested.database.beginNative(tested.eventBinding, { ...coreNativeTestBudget(), commandName: CORE_NATIVE_EVENT_WRITE });
+        const [block] = yield* first.operations.find(table.name, { family_id: "shared" });
+        yield* second.operations.find(table.name, { family_id: "shared" });
+        if (typeof block?.id !== "string" || !Array.isArray(block.entries)) return yield* Effect.die(new Error("Missing delivery block"));
+        const [one, two] = block.entries;
+        if (typeof one !== "object" || one === null || typeof two !== "object" || two === null) return yield* Effect.die(new Error("Missing entries"));
+        const settled = (entry: object, at: number) => ({ ...entry, state: "delivered", owner: null, lease_expires_at: null, settled_at: new Date(at).toISOString() });
+        yield* first.operations.writeRows(table.name, "update", [{ id: block.id, entries: [settled(one, first.unixTime), two] }]);
+        yield* second.operations.writeRows(table.name, "update", [{ id: block.id, entries: [one, settled(two, second.unixTime)] }]);
+        const firstFinalized = yield* first.finalize(), secondFinalized = yield* second.finalize();
+        yield* tested.database.commit(firstFinalized);
+        expect(failed(yield* Effect.result(tested.database.commit(secondFinalized)))).toMatchObject({ reason: "conflict" });
+        expect((yield* store.readFamily("shared")).deliveries.map(delivery => delivery.state)).toEqual(["delivered", "claimed"]);
+      }))); } finally { await fixture.close(); }
+    }, 120_000);
+
+    it("commits events near the byte limit as bounded chunks through Core", async () => {
+      const fixture = await createFixture();
+      try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const tested = yield* setup(fixture), selected = yield* tested.write("large", "xai", ["y".repeat(64_000), "z".repeat(64_000), "tail"]);
+        yield* tested.database.commit(yield* selected.operation.finalize(), { claim: selected.claim, result: null });
+        const store = yield* makeCoreCommitEventStore({ database: tested.database, binding: tested.eventBinding });
+        expect((yield* store.readFamily("large")).events.map(value => JSON.stringify(value.message).length)).toEqual([14, 64_011, 64_011, 15]);
+        const chunks = tested.events.tables.find(table => table.privateEvent?.role === "envelope");
+        if (chunks === undefined) return yield* Effect.die(new Error("Missing envelope role"));
+        const read = yield* tested.database.beginNative(tested.eventBinding, { ...coreNativeTestBudget(), commandName: CORE_NATIVE_EVENT_READ });
+        expect((yield* read.operations.find(chunks.name, { family_id: "large" })).length).toBeGreaterThan(1);
+        yield* read.finishRead();
+      }))); } finally { await fixture.close(); }
+    }, 120_000);
+
     it("rejects a second competing Core claim update observed before the first claimant committed", async () => {
       const fixture = await createFixture();
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
@@ -189,10 +231,12 @@ export function registerNativeEventScenarios(label: string, createFixture: () =>
         const second = yield* tested.database.beginNative(tested.eventBinding, { ...coreNativeTestBudget(), commandName: CORE_NATIVE_EVENT_WRITE });
         const [original] = yield* first.operations.find(table.name, { family_id: "race" });
         expect(yield* second.operations.find(table.name, { family_id: "race" })).toEqual([original]);
-        if (typeof original?.id !== "string") return yield* Effect.die(new Error("Missing delivery identity"));
+        if (typeof original?.id !== "string" || !Array.isArray(original.entries)) return yield* Effect.die(new Error("Missing delivery identity"));
+        const [pending] = original.entries;
+        if (typeof pending !== "object" || pending === null) return yield* Effect.die(new Error("Missing delivery entry"));
         for (const [operation, owner] of [[first, "first"], [second, "second"]] as const)
-          yield* operation.operations.writeRows(table.name, "update", [{ id: original.id, state: "claimed", attempts: 1, fence: "1", owner,
-            lease_expires_at: new Date(operation.unixTime + commitEventLimits.leaseMs).toISOString() }]);
+          yield* operation.operations.writeRows(table.name, "update", [{ id: original.id, entries: [{ ...pending, state: "claimed", attempts: 1, fence: "1", owner,
+            lease_expires_at: new Date(operation.unixTime + commitEventLimits.leaseMs).toISOString() }] }]);
         const firstFinalized = yield* first.finalize(), secondFinalized = yield* second.finalize();
         yield* tested.database.commit(firstFinalized);
         expect(failed(yield* Effect.result(tested.database.commit(secondFinalized)))).toMatchObject({ reason: "conflict" });

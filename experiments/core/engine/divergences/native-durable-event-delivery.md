@@ -49,6 +49,36 @@ ordinals retain the existing publisher's cancellation projection. Framework
 lifecycle maps and root events remain framework-owned; deleting several graph
 rows need not produce an event for each row.
 
+## Stored layout
+
+Convex keeps one document per scheduled job. Native events do not: writing one row
+per envelope and per delivery cost about 57 of a Product create's staged documents.
+A family is a lean immutable header, immutable envelope chunks and delivery blocks.
+
+- An envelope chunk holds consecutive envelopes under half the event document
+  limit, so a single largest event still fits. Chunking is a pure function of the
+  sealed envelopes; the digest covers envelopes, not chunks. Chunks add one nesting
+  level to an event, which is the only change to event admission.
+- A delivery block holds the dense per-ordinal state of 64 ordinals for one
+  subscriber. Lease, fence, attempts, failure evidence and terminal receipts stay
+  per event, so a failing event does not block a later one. A cursor would not
+  keep that. Every surviving row keeps its unique slot.
+- Delivery identity is unchanged: IDs, event IDs and claim cursors are derived per
+  ordinal when a family is read. A missing entry, short block or chunk gap is stored
+  corruption.
+
+Two writers of one block conflict at commit. Claims and settlements already read
+every delivery row of their family, so this adds no new conflict class.
+
+The cost moves to the delivery side. Each claim and settlement rewrites its whole
+block and retained history keeps each revision. By estimate, not measurement, one
+full block costs about 790 KB of revisions instead of about 58 KB, and a 28-event
+family about 150 KB instead of about 28 KB. Delivery throughput and history growth
+remain unmeasured, and no production dispatcher exists yet. The block span is the
+tuning point if that cost matters. The owner authorized a reset of Core-native
+event rows for this layout; this is separate from the retained physical dataset
+named below.
+
 ## Family order, repair and delivery
 
 The family header witnesses the complete count and digest. The reader verifies

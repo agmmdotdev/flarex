@@ -1,7 +1,7 @@
 import { Effect, Option } from "effect";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { DocumentObject } from "flarex-protocol/document-value";
-import { isJson, isJsonObject, type JsonObject } from "flarex-protocol/json";
+import { isJson, isJsonObject, isJsonObjectFromUnknown, type Json, type JsonObject } from "flarex-protocol/json";
 import { CoreNativeBudgetError, CoreNativeUniqueConflict, CoreQueryInputError, issueCoreNativeBinding, issueFinalizedTransaction,
   type CoreNativeOperations } from "../../src/core/api";
 import type { CoreNativeDefinition } from "../../src/core/nativePolicy";
@@ -21,7 +21,7 @@ beforeAll(async () => { definition = await Effect.runPromise(compileCoreNativeEv
 
 /** Pure event-record fixture only: this does not implement Core isolation or
  * persistence. Database integration tests own atomicity/conflict/recovery proof. */
-function fixture() {
+function fixture(selected = definition) {
   const rows = new Map<string, DocumentObject[]>();
   const writes: unknown[] = [], pages: unknown[] = [];
   let now = Date.parse("2026-11-01T00:00:00.000Z");
@@ -67,9 +67,9 @@ function fixture() {
   const binding = issueCoreNativeBinding();
   const database: CoreCommitEventStoreInput["database"] = {
     resolveCommittedNativeRootRequest: unexpected,
-    readNativeBinding: () => Effect.succeed({ definition, namespace: null, schemaId: "schema", authorityEpoch: 0n, tables: [], commands: definition.commands }),
+    readNativeBinding: () => Effect.succeed({ definition: selected, namespace: null, schemaId: "schema", authorityEpoch: 0n, tables: [], commands: selected.commands }),
     beginNative: (_binding, options) => {
-      const command = definition.commands.find(command => command.name === options.commandName);
+      const command = selected.commands.find(command => command.name === options.commandName);
       if (command === undefined) return unexpected();
       return Effect.succeed({ command, operations, unixTime: now, finishRead: () => Effect.succeed({ timestamp: 0n, reads: [] }),
         finalize: () => Effect.succeed(issueFinalizedTransaction()), abort: () => Effect.void });
@@ -77,7 +77,7 @@ function fixture() {
   };
   const stage = (id: string, values: readonly CommittedEvent[]) => Effect.gen(function* () {
     const sha256 = values.length === 0 ? null : yield* commitEventsDigest(values);
-    yield* stageCoreCommitEventFamily(operations, definition, id, { values, sha256 }, now);
+    yield* stageCoreCommitEventFamily(operations, selected, id, { values, sha256 }, now);
   });
   return { rows, writes, pages, operations, input: { database, binding }, stage, advance: (milliseconds: number) => { now += milliseconds; } };
 }
@@ -149,6 +149,132 @@ describe("private Core native event records", () => {
     if (deliveries === undefined) throw new Error("Missing delivery role");
     f.rows.get(deliveries.name)?.pop();
     await expect(Effect.runPromise(store.readFamily("family"))).rejects.toMatchObject({ reason: "storedCorruption" });
+  });
+
+  const roleTable = (selected: CoreNativeDefinition, role: string) => {
+    const name = selected.tables.find(candidate => candidate.privateEvent?.role === role)?.name;
+    if (name === undefined) throw new Error("Missing event role");
+    return name;
+  };
+  const stateOf = (rows: readonly DocumentObject[] | undefined) => (rows ?? []).flatMap(row => {
+    if (!Array.isArray(row.entries)) throw new Error("Missing delivery entries");
+    return row.entries.map(entry => { if (!isJsonObject(entry)) throw new Error("Malformed entry"); return entry; });
+  });
+
+  it("tiles a large family across envelope chunks and delivery blocks", async () => {
+    const f = fixture();
+    const values = Array.from({ length: 70 }, (_, index) => event(`${index}-${"x".repeat(3000)}`));
+    await Effect.runPromise(f.stage("family", values));
+    const chunks = f.rows.get(roleTable(definition, "envelope")) ?? [], blocks = f.rows.get(roleTable(definition, "delivery")) ?? [];
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(blocks.map(block => block.first_ordinal)).toEqual([0, 64]);
+    const store = await Effect.runPromise(makeCoreCommitEventStore(f.input));
+    const read = await Effect.runPromise(store.readFamily("family"));
+    expect(read.events).toEqual(values);
+    expect(read.deliveries.map(delivery => delivery.ordinal)).toEqual(values.map((_, ordinal) => ordinal));
+    // Identity stays per event across a block boundary.
+    expect(read.deliveries[64]?.id).toBe("family/0064/indexer");
+    // A gap between chunks and a short block are both stored corruption.
+    const missing = chunks.splice(1, 1);
+    await expect(Effect.runPromise(store.readFamily("family"))).rejects.toMatchObject({ reason: "storedCorruption" });
+    chunks.splice(1, 0, ...missing);
+    const [block] = blocks;
+    if (block === undefined || !Array.isArray(block.entries)) throw new Error("Missing delivery block");
+    blocks[0] = { ...block, entries: block.entries.slice(1) };
+    await expect(Effect.runPromise(store.readFamily("family"))).rejects.toMatchObject({ reason: "storedCorruption" });
+  });
+
+  it("settles one subscriber across a block boundary without touching its siblings", async () => {
+    const second = { id: "archiver", revision: "e".repeat(64) };
+    const selected = await Effect.runPromise(compileCoreNativeEventDefinition({ scopeUuid: "040557e2-a0c6-4db0-af27-0018f721badf",
+      epochUuid: "d23cd996-47c9-4760-9284-e89ba2e39923", policy: { ...policy, subscribers: [subscriber, second] } }));
+    const f = fixture(selected);
+    await Effect.runPromise(f.stage("family", Array.from({ length: 70 }, (_, index) => ({ ...event(String(index)), subscribers: [subscriber, second] }))));
+    expect((f.rows.get(roleTable(selected, "delivery")) ?? []).map(block => [block.first_ordinal, block.subscriber_id, Array.isArray(block.entries) ? block.entries.length : 0]))
+      .toEqual([[0, "indexer", 64], [0, "archiver", 64], [64, "indexer", 6], [64, "archiver", 6]]);
+    const store = await Effect.runPromise(makeCoreCommitEventStore(f.input));
+    for (let settled = 0; settled < 70;) {
+      const claims = await Effect.runPromise(store.claimBatch("family", [second], 8));
+      expect(claims.length).toBeGreaterThan(0);
+      for (const claim of claims) await Effect.runPromise(store.settle(claim));
+      settled += claims.length;
+    }
+    const { deliveries } = await Effect.runPromise(store.readFamily("family"));
+    expect(deliveries.filter(delivery => delivery.subscriber_id === "archiver").every(delivery => delivery.state === "delivered")).toBe(true);
+    expect(deliveries.filter(delivery => delivery.subscriber_id === "indexer").every(delivery => delivery.state === "pending" && delivery.attempts === 0)).toBe(true);
+    expect(deliveries.map(delivery => delivery.ordinal).filter((_, position) => position % 2 === 0)).toEqual(Array.from({ length: 70 }, (_, index) => index));
+  });
+
+  it("writes an exhausted delivery and the next claim in one block update", async () => {
+    const f = fixture();
+    await Effect.runPromise(f.stage("family", [event("one"), event("two")]));
+    const name = roleTable(definition, "delivery");
+    const [block] = f.rows.get(name) ?? [];
+    if (block === undefined) throw new Error("Missing delivery block");
+    const [first, next] = stateOf([block]);
+    f.rows.set(name, [{ ...block, entries: [{ ...first, attempts: 5 }, next ?? null] }]);
+    const store = await Effect.runPromise(makeCoreCommitEventStore(f.input));
+    f.writes.length = 0;
+    const [claim] = await Effect.runPromise(store.claimBatch("family", [subscriber], 1));
+    expect(claim?.message.eventId.endsWith("/1")).toBe(true);
+    expect(f.writes.filter(write => isJsonObjectFromUnknown(write) && write.table === name)).toHaveLength(1);
+    expect(stateOf(f.rows.get(name)).map(entry => [entry.state, entry.failure_code])).toEqual([["failed", "attempts-exhausted"], ["claimed", null]]);
+  });
+
+  it("refuses stored chunks and blocks that do not exactly describe the family", async () => {
+    const entryCases: readonly [string, (entries: readonly Json[]) => readonly Json[]][] = [
+      ["a non-object entry", entries => ["pending", ...entries.slice(1)]],
+      ["an inconsistent lifecycle", entries => [{ ...(entries[0] as JsonObject), state: "claimed" }, ...entries.slice(1)]],
+      ["smuggled identity", entries => [{ ...(entries[0] as JsonObject), ordinal: 9 }, ...entries.slice(1)]],
+    ];
+    const blockCases: readonly [string, JsonObject][] = [
+      ["a wrong handler revision", { handler_revision: "f".repeat(64) }],
+      ["an unknown subscriber", { id: "family/0000/stranger", subscriber_id: "stranger" }], ["a misaligned block", { first_ordinal: 1 }],
+    ];
+    const check = async (mutate: (f: ReturnType<typeof fixture>) => void) => {
+      const f = fixture();
+      await Effect.runPromise(f.stage("family", [event("one"), event("two")]));
+      mutate(f);
+      const store = await Effect.runPromise(makeCoreCommitEventStore(f.input));
+      await expect(Effect.runPromise(store.readFamily("family"))).rejects.toMatchObject({ reason: "storedCorruption" });
+    };
+    const delivery = roleTable(definition, "delivery"), envelope = roleTable(definition, "envelope");
+    for (const [, change] of entryCases) await check(f => {
+      const [block] = f.rows.get(delivery) ?? [];
+      if (block === undefined || !Array.isArray(block.entries)) throw new Error("Missing delivery block");
+      f.rows.set(delivery, [{ ...block, entries: change(block.entries as readonly Json[]) as DocumentObject[string] }]);
+    });
+    for (const [, change] of blockCases) await check(f => {
+      const [block] = f.rows.get(delivery) ?? [];
+      if (block === undefined) throw new Error("Missing delivery block");
+      f.rows.set(delivery, [{ ...block, ...change }]);
+    });
+    await check(f => {
+      const [block] = f.rows.get(delivery) ?? [];
+      if (block === undefined) throw new Error("Missing delivery block");
+      f.rows.set(delivery, [block, block]);
+    });
+    await check(f => {
+      const [chunk] = f.rows.get(envelope) ?? [];
+      if (chunk === undefined) throw new Error("Missing envelope chunk");
+      f.rows.set(envelope, [chunk, chunk]);
+    });
+  });
+
+  it("keeps a failing event from blocking the next one in its block", async () => {
+    const f = fixture();
+    await Effect.runPromise(f.stage("family", [event("one"), event("two"), event("three")]));
+    const store = await Effect.runPromise(makeCoreCommitEventStore(f.input));
+    const [first] = await Effect.runPromise(store.claimBatch("family", [subscriber], 1));
+    if (first === undefined) throw new Error("Missing first claim");
+    await Effect.runPromise(store.settle(first, { retryable: true, code: "retry-later" }));
+    const [second] = await Effect.runPromise(store.claimBatch("family", [subscriber], 1));
+    if (second === undefined) throw new Error("Missing second claim");
+    expect(second.message.eventId.endsWith("/1")).toBe(true);
+    await Effect.runPromise(store.settle(second));
+    const { deliveries } = await Effect.runPromise(store.readFamily("family"));
+    expect(deliveries.map(delivery => [delivery.state, delivery.attempts, delivery.failure_code])).toEqual([
+      ["pending", 1, "retry-later"], ["delivered", 1, null], ["pending", 0, null]]);
   });
 
   it("retains claim fencing, lease expiry and durable retry state", async () => {

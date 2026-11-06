@@ -31,7 +31,8 @@ const Instant = Schema.String.check(Schema.makeFilter(value => Number.isFinite(D
 const Code = Schema.String.check(Schema.isPattern(/^[a-zA-Z0-9._-]{1,128}$/));
 const Family = Schema.Struct({ id: FamilyId, event_count: Count, event_sha256: Schema.NullOr(EventRevision) }).annotate(strict);
 const RootBoundFamily = Schema.Struct({ ...Family.fields, root_request: Schema.String }).annotate(strict);
-const EnvelopeRow = Schema.Struct({ id: Schema.NonEmptyString, family_id: FamilyId, ordinal: Ordinal, envelope: EventEnvelope }).annotate(strict);
+const EnvelopeChunk = Schema.Struct({ id: Schema.NonEmptyString, family_id: FamilyId, first_ordinal: Ordinal,
+  envelopes: Schema.Array(EventEnvelope).check(Schema.isMinLength(1)) }).annotate(strict);
 const StageInput = Schema.Struct({
   values: Schema.Array(EventEnvelope).check(Schema.isMaxLength(commitEventLimits.messages)), sha256: Schema.NullOr(EventRevision),
   ordinals: Schema.optionalKey(Schema.Array(Ordinal).check(Schema.isMaxLength(commitEventLimits.messages))), capturedCount: Schema.optionalKey(Count),
@@ -39,8 +40,8 @@ const StageInput = Schema.Struct({
 const SettlementFailure = Schema.NullOr(Schema.Struct({ retryable: Schema.Boolean, code: Code }).annotate(strict));
 const Fence = Schema.String.check(Schema.isPattern(/^(0|[1-9][0-9]{0,18})$/), Schema.makeFilter(value =>
   BigInt(value) <= MAX_PERSISTED_SIGNED_INT64_V1 ? undefined : "Fence exceeds signed int64"));
-const Delivery = Schema.Struct({ id: Schema.NonEmptyString, family_id: FamilyId, ordinal: Ordinal,
-  subscriber_id: EventName, handler_revision: EventRevision, state: Schema.Literals(["pending", "claimed", "delivered", "failed"]),
+/** One ordinal's stored state; identity lives once on its block and is derived on read. */
+const DeliveryEntry = Schema.Struct({ state: Schema.Literals(["pending", "claimed", "delivered", "failed"]),
   attempts: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: commitEventLimits.attempts })), fence: Fence,
   owner: Schema.NullOr(Schema.String.check(Schema.isLengthBetween(1, 128))), lease_expires_at: Schema.NullOr(Instant),
   next_attempt_at: Instant, settled_at: Schema.NullOr(Instant), failure_code: Schema.NullOr(Code),
@@ -50,12 +51,15 @@ const Delivery = Schema.Struct({ id: Schema.NonEmptyString, family_id: FamilyId,
     && (row.state === "claimed" ? row.attempts > 0 && row.owner !== null && row.lease_expires_at !== null
       : row.owner === null && row.lease_expires_at === null) ? undefined : "Inconsistent delivery lifecycle";
 }));
-type Delivery = typeof Delivery.Type;
+type DeliveryEntry = typeof DeliveryEntry.Type;
+type Delivery = DeliveryEntry & Readonly<{ id: string; family_id: string; ordinal: number; subscriber_id: string; handler_revision: string }>;
+const DeliveryBlock = Schema.Struct({ id: Schema.NonEmptyString, family_id: FamilyId, first_ordinal: Ordinal, subscriber_id: EventName,
+  handler_revision: EventRevision, entries: Schema.Array(DeliveryEntry).check(Schema.isMinLength(1)) }).annotate(strict);
 const decodeFamily = Schema.decodeUnknownResult(Family, { onExcessProperty: "error" });
 const decodeRootBoundFamily = Schema.decodeUnknownResult(RootBoundFamily, { onExcessProperty: "error" });
 const decodePackedRootRequest = Schema.decodeUnknownEffect(Schema.fromJsonString(CoreNativeRootRequestEvidenceSchema));
-const decodeEnvelopeRow = Schema.decodeUnknownResult(EnvelopeRow, { onExcessProperty: "error" });
-const decodeDelivery = Schema.decodeUnknownResult(Delivery, { onExcessProperty: "error" });
+const decodeEnvelopeChunk = Schema.decodeUnknownResult(EnvelopeChunk, { onExcessProperty: "error" });
+const decodeDeliveryBlock = Schema.decodeUnknownResult(DeliveryBlock, { onExcessProperty: "error" });
 const decodeEnvelope = Schema.decodeUnknownResult(EventEnvelope, { onExcessProperty: "error" });
 const decodeStageInput = Schema.decodeUnknownResult(StageInput, { onExcessProperty: "error" });
 const decodeSettlementFailure = Schema.decodeUnknownResult(SettlementFailure);
@@ -63,6 +67,11 @@ const decodeId = Schema.decodeUnknownResult(FamilyId);
 const decodeSubscribers = Schema.decodeUnknownResult(Schema.Array(EventSubscriber).check(Schema.isMaxLength(commitEventLimits.subscribers)), { onExcessProperty: "error" });
 const ordinalId = (familyId: string, ordinal: number) => `${familyId}/${String(ordinal).padStart(4, "0")}`;
 const deliveryId = (familyId: string, ordinal: number, subscriber: string) => `${ordinalId(familyId, ordinal)}/${subscriber}`;
+/** A delivery block's ordinal span and an envelope chunk's canonical byte budget.
+ * Chunking is a pure function of the sealed envelopes, so a replay derives equal IDs. */
+const DELIVERY_BLOCK_ORDINALS = 64;
+const ENVELOPE_CHUNK_BYTES = coreNativeEventLimits.maxDocumentBytes / 2;
+const deliveryEntry = ({ id: _id, family_id: _family, ordinal: _ordinal, subscriber_id: _subscriber, handler_revision: _revision, ...entry }: Delivery): DeliveryEntry => entry;
 const corrupt = (cause?: unknown) => eventError("storedCorruption", cause);
 const fromStored = <A>(result: Result.Result<A, unknown>) => Effect.fromResult(result.pipe(Result.mapError(corrupt)));
 const coreFailure = (failure: CoreError): CommitEventError => {
@@ -189,10 +198,12 @@ export const stageCoreCommitEventFamily = Effect.fn("CoreNativeEvents.stageFamil
     || envelope.ordinals.some((ordinal, index) => ordinal >= (envelope.capturedCount ?? envelope.values.length)
       || index > 0 && ordinal <= (envelope.ordinals?.[index - 1] ?? -1)))) return yield* eventError("invalidInput");
   const values: CommittedEvent[] = [];
+  const eventBytes: number[] = [];
   for (const value of envelope.values) {
     // StageInput already decoded the detached family. Retain each event's
     // independent byte/capture check before policy validation and hashing.
-    yield* Effect.fromResult(capturePrivateJsonData(value, commitEventLimits.bytes, eventError));
+    const measured = yield* Effect.fromResult(capturePrivateJsonData(value, commitEventLimits.bytes, eventError));
+    eventBytes.push(measured.bytes);
     if (!matchesCoreNativeEventPolicy(policy, value) || new Set(value.subscribers.map(subscriber => subscriber.id)).size !== value.subscribers.length
       || rootFamily !== undefined && value.group !== rootFamily.request.key)
       return yield* eventError("invalidAuthority");
@@ -203,17 +214,24 @@ export const stageCoreCommitEventFamily = Effect.fn("CoreNativeEvents.stageFamil
   if (values.length === 0) return;
   const now = new Date(unixTime).toISOString();
   const deliveries: JsonObject[] = [];
-  for (const [ordinal, event] of values.entries()) for (const subscriber of event.subscribers) deliveries.push({
-    id: deliveryId(familyId, ordinal, subscriber.id), family_id: familyId, ordinal, subscriber_id: subscriber.id,
-    handler_revision: subscriber.revision, state: "pending", attempts: 0, fence: "0", owner: null, lease_expires_at: null,
-    next_attempt_at: now, settled_at: null, failure_code: null,
-  });
+  for (let first = 0; first < values.length; first += DELIVERY_BLOCK_ORDINALS) for (const subscriber of policy.subscribers)
+    deliveries.push({ id: deliveryId(familyId, first, subscriber.id), family_id: familyId, first_ordinal: first, subscriber_id: subscriber.id,
+      handler_revision: subscriber.revision, entries: values.slice(first, first + DELIVERY_BLOCK_ORDINALS).map(() => ({ state: "pending", attempts: 0,
+        fence: "0", owner: null, lease_expires_at: null, next_attempt_at: now, settled_at: null, failure_code: null })) });
+  const chunks: JsonObject[] = [];
+  let chunkStart = 0, chunkBytes = 0;
+  for (let ordinal = 0; ordinal <= values.length; ordinal += 1) {
+    const bytes = eventBytes[ordinal];
+    if (ordinal > chunkStart && (bytes === undefined || chunkBytes + bytes > ENVELOPE_CHUNK_BYTES)) {
+      chunks.push({ id: ordinalId(familyId, chunkStart), family_id: familyId, first_ordinal: chunkStart, envelopes: values.slice(chunkStart, ordinal) });
+      chunkStart = ordinal; chunkBytes = 0;
+    }
+    chunkBytes += bytes ?? 0;
+  }
   const records = [
     { phase: "family", table: selected.family, rows: [{ id: familyId, event_count: values.length, event_sha256: digest,
       ...(rootFamily === undefined ? {} : { root_request: rootFamily.packedRequest }) }] },
-    { phase: "envelopes", table: selected.envelope, rows: values.map((event, ordinal) => ({
-      id: ordinalId(familyId, ordinal), family_id: familyId, ordinal, envelope: event,
-    })) },
+    { phase: "envelopes", table: selected.envelope, rows: chunks },
     { phase: "deliveries", table: selected.delivery, rows: deliveries },
   ];
   // Core owns these complete private records: there are no native managed
@@ -302,32 +320,61 @@ export const makeCoreCommitEventStore = Effect.fn("CoreNativeEvents.makeStore")(
     }
     const eventRows = yield* core(operations.find(selected.envelope.name, { family_id: id }));
     const deliveryRows = yield* core(operations.find(selected.delivery.name, { family_id: id }));
-    if (eventRows.length !== header.event_count || header.event_count === 0) return yield* corrupt();
-    const envelopes = yield* Effect.forEach(eventRows, document => fromStored(Result.flatMap(row(document), decodeEnvelopeRow)));
-    envelopes.sort((left, right) => left.ordinal - right.ordinal);
+    if (header.event_count === 0) return yield* corrupt();
+    const stored = yield* Effect.forEach(eventRows, document => fromStored(Result.flatMap(row(document), decodeEnvelopeChunk)));
+    stored.sort((left, right) => left.first_ordinal - right.first_ordinal);
+    const sequence: CommittedEvent[] = [];
+    for (const chunk of stored) {
+      // Chunks tile the family exactly: no gap, overlap or foreign row.
+      if (chunk.family_id !== id || chunk.first_ordinal !== sequence.length || chunk.id !== ordinalId(id, chunk.first_ordinal))
+        return yield* corrupt();
+      sequence.push(...chunk.envelopes);
+    }
+    if (sequence.length !== header.event_count) return yield* corrupt();
     const events: CommittedEvent[] = [];
     const expected = new Map<string, string>();
-    for (const [ordinal, event] of envelopes.entries()) {
-      if (event.family_id !== id || event.ordinal !== ordinal || event.id !== ordinalId(id, ordinal)
-        || !matchesCoreNativeEventPolicy(policy, event.envelope) || requestKey !== undefined && event.envelope.group !== requestKey)
+    for (const [ordinal, event] of sequence.entries()) {
+      if (!matchesCoreNativeEventPolicy(policy, event) || requestKey !== undefined && event.group !== requestKey)
         return yield* corrupt();
-      const captured = yield* Effect.fromResult(capturePrivateJsonData(event.envelope, commitEventLimits.bytes, corrupt));
+      const captured = yield* Effect.fromResult(capturePrivateJsonData(event, commitEventLimits.bytes, corrupt));
       const envelope = yield* fromStored(decodeEnvelope(captured.value));
       if (new Set(envelope.subscribers.map(subscriber => subscriber.id)).size !== envelope.subscribers.length) return yield* corrupt();
       for (const subscriber of envelope.subscribers) expected.set(deliveryId(id, ordinal, subscriber.id), subscriber.revision);
       events.push(snapshotDecodedProtocolPlainData(envelope));
     }
     const digest = yield* commitEventsDigest(events, "storedVerification").pipe(Effect.mapError(corrupt));
-    if (digest !== header.event_sha256 || expected.size !== deliveryRows.length) return yield* corrupt();
-    const deliveries = yield* Effect.forEach(deliveryRows, document => fromStored(Result.flatMap(row(document), decodeDelivery)));
+    if (digest !== header.event_sha256) return yield* corrupt();
+    const blocks = yield* Effect.forEach(deliveryRows, document => fromStored(Result.flatMap(row(document), decodeDeliveryBlock)));
+    const deliveries: Delivery[] = [];
+    for (const block of blocks) {
+      if (block.first_ordinal % DELIVERY_BLOCK_ORDINALS !== 0 || block.id !== deliveryId(id, block.first_ordinal, block.subscriber_id)
+        || block.entries.length !== Math.min(DELIVERY_BLOCK_ORDINALS, events.length - block.first_ordinal)) return yield* corrupt();
+      for (const [offset, entry] of block.entries.entries()) {
+        const ordinal = block.first_ordinal + offset;
+        deliveries.push({ ...entry, id: deliveryId(id, ordinal, block.subscriber_id), family_id: block.family_id,
+          ordinal, subscriber_id: block.subscriber_id, handler_revision: block.handler_revision });
+      }
+    }
+    if (expected.size !== deliveries.length) return yield* corrupt();
     for (const delivery of deliveries) {
-      if (delivery.family_id !== id || delivery.id !== deliveryId(id, delivery.ordinal, delivery.subscriber_id)
-        || expected.get(delivery.id) !== delivery.handler_revision) return yield* corrupt();
+      if (delivery.family_id !== id || expected.get(delivery.id) !== delivery.handler_revision) return yield* corrupt();
       expected.delete(delivery.id);
     }
     if (expected.size !== 0) return yield* corrupt();
     deliveries.sort((left, right) => left.ordinal - right.ordinal || (left.subscriber_id < right.subscriber_id ? -1 : left.subscriber_id > right.subscriber_id ? 1 : 0));
     return { id, events: Object.freeze(events), deliveries: Object.freeze(deliveries) };
+  });
+  /** Rewrites each touched block whole: the family this transaction read, with `changed` applied. */
+  const writeDeliveries = Effect.fn("CoreNativeEvents.writeDeliveries")(function* (operations: CoreNativeOperations, name: string,
+    familyId: string, read: readonly Delivery[], changed: readonly Delivery[]) {
+    const updates = new Map(changed.map(delivery => [delivery.id, delivery]));
+    const touched = new Map(changed.map(delivery => {
+      const first = delivery.ordinal - delivery.ordinal % DELIVERY_BLOCK_ORDINALS;
+      return [deliveryId(familyId, first, delivery.subscriber_id), { first, subscriber: delivery.subscriber_id }];
+    }));
+    yield* core(operations.writeRows(name, "update", [...touched].map(([id, { first, subscriber }]) => ({ id,
+      entries: read.filter(delivery => delivery.subscriber_id === subscriber && delivery.ordinal >= first
+        && delivery.ordinal < first + DELIVERY_BLOCK_ORDINALS).map(delivery => deliveryEntry(updates.get(delivery.id) ?? delivery)) }))));
   });
   const nextFamily = Effect.fn("CoreNativeEvents.nextFamily")((after?: string) => transact("read", (operations, definition) => Effect.gen(function* () {
     if (after !== undefined) yield* Effect.fromResult(decodeId(after).pipe(Result.mapError(cause => eventError("invalidInput", cause))));
@@ -365,6 +412,7 @@ export const makeCoreCommitEventStore = Effect.fn("CoreNativeEvents.makeStore")(
       const checked = yield* family(operations, definition, verified.id);
       const now = new Date(unixTime).toISOString();
       const claimed: { row: Delivery; envelope: CommittedEvent }[] = [];
+      const changed: Delivery[] = [];
       let cursor: string | undefined;
       for (const delivery of checked.deliveries) {
         if (verified.cursor !== undefined && delivery.id <= verified.cursor || !subscribers.some(subscriber =>
@@ -373,8 +421,7 @@ export const makeCoreCommitEventStore = Effect.fn("CoreNativeEvents.makeStore")(
           || delivery.state === "claimed" && Date.parse(delivery.lease_expires_at ?? "") > unixTime) continue;
         cursor = delivery.id;
         if (delivery.attempts >= commitEventLimits.attempts) {
-          yield* core(operations.writeRows(selected.delivery.name, "update", [{ id: delivery.id, state: "failed", owner: null,
-            lease_expires_at: null, settled_at: now, failure_code: "attempts-exhausted" }]));
+          changed.push({ ...delivery, state: "failed", owner: null, lease_expires_at: null, settled_at: now, failure_code: "attempts-exhausted" });
           continue;
         }
         if (BigInt(delivery.fence) === MAX_PERSISTED_SIGNED_INT64_V1) return yield* corrupt();
@@ -382,10 +429,11 @@ export const makeCoreCommitEventStore = Effect.fn("CoreNativeEvents.makeStore")(
           owner: crypto.randomUUID(), lease_expires_at: new Date(unixTime + commitEventLimits.leaseMs).toISOString() };
         const envelope = checked.events[delivery.ordinal];
         if (envelope === undefined) return yield* corrupt();
-        yield* core(operations.writeRows(selected.delivery.name, "update", [updated]));
+        changed.push(updated);
         claimed.push({ row: updated, envelope });
         if (claimed.length === maximum) break;
       }
+      if (changed.length > 0) yield* writeDeliveries(operations, selected.delivery.name, verified.id, checked.deliveries, changed);
       return { claimed, cursor };
     }));
     if (result.cursor !== undefined) verified.cursor = result.cursor;
@@ -419,11 +467,10 @@ export const makeCoreCommitEventStore = Effect.fn("CoreNativeEvents.makeStore")(
         || Date.parse(current.lease_expires_at ?? "") <= unixTime) return yield* eventError("staleClaim");
       const now = new Date(unixTime).toISOString();
       const retry = failed?.retryable === true && claimedRow.attempts < commitEventLimits.attempts;
-      yield* core(operations.writeRows(selected.delivery.name, "update", [{ id: claimedRow.id,
-        state: failed === null ? "delivered" : retry ? "pending" : "failed", owner: null, lease_expires_at: null,
+      const settled: Delivery = { ...current, state: failed === null ? "delivered" : retry ? "pending" : "failed", owner: null, lease_expires_at: null,
         next_attempt_at: retry ? new Date(unixTime + Math.min(60_000, 1000 * 2 ** (claimedRow.attempts - 1))).toISOString() : now,
-        settled_at: retry ? null : now, failure_code: failed?.code ?? null,
-      }]));
+        settled_at: retry ? null : now, failure_code: failed?.code ?? null };
+      yield* writeDeliveries(operations, selected.delivery.name, claimedRow.family_id, checked.deliveries, [settled]);
     }));
     claims.delete(token);
   });

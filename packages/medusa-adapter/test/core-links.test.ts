@@ -30,8 +30,11 @@ async function eventRows(selected = fixture) {
   if (name === undefined) throw new Error("Missing authentic event envelope table");
   const rows = (await selected.inventory()).rows.filter(row => row.table === name).toSorted((left, right) =>
     left.timestamp < right.timestamp ? -1 : left.timestamp > right.timestamp ? 1
-      : typeof left.value.ordinal === "number" && typeof right.value.ordinal === "number" ? left.value.ordinal - right.value.ordinal : 0);
-  return Schema.decodeUnknownSync(Schema.Array(EventEnvelope))(rows.map(row => row.value.envelope));
+      : typeof left.value.first_ordinal === "number" && typeof right.value.first_ordinal === "number" ? left.value.first_ordinal - right.value.first_ordinal : 0);
+  return Schema.decodeUnknownSync(Schema.Array(EventEnvelope))(rows.flatMap(row => {
+    if (!Array.isArray(row.value.envelopes)) throw new Error("Malformed event chunk");
+    return row.value.envelopes;
+  }));
 }
 function barrier() {
   let resolve: (() => void) | undefined;

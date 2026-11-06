@@ -80,8 +80,9 @@ Include nonempty discovery through the actual dispatcher, durable acknowledgemen
 of the original subscribers and a repeat scan with no redelivery.
 Repeat through genuine Product/Currency and complete Tax workflows on PGlite and
 ordinary-role PostgreSQL. Keep original fixed-policy Native16 event/recovery tests
-and unchanged outcome shapes. Migration of populated fixed-policy event data is
-a named later cutover gate, not a reset authorized by fresh fixture installation.
+and unchanged outcome shapes. The owner authorized a reset of event data for the
+chunked [stored layout](./native-durable-event-delivery.md#stored-layout): old-format
+fixed-policy or root-bound rows are not converted, and no populated data was found.
 
 The [event definition](../../../../packages/persistence-postgres/src/commit/events/coreDefinition.ts)
 authenticates the fixed/root-bound storage mode. The

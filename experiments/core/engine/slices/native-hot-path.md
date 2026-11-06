@@ -39,6 +39,7 @@ most of `CoreCommitter.submit` is durable save waiting.
 | Snapshot reuse and cached metadata reads | Rejected after measurement. A transaction-local view keyed on timestamp and registry, plus metadata read sets cached per verified authority, moved CPU by about 1 ms over eight alternating rounds, which does not justify a divergence record. |
 | Event inserts in one operation | Rejected after measurement. Running each event group inside a single operation, keeping the ordinary per-row insert, showed no change over four alternating rounds. |
 | Synchronous insert and find core | Not attempted. Its value depended on the two rejected items, and removing per-row wrappers already showed no measurable effect. |
+| Fewer stored event rows | Done, with [divergence](../divergences/native-durable-event-delivery.md#stored-layout). A Product create, with one subscriber and at most 64 events in one chunk, stores 3 event rows instead of about 57. Row count, not per-call overhead, was the cost. |
 
 ## Paused for an owner decision
 
@@ -58,5 +59,7 @@ too noisy to give a finer figure.
 The challenge's estimates did not hold: the rejected candidates were each predicted
 to save 3 to 9 ms and measured about zero. Remaining CPU is not concentrated in
 per-call wrappers, so further wrapper removal should be assumed worthless without
-a measured witness. Changing how much work a root does, such as how many private
-event rows it stores, is the remaining untested lever.
+a measured witness. Changing how much work a root does was the lever that worked:
+four alternating rounds with chunked event storage moved create from 126 to 106 ms
+wall and 83 to 67 ms CPU, and update from 100 to 94 ms wall and 66 to 60 ms CPU.
+Delivery-side claim and settlement cost was not measured and is expected to rise.

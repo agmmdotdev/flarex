@@ -119,7 +119,7 @@ export function registerNativeRootEventScenarios(label: string, createFixture: (
               contractRevision: selectedPolicy.contracts[0]?.revision ?? "", subscribers: selectedPolicy.subscribers }));
             yield* operation.operations.writeRows(familyTable, "update", [{ id: first.prepared.id, root_request: canonical(evidence),
               event_sha256: yield* commitEventsDigest(values) }]);
-            yield* operation.operations.writeRows(envelopeTable, "update", [{ id: `${first.prepared.id}/0000`, envelope: values[0] }]);
+            yield* operation.operations.writeRows(envelopeTable, "update", [{ id: `${first.prepared.id}/0000`, envelopes: values }]);
             yield* tested.database.commit(yield* operation.finalize());
           } finally { yield* operation.abort(); }
         });
