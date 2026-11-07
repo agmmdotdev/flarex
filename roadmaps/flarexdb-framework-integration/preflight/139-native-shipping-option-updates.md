@@ -4,6 +4,30 @@ Status: implemented as private bounded support, including the approved native
 compensation corrections. Hosted activation, populated upgrades and external
 fulfillment effects remain unadmitted.
 
+The [Core replacement](../../../experiments/core/engine/slices/44-native-shipping-option-update.md)
+uses the existing seven authentic Core sources and three retained callbacks.
+The shared graph follows native Type/Option/Rules statement phases and delegates
+complete physical-afterimage FK checks to Core. Supplied historical owned Type
+objects update their current row without reviving it; active population remains
+null. Receipts authenticate chronological mutations and actual physical targets.
+The displaced ordinary logical fixture and suite are removed. Complete paired
+Core acceptance remains an admission gate.
+
+Ordinary Rule insert and patch receipts for Shipping Option updates require
+Core's same-call physical parent evidence, including historical physical parents,
+and reject missing or invented parent observations. Exact same-root Rule
+reconstitution retains its authenticated Core proof.
+Supplying both native and logical storage is an `invalidAuthority` refusal;
+caller-supplied resource or publication overrides are `unsupportedProfile`.
+Both configuration refusals occur before host execution preparation.
+
+Missing physical references present the selected native Drizzle plain `Error`
+and canonical relationship message. The configured presenter runs at direct and
+queued repository calls as well as borrowed transactions. Its authenticated
+Core FK evidence and original complete Cause remain authoritative; presentation
+cannot clear rollback-only state or replace settlement. Tax Region retains its
+own configured native error shapes through the same shared context.
+
 ## Native authority and connected outcome
 
 Use Medusa 2.13.4 at `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`.
@@ -33,6 +57,13 @@ Option `rules: []` is a native update no-op. Nonempty rule input replaces the
 owned cohort. Scalar Type references change the Option FK; a supplied Type
 object updates that Type even when it contains only its ID. Inline Type
 replacement creates a row; explicit compensation retains the new orphan Type.
+An existing historical Type object is updated through native DAL's physical
+owned-to-one lookup without clearing its deletion marker. Its active population
+remains null. This is an ordinary current-row update, not historical revision
+restoration. A scalar type_id inverse can omit the old Type entirely: the native
+step captures fields before translating that alias, and the query drops the
+unknown selection. Preserve the actual sparse retained packet and resulting new
+FK; the approved Rule corrections do not add a Type restoration contract.
 The native DAL hydrates the union of requested relations across all returned
 Options after the full batch. Shared Type updates therefore return that Type's
 final state on every Option, while mutation/event order remains per input.

@@ -24,7 +24,7 @@ export function prepareShippingOptionUpdateGraph(contracts: Contracts) {
     decodeAssociation: () => Result.fail(commerceError("unsupportedProfile")),
   };
   const profile: ReplacementProfile = { catalog, operation: "update", ordering: new Map([[contracts.rule.name, { kind: "storageInsertion", direction: "asc" }]]),
-    touchOwnedToOne: true, allowReconstitution: true,
+    touchOwnedToOne: true, allowReconstitution: true, nativeUpdateStatements: true,
     allowedRelations: entity => entity === option ? ["rules", "type"] : [], ownedToOne: entity => entity === option ? ["type"] : [],
     mutableForeignKeys: entity => entity === option,
     admitSelection: (table, rows) => Result.gen(function* () {

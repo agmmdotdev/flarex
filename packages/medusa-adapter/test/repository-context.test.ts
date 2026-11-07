@@ -4,7 +4,7 @@ import { commerceError, defaultCommerceResources, type CommerceTransactionError 
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { makeBoundedRequestLifetime, type BoundedRequestContext } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
-import { makeCommerceCommandContext } from "../../persistence-postgres/src/frameworks/commerceTransaction/context";
+import { makeCommerceCommandContext, withCommerceCommandContext } from "../../persistence-postgres/src/frameworks/commerceTransaction/context";
 import { makeCommercePromiseOwner } from "../src/module/promise-owner";
 import { commerceRepositoryContext } from "../src/repository/context";
 
@@ -33,11 +33,14 @@ const fixture = Effect.fn("RepositoryContextTest.fixture")(function* () {
     prepareRead: () => ({ find: unused, findPage: unused, count: unused }),
     aggregate: unused, find: unused, findPage: unused, count: unused, write: unused, delete: unused, lifecycle: unused,
   };
+  const working = { store, resources: defaultCommerceResources, table: unused };
   const context = (manager: BoundedRequestContext) => makeCommerceCommandContext(lifetime,
-    { store, resources: defaultCommerceResources, table: unused }, "request", manager, unused, unused);
+    working, "request", manager, unused, unused);
   const root = context(lifetime.context);
   const owner = yield* Effect.acquireRelease(makeCommercePromiseOwner(root.recordFailure), owner => owner.close);
-  return { lifetime, root, owner, bridge: commerceRepositoryContext(root, owner), context, storageCalls: () => storageCalls };
+  const queued = <Value>(work: (ctx: CommerceCommandContext) => Effect.Effect<Value, CommerceTransactionError>) =>
+    withCommerceCommandContext(lifetime, working, "request", lifetime.context, unused, unused, 16, work);
+  return { lifetime, root, owner, bridge: commerceRepositoryContext(root, owner), context, queued, storageCalls: () => storageCalls };
 });
 
 describe("repository checked completion over an authentic Commerce lifetime", () => {
@@ -227,6 +230,164 @@ describe("repository checked completion over an authentic Commerce lifetime", ()
     expect(sealed.reasons).toHaveLength(2);
     expect(errors(sealed).map(error => error.reason)).toEqual(["rollbackOnly", "invalidInput"]);
     expect(errors(sealed)[1]).toBe(original);
+    expect(test.storageCalls()).toBe(0);
+  })));
+
+  it.each(["execute", "executeInput", "queued", "borrowed"] as const)(
+    "presents an expected %s rejection while restoring its identical owned Cause", route => run(Effect.gen(function* () {
+      const test = yield* fixture(), original = commerceError("invalidInput", { field: "declared-reference" });
+      const presentedError = new Error("Native relationship does not exist");
+      const annotated = Cause.annotate(Cause.fail(original), Context.make(Annotation, "configured-native-presentation"));
+      let presented: unknown, formatted = 0, owned: Cause.Cause<CommerceTransactionError> | undefined;
+      const invoke = (ctx: CommerceCommandContext) => {
+        const bridge = commerceRepositoryContext(ctx, test.owner, { presentExpectedFailure: error => {
+          formatted++;
+          return error === original ? presentedError : undefined;
+        } });
+        const work = (selected: CommerceCommandContext) => bridge.checked(selected, Effect.failCause(annotated))
+          .pipe(Effect.onExit(exit => Effect.sync(() => { if (Exit.isFailure(exit)) owned = exit.cause; })));
+        return test.owner.invoke(async () => {
+          try {
+            return await (route === "execute" ? bridge.execute({ transactionManager: ctx.manager }, work)
+              : bridge.executeInput({ transactionManager: ctx.manager }, null, (selected, captured) => {
+                expect(captured).toBeNull();
+                return work(selected);
+              }));
+          } catch (error) { presented = error; throw error; }
+        });
+      };
+      const completed = failure(yield* Effect.exit(route === "queued" ? test.queued(invoke)
+        : route === "borrowed" ? test.root.borrow(invoke) : invoke(test.root)));
+      expect(presented).toBe(presentedError);
+      expect(formatted).toBe(1);
+      if (owned === undefined) throw new Error("Expected the genuine repository failure observation");
+      expect(owned.reasons).toHaveLength(1);
+      expect(completed.reasons).toHaveLength(1);
+      expect(errors(completed)).toEqual([original]);
+      expect(errors(completed)[0]).toBe(original);
+      expect(completed.reasons.map(origin)).toEqual(owned.reasons.map(origin));
+      expect(completed.reasons.every(reason => origin(reason) !== undefined)).toBe(true);
+      expect(completed.reasons[0]?.annotations.get(Annotation.key)).toBe("configured-native-presentation");
+      expect(test.lifetime.usedCalls()).toBe(route === "borrowed" ? 2 : 1);
+      expect(test.lifetime.remainingBytes()).toBe(route === "queued" ? 96 : 100);
+      expect(test.storageCalls()).toBe(0);
+      let entered = false;
+      const later = failure(yield* Effect.exit(test.lifetime.operation(test.root.manager, "request", "write",
+        Effect.sync(() => { entered = true; }))));
+      expect(entered).toBe(false);
+      expect(errors(later).map(error => error.reason)).toEqual(["rollbackOnly"]);
+      const sealed = failure(yield* Effect.exit(test.lifetime.seal));
+      expect(sealed.reasons).toHaveLength(2);
+      expect(errors(sealed).map(error => error.reason)).toEqual(["rollbackOnly", "invalidInput"]);
+      expect(errors(sealed)[1]).toBe(original);
+      expect(sealed.reasons.filter(reason => Cause.isFailReason(reason) && reason.error === original).map(origin))
+        .toEqual(owned.reasons.map(origin));
+      expect(test.storageCalls()).toBe(0);
+    })),
+  );
+
+  it("keeps a caught presented rejection sticky even when the native callback returns success", () => run(Effect.gen(function* () {
+    const test = yield* fixture(), original = commerceError("invalidInput");
+    const presentedError = new Error("Native expected failure");
+    const bridge = commerceRepositoryContext(test.root, test.owner, {
+      presentExpectedFailure: error => error === original ? presentedError : undefined,
+    });
+    let caught: unknown;
+    const returned = yield* test.owner.invoke(async () => {
+      try { await bridge.executeInput({ manager: test.root.manager }, null, ctx => bridge.checked(ctx, Effect.fail(original))); }
+      catch (error) { caught = error; }
+      return "native callback continued";
+    });
+    expect(returned).toBe("native callback continued");
+    expect(caught).toBe(presentedError);
+    const completed = failure(yield* Effect.exit(test.owner.withClose(Effect.succeed("outer callback continued"))));
+    expect(completed.reasons).toHaveLength(1);
+    expect(errors(completed)[0]).toBe(original);
+    expect(test.owner.hasPending()).toBe(false);
+    const sealed = failure(yield* Effect.exit(test.lifetime.seal));
+    expect(sealed.reasons).toHaveLength(2);
+    expect(errors(sealed).map(error => error.reason)).toEqual(["rollbackOnly", "invalidInput"]);
+    expect(errors(sealed)[1]).toBe(original);
+    expect(sealed.reasons.filter(reason => Cause.isFailReason(reason) && reason.error === original).map(origin))
+      .toEqual(completed.reasons.map(origin));
+    expect(test.lifetime.usedCalls()).toBe(1);
+    expect(test.lifetime.remainingBytes()).toBe(100);
+    expect(test.storageCalls()).toBe(0);
+  })));
+
+  it.each(["execute", "executeInput"] as const)("does not present a mixed %s Cause or lose its originating reasons", method => run(Effect.gen(function* () {
+    const test = yield* fixture(), original = commerceError("invalidInput"), defect = new TypeError("independent native defect");
+    const mixed = Cause.annotate(Cause.combine(Cause.combine(Cause.fail(original), Cause.die(defect)), Cause.interrupt(713)),
+      Context.make(Annotation, "mixed-presentation-boundary"));
+    let formatted = 0, owned: Cause.Cause<CommerceTransactionError> | undefined;
+    const bridge = commerceRepositoryContext(test.root, test.owner, { presentExpectedFailure: () => {
+      formatted++; return new Error("Must not present a mixed Cause");
+    } });
+    const work = (ctx: CommerceCommandContext) => bridge.checked(ctx, Effect.failCause(mixed))
+      .pipe(Effect.onExit(exit => Effect.sync(() => { if (Exit.isFailure(exit)) owned = exit.cause; })));
+    const completed = failure(yield* Effect.exit(test.owner.invoke(() => method === "execute"
+      ? bridge.execute({ manager: test.root.manager }, work)
+      : bridge.executeInput({ manager: test.root.manager }, null, ctx => work(ctx)))));
+    expect(formatted).toBe(0);
+    if (owned === undefined) throw new Error("Expected the genuine mixed failure observation");
+    expect(completed.reasons).toHaveLength(3);
+    expect(errors(completed)).toEqual([original]);
+    expect(errors(completed)[0]).toBe(original);
+    expect(completed.reasons.filter(Cause.isDieReason).map(reason => reason.defect)).toEqual([defect]);
+    expect(completed.reasons.filter(Cause.isInterruptReason).map(reason => reason.fiberId)).toEqual([713]);
+    expect(completed.reasons.map(origin)).toEqual(owned.reasons.map(origin));
+    for (const reason of completed.reasons) expect(reason.annotations.get(Annotation.key)).toBe("mixed-presentation-boundary");
+    const sealed = failure(yield* Effect.exit(test.lifetime.seal));
+    expect(sealed.reasons).toHaveLength(4);
+    expect(errors(sealed).map(error => error.reason)).toEqual(["rollbackOnly", "invalidInput"]);
+    expect(sealed.reasons.filter(reason => !Cause.isFailReason(reason) || reason.error === original).map(origin))
+      .toEqual(owned.reasons.map(origin));
+    expect(test.lifetime.usedCalls()).toBe(1);
+    expect(test.lifetime.remainingBytes()).toBe(100);
+    expect(test.storageCalls()).toBe(0);
+  })));
+
+  it("retains an unmatched expected failure when its configured presenter returns undefined", () => run(Effect.gen(function* () {
+    const test = yield* fixture(), original = commerceError("invalidInput");
+    let formatted = 0, presented: unknown;
+    const bridge = commerceRepositoryContext(test.root, test.owner, { presentExpectedFailure: () => { formatted++; return undefined; } });
+    const completed = failure(yield* Effect.exit(test.owner.invoke(async () => {
+      try { return await bridge.execute({ manager: test.root.manager }, ctx => bridge.checked(ctx, Effect.fail(original))); }
+      catch (error) { presented = error; throw error; }
+    })));
+    expect(formatted).toBe(1);
+    expect(presented).toBe(original);
+    expect(completed.reasons).toHaveLength(1);
+    expect(errors(completed)[0]).toBe(original);
+    const sealed = failure(yield* Effect.exit(test.lifetime.seal));
+    expect(errors(sealed).map(error => error.reason)).toEqual(["rollbackOnly", "invalidInput"]);
+    expect(sealed.reasons).toHaveLength(2);
+    expect(test.lifetime.usedCalls()).toBe(1);
+    expect(test.lifetime.remainingBytes()).toBe(100);
+    expect(test.storageCalls()).toBe(0);
+  })));
+
+  it("adds a formatter defect to the original failure without replacing its owned reason", () => run(Effect.gen(function* () {
+    const test = yield* fixture(), original = commerceError("invalidInput"), defect = new TypeError("Broken native formatter");
+    let formatted = 0, owned: Cause.Cause<CommerceTransactionError> | undefined;
+    const bridge = commerceRepositoryContext(test.root, test.owner, { presentExpectedFailure: () => { formatted++; throw defect; } });
+    const completed = failure(yield* Effect.exit(test.owner.invoke(() => bridge.executeInput({ manager: test.root.manager }, null,
+      ctx => bridge.checked(ctx, Effect.fail(original)).pipe(Effect.onExit(exit => Effect.sync(() => {
+        if (Exit.isFailure(exit)) owned = exit.cause;
+      })))))));
+    expect(formatted).toBe(1);
+    if (owned === undefined) throw new Error("Expected the genuine original failure observation");
+    expect(completed.reasons).toHaveLength(2);
+    expect(errors(completed)).toEqual([original]);
+    expect(errors(completed)[0]).toBe(original);
+    expect(completed.reasons.filter(Cause.isDieReason).map(reason => reason.defect)).toEqual([defect]);
+    expect(completed.reasons.filter(Cause.isFailReason).map(origin)).toEqual(owned.reasons.map(origin));
+    const sealed = failure(yield* Effect.exit(test.lifetime.seal));
+    expect(sealed.reasons).toHaveLength(3);
+    expect(errors(sealed).map(error => error.reason)).toEqual(["rollbackOnly", "invalidInput"]);
+    expect(sealed.reasons.filter(Cause.isDieReason).map(reason => reason.defect)).toEqual([defect]);
+    expect(test.lifetime.usedCalls()).toBe(1);
+    expect(test.lifetime.remainingBytes()).toBe(100);
     expect(test.storageCalls()).toBe(0);
   })));
 });

@@ -64,6 +64,7 @@ export function shippingOptionUpdatePolicy(prepared: Prepared, rulePrepared: Rul
       if (group === undefined || prior !== undefined && !jsonEqual(prior, row)) return yield* Effect.fail(mismatch());
       group.set(row.id, row);
     }
+    const observed = new Map([...state].map(([table, rows]) => [table, new Map(rows)]));
     for (const [ordinal, change] of activity.mutations.entries()) {
       if (ordinal !== change.ordinal || ![contracts.option.name, contracts.type.name, contracts.rule.name].includes(change.table) ||
         change.operation === "replace" || change.before === null && change.after === null) return yield* Effect.fail(mismatch());
@@ -156,13 +157,15 @@ export function shippingOptionUpdatePolicy(prepared: Prepared, rulePrepared: Rul
       if (new Set(ids).size !== ids.length) return yield* Effect.fail(mismatch());
       const hydrated = input.length ? yield* Effect.fromResult(selectPlan(contracts.option.name,
         buildQuery({ id: ids }, { relations: ["rules", "type"], take: ids.length }))) : undefined;
-      const pending = new Set(activity.mutations.map(change => change.ordinal)), expectedEvents: Array<{ object: string; action: "created" | "updated" | "deleted"; id: string }> = [];
+      let mutationPosition = 0;
+      const expectedEvents: Array<{ object: string; action: "created" | "updated" | "deleted"; id: string }> = [];
       const consume = (table: string, id: string, operation: "insert" | "patch" | "delete", expected: JsonObject) => Result.gen(function* () {
-        const change = activity.mutations.find(change => pending.has(change.ordinal) && change.table === table && (change.after?.id ?? change.before?.id) === id);
+        const change = activity.mutations[mutationPosition];
         const before = state.get(table)?.get(id);
-        if (change === undefined || change.operation !== operation || (operation === "insert" ? change.before !== null || before !== undefined
+        if (change === undefined || change.table !== table || (change.after?.id ?? change.before?.id) !== id || change.operation !== operation ||
+          change.deletedReference !== undefined || (operation === "insert" ? change.before !== null || before !== undefined
           : change.before === null || before === undefined || !jsonEqual(projectNativeRow(change.before), before))) return yield* Result.fail(mismatch());
-        pending.delete(change.ordinal);
+        mutationPosition++;
         if (operation === "delete") {
           if (change.after !== null) return yield* Result.fail(mismatch());
           if (before === undefined) return yield* Result.fail(mismatch());
@@ -170,11 +173,29 @@ export function shippingOptionUpdatePolicy(prepared: Prepared, rulePrepared: Rul
         }
         if (change.after === null) return yield* Result.fail(mismatch());
         const after = yield* decodeRow(table, change.after);
-        if (after.deleted_at !== null || operation === "insert" && (expected.created_at === undefined ? after.created_at !== after.updated_at
+        const historicalTypeUpdate = table === contracts.type.name && operation === "patch" && before?.deleted_at != null;
+        // Native owned Type updates preserve the current physical row's history;
+        // active population still omits it. This grants no restoration authority.
+        if (historicalTypeUpdate && (after.created_at !== before?.created_at || after.deleted_at !== before?.deleted_at ||
+          ["_id", "_creationTime"].some(field => change.before?.[field] !== change.after?.[field]))) return yield* Result.fail(mismatch());
+        if (after.deleted_at !== null && !historicalTypeUpdate || operation === "insert" && (expected.created_at === undefined ? after.created_at !== after.updated_at
           : after.created_at !== expected.created_at)) return yield* Result.fail(mismatch());
         for (const [key, value] of Object.entries(expected)) if (key !== "updated_at" && after[key] !== undefined && !jsonEqual(value, after[key]) ||
           key !== "updated_at" && after[key] === undefined) return yield* Result.fail(mismatch());
-        state.get(table)?.set(id, after); return after;
+        state.get(table)?.set(id, after);
+        // Exact same-root Rule restoration retains its existing Core identity
+        // proof. Ordinary writes instead carry this call's checkpoint targets,
+        // including retained FK values and physically historical rows.
+        const reconstituted = table === contracts.rule.name && operation === "insert" && expected.created_at !== undefined;
+        if (!reconstituted) for (const reference of contracts.creationReferences) {
+          if (reference.source.name !== table) continue;
+          const target = after[reference.column];
+          if (target === null) continue;
+          if (typeof target !== "string" || !observed.get(reference.target.table.name)?.has(target) ||
+            !state.get(reference.target.table.name)?.has(target)) return yield* Result.fail(mismatch());
+          seen.add(reference.target.table.name + ":" + target);
+        }
+        return after;
       });
       const oldRules: Row[] = [];
       for (const row of hydrated?.rows.get(contracts.rule.name) ?? []) oldRules.push(yield* Effect.fromResult(decodeRow(contracts.rule.name, row)));
@@ -229,15 +250,12 @@ export function shippingOptionUpdatePolicy(prepared: Prepared, rulePrepared: Rul
             const previous = (yield* Effect.fromResult(load(contracts.type.name, "id", [id])))[0];
             const defaults = Object.fromEntries(contracts.type.columns.filter(column => !["id", "created_at", "updated_at", "deleted_at"].includes(column.name))
               .flatMap(column => column.defaultValue !== undefined ? [[column.name, column.defaultValue]] : column.nullable ? [[column.name, null]] : []));
+            // Only this supplied owned Type object can consume a Type patch.
             const row = yield* Effect.fromResult(consume(contracts.type.name, id, previous ? "patch" : "insert", { ...defaults, ...previous, ...type, id }));
             const known = cache.get(contracts.type.name) ?? new Map(); known.set(id, row); cache.set(contracts.type.name, known);
             childEvents.push({ object: contracts.type.name, action: previous ? "updated" : "created", id });
           }
           normalized.shipping_option_type_id = id;
-        }
-        for (const fk of contracts.option.foreignKeys) {
-          const column = fk.columns[0], target = fk.referencedTable, value = column === undefined ? undefined : normalized[column];
-          if (typeof value === "string") yield* Effect.fromResult(load(target, "id", [value]));
         }
         const mutable = Object.fromEntries(Object.entries(normalized).filter(([key]) => !["created_at", "updated_at", "deleted_at"].includes(key)));
         const rootChanged = Object.keys(mutable).some(key => key !== "id");
@@ -245,17 +263,27 @@ export function shippingOptionUpdatePolicy(prepared: Prepared, rulePrepared: Rul
         if (rootChanged) expectedEvents.push({ object: contracts.option.name, action: "updated", id: request.id });
         if (rules !== undefined && rules.length) {
           const previousCohort = yield* Effect.fromResult(load(contracts.rule.name, "shipping_option_id", [request.id]));
-          const retained = new Set<string>();
+          const explicitIds = new Set(rules.flatMap(child => child.id === undefined ? [] : [child.id]));
+          const inserted = activity.mutations.slice(mutationPosition).filter(change => change.table === contracts.rule.name &&
+            change.operation === "insert" && change.after?.shipping_option_id === request.id && typeof change.after.id === "string" &&
+            !explicitIds.has(change.after.id));
+          if (inserted.length !== rules.filter(child => child.id === undefined).length) return yield* Effect.fail(mismatch());
+          let insertedPosition = 0;
+          const members: Array<{ readonly id: string; readonly child: typeof rules[number] }> = [];
           for (const child of rules) {
-            let id = child.id;
-            if (id === undefined) {
-              const change = activity.mutations.find(change => pending.has(change.ordinal) && change.table === contracts.rule.name &&
-                change.operation === "insert" && change.after?.shipping_option_id === request.id);
-              if (typeof change?.after?.id !== "string") return yield* Effect.fail(mismatch());
-              id = change.after.id;
-            }
-            retained.add(id);
-            const previous = (yield* Effect.fromResult(load(contracts.rule.name, "id", [id])))[0];
+            const id = child.id ?? inserted[insertedPosition++]?.after?.id;
+            if (typeof id !== "string") return yield* Effect.fail(mismatch());
+            members.push({ id, child });
+          }
+          const retained = new Set(members.map(member => member.id));
+          if (retained.size !== members.length) return yield* Effect.fail(mismatch());
+          yield* Effect.fromResult(load(contracts.rule.name, "id", members.map(member => member.id)));
+          for (const row of previousCohort) if (!retained.has(row.id)) {
+            yield* Effect.fromResult(consume(contracts.rule.name, row.id, "delete", row));
+            childEvents.push({ object: contracts.rule.name, action: "deleted", id: row.id });
+          }
+          for (const { id, child } of members) {
+            const previous = state.get(contracts.rule.name)?.get(id);
             const servicePreimage = oldRules.find(row => row.id === id && row.shipping_option_id === request.id);
             const supplied = child.id === undefined ? child : Object.fromEntries(Object.entries(child).filter(([field]) =>
               !["created_at", "updated_at", "deleted_at"].includes(field)));
@@ -264,16 +292,11 @@ export function shippingOptionUpdatePolicy(prepared: Prepared, rulePrepared: Rul
             // boolean/number grammar, which its static Rule alias omits.
             yield* Effect.try({ try: () => validateAndNormalizeRules([wanted] as Parameters<typeof validateAndNormalizeRules>[0]),
               catch: cause => commerceError("receiptMismatch", cause) });
-            yield* Effect.fromResult(load(contracts.option.name, "id", [request.id]));
             if (previous === undefined || hasChangedFields(previous, wanted, ["id"])) {
               const row = yield* Effect.fromResult(consume(contracts.rule.name, id, previous ? "patch" : "insert", wanted));
               const known = cache.get(contracts.rule.name) ?? new Map(); known.set(id, row); cache.set(contracts.rule.name, known);
               childEvents.push({ object: contracts.rule.name, action: previous ? "updated" : "created", id });
             }
-          }
-          for (const row of previousCohort) if (!retained.has(row.id)) {
-            yield* Effect.fromResult(consume(contracts.rule.name, row.id, "delete", row));
-            childEvents.push({ object: contracts.rule.name, action: "deleted", id: row.id });
           }
         }
         const { rules: _returnedRules, type: _returnedType, provider, shipping_profile, ...returnedScalar } = returned;
@@ -312,7 +335,7 @@ export function shippingOptionUpdatePolicy(prepared: Prepared, rulePrepared: Rul
         if (paths.includes("rules") ? !jsonEqual(returned.rules ?? null, final.rules ?? null) : returned.rules !== undefined)
           return yield* Effect.fail(mismatch());
       }
-      if (pending.size) return yield* Effect.fail(mismatch());
+      if (mutationPosition !== activity.mutations.length) return yield* Effect.fail(mismatch());
       // A native module call can write one shared Type several times. Reuse
       // its aggregator's exact message deduplication without dropping attempts.
       const aggregator = new MessageAggregator();
@@ -346,5 +369,5 @@ export function shippingOptionUpdatePolicy(prepared: Prepared, rulePrepared: Rul
       !seen.has(table + ":" + id) && !activity.mutations.some(change => change.table === table && change.after?.id === id))))
       return yield* Effect.fail(mismatch());
   }, Effect.mapError(cause => cause.reason === "receiptMismatch" ? cause : commerceError("receiptMismatch", cause)));
-  return { capture, validateLogicalCall, allowStorageInsertionOrder: true as const };
+  return { capture, validateLogicalCall, allowStorageInsertionOrder: true as const, statementReferenceChecks: true as const };
 }

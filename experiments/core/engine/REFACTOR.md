@@ -825,3 +825,11 @@ uses the existing Core statement-reference checkpoint and shared captured graph
 order for the complete ordinary root and its four retained callbacks. Paired
 acceptance is complete; the wider twelve-table detachment and paused Task
 consumers retain explicit Legacy removal gates.
+
+The [native Shipping Option update continuation](./slices/44-native-shipping-option-update.md)
+uses shared native-update statement ordering and existing Core physical-afterimage
+checks through seven authentic sources. Preserve key-only/touch behavior, final
+batch hydration, historical owned Type tombstones and exact same-root restoration.
+The three genuine retained callbacks share one settlement. Ordinary callers use
+the Core-only facade; displaced logical setup and tests are removed. Default
+graph profiles, wider detachment and paused Task/finite/performance stay separate.

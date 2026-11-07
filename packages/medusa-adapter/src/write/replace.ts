@@ -31,6 +31,14 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
   input: unknown, config: unknown, creation = false,
 ): Effect.fn.Return<ReplacedGraph, CommerceTransactionError> {
   const catalog = profile.catalog;
+  if (profile.nativeUpdateStatements !== undefined && profile.nativeUpdateStatements !== true)
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const nativeUpdateStatements = profile.nativeUpdateStatements === true;
+  if (nativeUpdateStatements && (creation || profile.operation !== "update" ||
+    profile.orderedDeletionTables !== undefined || profile.foreignKeyVisibility !== undefined ||
+    profile.touchExistingRoot !== undefined || profile.repeatedOwnedReferences !== undefined ||
+    profile.ownedChildUpdatedAt !== undefined || catalog.writablePivots.length !== 0))
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
   if ((profile.existingRootWrite !== undefined || profile.ownedChildWrite !== undefined) &&
     (creation || profile.operation !== "upsertWithReplace"))
     return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -53,6 +61,8 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
   const upserts = new Map<string, Map<string, JsonObject>>();
   const preservingManagedRoots = new Map<string, Map<string, JsonObject>>();
   const deletes = new Map<string, Map<string, JsonObject>>();
+  const deletionOrder: Array<{ readonly table: Table; readonly row: JsonObject }> = [];
+  let appliedDeletions = 0;
   const visited = new Set<string>();
   const repeatedReferences = new Map<string, { readonly owner: JsonObject; readonly row: JsonObject }>();
   const stores = new Map<string, Effect.Success<ReturnType<CommerceCommandContext["table"]>>>();
@@ -125,6 +135,64 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
     return [...known.values()].filter(row => typeof row[column] === "string" && selected.has(row[column]) &&
       !deletes.get(table.name)?.has(identity(table, row)));
   }));
+  const performedActions = emptyPerformedActions();
+  const apply = (table: Table, operation: "insert" | "update" | "delete" | "reconstitute", rows: readonly JsonObject[]) => observeExecution("MedusaGraph.apply", Effect.gen(function* () {
+    if (rows.length === 0) return [];
+    const store = yield* getStore(table);
+    let written: readonly JsonObject[];
+    if (operation === "delete") {
+      written = yield* store.delete(ctx.manager, rows.map(row => Object.fromEntries(keys(table).map(key => [key, row[key]]))));
+    } else if (operation === "reconstitute") {
+      const reconstitute = store.reconstitute;
+      if (reconstitute === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+      written = yield* reconstitute(ctx.manager, rows);
+    } else if (profile.recordedRowReplay === true) {
+      const replay = store.replay;
+      if (replay === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+      written = yield* replay(ctx.manager, rows);
+    } else {
+      const selectedUpserts = upserts.get(table.name);
+      if (operation === "update" && selectedUpserts !== undefined) {
+        // Route only exact selected active identities. Nested rows sharing a
+        // root table and unselected child policies keep ordinary managed
+        // updates; existing owner proofs precede any owned-child selection.
+        // Keep original row order when a table contains both kinds of write.
+        const batches: Array<{ mode: "update" | "upsert" | "upsertPreservingDeletion"; rows: JsonObject[] }> = [];
+        for (const row of rows) {
+          const mode = preservingManagedRoots.get(table.name)?.has(identity(table, row)) ? "upsertPreservingDeletion"
+            : selectedUpserts.has(identity(table, row)) ? "upsert" : "update";
+          const previous = batches.at(-1);
+          if (previous?.mode === mode) previous.rows.push(row);
+          else batches.push({ mode, rows: [row] });
+        }
+        const result: JsonObject[] = [];
+        for (const batch of batches) result.push(...yield* store.write(ctx.manager, batch.mode, batch.rows));
+        written = result;
+      } else written = yield* store.write(ctx.manager, operation, rows);
+    }
+    const model = catalog.entities.find(value => value.table === table);
+    if (model !== undefined) for (const row of written) addPerformedAction(performedActions, operation === "insert" || operation === "reconstitute" ? "created" : operation === "update" ? "updated" : "deleted", model.model, { ...row }, [model.keyColumn]);
+    if (operation !== "delete") {
+      const changed = new Set(written.map(row => identity(table, row)));
+      state.set(table.name, [...(state.get(table.name) ?? []).filter(row => !changed.has(identity(table, row))), ...written]);
+    }
+    return written;
+  }));
+  const flushDeletions = () => Effect.gen(function* () {
+    while (appliedDeletions < deletionOrder.length) {
+      const first = deletionOrder[appliedDeletions];
+      if (first === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
+      const rows = [first.row];
+      let end = appliedDeletions + 1;
+      while (deletionOrder[end]?.table === first.table) {
+        const entry = deletionOrder[end];
+        if (entry === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
+        rows.push(entry.row); end++;
+      }
+      yield* apply(first.table, "delete", rows);
+      appliedDeletions = end;
+    }
+  });
   const remove = (table: Table, row: JsonObject) => observeExecution("MedusaGraph.remove", Effect.gen(function* (): Effect.fn.Return<void, CommerceTransactionError> {
     const token = identity(table, row);
     if (deletes.get(table.name)?.has(token)) return;
@@ -141,11 +209,17 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
       }
     }
     put(deletes, table, row);
+    if (nativeUpdateStatements) deletionOrder.push({ table, row });
     state.set(table.name, (state.get(table.name) ?? []).filter(value => identity(table, value) !== token));
   }));
-  const plan = (target: GraphEntity, inputRow: Json, owner: JsonObject, root: boolean, touch = false) => observeExecution("MedusaGraph.plan", Effect.gen(function* (): Effect.fn.Return<JsonObject, CommerceTransactionError> {
-    const decoded = yield* Effect.fromResult(catalog.decodeRow(target, inputRow));
-    const id = generateEntityId(decoded.key, target.prefix);
+  const prepareRow = (target: GraphEntity, inputRow: Json) => Result.map(catalog.decodeRow(target, inputRow), decoded =>
+    ({ ...decoded, id: generateEntityId(decoded.key, target.prefix) }));
+  type PreparedRow = Result.Result.Success<ReturnType<typeof prepareRow>>;
+  const plan = (target: GraphEntity, inputRow: Json, owner: JsonObject, root: boolean, ownedToOne = false,
+    preparedSelection?: { readonly prepared: PreparedRow; readonly existing: JsonObject | undefined }) => observeExecution("MedusaGraph.plan", Effect.gen(function* (): Effect.fn.Return<JsonObject, CommerceTransactionError> {
+    const touch = ownedToOne && profile.touchOwnedToOne === true;
+    const decoded = preparedSelection?.prepared ?? (yield* Effect.fromResult(prepareRow(target, inputRow)));
+    const id = decoded.id;
     const row = decoded.supplied;
     const token = target.table.name + ":" + id;
     const keyOnly = Object.keys(row).length === 1 && row[target.keyColumn] === id;
@@ -157,9 +231,15 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
       return yield* Effect.fail(commerceError("invalidInput"));
     }
     visited.add(token);
-    const rows = yield* load(target.table, target.keyColumn, [id]);
-    const existing = rows.find(value => value[target.keyColumn] === id);
-    if ((profile.recordedRowReplay !== true && !(root && profile.preserveExistingManagedFields === true) && existing?.deleted_at != null) ||
+    const existing = preparedSelection === undefined
+      ? (yield* load(target.table, target.keyColumn, [id])).find(value => value[target.keyColumn] === id)
+      : preparedSelection.existing;
+    if (nativeUpdateStatements && root && existing === undefined) return yield* Effect.fail(commerceError("invalidInput"));
+    // Native owned-to-one object updates preserve an existing tombstone. Only
+    // the validated relation recursion below selects this path and its touch.
+    const historicalOwnedToOne = nativeUpdateStatements && !root && ownedToOne && touch;
+    if ((profile.recordedRowReplay !== true && !(root && profile.preserveExistingManagedFields === true) &&
+      !historicalOwnedToOne && existing?.deleted_at != null) ||
       (creation && root && existing !== undefined)) return yield* Effect.fail(commerceError("invalidInput"));
     if (root && profile.existingRootWrite === "upsert" && existing === undefined)
       return yield* Effect.fail(commerceError("invalidInput"));
@@ -196,11 +276,11 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
       const reference = row[name];
       const selected = reference === null ? null : typeof reference === "string"
         ? (yield* Effect.fromResult(catalog.decodeReference(child, reference))).key
-        : (yield* plan(child, reference, {}, false, profile.touchOwnedToOne === true))[child.keyColumn];
+        : (yield* plan(child, reference, {}, false, true))[child.keyColumn];
       if (selected !== null && typeof selected !== "string") return yield* Effect.fail(commerceError("invalidInput"));
       scalar[column] = selected;
     }
-    for (const fk of target.table.foreignKeys) {
+    if (!nativeUpdateStatements) for (const fk of target.table.foreignKeys) {
       const column = fk.columns[0], targetColumn = fk.referencedColumns[0];
       if (column === undefined || targetColumn === undefined || fk.columns.length !== 1 || fk.referencedColumns.length !== 1) return yield* Effect.fail(commerceError("unsupportedProfile"));
       const reference = scalar[column];
@@ -212,6 +292,7 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
         (visibility === "existing" || row.deleted_at == null)))
         return yield* Effect.fail(commerceError("adapterFailure", new MedusaError(MedusaError.Types.INVALID_DATA, relationshipNotFoundMessage(column, reference))));
     }
+    let operation: "insert" | "update" | "reconstitute" | undefined;
     if (existing !== undefined) {
       // Child owner references may be repeated by Medusa normalization but may
       // not move a child. Mutable references require explicit module admission.
@@ -223,10 +304,19 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
       const rootTouch = !creation && profile.operation === "update" && profile.touchExistingRoot === true;
       const update = root ? profile.operation === "upsertWithReplace" || rootTouch || Object.keys(scalar).some(name => name !== target.keyColumn)
         : profile.recordedRowReplay === true || preservingUpsert || touch || managedUpdateChanged || hasChangedFields(existing, scalar, [target.keyColumn]);
-      if (update) put(updates, target.table, scalar);
-    } else put(reconstitution ? reconstitutions : inserts, target.table, scalar);
-    const next = { ...existing, ...scalar };
+      if (update) { put(updates, target.table, scalar); operation = "update"; }
+    } else {
+      put(reconstitution ? reconstitutions : inserts, target.table, scalar);
+      operation = reconstitution ? "reconstitute" : "insert";
+    }
+    let next = { ...existing, ...scalar };
     state.set(target.table.name, [...(state.get(target.table.name) ?? []).filter(value => value[target.keyColumn] !== id), next]);
+    if (nativeUpdateStatements && operation !== undefined) {
+      const written = yield* apply(target.table, operation, [scalar]), actual = written[0];
+      if (written.length !== 1 || actual === undefined || actual[target.keyColumn] !== id)
+        return yield* Effect.fail(commerceError("storedCorruption"));
+      next = actual;
+    }
     if (reusable && existing !== undefined) repeatedReferences.set(token, { owner, row: next });
     for (const [name, descriptor] of catalog.queryRelations.get(target.table.name) ?? []) {
       if (row[name] === undefined || descriptor.join.type === "belongsTo") continue;
@@ -243,6 +333,8 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
         const fk = join.foreignKeys[0];
         if (join.foreignKeys.length !== 1 || fk === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
         const mode = yield* Effect.fromResult(profile.toManyMode(target, name, child));
+        if (nativeUpdateStatements && (mode !== "replace" || profile.allowedRelations(child).length !== 0))
+          return yield* Effect.fail(commerceError("unsupportedProfile"));
         if (mode === "associate") {
           const references: Array<Result.Result<string, CommerceTransactionError>> = [];
           const targetIds = new Set<string>();
@@ -277,6 +369,31 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
         const previous = (yield* load(child.table, fk, [id])).filter(value => value[fk] === id &&
           (profile.replacementMembers !== "active" || value.deleted_at == null));
         const retained = new Set<string>();
+        if (nativeUpdateStatements) {
+          // Native normalizes the complete owned cohort and checks duplicate
+          // identities before deleting omissions. Its one PK cohort read is
+          // retained through member execution, including authenticated misses.
+          const prepared: PreparedRow[] = [];
+          for (const member of members) {
+            const value = yield* Effect.fromResult(prepareRow(child, member));
+            if (retained.has(value.id) || visited.has(child.table.name + ":" + value.id))
+              return yield* Effect.fail(commerceError("invalidInput"));
+            prepared.push(value); retained.add(value.id);
+          }
+          const existing = new Map((yield* load(child.table, child.keyColumn, prepared.map(value => value.id)))
+            .map(row => [row[child.keyColumn], row]));
+          for (const value of previous) {
+            const key = value[child.keyColumn];
+            if (typeof key === "string" && !retained.has(key)) yield* remove(child.table, value);
+          }
+          yield* flushDeletions();
+          for (const [index, value] of prepared.entries()) {
+            const member = members[index];
+            if (member === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
+            yield* plan(child, member, { [fk]: id }, false, false, { prepared: value, existing: existing.get(value.id) });
+          }
+          continue;
+        }
         for (const member of members) {
           const value = yield* plan(child, member, { [fk]: id }, false);
           const key = value[child.keyColumn];
@@ -288,6 +405,7 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
           if (typeof key === "string" && !retained.has(key)) yield* remove(child.table, value);
         }
       } else {
+        if (nativeUpdateStatements) return yield* Effect.fail(commerceError("unsupportedProfile"));
         const pivot = catalog.writablePivots.find(table => table.name === join.pivotTable);
         const sourceColumn = join.sourceColumns[0], targetColumn = join.targetColumns[0];
         if (pivot === undefined || sourceColumn === undefined || targetColumn === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -372,55 +490,14 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
       return yield* Effect.fail(commerceError("storedCorruption"));
     deletes.set(table.name, new Map(selected.map(row => [identity(table, row), row])));
   }
-  const performedActions = emptyPerformedActions();
-  const apply = (table: Table, operation: "insert" | "update" | "delete" | "reconstitute", group: Map<string, Map<string, JsonObject>>) => observeExecution("MedusaGraph.apply", Effect.gen(function* () {
-    const rows = [...group.get(table.name)?.values() ?? []];
-    if (rows.length === 0) return;
-    const store = yield* getStore(table);
-    let written: readonly JsonObject[];
-    if (operation === "delete") {
-      written = yield* store.delete(ctx.manager, rows.map(row => Object.fromEntries(keys(table).map(key => [key, row[key]]))));
-    } else if (operation === "reconstitute") {
-      const reconstitute = store.reconstitute;
-      if (reconstitute === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-      written = yield* reconstitute(ctx.manager, rows);
-    } else if (profile.recordedRowReplay === true) {
-      const replay = store.replay;
-      if (replay === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-      written = yield* replay(ctx.manager, rows);
-    } else {
-      const selectedUpserts = upserts.get(table.name);
-      if (operation === "update" && selectedUpserts !== undefined) {
-        // Route only exact selected active identities. Nested rows sharing a
-        // root table and unselected child policies keep ordinary managed
-        // updates; existing owner proofs precede any owned-child selection.
-        // Keep original row order when a table contains both kinds of write.
-        const batches: Array<{ mode: "update" | "upsert" | "upsertPreservingDeletion"; rows: JsonObject[] }> = [];
-        for (const row of rows) {
-          const mode = preservingManagedRoots.get(table.name)?.has(identity(table, row)) ? "upsertPreservingDeletion"
-            : selectedUpserts.has(identity(table, row)) ? "upsert" : "update";
-          const previous = batches.at(-1);
-          if (previous?.mode === mode) previous.rows.push(row);
-          else batches.push({ mode, rows: [row] });
-        }
-        const result: JsonObject[] = [];
-        for (const batch of batches) result.push(...yield* store.write(ctx.manager, batch.mode, batch.rows));
-        written = result;
-      } else written = yield* store.write(ctx.manager, operation, rows);
+  if (!nativeUpdateStatements) {
+    for (const table of [...ordered].reverse()) yield* apply(table, "delete", [...deletes.get(table.name)?.values() ?? []]);
+    for (const table of ordered) {
+      yield* apply(table, "insert", [...inserts.get(table.name)?.values() ?? []]);
+      yield* apply(table, "reconstitute", [...reconstitutions.get(table.name)?.values() ?? []]);
     }
-    const model = catalog.entities.find(value => value.table === table);
-    if (model !== undefined) for (const row of written) addPerformedAction(performedActions, operation === "insert" || operation === "reconstitute" ? "created" : operation === "update" ? "updated" : "deleted", model.model, { ...row }, [model.keyColumn]);
-    if (operation !== "delete") {
-      const changed = new Set(written.map(row => identity(table, row)));
-      state.set(table.name, [...(state.get(table.name) ?? []).filter(row => !changed.has(identity(table, row))), ...written]);
-    }
-  }));
-  for (const table of [...ordered].reverse()) yield* apply(table, "delete", deletes);
-  for (const table of ordered) {
-    yield* apply(table, "insert", inserts);
-    yield* apply(table, "reconstitute", reconstitutions);
+    for (const table of ordered) yield* apply(table, "update", [...updates.get(table.name)?.values() ?? []]);
   }
-  for (const table of ordered) yield* apply(table, "update", updates);
   const paths = profile.projectionPaths(entity, relations);
   // Keep returned write rows and their framework order. Select any previously
   // untouched relation members by declared keys before final projection.

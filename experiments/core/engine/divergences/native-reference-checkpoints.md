@@ -54,3 +54,15 @@ Rules, must match normalized afterimages. Active-only relation hydration remains
 separate: a historical physical parent can satisfy an FK while its populated
 relation is null. This selection adds no authority for the wider eager-detachment
 profile and does not change the other graph or reconstitution selections.
+
+The [ordinary Shipping Option update profile](../slices/44-native-shipping-option-update.md)
+selects these existing statement checks over complete normalized afterimages.
+Its shared graph executor follows native owned Type, conditional Option write,
+then owned Rule deletion and member writes, before advancing to the next Option.
+Adapter planning does not replace the Core target checks. A physically present
+historical Type may satisfy the FK; a supplied owned Type object may update that
+current row while preserving its identity, creation time and deletion marker.
+Active relation hydration still returns null. This native behavior adds no
+revision replay, root revival, arbitrary historical-child writes or new
+reconstitution authority. Default replacement profiles retain their existing
+batch execution. Complete paired consumer acceptance remains with the slice.

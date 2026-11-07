@@ -1,9 +1,15 @@
 import { Effect, Result, Schema } from "effect";
 import type { DAL } from "@medusajs/framework/types";
 import { fillNullToOneRelations } from "@medusajs/drizzle/relation-query";
-import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { relationshipNotFoundMessage } from "@medusajs/drizzle/mutation-plan";
+import { inspectLogicalReferenceFailure, type CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
+import { jsonEqual } from "flarex-protocol/json";
 import { prepareScalarRepository } from "../../repository/scalar";
+import { commerceRepositoryContext } from "../../repository/context";
+import { commerceMutationEvents } from "../../repository/mutation-events";
+import { lowerDmlSchema } from "../../schema/lower";
 import { scalarIdWhere } from "../../repository/scalar-id-read";
 import { deniedCommerceRepository } from "../../repository/denied";
 import { projectNativeRow } from "../../repository/result";
@@ -28,6 +34,8 @@ export function prepareShippingOptionUpdateRepository(metadata: Metadata) {
   return Result.gen(function* () {
     const contracts = yield* compileShippingOptionUpdateContracts(metadata), graph = prepareShippingOptionUpdateGraph(contracts),
       reads = yield* prepareShippingOptionUpdateQuery(contracts);
+    const schema = yield* normalizeRelationalSchema(lowerDmlSchema(contracts.tables, "commerce.shipping-profile"))
+      .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
     const scalar = yield* prepareScalarRepository(contracts.option, "ShippingOption", scalarIdWhere);
     // Native DAL.update settles each entry's writes/events first and hydrates
     // the union of requested relations only after the entire cohort is written.
@@ -36,7 +44,25 @@ export function prepareShippingOptionUpdateRepository(metadata: Metadata) {
       ownerForeignKeys: contracts.option.foreignKeys.filter(key => key.columns[0] === (relationship.name === "provider" ? "provider_id"
         : relationship.name === "shipping_profile" ? "shipping_profile_id" : relationship.name === "type" ? "shipping_option_type_id" : "")).flatMap(key => key.columns) }]));
     const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
-      const bound = scalar.bind(root, owner), { bridge, events } = bound;
+      let pending: JsonObject | undefined;
+      const events = commerceMutationEvents(owner);
+      const bridge = commerceRepositoryContext(root, owner, { presentExpectedFailure: failure => {
+        const reference = inspectLogicalReferenceFailure(failure);
+        if (pending === undefined || reference?.storage !== "core" || reference.origin !== "checkpoint" ||
+          reference.child.tableName !== contracts.option.name || reference.sourceColumns.length !== 1 ||
+          reference.target.columns.length !== 1 || reference.target.values.length !== 1) return undefined;
+        const column = reference.sourceColumns[0], target = reference.target.values[0];
+        if (column === undefined || typeof target !== "string" || reference.target.columns[0] !== "id" || pending[column] !== target ||
+          !schema.tables.some(table => table.identity.tableId === contracts.option.name && jsonEqual(table.identity, reference.child.identity)) ||
+          !schema.tables.some(table => table.identity.tableId === reference.target.tableName && jsonEqual(table.identity, reference.target.identity)) ||
+          !contracts.creationReferences.some(declared => declared.source === contracts.option && declared.column === column &&
+            declared.target.table.name === reference.target.tableName)) return undefined;
+        // Core already rejected this declared physical reference. Only its
+        // authentic expected failure changes the native Promise presentation;
+        // the registered Cause and rollback-only owner remain unchanged.
+        return new Error(relationshipNotFoundMessage(column, target));
+      } });
+      const bound = scalar.bind(root, owner, events, bridge);
       const denied = deniedCommerceRepository(bound.repository, bound.refuse);
       const admitSelection = (table: string, rows: readonly JsonObject[]) => Result.gen(function* () {
         const entity = contracts.entities.find(entity => entity.table.name === table);
@@ -58,7 +84,11 @@ export function prepareShippingOptionUpdateRepository(metadata: Metadata) {
           const entity = yield* Effect.fromResult(contracts.optionEntity.decodeRow(projectNativeRow(scalar)));
           if (entity.id !== pair.update.id) return yield* ctx.refuse(commerceError("invalidInput"));
           const paths = [...(pair.update.type === undefined ? [] : ["type"]), ...(pair.update.rules === undefined ? [] : ["rules"])];
+          const type = pair.update.type;
+          const typeId = typeof type === "string" ? type : type?.id ?? pair.update.shipping_option_type_id ?? entity.shipping_option_type_id;
+          pending = { ...entity, ...pair.update, ...(typeId === undefined ? {} : { shipping_option_type_id: typeId }) };
           const replaced = yield* replaceGraphRows(ctx, mutationProfile, graph.option, [pair.update], { relations: paths });
+          pending = undefined;
           const rows = yield* Effect.fromResult(contracts.decodeRows(replaced.entities)), row = rows[0];
           if (row === undefined) return yield* ctx.refuse(commerceError("storedCorruption"));
           output.push(row);

@@ -565,3 +565,11 @@ moves the complete seven-participant ordinary root and all four retained
 inverses onto the existing Core source owners. Paired acceptance is complete
 for bounded creation and connected Location/Set deletion; wider detachment and
 Fulfillment consumers retain named Legacy removal gates.
+
+The [native Shipping Option update continuation](./slices/44-native-shipping-option-update.md)
+uses the existing seven Core sources and three genuine retained callbacks. Shared
+replacement preserves native Type/Option/Rules phases and Core checks complete
+physical afterimages. Historical owned Types keep their identity and tombstone;
+SDK input ownership stays native. Ordinary callers migrate and their displaced
+logical fixture and suite are removed. Wider detachment, hosted activation and
+the remaining full-goal gates stay separate.

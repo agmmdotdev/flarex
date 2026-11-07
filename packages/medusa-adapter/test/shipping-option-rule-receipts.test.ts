@@ -90,15 +90,22 @@ describe("native ShippingOptionRule receipt correlation", () => {
       [{ table: "shipping_option", row: { id: "option-a" } }]]) await refused(call, { ...activity, observedRows });
   });
 
-  it("retains the separate Shipping Option update receipt profile", async () => {
+  it("requires Core physical parent evidence in the Shipping Option update receipt profile", async () => {
     const metadata = (await Effect.runPromise(captureServiceZoneCreationMetadata())).frame;
     const updatePrepared = Result.getOrThrow(prepareShippingOptionRuleRepository(metadata, "shipping-option-update"));
     const updatePolicy = shippingOptionRulePolicy(updatePrepared);
-    expect(updatePolicy.statementReferenceChecks).toBeUndefined();
-    const activity = { ...creation(), observedRows: [{ table: "shipping_option_rule", row: scalar() }] };
+    expect(updatePolicy.statementReferenceChecks).toBe(true);
+    const activity = creation();
     await Effect.runPromise(updatePolicy.validateLogicalCall(createCall(), activity));
-    expect(await Effect.runPromise(Effect.result(updatePolicy.validateLogicalCall(createCall(), creation()))))
-      .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+    await Effect.runPromise(updatePolicy.validateLogicalCall(createCall(), {
+      ...activity, observedRows: [{ table: "shipping_option_rule", row: scalar() }, parent("option-a", stamp)],
+    }));
+    for (const parents of [[], [parent("outside")], [parent(), parent("unexpected")], [parent(), parent()],
+      [{ table: "shipping_option", row: { id: "option-a" } }]]) {
+      expect(await Effect.runPromise(Effect.result(updatePolicy.validateLogicalCall(createCall(), {
+        ...activity, observedRows: [{ table: "shipping_option_rule", row: scalar() }, ...parents],
+      })))).toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+    }
   });
 
   it("binds the actual last-update deduplication, active read and complete output", async () => {

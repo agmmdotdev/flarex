@@ -4,29 +4,57 @@ import { commerceDecoder } from "../src/value/decoder";
 import { ShippingOptionUpdateInput, prepareShippingOptionUpdateResources, prepareShippingOptionUpdateWorkflow } from "../src/workflows/fulfillment/update-shipping-options";
 import { makeLocalShippingOptionUpdateCommands } from "../src/modules/fulfillment/shipping-option-update-service";
 import { makeLocalShippingOptionCreationCommands } from "../src/modules/fulfillment/shipping-option-create-service";
+import { compileServiceZoneCreationCoreDefinition, compileShippingProfileCoreDefinition, compileFulfillmentCreationCoreDefinition } from "../src/modules/fulfillment/shipping-profile-schema";
 import { makeLocalPricingCommands } from "../src/modules/pricing/service";
+import { compilePricingCoreDefinition } from "../src/modules/pricing/schema";
 import { makeLocalRegionReadCommands } from "../src/modules/region/service";
+import { compileRegionCoreDefinition } from "../src/modules/region/schema";
 import { makeStockLocationCommands } from "../src/modules/stock-location/service";
+import { compileStockLocationCoreDefinition } from "../src/modules/stock-location/schema";
 import { prepareLocationFulfillmentSetLinkRead } from "../src/links/location-fulfillment-set-service";
 import { prepareLocationFulfillmentProviderLink } from "../src/links/location-fulfillment-provider-service";
 import { prepareShippingOptionPriceSetLink } from "../src/links/shipping-option-price-set-service";
+import { compileLocationFulfillmentSetLinkCoreDefinition } from "../src/links/location-fulfillment-set-schema";
+import { compileLocationFulfillmentProviderLinkCoreDefinition } from "../src/links/location-fulfillment-provider-schema";
+import { compileShippingOptionPriceSetLinkCoreDefinition } from "../src/links/shipping-option-price-set-schema";
 import { defineWorkflowModule } from "../src/workflow/module";
 import { workflowResourceSelections } from "../src/workflow/resources";
 import { shippingOptionUpdateResources, shippingOptionUpdateCommandMs } from "../src/workflow/policy";
-import type { AtomicWorkflowHostComposition, InstalledWorkflowModule } from "../src/workflow/host";
+import type { AtomicWorkflowHostComposition } from "../src/workflow/host";
 import { captureAtomicCommerceEvents } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";
+import { defineAtomicCommerceNativeSource } from "../../persistence-postgres/src/frameworks/atomicCommerce/nativeSelection";
 
 const decode = commerceDecoder(ShippingOptionUpdateInput, "invalidInput");
+const target = { scopeUuid: "91000000-0000-4000-8000-000000000044", epochUuid: "92000000-0000-4000-8000-000000000044" };
 const selectedModules = Effect.gen(function* () {
   const fulfillment = yield* makeLocalShippingOptionUpdateCommands(), pricing = yield* makeLocalPricingCommands("shipping-option-updates"),
     region = yield* makeLocalRegionReadCommands(), stockLocation = yield* makeStockLocationCommands("read"),
     locationLinks = yield* prepareLocationFulfillmentSetLinkRead(), providerLinks = yield* prepareLocationFulfillmentProviderLink(),
     priceSetLinks = yield* prepareShippingOptionPriceSetLink();
-  return { fulfillment: fulfillment.workflow, pricing: pricing.workflow, region: region.workflow, stockLocation: stockLocation.workflow,
+  const definitions = yield* Effect.all({ fulfillment: compileServiceZoneCreationCoreDefinition(target), pricing: compilePricingCoreDefinition(target),
+    region: compileRegionCoreDefinition(target), stockLocation: compileStockLocationCoreDefinition(target),
+    locationLinks: compileLocationFulfillmentSetLinkCoreDefinition(target), providerLinks: compileLocationFulfillmentProviderLinkCoreDefinition(target),
+    priceSetLinks: compileShippingOptionPriceSetLinkCoreDefinition(target) });
+  const sources = {
+    fulfillment: yield* Effect.fromResult(defineAtomicCommerceNativeSource("fulfillment", definitions.fulfillment)),
+    pricing: yield* Effect.fromResult(defineAtomicCommerceNativeSource("pricing", definitions.pricing)),
+    region: yield* Effect.fromResult(defineAtomicCommerceNativeSource("region", definitions.region)),
+    stockLocation: yield* Effect.fromResult(defineAtomicCommerceNativeSource("stock_location", definitions.stockLocation)),
+    locationLinks: yield* Effect.fromResult(defineAtomicCommerceNativeSource("locationLinks", definitions.locationLinks)),
+    providerLinks: yield* Effect.fromResult(defineAtomicCommerceNativeSource("providerLinks", definitions.providerLinks)),
+    priceSetLinks: yield* Effect.fromResult(defineAtomicCommerceNativeSource("priceSetLinks", definitions.priceSetLinks)),
+  };
+  const workflows = { fulfillment: fulfillment.workflow, pricing: pricing.workflow, region: region.workflow, stockLocation: stockLocation.workflow,
     locationLinks: locationLinks.workflow, providerLinks: providerLinks.workflow, priceSetLinks: priceSetLinks.workflow };
+  const bindings = { fulfillment: { module: fulfillment.workflow, nativeStorage: sources.fulfillment }, pricing: { module: pricing.workflow, nativeStorage: sources.pricing },
+    region: { module: region.workflow, nativeStorage: sources.region }, stockLocation: { module: stockLocation.workflow, nativeStorage: sources.stockLocation },
+    locationLinks: { module: locationLinks.workflow, nativeStorage: sources.locationLinks }, providerLinks: { module: providerLinks.workflow, nativeStorage: sources.providerLinks },
+    priceSetLinks: { module: priceSetLinks.workflow, nativeStorage: sources.priceSetLinks } };
+  return { workflows, bindings, sources };
 });
-let modules: Effect.Success<typeof selectedModules>;
-beforeAll(async () => { modules = await Effect.runPromise(selectedModules); });
+let selected: Effect.Success<typeof selectedModules>;
+let modules: Effect.Success<typeof selectedModules>["workflows"];
+beforeAll(async () => { selected = await Effect.runPromise(selectedModules); modules = selected.workflows; });
 
 describe("native Shipping Option update facade contract", () => {
   it("retains the raw native array, empty roots, partial prices, Types and Rules", () => {
@@ -99,12 +127,9 @@ describe("native Shipping Option update facade contract", () => {
   });
 
   it("pins the selected allowance and grants pending cancellation only to the native workflow event", async () => {
-    const installed: Record<string, InstalledWorkflowModule> = {};
     // This preparation-only port observes genuine module capabilities and owns
     // no database or simulated persistence implementation.
-    for (const [name, module] of Object.entries(modules)) Object.defineProperty(installed, name, {
-      enumerable: true, value: { module, logicalStorage: {}, logicalPublication: "mixed" },
-    });
+    const installed = selected.bindings;
     const captured: AtomicWorkflowHostComposition[] = [];
     const prepare = vi.fn((composition: AtomicWorkflowHostComposition) => {
       captured.push(composition);
@@ -123,6 +148,8 @@ describe("native Shipping Option update facade contract", () => {
       if (!("logicalResources" in member)) throw new Error("Missing selected logical allowance");
       expect(member.logicalResources).toEqual(shippingOptionUpdateResources);
       expect("logicalPublication" in member ? member.logicalPublication : undefined).toBe(index === 1 ? "mixed" : undefined);
+      expect(member.nativeStorage).toBeDefined();
+      expect(member.statementReferenceChecks).toBe(index === 0 ? true : undefined);
     }
     const definitions = Result.getOrThrow(captureAtomicCommerceEvents(composition.events)).definitions;
     expect(definitions.filter(item => item.definition?.pendingCancellation).map(item => item.definition?.name)).toEqual(["shipping-option.updated"]);
@@ -130,10 +157,32 @@ describe("native Shipping Option update facade contract", () => {
     for (const extra of [{ link: {} }, { hooks: {} }, { provider: {} }])
       expect(await Effect.runPromise(Effect.result(Reflect.apply(prepareShippingOptionUpdateWorkflow, undefined, [{ ...input, ...extra }]))))
         .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
-    const altered = { ...installed, pricing: { module: modules.pricing, logicalStorage: {},
-      logicalResources: { ...shippingOptionUpdateResources, calls: shippingOptionUpdateResources.calls - 1 } } };
-    expect(await Effect.runPromise(Effect.result(Reflect.apply(prepareShippingOptionUpdateWorkflow, undefined, [{ ...input, modules: altered }]))))
-      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    for (const override of [{ logicalResources: shippingOptionUpdateResources },
+      { logicalResources: { ...shippingOptionUpdateResources, calls: shippingOptionUpdateResources.calls - 1 } },
+      { logicalPublication: "mixed" }]) {
+      const altered = { ...installed, pricing: { ...installed.pricing, ...override } };
+      expect(await Effect.runPromise(Effect.result(Reflect.apply(prepareShippingOptionUpdateWorkflow, undefined, [{ ...input, modules: altered }]))))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    }
+    const dualStorage = { ...installed, pricing: { ...installed.pricing, logicalStorage: {} } };
+    expect(await Effect.runPromise(Effect.result(Reflect.apply(prepareShippingOptionUpdateWorkflow, undefined, [{ ...input, modules: dualStorage }]))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
     expect(prepare).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses forged, foreign and differently scoped Core sources before execution", async () => {
+    const prepare = vi.fn(() => Effect.die(new Error("Execution preparation must not run")));
+    const input = { execution: { identityAndAccessPolicy: {}, prepare }, modules: selected.bindings,
+      revision: "a".repeat(64), subscribers: [{ id: "shipping", revision: "b".repeat(64) }] };
+    const definitions = await Effect.runPromise(Effect.all([compileShippingProfileCoreDefinition(target), compileFulfillmentCreationCoreDefinition(target)]));
+    const sources = definitions.map(definition => Result.getOrThrow(defineAtomicCommerceNativeSource("fulfillment", definition)));
+    for (const bindings of [
+      { ...selected.bindings, fulfillment: { ...selected.bindings.fulfillment, nativeStorage: { ...selected.sources.fulfillment } } },
+      { ...selected.bindings, fulfillment: { ...selected.bindings.fulfillment, nativeStorage: selected.sources.pricing } },
+      { ...selected.bindings, region: { ...selected.bindings.region, nativeStorage: selected.sources.stockLocation } },
+      ...sources.map(nativeStorage => ({ ...selected.bindings, fulfillment: { ...selected.bindings.fulfillment, nativeStorage } })),
+    ]) expect(await Effect.runPromise(Effect.result(Reflect.apply(prepareShippingOptionUpdateWorkflow, undefined, [{ ...input, modules: bindings }]))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+    expect(prepare).not.toHaveBeenCalled();
   });
 });

@@ -31,7 +31,7 @@ export function commerceRepositoryContext(root: CommerceCommandContext, owner: C
     owner.run(Effect.gen(function* () {
       const ctx = yield* select(shared);
       return yield* work(ctx);
-    }));
+    }), transaction?.presentExpectedFailure);
   /** The core owns the optional FIFO and its lifetime. Native undefined
    * omission stays at this value boundary; core captures and charges the
    * resulting JSON before any queued waiting. Default profiles stay immediate. */
@@ -43,7 +43,7 @@ export function commerceRepositoryContext(root: CommerceCommandContext, owner: C
       const normalized = normalize === undefined ? input : yield* checked(ctx, normalize(ctx, input));
       return yield* (ctx.enqueue === undefined ? work(ctx, normalized)
         : ctx.enqueue(() => captureCommerceInput(normalized, ctx.resources), (captured: Json) => work(ctx, captured)));
-    }));
+    }), transaction?.presentExpectedFailure);
   const checked = Effect.fn("CommerceRepository.checked")(<Value, Requirements>(ctx: CommerceCommandContext,
     value: Effect.Effect<Value, CommerceTransactionError, Requirements>): Effect.Effect<Value, CommerceTransactionError, Requirements> =>
     value.pipe(Effect.catchCause(cause => Result.match(ctx.recordFailure(cause), {

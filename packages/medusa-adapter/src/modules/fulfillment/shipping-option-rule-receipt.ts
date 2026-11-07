@@ -24,7 +24,6 @@ type Row = Result.Result.Success<ReturnType<Prepared["contracts"]["decodeRow"]>>
  * Reused native normalization remains the business authority. */
 export function shippingOptionRulePolicy(prepared: Prepared) {
   const maximum = prepared.inputs.maximum;
-  const statementReferenceChecks = prepared.inputs.profile === "batch";
   const { parent } = prepared.contracts;
   const decodeRead = prepared.inputs.decodeRead;
   const decodeCreates = prepared.inputs.decodeCreates, decodeUpdates = prepared.inputs.decodeUpdates, decodeIds = prepared.inputs.decodeIds;
@@ -38,8 +37,15 @@ export function shippingOptionRulePolicy(prepared: Prepared) {
     const decodeRow = (value: JsonObject) => Effect.fromResult(prepared.contracts.decodeRow(projectNativeRow(value)))
       .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
     const initial = new Map<string, Row>(), observations: Row[] = [];
-    const checkParents = statementReferenceChecks &&
-      (call.commandName === "shippingOptionRuleCreateForBatch" || call.commandName === "shippingOptionRuleUpdateForBatch");
+    const creates = call.commandName === "shippingOptionRuleCreateForBatch"
+      ? yield* Effect.fromResult(decodeCreates(call.input)) : undefined;
+    const reconstituted = new Set<string>();
+    if (prepared.inputs.profile === "shipping-option-update") for (const input of creates ?? []) {
+      if (!("created_at" in input) || input.created_at === undefined) continue;
+      if (typeof input.id !== "string") return yield* Effect.fail(mismatch());
+      reconstituted.add(input.id);
+    }
+    const checkParents = call.commandName === "shippingOptionRuleCreateForBatch" || call.commandName === "shippingOptionRuleUpdateForBatch";
     const observedParents = new Set<string>();
     for (const observation of activity.observedRows) {
       if (checkParents && observation.table === parent.table.name) {
@@ -65,7 +71,7 @@ export function shippingOptionRulePolicy(prepared: Prepared) {
       if (id === undefined || mutation.operation === "insert" && (before !== null || after === null) ||
         mutation.operation === "patch" && (before === null || after === null || before.id !== after.id) ||
         mutation.operation === "delete" && (before === null || after !== null)) return yield* Effect.fail(mismatch());
-      if (checkParents && after !== null) {
+      if (checkParents && after !== null && !reconstituted.has(after.id)) {
         if (typeof after.shipping_option_id !== "string") return yield* Effect.fail(mismatch());
         expectedParents.add(after.shipping_option_id);
       }
@@ -101,7 +107,8 @@ export function shippingOptionRulePolicy(prepared: Prepared) {
     if (call.mode !== "write") return yield* Effect.fail(mismatch());
     const expectedEvents: Array<{ id: string; action: "created" | "updated" | "deleted" }> = [];
     if (call.commandName === "shippingOptionRuleCreateForBatch") {
-      const inputs = structuredClone(yield* Effect.fromResult(decodeCreates(call.input)));
+      if (creates === undefined) return yield* Effect.fail(mismatch());
+      const inputs = structuredClone(creates);
       // This foreign call only runs the genuine synchronous native validator on
       // detached checked JSON; any native refusal means no successful receipt.
       // SAFETY: the native helper's Rule alias omits runtime boolean/number and
@@ -193,6 +200,5 @@ export function shippingOptionRulePolicy(prepared: Prepared) {
     }
     if (rules.size > (prepared.inputs.profile === "batch" ? 12 : 32) || parents.size > 4) return yield* Effect.fail(commerceError("limitExceeded"));
   });
-  return { capture, validateLogicalCall, validateLogical, allowStorageInsertionOrder: true as const,
-    ...(statementReferenceChecks ? { statementReferenceChecks: true as const } : {}) };
+  return { capture, validateLogicalCall, validateLogical, allowStorageInsertionOrder: true as const, statementReferenceChecks: true as const };
 }

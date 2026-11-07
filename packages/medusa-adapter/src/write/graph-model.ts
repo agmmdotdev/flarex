@@ -45,6 +45,13 @@ export interface ReplacementProfile {
   readonly catalog: GraphCatalog;
   /** Native update and upsertWithReplace differ on root writes and empty collections. */
   readonly operation: "upsertWithReplace" | "update";
+  /** Selected native DAL.update executes owned to-one, conditional root and
+   * owned collection statements in that order. The authenticated native Store
+   * must select physical-afterimage reference checks; graph planning does not
+   * duplicate FK enforcement. A touched declared owned-to-one object may update
+   * an existing historical row while preserving its lifecycle and identity.
+   * Root/collection history guards and replay/upsert/lifecycle authority stay unchanged. */
+  readonly nativeUpdateStatements?: true;
   /** A closed compensation profile may replay complete recorded preimages.
    * The accepting core authenticates each exact row under its source/table
    * history. This option grants no caller-supplied clock or history lookup. */
