@@ -14,6 +14,9 @@ for (let index = 0; index < catalogSize; index += 1) await flow(flows.createProd
 await locations.createStockLocations([{ id: "hot-location", name: "hot" }]);
 await inventory.createInventoryItems([{ id: "hot-item", sku: "hot-sku" }]);
 await inventory.createInventoryLevels([{ inventory_item_id: "hot-item", location_id: "hot-location", stocked_quantity: 10 }]);
+const distinctLevels = 64;
+await inventory.createInventoryItems(Array.from({ length: distinctLevels }, (_, index) => ({ id: `distinct-${index}`, sku: `distinct-${index}` })));
+await inventory.createInventoryLevels(Array.from({ length: distinctLevels }, (_, index) => ({ inventory_item_id: `distinct-${index}`, location_id: "hot-location", stocked_quantity: 10 })));
 
 const catalogId = (index: number) => `cat-${index % catalogSize}-product`;
 const cases: Readonly<Record<string, (run: string) => (index: number) => Promise<unknown>>> = {
@@ -26,6 +29,7 @@ const cases: Readonly<Record<string, (run: string) => (index: number) => Promise
   "read-search": () => index => { const { filters, config } = readInputs.search(`cat-${index % 20}`); return product.listProducts(filters, config); },
   "write-sales-channel": run => index => flow(flows.createSalesChannelsWorkflow, inputs.salesChannelCreate(`${run}-${index}`)),
   "write-product-create": run => index => flow(flows.createProductsWorkflow, productCreateInput(`${run}-${index}`)),
+  "write-distinct-inventory-level": () => index => flow(flows.updateInventoryLevelsWorkflow, inputs.inventoryLevelUpdate(`distinct-${index % distinctLevels}`, "hot-location", index)),
   "write-hot-inventory-level": () => index => flow(flows.updateInventoryLevelsWorkflow, inputs.inventoryLevelUpdate("hot-item", "hot-location", index)),
 };
 
