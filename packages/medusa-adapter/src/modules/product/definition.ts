@@ -83,6 +83,11 @@ const productSchemaFromCompiled = Effect.fn("MedusaProduct.normalizeCompiled")(
         indexId: "product.deleted_at.range", kind: "btree" as const,
         columns: ["deleted_at"], predicate: null,
         origin: { kind: "derived" as const, sourceId: "medusa.product.deleted_at.range-query" },
+      }, {
+        // Flarex addition, owner-selected: native PostgreSQL sorts created_at unindexed.
+        indexId: "product.created_at.order", kind: "btree" as const,
+        columns: ["created_at"], predicate: null,
+        origin: { kind: "derived" as const, sourceId: "flarex.product.created_at.order" },
       }] } : table) };
   },
 );

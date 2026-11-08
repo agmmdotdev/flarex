@@ -446,7 +446,7 @@ export type CoreNativeOperations = Pick<CoreTransaction, "get" | "insert" | "pat
     Effect.Effect<readonly (boolean | null)[], CoreError>;
   /** Native examined-window semantics, distinct from complete-range find and Source queries. */
   readonly findPage: (table: string, where: JsonObject, options: Readonly<{
-    indexName: string; offset: number; limit: number; order?: "asc";
+    indexName: string; offset: number; limit: number; order?: "asc" | "desc";
   }>) => Effect.Effect<Readonly<{ documents: readonly DocumentObject[]; hasMore: boolean }>, CoreError>;
 };
 export type CoreNativeRootOperations = CoreNativeOperations & {

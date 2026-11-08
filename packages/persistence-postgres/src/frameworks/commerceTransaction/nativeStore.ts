@@ -55,6 +55,8 @@ export const makeNativeCommerceParticipant = Effect.fn("NativeCommerce.makeParti
   lifetime: BoundedRequestLifetime<CommerceTransactionError>, initialContext: BoundedRequestContext,
   transactionId: string, unixTime: number, resources: CommerceResources = defaultCommerceResources,
   invocation?: NativeCommerceInvocation,
+  /** Read-only hosts only: their reads carry no receipts and use the read budget. */
+  admitListPages = false,
 ) {
   const stores = new Map<string, CommerceStore>();
   const onRead = invocation?.onRead;
@@ -113,7 +115,8 @@ export const makeNativeCommerceParticipant = Effect.fn("NativeCommerce.makeParti
         const preparation: Preparation = {};
         return Object.freeze({ find: context => read(context, input, preparation).pipe(Effect.map(result => result.rows)),
           findPage: context => readPage(context, input, preparation),
-          count: context => read(context, input, preparation, "count").pipe(Effect.map(result => result.count)) } satisfies ReturnType<CommerceStore["prepareRead"]>);
+          count: context => read(context, input, preparation, "count").pipe(Effect.map(result => result.count)),
+          ...(admitListPages ? { pageReplacesFind: true as const } : {}) } satisfies ReturnType<CommerceStore["prepareRead"]>);
       },
       find: (context, input) => read(context, input, {}).pipe(Effect.map(result => result.rows)),
       findPage: (context, input) => readPage(context, input, {}),

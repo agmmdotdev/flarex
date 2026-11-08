@@ -26,6 +26,7 @@ const cases: Readonly<Record<string, (run: string) => (index: number) => Promise
     return product.listProducts(filters, config);
   },
   "read-list-page": () => index => { const { filters, config } = readInputs.listPage((index * 20) % catalogSize); return product.listProducts(filters, config); },
+  "read-list-recent": () => index => { const { filters, config } = readInputs.listRecent((index * 20) % catalogSize); return product.listProducts(filters, config); },
   "read-search": () => index => { const { filters, config } = readInputs.search(`cat-${index % 20}`); return product.listProducts(filters, config); },
   "write-sales-channel": run => index => flow(flows.createSalesChannelsWorkflow, inputs.salesChannelCreate(`${run}-${index}`)),
   "write-product-create": run => index => flow(flows.createProductsWorkflow, productCreateInput(`${run}-${index}`)),

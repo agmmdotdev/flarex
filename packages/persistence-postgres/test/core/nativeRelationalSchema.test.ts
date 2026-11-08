@@ -167,7 +167,7 @@ describe("complete native relational schema lowering", () => {
       const native = yield* compileProductDefinition();
       const definition = yield* compile("medusa.product", native.schema, native.provenance);
       expect(definition.tables).toHaveLength(13);
-      expect(definition.tables.reduce((count, table) => count + (table.indexes?.length ?? 0), 0)).toBe(60);
+      expect(definition.tables.reduce((count, table) => count + (table.indexes?.length ?? 0), 0)).toBe(61);
       expect(definition.foreignKeys).toHaveLength(15);
       expect(definition.foreignKeys?.filter(key => key.onDelete === "cascade")).toHaveLength(11);
       expect(definition.foreignKeys?.filter(key => key.onDelete === "noAction")).toHaveLength(4);

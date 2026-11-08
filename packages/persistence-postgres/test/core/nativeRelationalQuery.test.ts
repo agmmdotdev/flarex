@@ -106,6 +106,13 @@ describe("native relational plans over Core observations", () => {
     } }, table, declaration, policy, query))).toEqual({ rows: [{ id: "page" }], hasMore: true });
     expect(windows).toHaveLength(1);
     expect(windows[0]).toMatchObject({ name: table.name, where: { deleted_at: null }, options: { offset: 2, limit: 1, order: "asc" } });
+    const recent = Result.getOrThrow(prepareCoreNativeRelationalRead(policy, { fields: ["id"], take: 1,
+      order: { column: "created_at", direction: "desc" }, predicate: { kind: "isNull", column: "deleted_at" } }, 2048));
+    await Effect.runPromise(executeCoreNativeRelationalPage({ findPage: (name, where, options) => {
+      windows.push({ name, where, options }); return Effect.succeed({ documents: [row], hasMore: false });
+    } }, table, declaration, policy, recent));
+    const orderedIndex = table.indexes.find(candidate => candidate.fields[0] === "created_at");
+    expect(windows[1]).toMatchObject({ options: { indexName: orderedIndex?.name, order: "desc" } });
     const postgres = Result.getOrThrow(prepareCoreNativeRelationalRead(policy, { fields: ["id"], order: { column: "id", direction: "asc" },
       predicate: { kind: "and", children: [{ kind: "in", column: "id", values: ["page"] },
         { kind: "postgresText", column: "title", operator: "regex", value: "P.*" }] } }, 2048));

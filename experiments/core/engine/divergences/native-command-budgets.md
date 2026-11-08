@@ -55,6 +55,10 @@ final-document accounting remain distinct. The
 host-lowering prerequisite and its neutral/consumer gates; it changes no native
 budget meaning or Core accounting algorithm.
 
+Read-only hosts are the owner-selected exception: omitted resources use 2,048
+identities and the 8 MiB batch command bytes, recorded in the
+[list read slice](../slices/native-list-reads.md). Write participants are unchanged.
+
 Real Local API count/select operations over fewer than 256 large matching rows
 must exhaust the shared command budget even when their output is tiny. Prove
 arguments and retained rows consume the same counter, caught failures remain

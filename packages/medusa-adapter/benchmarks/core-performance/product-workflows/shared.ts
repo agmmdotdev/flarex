@@ -157,8 +157,8 @@ export const readRelations = ["variants", "options", "images", "tags", "categori
 export const readInputs = {
   retrieve: (id: string) => ({ id, config: { relations: readRelations } }),
   listIds: (ids: readonly string[]) => ({ filters: { id: [...ids] }, config: { relations: readRelations } }),
-  // Core refuses `order: { created_at }` (unsupportedProfile); both lanes page by id.
   listPage: (skip: number) => ({ filters: {}, config: { take: 20, skip, order: { id: "ASC" }, relations: ["variants", "images"] } }),
+  listRecent: (skip: number) => ({ filters: {}, config: { take: 20, skip, order: { created_at: "DESC" }, relations: ["variants", "images"] } }),
   search: (term: string) => ({ filters: { q: term }, config: { take: 20 } }),
 } as const;
 export const loadPlan = (() => {

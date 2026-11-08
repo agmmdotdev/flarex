@@ -3,9 +3,9 @@ import { compileProjection } from "../../query/projection";
 import { valuePredicate } from "../../query/predicate";
 import { publicProductProjection, internalProductProjection } from "./read-profile";
 import { productRelations, type ProductRuntimeMetadata } from "./runtime-metadata";
-import { commerceError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, readOnlyCommerceWorkingSetLimits, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureCommerceInput } from "../../value/input";
-import { QueryEnvelope, QueryLimit, QueryOffset } from "../../query/decoder";
+import { QueryEnvelope, QueryLimit } from "../../query/decoder";
 import { commerceDecoder } from "../../value/decoder";
 
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
@@ -23,14 +23,16 @@ const decodeSearch = commerceDecoder(Schema.Struct({ value: Schema.String, fromE
 const decodePrimaryOr = commerceDecoder(Schema.Array(Schema.Struct({ id: Schema.optionalKey(Schema.String) })).check(Schema.isMaxLength(256)), "unsupportedProfile");
 const decodeRelations = commerceDecoder(Schema.Array(Schema.Literals([...productRelations, "*", "variants.images"])), "unsupportedProfile");
 const decodeFields = commerceDecoder(Schema.Array(Schema.String).check(Schema.isMinLength(1)), "unsupportedProfile");
-const decodeOffset = commerceDecoder(QueryOffset, "limitExceeded");
+// Offsets reach the read-only host budget. Core bounds the rows actually read on every host.
+const decodeOffset = commerceDecoder(Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: readOnlyCommerceWorkingSetLimits.identities - 1 })), "limitExceeded");
 const decodeLimit = commerceDecoder(QueryLimit, "limitExceeded");
 const Direction = Schema.Literals(["ASC", "DESC"]);
 const decodeOrder = commerceDecoder(Schema.Struct({
   id: Schema.optionalKey(Direction),
   handle: Schema.optionalKey(Direction),
+  created_at: Schema.optionalKey(Direction),
   images: Schema.optionalKey(Schema.Struct({ rank: Schema.Literal("ASC") })),
-}).check(Schema.makeFilter(order => order.id === undefined || order.handle === undefined)), "unsupportedProfile");
+}).check(Schema.makeFilter(order => [order.id, order.handle, order.created_at].filter(value => value !== undefined).length <= 1)), "unsupportedProfile");
 const decodeColumn = commerceDecoder(Schema.Literals(["id", "handle", "collection_id", "type_id"]), "unsupportedProfile");
 const decodeFilter = commerceDecoder(Schema.Union([
   Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(256)),
@@ -117,7 +119,8 @@ export function decodeProductQuery(
       projection, selected, relationFilters, withDeleted, relations: productRelations.filter(path => relations.includes(path)),
       query: {
         fields: projection.storageFields, skip, take,
-        order: { column: order.handle === undefined ? "id" : "handle", direction: (order.id ?? order.handle) === "DESC" ? "desc" : "asc" },
+        order: { column: order.handle !== undefined ? "handle" : order.created_at !== undefined ? "created_at" : "id",
+          direction: (order.id ?? order.handle ?? order.created_at) === "DESC" ? "desc" : "asc" },
         predicate: { kind: "and", children: predicates },
       } satisfies JsonObject,
     };

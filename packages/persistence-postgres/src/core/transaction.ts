@@ -187,7 +187,7 @@ const sameNativeTuple = (left: readonly CoreNativeScalar[], right: readonly Core
 const NativePageCount = Schema.Int.check(Schema.makeFilter(value => Number.isSafeInteger(value) && value >= 0
   ? undefined : "Expected a nonnegative safe native page count"));
 const decodeNativePageOptions = Schema.decodeUnknownEffect(Schema.Struct({ indexName: Schema.NonEmptyString,
-  offset: NativePageCount, limit: NativePageCount, order: Schema.optionalKey(Schema.Literal("asc")),
+  offset: NativePageCount, limit: NativePageCount, order: Schema.optionalKey(Schema.Literals(["asc", "desc"])),
 }).annotate({ parseOptions: { onExcessProperty: "error" } }));
 const decodeNativeIncomingOptions = Schema.decodeUnknownEffect(Schema.Struct({ limit: NativePageCount })
   .annotate({ parseOptions: { onExcessProperty: "error" } }));
@@ -1845,6 +1845,7 @@ export function createCoreTransaction(input: Readonly<{
       return yield* new CoreTransactionError({ reason: "capacity", cause: "Native page offset limit" });
     const needed = options.offset + options.limit + 1;
     if (!Number.isSafeInteger(needed)) return yield* new CoreNativeQueryError({ reason: "invalidInput" });
+    const order = options.order ?? "asc", direction = order === "asc" ? 1 : -1;
     const matched = new Map<string, Readonly<{ document: DocumentObject; key: Uint8Array }>>();
     let examined = 0;
     const add = (id: string, document: DocumentObject, key: Uint8Array) => Effect.gen(function* () {
@@ -1873,7 +1874,7 @@ export function createCoreTransaction(input: Readonly<{
       const selected = yield* nativeCapture(table, access, index);
       yield* Effect.fromResult(accounting.query(index.ref.id, remaining));
       const window = yield* captureCoreNativeIndexWindow({ snapshot: selected.indexSnapshot, table, index,
-        interval: remaining, maxEntries: limit, assertOpen });
+        interval: remaining, maxEntries: limit, order, assertOpen });
       examined += window.examined;
       if (examined > captureLimits.maxIdentities)
         return yield* new CoreTransactionError({ reason: "capacity", cause: "Native page examined identity limit" });
@@ -1917,14 +1918,14 @@ export function createCoreTransaction(input: Readonly<{
           return yield* new CoreTransactionError({ reason: "conflict", cause: "Native page owner revision changed" });
         if (!writes.has(row.id)) yield* add(row.id, original.document, row.key);
       }
-      result = [...matched.values()].toSorted((left, right) => compareBytesLexicographically(left.key, right.key));
+      result = [...matched.values()].toSorted((left, right) => direction * compareBytesLexicographically(left.key, right.key));
       const frontier = result[needed - 1];
       const witness = window.entries.at(-1);
       // Pending-only output still needs a committed successor or observed EOF.
       if (window.isDone || frontier !== undefined && witness !== undefined
-        && compareBytesLexicographically(frontier.key, witness.key) <= 0) break;
+        && direction * compareBytesLexicographically(frontier.key, witness.key) <= 0) break;
       if (window.cursor === null) return yield* new CorePersistenceError({ reason: "corruptData" });
-      remaining = splitIndexRangeAfter({ start: remaining.start ?? new Uint8Array(), end: remaining.end }, window.cursor, "asc").remaining;
+      remaining = splitIndexRangeAfter({ start: remaining.start ?? new Uint8Array(), end: remaining.end }, window.cursor, order).remaining;
     }
     const documents = Object.freeze(result.slice(options.offset, options.offset + options.limit).map(member => member.document));
     return Object.freeze({ documents,

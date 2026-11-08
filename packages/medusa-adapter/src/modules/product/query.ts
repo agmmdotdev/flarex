@@ -8,6 +8,9 @@ export const findProducts = Effect.fn("ProductAdapter.find")(function* (
   ctx: CommerceCommandContext, catalog: ProductRuntimeMetadata, input: unknown, withCount: boolean, internalProduct = false,
 ) {
   const selected = yield* Effect.fromResult(decodeProductQuery(catalog, input, internalProduct));
+  // A plain active-row list without a total reads only its page; handle's partial index cannot.
+  const pageable = !withCount && !selected.withDeleted && selected.relationFilters.length === 0
+    && selected.query.predicate.children.length === 1 && selected.query.order.column !== "handle";
   return yield* executeRead(ctx, catalog.readCatalog, {
     table: catalog.product.table.name,
     // Preserve the root profile\'s predicate-node accounting even without joins.
@@ -15,6 +18,6 @@ export const findProducts = Effect.fn("ProductAdapter.find")(function* (
     projection: selected.projection,
     paths: selected.relations, relationFilters: selected.relationFilters, withDeleted: selected.withDeleted,
     ordering: new Map([[catalog.image.table.name, "rank"]]),
-    window: { kind: "database", countAt: "beforePopulation" },
+    window: { kind: "database", countAt: "beforePopulation", pageable },
   }, withCount);
 });

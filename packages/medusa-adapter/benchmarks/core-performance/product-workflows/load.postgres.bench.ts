@@ -38,6 +38,7 @@ beforeAll(async () => {
     "read-list-ids": () => index => run(reads.read(runtime.commands.list,
       readInputs.listIds(Array.from({ length: 10 }, (_, offset) => catalogId(index * 10 + offset))))),
     "read-list-page": () => index => run(reads.read(runtime.commands.list, readInputs.listPage((index * 20) % catalogSize))),
+    "read-list-recent": () => index => run(reads.read(runtime.commands.list, readInputs.listRecent((index * 20) % catalogSize))),
     "read-search": () => index => run(reads.read(runtime.commands.list, readInputs.search(`cat-${index % 20}`))),
     "write-sales-channel": prefix => index => run(sales.run(sales.newRequestKey(), inputs.salesChannelCreate(`${prefix}-${index}`))),
     "write-product-create": prefix => index => run(creation.run(creation.newRequestKey(), productCreateInput(`${prefix}-${index}`))),

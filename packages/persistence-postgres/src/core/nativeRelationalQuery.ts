@@ -109,9 +109,11 @@ function projectCoreNativeRelationalCohort(inspectedRows: readonly InspectedRow[
         return yield* Result.fail(failure("storedCorruption"));
       matched.push({ ...member, creationTime: member.creationTime });
     }
+    // The tie-break follows the direction, matching a page's trailing index-key id.
+    const direction = query.direction === "asc" ? 1 : -1;
     matched.sort((left, right) => (query.storageInsertion ? left.creationTime - right.creationTime
-      : compareBytesLexicographically(left.order, right.order)) * (query.direction === "asc" ? 1 : -1)
-      || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
+      : compareBytesLexicographically(left.order, right.order)) * direction
+      || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0) * direction);
     const rows: JsonObject[] = [];
     const orderedIdentities: Readonly<Record<string, string>>[] = [];
     for (const member of purpose === "rows" ? matched.slice(query.offset, query.offset + query.limit) : matched) {
@@ -174,7 +176,7 @@ export const executeCoreNativeRelationalPage = Effect.fn("CoreNativeRelational.p
   declaration: CoreNativeTableDeclaration, policy: CoreNativeRelationalRowPolicy, query: Query,
 ) {
   if (query.includeIdentities || query.storageInsertion || query.search !== null || query.json !== null
-    || query.postgresPredicate !== undefined || query.direction !== "asc" || query.selections !== null && query.selections.length > 1)
+    || query.postgresPredicate !== undefined || query.selections !== null && query.selections.length > 1)
     return yield* new CoreQueryInputError({ reason: "invalidQuery" });
   if (query.selections?.length === 0) return { rows: Object.freeze([]), hasMore: false };
   const where = yield* Effect.fromResult(pageWhere(query.predicate));
@@ -183,7 +185,7 @@ export const executeCoreNativeRelationalPage = Effect.fn("CoreNativeRelational.p
       && binding.requiredPrefix === undefined && binding.requiredNonNull === undefined));
   if (index === undefined) return yield* new CoreQueryInputError({ reason: "invalidQuery" });
   const page = yield* operations.findPage(table.name, where,
-    { indexName: index.name, offset: query.offset, limit: query.limit, order: "asc" });
+    { indexName: index.name, offset: query.offset, limit: query.limit, order: query.direction });
   const rows = yield* Effect.fromResult(Result.gen(function* () {
     const output: JsonObject[] = [];
     for (const document of page.documents) {

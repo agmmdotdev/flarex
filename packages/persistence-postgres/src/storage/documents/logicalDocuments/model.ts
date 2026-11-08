@@ -64,6 +64,8 @@ export interface LogicalRelationalReadProgram<Failure> {
   readonly find: (context: BoundedRequestContext) => Effect.Effect<readonly JsonObject[], Failure>;
   readonly findPage: (context: BoundedRequestContext) => Effect.Effect<Readonly<{ rows: readonly JsonObject[]; hasMore: boolean }>, Failure>;
   readonly count: (context: BoundedRequestContext) => Effect.Effect<number, Failure>;
+  /** Set only on read-only hosts, whose reads carry no receipts, so a page may replace `find`. */
+  readonly pageReplacesFind?: true;
 }
 
 export interface LogicalRelationalStore<Failure> {

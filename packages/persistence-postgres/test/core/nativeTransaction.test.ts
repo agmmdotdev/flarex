@@ -78,7 +78,7 @@ async function fixture(visibility: "command" | "snapshot" = "command", maxIdenti
         const entries = documents.map(document => ({ document,
           key: Result.getOrThrow(documentIndexKey(index, Result.getOrThrow(readDocumentObject(document, table)))) }))
           .filter(entry => keyInInterval(entry.key, request.interval))
-          .toSorted((left, right) => compareBytesLexicographically(left.key, right.key));
+          .toSorted((left, right) => (request.order === "desc" ? -1 : 1) * compareBytesLexicographically(left.key, right.key));
         const page = entries.slice(0, request.maxResults);
         const last = page.at(-1);
         return { entries: page, cursor: entries.length > page.length && last !== undefined
@@ -288,6 +288,63 @@ describe("native transaction observations over the source transaction", () => {
     const prepared = await Effect.runPromise(prepareCoreNativeIndexes(tested.current().snapshot, tested.registry, packet.indexes, packet.limits.maxIdentities));
     expect(validateCoreNativeIndexes(prepared, [], { documents: [], indexes: [] }, packet.limits.maxIdentities))
       .toMatchObject({ _tag: "Failure", failure: { reason: "conflict" } });
+  });
+
+  it("observes a descending page from the high end and keeps later keys out of its dependency", async () => {
+    const tested = await fixture();
+    const rows = Array.from({ length: 20 }, (_, position) => ({ id: 1000 + position, title: `page-${String(position).padStart(2, "0")}`, ts: 20n }));
+    const index = tested.table.indexes.find(candidate => candidate.fields[0] === "title");
+    if (index === undefined) throw new Error("Missing title index");
+    tested.publish(20n, rows);
+    expect(await Effect.runPromise(tested.operations.findPage(tested.table.name, {}, { indexName: index.name, offset: 0, limit: 1, order: "desc" })))
+      .toMatchObject({ documents: [{ title: "page-19" }], hasMore: true });
+    tested.publish(30n, rows.slice(4));
+    const packet = (await tested.finalized()).nativeObservations;
+    if (packet === undefined) throw new Error("Missing native observations");
+    expect(packet.indexes.find(candidate => candidate.kind === "range")).toMatchObject({ kind: "range",
+      members: rows.slice(4).toReversed().map(row => ({ id: tested.id(row.id) })) });
+    const prepared = await Effect.runPromise(prepareCoreNativeIndexes(tested.current().snapshot, tested.registry, packet.indexes, packet.limits.maxIdentities));
+    expect(Result.isSuccess(validateCoreNativeIndexes(prepared, [], { documents: [], indexes: [] }, packet.limits.maxIdentities))).toBe(true);
+  });
+
+  it("conflicts when a row enters the observed descending window", async () => {
+    const tested = await fixture();
+    const rows = Array.from({ length: 20 }, (_, position) => ({ id: 1000 + position, title: `page-${String(position).padStart(2, "0")}`, ts: 20n }));
+    const index = tested.table.indexes.find(candidate => candidate.fields[0] === "title");
+    if (index === undefined) throw new Error("Missing title index");
+    tested.publish(20n, rows);
+    await Effect.runPromise(tested.operations.findPage(tested.table.name, {}, { indexName: index.name, offset: 0, limit: 1, order: "desc" }));
+    tested.publish(30n, [...rows, { id: 2000, title: "page-10a" }]);
+    const packet = (await tested.finalized()).nativeObservations;
+    if (packet === undefined) throw new Error("Missing native observations");
+    const prepared = await Effect.runPromise(prepareCoreNativeIndexes(tested.current().snapshot, tested.registry, packet.indexes, packet.limits.maxIdentities));
+    expect(validateCoreNativeIndexes(prepared, [], { documents: [], indexes: [] }, packet.limits.maxIdentities))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "conflict" } });
+  });
+
+  it("orders a pending row ahead of committed rows in a descending page", async () => {
+    const tested = await fixture();
+    const rows = Array.from({ length: 20 }, (_, position) => ({ id: 1000 + position, title: `page-${String(position).padStart(2, "0")}`, ts: 20n }));
+    const index = tested.table.indexes.find(candidate => candidate.fields[0] === "title");
+    if (index === undefined) throw new Error("Missing title index");
+    tested.publish(20n, rows);
+    await Effect.runPromise(tested.operations.insert(tested.table.name, body("zzz")));
+    expect(await Effect.runPromise(tested.operations.findPage(tested.table.name, {}, { indexName: index.name, offset: 0, limit: 2, order: "desc" })))
+      .toMatchObject({ documents: [{ title: "zzz" }, { title: "page-19" }], hasMore: true });
+    await Effect.runPromise(tested.context.transaction.abort());
+  });
+
+  it("crosses windows for a descending offset page and places a pending row in order", async () => {
+    const tested = await fixture();
+    const rows = Array.from({ length: 200 }, (_, position) => ({ id: 1000 + position, title: `page-${String(position).padStart(3, "0")}`, ts: 20n }));
+    const index = tested.table.indexes.find(candidate => candidate.fields[0] === "title");
+    if (index === undefined) throw new Error("Missing title index");
+    tested.publish(20n, rows);
+    await Effect.runPromise(tested.operations.insert(tested.table.name, body("page-094a")));
+    const page = await Effect.runPromise(tested.operations.findPage(tested.table.name, {}, { indexName: index.name, offset: 100, limit: 8, order: "desc" }));
+    expect(page.documents.map(document => document.title)).toEqual(["page-099", "page-098", "page-097", "page-096", "page-095", "page-094a", "page-094", "page-093"]);
+    expect(page.hasMore).toBe(true);
+    await Effect.runPromise(tested.context.transaction.abort());
   });
 
   it("requires a committed EOF witness for a pending-only page result", async () => {

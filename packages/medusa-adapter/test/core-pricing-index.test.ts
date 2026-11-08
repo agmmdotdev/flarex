@@ -156,4 +156,12 @@ describe("authentic native PriceList predicate over ordinary Core indexes", () =
     }
     expect(await connected.fixture.snapshot()).toEqual(before);
   });
+
+  it("serves a populated insertion-ordered relation on a read-only host", async () => {
+    await seedCorePricingLists(connected.fixture, connected.pricing, [{ id: "index-populated-list", title: "populated",
+      description: "Read-only populated relation", status: "active", type: "sale", prices: [] }]);
+    expect(await Effect.runPromise(reader.read(readerRuntime.listUpdateRead,
+      { filters: { id: ["index-populated-list"] }, config: { select: ["id"], relations: ["price_list_rules"] } })))
+      .toEqual([{ id: "index-populated-list", price_list_rules: [] }]);
+  });
 });

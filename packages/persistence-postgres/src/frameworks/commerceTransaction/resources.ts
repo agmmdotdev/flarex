@@ -36,6 +36,13 @@ export const logicalCommerceBatchResources: CommerceResources = Object.freeze({
   writeBatchRows: logicalMaterializationBatchBudget.rows, facts: logicalMaterializationBatchBudget.rows,
   eventIds: logicalMaterializationBatchBudget.rows, commandBytes: 8_388_608, valueNodes: 32_768,
 });
+/** Owner-selected budget for read-only hosts: complete list, count and scan reads
+ * work up to this many rows, then refuse. Write roots keep the working-set limits. */
+export const readOnlyCommerceResources = logicalCommerceBatchResources;
+export const readOnlyCommerceWorkingSetLimits = Object.freeze({
+  identities: logicalMaterializationBatchBudget.rows,
+  documentBytes: commerceLimits.rowBytes,
+});
 const decode = Schema.decodeUnknownResult(Resources, { onExcessProperty: "error" });
 
 /** Trusted registration captures the value; command arguments never select it. */

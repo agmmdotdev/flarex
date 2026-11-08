@@ -13,7 +13,8 @@ export interface CatalogSelection {
   readonly count: number;
 }
 export type ReadWindow =
-  | { readonly kind: "database" | "page"; readonly countAt: "beforePopulation" | "afterPopulation" }
+  | { readonly kind: "database"; readonly countAt: "beforePopulation" | "afterPopulation"; readonly pageable?: boolean }
+  | { readonly kind: "page"; readonly countAt: "beforePopulation" | "afterPopulation" }
   | { readonly kind: "catalog"; readonly order: string; readonly select: (rows: readonly JsonObject[]) => CatalogSelection };
 export interface ReadPlan {
   readonly table: string;
@@ -73,7 +74,7 @@ const readWindow = Effect.fn("MedusaRead.window")(function* (
     return { rows: selected.rows, count: Effect.succeed(selected.count) };
   }
   const program = window.store.prepareRead(query);
-  const rows = window.kind === "page" ? (yield* program.findPage(ctx.manager)).rows
+  const rows = window.kind === "page" || window.pageable === true && program.pageReplacesFind === true ? (yield* program.findPage(ctx.manager)).rows
     : yield* program.find(ctx.manager);
   if (ctx.admitSelection !== undefined) yield* Effect.fromResult(ctx.admitSelection(table, rows));
   return { rows, count: Effect.suspend(() => program.count(ctx.manager)) };

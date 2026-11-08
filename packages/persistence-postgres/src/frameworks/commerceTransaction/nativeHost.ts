@@ -17,7 +17,7 @@ import { commerceError, commerceLimits, type CommerceTransactionError } from "./
 import { makeNativeCommerceParticipant } from "./nativeStore";
 import { projectCoreCommerceFailure } from "./nativeFailure";
 import { commerceNativeInitializationCommand, makeNativeCommerceInitialization } from "./nativeInitialization";
-import { captureCommerceResources, defaultCommerceResources, logicalCommerceWorkingSetLimits, type CommerceResources } from "./resources";
+import { captureCommerceResources, defaultCommerceResources, logicalCommerceWorkingSetLimits, readOnlyCommerceResources, readOnlyCommerceWorkingSetLimits, type CommerceResources } from "./resources";
 import { CommerceCallLimit, FrameworkCommandMilliseconds } from "../../execution/preparation/frameworkExecutionPolicy";
 import { admitParticipantEvents, captureAtomicCommerceEvents, captureParticipantEvents, consumeCommerceEvents,
   appendDerivedCommerceIdEvents, makeAtomicEventCapture, prepareAtomicCommerceEvents, type AtomicCommerceEvents,
@@ -120,11 +120,12 @@ function captureHostInput(input: CommerceNativeHostInput) {
   const readOnly = input.readOnly === true;
   const retryProvenNoncommit = input.retryProvenNoncommit;
   const initializationInput = Object.freeze({ ...input.initialization });
-  const capturedResources = captureCommerceResources(input.resources ?? defaultCommerceResources);
+  const capturedResources = captureCommerceResources(input.resources ?? (readOnly ? readOnlyCommerceResources : defaultCommerceResources));
   const capturedCalls = captureCallLimit(input.requestCallLimit ?? commerceLimits.calls);
   const capturedMilliseconds = captureCommandMilliseconds(input.requestCommandMs ?? commerceLimits.commandMs);
-  const capturedLimits = captureNativeLimits(input.nativeLimits ?? { maxIdentities: logicalCommerceWorkingSetLimits.identities,
-    maxDocumentBytes: logicalCommerceWorkingSetLimits.documentBytes });
+  const workingSet = readOnly ? readOnlyCommerceWorkingSetLimits : logicalCommerceWorkingSetLimits;
+  const capturedLimits = captureNativeLimits(input.nativeLimits ?? { maxIdentities: workingSet.identities,
+    maxDocumentBytes: workingSet.documentBytes });
   const capturedPolicy = captureCommerceJsonData(input.identityAndAccessPolicy, commerceLimits.rowBytes);
   const eventInput = input.events === undefined ? undefined : Object.freeze({ bundle: input.events.bundle,
     binding: input.events.binding, participant: input.events.participant,
@@ -221,7 +222,8 @@ const compose = Effect.fn("CommerceNativeHost.compose")(function* (hostInput: Re
           `native/${metadata.definition.identity.scopeUuid}/${familyId}`, eventPolicy, resources.eventMessages);
       const result = yield* Effect.gen(function* () {
         yield* lifetime.fromResult(lifetime.charge(evidenceBytes));
-        const working = yield* makeNativeCommerceParticipant(operation.operations, metadata, lifetime, lifetime.context, id, operation.unixTime, resources);
+        const working = yield* makeNativeCommerceParticipant(operation.operations, metadata, lifetime, lifetime.context, id, operation.unixTime, resources,
+          undefined, readOnly);
         const invoke = Effect.fn("CommerceNativeHost.invoke")(function* (
           context: BoundedRequestContext, child: CommerceCommand, value: Json,
         ): Effect.fn.Return<Json, CommerceTransactionError> {

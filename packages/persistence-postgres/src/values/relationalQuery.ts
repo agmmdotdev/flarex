@@ -160,7 +160,7 @@ export function prepareRelationalRead<Failure>(table: RelationalTableDefinition,
     const orderColumn = columnForName(orderColumnName);
     if (fields.length === 0 || fields.length > table.columns.length || new Set(fields).size !== fields.length ||
         fields.some(field => columnForName(field) === undefined) ||
-        (!storageInsertion && ((orderColumn?.type !== "text" && orderColumn?.type !== "integer" && orderColumn?.type !== "doublePrecision") || orderColumn.nullable)))
+        (!storageInsertion && ((orderColumn?.type !== "text" && orderColumn?.type !== "integer" && orderColumn?.type !== "doublePrecision" && orderColumn?.type !== "timestamptz") || orderColumn.nullable)))
       return yield* Result.fail(error("invalidInput"));
     const take = query.take ?? pageRows;
     if (take > pageRows) return yield* Result.fail(error("limitExceeded"));

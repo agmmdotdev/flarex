@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import { isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import { CommerceTransactionError, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { CommerceTransactionError, commerceError, readOnlyCommerceWorkingSetLimits } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";
@@ -387,20 +387,25 @@ describe("native SalesChannel service on shared logical storage", () => {
   it("selects one exact name across a larger shop and refuses an overflowing match set", async () => {
     const { host, create, remove } = await prepareNativeHost();
     const reader = await Effect.runPromise(openSalesRead());
-    const filler = Array.from({ length: 129 }, (_, index) => ({
-      id: `logical-large-shop-${String(index).padStart(3, "0")}`, name: "Large Shop Filler",
+    const filler = Array.from({ length: readOnlyCommerceWorkingSetLimits.identities + 1 }, (_, index) => ({
+      id: `logical-large-shop-${String(index).padStart(4, "0")}`, name: "Large Shop Filler",
     }));
     const selected = { id: "logical-large-shop-target", name: "Large Shop Target" };
     try {
-      for (let offset = 0; offset < filler.length; offset += 32)
-        await Effect.runPromise(host.run(host.newRequestKey(), create, filler.slice(offset, offset + 32)));
+      const budget = readOnlyCommerceWorkingSetLimits.identities;
+      for (let offset = 0; offset < budget; offset += 32)
+        await Effect.runPromise(host.run(host.newRequestKey(), create, filler.slice(offset, Math.min(offset + 32, budget))));
       await Effect.runPromise(host.run(host.newRequestKey(), create, selected));
+      expect(await Effect.runPromise(reader.read(sales.runtime.count, {
+        filters: { name: "Large Shop Filler" }, config: { select: ["id"], take: 1 },
+      }))).toEqual([[{ id: filler[0]!.id }], budget]);
+      await Effect.runPromise(host.run(host.newRequestKey(), create, filler.slice(budget)));
       expect(await Effect.runPromise(reader.read(sales.runtime.count, {
         filters: { name: selected.name }, config: { select: ["id"], take: 1 },
       }))).toEqual([[{ id: selected.id }], 1]);
       await expect(Effect.runPromise(reader.read(sales.runtime.count, {
         filters: { name: "Large Shop Filler" }, config: { select: ["id"], take: 1 },
-      }))).rejects.toBeDefined();
+      }))).rejects.toMatchObject({ reason: "limitExceeded" });
     } finally {
       for (let offset = 0; offset < filler.length; offset += 32)
         await Effect.runPromise(host.run(host.newRequestKey(), remove, filler.slice(offset, offset + 32).map(row => row.id)));
@@ -534,7 +539,7 @@ describe("native SalesChannel service on shared logical storage", () => {
     const { host, create, update, remove } = await prepareNativeHost();
     const reader = await Effect.runPromise(openSalesRead());
     try {
-      const unrelated = Array.from({ length: 129 }, (_, index) => ({
+      const unrelated = Array.from({ length: readOnlyCommerceWorkingSetLimits.identities + 1 }, (_, index) => ({
         id: `boolean-unrelated-${index}`, name: `Boolean unrelated ${index}`, is_disabled: false,
       }));
       for (let start = 0; start < unrelated.length; start += 32) {

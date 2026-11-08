@@ -16,8 +16,10 @@ export const captureCoreNativeIndexWindow = Effect.fn("CoreNativePage.captureWin
   index: CoreIndexDefinition;
   interval: CoreInterval;
   maxEntries: number;
+  order?: "asc" | "desc";
   assertOpen: () => Effect.Effect<void, CoreError>;
 }>) {
+  const order = input.order ?? "asc", direction = order === "asc" ? 1 : -1;
   if (!Number.isSafeInteger(input.maxEntries) || input.maxEntries < 1)
     return yield* new CoreTransactionError({ reason: "invalidValue" });
   const collected: CoreHydratedIndexEntry[] = [];
@@ -25,7 +27,7 @@ export const captureCoreNativeIndexWindow = Effect.fn("CoreNativePage.captureWin
   let complete = false;
   while (collected.length <= input.maxEntries && !complete) {
     const page = yield* input.snapshot.scan({ tableId: input.table.tabletId, index: input.index.ref,
-      interval: remaining, order: "asc", maxResults: input.maxEntries + 1 - collected.length });
+      interval: remaining, order, maxResults: input.maxEntries + 1 - collected.length });
     yield* input.assertOpen();
     const previousLength = collected.length;
     for (const entry of page.entries) {
@@ -33,7 +35,7 @@ export const captureCoreNativeIndexWindow = Effect.fn("CoreNativePage.captureWin
       const previous = collected.at(-1);
       if (entry.document.deleted || !bytesEqual(entry.document.tableId, input.table.tabletId)
         || !keyInInterval(entry.key, remaining)
-        || previous !== undefined && compareBytesLexicographically(previous.key, entry.key) >= 0)
+        || previous !== undefined && direction * compareBytesLexicographically(previous.key, entry.key) >= 0)
         return yield* new CorePersistenceError({ reason: "corruptData" });
       collected.push(entry);
     }
@@ -42,7 +44,7 @@ export const captureCoreNativeIndexWindow = Effect.fn("CoreNativePage.captureWin
     const last = collected.at(-1);
     if (last === undefined || collected.length === previousLength || !bytesEqual(page.cursor.key, last.key))
       return yield* new CorePersistenceError({ reason: "corruptData", cause: "Native page did not advance" });
-    const split = splitIndexRangeAfter({ start: remaining.start ?? new Uint8Array(), end: remaining.end }, last.key, "asc");
+    const split = splitIndexRangeAfter({ start: remaining.start ?? new Uint8Array(), end: remaining.end }, last.key, order);
     if (indexRangeIsEmpty(split.observed))
       return yield* new CorePersistenceError({ reason: "corruptData", cause: "Native page did not consume a prefix" });
     remaining = split.remaining;
@@ -52,6 +54,6 @@ export const captureCoreNativeIndexWindow = Effect.fn("CoreNativePage.captureWin
   if (complete) return Object.freeze({ entries, isDone: true, observed: copyInterval(input.interval),
     cursor: null, examined: entries.length });
   if (last === undefined) return yield* new CorePersistenceError({ reason: "corruptData" });
-  const observed = splitIndexRangeAfter({ start: input.interval.start ?? new Uint8Array(), end: input.interval.end }, last.key, "asc").observed;
+  const observed = splitIndexRangeAfter({ start: input.interval.start ?? new Uint8Array(), end: input.interval.end }, last.key, order).observed;
   return Object.freeze({ entries, isDone: false, observed, cursor: last.key.slice(), examined: entries.length + 1 });
 });

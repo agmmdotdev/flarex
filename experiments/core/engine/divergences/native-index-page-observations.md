@@ -33,6 +33,21 @@ candidates. Neither is equivalent to the executing native owner.
 The per-call examined bound includes pending candidates, window entries and
 non-EOF guards. It is separate from deduplicated retained identity capacity.
 
+## Product list consumer
+
+Owner-selected. A plain Product list with no total, no relation filter and only
+the active-row predicate reads a page in `id` or `created_at` order, ascending or
+descending, when no read receipt observes the call. Every other read keeps the
+complete path: `listAndCount`, relation filters, `q`, multi-selection, `handle`
+order and workflow-internal reads.
+
+A descending page mirrors the ascending owner: the observed interval runs from the
+last examined key to the end of the range, and an insert below it does not conflict.
+Convex has no OFFSET, no lookahead and returns `SplitRequired`. Here the skipped
+prefix and lookahead are examined and observed, the 16-row minimum window stays, and
+reaching the examined bound refuses rather than returning a short page. A soft-deleted
+row is a residual and counts toward that bound.
+
 ## Translation boundary
 
 Use the same Core index snapshot, native observation state, pending overlay and
